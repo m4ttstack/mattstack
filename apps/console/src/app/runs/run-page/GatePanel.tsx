@@ -24,7 +24,9 @@ import { Icon } from '@mattstack/app-kit/icons';
 import { modals } from '@mattstack/app-kit/modals';
 import {
   answeredGateSummary,
+  presetSelections,
   resolveAnswerOutcome,
+  withoutPreset,
   type GateAnswers,
   type GateSelections,
 } from '@mattstack/gate-kit';
@@ -75,7 +77,11 @@ function stepName(id: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-function isAnswered(item: GateItemDisplay, value: unknown): boolean {
+const NOTE_PLACEHOLDER = 'Add a note for the agent (optional)';
+const WRITE_IN_PLACEHOLDER = 'Write your own answer, or pick one above';
+
+function isAnswered(item: GateItemDisplay, value: unknown, note = ''): boolean {
+  if (item.writeIn && note.trim().length > 0) return true;
   if (item.multiple) return Array.isArray(value) && value.length > 0;
   return typeof value === 'string' && value.length > 0;
 }
@@ -138,8 +144,12 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
   const queryClient = useQueryClient();
   const mine = isMine(gate);
   const draft = useGateDraft(gate.id);
+  const preset = useMemo(
+    () => presetSelections(gate.questions, gate.kind),
+    [gate.questions, gate.kind]
+  );
   const [selections, setSelections] = useState<GateSelections>(
-    () => draft.initial?.selections ?? {}
+    () => draft.initial?.selections ?? preset
   );
   const [notes, setNotes] = useState<Record<string, string>>(
     () => draft.initial?.notes ?? {}
@@ -165,8 +175,13 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
   const { save } = draft;
 
   useEffect(() => {
-    save({ selections, notes, item, skipped });
-  }, [save, selections, notes, item, skipped]);
+    const bare = withoutPreset(selections, preset);
+    const other =
+      Object.keys(bare).length > 0 ||
+      Object.values(notes).some(n => n.trim()) ||
+      skipped.length > 0;
+    save({ selections: other ? selections : bare, notes, item, skipped });
+  }, [save, selections, preset, notes, item, skipped]);
 
   const found = display.findIndex(d => d.name === item);
   const index = found < 0 ? 0 : found;
@@ -174,7 +189,9 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
   const last = index === display.length - 1;
   const stepped = display.length > 1;
   const activeValue = active ? selections[active.name] : undefined;
-  const answered = active ? isAnswered(active, activeValue) : false;
+  const answered = active
+    ? isAnswered(active, activeValue, notes[active.name])
+    : false;
   const skippable = active !== undefined && !active.required && !answered;
 
   const goTo = (i: number) => {
@@ -260,7 +277,9 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
   const submit = (skips: string[]) => {
     if (busy) return;
     const open = display.findIndex(
-      d => !isAnswered(d, selections[d.name]) && !skips.includes(d.name)
+      d =>
+        !isAnswered(d, selections[d.name], notes[d.name]) &&
+        !skips.includes(d.name)
     );
     if (open >= 0) {
       goTo(open);
@@ -397,7 +416,10 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
                     n={i + 1}
                     name={stepName(d.name)}
                     current={i === index}
-                    done={i !== index && isAnswered(d, selections[d.name])}
+                    done={
+                      i !== index &&
+                      isAnswered(d, selections[d.name], notes[d.name])
+                    }
                     mine={mine}
                   />
                 ),
@@ -691,6 +713,9 @@ function Question({
   onPick: (value: string | string[]) => void;
   onNote: (value: string) => void;
 }) {
+  const picked = item.multiple
+    ? Array.isArray(value) && value.length > 0
+    : typeof value === 'string' && value !== '';
   const label = <span data-parity="q">{item.prompt}</span>;
   const labelProps = { fz: 'h2', fw: 700, lh: 'normal' };
   const options = (
@@ -742,7 +767,7 @@ function Question({
           labelProps={labelProps}
           classNames={{ label: classes.question }}
           value={typeof value === 'string' ? value : ''}
-          onChange={onPick}
+          onChange={v => onPick(item.writeIn && v === value ? '' : v)}
         >
           {options}
         </Radio.Group>
@@ -751,7 +776,9 @@ function Question({
         autosize
         minRows={1}
         aria-label="Note for the agent"
-        placeholder="Add a note for the agent (optional)"
+        placeholder={
+          item.writeIn && !picked ? WRITE_IN_PLACEHOLDER : NOTE_PLACEHOLDER
+        }
         leftSection={<Icon name="messageSquare" size={14} data-parity="i" />}
         value={note}
         onChange={event => onNote(event.currentTarget.value)}

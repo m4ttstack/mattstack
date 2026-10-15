@@ -19,6 +19,7 @@ export interface RecordQuestion {
   options: RecordOption[];
   note?: string;
   text?: string;
+  writeIn?: string;
 }
 
 /** A gate drawn as the form that was answered: every option, picks checked. */
@@ -145,6 +146,7 @@ function recordQuestion(gate: GateRow, q: GateQuestion): RecordQuestion {
     options,
     ...(answer?.note ? { note: answer.note } : {}),
     ...(answer?.text ? { text: answer.text } : {}),
+    ...(answer?.writeIn ? { writeIn: answer.writeIn } : {}),
   };
 }
 

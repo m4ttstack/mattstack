@@ -131,8 +131,8 @@ ticket, the title).
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `resume_in` | **Resume in `<tree>` (Recommended)** / **Fresh tree** | the branch is already checked out |
-| `ticket` | **Create one (Recommended)** / **I will recheck the id** | a ticket was not found |
+| `resume_in` (write-in) | **Resume in `<tree>` (Recommended)** / **Fresh tree** | the branch is already checked out |
+| `ticket` (write-in) | **Create one (Recommended)** / **I will recheck the id** | a ticket was not found |
 | `slug` | the slug as their text (a typed slug arrives as the note, or as `text`) | the title is too generic for a slug |
 | the domain's own | as the domain words them | the domain declares them |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |

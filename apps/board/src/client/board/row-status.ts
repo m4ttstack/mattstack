@@ -270,7 +270,12 @@ function gateLines(mr: BoardMRWithReview): Candidate[] {
     // string/array; unwrapping first is what keeps this from joining
     // "[object Object]" into the summary.
     const summary = Object.values(gate.answers ?? {})
-      .map(v => unwrapGateAnswer(v).value)
+      .map(v => {
+        const a = unwrapGateAnswer(v);
+        return a.writeIn !== undefined
+          ? `wrote in: "${a.writeIn}"`
+          : (a.value ?? []);
+      })
       .flatMap(v => (Array.isArray(v) ? v : [v]))
       .join(', ');
     out.push({

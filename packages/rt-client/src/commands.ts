@@ -177,7 +177,10 @@ export interface GateOrigin {
 }
 /** `context` is per-question material (what this one choice turns on);
     the gate-level `context` on the open/ask payload is the whole ask's. */
-export interface GateQuestion { id: string; label: string; multi: boolean; options: GateOption[]; context?: string }
+/** `writeIn: true` lets this question be answered `{ writeIn }`, the
+    human's own words, instead of one of its options. */
+export interface GateQuestion { id: string; label: string; multi: boolean; options: GateOption[]; context?: string; writeIn?: true }
+export type GateWriteIn = { writeIn: string };
 /** Implementations live in gate-options.ts (the browser-safe ./gate
     subpath); re-exported here so existing commands.ts/index.ts consumers
     are unaffected. */
@@ -191,7 +194,7 @@ export { gateOptionValue, gateOptionLabel } from "./gate-options.ts";
     `overridden`: the answer went past the herd-owner guard. The console
     sets it on every answer it sends; it says nothing about whether the
     answer matched the recommended option. */
-export interface GateAnswer { answers: Record<string, string | string[] | { value: string | string[]; note?: string; text?: string }>; by: string; answeredAt: number; overridden?: boolean; session?: string }
+export interface GateAnswer { answers: Record<string, string | string[] | { value: string | string[]; note?: string; text?: string } | GateWriteIn>; by: string; answeredAt: number; overridden?: boolean; session?: string }
 export interface GateRow {
   id: string; subject: string; kind: string;
   questions: GateQuestion[]; meta: Record<string, unknown> | null;

@@ -466,10 +466,13 @@ error also reaches it, quoted in the sentence above the form.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `action` | **Fix and re-push (Recommended)** (a REAL failure in your change; from the third one in a run the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
+| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in your change; from the third one in a run the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
 | `next` | **Proceed** / **Iterate here** / **Go back to `<stage>`** / **Hold** | always |
 
 Selection: `{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
+An `action` write-in adds `"action": {"writeIn": "<their words>"}`, and
+`next` records `iterate`, or the deliberate `next` pick (Hold or Go back)
+that won.
 Retry: `mr_retry` per INFRA job id on GitLab, `gh run rerun <run-id>
 --failed` on GitHub (the run id from the failed check's link in `gh pr
 checks <mr>`), after the re-claim.
@@ -481,7 +484,7 @@ One sentence above the form: CI is green for the MR's head, and whether
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `ready` | **Mark ready now (Recommended)** (when `evidence` is set and not `-`) / **Keep it draft** | always |
+| `ready` (write-in) | **Mark ready now (Recommended)** (when `evidence` is set and not `-`) / **Keep it draft** | always |
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |
 

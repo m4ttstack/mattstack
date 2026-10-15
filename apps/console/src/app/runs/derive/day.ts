@@ -505,6 +505,8 @@ function gateLine(gate: GateRow): string | null {
   const question = gate.questions[0];
   if (!question) return null;
   const answer = questionAnswer(gate.answer, question);
+  if (answer?.writeIn)
+    return `${question.label} Wrote in: “${answer.writeIn}”.`;
   if (!answer || answer.picked.length === 0) return question.label;
   const you = answeredBy(gate)?.you;
   const who =
@@ -532,6 +534,7 @@ export function decisionText(gate: GateRow): string {
   const picks = gate.questions
     .map(q => {
       const a = questionAnswer(gate.answer, q);
+      if (a?.writeIn) return `wrote in: “${a.writeIn}”`;
       return a && a.picked.length > 0 ? pickedText(q, a.picked) : null;
     })
     .filter((t): t is string => !!t);

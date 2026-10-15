@@ -225,9 +225,10 @@ questions by the same rule; the plan lists this repo's sites only.
   1. The verb does not take the site's mechanical branch for that gate. A
      Proceed on `next` beside a write-in is ignored: the form preselects
      Proceed, so the wire cannot tell a deliberate one from an untouched
-     one. A Hold or Go back on `next` is never preselected, so it is
-     deliberate and wins: the verb holds or goes back with the write-in
-     carried as that move's note, and steps 2 and 3 do not run.
+     one. Any other pick on `next` besides Iterate here (Hold, Go back,
+     Abandon, Hand back and the like) is never preselected, so it is
+     deliberate and wins: the verb takes that move with the write-in
+     carried as its note, and steps 2 and 3 do not run.
   2. It reads the whole answer set with the write-in as the governing
      instruction (the other picks may be part of what was meant) and does
      the work the write-in asks for.

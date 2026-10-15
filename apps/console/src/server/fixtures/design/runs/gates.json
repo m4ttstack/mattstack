@@ -78,6 +78,7 @@
         {
           "id": "ship",
           "label": "Ship as draft or ready?",
+          "writeIn": true,
           "options": [
             {
               "value": "Ready for review",
@@ -94,6 +95,15 @@
               "label": "Hold",
               "description": "Stop here and wait"
             }
+          ]
+        },
+        {
+          "id": "next",
+          "label": "Next?",
+          "options": [
+            { "value": "proceed", "label": "Proceed (Recommended)" },
+            { "value": "iterate", "label": "Iterate here" },
+            { "value": "hold", "label": "Hold" }
           ]
         }
       ]
@@ -506,6 +516,7 @@
         {
           "id": "ship",
           "label": "How should it ship?",
+          "writeIn": true,
           "options": [
             {
               "value": "Ready for review, no preview",
@@ -519,7 +530,11 @@
         }
       ],
       "answer": {
-        "answers": { "ship": "Ship as draft, preview environment on" },
+        "answers": {
+          "ship": {
+            "writeIn": "Ready for review, but hold the reviewer request until the preview is checked"
+          }
+        },
         "by": "console",
         "answeredAt": "2026-10-08T13:30:00-05:00",
         "overridden": true

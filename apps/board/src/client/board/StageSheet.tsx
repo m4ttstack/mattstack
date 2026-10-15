@@ -37,6 +37,14 @@ function answered(v: Selection): boolean {
   return Array.isArray(v) ? v.length > 0 : typeof v === 'string' && v !== '';
 }
 
+function written(
+  q: GateItemDisplay,
+  v: Selection,
+  note: string | undefined
+): boolean {
+  return q.writeIn === true && !answered(v) && (note ?? '').trim() !== '';
+}
+
 /** A pick as short as the option allows: its label, or its value when the
     label runs longer. */
 function shortPick(q: GateItemDisplay, value: string): RowChip {
@@ -49,7 +57,9 @@ function shortPick(q: GateItemDisplay, value: string): RowChip {
   };
 }
 
-function pickChip(q: GateItemDisplay, v: Selection): RowChip {
+function pickChip(q: GateItemDisplay, v: Selection, note?: string): RowChip {
+  if (written(q, v, note))
+    return { text: 'wrote in', intent: 'accent', title: note!.trim() };
   if (q.multiple) {
     if (!Array.isArray(v)) return { text: '…', intent: 'muted' };
     if (v.length === 0) return { text: 'none', intent: 'muted' };
@@ -236,7 +246,11 @@ function StageSheetBody({
         form.notes
       )
     : null;
-  const done = display.filter(q => answered(form.selections[q.name])).length;
+  const done = display.filter(
+    q =>
+      answered(form.selections[q.name]) ||
+      written(q, form.selections[q.name], form.notes[q.name])
+  ).length;
   const count = display.length;
 
   return (
@@ -300,7 +314,9 @@ function StageSheetBody({
                   key: q.name,
                   text: q.prompt,
                   title: q.prompt,
-                  chips: [pickChip(q, form.selections[q.name])],
+                  chips: [
+                    pickChip(q, form.selections[q.name], form.notes[q.name]),
+                  ],
                 }))}
               />
               {readOnly ? null : (

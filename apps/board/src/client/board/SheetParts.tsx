@@ -68,6 +68,10 @@ function Choices({
               value={choice.value}
               checked={checked}
               disabled={disabled}
+              onClick={() => {
+                if (!q.multiple && q.writeIn && checked)
+                  form.setSingle(q.name, '');
+              }}
               onChange={e =>
                 q.multiple
                   ? form.toggleMulti(
@@ -101,12 +105,20 @@ function Choices({
 }
 
 function Note({ q, form }: { q: GateItemDisplay; form: GateFormState }) {
+  const v = form.selections[q.name];
+  const picked = Array.isArray(v)
+    ? v.length > 0
+    : typeof v === 'string' && v !== '';
   return (
     <input
       type="text"
       className="tui-gate-note"
       aria-label={`Note for ${q.prompt}`}
-      placeholder="Add a note"
+      placeholder={
+        q.writeIn && !picked
+          ? 'Write your own answer, or pick one above'
+          : 'Add a note'
+      }
       value={form.notes[q.name] ?? ''}
       onChange={e => form.setNote(q.name, e.currentTarget.value)}
     />

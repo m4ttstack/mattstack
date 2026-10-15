@@ -153,7 +153,11 @@ function compactOutcome(
     const raw = answers?.[q.id];
     if (raw === undefined && !(q.multi && q.options.length === 0)) continue;
     const unwrapped = raw === undefined ? null : unwrapGateAnswer(raw);
-    const value = unwrapped === null ? [] : unwrapped.value;
+    if (unwrapped?.writeIn !== undefined) {
+      slots.push({ text: `wrote in: "${unwrapped.writeIn}"` });
+      continue;
+    }
+    const value = unwrapped?.value ?? [];
     const values = Array.isArray(value) ? value : [value];
     const picked = values.filter(v => VERB_VALUE.test(v));
     const plain = values.filter(v => !VERB_VALUE.test(v));
@@ -220,19 +224,18 @@ export function answeredGateSummary(row: GateSummaryInput): GateSummary {
   const detail: GateSummaryDetailRow[] = row.questions.map(q => {
     const raw = answers?.[q.id];
     const unwrapped = raw !== undefined ? unwrapGateAnswer(raw) : null;
+    const value = unwrapped?.value;
     const values =
-      unwrapped === null
-        ? []
-        : Array.isArray(unwrapped.value)
-          ? unwrapped.value
-          : [unwrapped.value];
+      value === undefined ? [] : Array.isArray(value) ? value : [value];
     return {
       id: q.id,
       question: q.label,
       answers:
-        values.length > 0
-          ? values.map(v => displayForValue(v, q.options))
-          : [{ text: '(none)' }],
+        unwrapped?.writeIn !== undefined
+          ? [{ text: `wrote in: "${unwrapped.writeIn}"` }]
+          : values.length > 0
+            ? values.map(v => displayForValue(v, q.options))
+            : [{ text: '(none)' }],
       ...(unwrapped?.note !== undefined ? { note: unwrapped.note } : {}),
       ...(unwrapped?.text !== undefined ? { text: unwrapped.text } : {}),
       decidedBy,
@@ -262,7 +265,12 @@ export function answeredGateSummary(row: GateSummaryInput): GateSummary {
         if (q.multi && q.options.length === 0) markers.push('nothing posted');
         continue;
       }
-      const { value } = unwrapGateAnswer(raw);
+      const unwrapped = unwrapGateAnswer(raw);
+      if (unwrapped.writeIn !== undefined) {
+        fragments.push(`wrote in: "${unwrapped.writeIn}"`);
+        continue;
+      }
+      const value = unwrapped.value ?? [];
       if (Array.isArray(value)) {
         // An explicit [] answer (skipped multi) joins the zero-option shape's
         // marker rather than falling into verbCounts, whose empty-input

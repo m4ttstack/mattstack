@@ -16,13 +16,20 @@ export {
   stripRecommended,
 } from './options';
 export type { GateOptionDisplay } from './options';
-export { gateAnswerPayload, unwrapGateAnswer } from './payload';
+export { gateAnswerPayload, unwrapGateAnswer, writeIns } from './payload';
 export type {
   GateAnswers,
   GateAnswerValue,
   GateSelections,
   UnwrappedGateAnswer,
 } from './payload';
+export {
+  NEXT_QUESTION_ID,
+  NO_PRESET_KINDS,
+  presetSelections,
+  PROCEED_VALUE,
+  withoutPreset,
+} from './preset';
 export {
   CODE_CHANGES_QUESTION_ID,
   CODE_CHANGES_SENTINEL,

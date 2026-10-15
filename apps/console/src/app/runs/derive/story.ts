@@ -357,6 +357,7 @@ function firstPick(gates: GateRow[]): string | null {
     for (const q of g.questions) {
       const answer = questionAnswer(g.answer, q);
       if (!answer) continue;
+      if (answer.writeIn) return oneLine(answer.writeIn);
       if (answer.picked.length > 0) return pickedText(q, answer.picked);
       if (answer.text) return oneLine(answer.text);
     }

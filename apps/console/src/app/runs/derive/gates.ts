@@ -35,19 +35,21 @@ export function gateStage(gate: GateRow, stages: RunStageRow[]): string | null {
 }
 
 /** What the answer says about one question: the picked option values, and the
-    note or edited reply text that rode with them. Null when the gate has no
+    note or edited reply text that rode with them, or the human's own written
+    answer. Null when the gate has no
     answer or the answer skips the question. */
 export function questionAnswer(
   answer: GateAnswer | null,
   question: GateQuestion
-): { picked: string[]; note?: string; text?: string } | null {
+): { picked: string[]; note?: string; text?: string; writeIn?: string } | null {
   const raw = answer?.answers[question.id];
   if (raw == null) return null;
-  const { value, note, text } = unwrapGateAnswer(raw);
+  const { value, note, text, writeIn } = unwrapGateAnswer(raw);
   return {
-    picked: Array.isArray(value) ? value : [value],
+    picked: value === undefined ? [] : Array.isArray(value) ? value : [value],
     ...(note !== undefined ? { note } : {}),
     ...(text !== undefined ? { text } : {}),
+    ...(writeIn !== undefined ? { writeIn } : {}),
   };
 }
 

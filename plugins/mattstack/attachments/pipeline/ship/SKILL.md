@@ -536,8 +536,8 @@ context says so, and Abort aborts that rebase first.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `dirty` | **Commit the changes (Recommended)** / **Stash them** / **Abort** | the tree is dirty |
-| `open_as` | **Push and open as draft (Recommended)** / **Push and open ready** | always |
+| `dirty` (write-in) | **Commit the changes (Recommended)** / **Stash them** / **Abort** | the tree is dirty |
+| `open_as` (write-in) | **Push and open as draft (Recommended)** / **Push and open ready** | always |
 | the domain's own | as the domain rules word them (a ticket mismatch, an MR already open) | the domain declares them |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
@@ -706,7 +706,7 @@ the attachments are there (or are not).
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `ready` | **Mark ready now (Recommended)** (when CI is green and the evidence is attached) / **Keep it draft** | always |
+| `ready` (write-in) | **Mark ready now (Recommended)** (when CI is green and the evidence is attached) / **Keep it draft** | always |
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always; **Go back** only in an inherited run |
 | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4; with exactly one candidate it labels **Go back to `<stage>`** in `next` instead | Go back answered and `run_snapshot` shows more than one earlier stage row |
 

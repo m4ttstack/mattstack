@@ -191,6 +191,11 @@ function Question({ q }: { q: RecordQuestion }) {
             “{q.text}”
           </Text>
         ) : null}
+        {q.writeIn ? (
+          <Text fz="md" fs="italic" data-testid="record-write-in">
+            Wrote in: “{q.writeIn}”
+          </Text>
+        ) : null}
       </Stack>
     </div>
   );

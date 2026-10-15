@@ -291,3 +291,25 @@ describe('gateRecord: replying to a review', () => {
     });
   });
 });
+
+describe('gateRecord: a write-in', () => {
+  it('carries the written answer on its question, with nothing picked', () => {
+    const record = gateRecord(
+      gate({
+        questions: [
+          {
+            id: 'approach',
+            label: 'Which approach?',
+            multi: false,
+            options: ['x', 'y'],
+            writeIn: true,
+          },
+        ],
+        answer: answered({ approach: { writeIn: 'split it' } }),
+      })
+    );
+    if (record.shape !== 'form') throw new Error(record.shape);
+    expect(record.questions[0]).toMatchObject({ writeIn: 'split it' });
+    expect(record.questions[0]!.options.every(o => !o.picked)).toBe(true);
+  });
+});

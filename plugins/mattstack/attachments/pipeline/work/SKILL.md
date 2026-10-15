@@ -227,7 +227,7 @@ Each question is its own; never fold one list into another.
 
 | Gate | Question | Options (recommended first) | Shown when |
 |---|---|---|---|
-| `clarify` | `resume` | **Resume it (Recommended)** / **Start fresh** / **Hold** | a running run was found |
+| `clarify` | `resume` (write-in) | **Resume it (Recommended)** / **Start fresh** / **Hold** | a running run was found |
 | `<stage>-failed:<attempt>` | `action` | **Retry the stage (Recommended)** (when the reason names something fixable) / **Abandon the run** | always |
 | | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4 | Go back answered and more than one earlier stage row |

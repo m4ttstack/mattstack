@@ -724,3 +724,29 @@ describe('dayTimeline edges', () => {
     );
   });
 });
+
+describe('decisionText: a write-in', () => {
+  it('names a write-in in the decision text', () => {
+    const g = {
+      id: 'g1',
+      subject: 'run:r1',
+      kind: 'plan',
+      status: 'answered',
+      questions: [
+        {
+          id: 'approach',
+          label: 'Which approach?',
+          multi: false,
+          options: ['x'],
+          writeIn: true,
+        },
+      ],
+      answer: {
+        answers: { approach: { writeIn: 'split it' } },
+        by: 'console',
+        answeredAt: 1,
+      },
+    } as unknown as GateRow;
+    expect(decisionText(g)).toBe('wrote in: “split it”');
+  });
+});

@@ -675,7 +675,7 @@ is green for the MR's head.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `ready` | **Mark ready now (Recommended)** / **Keep it draft** | always |
+| `ready` (write-in) | **Mark ready now (Recommended)** / **Keep it draft** | always |
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4; with exactly one candidate it labels **Go back to `<stage>`** in `next` instead | Go back answered and `run_snapshot` shows more than one earlier stage row |
 
@@ -693,10 +693,12 @@ the form.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `action` | **Fix and re-push (Recommended)** (a REAL failure in the change; after the third fix round the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
+| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in the change; after the third fix round the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
 Selection: `{"next":"fix|retry|handback|abandon|iterate|hold","note":"<their words or null>"}`.
+An `action` write-in adds `"action": {"writeIn": "<their words>"}`, and
+`next` records `iterate`, or the Hold that won.
 An iterate passes `ci gate iterations = 3 (watch-ci)`; at three, the run
 hands back. Hand back leaves the MR red for the human: an own run closes
 `done`, an inherited one hands the verdict back.

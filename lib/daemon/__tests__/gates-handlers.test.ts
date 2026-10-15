@@ -146,6 +146,45 @@ describe("gate:open", () => {
     expect(r.ok).toBe(false);
   });
 
+  test("refuses a writeIn that is not true", async () => {
+    const { handlers } = harness();
+    const r = await handlers["gate:open"]({
+      subject: "run:r1", kind: "plan",
+      questions: [{ id: "q", label: "Pick", multi: false, options: ["a", "b"], writeIn: "yes" }],
+    });
+    expect(r).toEqual({ ok: false, error: "question q writeIn must be true when set" });
+  });
+
+  test("refuses writeIn on a question with no options", async () => {
+    const { handlers } = harness();
+    const r = await handlers["gate:open"]({
+      subject: "run:r1", kind: "plan",
+      questions: [{ id: "q", label: "Say", multi: false, options: [], writeIn: true }],
+    });
+    expect(r).toEqual({ ok: false, error: "question q writeIn needs options" });
+  });
+
+  test("a writeIn question survives storage and takes a write-in answer", async () => {
+    const { handlers, store } = harness();
+    const opened = await handlers["gate:open"]({
+      subject: "run:r1", kind: "plan",
+      questions: [{ id: "q", label: "Pick", multi: false, options: ["a", "b"], writeIn: true }],
+    });
+    if (!opened.ok) throw new Error(opened.error);
+    expect(store.get(opened.data.id)?.questions[0]?.writeIn).toBe(true);
+    const answered = await handlers["gate:answer"]({ id: opened.data.id, answers: { q: { writeIn: "neither" } }, by: "console" });
+    expect(answered.ok).toBe(true);
+  });
+
+  test("a write-in on a question without the attribute is refused at answer time", async () => {
+    const { handlers } = harness();
+    const opened = await handlers["gate:open"]({ subject: "run:r1", kind: "plan", questions: qs() });
+    if (!opened.ok) throw new Error(opened.error);
+    const r = await handlers["gate:answer"]({ id: opened.data.id, answers: { q: { writeIn: "neither" } }, by: "console" });
+    expect(r.ok).toBe(false);
+    expect((r as { error: string }).error).toContain("does not accept a write-in");
+  });
+
   test("rejects a meta that isn't a plain object (F10)", async () => {
     const { handlers } = harness();
     const arr = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions: qs(), meta: ["not", "an", "object"] as any });

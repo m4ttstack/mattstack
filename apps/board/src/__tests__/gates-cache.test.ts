@@ -152,6 +152,27 @@ describe('GateCache.applyRow / reconcile', () => {
 });
 
 describe('GateCache.applyEvent', () => {
+  test('opened frame keeps writeIn on a question', () => {
+    const cache = new GateCache();
+    cache.applyEvent({
+      topic: 'gate/opened/gate-9',
+      payload: {
+        id: 'gate-9',
+        subject: SUBJECT_A,
+        kind: 'plan',
+        questions: [
+          { id: 'approach', label: 'Which?', multi: false, options: ['x', 'y'], writeIn: true },
+          { id: 'next', label: 'Then?', multi: false, options: ['proceed', 'hold'] },
+        ],
+        meta: null,
+      },
+    });
+    expect(cache.get(SUBJECT_A, 'plan')?.questions).toEqual([
+      { id: 'approach', label: 'Which?', multi: false, options: ['x', 'y'], writeIn: true },
+      { id: 'next', label: 'Then?', multi: false, options: ['proceed', 'hold'] },
+    ]);
+  });
+
   test('opened frame creates a fresh row from full context (paneId, not pane; no openedAt on the wire)', () => {
     const cache = new GateCache();
     const before = Date.now();

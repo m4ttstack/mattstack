@@ -91,6 +91,16 @@ function isValidOption(o: unknown): boolean {
     (o.description === undefined || typeof o.description === "string");
 }
 
+function writeInQuestionError(questions: GateQuestion[]): string | null {
+  for (const q of questions) {
+    const flag: unknown = (q as { writeIn?: unknown }).writeIn;
+    if (flag === undefined) continue;
+    if (flag !== true) return `question ${q.id} writeIn must be true when set`;
+    if (q.options.length === 0) return `question ${q.id} writeIn needs options`;
+  }
+  return null;
+}
+
 function oversizedOptionText(questions: GateQuestion[]): string | null {
   for (const q of questions) {
     for (const o of q.options) {
@@ -472,6 +482,8 @@ export function createGateHandlers(
       }
       const ids = questions.map((q) => q.id);
       if (new Set(ids).size !== ids.length) return { ok: false as const, error: "duplicate question id" };
+      const writeInError = writeInQuestionError(questions);
+      if (writeInError) return { ok: false as const, error: writeInError };
       if (payload?.meta !== undefined && !isPlainObject(payload.meta)) {
         return { ok: false as const, error: "meta must be a plain object" };
       }
