@@ -351,9 +351,9 @@ test("after an older page loads, the reader's row stays put while content above 
   // the content above the reader shrinks after the first correction; every
   // ResizeObserver callback is captured (folds make one per message too)
   // and fired by hand to stand in for that settling.
-  const callbacks: (() => void)[] = [];
+  const callbacks: ResizeObserverCallback[] = [];
   class CapturingResizeObserver {
-    constructor(callback: () => void) {
+    constructor(callback: ResizeObserverCallback) {
       callbacks.push(callback);
     }
     observe() {}
@@ -392,7 +392,7 @@ test("after an older page loads, the reader's row stays put while content above 
 
     rowTop = -260;
     act(() => {
-      for (const callback of callbacks) callback();
+      for (const callback of callbacks) callback([], {} as ResizeObserver);
     });
     expect(view.scrollTop).toBe(700);
   } finally {
