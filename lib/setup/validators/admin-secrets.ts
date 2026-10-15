@@ -3,8 +3,9 @@
  * admin-only secrets are not locked to exactly its current owners and admins,
  * or when this Mac holds the switchboard admin token the org does not share
  * yet. Never required: the token still works from this Mac's own secret.
- * A rule that is current reads as healthy even when the file holds no token,
- * because checking the file would spawn sops on every plan.
+ * A current rule is also checked against the file through `hasAdmin`, which
+ * readers consult before this Mac's own copy; without `hasAdmin` it cannot
+ * tell and reads healthy.
  */
 
 import { join } from "path";
@@ -12,7 +13,7 @@ import { isOrgAdmin } from "../../../packages/rt-client/src/settings/org-roles.t
 import { ADMIN_PATH_REGEX, parseSopsRules } from "../../secrets/team-store.ts";
 import { parseStoreText } from "../../settings/stores.ts";
 import { adminKeysIn } from "../../team/admin-secrets.ts";
-import { boardEnvHas } from "../../team/board-token.ts";
+import { boardEnvValue } from "../../team/board-token.ts";
 import { orgStoreFile } from "../../team/org-store.ts";
 import { roleFor } from "../../team/roles.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
@@ -43,17 +44,39 @@ export async function adminSecretsRow(p: Probes, org: string, secrets: SecretPre
   const sops = p.readFile(join(orgDirUnder(p.home, org), ".sops.yaml"));
   const locked = (sops === null ? null : parseSopsRules(sops))?.find((r) => r.pathRegex === ADMIN_PATH_REGEX)?.recipients ?? null;
 
-  if (locked === null) {
-    const holds = Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) || boardEnvHas(p, "SWITCHBOARD_ADMIN_TOKEN") || (await secrets.has("rt", "switchboardAdminToken")) !== null;
-    if (!holds) return null;
-    return row({ ...BASE, status: "needs-you", detail: "This Mac holds the switchboard admin token, but the org's other owners and admins cannot use it yet", action: SYNC_STEPS });
-  }
+  const mine = async () => p.env.SWITCHBOARD_ADMIN_TOKEN || boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN") || (await secrets.has("rt", "switchboardAdminToken")) || null;
+  const unshared = () => row({ ...BASE, status: "needs-you", detail: "This Mac holds the switchboard admin token, but the org's other owners and admins cannot use it yet", action: SYNC_STEPS });
+
+  if (locked === null) return (await mine()) === null ? null : unshared();
 
   const file = orgStoreFile(p.home, org);
   const raw = p.readFile(file);
   const want = adminKeysIn(raw === null ? {} : parseStoreText(file, raw).global).keys;
-  if (sameKeys(want, locked)) return null;
+  if (sameKeys(want, locked)) return tokenDrift(org, secrets, mine, unshared);
   return row({ ...BASE, status: "needs-you", detail: "The org's owners and admins changed since its admin-only secrets were last locked to them", action: SYNC_STEPS });
+}
+
+async function tokenDrift(org: string, secrets: SecretPresence, mine: () => Promise<string | null>, unshared: () => Row): Promise<Row | null> {
+  if (!secrets.hasAdmin) return null;
+  const own = await mine();
+  if (own === null) return null;
+  const shared = await secrets.hasAdmin(org, "switchboardAdminToken");
+  if (shared == null) return unshared();
+  if (shared === own) return null;
+  return row({
+    ...BASE,
+    status: "needs-you",
+    detail: "The org shares a different switchboard admin token from this Mac's",
+    action: {
+      type: "steps",
+      label: "Show steps…",
+      steps: [
+        "If this Mac's token is the newer one, run rt team admin-secrets --replace-token",
+        "If the org's token is the right one, remove this Mac's own switchboard admin token so the org's is used",
+        "Re-check this row",
+      ],
+    },
+  });
 }
 
 export async function adminSecretsRowSafe(p: Probes, org: string, secrets: SecretPresence): Promise<Row | null> {

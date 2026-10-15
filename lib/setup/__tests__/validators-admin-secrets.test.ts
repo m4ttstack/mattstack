@@ -67,6 +67,37 @@ describe("the org.admin-secrets row", () => {
     expect(await adminSecretsRow(machine({ locked: null }), "acme", holding(null))).toBeNull();
   });
 
+  const withFile = (token: string | null, mine: string | null): SecretPresence => ({ ...holding(mine), hasAdmin: async () => token });
+
+  test("a current rule with no token in the file asks an admin holding one to share it", async () => {
+    const r = await adminSecretsRow(machine(), "acme", withFile(null, "admin-1"));
+    expect(r?.status).toBe("needs-you");
+    expect(r!.detail).toBe("This Mac holds the switchboard admin token, but the org's other owners and admins cannot use it yet");
+  });
+
+  test("a current rule whose file holds a different token names both remedies", async () => {
+    const r = await adminSecretsRow(machine(), "acme", withFile("admin-2", "admin-1"));
+    expect(r?.status).toBe("needs-you");
+    expect(r!.detail).toBe("The org shares a different switchboard admin token from this Mac's");
+    const steps = (r!.action as { steps: string[] }).steps;
+    expect(steps.some((s) => s.endsWith("rt team admin-secrets --replace-token"))).toBe(true);
+    expect(steps.at(-1)).toBe("Re-check this row");
+  });
+
+  test("the environment's token is the one compared", async () => {
+    const r = await adminSecretsRow(machine({ env: { SWITCHBOARD_ADMIN_TOKEN: "admin-1" } }), "acme", withFile("admin-2", null));
+    expect(r?.detail).toBe("The org shares a different switchboard admin token from this Mac's");
+  });
+
+  test("a current rule whose file holds the same token reads healthy", async () => {
+    expect(await adminSecretsRow(machine(), "acme", withFile("admin-1", "admin-1"))).toBeNull();
+  });
+
+  test("a current rule with a token in the file and none on this Mac reads healthy", async () => {
+    expect(await adminSecretsRow(machine(), "acme", withFile("admin-2", null))).toBeNull();
+    expect(await adminSecretsRow(machine(), "acme", withFile(null, null))).toBeNull();
+  });
+
   test("a check that throws fails only this row", async () => {
     const failing: SecretPresence = { has: async () => { throw new Error("keychain locked"); } };
     expect((await adminSecretsRowSafe(machine({ locked: null }), "acme", failing))?.status).toBe("error");
