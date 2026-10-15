@@ -37,13 +37,17 @@ export const realReadAdminSecret: ReadAdminSecret = async (org, key) => {
   }
 };
 
+/** The admin token rt keeps itself: the org's admin-only file, then this Mac's local secret. A throwing local read is the caller's to handle. */
+export async function readStoredAdminToken(readLocal: ReadLocalSecret, admin: AdminSource | null): Promise<string | null> {
+  return (admin ? await admin.read(admin.org, "switchboardAdminToken").catch(() => null) : null) || (await readLocal("switchboardAdminToken"));
+}
+
 /** The switchboard admin token from wherever this Mac keeps it, in the order the setup row checks: the environment, the board's .env, the org's admin-only file, then rt's secret. */
 export async function readAdminToken(p: Pick<Probes, "home" | "env" | "readFile">, readSecret: ReadLocalSecret, admin: AdminSource | null): Promise<string | null> {
   return (
     p.env.SWITCHBOARD_ADMIN_TOKEN ||
     boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN") ||
-    (admin ? await admin.read(admin.org, "switchboardAdminToken").catch(() => null) : null) ||
-    (await readSecret("switchboardAdminToken").catch(() => null))
+    (await readStoredAdminToken((key) => readSecret(key).catch(() => null), admin))
   );
 }
 

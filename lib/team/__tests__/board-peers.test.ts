@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { readAdminToken, readPeeredBoards } from "../board-peers.ts";
+import { readAdminToken, readPeeredBoards, readStoredAdminToken } from "../board-peers.ts";
 
 const secrets =
   (values: Record<string, string>) =>
@@ -51,6 +51,17 @@ describe("the admin-only file", () => {
     const p = listing();
     expect([...(await readPeeredBoards(p, secrets({}), adminFile("admin-file")))!]).toEqual(["dev1"]);
     expect(p.calls.fetchInits[0]!.init?.headers?.Authorization).toBe("Bearer admin-file");
+  });
+
+  test("readStoredAdminToken never looks at the environment or the board's .env", async () => {
+    expect(await readStoredAdminToken(secrets({ switchboardAdminToken: "admin-local" }), adminFile(null))).toBe("admin-local");
+    expect(await readStoredAdminToken(secrets({}), adminFile("admin-file"))).toBe("admin-file");
+  });
+
+  test("readStoredAdminToken leaves a throwing local read to its caller; readAdminToken swallows it", async () => {
+    const throwing = async () => { throw new Error("keychain locked"); };
+    await expect(readStoredAdminToken(throwing, adminFile(null))).rejects.toThrow("keychain locked");
+    expect(await readAdminToken(fakeProbes({}), throwing, adminFile(null))).toBeNull();
   });
 
   test("the admin-only file is read before this Mac's own secret", async () => {

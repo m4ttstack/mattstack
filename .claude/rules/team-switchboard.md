@@ -60,7 +60,7 @@ writes the members rule first, and refuses any other. Every reader
 (`readAdminToken` in `lib/team/board-peers.ts`, invite, join, the
 `account.board-peering` row) reads the admin-only file before this Mac's
 own `rt` secret, so a Mac that has not pulled the move keeps working, and a
-Mac that cannot open the file reads it as absent. `rt team admin-secrets`
+Mac that cannot open the file reads it as absent. The daemon's `secrets:read` board scope serves the board the token the same way (`loadBoardSecrets`, `lib/daemon/handlers/secrets.ts`), after the board's own environment. `rt team admin-secrets`
 (owners and admins) locks the file to the current owners and admins and
 puts this Mac's token in when the file holds none (`--replace-token` after
 the token changes); `rt team members sync` and `remove` run the same sync,
