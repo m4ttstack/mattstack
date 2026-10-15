@@ -322,10 +322,18 @@ test("pane:spawn creates a tab in the chat workspace, launches claude, waits for
   expect(tab.params).toMatchObject({ workspace_id: "w2", label: "acme-dev", cwd: "/repos/acme-dev", focus: false });
   const input = seen.find((s) => s.method === "pane.send_input")!;
   // shellQuote leaves strings matching ^[a-zA-Z0-9_./:@=-]+$ bare; only a value outside that set gets quotes.
-  expect(input.params.text).toBe("cd /repos/acme-dev && cswap run Me --share-history -- claude --model claude-fable-5 --effort high");
+  expect(input.params.text).toBe("cd /repos/acme-dev && cswap run Me --share-history -- --model claude-fable-5 --effort high");
   expect(input.params.keys).toEqual(["enter"]);
   expect(calls.filter((c) => c === "agent.get").length).toBeGreaterThanOrEqual(3);
   expect(calls).not.toContain("workspace.create");
+});
+
+test("pane:spawn under an account never passes cswap a second claude, which would become the opening prompt", async () => {
+  const { handler } = spawnFake({ statuses: ["idle"] });
+  const { pane, seen } = harness(handler);
+  const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", account: "Me" });
+  if (!res.ok) throw new Error(res.error);
+  expect(seen.find((s) => s.method === "pane.send_input")!.params.text).toBe("cd /repos/acme-dev && cswap run Me --share-history --");
 });
 
 test("pane:spawn creates the workspace when the label is missing and launches plain claude without an account", async () => {
