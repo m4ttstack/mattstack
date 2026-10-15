@@ -7,7 +7,7 @@ import type {
   RunSummary,
 } from '@mattstack/rt-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, waitFor, within } from '@testing-library/react';
+import { renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -60,6 +60,7 @@ vi.mock('../api', () => ({
 
 await import('../icons');
 const { RunDetail } = await import('./RunDetail');
+const { useRunsUrl } = await import('./runs-page/useRunsUrl');
 
 const MIN = 60_000;
 const T0 = Date.UTC(2026, 9, 8, 18, 38);
@@ -1145,13 +1146,26 @@ describe('RunDetail: finished run', () => {
 });
 
 describe('RunDetail: chrome', () => {
-  it('names the run by its ticket in the breadcrumb and shows the command', async () => {
+  const seeRuns = (search: string) => {
+    history.replaceState(null, '', `/${search}`);
+    renderHook(() => useRunsUrl()).unmount();
+  };
+  afterEach(() => seeRuns(''));
+
+  it('leads back to the runs from a breadcrumb naming the repo and ticket', async () => {
+    seeRuns('?filter=live');
     render(workRun());
     const crumb = await screen.findByTestId('run-crumb');
     await waitFor(() => expect(crumb).toHaveTextContent('WEB-412'));
-    expect(
-      screen.getByText('rt runs show run-412 --repo web')
-    ).toBeInTheDocument();
+    expect(screen.getByTestId('run-repo')).toHaveTextContent('web');
+    expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute(
+      'href',
+      '/?filter=live'
+    );
+    expect(screen.queryByTestId('command-provenance')).toBeNull();
+    expect(screen.getByTestId('run-freshness')).toHaveTextContent(
+      /^live · updated \d/
+    );
   });
 });
 
