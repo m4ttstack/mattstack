@@ -24,6 +24,7 @@ import { readStagedSecret } from "./staging.ts";
 import { forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { accessRows } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
+import { adminSecretsRowSafe } from "./validators/admin-secrets.ts";
 import { macRows } from "./validators/mac.ts";
 import { repoRootRow } from "./validators/repo-root.ts";
 import { orgRows } from "./validators/org.ts";
@@ -181,7 +182,8 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
         forge: snapshot.integrations.forge ?? (snapshot.remote ? forgeFromRemote(snapshot.remote) : null),
         readStatus: () => readTeamSnapshotStatus(i.p),
       }) : [];
-      return [...accounts, ...org];
+      const adminSecrets = i.orgs.includes(team.slug) ? await adminSecretsRowSafe(i.p, team.slug, i.secrets) : null;
+      return [...accounts, ...org, ...(adminSecrets ? [adminSecrets] : [])];
     }),
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
