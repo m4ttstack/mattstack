@@ -11,7 +11,7 @@ import { applyForgeAccessAndFollow } from "../../team/forge-access-apply.ts";
 import { roleFor } from "../../team/roles.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
-import { cloneSlugs } from "./org.ts";
+import { cloneSlugs } from "../team-settings.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 export const forgeAccessStepSeams = { run: applyForgeAccessAndFollow };

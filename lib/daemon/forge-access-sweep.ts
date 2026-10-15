@@ -11,7 +11,7 @@ import { isOrgAdmin } from "../../packages/rt-client/src/settings/org-roles.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { createRealTeamSecretsSeams } from "../secrets/team-store.ts";
 import type { Probes } from "../setup/probes.ts";
-import { cloneSlugs } from "../setup/steps/org.ts";
+import { cloneSlugs } from "../setup/team-settings.ts";
 import { applyForgeAccessAndFollow, wantedFingerprint } from "../team/forge-access-apply.ts";
 import { roleFor } from "../team/roles.ts";
 import { readTeamLocal } from "../team/team-local.ts";

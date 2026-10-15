@@ -7,11 +7,11 @@ import { holdSentence, type PullHold } from "../../team/org-layout.ts";
 import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
-import { discoverOrgs, forgeFromRemote, legacyDeclaredForge, parseOriginUrl, probeUserSettingsReader } from "../team-settings.ts";
+import { cloneSlugs, discoverOrgs, forgeFromRemote, legacyDeclaredForge, parseOriginUrl, probeUserSettingsReader } from "../team-settings.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
 import { convergeOrgFolder } from "./org-folder.ts";
 import { toFailedOutcome } from "./step-utils.ts";
-import { orgDirUnder, orgsDirUnder } from "../../rt-paths.ts";
+import { orgDirUnder } from "../../rt-paths.ts";
 
 const PULL_TIMEOUT_MS = 180_000;
 
@@ -20,14 +20,6 @@ interface PullReply {
   data?: { outcome: string; detail: string | null; hold?: PullHold };
   error?: string;
   failure?: { code: string; message: string };
-}
-
-export function cloneSlugs(p: Pick<Probes, "readDir" | "exists" | "home">): string[] {
-  const orgsRoot = orgsDirUnder(p.home);
-  return p
-    .readDir(orgsRoot)
-    .filter((name) => p.exists(join(orgsRoot, name, ".git", "config")))
-    .sort();
 }
 
 export const orgSeams = { converge: convergeOrgFolder };
