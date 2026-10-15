@@ -1,6 +1,12 @@
+import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { formatRunsUrl, parseRunsUrl } from './useRunsUrl';
+import {
+  formatRunsUrl,
+  parseRunsUrl,
+  runsHomeHref,
+  useRunsUrl,
+} from './useRunsUrl';
 
 describe('runs url', () => {
   it('reads the defaults from an empty or unknown query', () => {
@@ -33,5 +39,13 @@ describe('runs url', () => {
         day: null,
       })
     ).toBe('?x=1');
+  });
+
+  it('links home to the runs page as it was last seen, without foreign keys', () => {
+    history.replaceState(null, '', '/?filter=live&repo=acme&gate=g1');
+    const { unmount } = renderHook(() => useRunsUrl());
+    unmount();
+    history.replaceState(null, '', '/runs/acme/r1');
+    expect(runsHomeHref()).toBe('/?filter=live&repo=acme');
   });
 });
