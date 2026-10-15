@@ -19,6 +19,7 @@ import { parseOriginUrl } from "../setup/team-settings.ts";
 import { UserActionableError } from "../errors.ts";
 import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { applyRoleCone } from "../team/org-cone.ts";
+import { convergeDataBranch } from "../team/org-data-branch.ts";
 import { roleFor } from "../team/roles.ts";
 import {
   startSnapshot,
@@ -52,6 +53,9 @@ export interface TeamSnapshotsDeps {
   converge?: typeof convergePackCache;
   /** Runs after every pull that moved a clone, even when the converge threw. */
   afterPull?: (slug: string) => Promise<void>;
+  /** Injectable so tests never reach the keychain; the forge token both the engine's git and the data-branch move offer origin. */
+  readToken?: (p: Probes, remote: string) => Promise<string | null>;
+  moveData?: typeof convergeDataBranch;
 }
 
 export interface TeamSnapshotsHandle {
@@ -130,6 +134,33 @@ export function createOnPulled(opts: {
   };
 }
 
+/** The move a moved hold asks for. Never throws: the pull stays held and the next one tries again. A hold is logged once until it changes. */
+export function createOnMoved(opts: {
+  probes: Probes;
+  dir: string;
+  log: Logger;
+  moveData: typeof convergeDataBranch;
+  readToken?: (p: Probes, remote: string) => Promise<string | null>;
+}): () => Promise<void> {
+  let loggedHold: string | null = null;
+  return async () => {
+    try {
+      const result = await opts.moveData(opts.probes, opts.dir, opts.readToken ? { readToken: opts.readToken } : {});
+      if (result?.kind === "held") {
+        const key = JSON.stringify(result);
+        if (key !== loggedHold) opts.log.info({ ...result }, "data branch: the move is held until the clone is clean and pushed");
+        loggedHold = key;
+        return;
+      }
+      loggedHold = null;
+      if (result?.kind === "moved") opts.log.info({ branch: result.branch }, "data branch: moved the clone to the org's data branch");
+      if (result?.kind === "failed") opts.log.warn({ log: result.log }, `data branch: could not move the clone: ${result.log}`);
+    } catch (err) {
+      opts.log.warn({ err }, `data branch: the move threw: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+}
+
 export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHandle {
   const orgsRoot = rawDeps.orgsDir ?? orgsDir();
   const probes = rawDeps.probes ?? createRealProbes();
@@ -139,6 +170,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
   const clearTimer = rawDeps.clearTimeout ?? ((h: ReturnType<typeof setTimeout>) => clearTimeout(h));
   const readSettings = rawDeps.readSettings ?? (() => getSetting<TeamSnapshotSettings>("rt.teamSnapshot").value);
   const converge = rawDeps.converge ?? convergePackCache;
+  const moveData = rawDeps.moveData ?? convergeDataBranch;
   const instances = new Map<string, { handle: SnapshotHandle; dir: string; owned: string }>();
   const held = new Set<string>();
   const skippedNoRemote = new Set<string>();
@@ -234,6 +266,8 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           probes,
           ownedRoots: roots,
           onPulled: createOnPulled({ probes, slug, dir, log: rawDeps.log.child({ team: slug }), converge, afterPull: rawDeps.afterPull }),
+          onMoved: createOnMoved({ probes, dir, log: rawDeps.log.child({ team: slug }), moveData, readToken: rawDeps.readToken }),
+          ...(rawDeps.readToken ? { readToken: rawDeps.readToken } : {}),
         });
         const handle = start(spec, {
           log: rawDeps.log.child({ team: slug }),

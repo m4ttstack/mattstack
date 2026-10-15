@@ -807,6 +807,7 @@ describe("teamPull", () => {
       ["rebased", "2 commits replayed", "[ok] Pulled the acme team  2 commits replayed\n"],
       ["conflict", "settings.team.jsonc", "[needs you] The acme team has changes that clash with yours  settings.team.jsonc\n"],
       ["skipped", "pull not enabled for this repo", "[skipped] Skipped pulling the acme team  pull not enabled for this repo\n"],
+      ["moved", "Moved your copy of the org to the mattstack branch", "[ok] Moved the acme team to its new branch  Moved your copy of the org to the mattstack branch\n"],
       ["diverged-oddly", null, "[warning] The acme team pull ended in a way rt does not recognize  outcome: diverged-oddly\n"],
       ["diverged-oddly", "3 files", "[warning] The acme team pull ended in a way rt does not recognize  outcome: diverged-oddly, 3 files\n"],
     ];

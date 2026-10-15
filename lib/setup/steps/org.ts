@@ -55,7 +55,8 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
         const prior = before.get(slug);
         const moved = after.kind === "org" && prior?.kind === "org" && after.layout !== prior.layout;
         const layoutName = after.kind === "org" && after.layout === ORG_LAYOUT ? "the org layout" : `layout ${after.kind === "org" ? after.layout : ""}`;
-        notes.push(res.data.outcome === "up-to-date" ? `${slug} is already up to date` : moved ? `Pulled ${slug}, now on ${layoutName}` : `Pulled ${slug}`);
+        if (res.data.outcome === "moved" && res.data.detail) notes.push(res.data.detail);
+        else notes.push(res.data.outcome === "up-to-date" ? `${slug} is already up to date` : moved ? `Pulled ${slug}, now on ${layoutName}` : `Pulled ${slug}`);
       }
     } catch (err) {
       stuck.push(`${slug} was not pulled: ${err instanceof Error ? err.message : String(err)}`);

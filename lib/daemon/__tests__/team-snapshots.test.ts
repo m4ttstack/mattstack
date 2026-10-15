@@ -1,10 +1,14 @@
 import { describe, test, expect } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "fs";
+import { execFileSync } from "child_process";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
-import { createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
+import { dirname, join } from "path";
+import { createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
 import type { SnapshotSpec } from "../home-snapshot.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
+import { createRealProbes } from "../../setup/probes.ts";
+import { openStateDb } from "../../state/db.ts";
+import { childEnv } from "../../subprocess.ts";
 import { writeTeamLocal } from "../../team/team-local.ts";
 
 function fakeLog() {
@@ -587,4 +591,124 @@ describe("pause and resume", () => {
     handle.stop();
     h.cleanup();
   });
+});
+
+describe("a clone whose org moved its data to another branch", () => {
+  test("each clone's spec carries an onMoved that moves that clone", async () => {
+    const moved: string[] = [];
+    const h = harness({
+      moveData: async (_p: unknown, dir: string) => {
+        moved.push(dir);
+        return null;
+      },
+    });
+    const dir = clone(h.root, "acme");
+    const handle = startTeamSnapshots(h.deps);
+    await handle.ready;
+    await h.started[0]!.spec.pull!.onMoved!("mattstack");
+    expect(moved).toEqual([dir]);
+    handle.stop();
+    h.cleanup();
+  });
+
+  test("createOnMoved logs a hold once until it changes", async () => {
+    const log = fakeLog();
+    let files = ["mattstack/org/settings.org.jsonc"];
+    const onMoved = createOnMoved({ probes: fakeProbes({ home: "/h" }), dir: "/h/acme", log, moveData: async () => ({ kind: "held", why: "dirty", files }) });
+    await onMoved();
+    await onMoved();
+    files = ["mattstack/teams/widgets/settings.team.jsonc"];
+    await onMoved();
+    expect(log.calls.filter((c) => c.level === "info" && JSON.stringify(c.args).includes("held")).length).toBe(2);
+  });
+
+  test("createOnMoved logs a move that failed or threw and never rejects", async () => {
+    const log = fakeLog();
+    let mode: "failed" | "throw" = "failed";
+    const onMoved = createOnMoved({
+      probes: fakeProbes({ home: "/h" }),
+      dir: "/h/acme",
+      log,
+      moveData: async () => {
+        if (mode === "throw") throw new Error("git exploded");
+        return { kind: "failed", log: "fatal: could not read from remote repository" };
+      },
+    });
+    await onMoved();
+    mode = "throw";
+    await onMoved();
+    expect(warned(log, "could not read from remote")).toBe(true);
+    expect(warned(log, "git exploded")).toBe(true);
+  });
+
+  test("a dirty clone stays held on main, and the next pull after it is cleaned moves it", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshots-moved-")));
+    const env = { ...childEnv(), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env }).toString().trim();
+    const write = (dir: string, rel: string, text: string) => {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    };
+    const origin = join(root, "origin.git");
+    const seed = join(root, "seed");
+    const orgs = join(root, "home", ".mattstack", "orgs");
+    const dir = join(orgs, "acme");
+    const team = "mattstack/teams/widgets/settings.team.jsonc";
+    const db = openStateDb(join(root, "state.db"), "cli");
+    const parked: (() => void)[] = [];
+    try {
+      git(root, "init", "--bare", "-q", "-b", "main", origin);
+      git(root, "init", "-q", "-b", "main", seed);
+      git(seed, "remote", "add", "origin", origin);
+      write(seed, "mattstack/mattstack.jsonc", `{ "role": "org", "org": "acme", "layout": 3 }\n`);
+      write(seed, "mattstack/org/settings.org.jsonc", "{}\n");
+      write(seed, team, "{}\n");
+      git(seed, "add", "-A");
+      git(seed, "commit", "-q", "-m", "org");
+      git(seed, "push", "-q", "origin", "main");
+      mkdirSync(orgs, { recursive: true });
+      git(root, "clone", "-q", origin, dir);
+
+      git(seed, "checkout", "-q", "--orphan", "mattstack");
+      write(seed, "mattstack/mattstack.jsonc", `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`);
+      git(seed, "add", "-A");
+      git(seed, "commit", "-q", "-m", "data branch");
+      git(seed, "push", "-q", "origin", "mattstack");
+      git(seed, "checkout", "-q", "main");
+      git(seed, "rm", "-rq", "mattstack/org", "mattstack/teams");
+      write(seed, "mattstack/mattstack.jsonc", `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`);
+      git(seed, "add", "-A");
+      git(seed, "commit", "-q", "-m", "pointer");
+      git(seed, "push", "-q", "origin", "main");
+
+      writeFileSync(join(dir, team), "{ \"edited\": true }\n");
+      const log = fakeLog();
+      const handle = startTeamSnapshots({
+        log,
+        broadcast: () => {},
+        orgsDir: orgs,
+        probes: { ...createRealProbes(), home: join(root, "home") },
+        readSettings: () => ({ enabled: true, debounceSec: 20, pushDelaySec: 60, janitorThresholdHours: 6, janitorIntervalMin: 30, pullIntervalSec: 3600 }),
+        watch: () => ({ close() {} }),
+        setTimeout: ((cb: () => void) => { parked.push(cb); return 0; }) as never,
+        clearTimeout: () => {},
+        db,
+        readToken: async () => null,
+        converge: async () => ({ updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [], held: [] }),
+      });
+      await handle.ready;
+      await handle.pullNow("acme");
+      expect((await handle.pullNow("acme")).hold).toEqual({ moved: "mattstack" });
+      expect(git(dir, "symbolic-ref", "--short", "HEAD")).toBe("main");
+
+      git(dir, "checkout", "--", team);
+      await handle.pullNow("acme");
+      expect(git(dir, "symbolic-ref", "--short", "HEAD")).toBe("mattstack");
+      expect(existsSync(join(dir, team))).toBe(true);
+      handle.stop();
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

@@ -148,6 +148,17 @@ describe("org.pull", () => {
     expect(outcome.detail).toBe("Pulled acme, now on the org layout");
   });
 
+  test("a pull that moved the clone to its data branch says so", async () => {
+    const detail = "Moved your copy of the org to the mattstack branch";
+    const outcome = await orgPullStep.run(makeCtx(fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => ({ ok: true, data: { outcome: "moved", detail } }),
+    })).ctx);
+    expect(outcome).toEqual({ state: "done", detail });
+  });
+
   test("a held pull ends skipped with the update sentence and no remedy", async () => {
     const sentence = "Your org uses layout 4 and this app reads up to 3. Update the app.";
     const outcome = await orgPullStep.run(makeCtx(fakeProbes({

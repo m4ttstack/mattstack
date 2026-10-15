@@ -352,6 +352,7 @@ const PULL_COPY: Record<string, { status: RenderStatus; title: (slug: string) =>
   rebased: { status: "done", title: (slug) => `Pulled the ${slug} team` },
   conflict: { status: "needs-you", title: (slug) => `The ${slug} team has changes that clash with yours` },
   skipped: { status: "skipped", title: (slug) => `Skipped pulling the ${slug} team` },
+  moved: { status: "done", title: (slug) => `Moved the ${slug} team to its new branch` },
 };
 
 export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {

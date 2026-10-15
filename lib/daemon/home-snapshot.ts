@@ -84,7 +84,7 @@ export interface SnapshotResult {
 }
 
 export interface PullResult {
-  outcome: "up-to-date" | "fast-forwarded" | "rebased" | "conflict" | "skipped";
+  outcome: "up-to-date" | "fast-forwarded" | "rebased" | "conflict" | "skipped" | "moved";
   detail: string | null;
   /** Set only on a pull the layout gate held; a caller tells a hold from any other skip by this, never by the sentence. */
   hold?: PullHold;
