@@ -67,10 +67,15 @@ function rosterRefusal(ownTeams: string[], before: RawRoster, after: RawRoster):
     const { teams: a, ...wRest } = w;
     const { teams: b, ...nRest } = n;
     if (!isDeepStrictEqual(wRest, nRest)) return `A team owner can only change which teams someone is on, not ${w.username}'s other details.`;
-    const x = new Set(a ?? []);
-    const y = new Set(b ?? []);
-    const foreign = [...x].filter((t) => !y.has(t)).concat([...y].filter((t) => !x.has(t))).filter((t) => !ownTeams.includes(t));
-    if (foreign.length > 0) return `You don't own ${foreign.join(" or ")}, so you can't change who is on it.`;
+    // Ordered, not a set: the first team in the list is the one a member starts on.
+    const others = (teams: string[] | undefined) => (teams ?? []).filter((t) => !ownTeams.includes(t));
+    const [x, y] = [others(a), others(b)];
+    if (!isDeepStrictEqual(x, y)) {
+      const all = [...new Set([...x, ...y])];
+      const moved = all.filter((t) => x.filter((u) => u === t).length !== y.filter((u) => u === t).length || x.indexOf(t) !== y.indexOf(t));
+      const foreign = moved.length > 0 ? moved : all;
+      return `You don't own ${foreign.join(" or ")}, so you can't change who is on it.`;
+    }
   }
   return null;
 }

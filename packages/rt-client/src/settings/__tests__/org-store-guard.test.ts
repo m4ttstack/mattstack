@@ -82,6 +82,19 @@ describe("roster bypasses", () => {
   test("an owner may not change only a username's case", () => {
     expect(orgStoreChangeRefusal(OWNER, store(), withRoster([{ ...roster[0], username: "DEV4" }, roster[1]]))).not.toBeNull();
   });
+  test("an owner may not reorder a member's other teams, which changes the team they start on", () => {
+    const before = withRoster([{ ...roster[0], teams: ["gadgets", "tools"] }, roster[1]]);
+    expect(orgStoreChangeRefusal(OWNER, before, withRoster([{ ...roster[0], teams: ["tools", "gadgets"] }, roster[1]]))).toMatch(/gadgets/);
+  });
+  test("an owner may not duplicate a team they do not own", () => {
+    expect(orgStoreChangeRefusal(OWNER, store(), withRoster([{ ...roster[0], teams: ["gadgets", "gadgets"] }, roster[1]]))).toMatch(/gadgets/);
+  });
+  test("an owner may append or remove their own team around other teams", () => {
+    const before = withRoster([{ ...roster[0], teams: ["gadgets", "tools"] }, roster[1]]);
+    const after = withRoster([{ ...roster[0], teams: ["gadgets", "tools", "widgets"] }, roster[1]]);
+    expect(orgStoreChangeRefusal(OWNER, before, after)).toBeNull();
+    expect(orgStoreChangeRefusal(OWNER, after, before)).toBeNull();
+  });
   test("an owner may reorder entries", () => {
     expect(orgStoreChangeRefusal(OWNER, store(), withRoster([roster[1], roster[0]]))).toBeNull();
   });
