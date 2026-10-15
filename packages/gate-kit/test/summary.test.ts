@@ -247,11 +247,49 @@ describe('answeredGateSummary chip', () => {
 
   test('a write-in shows as wrote in, in the chip', () => {
     const s = answeredGateSummary({
-      kind: 'plan', status: 'answered', subject: 'run:abcdef123456',
-      questions: [{ id: 'approach', label: 'Which approach?', multi: false, options: ['x', 'y'], writeIn: true }],
-      answer: { answers: { approach: { writeIn: 'split it' } }, by: 'pane', answeredAt: 1 },
+      kind: 'plan',
+      status: 'answered',
+      subject: 'run:abcdef123456',
+      questions: [
+        {
+          id: 'approach',
+          label: 'Which approach?',
+          multi: false,
+          options: ['x', 'y'],
+          writeIn: true,
+        },
+      ],
+      answer: {
+        answers: { approach: { writeIn: 'split it' } },
+        by: 'pane',
+        answeredAt: 1,
+      },
     } as never);
     expect(s.chip).toContain('wrote in: "split it"');
+    expect(s.outcome).toBe('wrote in: "split it"');
+  });
+
+  test('a multi write-in shows as wrote in, in the outcome', () => {
+    const s = answeredGateSummary({
+      kind: 'plan',
+      status: 'answered',
+      subject: 'run:abcdef123456',
+      questions: [
+        {
+          id: 'picks',
+          label: 'Which?',
+          multi: true,
+          options: ['a', 'b'],
+          writeIn: true,
+        },
+      ],
+      answer: {
+        answers: { picks: { writeIn: 'neither' } },
+        by: 'pane',
+        answeredAt: 1,
+      },
+    } as never);
+    expect(s.outcome).toBe('wrote in: "neither"');
   });
 });
 
@@ -343,9 +381,23 @@ describe('answeredGateSummary detail', () => {
 
   test('a write-in shows as wrote in, in the detail row', () => {
     const s = answeredGateSummary({
-      kind: 'plan', status: 'answered', subject: 'run:abcdef123456',
-      questions: [{ id: 'approach', label: 'Which approach?', multi: false, options: ['x', 'y'], writeIn: true }],
-      answer: { answers: { approach: { writeIn: 'split it' } }, by: 'console', answeredAt: 1 },
+      kind: 'plan',
+      status: 'answered',
+      subject: 'run:abcdef123456',
+      questions: [
+        {
+          id: 'approach',
+          label: 'Which approach?',
+          multi: false,
+          options: ['x', 'y'],
+          writeIn: true,
+        },
+      ],
+      answer: {
+        answers: { approach: { writeIn: 'split it' } },
+        by: 'console',
+        answeredAt: 1,
+      },
     } as never);
     expect(s.detail[0]!.answers).toEqual([{ text: 'wrote in: "split it"' }]);
   });

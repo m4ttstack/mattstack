@@ -153,6 +153,10 @@ function compactOutcome(
     const raw = answers?.[q.id];
     if (raw === undefined && !(q.multi && q.options.length === 0)) continue;
     const unwrapped = raw === undefined ? null : unwrapGateAnswer(raw);
+    if (unwrapped?.writeIn !== undefined) {
+      slots.push({ text: `wrote in: "${unwrapped.writeIn}"` });
+      continue;
+    }
     const value = unwrapped?.value ?? [];
     const values = Array.isArray(value) ? value : [value];
     const picked = values.filter(v => VERB_VALUE.test(v));
