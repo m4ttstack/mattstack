@@ -15,8 +15,10 @@ the org repo's `main`. Three things follow, and all three bit a real org:
   everything else in that repo. Many orgs keep mattstack data in a repo that
   also holds application code (a company monorepo, or an internal tools
   repo), so `main` is exactly the branch that must stay closed.
-- **Every Mac holds every team.** The whole repo is cloned, so a member sees
-  every team's folder. A member removed from a team kept that team's folder
+- **Every Mac holds every team.** Join already makes a sparse cone clone of
+  `.claude-plugin` and `mattstack` (`ORG_CLONE_FOLDERS`,
+  `lib/team/org-clone.ts`), but every team folder is in the cone, so a member
+  sees every team's folder. A member removed from a team kept that team's folder
   and could still pick it in the console; deleting the folder by hand left
   a clone whose pulls could stop and whose deletions an agent feared pushing.
 - **"Admin" is spread across four places.** The `admins` list in the org
@@ -40,7 +42,8 @@ just should not see it, switch to it, or be able to break it by accident.
 | Team membership | Stays in the roster in the org store. A finer write guard lets a team owner change only their own team's membership. No layout change for this. |
 | Forge enforcement | The forge limits who may push the data branch. Which files a pusher may change is enforced by rt, not the forge. Owners are trusted with the branch. |
 | Merge requests | None. Not for owners now, not for member proposals later. |
-| Forge access management | rt manages push access to the data branch and repo membership once an admin grants it on their Mac. It never touches any other branch's rules. This reverses the earlier ruling that rt manages access only on repos it created. |
+| Forge access management | rt manages push access to the data branch and repo membership once an admin grants it on their Mac. It never touches any other branch's rules. This reverses the earlier ruling that rt manages access only on repos it created: the `createdByRt` gate in front of `rtMayManageMembership` (`commands/team.ts`) is dropped. |
+| Forge calls | rt keeps its own CLI path (`gh` and `glab`, `lib/team/forge.ts`) for every write. glance stays read-only, since it is a public npm package. |
 | History | The data branch starts with fresh history; the old history stays on `main`. |
 
 ## Roles
@@ -57,9 +60,10 @@ just should not see it, switch to it, or be able to break it by accident.
   owners, so an existing org behaves as today until an owner list is written.
 - `roleOf` (`packages/rt-client/src/settings/org-roles.ts`) returns the new
   `org-owner` kind. `ownedRoots` and `mayWritePath` give an org owner what an
-  admin has. Callers that test `kind === "admin"` (`lib/team/rename.ts`,
-  `commands/team.ts` invite) accept an org owner too, through one helper,
-  never a second inline check.
+  admin has. Every caller that tests `kind === "admin"` (`lib/team/rename.ts`,
+  `commands/team.ts` invite, `lib/team/publish.ts`, `viewerFrom` in
+  `packages/settings-kit/src/server.ts`) accepts an org owner too, through
+  one helper, never a second inline check.
 
 ### Write rules
 
@@ -76,9 +80,12 @@ The roster rule is field-level: a team owner's edit to the org store is
 accepted only when the before and after differ solely in `teams` arrays, and
 only by adding or removing their own team names. The guard lives beside
 `writeRefusalFor` in `org-roles.ts`, so the settings writer and the CLI share
-it. The daemon's folder-based auto-commit never commits an owner's roster
-edit: `rt team members` and the console commit that one file themselves after
-the guard passes.
+it. The daemon's folder-based auto-commit (`readAuthorization`,
+`lib/daemon/home-snapshot.ts`) never commits an owner's roster edit. Instead a
+new daemon handler, `team:members-teams`, takes the member, the team and add
+or remove, runs the guard, writes the org store, commits that one file and
+pushes it. `rt team members` and the console (through rt-client) both call it,
+so the console never needs a git path of its own.
 
 `rt team members` gains add and remove for an existing org member on a team
 the caller owns. Inviting someone new into the org stays admin-only.
@@ -93,14 +100,22 @@ The data branch holds the paths the org repo holds today, unchanged:
 and that it is never merged into `main` or the other way round (the two
 share no history).
 
-`main` keeps `mattstack/mattstack.jsonc` only, as a pointer:
+Both branches carry a marker at `mattstack/mattstack.jsonc`, and both read:
 
 ```jsonc
 { "role": "org", "org": "<org>", "layout": 4, "dataBranch": "mattstack" }
 ```
 
-`dataBranch` names the approved branch. A marker with no `dataBranch` is an
-org on layout 3 or below, whose data is on the branch that holds the marker.
+- **On the data branch** it is the clone's own marker: `pickedCloneReady`
+  (`lib/team/org-layout.ts`) reads `layout` from it as today, and a Mac
+  learns its approved branch from its `dataBranch`. A one-branch clone never
+  fetches `main`, so nothing after join reads `main`.
+- **On `main`** it is the pointer, and it is the only mattstack file left
+  there. Only join, conversion and a pre-layout-4 clone still tracking `main`
+  read it.
+
+A marker with no `dataBranch` is an org on layout 3 or below, whose data is
+on the branch that holds the marker.
 
 ### Layout 4
 
@@ -143,7 +158,7 @@ clone time.
 The daemon's auto-commit and push run only when the clone is on an approved
 branch:
 
-- the org's `dataBranch`, read from `main`'s marker, or
+- the org's `dataBranch`, read from the clone's own marker, or
 - a branch this Mac switched to with `rt team branch use` (below).
 
 On any other branch, auto-commit pauses, the `org.branch` setup row and the
@@ -155,18 +170,38 @@ still run on any branch, since a person chose them.
 
 `rt team branch use <name>` checks the clone out on `<name>`, creating it
 from `dataBranch` when it does not exist, and records it as approved on this
-Mac only (machine-local, never in the org store). `rt team branch use
-<dataBranch>` returns. This is the supported way to try a new layout on the
-dev app without moving anyone else: the pointer on `main` never changes for a
-trial. `rt team invite` refuses while the clone is on a trial branch, since
-joiners clone `dataBranch`. Admins and org owners only.
+Mac only (machine-local, never in the org store). It fetches the branch first
+when the remote has it, and switches in place (rewriting the one-branch fetch
+refspec), so it can also move a clone onto a branch with unrelated history,
+such as a trial data branch made by the conversion script. `rt team branch
+use <dataBranch>` returns. This is the supported way to try a new layout on
+the dev app without moving anyone else: the pointer on `main` never changes
+for a trial. `rt team invite` refuses while the clone is on a trial branch,
+since joiners clone `dataBranch`. Admins and org owners only.
+
+### Create and join
+
+`rt team create`, `rt team invite` and `rt team join` hard-code `main` today
+(`lib/team/invite.ts`, `lib/team/join.ts`). Under layout 4:
+
+- **Create** makes the data branch from scratch with the org's files and a
+  marker, and commits the pointer to `main` (a new org's repo is empty, so
+  `main` is writable).
+- **Invite** carries `dataBranch` in the sealed pointer, and refuses unless
+  the clone is on `dataBranch`, replacing today's refusal off `main`.
+- **Join** clones `dataBranch` with `--single-branch` and extends today's
+  sparse cone clone (`ORG_CLONE_FOLDERS`) with the role-based folders, never
+  a second clone path. An invite from an older rt carries no `dataBranch`:
+  join then reads `main`'s marker with `git ls-remote` and a shallow fetch of
+  that one file, and clones `main` as today when the marker has none.
 
 ## Forge access
 
 ### The interface
 
 A forge-neutral `OrgForgeAccess` with a GitLab and a GitHub implementation,
-built on the providers in `packages/glance`:
+beside today's `grantRead` in `lib/team/forge.ts`, calling the forge through
+`glab api` and `gh api`:
 
 - `readPushList(branch)` and `setPushList(branch, usernames)`: who may push
   the data branch. GitLab: a protected branch with named users allowed to
@@ -177,14 +212,24 @@ built on the providers in `packages/glance`:
   access, with two levels, read and write.
 - `protect(branch)`: first-time protection of the data branch.
 
-When the forge refuses (a missing permission, or a plan that lacks the
-feature), rt does not work around it: the setup row shows the admin the one
-step to do on that forge by hand.
+When the forge refuses (a missing permission), rt does not work around it:
+the setup row shows the admin the one step to do on that forge by hand. When
+the forge's plan cannot limit pushes to named people at all, the row says so
+plainly: anyone with write access can push the data branch, and only rt's
+own guard limits what they change there.
 
 ### Who should have what
 
 From the roles: org owners, admins and team owners are on the push list and
-have write; members and people on no team have read. rt compares this with
+have write; members and people on no team have read.
+
+| | Read | Write | Push list |
+|---|---|---|---|
+| GitLab | Reporter | Developer | "Allowed to push and merge" on the protected data branch names the user |
+| GitHub | read | write | the branch rule's push restriction names the user |
+
+Repo membership is repo-wide (write lets a person push any unprotected branch
+in that repo); only the push list is specific to the data branch. rt compares this with
 what the forge has and reports the difference in the `org.forge-access`
 setup row on admin and org-owner Macs: who to add, who to remove.
 
@@ -206,6 +251,19 @@ age keys. Promoting or demoting an admin re-encrypts it. The existing org
 secrets (`mattstack/org/secrets/`, every member a recipient) are unchanged;
 per-team secrets are out of scope.
 
+`lib/secrets/team-store.ts` owns exactly one creation rule today and refuses
+a `.sops.yaml` with more (`TeamSopsYamlHandEditedError`). It grows to own
+both rules: `writeTeamRecipients` and re-encryption take the rule, and
+re-encryption runs per rule with that rule's recipients. A third rule, or one
+it did not write, is still refused.
+
+The token's readers change together, per the switchboard rule in AGENTS.md:
+invite (`lib/team/invite.ts`), join (`lib/team/join.ts`), board peering
+(`lib/team/board-peers.ts`, `lib/team/peer.ts`) and the
+`account.board-peering` row (`lib/setup/validators/accounts.ts`). Each reads
+the admin-only file first and the local secret second, so a Mac that has not
+pulled the move keeps working.
+
 ### Demotion and removal
 
 The same comparison runs the other way: push access and write come off, the
@@ -216,18 +274,38 @@ narrows their checkout.
 
 1. Release an rt that reads layout 4 and carries everything above.
 2. An admin runs `bun scripts/move-to-data-branch.ts <clone-dir> --admin
-   <username>` (plans; `--write` acts):
-   - creates the data branch from scratch with the paths listed above and a
-     README, and pushes it;
-   - replaces those paths on `main` with the pointer marker (layout 4,
-     `dataBranch`), touching nothing else on `main`;
+   <username>` (plans; `--write` acts). Flags: `--data-branch <name>`
+   (default `mattstack`) and `--no-pointer` (create the data branch only,
+   for a trial). It:
+   - creates the data branch from scratch with the paths listed above, a
+     layout 4 marker and a README, and pushes it;
+   - commits the pointer to `main`, replacing those paths and touching
+     nothing else on `main`. Where the admin can push `main`, it pushes.
+     Where `main` takes changes only by that repo's own rules, it pushes the
+     commit to a branch, prints it, and the admin lands it that way;
+   - before the pointer lands, checks that `main`'s mattstack paths have not
+     changed since the data branch was made, and copies them across again
+     when they have, so an edit made in between is not lost;
    - prints the grant step for forge access.
+   Until the pointer is on `main`, nothing moves: every Mac keeps reading
+   `main` on layout 3, and the data branch is unused.
 3. With the grant, rt protects the data branch and sets its push list.
-4. Updated Macs, at their next pull of `main`'s marker, re-clone to a
-   one-branch sparse clone of the data branch, keeping any uncommitted
-   edits by refusing to replace a clone with local changes (the `org.layout`
-   row names them). Older apps hold at their last readable commit until
+4. Updated Macs move in place, not by a fresh clone. The layout gate
+   (`layoutGate`) reads the fetched `main` marker; on layout 4 with a
+   `dataBranch` it returns a new "moved" verdict, and the daemon holds the
+   pull instead of fast-forwarding `main` (a fast-forward would delete the
+   org files from the working tree). The `org.folder` converge step, which
+   runs on every `rt setup update` and full `rt setup apply`, then fetches
+   `dataBranch`, rewrites the fetch refspec to that one branch, checks it
+   out and sets the sparse cone. git's own refusal to check out over local
+   changes is the safety: a clone with uncommitted edits stays on `main`,
+   held, and the `org.layout` row names the files. `rt team pull` runs the
+   same move on demand. Older apps hold at their last readable commit until
    updated.
+
+To try the conversion before the release, run the script with `--data-branch
+<trial> --no-pointer` against the real repo, then `rt team branch use
+<trial>` on the dev app's Mac. Nobody else's Mac sees either branch.
 
 The `rt-settings` skill's layout runbook gains layout 4's script and the
 trial-branch verb.
@@ -253,8 +331,10 @@ console. Flags only; never blocks or reverts.
 - `OrgForgeAccess`: the same contract tests against a GitLab and a GitHub
   fake, plus one live run per forge against the test repos.
 - Conversion: dry run on a copy of a real org clone, then `--write`.
-- Trial: convert a trial branch of a real org repo and run the dev app on it
-  before the release.
+- Trial: `--data-branch <trial> --no-pointer` on a real org repo, then
+  `rt team branch use <trial>` on the dev app's Mac, before the release.
+- The move: a layout 3 clone with and without local edits, the held pull,
+  and `org.folder`'s in-place switch.
 - Release VM: the team-join scenario clones the data branch, a new scenario
   checks a member's Mac holds only their teams, and join runs against a
   GitHub-hosted org as well as a GitLab one.
