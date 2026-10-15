@@ -1,7 +1,9 @@
 /**
  * `rt team create` scaffolds the local team zone (~/.mattstack/orgs/<slug>)
- * as a fresh git repo with its starter settings, but never pushes: Install's
- * `team.create` step owns the push, via `publishTeam`.
+ * as a fresh git repo whose data branch holds its starter settings, plus a
+ * local `main` holding only the marker that points at it, but never pushes:
+ * Install's `team.create` step owns the push, via `publishTeam` then
+ * `publishPointer`.
  *
  * Every step below checks whether a previous attempt already got that far
  * before doing it again, so a failure partway through (network blip on
@@ -11,10 +13,12 @@
 
 import { applyEdits, modify, parse } from "jsonc-parser";
 import { orgStoreFile } from "./org-store.ts";
-import { ORG_LAYOUT } from "./org-marker.ts";
+import { markerState, ORG_LAYOUT, ORG_MARKER_REL } from "./org-marker.ts";
+import { checkedOutBranch } from "./org-branch.ts";
+import { dataBranchRefspec, DEFAULT_DATA_BRANCH, POINTER_BRANCH, publishPointer } from "./org-data-branch.ts";
 import { publishTeam } from "./publish.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
 import { type AgeKeySeam, createRealAgeKeySeam, ensureAgeKey, renderSopsYamlFor } from "../home/age-key.ts";
 import { TEAM_PATH_REGEX } from "../secrets/team-store.ts";
 import { forgeArgv, forgeLogin } from "./forge.ts";
@@ -143,9 +147,11 @@ export async function claimPendingAdmin(p: Probes, slug: string, username: strin
     const origin = readExistingOrigin(p, orgDirUnder(p.home, slug));
     if (!origin) throw new UserActionableError("no-team-remote", "Your org has no repo to publish to");
     if (!(await scaffoldInHead(p, slug, pending.team))) await completeScaffold(p, slug, pending.team, readIntent(p)?.team?.name ?? slug, origin, pending.agePublicKey);
+    await buildPointer(p, orgDirUnder(p.home, slug));
     await commitCreator(p, slug, username);
     updateTeamLocal(p, slug, { creatorPending: undefined });
     await publishTeam(p, slug, null, { token, tokenRemote: origin });
+    await publishPointer(p, orgDirUnder(p.home, slug), token, origin);
     return { claimed: true, published: true };
   } catch (err) {
     return { claimed: true, published: false, detail: err instanceof Error ? err.message : String(err) };
@@ -179,12 +185,12 @@ export function scaffoldFiles(slug: string, name: string, remote: string, recipi
   const marketplace = { name: slug, owner: { name }, plugins: [] };
 
   return {
-    [SCAFFOLD_MARKER]: `${JSON.stringify({ role: "org", org: slug, layout: ORG_LAYOUT }, null, 2)}\n`,
+    [SCAFFOLD_MARKER]: `${JSON.stringify({ role: "org", org: slug, layout: ORG_LAYOUT, dataBranch: DEFAULT_DATA_BRANCH }, null, 2)}\n`,
     [ORG_STORE_RELATIVE]: `${ORG_SETTINGS_HEADER}${JSON.stringify(orgSettings, null, 2)}\n`,
     [teamStoreRelative(team)]: `${TEAM_SETTINGS_HEADER}${JSON.stringify(teamSettings, null, 2)}\n`,
     ".claude-plugin/marketplace.json": `${JSON.stringify(marketplace, null, 2)}\n`,
     ".sops.yaml": renderSopsYamlFor(TEAM_PATH_REGEX, recipients),
-    ".gitignore": "mattstack/org/secrets/*.tmp\n.DS_Store\n",
+    ".gitignore": "mattstack/org/secrets/*.tmp\nmattstack/org/admin-secrets/*.tmp\n.DS_Store\n",
   };
 }
 
@@ -212,6 +218,34 @@ async function completeScaffold(p: Probes, slug: string, team: string, name: str
   await commitFiles(p, slug, Object.keys(files), `team: scaffold ${slug}`);
 }
 
+/**
+ * Makes `main` from scratch holding only the committed marker, through git's
+ * object plumbing so the data branch's index and files are never touched and
+ * a failure part way leaves no branch behind. Skipped when the clone is not
+ * on the marker's data branch, already has a `main`, or already fetches the
+ * data branch alone (its pointer is pushed).
+ */
+async function buildPointer(p: Probes, cwd: string): Promise<void> {
+  const own = markerState(p, cwd);
+  if (own.kind !== "org" || own.dataBranch === null) return;
+  if ((await checkedOutBranch(p, cwd)) !== own.dataBranch) return;
+  if ((await p.exec(["git", "rev-parse", "--verify", "-q", `refs/heads/${POINTER_BRANCH}`], { cwd })).code === 0) return;
+  const fetch = await p.exec(["git", "config", "--get-all", "remote.origin.fetch"], { cwd });
+  if (fetch.stdout.trim() === dataBranchRefspec(own.dataBranch)) return;
+  const object = async (step: string, argv: string[], input?: string): Promise<string> => {
+    const result = await p.exec(argv, { cwd, ...(input !== undefined ? { input } : {}) });
+    const id = result.stdout.trim();
+    if (result.code !== 0 || id === "") throw gitStepError("git-pointer-failed", step, result);
+    return id;
+  };
+  const blob = await object("git rev-parse", ["git", "rev-parse", `HEAD:${ORG_MARKER_REL}`]);
+  const folder = await object("git mktree", ["git", "mktree"], `100644 blob ${blob}\t${basename(ORG_MARKER_REL)}\n`);
+  const root = await object("git mktree", ["git", "mktree"], `040000 tree ${folder}\t${dirname(ORG_MARKER_REL)}\n`);
+  const commit = await object("git commit-tree", ["git", "commit-tree", root, "-m", `team: ${POINTER_BRANCH} points at the ${own.dataBranch} branch`]);
+  const ref = await p.exec(["git", "update-ref", `refs/heads/${POINTER_BRANCH}`, commit, ""], { cwd });
+  if (ref.code !== 0) throw gitStepError("git-pointer-failed", "git update-ref", ref);
+}
+
 function readExistingOrigin(p: Probes, dir: string): string | null {
   const raw = p.readFile(join(dir, ".git", "config"));
   return raw !== null ? parseOriginUrl(raw) : null;
@@ -222,6 +256,7 @@ const GIT_STEP_TITLE: Record<string, string> = {
   "git-remote-failed": "rt could not point the team repo at its remote",
   "git-add-failed": "rt could not stage the team repo's files",
   "git-commit-failed": "rt could not make the team repo's first commit",
+  "git-pointer-failed": "rt could not start the org's main branch",
 };
 
 /** Every git-step failure becomes one of these, never a plain `Error` that would surface as an unhandled crash instead of a renderable message. */
@@ -351,6 +386,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
     throw firstTeamSet(slug, recorded, team);
   }
   if (originConfigured !== null && scaffolded) {
+    await buildPointer(p, dir);
     const creator = await recordCreator(originConfigured);
     if (creator.needsCommit && creator.username) {
       await commitCreator(p, slug, creator.username);
@@ -394,8 +430,8 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   }
 
   if (!p.exists(join(dir, ".git"))) {
-    const initResult = await p.exec(["git", "init", "-b", "main"], { cwd: dir });
-    if (initResult.code !== 0) throw gitStepError("git-init-failed", "git init -b main", initResult);
+    const initResult = await p.exec(["git", "init", "-b", DEFAULT_DATA_BRANCH], { cwd: dir });
+    if (initResult.code !== 0) throw gitStepError("git-init-failed", `git init -b ${DEFAULT_DATA_BRANCH}`, initResult);
   }
 
   if (originConfigured === null) {
@@ -407,6 +443,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   const creator = await recordCreator(remote);
 
   await completeScaffold(p, slug, team, opts.name, remote, publicKey);
+  await buildPointer(p, dir);
 
   const creatorLocal = readTeamLocal(p, slug);
   if (creatorLocal.forgeUsername && creatorLocal.creatorPending) updateTeamLocal(p, slug, { creatorPending: undefined });

@@ -7,13 +7,14 @@
  */
 
 import { basename } from "path";
+import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { warn } from "../ui/warn.ts";
 import { gitWithToken } from "./git-credential.ts";
 import { checkedOutBranch } from "./org-branch.ts";
 import { applyRoleCone } from "./org-cone.ts";
 import { gateVerdict, markerAtRef } from "./org-layout.ts";
-import { markerState } from "./org-marker.ts";
+import { markerState, ORG_MARKER_REL } from "./org-marker.ts";
 import { withoutUrls } from "./redact.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 
@@ -33,6 +34,13 @@ export type MoveResult =
 export type ConvergeResult = MoveResult | { kind: "unchecked"; log: string };
 
 export const ENV = { GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" };
+/** The branch `rt team create` starts an org's data on. */
+export const DEFAULT_DATA_BRANCH = "mattstack";
+/** The branch whose only file is the marker naming the data branch: what an invite and a join read first. */
+export const POINTER_BRANCH = "main";
+
+/** A clone on the data branch fetches that branch and nothing else. */
+export const dataBranchRefspec = (branch: string): string => `+refs/heads/${branch}:refs/remotes/origin/${branch}`;
 const FILES_SHOWN = 5;
 /** Every path the org's data branch holds; a commit touching anything else is not the org's data and is never carried. */
 const DATA_PATH = (path: string): boolean =>
@@ -124,7 +132,7 @@ export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string
   if (current === branch) return { kind: "already", branch };
   const ready = await blockerOn(p, dir, current, opts.carry ?? true);
   if (ready.kind !== "ready") return ready;
-  const refspec = `+refs/heads/${branch}:refs/remotes/origin/${branch}`;
+  const refspec = dataBranchRefspec(branch);
   const fetch = gitWithToken(["fetch", "-q", "origin", refspec], token, ENV, { remote });
   const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
   if (fetched.code !== 0) return { kind: "failed", log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) };
@@ -194,4 +202,36 @@ export async function convergeDataBranch(
     }
   }
   return result;
+}
+
+/** Whether this clone's local `main` is the pointer `rt team create` built: the marker and nothing else. A converged clone's old `main` holds the org's data and is never pushed. */
+async function holdsPointer(p: Pick<Probes, "exec">, dir: string): Promise<boolean> {
+  const listed = await p.exec(["git", "ls-tree", "-r", "--name-only", `refs/heads/${POINTER_BRANCH}`], { cwd: dir, env: ENV });
+  return listed.code === 0 && listed.stdout.trim() === ORG_MARKER_REL;
+}
+
+/**
+ * Pushes the pointer `rt team create` left on a local `main`, once the data
+ * branch is on origin, then drops it, so the clone fetches the data branch
+ * alone. False when the clone holds no pointer to push: an org created
+ * before, or one whose pointer is already pushed.
+ */
+export async function publishPointer(p: Pick<Probes, "exec" | "readFile">, dir: string, token: string | null, remote: string): Promise<boolean> {
+  const own = markerState(p, dir);
+  if (own.kind !== "org" || own.dataBranch === null) return false;
+  if ((await checkedOutBranch(p, dir)) !== own.dataBranch) return false;
+  if (!(await holdsPointer(p, dir))) return false;
+  const failed = (log: string) => new UserActionableError("pointer-push-failed", "rt pushed the org but not its main branch", {}, {
+    why: "main tells the people you invite which branch holds the org. Retry to push it.",
+    log: withoutUrls(log.trim()),
+  });
+  // Narrowed before the push, so the push leaves no tracking ref for main behind.
+  const narrowed = await p.exec(["git", "config", "--replace-all", "remote.origin.fetch", dataBranchRefspec(own.dataBranch)], { cwd: dir, env: ENV });
+  if (narrowed.code !== 0) throw failed(narrowed.stderr);
+  const push = gitWithToken(["push", "-q", "origin", `refs/heads/${POINTER_BRANCH}:refs/heads/${POINTER_BRANCH}`], token, ENV, { remote });
+  const pushed = await p.exec(push.argv, { cwd: dir, env: push.env });
+  if (pushed.code !== 0) throw failed(`${pushed.stdout}\n${pushed.stderr}`);
+  const dropped = await p.exec(["git", "branch", "-q", "-D", POINTER_BRANCH], { cwd: dir, env: ENV });
+  if (dropped.code !== 0) throw failed(dropped.stderr);
+  return true;
 }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createRealProbes, execWithTimeout, type Probes } from "../../setup/probes.ts";
-import { convergeDataBranch, heldCopy, moveBlocker, moveCloneToDataBranch, MOVED_DONE } from "../org-data-branch.ts";
+import { convergeDataBranch, heldCopy, moveBlocker, moveCloneToDataBranch, MOVED_DONE, publishPointer } from "../org-data-branch.ts";
 
 const p = { exec: execWithTimeout };
 const MARKER = '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}';
@@ -80,6 +80,18 @@ beforeEach(() => {
   git(seed, "commit", "-q", "-m", "data branch");
   git(seed, "push", "-q", "origin", "mattstack");
 }, 30_000);
+
+describe("publishPointer", () => {
+  test("a moved clone's old main holds the org's data, so it is never pushed or dropped as the pointer", async () => {
+    await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    const before = git(origin, "rev-parse", "main");
+    const local = git(clone, "rev-parse", "refs/heads/main");
+
+    expect(await publishPointer(createRealProbes(), clone, null, origin)).toBe(false);
+    expect(git(origin, "rev-parse", "main")).toBe(before);
+    expect(git(clone, "rev-parse", "refs/heads/main")).toBe(local);
+  });
+});
 
 describe("moveCloneToDataBranch", () => {
   test("a clean layout 3 clone moves in place to the data branch", async () => {
