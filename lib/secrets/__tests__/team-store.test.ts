@@ -23,6 +23,10 @@ import {
   NoTeamCloneError,
   TeamSopsYamlHandEditedError,
   TeamReencryptError,
+  adminSecretsFile,
+  readAdminSecret,
+  writeAdminSecret,
+  NoAdminRecipientsError,
 } from "../team-store.ts";
 import { UserActionableError } from "../../errors.ts";
 import { InvalidSecretsSegmentError, SopsDecryptError, type SecretsSeams } from "../store.ts";
@@ -642,5 +646,88 @@ describe("the members and admins rules", () => {
     expect(await reencryptTeamSecrets("acme", seams)).toEqual([memberFile]);
     const updated = execSeam.calls.filter((c) => c.cmd[1] === "updatekeys").map((c) => c.cmd[3]);
     expect(updated).toEqual([adminFile, memberFile]);
+  });
+});
+
+describe("the admin-only file", () => {
+  const ADMINS = "creation_rules:\n  - path_regex: mattstack/org/secrets/.*\n    age: age1aaa,age1bbb\n  - path_regex: mattstack/org/admin-secrets/.*\n    age: age1aaa\n";
+  const MISMATCH = "Failed to get the data key required to decrypt the SOPS file.\n  age: no identity matched any of the recipients";
+
+  test("lives at mattstack/org/admin-secrets/<domain>.json", () => {
+    expect(adminSecretsFile("acme", "rt")).toBe(join(teamCloneRootFor("acme"), "mattstack", "org", "admin-secrets", "rt.json"));
+  });
+
+  test("a write pins --filename-override to the admin path, and the value round-trips", async () => {
+    const { execSeam, seams } = seamsWithKey();
+    execSeam.writeFile(teamSopsYamlPath("acme"), ADMINS);
+
+    await writeAdminSecret("acme", "rt", "switchboardAdminToken", "admin-1", seams);
+
+    const encrypt = execSeam.calls.find((c) => c.cmd[1] === "-e")!;
+    expect(encrypt.cmd[encrypt.cmd.indexOf("--filename-override") + 1]).toBe(join("mattstack", "org", "admin-secrets", "rt.json"));
+    expect(await readAdminSecret("acme", "rt", "switchboardAdminToken", seams)).toBe("admin-1");
+  });
+
+  test("with no admins rule yet, a write is refused before any sops call", async () => {
+    const { execSeam, seams } = seamsWithKey();
+    writeTeamRecipients("acme", ["age1aaa"], seams);
+
+    await expect(writeAdminSecret("acme", "rt", "switchboardAdminToken", "admin-1", seams)).rejects.toThrow(NoAdminRecipientsError);
+    expect(execSeam.calls).toEqual([]);
+  });
+
+  test("a team owner's Mac may not write it", async () => {
+    const { execSeam, seams } = seamsWithKey();
+    execSeam.writeFile(teamSopsYamlPath("acme"), ADMINS);
+    const probes = fakeProbes({
+      home: "/home/x",
+      files: {
+        "/home/x/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { owners: [], admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+        [teamLocalPath("/home/x", "acme")]: JSON.stringify({ joinedByRt: true, forgeUsername: "dev2" }),
+      },
+    });
+
+    await expect(writeAdminSecret("acme", "rt", "switchboardAdminToken", "admin-1", seams, probes)).rejects.toMatchObject({ code: "team-pull-only" });
+  });
+
+  test("a missing file reads as absent with no sops call", async () => {
+    const { execSeam, seams } = seamsWithKey();
+    expect(await readAdminSecret("acme", "rt", "switchboardAdminToken", seams)).toBeNull();
+    expect(execSeam.calls).toEqual([]);
+  });
+
+  test("a Mac whose key is not a recipient reads it as absent, not as a failure", async () => {
+    const execSeam = new FakeTeamExecSeam({ decrypt: { code: 128, stdout: "", stderr: MISMATCH } });
+    execSeam.files.set(teamCloneRootFor("acme"), "");
+    execSeam.writeFile(adminSecretsFile("acme", "rt"), "ciphertext");
+
+    expect(await readAdminSecret("acme", "rt", "switchboardAdminToken", { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam })).toBeNull();
+  });
+
+  test("a Mac with no age key reads it as absent", async () => {
+    const execSeam = new FakeTeamExecSeam();
+    execSeam.files.set(teamCloneRootFor("acme"), "");
+    execSeam.writeFile(adminSecretsFile("acme", "rt"), "ciphertext");
+
+    expect(await readAdminSecret("acme", "rt", "switchboardAdminToken", { ageKeySeam: fakeAgeKeySeamAbsent(), execSeam })).toBeNull();
+  });
+
+  test("any other sops failure is still an error", async () => {
+    const execSeam = new FakeTeamExecSeam({ decrypt: { code: 1, stdout: "", stderr: "sops: no matching creation rule" } });
+    execSeam.files.set(teamCloneRootFor("acme"), "");
+    execSeam.writeFile(adminSecretsFile("acme", "rt"), "ciphertext");
+
+    await expect(readAdminSecret("acme", "rt", "switchboardAdminToken", { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam })).rejects.toBeInstanceOf(SopsDecryptError);
+  });
+
+  test("a write over a file this Mac cannot open says so plainly, with sops output kept for the log", async () => {
+    const execSeam = new FakeTeamExecSeam({ decrypt: { code: 128, stdout: "", stderr: MISMATCH } });
+    execSeam.files.set(teamCloneRootFor("acme"), "");
+    execSeam.writeFile(teamSopsYamlPath("acme"), ADMINS);
+    execSeam.writeFile(adminSecretsFile("acme", "rt"), "ciphertext");
+
+    const err = await writeAdminSecret("acme", "rt", "switchboardAdminToken", "admin-1", { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "admin-secrets-unreadable", message: "This Mac cannot open the acme org's admin-only secrets" });
+    expect((err as UserActionableError).log).toContain("no identity matched");
   });
 });

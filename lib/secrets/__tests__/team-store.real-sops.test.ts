@@ -21,9 +21,11 @@ import {
 } from "../store.ts";
 import {
   addTeamRecipient,
+  readAdminSecret,
   readTeamSecret,
   reencryptTeamSecrets,
   removeTeamRecipient,
+  writeAdminSecret,
   writeTeamRecipients,
   writeTeamSecret,
 } from "../team-store.ts";
@@ -138,5 +140,39 @@ describe.skipIf(!hasRealSops)("team-store against real sops + age", () => {
     expect(addResult.added).toBe(true);
     expect(addResult.reencrypted).toEqual([join(root, "mattstack", "org", "secrets", "board.json")]);
     expect(await readTeamSecret(slug, "board", "slackClientSecret", seamsJoiner)).toBe("owner-only-value");
+  }, 30_000);
+
+  test("the admins rule locks the admin-only file to its own recipients, and re-encryption follows each rule", async () => {
+    const slug = `realsops-admins-${process.pid}`;
+    seedOrg({ org: slug, username: "dev1", roles: { admins: ["dev1"], teams: {} } });
+    const root = join(orgsDir(), slug);
+    mkdirSync(join(root, "mattstack", "org", "secrets"), { recursive: true });
+    mkdirSync(join(root, "mattstack", "org", "admin-secrets"), { recursive: true });
+
+    const admin = await generateAgeKeypair();
+    const member = await generateAgeKeypair();
+    const execSeam = createRealSecretsExecSeam(root);
+    const asAdmin: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey(admin.privateKey), execSeam };
+    const asMember: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey(member.privateKey), execSeam };
+
+    writeTeamRecipients(slug, [admin.publicKey, member.publicKey], asAdmin);
+    writeTeamRecipients(slug, [admin.publicKey], asAdmin, "admins");
+    await writeTeamSecret(slug, "board", "slackClientSecret", "for-everyone", asAdmin);
+    await writeAdminSecret(slug, "rt", "switchboardAdminToken", "admins-only", asAdmin);
+
+    expect(await readTeamSecret(slug, "board", "slackClientSecret", asMember)).toBe("for-everyone");
+    expect(await readAdminSecret(slug, "rt", "switchboardAdminToken", asAdmin)).toBe("admins-only");
+    expect(await readAdminSecret(slug, "rt", "switchboardAdminToken", asMember)).toBeNull();
+
+    // Promote: the member's key joins the admins rule, and only the admin file is re-encrypted.
+    writeTeamRecipients(slug, [admin.publicKey, member.publicKey], asAdmin, "admins");
+    expect(await reencryptTeamSecrets(slug, asAdmin, undefined, "admins")).toHaveLength(1);
+    expect(await readAdminSecret(slug, "rt", "switchboardAdminToken", asMember)).toBe("admins-only");
+
+    // Demote: their key leaves the admins rule; the member-wide file is untouched.
+    writeTeamRecipients(slug, [admin.publicKey], asAdmin, "admins");
+    await reencryptTeamSecrets(slug, asAdmin, undefined, "admins");
+    expect(await readAdminSecret(slug, "rt", "switchboardAdminToken", asMember)).toBeNull();
+    expect(await readTeamSecret(slug, "board", "slackClientSecret", asMember)).toBe("for-everyone");
   }, 30_000);
 });

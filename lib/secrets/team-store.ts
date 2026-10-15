@@ -33,6 +33,10 @@
  * reads only the first `age:` line. A rule rt did not write, a third rule,
  * or one rule written twice is refused (`TeamSopsYamlHandEditedError`)
  * rather than silently rewritten.
+ *
+ * The admin-only file under `mattstack/org/admin-secrets/` uses the same
+ * machinery, matched by the admins rule; a Mac whose key the rule does not
+ * name reads it as absent (`readAdminSecret`).
  */
 
 import { join } from "path";
@@ -44,6 +48,7 @@ import { assertMayWrite } from "../team/roles.ts";
 import {
   createRealSecretsExecSeam,
   decryptAtLocation,
+  NoAgeKeyError,
   SopsDecryptError,
   sopsAgeKeyEnv,
   sopsKeyMismatch,
@@ -301,6 +306,66 @@ export async function writeTeamSecret(
 
   const location = teamLocation(slug, domain); // also validates domain
   await readableBy(slug, () => writeAtLocation(location, `team-${slug}-${domain}`, key, value, seams));
+}
+
+/** Thrown by `writeAdminSecret` when `.sops.yaml` has no admins rule yet: nothing can be encrypted to nobody. */
+export class NoAdminRecipientsError extends Error {
+  constructor(slug: string) {
+    super(`org "${slug}" has no admin-only recipients yet; run rt team admin-secrets`);
+  }
+}
+
+/** `~/.mattstack/orgs/<slug>/mattstack/org/admin-secrets/<domain>.json`, encrypted only to the org owners' and admins' keys. */
+export function adminSecretsFile(slug: string, domain: string): string {
+  validateDomain(domain);
+  return join(adminSecretsDir(slug), `${domain}.json`);
+}
+
+function adminLocation(slug: string, domain: string): SecretsLocation {
+  return {
+    filePath: adminSecretsFile(slug, domain),
+    filenameOverride: join("mattstack", "org", "admin-secrets", `${domain}.json`),
+    cwd: teamCloneRoot(slug),
+  };
+}
+
+export function adminSecretsUnreadable(slug: string, cause: SopsDecryptError): UserActionableError {
+  return new UserActionableError("admin-secrets-unreadable", `This Mac cannot open the ${slug} org's admin-only secrets`, { team: slug }, {
+    why: "They are not locked to this Mac's age key. An org owner or admin whose Mac can open them adds yours by running rt team admin-secrets.",
+    log: cause.message,
+  });
+}
+
+/** Null when the file or key is absent, or when this Mac cannot open the file: every Mac that is not an org owner's or admin's reads it that way. */
+export async function readAdminSecret(slug: string, domain: string, key: string, seams: SecretsSeams): Promise<string | null> {
+  validateKey(key);
+  try {
+    const payload = await decryptAtLocation(adminLocation(slug, domain), seams);
+    return payload === null ? null : payload[key] ?? null;
+  } catch (err) {
+    if (err instanceof NoAgeKeyError) return null;
+    if (err instanceof SopsDecryptError && sopsKeyMismatch(err.stderr)) return null;
+    throw err;
+  }
+}
+
+export async function writeAdminSecret(
+  slug: string,
+  domain: string,
+  key: string,
+  value: string,
+  seams: SecretsSeams,
+  probes: Pick<Probes, "readFile" | "home"> = createRealProbes(),
+): Promise<void> {
+  assertMayWrite(probes, slug, ".sops.yaml");
+  validateKey(key);
+  if (readTeamRecipients(slug, seams, "admins").length === 0) throw new NoAdminRecipientsError(slug);
+  try {
+    await writeAtLocation(adminLocation(slug, domain), `admin-${slug}-${domain}`, key, value, seams);
+  } catch (err) {
+    if (err instanceof SopsDecryptError) throw adminSecretsUnreadable(slug, err);
+    throw err;
+  }
 }
 
 /** The rule's encrypted domain files, sorted. */
