@@ -57,7 +57,8 @@ import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
-import { canonicalHandle, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
+import { syncAdminSecrets, type AdminSecretsResult, type TokenOutcome } from "../lib/team/admin-secrets.ts";
+import { canonicalHandle, readAdminToken, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
@@ -336,6 +337,54 @@ export async function teamPeer(args: string[], _ctx: CommandContext = {}, deps: 
       return;
     }
     out.print(...peerBlocks(result));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+const TOKEN_BLOCKS: Record<TokenOutcome, () => Block[]> = {
+  seeded: () => [out.line("done", "Shared this Mac's switchboard admin token with them")],
+  replaced: () => [out.line("done", "Replaced the switchboard admin token they share with this Mac's")],
+  differs: () => [
+    out.line("needs-you", "The org shares a different switchboard admin token from this Mac's", "keep theirs unless yours is the newer one"),
+    out.callout("next", out.cmd("rt team admin-secrets --replace-token")),
+  ],
+  kept: () => [],
+  none: () => [],
+};
+
+export function adminSecretsBlocks(result: AdminSecretsResult): Block[] {
+  if (result.state === "unused") {
+    return [out.line("skipped", "This org keeps no admin-only secrets yet", "this Mac holds no switchboard admin token to share")];
+  }
+  const who = result.holders.join(", ");
+  const relocked = result.added.length > 0 || result.removed.length > 0;
+  return [
+    relocked
+      ? out.line("done", "Locked the admin-only secrets to the org's owners and admins", who)
+      : out.line("skipped", "The admin-only secrets already open for exactly the org's owners and admins", who),
+    ...TOKEN_BLOCKS[result.token](),
+    ...(result.withoutKey.length > 0 ? [out.callout("note", `${result.withoutKey.join(", ")} cannot open them yet: the roster has no age key for them.`)] : []),
+    ...(result.removed.length > 0 ? [out.callout("note", "Anyone taken off keeps any value they already opened. Change the switchboard admin token to shut them out.")] : []),
+  ];
+}
+
+export async function teamAdminSecrets(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  try {
+    const slug = resolveTeamSlug(args, "team admin-secrets");
+    const token = await readAdminToken(deps.probes, deps.readLocalSecret ?? realReadLocalSecret, null);
+    const orgStore = (deps.membersSeams ?? realMembersSeams()).readTeamStore(slug);
+    const result = await syncAdminSecrets(deps.probes, slug, orgStore, createRealTeamSecretsSeams(slug), {
+      token,
+      replaceToken: args.includes("--replace-token"),
+    });
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(...adminSecretsBlocks(result));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
