@@ -9,6 +9,7 @@
  */
 
 import type { DaemonResponse } from "../daemon-client.ts";
+import { realReadAdminSecret } from "../team/board-peers.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, type SecretsSeams } from "../secrets/store.ts";
 import { regroupTools } from "./regroup.ts";
@@ -215,5 +216,6 @@ export function realSecretPresence(): SecretPresence {
       }
       return readStagedSecret(p, domain, key);
     },
+    hasAdmin: (org, key) => realReadAdminSecret(org, key),
   };
 }

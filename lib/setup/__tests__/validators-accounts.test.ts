@@ -617,6 +617,28 @@ describe("accountRows: account.board-peering", () => {
     expect(r.status).toBe("needs-you");
   });
 
+  const withAdminFile = (org: string): SecretPresence => ({
+    has: async () => null,
+    hasAdmin: async (asked, key) => (asked === org && key === "switchboardAdminToken" ? "admin-file" : null),
+  });
+
+  test("the admin token in the org's admin-only file counts for the creator's Mac", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: false } }), withAdminFile("acme"));
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("This Mac holds the switchboard admin token");
+  });
+
+  test("a joined owner or admin who can open the admin-only file is pointed at rt team peer", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: true } }), withAdminFile("acme"));
+    expect(r.detail).toContain("This Mac holds the switchboard admin token");
+    expect(r.detail).not.toContain("invite you again");
+  });
+
+  test("a Mac that cannot open the admin-only file and holds no token keeps the re-invite remedy", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: true } }), withAdminFile("other"));
+    expect(r.detail).toContain("invite you again");
+  });
+
   test("a team that runs no board gets no row", async () => {
     const rows = await rowsFor(machine({ acme: { joinedByRt: true } }), fakeSecrets(), baseTeam());
     expect(rows.find((r) => r.id === "account.board-peering")).toBeUndefined();
