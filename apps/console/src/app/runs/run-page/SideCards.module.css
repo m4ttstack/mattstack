@@ -14,7 +14,7 @@
   min-width: 0;
 }
 
-.grow {
-  flex: 1;
+.value {
+  flex: 0 1 auto;
   min-width: 0;
 }
