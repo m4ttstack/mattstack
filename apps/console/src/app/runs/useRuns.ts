@@ -56,6 +56,11 @@ export const retryOnce = (failures: number, err: unknown) =>
   !(err instanceof ApiError && err.status >= 400 && err.status < 500) &&
   failures < 1;
 
+/** How long a list the runs page polls outlives the page. A run page is
+    open for hours while its run works, and coming back must not wait on a
+    cold rt read behind a skeleton. */
+export const LIST_GC_MS = Infinity;
+
 export function useRunList(repo?: string) {
   return useQuery({
     queryKey: ['runs', repo ?? null],
@@ -71,6 +76,7 @@ export function useRunList(repo?: string) {
     },
     refetchInterval: POLL_MS,
     retry: retryOnce,
+    gcTime: LIST_GC_MS,
     // The runs page is filtered AND hot. Holding the previous list through a
     // filter change is worth more here than the loading branch suspense
     // would remove -- which is why this one view is not a suspense query.
@@ -243,5 +249,6 @@ export function useRunsEnrich(branches: string[]) {
     },
     enabled: key.length > 0,
     staleTime: 60_000,
+    gcTime: LIST_GC_MS,
   });
 }

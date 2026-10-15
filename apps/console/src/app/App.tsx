@@ -12,6 +12,7 @@ import { createQueryClient } from './queryClient';
 import { useAppRoute, type AppRoute } from './routes';
 import { RunDetail } from './runs/RunDetail';
 import { RunsPage } from './runs/runs-page/RunsPage';
+import { runsHomeHref } from './runs/runs-page/useRunsUrl';
 import { RunSearch } from './runs/RunSearch';
 import { explainHref } from './settings/explainParam';
 import { SettingsEmbed } from './settings/SettingsEmbed';
@@ -131,7 +132,7 @@ export function App() {
           <RailLink
             icon="workflow"
             label="Runs"
-            href="/"
+            href={runsHomeHref()}
             active={section === 'runs'}
           />
           <RailLink

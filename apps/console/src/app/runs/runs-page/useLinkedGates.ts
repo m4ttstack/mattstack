@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { client } from '../../api';
-import { POLL_MS, readApiError, retryOnce } from '../useRuns';
+import { LIST_GC_MS, POLL_MS, readApiError, retryOnce } from '../useRuns';
 
 const NO_GATES: GateRow[] = [];
 
@@ -24,6 +24,7 @@ export function useLinkedGates({ enabled = true }: { enabled?: boolean } = {}) {
     },
     retry: retryOnce,
     refetchInterval: POLL_MS,
+    gcTime: LIST_GC_MS,
     enabled,
   });
   const rows = query.data?.gates;

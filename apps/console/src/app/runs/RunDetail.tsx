@@ -19,6 +19,7 @@ import { RunLoadError } from './run-page/RunLoadError';
 import { RunPage, type RunPageData } from './run-page/RunPage';
 import { RunPageSkeleton } from './run-page/RunPageSkeleton';
 import classes from './RunDetail.module.css';
+import { runsHomeHref } from './runs-page/useRunsUrl';
 import { useRun, useRunChrome, useRunEvents } from './useRuns';
 
 const command = (repo: string, runId: string) =>
@@ -134,7 +135,7 @@ export function RunDetail({ repo, runId }: { repo: string; runId: string }) {
         <PageShell.Header
           title={
             <Breadcrumbs separator="/">
-              <Anchor component={Link} href="/" inherit>
+              <Anchor component={Link} href={runsHomeHref()} inherit>
                 Runs
               </Anchor>
               <Crumb repo={repo} runId={runId} />

@@ -163,10 +163,11 @@ const GATES: GateRow[] = [
   answered('a4', 'review'),
 ];
 
-function renderPage() {
-  const queryClient = new QueryClient({
+function renderPage(
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  });
+  })
+) {
   return renderWithProviders(
     <QueryClientProvider client={queryClient}>
       <RunsPage />
@@ -486,6 +487,28 @@ describe('RunsPage', () => {
       expect(
         within(screen.getByTestId('stat-line')).getAllByText('—')
       ).toHaveLength(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('comes back to the runs it already had after a long time away', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const first = renderPage(queryClient);
+      await screen.findByTestId('lane-live');
+      first.unmount();
+
+      vi.advanceTimersByTime(30 * 60_000);
+      runsGet.mockReturnValue(new Promise(() => {}));
+      gatesGet.mockReturnValue(new Promise(() => {}));
+      renderPage(queryClient);
+
+      expect(screen.queryByTestId('runs-skeleton')).toBeNull();
+      expect(screen.getByTestId('lane-live')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

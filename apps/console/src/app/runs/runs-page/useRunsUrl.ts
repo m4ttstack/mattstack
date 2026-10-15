@@ -45,13 +45,23 @@ export function formatRunsUrl(search: string, next: RunsUrl): string {
   return qs ? `?${qs}` : '';
 }
 
+let lastRunsSearch = '';
+
+/** The runs page as it was last seen (its filter, repo, view and day), for
+    every link that leads back to it. */
+export function runsHomeHref(): string {
+  return `/${lastRunsSearch}`;
+}
+
 export function useRunsUrl(): [RunsUrl, (patch: Partial<RunsUrl>) => void] {
   // wouter's search is decodeURI'd, which turns a repo's escaped `%2F` into
   // a slash; it only says when to re-read, and the raw query is parsed.
   const search = useSearch();
   const url = useMemo(() => {
     void search;
-    return parseRunsUrl(location.search);
+    const parsed = parseRunsUrl(location.search);
+    lastRunsSearch = formatRunsUrl('', parsed);
+    return parsed;
   }, [search]);
   const update = useCallback(
     (patch: Partial<RunsUrl>) => {

@@ -9,6 +9,7 @@ import {
 import { Icon } from '@mattstack/app-kit/icons';
 import { Link } from 'wouter';
 
+import { runsHomeHref } from '../runs-page/useRunsUrl';
 import { ApiError, isNotFound } from '../useRuns';
 import classes from './RunLoadError.module.css';
 
@@ -84,7 +85,7 @@ export function RunLoadError({
             <Button
               variant="default"
               component={Link}
-              href="/"
+              href={runsHomeHref()}
               data-parity="btn Back to runs"
             >
               <span data-parity="l">Back to runs</span>
