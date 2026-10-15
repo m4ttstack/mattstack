@@ -47,6 +47,7 @@ function sanitizeQuestions(
         multi: Boolean(q.multi),
         options: q.options as GateOption[],
         ...(typeof q.context === 'string' ? { context: q.context } : {}),
+        ...(q.writeIn === true ? { writeIn: true as const } : {}),
       });
     } else {
       console.error(
