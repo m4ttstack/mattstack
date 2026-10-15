@@ -17,7 +17,7 @@ import { runDetailKey } from './derive/day';
 
 /** The spec's slow-poll safety net. The websocket is the live path; this is
     what catches a socket that dropped without us noticing. */
-const POLL_MS = 30_000;
+export const POLL_MS = 30_000;
 
 /** A failed API answer: the body's `error` text, and the HTTP status. */
 export class ApiError extends Error {
@@ -91,18 +91,42 @@ export function useRunEvents() {
 
   useEffect(() => {
     const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
-    const socket = new WebSocket(url);
-    socket.onmessage = () => {
-      // Three surfaces: ['runs'] is the runs list, ['run'] every open
-      // detail, ['gates'] every gate read the runs and run pages render.
-      // run-updated fires on every pipeline write (emit_update in
-      // pipeline-state.sh), gate/* on every gate open/answer/park -- this is
-      // what keeps the detail page and the gate surfaces both live.
+    // Three surfaces: ['runs'] is the runs list, ['run'] every open detail,
+    // ['gates'] every gate read the runs and run pages render. run-updated
+    // fires on every pipeline write (emit_update in pipeline-state.sh),
+    // gate/* on every gate open/answer/park -- this is what keeps the
+    // detail page and the gate surfaces both live.
+    const refresh = () => {
       void queryClient.invalidateQueries({ queryKey: ['runs'] });
       void queryClient.invalidateQueries({ queryKey: ['run'] });
       void queryClient.invalidateQueries({ queryKey: ['gates'] });
     };
-    return () => socket.close();
+    let socket: WebSocket;
+    let stopped = false;
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // A server restart drops the socket, and so can macOS when it suspends
+    // a hidden web view; without a reopen the page goes stale until reload.
+    const connect = () => {
+      socket = new WebSocket(url);
+      const reopened = attempt > 0;
+      socket.onopen = () => {
+        attempt = 0;
+        // Events sent while the socket was down are gone, not queued.
+        if (reopened) refresh();
+      };
+      socket.onmessage = refresh;
+      socket.onclose = () => {
+        if (stopped) return;
+        timer = setTimeout(connect, Math.min(30_000, 1_000 * 2 ** attempt++));
+      };
+    };
+    connect();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      socket.close();
+    };
   }, [queryClient]);
 }
 
