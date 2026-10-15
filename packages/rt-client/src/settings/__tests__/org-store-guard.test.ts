@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { OrgRole } from "../org-roles.ts";
 import { parseStoreText } from "../stores.ts";
 import { orgStoreChangeRefusal } from "../org-store-guard.ts";
 
@@ -10,7 +11,7 @@ const roster = [
 const store = (patch: Record<string, unknown> = {}) =>
   parseStoreText("org.jsonc", JSON.stringify({ "mattstack.org": org, "mattstack.roster": roster, "board.tabs": ["a"], ...patch }));
 const withRoster = (r: unknown) => store({ "mattstack.roster": r });
-const OWNER = { kind: "owner", teams: ["widgets"] } as const;
+const OWNER: OrgRole = { kind: "owner", teams: ["widgets"] };
 
 describe("a team owner", () => {
   test("may add an existing member to their own team", () => {
