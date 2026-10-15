@@ -53,7 +53,8 @@ export function parseApi(argv: string[], input?: string): { method: string; path
     else if (arg === "-f" || arg === "-F") {
       const [key, ...value] = rest[++i]!.split("=");
       fields[key!] = value.join("=");
-    } else if (arg === "--input") i++;
+    } else if (arg === "-H") i++;
+    else if (arg === "--input") i++;
     else if (arg === "--paginate" || arg === "--slurp") paginate = true;
     else if (!arg.startsWith("-") && path === "") path = arg;
   }
@@ -96,6 +97,13 @@ export function fakeGitHub(opts: FakeForgeOpts): FakeForge {
     }
     if (method === "GET" && route === `${base}/invitations`) {
       return page([...members.values()].filter((m) => m.pending).map((m) => ({ invitee: { login: m.username }, permissions: m.level === "write" ? "write" : "read" })));
+    }
+
+    const permission = /^\/repos\/acme\/widgets\/collaborators\/([^/]+)\/permission$/.exec(route);
+    if (permission && method === "GET") {
+      const m = members.get(decodeURIComponent(permission[1]!).toLowerCase());
+      if (!m || m.pending) return fail(404, "Not Found");
+      return okJson({ role_name: m.level === "admin" ? "admin" : m.level === "write" ? "write" : m.level === "read" ? "read" : "none", permission: m.level });
     }
 
     const collaborator = /^\/repos\/acme\/widgets\/collaborators\/([^/]+)$/.exec(route);
@@ -191,6 +199,13 @@ export function fakeGitLab(opts: FakeForgeOpts): FakeForge {
       if (current && !current.inherited) return fail(409, "Member already exists");
       members.set(name.toLowerCase(), { username: name, level: fromGitlab(Number(fields.access_level)), inherited: false, pending: false });
       return okJson({});
+    }
+    const directMember = /^projects\/acme%2Fwidgets\/members\/(\d+)$/.exec(route);
+    if (directMember && method === "GET") {
+      const name = nameOf(Number(directMember[1]));
+      const current = name ? members.get(name.toLowerCase()) : undefined;
+      if (!name || !current || current.inherited) return fail(404, "404 Not found");
+      return okJson(row(current));
     }
     const member = /^projects\/acme%2Fwidgets\/members\/(\d+)$/.exec(route);
     if (member) {

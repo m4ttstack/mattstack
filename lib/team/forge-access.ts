@@ -60,7 +60,7 @@ export async function forgeApi(p: Probes, cli: "gh" | "glab", env: Record<string
   const argv = [...forgeArgv(p, cli), "api", "-X", call.method, call.path];
   if (call.paginate) argv.push(...(cli === "gh" ? ["--paginate", "--slurp"] : ["--paginate"]));
   for (const field of call.fields ?? []) argv.push("-f", field);
-  if (call.body !== undefined) argv.push("--input", "-");
+  if (call.body !== undefined) argv.push("-H", "Content-Type: application/json", "--input", "-");
   return p.exec(argv, {
     ...(env ? { env } : {}),
     ...(call.body !== undefined ? { input: JSON.stringify(call.body) } : {}),
@@ -97,7 +97,7 @@ export function done<T>(value: T): ForgeResult<T> {
   return { ok: true, value };
 }
 
-function leadStep(reason: FailureReason, cli: "gh" | "glab"): string | null {
+export function leadStep(reason: FailureReason, cli: "gh" | "glab"): string | null {
   const forge = cli === "gh" ? "GitHub" : "GitLab";
   switch (reason) {
     case "not-installed":

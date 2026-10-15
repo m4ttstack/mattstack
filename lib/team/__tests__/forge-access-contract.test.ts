@@ -46,6 +46,13 @@ for (const [name, world] of Object.entries(WORLDS)) {
       expect(await levelOf(access, "dev3")).toBe("read");
     });
 
+    test("grant never lowers: a direct admin granted write stays admin, with no write call", async () => {
+      const { access, forge } = world({ users: USERS, members: { dev1: { level: "admin" } } });
+      expect(await access.grant("dev1", "write")).toEqual({ ok: true, value: "granted" });
+      expect(await levelOf(access, "dev1")).toBe("admin");
+      expect(forge.writes).toEqual([]);
+    });
+
     test("grant adds someone new, at once or by invitation", async () => {
       const { access } = world({ users: USERS, members: { dev1: { level: "admin" } } });
       const r = await access.grant("dev3", "read");
@@ -113,3 +120,33 @@ for (const [name, world] of Object.entries(WORLDS)) {
     });
   });
 }
+
+describe("GitLab push list and lookups under failure", () => {
+  const setup = (fail: (argv: string[]) => { code: number; stdout: string; stderr: string } | null) => {
+    const forge = fakeGitLab({ users: USERS, members: { dev1: { level: "admin" }, dev2: { level: "write" } } });
+    const p = fakeProbes({ exec: (argv, o) => fail(argv) ?? forge.exec(argv, o) });
+    return gitlabForgeAccess(p, "https://gitlab.com/acme/widgets.git", "gitlab.com", "acme/widgets", "token");
+  };
+
+  test("a PATCH that fails with no HTTP status is a refusal, not a verdict", async () => {
+    const access = setup((argv) => (argv.includes("PATCH") ? { code: 1, stdout: "", stderr: "timed out" } : null));
+    expect(valueOf(await access.protect("mattstack"))).toBe("protected");
+    expect((await access.setPushList("mattstack", ["dev1"])).ok).toBe(false);
+  });
+
+  test("a failed read-back is a refusal", async () => {
+    let gets = 0;
+    const access = setup((argv) => (argv.some((a) => a.includes("protected_branches/mattstack")) && !argv.includes("PATCH") && !argv.includes("POST") && ++gets === 2 ? { code: 1, stdout: "", stderr: "HTTP 502" } : null));
+    await access.protect("mattstack");
+    expect((await access.setPushList("mattstack", ["dev1"])).ok).toBe(false);
+  });
+
+  test("a lookup that fails not-authenticated names glab auth login, not a bad username", async () => {
+    const access = setup((argv) => (argv.some((a) => a.startsWith("users?")) ? { code: 1, stdout: "", stderr: "glab: 401 Unauthorized (HTTP 401)" } : null));
+    const r = await access.grant("dev3", "read");
+    expect(r.ok).toBe(false);
+    const steps = r.ok ? "" : r.manualSteps.join(" ");
+    expect(steps).toContain("glab auth login");
+    expect(steps).not.toContain("was not found");
+  });
+});

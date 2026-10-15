@@ -8,7 +8,7 @@
 import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 import type { Probes } from "../setup/probes.ts";
 import { forgeAuthEnv, revokeRead } from "./forge.ts";
-import { apiText, done, forgeApi, httpStatus, pagedList, parseJson, refusal, type AccessLevel, type ApiCall, type ForgeMember, type OrgForgeAccess } from "./forge-access.ts";
+import { apiText, done, forgeApi, httpStatus, pagedList, parseJson, refusal, LEVEL_RANK, type AccessLevel, type ApiCall, type ForgeMember, type OrgForgeAccess } from "./forge-access.ts";
 
 const NOT_PROTECTED = /Branch not protected/i;
 const BRANCH_MISSING = /Branch not found/i;
@@ -106,6 +106,14 @@ export function githubForgeAccess(p: Probes, remote: string, owner: string, repo
       const isPersonal = await personal();
       if (isPersonal && level === "read") {
         return { ok: false, reason: "other", manualSteps: [`${username} can't have read access only: a repo a personal GitHub account owns gives every collaborator write. Move the repo into a GitHub organization to change that.`] };
+      }
+      const current = await call({ method: "GET", path: `${base}/collaborators/${encodeURIComponent(username)}/permission` });
+      if (current.code === 0) {
+        const held = parseJson(current.stdout) as Record<string, unknown> | null;
+        const heldLevel = levelOf({ role_name: held?.role_name ?? held?.permission });
+        if (LEVEL_RANK[heldLevel] >= LEVEL_RANK[level]) return done("granted");
+      } else if (httpStatus(current) !== 404) {
+        return refusal(current, "gh", [`Open ${accessPage}`, `Give ${username} ${level === "write" ? "Write" : "Read"} access`]);
       }
       const r = await call({ method: "PUT", path: `${base}/collaborators/${encodeURIComponent(username)}`, fields: isPersonal ? [] : [`permission=${level === "write" ? "push" : "pull"}`] });
       // An invitation body (201) means access starts once they accept; an empty 204 means it is in effect now.

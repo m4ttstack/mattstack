@@ -8,8 +8,8 @@
  */
 
 import type { Probes } from "../setup/probes.ts";
-import { forgeAuthEnv, lookupGitlabUserId, revokeRead } from "./forge.ts";
-import { apiText, done, forgeApi, httpStatus, pagedList, parseJson, refusal, type AccessLevel, type ApiCall, type ForgeMember, type OrgForgeAccess } from "./forge-access.ts";
+import { forgeAuthEnv, type FailureReason, lookupGitlabUserId, revokeRead } from "./forge.ts";
+import { apiText, done, leadStep, forgeApi, httpStatus, pagedList, parseJson, refusal, type AccessLevel, type ApiCall, type ForgeMember, type OrgForgeAccess } from "./forge-access.ts";
 
 const DEVELOPER = 30;
 const MAINTAINER = 40;
@@ -56,13 +56,15 @@ export function gitlabForgeAccess(p: Probes, remote: string, host: string, path:
     names.set(id, username);
   };
 
-  async function idOf(username: string): Promise<number | null> {
+  type IdLookup = { id: number } | { id: null; reason: FailureReason };
+
+  async function idOf(username: string): Promise<IdLookup> {
     const known = ids.get(username.toLowerCase());
-    if (known !== undefined) return known;
+    if (known !== undefined) return { id: known };
     const lookup = await lookupGitlabUserId(p, host, username, token);
-    if (lookup.id === null) return null;
+    if (lookup.id === null) return lookup;
     remember(username, lookup.id);
-    return lookup.id;
+    return { id: lookup.id };
   }
 
   async function nameOf(id: number): Promise<string | null> {
@@ -75,7 +77,11 @@ export function gitlabForgeAccess(p: Probes, remote: string, host: string, path:
     return username;
   }
 
-  const unknownUser = (username: string) => ({ ok: false as const, reason: "unknown-handle" as const, manualSteps: [`Check that "${username}" is a real GitLab username: it was not found`] });
+  const lookupRefusal = (username: string, reason: FailureReason) => {
+    if (reason === "unknown-handle") return { ok: false as const, reason, manualSteps: [`Check that "${username}" is a real GitLab username: it was not found`] };
+    const lead = leadStep(reason, "glab");
+    return { ok: false as const, reason, manualSteps: lead ? [lead, `Open ${membersPage}`] : [`Open ${membersPage}`] };
+  };
 
   return {
     provider: "gitlab",
@@ -110,9 +116,9 @@ export function gitlabForgeAccess(p: Probes, remote: string, host: string, path:
       const entries = pushEntries(current.stdout);
       const wanted = new Map<number, string>();
       for (const username of usernames) {
-        const id = await idOf(username);
-        if (id === null) return unknownUser(username);
-        wanted.set(id, username);
+        const found = await idOf(username);
+        if (found.id === null) return lookupRefusal(username, found.reason);
+        wanted.set(found.id, username);
       }
       const changes = [
         ...[...wanted.keys()].filter((id) => !entries.some((e) => e.user_id === id)).map((user_id) => ({ user_id })),
@@ -120,13 +126,14 @@ export function gitlabForgeAccess(p: Probes, remote: string, host: string, path:
       ];
       if (changes.length > 0) {
         const r = await call({ method: "PATCH", path: rulePath(branch), body: { allowed_to_push: changes } });
-        if (r.code !== 0 && [401, 403, 404].includes(httpStatus(r) ?? 0)) {
+        if (r.code !== 0) {
           return refusal(r, "glab", [`Open ${branchesPage}`, `In the protected branch rule for ${branch}, let only ${usernames.join(", ")} push`]);
         }
       }
       // Read back rather than trust the PATCH: a plan that cannot name people may drop the user entries without an error.
       const after = await call({ method: "GET", path: rulePath(branch) });
-      const now = after.code === 0 ? pushEntries(after.stdout) : entries;
+      if (after.code !== 0) return refusal(after, "glab", [`Open ${branchesPage}`, `Check who may push the ${branch} branch`]);
+      const now = pushEntries(after.stdout);
       if ([...wanted.keys()].every((id) => now.some((e) => e.user_id === id))) {
         const developers = now.filter(isDeveloperRole).map((e) => ({ id: e.id, _destroy: true }));
         if (developers.length > 0) {
@@ -160,16 +167,21 @@ export function gitlabForgeAccess(p: Probes, remote: string, host: string, path:
     },
 
     async grant(username, level) {
-      const id = await idOf(username);
-      if (id === null) return unknownUser(username);
+      const found = await idOf(username);
+      if (found.id === null) return lookupRefusal(username, found.reason);
+      const id = found.id;
       const accessLevel = `access_level=${LEVEL_NUMBER[level]}`;
-      const added = await call({ method: "POST", path: `${project}/members`, fields: [`user_id=${id}`, accessLevel] });
-      if (added.code === 0) return done("granted");
-      if (httpStatus(added) === 409 || /already exists/i.test(apiText(added))) {
+      const held = await call({ method: "GET", path: `${project}/members/${id}` });
+      if (held.code === 0) {
+        const n = (parseJson(held.stdout) as { access_level?: unknown } | null)?.access_level;
+        if (typeof n === "number" && n >= LEVEL_NUMBER[level]) return done("granted");
         const changed = await call({ method: "PUT", path: `${project}/members/${id}`, fields: [accessLevel] });
         if (changed.code === 0) return done("granted");
         return refusal(changed, "glab", [`Open ${membersPage}`, `Change ${username}'s role to ${ROLE_NAME[level]}`]);
       }
+      if (httpStatus(held) !== 404) return refusal(held, "glab", [`Open ${membersPage}`, `Change ${username}'s role to ${ROLE_NAME[level]}`]);
+      const added = await call({ method: "POST", path: `${project}/members`, fields: [`user_id=${id}`, accessLevel] });
+      if (added.code === 0) return done("granted");
       return refusal(added, "glab", [`Open ${membersPage}`, `Invite ${username} with the ${ROLE_NAME[level]} role`]);
     },
 
