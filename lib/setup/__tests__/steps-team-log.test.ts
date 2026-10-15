@@ -117,8 +117,8 @@ describe("setup team create records the cause of a failure", () => {
     expect(outcome).toEqual({ state: "failed", detail: "The team repo already has commits", remedy: "rt starts a team in an empty repo." });
     expect(cliLog()).toContain("marker-publish-zz");
     const pushIndex = p.calls.exec.findIndex((argv) => argv.includes("push"));
-    expect(pushIndex).toBeGreaterThan(3);
-    expect(p.calls.exec.slice(pushIndex - 4, pushIndex).map((argv) => argv[1])).toEqual(["remote", "ls-remote", "rev-list", "diff-tree"]);
+    expect(pushIndex).toBeGreaterThan(4);
+    expect(p.calls.exec.slice(pushIndex - 5, pushIndex).map((argv) => argv[1])).toEqual(["remote", "ls-remote", "rev-list", "diff-tree", "ls-tree"]);
     expect(p.calls.exec[pushIndex + 1]).toEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
   });
 });
