@@ -1518,6 +1518,10 @@ describe("orgLayoutRow", () => {
     const r = await orgLayoutRow(at(converted, true), status(null));
     expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, status: "ready", detail: `acme on layout ${ORG_LAYOUT}` });
   });
+  test("a ready layout 3 clone says layout 3", async () => {
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true), status(null));
+    expect(r).toMatchObject({ status: "ready", detail: "acme on layout 3" });
+  });
   test("a one-team clone is skipped with the waiting sentence and no action", async () => {
     const r = await orgLayoutRow(at(legacy, false), status(null));
     expect(r).toMatchObject({ status: "skipped", detail: "Your org has not moved to its new layout yet. rt finishes the move when it does." });

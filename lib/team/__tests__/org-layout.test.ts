@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { ORG_MARKER_REL } from "../org-marker.ts";
+import { ORG_LAYOUT, READABLE_LAYOUTS } from "../org-marker.ts";
 import { layoutAbove, layoutSentence, orgLayoutState, pickedCloneReady, orgLayoutWaitingError, updateSentence, WAITING_SENTENCE } from "../org-layout.ts";
 
 const H = "/h";
@@ -23,7 +24,7 @@ describe("orgLayoutState", () => {
     expect(orgLayoutState(fakeProbes({ home: H }))).toEqual({ kind: "none" });
   });
   test("ready for a converted clone", () => {
-    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 3), orgStore: true } }))).toEqual({ kind: "ready", slug: "acme" });
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 3), orgStore: true } }))).toEqual({ kind: "ready", slug: "acme", layout: 3 });
   });
   test("waiting for the one-team layout moved under orgs/", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("team", "acme") } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 1 });
@@ -33,7 +34,7 @@ describe("orgLayoutState", () => {
   });
   test("a layout 2 marker reads waiting, a layout 3 marker reads ready", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 2), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 2 });
-    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 3), orgStore: true } }))).toEqual({ kind: "ready", slug: "acme" });
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 3), orgStore: true } }))).toEqual({ kind: "ready", slug: "acme", layout: 3 });
   });
   test("a marker with no layout reads waiting", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("org", "acme"), orgStore: true } })).kind).toBe("waiting");
@@ -46,11 +47,11 @@ describe("orgLayoutState", () => {
   });
   test("the first clone by name decides", () => {
     const p = home({ zeta: { marker: marker("team", "zeta") }, acme: { marker: marker("org", "acme", 3), orgStore: true } });
-    expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "acme" });
+    expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "acme", layout: 3 });
   });
   test("a store-less waiting clone sorting first does not hide a ready one", () => {
     const p = home({ aaa: { marker: marker("team", "aaa") }, bbb: { marker: marker("org", "bbb", 3), orgStore: true } });
-    expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "bbb" });
+    expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "bbb", layout: 3 });
   });
   test("a store-holding waiting clone sorting first wins over a later ready one", () => {
     const p = home({ aaa: { marker: marker("org", "aaa", 5), orgStore: true }, bbb: { marker: marker("org", "bbb", 3), orgStore: true } });
@@ -79,6 +80,12 @@ describe("sentences", () => {
 });
 
 describe("layout 4 with layout 3 readable", () => {
+  test("a layout 4 clone reads ready on layout 4", () => {
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 4), orgStore: true } }))).toEqual({ kind: "ready", slug: "acme", layout: 4 });
+  });
+  test("the readable layouts contain ORG_LAYOUT", () => {
+    expect(READABLE_LAYOUTS).toContain(ORG_LAYOUT);
+  });
   test("layouts 3 and 4 are both ready; 2 and 5 wait", () => {
     expect(pickedCloneReady({ layout: 3, hasStore: true })).toBe(true);
     expect(pickedCloneReady({ layout: 4, hasStore: true })).toBe(true);

@@ -13,7 +13,7 @@ import { markerState, ORG_LAYOUT, ORG_MARKER_REL, parseMarker, READABLE_LAYOUTS,
 
 export type OrgLayoutState =
   | { kind: "none" }
-  | { kind: "ready"; slug: string }
+  | { kind: "ready"; slug: string; layout: number }
   | { kind: "waiting"; slug: string; dir: string; layout: number };
 
 export const WAITING_SENTENCE = "Your org has not moved to its new layout yet. rt finishes the move when it does.";
@@ -92,6 +92,6 @@ export function orgLayoutState(p: Pick<Probes, "readDir" | "readFile" | "exists"
   });
   const picked = pickOrgClone(candidates);
   if (!picked) return { kind: "none" };
-  if (pickedCloneReady(picked)) return { kind: "ready", slug: picked.slug };
+  if (pickedCloneReady(picked)) return { kind: "ready", slug: picked.slug, layout: picked.layout };
   return { kind: "waiting", slug: picked.slug, dir: orgDirUnder(p.home, picked.slug), layout: picked.layout };
 }

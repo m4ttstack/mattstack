@@ -746,7 +746,7 @@ export async function orgLayoutRow(p: Probes, readStatus: () => Promise<TeamSnap
       ? row({ ...base, status: "needs-you", detail: layoutSentence(state), action: UPDATE_APP_ACTION })
       : row({ ...base, status: "skipped", detail: layoutSentence(state) });
   }
-  return row({ ...base, status: "ready", detail: `${state.slug} on layout ${ORG_LAYOUT}` });
+  return row({ ...base, status: "ready", detail: `${state.slug} on layout ${state.layout}` });
 }
 
 // ─── entry point ────────────────────────────────────────────────────────────
