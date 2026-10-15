@@ -383,7 +383,10 @@ async function storeBoardToken(seams: JoinRedeemSeams, pointer: InvitePointer, t
 async function rejoinAdminToken(seams: JoinRedeemSeams, secrets: SecretsSeamsFactory, slug: string): Promise<string | null> {
   const store = secrets(slug);
   return (
-    (await seams.readAdminSecret(slug, "rt", "switchboardAdminToken", store).catch(() => null)) ||
+    (await seams.readAdminSecret(slug, "rt", "switchboardAdminToken", store).catch((err: unknown) => {
+      warnLine("team", `admin-only secrets for ${slug} could not be read: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    })) ||
     (await seams.readLocalSecret("switchboardAdminToken").catch(() => null)) ||
     (await seams.readTeamSecret(slug, "rt", "switchboardAdminToken", store))
   );

@@ -119,6 +119,7 @@ function defaultReadSecret(domain: string, key: string): Promise<string | null> 
 
 /** The org this Mac reads, whose admin-only secrets hold the switchboard admin token; null on a Mac with no org. */
 function boardAdminSource(): AdminSource | null {
+  // The board has no org of its own, so it reads this Mac's current org's file; a missing one reads as null.
   const org = currentOrg();
   return org === null ? null : { org, read: realReadAdminSecret };
 }

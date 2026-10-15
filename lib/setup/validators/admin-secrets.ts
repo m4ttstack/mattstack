@@ -3,6 +3,8 @@
  * admin-only secrets are not locked to exactly its current owners and admins,
  * or when this Mac holds the switchboard admin token the org does not share
  * yet. Never required: the token still works from this Mac's own secret.
+ * A rule that is current reads as healthy even when the file holds no token,
+ * because checking the file would spawn sops on every plan.
  */
 
 import { join } from "path";
