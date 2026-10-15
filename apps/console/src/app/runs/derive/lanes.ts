@@ -278,7 +278,7 @@ export function laneFacts({
       ? railStages(
           detail.fields.find(f => f.key === 'pipeline-stages')?.value ?? null,
           stageAttempts(detail.stages, run, now),
-          heldSpans(detail.stages, detail.decisions),
+          heldSpans(detail.stages, detail.decisions, detail.fields),
           mine ? gateStage(mine, detail.stages) : null,
           now
         )

@@ -94,6 +94,7 @@ describe('dayAxis across a clock change', () => {
                 },
               ],
               decisions: [],
+              fields: [],
             },
           ],
         ]),
