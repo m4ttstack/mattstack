@@ -8,7 +8,7 @@
 
 **Tech Stack:** React + tui-kit recipes (CSS modules, Tokyo tokens), bun build pipeline, Playwright DOM tests + pixel harness with `DECK_FIXTURE` fixture mode.
 
-**Spec:** `docs/superpowers/specs/2026-08-21-deck-redesign-design.md` (local-apps). Parity references (normative for structure/copy/states): `docs/design/deck-redesign/board-composite.html`, `docs/design/deck-redesign/drawer-states-atlas.html`, plus `atlas-render-*.png`.
+**Spec:** `docs/superpowers/specs/2026-08-21-deck-redesign-design.md` (local-apps). Parity references (normative for structure/copy/states): `docs/design/deck-redesign/board-composite.html`, `docs/design/deck-redesign/drawer-states-atlas.html`.
 
 ## Global Constraints
 

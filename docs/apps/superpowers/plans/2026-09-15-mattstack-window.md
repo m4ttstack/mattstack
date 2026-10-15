@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift (AppKit + SwiftUI + WebKit + Carbon hotkey), the MattstackCoreChecks harness; TypeScript (Hono, Bun unix-socket fetch), vitest.
 
-**Spec:** `docs/superpowers/specs/2026-09-15-mattstack-window-design.md` (this repo). Read it first; the mockup render is `docs/design/mattstack-window/renders/window-dark.png`.
+**Spec:** `docs/superpowers/specs/2026-09-15-mattstack-window-design.md` (this repo). Read it first.
 
 ## Global Constraints
 
@@ -438,7 +438,7 @@ git commit -m "rt-tray: add WebViewStore with mattstack-shell UA marker"
 - Consumes: `WebViewStore` (Task 4), `AppCatalog`/`DiscoveryApp`/`OpenRequest`/`WindowNavigation` (Tasks 1-2), the `SettingsWindowController` window pattern, `AppHome.current`.
 - Produces: `MattstackWindowController(model:)` with `func show()`, and `@MainActor final class WindowModel: ObservableObject` with `func open(_ request: OpenRequest) -> Bool`, `func select(_ name: String)`, `func toggleVisibility()`. Task 6 calls `show()`/`open(_:)`; Task 7 calls `toggleVisibility()`.
 
-Design contract (from the spec + mockup, `renders/window-dark.png`):
+Design contract (from the spec + mockup):
 - Titlebar-less: `styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]`, `titlebarAppearsTransparent = true`, `titleVisibility = .hidden` — traffic lights float over the rail; the rail's top padding (~40pt) clears them.
 - Rail: 68pt wide, dark fill, app tiles 38pt (rounded 9), active app gets a 3pt accent bar and full opacity, inactive tiles at 68% opacity, tooltips "DisplayName ⌘n" via `.help(...)`, `⌘1...⌘9` via `.keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)`, `⌘R` reloads the active view. Right-click tile → Reload (`.contextMenu`).
 - Deck tile pinned at the rail bottom (utility slot, outside ⌘n): opens `https://deck.mattstack` as pseudo-app `deck` (append a `DiscoveryApp(name: "deck", displayName: "Deck", description: nil, url: "https://deck.mattstack", icon: nil)` handled separately from the API list); green 10pt badge when the last catalog fetch succeeded.

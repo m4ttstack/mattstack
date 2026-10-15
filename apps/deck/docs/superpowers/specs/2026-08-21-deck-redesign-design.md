@@ -3,7 +3,7 @@
 **Date:** 2026-08-21
 **Repos:** `~/Documents/GitHub/local-apps` (deck board), `~/Documents/GitHub/tui-kit` (new recipes + font), `~/Documents/GitHub/mr-board` (font ripple, re-baseline only)
 **Status:** approved design, pending plan
-**Parity references (normative):** `docs/design/deck-redesign/` — `board-composite.html` (board + drawer), `drawer-states-atlas.html` (all drawer screens/states), `atlas-render-1.png` / `atlas-render-2.png` (approved renders). The mocks define structure, hierarchy, copy, and states; exact colors/spacing come from tui-kit tokens, not the mock CSS.
+**Parity references (normative):** `docs/design/deck-redesign/` — `board-composite.html` (board + drawer), `drawer-states-atlas.html` (all drawer screens/states). The mocks define structure, hierarchy, copy, and states; exact colors/spacing come from tui-kit tokens, not the mock CSS.
 
 ## 1. Overview and motivation
 

@@ -43,13 +43,26 @@ A10=$(printf "%s%s" "progres" "sive")
 A10B="(^|[^[:alnum:]])$A10([^[:alnum:]]|\$)"
 # A second carrier name, caught in the same picker-branch scrub as A10.
 A11=$(printf '%s%s' 'gei' 'co')
+# Found by the full-history sweep before the 2026-10 rewrite: three more
+# carrier names, a customer abbreviation, a product name, and the ticket
+# prefix as a bare quoted value (a team id in a picker), which only its
+# quotes separate from ordinary text.
+A12=$(printf '%s%s' 'liber' 'ty ?mutual')
+A13=$(printf '%s%s' 'sta' 'te ?farm')
+A14=$(printf '%s%s' 'chu' 'bb')
+A14B="(^|[^[:alpha:]])$A14([^[:alpha:]]|\$)"
+A15=$(printf '%s%s' 'ac' 'g')
+A15B="(^|[^[:alnum:]])$A15([^[:alnum:]]|\$)"
+A16=$(printf '%s%s' 'em' 'ma ?(chat|portal)')
+A17=$(printf '%s%s' 'c' 'v')
+A17B="[\"']$A17[\"'][[:space:]]*[],}]"
 # The skills pack's own gate banned three more terms that are ordinary
 # vocabulary elsewhere in the tree, so they are scoped to plugins/mattstack.
 P1=$(printf '%s%s' 'launch' 'darkly')
 P2=$(printf '%s%s' 'strong' 'dm')
 P3=$(printf '%s%s' 'parking' '-lot')
 
-PATTERN="$A1|$A2|$A3|$A4|$A5|$A6|$A7|$A8|$A9B|$A10B|$A11"
+PATTERN="$A1|$A2|$A3|$A4|$A5|$A6|$A7|$A8|$A9B|$A10B|$A11|$A12|$A13|$A14B|$A15B|$A16|$A17B"
 
 # Lockfiles and PNGs are excluded: base64 integrity hashes and binary bytes
 # collide with the short patterns often enough to be pure noise, and nothing
