@@ -2402,7 +2402,7 @@ describe("teamSnapshotSpec", () => {
     mkdirSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true });
     if (shape === "a file") writeFileSync(join(FAKE_REPO_DIR, "mattstack", "teams"), "");
     try {
-      const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? mattstack/org/settings.org.jsonc\0" }));
+      const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? mattstack/mattstack.jsonc\0" }));
       const { deps } = baseDeps({ exec: fn });
       const { repoDir: _repoDir, ...specDeps } = deps;
       const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: adminProbes(), readToken: async () => "glpat-x" }), specDeps);
@@ -2567,7 +2567,7 @@ describe("teamSnapshotSpec", () => {
       git(root, "init", "-q", "-b", "main", full);
       for (const [rel, text] of Object.entries({
         "mattstack/mattstack.jsonc": `{ "role": "org", "org": "acme" }\n`,
-        "mattstack/org/settings.org.jsonc": "{}\n",
+        "mattstack/org/settings.org.jsonc": `{ "mattstack.org": { "admins": ["dev1"] } }\n`,
         "mattstack/teams/widgets/settings.team.jsonc": "{}\n",
         ".claude-plugin/marketplace.json": `{ "name": "acme", "plugins": [] }\n`,
         ".sops.yaml": "creation_rules: []\n",
@@ -3644,6 +3644,57 @@ describe("startSnapshot: pull", () => {
     expect(calls.some((c) => gitVerb(c) === "commit")).toBe(true);
     expect(handle.status().pullOnly).toBe(false);
     handle.stop();
+  });
+});
+
+describe("team snapshot scope follows the org store guard", () => {
+  const STORE = "mattstack/org/settings.org.jsonc";
+  const org = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev3"] } } };
+  const roster = [{ username: "dev4", name: "Dev Four", teams: ["gadgets"] }];
+  const body = (o: unknown, r: unknown = roster) => JSON.stringify({ "mattstack.org": o, "mattstack.roster": r });
+  const gitIn = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "commit.gpgsign=false", "-c", "user.email=t@example.com", "-c", "user.name=t", ...args], { cwd, env: childEnv(), stdio: "pipe" });
+
+  function setup(user: string, working: string, workingProbeOrg: unknown = org) {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-scope-")));
+    mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
+    gitIn(dir, "init", "-q");
+    writeFileSync(join(dir, STORE), body(org));
+    gitIn(dir, "add", "-A");
+    gitIn(dir, "commit", "-q", "-m", "init");
+    writeFileSync(join(dir, STORE), working);
+    const p = fakeProbes({ home: "/h", files: {
+      "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: user }),
+      "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": body(workingProbeOrg),
+    } });
+    const spec = teamSnapshotSpec("acme", dir, { ownedRoots: [], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
+    return { auth: spec.readAuthorization!(), dir };
+  }
+
+  test("a team owner's own-team roster change is in scope, another team's is not", () => {
+    const own = setup("dev2", body(org, [{ ...roster[0], teams: ["gadgets", "widgets"] }]));
+    expect(own.auth.scope(STORE)).toBe(true);
+    expect(own.auth.pullOnly).toBe(false);
+    const other = setup("dev2", body(org, [{ ...roster[0], teams: ["widgets"] }]));
+    expect(other.auth.scope(STORE)).toBe(false);
+    rmSync(own.dir, { recursive: true, force: true });
+    rmSync(other.dir, { recursive: true, force: true });
+  });
+
+  test("a team owner who adds themselves to the admins gains neither the org store nor other teams' folders", () => {
+    const promoted = { ...org, admins: ["dev1", "dev2"] };
+    const { auth, dir } = setup("dev2", body(promoted), promoted);
+    expect(auth.scope(STORE)).toBe(false);
+    expect(auth.scope("mattstack/teams/gadgets/settings.team.jsonc")).toBe(false);
+    expect(auth.scope("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("an admin who demotes themselves still has the org store change in scope", () => {
+    const demoted = { ...org, admins: [] };
+    const { auth, dir } = setup("dev1", body(demoted), demoted);
+    expect(auth.scope(STORE)).toBe(true);
+    expect(auth.pullOnly).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
