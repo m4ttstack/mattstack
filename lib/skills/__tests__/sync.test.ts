@@ -141,6 +141,11 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
         if (marker === undefined || marker === null) return { code: 128, stdout: "", stderr: `fatal: path '${path}' does not exist in '${ref}'` };
         return { code: 0, stdout: marker, stderr: "" };
       }
+      if (args[0] === "show" && args[1]!.startsWith("HEAD:")) {
+        const path = args[1]!.slice("HEAD:".length);
+        if (!existsSync(join(cwd, path))) return { code: 128, stdout: "", stderr: `fatal: path '${path}' does not exist in 'HEAD'` };
+        return { code: 0, stdout: readFileSync(join(cwd, path), "utf8"), stderr: "" };
+      }
       if (args[0] === "show") {
         const [ref, path] = args[1]!.split(/:(.*)/s);
         if (ref !== "main") return { code: 128, stdout: "", stderr: `unknown ref ${ref}` };
@@ -1130,6 +1135,38 @@ describe("pull-pack in an org clone", () => {
     expect(calls.some((c) => c.args[0] === "fetch" && c.cwd === clone)).toBe(true);
     expect(calls.some((c) => c.args[0] === "show" && c.args[1] === "refs/remotes/origin/main:mattstack/mattstack.jsonc" && c.cwd === clone)).toBe(true);
     expect(pulls(calls, pack.dir)).toEqual([]);
+  });
+
+  test("a fetched main that names another data branch refuses the pull with the moved sentence", async () => {
+    const { clone, pack } = orgClonePack();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }` } }), orgsRoot: dirname(clone) };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const held = report.steps.find((s) => s.name === "pull-pack")!;
+    expect(held).toMatchObject({ name: "pull-pack", status: "refused", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes." });
+    expect(held[LAYOUT_HOLD]).toBe(true);
+    expect(merges(calls)).toEqual([]);
+    expect(calls.some((c) => c.args[0] === "show" && c.args[1] === "HEAD:mattstack/mattstack.jsonc" && c.cwd === clone)).toBe(true);
+  });
+
+  test("a trial branch whose own marker names the data branch pulls", async () => {
+    const { clone, pack } = orgClonePack();
+    writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`);
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const trial = "mattstack-layout-5";
+    const deps = {
+      ...makeDeps(pack, engine, { calls, drift: [false], branchByDir: { [engine.dir]: "main", [clone]: trial, [pack.dir]: trial }, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }` } }),
+      orgsRoot: dirname(clone),
+    };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "pull-pack")).toEqual({ name: "pull-pack", status: "ran", detail: "Fast-forward" });
+    expect(merges(calls)).toEqual([{ cmd: "git", args: ["merge", "--ff-only", `refs/remotes/origin/${trial}`], cwd: clone }]);
   });
 
   test("a fetched tip at layout 2 pulls", async () => {

@@ -159,6 +159,16 @@ describe("org.pull", () => {
     expect(outcome).toEqual({ state: "skipped", detail: sentence });
   });
 
+  test("a moved hold ends skipped with the moved sentence, even when the reply carries no detail", async () => {
+    const outcome = await orgPullStep.run(makeCtx(fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => ({ ok: true, data: { outcome: "skipped", detail: null, hold: { moved: "mattstack" } } }),
+    })).ctx);
+    expect(outcome).toEqual({ state: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes." });
+  });
+
   test("a hold beside a stuck clone stays partial and keeps the hold sentence", async () => {
     const sentence = "Your org uses layout 4 and this app reads up to 3. Update the app.";
     const p = fakeProbes({

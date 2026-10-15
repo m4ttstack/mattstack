@@ -15,6 +15,7 @@ import { ORG_LAYOUT } from "../../team/org-marker.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
 import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
+import type { GateVerdict } from "../../team/org-layout.ts";
 
 // ─── test doubles ────────────────────────────────────────────────────────────
 
@@ -2671,15 +2672,17 @@ function pullResponders(opts: { behind: number; ahead: number; rebase?: "ok" | "
 }
 
 describe("the layout gate", () => {
-  const gated = (gate: () => Promise<{ layout: number } | null>) => ({ ...teamSpecFor(null), pull: { intervalSec: 300, gate } });
-  const start = (gate: () => Promise<{ layout: number } | null>, behind: number) => {
+  const above = (layout: number): GateVerdict => ({ kind: "above", layout });
+  type Gate = (ref: string, branch: string) => Promise<GateVerdict | null>;
+  const gated = (gate: Gate, onMoved?: (dataBranch: string) => Promise<void>) => ({ ...teamSpecFor(null), pull: { intervalSec: 300, gate, ...(onMoved ? { onMoved } : {}) } });
+  const start = (gate: Gate, behind: number, onMoved?: (dataBranch: string) => Promise<void>) => {
     const { deps, execCalls, log } = baseDeps({ exec: makeFakeExec([...pullResponders({ behind, ahead: 0 }), ...defaultResponders()]).fn });
     const { repoDir: _r, ...rest } = deps;
-    return { handle: startSnapshot(gated(gate), rest), execCalls, log };
+    return { handle: startSnapshot(gated(gate, onMoved), rest), execCalls, log };
   };
 
   test("a hold: skipped with the update sentence, no merge, lastPullAt stamped, layoutHold set", async () => {
-    const { handle, execCalls, log } = start(async () => ({ layout: 5 }), 1);
+    const { handle, execCalls, log } = start(async () => above(5), 1);
     await handle.ready;
     const result = await handle.pullNow();
     expect(result).toEqual({ outcome: "skipped", detail: "Your org uses layout 5 and this app reads up to 4. Update the app.", hold: { layout: 5, reads: 4 } });
@@ -2695,7 +2698,7 @@ describe("the layout gate", () => {
 
   test("a passing gate fast-forwards and clears an earlier hold", async () => {
     let layout: number | null = 5;
-    const { handle } = start(async () => (layout === null ? null : { layout }), 1);
+    const { handle } = start(async () => (layout === null ? null : above(layout)), 1);
     await handle.ready;
     await handle.pullNow();
     expect(handle.status().layoutHold).toEqual({ layout: 5, reads: 4 });
@@ -2719,7 +2722,7 @@ describe("the layout gate", () => {
     let mode: "hold" | "throw" | "pass" = "hold";
     const { handle, execCalls, log } = start(async () => {
       if (mode === "throw") throw new Error("object corrupt");
-      return mode === "hold" ? { layout: 5 } : null;
+      return mode === "hold" ? above(5) : null;
     }, 1);
     await handle.ready;
     await handle.pullNow();
@@ -2738,7 +2741,7 @@ describe("the layout gate", () => {
 
   test("the real gate failing on git show warns once across pulls and still fast-forwards", async () => {
     const probes = fakeProbes({ exec: async () => ({ code: 128, stdout: "", stderr: "fatal: bad object" }) });
-    const spec = { ...teamSpecFor(null), pull: { intervalSec: 300, gate: (ref: string) => layoutGate(probes.exec, FAKE_REPO_DIR, ref) } };
+    const spec = { ...teamSpecFor(null), pull: { intervalSec: 300, gate: (ref: string, branch: string) => layoutGate(probes.exec, FAKE_REPO_DIR, ref, branch) } };
     const { deps, log } = baseDeps({ exec: makeFakeExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]).fn });
     const { repoDir: _r, ...rest } = deps;
     const handle = startSnapshot(spec, rest);
@@ -2759,7 +2762,7 @@ describe("the layout gate", () => {
     ]);
     const { deps, timers, broadcasts } = baseDeps({ exec: exec.fn });
     const { repoDir: _r, ...specDeps } = deps;
-    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 5 } : null) } }, specDeps);
+    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? above(5) : null) } }, specDeps);
     await handle.ready;
     await flushAsync();
 
@@ -2800,7 +2803,7 @@ describe("the layout gate", () => {
     const exec = makeSwitchableExec([rejecting, ...pullResponders({ behind: 0, ahead: 1 }), ...defaultResponders({ statusZ: dirty })]);
     const { deps, timers, broadcasts } = baseDeps({ exec: exec.fn });
     const { repoDir: _r, ...specDeps } = deps;
-    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? { layout: 5 } : null) } }, specDeps);
+    const handle = startSnapshot({ ...teamSpecFor(), pull: { intervalSec: 300, gate: async () => (holding ? above(5) : null) } }, specDeps);
     await handle.ready;
     await flushAsync();
 
@@ -2815,9 +2818,107 @@ describe("the layout gate", () => {
     handle.stop();
   });
 
+  test("a moved verdict holds the pull with the moved sentence, runs onMoved on every held pull and logs once", async () => {
+    const asked: [string, string][] = [];
+    const moves: string[] = [];
+    const { handle, execCalls, log } = start(async (ref, branch) => { asked.push([ref, branch]); return { kind: "moved", dataBranch: "mattstack" }; }, 1, async (b) => { moves.push(b); });
+    await handle.ready;
+    const result = await handle.pullNow();
+    expect(result).toEqual({ outcome: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.", hold: { moved: "mattstack" } });
+    expect(asked).toEqual([["refs/remotes/origin/main", "main"]]);
+    expect(execCalls.some((argv) => gitVerb(argv) === "merge" || gitVerb(argv) === "rebase")).toBe(false);
+    expect(handle.status().layoutHold).toEqual({ moved: "mattstack" });
+    expect(handle.status().lastPullSkipped).toBe(result.detail);
+    await handle.pullNow();
+    expect(moves).toEqual(["mattstack", "mattstack"]);
+    expect(log.calls.filter((c) => c.level === "info" && JSON.stringify(c.args).includes("moved to the mattstack branch")).length).toBe(1);
+    handle.stop();
+  });
+
+  test("a gate that throws after a moved hold keeps it; a passing gate clears it", async () => {
+    let mode: "moved" | "throw" | "pass" = "moved";
+    const { handle } = start(async () => {
+      if (mode === "throw") throw new Error("object corrupt");
+      return mode === "moved" ? { kind: "moved", dataBranch: "mattstack" } : null;
+    }, 1);
+    await handle.ready;
+    await handle.pullNow();
+    mode = "throw";
+    expect(await handle.pullNow()).toEqual({ outcome: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.", hold: { moved: "mattstack" } });
+    mode = "pass";
+    expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+    expect(handle.status().layoutHold).toBeNull();
+    handle.stop();
+  });
+
+  test("a throwing onMoved does not fail the held pull", async () => {
+    const { handle, log } = start(async () => ({ kind: "moved", dataBranch: "mattstack" }), 1, async () => { throw new Error("move failed"); });
+    await handle.ready;
+    expect((await handle.pullNow()).hold).toEqual({ moved: "mattstack" });
+    expect(log.calls.some((c) => c.level === "warn" && JSON.stringify(c.args).includes("move hook"))).toBe(true);
+    handle.stop();
+  });
+
+  test("a real clone on main whose origin main now names the data branch keeps its commit and its org files", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshot-moved-")));
+    const env = { ...childEnv(), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env }).toString();
+    const write = (dir: string, rel: string, text: string) => {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    };
+    const origin = join(root, "origin.git");
+    const full = join(root, "full");
+    const clone = join(root, "acme");
+    const db = openStateDb(join(root, "state.db"), "cli");
+    const realExec = async (argv: string[], opts?: { cwd?: string; timeoutMs?: number; env?: Record<string, string> }) => {
+      const r = await runCapture(argv as [string, ...string[]], { cwd: opts?.cwd, timeoutMs: opts?.timeoutMs, stderr: "pipe", env: { ...env, ...opts?.env } });
+      return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
+    };
+    try {
+      git(root, "init", "--bare", "-q", "-b", "main", origin);
+      git(root, "init", "-q", "-b", "main", full);
+      write(full, "mattstack/mattstack.jsonc", `{ "role": "org", "org": "acme", "layout": 3 }\n`);
+      write(full, "mattstack/org/settings.org.jsonc", `{ "mattstack.org": { "admins": ["dev1"] } }\n`);
+      write(full, "mattstack/teams/widgets/settings.team.jsonc", "{}\n");
+      git(full, "add", ".");
+      git(full, "commit", "-q", "-m", "org");
+      git(full, "remote", "add", "origin", origin);
+      git(full, "push", "-q", "-u", "origin", "main");
+      git(root, "clone", "-q", origin, clone);
+      const before = git(clone, "rev-parse", "HEAD").trim();
+
+      git(full, "rm", "-rq", "mattstack/org", "mattstack/teams");
+      write(full, "mattstack/mattstack.jsonc", `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`);
+      git(full, "add", ".");
+      git(full, "commit", "-q", "-m", "pointer");
+      git(full, "push", "-q", "origin", "main");
+
+      const moves: string[] = [];
+      const probes = fakeProbes({ home: "/h", files: { "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }) }, exec: realExec });
+      const handle = startSnapshot(
+        teamSnapshotSpec("acme", clone, { ownedRoots: [], pullIntervalSec: 3600, originUrl: "https://gitlab.example.com/acme/org.git", probes, readToken: async () => null, onMoved: async (b) => { moves.push(b); } }),
+        { log: fakeLog(), broadcast: () => {}, db, readSettings: () => DEFAULT_SETTINGS, readOwners: () => NO_OWNERS },
+      );
+      await handle.ready;
+      const result = await handle.pullNow();
+      await handle.settled();
+      handle.stop();
+
+      expect(result).toEqual({ outcome: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.", hold: { moved: "mattstack" } });
+      expect(git(clone, "rev-parse", "HEAD").trim()).toBe(before);
+      expect(existsSync(join(clone, "mattstack", "org", "settings.org.jsonc"))).toBe(true);
+      expect(existsSync(join(clone, "mattstack", "teams", "widgets", "settings.team.jsonc"))).toBe(true);
+      expect(moves).toEqual(["mattstack"]);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   test("nothing to pull runs no gate", async () => {
     let asked = 0;
-    const { handle } = start(async () => { asked++; return { layout: 5 }; }, 0);
+    const { handle } = start(async () => { asked++; return above(5); }, 0);
     await handle.ready;
     expect((await handle.pullNow()).outcome).toBe("up-to-date");
     expect(asked).toBe(0);
@@ -2828,23 +2929,42 @@ describe("the layout gate", () => {
 describe("layoutGate", () => {
   const exec = (res: { code: number; stdout: string; stderr: string }) => (async () => res) as unknown as Probes["exec"];
   test("reads the marker at the ref through git show", async () => {
-    expect(await layoutGate(exec({ code: 0, stdout: '{ "role": "org", "org": "acme", "layout": 5 }', stderr: "" }), "/clone", "refs/remotes/origin/main")).toEqual({ layout: 5 });
+    expect(await layoutGate(exec({ code: 0, stdout: '{ "role": "org", "org": "acme", "layout": 5 }', stderr: "" }), "/clone", "refs/remotes/origin/main", "main")).toEqual({ kind: "above", layout: 5 });
   });
   test("a one-team marker, an org marker at ORG_LAYOUT or with no layout, or an unparsable one passes", async () => {
     const atOrgLayout = JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT });
     for (const stdout of ['{ "role": "team", "org": "acme" }', atOrgLayout, '{ "role": "org", "org": "acme" }', "{ nope"]) {
-      expect(await layoutGate(exec({ code: 0, stdout, stderr: "" }), "/clone", "ref")).toBeNull();
+      expect(await layoutGate(exec({ code: 0, stdout, stderr: "" }), "/clone", "ref", "main")).toBeNull();
     }
   });
   test("a missing marker passes without throwing; any other git failure rejects with the stderr", async () => {
-    expect(await layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'refs/remotes/origin/main'" }), "/clone", "ref")).toBeNull();
-    await expect(layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: bad object\n" }), "/clone", "ref")).rejects.toThrow("fatal: bad object");
+    expect(await layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'refs/remotes/origin/main'" }), "/clone", "ref", "main")).toBeNull();
+    await expect(layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: bad object\n" }), "/clone", "ref", "main")).rejects.toThrow("fatal: bad object");
   });
   test("runs git show under LC_ALL=C", async () => {
     let env: Record<string, string> | undefined;
     const spy = (async (_argv: string[], opts?: { env?: Record<string, string> }) => { env = opts?.env; return { code: 0, stdout: "", stderr: "" }; }) as unknown as Probes["exec"];
-    await layoutGate(spy, "/clone", "ref");
+    await layoutGate(spy, "/clone", "ref", "main");
     expect(env).toEqual({ LC_ALL: "C" });
+  });
+  const byRef = (ref: string, head: { code: number; stdout: string; stderr: string }) => (async (argv: string[]) => {
+    const pointer = { code: 0, stdout: JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" }), stderr: "" };
+    return argv.includes(`${ref}:mattstack/mattstack.jsonc`) ? pointer : head;
+  }) as unknown as Probes["exec"];
+  const REF = "refs/remotes/origin/main";
+  test("a fetched marker naming another data branch moves a clone whose own marker names none", async () => {
+    const calls: string[][] = [];
+    const inner = byRef(REF, { code: 0, stdout: JSON.stringify({ role: "org", org: "acme", layout: 3 }), stderr: "" });
+    const spy = (async (argv: string[], opts?: unknown) => { calls.push(argv); return (inner as (a: string[], o?: unknown) => Promise<unknown>)(argv, opts); }) as unknown as Probes["exec"];
+    expect(await layoutGate(spy, "/clone", REF, "main")).toEqual({ kind: "moved", dataBranch: "mattstack" });
+    expect(calls.some((argv) => argv.includes("HEAD:mattstack/mattstack.jsonc"))).toBe(true);
+  });
+  test("a HEAD marker that cannot be read counts as naming no data branch", async () => {
+    expect(await layoutGate(byRef(REF, { code: 128, stdout: "", stderr: "fatal: bad object HEAD" }), "/clone", REF, "main")).toEqual({ kind: "moved", dataBranch: "mattstack" });
+  });
+  test("a trial branch whose own marker names the data branch is never moved", async () => {
+    const own = { code: 0, stdout: JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" }), stderr: "" };
+    expect(await layoutGate(byRef("refs/remotes/origin/mattstack-layout-5", own), "/clone", "refs/remotes/origin/mattstack-layout-5", "mattstack-layout-5")).toBeNull();
   });
 });
 

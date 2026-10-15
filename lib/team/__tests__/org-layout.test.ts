@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { ORG_MARKER_REL } from "../org-marker.ts";
 import { ORG_LAYOUT, READABLE_LAYOUTS } from "../org-marker.ts";
-import { layoutAbove, layoutSentence, orgLayoutState, pickedCloneReady, orgLayoutWaitingError, updateSentence, WAITING_SENTENCE } from "../org-layout.ts";
+import { gateVerdict, holdSentence, layoutAbove, layoutSentence, MOVED_SENTENCE, orgLayoutState, pickedCloneReady, orgLayoutWaitingError, shownDataBranch, updateSentence, WAITING_SENTENCE } from "../org-layout.ts";
 
 const H = "/h";
 const orgs = `${H}/.mattstack/orgs`;
@@ -96,5 +96,51 @@ describe("layout 4 with layout 3 readable", () => {
   test("a tip on layout 4 is not above this rt; 5 is", () => {
     expect(layoutAbove({ code: 0, stdout: '{"role":"org","org":"acme","layout":4}', stderr: "" })).toBeNull();
     expect(layoutAbove({ code: 0, stdout: '{"role":"org","org":"acme","layout":5}', stderr: "" })).toEqual({ layout: 5 });
+  });
+});
+
+describe("gateVerdict", () => {
+  const shown = (marker: object) => ({ code: 0, stdout: JSON.stringify(marker), stderr: "" });
+  const pointer = { role: "org", org: "acme", layout: 4, dataBranch: "mattstack" };
+  test("main naming another data branch is a move for a clone whose own marker names none", () => {
+    expect(gateVerdict(shown(pointer), "main", null)).toEqual({ kind: "moved", dataBranch: "mattstack" });
+  });
+  test("a clone already on its data branch passes", () => {
+    expect(gateVerdict(shown(pointer), "mattstack", null)).toBeNull();
+    expect(gateVerdict(shown(pointer), "mattstack", "mattstack")).toBeNull();
+  });
+  test("a trial branch whose own marker names the data branch is never moved", () => {
+    expect(gateVerdict(shown(pointer), "mattstack-layout-5", "mattstack")).toBeNull();
+  });
+  test("a layout above this rt still holds as before", () => {
+    expect(gateVerdict(shown({ role: "org", org: "acme", layout: 5 }), "main", null)).toEqual({ kind: "above", layout: 5 });
+    expect(gateVerdict(shown({ role: "org", org: "acme", layout: 5, dataBranch: "mattstack" }), "main", null)).toEqual({ kind: "above", layout: 5 });
+  });
+  test("no dataBranch on layout 4 or below passes", () => {
+    expect(gateVerdict(shown({ role: "org", org: "acme", layout: 3 }), "main", null)).toBeNull();
+    expect(gateVerdict(shown({ role: "org", org: "acme", layout: 4 }), "main", null)).toBeNull();
+  });
+  test("a tip with no marker passes; any other git failure throws", () => {
+    expect(gateVerdict({ code: 128, stdout: "", stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'refs/remotes/origin/main'" }, "main", null)).toBeNull();
+    expect(() => gateVerdict({ code: 128, stdout: "", stderr: "fatal: bad object" }, "main", null)).toThrow("fatal: bad object");
+  });
+});
+
+describe("shownDataBranch", () => {
+  test("the data branch a shown marker names; null for none, a failed show or a marker rt cannot parse", () => {
+    expect(shownDataBranch({ code: 0, stdout: JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" }), stderr: "" })).toBe("mattstack");
+    expect(shownDataBranch({ code: 0, stdout: JSON.stringify({ role: "org", org: "acme", layout: 3 }), stderr: "" })).toBeNull();
+    expect(shownDataBranch({ code: 128, stdout: "", stderr: "fatal: bad object" })).toBeNull();
+    expect(shownDataBranch({ code: 0, stdout: "{ nope", stderr: "" })).toBeNull();
+  });
+});
+
+describe("hold sentences", () => {
+  test("the moved sentence names the branch", () => {
+    expect(MOVED_SENTENCE("mattstack")).toBe("Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.");
+  });
+  test("a hold reads as its own sentence", () => {
+    expect(holdSentence({ layout: 5, reads: 4 })).toBe(updateSentence(5));
+    expect(holdSentence({ moved: "mattstack" })).toBe(MOVED_SENTENCE("mattstack"));
   });
 });

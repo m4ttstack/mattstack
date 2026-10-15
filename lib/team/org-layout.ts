@@ -41,6 +41,38 @@ export function layoutAbove(shown: { code: number; stdout: string; stderr: strin
   return marker.kind === "org" && marker.layout > ORG_LAYOUT ? { layout: marker.layout } : null;
 }
 
+export type GateVerdict = { kind: "above"; layout: number } | { kind: "moved"; dataBranch: string };
+
+/** Why a pull was held: the fetched tip is on a layout this rt does not read, or the org's data moved to another branch. */
+export type PullHold = { layout: number; reads: number } | { moved: string };
+
+export const MOVED_SENTENCE = (branch: string): string => `Your org's data moved to the ${branch} branch. rt switches this Mac over when your copy has no unsaved changes.`;
+
+export function holdSentence(hold: PullHold): string {
+  return "moved" in hold ? MOVED_SENTENCE(hold.moved) : updateSentence(hold.layout);
+}
+
+/** The data branch a `git show` of a marker names; null for a failed show, no marker, or one rt cannot parse. */
+export function shownDataBranch(shown: { code: number; stdout: string; stderr: string }): string | null {
+  if (shown.code !== 0) return null;
+  const marker = parseMarker(shown.stdout);
+  return marker.kind === "org" ? marker.dataBranch : null;
+}
+
+/**
+ * What a pull must do given the marker at the fetched tip, the branch this
+ * clone has checked out, and the data branch its own (HEAD) marker names. Only
+ * a clone whose own marker names no data branch moves: a trial branch made
+ * from the data branch still names it, and must stay where it is.
+ */
+export function gateVerdict(shown: { code: number; stdout: string; stderr: string }, checkedOut: string, own: string | null): GateVerdict | null {
+  const above = layoutAbove(shown);
+  if (above) return { kind: "above", layout: above.layout };
+  const named = shownDataBranch(shown);
+  if (own === null && named !== null && named !== checkedOut) return { kind: "moved", dataBranch: named };
+  return null;
+}
+
 export function layoutSentence(state: Extract<OrgLayoutState, { kind: "waiting" }>): string {
   return state.layout > ORG_LAYOUT ? updateSentence(state.layout) : WAITING_SENTENCE;
 }

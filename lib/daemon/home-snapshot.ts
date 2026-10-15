@@ -49,7 +49,7 @@ import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import { readTeamLocal, type PendingPackShare } from "../team/team-local.ts";
-import { layoutAbove, markerAtRef, updateSentence } from "../team/org-layout.ts";
+import { gateVerdict, holdSentence, markerAtRef, shownDataBranch, type GateVerdict, type PullHold } from "../team/org-layout.ts";
 import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
@@ -87,7 +87,7 @@ export interface PullResult {
   outcome: "up-to-date" | "fast-forwarded" | "rebased" | "conflict" | "skipped";
   detail: string | null;
   /** Set only on a pull the layout gate held; a caller tells a hold from any other skip by this, never by the sentence. */
-  hold?: { layout: number; reads: number };
+  hold?: PullHold;
 }
 
 export interface SnapshotStatus {
@@ -109,8 +109,8 @@ export interface SnapshotStatus {
   lastPullError: string | null;
   /** The most recent pull's skip reason (e.g. a rebase refused for a dirty `src/`); null after any non-skipped pull. */
   lastPullSkipped: string | null;
-  /** A fetched tip on a layout above what this rt reads: the pull stays at the last commit it can read until the app updates. Absent from a daemon that predates it. */
-  layoutHold?: { layout: number; reads: number } | null;
+  /** A fetched tip on a layout above what this rt reads (the pull stays at the last commit it can read until the app updates), or a `main` whose marker names the data branch this clone has not moved to. Absent from a daemon that predates it. */
+  layoutHold?: PullHold | null;
   /** A rebase that stopped mid-way. Cleared once the clone is no longer ahead of origin (a hand rebase then `rt team publish`, or a reset to origin); pushes and the applying of pulls stay suspended until then, while the fetch itself keeps running, since that is what observes the clearing condition. */
   conflicted: { at: number; detail: string } | null;
   /** True when this clone only fetches and fast-forwards. */
@@ -183,8 +183,10 @@ export interface SnapshotSpec {
     intervalSec: number;
     /** Fired after a pull that moved HEAD, outside the git lock. */
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
-    /** Runs after the fetch with the remote-tracking ref; a non-null answer holds the pull at the current commit. */
-    gate?: (ref: string) => Promise<{ layout: number } | null>;
+    /** Runs after the fetch with the remote-tracking ref and the checked-out branch; a non-null answer holds the pull at the current commit. */
+    gate?: (ref: string, branch: string) => Promise<GateVerdict | null>;
+    /** Fired after every pull the gate held with a moved verdict, outside the git lock. */
+    onMoved?: (dataBranch: string) => Promise<void>;
   };
   /** This Mac's role owns nothing in the clone, so the engine only fetches and fast-forwards. */
   pullOnly?: boolean;
@@ -438,9 +440,11 @@ function marketplaceOwed(shares: PendingPackShare[], repoDir: string, dirty: rea
   });
 }
 
-/** The org layout at `ref`, when it is one this rt does not read. A tip with no marker, a marker rt cannot parse, or a layout at or below ORG_LAYOUT passes. */
-export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string): Promise<{ layout: number } | null> {
-  return layoutAbove(await exec(["git", "-C", repoDir, "show", markerAtRef(ref)], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } }));
+/** `gateVerdict` for the marker at `ref` against this clone's checked-out branch and its own HEAD marker. A git failure reading `ref` other than a missing marker throws; an unreadable HEAD marker names no data branch. */
+export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string, checkedOut: string): Promise<GateVerdict | null> {
+  const show = (at: string) => exec(["git", "-C", repoDir, "show", markerAtRef(at)], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } });
+  const shown = await show(ref);
+  return gateVerdict(shown, checkedOut, shownDataBranch(await show("HEAD")));
 }
 
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
@@ -454,6 +458,7 @@ export function teamSnapshotSpec(
     ownedRoots: string[];
     readToken?: (p: Probes, remote: string) => Promise<string | null>;
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
+    onMoved?: (dataBranch: string) => Promise<void>;
   },
 ): SnapshotSpec {
   const readToken = opts.readToken ?? storedForgeToken;
@@ -491,7 +496,7 @@ export function teamSnapshotSpec(
       };
     },
     watch: teamScope,
-    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, gate: (ref) => layoutGate(opts.probes.exec, repoDir, ref) },
+    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, onMoved: opts.onMoved, gate: (ref, branch) => layoutGate(opts.probes.exec, repoDir, ref, branch) },
     pullOnly: opts.ownedRoots.length === 0,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
     originUrl: opts.originUrl,
@@ -558,8 +563,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let unownedDirty: string[] = [];
   let heldBack: string[] = [];
   let lastPullSkipped: string | null = null;
-  let layoutHold: { layout: number; reads: number } | null = null;
-  let loggedHold: number | null = null;
+  let layoutHold: PullHold | null = null;
+  let loggedHold: string | null = null;
   let loggedGateError: string | null = null;
   let conflicted: { at: number; detail: string } | null = null;
   /** `spec.tokenFor` is a keychain read plus a sops decrypt, so it is resolved once per pull interval rather than per git call. */
@@ -882,6 +887,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     } finally {
       pullInFlight = null;
     }
+    if (result.hold && "moved" in result.hold) await runMoveHook(result.hold.moved);
     const moved = result.outcome === "fast-forwarded" || result.outcome === "rebased";
     if (moved && spec.pull.onPulled) {
       const outcome = result.outcome as "fast-forwarded" | "rebased";
@@ -928,6 +934,16 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
+  /** Outside the git lock, like the post-pull hook: the move runs git of its own. Never throws, so a failed move leaves the pull held, not failed. */
+  async function runMoveHook(dataBranch: string): Promise<void> {
+    if (!spec.pull?.onMoved) return;
+    try {
+      await spec.pull.onMoved(dataBranch);
+    } catch (err) {
+      deps.log.warn({ err, id: spec.id, dataBranch }, `${label}: move hook failed; the pull stays held`);
+    }
+  }
+
   /** Cleared before the hook runs, so a throwing converge cannot latch the flag and re-run forever. */
   async function drainPendingConverge(): Promise<void> {
     const outcome = pendingConverge;
@@ -966,25 +982,30 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (conflicted && ahead === 0) clearConflict();
     if (conflicted) return { outcome: "skipped", detail: conflicted.detail };
     if (spec.pull?.gate && behind !== 0) {
-      let hold: { layout: number } | null = null;
+      let verdict: GateVerdict | null = null;
       let threw = false;
       try {
-        hold = await spec.pull.gate(`refs/remotes/origin/${branch}`);
+        verdict = await spec.pull.gate(`refs/remotes/origin/${branch}`, branch);
       } catch (err) {
         threw = true;
         if (loggedGateError !== String(err)) {
           deps.log.warn({ err, id: spec.id }, `${label}: layout gate threw; ${layoutHold === null ? "passing" : "keeping the hold"}`);
           loggedGateError = String(err);
         }
-        if (layoutHold !== null) return { outcome: "skipped", detail: updateSentence(layoutHold.layout), hold: layoutHold };
+        if (layoutHold !== null) return { outcome: "skipped", detail: holdSentence(layoutHold), hold: layoutHold };
       }
-      if (hold) {
-        layoutHold = { layout: hold.layout, reads: ORG_LAYOUT };
-        if (loggedHold !== hold.layout) {
-          deps.log.info({ id: spec.id, layout: hold.layout, reads: ORG_LAYOUT }, `${label}: holding the pull; the org is on a layout this rt does not read`);
-          loggedHold = hold.layout;
+      if (verdict) {
+        layoutHold = verdict.kind === "above" ? { layout: verdict.layout, reads: ORG_LAYOUT } : { moved: verdict.dataBranch };
+        const key = verdict.kind === "above" ? `layout:${verdict.layout}` : `moved:${verdict.dataBranch}`;
+        if (loggedHold !== key) {
+          if (verdict.kind === "above") {
+            deps.log.info({ id: spec.id, layout: verdict.layout, reads: ORG_LAYOUT }, `${label}: holding the pull; the org is on a layout this rt does not read`);
+          } else {
+            deps.log.info({ id: spec.id, dataBranch: verdict.dataBranch }, `${label}: holding the pull; the org's data moved to the ${verdict.dataBranch} branch`);
+          }
+          loggedHold = key;
         }
-        return { outcome: "skipped", detail: updateSentence(hold.layout), hold: layoutHold };
+        return { outcome: "skipped", detail: holdSentence(layoutHold), hold: layoutHold };
       }
       layoutHold = null;
       loggedHold = null;
@@ -1163,7 +1184,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   /** A held pull leaves the branch behind origin, so a push would only be rejected: wait for the hold to clear, with no error, no broadcast and no retry ladder. */
   function holdPush(): void {
     pushPending = true;
-    deps.log.debug(`${label}: the pull is held on the org layout; keeping the push for later`);
+    deps.log.debug(`${label}: the pull is held by the layout gate; keeping the push for later`);
   }
 
   async function doPushInner(): Promise<void> {

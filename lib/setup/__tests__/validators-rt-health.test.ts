@@ -1499,7 +1499,7 @@ describe("rtHealthRows: team.sync wiring", () => {
 describe("orgLayoutRow", () => {
   const legacy = JSON.stringify({ role: "team", namespace: "widgets", org: "acme" });
   const converted = JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT });
-  const status = (hold: { layout: number; reads: number } | null) => async () => [{ slug: "acme", layoutHold: hold } as unknown as TeamSnapshotEntry];
+  const status = (hold: { layout: number; reads: number } | { moved: string } | null) => async () => [{ slug: "acme", layoutHold: hold } as unknown as TeamSnapshotEntry];
   const at = (marker: string, store: boolean) =>
     fakeProbes({
       home: "/h",
@@ -1535,6 +1535,11 @@ describe("orgLayoutRow", () => {
   test("a daemon hold reads needs-you even though the clone itself is ready", async () => {
     const r = await orgLayoutRow(at(converted, true), status({ layout: ORG_LAYOUT + 1, reads: ORG_LAYOUT }));
     expect(r).toMatchObject({ status: "needs-you", detail: `Your org uses layout ${ORG_LAYOUT + 1} and this app reads up to ${ORG_LAYOUT}. Update the app.` });
+  });
+  test("a moved hold is skipped with the moved sentence and no action", async () => {
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true), status({ moved: "mattstack" }));
+    expect(r).toMatchObject({ status: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes." });
+    expect(r?.action ?? null).toBeNull();
   });
   test("a daemon that is not running does not hide a ready clone", async () => {
     const r = await orgLayoutRow(at(converted, true), async () => null);
@@ -1587,6 +1592,12 @@ describe("held layout and row position", () => {
     expect(r?.detail).not.toContain("reset it to origin");
     expect(r?.detail).not.toContain("cannot fast-forward");
     expect(r?.status).toBe("ready");
+  });
+  test("team.sync does not report a moved hold as a skipped pull", async () => {
+    const sentence = "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.";
+    const r = await teamSyncRow(["widgets"], async () => [entry({ pullOnly: false, lastPullSkipped: sentence, layoutHold: { moved: "mattstack" } })], () => 1000, 300, true);
+    expect(r?.status).toBe("ready");
+    expect(r?.detail).not.toContain("Last pull skipped");
   });
   test("org.layout sits right after org.folder", async () => {
     const p = fakeProbes({

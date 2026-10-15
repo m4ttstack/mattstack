@@ -3,7 +3,7 @@ import { claimPendingAdmin } from "../../team/create.ts";
 import { tokenLookupRemoteForHost } from "../../team/forge-token.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { markerState, ORG_LAYOUT, type MarkerState } from "../../team/org-marker.ts";
-import { updateSentence } from "../../team/org-layout.ts";
+import { holdSentence, type PullHold } from "../../team/org-layout.ts";
 import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
@@ -17,7 +17,7 @@ const PULL_TIMEOUT_MS = 180_000;
 
 interface PullReply {
   ok: boolean;
-  data?: { outcome: string; detail: string | null; hold?: { layout: number; reads: number } };
+  data?: { outcome: string; detail: string | null; hold?: PullHold };
   error?: string;
   failure?: { code: string; message: string };
 }
@@ -47,7 +47,7 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
       if (res === null)
         skips.push((await ctx.p.daemon("ping")) === null ? "The rt daemon is not running, so the org is pulled once it is" : "The pull is still running in the daemon");
       else if (!res.ok && res.failure?.code === "no-team") skips.push(`Team sync has not started for ${slug} yet, so it is pulled once it does`);
-      else if (res.ok && res.data?.hold) held.push(res.data.detail ?? updateSentence(res.data.hold.layout));
+      else if (res.ok && res.data?.hold) held.push(res.data.detail ?? holdSentence(res.data.hold));
       else if (!res.ok || !res.data || ["conflict", "skipped"].includes(res.data.outcome))
         stuck.push(`${slug} was not pulled: ${res.data?.detail ?? res.failure?.message ?? res.error ?? res.data?.outcome ?? "the daemon gave no reason"}`);
       else {

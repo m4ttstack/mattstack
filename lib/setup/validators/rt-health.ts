@@ -23,7 +23,7 @@ import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, orgDirUnder
 import { getSetting } from "../../settings/resolve.ts";
 import { detectShellFrom, END_MARKER, MARKER, repairLegacyBlock, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
-import { layoutSentence, orgLayoutState, updateSentence } from "../../team/org-layout.ts";
+import { holdSentence, layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
@@ -727,7 +727,7 @@ export function orgFolderRow(p: Probes, orgs: string[]): Row | null {
 export const ORG_LAYOUT_ROW_ID = "org.layout";
 const UPDATE_APP_ACTION: Action = { type: "steps", label: "Show steps…", steps: ["Update mattstack from its menu bar icon, then reopen Setup status"] };
 
-/** The org's layout against what this rt reads. A clone still on the one-team layout waits for the admin's conversion; one past this rt, or a daemon holding the pull, needs the app update. */
+/** The org's layout against what this rt reads. A clone still on the one-team layout waits for the admin's conversion, and one whose org moved its data to another branch waits for rt to switch it; one past this rt, or a daemon holding the pull on a newer layout, needs the app update. */
 export async function orgLayoutRow(p: Probes, readStatus: () => Promise<TeamSnapshotEntry[] | null>): Promise<Row | null> {
   const state = orgLayoutState(p);
   if (state.kind === "none") return null;
@@ -740,7 +740,8 @@ export async function orgLayoutRow(p: Probes, readStatus: () => Promise<TeamSnap
     recheck: "on-activate" as const,
   };
   const hold = (await readStatus())?.find((e) => e.slug === state.slug)?.layoutHold ?? null;
-  if (hold) return row({ ...base, status: "needs-you", detail: updateSentence(hold.layout), action: UPDATE_APP_ACTION });
+  if (hold && "moved" in hold) return row({ ...base, status: "skipped", detail: holdSentence(hold) });
+  if (hold) return row({ ...base, status: "needs-you", detail: holdSentence(hold), action: UPDATE_APP_ACTION });
   if (state.kind === "waiting") {
     return state.layout > ORG_LAYOUT
       ? row({ ...base, status: "needs-you", detail: layoutSentence(state), action: UPDATE_APP_ACTION })

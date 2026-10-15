@@ -767,6 +767,15 @@ describe("teamPull", () => {
     expect(body).toEqual({ contract: 1, slug: "acme", outcome: "skipped", detail, hold });
   });
 
+  test("--json carries a moved hold beside the existing keys", async () => {
+    const hold = { moved: "mattstack" };
+    const detail = "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.";
+    const deps = depsWithZone({ daemon: async (cmd) => (cmd === "team:pull" ? { ok: true, data: { outcome: "skipped", detail, hold } } : { ok: false }) });
+    await teamPull(["--team", "acme", "--json"], {}, deps);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(body).toEqual({ contract: 1, slug: "acme", outcome: "skipped", detail, hold });
+  });
+
   test("the pull carries a timeout that fits a real fetch and rebase, not the status default", async () => {
     let seen: number | undefined = -1;
     const deps = depsWithZone({

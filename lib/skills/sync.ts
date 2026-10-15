@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { dirname, join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
-import { layoutAbove, markerAtRef, updateSentence } from "../team/org-layout.ts";
+import { gateVerdict, markerAtRef, MOVED_SENTENCE, shownDataBranch, updateSentence, type GateVerdict } from "../team/org-layout.ts";
 import { ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
 import { FLOOR_REL, heldCopy, readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
 import { admit, updateArgs } from "../setup/plugin-calls.ts";
@@ -592,13 +592,14 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (branch.code !== 0) return pullFailed(branch.stderr);
       const tip = `refs/remotes/origin/${branch.stdout.trim()}`;
       const shown = await deps.run("git", ["show", markerAtRef(tip)], { cwd: clone });
-      let hold: { layout: number } | null;
+      const own = await deps.run("git", ["show", markerAtRef("HEAD")], { cwd: clone });
+      let verdict: GateVerdict | null;
       try {
-        hold = layoutAbove(shown);
+        verdict = gateVerdict(shown, branch.stdout.trim(), shownDataBranch(own));
       } catch (e) {
         return pullFailed(e instanceof Error ? e.message : String(e));
       }
-      if (hold) return { ...refused(updateSentence(hold.layout)), [LAYOUT_HOLD]: true };
+      if (verdict) return { ...refused(verdict.kind === "above" ? updateSentence(verdict.layout) : MOVED_SENTENCE(verdict.dataBranch)), [LAYOUT_HOLD]: true };
       // A merge of the gated ref, not a pull: a pull fetches again and could land a newer tip the gate never read.
       res = await deps.run("git", ["merge", "--ff-only", tip], { cwd: clone });
     } else {
