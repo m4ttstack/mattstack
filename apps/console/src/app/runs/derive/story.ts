@@ -56,6 +56,9 @@ export interface LiveStory {
   current: StageAttempt | null;
   currentLabel: string | null;
   currentFields: RunFieldRow[];
+  /** The current attempt's answered and closed gates: an answer shows here
+      before the agent records its decision. */
+  currentGates: GateRow[];
   entries: StoryEntry[];
 }
 
@@ -238,6 +241,7 @@ export function liveStory(input: StoryInput): LiveStory {
     current,
     currentLabel: current ? label(current) : null,
     currentFields: current ? (placed.get(keyOf(current)) ?? []) : [],
+    currentGates: current ? (gatesAt.get(keyOf(current)) ?? []) : [],
     entries: entries.filter(
       e =>
         e.fields.length > 0 ||

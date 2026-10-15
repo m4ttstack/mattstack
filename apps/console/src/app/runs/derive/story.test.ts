@@ -115,6 +115,21 @@ describe('liveStory', () => {
     expect(story.entries[0]!.durationMs).toBe(10);
   });
 
+  it("keeps the current attempt's settled gates for the Now card", () => {
+    const story = liveStory(
+      input({
+        stages,
+        gates: [
+          gate('g1', 'plan', 12),
+          gate('g2', 'implement', 35),
+          gate('g3', 'implement', 36, { status: 'open', answer: null }),
+        ],
+      })
+    );
+    expect(story.currentGates.map(g => g.id)).toEqual(['g2']);
+    expect(story.entries.flatMap(e => e.gates.map(g => g.id))).toEqual(['g1']);
+  });
+
   it('leaves out an attempt with nothing to tell', () => {
     const story = liveStory(input({ stages, fields: [fld('approach', 15)] }));
     expect(story.entries.map(e => e.attempt.stage)).toEqual(['plan']);
