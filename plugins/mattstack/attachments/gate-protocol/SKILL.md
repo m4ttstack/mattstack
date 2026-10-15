@@ -376,13 +376,12 @@ steps: its `run_field_set` with `key` `gate` is the bracket node, and its
 `run_decision` line is the `run_decision` node, filled with the site's
 selection, never a second record.
 
-A write-in answer records under the selection's `writeIn` key, an object
-keyed by question id: `"writeIn": {"<question id>": "<their words>"}`. No
-site uses `writeIn` for anything else, so it never collides. The site's
-own slot for that question, when it has one, is `null`; every other slot
-keeps what the site defines. Where a site folds the question into `next`
-(watch-ci's `action`), `next` records `iterate`, or the Hold or Go back
-that won.
+A write-in answer records as an object, never bare text, in the
+selection slot that holds that question's answer: `"tier": {"writeIn":
+"<their words>"}`. Every other slot keeps what the site defines. Where a
+site names that slot differently (self-review's `finding` gate answers in
+`retry`) or folds the question into `next` (watch-ci's `action`), the
+site's selection line says where it goes.
 
 ## Off-script gate
 

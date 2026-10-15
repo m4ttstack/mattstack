@@ -470,6 +470,8 @@ error also reaches it, quoted in the sentence above the form.
 | `next` | **Proceed** / **Iterate here** / **Go back to `<stage>`** / **Hold** | always |
 
 Selection: `{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
+An `action` write-in adds `"action": {"writeIn": "<their words>"}`, and
+`next` records `iterate`, or the Hold or Go back that won.
 Retry: `mr_retry` per INFRA job id on GitLab, `gh run rerun <run-id>
 --failed` on GitHub (the run id from the failed check's link in `gh pr
 checks <mr>`), after the re-claim.

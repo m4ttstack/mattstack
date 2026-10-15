@@ -697,6 +697,8 @@ the form.
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
 Selection: `{"next":"fix|retry|handback|abandon|iterate|hold","note":"<their words or null>"}`.
+An `action` write-in adds `"action": {"writeIn": "<their words>"}`, and
+`next` records `iterate`, or the Hold that won.
 An iterate passes `ci gate iterations = 3 (watch-ci)`; at three, the run
 hands back. Hand back leaves the MR red for the human: an own run closes
 `done`, an inherited one hands the verdict back.

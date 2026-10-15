@@ -326,13 +326,14 @@ wait queue):
 Record `run_decision {contract: gate@1, scope: self-review, selection:
 {"fix": "blocking|all|none", "note": "<their words or null>"}, decidedBy:
 <the answer's by>}`. Blocking means Critical and Important; the minors
-answer fixes every finding. A `fix` write-in records `"fix": null` beside
-`"writeIn": {"fix": "<their words>"}`.
+answer fixes every finding. A `fix` write-in records `"fix": {"writeIn":
+"<their words>"}`.
 
 A resumed run whose snapshot records the latest `self-review` decision
 with `fix` set to an option value (`blocking`, `all` or `none`) reuses
 that answer, treats `next` as proceed, and asks nothing here. One whose
-latest decision carries `writeIn.fix` instead resumes at gate-protocol's
+latest decision's `fix` is a write-in (`{"writeIn": ...}`) instead
+resumes at gate-protocol's
 Act on a write-in: finish the work the write-in asks for, then open a NEW
 self-review gate.
 
@@ -347,8 +348,8 @@ abandon whatever `finding` says; otherwise the `finding` answer decides.
 Record `run_decision {contract: gate@1, scope: self-review, selection:
 {"finding": "<its id or file:line>", "retry": true|false, "note": "<their
 words or null>"}, decidedBy: <the answer's by>}`. A `finding` write-in
-keeps the finding's id in `finding`, sets `retry` to `null`, and carries
-the words as `"writeIn": {"finding": "<their words>"}`. Try again resets that
+records in `retry`, the slot that holds that question's answer: `"retry":
+{"writeIn": "<their words>"}`, with the finding's id left in `finding`. Try again resets that
 finding's attempt count to 0; each finding gets one reopened gate, after
 which it is left open.
 
