@@ -139,12 +139,14 @@ export function EvidenceModal({
             </Group>
             <Group gap="sm" wrap="nowrap">
               {controls}
-              <Modal.CloseButton aria-label="Close" data-autofocus />
+              <Modal.CloseButton aria-label="Close" />
             </Group>
           </Modal.Header>
           <Divider />
           <Modal.Body className={classes.body}>
-            <div className={classes.stage}>{children}</div>
+            <div className={classes.stage} tabIndex={-1} data-autofocus>
+              {children}
+            </div>
             {footer ? (
               <>
                 <Divider />
@@ -272,8 +274,12 @@ export function EvidenceCompare({
       footer={
         several ? (
           <Group gap={6} className={classes.footer}>
-            <Kbd size="xs">←</Kbd>
-            <Kbd size="xs">→</Kbd>
+            <Kbd size="xs" className={classes.key}>
+              ←
+            </Kbd>
+            <Kbd size="xs" className={classes.key}>
+              →
+            </Kbd>
             <Text size="xs" c="dimmed">
               switch case
             </Text>
@@ -313,7 +319,7 @@ export function EvidenceCompare({
               </ActionIcon>
             </Group>
           ) : null}
-          {several || themes.length === 2 || modes.length > 1 ? (
+          {several && (themes.length === 2 || modes.length > 1) ? (
             <Divider orientation="vertical" />
           ) : null}
           {themes.length === 2 ? (

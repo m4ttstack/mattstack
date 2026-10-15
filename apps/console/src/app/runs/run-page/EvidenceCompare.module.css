@@ -19,6 +19,12 @@
   overflow: hidden;
 }
 
+/* Holds focus on open so the arrow keys reach the case pager, not a control;
+   it is not itself a control, so it draws no ring. */
+.stage:focus {
+  outline: none;
+}
+
 .images {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -67,6 +73,12 @@
   width: 0;
   min-width: 100%;
   padding-inline: 2px;
+}
+
+.key {
+  border-bottom-width: 1px;
+  padding: 1px 6px;
+  line-height: normal;
 }
 
 .footer {
