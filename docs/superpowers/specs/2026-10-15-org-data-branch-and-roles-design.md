@@ -239,7 +239,10 @@ own guard limits what they change there.
 ### Who should have what
 
 From the roles: org owners, admins and team owners are on the push list and
-have write; members and people on no team have read.
+have write; members and people on no team have read. rt only grants: it
+never lowers anyone's existing repo-wide access (a member may need write for
+application code in the same repo). Repo access is removed only by `rt team
+members remove`; leaving a role takes a person off the push list.
 
 | | Read | Write | Push list |
 |---|---|---|---|

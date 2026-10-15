@@ -636,7 +636,7 @@ git commit -m "team create starts an org on its own data branch with a pointer o
 - A refused push of `main` (a protected branch fake: the bare origin with a pre-receive hook that rejects `main`) pushes the pointer commit to `mattstack-pointer` instead and prints that the admin lands it by the repo's own rules.
 - `main` changing under `mattstack/` between the data branch push and the pointer commit: the script re-copies the changed files to `mattstack`, pushes, and only then commits the pointer.
 - `--no-pointer --data-branch mattstack-trial`: pushes only `mattstack-trial`, whose marker names `mattstack-trial`; `main` is untouched.
-- The script prints the forge access grant step last (`rt team access grant`, the verb plan 3 adds; if plan 3 has not merged, print the sentence only).
+- The script prints the forge access steps last, plan 3's verbs: `rt team manage-membership on`, then `rt team forge-access --apply`.
 
 - [ ] **Step 2: Run them to verify they fail**
 
