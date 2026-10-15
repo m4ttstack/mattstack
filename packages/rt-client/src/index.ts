@@ -231,6 +231,7 @@ export {
 export { readForgeUsername } from "./settings/team-local-read.ts";
 export { currentRole, isOrgAdmin, mayWritePath, ORG_MANAGED_ROOTS, orgStoreRefusal, ownedRoots, roleOf, writeRefusalFor } from "./settings/org-roles.ts";
 export type { OrgRole } from "./settings/org-roles.ts";
+export { orgStoreChangeRefusal } from "./settings/org-store-guard.ts";
 export type { StoreFile } from "./settings/stores.ts";
 
 export {
