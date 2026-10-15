@@ -1013,3 +1013,30 @@ Pass-2 boards:
   caption line, as v1 records none. The board cannot load since the kit
   pass made the story a stage list: there is no `Stage plan` row to click.
   runs-ev-story covers the evidence strip.
+
+## Gate queue strip
+
+On a run's page, the gates waiting on you from other runs: the 3 oldest as
+chips, "+N more" to the waiting runs, and Answer next (or `g`) for the
+oldest. The Runs rail entry carries the same count as the deck tab. The
+boards are in `runs.pen`, light then dark, and are read by eye; they are
+not in `boards.ts`.
+
+### Boards
+
+| frame (light)        | light id | dark id | route                                     |
+| -------------------- | -------- | ------- | ----------------------------------------- |
+| `Gate queue · strip` | `SDVuS`  | `k4XrU` | `/runs/remote%3Aacme%2Fweb/20261008-1338` |
+
+The `runs` scenario has one gate waiting on another run (WEB-418's plan
+gate); the board draws five.
+
+### Board-fix list (gate queue)
+
+- The label reads "N waiting on other runs": the strip leaves out the run
+  on screen, so "waiting on you" would disagree with the rail badge.
+- The chips are kit `Button`s (`default`, `compact-sm`, radius `xl`) and
+  "+N more" a kit `Anchor`; the key hint is the kit `Kbd sm` and the
+  button the kit default size, so the strip is taller than the board's.
+- The rail badge is a kit `Indicator` in `bad`, as the Wiring entry's is.
+- Below about 1100px the chips wrap to a second row; the board draws one.

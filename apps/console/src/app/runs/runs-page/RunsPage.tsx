@@ -40,7 +40,7 @@ import {
 import { useRunTitles, type TitleOf } from '../useRunTitles';
 import { EarlierList, type EarlierRowInfo } from './EarlierList';
 import { LiveLane } from './LiveLane';
-import { runHref, ticketOf } from './runLinks';
+import { gateHref, runHref, ticketOf } from './runLinks';
 import classes from './RunsPage.module.css';
 import { StatLine } from './StatLine';
 import { TimelineView, ViewToggle } from './TimelineView';
@@ -330,7 +330,7 @@ export function RunsPage() {
                     gate={banner.gate}
                     ticket={ticketOf(banner.run)}
                     title={titleOf(banner.run)}
-                    href={`${runHref(banner.run)}#gate-${encodeURIComponent(banner.gate.id)}`}
+                    href={gateHref(banner.run, banner.gate)}
                     now={now}
                   />
                 ) : null}

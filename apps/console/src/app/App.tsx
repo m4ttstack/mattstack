@@ -12,8 +12,8 @@ import { createQueryClient } from './queryClient';
 import { useAppRoute, type AppRoute } from './routes';
 import { RunDetail } from './runs/RunDetail';
 import { RunsPage } from './runs/runs-page/RunsPage';
-import { runsHomeHref } from './runs/runs-page/useRunsUrl';
 import { RunSearch } from './runs/RunSearch';
+import { RunsRailEntry } from './runs/RunsRailEntry';
 import { explainHref } from './settings/explainParam';
 import { SettingsEmbed } from './settings/SettingsEmbed';
 import { SettingsPage } from './settings/SettingsPage';
@@ -129,12 +129,7 @@ export function App() {
       >
         <ViewerChip info={viewer} />
         <MattstackShell.Rail>
-          <RailLink
-            icon="workflow"
-            label="Runs"
-            href={runsHomeHref()}
-            active={section === 'runs'}
-          />
+          <RunsRailEntry active={section === 'runs'} />
           <RailLink
             icon="search"
             label="Search"

@@ -88,6 +88,10 @@ export function gateKindLabel(kind: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** "plan gate" from a kind such as `plan` or `clarify:capture:1`. */
+export const gateName = (kind: string) =>
+  `${kind.split(':')[0]!.replace(/-/g, ' ')} gate`;
+
 export function tookRecommendation(
   question: GateQuestion,
   answer: GateAnswer | null

@@ -6,6 +6,7 @@ import { Link } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
 import { formatDuration } from '../derive/duration';
+import { gateName } from '../derive/gates';
 import { Glyph } from '../Glyph';
 import { StatusCard } from '../StatusCard';
 import classes from './WaitingBanner.module.css';
@@ -18,10 +19,6 @@ export interface WaitingBannerProps {
   href: string;
   now: number;
 }
-
-/** "plan gate" from a kind such as `plan` or `clarify:capture:1`. */
-const gateName = (kind: string) =>
-  `${kind.split(':')[0]!.replace(/-/g, ' ')} gate`;
 
 /** My oldest waiting gate, read-only: the run and its first question.
     "Answer gate" and `g` open the run page at the gate; nothing is answered

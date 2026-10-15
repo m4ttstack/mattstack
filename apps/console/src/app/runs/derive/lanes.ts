@@ -59,6 +59,19 @@ export function waitingOnMe(
   return out.sort((a, b) => a.gate.openedAt - b.gate.openedAt);
 }
 
+/** The gates waiting on me from every run but the one on screen, oldest
+    first: the run page's queue strip. */
+export function gateQueue(
+  runs: RunSummary[],
+  gates: GateRow[],
+  now: number,
+  currentRunId: string
+): Banner[] {
+  return waitingOnMe(runs, gates, now).filter(
+    entry => entry.run.id !== currentRunId
+  );
+}
+
 /** My oldest waiting `run:` gate. Herd-owned gates and the board's review
     and respond gates never show here. */
 export function waitingBanner(
