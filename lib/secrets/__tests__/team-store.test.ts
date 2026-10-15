@@ -4,6 +4,9 @@ import { closeStateDb } from "../../state/index.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import {
+  ADMIN_PATH_REGEX,
+  listRuleFiles,
+  parseSopsRules,
   TEAM_PATH_REGEX,
   teamSecretsFile,
   teamSopsYamlPath,
@@ -22,8 +25,9 @@ import {
   TeamReencryptError,
 } from "../team-store.ts";
 import { UserActionableError } from "../../errors.ts";
-import { InvalidSecretsSegmentError, SopsDecryptError, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../store.ts";
-import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
+import { InvalidSecretsSegmentError, SopsDecryptError, type SecretsSeams } from "../store.ts";
+import { FakeTeamExecSeam, fakeAgeKeySeamAbsent, fakeAgeKeySeamWithKey, seamsWithKey, teamCloneRootFor } from "./team-fakes.ts";
+import { renderSopsYamlFor } from "../../home/age-key.ts";
 import { orgsDir } from "../../rt-paths.ts";
 import { join } from "path";
 import { secretsList } from "../../../commands/secrets.ts";
@@ -46,155 +50,6 @@ afterEach(() => {
   process.env.HOME = priorHome;
   rmSync(fixtureHome, { recursive: true, force: true });
 });
-
-function teamCloneRootFor(slug: string): string {
-  return join(orgsDir(), slug);
-}
-
-function fakeAgeKeySeamWithKey(key: string): AgeKeySeam {
-  return {
-    async run(cmd): Promise<AgeExecResult> {
-      if (cmd[0] === "security" && cmd[1] === "find-generic-password") {
-        return { code: 0, stdout: `${key}\n`, stderr: "" };
-      }
-      throw new Error(`fakeAgeKeySeamWithKey: unexpected call ${cmd.join(" ")}`);
-    },
-  };
-}
-
-function fakeAgeKeySeamAbsent(): AgeKeySeam {
-  return {
-    async run(): Promise<AgeExecResult> {
-      return { code: 44, stdout: "", stderr: "The specified item could not be found in the keychain." };
-    },
-  };
-}
-
-type Call = { cmd: string[]; opts?: { env?: Record<string, string>; sensitive?: boolean } };
-
-/**
- * Same round-trippable-plaintext modeling as store.test.ts's own fake, plus
- * `listDir` (team-store's domain-file discovery) and `.sops.yaml` as just
- * another entry in the same `files` map — writeTeamRecipients/readTeamRecipients
- * go through the plain fileExists/readFile/writeFile trio, no sops involved.
- */
-class FakeTeamExecSeam implements SecretsExecSeam {
-  calls: Call[] = [];
-  files = new Map<string, string>();
-  stats = new Map<string, { mtimeMs: number; size: number }>();
-  removeFileCalls: string[] = [];
-  fsyncAndRenameCalls: { from: string; to: string }[] = [];
-  private mtimeCounter = 0;
-  private roundTrippablePlaintext = new Map<string, string>();
-  private updatekeysResult: SecretsExecResult;
-  private failUpdatekeysOnCall?: number;
-  private updatekeysCallCount = 0;
-  private decryptResult?: SecretsExecResult;
-
-  constructor(opts: { updatekeys?: SecretsExecResult; failUpdatekeysOnCall?: number; decrypt?: SecretsExecResult } = {}) {
-    this.updatekeysResult = opts.updatekeys ?? { code: 0, stdout: "", stderr: "" };
-    this.failUpdatekeysOnCall = opts.failUpdatekeysOnCall;
-    this.decryptResult = opts.decrypt;
-  }
-
-  fileExists(path: string): boolean {
-    return this.files.has(path);
-  }
-
-  listDir(dirPath: string): string[] {
-    const prefix = dirPath.endsWith("/") ? dirPath : `${dirPath}/`;
-    const names: string[] = [];
-    for (const p of this.files.keys()) {
-      if (p.startsWith(prefix) && !p.slice(prefix.length).includes("/")) names.push(p.slice(prefix.length));
-    }
-    return names;
-  }
-
-  private touch(path: string): void {
-    this.mtimeCounter += 1;
-    this.stats.set(path, { mtimeMs: this.mtimeCounter, size: this.files.get(path)?.length ?? 0 });
-  }
-
-  statFile(path: string): { mtimeMs: number; size: number } | null {
-    return this.stats.get(path) ?? null;
-  }
-
-  readFile(path: string): string {
-    const content = this.files.get(path);
-    if (content === undefined) throw new Error(`FakeTeamExecSeam: readFile of missing path ${path}`);
-    return content;
-  }
-
-  writeFile(path: string, content: string): void {
-    this.files.set(path, content);
-    this.touch(path);
-  }
-
-  ensureDir(): void {}
-  chmod(): void {}
-
-  fsyncAndRename(from: string, to: string): void {
-    this.fsyncAndRenameCalls.push({ from, to });
-    const content = this.files.get(from);
-    if (content !== undefined) {
-      this.files.set(to, content);
-      this.files.delete(from);
-      this.stats.delete(from);
-      this.touch(to);
-    }
-    // A later plain `sops -d <to>` (readTeamSecret, or the next write's
-    // read-existing-before-merge) must still resolve real plaintext after
-    // the rename — the round-trip map's key has to move with the file.
-    const plaintext = this.roundTrippablePlaintext.get(from);
-    if (plaintext !== undefined) {
-      this.roundTrippablePlaintext.set(to, plaintext);
-      this.roundTrippablePlaintext.delete(from);
-    }
-  }
-
-  removeFile(path: string): void {
-    this.removeFileCalls.push(path);
-    this.files.delete(path);
-    this.stats.delete(path);
-  }
-
-  async run(cmd: string[], runOpts?: { env?: Record<string, string>; sensitive?: boolean }): Promise<SecretsExecResult> {
-    this.calls.push({ cmd, opts: runOpts });
-
-    if (cmd[0] === "sops" && cmd[1] === "-d") {
-      if (this.decryptResult) return this.decryptResult;
-      const target = cmd[cmd.length - 1]!;
-      const staged = this.roundTrippablePlaintext.get(target);
-      return { code: 0, stdout: staged ?? "{}", stderr: "" };
-    }
-    if (cmd[0] === "sops" && cmd[1] === "-e") {
-      const outputIdx = cmd.indexOf("--output");
-      const outputPath = cmd[outputIdx + 1]!;
-      const stagingInputPath = cmd[cmd.length - 1]!;
-      this.files.set(outputPath, JSON.stringify({ data: "opaque", sops: {} }));
-      this.touch(outputPath);
-      const staged = this.files.get(stagingInputPath);
-      if (staged !== undefined) this.roundTrippablePlaintext.set(outputPath, staged);
-      return { code: 0, stdout: "", stderr: "" };
-    }
-    if (cmd[0] === "sops" && cmd[1] === "updatekeys") {
-      this.updatekeysCallCount += 1;
-      if (this.failUpdatekeysOnCall === this.updatekeysCallCount) {
-        return { code: 1, stdout: "", stderr: "sops: boom" };
-      }
-      return this.updatekeysResult;
-    }
-
-    throw new Error(`FakeTeamExecSeam: unexpected call ${cmd.join(" ")}`);
-  }
-}
-
-/** Registers `slug`'s clone root as present in the fake — every test below operates against an already-cloned team unless it's specifically testing the no-clone refusal. */
-function seamsWithKey(key = "AGE-TEAM-KEY", slug = "acme"): { execSeam: FakeTeamExecSeam; seams: SecretsSeams } {
-  const execSeam = new FakeTeamExecSeam();
-  execSeam.files.set(teamCloneRootFor(slug), "");
-  return { execSeam, seams: { ageKeySeam: fakeAgeKeySeamWithKey(key), execSeam } };
-}
 
 describe("teamSecretsFile / teamSopsYamlPath", () => {
   test("layout matches the contract: teams/<slug>/mattstack/org/secrets/<domain>.json and teams/<slug>/.sops.yaml", () => {
@@ -687,4 +542,105 @@ test("an invited admin may write and reencrypt secrets", async () => {
   await writeTeamSecret("acme", "board", "k", "v", seams, probes);
   await expect(reencryptTeamSecrets("acme", seams, probes)).resolves.toEqual([teamSecretsFile("acme", "board")]);
   expect(execSeam.calls.some(c => c.cmd.includes("updatekeys"))).toBe(true);
+});
+
+describe("the members and admins rules", () => {
+  const twoRules = [
+    "creation_rules:",
+    "  - path_regex: mattstack/org/secrets/.*",
+    "    age: age1aaa,age1bbb",
+    "  - path_regex: mattstack/org/admin-secrets/.*",
+    "    age: age1aaa",
+    "",
+  ].join("\n");
+
+  test("with only the members rule, the file is byte for byte what rt wrote before", () => {
+    const { execSeam, seams } = seamsWithKey();
+    writeTeamRecipients("acme", ["age1bbb", "age1aaa"], seams);
+    expect(execSeam.readFile(teamSopsYamlPath("acme"))).toBe(renderSopsYamlFor(TEAM_PATH_REGEX, ["age1aaa", "age1bbb"]));
+  });
+
+  test("writing the admins rule keeps the members rule and writes it first", () => {
+    const { execSeam, seams } = seamsWithKey();
+    writeTeamRecipients("acme", ["age1aaa", "age1bbb"], seams);
+    writeTeamRecipients("acme", ["age1aaa"], seams, "admins");
+    expect(execSeam.readFile(teamSopsYamlPath("acme"))).toBe(twoRules);
+  });
+
+  test("writing the members rule keeps the admins rule", () => {
+    const { execSeam, seams } = seamsWithKey();
+    execSeam.writeFile(teamSopsYamlPath("acme"), twoRules);
+    writeTeamRecipients("acme", ["age1aaa", "age1bbb", "age1ccc"], seams);
+    expect(readTeamRecipients("acme", seams)).toEqual(["age1aaa", "age1bbb", "age1ccc"]);
+    expect(readTeamRecipients("acme", seams, "admins")).toEqual(["age1aaa"]);
+  });
+
+  test("each rule reads its own recipients", () => {
+    const { execSeam, seams } = seamsWithKey();
+    execSeam.writeFile(teamSopsYamlPath("acme"), twoRules);
+    expect(readTeamRecipients("acme", seams, "members")).toEqual(["age1aaa", "age1bbb"]);
+    expect(readTeamRecipients("acme", seams, "admins")).toEqual(["age1aaa"]);
+  });
+
+  test("an empty admins rule is dropped, not written with no recipients", () => {
+    const { execSeam, seams } = seamsWithKey();
+    execSeam.writeFile(teamSopsYamlPath("acme"), twoRules);
+    writeTeamRecipients("acme", [], seams, "admins");
+    expect(execSeam.readFile(teamSopsYamlPath("acme"))).toBe(renderSopsYamlFor(TEAM_PATH_REGEX, ["age1aaa", "age1bbb"]));
+    expect(readTeamRecipients("acme", seams, "admins")).toEqual([]);
+  });
+
+  test("the first age line names the members rule, which is all an older rt reads", () => {
+    const { execSeam, seams } = seamsWithKey();
+    writeTeamRecipients("acme", ["age1aaa", "age1bbb"], seams);
+    writeTeamRecipients("acme", ["age1aaa"], seams, "admins");
+    expect(execSeam.readFile(teamSopsYamlPath("acme")).match(/age:\s*(\S+)/)?.[1]).toBe("age1aaa,age1bbb");
+  });
+
+  test("a rule rt did not write is refused, even when it is the only one", () => {
+    const { execSeam, seams } = seamsWithKey();
+    const foreign = "creation_rules:\n  - path_regex: other/.*\n    age: age1aaa\n";
+    execSeam.writeFile(teamSopsYamlPath("acme"), foreign);
+    expect(() => writeTeamRecipients("acme", ["age1bbb"], seams)).toThrow(TeamSopsYamlHandEditedError);
+    expect(execSeam.readFile(teamSopsYamlPath("acme"))).toBe(foreign);
+  });
+
+  test("one rule written twice, or a list entry rt cannot read, is refused", () => {
+    const { execSeam, seams } = seamsWithKey();
+    const twice = `${twoRules}  - path_regex: mattstack/org/admin-secrets/.*\n    age: age1bbb\n`;
+    execSeam.writeFile(teamSopsYamlPath("acme"), twice);
+    expect(() => writeTeamRecipients("acme", ["age1aaa"], seams, "admins")).toThrow(TeamSopsYamlHandEditedError);
+    const ageFirst = "creation_rules:\n  - age: age1aaa\n    path_regex: mattstack/org/secrets/.*\n";
+    execSeam.writeFile(teamSopsYamlPath("acme"), ageFirst);
+    expect(() => writeTeamRecipients("acme", ["age1aaa"], seams)).toThrow(TeamSopsYamlHandEditedError);
+  });
+
+  test("a hand-edited single rule still reads the way it did, for the members rule only", () => {
+    const { execSeam, seams } = seamsWithKey();
+    execSeam.writeFile(teamSopsYamlPath("acme"), "creation_rules:\n  - path_regex: other/.*\n    age: age1aaa\n");
+    expect(readTeamRecipients("acme", seams)).toEqual(["age1aaa"]);
+    expect(readTeamRecipients("acme", seams, "admins")).toEqual([]);
+  });
+
+  test("parseSopsRules returns every rule in file order", () => {
+    expect(parseSopsRules(twoRules)).toEqual([
+      { pathRegex: TEAM_PATH_REGEX, recipients: ["age1aaa", "age1bbb"] },
+      { pathRegex: ADMIN_PATH_REGEX, recipients: ["age1aaa"] },
+    ]);
+  });
+
+  test("re-encryption walks only the named rule's files", async () => {
+    const { execSeam, seams } = seamsWithKey();
+    execSeam.writeFile(teamSopsYamlPath("acme"), twoRules);
+    const memberFile = teamSecretsFile("acme", "board");
+    const adminFile = join(teamCloneRootFor("acme"), "mattstack", "org", "admin-secrets", "rt.json");
+    execSeam.writeFile(memberFile, "ciphertext");
+    execSeam.writeFile(adminFile, "ciphertext");
+
+    expect(listRuleFiles("acme", seams, "admins")).toEqual([adminFile]);
+    expect(await reencryptTeamSecrets("acme", seams, undefined, "admins")).toEqual([adminFile]);
+    expect(await reencryptTeamSecrets("acme", seams)).toEqual([memberFile]);
+    const updated = execSeam.calls.filter((c) => c.cmd[1] === "updatekeys").map((c) => c.cmd[3]);
+    expect(updated).toEqual([adminFile, memberFile]);
+  });
 });

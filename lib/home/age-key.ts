@@ -214,15 +214,17 @@ export async function importAgeKey(
 }
 
 /**
- * General form of `renderSopsYaml`: one creation rule matching `pathRegex`,
- * encrypting to every recipient in `recipients` (sops accepts a
- * comma-separated `age:` value for multi-recipient rules). team-store.ts's
- * `writeTeamRecipients` is the N-recipient caller; `renderSopsYaml` below is
- * the single-recipient personal-store case, kept as its own name since
- * every existing call site already reads `renderSopsYaml(publicKey)`.
+ * Renders `.sops.yaml` creation rules, each encrypting to every recipient it
+ * names (sops accepts a comma-separated `age:` value). team-store.ts writes
+ * an org's members and admins rules through this; `renderSopsYamlFor` is the
+ * one-rule case `lib/team/create.ts` and `renderSopsYaml` use.
  */
+export function renderSopsYamlRules(rules: { pathRegex: string; recipients: string[] }[]): string {
+  return ["creation_rules:", ...rules.flatMap((r) => [`  - path_regex: ${r.pathRegex}`, `    age: ${r.recipients.join(",")}`]), ""].join("\n");
+}
+
 export function renderSopsYamlFor(pathRegex: string, recipients: string[]): string {
-  return ["creation_rules:", `  - path_regex: ${pathRegex}`, `    age: ${recipients.join(",")}`, ""].join("\n");
+  return renderSopsYamlRules([{ pathRegex, recipients }]);
 }
 
 export function renderSopsYaml(publicKey: string): string {

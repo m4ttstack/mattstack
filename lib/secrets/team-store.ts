@@ -26,17 +26,19 @@
  * far less often than it's written, so the simpler always-fresh read isn't
  * worth the staleness-tracking complexity.
  *
- * `writeTeamRecipients` owns `.sops.yaml` entirely: it always renders
- * exactly one creation rule (`mattstack/org/secrets/.*`) and refuses outright
- * (`TeamSopsYamlHandEditedError`) rather than collapsing a file that already
- * has more than one rule — a hand-edited `.sops.yaml` is out of scope for
- * this store, not something it silently overwrites.
+ * `.sops.yaml` holds exactly the two creation rules this store writes: the
+ * members rule (`mattstack/org/secrets/.*`, every member's key) and the
+ * admins rule (`mattstack/org/admin-secrets/.*`, the org owners' and admins'
+ * keys). The members rule is always written first, because an older rt
+ * reads only the first `age:` line. A rule rt did not write, a third rule,
+ * or one rule written twice is refused (`TeamSopsYamlHandEditedError`)
+ * rather than silently rewritten.
  */
 
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
-import { createRealAgeKeySeam, renderSopsYamlFor } from "../home/age-key.ts";
-import { orgDir, orgSecretsDir } from "../rt-paths.ts";
+import { createRealAgeKeySeam, renderSopsYamlRules } from "../home/age-key.ts";
+import { orgAdminSecretsDir, orgDir, orgSecretsDir } from "../rt-paths.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
 import { assertMayWrite } from "../team/roles.ts";
 import {
@@ -68,12 +70,12 @@ export class NoTeamCloneError extends Error {
   }
 }
 
-/** Thrown by `writeTeamRecipients` when the existing `.sops.yaml` already has more than one creation rule; this store only ever renders/owns the single `mattstack/org/secrets/.*` rule; a hand-edited file with other rules would be silently collapsed to just that one if this store rewrote it wholesale. */
+/** Thrown by `writeTeamRecipients` when `.sops.yaml` holds a creation rule this store did not write, so rewriting it would lose that rule. */
 export class TeamSopsYamlHandEditedError extends Error {
   constructor(slug: string) {
     super(
-      `team "${slug}"'s .sops.yaml has more than one creation rule — this store only manages its own single ` +
-        `"mattstack/org/secrets/.*" rule; edit recipients by hand instead of through rt.`,
+      `team "${slug}"'s .sops.yaml has a creation rule rt did not write. rt manages only its ` +
+        `"mattstack/org/secrets/.*" and "mattstack/org/admin-secrets/.*" rules; edit recipients by hand instead of through rt.`,
     );
   }
 }
@@ -103,6 +105,19 @@ export class TeamReencryptError extends Error {
 /** Exported so `lib/team/create.ts`'s scaffold seeds `.sops.yaml` with the exact same rule this store reads — a divergence here would mean a scaffolded file silently stops matching this store's own creation rule. */
 export const TEAM_PATH_REGEX = "mattstack/org/secrets/.*";
 
+export const ADMIN_PATH_REGEX = "mattstack/org/admin-secrets/.*";
+
+/** Which creation rule a call means: every member's, or the org owners' and admins'. */
+export type TeamSopsRule = "members" | "admins";
+
+const RULE_REGEX: Record<TeamSopsRule, string> = { members: TEAM_PATH_REGEX, admins: ADMIN_PATH_REGEX };
+const RULE_ORDER: readonly TeamSopsRule[] = ["members", "admins"];
+
+export interface SopsRule {
+  pathRegex: string;
+  recipients: string[];
+}
+
 function teamCloneRoot(slug: string): string {
   validateSlug(slug);
   return orgDir(slug);
@@ -123,6 +138,13 @@ function teamSecretsDir(slug: string): string {
   validateSlug(slug);
   return orgSecretsDir(slug);
 }
+
+function adminSecretsDir(slug: string): string {
+  validateSlug(slug);
+  return orgAdminSecretsDir(slug);
+}
+
+const RULE_DIR: Record<TeamSopsRule, (slug: string) => string> = { members: teamSecretsDir, admins: adminSecretsDir };
 
 function teamLocation(slug: string, domain: string): SecretsLocation {
   return {
@@ -150,11 +172,6 @@ export function createRealTeamSecretsSeams(slug: string): SecretsSeams {
   return { ageKeySeam: createRealAgeKeySeam(), execSeam };
 }
 
-/** How many `path_regex:` creation rules a `.sops.yaml` body declares — this store only ever renders one. */
-function ruleCount(content: string): number {
-  return (content.match(/^\s*-\s*path_regex:/gm) ?? []).length;
-}
-
 /**
  * Parses a `.sops.yaml`'s `age:` recipient value — a single line
  * (`age: key1,key2`, what `writeTeamRecipients` always renders) or a
@@ -172,34 +189,66 @@ function parseAgeRecipients(content: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-/** The team's current `age:` recipients — [] when `.sops.yaml` doesn't exist yet (no team members synced). */
-export function readTeamRecipients(slug: string, seams: SecretsSeams): string[] {
+/** Every creation rule in file order, or null when a list entry is not a `path_regex:` rule this store can read. */
+export function parseSopsRules(content: string): SopsRule[] | null {
+  const entries = [...content.matchAll(/^[ \t]*-[ \t]+\S/gm)].length;
+  const starts = [...content.matchAll(/^[ \t]*-[ \t]*path_regex:[ \t]*(\S+)[ \t]*$/gm)];
+  if (entries !== starts.length) return null;
+  return starts.map((m, i) => {
+    const end = i + 1 < starts.length ? starts[i + 1]!.index! : content.length;
+    return { pathRegex: m[1]!, recipients: parseAgeRecipients(content.slice(m.index! + m[0].length, end)) };
+  });
+}
+
+function ruleOf(pathRegex: string): TeamSopsRule | null {
+  return RULE_ORDER.find((rule) => RULE_REGEX[rule] === pathRegex) ?? null;
+}
+
+/** The rules an existing `.sops.yaml` holds, refusing one this store did not write. */
+function ownedRules(slug: string, seams: SecretsSeams): Partial<Record<TeamSopsRule, string[]>> {
+  const path = teamSopsYamlPath(slug);
+  if (!seams.execSeam.fileExists(path)) return {};
+  const rules = parseSopsRules(seams.execSeam.readFile(path));
+  if (rules === null) throw new TeamSopsYamlHandEditedError(slug);
+  const owned: Partial<Record<TeamSopsRule, string[]>> = {};
+  for (const r of rules) {
+    const rule = ruleOf(r.pathRegex);
+    if (rule === null || owned[rule] !== undefined) throw new TeamSopsYamlHandEditedError(slug);
+    owned[rule] = r.recipients;
+  }
+  return owned;
+}
+
+/** The rule's current `age:` recipients; [] when `.sops.yaml` or the rule does not exist yet. A file with no rule this store wrote reads its first rule as the members rule, as it always has. */
+export function readTeamRecipients(slug: string, seams: SecretsSeams, rule: TeamSopsRule = "members"): string[] {
   const path = teamSopsYamlPath(slug);
   if (!seams.execSeam.fileExists(path)) return [];
-  return parseAgeRecipients(seams.execSeam.readFile(path));
+  const content = seams.execSeam.readFile(path);
+  const rules = parseSopsRules(content) ?? [];
+  if (rules.some((r) => ruleOf(r.pathRegex) !== null)) return rules.find((r) => r.pathRegex === RULE_REGEX[rule])?.recipients ?? [];
+  return rule === "members" ? parseAgeRecipients(content) : [];
 }
 
 /**
  * Renders and writes `.sops.yaml` with exactly `recipients` (sorted,
- * deduped) as the `mattstack/org/secrets/.*` rule's recipients. Refuses to run
- * against a team with no local clone (`NoTeamCloneError`) — the real seam's
- * `writeFile` would otherwise happily `mkdir -p` a fresh `orgs/<slug>/`
- * directory out of a typo'd slug — and refuses a `.sops.yaml` that already
- * carries more than one creation rule (`TeamSopsYamlHandEditedError`)
- * rather than silently collapsing it to just this store's own rule.
+ * deduped) as the named rule's recipients, keeping the other rule. Refuses to
+ * run against a team with no local clone (`NoTeamCloneError`): the real
+ * seam's `writeFile` would otherwise happily `mkdir -p` a fresh `orgs/<slug>/`
+ * directory out of a typo'd slug, and refuses a `.sops.yaml` that carries a
+ * rule this store did not write (`TeamSopsYamlHandEditedError`) rather than
+ * silently dropping it. An empty admins rule is dropped from the file.
  */
-export function writeTeamRecipients(slug: string, recipients: string[], seams: SecretsSeams): void {
+export function writeTeamRecipients(slug: string, recipients: string[], seams: SecretsSeams, rule: TeamSopsRule = "members"): void {
   const root = teamCloneRoot(slug);
   if (!seams.execSeam.fileExists(root)) throw new NoTeamCloneError(slug);
 
-  const path = teamSopsYamlPath(slug);
-  if (seams.execSeam.fileExists(path)) {
-    const existing = seams.execSeam.readFile(path);
-    if (ruleCount(existing) > 1) throw new TeamSopsYamlHandEditedError(slug);
-  }
-
-  const unique = [...new Set(recipients)].sort();
-  seams.execSeam.writeFile(path, renderSopsYamlFor(TEAM_PATH_REGEX, unique));
+  const owned = ownedRules(slug, seams);
+  owned[rule] = [...new Set(recipients)].sort();
+  const rules = RULE_ORDER.filter((r) => owned[r] !== undefined && (r === "members" || owned[r]!.length > 0)).map((r) => ({
+    pathRegex: RULE_REGEX[r],
+    recipients: owned[r]!,
+  }));
+  seams.execSeam.writeFile(teamSopsYamlPath(slug), renderSopsYamlRules(rules));
 }
 
 /** The failure a person hits on a Mac whose age key is not yet one of the team's recipients. The sops output goes to the log through `log`. */
@@ -254,8 +303,9 @@ export async function writeTeamSecret(
   await readableBy(slug, () => writeAtLocation(location, `team-${slug}-${domain}`, key, value, seams));
 }
 
-function listTeamDomainFiles(slug: string, seams: SecretsSeams): string[] {
-  const dir = teamSecretsDir(slug);
+/** The rule's encrypted domain files, sorted. */
+export function listRuleFiles(slug: string, seams: SecretsSeams, rule: TeamSopsRule): string[] {
+  const dir = RULE_DIR[rule](slug);
   const names = seams.execSeam.listDir ? seams.execSeam.listDir(dir) : [];
   return names
     .filter((name) => name.endsWith(".json"))
@@ -281,14 +331,18 @@ function listTeamDomainFiles(slug: string, seams: SecretsSeams): string[] {
  * `assertMayWrite` runs here rather than in each caller: every path that
  * reaches this function (member add/remove, `rt secrets rotate --team`)
  * mutates every tracked domain file on disk, so only an org admin re-encrypts.
+ *
+ * `rule` picks which rule's files are walked; sops re-encrypts each file to the
+ * recipients of the rule its path matches, so each rule keeps its own recipients.
  */
 export async function reencryptTeamSecrets(
   slug: string,
   seams: SecretsSeams,
   probes: Pick<Probes, "readFile" | "home"> = createRealProbes(),
+  rule: TeamSopsRule = "members",
 ): Promise<string[]> {
   assertMayWrite(probes, slug, ".sops.yaml");
-  const files = listTeamDomainFiles(slug, seams);
+  const files = listRuleFiles(slug, seams, rule);
   if (files.length === 0) return [];
 
   const env = await sopsAgeKeyEnv(seams.ageKeySeam);
