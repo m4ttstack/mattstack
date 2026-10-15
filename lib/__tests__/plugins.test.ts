@@ -17,7 +17,7 @@ const valid = {
       module: "./standup.ts",
       aliases: ["su"],
       context: "worktree",
-      args: [{ name: "Team", flag: "--team", type: "select", options: [{ value: "cv", label: "cv" }] }],
+      args: [{ name: "Team", flag: "--team", type: "select", options: [{ value: "acme", label: "acme" }] }],
     },
     notes: {
       description: "Scratch notes",

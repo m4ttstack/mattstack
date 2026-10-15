@@ -98,4 +98,37 @@ describe("repo-purity.sh", () => {
     expect(bad.out).toContain("pull request title or body");
     expect(run(dir, { PURITY_BASE: base, PURITY_PR_TEXT: "fix the acme importer" }).code).toBe(0);
   });
+
+  const PREFIX = ["c", "v"].join("");
+  const BOUNDED = [
+    ["chu", "bb"].join(""),
+    ["ac", "g"].join(""),
+  ];
+
+  test.each([
+    `quote from ${["liber", "ty mutual"].join("")}`,
+    `quote from ${["sta", "te farm"].join("")}`,
+    `quote from ${BOUNDED[0]}`,
+    `db acme-${BOUNDED[1]}-qa-prod`,
+    `open ${["em", "ma chat"].join("")}`,
+    `options: ["${PREFIX}", "platform"]`,
+    `{ value: '${PREFIX}' }`,
+  ])("the history-sweep terms fail in content: %s", (line) => {
+    const dir = fixtureRepo();
+    writeFileSync(join(dir, "doc.md"), `${line}\n`);
+    execSync("git add -A", { cwd: dir });
+    expect(run(dir).code).toBe(1);
+  });
+
+  test.each([
+    `${BOUNDED[0]}y cheeks`,
+    `${BOUNDED[1]}ress handle`,
+    `the ${PREFIX} of a candidate`,
+    `rows: ["${PREFIX}s", "platform"]`,
+  ])("the bounded and quoted terms leave ordinary text alone: %s", (line) => {
+    const dir = fixtureRepo();
+    writeFileSync(join(dir, "doc.md"), `${line}\n`);
+    execSync("git add -A", { cwd: dir });
+    expect(run(dir).code).toBe(0);
+  });
 });
