@@ -18,6 +18,7 @@ import { hasKvValue, setKvValue } from "../state/kv-blob.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { UserActionableError } from "../errors.ts";
 import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { applyRoleCone } from "../team/org-cone.ts";
 import { roleFor } from "../team/roles.ts";
 import {
   startSnapshot,
@@ -79,19 +80,29 @@ function originOf(dir: string): string | null {
   }
 }
 
-/** The converge first, then the post-pull hooks, which run even when the converge threw. */
+/** The converge first, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. */
 export function createOnPulled(opts: {
   probes: Probes;
   slug: string;
+  dir: string;
   log: Logger;
   converge: typeof convergePackCache;
   afterPull?: (slug: string) => Promise<void>;
+  applyCone?: typeof applyRoleCone;
   /** Remembers which held pack versions were already logged; defaults to the state db's kv table. */
   holds?: { has(key: string): boolean; mark(key: string): void };
 }): () => Promise<void> {
   const holds = opts.holds ?? {
     has: (key: string) => hasKvValue(PACK_HOLDS_NS, key),
     mark: (key: string) => setKvValue(PACK_HOLDS_NS, key, { at: Date.now() }),
+  };
+  const applyCone = async (): Promise<void> => {
+    try {
+      const { kept } = await (opts.applyCone ?? applyRoleCone)(opts.probes, opts.dir, opts.slug);
+      if (kept.length > 0) opts.log.info({ kept }, "cone: team folders kept because they hold changes");
+    } catch (err) {
+      opts.log.warn({ err }, "cone: could not apply the role's sparse checkout");
+    }
   };
   return async () => {
     try {
@@ -113,6 +124,7 @@ export function createOnPulled(opts: {
         }
       }
     } finally {
+      await applyCone();
       await opts.afterPull?.(opts.slug);
     }
   };
@@ -221,7 +233,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           originUrl,
           probes,
           ownedRoots: roots,
-          onPulled: createOnPulled({ probes, slug, log: rawDeps.log.child({ team: slug }), converge, afterPull: rawDeps.afterPull }),
+          onPulled: createOnPulled({ probes, slug, dir, log: rawDeps.log.child({ team: slug }), converge, afterPull: rawDeps.afterPull }),
         });
         const handle = start(spec, {
           log: rawDeps.log.child({ team: slug }),

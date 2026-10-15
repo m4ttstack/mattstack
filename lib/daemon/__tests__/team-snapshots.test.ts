@@ -351,12 +351,59 @@ describe("startTeamSnapshots", () => {
     const onPulled = createOnPulled({
       probes: fakeProbes({ home: "/h" }),
       slug: "acme",
+      dir: "/h/orgs/acme",
       log: fakeLog(),
       converge: async () => { order.push("converge"); throw new Error("broke"); },
       afterPull: async (slug) => { order.push(`after:${slug}`); },
     });
     await expect(onPulled()).rejects.toThrow("broke");
     expect(order).toEqual(["converge", "after:acme"]);
+  });
+
+  test("createOnPulled applies the role's cone to the clone after the converge, before afterPull", async () => {
+    const order: string[] = [];
+    const onPulled = createOnPulled({
+      probes: fakeProbes({ home: "/h" }),
+      slug: "acme",
+      dir: "/h/.mattstack/orgs/acme",
+      log: fakeLog(),
+      converge: (async () => { order.push("converge"); return { held: [] }; }) as never,
+      applyCone: async (_p, dir, org) => { order.push(`cone:${org}@${dir}`); return { applied: [], kept: [] }; },
+      afterPull: async () => { order.push("after"); },
+    });
+    await onPulled();
+    expect(order).toEqual(["converge", "cone:acme@/h/.mattstack/orgs/acme", "after"]);
+  });
+
+  test("createOnPulled logs a cone that failed and still runs afterPull", async () => {
+    const log = fakeLog();
+    const order: string[] = [];
+    const onPulled = createOnPulled({
+      probes: fakeProbes({ home: "/h" }),
+      slug: "acme",
+      dir: "/h/.mattstack/orgs/acme",
+      log,
+      converge: (async () => ({ held: [] })) as never,
+      applyCone: async () => { throw new Error("sparse-checkout broke"); },
+      afterPull: async () => { order.push("after"); },
+    });
+    await onPulled();
+    expect(order).toEqual(["after"]);
+    expect(warned(log, "could not apply the role")).toBe(true);
+  });
+
+  test("createOnPulled logs the team folders a cone kept", async () => {
+    const log = fakeLog();
+    const onPulled = createOnPulled({
+      probes: fakeProbes({ home: "/h" }),
+      slug: "acme",
+      dir: "/h/.mattstack/orgs/acme",
+      log,
+      converge: (async () => ({ held: [] })) as never,
+      applyCone: async () => ({ applied: [], kept: ["gadgets"] }),
+    });
+    await onPulled();
+    expect(log.calls.some((c) => c.level === "info" && JSON.stringify(c.args).includes("gadgets"))).toBe(true);
   });
 
   test("createOnPulled logs a held pack once per served version", async () => {
@@ -367,6 +414,7 @@ describe("startTeamSnapshots", () => {
     const onPulled = createOnPulled({
       probes: fakeProbes({ home: "/h" }),
       slug: "acme",
+      dir: "/h/orgs/acme",
       log,
       converge: (async () => ({ held: [held] })) as never,
       holds: { has: (k) => seen.has(k), mark: (k) => { seen.add(k); } },
@@ -391,6 +439,7 @@ describe("startTeamSnapshots", () => {
         const onPulled = createOnPulled({
           probes: fakeProbes({ home: "/h" }),
           slug: "acme",
+          dir: "/h/orgs/acme",
           log,
           converge: async () => result,
           holds,

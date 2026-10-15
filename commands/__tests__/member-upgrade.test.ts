@@ -282,7 +282,7 @@ describe("member upgrade: app first, org main converts later", () => {
     convertOrigin();
     const db = openStateDb(join(home, ".mattstack", "rt", "state.db"), "cli");
     const log = fakeLog();
-    const onPulled = createOnPulled({ probes: p, slug: "acme", log, converge: convergePackCache, afterPull: composePullHooks([createMaterializePullHook({ log, probes: p })]) });
+    const onPulled = createOnPulled({ probes: p, slug: "acme", dir: moved, log, converge: convergePackCache, afterPull: composePullHooks([createMaterializePullHook({ log, probes: p })]) });
     const handle = startSnapshot(
       teamSnapshotSpec("acme", moved, { pullIntervalSec: 300, originUrl: origin, probes: p, ownedRoots: [], readToken: async () => null, onPulled }),
       {
@@ -411,7 +411,7 @@ describe("member upgrade: v2.21.1 held the pull, then the app updates", () => {
 
     const db = openStateDb(join(home, ".mattstack", "rt", "state.db"), "cli");
     const log = fakeLog();
-    const onPulled = createOnPulled({ probes: p, slug: "acme", log, converge: convergePackCache, afterPull: composePullHooks([createMaterializePullHook({ log, probes: p })]) });
+    const onPulled = createOnPulled({ probes: p, slug: "acme", dir: moved, log, converge: convergePackCache, afterPull: composePullHooks([createMaterializePullHook({ log, probes: p })]) });
     const handle = startSnapshot(
       teamSnapshotSpec("acme", moved, { pullIntervalSec: 300, originUrl: origin, probes: p, ownedRoots: [], readToken: async () => null, onPulled }),
       {
