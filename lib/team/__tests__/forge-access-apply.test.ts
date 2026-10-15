@@ -175,6 +175,18 @@ describe("applyForgeAccessAndFollow", () => {
     }
   });
 
+  test("a follow that fails is retried on the next run, and not again once it succeeds", async () => {
+    const { p, seams } = setup("gitlab", { users: USERS, members: MEMBERS, addedDirectly: USERS });
+    let calls = 0;
+    const follow = async () => (++calls === 1 ? { reencrypted: [], failure: "sops refused" } : { reencrypted: ["x"], failure: null });
+    await applyForgeAccessAndFollow(p, "acme", secrets, seams, follow);
+    expect(calls).toBe(1);
+    expect((await applyForgeAccessAndFollow(p, "acme", secrets, seams, follow)).admin).toEqual({ reencrypted: ["x"], failure: null });
+    expect(calls).toBe(2);
+    expect((await applyForgeAccessAndFollow(p, "acme", secrets, seams, follow)).admin).toBeNull();
+    expect(calls).toBe(2);
+  });
+
   test("a follow that reports a failure is passed back, never thrown", async () => {
     const { p, seams } = setup("gitlab", { users: USERS, members: MEMBERS, addedDirectly: USERS });
     const result = await applyForgeAccessAndFollow(p, "acme", secrets, seams, async () => ({ reencrypted: [], failure: "sops refused" }));

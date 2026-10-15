@@ -205,5 +205,8 @@ export async function applyForgeAccessAndFollow(
   const wanted = await wantedFingerprint(p, slug);
   const { report, applied } = await applyForgeAccess(p, slug, seams);
   const moved = applied !== null && wanted !== null && wanted !== before;
-  return { report, applied, admin: moved ? await follow(p, slug, orgStoreKeys(p, slug), secrets) : null };
+  const admin = moved ? await follow(p, slug, orgStoreKeys(p, slug), secrets) : null;
+  // A failed follow puts the old fingerprint back (an empty one when there was none, which no real fingerprint equals) so the next sweep follows again.
+  if (admin?.failure != null) editTeamLocal(p, slug, (current) => ({ forgeAccess: { fingerprint: before ?? "", manualSteps: current.forgeAccess?.manualSteps ?? [] } }));
+  return { report, applied, admin };
 }
