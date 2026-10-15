@@ -1,4 +1,5 @@
 import {
+  isWriteIn,
   unwrapGateAnswerValue,
   type GateAnswer,
 } from '@mattstack/rt-client/gate';
@@ -28,15 +29,17 @@ export type GateSelections = Record<string, string | string[]>;
  * nothing-to-post. A zero-option question (e.g. a `tiers` question when a
  * clean review reports no severity levels) has nothing to select, so it is
  * excluded entirely -- otherwise a gate with no possible answer could never
- * be closed.
+ * be closed. A question named in `written` is left to the caller, which
+ * sends it as `{ writeIn }`.
  */
 export function gateAnswerPayload(
   questions: GateQuestion[],
-  selections: GateSelections
+  selections: GateSelections,
+  written: Record<string, string> = {}
 ): { answers: GateSelections } | null {
   const answers: GateSelections = {};
   for (const q of questions) {
-    if (q.options.length === 0) continue;
+    if (q.options.length === 0 || q.id in written) continue;
     const value = selections[q.id];
     if (q.multi) {
       if (!Array.isArray(value)) return null;
@@ -49,10 +52,31 @@ export function gateAnswerPayload(
   return { answers };
 }
 
+/** A `writeIn` question with no pick and non-blank note text is answered
+    by that text; returns the trimmed text keyed by question id. */
+export function writeIns(
+  questions: GateQuestion[],
+  selections: GateSelections,
+  notes: Record<string, string>
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const q of questions) {
+    if (q.writeIn !== true || q.options.length === 0) continue;
+    const pick = selections[q.id];
+    const picked = Array.isArray(pick)
+      ? pick.length > 0
+      : typeof pick === 'string' && pick.length > 0;
+    const text = (notes[q.id] ?? '').trim();
+    if (!picked && text) out[q.id] = text;
+  }
+  return out;
+}
+
 export interface UnwrappedGateAnswer {
-  value: string | string[];
+  value?: string | string[];
   note?: string;
   text?: string;
+  writeIn?: string;
 }
 
 /**
@@ -65,6 +89,7 @@ export interface UnwrappedGateAnswer {
  * object child.
  */
 export function unwrapGateAnswer(raw: GateAnswerValue): UnwrappedGateAnswer {
+  if (isWriteIn(raw)) return { writeIn: raw.writeIn };
   const value = unwrapGateAnswerValue(raw) as string | string[];
   if (
     raw !== null &&

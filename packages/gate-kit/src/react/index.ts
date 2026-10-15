@@ -8,6 +8,7 @@ import {
 import { optionDescription, optionDisplayFor, optionValue } from '../options';
 import {
   gateAnswerPayload,
+  writeIns,
   type GateAnswers,
   type GateSelections,
 } from '../payload';
@@ -49,6 +50,8 @@ export interface GateItemDisplay {
   /** The question's own context (BOARD-36), rendered with its card above
       its options -- distinct from the gate-level context block. */
   context?: string;
+  /** Note text with no pick answers this question as `{ writeIn }`. */
+  writeIn?: true;
 }
 
 export interface GateItems {
@@ -65,9 +68,9 @@ export interface GateItems {
  * inclusion is reactive to `selections` and the hidden question never
  * renders at all. Zero-option questions are excluded too -- they have
  * nothing to collect and gateAnswerPayload already exempts them.
- * Single-selects are required (strict option membership: an answer comes
- * from the question's own set, never a freeform QuestionnaireInput); a
- * multi question is skippable, because "none of these" is a legitimate
+ * Single-selects are required: answered by a pick from the question's own
+ * set or, on a question marked `writeIn`, by note text instead (`writeIns`);
+ * a multi question is skippable, because "none of these" is a legitimate
  * multi answer -- the questionnaire's skip affordance submits it as an
  * explicit `[]`, which the daemon records.
  */
@@ -96,6 +99,7 @@ export function gateItems(
       };
     }),
     ...(q.context !== undefined ? { context: q.context } : {}),
+    ...(q.writeIn === true ? { writeIn: true as const } : {}),
   }));
   return {
     items: display.map(d => ({
@@ -125,7 +129,8 @@ export function noteFieldName(questionId: string): string {
  * while the daemon requires the question id to be present even when the
  * answer is empty. A question whose note field is non-empty after trimming
  * submits `{ value, note }`; every other question submits the bare
- * selection, and the injected sentinel never carries a note.
+ * selection, and the injected sentinel never carries a note. A `writeIn`
+ * question with no pick and note text submits `{ writeIn }`.
  */
 export function answersFromForm(
   gate: GateForItems,
@@ -143,16 +148,24 @@ export function answersFromForm(
         selections[q.id] = value;
     }
   }
+  const notes: Record<string, string> = {};
+  for (const q of gate.questions) {
+    const raw = formData.get(noteFieldName(q.id));
+    if (typeof raw === 'string') notes[q.id] = raw;
+  }
+  const written = writeIns(gate.questions, selections, notes);
   const payload = gateAnswerPayload(
     gate.questions,
-    effectiveSelections(gate.kind, gate.questions, selections)
+    effectiveSelections(gate.kind, gate.questions, selections),
+    written
   );
   if (!payload) return null;
   const answers: GateAnswers = {};
   for (const [id, value] of Object.entries(payload.answers)) {
-    const raw = id in selections ? formData.get(noteFieldName(id)) : null;
-    const note = typeof raw === 'string' ? raw.trim() : '';
+    const note = id in selections ? (notes[id] ?? '').trim() : '';
     answers[id] = note.length > 0 ? { value, note } : value;
   }
+  for (const [id, text] of Object.entries(written))
+    answers[id] = { writeIn: text };
   return { answers };
 }
