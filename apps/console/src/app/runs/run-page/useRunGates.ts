@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { client } from '../../api';
-import { readApiError, retryOnce } from '../useRuns';
+import { POLL_MS, readApiError, retryOnce } from '../useRuns';
 
 const NO_GATES: GateRow[] = [];
 
@@ -21,6 +21,7 @@ export function useRunGates(runId: string) {
       return res.json();
     },
     retry: retryOnce,
+    refetchInterval: POLL_MS,
   });
   const rows = query.data?.gates;
   const gates = useMemo(

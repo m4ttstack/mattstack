@@ -201,6 +201,28 @@ describe('GatePanel', () => {
     );
   });
 
+  it('writes the answered row into cached gate lists before any refetch', async () => {
+    answerPost.mockResolvedValue(ok());
+    const gate = gateRow();
+    const other = gateRow({ id: 'g2' });
+    const { queryClient } = renderPanel(gate);
+    const key = ['gates', 'run', 'r1'];
+    queryClient.setQueryData(key, { gates: [gate, other] });
+    press('1');
+    press('Enter', { metaKey: true });
+    press('2');
+    press('Enter', { metaKey: true });
+    press('1');
+    press('Enter', { metaKey: true });
+    await waitFor(() =>
+      expect(
+        queryClient
+          .getQueryData<{ gates: GateRow[] }>(key)
+          ?.gates.map(g => g.status)
+      ).toEqual(['answered', 'open'])
+    );
+  });
+
   it('keeps Next shut until the question is answered', async () => {
     renderPanel(gateRow());
     expect(screen.getByRole('button', { name: /Next/ })).toBeDisabled();

@@ -240,6 +240,18 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
     }
     setBusy(false);
     draft.clear();
+    const row = (body as { row?: GateRow } | null)?.row;
+    if (row) {
+      // The answered row lands in every cached gate list now, so the panel
+      // clears without waiting on the refetch below.
+      queryClient.setQueriesData<{ gates: GateRow[] }>(
+        { queryKey: ['gates'] },
+        old =>
+          old?.gates
+            ? { ...old, gates: old.gates.map(g => (g.id === row.id ? row : g)) }
+            : old
+      );
+    }
     void queryClient.invalidateQueries({ queryKey: ['gates'] });
   };
 
