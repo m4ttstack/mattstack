@@ -284,6 +284,27 @@ describe('EvidenceCompare, several cases', () => {
     expect(picker).toHaveValue('Order card in light and dark');
   });
 
+  it('counts the cases and steps with the previous and next buttons', async () => {
+    open();
+    const picker = await screen.findByRole('combobox', { name: 'Case' });
+    const prev = screen.getByRole('button', { name: 'Previous case' });
+    const next = screen.getByRole('button', { name: 'Next case' });
+    expect(screen.getByText('1 of 3')).toBeInTheDocument();
+    expect(prev).toBeDisabled();
+    await userEvent.click(next);
+    expect(picker).toHaveValue('Order card in light and dark');
+    expect(screen.getByText('2 of 3')).toBeInTheDocument();
+    await userEvent.click(next);
+    expect(next).toBeDisabled();
+    await userEvent.click(prev);
+    expect(picker).toHaveValue('Order card in light and dark');
+  });
+
+  it('names the arrow keys in its footer', async () => {
+    open();
+    expect(await screen.findByText('switch case')).toBeInTheDocument();
+  });
+
   it('leaves the arrow keys to a focused control', async () => {
     open({ caseId: 'order-card-themes', mode: 'after' });
     const picker = await screen.findByRole('combobox', { name: 'Case' });

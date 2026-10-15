@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
+  ActionIcon,
+  Divider,
   Group,
+  Kbd,
   Modal,
-  Paper,
   SegmentedControl,
   Select,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
 import { useHotkeys } from '@mattstack/app-kit/hooks';
+import { Icon } from '@mattstack/app-kit/icons';
 import type {
   EvidenceCase,
   EvidenceTheme,
@@ -103,17 +106,22 @@ export function useCompareLink() {
   return { open, asked, clear, sync };
 }
 
-/** Evidence full size: the kit modal less a margin, its title, any control
-    beside the close button, and the frames. */
+/** Evidence full size: the kit modal less a margin, its title and any note
+    beside it, any control beside the close button, the images on an inset
+    stage, and an optional footer. */
 export function EvidenceModal({
   title,
+  meta,
   controls,
+  footer,
   onClose,
   parityRoot,
   children,
 }: {
   title: string;
+  meta?: ReactNode;
   controls?: ReactNode;
+  footer?: ReactNode;
   onClose: () => void;
   /** The parity root this modal is compared as, when a board draws it. */
   parityRoot?: string;
@@ -125,30 +133,53 @@ export function EvidenceModal({
       <Modal.Content data-parity={parityRoot}>
         <div data-parity={parityRoot ? 'modal' : undefined}>
           <Modal.Header data-parity="head">
-            <Modal.Title data-parity="t">{title}</Modal.Title>
+            <Group gap={8} wrap="nowrap">
+              <Modal.Title data-parity="t">{title}</Modal.Title>
+              {meta}
+            </Group>
             <Group gap="sm" wrap="nowrap">
               {controls}
               <Modal.CloseButton aria-label="Close" data-autofocus />
             </Group>
           </Modal.Header>
-          <Modal.Body>{children}</Modal.Body>
+          <Divider />
+          <Modal.Body className={classes.body}>
+            <div className={classes.stage}>{children}</div>
+            {footer ? (
+              <>
+                <Divider />
+                {footer}
+              </>
+            ) : null}
+          </Modal.Body>
         </div>
       </Modal.Content>
     </Modal.Root>
   );
 }
 
-/** One image full size, kept to its aspect ratio inside the frame. */
-export function EvidenceFrame({ src, name }: { src: string; name: string }) {
+/** One image full size at its own aspect ratio, framed by its own edge so it
+    never meets the stage's border; a caption below wraps to its width. */
+export function EvidenceFrame({
+  src,
+  name,
+  caption,
+}: {
+  src: string;
+  name: string;
+  caption?: ReactNode;
+}) {
   return (
-    <Paper
-      variant="panel-outline"
-      radius="md"
-      className={classes.frame}
-      data-parity="img"
-    >
-      <EvidenceImage src={src} name={name} maxHeight="100%" />
-    </Paper>
+    <div className={classes.figure}>
+      <div className={classes.shot} data-parity="img">
+        <EvidenceImage
+          src={src}
+          name={name}
+          maxHeight={caption ? 'var(--shot-max-captioned)' : 'var(--shot-max)'}
+        />
+      </div>
+      {caption ? <div className={classes.caption}>{caption}</div> : null}
+    </div>
   );
 }
 
@@ -211,6 +242,7 @@ export function EvidenceCompare({
 
   const several = record.cases.length > 1;
   const at = record.cases.indexOf(c);
+  const count = record.cases.length;
   const step = (by: number) => {
     const next = record.cases[at + by];
     if (next) setCaseId(next.id);
@@ -230,18 +262,59 @@ export function EvidenceCompare({
       title={title}
       onClose={onClose}
       parityRoot="Compare modal"
+      meta={
+        several ? (
+          <Text size="sm" c="dimmed">
+            {at + 1} of {count}
+          </Text>
+        ) : null
+      }
+      footer={
+        several ? (
+          <Group gap={6} className={classes.footer}>
+            <Kbd size="xs">←</Kbd>
+            <Kbd size="xs">→</Kbd>
+            <Text size="xs" c="dimmed">
+              switch case
+            </Text>
+          </Group>
+        ) : null
+      }
       controls={
         <>
           {several ? (
-            <Select
-              aria-label="Case"
-              value={c.id}
-              onChange={v => v && setCaseId(v)}
-              data={record.cases.map(x => ({ value: x.id, label: x.label }))}
-              allowDeselect={false}
-              classNames={{ root: classes.caseSelect }}
-              data-parity="case select"
-            />
+            <Group gap={4} wrap="nowrap">
+              <ActionIcon
+                variant="default"
+                size="input-sm"
+                aria-label="Previous case"
+                disabled={at === 0}
+                onClick={() => step(-1)}
+              >
+                <Icon name="chevronLeft" size={16} />
+              </ActionIcon>
+              <Select
+                aria-label="Case"
+                value={c.id}
+                onChange={v => v && setCaseId(v)}
+                data={record.cases.map(x => ({ value: x.id, label: x.label }))}
+                allowDeselect={false}
+                classNames={{ root: classes.caseSelect }}
+                data-parity="case select"
+              />
+              <ActionIcon
+                variant="default"
+                size="input-sm"
+                aria-label="Next case"
+                disabled={at === count - 1}
+                onClick={() => step(1)}
+              >
+                <Icon name="chevronRight" size={16} />
+              </ActionIcon>
+            </Group>
+          ) : null}
+          {several || themes.length === 2 || modes.length > 1 ? (
+            <Divider orientation="vertical" />
           ) : null}
           {themes.length === 2 ? (
             <SegmentedControl
@@ -276,20 +349,28 @@ export function EvidenceCompare({
           if (!shot) return null;
           const line = shotLine(c, shot);
           return (
-            <Stack key={p} gap={6} className={classes.column}>
+            <div key={p} className={classes.column}>
               <EvidenceFrame
                 src={evidenceUrl(repo, runId, addressOf(c, p, shot, variant))}
                 name={shownName(shot, variant)}
+                caption={
+                  <Stack gap={2} data-parity="cap">
+                    <Text
+                      fz="md"
+                      fw={500}
+                      lh="normal"
+                      truncate
+                      data-parity="phase"
+                    >
+                      {shownMode === 'side'
+                        ? PHASE_LABEL[p]
+                        : shownName(shot, variant)}
+                    </Text>
+                    <ShotLine line={line} size="md" />
+                  </Stack>
+                }
               />
-              <Stack gap={2} data-parity="cap">
-                <Text fz="md" fw={500} lh="normal" truncate data-parity="phase">
-                  {shownMode === 'side'
-                    ? PHASE_LABEL[p]
-                    : shownName(shot, variant)}
-                </Text>
-                <ShotLine line={line} size="md" />
-              </Stack>
-            </Stack>
+            </div>
           );
         })}
       </div>
