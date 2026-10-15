@@ -152,10 +152,12 @@ describe('EvidenceCompare', () => {
     expect(srcs(dialog)).toEqual([`${BASE}/case/before`]);
   });
 
-  it('starts with focus on its close button, not the control', async () => {
+  it('starts with focus on its stage, not a control or the close button', async () => {
     const dialog = await compare(BOTH, 'side');
-    const close = within(dialog).getByRole('button', { name: /close/i });
-    await waitFor(() => expect(close).toHaveFocus());
+    const stage = within(dialog)
+      .getAllByRole('img')[0]!
+      .closest('[tabindex="-1"]');
+    await waitFor(() => expect(stage).toHaveFocus());
   });
 
   it('closes from its close button', async () => {
