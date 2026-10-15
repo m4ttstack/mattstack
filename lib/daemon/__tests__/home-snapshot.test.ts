@@ -3848,6 +3848,20 @@ describe("current snapshot authorization", () => {
     } finally { handle.stop(); }
   });
 
+  test("until the first authorization read lands, a spec with readAuthorization reports pullOnly", async () => {
+    const { spec } = world();
+    spec.readAuthorization = () => ({ pullOnly: false, scope: () => true });
+    const { deps } = baseDeps({ exec: makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders({})]).fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    try {
+      expect(handle.status().pullOnly).toBe(true);
+      await handle.ready;
+      await handle.runNow("watch");
+      expect(handle.status().pullOnly).toBe(false);
+    } finally { handle.stop(); }
+  });
+
   test("partial revocation refuses pending commits outside the remaining owned team", async () => {
     const { spec } = world();
     let roots = ["mattstack/teams/widgets", "mattstack/teams/gadgets"];

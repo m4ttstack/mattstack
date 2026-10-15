@@ -1566,7 +1566,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   }
 
   function status(): SnapshotStatus {
-    const current = spec.readAuthorization ? (lastAuthorization ?? staticAuthorization()) : staticAuthorization();
+    // Before the first read lands the working-role roots are all there is, and they can be self-granted: report pull-only.
+    const current = spec.readAuthorization ? (lastAuthorization ?? { ...staticAuthorization(), pullOnly: true }) : staticAuthorization();
     reportUnowned(observedEntries, current.scope);
     let claimedZones: string[] = [];
     let ownersError: string | null = null;
