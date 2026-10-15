@@ -603,7 +603,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-`git init -b mattstack` (the name `DEFAULT_DATA_BRANCH = "mattstack"`, exported from `org-data-branch.ts`); write the marker with `layout: ORG_LAYOUT, dataBranch: DEFAULT_DATA_BRANCH`; commit and push as today. Then make `main` from scratch: `git checkout -q --orphan main`, `git rm -rq --cached .`, write only `mattstack/mattstack.jsonc`, commit, push `main`, `git checkout -q mattstack`, `git branch -D main`, and set the one-branch refspec. Every other create step (roster, roles, secrets, peer) is unchanged.
+`git init -b mattstack` (the name `DEFAULT_DATA_BRANCH = "mattstack"`, exported from `org-data-branch.ts`); write the marker with `layout: ORG_LAYOUT, dataBranch: DEFAULT_DATA_BRANCH`, and add `mattstack/org/admin-secrets/*.tmp` to the `.gitignore` it writes (sops leaves temporary files there while encrypting; plan 4 adds that folder); commit and push as today. Then make `main` from scratch: `git checkout -q --orphan main`, `git rm -rq --cached .`, write only `mattstack/mattstack.jsonc`, commit, push `main`, `git checkout -q mattstack`, `git branch -D main`, and set the one-branch refspec. Every other create step (roster, roles, secrets, peer) is unchanged.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -645,7 +645,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-Work in a temporary worktree of the clone so the admin's own checkout is never disturbed: `git worktree add --detach <tmp>`, `git checkout --orphan <data>`, `git rm -rq --cached .`, copy the four paths from `main`'s tree (`git checkout main -- mattstack .sops.yaml .claude-plugin .gitignore`), write the README and rewrite the marker, commit `"org data moves to its own branch"`, push. Record `main`'s sha. Unless `--no-pointer`: fetch `main`; if `git diff --quiet <recorded> origin/main -- mattstack .sops.yaml .claude-plugin` fails, re-copy and push again; then on a detached `origin/main` worktree, `git rm -rq mattstack .sops.yaml .claude-plugin`, write only the pointer marker, commit `"mattstack: org data lives on the <data> branch"`, push `HEAD:main`, and on rejection push `HEAD:refs/heads/<data>-pointer` and print the landing note. Remove the temp worktrees in `finally`.
+Work in a temporary worktree of the clone so the admin's own checkout is never disturbed: `git worktree add --detach <tmp>`, `git checkout --orphan <data>`, `git rm -rq --cached .`, copy the four paths from `main`'s tree (`git checkout main -- mattstack .sops.yaml .claude-plugin .gitignore`), append `mattstack/org/admin-secrets/*.tmp` to `.gitignore` when missing, write the README and rewrite the marker, commit `"org data moves to its own branch"`, push. Record `main`'s sha. Unless `--no-pointer`: fetch `main`; if `git diff --quiet <recorded> origin/main -- mattstack .sops.yaml .claude-plugin` fails, re-copy and push again; then on a detached `origin/main` worktree, `git rm -rq mattstack .sops.yaml .claude-plugin`, write only the pointer marker, commit `"mattstack: org data lives on the <data> branch"`, push `HEAD:main`, and on rejection push `HEAD:refs/heads/<data>-pointer` and print the landing note. Remove the temp worktrees in `finally`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
