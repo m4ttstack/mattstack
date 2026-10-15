@@ -124,6 +124,14 @@ const ANSWER_VALUE_SCHEMA = {
       required: ["value"],
       additionalProperties: false,
     },
+    {
+      type: "object",
+      properties: {
+        writeIn: { type: "string", pattern: "\\S", description: "The human's own answer, for a question opened with writeIn: true. Sent alone, never beside value, note or text." },
+      },
+      required: ["writeIn"],
+      additionalProperties: false,
+    },
   ],
 };
 
@@ -151,6 +159,7 @@ const GATE_QUESTION_SCHEMA = {
     label: { type: "string" },
     multi: { type: "boolean" },
     options: { type: "array", items: GATE_OPTION_SCHEMA },
+    writeIn: { type: "boolean", enum: [true], description: "Lets the human answer this question in their own words instead of a pick; the answer then arrives as {writeIn}. Set it only on a decision question whose free-text answer you can act on, never on next." },
     context: { type: "string", description: "Material specific to this one question (what its choice turns on), shown with it; the top-level context stays the whole ask's. Shares the 8192-byte context budget with the top-level context." },
   },
   required: ["id", "label", "multi", "options"],
@@ -161,7 +170,7 @@ export function mcpTools(): McpToolDef[] {
   return [
     {
       name: "gate_answer",
-      description: "Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}.",
+      description: "Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}. A question opened with writeIn: true may instead take {writeIn: \"<the human's own words>\"}, sent alone.",
       inputSchema: {
         type: "object",
         properties: {
@@ -229,7 +238,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "gate_ask",
-      description: "Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId}; then act on the returned presentation. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim.",
+      description: "Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId}; then act on the returned presentation. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words.",
       inputSchema: {
         type: "object",
         properties: {
