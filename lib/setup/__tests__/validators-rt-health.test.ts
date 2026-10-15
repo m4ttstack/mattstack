@@ -8,7 +8,7 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, ORG_SPARSE_ROW_ID, orgSparseRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, ORG_SPARSE_ROW_ID, orgSparseRow, ORG_BRANCH_ROW_ID, orgBranchRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, memberShell, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
@@ -1619,6 +1619,47 @@ describe("orgSparseRow", () => {
   });
 });
 
+describe("orgBranchRow", () => {
+  const probes = (branch: string | null, marker: Record<string, unknown>, local: Record<string, unknown> = {}) =>
+    fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT, ...marker }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}",
+        "/h/.mattstack/rt/teams/acme.json": JSON.stringify(local),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+      exec: (argv) => (argv.includes("symbolic-ref") ? (branch === null ? { code: 1, stdout: "", stderr: "" } : ok(`${branch}\n`)) : ok("")),
+    });
+
+  test("null with no clone", async () => {
+    expect(await orgBranchRow(fakeProbes({ home: "/h" }))).toBeNull();
+  });
+  test("ready on the data branch, and never required or finish-gated", async () => {
+    const r = await orgBranchRow(probes("mattstack", { dataBranch: "mattstack" }));
+    expect(r).toMatchObject({ id: ORG_BRANCH_ROW_ID, status: "ready", required: false });
+    expect(r?.finishGated ?? false).toBe(false);
+  });
+  test("ready on a trial branch this Mac chose", async () => {
+    const r = await orgBranchRow(probes("try", { dataBranch: "mattstack" }, { trialBranch: "try" }));
+    expect(r).toMatchObject({ status: "ready" });
+  });
+  test("needs-you on any other branch, naming it and the way back", async () => {
+    const r = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Auto-commit is paused: your copy of the org is on scratch." });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["rt team branch use mattstack"] });
+  });
+  test("needs-you on a detached HEAD", async () => {
+    const r = await orgBranchRow(probes(null, { dataBranch: "mattstack" }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Auto-commit is paused: your copy of the org has no branch checked out." });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["rt team branch use mattstack"] });
+  });
+  test("a pre-layout-4 clone on main is ready", async () => {
+    expect(await orgBranchRow(probes("main", { layout: 3 }))).toMatchObject({ status: "ready" });
+  });
+});
+
 describe("team.sync for a clone waiting on its layout", () => {
   const waiting = (entry: Record<string, unknown>) => {
     const calls: string[] = [];
@@ -1684,6 +1725,7 @@ describe("held layout and row position", () => {
     const ids = (await rtHealthRows(p, { ci: false }, () => ({ enabled: false }) as never)).map((r) => r.id);
     expect(ids.indexOf("org.layout")).toBe(ids.indexOf("org.folder") + 1);
     expect(ids.indexOf("org.sparse")).toBe(ids.indexOf("org.layout") + 1);
+    expect(ids.indexOf("org.branch")).toBe(ids.indexOf("org.sparse") + 1);
     expect(ids.indexOf("org.folder")).toBeGreaterThan(-1);
   });
 });

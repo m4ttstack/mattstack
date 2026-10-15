@@ -3919,6 +3919,51 @@ describe("team snapshot scope follows the org store guard", () => {
   });
 });
 
+describe("snapshot authorization follows the checked-out branch", () => {
+  const STORE = "mattstack/org/settings.org.jsonc";
+  const dirs: string[] = [];
+  afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+  const spec = (head: string, marker: string | null, local: Record<string, unknown> = { forgeUsername: "dev1" }) => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-branch-")));
+    dirs.push(dir);
+    mkdirSync(join(dir, ".git"));
+    writeFileSync(join(dir, ".git", "HEAD"), head);
+    const p = fakeProbes({ home: "/h", files: {
+      "/h/.mattstack/rt/teams/acme.json": JSON.stringify(local),
+      "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"] } }),
+      ...(marker ? { [join(dir, "mattstack", "mattstack.jsonc")]: marker } : {}),
+    }, exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
+    return { dir, spec: teamSnapshotSpec("acme", dir, { ownedRoots: ["mattstack"], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null }) };
+  };
+  const DATA = JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+
+  test("on the data branch an admin keeps today's scope", async () => {
+    const auth = await spec("ref: refs/heads/mattstack\n", DATA).spec.readAuthorization!();
+    expect(auth.pullOnly).toBe(false);
+    expect(auth.scope("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
+  });
+  test("on any other branch every path is out of scope and the engine only pulls", async () => {
+    const auth = await spec("ref: refs/heads/main\n", DATA).spec.readAuthorization!();
+    expect(auth.pullOnly).toBe(true);
+    expect(auth.scope("mattstack/teams/widgets/settings.team.jsonc")).toBe(false);
+    expect(auth.scope(STORE)).toBe(false);
+  });
+  test("a detached HEAD is unapproved", async () => {
+    const auth = await spec("0123abcd\n", DATA).spec.readAuthorization!();
+    expect(auth.pullOnly).toBe(true);
+    expect(auth.scope("mattstack/teams/widgets/settings.team.jsonc")).toBe(false);
+  });
+  test("a recorded trial branch is approved", async () => {
+    const auth = await spec("ref: refs/heads/trial\n", DATA, { forgeUsername: "dev1", trialBranch: "trial" }).spec.readAuthorization!();
+    expect(auth.pullOnly).toBe(false);
+    expect(auth.scope("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
+  });
+  test("a pre-layout-4 clone on main is approved", async () => {
+    const auth = await spec("ref: refs/heads/main\n", JSON.stringify({ role: "org", org: "acme", layout: 3 })).spec.readAuthorization!();
+    expect(auth.pullOnly).toBe(false);
+  });
+});
+
 describe("current snapshot authorization", () => {
   function world() {
     const p = fakeProbes({ home: "/h", files: {

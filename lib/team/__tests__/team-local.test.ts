@@ -120,3 +120,12 @@ describe("team-local record", () => {
     expect(p.exists(`${teamLocalPath(HOME, SLUG)}.lock`)).toBe(false);
   });
 });
+
+describe("trialBranch", () => {
+  test("survives a read, and a non-string reads as absent", () => {
+    const kept = fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ trialBranch: "try" }) } });
+    expect(readTeamLocal(kept, SLUG).trialBranch).toBe("try");
+    const bad = fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ trialBranch: 3 }) } });
+    expect(readTeamLocal(bad, SLUG).trialBranch).toBeUndefined();
+  });
+});

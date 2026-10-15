@@ -49,6 +49,7 @@ import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import { readTeamLocal, type PendingPackShare } from "../team/team-local.ts";
+import { approvedBranches, currentBranchSync } from "../team/approved-branch.ts";
 import { gateVerdict, holdSentence, markerAtRef, shownDataBranch, type GateVerdict, type PullHold } from "../team/org-layout.ts";
 import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
@@ -477,6 +478,8 @@ export function teamSnapshotSpec(
     standingZones: teamStandingZones,
     // Commit time judges by HEAD; the push gate passes the remote-tracking ref so a hand-committed self-grant cannot approve itself.
     readAuthorization: async (pushBase) => {
+      const branch = currentBranchSync(repoDir);
+      if (branch === null || !approvedBranches(opts.probes, slug, repoDir).includes(branch)) return { scope: () => false, pullOnly: true };
       const local = readTeamLocal(opts.probes, slug);
       const username = local.forgeUsername ?? null;
       const working = roleFor(opts.probes, slug);

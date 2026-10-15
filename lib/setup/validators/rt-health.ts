@@ -25,6 +25,8 @@ import { detectShellFrom, END_MARKER, MARKER, repairLegacyBlock, shellRcPathFor 
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
 import { keptTeams, type KeptTeam } from "../../team/org-cone.ts";
 import { heldCopy, moveBlocker } from "../../team/org-data-branch.ts";
+import { approvedBranches } from "../../team/approved-branch.ts";
+import { checkedOutBranch } from "../../team/org-branch.ts";
 import { holdSentence, layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
@@ -795,6 +797,32 @@ export async function orgSparseRow(p: Probes): Promise<Row | null> {
   return row({ ...base, status: "ready", detail: "Your copy holds only the teams you are on" });
 }
 
+export const ORG_BRANCH_ROW_ID = "org.branch";
+
+/** Whether the daemon still auto-commits in this Mac's org clone: it does only on the data branch or a trial branch this Mac chose. */
+export async function orgBranchRow(p: Probes): Promise<Row | null> {
+  const state = orgLayoutState(p);
+  if (state.kind === "none") return null;
+  const dir = orgDirUnder(p.home, state.slug);
+  const approved = approvedBranches(p, state.slug, dir);
+  const branch = await checkedOutBranch(p, dir);
+  const base = {
+    id: ORG_BRANCH_ROW_ID,
+    kind: "tool" as const,
+    title: "Org branch",
+    why: "rt saves your changes to the org automatically only on the org's data branch, or on a trial branch you chose.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  if (branch !== null && approved.includes(branch)) return row({ ...base, status: "ready", detail: `Auto-commit follows ${branch}` });
+  return row({
+    ...base,
+    status: "needs-you",
+    detail: `Auto-commit is paused: your copy of the org ${branch === null ? "has no branch checked out" : `is on ${branch}`}.`,
+    action: { type: "steps", label: "Show steps…", steps: [`rt team branch use ${approved[0]}`] },
+  });
+}
+
 // ─── entry point ────────────────────────────────────────────────────────────
 
 function readTeamSnapshotSettings(): TeamSnapshotSettings | undefined {
@@ -836,6 +864,7 @@ export async function rtHealthRows(
 
   const orgLayout = await orgLayoutRow(p, readStatus);
   const orgSparse = await orgSparseRow(p);
+  const orgBranch = await orgBranchRow(p);
 
   return [
     await rtRow(p),
@@ -854,5 +883,6 @@ export async function rtHealthRows(
     ...(orgFolder ? [orgFolder] : []),
     ...(orgLayout ? [orgLayout] : []),
     ...(orgSparse ? [orgSparse] : []),
+    ...(orgBranch ? [orgBranch] : []),
   ];
 }
