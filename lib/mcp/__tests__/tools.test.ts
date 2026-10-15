@@ -106,6 +106,25 @@ describe("mcpTools", () => {
     expect(tool.description).toContain("all statuses");
   });
 
+  test("gate_answer accepts a write-in object, alone", () => {
+    const tool = mcpTools().find((t) => t.name === "gate_answer")!;
+    const schema = tool.inputSchema as {
+      properties: { answers: { additionalProperties: { oneOf: Array<{ type: string; required?: string[]; properties?: Record<string, unknown>; additionalProperties?: boolean }> } } };
+    };
+    const writeIn = schema.properties.answers.additionalProperties.oneOf.find((b) => b.required?.includes("writeIn"))!;
+    expect(Object.keys(writeIn.properties!)).toEqual(["writeIn"]);
+    expect(writeIn.additionalProperties).toBe(false);
+    expect(writeIn.properties!.writeIn).toMatchObject({ type: "string", pattern: "\\S" });
+    expect(tool.description).toContain("{writeIn");
+  });
+
+  test("gate_ask questions may carry writeIn: true", () => {
+    const tool = mcpTools().find((t) => t.name === "gate_ask")!;
+    const q = (tool.inputSchema as { properties: { questions: { items: { properties: Record<string, unknown> } } } }).properties.questions.items;
+    expect(q.properties.writeIn).toMatchObject({ type: "boolean", enum: [true] });
+    expect(tool.description).toContain("writeIn");
+  });
+
   test("gate_answer's object answer form accepts text beside note", () => {
     const tool = mcpTools().find((t) => t.name === "gate_answer")!;
     const schema = tool.inputSchema as {

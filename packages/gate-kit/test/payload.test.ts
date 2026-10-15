@@ -1,6 +1,10 @@
 import { expect, test } from 'vitest';
 
-import { gateAnswerPayload, unwrapGateAnswer } from '@mattstack/gate-kit';
+import {
+  gateAnswerPayload,
+  unwrapGateAnswer,
+  writeIns,
+} from '@mattstack/gate-kit';
 import type { GateQuestion } from '@mattstack/rt-client';
 
 const QUESTIONS: GateQuestion[] = [
@@ -113,4 +117,52 @@ test('the text form unwraps with its text beside the value', () => {
     value: ['post:T1'],
     text: 'edited',
   });
+});
+
+const OPEN_Q = {
+  id: 'approach',
+  label: 'A',
+  multi: false,
+  options: ['x', 'y'],
+  writeIn: true as const,
+};
+const PLAIN_Q = { id: 'scope', label: 'S', multi: false, options: ['a', 'b'] };
+const OPEN_MULTI = {
+  id: 'picks',
+  label: 'P',
+  multi: true,
+  options: ['a', 'b'],
+  writeIn: true as const,
+};
+
+test('unwrapGateAnswer reads a write-in with no value', () => {
+  expect(unwrapGateAnswer({ writeIn: 'do z' })).toEqual({ writeIn: 'do z' });
+});
+
+test('writeIns: a writeIn question with no pick and note text answers with the trimmed text', () => {
+  expect(
+    writeIns(
+      [OPEN_Q, OPEN_MULTI],
+      {},
+      { approach: '  do z ', picks: 'neither' }
+    )
+  ).toEqual({ approach: 'do z', picks: 'neither' });
+});
+
+test('writeIns: a pick, a blank note or a plain question is never a write-in', () => {
+  expect(
+    writeIns([OPEN_Q], { approach: 'x' }, { approach: 'because' })
+  ).toEqual({});
+  expect(writeIns([OPEN_Q], {}, { approach: '   ' })).toEqual({});
+  expect(writeIns([OPEN_MULTI], { picks: ['a'] }, { picks: 'also' })).toEqual(
+    {}
+  );
+  expect(writeIns([PLAIN_Q], {}, { scope: 'mine' })).toEqual({});
+});
+
+test('gateAnswerPayload skips a written-in question instead of refusing the form', () => {
+  expect(
+    gateAnswerPayload([OPEN_Q, PLAIN_Q], { scope: 'a' }, { approach: 'do z' })
+  ).toEqual({ answers: { scope: 'a' } });
+  expect(gateAnswerPayload([OPEN_Q, PLAIN_Q], { scope: 'a' })).toBeNull();
 });

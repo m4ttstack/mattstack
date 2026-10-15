@@ -186,6 +186,26 @@ describe('gateItems', () => {
     });
     expect(display[0]!.choices[1]).not.toHaveProperty('recommended');
   });
+
+  test('a writeIn question carries the flag onto its display item', () => {
+    const { display } = gateItems(
+      {
+        kind: 'plan',
+        questions: [
+          {
+            id: 'approach',
+            label: 'A',
+            multi: false,
+            options: ['x'],
+            writeIn: true,
+          },
+          { id: 'scope', label: 'S', multi: false, options: ['a'] },
+        ],
+      },
+      {}
+    );
+    expect(display.map(d => d.writeIn)).toEqual([true, undefined]);
+  });
 });
 
 describe('answersFromForm', () => {
@@ -256,6 +276,54 @@ describe('answersFromForm', () => {
     respond.set(noteFieldName('code-changes'), 'stray');
     expect(answersFromForm(RESPOND_GATE, respond)).toEqual({
       answers: { 'threads-1': ['reply:t1'], 'code-changes': 'skip' },
+    });
+  });
+
+  test('a writeIn question with no pick and a note answers { writeIn }; a plain question still refuses', () => {
+    const gate: GateForItems = {
+      kind: 'plan',
+      questions: [
+        {
+          id: 'approach',
+          label: 'A',
+          multi: false,
+          options: ['x', 'y'],
+          writeIn: true,
+        },
+        { id: 'scope', label: 'S', multi: false, options: ['a', 'b'] },
+      ],
+    };
+    const form = new FormData();
+    form.set(noteFieldName('approach'), '  split it ');
+    form.set('scope', 'a');
+    expect(answersFromForm(gate, form)).toEqual({
+      answers: { approach: { writeIn: 'split it' }, scope: 'a' },
+    });
+
+    const plain = new FormData();
+    plain.set(noteFieldName('scope'), 'mine');
+    plain.set(noteFieldName('approach'), 'split it');
+    expect(answersFromForm(gate, plain)).toBeNull();
+  });
+
+  test('a pick plus a note on a writeIn question is still { value, note }', () => {
+    const gate: GateForItems = {
+      kind: 'plan',
+      questions: [
+        {
+          id: 'approach',
+          label: 'A',
+          multi: false,
+          options: ['x'],
+          writeIn: true,
+        },
+      ],
+    };
+    const form = new FormData();
+    form.set('approach', 'x');
+    form.set(noteFieldName('approach'), 'because');
+    expect(answersFromForm(gate, form)).toEqual({
+      answers: { approach: { value: 'x', note: 'because' } },
     });
   });
 });

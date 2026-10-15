@@ -746,6 +746,27 @@ describe('rowStatus: gates', () => {
       verbs: [],
     });
   });
+
+  test('a write-in answer reads as "wrote in: ..." in the detail', () => {
+    const [line] = candidateLines(
+      mr({
+        gates: [
+          gate({
+            status: 'answered',
+            answers: { approach: { writeIn: 'split it' }, next: 'proceed' },
+          }),
+        ] as never,
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'quiet',
+      word: 'answered',
+      detail: 'wrote in: "split it", proceed',
+    });
+  });
 });
 
 describe('rowStatus: respond lane', () => {

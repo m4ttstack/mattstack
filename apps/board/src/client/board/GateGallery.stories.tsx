@@ -183,6 +183,10 @@ export const StageSelfReviewProgress = face(
 );
 export const StageSelfReview = face('Stage: self-review', G.selfReview);
 export const StageShip = face('Stage: ship', G.ship);
+export const StagePlanWriteIn = face(
+  'Stage: plan, write-in question',
+  G.planWriteIn
+);
 export const StageWatchCi = face('Stage: watch-ci', G.watchCi);
 export const StageCiWatchWaiting = face(
   'Stage: ci-watch, waiting',
@@ -248,6 +252,10 @@ export const AnsweredRespondPost = face(
 export const AnsweredMilestoneNote = face(
   'Answered: milestone with a note',
   G.answeredMilestoneNote
+);
+export const AnsweredPlanWriteIn = face(
+  'Answered: stage plan, wrote in',
+  G.answeredPlanWriteIn
 );
 export const AnsweredInPane = face('Answered: in the pane', G.answeredInPane);
 export const AnswerStuck = face('Answered: stuck', G.answerStuck);

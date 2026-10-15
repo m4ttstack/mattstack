@@ -574,6 +574,9 @@ Submit each answer's `value` verbatim; free text the user adds rides the
 `note`. `--by shepherd` records which surface decided; the `gate_answer`
 tool records the pane, so it is not your path. Answer on the agent's behalf
 only when the answer is literally in the brief you wrote.
+A relayed human answer that fits no option goes as `{"writeIn": "<their
+words>"}` when the question was opened with `writeIn`; otherwise ask them
+to pick.
 
 When the user parks a gate, `rt gate park <id>` pauses it: it leaves the
 open list until reopened.

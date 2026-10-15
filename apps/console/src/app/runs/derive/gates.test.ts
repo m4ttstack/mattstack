@@ -300,3 +300,25 @@ describe('contextBlocks', () => {
       { kind: 'code', lines: ['- Key: value'] },
     ]));
 });
+
+describe('questionAnswer: a write-in', () => {
+  it('reads a write-in as no picks plus the text', () => {
+    const q = {
+      id: 'approach',
+      label: 'A',
+      multi: false,
+      options: ['x'],
+      writeIn: true as const,
+    };
+    expect(
+      questionAnswer(
+        {
+          answers: { approach: { writeIn: 'split it' } },
+          by: 'console',
+          answeredAt: 1,
+        },
+        q
+      )
+    ).toEqual({ picked: [], writeIn: 'split it' });
+  });
+});

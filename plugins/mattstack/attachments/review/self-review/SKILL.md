@@ -318,7 +318,7 @@ Bracket with `run_field_set {key: gate, value: self-review, stage:
 list into another: a question over 4 options sends the whole gate to the
 wait queue):
 
-- `fix`: **Fix the blocking findings now** (recommended when any Critical
+- `fix` (write-in): **Fix the blocking findings now** (recommended when any Critical
   or Important exists) / **Fix the minors too** / **Ship as is**
 - `next`: **Proceed** (recommended) / **Iterate here** / **Hold** /
   **Abandon**
@@ -326,23 +326,33 @@ wait queue):
 Record `run_decision {contract: gate@1, scope: self-review, selection:
 {"fix": "blocking|all|none", "note": "<their words or null>"}, decidedBy:
 <the answer's by>}`. Blocking means Critical and Important; the minors
-answer fixes every finding.
+answer fixes every finding. A `fix` write-in records `"fix": {"writeIn":
+"<their words>"}`.
 
 A resumed run whose snapshot records the latest `self-review` decision
-carrying `fix` reuses that decision's `fix` answer, treats `next` as
-proceed, and asks nothing here.
+with `fix` set to an option value (`blocking`, `all` or `none`) reuses
+that answer, treats `next` as proceed, and asks nothing here. One whose
+latest decision's `fix` is a write-in (`{"writeIn": ...}`) instead
+resumes at gate-protocol's
+Act on a write-in: finish the work the write-in asks for, then open a NEW
+self-review gate.
 
 ### Gate self-review again: quote the failing output
 
 A new gate, never the old one reopened: the same bracket and kind
 `self-review`, with `context` quoting the failing test output and naming
-the finding. Questions, each its own: `finding`: **Try this finding
+the finding. Questions, each its own: `finding` (write-in): **Try this finding
 again** / **Leave it open and move on**; `next`: **Proceed** (recommended)
 / **Hold** / **Abandon**. `next: hold` is hold and `next: abandon` is
-abandon whatever `finding` says; otherwise the `finding` answer decides.
+abandon whatever `finding` says, a `finding` write-in riding as that
+move's note (gate-protocol's deliberate-pick rule); otherwise the
+`finding` answer decides, and a `finding` write-in goes through
+gate-protocol's Act on a write-in.
 Record `run_decision {contract: gate@1, scope: self-review, selection:
 {"finding": "<its id or file:line>", "retry": true|false, "note": "<their
-words or null>"}, decidedBy: <the answer's by>}`. Try again resets that
+words or null>"}, decidedBy: <the answer's by>}`. A `finding` write-in
+records in `retry`, the slot that holds that question's answer: `"retry":
+{"writeIn": "<their words>"}`, with the finding's id left in `finding`. Try again resets that
 finding's attempt count to 0; each finding gets one reopened gate, after
 which it is left open.
 

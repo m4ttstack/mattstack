@@ -99,7 +99,6 @@ function DecisionQueueModal({
       face shows the questions and says why, with no form to submit. */
   readOnly?: string | null;
 }) {
-  const form = useGateForm(gate, onAnswered);
   const paneGone = gate.executor === 'gone';
   const context = gateContext(gate);
   const headerCtx = useMemo((): PlanCtx | PostCtx | null => {
@@ -120,6 +119,7 @@ function DecisionQueueModal({
   const isReviewSheet = useMemo(() => isReviewSheetGate(gate), [gate]);
   const answered = gate.status === 'answered';
   const actionable = gate.status === 'open' || gate.status === 'parked';
+  const form = useGateForm(gate, onAnswered, { readOnly: Boolean(readOnly) });
   const deliveryStuck = answered && gate.delivery?.outcome === 'stuck';
   const executionUnassigned = answered && gate.execution === 'unassigned';
   const reason = gate.kind === 'pane-attention' ? paneReason(gate) : undefined;
