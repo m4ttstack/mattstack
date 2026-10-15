@@ -16,3 +16,4 @@ Add a row when a page introduces a concept.
 | A workspace kept at the top of flock's sidebar | pinned workspace, pin | favorite, bookmark |
 | flock's three window modes | view (Workspaces, Overview, Arrange) | mode, screen, page |
 | A mattstack app deck runs from source, reloading as you edit | live, go live | dev mode, hot mode, watch mode |
+| The repo access and data branch push rights the org's roles give each person on the forge | forge access | forge grants, repo permissions, membership sync |
