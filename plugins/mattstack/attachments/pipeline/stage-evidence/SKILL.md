@@ -237,9 +237,9 @@ before. Give the case its `id` and `label` first (see the evidence record
 below): the file name needs the id. Run `mkdir -p <evidence folder>`,
 then save it into the evidence folder as
 `<run id>-<case id>-ticket.<ext>`, where `<ext>` is the image's own
-extension when that is `png`, `jpg`, `jpeg`, `gif` or `webp`, and `png`
-otherwise. Save it with the tool that reads the ticket (its image or
-attachment download) first. When that tool has no download, or its
+extension, lowercased: `png`, `jpg`, `jpeg`, `gif` or `webp`. An image of
+any other type is not saved: `Ticket image saved?` is no. Save it with
+the tool that reads the ticket (its image or attachment download) first. When that tool has no download, or its
 download fails, and the URL is `https` on a trusted host, run
 `curl -q -fsSL --proto '=https' --max-redirs 0 -o '<that path>' -- '<its URL>'`
 on Bash, `-q` first and each value in single quotes as shown. Keep the
@@ -266,9 +266,9 @@ verified. When no tool can fetch the image, `Ticket image saved?` is no
 and the case takes the link-only branch. The ticket supplies the URL, so
 curl never fetches one that is not `https`, that holds a single quote,
 whose host part holds `@`, `\`, `%` or a port, or whose host is not a
-trusted host. Once the ticket tool's download has failed, a URL curl
-refuses, or one that redirects, is one no tool can fetch, and it is never
-fetched another way.
+trusted host. Once the ticket tool's download has failed, or it has
+none, a URL curl refuses, or one that redirects, is one no tool can
+fetch, and it is never fetched another way.
 
 ### Record the ticket's location as the BEFORE
 
