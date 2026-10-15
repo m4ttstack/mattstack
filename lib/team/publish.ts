@@ -10,6 +10,7 @@ import { join } from "path";
 import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org-store-guard.ts";
 import { rolesFrom } from "../../packages/rt-client/src/settings/active-team.ts";
 import { readTeamLocal } from "./team-local.ts";
+import { isUnclaimed } from "./org-store-scope.ts";
 import { parseStoreText } from "../../packages/rt-client/src/settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { UserActionableError } from "../errors.ts";
@@ -126,7 +127,8 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   if (base.sha !== null && pending.includes(ORG_STORE_REL) && !(await containsCommit(p, dir, base.sha, ref))) throw orgMoved();
   // Judged by the roles the remote already holds, so a pending or uncommitted edit cannot grant itself the role that approves it.
   const before = await show(base.sha);
-  const baseRoles = base.sha === null ? null : rolesFrom(before);
+  const fromBase = base.sha === null ? null : rolesFrom(before);
+  const baseRoles = fromBase !== null && !isUnclaimed(fromBase) ? fromBase : null;
   const judge = baseRoles === null ? current : roleOf(readTeamLocal(p, slug).forgeUsername ?? null, baseRoles);
   // A path needs both the remote's roles and this clone's current ones: the first stops a self-granted role, the second a revoked one.
   const refuse = (path: string) => {

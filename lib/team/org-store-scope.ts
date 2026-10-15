@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import { rolesFrom } from "../../packages/rt-client/src/settings/active-team.ts";
+import { rolesFrom, type OrgRoles } from "../../packages/rt-client/src/settings/active-team.ts";
 import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org-store-guard.ts";
 import { roleOf, type OrgRole } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { parseStoreText } from "../../packages/rt-client/src/settings/stores.ts";
@@ -30,11 +30,17 @@ export function readStoreAt(repoDir: string, ref: string, run: Run = realRun): B
   return shown.code === 0 ? { state: "text", text: shown.stdout } : { state: "unreadable" };
 }
 
-/** The role the base org store gives this user, so an uncommitted or unpushed edit cannot grant itself the role that approves it. Absent base: the fallback; unreadable base: unknown. */
+/** An org whose store names no admins and no owners is not claimed yet: the creator's first write has no committed role to be judged by. */
+export function isUnclaimed(roles: OrgRoles): boolean {
+  return roles.admins.length === 0 && roles.owners.length === 0;
+}
+
+/** The role the base org store gives this user, so an uncommitted or unpushed edit cannot grant itself the role that approves it. Absent or unclaimed base: the fallback; unreadable base: unknown. */
 export function roleFromBase(base: BaseStore, username: string | null, fallback: OrgRole): OrgRole {
   if (base.state === "absent") return fallback;
   if (base.state === "unreadable") return { kind: "unknown" };
-  return roleOf(username, rolesFrom(parseStoreText(ORG_STORE_REL, base.text)));
+  const roles = rolesFrom(parseStoreText(ORG_STORE_REL, base.text));
+  return isUnclaimed(roles) ? fallback : roleOf(username, roles);
 }
 
 /**

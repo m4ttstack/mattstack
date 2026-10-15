@@ -3715,6 +3715,25 @@ describe("team snapshot scope follows the org store guard", () => {
     rmSync(rosterChange.dir, { recursive: true, force: true });
   });
 
+  test("a creator's claim of an unclaimed org is in scope for the daemon", () => {
+    const unclaimed = { admins: [], teams: {} };
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-scope-")));
+    mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
+    gitIn(dir, "init", "-q");
+    writeFileSync(join(dir, STORE), body(unclaimed, []));
+    gitIn(dir, "add", "-A");
+    gitIn(dir, "commit", "-q", "-m", "init");
+    const claimed = { admins: ["dev1"], teams: {} };
+    writeFileSync(join(dir, STORE), body(claimed, []));
+    const p = fakeProbes({ home: "/h", files: {
+      "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+      "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": body(claimed, []),
+    } });
+    const spec = teamSnapshotSpec("acme", dir, { ownedRoots: [], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
+    expect(spec.readAuthorization!().scope(STORE)).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("an admin who demotes themselves still has the org store change in scope", () => {
     const demoted = { ...org, admins: [] };
     const { auth, dir } = setup("dev1", body(demoted), demoted);

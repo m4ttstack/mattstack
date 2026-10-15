@@ -106,4 +106,17 @@ describe("roleFromBase", () => {
     expect(roleFromBase(base(headText), "dev2", { kind: "member" })).toEqual({ kind: "owner", teams: ["widgets"] });
     expect(roleFromBase(base(null), "dev2", { kind: "member" })).toEqual({ kind: "member" });
   });
+
+  test("an unclaimed base (no admins, no owners) falls back; a claimed base does not", () => {
+    const unclaimed = JSON.stringify({ "mattstack.org": { admins: [], teams: {} } });
+    expect(roleFromBase(base(unclaimed), "dev1", { kind: "admin" })).toEqual({ kind: "admin" });
+    expect(roleFromBase(base(headText), "dev2", { kind: "admin" })).toEqual({ kind: "owner", teams: ["widgets"] });
+  });
+
+  test("the creator's claim of an unclaimed org is in scope, a self-grant on a claimed org is not", () => {
+    write(JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }));
+    expect(inScope(dir, "dev1", { kind: "admin" }, JSON.stringify({ "mattstack.org": { admins: [], teams: {} } }))).toBe(true);
+    write(withOrg({ admins: ["dev1", "dev2"] }));
+    expect(inScope(dir, "dev2", { kind: "admin" }, headText)).toBe(false);
+  });
 });
