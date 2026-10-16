@@ -169,7 +169,8 @@ export async function walkPipeline(
   const bridges: WalkBridge[] = [];
   const emptyFailedBridges: WalkBridge[] = [];
   const seen = new Set<number>();
-  const failedSoFar = () => jobs.filter((j) => j.status === "failed").length + emptyFailedBridges.length;
+  let rawFailedJobs = 0;
+  const failedSoFar = () => rawFailedJobs + emptyFailedBridges.length;
 
   async function visit(id: number, allowFailureUnder: boolean): Promise<void> {
     if (seen.has(id)) return;
@@ -177,6 +178,7 @@ export async function walkPipeline(
     // Unscoped on purpose: attempt counts every earlier run, and a scoped read hides the runs of other statuses.
     const rawJobs = (await readAllPages(command, target, id, `/projects/:id/pipelines/${id}/jobs`, { include_retried: true })) as RawJob[];
     jobs.push(...jobRows(rawJobs, id, allowFailureUnder, opts.scope || undefined));
+    rawFailedJobs += rawJobs.filter((j) => j.retried !== true && j.status === "failed").length;
     const rawBridges = (await readAllPages(command, target, id, `/projects/:id/pipelines/${id}/bridges`, {})) as RawBridge[];
     for (const raw of rawBridges) {
       const bridge = bridgeRow(raw, rootProjectId);

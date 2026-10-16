@@ -220,6 +220,35 @@ describe("gitlabTriageForge", () => {
     ]);
   });
 
+  test("walk under a non-failed scope leaves a bridge whose child has a failed job out of emptyFailedBridges", async () => {
+    const { command } = fake({
+      [`forge:get ${P}/5`]: () => pipelineInfo(5),
+      [`forge:get ${P}/5/jobs`]: () => get([]),
+      [`forge:get ${P}/5/bridges`]: () => get([bridge("child-with-failure", { id: 62, project_id: 1 })]),
+      [`forge:get ${P}/62/jobs`]: () => get([job(3, "unit"), job(4, "lint", { status: "success" })]),
+      [`forge:get ${P}/62/bridges`]: () => get([]),
+    });
+    const walk = await walkPipeline(command, TARGET, 5, { scope: "success" });
+    expect(walk?.jobs.map((j) => j.jobId)).toEqual([4]);
+    expect(walk?.emptyFailedBridges).toEqual([]);
+  });
+
+  test("failedJobs marks an empty failed bridge under an allow_failure parent non-blocking", async () => {
+    const { command } = fake({
+      [`forge:get ${P}/5`]: () => pipelineInfo(5),
+      [`forge:get ${P}/5/jobs`]: () => get([]),
+      [`forge:get ${P}/5/bridges`]: () => get([bridge("optional-parent", { id: 70, project_id: 1 }, { allow_failure: true })]),
+      [`forge:get ${P}/70/jobs`]: () => get([]),
+      [`forge:get ${P}/70/bridges`]: () => get([bridge("bad-config-grandchild", { id: 71, project_id: 1 })]),
+      [`forge:get ${P}/71/jobs`]: () => get([]),
+      [`forge:get ${P}/71/bridges`]: () => get([]),
+    });
+    const failed = await gitlabTriageForge(command, TARGET).failedJobs(5);
+    expect(failed?.crossProject).toEqual([
+      { name: "bad-config-grandchild", status: "failed", blocking: false, downstream: { projectId: 1, pipelineId: 71, webUrl: "https://gl/pipelines/71" } },
+    ]);
+  });
+
   test("failedJobs is null for a missing pipeline", async () => {
     const { command } = fake({ [`forge:get ${P}/5`]: () => notFound });
     expect(await gitlabTriageForge(command, TARGET).failedJobs(5)).toBeNull();
