@@ -288,6 +288,13 @@ export function resolveStage(
   const index = names.indexOf(o.stage);
   if (index < 0) return refuse(`stage ${o.stage} is not in this run's pipeline manifest (stages: ${names.join(", ")})`);
 
+  const run = db.query("SELECT status FROM runs LIMIT 1").get() as { status: string } | undefined;
+  if (!run) return refuse("this run has no run row");
+  if (run.status !== "running") {
+    if (o.next === "done" && run.status === "done") return { ok: true, applied: "done", status: "done" };
+    return refuse(`this run is ${run.status}; nothing to resolve`);
+  }
+
   if (o.next === "hold") {
     const r = holdStage(db, { stage: o.stage, reason: o.note, decidedBy: o.decidedBy, now });
     return r.ok ? { ok: true, applied: "hold", held: { at: r.at, scope: r.scope } } : r;
@@ -361,12 +368,23 @@ export function closeRun(
   const now = o.now ?? Date.now();
   try {
     return db.transaction((): Ok<{ closed: true; status: string }> | Fail => {
-      const run = db.query("SELECT work_type FROM runs LIMIT 1").get() as { work_type: string } | undefined;
+      const run = db.query("SELECT work_type, status FROM runs LIMIT 1").get() as { work_type: string; status: string } | undefined;
       if (!run) return refuse("this run has no run row");
       if (run.work_type !== o.workType) return refuse(`this run belongs to ${run.work_type}; an inherited run closes nothing`);
-      if (readManifest(db).length > 1) return refuse("a pipeline run closes through run_resolve");
-      if (latestStatus(db, o.stage) === "running") {
-        must(stageEnd(db, o.stage, o.outcome === "done" ? "done" : "failed", { reason: o.reason, detailPath: o.detailPath, now }));
+      const manifest = readManifest(db);
+      if (manifest.length > 1) return refuse("a pipeline run closes through run_resolve");
+      const status = latestStatus(db, o.stage);
+      if (manifest.length === 1 && manifest[0]!.stage !== o.stage) {
+        return refuse(`stage ${o.stage} is not this run's stage (${manifest[0]!.stage})`);
+      }
+      if (manifest.length === 0 && status === null) return { ok: false, error: `stage ${o.stage} has no row in this run`, code: 3 };
+      if (run.status !== "running") {
+        if (run.status === o.outcome) return { ok: true, closed: true, status: run.status };
+        return refuse(`this run is ${run.status}; nothing to close`);
+      }
+      if (status === "running") {
+        const reason = o.reason ?? (o.outcome === "abandoned" ? "abandoned" : undefined);
+        must(stageEnd(db, o.stage, o.outcome === "done" ? "done" : "failed", { reason, detailPath: o.detailPath, now }));
       }
       must(runStatus(db, o.outcome, now));
       return { ok: true, closed: true, status: o.outcome };

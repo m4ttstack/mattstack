@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { budget, cleared, closeRun, holdStage, nextStage, positionOf, readManifest, resolveStage, setManifestRoot, writeManifest } from "../engine.ts";
-import { createRunDb, fieldSet, stageEnd, stageStart } from "../write.ts";
+import { createRunDb, fieldSet, runStatus, stageEnd, stageStart } from "../write.ts";
 
 const dirs: string[] = [];
 
@@ -459,6 +459,25 @@ describe("resolveStage", () => {
     expect(snap(db)).toBe(before);
   });
 
+  test("a finished run refuses every answer, writing nothing; done on a done run repeats", () => {
+    const db = atShip();
+    ok(runStatus(db, "abandoned", 300));
+    const before = snap(db);
+    for (const next of ["retry", "redirect", "iterate", "hold", "abandon", "done"] as const) {
+      expect(resolve(db, { next, to: "implement" })).toEqual({ ok: false, error: "this run is abandoned; nothing to resolve", code: 2 });
+    }
+    expect(snap(db)).toBe(before);
+
+    const finished = atShip();
+    ok(stageEnd(finished, "ship", "done"));
+    attempt(finished, "watch-ci");
+    expect(resolve(finished, { stage: "watch-ci", next: "done" })).toMatchObject({ applied: "done" });
+    const done = snap(finished);
+    expect(resolve(finished, { stage: "watch-ci", next: "done", now: 900 })).toEqual({ ok: true, applied: "done", status: "done" });
+    expect(resolve(finished, { stage: "watch-ci", next: "abandon" })).toEqual({ ok: false, error: "this run is done; nothing to resolve", code: 2 });
+    expect(snap(finished)).toBe(done);
+  });
+
   test("refuses an unknown stage, an empty decidedBy and a run with no manifest, writing nothing", () => {
     const db = atShip();
     const before = snap(db);
@@ -540,6 +559,34 @@ describe("closeRun", () => {
     const db = mkdb();
     expect(stageStart(db, "review", {}).ok).toBe(true);
     expect(closeRun(db, { workType: "work", stage: "review", outcome: "abandoned" })).toMatchObject({ ok: true, status: "abandoned" });
+  });
+
+  test("a finished run is not closed again; the same outcome repeats without writes", () => {
+    const db = standalone();
+    expect(closeRun(db, { workType: "work", stage: "review", outcome: "done", now: 200 }).ok).toBe(true);
+    const before = JSON.stringify([db.query("SELECT * FROM runs").all(), db.query("SELECT * FROM stages").all()]);
+    expect(closeRun(db, { workType: "work", stage: "review", outcome: "done", now: 900 })).toEqual({ ok: true, closed: true, status: "done" });
+    expect(closeRun(db, { workType: "work", stage: "review", outcome: "failed", reason: "late" })).toEqual({
+      ok: false,
+      error: "this run is done; nothing to close",
+      code: 2,
+    });
+    expect(JSON.stringify([db.query("SELECT * FROM runs").all(), db.query("SELECT * FROM stages").all()])).toBe(before);
+  });
+
+  test("refuses a stage other than the single manifest stage, and a stage with no row on an empty manifest", () => {
+    const db = standalone();
+    expect(closeRun(db, { workType: "work", stage: "ship", outcome: "done" })).toMatchObject({ ok: false, code: 2 });
+    expect(db.query("SELECT status FROM runs").get()).toEqual({ status: "running" });
+    const bare = mkdb();
+    expect(closeRun(bare, { workType: "work", stage: "review", outcome: "done" })).toMatchObject({ ok: false, code: 3 });
+    expect(bare.query("SELECT status FROM runs").get()).toEqual({ status: "running" });
+  });
+
+  test("abandoned ends a running row failed with the reason defaulting to abandoned", () => {
+    const db = standalone();
+    expect(closeRun(db, { workType: "work", stage: "review", outcome: "abandoned" })).toMatchObject({ status: "abandoned" });
+    expect(db.query("SELECT status, reason FROM stages").get()).toEqual({ status: "failed", reason: "abandoned" });
   });
 
   test("refuses another work type and a multi-stage manifest, writing nothing", () => {
