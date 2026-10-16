@@ -389,6 +389,14 @@ describe("mr_map", () => {
     expect(res.body.rows.map((r: any) => r.dirty)).toEqual([null, null, null]);
   });
 
+  test("the cache read is bounded by the read timeout", async () => {
+    const args: unknown[][] = [];
+    const readMrCache = (async (...a: unknown[]) => { args.push(a); return { ok: false, error: "x" }; }) as any;
+    const { deps } = withDeps({}, { readMrCache });
+    await call(deps, { repoName: ID });
+    expect(args).toEqual([[ID, undefined, { timeoutMs: 30_000 }]]);
+  });
+
   test("ciStatus is null on a cache error, thrown or returned", async () => {
     for (const readMrCache of [(async () => { throw new Error("socket"); }) as any, (async () => ({ ok: false, error: "x" })) as any]) {
       const { deps } = withDeps({}, { readMrCache });

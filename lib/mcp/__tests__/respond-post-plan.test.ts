@@ -157,6 +157,7 @@ describe("planRespondPost happy path", () => {
     expect(p.mrUrl).toBe(MR);
     expect(p.branch).toBe("fix-queue");
     expect(p.startedAt).toBe(100);
+    expect(p.planDecidedAt).toBe(PLAN_DECIDED);
     expect(p.actions).toEqual([
       { threadId: "T1", verb: "fix", post: true, resolve: true, body: T1_FIXED },
       { threadId: "T2", verb: "reply", post: true, resolve: false, body: T2_VERBATIM },
@@ -207,10 +208,10 @@ describe("freshness", () => {
     expect(accepted(s).actions.map((a) => a.threadId)).toEqual(["T1", "T2"]);
   });
 
-  test("a missing plan decision refuses", () => {
+  test("a missing plan decision refuses, naming gate_record", () => {
     const s = happy();
     dropDecision(s, "respond-plan");
-    expect(refusal(s)).toContain("respond-plan has no decision recorded since its gate opened");
+    expect(refusal(s)).toBe("respond-plan has no decision recorded since its gate opened; if the gate is answered, record it with gate_record, then call again");
   });
 
   test("a stale respond-post decision refuses", () => {
@@ -472,6 +473,13 @@ describe("run-level refusals", () => {
     const s = happy();
     dropField(s, "mr");
     expect(refusal(s)).toContain("mr field");
+  });
+
+  test("an http mr field refuses, since target resolution takes https only", () => {
+    const s = happy();
+    const http = "http://gitlab.com/acme/app/-/merge_requests/7";
+    setField(s, field("mr", http, 50));
+    expect(refusal(s)).toBe(`the run's mr field is not an MR URL: ${http}`);
   });
 
   test("a GitHub PR refuses with the gh reply and resolve move", () => {

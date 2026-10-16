@@ -117,7 +117,7 @@ function world(): World {
     cmd: {
       "discussions:refresh": [okData({ discussions: fresh(), fetchedAt: 1 })],
       "forge:get": [okData({ status: 200, body: { username: "me-bot" } })],
-      "mr:get": [okData({ mr: { sourceBranch: "feat-x" } })],
+      "mr:get": [okData({ mr: { sourceBranch: "feat-x", state: "opened" } })],
       "discussions:reply": [okData({ discussions: [], fetchedAt: 1, noteId: 900 })],
       "discussions:resolve": [okData({ discussions: [], fetchedAt: 1 })],
     },
@@ -139,6 +139,19 @@ function noFixRow(w: World) {
   w.snapshot.decisions = [decision("respond-plan", { threads: { T1: "skip", T2: "reply" }, "code-changes": "skip" }, 2_000)];
   w.gates["g-plan"] = okData({ status: "answered", row: row("g-plan", PLAN, { "thread-1": "skip:T1", "thread-2": "reply:T2", "code-changes": "skip" }, 1_000) });
   delete w.gates["g-post"];
+}
+
+const PLAN_AT = Date.parse("2026-10-16T10:30:00Z");
+const T_EARLIER_ROUND = "2026-10-16T10:15:00Z";
+
+/** A later review round: the plan decision lands after the run started, and the post gate after it. */
+function laterRound(w: World) {
+  w.snapshot.fields = w.snapshot.fields.map((f) => (f.key === "extra.gate-source.respond-post" ? sourceField("respond-post", "g-post", POST_T1, PLAN_AT + 1_000) : f));
+  w.snapshot.decisions = [
+    decision("respond-plan", { threads: { T1: "fix", T2: "reply" }, "code-changes": "approve" }, PLAN_AT),
+    decision("respond-post", { threads: { T1: { post: true, resolve: true } } }, PLAN_AT + 2_000),
+  ];
+  w.gates["g-post"] = okData({ status: "answered", row: row("g-post", POST_T1, { "thread-1": ["post:T1", "resolve:T1"], next: "proceed" }, PLAN_AT + 1_000) });
 }
 
 function offerBoth(w: World, held?: string[]) {
@@ -258,6 +271,14 @@ describe("reading", () => {
     w.gates["g-post"] = okData({ status: "timeout" });
     const { error, calls } = await refused(w);
     expect(error).toContain("gate g-post is still open");
+    expect(outward(calls)).toEqual([]);
+  });
+
+  test("a gate the registry no longer holds names the sweep and gate_open", async () => {
+    const w = world();
+    w.gates["g-post"] = fail("not-found");
+    const { error, calls } = await refused(w);
+    expect(error).toBe("gate g-post is no longer in the registry (swept or never opened); re-open respond-plan/respond-post with gate_open {runDb}");
     expect(outward(calls)).toEqual([]);
   });
 
@@ -388,11 +409,23 @@ describe("push, when a fix row is picked", () => {
 
   test("a branch field that is not the MR's source branch holds T1 as a mismatch", async () => {
     const w = world();
-    w.cmd["mr:get"] = [okData({ mr: { sourceBranch: "feat-y" } })];
+    w.cmd["mr:get"] = [okData({ mr: { sourceBranch: "feat-y", state: "opened" } })];
     const { res, calls } = await done(w);
     expect(res.held.map((h) => [h.threadId, h.kind])).toEqual([["T1", "mismatch"]]);
     expect(res.held[0]!.error).toContain("feat-y");
     expect(pushCalls(calls)).toEqual([]);
+  });
+
+  test("a merged MR holds the fix row as a mismatch, pushes nothing, and the reply row posts", async () => {
+    const w = world();
+    w.cmd["mr:get"] = [okData({ mr: { sourceBranch: "feat-x", state: "merged" } })];
+    const { res, calls } = await done(w);
+    expect(res.held).toEqual([{ threadId: "T1", kind: "mismatch", error: "MR !7 is merged, so a fix push would not reach it" }]);
+    expect(gitCalls(calls)).toEqual([]);
+    expect(res.pushed).toBeNull();
+    expect(res.posted).toEqual(["T2"]);
+    expect(cmdCalls(calls, "discussions:reply").map((c) => (c.payload as Record<string, unknown>).discussionId)).toEqual(["T2"]);
+    expect(cmdCalls(calls, "discussions:resolve")).toEqual([]);
   });
 
   test("the push failing twice holds T1 with git's text, and T2 still posts", async () => {
@@ -550,6 +583,25 @@ describe("replies", () => {
 
   test("a note by this account after the run started counts as posted", async () => {
     const w = world();
+    w.cmd["discussions:refresh"] = [okData({ discussions: [disc("T1", [note(1, "please"), note(41, "Fixed, different words", "me-bot", T_POST)]), disc("T2", [note(2, "why delay?")])], fetchedAt: 1 })];
+    const { res, calls } = await done(w);
+    expect(res.alreadyPosted).toEqual([{ threadId: "T1", noteId: 41 }]);
+    expect(cmdCalls(calls, "discussions:reply").map((c) => (c.payload as Record<string, unknown>).discussionId)).toEqual(["T2"]);
+  });
+
+  test("this account's note from an earlier round, before the plan decision, does not count, so the reply posts", async () => {
+    const w = world();
+    laterRound(w);
+    w.cmd["discussions:refresh"] = [okData({ discussions: [disc("T1", [note(1, "please"), note(41, "Earlier round answer", "me-bot", T_EARLIER_ROUND)]), disc("T2", [note(2, "why delay?")])], fetchedAt: 1 })];
+    const { res, calls } = await done(w);
+    expect(res.alreadyPosted).toEqual([]);
+    expect(res.posted).toEqual(["T1", "T2"]);
+    expect(cmdCalls(calls, "discussions:reply").map((c) => (c.payload as Record<string, unknown>).discussionId)).toEqual(["T1", "T2"]);
+  });
+
+  test("this account's note after the plan decision counts as posted", async () => {
+    const w = world();
+    laterRound(w);
     w.cmd["discussions:refresh"] = [okData({ discussions: [disc("T1", [note(1, "please"), note(41, "Fixed, different words", "me-bot", T_POST)]), disc("T2", [note(2, "why delay?")])], fetchedAt: 1 })];
     const { res, calls } = await done(w);
     expect(res.alreadyPosted).toEqual([{ threadId: "T1", noteId: 41 }]);

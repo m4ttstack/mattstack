@@ -867,7 +867,7 @@ GitLab only. Ask GitLab to rebase the MR's source branch onto its target server-
       "type": "integer",
       "minimum": 1,
       "maximum": 600,
-      "description": "Polling budget with wait; default 90."
+      "description": "Polling budget in seconds with wait; default 90. Under 5 means one read, no poll."
     }
   },
   "additionalProperties": false
@@ -1655,7 +1655,7 @@ GitLab only. Whether this account (or `by`) already posted on the MR: one live t
 ### respond_post_execute
 
 <!-- mcp-lint: allow -->
-GitLab only. Receive-review's post side in one call: it acts only on the respond-plan and respond-post decisions recorded on the run, after checking each against its gate source and registry answer, and refuses before anything moves when one is missing, stale or does not match. It reads the threads once, so a reply already on GitLab counts as alreadyPosted and a resolved thread as alreadyResolved; it pushes the run's branch from `tree` (never forced) only when a fix row is picked and HEAD, @{push} and @{u} all name that branch on origin; then it posts the replies and resolves the threads. Pushes, replies and resolves are each retried once, and a reply that errored is re-read first so it never posts twice. Threads it could not finish come back in held[] with the hold field set to held under `stage`, for the skill's off-script gates; the respond-post decision is re-recorded with those ids as `held`, and a later call acts only on them. Returns {mr, pushed, posted, alreadyPosted, resolved, alreadyResolved, held, recorded, hold, writeErrors?}, where writeErrors carries the text of a failed re-record or hold write. On GitHub it refuses; reply to and resolve the threads with gh.
+GitLab only. Receive-review's post side in one call: it acts only on the respond-plan and respond-post decisions recorded on the run, which must carry the gate-source fields `gate_open {runDb}` writes, after checking each against its gate source and registry answer, and refuses before anything moves when one is missing, stale or does not match. It reads the threads once, so a reply already on GitLab counts as alreadyPosted and a resolved thread as alreadyResolved; it pushes the run's branch from `tree` (never forced) only when a fix row is picked, the MR is still opened, and HEAD, @{push} and @{u} all name that branch on origin; `tree` must be a checkout of the MR's repo and is checked only when a push is due; then it posts the replies and resolves the threads. Pushes, replies and resolves are each retried once, and a reply that errored is re-read first so it never posts twice. Threads it could not finish come back in held[] with the hold field set to held under `stage`, for the skill's off-script gates; the respond-post decision is re-recorded with those ids as `held`, and a later call acts only on them. Returns {mr, pushed, posted, alreadyPosted, resolved, alreadyResolved, held, recorded, hold, writeErrors?}, where writeErrors carries the text of a failed re-record or hold write. One caller per run at a time: nothing stops two panes running it on the same run at once. On GitHub it refuses; reply to and resolve the threads with gh.
 
 ```json
 {

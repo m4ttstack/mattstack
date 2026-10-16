@@ -196,7 +196,7 @@ async function defaultBranchOf(deps: MrCompositeDeps, identity: string): Promise
 async function cachedCiStatus(deps: MrCompositeDeps, identity: string): Promise<Map<number, string | null>> {
   const byIid = new Map<number, string | null>();
   try {
-    const r = await deps.readMrCache(identity);
+    const r = await deps.readMrCache(identity, undefined, { timeoutMs: READ_TIMEOUT_MS });
     if (!r.ok || !r.data) return byIid;
     for (const entry of Object.values(r.data.mrs ?? {})) byIid.set(entry.pr.iid, entry.pr.pipeline?.status ?? null);
   } catch {
@@ -275,6 +275,7 @@ export interface RespondPostPlan {
   mrUrl: string;
   branch: string | null;
   startedAt: number;
+  planDecidedAt: number;
   actions: PostAction[];
   postDecision: { selection: Record<string, unknown>; decidedBy: string } | null;
   heldResume: string[] | null;
@@ -376,7 +377,7 @@ export function postSourceIsCurrent(snapshot: RunSnapshot, post: { at: number })
 
 function freshDecision(snapshot: RunSnapshot, scope: RespondScope, threshold: number): SnapshotDecision {
   const d = gateDecision(snapshot, scope);
-  if (!d || typeof d.decided_at !== "number" || d.decided_at < threshold) refuse(`${scope} has no decision recorded since its gate opened`);
+  if (!d || typeof d.decided_at !== "number" || d.decided_at < threshold) refuse(`${scope} has no decision recorded since its gate opened; if the gate is answered, record it with gate_record, then call again`);
   return d!;
 }
 
@@ -533,7 +534,7 @@ function readMrUrl(fields: SnapshotField[]): string {
   if (gh) refuse(gh);
   try {
     const u = new URL(mr.trim());
-    if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("not http");
+    if (u.protocol !== "https:") throw new Error("not https");
   } catch {
     refuse(`the run's mr field is not an MR URL: ${mr}`);
   }
@@ -656,7 +657,7 @@ function plan(snapshot: RunSnapshot, gates: { plan: GateRow | null; post: GateRo
     if (!actions.some((a) => a.threadId === id)) refuse(`the respond-post decision holds ${id}, which is neither offered nor a reply row`);
   }
 
-  return { mrUrl, branch, startedAt: startedAt as number, actions, postDecision, heldResume };
+  return { mrUrl, branch, startedAt: startedAt as number, planDecidedAt: planDecision.decided_at, actions, postDecision, heldResume };
 }
 
 /** Pure: everything acted on comes from the snapshot and the registry rows, never from the caller. Any doubt refuses before an outward move. */
@@ -688,6 +689,7 @@ type ThreadsRead = { ok: true; discussions: Discussion[] } | { ok: false; error:
 
 async function readGateRow(deps: MrCompositeDeps, id: string): Promise<{ ok: true; row: GateRow } | { ok: false; error: string }> {
   const r = await deps.command<Commands["gate:wait"]["data"]>("gate:wait", { id, waitMs: 0 }, { timeoutMs: READ_TIMEOUT_MS });
+  if (!r.ok && r.error === "not-found") return { ok: false, error: `gate ${id} is no longer in the registry (swept or never opened); re-open respond-plan/respond-post with gate_open {runDb}` };
   if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? `reading gate ${id} failed`) };
   if (r.data.status === "timeout") return { ok: false, error: `gate ${id} is still open; answer it before running respond_post_execute` };
   return { ok: true, row: r.data.row };
@@ -701,13 +703,16 @@ async function readThreads(deps: MrCompositeDeps, t: Target): Promise<ThreadsRea
 
 const gitOutput = (r: { code: number; stdout: string; stderr: string }) => (r.code === 0 ? JSON.stringify(r.stdout.trim()) : `exit ${r.code}: ${JSON.stringify(r.stderr.trim() || r.stdout.trim())}`);
 
+type ExpectedBranch = { branch: string; mismatch: string | null; notOpen: string | null };
+
 /** The branch a fix reply claims: the run's branch field, which must also be the MR's source branch, or the MR's source branch when the run has none. */
-async function expectedBranch(deps: MrCompositeDeps, t: Target, fromRun: string | null): Promise<{ ok: true; branch: string; mismatch: string | null } | { ok: false; error: string }> {
+async function expectedBranch(deps: MrCompositeDeps, t: Target, fromRun: string | null): Promise<({ ok: true } & ExpectedBranch) | { ok: false; error: string }> {
   const r = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: t.identity, iid: t.iid }, { timeoutMs: READ_TIMEOUT_MS });
   if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "MR read failed") };
-  const source = r.data.mr.sourceBranch;
-  if (fromRun === null) return { ok: true, branch: source, mismatch: null };
-  return { ok: true, branch: fromRun, mismatch: source === fromRun ? null : `the run's branch is ${fromRun} but the MR's source branch is ${source}` };
+  const { sourceBranch: source, state } = r.data.mr;
+  const notOpen = state === "opened" ? null : `MR !${t.iid} is ${state}, so a fix push would not reach it`;
+  if (fromRun === null) return { ok: true, branch: source, mismatch: null, notOpen };
+  return { ok: true, branch: fromRun, mismatch: source === fromRun ? null : `the run's branch is ${fromRun} but the MR's source branch is ${source}`, notOpen };
 }
 
 /** Acts only on the recorded decisions planRespondPost checked. A doubt found from the run, the registry or the tree refuses before GitLab is read; a failed GitLab read, and any step that fails after it, holds the threads instead. */
@@ -789,7 +794,7 @@ export async function executeRespondPost(
     if (!read.ok) return failRead(read.error);
     const missing = acting.filter((a) => !read.discussions.some((d) => d.id === a.threadId)).map((a) => a.threadId);
     if (missing.length > 0) return failRead(`GitLab no longer returns thread ${missing.join(", ")}`);
-    let branch: { branch: string; mismatch: string | null } | null = null;
+    let branch: ExpectedBranch | null = null;
     if (treePath !== null) {
       const b = await expectedBranch(deps, target, plan.branch);
       progress?.();
@@ -797,14 +802,16 @@ export async function executeRespondPost(
       branch = b;
     }
     const by = self.username;
-    const since = plan.startedAt;
+    const since = Math.max(plan.startedAt, plan.planDecidedAt);
     const discussions = read.discussions;
     const postedBefore = new Map(
       postedMatch(discussions, { by, since, threads: acting.filter((a) => a.post).map((a) => ({ discussionId: a.threadId, ...(a.body !== null && { body: a.body }) })) })
         .threads.map((t) => [t.discussionId, t]),
     );
 
-    if (treePath !== null && branch !== null) {
+    if (branch?.notOpen) {
+      for (const a of fixRows) hold(a.threadId, "mismatch", branch.notOpen);
+    } else if (treePath !== null && branch !== null) {
       const want = branch.branch;
       const sym = await deps.git(["symbolic-ref", "--quiet", "HEAD"], treePath);
       const pushRef = await deps.git(["rev-parse", "--abbrev-ref", "@{push}"], treePath);
@@ -954,7 +961,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
     },
     {
       name: "respond_post_execute",
-      description: "GitLab only. Receive-review's post side in one call: it acts only on the respond-plan and respond-post decisions recorded on the run, after checking each against its gate source and registry answer, and refuses before anything moves when one is missing, stale or does not match. It reads the threads once, so a reply already on GitLab counts as alreadyPosted and a resolved thread as alreadyResolved; it pushes the run's branch from `tree` (never forced) only when a fix row is picked and HEAD, @{push} and @{u} all name that branch on origin; then it posts the replies and resolves the threads. Pushes, replies and resolves are each retried once, and a reply that errored is re-read first so it never posts twice. Threads it could not finish come back in held[] with the hold field set to held under `stage`, for the skill's off-script gates; the respond-post decision is re-recorded with those ids as `held`, and a later call acts only on them. Returns {mr, pushed, posted, alreadyPosted, resolved, alreadyResolved, held, recorded, hold, writeErrors?}, where writeErrors carries the text of a failed re-record or hold write. On GitHub it refuses; reply to and resolve the threads with gh.",
+      description: "GitLab only. Receive-review's post side in one call: it acts only on the respond-plan and respond-post decisions recorded on the run, which must carry the gate-source fields `gate_open {runDb}` writes, after checking each against its gate source and registry answer, and refuses before anything moves when one is missing, stale or does not match. It reads the threads once, so a reply already on GitLab counts as alreadyPosted and a resolved thread as alreadyResolved; it pushes the run's branch from `tree` (never forced) only when a fix row is picked, the MR is still opened, and HEAD, @{push} and @{u} all name that branch on origin; `tree` must be a checkout of the MR's repo and is checked only when a push is due; then it posts the replies and resolves the threads. Pushes, replies and resolves are each retried once, and a reply that errored is re-read first so it never posts twice. Threads it could not finish come back in held[] with the hold field set to held under `stage`, for the skill's off-script gates; the respond-post decision is re-recorded with those ids as `held`, and a later call acts only on them. Returns {mr, pushed, posted, alreadyPosted, resolved, alreadyResolved, held, recorded, hold, writeErrors?}, where writeErrors carries the text of a failed re-record or hold write. One caller per run at a time: nothing stops two panes running it on the same run at once. On GitHub it refuses; reply to and resolve the threads with gh.",
       inputSchema: {
         type: "object",
         properties: {

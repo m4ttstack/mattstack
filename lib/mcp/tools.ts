@@ -725,7 +725,7 @@ export function mcpTools(): McpToolDef[] {
         properties: {
           ...MR_TARGET_PROPS,
           wait: { type: "boolean", description: "Poll the MR until it rebased, failed, was already current, stayed unchanged or the budget ran out." },
-          maxWaitSeconds: { type: "integer", minimum: 1, maximum: REBASE_MAX_WAIT_S, description: `Polling budget with wait; default ${REBASE_DEFAULT_WAIT_S}.` },
+          maxWaitSeconds: { type: "integer", minimum: 1, maximum: REBASE_MAX_WAIT_S, description: `Polling budget in seconds with wait; default ${REBASE_DEFAULT_WAIT_S}. Under ${REBASE_POLL_MS / 1000} means one read, no poll.` },
         },
         additionalProperties: false,
       },
