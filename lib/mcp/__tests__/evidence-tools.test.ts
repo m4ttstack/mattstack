@@ -1,0 +1,460 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { basename, join } from "path";
+import type { RtResponse } from "../../../packages/rt-client/src/index.ts";
+import { runStart } from "../../runs/start.ts";
+import { spliceSection } from "../../evidence/section.ts";
+import { parseUploads, serializeUploads, sha256Of } from "../../evidence/uploads-field.ts";
+import { evidenceToolDefs, MR_UPLOAD_TIMEOUT_MS, realEvidenceToolDeps, uploadEach, type EvidenceToolDeps } from "../evidence-tools.ts";
+import { err, ok, type ToolResult } from "../shared.ts";
+import type { TreeGuardDeps } from "../tree-guard.ts";
+
+const RUN_ID = "20261016-120000-abcd-1";
+const IDENT = "remote:gitlab.com%2Facme%2Fweb";
+const MR_URL = "https://gitlab.com/acme/web/-/merge_requests/7";
+const HEADING = "## Verification Evidence";
+
+let base: string;
+let home: string;
+let src: string;
+let runsRoot: string;
+let runDb: string;
+const savedEnv = { HOME: process.env.HOME, RT_RUNS_ROOT: process.env.RT_RUNS_ROOT };
+
+beforeEach(() => {
+  base = realpathSync(mkdtempSync(join(tmpdir(), "evtools-")));
+  home = join(base, "home");
+  src = join(base, "src");
+  runsRoot = join(base, "runs");
+  mkdirSync(home, { recursive: true });
+  mkdirSync(src, { recursive: true });
+  mkdirSync(join(runsRoot, "web", RUN_ID), { recursive: true });
+  runDb = join(runsRoot, "web", RUN_ID, "state.db");
+  writeFileSync(runDb, "");
+  process.env.HOME = home;
+  process.env.RT_RUNS_ROOT = runsRoot;
+});
+afterEach(() => {
+  for (const [k, v] of Object.entries(savedEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  rmSync(base, { recursive: true, force: true });
+});
+
+const put = (name: string, body = name, dir = src) => {
+  mkdirSync(dir, { recursive: true });
+  const p = join(dir, name);
+  writeFileSync(p, body);
+  return p;
+};
+const evidenceDir = (c?: string) => join(home, ".mattstack", "work", RUN_ID, "evidence", ...(c ? [c] : []));
+
+type Call = { cmd: string; payload: Record<string, unknown> };
+type Responder = (cmd: string, payload: Record<string, unknown>, nth: number) => RtResponse<unknown> | undefined;
+
+const okRes = (data: unknown): RtResponse<unknown> => ({ ok: true, data }) as RtResponse<unknown>;
+const errRes = (error: string): RtResponse<unknown> => ({ ok: false, error }) as RtResponse<unknown>;
+
+const noGuard: TreeGuardDeps = {
+  repoIndex: () => ({}),
+  treeByPath: () => null,
+  realpath: (p) => realpathSync(p),
+  worktreeRoots: () => [],
+  hasGitEntry: () => false,
+  ignoredBy: () => false,
+};
+
+function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fieldSetError?: string; guard?: TreeGuardDeps; repoRoots?: (id: string) => string[]; live?: string } = {}) {
+  const fields = new Map(Object.entries(o.fields ?? {}));
+  const calls: Call[] = [];
+  const runCalls: Array<{ name: string; input: Record<string, unknown> }> = [];
+  const perPath = new Map<string, number>();
+  const state = { live: o.live ?? "" };
+  const command = (async (cmd: string, payload: Record<string, unknown>) => {
+    calls.push({ cmd, payload });
+    const key = `${cmd}\0${String(payload.path ?? "")}`;
+    const nth = (perPath.get(key) ?? 0) + 1;
+    perPath.set(key, nth);
+    const scripted = o.respond?.(cmd, payload, nth);
+    if (scripted) return scripted;
+    if (cmd === "mr:upload") {
+      const name = basename(String(payload.path));
+      return okRes({ url: `https://gitlab.com/acme/web/uploads/h${nth}/${name}`, markdown: `![${name}](/uploads/h${nth}/${name})` });
+    }
+    if (cmd === "mr:get") return okRes({ mr: { iid: payload.iid, description: state.live, webUrl: MR_URL }, fetchedAt: 0 });
+    if (cmd === "mr:update") {
+      state.live = String(payload.description);
+      return okRes({ iid: payload.iid, url: MR_URL, applied: ["description"] });
+    }
+    return errRes(`unscripted ${cmd}`);
+  }) as unknown as EvidenceToolDeps["command"];
+  const deps: EvidenceToolDeps = {
+    command,
+    async runTool(name, input): Promise<ToolResult> {
+      runCalls.push({ name, input });
+      if (name === "run_field_get") {
+        const v = fields.get(String(input.key));
+        return v === undefined ? err(`field "${String(input.key)}" is not set on this run`) : ok({ value: v });
+      }
+      if (name === "run_field_set") {
+        if (o.fieldSetError && input.key === "evidence") return err(o.fieldSetError);
+        fields.set(String(input.key), String(input.value));
+        return ok({ ok: true });
+      }
+      return ok({ ok: true, run: { id: RUN_ID, repo: "web" }, stages: [], fields: [...fields].map(([key, value]) => ({ key, value })), decisions: [] });
+    },
+    guard: o.guard ?? noGuard,
+    async resolveRepo(input) {
+      if (typeof input.mrUrl === "string") {
+        const m = /\/-\/merge_requests\/(\d+)$/.exec(input.mrUrl);
+        return m ? { ok: true, identity: IDENT, iid: Number(m[1]) } : { ok: false, error: "mrUrl must look like an MR URL" };
+      }
+      if (typeof input.repoName === "string") return { ok: true, identity: IDENT, iid: typeof input.iid === "number" ? input.iid : undefined };
+      return { ok: false, error: 'pass "repoName" or "mrUrl"' };
+    },
+    home: () => home,
+    uid: () => null,
+    uploadRoots: () => [src],
+    repoRoots: o.repoRoots ?? (() => []),
+    fetch: (() => Promise.reject(new Error("no fetch in tests"))) as unknown as typeof fetch,
+    sleep: async () => {},
+    now: () => 1_700_000_000_000,
+  };
+  return { deps, calls, runCalls, fields, state };
+}
+
+const tool = (deps: EvidenceToolDeps, name: string) => evidenceToolDefs(deps).find((t) => t.name === name)!;
+const env = {} as NodeJS.ProcessEnv;
+const uploads = (calls: Call[]) => calls.filter((c) => c.cmd === "mr:upload");
+const v2 = (cases: unknown[], extra: Record<string, unknown> = {}) => JSON.stringify({ v: 2, cases, ...extra });
+
+describe("tool defs", () => {
+  test("both schemas are closed and the descriptions say what each writes or when it runs", () => {
+    const defs = evidenceToolDefs(makeDeps().deps);
+    const record = defs.find((t) => t.name === "evidence_record")!;
+    const attach = defs.find((t) => t.name === "evidence_attach")!;
+    for (const t of [record, attach]) expect((t.inputSchema as { additionalProperties?: unknown }).additionalProperties).toBe(false);
+    expect(record.description).toContain("evidence field");
+    expect(attach.description).toContain("attach gate's proceed");
+    expect(MR_UPLOAD_TIMEOUT_MS).toBe(120_000);
+  });
+});
+
+describe("evidence_record", () => {
+  test("missing stage is an error", async () => {
+    const { deps } = makeDeps();
+    const res = await tool(deps, "evidence_record").handler({ runDb, images: [] }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("stage");
+  });
+
+  test("an annotated, captioned temp-root image copies its bundle into the run folder and writes the copied paths", async () => {
+    const shot = put("badge-after.c1.png");
+    const board = put("badge-after.png");
+    put("badge-after.spec.json");
+    put("unrelated.png");
+    const { deps, fields } = makeDeps();
+    const res = await tool(deps, "evidence_record").handler(
+      { runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry badge", slot: "after", path: shot, annotated: board, caption: "the badge" }] },
+      env,
+    );
+    expect(res.ok).toBe(true);
+    const body = res.body as { written: boolean; encoding: string; value: string; copied: Array<{ from: string; to: string }>; uncovered: unknown[] };
+    expect(body.written).toBe(true);
+    expect(body.encoding).toBe("evidence@2");
+    expect(body.uncovered).toEqual([]);
+    const dest = evidenceDir("retry-badge");
+    expect(body.copied.map((c) => c.to).sort()).toEqual([join(dest, "badge-after.c1.png"), join(dest, "badge-after.png"), join(dest, "badge-after.spec.json")]);
+    expect(existsSync(join(dest, "unrelated.png"))).toBe(false);
+    const written = JSON.parse(fields.get("evidence")!);
+    expect(written.cases[0].after).toEqual({ path: join(dest, "badge-after.c1.png"), annotated: join(dest, "badge-after.png"), caption: "the badge" });
+    expect(body.value).toBe(fields.get("evidence")!);
+  });
+
+  test("an uncovered image copies but writes nothing", async () => {
+    const shot = put("bare.png");
+    const { deps, runCalls } = makeDeps();
+    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry badge", slot: "before", path: shot }] }, env);
+    expect(res.ok).toBe(true);
+    const body = res.body as { written: boolean; uncovered: Array<{ why: string; case: string; slot: string; path: string }>; copied: unknown[] };
+    expect(body.written).toBe(false);
+    expect(body.uncovered[0]!.why).toBe("no-cover");
+    expect(body.uncovered[0]!.path).toBe(join(evidenceDir("retry-badge"), "bare.png"));
+    expect(body.copied.length).toBeGreaterThan(0);
+    expect(runCalls.some((c) => c.name === "run_field_set")).toBe(false);
+  });
+
+  test("a source outside the allowed roots is refused by name; nothing copied or written", async () => {
+    const outside = put("stray.png", "x", join(base, "elsewhere"));
+    const { deps, runCalls } = makeDeps();
+    const res = await tool(deps, "evidence_record").handler(
+      { runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry badge", slot: "before", path: outside, waiver: "no ui" }] },
+      env,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain(outside);
+    expect(existsSync(evidenceDir())).toBe(false);
+    expect(runCalls.some((c) => c.name === "run_field_set")).toBe(false);
+  });
+
+  test("a checkout source is admitted only when tree names that repo", async () => {
+    const checkout = join(base, "web");
+    const shot = put("shot.png", "s", checkout);
+    const guard: TreeGuardDeps = { ...noGuard, repoIndex: () => ({ [IDENT]: checkout }) };
+    const input = { runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry badge", slot: "before", path: shot, waiver: "no ui" }] };
+    const without = await tool(makeDeps({ guard, repoRoots: () => [checkout] }).deps, "evidence_record").handler(input, env);
+    expect(without.ok).toBe(false);
+    const withTree = await tool(makeDeps({ guard, repoRoots: (id) => (id === IDENT ? [checkout] : []) }).deps, "evidence_record").handler({ ...input, tree: checkout }, env);
+    expect(withTree.ok).toBe(true);
+    expect((withTree.body as { written: boolean }).written).toBe(true);
+  });
+
+  test("a case id that is not a plain slug is refused before any copy", async () => {
+    const shot = put("a.png");
+    const { deps } = makeDeps();
+    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "../escape", label: "x", slot: "before", path: shot, waiver: "w" }] }, env);
+    expect(res.ok).toBe(false);
+    expect(existsSync(join(home, ".mattstack"))).toBe(false);
+  });
+
+  test("plan none alongside images is refused", async () => {
+    const { deps } = makeDeps();
+    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", plan: "none", url: "https://example.com/t/1" }, env);
+    expect(res.ok).toBe(false);
+  });
+
+  test("a fieldSet refusal comes back verbatim", async () => {
+    const shot = put("a.png");
+    const refusal = 'evidence@2: case "a" has no annotated image and no waiver; annotate it or add a waiver with a reason';
+    const { deps } = makeDeps({ fieldSetError: refusal });
+    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "a", label: "A", slot: "before", path: shot, waiver: "w" }] }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe(refusal);
+  });
+
+  test("against a real run db through the run tools' handlers", async () => {
+    const started = runStart(runsRoot, { repo: "web", workType: "fix", pipeline: "default", env: { RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv });
+    if (!started.ok) throw new Error(started.error);
+    const realEnv = { ...process.env, RT_RUNS_ROOT: runsRoot, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+    const { deps: fake } = makeDeps();
+    const deps = { ...fake, runTool: realEvidenceToolDeps.runTool };
+    const board = put("pair.png");
+    const res = await tool(deps, "evidence_record").handler(
+      { runDb: started.runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry badge", slot: "before", path: board, waiver: "nothing to show" }] },
+      realEnv,
+    );
+    expect(res.ok).toBe(true);
+    expect((res.body as { written: boolean }).written).toBe(true);
+    const read = await realEvidenceToolDeps.runTool("run_field_get", { runDb: started.runDb, key: "evidence" }, realEnv);
+    const dest = join(home, ".mattstack", "work", started.runId, "evidence", "retry-badge", "pair.png");
+    expect(JSON.parse((read.body as { value: string }).value).cases[0].before.path).toBe(dest);
+
+    const attach = await tool(deps, "evidence_attach").handler({ runDb: started.runDb, stage: "ship", heading: HEADING, repoName: "web" }, realEnv);
+    expect(attach.ok).toBe(true);
+    expect((attach.body as { notWritten: string }).notWritten).toBe("no-mr");
+    const remembered = await realEvidenceToolDeps.runTool("run_field_get", { runDb: started.runDb, key: "evidence-uploads" }, realEnv);
+    expect(Object.keys(parseUploads((remembered.body as { value: string }).value))).toEqual([dest]);
+  });
+});
+
+function boardRecord(dir = evidenceDir("retry-badge")) {
+  const before = put("badge.c1.png", "before", dir);
+  const after = put("badge.c2.png", "after", dir);
+  const board = put("badge.png", "board", dir);
+  const evidence = v2([{ id: "retry-badge", label: "Retry badge", before: { path: before, annotated: board, caption: "pair" }, after: { path: after, annotated: board, caption: "pair" } }]);
+  return { before, after, board, evidence };
+}
+
+function twoWaived() {
+  const dir = evidenceDir("retry-badge");
+  const one = put("one.png", "1", dir);
+  const two = put("two.png", "2", dir);
+  const evidence = v2([{ id: "retry-badge", label: "Retry badge", before: { path: one, waiver: "w1" }, after: { path: two, waiver: "w2" } }]);
+  return { one, two, evidence };
+}
+
+type AttachBody = {
+  forge: string; mr: string | null; uploaded: Array<{ path: string; url: string; markdown: string; reused: boolean }>;
+  refused: Record<string, Array<{ path: string; error: string }>>; timedOutTwice: string[]; section: string;
+  description?: string; descriptionWritten: boolean; notWritten?: string; writeErrors?: string[];
+};
+
+describe("evidence_attach", () => {
+  test("a pair board shared by before and after uploads once, carrying runId", async () => {
+    const { board, evidence } = boardRecord();
+    const { deps, calls } = makeDeps({ fields: { evidence } });
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env);
+    expect(res.ok).toBe(true);
+    const ups = uploads(calls);
+    expect(ups.length).toBe(1);
+    expect(ups[0]!.payload).toMatchObject({ repoName: IDENT, path: board, runId: RUN_ID });
+    const body = res.body as AttachBody;
+    expect(body.section).toContain("- Before and after: ![before and after](/uploads/h1/badge.png)");
+    expect(body.descriptionWritten).toBe(true);
+  });
+
+  test("a timeout then success uploads after one retry", async () => {
+    const { one, evidence } = twoWaived();
+    const respond: Responder = (cmd, p, nth) => (cmd === "mr:upload" && p.path === one && nth === 1 ? errRes("request timed out") : undefined);
+    const { deps, calls } = makeDeps({ fields: { evidence }, respond });
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env);
+    const body = res.body as AttachBody;
+    expect(uploads(calls).filter((c) => c.payload.path === one).length).toBe(2);
+    expect(body.uploaded.map((u) => u.path)).toEqual([one, expect.any(String)]);
+    expect(body.timedOutTwice).toEqual([]);
+  });
+
+  test("two timeouts land in timedOutTwice, the next file still uploads, and nothing is written", async () => {
+    const { one, two, evidence } = twoWaived();
+    const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes("request timed out") : undefined);
+    const { deps, calls } = makeDeps({ fields: { evidence }, respond });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(body.timedOutTwice).toEqual([one]);
+    expect(body.uploaded.map((u) => u.path)).toEqual([two]);
+    expect(body.notWritten).toBe("refused");
+    expect(calls.some((c) => c.cmd === "mr:update")).toBe(false);
+  });
+
+  test("a raw-capture refusal is bucketed and blocks the description write", async () => {
+    const { one, evidence } = twoWaived();
+    const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes(`${one} is the raw capture for case "retry-badge"; upload its annotated image`) : undefined);
+    const { deps, calls } = makeDeps({ fields: { evidence }, respond });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(body.refused["raw-capture"]!.map((r) => r.path)).toEqual([one]);
+    expect(body.refused.record).toEqual([]);
+    expect(body.notWritten).toBe("refused");
+    expect(calls.some((c) => c.cmd === "mr:update")).toBe(false);
+  });
+
+  test("linkRefused prints the refused file's local path, writes, and remembers it as linked", async () => {
+    const { one, evidence } = twoWaived();
+    const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes("path is outside the allowed upload roots (...)") : undefined);
+    const { deps, calls, fields } = makeDeps({ fields: { evidence }, respond });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, linkRefused: true }, env)).body as AttachBody;
+    expect(body.section).toContain(`- Before: ${one}`);
+    expect(body.descriptionWritten).toBe(true);
+    expect(calls.some((c) => c.cmd === "mr:update")).toBe(true);
+    expect(parseUploads(fields.get("evidence-uploads")!)[realpathSync(one)]).toEqual({ linked: true, at: 1_700_000_000_000 });
+  });
+
+  test("reuse: a matching sha256 and project skips the upload; new bytes or a redaction record re-upload", async () => {
+    const { board, evidence } = boardRecord();
+    const prior = serializeUploads({ [realpathSync(board)]: { sha256: sha256Of(board), project: IDENT, url: "https://gitlab.com/acme/web/uploads/old/badge.png", markdown: "![badge](/uploads/old/badge.png)", at: 1 } });
+    const run = async () => {
+      const { deps, calls } = makeDeps({ fields: { evidence, "evidence-uploads": prior } });
+      const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+      return { body, ups: uploads(calls).length };
+    };
+    const reused = await run();
+    expect(reused.ups).toBe(0);
+    expect(reused.body.uploaded).toEqual([{ path: board, url: "https://gitlab.com/acme/web/uploads/old/badge.png", markdown: "![badge](/uploads/old/badge.png)", reused: true }]);
+
+    writeFileSync(board, "revised board");
+    expect((await run()).ups).toBe(1);
+
+    writeFileSync(board, "board");
+    expect((await run()).ups).toBe(0);
+    put("badge.redactions.json", "{}", evidenceDir("retry-badge"));
+    expect((await run()).ups).toBe(1);
+  });
+
+  test("description: the live text is spliced and written; a second all-reused call leaves it unchanged", async () => {
+    const { evidence } = boardRecord();
+    const live = "## What\n\nAdds a badge.\n\n## Verification Evidence\n\n_Show it working_\n\nold text\n";
+    const { deps, calls } = makeDeps({ fields: { evidence }, live });
+    const first = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    const update = calls.find((c) => c.cmd === "mr:update")!;
+    expect(update.payload.description).toBe(spliceSection(live, HEADING, first.section));
+    expect(String(update.payload.description)).not.toContain("old text");
+    expect(String(update.payload.description)).toContain("_Show it working_");
+
+    const before = calls.length;
+    const second = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    const later = calls.slice(before);
+    expect(later.some((c) => c.cmd === "mr:upload" || c.cmd === "mr:update")).toBe(false);
+    expect(second.uploaded.every((u) => u.reused)).toBe(true);
+    expect(second.notWritten).toBe("unchanged");
+    expect(second.descriptionWritten).toBe(false);
+  });
+
+  test("no MR anywhere and no repoName is an error", async () => {
+    const { evidence } = boardRecord();
+    const { deps, calls } = makeDeps({ fields: { evidence } });
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING }, env);
+    expect(res.ok).toBe(false);
+    expect(calls.length).toBe(0);
+  });
+
+  test("repoName only uploads and hands back the section, splicing a passed description", async () => {
+    const { evidence } = boardRecord();
+    const { deps, calls } = makeDeps({ fields: { evidence } });
+    const draft = "## What\n\nAdds a badge.\n";
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "web", description: draft }, env)).body as AttachBody;
+    expect(uploads(calls).length).toBe(1);
+    expect(calls.some((c) => c.cmd === "mr:get" || c.cmd === "mr:update")).toBe(false);
+    expect(body.notWritten).toBe("no-mr");
+    expect(body.mr).toBeNull();
+    expect(body.description).toBe(spliceSection(draft, HEADING, body.section));
+  });
+
+  test("the run's mr field is the target when none is passed", async () => {
+    const { evidence } = boardRecord();
+    const { deps, calls } = makeDeps({ fields: { evidence, mr: MR_URL } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING }, env)).body as AttachBody;
+    expect(body.mr).toBe(MR_URL);
+    expect(calls.find((c) => c.cmd === "mr:update")!.payload).toMatchObject({ repoName: IDENT, iid: 7 });
+  });
+
+  test("a github.com target uploads nothing, links local paths and names the gh move", async () => {
+    const { board, evidence } = boardRecord();
+    const { deps, calls } = makeDeps({ fields: { evidence } });
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "https://github.com/acme/web/pull/12" }, env);
+    expect(res.ok).toBe(true);
+    const body = res.body as AttachBody;
+    expect(calls.length).toBe(0);
+    expect(body.forge).toBe("github");
+    expect(body.notWritten).toBe("github");
+    expect(body.section).toContain(`- Before and after: ${board}`);
+    expect(JSON.stringify(res.body)).toContain("gh pr edit 12");
+  });
+
+  test("a plan:text record uploads nothing and prints only the transcript line", async () => {
+    const { deps, calls } = makeDeps({ fields: { evidence: JSON.stringify({ plan: "text", transcript: "/t.txt" }) } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "web" }, env)).body as AttachBody;
+    expect(uploads(calls).length).toBe(0);
+    expect(body.section).toBe("Transcript: /t.txt");
+  });
+
+  test("an mr:update failure lands in writeErrors and keeps the uploads", async () => {
+    const { board, evidence } = boardRecord();
+    const respond: Responder = (cmd) => (cmd === "mr:update" ? errRes("GitLab 500") : undefined);
+    const { deps, fields } = makeDeps({ fields: { evidence }, respond });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(body.writeErrors!.length).toBeGreaterThan(0);
+    expect(body.descriptionWritten).toBe(false);
+    expect(body.uploaded.map((u) => u.path)).toEqual([board]);
+    expect(Object.keys(parseUploads(fields.get("evidence-uploads")!))).toEqual([realpathSync(board)]);
+  });
+
+  test("the section and description carry no tool marker", async () => {
+    const { evidence } = boardRecord();
+    const { deps, state } = makeDeps({ fields: { evidence } });
+    await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env);
+    expect(state.live).not.toMatch(/mattstack|evidence_attach|<!--/);
+  });
+});
+
+describe("uploadEach", () => {
+  test("without retry, one call per path, and a timed-out item says so", async () => {
+    const a = put("a.png");
+    const b = put("b.png");
+    const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === a ? errRes("request timed out") : undefined);
+    const { deps, calls } = makeDeps({ respond });
+    const out = await uploadEach(deps, { identity: IDENT, paths: [a, b], retryTimeoutOnce: false });
+    expect(uploads(calls).map((c) => c.payload.path)).toEqual([a, b]);
+    expect(out[0]).toMatchObject({ path: a, ok: false, timedOut: true });
+    expect(out[1]).toMatchObject({ path: b, ok: true });
+  });
+});

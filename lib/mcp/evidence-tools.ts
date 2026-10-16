@@ -1,0 +1,593 @@
+/**
+ * evidence_record and evidence_attach: the run's evidence record written in
+ * one merge, and its files uploaded and spliced into the MR description.
+ * Run fields go through the run tools' handlers, never sqlite, so fieldSet's
+ * validateEvidence and the runDb confinement apply. Every upload goes
+ * through the daemon's mr:upload, so its path guard and record check run on
+ * each file sent; the only skip is a reuse whose bytes match a prior upload.
+ */
+import { existsSync, realpathSync } from "fs";
+import { homedir } from "os";
+import { basename, dirname, isAbsolute, join } from "path";
+import { rtCommand } from "../../packages/rt-client/src/index.ts";
+import type { Commands } from "../../packages/rt-client/src/index.ts";
+import { readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
+import { allowedSourceRoots, bundleStem, copyIntoRun, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
+import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
+import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
+import { renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
+import { parseUploads, serializeUploads, sha256Of, type UploadEntry } from "../evidence/uploads-field.ts";
+import { loadRepoIndex } from "../repo-index.ts";
+import { getSetting } from "../settings/resolve.ts";
+import { loadRegistry } from "../worktree/registry.ts";
+import { githubRefusal, refuseGithubTarget } from "./mr-composite-tools.ts";
+import { resolveRepoTarget } from "./mr-target.ts";
+import { runToolDefs } from "./run-tools.ts";
+import { checkOptional, checkRequired, err, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
+import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
+
+/** A 50 MB multipart POST over a slow link outlives the 30s write timeout. */
+export const MR_UPLOAD_TIMEOUT_MS = 120_000;
+
+const READ_TIMEOUT_MS = 30_000;
+
+export interface EvidenceToolDeps {
+  command: typeof rtCommand;
+  runTool: (name: "run_snapshot" | "run_field_get" | "run_field_set", input: Record<string, unknown>, env: NodeJS.ProcessEnv) => Promise<ToolResult>;
+  guard: TreeGuardDeps;
+  resolveRepo: typeof resolveRepoTarget;
+  home: () => string;
+  uid: () => number | null;
+  uploadRoots: () => string[];
+  repoRoots: (identity: string) => string[];
+  fetch: typeof fetch;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+}
+
+let runTools: McpToolDef[] | undefined;
+
+function readUploadRoots(): string[] {
+  let entries: unknown;
+  try {
+    entries = getSetting<string[]>("rt.mcp.uploadRoots").value;
+  } catch {
+    return [];
+  }
+  return Array.isArray(entries) ? entries.filter((e): e is string => typeof e === "string" && isAbsolute(e)) : [];
+}
+
+export const realEvidenceToolDeps: EvidenceToolDeps = {
+  command: rtCommand,
+  async runTool(name, input, env) {
+    runTools ??= runToolDefs();
+    const def = runTools.find((t) => t.name === name);
+    if (!def) return err(`${name} is not a run tool`);
+    return def.handler(input, env);
+  },
+  guard: realTreeGuardDeps,
+  resolveRepo: resolveRepoTarget,
+  home: () => process.env.HOME ?? homedir(),
+  uid: () => (typeof process.getuid === "function" ? process.getuid() : null),
+  uploadRoots: readUploadRoots,
+  repoRoots: (identity) => {
+    const checkout = loadRepoIndex()[identity];
+    return [...(checkout ? [checkout] : []), ...loadRegistry(identity).map((t) => t.path)];
+  },
+  fetch,
+  sleep: (ms) => Bun.sleep(ms),
+  now: () => Date.now(),
+};
+
+export type UploadOne = { path: string; ok: true; url: string; markdown: string } | { path: string; ok: false; error: string; timedOut: boolean };
+
+const LANDING_HINT = "the upload may have landed anyway, and an unused upload is harmless, so retrying is safe";
+
+async function uploadOnce(deps: EvidenceToolDeps, identity: string, path: string, runId: string | undefined): Promise<{ ok: true; url: string; markdown: string } | { ok: false; error: string }> {
+  const payload: Commands["mr:upload"]["payload"] = { repoName: identity, path };
+  if (runId !== undefined) payload.runId = runId;
+  const res = await deps.command<Commands["mr:upload"]["data"]>("mr:upload", payload, { timeoutMs: MR_UPLOAD_TIMEOUT_MS });
+  if (res.ok && res.data) return { ok: true, url: res.data.url, markdown: res.data.markdown };
+  return { ok: false, error: res.error ?? "upload failed" };
+}
+
+/** Sequential, one mr:upload per path; a failure never stops the rest. */
+export async function uploadEach(
+  deps: EvidenceToolDeps,
+  o: { identity: string; paths: string[]; runId?: string; retryTimeoutOnce: boolean; signal?: AbortSignal; progress?: () => void },
+): Promise<UploadOne[]> {
+  const out: UploadOne[] = [];
+  for (const path of o.paths) {
+    if (o.signal?.aborted) {
+      out.push({ path, ok: false, error: "cancelled before this upload started", timedOut: false });
+      continue;
+    }
+    o.progress?.();
+    let res = await uploadOnce(deps, o.identity, path, o.runId);
+    if (!res.ok && o.retryTimeoutOnce && isTimeoutError(res.error) && !o.signal?.aborted) {
+      o.progress?.();
+      res = await uploadOnce(deps, o.identity, path, o.runId);
+    }
+    if (res.ok) out.push({ path, ok: true, url: res.url, markdown: res.markdown });
+    else {
+      const timedOut = isTimeoutError(res.error);
+      out.push({ path, ok: false, error: timedOut ? `${res.error}; ${LANDING_HINT}` : res.error, timedOut });
+    }
+  }
+  return out;
+}
+
+const CASE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const SLOTS = new Set(["before", "after"]);
+const THEMES = new Set(["light", "dark"]);
+const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+\S[^\r\n]*$/;
+const NOT_SET = /is not set on this run$/;
+
+type Obj = Record<string, unknown>;
+const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
+
+function optionalStrings(o: Obj, where: string, names: string[]): string | null {
+  for (const n of names) if (o[n] !== undefined && typeof o[n] !== "string") return `${where}: "${n}" must be a string`;
+  return null;
+}
+
+function checkPaths(o: Obj, where: string, names: string[]): string | null {
+  for (const n of names) if (typeof o[n] === "string" && !isAbsolute(o[n] as string)) return `${where}: "${n}" must be an absolute path`;
+  return null;
+}
+
+function caseIdProblem(id: unknown, where: string): string | null {
+  return typeof id === "string" && CASE_ID.test(id) ? null : `${where}: case id must be lowercase letters, digits and dashes (at most 64), starting with a letter or digit`;
+}
+
+function arrayOf(input: Obj, name: string): { ok: true; items: Obj[] } | { ok: false; error: string } {
+  const v = input[name];
+  if (v === undefined) return { ok: true, items: [] };
+  if (!Array.isArray(v) || !v.every(isObj)) return { ok: false, error: `"${name}" must be an array of objects` };
+  return { ok: true, items: v as Obj[] };
+}
+
+function parseRecordInput(input: Obj): { ok: true; merge: MergeInput; plan: boolean } | { ok: false; error: string } {
+  const bad = checkOptional(input, [{ name: "transcript", type: "string" }, { name: "url", type: "string" }, { name: "tree", type: "string" }]);
+  if (bad) return { ok: false, error: bad };
+  if (input.plan !== undefined && input.plan !== "none") return { ok: false, error: '"plan" must be "none"' };
+  if (typeof input.transcript === "string" && !isAbsolute(input.transcript)) return { ok: false, error: '"transcript" must be an absolute path' };
+  const images = arrayOf(input, "images");
+  if (!images.ok) return images;
+  const cases = arrayOf(input, "cases");
+  if (!cases.ok) return cases;
+  const remove = arrayOf(input, "remove");
+  if (!remove.ok) return remove;
+  const plan = input.plan === "none";
+  if (plan && (images.items.length || input.transcript !== undefined || input.url !== undefined)) {
+    return { ok: false, error: 'plan "none" cannot go with images, a transcript or a url' };
+  }
+  for (const [i, e] of images.items.entries()) {
+    const where = `images[${i}]`;
+    const problem = caseIdProblem(e.case, where)
+      ?? (SLOTS.has(e.slot as string) ? null : `${where}: "slot" must be "before" or "after"`)
+      ?? (e.theme === undefined || THEMES.has(e.theme as string) ? null : `${where}: "theme" must be "light" or "dark"`)
+      ?? optionalStrings(e, where, ["label", "path", "annotated", "caption", "waiver"])
+      ?? checkPaths(e, where, ["path", "annotated"]);
+    if (problem) return { ok: false, error: problem };
+  }
+  for (const [i, c] of cases.items.entries()) {
+    const problem = caseIdProblem(c.id, `cases[${i}]`) ?? optionalStrings(c, `cases[${i}]`, ["label", "waiver"]);
+    if (problem) return { ok: false, error: problem };
+  }
+  for (const [i, r] of remove.items.entries()) {
+    const where = `remove[${i}]`;
+    const problem = caseIdProblem(r.case, where)
+      ?? (r.slot === undefined || SLOTS.has(r.slot as string) ? null : `${where}: "slot" must be "before" or "after"`)
+      ?? (r.theme === undefined || THEMES.has(r.theme as string) ? null : `${where}: "theme" must be "light" or "dark"`)
+      ?? (r.theme !== undefined && r.slot === undefined ? `${where}: a theme needs a slot` : null);
+    if (problem) return { ok: false, error: problem };
+  }
+  const merge: MergeInput = {
+    images: images.items as unknown as ImageInput[],
+    cases: cases.items as unknown as MergeInput["cases"],
+    remove: remove.items as unknown as MergeInput["remove"],
+  };
+  if (typeof input.transcript === "string") merge.transcript = input.transcript;
+  if (typeof input.url === "string") merge.url = input.url;
+  return { ok: true, merge, plan };
+}
+
+/** Record paths outside the addresses this call writes: a copy landing on one of them with other bytes is a collision. */
+function referencedElsewhere(current: RawRecord, images: ImageInput[]): Set<string> {
+  const out = new Set<string>();
+  for (const a of imageAddresses(current)) {
+    const named = images.some((e) => e.case === a.case && e.slot === a.slot && (e.theme === undefined || e.theme === a.theme));
+    if (named) continue;
+    out.add(a.image.path);
+    if (a.image.annotated) out.add(a.image.annotated);
+  }
+  return out;
+}
+
+function copyRequests(merge: MergeInput, evidenceRoot: string): CopyRequest[] {
+  const seen = new Set<string>();
+  const out: CopyRequest[] = [];
+  const add = (req: CopyRequest) => {
+    const key = `${req.src}\0${req.destDir}`;
+    if (!seen.has(key)) { seen.add(key); out.push(req); }
+  };
+  for (const e of merge.images ?? []) {
+    for (const p of [e.path, e.annotated]) if (p !== undefined) add({ src: p, destDir: join(evidenceRoot, e.case) });
+  }
+  if (merge.transcript !== undefined) add({ src: merge.transcript, destDir: evidenceRoot, single: true });
+  return out;
+}
+
+function remap(merge: MergeInput, mapped: Map<string, string>): MergeInput {
+  const to = (p: string | undefined) => (p === undefined ? undefined : mapped.get(p) ?? p);
+  const images = (merge.images ?? []).map((e) => {
+    const next: ImageInput = { ...e };
+    if (e.path !== undefined) next.path = to(e.path);
+    if (e.annotated !== undefined) next.annotated = to(e.annotated);
+    return next;
+  });
+  return { ...merge, images, ...(merge.transcript !== undefined && { transcript: to(merge.transcript) }) };
+}
+
+async function readField(deps: EvidenceToolDeps, runDb: string, key: string, env: NodeJS.ProcessEnv): Promise<{ ok: true; value: string | null } | { ok: false; error: string }> {
+  const res = await deps.runTool("run_field_get", { runDb, key }, env);
+  if (res.ok) return { ok: true, value: (res.body as { value?: unknown } | null)?.value as string ?? null };
+  if (NOT_SET.test(res.error ?? "")) return { ok: true, value: null };
+  return { ok: false, error: res.error ?? "run_field_get failed" };
+}
+
+function runIdOf(runDb: string): string | null {
+  try {
+    return basename(dirname(realpathSync(runDb)));
+  } catch {
+    return null;
+  }
+}
+
+async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.ProcessEnv): Promise<ToolResult> {
+  const bad = checkRequired(input, [{ name: "runDb", type: "string" }, { name: "stage", type: "string" }]);
+  if (bad) return err(bad);
+  const parsed = parseRecordInput(input);
+  if (!parsed.ok) return err(parsed.error);
+  const runDb = input.runDb as string;
+  const stage = input.stage as string;
+
+  let repoRoots: string[] = [];
+  if (input.tree !== undefined) {
+    const tree = checkRegisteredTree(input.tree, deps.guard);
+    if (!tree.ok) return err(tree.error);
+    repoRoots = deps.repoRoots(tree.repoName);
+  }
+
+  const read = await readField(deps, runDb, "evidence", env);
+  if (!read.ok) return err(read.error);
+  const runId = runIdOf(runDb);
+  if (runId === null) return err(`runDb ${runDb} does not resolve`);
+
+  const write = async (value: string): Promise<ToolResult | null> => {
+    const res = await deps.runTool("run_field_set", { runDb, key: "evidence", value, stage }, env);
+    return res.ok ? null : err(res.error ?? "run_field_set failed");
+  };
+
+  if (parsed.plan) {
+    const value = JSON.stringify({ plan: "none" });
+    const failed = await write(value);
+    return failed ?? ok({ written: true, encoding: "plan:none", value, uncovered: [], copied: [] });
+  }
+
+  const current = parseCurrent(read.value);
+  const dry = mergeRecord(current, parsed.merge);
+  if (!dry.ok) return err(dry.error);
+
+  const evidenceRoot = join(deps.home(), ".mattstack", "work", runId, "evidence");
+  const roots = allowedSourceRoots({ home: deps.home(), uid: deps.uid(), repoRoots, uploadRoots: deps.uploadRoots() });
+  const copy = copyIntoRun(copyRequests(parsed.merge, evidenceRoot), { allowedRoots: roots, referencedElsewhere: referencedElsewhere(current, parsed.merge.images ?? []) });
+  if (!copy.ok) return err(copy.error);
+  const copied: CopyResult[] = [...new Map(copy.copied.map((c) => [c.to, c])).values()];
+
+  const merged = mergeRecord(current, remap(parsed.merge, copy.mapped));
+  if (!merged.ok) return err(`${merged.error} (the files were copied: ${copied.map((c) => c.to).join(", ") || "none"})`);
+  const serialized = serializeRecord(merged.record);
+  if (!serialized.ok) return err(serialized.error);
+  const uncovered = uncoveredImages(merged.record);
+  const result = { encoding: serialized.encoding, value: serialized.value, uncovered, copied };
+  if (uncovered.length) return ok({ written: false, ...result });
+  const failed = await write(serialized.value);
+  return failed ?? ok({ written: true, ...result });
+}
+
+type Refused = Record<Bucket, Array<{ path: string; error: string }>>;
+type Uploaded = { path: string; url: string; markdown: string; reused: boolean };
+type Target =
+  | { forge: "github"; mr: string | null; number: number | null }
+  | { forge: "gitlab"; identity: string; iid: number | undefined; mr: string | null };
+
+const ghMove = (n: number | null) => {
+  const pr = n === null ? "<number>" : String(n);
+  return `GitHub has no upload API, so the section links local paths; read the body with gh pr view ${pr} --json body, then write it with gh pr edit ${pr} --body-file <file>`;
+};
+
+function prNumber(url: unknown, iid: unknown): number | null {
+  const m = typeof url === "string" ? /\/pull\/(\d+)/.exec(url) : null;
+  if (m) return Number(m[1]);
+  return typeof iid === "number" && Number.isInteger(iid) && iid > 0 ? iid : null;
+}
+
+async function resolveAttachTarget(deps: EvidenceToolDeps, input: Obj, mrField: string | undefined): Promise<Target | { error: string }> {
+  const explicit = input.mrUrl !== undefined || input.repoName !== undefined;
+  const mrUrl = explicit ? input.mrUrl : mrField;
+  if (!explicit && mrUrl === undefined) {
+    return { error: "no MR target: pass mrUrl, or repoName (with iid once an MR exists); the run has no mr field" };
+  }
+  const githubUrl = typeof mrUrl === "string" && /^https:\/\/(www\.)?github\.com\//i.test(mrUrl.trim()) ? mrUrl.trim() : null;
+  if (refuseGithubTarget({ repoName: input.repoName, mrUrl }, "evidence_attach", "") !== null) {
+    return { forge: "github", mr: githubUrl, number: prNumber(mrUrl, input.iid) };
+  }
+  const target = await deps.resolveRepo(explicit ? { repoName: input.repoName, iid: input.iid, mrUrl: input.mrUrl } : { mrUrl });
+  if (!target.ok) return { error: target.error };
+  if (githubRefusal(target.identity, "evidence_attach", "") !== null) return { forge: "github", mr: githubUrl, number: prNumber(mrUrl, input.iid) };
+  const mr = target.iid === undefined ? null : typeof mrUrl === "string" ? mrUrl.trim() : null;
+  return { forge: "gitlab", identity: target.identity, iid: target.iid, mr };
+}
+
+/** plan:text and plan:ticket carry no cases; readEvidence would read their paths as legacy links. */
+function attachRecord(value: string | undefined): EvidenceRecord {
+  let json: unknown;
+  try { json = JSON.parse(value ?? ""); } catch { json = undefined; }
+  if (isObj(json) && (json.plan === "text" || json.plan === "ticket")) {
+    const record: EvidenceRecord = { version: 2, source: 2, cases: [] };
+    if (typeof json.transcript === "string" && json.transcript.trim()) record.transcript = json.transcript;
+    if (typeof json.url === "string" && json.url.trim()) record.url = json.url;
+    return record;
+  }
+  return readEvidence(value ?? null);
+}
+
+function realOr(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+function reusable(entry: UploadEntry | undefined, real: string, project: string): Extract<UploadEntry, { url: string }> | null {
+  if (!entry || !("url" in entry) || entry.project !== project) return null;
+  const stem = bundleStem(basename(real));
+  if (stem !== null && existsSync(join(dirname(real), `${stem}.redactions.json`))) return null;
+  try {
+    return sha256Of(real) === entry.sha256 ? entry : null;
+  } catch {
+    return null;
+  }
+}
+
+function recordFiles(record: EvidenceRecord): string[] {
+  if (record.version !== 2) return [];
+  return record.cases.flatMap((c) => [...(c.before ?? []), ...(c.after ?? [])].flatMap((s) => [s.path, ...(s.annotated ? [s.annotated] : [])]));
+}
+
+function coveredUrls(record: EvidenceRecord, uploads: Record<string, UploadEntry>): Set<string> {
+  const files = new Set(recordFiles(record).map(realOr));
+  const out = new Set<string>();
+  for (const [real, entry] of Object.entries(uploads)) {
+    if (!files.has(real) || !("url" in entry)) continue;
+    out.add(entry.url);
+    const target = /\]\(([^)]*)\)/.exec(entry.markdown)?.[1];
+    if (target) out.add(target);
+  }
+  return out;
+}
+
+const emptyRefused = (): Refused => Object.fromEntries(BUCKETS.map((b) => [b, []])) as unknown as Refused;
+
+function isEmptyRecord(record: EvidenceRecord): boolean {
+  if (record.version === null) return true;
+  if (record.version === 0) return record.links.length === 0;
+  return record.cases.length === 0 && !record.transcript && !record.url && !record.attach;
+}
+
+async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.ProcessEnv, signal?: AbortSignal, progress?: () => void): Promise<ToolResult> {
+  const bad = checkRequired(input, [{ name: "runDb", type: "string" }, { name: "stage", type: "string" }, { name: "heading", type: "string" }])
+    ?? checkOptional(input, [{ name: "before", type: "string" }, { name: "appendix", type: "string" }, { name: "description", type: "string" }, { name: "linkRefused", type: "boolean" }]);
+  if (bad) return err(bad);
+  const heading = input.heading as string;
+  if (!ATX_HEADING.test(heading)) return err('"heading" must be one markdown heading line, such as "## Verification Evidence"');
+  if (typeof input.before === "string" && !ATX_HEADING.test(input.before)) return err('"before" must be one markdown heading line');
+  const runDb = input.runDb as string;
+  const stage = input.stage as string;
+  const linkRefused = input.linkRefused === true;
+
+  const snap = await deps.runTool("run_snapshot", { runDb }, env);
+  if (!snap.ok) return err(snap.error ?? "run_snapshot failed");
+  const fields = (snap.body as { fields?: Array<{ key?: unknown; value?: unknown }> } | null)?.fields ?? [];
+  const field = (key: string) => {
+    const v = fields.find((f) => f.key === key)?.value;
+    return typeof v === "string" && v.trim() ? v : undefined;
+  };
+
+  const target = await resolveAttachTarget(deps, input, field("mr"));
+  if ("error" in target) return err(target.error);
+  const runId = runIdOf(runDb);
+  if (runId === null) return err(`runDb ${runDb} does not resolve`);
+
+  const record = attachRecord(field("evidence"));
+  const uploadsMap = parseUploads(field("evidence-uploads") ?? null);
+  const refused = emptyRefused();
+  const uploaded: Uploaded[] = [];
+  const timedOutTwice: string[] = [];
+  const writeErrors: string[] = [];
+  const description = typeof input.description === "string" ? input.description : undefined;
+  const splice = (text: string, section: string) => spliceSection(text, heading, section, input.before as string | undefined);
+  const appendix = typeof input.appendix === "string" ? input.appendix : undefined;
+
+  if (target.forge === "github") {
+    const section = isEmptyRecord(record) ? "" : renderSection(record, (path) => ({ local: path }), { appendix });
+    return ok({
+      forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, section,
+      ...(description !== undefined && { description: section ? splice(description, section) : description }),
+      descriptionWritten: false, notWritten: "github", next: ghMove(target.number),
+    });
+  }
+
+  const paths = [...new Set(uploadablePaths(record))];
+  const toSend: string[] = [];
+  const shas = new Map<string, string>();
+  for (const path of paths) {
+    const real = realOr(path);
+    const reuse = reusable(uploadsMap[real], real, target.identity);
+    if (reuse) {
+      uploaded.push({ path, url: reuse.url, markdown: reuse.markdown, reused: true });
+      continue;
+    }
+    try { shas.set(path, sha256Of(real)); } catch { /* unreadable: the daemon's refusal names it */ }
+    toSend.push(path);
+  }
+
+  const results = await uploadEach(deps, { identity: target.identity, paths: toSend, runId, retryTimeoutOnce: true, signal, progress });
+  const fresh: Record<string, UploadEntry> = {};
+  const at = deps.now();
+  for (const r of results) {
+    if (r.ok) {
+      uploaded.push({ path: r.path, url: r.url, markdown: r.markdown, reused: false });
+      const sha = shas.get(r.path);
+      if (sha) fresh[realOr(r.path)] = { sha256: sha, project: target.identity, url: r.url, markdown: r.markdown, at };
+      continue;
+    }
+    if (r.timedOut) timedOutTwice.push(r.path);
+    else refused[bucketFor(r.error)].push({ path: r.path, error: r.error });
+    if (linkRefused) fresh[realOr(r.path)] = { linked: true, at };
+  }
+  const order = new Map(paths.map((p, i) => [p, i]));
+  uploaded.sort((a, b) => order.get(a.path)! - order.get(b.path)!);
+
+  const merged = { ...uploadsMap, ...fresh };
+  if (Object.keys(fresh).length) {
+    const res = await deps.runTool("run_field_set", { runDb, key: "evidence-uploads", value: serializeUploads(merged), stage }, env);
+    if (!res.ok) writeErrors.push(`remembering the uploads in evidence-uploads failed: ${res.error ?? "run_field_set failed"}`);
+  }
+
+  const byPath = new Map(uploaded.map((u) => [u.path, u.markdown]));
+  const link = (path: string): FileLink => {
+    const markdown = byPath.get(path);
+    return markdown === undefined ? { local: path } : { markdown };
+  };
+  const empty = isEmptyRecord(record);
+  const section = empty ? "" : renderSection(record, link, { coveredUrls: coveredUrls(record, merged), appendix });
+  const blocked = !linkRefused && (timedOutTwice.length > 0 || BUCKETS.some((b) => refused[b].length > 0));
+
+  let notWritten: "no-mr" | "refused" | "unchanged" | undefined;
+  let descriptionOut: string | undefined;
+  let descriptionWritten = false;
+  let mr = target.mr;
+  if (empty) {
+    notWritten = "unchanged";
+    descriptionOut = description;
+  } else if (blocked) {
+    notWritten = "refused";
+  } else if (target.iid === undefined) {
+    notWritten = "no-mr";
+    if (description !== undefined) descriptionOut = splice(description, section);
+  } else {
+    const got = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid, refresh: true }, { timeoutMs: READ_TIMEOUT_MS });
+    if (!got.ok || !got.data) {
+      writeErrors.push(`reading the MR description failed: ${got.error ?? "mr:get failed"}`);
+    } else {
+      mr ??= got.data.mr.webUrl;
+      const live = got.data.mr.description ?? "";
+      const next = splice(live, section);
+      if (next === live) notWritten = "unchanged";
+      else {
+        const put = await deps.command<Commands["mr:update"]["data"]>("mr:update", { repoName: target.identity, iid: target.iid, description: next }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+        if (put.ok) descriptionWritten = true;
+        else {
+          const e = put.error ?? "mr:update failed";
+          writeErrors.push(isTimeoutError(e) ? `${e}; the write may still land, so read the MR description before retrying` : e);
+        }
+      }
+    }
+  }
+
+  return ok({
+    forge: "gitlab", mr, uploaded, refused, timedOutTwice, section,
+    ...(descriptionOut !== undefined && { description: descriptionOut }),
+    descriptionWritten,
+    ...(notWritten && { notWritten }),
+    ...(writeErrors.length > 0 && { writeErrors }),
+  });
+}
+
+const RUN_DB = { type: "string", description: "The runDb run_start returned." };
+const STAGE = { type: "string", description: "The stage writing the field (run_field_set's stage)." };
+const SLOT = { type: "string", enum: ["before", "after"] };
+const THEME = { type: "string", enum: ["light", "dark"], description: "Only when the slot is a {light, dark} pair." };
+const CASE = { type: "string", description: "Case id: lowercase letters, digits and dashes." };
+
+export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps): McpToolDef[] {
+  return [
+    {
+      name: "evidence_record",
+      description: "Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A source must sit under the target repo's checkout or worktrees (pass tree, the run's worktree root, to name the repo), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and writes nothing, so call again with each listed image's cover. plan: \"none\" writes {\"plan\":\"none\"}. Returns {written, encoding, value, uncovered, copied}.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          runDb: RUN_DB,
+          stage: STAGE,
+          images: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                case: CASE, label: { type: "string", description: "Names a new case." }, slot: SLOT, theme: THEME,
+                path: { type: "string", description: "Absolute path of the capture; a new path recaptures the slot." },
+                annotated: { type: "string", description: "Absolute path of the annotated board; needs caption." },
+                caption: { type: "string" },
+                waiver: { type: "string", description: "Why this image has no annotated board." },
+              },
+              required: ["case", "slot"],
+              additionalProperties: false,
+            },
+          },
+          cases: {
+            type: "array",
+            items: { type: "object", properties: { id: CASE, label: { type: "string" }, waiver: { type: "string" } }, required: ["id"], additionalProperties: false },
+          },
+          remove: {
+            type: "array",
+            items: { type: "object", properties: { case: CASE, slot: SLOT, theme: THEME }, required: ["case"], additionalProperties: false },
+          },
+          transcript: { type: "string", description: "Absolute path of a text transcript (md, txt or log)." },
+          url: { type: "string", description: "The ticket url." },
+          plan: { type: "string", enum: ["none"] },
+          tree: { type: "string", description: "The run's worktree root; its repo's checkout and worktrees count as copy sources." },
+        },
+        required: ["runDb", "stage"],
+        additionalProperties: false,
+      },
+      shellForms: { none: "merges, copies and writes the evidence field in one step; no single shell command is equivalent" },
+      handler: (input, env) => evidenceRecord(deps, input, env),
+    },
+    {
+      name: "evidence_attach",
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead. The target is mrUrl, or repoName with iid, else the run's mr field; with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          runDb: RUN_DB,
+          stage: STAGE,
+          heading: { type: "string", description: "The section's full heading line, e.g. ## Verification Evidence." },
+          before: { type: "string", description: "A heading line the section is inserted above when heading is absent." },
+          appendix: { type: "string", description: "Markdown printed inside the section after the generated content." },
+          ...MR_TARGET_PROPS,
+          description: { type: "string", description: "A description to splice the section into when there is no MR to write, or on GitHub." },
+          linkRefused: { type: "boolean", description: "The off-script gate's Take: link refused files by local path and write anyway." },
+        },
+        required: ["runDb", "stage", "heading"],
+        additionalProperties: false,
+      },
+      shellForms: { none: "uploads, renders and writes the evidence section in one step; no single shell command is equivalent" },
+      handler: (input, env, signal, progress) => evidenceAttach(deps, input, env, signal, progress),
+    },
+  ];
+}
