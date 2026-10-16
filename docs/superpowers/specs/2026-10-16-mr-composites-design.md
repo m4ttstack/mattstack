@@ -196,6 +196,8 @@ The post side of receive-review. `tree` is the worktree root it pushes from.
    `mismatch`), with both outputs verbatim. Otherwise it calls `gitPush`
    (never force), retrying once. A second failure holds the picked fix rows
    (kind `push`), with git's error verbatim. Other threads still act.
+   A failed MR read before the push holds the picked fix rows (kind `read`);
+   reply rows still act.
 3. **Replies.** Offered threads in their open order, then reply rows in plan
    order. Each step:
    - A held thread acts on nothing.
@@ -414,3 +416,25 @@ replaces that in the new paths only.
 - The retired respond-post shape is refused.
 - `mr_rebase` has an `unchanged` status for when `divergedCommitsCount` is
   null.
+
+## Behaviour changes
+
+**Changes to existing tools**
+
+- `mr_view` no longer declares `maxAgeMs`. A caller that still passes it is not refused, since undeclared keys pass through, and nothing is sent.
+- `mr_map` reads live (`mr:list-live`, open MRs, every author unless `author` is passed, up to 200) instead of the daemon's synced list. Rows gain author, targetBranch, stacked, dirty and ciStatus. The result is `{rows, complete}`. Input is `repoName`; legacy `repo` is still accepted, and both together are refused.
+- `mr_create` and `mr_rebase` are unchanged unless the new `ifExists` or `wait` is passed. On those new paths only, a GitHub target refuses with the gh move. `maxWaitSeconds` without `wait: true` refuses.
+- `mr_threads` is unchanged unless `filter` is passed.
+
+**Decisions made during the build, beyond the text above** (each refuses unless noted)
+
+- `respond_post_execute` refuses a respond-plan answered `revise`, and refuses an offered fix row unless code-changes is `approve`.
+- Before a push, HEAD, `@{push}` and `@{u}` must all name `origin/<branch>`, and the pushed upstream is re-checked after. A branch with no upstream holds as `mismatch` with a `git_push {setUpstream: true}` remedy.
+- The run's branch must equal the MR's source branch, and `tree` must be a checkout of the MR's repo.
+- A fix push to an MR that is not open holds the fix rows as `mismatch`. Reply rows still act.
+- A failed pre-push MR read holds only the fix rows (kind `read`). Reply rows still act.
+- The author posted-already rule is anchored at the later of the run start and the respond-plan decision time minus one minute, so an earlier review round's own reply does not swallow this round's.
+- The shown-text check matches the card's rendered marker line (`Will post as reply:` or the REPLY or FIX line), not any substring of the context.
+- A respond-post gate source older than the respond-plan decision is not read from the registry.
+- A gate the registry no longer holds refuses, naming `gate_open`. Failed run-db writes come back in `writeErrors`.
+- `mr_rebase {wait}` counts a merge error as `failed` only when no rebase is running, and also stops at a wall-clock deadline.
