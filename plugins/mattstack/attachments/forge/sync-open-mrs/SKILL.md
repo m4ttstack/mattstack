@@ -20,7 +20,8 @@ MRs the map returns: `mr_map` on GitLab, `map-open-mrs` on GitHub. This
 verb owns the sequencing, the batch gates and the report. Discovery and CI
 watching belong to the verbs it follows; rebasing belongs to
 `branch_sync_sweep` and `branch_sync`. Gates stay human decisions: never
-stash a tree, never resolve a conflict.
+stash a tree, never resolve a conflict. `<checkout>`, and the `repoName`
+the map and sweep calls take, are the current checkout's absolute path.
 
 ```dot
 digraph sync_open_mrs {
@@ -322,9 +323,6 @@ only when all four hold:
 Anything else is no: the per-branch path, one `branch_sync {tree}` per
 selected branch in the answer's order.
 
-On GitHub, `<checkout>` and the `repoName` passed to `branch_sync_sweep`
-are the current checkout's absolute path.
-
 ### branch_sync_sweep result?
 
 **results**: the call returned `{repoName, results, noTree, complete}`.
@@ -379,7 +377,7 @@ second "run git_pull first" refusal is skipped with the refusal.
 
 Scope `clarify:dirty-trees`, once for the batch of listed branches that
 came back `dirty-tree`. One sentence per tree listing its uncommitted
-`paths`. The questions, each its own question:
+`paths` (when `paths` is absent, quote `refusal` instead). The questions, each its own question:
 
 - `retry`: a multi-select "I committed them, retry" of those branches,
   none pre-selected; over 4 branches it splits into `retry-1`, `retry-2`,

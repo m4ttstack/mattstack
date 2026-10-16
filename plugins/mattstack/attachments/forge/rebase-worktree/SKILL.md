@@ -15,7 +15,7 @@ Bring one worktree's branch current with the default branch through the
 `branch_sync` tool. This never guesses: it refuses on a dirty tree, refuses
 a stack member, and hands conflicts back to a human.
 
-`<tree>` is the worktree's absolute path. The graph is the map; each box has a section below. Every gate box runs the gate steps graph under **Gates**.
+`<tree>` is the worktree's absolute path. Each graph box has a section below. Every gate box runs the gate steps graph under **Gates**.
 
 ```dot
 digraph rebase_worktree {
@@ -179,7 +179,7 @@ paths?}`. `kind` decides, and nothing else does:
 ### Gate clarify: dirty tree
 
 Scope `clarify`. One sentence listing the uncommitted paths (the result's
-`paths`), then two questions, each its own question:
+`paths`; when absent, quote `refusal`), then two questions, each its own question:
 
 - `tree`: **I committed them, retry** / **Abort**
 - `next`: **Proceed** / **Hold**
@@ -292,7 +292,7 @@ aborted in their pane, never "already current".
 
 ## Gates
 
-Every gate box above runs this graph.
+Every gate box runs this graph.
 
 ```dot
 digraph gate_steps {
