@@ -49,7 +49,8 @@ import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import { readTeamLocal, type PendingPackShare } from "../team/team-local.ts";
-import { layoutAbove, markerAtRef, updateSentence } from "../team/org-layout.ts";
+import { approvedBranches, currentBranchSync } from "../team/approved-branch.ts";
+import { gateVerdict, headHoldsOrgStore, holdSentence, markerAtRef, shownDataBranch, type GateVerdict, type PullHold } from "../team/org-layout.ts";
 import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
@@ -84,10 +85,12 @@ export interface SnapshotResult {
 }
 
 export interface PullResult {
-  outcome: "up-to-date" | "fast-forwarded" | "rebased" | "conflict" | "skipped";
+  outcome: "up-to-date" | "fast-forwarded" | "rebased" | "conflict" | "skipped" | "moved";
   detail: string | null;
   /** Set only on a pull the layout gate held; a caller tells a hold from any other skip by this, never by the sentence. */
-  hold?: { layout: number; reads: number };
+  hold?: PullHold;
+  /** Set by the `team:pull` handler on a held move only the person can clear (unsaved changes, commits rt cannot carry); the engine never sets it. */
+  needsYou?: true;
 }
 
 export interface SnapshotStatus {
@@ -109,8 +112,8 @@ export interface SnapshotStatus {
   lastPullError: string | null;
   /** The most recent pull's skip reason (e.g. a rebase refused for a dirty `src/`); null after any non-skipped pull. */
   lastPullSkipped: string | null;
-  /** A fetched tip on a layout above what this rt reads: the pull stays at the last commit it can read until the app updates. Absent from a daemon that predates it. */
-  layoutHold?: { layout: number; reads: number } | null;
+  /** A fetched tip on a layout above what this rt reads (the pull stays at the last commit it can read until the app updates), or a `main` whose marker names the data branch this clone has not moved to. Absent from a daemon that predates it. */
+  layoutHold?: PullHold | null;
   /** A rebase that stopped mid-way. Cleared once the clone is no longer ahead of origin (a hand rebase then `rt team publish`, or a reset to origin); pushes and the applying of pulls stay suspended until then, while the fetch itself keeps running, since that is what observes the clearing condition. */
   conflicted: { at: number; detail: string } | null;
   /** True when this clone only fetches and fast-forwards. */
@@ -131,6 +134,8 @@ export interface HomeSnapshotHandle {
   /** Fetch, then fast-forward or rebase. A spec without a `pull` policy always skips. `converge:false` keeps the post-pull hook out of the caller's own path; a pull that moved HEAD still converges, once the push settles. */
   pullNow(opts?: { converge?: boolean }): Promise<PullResult>;
   status(): SnapshotStatus;
+  /** Runs `fn` under the git lock the commit cycle, pull and push share, so work that checks out another branch never lands mid-commit. */
+  locked<T>(fn: () => Promise<T>): Promise<T>;
   /** Resolves once no commit cycle, pull, push or post-pull hook (and the git children they started) is in flight; at once when idle. `stop` keeps new timer-driven work from starting, not work already running. */
   settled(): Promise<void>;
   /** Resolves once startup arming (the enabled + is-a-repo checks) has settled. Not needed by the daemon (which just fires and forgets); tests await it so assertions don't race the async repo check. */
@@ -158,10 +163,18 @@ export interface HomeSnapshotDeps {
   db?: Database;
 }
 
+function pushRefusalSentence(refusal: Authorization["refusal"]): string {
+  if (refusal?.kind === "unreadable") return "rt could not read the org's shared settings this round, so it held your pending changes. It tries again at the next push.";
+  if (refusal?.kind === "paused") return `Auto-commit is paused: your copy of the org ${refusal.branch === null ? "has no branch checked out" : `is on ${refusal.branch}`}, so rt is holding these changes.`;
+  return "Your role no longer owns these pending changes. Ask an org admin before publishing them";
+}
+
 export interface Authorization {
   scope: (relPath: string) => boolean;
   pullOnly: boolean;
   held?: (relPath: string, dirty: readonly string[]) => boolean;
+  /** Why the gate refused without judging the role: the push error names this instead of a lost role. */
+  refusal?: { kind: "unreadable" } | { kind: "paused"; branch: string | null };
 }
 
 /** What distinguishes one snapshot instance from another. Everything else about a run is identical across instances. */
@@ -183,8 +196,10 @@ export interface SnapshotSpec {
     intervalSec: number;
     /** Fired after a pull that moved HEAD, outside the git lock. */
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
-    /** Runs after the fetch with the remote-tracking ref; a non-null answer holds the pull at the current commit. */
-    gate?: (ref: string) => Promise<{ layout: number } | null>;
+    /** Runs after the fetch with the remote-tracking ref and the checked-out branch; a non-null answer holds the pull at the current commit. */
+    gate?: (ref: string, branch: string) => Promise<GateVerdict | null>;
+    /** Fired under the git lock after every pull the gate held with a moved verdict, except a push's own pull (`converge:false`). */
+    onMoved?: (dataBranch: string) => Promise<void>;
   };
   /** This Mac's role owns nothing in the clone, so the engine only fetches and fast-forwards. */
   pullOnly?: boolean;
@@ -438,9 +453,19 @@ function marketplaceOwed(shares: PendingPackShare[], repoDir: string, dirty: rea
   });
 }
 
-/** The org layout at `ref`, when it is one this rt does not read. A tip with no marker, a marker rt cannot parse, or a layout at or below ORG_LAYOUT passes. */
-export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string): Promise<{ layout: number } | null> {
-  return layoutAbove(await exec(["git", "-C", repoDir, "show", markerAtRef(ref)], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } }));
+/**
+ * `gateVerdict` for the marker at `ref` against this clone's checked-out
+ * branch and its own HEAD marker. A git failure reading `ref` other than a
+ * missing marker throws; an unreadable HEAD marker names no data branch, and
+ * neither does `main`'s pointer, which a hand pull or an older rt can leave
+ * checked out: it names a data branch but holds no org store.
+ */
+export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string, checkedOut: string): Promise<GateVerdict | null> {
+  const show = (at: string) => exec(["git", "-C", repoDir, "show", markerAtRef(at)], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } });
+  const shown = await show(ref);
+  const named = shownDataBranch(await show("HEAD"));
+  const own = named !== null && (await headHoldsOrgStore(exec, repoDir, GIT_TIMEOUT_MS)) === false ? null : named;
+  return gateVerdict(shown, checkedOut, own);
 }
 
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
@@ -454,6 +479,7 @@ export function teamSnapshotSpec(
     ownedRoots: string[];
     readToken?: (p: Probes, remote: string) => Promise<string | null>;
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
+    onMoved?: (dataBranch: string) => Promise<void>;
   },
 ): SnapshotSpec {
   const readToken = opts.readToken ?? storedForgeToken;
@@ -472,6 +498,8 @@ export function teamSnapshotSpec(
     standingZones: teamStandingZones,
     // Commit time judges by HEAD; the push gate passes the remote-tracking ref so a hand-committed self-grant cannot approve itself.
     readAuthorization: async (pushBase) => {
+      const branch = currentBranchSync(repoDir);
+      if (branch === null || !approvedBranches(opts.probes, slug, repoDir).includes(branch)) return { scope: () => false, pullOnly: true, refusal: { kind: "paused", branch } };
       const local = readTeamLocal(opts.probes, slug);
       const username = local.forgeUsername ?? null;
       const working = roleFor(opts.probes, slug);
@@ -481,17 +509,19 @@ export function teamSnapshotSpec(
       const headRoots = ownedRoots(head);
       const workingRoots = ownedRoots(working);
       const shares = local.pendingPackShares ?? [];
-      const orgStore = (head.kind === "owner" || isOrgAdmin(head)) && (await orgStoreInScope(repoDir, base, head, pushBase ? "HEAD" : null, run));
+      const orgStoreScope = head.kind === "owner" || isOrgAdmin(head) ? await orgStoreInScope(repoDir, base, head, pushBase ? "HEAD" : null, run) : "refused";
+      const orgStore = orgStoreScope === "in-scope";
       const under = (roots: string[], path: string) => roots.some((root) => path === root || path.startsWith(`${root}/`));
       const inRoots = (path: string) => under(headRoots, path) && under(workingRoots, path);
       return {
         scope: (path) => teamScope(path) && (path === ORG_STORE_REL ? orgStore : inRoots(path)),
         pullOnly: headRoots.length === 0,
+        refusal: base.state === "unreadable" || orgStoreScope === "unreadable" ? { kind: "unreadable" } : undefined,
         held: (path, dirty) => path === MARKETPLACE_PATH && marketplaceOwed(shares, repoDir, dirty),
       };
     },
     watch: teamScope,
-    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, gate: (ref) => layoutGate(opts.probes.exec, repoDir, ref) },
+    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, onMoved: opts.onMoved, gate: (ref, branch) => layoutGate(opts.probes.exec, repoDir, ref, branch) },
     pullOnly: opts.ownedRoots.length === 0,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
     originUrl: opts.originUrl,
@@ -558,8 +588,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let unownedDirty: string[] = [];
   let heldBack: string[] = [];
   let lastPullSkipped: string | null = null;
-  let layoutHold: { layout: number; reads: number } | null = null;
-  let loggedHold: number | null = null;
+  let layoutHold: PullHold | null = null;
+  let loggedHold: string | null = null;
   let loggedGateError: string | null = null;
   let conflicted: { at: number; detail: string } | null = null;
   /** `spec.tokenFor` is a keychain read plus a sops decrypt, so it is resolved once per pull interval rather than per git call. */
@@ -882,6 +912,13 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     } finally {
       pullInFlight = null;
     }
+    // A fresh hold on the lock, taken after the pull released its own, so the
+    // move never runs beside a commit cycle. A push's pull leaves it to the
+    // next scheduled pull: the push is waiting on this one.
+    if (result.hold && "moved" in result.hold && opts.converge !== false) {
+      const dataBranch = result.hold.moved;
+      await withGitLock(() => runMoveHook(dataBranch));
+    }
     const moved = result.outcome === "fast-forwarded" || result.outcome === "rebased";
     if (moved && spec.pull.onPulled) {
       const outcome = result.outcome as "fast-forwarded" | "rebased";
@@ -928,6 +965,16 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
+  /** Under the git lock, unlike the post-pull hook: the move checks out another branch, which must not land mid-commit. Never throws, so a failed move leaves the pull held, not failed. */
+  async function runMoveHook(dataBranch: string): Promise<void> {
+    if (!spec.pull?.onMoved) return;
+    try {
+      await spec.pull.onMoved(dataBranch);
+    } catch (err) {
+      deps.log.warn({ err, id: spec.id, dataBranch }, `${label}: move hook failed; the pull stays held`);
+    }
+  }
+
   /** Cleared before the hook runs, so a throwing converge cannot latch the flag and re-run forever. */
   async function drainPendingConverge(): Promise<void> {
     const outcome = pendingConverge;
@@ -965,26 +1012,33 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // `rt team publish` after the rebase, or resetting the clone to origin.
     if (conflicted && ahead === 0) clearConflict();
     if (conflicted) return { outcome: "skipped", detail: conflicted.detail };
-    if (spec.pull?.gate && behind !== 0) {
-      let hold: { layout: number } | null = null;
+    // Asked even with nothing to pull: a clone already sitting on main's pointer (a hand pull, an older rt) is moved only from here.
+    if (spec.pull?.gate) {
+      let verdict: GateVerdict | null = null;
       let threw = false;
       try {
-        hold = await spec.pull.gate(`refs/remotes/origin/${branch}`);
+        verdict = await spec.pull.gate(`refs/remotes/origin/${branch}`, branch);
+        if (behind === 0 && verdict?.kind === "above") verdict = null;
       } catch (err) {
         threw = true;
         if (loggedGateError !== String(err)) {
           deps.log.warn({ err, id: spec.id }, `${label}: layout gate threw; ${layoutHold === null ? "passing" : "keeping the hold"}`);
           loggedGateError = String(err);
         }
-        if (layoutHold !== null) return { outcome: "skipped", detail: updateSentence(layoutHold.layout), hold: layoutHold };
+        if (layoutHold !== null) return { outcome: "skipped", detail: holdSentence(layoutHold), hold: layoutHold };
       }
-      if (hold) {
-        layoutHold = { layout: hold.layout, reads: ORG_LAYOUT };
-        if (loggedHold !== hold.layout) {
-          deps.log.info({ id: spec.id, layout: hold.layout, reads: ORG_LAYOUT }, `${label}: holding the pull; the org is on a layout this rt does not read`);
-          loggedHold = hold.layout;
+      if (verdict) {
+        layoutHold = verdict.kind === "above" ? { layout: verdict.layout, reads: ORG_LAYOUT } : { moved: verdict.dataBranch };
+        const key = verdict.kind === "above" ? `layout:${verdict.layout}` : `moved:${verdict.dataBranch}`;
+        if (loggedHold !== key) {
+          if (verdict.kind === "above") {
+            deps.log.info({ id: spec.id, layout: verdict.layout, reads: ORG_LAYOUT }, `${label}: holding the pull; the org is on a layout this rt does not read`);
+          } else {
+            deps.log.info({ id: spec.id, dataBranch: verdict.dataBranch }, `${label}: holding the pull; the org's data moved to the ${verdict.dataBranch} branch`);
+          }
+          loggedHold = key;
         }
-        return { outcome: "skipped", detail: updateSentence(hold.layout), hold: layoutHold };
+        return { outcome: "skipped", detail: holdSentence(layoutHold), hold: layoutHold };
       }
       layoutHold = null;
       loggedHold = null;
@@ -1154,7 +1208,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     const current = await authorization({ ref: `refs/remotes/origin/${branch.stdout.trim()}` });
     if (current.pullOnly || [...paths].some((path) => !(current.scope?.(path) ?? true))) {
       pushPending = true;
-      lastPushError = "Your role no longer owns these pending changes. Ask an org admin before publishing them";
+      lastPushError = pushRefusalSentence(current.refusal);
       return false;
     }
     return true;
@@ -1163,7 +1217,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   /** A held pull leaves the branch behind origin, so a push would only be rejected: wait for the hold to clear, with no error, no broadcast and no retry ladder. */
   function holdPush(): void {
     pushPending = true;
-    deps.log.debug(`${label}: the pull is held on the org layout; keeping the push for later`);
+    deps.log.debug(`${label}: the pull is held by the layout gate; keeping the push for later`);
   }
 
   async function doPushInner(): Promise<void> {
@@ -1635,5 +1689,5 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (gitProbeRetryTimer) deps.clearTimeout(gitProbeRetryTimer);
   }
 
-  return { stop, runNow, pullNow, status, settled, ready: readyPromise };
+  return { stop, runNow, pullNow, status, settled, locked: withGitLock, ready: readyPromise };
 }

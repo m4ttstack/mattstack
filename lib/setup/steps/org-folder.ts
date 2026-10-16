@@ -5,7 +5,9 @@
  * stands and does only what is off, so a run that stopped halfway finishes at
  * the next one. The folder piece runs in the daemon (`org:move`) when one is
  * up, because the daemon owns the registry the move rewrites; it never
- * renames beside a daemon that cannot do it.
+ * renames beside a daemon that cannot do it. Last, on a Mac with no daemon,
+ * the picked clone moves to the branch its org's data lives on, once
+ * origin's copy of its branch points there; a daemon makes that move itself.
  */
 
 import { join } from "path";
@@ -13,6 +15,8 @@ import { orgDirUnder, orgsDirUnder } from "../../rt-paths.ts";
 import { daemonPresentIn, locateMovedRepo } from "../../repo-locate-dispatch.ts";
 import { clearIdentityMemo, deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
 import { classifyLocate, cleanupMovedRecords, runOrgMove, type LocateFn, type OrgMoveResult } from "../../team/org-folder-move.ts";
+import { convergeDataBranch, heldCopy, MOVED_DONE } from "../../team/org-data-branch.ts";
+import { orgLayoutState } from "../../team/org-layout.ts";
 import { markerState } from "../../team/org-marker.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
@@ -35,8 +39,28 @@ async function cloneIdentity(dir: string): Promise<string> {
   return serializeIdentity(await deriveRepoIdentity(dir));
 }
 
-/** Replaceable in tests: the relocation, the identity derivation, the marketplace piece and the clock all reach outside the Probes seam. */
-export const orgFolderSeams = { locate: locateMovedRepo, identity: cloneIdentity, marketplace: convergeMarketplace, now: Date.now };
+/** Replaceable in tests: the relocation, the identity derivation, the marketplace piece, the data branch move and the clock all reach outside the Probes seam. */
+export const orgFolderSeams = { locate: locateMovedRepo, identity: cloneIdentity, marketplace: convergeMarketplace, dataBranch: (p: Probes, dir: string) => convergeDataBranch(p, dir), now: Date.now };
+
+type DataPiece = { note: string; log?: string } | { held: { detail: string; remedy: string } } | { failed: string } | null;
+
+/** The picked clone, once in its folder, moves to the branch its org's data now lives on. */
+async function dataBranchPiece(p: Probes): Promise<DataPiece> {
+  const state = orgLayoutState(p);
+  if (state.kind === "none") return null;
+  let result;
+  try {
+    result = await orgFolderSeams.dataBranch(p, orgDirUnder(p.home, state.slug));
+  } catch (err) {
+    return { failed: `rt could not move your copy of the org to its data branch: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  if (result === null || result.kind === "already") return null;
+  if (result.kind === "moved") return { note: MOVED_DONE(result.branch, result.carried) };
+  // A check that never reached origin tried nothing: an offline Mac must not fail the step.
+  if (result.kind === "unchecked") return { note: "rt could not check whether your org's data moved, so it checks again next time", log: result.log };
+  if (result.kind === "held") return { held: heldCopy(result) };
+  return { failed: `rt could not move your copy of the org to its data branch: ${result.log}` };
+}
 
 interface Clone {
   dir: string;
@@ -226,8 +250,16 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
     if (market.state === "partial") partials.push({ detail: `${clone.org}: ${market.detail}`, commands, line });
   }
 
+  // A running daemon makes the same move under its git lock on org.pull's round trip; moving here too would race it.
+  const data = daemonUp ? null : await dataBranchPiece(p);
+  if (moved || (data && "note" in data && data.log === undefined)) ctx.reloadTeam?.();
+  if (data && "note" in data) notes.push(data.note);
+  if (data && "note" in data && data.log !== undefined) ctx.log("org.folder", `data branch check: ${data.log}`);
+  if (data && "failed" in data) failures.push({ detail: data.failed, remedy: ORG_FOLDER_REMEDY });
+  const held = data && "held" in data ? data.held : null;
+  if (held && (failures.length || partials.length)) notes.unshift(held.detail);
+  const withHeld = (remedy: string): string => (held ? `${remedy}. ${held.remedy}` : remedy);
   if (strayNote) notes.push(strayNote);
-  if (moved) ctx.reloadTeam?.();
 
   if (failures.length) {
     const remedy = [DAEMON_STALE_REMEDY, DAEMON_SLOW_REMEDY].find((r) => failures.some((f) => f.remedy === r)) ?? ORG_FOLDER_REMEDY;
@@ -235,15 +267,16 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
     const detail = [...failures.map((f) => f.detail), ...notes, ...partials.map((m) => m.line)].join("; ");
     // A full apply runs this step too, and a failed step stops Install; a clone rt left alone must not.
     const blocking = failures.some((f) => !f.refusal) || ctx.update === true;
-    return { state: blocking ? "failed" : "partial", detail, remedy };
+    return { state: blocking ? "failed" : "partial", detail, remedy: withHeld(remedy) };
   }
   if (partials.length) {
     // A partial with no commands (Claude missing, an unreadable list) has nothing to run by hand yet, so it needs the fix-then-rerun.
     const commands = partials.flatMap((m) => m.commands);
     const rerun = partials.some((m) => m.commands.length === 0);
     const remedy = commands.length === 0 ? ORG_FOLDER_REMEDY : `Run ${commands.join(", then ")}${rerun ? ", then rt setup update --force" : ""}`;
-    return { state: "partial", detail: [...notes, ...partials.map((m) => m.detail)].join("; "), remedy };
+    return { state: "partial", detail: [...notes, ...partials.map((m) => m.detail)].join("; "), remedy: withHeld(remedy) };
   }
+  if (held) return { state: "needs-you", detail: [held.detail, ...notes].join("; "), remedy: held.remedy };
   return { state: "done", detail: notes.join("; ") };
 }
 

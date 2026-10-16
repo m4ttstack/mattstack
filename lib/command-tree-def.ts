@@ -2891,6 +2891,22 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      branch: {
+        description: "Choose which branch your copy of the org is on",
+        subcommands: {
+          use: {
+            description: "Switch your copy of the org to a branch, for trying a change before everyone gets it",
+            module: "./commands/team.ts",
+            fn: "teamBranchUse",
+            omitBehavior: { exempt: "a new branch name cannot be enumerated" },
+            args: [
+              { name: "Branch", type: "text", placeholder: "mattstack-layout-5", hint: "The branch to switch to; created from the org's data branch when it doesn't exist" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+              SETUP_JSON_ARG,
+            ],
+          },
+        },
+      },
       rename: {
         description: "Rename your org",
         module: "./commands/team.ts",

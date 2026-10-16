@@ -18,6 +18,8 @@ import { hasKvValue, setKvValue } from "../state/kv-blob.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { UserActionableError } from "../errors.ts";
 import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { applyRoleCone } from "../team/org-cone.ts";
+import { convergeDataBranch, type ConvergeResult } from "../team/org-data-branch.ts";
 import { roleFor } from "../team/roles.ts";
 import {
   startSnapshot,
@@ -51,6 +53,9 @@ export interface TeamSnapshotsDeps {
   converge?: typeof convergePackCache;
   /** Runs after every pull that moved a clone, even when the converge threw. */
   afterPull?: (slug: string) => Promise<void>;
+  /** Injectable so tests never reach the keychain; the forge token both the engine's git and the data-branch move offer origin. */
+  readToken?: (p: Probes, remote: string) => Promise<string | null>;
+  moveData?: typeof convergeDataBranch;
 }
 
 export interface TeamSnapshotsHandle {
@@ -58,6 +63,8 @@ export interface TeamSnapshotsHandle {
   rescan(): Promise<void>;
   status(): TeamSnapshotEntry[];
   pullNow(slug: string): Promise<PullResult>;
+  /** The data branch move, under the clone engine's git lock so it never lands beside a commit cycle. */
+  moveNow(slug: string): Promise<ConvergeResult | null>;
   ready: Promise<void>;
   /** Stops these clones' engines, waits (up to `PAUSE_SETTLE_MS` each) for git work they already started, and keeps `rescan` from starting them until `resume`: `org:move` renames a clone's folder and must not race a pull into it. */
   pause(slugs: string[]): Promise<void>;
@@ -79,19 +86,29 @@ function originOf(dir: string): string | null {
   }
 }
 
-/** The converge first, then the post-pull hooks, which run even when the converge threw. */
+/** The converge first, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. */
 export function createOnPulled(opts: {
   probes: Probes;
   slug: string;
+  dir: string;
   log: Logger;
   converge: typeof convergePackCache;
   afterPull?: (slug: string) => Promise<void>;
+  applyCone?: typeof applyRoleCone;
   /** Remembers which held pack versions were already logged; defaults to the state db's kv table. */
   holds?: { has(key: string): boolean; mark(key: string): void };
 }): () => Promise<void> {
   const holds = opts.holds ?? {
     has: (key: string) => hasKvValue(PACK_HOLDS_NS, key),
     mark: (key: string) => setKvValue(PACK_HOLDS_NS, key, { at: Date.now() }),
+  };
+  const applyCone = async (): Promise<void> => {
+    try {
+      const { kept } = await (opts.applyCone ?? applyRoleCone)(opts.probes, opts.dir, opts.slug);
+      if (kept.length > 0) opts.log.info({ kept }, "cone: team folders kept because they hold changes");
+    } catch (err) {
+      opts.log.warn({ err }, "cone: could not apply the role's sparse checkout");
+    }
   };
   return async () => {
     try {
@@ -113,7 +130,38 @@ export function createOnPulled(opts: {
         }
       }
     } finally {
+      await applyCone();
       await opts.afterPull?.(opts.slug);
+    }
+  };
+}
+
+/** The move a moved hold asks for. Never throws: the pull stays held and the next one tries again. A hold is logged once until it changes. */
+export function createOnMoved(opts: {
+  probes: Probes;
+  dir: string;
+  log: Logger;
+  moveData: typeof convergeDataBranch;
+  readToken?: (p: Probes, remote: string) => Promise<string | null>;
+}): () => Promise<void> {
+  let loggedHold: string | null = null;
+  return async () => {
+    try {
+      const result = await opts.moveData(opts.probes, opts.dir, opts.readToken ? { readToken: opts.readToken } : {});
+      if (result?.kind === "held" || result?.kind === "unchecked") {
+        const key = JSON.stringify(result);
+        if (key !== loggedHold) {
+          if (result.kind === "held") opts.log.info({ ...result }, "data branch: the move is held until the clone can move");
+          else opts.log.info({ log: result.log }, "data branch: could not ask origin whether the data moved; trying again next pull");
+        }
+        loggedHold = key;
+        return;
+      }
+      loggedHold = null;
+      if (result?.kind === "moved") opts.log.info({ branch: result.branch, carried: result.carried ?? 0 }, "data branch: moved the clone to the org's data branch");
+      if (result?.kind === "failed") opts.log.warn({ log: result.log }, `data branch: could not move the clone: ${result.log}`);
+    } catch (err) {
+      opts.log.warn({ err }, `data branch: the move threw: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 }
@@ -127,9 +175,15 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
   const clearTimer = rawDeps.clearTimeout ?? ((h: ReturnType<typeof setTimeout>) => clearTimeout(h));
   const readSettings = rawDeps.readSettings ?? (() => getSetting<TeamSnapshotSettings>("rt.teamSnapshot").value);
   const converge = rawDeps.converge ?? convergePackCache;
+  const moveData = rawDeps.moveData ?? convergeDataBranch;
   const instances = new Map<string, { handle: SnapshotHandle; dir: string; owned: string }>();
   const held = new Set<string>();
   const skippedNoRemote = new Set<string>();
+  const instanceOf = (slug: string) => {
+    const inst = instances.get(slug);
+    if (!inst) throw new UserActionableError("no-team", `team "${slug}" is not cloned locally (or has no origin)`);
+    return inst;
+  };
   let watcher: { close(): void } | null = null;
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let interval: ReturnType<typeof setTimeout> | null = null;
@@ -221,7 +275,9 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           originUrl,
           probes,
           ownedRoots: roots,
-          onPulled: createOnPulled({ probes, slug, log: rawDeps.log.child({ team: slug }), converge, afterPull: rawDeps.afterPull }),
+          onPulled: createOnPulled({ probes, slug, dir, log: rawDeps.log.child({ team: slug }), converge, afterPull: rawDeps.afterPull }),
+          onMoved: createOnMoved({ probes, dir, log: rawDeps.log.child({ team: slug }), moveData, readToken: rawDeps.readToken }),
+          ...(rawDeps.readToken ? { readToken: rawDeps.readToken } : {}),
         });
         const handle = start(spec, {
           log: rawDeps.log.child({ team: slug }),
@@ -323,9 +379,11 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     },
     status: () => [...instances.entries()].map(([slug, inst]) => ({ slug, ...inst.handle.status() })),
     async pullNow(slug) {
-      const inst = instances.get(slug);
-      if (!inst) throw new UserActionableError("no-team", `team "${slug}" is not cloned locally (or has no origin)`);
-      return inst.handle.pullNow();
+      return instanceOf(slug).handle.pullNow();
+    },
+    async moveNow(slug) {
+      const inst = instanceOf(slug);
+      return inst.handle.locked(() => moveData(probes, inst.dir, rawDeps.readToken ? { readToken: rawDeps.readToken } : {}));
     },
   };
 }

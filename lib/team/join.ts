@@ -38,7 +38,10 @@ import { orgStoreFile } from "./org-store.ts";
 import { HANDLE_PATTERN } from "./invite.ts";
 import { forgeLogin } from "./forge.ts";
 import { gitWithToken } from "./git-credential.ts";
+import { readMainPointer } from "./main-pointer.ts";
 import { ORG_CLONE_FOLDERS } from "./org-clone.ts";
+import { applyRoleCone } from "./org-cone.ts";
+import { validBranch } from "./org-marker.ts";
 import { decodeCode, open, sealReply } from "./invite-crypto.ts";
 import { AUTH_FAILURE_PATTERN } from "./publish.ts";
 import { scrub, withoutUrls } from "./redact.ts";
@@ -175,6 +178,9 @@ function validatePointer(pointer: InvitePointer): InvitePointer {
   }
   if (!isAllowedRemote(pointer.remote)) {
     throw new UserActionableError("invite-malformed", "rt could not read that invite", {}, { log: "invite pointer's remote is not a recognized git URL" });
+  }
+  if (pointer.dataBranch !== undefined && (typeof pointer.dataBranch !== "string" || !validBranch(pointer.dataBranch))) {
+    throw new UserActionableError("invite-malformed", "rt could not read that invite", {}, { log: "invite pointer's data branch is not a plain branch name" });
   }
   return { ...pointer, name: sanitizeDisplay(pointer.name), owner: sanitizeDisplay(pointer.owner) };
 }
@@ -561,7 +567,17 @@ export async function joinRedeem(
     alreadyCloned = true;
   } else {
     p.mkdirp(orgsDirUnder(p.home));
-    const git = gitWithToken(["clone", "--sparse", pointer.remote, dir], token, GIT_ENV, { remote: pointer.remote });
+    let branch: string | null;
+    let lastGit: ExecResult | null = null;
+    const recording: Pick<Probes, "exec"> = { exec: async (argv, opts) => (lastGit = await p.exec(argv, opts)) };
+    try {
+      branch = pointer.dataBranch ?? (await readMainPointer(recording, pointer.remote, token))?.dataBranch ?? null;
+    } catch (err) {
+      if (!(err instanceof UserActionableError)) throw err;
+      updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
+      return gitAccessResult(pointer, lastGit ?? { code: 1, stdout: "", stderr: err.log ?? "" });
+    }
+    const git = gitWithToken(["clone", "--sparse", ...(branch ? ["--single-branch", "--branch", branch] : []), pointer.remote, dir], token, GIT_ENV, { remote: pointer.remote });
     const clone = await p.exec(git.argv, { env: git.env });
     if (clone.code !== 0) {
       updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
@@ -673,6 +689,12 @@ export async function joinRedeem(
   }
 
   updateTeamLocal(p, pointer.team, { forgeUsername: handle });
+  // The role cone reads the joiner's recorded username, so it narrows only now.
+  try {
+    await applyRoleCone(p, dir, pointer.team);
+  } catch (err) {
+    seams.warn(`join: could not narrow the org clone to this Mac's teams (${errorText(err)})`, { title: "rt could not narrow the org's team folders to yours", hint: "every team folder stays checked out" });
+  }
   seams.writeUserSetting("mattstack.activeTeam", pointer.teams[0]!);
 
   const { peering, peeringFix } = await peerBoard(p, seams, secrets, pointer, switchboard, handle);

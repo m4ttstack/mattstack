@@ -6,7 +6,10 @@ import type { Probes } from "../setup/probes.ts";
 export const ORG_MARKER_REL = join("mattstack", "mattstack.jsonc");
 
 /** The highest org layout this rt reads. Moves only with a breaking change to the org repo's shape or to the shared settings' shape, never with a release. */
-export const ORG_LAYOUT = 3;
+export const ORG_LAYOUT = 4;
+
+/** Layouts this rt reads. 3 and 4 share every path; 4 only adds the data branch. */
+export const READABLE_LAYOUTS: readonly number[] = [3, 4];
 
 /** What a `role: "org"` marker without `layout` reads as. Fixed, never ORG_LAYOUT: a bump must not turn an unconverted repo ready. */
 export const ORG_LAYOUT_ABSENT_DEFAULT = 2;
@@ -17,7 +20,7 @@ export type MarkerState = { kind: "none" } | { kind: "invalid"; why: string } | 
 const BRANCH_RE = /^(?![-/])(?!.*\.\.)(?!.*\/$)[A-Za-z0-9._/-]+$/;
 
 /** Git's per-component rules: non-empty, no leading ".", no trailing "." or ".lock". */
-const validBranch = (name: string): boolean => BRANCH_RE.test(name) && name.split("/").every((c) => c !== "" && !c.startsWith(".") && !c.endsWith(".") && !c.endsWith(".lock"));
+export const validBranch = (name: string): boolean => BRANCH_RE.test(name) && name.split("/").every((c) => c !== "" && !c.startsWith(".") && !c.endsWith(".") && !c.endsWith(".lock"));
 
 /**
  * An old clone may still carry a `role: "team"` marker with an `org` field; a

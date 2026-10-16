@@ -619,6 +619,12 @@ describe("a pending org store change passes the org store guard", () => {
     expect(w.pushes).toHaveLength(0);
   }, 15_000);
 
+  test("an org owner's publish is refused when the pending roles block is malformed", async () => {
+    const w = worldWith("dev0", (s) => { (s["mattstack.org"] as { admins: unknown }).admins = "dev1"; }, { ...ROLES, owners: ["dev0"] });
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only", message: expect.stringMatching(/admins and owners must each be a list of usernames/) });
+    expect(w.pushes).toHaveLength(0);
+  }, 15_000);
+
   test("the creator's claim of an unclaimed org publishes, since the remote names no admins to judge by", async () => {
     const w = worldWith("dev1", (s) => { (s["mattstack.org"] as { admins: string[] }).admins = ["dev1"]; }, { admins: [], teams: {} } as unknown as typeof ROLES);
     await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });

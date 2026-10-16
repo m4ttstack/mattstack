@@ -61,6 +61,8 @@ export interface TeamLocalRecord {
   pendingPackShares?: PendingPackShare[];
   /** The folder this record was copied from by the org.folder move; cleared once the old-name records are gone, so a later run removes only what a move left behind. */
   movedFrom?: string;
+  /** A branch other than the data branch this Mac chose to publish from; the daemon auto-commits there too. */
+  trialBranch?: string;
 }
 
 export interface PendingPackShare {
@@ -98,6 +100,7 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
         creatorPending: { team: parsed.creatorPending.team, ...(typeof parsed.creatorPending.agePublicKey === "string" ? { agePublicKey: parsed.creatorPending.agePublicKey } : {}) },
       } : {}),
       ...(typeof parsed.forgeUsername === "string" && parsed.forgeUsername.trim() !== "" ? { forgeUsername: parsed.forgeUsername.trim() } : {}),
+      ...(typeof parsed.trialBranch === "string" && parsed.trialBranch !== "" ? { trialBranch: parsed.trialBranch } : {}),
       ...(typeof parsed.movedFrom === "string" && parsed.movedFrom !== "" ? { movedFrom: parsed.movedFrom } : {}),
       ...(pendingPackShares(parsed.pendingPackShares).length > 0 ? { pendingPackShares: pendingPackShares(parsed.pendingPackShares) } : {}),
     };

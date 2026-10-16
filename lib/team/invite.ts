@@ -35,6 +35,7 @@ import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
 import { orgBranch, shellQuote } from "./org-branch.ts";
+import { readMainPointer } from "./main-pointer.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
@@ -118,7 +119,8 @@ export interface MintInviteOpts {
 }
 
 export interface MintInviteSeams {
-  pullOrg: (p: Probes, slug: string, remote: string, token: string | null) => Promise<void>;
+  /** Brings the clone current on the branch main's pointer names; `dataBranch` is that pointer's branch, null when the org keeps its data on main. */
+  pullOrg: (p: Probes, slug: string, remote: string, token: string | null) => Promise<{ dataBranch: string | null }>;
   publishRoster: (p: Probes, slug: string, handle: string, remote: string, token: string | null) => Promise<void>;
   read: SettingsReader;
   /** The org store's own top-level keys, unmerged with the active team's: `addToRoster` read-modify-writes the org layer. */
@@ -175,7 +177,7 @@ async function refuseIfBusy(p: Probes, dir: string): Promise<void> {
 }
 
 /** `rebase --abort` reapplies the pull's autostash, and parks it in the stash list when it no longer applies cleanly, so uncommitted edits survive either way. */
-async function abortRebase(p: Probes, dir: string, slug: string, pullOutput: string): Promise<never> {
+async function abortRebase(p: Probes, dir: string, slug: string, branch: string, pullOutput: string): Promise<never> {
   const abort = await p.exec(["git", "rebase", "--abort"], { cwd: dir });
   const log = `${pullOutput}\n${withoutUrls(`${abort.stdout}\n${abort.stderr}`.trim())}`.trim();
   if (abort.code !== 0) {
@@ -190,7 +192,7 @@ async function abortRebase(p: Probes, dir: string, slug: string, pullOutput: str
     why: stashed
       ? `rt put your copy of the org back as it was and kept your unsaved edits there in git's stash. ${SETTLE_THE_CLASH}`
       : `rt put your copy of the org back as it was. ${SETTLE_THE_CLASH}`,
-    ...settleTheClash(dir, slug),
+    ...settleTheClash(dir, slug, branch),
     log,
   });
 }
@@ -205,8 +207,8 @@ function peeringNotEmbedded(log: string): UserActionableError {
 const SETTLE_THE_CLASH = "Pull their change and settle any clash, publish, then invite again.";
 
 /** The daemon's pull replays the same rebase and stops on the same clash, so the remedy is a pull a person finishes by hand. */
-function settleTheClash(dir: string, slug: string): { next: string; thenRun: string } {
-  return { next: `git -C ${shellQuote(dir)} pull --rebase --autostash origin main`, thenRun: `rt team publish --team ${slug}` };
+function settleTheClash(dir: string, slug: string, branch: string): { next: string; thenRun: string } {
+  return { next: `git -C ${shellQuote(dir)} pull --rebase --autostash origin ${shellQuote(branch)}`, thenRun: `rt team publish --team ${slug}` };
 }
 
 export function realMintInviteSeams(): MintInviteSeams {
@@ -216,20 +218,23 @@ export function realMintInviteSeams(): MintInviteSeams {
       const dir = orgDirUnder(p.home, slug);
       await refuseIfBusy(p, dir);
       const branch = await orgBranch(p, dir);
-      if (branch !== "main") {
+      const pointer = await readMainPointer(p, remote, token);
+      const wanted = pointer?.dataBranch ?? "main";
+      if (branch !== wanted) {
         throw new UserActionableError("invite-off-main", `Your copy of the org is on ${branch}, so rt made no invite`, {}, {
-          why: "The people you invite clone main, so their roster entry has to land there. Switch back to main to invite.",
-          next: `git -C ${shellQuote(dir)} switch main`,
+          why: pointer?.dataBranch ? `The people you invite clone ${wanted}. Switch to it to invite.` : "The people you invite clone main, so their roster entry has to land there. Switch back to main to invite.",
+          next: pointer?.dataBranch ? `rt team branch use ${wanted}` : `git -C ${shellQuote(dir)} switch main`,
         });
       }
-      const known =await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir });
-      if (known.code !== 0) return;
-      const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", "main"], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
+      const dataBranch = pointer?.dataBranch ?? null;
+      const known = await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${wanted}`], { cwd: dir });
+      if (known.code !== 0) return { dataBranch };
+      const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", wanted], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
       const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
-      if (res.code === 0) return;
+      if (res.code === 0) return { dataBranch };
       const output = withoutUrls(`${res.stdout}\n${res.stderr}`.trim());
       if (!(await rebaseStopped(p, dir))) throw new Error(output || `git pull exited ${res.code}`);
-      await abortRebase(p, dir, slug, output);
+      return abortRebase(p, dir, slug, wanted, output);
     },
     publishRoster: async (p, slug, handle, remote, token) => {
       const dir = orgDirUnder(p.home, slug);
@@ -376,8 +381,10 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   // Captured before this handle's new record is minted: replace-on-mint's revoke of THIS value runs last, after the new invite is safely live (finding: create-before-destroy).
   const priorRecord = readInviteRecords(p, opts.slug)[opts.handle];
 
+  let dataBranch: string | null = null;
   try {
-    await seams.pullOrg(p, opts.slug, remote, token);
+    ({ dataBranch } = await seams.pullOrg(p, opts.slug, remote, token));
+    if (dataBranch !== null) pointer.dataBranch = dataBranch;
   } catch (err) {
     if (err instanceof UserActionableError) throw err;
     throw new UserActionableError("org-not-current", "rt could not bring the org repo up to date, so it made no invite", {}, {
@@ -392,7 +399,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
     const reason = (err instanceof Error ? err.message : String(err)).replace(/\.$/, "");
     throw new UserActionableError("roster-not-published", `rt could not push ${opts.handle}'s roster entry, so it made no invite`, {}, {
       why: `${reason}. Pull any change someone else pushed and settle any clash, publish, then invite again.`,
-      ...settleTheClash(orgDirUnder(p.home, opts.slug), opts.slug),
+      ...settleTheClash(orgDirUnder(p.home, opts.slug), opts.slug, dataBranch ?? "main"),
     });
   }
 

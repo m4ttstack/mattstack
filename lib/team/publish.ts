@@ -21,6 +21,7 @@ import { isOrgAdmin, mayWritePath, orgOwnersAsk, ownedRoots, roleOf, writeRefusa
 import { unpublishedPaths } from "./publish-history.ts";
 import { containsCommit, remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
+import { assertOriginTakesNewOrg, pendingPointer, publishPointer } from "./org-data-branch.ts";
 import { orgDirUnder } from "../rt-paths.ts";
 import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
 
@@ -107,6 +108,8 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const head = () => remoteHead(p, dir, urls[0]!, ref, opts.token ?? null, opts.tokenRemote ?? activeRemote);
   const base = await head();
   if (!base.ok) throw inspectionFailure();
+  const pointer = await pendingPointer(p, dir, branch);
+  if (pointer !== null) await assertOriginTakesNewOrg(p, dir, pointer, urls[0]!, opts.token ?? null, opts.tokenRemote ?? activeRemote);
   const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base.sha ? `${base.sha}..${ref}` : ref);
   const orgMoved = () => new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
     why: "Someone else pushed first, so pull their changes before you publish again.",
@@ -181,6 +184,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     throw classifyPushFailure(push, branch, tracked);
   }
 
+  await publishPointer(p, dir, opts.token ?? null, opts.tokenRemote ?? activeRemote);
   const publicRemote = stripUserinfo(activeRemote);
   const stdout = push.stdout.trim();
   return { remote: publicRemote, pushed: true, detail: stdout ? withoutUrls(stdout) : `pushed to ${publicRemote}` };

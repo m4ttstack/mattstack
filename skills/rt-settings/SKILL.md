@@ -56,10 +56,12 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    allows `org`. Path literals are legal only in the machine store; a
    shared value names a path with a variable the resolver expands on read:
    `${repoRoot}`, `${worktree}`, `${home}`, or `${org}` (the org clone's
-   root, so `"bun ${org}/mattstack/scripts/hook.sh"`; a member's clone is
-   sparse (cone mode) and holds only `.claude-plugin/`, `mattstack/` and
-   the repo's top-level files, so a path under `${org}` names something
-   there). `${team:<name>}` is a
+   root, so `"bun ${org}/mattstack/scripts/hook.sh"`; the clone is sparse
+   (cone mode): an org owner's or admin's holds `.claude-plugin/` and
+   `mattstack/`, anyone else's holds `.claude-plugin/`, `mattstack/org/`
+   and their own teams' folders, plus the files directly under each of
+   those folders' parents, so a path under `${org}` must name something
+   the Mac's role reaches). `${team:<name>}` is a
    deprecated alias for `${org}` that ignores the name and warns, and both
    throw on a Mac with no org. An older
    rt passes `${org}` through verbatim, so an org or team store keeps
@@ -95,9 +97,11 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    live in the one org repo on this Mac, which the team sync engine
    commits and pushes the same way, so an `org` or `team` write reaches
    every member with no hand commit. The engine reads, pulls and pushes the
-   branch the clone has checked out (`orgBranch`), and it never pulls a
-   clone onto a tip whose layout is above this rt's `ORG_LAYOUT` (the
-   section below). `setSetting` prints a tip only when that sync cannot
+   branch the clone has checked out (`orgBranch`), auto-commits only on
+   the org's data branch or a trial branch `rt team branch use` recorded
+   (the `org.branch` row of `rt setup status` says when it is paused), and
+   never pulls a clone onto a tip whose layout is above this rt's
+   `ORG_LAYOUT` (the section below). `setSetting` prints a tip only when that sync cannot
    run. Which team you work as is `rt team use <team>`, which also swaps
    the team pack and restarts the apps that read it; the org-only
    `mattstack.directory` holds each team's review channel and Linear key. Roles in the org's `mattstack.org` setting decide
@@ -171,30 +175,54 @@ team directory did this). Each gets the same `ORG_LAYOUT` bump and branch
 flow below. The marker
 (`mattstack/mattstack.jsonc`) carries `layout`; `ORG_LAYOUT` in
 `lib/team/org-marker.ts` is the highest layout this rt reads, and it moves
-only with such a change, never with a release. A clone on any other layout
-is `waiting`, not a failure: materialize writes nothing, the `rt skills`
+only with such a change, never with a release. A clone on a layout outside
+`READABLE_LAYOUTS` (3 and 4, which share every path) is
+`waiting`, not a failure: materialize writes nothing, the `rt skills`
 verbs refuse with the waiting sentence, the apps run as on a Mac with no
 org, and the `org.layout` row of `rt setup status` says why. The daemon
 never pulls a clone onto a tip above its `ORG_LAYOUT`: it holds at the last
 commit it reads and the row says to update the app (every app from v2.21.1
 on holds this way; `rt team pull` and `rt skills sync` hold too). rt reads,
 syncs and publishes the branch the clone has checked out, so an admin can
-try the new shape on a branch while every member stays on main;
-`rt team invite` refuses off main. Automatic org migrations, where rt
-converts the admin's clone itself, are a planned follow-up and not built:
-the conversion is a script the admin runs once.
+try the new shape on a branch while every member stays on the data branch.
+Automatic org migrations, where rt converts the admin's clone itself, are
+a planned follow-up and not built: the conversion is a script the admin
+runs once.
+
+From layout 4 the org's data lives on its own branch (`mattstack` by
+default), named by the marker's `dataBranch`, and `main` keeps only the
+marker as a pointer. The two branches share no history: the data branch is
+never merged into `main`, nor `main` into it. `rt team invite` reads
+`main`'s pointer and refuses unless the clone is on the branch it names
+(`main` itself for a layout 3 org, whose `main` holds no pointer);
+the invite carries `dataBranch`, and a join clones that branch alone. An
+admin tries a change on a trial branch with `rt team branch use
+<name>` (org admins and owners): it switches the clone in place and
+records the trial so the daemon auto-commits there. On a layout 4 clone it
+makes the branch from the data branch's published tip when origin has
+none. On a layout 3 clone it switches only to an existing branch, such as
+one the conversion script made, because there is no data branch yet to
+start from. It refuses a branch that holds no org store, and the switch
+holds while the clone has unsaved changes or unpublished commits. Whether
+a target is a trial is decided by origin `main`'s pointer: the data branch
+is the `dataBranch` it names, or `main` itself when it names none.
+`rt team branch use main` (layout 3) or `rt team branch use <data
+branch>` (layout 4) switches back and clears the trial.
 
 In this order:
 
 1. **Land the rt change on main** (a PR, as any rt change): bump `ORG_LAYOUT`, write the readers
    for the new shape, and write the conversion script. Layout 2's is
    `bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username>`
-   and layout 3's is
+   layout 3's is
    `bun scripts/move-to-team-directory.ts <clone-dir> --admin <username>`
-   (each plans; `--write` moves and commits). A conversion to layout 3 or later
+   and layout 4's is
+   `bun scripts/move-to-data-branch.ts <clone-dir> --admin <username>`
+   (each plans; `--write` acts). A conversion to layout 3 or later
    also writes `layout: <n>` in the marker. Every marker rt writes carries
    an explicit `layout` (`rt team create` writes `ORG_LAYOUT`, the layout 2
-   script writes 2, the layout 3 script writes 3), and a `role: "org"`
+   script writes 2, the layout 3 script writes 3, the layout 4 script
+   writes 4 with `dataBranch`), and a `role: "org"`
    marker with no field reads 2, a fixed default
    (`ORG_LAYOUT_ABSENT_DEFAULT`) that never follows the bump, so an
    unconverted clone never reads as ready.
@@ -239,6 +267,33 @@ In this order:
    steps) sees a ready org. Nobody but the admin runs the conversion.
 6. **Delete the branch** once main holds the conversion and every member is
    on the layout release, and switch your clone back: `git switch main`.
+
+Layout 4's conversion has its own shape, so steps 2, 3 and 6 above do not
+apply to it. The script creates the data branch from scratch (`--data-branch
+<name>`, default `mattstack`) holding `mattstack/`, `.sops.yaml`,
+`.claude-plugin/`, `.gitignore` and a `README.md`, then commits to `main` a
+pointer: the marker alone. A run refuses when origin already has the data
+branch or, without `--no-pointer`, the `<data branch>-pointer` branch. When
+`main` refuses the push, the pointer goes to `<data branch>-pointer` and the
+script says to land it by the repo's own rules, for example a merge
+request. `--no-pointer` pushes only the data branch and leaves `main`
+untouched, so no Mac moves. To try the conversion first, run the script
+with `--data-branch <trial> --no-pointer --write`, then `rt team branch
+use <trial>` on the dev app's Mac; no other Mac switches to it. After
+pushing a pointer the script prints the forge-access steps (`rt team
+manage-membership on`, then `rt team forge-access --apply`); with
+`--no-pointer` it prints how to try the branch instead. Once the pointer is on `main`, each layout 3 clone on an updated app moves
+onto the data branch in place: the daemon's pull holds with a "moved"
+verdict and runs the move when the clone is clean, and `rt team pull` runs
+the same move, as does the `org.folder` step of `rt setup update` on a Mac
+with no daemon running. A clone an older rt or a hand `git pull` left on
+`main`'s pointer (its marker names the data branch, but it holds no org
+store) moves the same way. Unpublished
+org commits are carried across; a dirty clone, a detached HEAD, or commits
+that touch paths outside the org's data or clash hold the move. The
+`org.layout` row names the dirty, detached and outside-the-data holds; a
+clash shows only when the move tries, in `rt team pull`, the setup update
+and the daemon log.
 
 The gate itself reached the old line as v2.21.1, a patch release tagged from
 `release/v2.21.x`, a branch cut from the v2.21.0 tag because main already

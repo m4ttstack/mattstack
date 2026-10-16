@@ -64,6 +64,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "packages/rt-client/src/index.ts": { count: 7, reason: "rt-client's public entry re-exports the resolver" },
     "apps/deck/src/api/store-import.ts": { count: 3, reason: "deck's boot import needs one scope's own value and the resolver's refusal, which the merged view hides" },
     "lib/skills/init.ts": { count: 2, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
+    "lib/team/org-cone.ts": { count: 2, reason: "narrows a clone's sparse cone from that clone's own org store roster, which the resolver's merged view of this Mac's org cannot stand in for" },
   },
   "store file": {
     "scripts/lib/move-team-packs.ts": { count: 2, reason: "plans the one-off move of each team pack to plugin/; it rewrites the org and team stores' path values by name, never through the resolver" },

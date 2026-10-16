@@ -23,7 +23,13 @@ import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, orgDirUnder
 import { getSetting } from "../../settings/resolve.ts";
 import { detectShellFrom, END_MARKER, MARKER, repairLegacyBlock, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
-import { layoutSentence, orgLayoutState, updateSentence } from "../../team/org-layout.ts";
+import { keptTeams, type KeptTeam } from "../../team/org-cone.ts";
+import { heldCopy, moveBlocker } from "../../team/org-data-branch.ts";
+import { approvedBranches } from "../../team/approved-branch.ts";
+import { isOrgAdmin } from "../../../packages/rt-client/src/settings/org-roles.ts";
+import { checkedOutBranch, shellQuote } from "../../team/org-branch.ts";
+import { roleFor } from "../../team/roles.ts";
+import { holdSentence, layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
@@ -727,7 +733,7 @@ export function orgFolderRow(p: Probes, orgs: string[]): Row | null {
 export const ORG_LAYOUT_ROW_ID = "org.layout";
 const UPDATE_APP_ACTION: Action = { type: "steps", label: "Show steps…", steps: ["Update mattstack from its menu bar icon, then reopen Setup status"] };
 
-/** The org's layout against what this rt reads. A clone still on the one-team layout waits for the admin's conversion; one past this rt, or a daemon holding the pull, needs the app update. */
+/** The org's layout against what this rt reads. A clone still on the one-team layout waits for the admin's conversion, and one whose org moved its data to another branch waits for rt to switch it; one past this rt, or a daemon holding the pull on a newer layout, needs the app update. */
 export async function orgLayoutRow(p: Probes, readStatus: () => Promise<TeamSnapshotEntry[] | null>): Promise<Row | null> {
   const state = orgLayoutState(p);
   if (state.kind === "none") return null;
@@ -740,13 +746,85 @@ export async function orgLayoutRow(p: Probes, readStatus: () => Promise<TeamSnap
     recheck: "on-activate" as const,
   };
   const hold = (await readStatus())?.find((e) => e.slug === state.slug)?.layoutHold ?? null;
-  if (hold) return row({ ...base, status: "needs-you", detail: updateSentence(hold.layout), action: UPDATE_APP_ACTION });
+  if (hold && "moved" in hold) {
+    // The same check the move makes, so the row never says "rt will switch it" about a clone the move will hold.
+    const blocker = await moveBlocker(p, orgDirUnder(p.home, state.slug));
+    if (blocker?.kind === "held") {
+      const { detail, remedy } = heldCopy(blocker);
+      return row({ ...base, status: "needs-you", detail: `Your org's data moved to the ${hold.moved} branch. ${detail}`, action: { type: "steps", label: "Show steps…", steps: [remedy] } });
+    }
+    if (blocker?.kind === "failed") return row({ ...base, status: "error", detail: `Your org's data moved to the ${hold.moved} branch, but rt could not read your copy of the org: ${blocker.log}` });
+    return row({ ...base, status: "skipped", detail: holdSentence(hold) });
+  }
+  if (hold) return row({ ...base, status: "needs-you", detail: holdSentence(hold), action: UPDATE_APP_ACTION });
   if (state.kind === "waiting") {
     return state.layout > ORG_LAYOUT
       ? row({ ...base, status: "needs-you", detail: layoutSentence(state), action: UPDATE_APP_ACTION })
       : row({ ...base, status: "skipped", detail: layoutSentence(state) });
   }
-  return row({ ...base, status: "ready", detail: `${state.slug} on layout ${ORG_LAYOUT}` });
+  return row({ ...base, status: "ready", detail: `${state.slug} on layout ${state.layout}` });
+}
+
+export const ORG_SPARSE_ROW_ID = "org.sparse";
+
+function teamList(teams: string[]): string {
+  return teams.length === 1 ? teams[0]! : `${teams.slice(0, -1).join(", ")} and ${teams.at(-1)}`;
+}
+
+/** Team folders the clone still holds after this Mac's role left them, because they hold changes the narrowing would lose. */
+export async function orgSparseRow(p: Probes): Promise<Row | null> {
+  const state = orgLayoutState(p);
+  if (state.kind === "none") return null;
+  const base = {
+    id: ORG_SPARSE_ROW_ID,
+    kind: "tool" as const,
+    title: "Team folders",
+    why: "Your copy of the org holds only the team folders your role reaches. A folder you have left stays until its changes are published or discarded.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  let kept: KeptTeam[];
+  try {
+    kept = await keptTeams(p, orgDirUnder(p.home, state.slug), state.slug);
+  } catch (err) {
+    return row({ ...base, status: "error", detail: `rt could not read which team folders your copy holds: ${err instanceof Error ? err.message : String(err)}` });
+  }
+  const changed = kept.filter((k) => !k.onlyIgnored).map((k) => k.team);
+  const ignored = kept.filter((k) => k.onlyIgnored).map((k) => k.team);
+  const sentences = [
+    ...(changed.length ? [`You're no longer on ${teamList(changed)}, but your copy has changes there. Publish or discard them and rt removes the folder.`] : []),
+    ...(ignored.length ? [`You're no longer on ${teamList(ignored)}, but your copy has files there rt would delete. Move or delete them and rt removes the folder.`] : []),
+  ];
+  if (sentences.length > 0) return row({ ...base, status: "needs-you", detail: sentences.join(" ") });
+  return row({ ...base, status: "ready", detail: "Your copy holds only the teams you are on" });
+}
+
+export const ORG_BRANCH_ROW_ID = "org.branch";
+
+/** Whether the daemon still auto-commits in this Mac's org clone: it does only on the data branch or a trial branch this Mac chose. */
+export async function orgBranchRow(p: Probes): Promise<Row | null> {
+  const state = orgLayoutState(p);
+  if (state.kind === "none") return null;
+  const dir = orgDirUnder(p.home, state.slug);
+  const approved = approvedBranches(p, state.slug, dir);
+  const branch = await checkedOutBranch(p, dir);
+  const base = {
+    id: ORG_BRANCH_ROW_ID,
+    kind: "tool" as const,
+    title: "Org branch",
+    why: "rt saves your changes to the org automatically only on the org's data branch, or on a trial branch you chose.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  if (branch !== null && approved.includes(branch)) return row({ ...base, status: "ready", detail: `Auto-commit follows ${branch}` });
+  // rt team branch use refuses anyone but an org admin or owner, so a member is handed git's own switch back.
+  const back = isOrgAdmin(roleFor(p, state.slug)) ? `rt team branch use ${approved[0]}` : `git -C ${shellQuote(dir)} switch ${shellQuote(approved[0]!)}`;
+  return row({
+    ...base,
+    status: "needs-you",
+    detail: `Auto-commit is paused: your copy of the org ${branch === null ? "has no branch checked out" : `is on ${branch}`}.`,
+    action: { type: "steps", label: "Show steps…", steps: [back] },
+  });
 }
 
 // ─── entry point ────────────────────────────────────────────────────────────
@@ -789,6 +867,8 @@ export async function rtHealthRows(
   }
 
   const orgLayout = await orgLayoutRow(p, readStatus);
+  const orgSparse = await orgSparseRow(p);
+  const orgBranch = await orgBranchRow(p);
 
   return [
     await rtRow(p),
@@ -806,5 +886,7 @@ export async function rtHealthRows(
     ...(oneTeam ? [oneTeam] : []),
     ...(orgFolder ? [orgFolder] : []),
     ...(orgLayout ? [orgLayout] : []),
+    ...(orgSparse ? [orgSparse] : []),
+    ...(orgBranch ? [orgBranch] : []),
   ];
 }

@@ -8,7 +8,7 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, ORG_SPARSE_ROW_ID, orgSparseRow, ORG_BRANCH_ROW_ID, orgBranchRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, memberShell, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
@@ -1499,8 +1499,11 @@ describe("rtHealthRows: team.sync wiring", () => {
 describe("orgLayoutRow", () => {
   const legacy = JSON.stringify({ role: "team", namespace: "widgets", org: "acme" });
   const converted = JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT });
-  const status = (hold: { layout: number; reads: number } | null) => async () => [{ slug: "acme", layoutHold: hold } as unknown as TeamSnapshotEntry];
-  const at = (marker: string, store: boolean) =>
+  const status = (hold: { layout: number; reads: number } | { moved: string } | null) => async () => [{ slug: "acme", layoutHold: hold } as unknown as TeamSnapshotEntry];
+  /** A clean clone on main with nothing unpushed, unless `git` answers otherwise. */
+  const cleanOnMain = (argv: string[]) =>
+    argv.includes("symbolic-ref") ? ok("main\n") : argv.includes("rev-list") ? ok("0\n") : ok("");
+  const at = (marker: string, store: boolean, git: (argv: string[]) => ReturnType<typeof ok> = cleanOnMain) =>
     fakeProbes({
       home: "/h",
       files: {
@@ -1509,6 +1512,7 @@ describe("orgLayoutRow", () => {
         ...(store ? { "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" } : {}),
       },
       dirs: { "/h/.mattstack/orgs": ["acme"] },
+      exec: (argv) => git(argv),
     });
 
   test("null with no clone", async () => {
@@ -1516,7 +1520,11 @@ describe("orgLayoutRow", () => {
   });
   test("ready names the org and layout", async () => {
     const r = await orgLayoutRow(at(converted, true), status(null));
-    expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, status: "ready", detail: "acme on layout 3" });
+    expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, status: "ready", detail: `acme on layout ${ORG_LAYOUT}` });
+  });
+  test("a ready layout 3 clone says layout 3", async () => {
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true), status(null));
+    expect(r).toMatchObject({ status: "ready", detail: "acme on layout 3" });
   });
   test("a one-team clone is skipped with the waiting sentence and no action", async () => {
     const r = await orgLayoutRow(at(legacy, false), status(null));
@@ -1525,16 +1533,145 @@ describe("orgLayoutRow", () => {
   });
   test("a clone above ORG_LAYOUT is needs-you with the update step", async () => {
     const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT + 1 }), true), status(null));
-    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
+    expect(r).toMatchObject({ status: "needs-you", detail: `Your org uses layout ${ORG_LAYOUT + 1} and this app reads up to ${ORG_LAYOUT}. Update the app.` });
     expect(r?.action).toMatchObject({ type: "steps", steps: ["Update mattstack from its menu bar icon, then reopen Setup status"] });
   });
   test("a daemon hold reads needs-you even though the clone itself is ready", async () => {
-    const r = await orgLayoutRow(at(converted, true), status({ layout: 4, reads: 3 }));
-    expect(r).toMatchObject({ status: "needs-you", detail: "Your org uses layout 4 and this app reads up to 3. Update the app." });
+    const r = await orgLayoutRow(at(converted, true), status({ layout: ORG_LAYOUT + 1, reads: ORG_LAYOUT }));
+    expect(r).toMatchObject({ status: "needs-you", detail: `Your org uses layout ${ORG_LAYOUT + 1} and this app reads up to ${ORG_LAYOUT}. Update the app.` });
+  });
+  test("a moved hold is skipped with the moved sentence and no action", async () => {
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true), status({ moved: "mattstack" }));
+    expect(r).toMatchObject({ status: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes." });
+    expect(r?.action ?? null).toBeNull();
   });
   test("a daemon that is not running does not hide a ready clone", async () => {
     const r = await orgLayoutRow(at(converted, true), async () => null);
     expect(r?.status).toBe("ready");
+  });
+  test("a moved hold on a dirty clone is needs-you naming the files, with the rt team pull remedy", async () => {
+    const dirty = (argv: string[]) => (argv.includes("status") ? ok(" M mattstack/org/settings.org.jsonc\n") : cleanOnMain(argv));
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true, dirty), status({ moved: "mattstack" }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org's data moved to the mattstack branch. Your copy of the org has unsaved changes: mattstack/org/settings.org.jsonc" });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Save or discard those changes, then run rt team pull"] });
+  });
+  test("a moved hold with unpublished commits on the org's data stays calm: the move carries them", async () => {
+    const ahead = (argv: string[]) => (argv.includes("rev-list") ? ok("abc\ndef\n") : argv.includes("diff-tree") ? ok("mattstack/org/settings.org.jsonc\n") : cleanOnMain(argv));
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true, ahead), status({ moved: "mattstack" }));
+    expect(r).toMatchObject({ status: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes." });
+  });
+  test("a moved hold with commits outside the org's data names an org admin, never rt team publish", async () => {
+    const ahead = (argv: string[]) => (argv.includes("rev-list") ? ok("abc\n") : argv.includes("diff-tree") ? ok("apps/x/readme.md\n") : cleanOnMain(argv));
+    const r = await orgLayoutRow(at(JSON.stringify({ role: "org", org: "acme", layout: 3 }), true, ahead), status({ moved: "mattstack" }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Your org's data moved to the mattstack branch. rt could not carry 1 unpublished commit to the org's data branch, because it changes files outside the org's data" });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Ask an org admin to help move it"] });
+  });
+});
+
+describe("orgSparseRow", () => {
+  const STORE = JSON.stringify({
+    "mattstack.org": { admins: ["dev1"] },
+    "mattstack.roster": [{ username: "dev3", teams: ["widgets"] }],
+  });
+  const probes = (git: (argv: string[]) => ReturnType<typeof ok>) =>
+    fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": STORE,
+        "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev3" }),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+      exec: (argv) => git(argv),
+    });
+  const checkedOut = "H mattstack/teams/gadgets/settings.team.jsonc\nH mattstack/teams/widgets/settings.team.jsonc\n";
+  const git = (gadgets: "clean" | "dirty" | "ignored") => (argv: string[]) => {
+    if (argv.includes("ls-files")) return ok(checkedOut);
+    if (argv.includes("symbolic-ref")) return ok("main\n");
+    if (argv.includes("status") && argv.includes("mattstack/teams/gadgets")) {
+      return ok(gadgets === "dirty" ? " M mattstack/teams/gadgets/settings.team.jsonc\n!! mattstack/teams/gadgets/x.local\n" : gadgets === "ignored" ? "!! mattstack/teams/gadgets/x.local\n" : "");
+    }
+    return ok("");
+  };
+
+  test("null with no clone", async () => {
+    expect(await orgSparseRow(fakeProbes({ home: "/h" }))).toBeNull();
+  });
+  test("ready when no team folder this Mac left holds changes", async () => {
+    const r = await orgSparseRow(probes(git("clean")));
+    expect(r).toMatchObject({ id: ORG_SPARSE_ROW_ID, status: "ready", required: false });
+    expect(r?.finishGated ?? false).toBe(false);
+  });
+  test("needs-you naming a team this Mac left that still holds changes", async () => {
+    const r = await orgSparseRow(probes(git("dirty")));
+    expect(r).toMatchObject({
+      status: "needs-you",
+      detail: "You're no longer on gadgets, but your copy has changes there. Publish or discard them and rt removes the folder.",
+    });
+  });
+  test("a team folder holding only ignored files asks to move or delete them, since publishing cannot clear them", async () => {
+    const r = await orgSparseRow(probes(git("ignored")));
+    expect(r).toMatchObject({
+      status: "needs-you",
+      detail: "You're no longer on gadgets, but your copy has files there rt would delete. Move or delete them and rt removes the folder.",
+    });
+  });
+});
+
+describe("orgBranchRow", () => {
+  const ADMIN_STORE = JSON.stringify({ "mattstack.org": { admins: ["dev1"] } });
+  const probes = (branch: string | null, marker: Record<string, unknown>, local: Record<string, unknown> = { forgeUsername: "dev1" }, opts: { store?: string; home?: string } = {}) => {
+    const home = opts.home ?? "/h";
+    return fakeProbes({
+      home,
+      files: {
+        [`${home}/.mattstack/orgs/acme/.git/config`]: "",
+        [`${home}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT, ...marker }),
+        [`${home}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: opts.store ?? ADMIN_STORE,
+        [`${home}/.mattstack/rt/teams/acme.json`]: JSON.stringify(local),
+      },
+      dirs: { [`${home}/.mattstack/orgs`]: ["acme"] },
+      exec: (argv) => (argv.includes("symbolic-ref") ? (branch === null ? { code: 1, stdout: "", stderr: "" } : ok(`${branch}\n`)) : ok("")),
+    });
+  };
+
+  test("null with no clone", async () => {
+    expect(await orgBranchRow(fakeProbes({ home: "/h" }))).toBeNull();
+  });
+  test("ready on the data branch, and never required or finish-gated", async () => {
+    const r = await orgBranchRow(probes("mattstack", { dataBranch: "mattstack" }));
+    expect(r).toMatchObject({ id: ORG_BRANCH_ROW_ID, status: "ready", required: false });
+    expect(r?.finishGated ?? false).toBe(false);
+  });
+  test("ready on a trial branch this Mac chose", async () => {
+    const r = await orgBranchRow(probes("try", { dataBranch: "mattstack" }, { trialBranch: "try" }));
+    expect(r).toMatchObject({ status: "ready" });
+  });
+  test("needs-you on any other branch, naming it and the way back", async () => {
+    const r = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Auto-commit is paused: your copy of the org is on scratch." });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["rt team branch use mattstack"] });
+  });
+  test("needs-you on a detached HEAD", async () => {
+    const r = await orgBranchRow(probes(null, { dataBranch: "mattstack" }));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Auto-commit is paused: your copy of the org has no branch checked out." });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["rt team branch use mattstack"] });
+  });
+  test("a pre-layout-4 clone on main is ready", async () => {
+    expect(await orgBranchRow(probes("main", { layout: 3 }))).toMatchObject({ status: "ready" });
+  });
+  test("a member, who cannot run rt team branch use, is given the git switch back to the data branch", async () => {
+    const member = JSON.stringify({ "mattstack.org": { admins: ["dev9"] } });
+    const r = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }, { forgeUsername: "dev1" }, { store: member }));
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["git -C /h/.mattstack/orgs/acme switch mattstack"] });
+    const spaced = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }, { forgeUsername: "dev1" }, { store: member, home: "/Users/dev one" }));
+    expect(spaced?.action).toMatchObject({ type: "steps", steps: ["git -C '/Users/dev one/.mattstack/orgs/acme' switch mattstack"] });
+  });
+  test("an org owner keeps rt team branch use", async () => {
+    const owner = JSON.stringify({ "mattstack.org": { owners: ["dev1"] } });
+    const r = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }, { forgeUsername: "dev1" }, { store: owner }));
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["rt team branch use mattstack"] });
   });
 });
 
@@ -1584,6 +1721,12 @@ describe("held layout and row position", () => {
     expect(r?.detail).not.toContain("cannot fast-forward");
     expect(r?.status).toBe("ready");
   });
+  test("team.sync does not report a moved hold as a skipped pull", async () => {
+    const sentence = "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes.";
+    const r = await teamSyncRow(["widgets"], async () => [entry({ pullOnly: false, lastPullSkipped: sentence, layoutHold: { moved: "mattstack" } })], () => 1000, 300, true);
+    expect(r?.status).toBe("ready");
+    expect(r?.detail).not.toContain("Last pull skipped");
+  });
   test("org.layout sits right after org.folder", async () => {
     const p = fakeProbes({
       home: "/h",
@@ -1596,6 +1739,8 @@ describe("held layout and row position", () => {
     });
     const ids = (await rtHealthRows(p, { ci: false }, () => ({ enabled: false }) as never)).map((r) => r.id);
     expect(ids.indexOf("org.layout")).toBe(ids.indexOf("org.folder") + 1);
+    expect(ids.indexOf("org.sparse")).toBe(ids.indexOf("org.layout") + 1);
+    expect(ids.indexOf("org.branch")).toBe(ids.indexOf("org.sparse") + 1);
     expect(ids.indexOf("org.folder")).toBeGreaterThan(-1);
   });
 });

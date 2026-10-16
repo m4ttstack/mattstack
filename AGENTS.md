@@ -17,7 +17,7 @@ there? Read its rule file first.
 
 | Rule | Covers | Loads for |
 |---|---|---|
-| `.claude/rules/settings.md` | Settings stores, the org clone and its layout, org naming | `packages/rt-client/src/settings/**`, `lib/team/**`, `packages/settings-kit/**`, more in the file |
+| `.claude/rules/settings.md` | Settings stores, the org clone, its data branch and layout, org naming | `packages/rt-client/src/settings/**`, `lib/team/**`, `packages/settings-kit/**`, more in the file |
 | `.claude/rules/worktree-pool.md` | The golden tree and hydration traps | `lib/worktree/**` |
 | `.claude/rules/chat.md` | Reading order before touching chat | `commands/chat.ts`, `lib/state/chat-store.ts`, `lib/chat-viewer-url.ts`, more in the file |
 | `.claude/rules/build-and-plugin.md` | The mattstack plugin's checks, the bytecode compile fallback | `plugins/mattstack/**`, `lib/skills/**`, `scripts/build*`, more in the file |
