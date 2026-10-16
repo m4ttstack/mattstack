@@ -355,6 +355,15 @@ describe("answerGate", () => {
     expect(await refuse({ ok: false, error: "not-found" })).toBe("no gate g1");
   });
 
+  test("an empty or whitespace scope is refused before any call", async () => {
+    for (const scope of ["", "  "]) {
+      const f = fake();
+      const res = await answerGate({ ...ANSWER, ...RUN, scope }, ENV, f.deps);
+      expect(res.error).toBe('"scope" must be a non-empty string');
+      expect(f.log).toEqual([]);
+    }
+  });
+
   test("a missing id is refused naming it", async () => {
     const res = await answerGate({ answers: {} }, ENV, fake().deps);
     expect(res.error).toContain("id");

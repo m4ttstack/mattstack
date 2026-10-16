@@ -330,7 +330,8 @@ export async function recordAnswered(
 
 export async function answerGate(input: Record<string, unknown>, env: NodeJS.ProcessEnv, deps: GateToolDeps): Promise<ToolResult> {
   const bad = checkRequired(input, [{ name: "id", type: "string" }, { name: "answers", type: "object" }])
-    ?? checkOptional(input, [{ name: "record", type: "boolean" }]);
+    ?? checkOptional(input, [{ name: "record", type: "boolean" }])
+    ?? scopeError(input);
   if (bad) return err(bad);
   const opened = await openRun(input, env, deps);
   if (opened && "error" in opened) return err(opened.error);
