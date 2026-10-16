@@ -252,7 +252,7 @@ describe("nothing offered", () => {
     const s = happy();
     dropField(s, "extra.gate-source.respond-post");
     s.gates.post = null;
-    expect(refusal(s)).toContain("respond-post");
+    expect(refusal(s)).toMatch(/respond-post has a decision recorded after the respond-plan decision but no extra\.gate-source\.respond-post field/);
   });
 });
 
@@ -297,7 +297,7 @@ describe("registry cross-check", () => {
   test("a gate row whose id is not the source's gate refuses", () => {
     const s = happy();
     s.gates.post = { ...s.gates.post!, id: "g-other" };
-    expect(refusal(s)).toContain("g-post");
+    expect(refusal(s)).toMatch(/the respond-post gate g-post was not read from the registry/);
   });
 
   test("T1 and T10 picks never cross", () => {
@@ -323,7 +323,7 @@ describe("missing entries and unseen words", () => {
     setField(s, sourceField("respond-post", "g-post", POST_T1_T2, POST_OPENED));
     setDecision(s, "respond-plan", { threads: { T1: "fix", T2: "reply" }, overrides: ["T2"], "code-changes": "approve" }, PLAN_DECIDED);
     s.gates.post = row("g-post", POST_T1_T2, { "thread-1": ["post:T1", "resolve:T1"], "thread-2": [], next: "proceed" }, POST_OPENED);
-    expect(refusal(s)).toMatch(/T2/);
+    expect(refusal(s)).toMatch(/no entry for offered thread T2/);
   });
 
   test("an offered thread with no selection entry refuses on the hand-back path too", () => {
@@ -331,7 +331,7 @@ describe("missing entries and unseen words", () => {
     setField(s, sourceField("respond-post", null, POST_T1_T2, POST_OPENED));
     s.gates.post = null;
     setDecision(s, "respond-plan", { threads: { T1: "fix", T2: "reply" }, overrides: ["T2"], "code-changes": "approve" }, PLAN_DECIDED);
-    expect(refusal(s)).toMatch(/T2/);
+    expect(refusal(s)).toMatch(/no entry for offered thread T2/);
   });
 
   test("a direction card with no texts entry and no override refuses naming the thread", () => {
@@ -341,26 +341,26 @@ describe("missing entries and unseen words", () => {
     s.gates.post = null;
     setDecision(s, "respond-plan", { threads: { T1: "reply", T2: "reply" }, "code-changes": "skip" }, PLAN_DECIDED);
     s.gates.plan = row("g-plan", PLAN, { "thread-1": "reply:T1", "thread-2": "reply:T2", "code-changes": "skip" }, PLAN_OPENED);
-    expect(refusal(s)).toContain("T1");
+    expect(refusal(s)).toMatch(/T1 is a reply row with no edited text and its card shows no verbatim reply/);
   });
 
   test("a reply row whose answer carries a note and no text refuses as an unmade override", () => {
     const s = happy();
     s.gates.plan = row("g-plan", PLAN, { "thread-1": "fix:T1", "thread-2": { value: "reply:T2", note: "soften this" }, "code-changes": "approve" }, PLAN_OPENED);
-    expect(refusal(s)).toContain("T2");
+    expect(refusal(s)).toMatch(/T2 is a reply row whose answer carries a note/);
 
     const handBack = happy();
     setField(handBack, sourceField("respond-plan", null, PLAN, PLAN_OPENED));
     handBack.gates.plan = null;
     setDecision(handBack, "respond-plan", { threads: { T1: "fix", T2: "reply" }, notes: { T2: "soften this" }, "code-changes": "approve" }, PLAN_DECIDED);
-    expect(refusal(handBack)).toContain("T2");
+    expect(refusal(handBack)).toMatch(/T2 is a reply row whose answer carries a note/);
   });
 
   test("a card text absent from the registry row's question context refuses naming the thread", () => {
     const s = happy();
     const plan = s.gates.plan!;
     s.gates.plan = { ...plan, questions: plan.questions.map((q) => (q.id === "thread-2" ? { ...q, context: undefined } : q)) };
-    expect(refusal(s)).toContain("T2");
+    expect(refusal(s)).toMatch(/T2's card text is not in the respond-plan gate's question context/);
   });
 
   test("a prose question context carrying the card text passes", () => {
@@ -374,7 +374,7 @@ describe("missing entries and unseen words", () => {
     const s = happy();
     const post = s.gates.post!;
     s.gates.post = { ...post, questions: post.questions.map((q) => (q.id === "thread-1" ? { ...q, context: undefined } : q)) };
-    expect(refusal(s)).toContain("T1");
+    expect(refusal(s)).toMatch(/T1's card text is not in the respond-post gate's question context/);
   });
 
   test("a post pick with no body anywhere refuses", () => {
@@ -382,7 +382,44 @@ describe("missing entries and unseen words", () => {
     const empty = postSource([{ ...postThread(1, "T1", "fix", T1_FIXED), context: { "gate-ctx": "reply@1", thread: "T1", verb: "fix" } }]);
     setField(s, sourceField("respond-post", null, empty, POST_OPENED));
     s.gates.post = null;
-    expect(refusal(s)).toContain("T1");
+    expect(refusal(s)).toMatch(/T1 is picked to post but has no reply text/);
+  });
+});
+
+describe("code-changes", () => {
+  const REVISE = /respond-plan was answered revise, so nothing from it acts; re-adjudicate and open a new respond-plan gate/;
+
+  test("a revise plan refuses on the gated path", () => {
+    const s = happy();
+    dropField(s, "extra.gate-source.respond-post");
+    dropDecision(s, "respond-post");
+    s.gates.post = null;
+    setDecision(s, "respond-plan", { threads: { T1: "fix", T2: "reply" }, "code-changes": "revise" }, PLAN_DECIDED);
+    s.gates.plan = row("g-plan", PLAN, { "thread-1": "fix:T1", "thread-2": "reply:T2", "code-changes": "revise" }, PLAN_OPENED);
+    expect(refusal(s)).toMatch(REVISE);
+  });
+
+  test("a revise plan refuses on the hand-back path", () => {
+    const s = happy();
+    setField(s, sourceField("respond-plan", null, PLAN, PLAN_OPENED));
+    s.gates.plan = null;
+    setDecision(s, "respond-plan", { threads: { T1: "fix", T2: "reply" }, "code-changes": "revise" }, PLAN_DECIDED);
+    expect(refusal(s)).toMatch(REVISE);
+  });
+
+  test("an offered fix row under code-changes skip refuses", () => {
+    const s = happy();
+    setDecision(s, "respond-plan", { threads: { T1: "fix", T2: "reply" }, "code-changes": "skip" }, PLAN_DECIDED);
+    s.gates.plan = row("g-plan", PLAN, { "thread-1": "fix:T1", "thread-2": "reply:T2", "code-changes": "skip" }, PLAN_OPENED);
+    expect(refusal(s)).toMatch(/offered thread T1 is a fix row but respond-plan's code-changes is skip, not approve/);
+  });
+
+  test("an offered fix row with no code-changes refuses", () => {
+    const s = happy();
+    setField(s, sourceField("respond-plan", null, PLAN, PLAN_OPENED));
+    s.gates.plan = null;
+    setDecision(s, "respond-plan", { threads: { T1: "fix", T2: "reply" } }, PLAN_DECIDED);
+    expect(refusal(s)).toMatch(/offered thread T1 is a fix row but respond-plan's code-changes is missing, not approve/);
   });
 });
 
@@ -434,6 +471,6 @@ describe("held resume", () => {
   test("held naming a thread that is neither offered nor a reply row refuses", () => {
     const s = happy();
     setDecision(s, "respond-post", { threads: { T1: { post: true, resolve: true } }, held: ["T9"] }, POST_DECIDED);
-    expect(refusal(s)).toContain("T9");
+    expect(refusal(s)).toMatch(/holds T9, which is neither offered nor a reply row/);
   });
 });

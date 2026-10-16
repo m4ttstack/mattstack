@@ -564,6 +564,8 @@ function plan(snapshot: RunSnapshot, gates: { plan: GateRow | null; post: GateRo
     if (!isRecord(planSel.notes)) refuse("the respond-plan decision's notes is not an object");
     for (const id of Object.keys(planSel.notes as Record<string, unknown>)) noted.add(id);
   }
+  const codeChanges = planSel["code-changes"];
+  if (codeChanges === "revise") refuse("respond-plan was answered revise, so nothing from it acts; re-adjudicate and open a new respond-plan gate");
 
   const postRead = readGateSource(fields, "respond-post");
   if (!postRead.ok) return refuse(postRead.error);
@@ -589,6 +591,9 @@ function plan(snapshot: RunSnapshot, gates: { plan: GateRow | null; post: GateRo
       const planVerb = verbs[threadId];
       if (planVerb !== "fix" && planVerb !== "reply") refuse(`offered thread ${threadId} is ${planVerb ?? "missing"} in the respond-plan decision, so it has nothing to post`);
       const cardOk = card?.["gate-ctx"] === "reply@1";
+      if (planVerb === "fix" && codeChanges !== "approve") {
+        refuse(`offered thread ${threadId} is a fix row but respond-plan's code-changes is ${typeof codeChanges === "string" ? codeChanges : "missing"}, not approve, so no approved fix backs its reply`);
+      }
       if (cardOk && card!.verb !== planVerb) refuse(`offered thread ${threadId}'s card says ${String(card!.verb)} but the respond-plan decision says ${planVerb}`);
       const entry = entries[threadId]!;
       let body: string | null = null;
