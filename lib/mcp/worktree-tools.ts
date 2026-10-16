@@ -56,7 +56,7 @@ function attachedReason(t: WorktreeTreeRef): string {
 export interface WorktreeToolDeps {
   command: typeof rtCommand;
   runTools?: () => McpToolDef[];
-  resolveRepo?: (repoName: unknown) => Promise<{ identity: string } | { error: string; unknown: boolean }>;
+  resolveRepo?: (repoName: unknown) => Promise<{ identity: string } | { error: string; unknown: () => Promise<boolean> }>;
 }
 
 /** Whether the caller asked for any of the structured provision behaviors; a call that did not gets today's plain text. */
@@ -76,8 +76,10 @@ function runContext(input: Record<string, unknown>, env: NodeJS.ProcessEnv): Run
   const bad = checkOptional(input, [{ name: "runDb", type: "string" }, { name: "stage", type: "string" }]);
   if (bad) return { error: bad };
   const runDb = input.runDb as string | undefined;
+  const stage = input.stage as string | undefined;
+  if (stage !== undefined && stage.trim() === "") return { error: '"stage" must be a non-empty string' };
   if (runDb !== undefined && (!isAbsolute(runDb) || basename(runDb) !== "state.db")) return { error: RUN_DB_ERROR };
-  const ctx: RunContext = { env, stage: (input.stage as string | undefined) ?? "provision" };
+  const ctx: RunContext = { env, stage: stage ?? "provision" };
   if (runDb !== undefined) ctx.runDb = runDb;
   if (input.budget !== undefined) {
     const b = input.budget as { key?: unknown; limit?: unknown } | null;
@@ -90,10 +92,10 @@ function runContext(input: Record<string, unknown>, env: NodeJS.ProcessEnv): Run
   return ctx;
 }
 
-async function defaultResolveRepo(repoName: unknown): Promise<{ identity: string } | { error: string; unknown: boolean }> {
+async function defaultResolveRepo(repoName: unknown): Promise<{ identity: string } | { error: string; unknown: () => Promise<boolean> }> {
   const t = await resolveRepoTarget({ repoName });
   if (t.ok) return { identity: t.identity };
-  return { error: t.error, unknown: await isUnknownRepo(repoName) };
+  return { error: t.error, unknown: () => isUnknownRepo(repoName) };
 }
 
 async function isUnknownRepo(repoName: unknown): Promise<boolean> {
@@ -148,7 +150,7 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
       description: [
         "Claim a worktree for a ticket or branch (from the on-deck pool, or freshly created) and get back its path; then enter it with EnterWorktree in path mode.",
         'A success says what happened in "kind": "provisioned" (a tree was claimed or created), "reused" (an existing tree was returned) or "precheck" (nothing was created; see precheck). A refusal comes back as an error, "refused" in the JSON form.',
-        "Options, all off by default. A call that uses none of them gets plain-text refusals, as always. Using any one makes every refusal JSON text with a code.",
+        "Options, all off by default. A call that uses none of them gets plain-text refusals, as always. Using any of codes, precheck, reuse, runDb or budget makes every refusal JSON text with a code (stage alone does not).",
         "codes: refusals as JSON with a code. The codes are branch-attached, branch-duplicated, branch-unresolved, busy, repo-unknown, create-failed, checkout-failed, claim-write-failed, handoff-write-failed, unsafe-ref, daemon-unreachable, daemon-outdated and error.",
         "precheck: report the branch a provision would use and the trees already on it, and create nothing.",
         "reuse: hand back the tree already on the branch when it is claimed or not managed by rt, instead of provisioning. In ticket mode a local branch that survives its tree is checked out again. Provisions as usual when there is nothing to reuse.",
@@ -182,7 +184,7 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
         const opted = optedIn(input);
         const r = await resolveRepo(input.repoName);
         if ("error" in r) {
-          return opted && r.unknown ? refuse({ kind: "refused", code: "repo-unknown", error: r.error }, ctx) : err(r.error);
+          return opted && (await r.unknown()) ? refuse({ kind: "refused", code: "repo-unknown", error: r.error }, ctx) : err(r.error);
         }
         if (input.precheck === true || input.reuse === true) {
           const checkPayload: Commands["worktree:provision-check"]["payload"] = { repoName: r.identity };

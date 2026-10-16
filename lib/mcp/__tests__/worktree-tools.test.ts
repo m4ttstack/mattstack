@@ -103,21 +103,28 @@ describe("worktree tools", () => {
     });
     const MSG = 'repoName "x" did not match a registered repo; pass its serialized identity';
     test("an unknown repo keeps its message on a default call", async () => {
-      const { tool, calls } = fake({ resolveRepo: async () => ({ error: MSG, unknown: true }) });
+      const { tool, calls } = fake({ resolveRepo: async () => ({ error: MSG, unknown: async () => true }) });
       const r = await tool("worktree_provision").handler({ repoName: "x", branch: "b" }, ENV);
       expect(r.ok).toBe(false);
       expect(r.error).toBe(MSG);
       expect(calls).toEqual([]);
     });
+    test("a default call with a failing resolve never classifies the repo", async () => {
+      let classified = 0;
+      const { tool } = fake({ resolveRepo: async () => ({ error: MSG, unknown: async () => { classified++; return true; } }) });
+      const r = await tool("worktree_provision").handler({ repoName: "x", branch: "b", stage: "s" }, ENV);
+      expect(r.error).toBe(MSG);
+      expect(classified).toBe(0);
+    });
     test("an unknown repo is repo-unknown JSON when opted in", async () => {
-      const { tool, calls } = fake({ resolveRepo: async () => ({ error: MSG, unknown: true }) });
+      const { tool, calls } = fake({ resolveRepo: async () => ({ error: MSG, unknown: async () => true }) });
       const r = await tool("worktree_provision").handler({ repoName: "x", branch: "b", codes: true }, ENV);
       expect(r.ok).toBe(false);
       expect(JSON.parse(r.error!)).toEqual({ kind: "refused", code: "repo-unknown", error: MSG });
       expect(calls).toEqual([]);
     });
     test("a repo failure that is not unknown stays plain text when opted in", async () => {
-      const { tool } = fake({ resolveRepo: async () => ({ error: MSG, unknown: false }) });
+      const { tool } = fake({ resolveRepo: async () => ({ error: MSG, unknown: async () => false }) });
       const r = await tool("worktree_provision").handler({ repoName: "x", branch: "b", codes: true }, ENV);
       expect(r.error).toBe(MSG);
     });
@@ -317,6 +324,13 @@ describe("worktree tools", () => {
       expect(JSON.parse(r.error!).budget).toEqual({ key: "provision", spent: 1, limit: 2, remaining: 1, exhausted: false });
       expect(budgetCalls).toEqual([{ runDb: RUN_DB, key: "provision", limit: 2, stage: "provision" }]);
     });
+    test.each([[""], ["   "]])("stage %j is an input error before any call", async (stage) => {
+      const { tool, calls } = rig({ "worktree:provision": PROVISIONED });
+      const r = await tool.handler({ repoName: ID, branch: "b", runDb: RUN_DB, stage }, ENV);
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe('"stage" must be a non-empty string');
+      expect(calls).toEqual([]);
+    });
     test("a reuse refusal charges the budget under the given stage", async () => {
       const { tool, budgetCalls } = rig({ "worktree:provision-check": { ok: true, data: checkData({ attached: [{ ...ref, state: "disposable" }] }) } });
       const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true, runDb: RUN_DB, stage: "checkout", budget: { key: "k", limit: 3 } }, ENV);
@@ -325,7 +339,7 @@ describe("worktree tools", () => {
     });
     test("a repo-unknown refusal charges the budget", async () => {
       const calls: any[] = [];
-      const tool = worktreeToolDefs({ command: (async () => ({ ok: true })) as any, resolveRepo: async () => ({ error: "nope", unknown: true }), runTools: () => [{ name: "run_budget", handler: async (i: any) => { calls.push(i); return { ok: true, body: { key: "k" } }; } } as any] }).find((t) => t.name === "worktree_provision")!;
+      const tool = worktreeToolDefs({ command: (async () => ({ ok: true })) as any, resolveRepo: async () => ({ error: "nope", unknown: async () => true }), runTools: () => [{ name: "run_budget", handler: async (i: any) => { calls.push(i); return { ok: true, body: { key: "k" } }; } } as any] }).find((t) => t.name === "worktree_provision")!;
       const r = await tool.handler({ repoName: "x", branch: "b", runDb: RUN_DB, budget: { key: "k", limit: 2 } }, ENV);
       expect(JSON.parse(r.error!)).toEqual({ kind: "refused", code: "repo-unknown", error: "nope", budget: { key: "k" } });
       expect(calls).toHaveLength(1);
@@ -359,6 +373,11 @@ describe("worktree tools", () => {
       expect(r.error).toContain(msg);
       expect(calls).toEqual([]);
       expect(budgetCalls).toEqual([]);
+    });
+    test("the description names the five opting-in options and that stage alone does not opt in", () => {
+      const d = rig({}).tool.description;
+      expect(d).toContain("Using any of codes, precheck, reuse, runDb or budget makes every refusal JSON text with a code");
+      expect(d).not.toContain("Using any one");
     });
     test("the description names the outcomes, codes and options", () => {
       const d = rig({}).tool.description;
