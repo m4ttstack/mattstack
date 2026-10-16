@@ -43,8 +43,6 @@ import {
 
 export type { McpToolDef } from "./shared.ts";
 
-/** A 50 MB multipart POST over a slow link outlives the 30s write timeout. */
-
 /** A review is one GitLab request per comment and reply, in sequence. */
 const MR_REVIEW_SUBMIT_TIMEOUT_MS = 180_000;
 
@@ -597,7 +595,7 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: { none: "uploads have no glab verb; a glab api call hits the glab catch-all on mr_view" },
-      async handler(input) {
+      async handler(input, _env, signal, progress) {
         const bad = checkOptional(input, [{ name: "path", type: "string" }, { name: "runId", type: "string" }]);
         if (bad) return err(bad);
         if (input.path !== undefined && input.paths !== undefined) return err('pass "path" or "paths", not both');
@@ -617,6 +615,8 @@ export function mcpTools(): McpToolDef[] {
             paths: paths as string[],
             runId: typeof input.runId === "string" ? input.runId : undefined,
             retryTimeoutOnce: false,
+            signal,
+            progress,
           });
           return ok({ results: results.map((r) => (r.ok ? r : { path: r.path, ok: false, error: r.error })) });
         }
