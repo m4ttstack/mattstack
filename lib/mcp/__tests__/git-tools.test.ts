@@ -893,6 +893,11 @@ describe("branch_sync tool", () => {
     expect(r.ok).toBe(true);
     expect(r.body).toMatchObject({ kind: "stacked-refused", pushed: false, refusal: "feat/x is a member of stack s; sync the stack instead. Run: /gitq:sync", stackCheck: refusal });
   });
+  test("a stack check that could not run is stacked-refused too, told apart by stackCheck.kind and naming no tool", async () => {
+    const unavailable = { kind: "stack-check-unavailable", branch: "feat/x", source: "forge", stack: null, mrs: null, tool: "", hint: "rt could not list the open merge requests, so it cannot tell whether this branch is in a stack (gh: not logged in)" };
+    const r = await runSync(4, JSON.stringify(unavailable, null, 2));
+    expect(r.body).toMatchObject({ kind: "stacked-refused", pushed: false, refusal: unavailable.hint, stackCheck: { kind: "stack-check-unavailable", tool: "" } });
+  });
   test("a rejected push is push-refused: the branch moved locally, origin did not", async () => {
     const r = await runSync(1, "", "Could not push feat/x  ! [rejected] feat/x -> feat/x (stale info)\n", { head: "bbb" });
     expect(r.body).toMatchObject({ kind: "push-refused", oldHead: "aaa", newHead: "bbb", pushed: false, refusal: "Could not push feat/x  ! [rejected] feat/x -> feat/x (stale info)" });
@@ -1031,6 +1036,14 @@ describe("branch_sync_sweep", () => {
     expect(results[0]).toMatchObject({ kind: "error", branch: "feat/a", tree: "/t/a", pushed: false });
     expect(results[0]!.refusal).toContain("someone-elses");
     expect(synced).toEqual(["/t/b"]);
+  });
+  test("of two listed trees on the MR's branch, the sweep syncs the one that really has it checked out", async () => {
+    const synced: string[] = [];
+    const stale = { path: "/t/stale", branch: "feat/b" };
+    const git: GitRunner = async (args, cwd) => (cwd === "/t/stale" && args.join(" ") === FULL_HEAD ? { code: 0, stdout: "refs/heads/other\n", stderr: "" } : treeGit(args, cwd));
+    const r = await branchSyncSweep("app", deps({ git, repoTrees: async () => ({ ok: true, trees: [stale, trees[2]!] }) }), undefined, async (tree) => { synced.push(tree); return outcome("synced", "feat/b"); });
+    expect(synced).toEqual(["/t/b"]);
+    expect((r.body as { results: Array<{ tree: string; kind: string }> }).results).toMatchObject([{ kind: "synced", tree: "/t/b" }]);
   });
   test("a tree the guard admits under another repo, or only by resolving it upward, is that MR's error", async () => {
     let ran = false;

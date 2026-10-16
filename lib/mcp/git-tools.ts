@@ -527,6 +527,15 @@ export async function realResolveRepo(repoName: unknown): Promise<{ ok: true; id
   return target.ok ? { ok: true, identity: target.identity } : { ok: false, error: target.error };
 }
 
+async function treeRefusal(path: string, branch: string, identity: string, deps: GitToolDeps): Promise<string | { root: string }> {
+  const admitted = checkRegisteredTree(path, deps.guard);
+  if (!admitted.ok) return admitted.error;
+  if (admitted.repoName !== identity || admitted.resolvedFrom !== undefined) return `${path} is not a root of ${identity}, so the sweep left it alone`;
+  const live = await currentBranch(admitted.path, deps.git);
+  if (live !== branch) return `${path} now has ${live ?? "a detached HEAD"} checked out, not ${branch}, so the sweep left it alone`;
+  return { root: admitted.path };
+}
+
 /** Sequential, and never aborts a paused rebase: rt sync --json leaves a conflict paused, and each tree is its own checkout. */
 export async function branchSyncSweep(
   repoName: unknown,
@@ -543,27 +552,30 @@ export async function branchSyncSweep(
   const noTree: Array<{ branch: string; mr: { iid: number; url: string | null } }> = [];
   for (const mr of mrs.mrs) {
     const ref = { iid: mr.iid, url: mr.url };
-    const tree = trees.trees.find((t) => t.branch === mr.branch);
-    if (!tree) {
+    const candidates = trees.trees.filter((t) => t.branch === mr.branch);
+    if (candidates.length === 0) {
       noTree.push({ branch: mr.branch, mr: ref });
       continue;
     }
     progress?.();
-    // The daemon's tree list can lag a checkout switch, and branch_sync syncs
-    // whatever is checked out, so the tree's own answer decides.
-    const refused = (refusal: string) => results.push({ kind: "error", branch: mr.branch, oldHead: null, newHead: null, pushed: false, refusal, tree: tree.path, mr: ref });
-    const admitted = checkRegisteredTree(tree.path, deps.guard);
-    if (!admitted.ok) { refused(admitted.error); continue; }
-    if (admitted.repoName !== repo.identity || admitted.resolvedFrom !== undefined) {
-      refused(`${tree.path} is not a root of ${repo.identity}, so the sweep left it alone`);
+    // The daemon's tree list can lag a checkout switch and can list a branch
+    // twice, and branch_sync syncs whatever is checked out, so each tree's own
+    // answer decides; the first refusal is reported when none qualifies.
+    let chosen: string | null = null;
+    let first: { tree: string; refusal: string } | null = null;
+    for (const tree of candidates) {
+      const refusal = await treeRefusal(tree.path, mr.branch, repo.identity, deps);
+      if (typeof refusal !== "string") {
+        chosen = refusal.root;
+        break;
+      }
+      first ??= { tree: tree.path, refusal };
+    }
+    if (chosen === null) {
+      results.push({ kind: "error", branch: mr.branch, oldHead: null, newHead: null, pushed: false, refusal: first!.refusal, tree: first!.tree, mr: ref });
       continue;
     }
-    const live = await currentBranch(admitted.path, deps.git);
-    if (live !== mr.branch) {
-      refused(`${tree.path} now has ${live ?? "a detached HEAD"} checked out, not ${mr.branch}, so the sweep left it alone`);
-      continue;
-    }
-    results.push({ ...(await syncTree(admitted.path)), tree: admitted.path, mr: ref });
+    results.push({ ...(await syncTree(chosen)), tree: chosen, mr: ref });
   }
   return ok({ repoName: repo.identity, results, noTree, complete: mrs.complete });
 }
@@ -632,7 +644,7 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
     },
     {
       name: "branch_sync",
-      description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. Returns {kind, branch, oldHead, newHead, pushed, refusal}, oldHead and newHead being the branch ref before and after. kind is synced (the branch moved; pushed says origin now has it), up-to-date (nothing moved or was pushed), dirty-tree (uncommitted or untracked changes, listed in paths; nothing ran), conflict (rt sync's bundle, the rebase left paused; nothing was pushed, though newHead differs from oldHead when rt sync first reset a GitLab-rebased branch to origin), stacked-refused (stackCheck carries the stack refusal, and refusal names the tool to run), push-refused (the rebase landed locally but the push failed) or error (any other refusal or failure, its reason in refusal).",
+      description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. Returns {kind, branch, oldHead, newHead, pushed, refusal}, oldHead and newHead being the branch ref before and after. kind is synced (the branch moved; pushed says origin now has it), up-to-date (nothing moved or was pushed), dirty-tree (uncommitted or untracked changes, listed in paths; nothing ran), conflict (rt sync's bundle, the rebase left paused; nothing was pushed, though newHead differs from oldHead when rt sync first reset a GitLab-rebased branch to origin), stacked-refused (stackCheck carries rt sync's stack refusal: with stackCheck.kind stack-refusal the branch is in a stack and refusal names the tool to run; with stack-check-unavailable the check could not run, refusal says why and names no tool), push-refused (the rebase landed locally but the push failed) or error (any other refusal or failure, its reason in refusal).",
       inputSchema: { type: "object", properties: { ...TREE_PROP }, required: ["tree"], additionalProperties: false },
       shellForms: ["rt sync"],
       handler: guarded(async (path) => ok(await branchSync(path, deps))),
