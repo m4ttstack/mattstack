@@ -228,6 +228,33 @@ describe("herd-lifecycle", () => {
     expect(posts[0].body).toContain("job-a blocked");
   });
 
+  test("blocked notice ticks blockedNotices for the job", async () => {
+    const { store, lc, herd, timers } = fx();
+    store.upsertJob({ herd: herd.id, name: "job-a", worktree: "/w", handle: "job-a", status: "active", pane: "w1:p1" });
+    await lc.handleEvent(null, { type: "pane.agent_status_changed", pane_id: "w1:p1", agent_status: "blocked" });
+    timers.filter((t) => t.ms === 30_000)[0]!.fn();
+    await Bun.sleep(0);
+    expect(store.budgetRows(herd.id, "job-a")).toEqual([{ counter: "blockedNotices", key: "", used: 1 }]);
+  });
+
+  test("a throwing blockedNotices tick still posts the notice", async () => {
+    const { store, lc, herd, timers, posts } = fx();
+    store.upsertJob({ herd: herd.id, name: "job-a", worktree: "/w", handle: "job-a", status: "active", pane: "w1:p1" });
+    store.tickBudget = () => { throw new Error("disk full"); };
+    await lc.handleEvent(null, { type: "pane.agent_status_changed", pane_id: "w1:p1", agent_status: "blocked" });
+    expect(() => timers.filter((t) => t.ms === 30_000)[0]!.fn()).toThrow("disk full");
+    await Bun.sleep(0);
+    expect(posts.map((m) => m.body)).toEqual(["job-a blocked (pane w1:p1)"]);
+  });
+
+  test("a cleared blocked timer does not tick", async () => {
+    const { store, lc, herd } = fx();
+    store.upsertJob({ herd: herd.id, name: "job-a", worktree: "/w", handle: "job-a", status: "active", pane: "w1:p1" });
+    await lc.handleEvent(null, { type: "pane.agent_status_changed", pane_id: "w1:p1", agent_status: "blocked" });
+    await lc.handleEvent(null, { type: "pane.agent_status_changed", pane_id: "w1:p1", agent_status: "working" });
+    expect(store.budgetRows(herd.id, "job-a")).toEqual([]);
+  });
+
   test("working and idle flips post nothing", async () => {
     const { store, lc, herd, posts } = fx();
     store.upsertJob({ herd: herd.id, name: "job-a", worktree: "/w", handle: "job-a", status: "active", pane: "w1:p1" });

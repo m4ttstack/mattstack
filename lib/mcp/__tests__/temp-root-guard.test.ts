@@ -263,6 +263,28 @@ describe("checkReadRootPath", () => {
     }
   });
 
+  test("by default a .json file is refused as not .md", () => {
+    const root = realTempDir("rt-read-root-");
+    const r = checkReadRootPath(fileIn(root, "source.json"), [root]);
+    expect(r.ok ? "" : r.error).toContain("must name a .md file");
+  });
+
+  test("a named extension admits that extension and refuses .md", () => {
+    const root = realTempDir("rt-read-root-");
+    const p = fileIn(root, "source.json");
+    expect(checkReadRootPath(p, [root], undefined, ".json")).toEqual({ ok: true, realpath: p });
+    const md = checkReadRootPath(fileIn(root, "brief.md"), [root], undefined, ".json");
+    expect(md.ok ? "" : md.error).toContain("must name a .json file");
+  });
+
+  test("a named extension is checked on the realpath, not the link's name", () => {
+    const root = realTempDir("rt-read-root-");
+    const link = join(root, "a.json");
+    symlinkSync(fileIn(root, "notes.txt"), link);
+    const r = checkReadRootPath(link, [root], undefined, ".json");
+    expect(r.ok ? "" : r.error).toContain("must name a .json file");
+  });
+
   test("a root that itself sits under a dot-leading directory still works", () => {
     const base = realTempDir("rt-read-root-home-");
     const root = join(base, ".claude", "plugins", "cache", "mattstack");
@@ -300,6 +322,11 @@ describe("cachedReadRoots", () => {
     };
     return { src, counts, advance: (ms: number) => { clock += ms; } };
   }
+
+  test("every plugin root the source returns is kept, not one per name", () => {
+    const { src } = sources({ pluginRoots: () => ["/opt/plugins/a", "/opt/plugins/b"] });
+    expect(cachedReadRoots(src, 60_000)().roots).toEqual(["/private/tmp/claude-501", "/opt/plugins/a", "/opt/plugins/b", "/opt/packs/acme"]);
+  });
 
   test("a second call within the TTL is served from the cache; after it, the roots are resolved again", () => {
     const { src, counts, advance } = sources();

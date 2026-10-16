@@ -10,7 +10,7 @@ Kept on Bash on purpose: `rt gate answer <id> --answers <json> --by shepherd`, `
 ### gate_answer
 
 <!-- mcp-lint: allow -->
-Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}. A question opened with writeIn: true may instead take {writeIn: "<the human's own words>"}, sent alone.
+Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}. A question opened with writeIn: true may instead take {writeIn: "<the human's own words>"}, sent alone. Under a run, pass runDb and stage and the answer (the CAS winner's, on a conflict) is recorded as the scope's gate@1 decision. A review gate records nothing unless record: true, since its site records the review shape with gate_record, and a stale gate (the scope's extra.gate-source.<scope> names a later gate) records nothing.
 
 ```json
 {
@@ -81,6 +81,22 @@ Answer an open gate's questions as this pane. Answer values must be option VALUE
     },
     "override": {
       "type": "boolean"
+    },
+    "runDb": {
+      "type": "string",
+      "description": "The run's runDb, under a pipeline run; the gate's run fields and decision are written there."
+    },
+    "stage": {
+      "type": "string",
+      "description": "The stage asking; required with runDb."
+    },
+    "scope": {
+      "type": "string",
+      "description": "The decision scope on the run; defaults to the scope whose extra.gate-source.<scope> names this gate (post for a review-post gate), else the gate's kind."
+    },
+    "record": {
+      "type": "boolean",
+      "description": "Record the answers map as the scope's gate@1 decision. Defaults true, except on a review gate (kind respond-plan, respond-post or review-post, or scope post, respond-plan or respond-post), where it defaults false because the site records its review shape with gate_record; pass true there only to record the answers map."
     }
   },
   "required": [
@@ -123,7 +139,7 @@ List gates in all statuses unless open is true, optionally filtered by subject p
 ### gate_ask
 
 <!-- mcp-lint: allow -->
-Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId}; then act on the returned presentation. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words.
+Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId, paneAction, formChunks}; then act on the result's paneAction, which says form or wait for this pane. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words. Under a run, pass runDb and stage. formChunks hold the questions 4 to a form.
 
 ```json
 {
@@ -206,10 +222,223 @@ Open a decision gate with the daemon-side ceremony: subject resolves from this s
     },
     "subject": {
       "type": "string"
+    },
+    "runDb": {
+      "type": "string",
+      "description": "The run's runDb, under a pipeline run; the gate's run fields and decision are written there."
+    },
+    "stage": {
+      "type": "string",
+      "description": "The stage asking; required with runDb."
+    },
+    "scope": {
+      "type": "string",
+      "description": "The decision scope on the run; defaults to the gate's kind."
     }
   },
   "required": [
     "questions"
+  ],
+  "additionalProperties": false
+}
+```
+
+### gate_open
+
+<!-- mcp-lint: allow -->
+Build, validate and size-fit a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. The context is fitted to the shared 8192-byte budget (structured with optional parts trimmed, else prose); the form view is always the prose of the untrimmed source. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: "post" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits, trimmed, contextDropped (fits false or the daemon dropped context), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}, with option text truncated as gate_ask does and dropping whole question contexts largest first (then the gate context) when even prose is over budget; outPath also writes the open, in gate-ctx.sh's output shape, to a temp-root file.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "description": "The registry kind, as gate_ask takes it (respond-plan, review-post, ...)."
+    },
+    "source": {
+      "type": "object",
+      "description": "A gate-ctx@1 source: {context?, questions}."
+    },
+    "sourcePath": {
+      "type": "string",
+      "description": "A .json gate-ctx@1 source file under the Claude Code temp root or an installed plugin or pack root."
+    },
+    "review": {
+      "type": "object",
+      "description": "Build the source from a review's findings first: findings inline or findingsPath (a .json file under a read root), and extras {target, reviewer?, round?, questions}.",
+      "properties": {
+        "findings": {
+          "type": "object"
+        },
+        "findingsPath": {
+          "type": "string"
+        },
+        "extras": {
+          "type": "object"
+        }
+      }
+    },
+    "subject": {
+      "type": "string"
+    },
+    "handBack": {
+      "type": "boolean",
+      "description": "Build and fit only; open nothing."
+    },
+    "outPath": {
+      "type": "string",
+      "description": "With handBack: also write the open to this path under the Claude Code temp root."
+    },
+    "runDb": {
+      "type": "string",
+      "description": "The run's runDb, under a pipeline run; the gate's run fields and decision are written there."
+    },
+    "stage": {
+      "type": "string",
+      "description": "The stage asking; required with runDb."
+    },
+    "scope": {
+      "type": "string",
+      "description": "The decision scope on the run; defaults to the gate's kind."
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "additionalProperties": false
+}
+```
+
+### gate_reconcile
+
+<!-- mcp-lint: allow -->
+The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: "answered", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the scope whose extra.gate-source.<scope> names this gate, else the gate's kind) with the answer's by as the decider, unless the gate is stale (the scope's extra.gate-source.<scope> names a later gate), a decision on that scope already landed since the gate opened (alreadyReconciled), or record is false (the default on a review gate, which records its review shape with gate_record); it clears waiting-gate when it names this gate. closed: returns {status: "closed", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: "open"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "The gate id."
+    },
+    "record": {
+      "type": "boolean",
+      "description": "Record the answers map as the scope's gate@1 decision. Defaults true, except on a review gate (kind respond-plan, respond-post or review-post, or scope post, respond-plan or respond-post), where it defaults false because the site records its review shape with gate_record; pass true there only to record the answers map."
+    },
+    "runDb": {
+      "type": "string",
+      "description": "The run's runDb, under a pipeline run; the gate's run fields and decision are written there."
+    },
+    "stage": {
+      "type": "string",
+      "description": "The stage asking; required with runDb."
+    },
+    "scope": {
+      "type": "string",
+      "description": "The decision scope on the run; defaults to the scope whose extra.gate-source.<scope> names this gate (post for a review-post gate), else the gate's kind."
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### gate_record
+
+<!-- mcp-lint: allow -->
+Record a gate decision on a run that no gate tool recorded at answer time: a review scope at its site's own point (respond-plan, respond-post and post after acting), or a decision handed in by the caller (answers plus decidedBy, for a board wrapper). runDb, stage and scope are required. gateId reads that answered gate (an open or closed gate is refused) and its answer's by is the decider. shape picks the selection: answers (the normalized answers map, never skipped), respond-plan ({threads, texts?, overrides?, notes?, code-changes} plus rows for the report), respond-post ({threads: {<id>: {post, resolve, text?, note?}}, held?}) or post ({findings, disposition, replies?, restored?}); the three review shapes record nothing when a next answer other than proceed is present. Cards come from source, sourcePath or review when passed, else from the run's extra.gate-source.<scope>. It always upserts its own gate, so a held respond-post resume re-records with held; it refuses only a stale gate, one whose scope's stored source names a different gate stored after this one opened. Returns {recorded, selection, decidedBy, rows?, answers, writeIn, next, actOnWriteIn, skipped?, runErrors?}. It records only; the skill acts.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runDb": {
+      "type": "string",
+      "description": "The run's runDb; the decision is written there."
+    },
+    "stage": {
+      "type": "string",
+      "description": "The stage recording."
+    },
+    "scope": {
+      "type": "string",
+      "description": "The decision scope on the run (respond-plan, respond-post, post, ...)."
+    },
+    "shape": {
+      "type": "string",
+      "enum": [
+        "answers",
+        "respond-plan",
+        "respond-post",
+        "post"
+      ],
+      "description": "How the selection is built; default answers."
+    },
+    "gateId": {
+      "type": "string",
+      "description": "An answered gate whose row is read; its answer's by is the decider."
+    },
+    "answers": {
+      "type": "object",
+      "description": "A handed decision's answers, recorded with decidedBy instead of a gate's row."
+    },
+    "decidedBy": {
+      "type": "string",
+      "description": "Who decided a handed decision (board, console, ...); required with answers."
+    },
+    "source": {
+      "type": "object",
+      "description": "A gate-ctx@1 source: {context?, questions}."
+    },
+    "sourcePath": {
+      "type": "string",
+      "description": "A .json gate-ctx@1 source file under the Claude Code temp root or an installed plugin or pack root."
+    },
+    "review": {
+      "type": "object",
+      "description": "Build the source from a review's findings first: findings inline or findingsPath (a .json file under a read root), and extras {target, reviewer?, round?, questions}.",
+      "properties": {
+        "findings": {
+          "type": "object"
+        },
+        "findingsPath": {
+          "type": "string"
+        },
+        "extras": {
+          "type": "object"
+        }
+      }
+    },
+    "contextDropped": {
+      "description": "respond-plan: true, or the question ids whose context never reached the gate.",
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "held": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "respond-post: the thread ids held back from posting."
+    }
+  },
+  "required": [
+    "runDb",
+    "stage",
+    "scope"
   ],
   "additionalProperties": false
 }
@@ -832,6 +1061,10 @@ GitLab only. Retry one CI job (jobId) or a whole pipeline (pipelineId) on an MR;
     },
     "pipelineId": {
       "type": "number"
+    },
+    "leaseMrUrl": {
+      "type": "string",
+      "description": "The MR or PR https URL whose CI lease this session must hold (or can claim) for the retry to run. Refused with retried: false while another owner holds a fresh lease."
     }
   },
   "additionalProperties": false
@@ -1775,6 +2008,52 @@ GitLab only. The MR's head pipeline, carrying sha, ref and mergeRequestEventType
 }
 ```
 
+### pipeline_jobs
+
+<!-- mcp-lint: allow -->
+GitLab only. The jobs of one pipeline and its same-project child pipelines: {state: "listed", pipeline, jobs, bridges}. A job row is {jobId, name, stage, status, allowFailure, blocking, pipelineId, attempt, webUrl}; only the latest run of each job is listed, attempt counts its runs. bridges lists every bridge with its downstream pipeline and a crossProject flag. pipelineId defaults to the MR's head pipeline; scope is one GitLab job scope (failed, success, running, pending, manual, canceled, skipped, created); name keeps jobs whose name contains it. Read a job's log with mr_job_trace. Read from GitLab on every call: any MR the token can see, whoever wrote it. A GitLab refusal comes back as GitLab's own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "repoName": {
+      "type": "string",
+      "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "iid": {
+      "type": "number",
+      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+    },
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR's https URL; supplies both the repo and iid."
+    },
+    "pipelineId": {
+      "type": "number"
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "failed",
+        "success",
+        "running",
+        "pending",
+        "manual",
+        "canceled",
+        "skipped",
+        "created"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "description": "Substring of the job name."
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### mr_job_trace
 
 <!-- mcp-lint: allow -->
@@ -2134,6 +2413,10 @@ Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; 
     },
     "setUpstream": {
       "type": "boolean"
+    },
+    "leaseMrUrl": {
+      "type": "string",
+      "description": "The MR or PR https URL whose CI lease this session must hold (or can claim) for the push to run. Refused with pushed: false while another owner holds a fresh lease."
     }
   },
   "required": [
@@ -2392,7 +2675,7 @@ Start a herd (room, workspace, gate subscription) for this shepherd session. rep
 ### herd_spawn
 
 <!-- mcp-lint: allow -->
-Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.
+Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. A spawn into a tree another job already holds is a guest (a reviewer): it ticks the host's reviewerRounds budget and returns it as reviewerRound {host, key, budget}. Only the herd's shepherd session may call it. Takes minutes.
 
 ```json
 {
@@ -2420,11 +2703,234 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
     },
     "disposable": {
       "type": "boolean"
+    },
+    "tree": {
+      "type": "string",
+      "description": "A registered tree's name; never a directory."
     }
   },
   "required": [
     "job"
   ],
+  "additionalProperties": false
+}
+```
+
+### herd_respawn
+
+<!-- mcp-lint: allow -->
+Relaunch a job's agent in its existing worktree (no provisioning). brief, account, model and effort follow herd_spawn's rules; omitted, the job's stored brief and launch settings are reused. Only the herd's shepherd session may call it. Takes minutes.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "job": {
+      "type": "string"
+    },
+    "brief": {
+      "type": "string",
+      "description": "Absolute path to the brief file; its contents are sent, not the path."
+    },
+    "model": {
+      "type": "string"
+    },
+    "effort": {
+      "type": "string"
+    },
+    "account": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_gate_answer
+
+<!-- mcp-lint: allow -->
+Answer one of this herd's open or parked gates as the shepherd. Answer values must be the gate's option VALUES verbatim; a bad value returns status refused with each question's validValues and posts nothing. Returns status recorded, or conflict with the winning answer when another answer landed first. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "gate": {
+      "type": "string"
+    },
+    "answers": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          {
+            "type": "object",
+            "properties": {
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "note": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "Replacement for text the gate offered (an edited reply), used in its place. Comments go in note, never here."
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "writeIn": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "The human's own answer, for a question opened with writeIn: true. Sent alone, never beside value, note or text."
+              }
+            },
+            "required": [
+              "writeIn"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "gate",
+    "answers"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_gate_park
+
+<!-- mcp-lint: allow -->
+Park one of this herd's open gates. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "gate": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "gate"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_diagnose
+
+<!-- mcp-lint: allow -->
+Diagnose a job that looks stuck: its pane state, open gates, last gate and watchdog strikes, with a verdict. Never returns pane text. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "job": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_nudge
+
+<!-- mcp-lint: allow -->
+Nudge a job about an answered gate it has not picked up, one rung up the ladder (a DM, then the pane) within its budget. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "job": {
+      "type": "string"
+    },
+    "gate": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job",
+    "gate"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_lanes
+
+<!-- mcp-lint: allow -->
+Read every job's lane (or one job's): branch drift, files shared with other jobs, and the merge state of its PR or MR. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "job": {
+      "type": "string"
+    }
+  },
   "additionalProperties": false
 }
 ```
@@ -3046,7 +3552,7 @@ Read the MR's CI attendant lease: {lease: <fresh lease or null>, stale: <a stale
 ### ci_watch
 
 <!-- mcp-lint: allow -->
-GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1500) passes, polling every intervalSeconds (default 30, 10 to 120, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default 75), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1500) passes, polling every intervalSeconds (default 30, 10 to 120, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default 75), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. With attend: true the call attends the MR itself: every poll heartbeats this session's lease or, when none is held, claims it (holder, with the MR's source branch); a lease that vanishes is re-claimed at most 2 times per commit, and the lease is kept alive between calls until ci_lease_release. The budget window, prior pipeline id and waiting clock persist per MR, so later calls need not pass budgetMinutes or priorPipelineId, and a pipeline that last failed and runs again opens a fresh window by itself. attend adds the states timeout (still running past the budget), no_pipeline (10 minutes of waiting with no pipeline for sha; pushed says whether the MR head is at sha, remoteSha is that head), stood_down (another owner attends; carries holder), lease_unavailable (the lease could not be claimed or kept; carries error) and unsupported_forge (a GitHub PR), and never returns lease_lost. With underBoardLease and attend it still only reads the board doctor lease. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
 {
@@ -3092,11 +3598,64 @@ GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles 
     },
     "underBoardLease": {
       "type": "boolean"
+    },
+    "attend": {
+      "type": "boolean",
+      "description": "true: claim and keep this session's lease and persist the watch window for the MR."
+    },
+    "holder": {
+      "type": "string",
+      "enum": [
+        "watch-ci",
+        "doctor"
+      ],
+      "description": "The role a claim takes, watch-ci (default) or doctor; only with attend."
     }
   },
   "required": [
     "sha"
   ],
+  "additionalProperties": false
+}
+```
+
+### ci_triage
+
+<!-- mcp-lint: allow -->
+GitLab only. Sort a pipeline's failed jobs, same-project child pipelines included, into REAL, INFRA or UNCLEAR by their log, and mark each blocking job yours, INHERITED (also failing on the target branch) or UNKNOWN. pipelineId defaults to the MR's head pipeline. Returns state triaged with pipeline, base, blocking, nonBlocking, crossProject, summary and next. Patterns and base settings come from ci.triage.*; config adds one-off real-patterns, infra-patterns and noisy-jobs, and sets base-depth, base-ref and skip-base. base names the comparison branch and noBase turns the comparison off. It reports; retrying is the caller's decision. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "repoName": {
+      "type": "string",
+      "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "iid": {
+      "type": "number",
+      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+    },
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR's https URL; supplies both the repo and iid."
+    },
+    "pipelineId": {
+      "type": "number",
+      "description": "The numeric part of a gitlab:pipeline:N id; default the MR's head pipeline."
+    },
+    "config": {
+      "type": "object",
+      "description": "Optional one-off override with the keys of a pack's ci-config.json."
+    },
+    "base": {
+      "type": "string",
+      "description": "The branch whose recent failures mark a job INHERITED."
+    },
+    "noBase": {
+      "type": "boolean"
+    }
+  },
   "additionalProperties": false
 }
 ```

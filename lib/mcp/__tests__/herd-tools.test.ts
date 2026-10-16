@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { herdToolDefs, type HerdToolDeps } from "../herd-tools.ts";
@@ -27,7 +27,9 @@ afterAll(() => {
   for (const dir of [FAKE_TEMP_ROOT, FAKE_PLUGIN_ROOT, OUTSIDE]) rmSync(dir, { recursive: true, force: true });
 });
 
-function fake(opts: { statusError?: string; statusData?: unknown; pluginListError?: string } = {}) {
+const GATE_ROW = { id: "g1", questions: [{ id: "next", label: "Next?", multi: false, options: [{ value: "ship", label: "Ship" }, "hold"] }, { id: "free", label: "Notes", multi: false, options: [] }] };
+
+function fake(opts: { statusError?: string; statusData?: unknown; pluginListError?: string; answerResult?: unknown; parkedGate?: boolean } = {}) {
   const tempRoots = [FAKE_TEMP_ROOT];
   // A failed plugin listing leaves only the temp root, as the real resolver does.
   const readRoots = opts.pluginListError
@@ -44,13 +46,23 @@ function fake(opts: { statusError?: string; statusData?: unknown; pluginListErro
   const deps: HerdToolDeps = {
     start: rec("start"), spawn: rec("spawn"), close: rec("close"), followUp: rec("followUp"), status, list: rec("list"),
     attend: rec("attend"), wrapUp: rec("wrapUp"), resume: rec("resume"), milestone: rec("milestone"),
+    respawn: rec("respawn"), diagnose: rec("diagnose"), nudge: rec("nudge"), lanes: rec("lanes"), park: rec("park"),
+    gates: (async (a: { includeParked?: boolean }) => {
+      calls.push({ fn: "gates", a, o: undefined });
+      return { ok: true, data: { gates: opts.parkedGate && !a.includeParked ? [] : [GATE_ROW] } };
+    }) as any,
+    answer: (async (a: any, o: unknown) => {
+      calls.push({ fn: "answer", a, o });
+      return opts.answerResult ?? { ok: true, data: { row: { ...GATE_ROW, answer: { answers: a.answers, by: a.by, answeredAt: 1 } } } };
+    }) as any,
     verb: (async (input: unknown) => { calls.push({ fn: "verb", a: input, o: undefined }); return { ok: true, body: { brief: "x" } }; }) as any,
     tempRoots: () => tempRoots,
     readRoots: () => readRoots,
   };
-  const destructive = () => calls.filter((c) => ["spawn", "close", "followUp", "wrapUp", "resume", "attend"].includes(c.fn));
+  const destructive = () => calls.filter((c) => ["spawn", "close", "followUp", "wrapUp", "resume", "attend", "respawn", "diagnose", "nudge", "lanes", "answer", "park"].includes(c.fn));
   return { calls, destructive, tool: (n: string) => herdToolDefs(deps).find((t) => t.name === n)! };
 }
+const tool0 = (n: string) => fake().tool(n);
 const SESSION = { CLAUDE_CODE_SESSION_ID: "s1", HERDR_PANE_ID: "p1", HERDR_WORKSPACE_ID: "w1" } as NodeJS.ProcessEnv;
 const WORKER = { ...SESSION, HERD_ID: "hd-1", HERD_JOB: "j" } as NodeJS.ProcessEnv;
 const OTHER_SESSION = { ...SESSION, CLAUDE_CODE_SESSION_ID: "s2" } as NodeJS.ProcessEnv;
@@ -62,7 +74,14 @@ const SHEPHERD_ONLY: Array<[string, Record<string, unknown>]> = [
   ["herd_follow_up", { herd: "hd-1", job: "j" }],
   ["herd_wrap_up", { herd: "hd-1", closePanes: true }],
   ["herd_attend", { herd: "hd-1", job: "j" }],
+  ["herd_respawn", { herd: "hd-1", job: "j" }],
+  ["herd_gate_answer", { herd: "hd-1", gate: "g1", answers: { next: "ship", free: "anything" } }],
+  ["herd_gate_park", { herd: "hd-1", gate: "g1" }],
+  ["herd_diagnose", { herd: "hd-1", job: "j" }],
+  ["herd_nudge", { herd: "hd-1", job: "j", gate: "g1" }],
+  ["herd_lanes", { herd: "hd-1" }],
 ];
+const NEW_TOOLS = ["herd_respawn", "herd_gate_answer", "herd_gate_park", "herd_diagnose", "herd_nudge", "herd_lanes"];
 
 describe("herd tools refuse a caller that does not own the herd", () => {
   test("herd_spawn, herd_close, herd_follow_up, herd_wrap_up, herd_attend and herd_resume refuse in a worker pane, with zero daemon calls", async () => {
@@ -329,6 +348,168 @@ describe("herd shepherd tools", () => {
     const { tool, calls } = fake();
     await tool("herd_resume").handler({ herd: "hd-1" }, SESSION);
     expect(calls[0]!.a).toMatchObject({ herd: "hd-1", session: "s1", callerPane: "p1" });
+  });
+});
+
+describe("herd respawn, gate answer and park, diagnose, nudge, lanes", () => {
+  test("herd_respawn passes inherited-free payload", async () => {
+    const { tool, destructive } = fake();
+    const r = await tool("herd_respawn").handler({ herd: "hd-1", job: "j", brief: BRIEF, model: "opus" }, SESSION);
+    expect(r.ok).toBe(true);
+    expect(destructive()[0]!.a).toEqual({ herd: "hd-1", job: "j", brief: BRIEF_BODY, model: "opus" });
+    expect(destructive()[0]!.o.timeoutMs).toBeGreaterThanOrEqual(180_000);
+    const schema = tool("herd_respawn").inputSchema as { properties: Record<string, unknown> };
+    expect(schema.properties.dir).toBeUndefined();
+  });
+  test("herd_respawn refuses a stray dir with zero daemon calls", async () => {
+    const { tool, calls } = fake();
+    const r = await tool("herd_respawn").handler({ herd: "hd-1", job: "j", dir: FAKE_TEMP_ROOT }, SESSION);
+    expect(r).toMatchObject({ ok: false, error: "dir is not accepted: herd_respawn reuses the job's own worktree" });
+    expect(calls).toEqual([]);
+  });
+  test("only the gate answer and park tools name the shepherd's gate lines as their missing CLI twin", () => {
+    const reason = (name: string) => (tool0(name).shellForms as { none: string }).none;
+    for (const name of ["herd_gate_answer", "herd_gate_park"]) expect(reason(name)).toContain("rt gate answer --by shepherd");
+    for (const name of ["herd_respawn", "herd_diagnose", "herd_nudge", "herd_lanes"]) {
+      expect(reason(name)).not.toContain("rt gate");
+      expect(reason(name)).toContain("no CLI twin");
+    }
+  });
+  test("herd_spawn's rt-herd note lists the six newer herd tools", () => {
+    const forms = tool0("herd_spawn").shellForms as Array<string | { id: string; note?: string }>;
+    const note = forms.find((f): f is { id: string; note?: string } => typeof f !== "string" && f.id === "rt-herd")!.note!;
+    for (const name of NEW_TOOLS) expect(note).toContain(name);
+  });
+  test("herd_spawn's description names the reviewerRound a guest spawn returns", () => {
+    expect(tool0("herd_spawn").description).toContain("reviewerRound");
+  });
+  test("herd_respawn keeps herd_spawn's brief confinement, dash check and token check, with zero daemon calls", async () => {
+    writeFileSync(DASH_BRIEF, "--settings={}\n");
+    for (const input of [{ brief: OUTSIDE_MD }, { brief: DASH_BRIEF }, { account: "--help" }]) {
+      const { tool, calls } = fake();
+      const r = await tool("herd_respawn").handler({ herd: "hd-1", job: "j", ...input }, SESSION);
+      expect(r.ok, JSON.stringify(input)).toBe(false);
+      expect(calls, JSON.stringify(input)).toEqual([]);
+    }
+  });
+  test("herd_spawn passes tree through", async () => {
+    const { tool, destructive } = fake();
+    const r = await tool("herd_spawn").handler({ herd: "hd-1", job: "j", tree: "denethor" }, SESSION);
+    expect(r.ok).toBe(true);
+    expect(destructive()[0]!.a).toEqual({ herd: "hd-1", job: "j", tree: "denethor" });
+    expect(tool("herd_spawn").description).toContain("tree");
+  });
+  test("herd_spawn refuses an existing job with a worktree and no tree", async () => {
+    const worktree = join(FAKE_TEMP_ROOT, "wt-j");
+    mkdirSync(worktree, { recursive: true });
+    const statusData = { herd: { id: "hd-1", shepherdSession: "s1" }, jobs: [{ name: "j", worktree }] };
+    const { tool, destructive, calls } = fake({ statusData });
+    const r = await tool("herd_spawn").handler({ herd: "hd-1", job: "j" }, SESSION);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('job "j" already has a worktree; respawn it with herd_respawn');
+    expect(destructive()).toEqual([]);
+    expect(calls.filter((c) => c.fn === "status").length).toBe(1);
+    const gone = fake({ statusData: { ...statusData, jobs: [{ name: "j", worktree: join(FAKE_TEMP_ROOT, "never-made") }] } });
+    expect((await gone.tool("herd_spawn").handler({ herd: "hd-1", job: "j" }, SESSION)).ok).toBe(true);
+    const withTree = fake({ statusData });
+    expect((await withTree.tool("herd_spawn").handler({ herd: "hd-1", job: "j", tree: "t" }, SESSION)).ok).toBe(true);
+  });
+  test("herd_gate_answer refuses a gate outside this herd", async () => {
+    const { tool, destructive } = fake();
+    const r = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g-other", answers: { next: "ship" } }, SESSION);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("g-other");
+    expect(destructive()).toEqual([]);
+  });
+  test("herd_gate_answer admits a parked gate of this herd; herd_gate_park does not list parked gates", async () => {
+    const answering = fake({ parkedGate: true });
+    const r = await answering.tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { next: "ship", free: "x" } }, SESSION);
+    expect(r.body).toMatchObject({ status: "recorded", gate: "g1" });
+    expect(answering.calls.find((c) => c.fn === "gates")!.a).toEqual({ herd: "hd-1", includeParked: true });
+    const other = await answering.tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g-other", answers: { next: "ship" } }, SESSION);
+    expect(other.ok).toBe(false);
+    const parking = fake({ parkedGate: true });
+    const p = await parking.tool("herd_gate_park").handler({ herd: "hd-1", gate: "g1" }, SESSION);
+    expect(p.ok).toBe(false);
+    expect(parking.calls.find((c) => c.fn === "gates")!.a).toEqual({ herd: "hd-1" });
+    expect(parking.destructive()).toEqual([]);
+  });
+  test("herd_gate_answer returns refused with validValues for a bad value and never calls answer", async () => {
+    const { tool, destructive } = fake();
+    const r = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { next: "yolo", free: "ok" } }, SESSION);
+    expect(r.ok).toBe(true);
+    expect(r.body).toEqual({ status: "refused", invalid: [{ question: "next", got: "yolo", validValues: ["ship", "hold"] }] });
+    expect(destructive()).toEqual([]);
+  });
+  test("herd_gate_answer reports a missing answer and an unknown question as invalid", async () => {
+    const { tool, destructive } = fake();
+    const r = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { free: "ok", bogus: "x" } }, SESSION);
+    expect(r.body).toEqual({ status: "refused", invalid: [{ question: "next", got: null, validValues: ["ship", "hold"] }, { question: "bogus", got: "x", validValues: [] }] });
+    expect(destructive()).toEqual([]);
+  });
+  test("herd_gate_answer records by shepherd with this session", async () => {
+    const { tool, calls } = fake();
+    const answers = { next: { value: "ship", note: "go" }, free: "anything" };
+    const r = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers }, SESSION);
+    expect(calls.find((c) => c.fn === "answer")!.a).toEqual({ id: "g1", answers, by: "shepherd", session: "s1" });
+    expect(r.body).toEqual({ status: "recorded", gate: "g1", answer: { answers, by: "shepherd", answeredAt: 1 } });
+  });
+  test("herd_gate_answer reports a conflict winner", async () => {
+    const winner = { answers: { next: "hold", free: "human said" }, by: "human", answeredAt: 2 };
+    const { tool } = fake({ answerResult: { ok: true, data: { row: { ...GATE_ROW, answer: winner }, conflict: true } } });
+    const r = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { next: "ship", free: "x" } }, SESSION);
+    expect(r.ok).toBe(true);
+    expect(r.body).toEqual({ status: "conflict", winner: { answers: winner.answers, by: "human" } });
+  });
+  test("herd_gate_answer keeps gate_answer's closed, owned-by and not-found wording, without override advice", async () => {
+    const cases: Array<[unknown, string]> = [
+      [{ ok: false, error: "gate-closed", reason: "superseded", supersededBy: "g2" }, "gate g1 is closed (superseded); superseded by g2"],
+      [{ ok: false, error: "owned-by", owner: "pane:p9" }, "gate g1 is owned by pane:p9"],
+      [{ ok: false, error: "not-found" }, "no gate g1"],
+    ];
+    for (const [answerResult, message] of cases) {
+      const { tool } = fake({ answerResult });
+      const r = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { next: "ship", free: "x" } }, SESSION);
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe(message);
+    }
+  });
+  test("herd_gate_answer has no override property in its schema", () => {
+    const { tool } = fake();
+    const schema = tool("herd_gate_answer").inputSchema as { properties: Record<string, unknown>; additionalProperties: boolean };
+    expect(schema.properties.override).toBeUndefined();
+    expect(schema.additionalProperties).toBe(false);
+  });
+  test("herd_gate_park refuses a gate outside this herd and parks one inside", async () => {
+    const outside = fake();
+    const r1 = await outside.tool("herd_gate_park").handler({ herd: "hd-1", gate: "g-other" }, SESSION);
+    expect(r1.ok).toBe(false);
+    expect(outside.destructive()).toEqual([]);
+    const inside = fake();
+    const r2 = await inside.tool("herd_gate_park").handler({ herd: "hd-1", gate: "g1" }, SESSION);
+    expect(r2.body).toEqual({ status: "parked", gate: "g1" });
+    expect(inside.calls.find((c) => c.fn === "park")!.a).toEqual({ id: "g1" });
+  });
+  test("herd_diagnose, herd_nudge and herd_lanes send the herd and their inputs to the verb", async () => {
+    const { tool, destructive } = fake();
+    await tool("herd_diagnose").handler({ herd: "hd-1", job: "j" }, SESSION);
+    await tool("herd_nudge").handler({ herd: "hd-1", job: "j", gate: "g1" }, SESSION);
+    await tool("herd_lanes").handler({ herd: "hd-1" }, SESSION);
+    await tool("herd_lanes").handler({ herd: "hd-1", job: "j" }, SESSION);
+    expect(destructive().map((c) => [c.fn, c.a])).toEqual([
+      ["diagnose", { herd: "hd-1", job: "j" }],
+      ["nudge", { herd: "hd-1", job: "j", gate: "g1" }],
+      ["lanes", { herd: "hd-1" }],
+      ["lanes", { herd: "hd-1", job: "j" }],
+    ]);
+  });
+  test("every new tool declares shellForms none", () => {
+    const { tool } = fake();
+    for (const name of NEW_TOOLS) {
+      const forms = tool(name).shellForms as { none?: string };
+      expect(Array.isArray(forms), name).toBe(false);
+      expect((forms.none ?? "").length, name).toBeGreaterThan(0);
+    }
   });
 });
 

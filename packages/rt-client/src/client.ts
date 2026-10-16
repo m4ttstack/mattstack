@@ -640,8 +640,42 @@ export function herdSpawn(
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["herd:spawn"]["data"]>> {
   const payload: Record<string, unknown> = { herd: a.herd, job: a.job };
-  for (const k of ["brief", "dir", "model", "effort", "account", "disposable"] as const) if (a[k] !== undefined) payload[k] = a[k];
+  for (const k of ["brief", "dir", "model", "effort", "account", "disposable", "tree"] as const) if (a[k] !== undefined) payload[k] = a[k];
   return rtCommand<Commands["herd:spawn"]["data"]>("herd:spawn", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+}
+
+/** Worktree-free relaunch of a job's agent; the caller passes the 300_000 spawn budget. */
+export function herdRespawn(
+  a: Commands["herd:respawn"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["herd:respawn"]["data"]>> {
+  const payload: Record<string, unknown> = { herd: a.herd, job: a.job };
+  for (const k of ["brief", "model", "effort", "account"] as const) if (a[k] !== undefined) payload[k] = a[k];
+  return rtCommand<Commands["herd:respawn"]["data"]>("herd:respawn", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 300_000 });
+}
+
+export function herdDiagnose(
+  a: Commands["herd:diagnose"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["herd:diagnose"]["data"]>> {
+  return rtCommand<Commands["herd:diagnose"]["data"]>("herd:diagnose", { herd: a.herd, job: a.job }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
+}
+
+export function herdNudge(
+  a: Commands["herd:nudge"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["herd:nudge"]["data"]>> {
+  return rtCommand<Commands["herd:nudge"]["data"]>("herd:nudge", { herd: a.herd, job: a.job, gate: a.gate }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
+}
+
+/** Per-job git and forge probes across the whole herd. */
+export function herdLanes(
+  a: Commands["herd:lanes"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["herd:lanes"]["data"]>> {
+  const payload: Record<string, unknown> = { herd: a.herd };
+  if (a.job !== undefined) payload.job = a.job;
+  return rtCommand<Commands["herd:lanes"]["data"]>("herd:lanes", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 120_000 });
 }
 
 export function herdAsk(
@@ -682,7 +716,7 @@ export function herdGates(
   a: Commands["herd:gates"]["payload"],
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["herd:gates"]["data"]>> {
-  return rtCommand<Commands["herd:gates"]["data"]>("herd:gates", { herd: a.herd }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<Commands["herd:gates"]["data"]>("herd:gates", { herd: a.herd, ...(a.includeParked && { includeParked: true }) }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function herdStatus(

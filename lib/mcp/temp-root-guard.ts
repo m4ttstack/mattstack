@@ -78,7 +78,7 @@ export function cachedReadRoots(src: ReadRootSources, ttlMs = READ_ROOTS_TTL_MS)
 /** One per process, so herd_brief's handler and rt_verb's real deps share a resolution. */
 export const readRootsForThisProcess = cachedReadRoots({
   tempRoots: tempRootsForThisProcess,
-  pluginRoots: () => Object.values(buildPluginRoots(listInstalledPlugins({ timeoutMs: PLUGIN_LIST_TIMEOUT_MS })).byName).map((p) => p.dir),
+  pluginRoots: () => buildPluginRoots(listInstalledPlugins({ timeoutMs: PLUGIN_LIST_TIMEOUT_MS })).dirs ?? [],
   packRoots: () => discoverPacks().map((p) => p.dir),
   now: Date.now,
 });
@@ -170,11 +170,17 @@ export function checkTempRootPath(path: unknown, roots: readonly string[]): Path
  * realpath must be a regular file with nlink 1: a FIFO would hang the
  * child's read, and a hardlink shares its inode with a file that can sit
  * outside every root. Below the matched root no component may start with a
- * dot and the file must be .md: plugin and pack roots are whole checkouts,
- * and their .git, .env and other dotfiles are not briefs. The root's own
- * path is exempt, since plugin roots live under ~/.claude.
+ * dot and the realpath must carry the caller's extension (.md unless
+ * named): plugin and pack roots are whole checkouts, and their .git, .env
+ * and other dotfiles are not briefs. The root's own path is exempt, since
+ * plugin roots live under ~/.claude.
  */
-export function checkReadRootPath(path: unknown, roots: readonly string[], pluginListError?: string): { ok: true; realpath: string } | { ok: false; error: string } {
+export function checkReadRootPath(
+  path: unknown,
+  roots: readonly string[],
+  pluginListError?: string,
+  extension = ".md",
+): { ok: true; realpath: string } | { ok: false; error: string } {
   const allowed = roots.length > 0
     ? "the Claude Code temp root or an installed plugin or pack root"
     : "the Claude Code temp root or an installed plugin or pack root (none resolved for this process)";
@@ -210,8 +216,8 @@ export function checkReadRootPath(path: unknown, roots: readonly string[], plugi
   if (relative(root, real).split(sep).some((c) => c.startsWith("."))) {
     return { ok: false, error: `a path component below the root starts with a dot (got "${path}")` };
   }
-  if (extname(real) !== ".md") {
-    return { ok: false, error: `path must name a .md file (got "${path}")` };
+  if (extname(real) !== extension) {
+    return { ok: false, error: `path must name a ${extension} file (got "${path}")` };
   }
   return { ok: true, realpath: real };
 }
