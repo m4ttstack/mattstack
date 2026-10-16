@@ -15,7 +15,7 @@ import { createEscapeInjector } from "../gate-escape.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import { acceptTrustOnPane } from "../trust-accept.ts";
 import { jobBudgets } from "../herd-budgets.ts";
-import type { LaneDeps } from "../herd-lanes.ts";
+import { readGithubMerge, type LaneDeps } from "../herd-lanes.ts";
 import type { HerdLaneRow } from "../../../packages/rt-client/src/commands.ts";
 import type { TreeRecord } from "../../worktree/registry.ts";
 import { deleteChatSession, readChatSession, writeChatSession } from "../../chat-session.ts";
@@ -2448,6 +2448,21 @@ describe("herd:lanes", () => {
     expect(lane!.unmergedReports.used).toBe(0);
     expect(hx.store.budgetRows(hx.herd, "a")).toEqual([]);
   });
+
+  for (const status of [401, 503]) {
+    test(`a GitHub ${status} reads unknown and does not tick unmergedReports`, async () => {
+      const hx = lanesHarness({});
+      hx.job("a");
+      hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+      const failed = await readGithubMerge(async () => new Response("{}", { status }), "o/r", "a");
+      const lanes = { ...hx.deps.lanes!, merge: async () => failed };
+      const h = createHerdHandlers({ ...hx.deps, lanes });
+      const res = await h["herd:lanes"]({ herd: hx.herd });
+      if (!res.ok) throw new Error(res.error);
+      expect(res.data.lanes[0]!.merge.state).toBe("unknown");
+      expect(hx.store.budgetRows(hx.herd, "a")).toEqual([]);
+    });
+  }
 
   test("a forge error never carries a credentialed URL", async () => {
     const hx = lanesHarness({}, { a: new Error("fetch https://oauth2:glpat-SECRET@gitlab.example.com/x failed") });

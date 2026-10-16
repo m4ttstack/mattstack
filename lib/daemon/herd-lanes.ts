@@ -50,7 +50,7 @@ export async function measureLane(deps: LaneDeps, worktree: string): Promise<
 > {
   const base = await deps.defaultRef(worktree);
   const [diff, count] = await Promise.all([
-    deps.git(worktree, ["diff", "--numstat", "--merge-base", base]),
+    deps.git(worktree, ["diff", "--numstat", "--no-renames", "--merge-base", base]),
     deps.git(worktree, ["rev-list", "--count", `${base}..HEAD`]),
   ]);
   if (diff.exitCode !== 0 || count.exitCode !== 0) return { ok: false, error: `git could not compare ${worktree} against ${base}` };
@@ -73,9 +73,30 @@ export function unknownMerge(forge: Merge["forge"], err: unknown): Merge {
 }
 
 function mergeState(state: string): Merge["state"] {
-  if (state === "opened" || state === "locked") return "open";
+  if (state === "opened" || state === "locked" || state === "draft") return "open";
   if (state === "merged" || state === "closed") return state;
   return "unknown";
+}
+
+/** A REST GET against api.github.com that answers every HTTP status as a
+    Response; glance's fetchPullRequestByBranch reads a 401 or a 5xx as "no PR". */
+export type GithubGet = (path: string) => Promise<Response>;
+
+export async function readGithubMerge(get: GithubGet, projectPath: string, branch: string): Promise<Merge> {
+  const owner = projectPath.split("/")[0];
+  const query = new URLSearchParams({ head: `${owner}:${branch}`, state: "all", per_page: "1" });
+  try {
+    const res = await get(`/repos/${projectPath}/pulls?${query}`);
+    if (!res.ok) return unknownMerge("github", `GitHub answered ${res.status} listing pull requests for ${branch}`);
+    const rows = (await res.json()) as unknown;
+    if (!Array.isArray(rows)) return unknownMerge("github", "GitHub's pull request listing was not a JSON array");
+    const pr = rows[0] as { state?: string; merged_at?: string | null; html_url?: string; number?: number } | undefined;
+    if (!pr) return { forge: "github", state: "none", url: null, number: null, mergedAt: null };
+    const state: Merge["state"] = pr.merged_at ? "merged" : pr.state === "closed" ? "closed" : pr.state === "open" ? "open" : "unknown";
+    return { forge: "github", state, url: pr.html_url ?? null, number: pr.number ?? null, mergedAt: pr.merged_at ?? null };
+  } catch (err) {
+    return unknownMerge("github", err);
+  }
 }
 
 async function readMerge(worktree: string, branch: string): Promise<Merge> {
@@ -89,9 +110,8 @@ async function readMerge(worktree: string, branch: string): Promise<Merge> {
     const picked = await forgeTokenFor(url, await loadSecrets());
     if (forge === "github") {
       if (!picked?.token) return unknownMerge(forge, "no GitHub token (run: gh auth login)");
-      const pr = await new GitHubProvider(remote.host, picked.token).fetchPullRequestByBranch(remote.projectPath, branch, "all");
-      if (!pr) return { forge, state: "none", url: null, number: null, mergedAt: null };
-      return { forge, state: mergeState(pr.state), url: pr.webUrl, number: pr.iid, mergedAt: pr.mergedAt ?? null };
+      const provider = new GitHubProvider(remote.host, picked.token);
+      return await readGithubMerge((path) => provider.restRequest("GET", path), remote.projectPath, branch);
     }
     const identity = identityFromRemote(url);
     if (!identity) return unknownMerge(forge, "could not derive the repo identity from the origin URL");
