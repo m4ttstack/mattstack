@@ -130,6 +130,7 @@ export function copyIntoRun(
       }
       const inPlace = dirname(memberReal) === destReal;
       const to = inPlace ? memberReal : join(req.destDir, name);
+      if (!inPlace && isSymlink(to)) return { ok: false, error: `${to}: destination is a symlink` };
       const prior = claimed.get(to);
       if (prior !== undefined && prior !== memberReal) {
         if (!sameBytes(prior, memberReal)) return { ok: false, error: `${to}: two sources with different bytes map here (${prior} and ${memberReal})` };
@@ -152,7 +153,6 @@ export function copyIntoRun(
   for (const p of planned) {
     if (p.inPlace) continue;
     mkdirSync(dirname(p.to), { recursive: true });
-    if (isSymlink(p.to)) return { ok: false, error: `${p.to}: destination is a symlink` };
     if (!sameBytes(p.real, p.to)) copyFileSync(p.real, p.to);
     copied.push({ from: p.real, to: p.to });
   }
