@@ -10,7 +10,7 @@ Kept on Bash on purpose: `rt gate answer <id> --answers <json> --by shepherd`, `
 ### gate_answer
 
 <!-- mcp-lint: allow -->
-Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}. A question opened with writeIn: true may instead take {writeIn: "<the human's own words>"}, sent alone. Under a run, pass runDb and stage and the answer (the CAS winner's, on a conflict) is recorded as the scope's gate@1 decision; a review site passes record: false and records with gate_record.
+Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}. A question opened with writeIn: true may instead take {writeIn: "<the human's own words>"}, sent alone. Under a run, pass runDb and stage and the answer (the CAS winner's, on a conflict) is recorded as the scope's gate@1 decision. A review gate records nothing unless record: true, since its site records the review shape with gate_record, and a stale gate (the scope's extra.gate-source.<scope> names a later gate) records nothing.
 
 ```json
 {
@@ -96,7 +96,7 @@ Answer an open gate's questions as this pane. Answer values must be option VALUE
     },
     "record": {
       "type": "boolean",
-      "description": "Record the answer as the scope's decision (default true). A review site passes false and records with gate_record."
+      "description": "Record the answers map as the scope's gate@1 decision. Defaults true, except on a review gate (kind respond-plan, respond-post or review-post, or scope post, respond-plan or respond-post), where it defaults false because the site records its review shape with gate_record; pass true there only to record the answers map."
     }
   },
   "required": [
@@ -139,7 +139,7 @@ List gates in all statuses unless open is true, optionally filtered by subject p
 ### gate_ask
 
 <!-- mcp-lint: allow -->
-Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId}; then act on the returned presentation. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words. Under a run, pass runDb and stage; the result's paneAction (not presentation) says form or wait for this pane, and formChunks hold the questions 4 to a form.
+Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId, paneAction, formChunks}; then act on the result's paneAction, which says form or wait for this pane. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words. Under a run, pass runDb and stage. formChunks hold the questions 4 to a form.
 
 ```json
 {
@@ -313,7 +313,7 @@ Build, validate and size-fit a structured gate from a gate-ctx@1 source (source 
 ### gate_reconcile
 
 <!-- mcp-lint: allow -->
-The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: "answered", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the scope whose extra.gate-source.<scope> names this gate, else the gate's kind) with the answer's by as the decider, unless a decision on that scope already landed since the gate opened (alreadyReconciled) or record is false; it clears waiting-gate when it names this gate. closed: returns {status: "closed", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: "open"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.
+The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: "answered", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the scope whose extra.gate-source.<scope> names this gate, else the gate's kind) with the answer's by as the decider, unless the gate is stale (the scope's extra.gate-source.<scope> names a later gate), a decision on that scope already landed since the gate opened (alreadyReconciled), or record is false (the default on a review gate, which records its review shape with gate_record); it clears waiting-gate when it names this gate. closed: returns {status: "closed", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: "open"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.
 
 ```json
 {
@@ -325,7 +325,7 @@ The one call for every re-entry to a gate: a finished background rt gate wait, a
     },
     "record": {
       "type": "boolean",
-      "description": "Record the answers map on the run (default true); review sites pass false and record with gate_record."
+      "description": "Record the answers map as the scope's gate@1 decision. Defaults true, except on a review gate (kind respond-plan, respond-post or review-post, or scope post, respond-plan or respond-post), where it defaults false because the site records its review shape with gate_record; pass true there only to record the answers map."
     },
     "runDb": {
       "type": "string",
