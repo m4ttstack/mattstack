@@ -62,4 +62,6 @@ export type PlaceholderContext = {
   side: Side;
   packRoot: string | null;
   plannedAttachments?: PlannedAttachments;
+  /** The pipeline a work verb that renders `{{pipeline.table}}` runs; null for every other target. */
+  pipeline: string | null;
 };

@@ -61,6 +61,19 @@ describe("buildParts edge shapes", () => {
   });
 });
 
+describe("buildParts for a pipeline.table line", () => {
+  test("yields one verb.path part per row, each with its target and its own rendered line", () => {
+    const names = ["provision", "plan", "gates", "evidence", "implement", "self-review", "ship", "watch-ci"].map((s) => `stage-${s}`);
+    const targets = Object.fromEntries(names.map((n) => [n, { skill: n, path: `/p/attachments/${n}/SKILL.md`, lines: 40 }]));
+    const table: TraceEntry = { templateIndex: 4, outStart: 6, outCount: 10, placeholders: names.map((arg, row) => ({ kind: "verb.path", arg, line: 2 + row })) };
+    const parts = buildParts({ bodyStartLine: 20, bodyOffset: 3, trace: [table], sources: {}, targets, slotModes: {}, changedKeys: new Set() });
+    expect(parts).toHaveLength(8);
+    expect(parts.map((p) => [p.kind, p.name, p.templateLines, p.renderedLines, p.target?.skill])).toEqual(
+      names.map((n, row) => ["verb.path", n, [24, 24], [3 + 6 + 2 + row + 1, 3 + 6 + 2 + row + 1], n]),
+    );
+  });
+});
+
 describe("partsFromMarkers", () => {
   test("a legacy engine yields one text part plus a part per marker", () => {
     const md = ["---", "name: x", "---", "<!-- part: step source=mattstack:x version=1 path=a lines=5-6 -->", "", "body", "<!-- part: slot:domain binding=acme:p version=2 path=b lines=1-1 -->", "fill"].join("\n");

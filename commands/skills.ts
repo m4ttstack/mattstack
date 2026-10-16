@@ -56,7 +56,7 @@ import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
-import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
+import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
@@ -65,7 +65,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
-import { effectiveSlotBindings, type BindingsMap } from "../lib/skills/pipelines.ts";
+import { defaultPipeline, effectiveSlotBindings, PIPELINE_NAME_RE, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -612,7 +612,12 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const mattstackRoot = flags.mattstackDir ?? mattstackHome();
   const { team, packDir } = await resolvePack(flags);
 
-  const fullRoster = readVerbRoster(packDir);
+  let fullRoster: VerbDef[];
+  try {
+    fullRoster = readVerbRoster(packDir);
+  } catch (err) {
+    throw new SkillsUsageError((err as Error).message);
+  }
   // A pack with no verb roster needs no manifest: bindings only feed compile targets.
   const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir, flags.repo, flags.bind === true));
   const base = flags.bind === true && flags.manifest === null && isBasePack(realInitFs, packDir);
@@ -789,6 +794,7 @@ function compileVerb(
     .filter(([name, side]) => side === "attachments" && !stageNames.has(name))
     .map(([name]) => hostDir(name, "attachments"));
   const isOrchestrator = findPlaceholders(step.body).some((p) => p.kind === "pipeline.stages");
+  const pipeline = !isStage && rendersTable(step) ? verbPipeline(verb, resolved.pipelines).pipeline : null;
 
   try {
     const fills = loadFillsFor(step, resolved, where, isStage ? verb.pipeline : undefined);
@@ -811,6 +817,7 @@ function compileVerb(
       verbSides,
       side: isPublic ? "skills" : "attachments",
       plannedAttachments: planned,
+      pipeline,
       trace,
     });
     if (!trace) return result;
@@ -913,6 +920,73 @@ function pipelineChainErrors(resolved: Resolved): string[] {
   return Object.entries(resolved.stageEntries).flatMap(([type, list]) =>
     validateChain(type, list, PIPELINE_SEED),
   );
+}
+
+function rendersTable(step: StepSource): boolean {
+  return findPlaceholders(step.body).some((p) => p.kind === "pipeline.table");
+}
+
+/** Roster verbs whose engine renders `{{pipeline.table}}`; an engine that cannot load is compile's error to report, not this one's. */
+function tableVerbs(resolved: Resolved): VerbDef[] {
+  return resolved.fullRoster.filter((verb) => {
+    try {
+      return rendersTable(loadStepSource(verb.engine, resolved.pluginRoots));
+    } catch {
+      return false;
+    }
+  });
+}
+
+type VerbPipeline = { pipeline: string; error: null } | { pipeline: null; error: string };
+
+function verbPipeline(verb: VerbDef, pipelines: Record<string, string[]>): VerbPipeline {
+  if (verb.pipeline !== undefined) {
+    if (!PIPELINE_NAME_RE.test(verb.pipeline)) return { pipeline: null, error: `pipeline "${verb.pipeline}" must match [a-z][a-z0-9-]*` };
+    if (!Object.hasOwn(pipelines, verb.pipeline)) {
+      return { pipeline: null, error: `verb "${verb.name}" runs pipeline "${verb.pipeline}", which the manifest does not declare` };
+    }
+    return { pipeline: verb.pipeline, error: null };
+  }
+  const fallback = defaultPipeline(pipelines);
+  if (fallback !== null) return { pipeline: fallback, error: null };
+  return Object.keys(pipelines).length === 0
+    ? { pipeline: null, error: `verb "${verb.name}" names no pipeline and the manifest declares none` }
+    : { pipeline: null, error: `verb "${verb.name}" names no pipeline and the manifest declares several with none named feature` };
+}
+
+/** The work digraph walks back to implement, holds against watch-ci, and needs `mr` and `ci`, so a pipeline it runs needs these stages. */
+function runsAsWork(entries: StageEntry[]): boolean {
+  const engines = entries.map((e) => e.engine);
+  return engines[0] === "stage-provision" && engines.at(-1) === "stage-watch-ci" && engines.includes("stage-implement") && engines.includes("stage-ship");
+}
+
+/** Every pack-level pipeline error compile refuses on and check reports, so a placeholder never has to throw one. */
+function pipelineErrors(resolved: Resolved): string[] {
+  const errors = pipelineChainErrors(resolved);
+  for (const [type, refs] of Object.entries(resolved.pipelineBindings)) {
+    const stages = Object.hasOwn(resolved.pipelines, type) ? resolved.pipelines[type]! : null;
+    if (!stages) {
+      errors.push(`pipeline "${type}" has bindings but no layer gives it stages`);
+      continue;
+    }
+    for (const ref of Object.keys(refs)) {
+      if (!stages.includes(ref)) errors.push(`pipeline "${type}" binds ${ref} but does not list it`);
+    }
+  }
+  const shaped = new Set<string>();
+  for (const verb of tableVerbs(resolved)) {
+    const run = verbPipeline(verb, resolved.pipelines);
+    if (run.error !== null) {
+      errors.push(run.error);
+      continue;
+    }
+    if (shaped.has(run.pipeline)) continue;
+    shaped.add(run.pipeline);
+    if (!runsAsWork(resolved.stageEntries[run.pipeline] ?? [])) {
+      errors.push(`pipeline "${run.pipeline}" must start with stage-provision, end with stage-watch-ci, and include stage-implement and stage-ship`);
+    }
+  }
+  return errors;
 }
 
 type CompileTarget = { verb: VerbDef; isPublic: boolean; isStage: boolean };
@@ -1188,7 +1262,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
     const resolved = await resolve(flags);
     const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
 
-    const chainErrors = pipelineChainErrors(resolved);
+    const chainErrors = pipelineErrors(resolved);
     if (chainErrors.length > 0) throw new SkillsUsageError(chainErrors.join("\n"));
 
     const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
@@ -1285,7 +1359,7 @@ export async function compilePackAll(opts: { pack?: string; packDir?: string; ma
   if (opts.repo) args.push("--repo", opts.repo);
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
   const resolved = await resolve(parseFlags(args));
-  const chainErrors = pipelineChainErrors(resolved);
+  const chainErrors = pipelineErrors(resolved);
   if (chainErrors.length > 0) return { ok: false, errors: chainErrors, written: [], removed: [] };
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
   const plan = basePlanFor(resolved, compileTargets(resolved, publicSet, opts.verbs ?? null).verbSides);
@@ -1360,6 +1434,8 @@ export type CheckPayload = {
   compileErrors: string[];
   /** Compiled stage copies no pipeline needs any more; compile removes them. In check --json only when non-empty. */
   staleCopies: string[];
+  /** Pipeline overrides materialize dropped because a later layer's stage list no longer has their stage. A warning only; in check --json only when non-empty. */
+  droppedOverrides?: DroppedOverride[];
   /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
   extendsBase: boolean;
 };
@@ -1422,7 +1498,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // longer folds, so recompiling would refuse. No row can express that, so
   // --json carries it alongside them instead of leaving the exit code alone
   // to say a payload of current rows is a failure.
-  const chainErrors = pipelineChainErrors(resolved);
+  const chainErrors = pipelineErrors(resolved);
   if (chainErrors.length > 0) anyStale = true;
 
   const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
@@ -1431,6 +1507,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const emittedTargetDirs = knownTargetDirs;
   const plan = basePlanFor(resolved, verbSides);
   const planned = plannedAttachmentsOf(plan);
+  // chainErrors already names why these cannot run a pipeline; compiling them would only repeat it as a placeholder error.
+  const noPipeline = new Set(tableVerbs(resolved).filter((verb) => verbPipeline(verb, resolved.pipelines).error !== null).map((verb) => verb.name));
 
   for (const target of targets) {
     const { verb, isPublic } = target;
@@ -1442,6 +1520,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       rows.push({ name: verb.name, status: "never-compiled", staleFiles: [], orphanFiles: [], side });
       continue;
     }
+    if (!target.isStage && noPipeline.has(verb.name)) continue;
 
     const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned);
     if (!outcome.ok) {
@@ -1518,8 +1597,9 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   if (baseErrors.length > 0 || attachments.some((row) => row.status !== "in-sync")) anyStale = true;
   const staleCopies = staleStageCopies(resolved.packDir, verbSides).map((c) => c.name);
   if (staleCopies.length > 0) anyStale = true;
+  const droppedOverrides = resolved.manifestPath ? readManifestDropped(readFileSync(resolved.manifestPath, "utf8")) : [];
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, staleCopies, extendsBase: plan.base !== null };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, staleCopies, droppedOverrides, extendsBase: plan.base !== null };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1545,6 +1625,9 @@ export function installedCacheBlocks(installed: InstalledInfo): Block[] {
 
 export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[] {
   const blocks: Block[] = payload.chainErrors.map((chainError) => out.line("failed", chainError));
+  for (const { key, layer } of payload.droppedOverrides ?? []) {
+    blocks.push(out.line("warn", `Override ${key} from ${layer} is ignored`, "a later layer's stage list no longer has that stage"));
+  }
   let stale = false;
   for (const row of payload.verbs) {
     if (row.status === "never-compiled") {
@@ -1611,9 +1694,13 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, staleCopies } = payload;
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, staleCopies, droppedOverrides = [] } = payload;
       // Only when present: the envelope's existing keys are frozen, and a clean pack keeps its exact bytes.
-      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, ...(staleCopies.length > 0 ? { staleCopies } : {}) });
+      out.json({
+        pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors,
+        ...(staleCopies.length > 0 ? { staleCopies } : {}),
+        ...(droppedOverrides.length > 0 ? { droppedOverrides } : {}),
+      });
       return;
     }
     out.print(...checkBlocks(payload, flags.strict));
@@ -1894,6 +1981,18 @@ function bindingOrigin(roots: PluginRoots, boundTo: string): Partial<Origin> {
   }
 }
 
+/** A `{{pipeline.table}}` expands to a `verb.path` per row, so a stage flipping public or internal still lists the work verb for rebuild. */
+function compositionPlaceholders(step: StepSource, target: CompileTarget, resolved: Resolved): CompositionTarget["placeholders"] {
+  return findPlaceholders(step.body).flatMap((p) => {
+    const line = step.bodyStartLine + p.line - 1;
+    if (p.kind !== "pipeline.table" || target.isStage) return [{ kind: p.kind, arg: p.arg, line }];
+    const { pipeline } = verbPipeline(target.verb, resolved.pipelines);
+    const entries = pipeline === null ? undefined : resolved.stageEntries[pipeline];
+    if (!entries) return [{ kind: p.kind, arg: p.arg, line }];
+    return entries.map((e) => ({ kind: "verb.path", arg: e.name, line }));
+  });
+}
+
 function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): CompositionTarget[] {
   return plan.targets.map((t) => {
     let step: StepSource | null = null;
@@ -1909,9 +2008,7 @@ function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): Composi
       public: t.isPublic,
       artifactPath: join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md"),
       templatePath: step ? join(step.dir, "SKILL.md") : null,
-      placeholders: step
-        ? findPlaceholders(step.body).map((p) => ({ kind: p.kind, arg: p.arg, line: step.bodyStartLine + p.line - 1 }))
-        : [],
+      placeholders: step ? compositionPlaceholders(step, t, resolved) : [],
       slots: step
         ? Object.entries(step.slots).map(([name, spec]) => ({ name, contract: spec.contract, required: spec.required ?? false }))
         : [],

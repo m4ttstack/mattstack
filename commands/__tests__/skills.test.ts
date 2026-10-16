@@ -4220,3 +4220,142 @@ test("a zero-target JSON compile refusal keeps its report and explains why on st
     expect(readdirSync(packDir).sort()).toEqual([".claude-plugin", "pack"]);
   } finally { process.env.HOME = savedHome; }
 });
+
+const TABLE_WORK_SKILL_MD = `---
+name: work
+description: "Run a unit of work"
+type: pipeline-step
+---
+
+Walk the stages below.
+
+{{pipeline.table}}
+
+{{run-start.flags:work}}
+
+Resume only {{run-list.pipelines}}.
+`;
+
+const WORK_RUN = ["mattstack:stage-provision", "mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship", "mattstack:stage-watch-ci"];
+
+type TablePack = { flags: string[]; packDir: string; mattstackDir: string; manifestPath: string };
+
+/** A pack whose `work` engine renders the stage table, with every stage WORK_RUN names behind a real SKILL.md. */
+function makeTablePack(verbs: Record<string, { pipeline?: unknown }>, manifest: string): TablePack {
+  const mattstackDir = makeMattstackDir();
+  const engines = join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline");
+  writeFile(join(engines, "work", "SKILL.md"), TABLE_WORK_SKILL_MD);
+  writeFile(join(engines, "stage-implement", "SKILL.md"), stageSkillMd("stage-implement", "implement"));
+  writeFile(join(engines, "stage-watch-ci", "SKILL.md"), stageSkillMd("stage-watch-ci", "watch-ci"));
+  const packDir = makePackDir();
+  const stubs = Object.fromEntries(Object.entries(verbs).map(([name, extra]) => [name, { engine: "work", description: "Run work", ...extra }]));
+  writeFile(join(packDir, "pack", "stubs.jsonc"), JSON.stringify({ verbs: stubs }));
+  const manifestPath = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-table-"))), "skills.jsonc");
+  writeFile(manifestPath, manifest);
+  return { flags: ["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath], packDir, mattstackDir, manifestPath };
+}
+
+async function expectRefused({ flags, packDir, mattstackDir, manifestPath }: TablePack, message: string): Promise<void> {
+  const fixture = { packDir, mattstackDir, manifest: manifestPath };
+  const payload = await checkPack(fixture);
+  expect(payload.chainErrors).toContain(message);
+  expect(payload.drift).toBe(true);
+  expect(payload.compileErrors.join("\n")).not.toContain("{{");
+  const compiled = await compilePackAll(fixture);
+  expect(compiled.ok).toBe(false);
+  expect(compiled.errors).toContain(message);
+  const { exitCode, errors } = await runExpectingCleanExit(() => skillsCompile(flags));
+  expect(exitCode).toBe(1);
+  expect(errors.join("\n")).toContain(message);
+}
+
+describe("a work verb's pipeline", () => {
+  test("verb names an undeclared pipeline", async () => {
+    const pack = makeTablePack(
+      { work: {}, "work-a11y": { pipeline: "accessibility" } },
+      JSON.stringify({ pipelines: { feature: WORK_RUN }, bindings: {} }),
+    );
+    await expectRefused(pack, 'verb "work-a11y" runs pipeline "accessibility", which the manifest does not declare');
+  });
+
+  test("several pipelines, none feature, and a table verb that names none", async () => {
+    const pack = makeTablePack({ work: {} }, JSON.stringify({ pipelines: { alpha: WORK_RUN, beta: WORK_RUN }, bindings: {} }));
+    await expectRefused(pack, 'verb "work" names no pipeline and the manifest declares several with none named feature');
+  });
+
+  test("a pipeline a table verb runs must have the work run's shape", async () => {
+    const pack = makeTablePack(
+      { work: {}, "work-a11y": { pipeline: "accessibility" } },
+      JSON.stringify({ pipelines: { feature: WORK_RUN, accessibility: ["mattstack:stage-plan", "mattstack:stage-ship"] }, bindings: {} }),
+    );
+    await expectRefused(pack, 'pipeline "accessibility" must start with stage-provision, end with stage-watch-ci, and include stage-implement and stage-ship');
+  });
+
+  test("the same subset pipeline passes in a pack whose verbs never render the table", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    const manifestPath = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-table-"))), "skills.jsonc");
+    writeFile(manifestPath, JSON.stringify({ pipelines: { accessibility: ["mattstack:stage-plan", "mattstack:stage-ship"] }, bindings: {} }));
+    const payload = await checkPack({ packDir, mattstackDir, manifest: manifestPath });
+    expect(payload.chainErrors).toEqual([]);
+  });
+
+  test("a work verb naming a plain-list pipeline with a bad name", async () => {
+    const pack = makeTablePack(
+      { work: {}, "work-a11y": { pipeline: "Access_ibility" } },
+      JSON.stringify({ pipelines: { feature: WORK_RUN, Access_ibility: WORK_RUN }, bindings: {} }),
+    );
+    await expectRefused(pack, 'pipeline "Access_ibility" must match [a-z][a-z0-9-]*');
+  });
+
+  test("a hand-written override naming a stage its pipeline does not list", async () => {
+    const pack = makeTablePack(
+      { work: {}, "work-a11y": { pipeline: "accessibility" } },
+      JSON.stringify({
+        pipelines: { feature: WORK_RUN, accessibility: { stages: WORK_RUN, bindings: { "mattstack:stage-x": { domain: "acme:watch-ci-domain" } } } },
+        bindings: {},
+      }),
+    );
+    await expectRefused(pack, 'pipeline "accessibility" binds mattstack:stage-x but does not list it');
+  });
+
+  test("a non-string pipeline in stubs is refused, naming the verb", async () => {
+    const { flags } = makeTablePack({ work: { pipeline: 7 } }, JSON.stringify({ pipelines: { feature: WORK_RUN }, bindings: {} }));
+    const { exitCode, errors } = await runExpectingCleanExit(() => skillsCompile(flags));
+    expect(exitCode).not.toBeUndefined();
+    expect(errors.join("\n")).toContain('verb "work" in');
+    expect(errors.join("\n")).toContain("pipeline that is not a string");
+  });
+
+  test("a dropped override is a warning: check passes and --json carries it", async () => {
+    const dropped = { key: "feature/mattstack:stage-gates domain", layer: "base:acme-base" };
+    const { flags, packDir, mattstackDir, manifestPath } = makeTablePack(
+      { work: {} },
+      `// GENERATED by rt skills materialize\n// provenance (binding <- layer):\n//   pipeline feature <- pack\n// dropped: ${dropped.key} <- ${dropped.layer}\n${JSON.stringify({ pipelines: { feature: WORK_RUN }, bindings: {} })}\n`,
+    );
+    const compiled = await runExpectingCleanExit(() => skillsCompile(flags));
+    expect(compiled.errors).toEqual([]);
+    const payload = await checkPack({ packDir, mattstackDir, manifest: manifestPath });
+    expect(payload.drift).toBe(false);
+    expect(payload.droppedOverrides).toEqual([dropped]);
+
+    io.clear();
+    await skillsCheck([...flags, "--json"]);
+    expect(process.exitCode).toBe(0);
+    expect(JSON.parse(io.stdout()).droppedOverrides).toEqual([dropped]);
+
+    io.clear();
+    await skillsCheck(flags);
+    expect(io.lines().some((l) => l.includes(dropped.key) && l.includes(dropped.layer))).toBe(true);
+  });
+
+  test("composition lists a verb.path placeholder per table row on the work verb", async () => {
+    const { flags } = makeTablePack({ work: {} }, JSON.stringify({ pipelines: { feature: WORK_RUN }, bindings: {} }));
+    const payload = await compositionJson(flags);
+    const work = payload.targets.find((t: { name: string }) => t.name === "work");
+    const rows = work.placeholders.filter((p: { kind: string }) => p.kind === "verb.path");
+    expect(rows.map((p: { arg: string }) => p.arg)).toEqual(WORK_RUN.map((r) => r.slice("mattstack:".length)));
+    expect(new Set(rows.map((p: { line: number }) => p.line)).size).toBe(1);
+    expect(work.placeholders.some((p: { kind: string }) => p.kind === "pipeline.table")).toBe(false);
+  });
+});

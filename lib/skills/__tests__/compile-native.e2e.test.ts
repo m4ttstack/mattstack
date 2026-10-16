@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from "os";
 import { join } from "path";
 import { checkPack, skillsBind, skillsCompile, skillsCheck } from "../../../commands/skills.ts";
+import { childEnv } from "../../subprocess.ts";
 import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "compile-native");
@@ -341,6 +342,21 @@ function buildPipelines(): { pack: string; ms: string; manifest: string; args: s
 }
 
 const COPY = "stage-evidence--accessibility";
+const CHECK_DOT = join(import.meta.dir, "..", "..", "..", "plugins", "mattstack", "plugin", "skills", "process-digraphs", "check-dot.py");
+
+/** The stage table work/SKILL.md carried by hand before {{pipeline.table}}, rendered. */
+const EIGHT_ROWS = [
+  "| Stage | Read | Consumes | Produces |",
+  "|---|---|---|---|",
+  "| `provision` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-provision/SKILL.md` | `ticket` `repo` | `branch` `worktree` |",
+  "| `plan` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md` | `ticket` | `approach` `evidence-plan` |",
+  "| `gates` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-gates/SKILL.md` | `approach` `worktree` | nothing |",
+  "| `evidence` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-evidence/SKILL.md` | `evidence-plan` `worktree` | `evidence` |",
+  "| `implement` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-implement/SKILL.md` | `approach` `branch` `worktree` | `commits` |",
+  "| `self-review` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-self-review/SKILL.md` | `commits` | `review` |",
+  "| `ship` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-ship/SKILL.md` | `commits` `ticket` | `mr` |",
+  "| `watch-ci` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/SKILL.md` | `mr` `branch` | `ci` |",
+].join("\n");
 
 describe("compile-pipelines", () => {
   afterEach(() => {
@@ -359,6 +375,36 @@ describe("compile-pipelines", () => {
     expect(stage).not.toContain("evidence-b body");
     expect(copy).toContain("evidence-b body");
     expect(copy).not.toContain("evidence-a body");
+  });
+
+  test("work-a11y compiles against its pipeline", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const { errors } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+
+    const a11y = readFileSync(join(pack, "skills", "work-a11y", "SKILL.md"), "utf8");
+    expect(a11y).toContain(EIGHT_ROWS.replace("attachments/stage-evidence/", `attachments/${COPY}/`));
+    expect(a11y).toContain("--work-type work --pipeline accessibility");
+    expect(a11y).toContain("`run_list`'s `pipelines` is `accessibility`; only those runs are offered to resume.");
+  });
+
+  test("plain work runs feature with today's eight rows and digraphs that pass check-dot", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const { errors } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+
+    const workDir = join(pack, "skills", "work");
+    const work = readFileSync(join(workDir, "SKILL.md"), "utf8");
+    expect(work).toContain(EIGHT_ROWS);
+    expect(work).toContain("--work-type work --pipeline feature");
+    expect(work).toContain("`run_list`'s `pipelines` is `feature`, `work`; only those runs are offered to resume.");
+    expect(work).not.toContain("{{");
+
+    if (!Bun.which("dot")) return;
+    const mds = Object.keys(treeOf(workDir)).filter((rel) => rel.endsWith(".md")).map((rel) => join(workDir, rel));
+    const run = Bun.spawnSync(["python3", CHECK_DOT, ...mds], { env: childEnv() });
+    expect(run.stdout.toString() + run.stderr.toString()).toMatch(/graph\(s\) checked, ok, 0 warning\(s\)\n$/);
+    expect(run.exitCode).toBe(0);
   });
 
   test("a dropped override removes its copy", async () => {

@@ -541,12 +541,15 @@ export function readVerbRoster(packDir: string): VerbDef[] {
   // its surface is still manageable, so absence is an empty roster, not an error.
   if (!existsSync(stubsPath)) return [];
   const parsed = JSON.parse(stripJsonc(readFileSync(stubsPath, "utf8"))) as {
-    verbs?: Record<string, { engine: string; description: string; pipeline?: string }>;
+    verbs?: Record<string, { engine: string; description: string; pipeline?: unknown }>;
   };
   const verbs = parsed.verbs ?? {};
   return Object.entries(verbs).map(([name, def]) => {
     assertSafeVerbName(name, stubsPath);
     const verb: VerbDef = { name, engine: def.engine, description: def.description };
+    if (def.pipeline !== undefined && typeof def.pipeline !== "string") {
+      throw new Error(`readVerbRoster: verb "${name}" in ${stubsPath} has a pipeline that is not a string`);
+    }
     if (def.pipeline !== undefined) verb.pipeline = def.pipeline;
     return verb;
   });

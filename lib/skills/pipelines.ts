@@ -50,7 +50,7 @@ export function fillsDiffer(defaults: BindingsMap, overrides: BindingsMap | unde
   return false;
 }
 
-export function defaultPipeline(stages: Record<string, string[]>): string | null {
+export function defaultPipeline(stages: Record<string, unknown>): string | null {
   const names = Object.keys(stages);
   if (names.length === 1) return names[0]!;
   return names.includes("feature") ? "feature" : null;
