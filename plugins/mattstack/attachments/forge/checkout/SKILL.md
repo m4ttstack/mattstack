@@ -24,7 +24,8 @@ digraph checkout {
     "git remote get-url origin" [shape=plaintext];
     "What was given?" [shape=diamond];
     "MR forge host?" [shape=diamond];
-    "mr_view {repoName, mrUrl or iid}" [shape=plaintext];
+    "mr_resolve_branch {repoName, mrUrl or iid}" [shape=plaintext];
+    "mr_resolve_branch result?" [shape=diamond];
     "gh pr view <ref>" [shape=plaintext];
     "Ticket forge host?" [shape=diamond];
     "mr_list {repoName, search: <ticket id>, state: all, limit: 200}" [shape=plaintext];
@@ -62,15 +63,18 @@ digraph checkout {
     "What was given?" -> "git worktree list" [label="a branch name: use it verbatim"];
     "What was given?" -> "MR forge host?" [label="an MR/PR link, !iid, or number"];
     "What was given?" -> "Ticket forge host?" [label="a ticket id"];
-    "MR forge host?" -> "mr_view {repoName, mrUrl or iid}" [label="GitLab"];
+    "MR forge host?" -> "mr_resolve_branch {repoName, mrUrl or iid}" [label="GitLab"];
     "MR forge host?" -> "gh pr view <ref>" [label="GitHub"];
     "MR forge host?" -> "STOP: GitLab reads go through the read tools or gitlab_get" [label="tempted to use the GitLab CLI"];
-    "STOP: GitLab reads go through the read tools or gitlab_get" -> "mr_view {repoName, mrUrl or iid}";
+    "STOP: GitLab reads go through the read tools or gitlab_get" -> "mr_resolve_branch {repoName, mrUrl or iid}";
     "Ticket forge host?" -> "mr_list {repoName, search: <ticket id>, state: all, limit: 200}" [label="GitLab"];
     "Ticket forge host?" -> "gh pr list --search <id>" [label="GitHub"];
     "Ticket forge host?" -> "STOP: GitLab ticket searches go through the read tools or gitlab_get" [label="tempted to use the GitLab CLI"];
     "STOP: GitLab ticket searches go through the read tools or gitlab_get" -> "mr_list {repoName, search: <ticket id>, state: all, limit: 200}";
-    "mr_view {repoName, mrUrl or iid}" -> "Pick the branch from the result";
+    "mr_resolve_branch {repoName, mrUrl or iid}" -> "mr_resolve_branch result?";
+    "mr_resolve_branch result?" -> "Gate clarify: which branch" [label="a GitLab error: quoted in the gate's sentence"];
+    "mr_resolve_branch result?" -> "Report the path and whose branch it is" [label="a tree on the branch: point there"];
+    "mr_resolve_branch result?" -> "worktree_provision {repoName, branch}" [label="no tree"];
     "gh pr view <ref>" -> "Pick the branch from the result";
     "mr_list {repoName, search: <ticket id>, state: all, limit: 200}" -> "Search returned a row naming the ticket?";
     "Search returned a row naming the ticket?" -> "Pick the branch from the result" [label="yes"];
@@ -120,8 +124,7 @@ digraph checkout {
 The origin URL decides the forge host. Read the source branch from the
 result. The GitLab tools and `worktree_provision` take `repoName` = the
 current checkout's absolute path; `worktree_provision` takes `branch` = the picked branch (a given
-branch name verbatim); `mr_view` takes `mrUrl` = the link, or `iid` = the
-number. For a ticket id, `mr_list` takes `search` = the id and `state`
+branch name verbatim). For a ticket id, `mr_list` takes `search` = the id and `state`
 `all` and `limit` 200, which asks GitLab for every MR whose title or description carries
 it, by any author; keep the rows whose `sourceBranch` (GitHub: head
 branch) or `title` carries the id. GitLab's `search` never looks at the
@@ -133,12 +136,24 @@ more rows than the 200 returned. When either result is truncated and no
 row has been chosen, the pick is not safe: go to the clarify gate with one
 sentence saying the search was cut at 200 rows and naming what was found.
 When exactly one row matched before the cut, the sentence says more rows
-exist, and the branch is not picked silently. An `mr_view` or
-`mr_list` error is the error text, usually GitLab's: it goes to the clarify gate's
+exist, and the branch is not picked silently. An `mr_list`
+error is the error text, usually GitLab's: it goes to the clarify gate's
 sentence, quoted. No row after both reads means none of the rows GitLab
 returned carries the ticket, not that no MR exists.
 A fact the read tools do not return is read as in "Reading a GitLab fact
 no read tool returns".
+
+### mr_resolve_branch result?
+
+`mr_resolve_branch` takes `repoName` = the current checkout's absolute
+path, and `mrUrl` = the link or `iid` = the number. It reads the MR and the
+registered worktrees in one call, so this path skips `git worktree list`
+and `Branch already checked out?`; those stay for a branch name, a ticket
+id and GitHub. `branch` for `worktree_provision` is `sourceBranch`.
+`trees` holds the worktrees already on that branch: with several, report
+every path, never pick one. `author` is whose branch it is. An MR whose
+`state` is merged or closed takes the same checkout, and the report names
+the state. A GitLab error goes to the clarify gate's sentence, quoted.
 
 ### Reading a GitLab fact no read tool returns
 
@@ -221,7 +236,8 @@ reported, never a second off-script gate.
 ### Report the path and whose branch it is
 
 Report the path (the `path` `worktree_provision` returned, the worktree
-`git worktree list` already showed, or the one the recorded move made) and
+`git worktree list` already showed, every path in `mr_resolve_branch`'s
+`trees`, or the one the recorded move made) and
 that the branch is checked out there. State whose branch it is. Do not
 enter the worktree, whatever the tool suggests: a review checkout leaves
 the session where it is.
