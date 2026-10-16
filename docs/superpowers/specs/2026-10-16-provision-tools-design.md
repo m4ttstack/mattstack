@@ -31,8 +31,9 @@ code and tests only; wave 3 rewrites the skills to use it.
 
 ## Goals
 
-1. `worktree_provision` returns the daemon's refusal code as data:
-   `{kind: "refused", code, error, tree?, step?, detail?}`, `code` being the
+1. `worktree_provision` returns the daemon's refusal code as data: the
+   error text is the JSON object `{kind: "refused", code, error, tree?,
+   step?, detail?}`, `code` being the
    daemon's own (`branch-attached`, `busy`, `create-failed`, ...), `error`
    the same prose `explainError` gives today.
 2. `worktree_provision {precheck: true}` reports, without touching any tree,
@@ -80,10 +81,12 @@ code and tests only; wave 3 rewrites the skills to use it.
 
 ### Result shape
 
-Every daemon outcome is an ok tool result with a `kind`, the precedent set
-by `branch_sync` (PR #842). Only a caller mistake (a missing or wrong-typed
-input, an ambiguous `repoName` label, `precheck` with `reuse`, `budget`
-without `runDb`, a `runDb` outside the runs root) stays an `isError` result.
+Every outcome carries a `kind`. `provisioned`, `reused` and `precheck` are
+ok results. A refusal stays an `isError` result, as today, and its text is
+the refusal object as JSON (`{"kind":"refused","code":...,"error":...}`).
+A caller mistake (a missing or wrong-typed input, an ambiguous `repoName`
+label, `precheck` with `reuse`, `budget` without `runDb`, a malformed
+`runDb`) stays an `isError` result with plain text, as today.
 
 | `kind` | Fields |
 |---|---|
@@ -92,9 +95,12 @@ without `runDb`, a `runDb` outside the runs root) stays an `isError` result.
 | `precheck` | `branch`, `base`, `attached`, `sameTicket`, `sameSlug` (below) |
 | `refused` | `code`, `error`, and per code `tree`, `trees`, `step`, `detail`; plus `budget` when one was asked for |
 
-*My call:* a refusal moves from `isError` text to an ok result. Compiled
-skills read today's result by its words ("branch is already checked out",
-"any other error"); `error` keeps exactly that prose, so they still route.
+*Decided (shepherd, gate 2df70447):* refusals stay `isError` with the JSON
+refusal as their text. Compiled skills branch on ok versus error
+(stage-provision's "any other error" edge; shepherdr goes straight from
+`worktree_provision` to `EnterWorktree`), so an ok-shaped refusal would
+misroute them until wave 3; as an error it routes as before, the text still
+contains today's prose in `error`, and the code is machine-readable.
 `kind` is the discriminant `branch_sync` uses; the tree's own registry kind
 is `treeKind` so the two never clash.
 
@@ -165,6 +171,9 @@ Data (`WorktreeProvisionCheckData`):
 - `sameSlug` (ticket mode with a non-empty title slug; empty otherwise):
   registered trees whose branch, lowercased, starts with `base`. This is
   the fills' re-check after a typed slug.
+- `localBranch`: whether `base` exists as a local branch in the repo
+  (`refs/heads/<base>`), with or without a tree on it. A branch whose tree
+  was disposed is the case it exists for.
 
 Each tree is `{tree, path, branch, treeKind, state?, owner?, disposal?,
 claimedAt?}` from the registry. On-deck, creating and golden trees carry
@@ -184,7 +193,12 @@ never refuses on a match.
   `code: "branch-attached"`, `tree`, and `reason` (`main-checkout`,
   `disposable`, or the state);
 - two or more: `refused`, `code: "branch-duplicated"`, `trees`;
-- none: an ordinary `worktree:provision` call, whose own refusals stand.
+- none, in ticket mode, with `localBranch` true: a `worktree:provision`
+  call with `branch: base` (and the caller's `owner` and `disposal`), so the
+  new tree checks out the surviving branch untouched instead of cutting
+  `<base>-2` (*decided, shepherd, gate 2df70447*: resume after a dispose);
+- none otherwise: an ordinary `worktree:provision` call, whose own refusals
+  stand.
 
 Reusable means an `unmanaged` tree, or an `ephemeral` tree in state
 `claimed`. *My call:* the main checkout is shared with other sessions and a
@@ -218,8 +232,11 @@ nothing.
 `runWriteVerb`; reusing it keeps one confinement path and keeps
 `lib/mcp/run-tools.ts` (outside this lane) untouched. `worktreeToolDefs`
 gains a `runTools` dependency (default `runToolDefs()`) so tests inject
-fakes. A `runDb` the confinement refuses is reported before the daemon is
-asked, as an `isError` result, so a bad `runDb` never costs a tree.
+fakes. `checkRunDb` is private to that file, so before the daemon is asked
+the tool checks only the `runDb`'s shape (an absolute path whose basename is
+`state.db`) and refuses a malformed one as an input mistake; full
+confinement happens inside `run_field_set`, and a `runDb` it refuses comes
+back as `recordError` beside the tree, which is still returned.
 
 ### Retry budget through `run_budget`
 
@@ -296,12 +313,16 @@ ref type sit beside `WorktreeProvisionData`. `dist/` is rebuilt
     call;
   - precheck calls only `worktree:provision-check`, never
     `worktree:provision`;
+  - a refusal is `isError` and its text parses as the JSON refusal;
   - reuse returns `reused` with no provision call for a claimed or
     unmanaged tree, refuses a main checkout and a disposable tree, refuses
-    two trees as `branch-duplicated`, and provisions when none;
+    two trees as `branch-duplicated`, provisions with `branch: base` when
+    only a local branch survives (ticket mode), and provisions normally
+    when neither;
   - `runDb` writes `branch` then `worktree` with the stage on `provisioned`
-    and `reused`, nothing on `precheck` or `refused`; a failed write returns
-    the tree with `recordError`; a refused `runDb` makes no daemon call;
+    and `reused`, nothing on `precheck` or `refused`; a failed or refused
+    write returns the tree with `recordError`; a malformed `runDb` makes no
+    daemon call;
   - `budget` charges on `refused` only, passes `stage`, returns the body;
     reports `{error}` when `run_budget` is absent or refuses; `budget`
     without `runDb` is an input error.
