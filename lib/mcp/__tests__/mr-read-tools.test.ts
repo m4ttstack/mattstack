@@ -306,3 +306,67 @@ describe("filterHumanThreads", () => {
     expect(res).toMatchObject({ ok: false, error: '"filter" must be unresolved-human' });
   });
 });
+
+describe("pipeline_jobs", () => {
+  const body = (b: unknown) => ({ status: 200, body: b, truncated: false, nextPage: null, totalPages: null });
+  const rawJob = (id: number, name: string, extra: Record<string, unknown> = {}) => ({ id, name, stage: "test", status: "failed", allow_failure: false, retried: false, web_url: `https://gl/jobs/${id}`, ...extra });
+
+  function jobsTool(mr: Record<string, unknown> = {}) {
+    const calls: Call[] = [];
+    const deps: MrReadDeps = {
+      command: (async (name: string, payload: Record<string, unknown>) => {
+        calls.push({ name, payload });
+        if (name === "mr:get") return { ok: true, data: { mr: { ...pr(2, "opened"), ...mr }, fetchedAt: 5 } };
+        const path = payload.path as string;
+        if (path === "/projects/:id/pipelines/9") return { ok: true, data: body({ id: 9, status: "failed", web_url: null, sha: "abc", ref: "feat", project_id: 1 }) };
+        if (path === "/projects/:id/pipelines/9/jobs") return { ok: true, data: body([rawJob(1, "lint", { retried: true }), rawJob(2, "lint"), rawJob(3, "unit")]) };
+        if (path === "/projects/:id/pipelines/9/bridges") return { ok: true, data: body([]) };
+        if (path === "/projects/:id/pipelines/55") return { ok: false, error: "GitLab returned 404 Not Found: {}" };
+        return { ok: false, error: `unrouted ${name} ${path}` };
+      }) as any,
+    };
+    return { t: tool(deps, "pipeline_jobs"), calls };
+  }
+  const env = {} as NodeJS.ProcessEnv;
+
+  test("declares no shell form", () => {
+    expect(jobsTool().t.shellForms).toEqual({ none: expect.stringContaining("wave 3") });
+  });
+  test("lists the head pipeline's jobs with pipelineId and attempt", async () => {
+    const { t } = jobsTool();
+    const r = await t.handler({ repoName: ID, iid: 2 }, env);
+    expect(r).toMatchObject({ ok: true, body: { state: "listed", pipeline: { id: 9 }, bridges: [] } });
+    expect((r.body as any).jobs).toEqual([
+      { jobId: 2, name: "lint", stage: "test", status: "failed", allowFailure: false, blocking: true, pipelineId: 9, attempt: 2, webUrl: "https://gl/jobs/2" },
+      { jobId: 3, name: "unit", stage: "test", status: "failed", allowFailure: false, blocking: true, pipelineId: 9, attempt: 1, webUrl: "https://gl/jobs/3" },
+    ]);
+  });
+  test("scope and name reach the walk", async () => {
+    const { t, calls } = jobsTool();
+    const r = await t.handler({ repoName: ID, iid: 2, scope: "failed", name: "unit" }, env);
+    expect((r.body as any).jobs.map((j: any) => j.name)).toEqual(["unit"]);
+    const jobCall = calls.find((c) => c.payload.path === "/projects/:id/pipelines/9/jobs")!;
+    expect((jobCall.payload.query as any)["scope[]"]).toBe("failed");
+  });
+  test("an unknown scope is refused", async () => {
+    const { t } = jobsTool();
+    const r = await t.handler({ repoName: ID, iid: 2, scope: "bogus" }, env);
+    expect(r.ok).toBe(false);
+  });
+  test("a GitHub MR returns unsupported_forge and reads nothing else", async () => {
+    const { t, calls } = jobsTool({ webUrl: "https://github.com/acme/proj/pull/2" });
+    expect(await t.handler({ repoName: ID, iid: 2 }, env)).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
+    expect(calls.map((c) => c.name)).toEqual(["mr:get"]);
+  });
+  test("no head pipeline and no pipelineId is a tool error", async () => {
+    const { t } = jobsTool({ pipeline: null });
+    const r = await t.handler({ repoName: ID, iid: 2 }, env);
+    expect(r.error).toBe("the MR has no pipeline; pass pipelineId");
+  });
+  test("an unknown pipelineId is a tool error", async () => {
+    const { t } = jobsTool();
+    const r = await t.handler({ repoName: ID, iid: 2, pipelineId: 55 }, env);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("55");
+  });
+});

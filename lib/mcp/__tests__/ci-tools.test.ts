@@ -310,6 +310,96 @@ describe("ci_watch", () => {
   });
 });
 
+describe("ci_triage", () => {
+  const GITHUB_URL = "https://github.com/acme/proj/pull/42";
+  const settings: Record<string, unknown> = {
+    "ci.triage.realPatterns": ["SETTINGS_BOOM"],
+    "ci.triage.infraPatterns": [],
+    "ci.triage.noisyJobs": [],
+    "ci.triage.baseDepth": 3,
+    "ci.triage.skipBase": false,
+  };
+  const body = (b: unknown) => ({ ok: true, data: { status: 200, body: b, truncated: false, nextPage: null, totalPages: null } });
+
+  function triageTool(mr: Record<string, unknown> | null = {}) {
+    const calls: Array<{ name: string; payload: Record<string, unknown> }> = [];
+    const command = (async (name: string, payload: Record<string, unknown>) => {
+      calls.push({ name, payload });
+      if (name === "mr:get") {
+        return { ok: true, data: { mr: { iid: 42, targetBranch: "main", webUrl: MR, pipeline: { id: "gitlab:pipeline:10", status: "failed", jobs: [] }, ...mr }, fetchedAt: 0 } };
+      }
+      if (name === "mr:fetch-job-trace") return { ok: true, data: "SETTINGS_BOOM in unit\nINLINE_BOOM in unit\n" };
+      const path = payload.path as string;
+      if (path === "/projects/:id/pipelines/10") return body({ id: 10, status: "failed", web_url: null, sha: "abc", ref: "feat", project_id: 1 });
+      if (path === "/projects/:id/pipelines/10/jobs") return body([{ id: 5, name: "unit", stage: "test", status: "failed", allow_failure: false, retried: false }]);
+      if (path === "/projects/:id/pipelines/10/bridges") return body([]);
+      return { ok: false, error: `unrouted ${name} ${path}` };
+    }) as any;
+    const t = ciToolDefs({
+      triage: { command, resolve: async () => ({ ok: true, identity: "remote:x", iid: 42 }), readSetting: (k) => settings[k] },
+    }).find((x) => x.name === "ci_triage")!;
+    return { t, calls };
+  }
+  const target = { repoName: "remote:x", iid: 42, noBase: true };
+
+  test("declares no shell form and names why", () => {
+    expect(triageTool().t.shellForms).toEqual({ none: expect.stringContaining("wave 3") });
+  });
+  test("a GitHub MR returns unsupported_forge after the mr:get read and nothing else", async () => {
+    const { t, calls } = triageTool({ webUrl: GITHUB_URL });
+    const r = await t.handler(target, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
+    expect(typeof (r.body as any).next).toBe("string");
+    expect(calls.map((c) => c.name)).toEqual(["mr:get"]);
+  });
+  test("a github: head pipeline id is unsupported_forge too", async () => {
+    const { t } = triageTool({ pipeline: { id: "github:run:3", status: "failed", jobs: [] } });
+    expect(await t.handler(target, A)).toMatchObject({ body: { state: "unsupported_forge", forge: "github" } });
+  });
+  test("with no pipelineId it triages the head pipeline", async () => {
+    const { t, calls } = triageTool();
+    const r = await t.handler(target, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "triaged", pipeline: { id: 10 } } });
+    expect((r.body as any).next).toContain("mr_job_trace");
+    expect((r.body as any).next).toContain("mr_retry");
+    expect(calls.some((c) => c.payload.path === "/projects/:id/pipelines/10")).toBe(true);
+  });
+  test("an explicit pipelineId beats the head pipeline", async () => {
+    const { t, calls } = triageTool();
+    await t.handler({ ...target, pipelineId: 77 }, A);
+    expect(calls.some((c) => c.payload.path === "/projects/:id/pipelines/77")).toBe(true);
+  });
+  test("the MR has no pipeline and none is passed is a tool error", async () => {
+    const { t } = triageTool({ pipeline: null });
+    const r = await t.handler(target, A);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe("the MR has no pipeline; pass pipelineId");
+  });
+  test("settings patterns and inline config patterns both reach the engine", async () => {
+    const { t } = triageTool();
+    const r = await t.handler({ ...target, config: { "real-patterns": ["INLINE_BOOM"], description: "ignored" } }, A);
+    const job = (r.body as any).blocking[0];
+    expect(job.realHits).toEqual(["SETTINGS_BOOM in unit", "INLINE_BOOM in unit"]);
+    expect(job.verdict).toBe("REAL");
+  });
+  test("a bad inline config is a tool error", async () => {
+    const { t } = triageTool();
+    const r = await t.handler({ ...target, config: { "base-depth": 99 } }, A);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("base-depth");
+  });
+  test("a config that is not an object is a tool error", async () => {
+    const { t } = triageTool();
+    expect((await t.handler({ ...target, config: "x" }, A)).ok).toBe(false);
+    expect((await t.handler({ ...target, config: [] }, A)).ok).toBe(false);
+  });
+  test("a pipeline GitLab does not know is a tool error", async () => {
+    const { t } = triageTool();
+    const r = await t.handler({ ...target, pipelineId: 404 }, A);
+    expect(r.ok).toBe(false);
+  });
+});
+
 describe("abortableSleep", () => {
   test("resolves early on abort, not at the full timeout, and leaves no abort listener afterward", async () => {
     const ac = new AbortController();

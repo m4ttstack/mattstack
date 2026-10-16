@@ -10,11 +10,14 @@ import {
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
+import { gitlabTriageForge } from "../ci/gitlab-forge.ts";
+import { mergeConfig, settingsConfig, type InlineConfig } from "../ci/triage-config.ts";
+import { runTriage } from "../ci/triage.ts";
 import { watchPipeline, type WatchDeps, type WatchPipeline } from "../ci/watch.ts";
 import type { Pipeline as GlancePipeline } from "@mattstack/glance";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget } from "./mr-target.ts";
-import { tailTrace } from "./mr-read-tools.ts";
+import { readPipelineSubject, tailTrace, unsupportedGithub } from "./mr-read-tools.ts";
 import { checkOptional, checkPositiveInts, checkRequired, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 
 export interface CiLeaseToolDeps {
@@ -74,6 +77,16 @@ export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> 
   });
 }
 
+export interface CiTriageToolDeps {
+  command: typeof rtCommand;
+  resolve: typeof resolveMrTarget;
+  readSetting: (key: string) => unknown;
+}
+
+const realTriageDeps: CiTriageToolDeps = { command: rtCommand, resolve: resolveMrTarget, readSetting: (key) => getSetting(key).value };
+
+const TRIAGE_NEXT = "Read more of a job's log with mr_job_trace {jobId}; retry one job with mr_retry {jobId}. Whether to retry is your call: the verdicts and ownership are evidence, not an instruction.";
+
 const BUDGET_DEFAULT = 75;
 const BUDGET_MAX = 10_080;
 const EXTEND_MAX = 1440;
@@ -125,9 +138,10 @@ function leaseCall(input: Record<string, unknown>, env: NodeJS.ProcessEnv, owner
   }
 }
 
-export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Partial<CiWatchToolDeps> } = {}): McpToolDef[] {
+export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Partial<CiWatchToolDeps>; triage?: Partial<CiTriageToolDeps> } = {}): McpToolDef[] {
   const deps = { ...realLeaseDeps, ...overrides };
   const w = { ...realWatchDeps, ...overrides.watch };
+  const tri = { ...realTriageDeps, ...overrides.triage };
   return [
     {
       name: "ci_lease_claim",
@@ -284,6 +298,48 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         } catch (e) {
           return err(e instanceof Error ? e.message : String(e));
         }
+      },
+    },
+    {
+      name: "ci_triage",
+      description: `GitLab only. Sort a pipeline's failed jobs, same-project child pipelines included, into REAL, INFRA or UNCLEAR by their log, and mark each blocking job yours, INHERITED (also failing on the target branch) or UNKNOWN. pipelineId defaults to the MR's head pipeline. Returns state triaged with pipeline, base, blocking, nonBlocking, crossProject, summary and next. Patterns and base settings come from ci.triage.*; config adds one-off real-patterns, infra-patterns and noisy-jobs, and sets base-depth, base-ref and skip-base. base names the comparison branch and noBase turns the comparison off. It reports; retrying is the caller's decision. ${REPO_NAME_RULE}`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...MR_TARGET_PROPS,
+          pipelineId: { type: "number", description: "The numeric part of a gitlab:pipeline:N id; default the MR's head pipeline." },
+          config: { type: "object", description: "Optional one-off override with the keys of a pack's ci-config.json." },
+          base: { type: "string", description: "The branch whose recent failures mark a job INHERITED." },
+          noBase: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
+      shellForms: { none: "no glab verb triages a pipeline's failures; the script forms join in wave 3" },
+      async handler(input, _env, _signal, progress) {
+        const bad = checkOptional(input, [{ name: "pipelineId", type: "number" }, { name: "base", type: "string" }, { name: "noBase", type: "boolean" }])
+          ?? checkPositiveInts(input, ["pipelineId"]);
+        if (bad) return err(bad);
+        if (input.config !== undefined && (typeof input.config !== "object" || input.config === null || Array.isArray(input.config))) return err('"config" must be an object');
+        let config;
+        try {
+          config = mergeConfig(settingsConfig(tri.readSetting), input.config as InlineConfig | undefined);
+        } catch (e) {
+          return err(e instanceof Error ? e.message : String(e));
+        }
+        if ("error" in config) return err(config.error);
+        const target = await tri.resolve(input);
+        if (!target.ok) return err(target.error);
+        const subject = await readPipelineSubject(tri.command, target, input.pipelineId as number | undefined);
+        if (subject.kind === "error") return err(subject.error);
+        if (subject.kind === "github") return ok(unsupportedGithub("ci_triage"));
+        const report = await runTriage(gitlabTriageForge(tri.command, target), {
+          pipelineId: subject.pipelineId,
+          targetBranch: subject.targetBranch,
+          config,
+          ...(typeof input.base === "string" && { base: input.base }),
+          ...(input.noBase === true && { noBase: true }),
+        }, { ...(progress && { onProgress: progress }) });
+        return "error" in report ? err(report.error) : ok({ state: "triaged", ...report, next: TRIAGE_NEXT });
       },
     },
   ];
