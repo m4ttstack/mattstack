@@ -123,8 +123,7 @@ One merge, validate and write of the `evidence` field.
             path?, annotated?, caption?, waiver?}],
  cases?: [{id, label?, waiver?}],
  remove?: [{case, slot?, theme?}],
- transcript?, url?, plan?: "none",
- copy?: boolean}
+ transcript?, url?, plan?: "none"}
 ```
 - `case` is the case id (`^[a-z0-9][a-z0-9-]{0,63}$`). `label` names a new
   case. It can also come from `cases[]`, and it is required when the case
@@ -171,14 +170,25 @@ Then, in order:
 5. `transcript` and `url` set run-level keys. `attach` is only ever carried
    over.
 
-**Copy (`copy: true`).** This is Matt's ruling on the open policy question
-(gate `8f4b7290`, q1), adjusted to #822's flat layout.
-- Each `path`, `annotated` and `transcript` named in the call that is not
-  already inside the run's evidence folder is copied to
-  `~/.mattstack/work/<run id>/evidence/` (flat). The record stores the
-  copied path.
-- `<run id>` is the path segment before `/state.db` in `runDb`. The folder
-  is created when missing.
+**Copy into the run's folder.** This is Matt's ruling on the open policy
+question (gate `8f4b7290` q1, reaffirmed in shepherd DM #5811 over the
+narrower reading in #5808). Every team files into one run folder, which
+ends ingestion's `upload_root` question.
+- Each image's `path` and `annotated` named in the call is copied to
+  `~/.mattstack/work/<run id>/evidence/<case>/`, unless it is already
+  there, and the record stores the copied path.
+- A `transcript` is copied to `~/.mattstack/work/<run id>/evidence/`.
+- `<run id>` is the path segment before `/state.db` in `runDb`. Folders
+  are created as needed, and that run folder is the only place the tool
+  writes.
+- Copying is always on. There is no opt-out flag, since the run folder is
+  the one evidence root.
+- Per-case folders fit #822. A pair board covers its own case's before and
+  after, so a pair spec's bare-name reference to the before bundle resolves
+  inside the same case folder. A board's redaction record and crops copy
+  beside it as part of its bundle.
+- Only bundle file types are copied: the upload extensions plus `json`,
+  `txt` and `log`. Never a dotfile.
 - **Allowed sources.** A source is allowed only when its realpath is a
   regular file with one link, and sits inside one of these:
   - a root `mr_upload` would admit for the run's repo: the checkout, its
@@ -432,9 +442,9 @@ its retry.
 
 | # | Change | Status |
 |---|---|---|
-| B1 | `evidence_record {copy: true}` files captures into the run's evidence folder (flat bundles) instead of each domain's own folder. That ends the `upload_root` question once wave 3 adopts it. | Approved by Matt (gate `8f4b7290` q1). Flat instead of `<caseId>/` subfolders is this spec's adjustment for #822 and needs confirming. |
+| B1 | `evidence_record` copies captures (whole bundles) into one run folder, `~/.mattstack/work/<run id>/evidence/<case>/`, for every team, instead of each domain's folder. That ends ingestion's `upload_root` question once wave 3 adopts it. | Approved by Matt (gate `8f4b7290` q1; shepherd DM #5811). |
 | B2 | A resumed attach reuses an earlier upload, by sha256 and project, instead of re-uploading. | Approved by Matt (gate `8f4b7290` q2). |
-| B3 | Shared boards print once and upload once (#822's rules) rather than main's one entry per image. | Follows #822, which lands in the same release. It is identical to today when no board is shared. Needs confirming. |
+| B3 | Shared boards print once and upload once (#822's rules) rather than main's one entry per image. | Flagged improvement: follows #822, which lands in the same release, and is identical to today when no board is shared. |
 | B4 | `mr_upload {paths}` and the three new tools are additive. Single-path `mr_upload` is unchanged. | No change. |
 
 Everything else mirrors today's skill text:
