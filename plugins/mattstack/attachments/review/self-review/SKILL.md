@@ -102,6 +102,8 @@ digraph self_review {
     "Requirements source answer?" [shape=diamond];
     "Print the self-review depth block" [shape=box];
     "Run the checks the self-review depth names" [shape=box];
+    "Self-review repro takes a browser screenshot?" [shape=diamond];
+    "Capture the self-review repro with the browser (browser-evidence)" [shape=box];
     "Who forms the self-review judgment?" [shape=diamond];
     "STOP: never judge your own diff inline; dispatch the fresh reviewer" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Dispatch the fresh reviewer on your own diff" [shape=box];
@@ -171,7 +173,10 @@ digraph self_review {
     "Requirements source answer?" -> "Print the self-review depth block" [label="a source picked"];
     "Requirements source answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for self-review" [label="hold"];
     "Print the self-review depth block" -> "Run the checks the self-review depth names";
-    "Run the checks the self-review depth names" -> "Who forms the self-review judgment?";
+    "Run the checks the self-review depth names" -> "Self-review repro takes a browser screenshot?";
+    "Self-review repro takes a browser screenshot?" -> "Capture the self-review repro with the browser (browser-evidence)" [label="yes"];
+    "Self-review repro takes a browser screenshot?" -> "Who forms the self-review judgment?" [label="no: read or verify depth, or the domain's own method"];
+    "Capture the self-review repro with the browser (browser-evidence)" -> "Who forms the self-review judgment?";
     "Who forms the self-review judgment?" -> "Dispatch the fresh reviewer on your own diff" [label="a fresh reviewer, always"];
     "Who forms the self-review judgment?" -> "STOP: never judge your own diff inline; dispatch the fresh reviewer" [label="tempted to give your own read"];
     "STOP: never judge your own diff inline; dispatch the fresh reviewer" -> "Dispatch the fresh reviewer on your own diff";
@@ -277,6 +282,29 @@ worktree, so `verify` and `repro` need no provisioning.
 The review flow's "Set up for the depth": the tests, type checks and
 linters the depth names, in this worktree. Record each command and its
 result; they travel to the reviewer as setup observations.
+
+### Self-review repro takes a browser screenshot?
+
+Yes at `repro` depth when EVIDENCE CHECK is `screenshot` and the Criteria
+point at a browser target (a `## Browser target` section, in the criteria
+or in the file they point at for it) whose What proves a change names a
+view for this change, or that has no What proves a change block. Bound
+criteria with no browser target answer no: the repro keeps the domain's
+own method. With nothing bound, yes when the repro's evidence is a
+screenshot of a web page. `read` and `verify` depth answer no.
+
+### Capture the self-review repro with the browser (browser-evidence)
+
+The review flow's "A browser screenshot at repro" is this step: walk
+browser-evidence's `Draw the boards` graph (Browser evidence below) for
+the repro's views, in this worktree, one brief per view built from the
+browser target, with the stem and evidence folder that section gives
+(`<mr iid>` is the branch's MR iid when one is in hand, else this run's
+id). Every terminal goes on to the judgment step: a board kept in the
+review's evidence folder, or Not drawn with its reason, both in the setup
+observations. After `Reads right?` yes, go straight to Keep the bundle's copy,
+skipping `Crops returned?` and the redaction gate; a review board is never
+recorded or uploaded.
 
 ### Dispatch the fresh reviewer on your own diff
 
@@ -446,6 +474,10 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 {{include:review-dispatch-body-after}}
 
 {{include:review-core-body-tail}}
+
+## Browser evidence
+
+{{include:browser-evidence}}
 
 ## Gate protocol
 
