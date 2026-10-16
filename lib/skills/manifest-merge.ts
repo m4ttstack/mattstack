@@ -51,6 +51,8 @@ function bindingsShapeError(bindings: unknown, path: string): string | null {
 function pipelineShapeError(type: string, value: unknown): string | null {
   if (Array.isArray(value)) return isStringArray(value) ? null : `pipelines.${type} is not an array of strings`;
   if (!isObject(value)) return `pipelines.${type} is not an array of strings or an object`;
+  const unknown = Object.keys(value).find((key) => key !== "stages" && key !== "bindings");
+  if (unknown !== undefined) return `pipelines.${type}.${unknown} is not a known key (stages, bindings)`;
   if (value.stages !== undefined && !isStringArray(value.stages)) return `pipelines.${type}.stages is not an array of strings`;
   if (value.bindings === undefined) return null;
   const problem = bindingsShapeError(value.bindings, `pipelines.${type}.bindings`);
@@ -149,7 +151,7 @@ const PROVENANCE_LINE = /^\/\/\s{3}(.+?) <- (\S+)\s*$/;
 
 const DROPPED_LINE = /^\/\/ dropped: (.+?) <- (\S+)\s*$/;
 
-const ZONE_LINE =/^\/\/ zone: (\S+)\s*$/;
+const ZONE_LINE = /^\/\/ zone: (\S+)\s*$/;
 
 /** `zone` is the team clone's slug under teams/; the stale-file sweep reads it back to tell a removed pack from an absent zone. */
 export function renderManifest(merged: MergedManifest, opts: { repo: string; pack: string; zone: string }): string {

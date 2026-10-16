@@ -143,6 +143,11 @@ describe("parseFragment", () => {
     expect(() => parseFragment('{"pipelines":{"a":{"stages":"x"}}}', "/f.jsonc")).toThrow("fragment pipelines.a.stages is not an array of strings: /f.jsonc");
     expect(() => parseFragment('{"pipelines":{"a":{"bindings":{"r":{"s":1}}}}}', "/f.jsonc")).toThrow("fragment pipelines.a.bindings.r.s is not a string: /f.jsonc");
   });
+  test("an object pipeline refuses an unknown key", () => {
+    const text = '{"pipelines":{"accessibility":{"stages":["s"],"binding":{"s":{"x":"acme:y"}}}}}';
+    expect(() => parseFragment(text, "/f.jsonc")).toThrow(FragmentError);
+    expect(() => parseFragment(text, "/f.jsonc")).toThrow('fragment pipelines.accessibility.binding is not a known key (stages, bindings): /f.jsonc');
+  });
   test("bad pipeline name", () => {
     const text = '{"pipelines":{"Access_ibility":{"stages":["s"],"bindings":{"s":{"x":"acme:y"}}}}}';
     expect(() => parseFragment(text, "/f.jsonc")).toThrow(FragmentError);
