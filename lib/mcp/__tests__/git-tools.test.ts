@@ -893,10 +893,10 @@ describe("branch_sync tool", () => {
     expect(r.ok).toBe(true);
     expect(r.body).toMatchObject({ kind: "stacked-refused", pushed: false, refusal: "feat/x is a member of stack s; sync the stack instead. Run: /gitq:sync", stackCheck: refusal });
   });
-  test("a stack check that could not run is stacked-refused too, told apart by stackCheck.kind and naming no tool", async () => {
+  test("a stack check that could not run is stack-unverified, never stacked-refused, and names no tool", async () => {
     const unavailable = { kind: "stack-check-unavailable", branch: "feat/x", source: "forge", stack: null, mrs: null, tool: "", hint: "rt could not list the open merge requests, so it cannot tell whether this branch is in a stack (gh: not logged in)" };
     const r = await runSync(4, JSON.stringify(unavailable, null, 2));
-    expect(r.body).toMatchObject({ kind: "stacked-refused", pushed: false, refusal: unavailable.hint, stackCheck: { kind: "stack-check-unavailable", tool: "" } });
+    expect(r.body).toMatchObject({ kind: "stack-unverified", pushed: false, refusal: unavailable.hint, stackCheck: { kind: "stack-check-unavailable", tool: "" } });
   });
   test("a rejected push is push-refused: the branch moved locally, origin did not", async () => {
     const r = await runSync(1, "", "Could not push feat/x  ! [rejected] feat/x -> feat/x (stale info)\n", { head: "bbb" });
