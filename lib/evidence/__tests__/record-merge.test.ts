@@ -85,6 +85,30 @@ describe("mergeRecord", () => {
     expect(uncoveredImages(rec)).toEqual([{ case: "a", slot: "after", path: "/a.png", why: "no-cover" }]);
   });
 
+  test("a case waiver written with its images stays on the case and covers them", () => {
+    const rec = merged(parseCurrent(null), {
+      cases: [{ id: "a", label: "A", waiver: "w" }],
+      images: [{ case: "a", slot: "before", path: "/b.png" }],
+    });
+    expect(rec.cases[0]!.waiver).toBe("w");
+    expect(uncoveredImages(rec)).toEqual([]);
+  });
+
+  test("a new case waiver replaces an old one without migrating it", () => {
+    const cur = parseCurrent('{"v":2,"cases":[{"id":"a","label":"A","waiver":"old","before":{"path":"/b.png"}}]}');
+    const rec = merged(cur, { cases: [{ id: "a", waiver: "new" }], images: [{ case: "a", slot: "after", path: "/a.png" }] });
+    expect(rec.cases[0]!.waiver).toBe("new");
+    expect(rec.cases[0]!.before).toEqual({ path: "/b.png" });
+  });
+
+  test("a missing-image error says when the slot is recaptured in the same call", () => {
+    const r = mergeRecord(parseCurrent(two), {
+      images: [{ case: "a", slot: "after", theme: "light", path: "/n.png", waiver: "w" }, { case: "a", slot: "after", theme: "dark", caption: "c" }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("replaced by this call's recapture");
+  });
+
   test("an entry with annotated and waiver is refused, naming the address", () => {
     const r = mergeRecord(parseCurrent(two), { images: [{ case: "a", slot: "before", annotated: "/x.png", waiver: "w" }] });
     expect(r.ok).toBe(false);

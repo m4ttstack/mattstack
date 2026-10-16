@@ -197,6 +197,8 @@ export function mergeRecord(current: RawRecord, input: MergeInput): { ok: true; 
     } else covers.push(e);
   }
 
+  const rewaived = new Set((input.cases ?? []).filter((c) => c.waiver).map((c) => c.id));
+  const preWaived = new Set(current.cases.filter((c) => c.waiver && !rewaived.has(c.id)).map((c) => c.id));
   const moved = new Set<string>();
   for (const [key, entries] of recaptures) {
     const [id, slotName] = key.split("\0") as [string, Slot];
@@ -207,7 +209,7 @@ export function mergeRecord(current: RawRecord, input: MergeInput): { ok: true; 
       c = { id, label };
       record.cases.push(c);
     }
-    if (!moved.has(id)) { moveCaseWaiver(c); moved.add(id); }
+    if (preWaived.has(id) && !moved.has(id)) { moveCaseWaiver(c); moved.add(id); }
     const themed = entries.filter((e) => e.theme);
     if (themed.length && themed.length !== entries.length) {
       return { ok: false, error: `${where(id, slotName)}: give every image a theme or none` };
@@ -228,7 +230,10 @@ export function mergeRecord(current: RawRecord, input: MergeInput): { ok: true; 
     if (slot && !isSingle(slot) && !e.theme) return { ok: false, error: `${where(e.case, e.slot)}: theme required, this slot is themed` };
     if (slot && isSingle(slot) && e.theme) return { ok: false, error: `${where(e.case, e.slot)}: this slot has no themes` };
     const img = imageAt(c, e.slot, e.theme);
-    if (!img) return { ok: false, error: `${where(e.case, e.slot, e.theme)}: no image there to update` };
+    if (!img) {
+      const replaced = recaptures.has(`${e.case}\0${e.slot}`) ? "; slot is replaced by this call's recapture" : "";
+      return { ok: false, error: `${where(e.case, e.slot, e.theme)}: no image there to update${replaced}` };
+    }
     patchCover(img, e);
   }
 
