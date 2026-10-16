@@ -170,8 +170,15 @@ carrying the stages and that pipeline's binding overrides:
   `<stage>--<pipeline>` (e.g. `stage-evidence--accessibility`). Two
   pipelines never share a copy, even with identical fills, so anything
   holding a (pipeline, stage) pair can find the copy by name.
-- `{{verb.path:...}}`, stale sweeps and `rt skills check`'s
-  recompile-and-diff cover the extra copies.
+- `{{verb.path:...}}` and `rt skills check`'s recompile-and-diff cover the
+  extra copies. Compile removes a copy's directory once it is no longer a
+  target (today no sweep removes a stage directory), and check reports a
+  leftover one, since console and runs would otherwise read a stale copy.
+- Console's wiring view finds a work verb's stage links through its
+  `verb.path` anatomy parts. The generated table keeps one such part per
+  row, so existing packs keep their stage links.
+- `bind` refuses a copy's name as its verb (`--pipeline` is how to reach
+  a copy), and the interactive picker hides copies.
 - The stage allowed-tools union stays off for `work`, as the work cutover
   left it. The generated stage table must not use `{{pipeline.stages}}`,
   whose presence is what turns the union on (`commands/skills.ts`
@@ -180,9 +187,11 @@ carrying the stages and that pipeline's binding overrides:
   materialize, naming the pipeline.
 - `rt skills check` errors on: a pipeline override for a stage the pipeline
   does not list; a work verb naming an undeclared pipeline; a pipeline that
+  a work verb runs (one whose engine renders the stage table) and that
   does not start with `stage-provision`, end with `stage-watch-ci`, and
-  include `stage-ship` (the work digraph special-cases all three, and its
-  close step treats the last row as watch-ci); a pipeline's
+  include `stage-implement` and `stage-ship` (the work digraph's close
+  step walks back to implement, holds against watch-ci, and needs `mr` and
+  `ci`; pipelines no work verb runs keep today's rules); a pipeline's
   stages that fail the existing consumes/produces chain check
   (`pipelineChainErrors`).
 
@@ -264,8 +273,9 @@ same project:
 - How `StageEntry` records which engine a copy runs (it has no engine
   field today).
 - The new placeholder that renders the orchestrator's stage table (not
-  `{{pipeline.stages}}`, see Compile), and what happens to `{{work-type}}`,
-  which nothing will use.
+  `{{pipeline.stages}}`, see Compile). `{{work-type}}`, `{{pipeline.stages}}`
+  and the no-argument `{{run-start.flags}}` render as today whatever the
+  verb's pipeline.
 - The exact provenance key format for pipeline override slots, within what
   `readManifestProvenance` can parse.
 - How `run-start.flags` is keyed once work type and pipeline differ.
