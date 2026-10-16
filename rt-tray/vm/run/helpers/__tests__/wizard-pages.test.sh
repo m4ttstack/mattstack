@@ -97,9 +97,10 @@ rows_on() {  # <page or pane>
     browser) echo "tool.fast-browser tool.fast-browser-extension" ;;
     rt) if [ "$HIDE_PROXY" = 1 ]; then echo "tool.rt"; else echo "tool.rt tool.proxy"; fi ;;
     team) echo "home.backup" ;;
+    all) for p in $PAGES; do rows_on "$p"; done ;;
   esac
 }
-model() {  # <wizard|noplan|summary> <page index> [<rowId>=<status>...]; every other row is ready
+model() {  # <wizard|noplan|summary|legacy> <page index> [<rowId>=<status>...]; every other row is ready
   local p r kv
   printf '%s' "$1" > "$M/mode"; printf '%s' "$2" > "$M/cur"; printf 0 > "$M/open"; printf overview > "$M/pane"
   : > "$M/calls"; : > "$M/status"; rm -f "$M/stuck-once" "$M/stale-once"; shift 2
@@ -112,15 +113,17 @@ note() { printf '%s\n' "$1" >> "$M/calls"; }
 calls() { tr '\n' ' ' < "$M/calls"; }
 count() { grep -c -- "$1" "$M/calls" || true; }
 page_now() { local i; i=$(cat "$M/cur"); set -- $PAGES; shift "$i"; printf '%s' "$1"; }
-page_last() { set -- $PAGES; [ "$(cat "$M/cur")" -eq $(($# - 1)) ]; }
+page_last() { [ "$(cat "$M/mode")" = legacy ] && return 0; set -- $PAGES; [ "$(cat "$M/cur")" -eq $(($# - 1)) ]; }
 page_blocked() {
   local r
-  for r in $(rows_on "$(page_now)"); do
+  for r in $(rows_on "$(where_now)"); do
     case "$REQUIRED" in *" $r "*) [ "$(status_of "$r")" = ready ] || return 0 ;; esac
   done
   return 1
 }
-where_now() { if [ "$(cat "$M/mode")" = summary ]; then cat "$M/pane"; else page_now; fi; }
+# legacy: the one-list checklist of an app from before the wizard, which the
+# update leg installs. Every row is on it, with no page id and no progress.
+where_now() { case "$(cat "$M/mode")" in summary) cat "$M/pane" ;; legacy) echo all ;; *) page_now ;; esac; }
 # A row's container id is left out on purpose: the driver must not need it.
 screen_ids() {
   local mode r
@@ -129,6 +132,7 @@ screen_ids() {
     install) echo setup.install.screen; return 0 ;;
     noplan) printf '%s\n' setup.checklist.screen setup.checklist.page. setup.window.progress setup.checklist.back setup.checklist.continue; return 0 ;;
     wizard) printf '%s\n' setup.checklist.screen "setup.checklist.page.$(page_now)" setup.window.progress ;;
+    legacy) echo setup.checklist.screen ;;
     summary) printf '%s\n' setup.done.screen setup.checklist.group.overview; for r in $PAGES; do echo "setup.checklist.group.$r"; done ;;
   esac
   for r in $(rows_on "$(where_now)"); do
@@ -138,6 +142,7 @@ screen_ids() {
   done
   echo setup.checklist.noAction.toggle
   if [ "$mode" = wizard ]; then printf '%s\n' setup.checklist.recheck setup.checklist.back setup.checklist.continue; fi
+  if [ "$mode" = legacy ]; then printf '%s\n' setup.checklist.recheck setup.checklist.continue; fi
 }
 ax_dump_ids() { screen_ids; }
 ax_find_raw() { ax_ids_have "$(screen_ids)" "$1"; }
@@ -341,6 +346,17 @@ model wizard 4
 readiness
 check "a wizard that opens on its last page and cannot be turned back fails before Install" \
   '[ "$rc" -ne 0 ] && [ "$(cat "$M/mode")" = wizard ] && [ "$(count "continue@rt")" -eq 0 ] && grep -q "could not be turned back to its first" "$AX_LOG"'
+
+PAGES="mac accounts agents browser rt team"
+model legacy 0 perm.login-items=needs-you
+readiness
+check "a checklist with no pages, from before the wizard, has its rows answered and Install pressed" \
+  '[ "$rc" -eq 0 ] && [ "$(cat "$M/mode")" = install ] && [ "$(clicks)" = "row.perm.login-items.action@all continue@all " ]'
+model legacy 0 tool.clt=missing
+readiness
+check "a checklist with no pages has a required row answered before Install" \
+  '[ "$rc" -eq 0 ] && [ "$(clicks)" = "row.tool.clt.action@all continue@all " ]'
+PAGES="mac accounts agents browser rt"
 
 model noplan 0
 screen_wait_plan() { return 1; }
