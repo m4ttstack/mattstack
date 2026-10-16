@@ -1441,6 +1441,11 @@ Apply a gate's answer to a stage: retry, redirect, iterate, hold, abandon or don
     "note": {
       "type": "string"
     },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The attempt the gate was asked about (the <n> in its scope); a retried call for an answer already applied returns it with repeated: true."
+    },
     "decidedBy": {
       "type": "string"
     }
