@@ -7,7 +7,7 @@ import { renderPipelinesManifest } from "../../skills/pipeline-manifest.ts";
 import { enterRun, pickManifest, type EnterInput, type EnterResult } from "../enter.ts";
 import { readManifest } from "../engine.ts";
 import { runStart } from "../start.ts";
-import { fieldSet, openRunDb, stageEnd, stageStart } from "../write.ts";
+import { createRunDb, fieldSet, openRunDb, stageEnd, stageStart } from "../write.ts";
 
 const dirs: string[] = [];
 
@@ -316,5 +316,33 @@ describe("resume", () => {
     const err = mustFail(input(root, tmp("rt-enter-empty-"), { resume: bare.runId }));
     expect(err).toContain("no pack/pipelines.json");
     ro(bare.runDb, (d) => expect(d.query("SELECT COUNT(*) AS n FROM fields WHERE key = 'claude-session'").get()).toEqual({ n: 0 }));
+  });
+});
+
+describe("repo confinement", () => {
+  function decoy(): { root: string; runDb: string; before: Buffer } {
+    const base = tmp("rt-enter-escape-");
+    const root = join(base, "runs");
+    mkdirSync(root);
+    const runDb = join(base, "x", "victim", "state.db");
+    mkdirSync(join(base, "x", "victim"), { recursive: true });
+    const db = createRunDb(runDb);
+    db.run("INSERT INTO runs (id, repo, work_type, pipeline, status, started_at) VALUES ('victim','x','feature','work','running',1)");
+    db.run("INSERT INTO fields (run_id, key, value, produced_by, at) VALUES ('victim','hold','stuck','plan',1)");
+    db.close();
+    return { root, runDb, before: readFileSync(runDb) };
+  }
+  const escaped = (root: string): Partial<EnterInput> => ({ start: { repo: "../x", workType: "feature", pipeline: "work" }, root });
+
+  test("resume with repo ../x is refused and the run outside the root is untouched", () => {
+    const d = decoy();
+    expect(mustFail(input(d.root, pack(), { ...escaped(d.root), resume: "victim" }))).toContain("--repo must be a single path component");
+    expect(readFileSync(d.runDb).equals(d.before)).toBe(true);
+  });
+
+  test("handedRunDb with repo ../x is refused and the run outside the root is untouched", () => {
+    const d = decoy();
+    expect(mustFail(input(d.root, pack(), { ...escaped(d.root), handedRunDb: d.runDb }))).toContain("--repo must be a single path component");
+    expect(readFileSync(d.runDb).equals(d.before)).toBe(true);
   });
 });

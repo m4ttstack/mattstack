@@ -8,7 +8,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { join, resolve, sep } from "path";
 import { parsePipelinesManifest, PIPELINES_REL } from "../skills/pipeline-manifest.ts";
-import { cleared, failOf, must, positionOf, readManifest, setManifestRoot, writeManifest, type ManifestInput, type Position } from "./engine.ts";
+import { cleared, FailError, failOf, must, positionOf, readManifest, setManifestRoot, writeManifest, type ManifestInput, type Position } from "./engine.ts";
 import { recordIdentity } from "./identity.ts";
 import { isPathComponent } from "./paths.ts";
 import { runStart, type RunStartOpts } from "./start.ts";
@@ -125,44 +125,45 @@ function resumeRun(i: EnterInput, id: string, handedFlag: { handedRunDb?: "not-r
     return refuse(`could not open run ${id}: ${String(err)}`);
   }
   try {
-    const run = db.query("SELECT id, status, work_type, current_stage FROM runs LIMIT 1").get() as
-      | { id: string; status: string; work_type: string; current_stage: string | null }
-      | undefined;
-    if (!run) return refuse(`run ${id} has no run row`);
-    if (run.status !== "running") return refuse(`run ${id} is ${run.status}; only a running run can be resumed`);
-    if (run.work_type !== i.start.workType) return refuse(`run ${id} belongs to work type ${run.work_type}, not ${i.start.workType}`);
-
-    let manifest = readManifest(db);
-    let backfill: ManifestInput[] | null = null;
-    if (manifest.length === 0) {
-      const picked = pickManifest(i.packRoot, { stage: i.stage, pipeline: i.pipeline, pipelineFlag: i.start.pipeline });
-      if (!picked.ok) return picked;
-      const names = new Set(picked.stages.map((s) => s.stage));
-      const rows = db.query("SELECT DISTINCT name FROM stages").all() as { name: string }[];
-      if (rows.some((r) => !names.has(r.name))) return refuse("this run's stages do not match the pack's pipeline; start fresh");
-      backfill = picked.stages;
-    }
-
+    // immediate: the write lock is taken before the checks read, so a run
+    // that ends in between cannot be resumed from a stale read.
     return db.transaction((): Ok<EnterResult> | Fail => {
+      const refused = (error: string): never => {
+        throw new FailError(refuse(error));
+      };
+      const run = db.query("SELECT id, status, work_type, current_stage FROM runs LIMIT 1").get() as
+        | { id: string; status: string; work_type: string; current_stage: string | null }
+        | undefined;
+      if (!run) return refused(`run ${id} has no run row`);
+      if (run.status !== "running") return refused(`run ${id} is ${run.status}; only a running run can be resumed`);
+      if (run.work_type !== i.start.workType) return refused(`run ${id} belongs to work type ${run.work_type}, not ${i.start.workType}`);
+
+      let manifest = readManifest(db);
+      let backfilled = false;
+      if (manifest.length === 0) {
+        const picked = must(pickManifest(i.packRoot, { stage: i.stage, pipeline: i.pipeline, pipelineFlag: i.start.pipeline }));
+        const names = new Set(picked.stages.map((s) => s.stage));
+        const rows = db.query("SELECT DISTINCT name FROM stages").all() as { name: string }[];
+        if (rows.some((r) => !names.has(r.name))) return refused("this run's stages do not match the pack's pipeline; start fresh");
+        writeManifest(db, picked.stages, i.stage !== undefined ? null : i.packRoot);
+        manifest = readManifest(db);
+        backfilled = true;
+      }
+
       recordIdentity(db, i.env, now);
       const hold = db.query("SELECT value FROM fields WHERE key = 'hold'").get() as { value: string } | undefined;
       const clearedHold = hold != null && !cleared(hold.value);
-      if (backfill) {
-        writeManifest(db, backfill, i.stage !== undefined ? null : i.packRoot);
-        manifest = readManifest(db);
-      } else if (manifest.some((m) => m.file !== null)) {
-        setManifestRoot(db, i.packRoot);
-      }
+      if (!backfilled && manifest.some((m) => m.file !== null)) setManifestRoot(db, i.packRoot);
       let current = run.current_stage;
       if (current === null) {
         const first = manifest[0];
-        if (!first) return refuse(`run ${id} has no stage to start`);
+        if (!first) return refused(`run ${id} has no stage to start`);
         must(stageStart(db, first.stage, i.env, now));
         current = first.stage;
       }
       if (clearedHold) must(fieldSet(db, "hold", "-", current, now));
       return { ok: true, mode: "resumed", runDb, runId: run.id, at: positionOf(db, current), clearedHold, ...handedFlag };
-    })();
+    }).immediate();
   } catch (err) {
     return failOf(err);
   } finally {
@@ -243,6 +244,7 @@ function startRun(i: EnterInput, handedFlag: { handedRunDb?: "not-running" }): O
 }
 
 export function enterRun(i: EnterInput): Ok<EnterResult> | Fail {
+  if (!isPathComponent(i.start.repo)) return refuse(`--repo must be a single path component: ${i.start.repo}`);
   const handedFlag: { handedRunDb?: "not-running" } = {};
   if (i.handedRunDb !== undefined) {
     const inherited = inherit(i.root, i.start.repo, i.handedRunDb);
@@ -252,7 +254,6 @@ export function enterRun(i: EnterInput): Ok<EnterResult> | Fail {
   }
   if (i.resume !== undefined) return resumeRun(i, i.resume, handedFlag);
   if (i.fresh || i.start.spawnedBy) return startRun(i, handedFlag);
-  if (!isPathComponent(i.start.repo)) return refuse(`--repo must be a single path component: ${i.start.repo}`);
   const candidates = scanCandidates(i.root, i.start.repo, i.start.workType, i.env.CLAUDE_CODE_SESSION_ID);
   if (candidates.length === 0) return startRun(i, handedFlag);
   return { ok: true, mode: "candidates", candidates, ...handedFlag };
