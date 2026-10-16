@@ -8,6 +8,7 @@ import { buildReviewSource, reviewSourceErrors } from "../review-source.ts";
 
 const ROOT = join(import.meta.dir, "../../..");
 const GC = join(ROOT, "plugins/mattstack/attachments/review/receive-review/scripts/gate-ctx.sh");
+const GC_REVIEW_COPY = join(ROOT, "plugins/mattstack/attachments/review/review/scripts/gate-ctx.sh");
 const RS = join(ROOT, "plugins/mattstack/attachments/review/review/scripts/review-source.sh");
 const FIXTURE: Record<string, string> = {
   "plan-source": "plugins/mattstack/attachments/review/receive-review/tests/fixtures/plan-source.json",
@@ -294,6 +295,10 @@ const MODES: Mode[] = [
 function portOpen(src: GateCtxSource, args: string[]) {
   return args[0] === "prose" ? proseOpen(src) : fitOpen(src, args[2] === undefined ? undefined : Number(args[2]));
 }
+
+test("the review skill's gate-ctx.sh is byte-identical to the parity-checked copy", () => {
+  expect(readFileSync(GC_REVIEW_COPY)).toEqual(readFileSync(GC));
+});
 
 test("jq is on PATH", () => {
   expect(Bun.which("jq"), "jq is required for the gate-ctx parity test").toBeTruthy();
