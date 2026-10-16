@@ -28,7 +28,7 @@ import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, r
 import { forgeReadToolDefs } from "./forge-read-tools.ts";
 import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
-import { answerGate, askGate, GATE_RUN_PROPS, gateToolDefs, realGateToolDeps } from "./gate-tools.ts";
+import { ANSWERED_RUN_PROPS, answerGate, askGate, GATE_RUN_PROPS, gateToolDefs, realGateToolDeps } from "./gate-tools.ts";
 import { worktreeToolDefs } from "./worktree-tools.ts";
 import {
   checkOptional, checkPositiveInts, checkRequired, checkStringArray,
@@ -153,7 +153,7 @@ export function mcpTools(): McpToolDef[] {
           id: { type: "string" },
           answers: { type: "object", additionalProperties: ANSWER_VALUE_SCHEMA },
           override: { type: "boolean" },
-          ...GATE_RUN_PROPS,
+          ...ANSWERED_RUN_PROPS,
           record: { type: "boolean", description: "Record the answer as the scope's decision (default true). A review site passes false and records with gate_record." },
         },
         required: ["id", "answers"],

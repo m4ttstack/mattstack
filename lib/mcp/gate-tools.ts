@@ -82,6 +82,14 @@ export const GATE_RUN_PROPS = {
   scope: { type: "string", description: "The decision scope on the run; defaults to the gate's kind." },
 };
 
+export const ANSWERED_RUN_PROPS = {
+  ...GATE_RUN_PROPS,
+  scope: {
+    type: "string",
+    description: "The decision scope on the run; defaults to the scope whose extra.gate-source.<scope> names this gate (post for a review-post gate), else the gate's kind.",
+  },
+};
+
 function runHandler(defs: ReturnType<typeof runToolDefs>, name: string) {
   const def = defs.find((d) => d.name === name);
   if (!def) throw new Error(`run tool ${name} is missing`);
@@ -137,6 +145,23 @@ export async function openRun(
 
 function fieldValue(run: RunHandle, key: string): string | undefined {
   return run.snapshot.fields.find((f) => f.key === key)?.value;
+}
+
+/** The scope an answered gate records under when the caller names none: the one
+    whose stored gate source names this gate, since a kind need not be its
+    scope (review-post records under post); else the row's kind. */
+function answeredScope(input: Record<string, unknown>, run: RunHandle, row: GateRow): string {
+  if (typeof input.scope === "string") return input.scope;
+  const prefix = "extra.gate-source.";
+  for (const f of run.snapshot.fields) {
+    if (!f.key.startsWith(prefix)) continue;
+    try {
+      if ((JSON.parse(f.value) as { gate?: unknown }).gate === row.id) return f.key.slice(prefix.length);
+    } catch {
+      continue;
+    }
+  }
+  return row.kind;
 }
 
 function wellFormed(questions: unknown[]): questions is GateQuestion[] {
@@ -333,7 +358,7 @@ export async function answerGate(input: Record<string, unknown>, env: NodeJS.Pro
   const { row } = res.data;
   if (!opened) return ok({ ...res.data, recorded: false, ...answerFields(row) });
   const recorded = await recordAnswered(opened.run, row, {
-    scope: typeof input.scope === "string" ? input.scope : row.kind,
+    scope: answeredScope(input, opened.run, row),
     shape: "answers",
     record: input.record !== false,
   });
@@ -534,7 +559,7 @@ export async function reconcileGate(input: Record<string, unknown>, env: NodeJS.
   }
   if (!run) return ok({ status: "answered", row, recorded: false, ...answerFields(row) });
   const recorded = await recordAnswered(run, row, {
-    scope: typeof input.scope === "string" ? input.scope : row.kind,
+    scope: answeredScope(input, run, row),
     shape: "answers",
     record: input.record !== false,
   });
@@ -630,7 +655,7 @@ export async function recordGate(input: Record<string, unknown>, env: NodeJS.Pro
 
 const GATE_OPEN_DESCRIPTION = "Build, validate and size-fit a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. The context is fitted to the shared 8192-byte budget (structured with optional parts trimmed, else prose); the form view is always the prose of the untrimmed source. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: \"post\" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits, trimmed, contextDropped (fits false or the daemon dropped context), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}, with option text truncated as gate_ask does and dropping whole question contexts largest first (then the gate context) when even prose is over budget; outPath also writes the open, in gate-ctx.sh's output shape, to a temp-root file.";
 
-const GATE_RECONCILE_DESCRIPTION = "The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: \"answered\", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the gate's kind) with the answer's by as the decider, unless a decision on that scope already landed since the gate opened (alreadyReconciled) or record is false; it clears waiting-gate when it names this gate. closed: returns {status: \"closed\", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: \"open\"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.";
+const GATE_RECONCILE_DESCRIPTION = "The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: \"answered\", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the scope whose extra.gate-source.<scope> names this gate, else the gate's kind) with the answer's by as the decider, unless a decision on that scope already landed since the gate opened (alreadyReconciled) or record is false; it clears waiting-gate when it names this gate. closed: returns {status: \"closed\", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: \"open\"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.";
 
 const GATE_RECORD_DESCRIPTION = "Record a gate decision on a run that no gate tool recorded at answer time: a review scope at its site's own point (respond-plan, respond-post and post after acting), or a decision handed in by the caller (answers plus decidedBy, for a board wrapper). runDb, stage and scope are required. gateId reads that answered gate (an open or closed gate is refused) and its answer's by is the decider. shape picks the selection: answers (the normalized answers map, never skipped), respond-plan ({threads, texts?, overrides?, notes?, code-changes} plus rows for the report), respond-post ({threads: {<id>: {post, resolve, text?, note?}}, held?}) or post ({findings, disposition, replies?, restored?}); the three review shapes record nothing when a next answer other than proceed is present. Cards come from source, sourcePath or review when passed, else from the run's extra.gate-source.<scope>. It always upserts its own gate, so a held respond-post resume re-records with held; it refuses only a stale gate, one whose scope's stored source names a different gate stored after this one opened. Returns {recorded, selection, decidedBy, rows?, answers, writeIn, next, actOnWriteIn, skipped?, runErrors?}. It records only; the skill acts.";
 
@@ -675,7 +700,7 @@ export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[
         properties: {
           id: { type: "string", description: "The gate id." },
           record: { type: "boolean", description: "Record the answers map on the run (default true); review sites pass false and record with gate_record." },
-          ...GATE_RUN_PROPS,
+          ...ANSWERED_RUN_PROPS,
         },
         required: ["id"],
         additionalProperties: false,

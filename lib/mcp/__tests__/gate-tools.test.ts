@@ -768,6 +768,48 @@ describe("gate_reconcile", () => {
   });
 });
 
+describe("the answered scope default", () => {
+  const postRow = row({ kind: "review-post", answer: { answers: { outcome: "comment" }, by: "pane", answeredAt: 2000 } });
+  const answeredPost = { ok: true, data: { status: "answered", row: postRow } };
+  const storedFor = (gate: string): Field => ({ key: "extra.gate-source.post", value: JSON.stringify({ gate, source: { questions: [] } }), at: 1100 });
+
+  test("a late review-post reconcile with no scope finds post's decision through its gate source and writes nothing", async () => {
+    const f = fake({ waitRes: answeredPost, fields: [storedFor("g1"), ARMED], decisions: [decided("post", 1500)] });
+    const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
+    expect(body(res)).toMatchObject({ status: "answered", recorded: false, alreadyReconciled: true });
+    expect(f.log).toEqual(["snapshot", "wait", CLEAR]);
+  });
+
+  test("a late review-post answer with no scope finds post's decision and writes nothing", async () => {
+    const f = fake({ answerRes: { ok: true, data: { row: postRow, conflict: true } }, fields: [storedFor("g1")], decisions: [decided("post", 1500)] });
+    const res = await answerGate({ id: "g1", answers: { outcome: "comment" }, ...RUN }, ENV, f.deps);
+    expect(body(res)).toMatchObject({ recorded: false, alreadyReconciled: true });
+    expect(f.log).toEqual(["snapshot", "answer"]);
+  });
+
+  test("an on-time review-post reconcile records under post", async () => {
+    const f = fake({ waitRes: answeredPost, fields: [storedFor("g1")] });
+    await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
+    expect(f.log.at(-1)).toBe(recordLine("post", { outcome: "comment" }, "pane"));
+  });
+
+  test("with no gate source naming this gate, the scope stays the row's kind", async () => {
+    const f = fake({ waitRes: answeredPost, fields: [storedFor("g0"), { key: "extra.gate-source.bad", value: "not json", at: 1 }], decisions: [decided("post", 1500)] });
+    const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
+    expect(body(res)).toMatchObject({ recorded: true });
+    expect(f.log.at(-1)).toBe(recordLine("review-post", { outcome: "comment" }, "pane"));
+    const a = fake({ answerRes: { ok: true, data: { row: postRow } }, fields: [storedFor("g0")] });
+    await answerGate({ id: "g1", answers: { outcome: "comment" }, ...RUN }, ENV, a.deps);
+    expect(a.log.at(-1)).toBe(recordLine("review-post", { outcome: "comment" }, "pane"));
+  });
+
+  test("an explicit scope still wins over the gate source", async () => {
+    const f = fake({ waitRes: answeredPost, fields: [storedFor("g1")] });
+    await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN, scope: "custom" }, ENV);
+    expect(f.log.at(-1)).toBe(recordLine("custom", { outcome: "comment" }, "pane"));
+  });
+});
+
 describe("gate_record", () => {
   const record = (input: Record<string, unknown>, f: ReturnType<typeof fake>) => tool("gate_record", f.deps).handler(input, ENV);
   const REC = { ...RUN, scope: "respond-plan", shape: "respond-plan", gateId: "g1" };
