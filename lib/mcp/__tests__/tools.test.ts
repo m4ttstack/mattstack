@@ -2,7 +2,9 @@ import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { mcpTools } from "../tools.ts";
+import type { CiLease } from "../../../packages/rt-client/src/index.ts";
+import type { GuardResult } from "../../ci/lease-guard.ts";
+import { mcpTools, mrToolDeps } from "../tools.ts";
 import { normalizeGateQuestions } from "../../../packages/rt-client/src/gate-options.ts";
 import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
@@ -707,6 +709,65 @@ describe("mcpTools", () => {
       const res = await tool.handler({ ...T, jobId: "812" }, {} as NodeJS.ProcessEnv);
       expect(res.error).toBe('"jobId" must be a number');
       expect(calls).toEqual([]);
+    });
+
+    describe("mr_retry leaseMrUrl", () => {
+      const LEASE_MR = "https://gitlab.com/acme/app/-/merge_requests/7";
+      const holder: CiLease = { mr: LEASE_MR, owner: "session:other", holder: "watch-ci", startedAt: 1, heartbeatAt: 2, ttlSeconds: 300 };
+      const real = mrToolDeps.ensureLease;
+      afterEach(() => { mrToolDeps.ensureLease = real; });
+
+      function stubGuard(result: GuardResult) {
+        const guardCalls: Array<{ url: string; env: NodeJS.ProcessEnv }> = [];
+        mrToolDeps.ensureLease = (url, env) => { guardCalls.push({ url, env }); return result; };
+        return guardCalls;
+      }
+      const env = { CLAUDE_CODE_SESSION_ID: "mine" } as NodeJS.ProcessEnv;
+      const retry = () => mcpTools().find((t) => t.name === "mr_retry")!;
+
+      test("without leaseMrUrl the guard is never called and the retry runs", async () => {
+        const calls = fakeDaemon();
+        const guardCalls = stubGuard({ ok: false, error: "must not be called" });
+        const res = await retry().handler({ ...T, jobId: 812 }, env);
+        expect(res).toEqual({ ok: true, body: { jobId: 812 } });
+        expect(guardCalls).toEqual([]);
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:action"]);
+      });
+
+      test("a refusing guard returns retried: false with the holder and never calls the daemon", async () => {
+        const calls = fakeDaemon();
+        const guardCalls = stubGuard({ ok: false, refused: "lease_held", holder });
+        const res = await retry().handler({ ...T, jobId: 812, leaseMrUrl: LEASE_MR }, env);
+        expect(res).toEqual({ ok: true, body: { retried: false, refused: "lease_held", holder } });
+        expect(guardCalls).toEqual([{ url: LEASE_MR, env }]);
+        expect(calls).toEqual([]);
+      });
+
+      test("a guard error is an error result and never calls the daemon", async () => {
+        const calls = fakeDaemon();
+        stubGuard({ ok: false, error: "not an https MR or PR URL: nope" });
+        const res = await retry().handler({ ...T, pipelineId: 555, leaseMrUrl: "nope" }, env);
+        expect(res.ok).toBe(false);
+        expect(res.error).toBe("not an https MR or PR URL: nope");
+        expect(calls).toEqual([]);
+      });
+
+      test("a held guard runs the retry", async () => {
+        const calls = fakeDaemon();
+        stubGuard({ ok: true, lease: holder, claimed: true });
+        const res = await retry().handler({ ...T, pipelineId: 555, leaseMrUrl: LEASE_MR }, env);
+        expect(res).toEqual({ ok: true, body: { pipelineId: 555 } });
+        expect(calls.map((c) => c.payload.action)).toEqual(["retryPipeline"]);
+      });
+
+      test("a non-string leaseMrUrl is refused before the guard and the daemon", async () => {
+        const calls = fakeDaemon();
+        const guardCalls = stubGuard({ ok: false, error: "must not be called" });
+        const res = await retry().handler({ ...T, jobId: 812, leaseMrUrl: 5 }, env);
+        expect(res.error).toBe('"leaseMrUrl" must be a string');
+        expect(guardCalls).toEqual([]);
+        expect(calls).toEqual([]);
+      });
     });
 
     test("mr_approve refuses a non-positive-integer iid", async () => {
