@@ -459,6 +459,19 @@ describe("evidence_attach", () => {
     expect(parseUploads(fields.get("evidence-uploads")!)[realpathSync(one)]).toEqual({ linked: true, at: 1_700_000_000_000 });
   });
 
+  test("a resumed call without linkRefused keeps a remembered linked file linked: no re-upload, no refusal", async () => {
+    const { one, evidence } = twoWaived();
+    const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes("path is outside the allowed upload roots (...)") : undefined);
+    const { deps, calls } = makeDeps({ fields: { evidence }, respond });
+    await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, linkRefused: true }, env);
+    const before = calls.length;
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(uploads(calls.slice(before)).some((c) => c.payload.path === one)).toBe(false);
+    expect(Object.values(body.refused).flat()).toEqual([]);
+    expect(body.section).toContain(`- Before: ${one}`);
+    expect(body.notWritten).toBe("unchanged");
+  });
+
   test("reuse: a matching sha256 and project skips the upload; new bytes or a redaction record re-upload", async () => {
     const { board, evidence } = boardRecord();
     const prior = serializeUploads({ [realpathSync(board)]: { sha256: sha256Of(board), project: IDENT, url: "https://gitlab.com/acme/web/uploads/old/badge.png", markdown: "![badge](/uploads/old/badge.png)", at: 1 } });

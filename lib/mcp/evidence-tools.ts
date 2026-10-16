@@ -521,7 +521,9 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const shas = new Map<string, string>();
   for (const path of paths) {
     const real = realOr(path);
-    const reuse = reusable(uploadsMap[real], real, target.identity);
+    const entry = uploadsMap[real];
+    if (!linkRefused && entry && "linked" in entry && entry.linked === true) continue;
+    const reuse = reusable(entry, real, target.identity);
     if (reuse) {
       uploaded.push({ path, url: reuse.url, markdown: reuse.markdown, reused: true });
       continue;
@@ -709,7 +711,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead. The target is mrUrl, or repoName with iid, else the run's mr field; with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way stays linked and is not sent again. The target is mrUrl, or repoName with iid, else the run's mr field; with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
