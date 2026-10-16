@@ -5,10 +5,11 @@
  * clear of).
  */
 import {
-  herdAttend, herdClose, herdFollowUp, herdList, herdMilestone, herdResume, herdSpawn, herdStart, herdStatus, herdWrapUp,
+  gateAnswer, gateOptionValue, gatePark, herdAttend, herdClose, herdDiagnose, herdFollowUp, herdGates, herdLanes, herdList, herdMilestone, herdNudge,
+  herdRespawn, herdResume, herdSpawn, herdStart, herdStatus, herdWrapUp, validateGateAnswers,
 } from "../../packages/rt-client/src/index.ts";
-import type { Commands } from "../../packages/rt-client/src/index.ts";
-import { readFileSync } from "fs";
+import type { Commands, GateRow, HerdStatusData } from "../../packages/rt-client/src/index.ts";
+import { existsSync, readFileSync } from "fs";
 import { resolveRepoTarget } from "./mr-target.ts";
 import { runRtVerb } from "./rt-verb.ts";
 import { checkOptional, checkRequired, checkStringArray, err, fromResponse, ok, requireWorkerEnv, resolveSoleHerd, type McpToolDef } from "./shared.ts";
@@ -17,6 +18,8 @@ import { checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRoot
 export interface HerdToolDeps {
   start: typeof herdStart; spawn: typeof herdSpawn; close: typeof herdClose; followUp: typeof herdFollowUp; status: typeof herdStatus; list: typeof herdList;
   attend: typeof herdAttend; wrapUp: typeof herdWrapUp; resume: typeof herdResume; milestone: typeof herdMilestone;
+  respawn: typeof herdRespawn; diagnose: typeof herdDiagnose; nudge: typeof herdNudge; lanes: typeof herdLanes;
+  gates: typeof herdGates; answer: typeof gateAnswer; park: typeof gatePark;
   verb: typeof runRtVerb;
   tempRoots: () => string[];
   readRoots: () => ReadRoots;
@@ -24,7 +27,9 @@ export interface HerdToolDeps {
 
 export const realHerdToolDeps: HerdToolDeps = {
   start: herdStart, spawn: herdSpawn, close: herdClose, followUp: herdFollowUp, status: herdStatus, list: herdList,
-  attend: herdAttend, wrapUp: herdWrapUp, resume: herdResume, milestone: herdMilestone, verb: runRtVerb,
+  attend: herdAttend, wrapUp: herdWrapUp, resume: herdResume, milestone: herdMilestone,
+  respawn: herdRespawn, diagnose: herdDiagnose, nudge: herdNudge, lanes: herdLanes, gates: herdGates, answer: gateAnswer, park: gatePark,
+  verb: runRtVerb,
   tempRoots: tempRootsForThisProcess, readRoots: readRootsForThisProcess,
 };
 
@@ -43,14 +48,98 @@ const IN_WORKER = "HERD_JOB is set, so this is a herd worker pane; only the shep
  * spawn into, close or wrap it up.
  */
 async function requireShepherd(herd: string, env: NodeJS.ProcessEnv, status: typeof herdStatus): Promise<string | null> {
-  if (!env.CLAUDE_CODE_SESSION_ID) return NO_SESSION;
-  const res = await status({ herd });
-  if (!res.ok) return fromResponse(res).error ?? `cannot read herd "${herd}"`;
-  if (res.data?.herd?.shepherdSession !== env.CLAUDE_CODE_SESSION_ID) {
-    return `this session is not the shepherd of herd "${herd}"; run herd_resume on it first to take it over`;
-  }
-  return null;
+  const r = await shepherdStatus(herd, env, status);
+  return "error" in r ? r.error : null;
 }
+
+async function shepherdStatus(herd: string, env: NodeJS.ProcessEnv, status: typeof herdStatus): Promise<{ error: string } | { data: HerdStatusData }> {
+  if (!env.CLAUDE_CODE_SESSION_ID) return { error: NO_SESSION };
+  const res = await status({ herd });
+  if (!res.ok) return { error: fromResponse(res).error ?? `cannot read herd "${herd}"` };
+  if (res.data?.herd?.shepherdSession !== env.CLAUDE_CODE_SESSION_ID) {
+    return { error: `this session is not the shepherd of herd "${herd}"; run herd_resume on it first to take it over` };
+  }
+  return { data: res.data };
+}
+
+/** The herd, from input or env, once this session is proven its shepherd. */
+async function shepherdHerd(input: Record<string, unknown>, env: NodeJS.ProcessEnv, status: typeof herdStatus): Promise<{ error: string } | { herd: string; data: HerdStatusData }> {
+  const h = await herdFor(input, env);
+  if ("error" in h) return h;
+  const r = await shepherdStatus(h.herd, env, status);
+  return "error" in r ? r : { herd: h.herd, data: r.data };
+}
+
+/** account, model and effort checks, then the confined brief read shared by herd_spawn and herd_respawn. */
+function launchInputs(input: Record<string, unknown>, readRoots: () => ReadRoots): { error: string } | { brief?: string } {
+  for (const k of ["account", "model", "effort"] as const) {
+    if (typeof input[k] === "string" && !LAUNCH_TOKEN.test(input[k] as string)) {
+      return { error: `${k} must be a plain token (letters, digits, . _ @ : [ ] -, not starting with -); got ${JSON.stringify(input[k])}` };
+    }
+  }
+  if (typeof input.brief !== "string") return {};
+  // herd:spawn and herd:respawn take the brief TEXT (the CLI reads --brief <file> itself), so the file is read here, after confinement.
+  const rr = readRoots();
+  const check = checkReadRootPath(input.brief, rr.roots, rr.pluginListError);
+  if (!check.ok) return { error: `brief: ${check.error}` };
+  let brief: string;
+  try {
+    brief = readFileSync(check.realpath, "utf8");
+  } catch (e) {
+    return { error: `brief: cannot read ${input.brief}: ${(e as Error).message}` };
+  }
+  // The brief becomes claude's last argv token with no `--` before it, so leading text of `-` is parsed as an option.
+  if (brief.trimStart().startsWith("-")) return { error: "brief: the brief's content must not start with \"-\" (it would be read as a claude option); open it with a heading or prose" };
+  return { brief };
+}
+
+async function herdGate(herd: string, gate: string, gates: typeof herdGates): Promise<{ error: string } | { row: GateRow }> {
+  const res = await gates({ herd });
+  if (!res.ok) return { error: fromResponse(res).error ?? `cannot read herd "${herd}"'s gates` };
+  const row = (res.data?.gates ?? []).find((g) => g.id === gate);
+  return row ? { row } : { error: `gate ${gate} is not an open gate of herd "${herd}"` };
+}
+
+/** Each question checked alone, so every bad answer is reported at once rather than only the first. */
+function invalidAnswers(row: GateRow, answers: Record<string, unknown>): Array<{ question: string; got: unknown; validValues: string[] }> {
+  const invalid: Array<{ question: string; got: unknown; validValues: string[] }> = [];
+  for (const q of row.questions) {
+    const one = Object.prototype.hasOwnProperty.call(answers, q.id) ? { [q.id]: answers[q.id] } : {};
+    if (validateGateAnswers([q], one)) invalid.push({ question: q.id, got: answers[q.id] ?? null, validValues: q.options.map(gateOptionValue) });
+  }
+  for (const k of Object.keys(answers)) {
+    if (!row.questions.some((q) => q.id === k)) invalid.push({ question: k, got: answers[k], validValues: [] });
+  }
+  return invalid;
+}
+
+/** gate_answer's value schema in lib/mcp/tools.ts; that file imports this one, so the shape is repeated here rather than imported. */
+const ANSWER_VALUE_SCHEMA = {
+  oneOf: [
+    { type: "string" },
+    { type: "array", items: { type: "string" } },
+    {
+      type: "object",
+      properties: {
+        value: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
+        note: { type: "string" },
+        text: { type: "string", pattern: "\\S", description: "Replacement for text the gate offered (an edited reply), used in its place. Comments go in note, never here." },
+      },
+      required: ["value"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        writeIn: { type: "string", pattern: "\\S", description: "The human's own answer, for a question opened with writeIn: true. Sent alone, never beside value, note or text." },
+      },
+      required: ["writeIn"],
+      additionalProperties: false,
+    },
+  ],
+};
+
+const NO_CLI_TWIN = "no CLI twin; the shepherd's rt gate answer --by shepherd and rt gate park lines stay on Bash until the skill moves";
 
 async function herdFor(input: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<{ herd: string } | { error: string }> {
   if (typeof input.herd === "string") return { herd: input.herd };
@@ -80,44 +169,142 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
     },
     {
       name: "herd_spawn",
-      description: "Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with \"-\"; omitted, the job's stored brief is reused. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.",
-      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" }, disposable: { type: "boolean" } }, required: ["job"], additionalProperties: false },
+      description: "Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with \"-\"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.",
+      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" }, disposable: { type: "boolean" }, tree: { type: "string", description: "A registered tree's name; never a directory." } }, required: ["job"], additionalProperties: false },
       shellForms: ["rt herd spawn", { id: "rt-herd", pattern: /(?<![\w-])rt\s+herd\b/, example: "rt herd stop", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_follow_up, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone" }],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         // The server does not enforce additionalProperties, and a caller-chosen dir would land the worker in a folder whose
         // .claude/settings.json the caller wrote, with the daemon auto-accepting its trust dialog.
         if ("dir" in input) return err("dir is not accepted: herd_spawn always provisions the job's own worktree");
-        const bad = checkRequired(input, [{ name: "job", type: "string" }]) ?? checkOptional(input, [{ name: "brief", type: "string" }, { name: "model", type: "string" }, { name: "effort", type: "string" }, { name: "account", type: "string" }, { name: "disposable", type: "boolean" }]);
+        const bad = checkRequired(input, [{ name: "job", type: "string" }]) ?? checkOptional(input, [{ name: "brief", type: "string" }, { name: "model", type: "string" }, { name: "effort", type: "string" }, { name: "account", type: "string" }, { name: "disposable", type: "boolean" }, { name: "tree", type: "string" }]);
         if (bad) return err(bad);
-        for (const k of ["account", "model", "effort"] as const) {
-          if (typeof input[k] === "string" && !LAUNCH_TOKEN.test(input[k] as string)) {
-            return err(`${k} must be a plain token (letters, digits, . _ @ : [ ] -, not starting with -); got ${JSON.stringify(input[k])}`);
-          }
-        }
-        // herd:spawn takes the brief TEXT (the CLI reads --brief <file> itself), so the file is read here, after confinement.
-        let brief: string | undefined;
-        if (typeof input.brief === "string") {
-          const rr = deps.readRoots();
-          const check = checkReadRootPath(input.brief, rr.roots, rr.pluginListError);
-          if (!check.ok) return err(`brief: ${check.error}`);
-          try {
-            brief = readFileSync(check.realpath, "utf8");
-          } catch (e) {
-            return err(`brief: cannot read ${input.brief}: ${(e as Error).message}`);
-          }
-          // The brief becomes claude's last argv token with no `--` before it, so leading text of `-` is parsed as an option.
-          if (brief.trimStart().startsWith("-")) return err("brief: the brief's content must not start with \"-\" (it would be read as a claude option); open it with a heading or prose");
-        }
-        const h = await herdFor(input, env);
+        const launch = launchInputs(input, deps.readRoots);
+        if ("error" in launch) return err(launch.error);
+        const h = await shepherdHerd(input, env, deps.status);
         if ("error" in h) return err(h.error);
-        const owner = await requireShepherd(h.herd, env, deps.status);
-        if (owner) return err(owner);
-        const payload: Commands["herd:spawn"]["payload"] = { herd: h.herd, job: input.job as string };
-        if (brief !== undefined) payload.brief = brief;
-        for (const k of ["model", "effort", "account"] as const) if (typeof input[k] === "string") payload[k] = input[k] as string;
+        const job = input.job as string;
+        if (typeof input.tree !== "string") {
+          const existing = h.data.jobs?.find((j) => j.name === job);
+          if (existing?.worktree && existsSync(existing.worktree)) return err(`job "${job}" already has a worktree; respawn it with herd_respawn`);
+        }
+        const payload: Commands["herd:spawn"]["payload"] = { herd: h.herd, job };
+        if (launch.brief !== undefined) payload.brief = launch.brief;
+        for (const k of ["model", "effort", "account", "tree"] as const) if (typeof input[k] === "string") payload[k] = input[k] as string;
         if (typeof input.disposable === "boolean") payload.disposable = input.disposable;
         return fromResponse(await deps.spawn(payload, { timeoutMs: SPAWN_TIMEOUT_MS }));
+      },
+    },
+    {
+      name: "herd_respawn",
+      description: "Relaunch a job's agent in its existing worktree (no provisioning). brief, account, model and effort follow herd_spawn's rules; omitted, the job's stored brief and launch settings are reused. Only the herd's shepherd session may call it. Takes minutes.",
+      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" } }, required: ["job"], additionalProperties: false },
+      shellForms: { none: NO_CLI_TWIN },
+      async handler(input, env) {
+        if (env.HERD_JOB) return err(IN_WORKER);
+        const bad = checkRequired(input, [{ name: "job", type: "string" }]) ?? checkOptional(input, [{ name: "brief", type: "string" }, { name: "model", type: "string" }, { name: "effort", type: "string" }, { name: "account", type: "string" }]);
+        if (bad) return err(bad);
+        const launch = launchInputs(input, deps.readRoots);
+        if ("error" in launch) return err(launch.error);
+        const h = await shepherdHerd(input, env, deps.status);
+        if ("error" in h) return err(h.error);
+        const payload: Commands["herd:respawn"]["payload"] = { herd: h.herd, job: input.job as string };
+        if (launch.brief !== undefined) payload.brief = launch.brief;
+        for (const k of ["model", "effort", "account"] as const) if (typeof input[k] === "string") payload[k] = input[k] as string;
+        return fromResponse(await deps.respawn(payload, { timeoutMs: SPAWN_TIMEOUT_MS }));
+      },
+    },
+    {
+      name: "herd_gate_answer",
+      description: "Answer one of this herd's open gates as the shepherd. Answer values must be the gate's option VALUES verbatim; a bad value returns status refused with each question's validValues and posts nothing. Returns status recorded, or conflict with the winning answer when another answer landed first. Only the herd's shepherd session may call it.",
+      inputSchema: { type: "object", properties: { ...HERD_PROP, gate: { type: "string" }, answers: { type: "object", additionalProperties: ANSWER_VALUE_SCHEMA } }, required: ["gate", "answers"], additionalProperties: false },
+      shellForms: { none: NO_CLI_TWIN },
+      async handler(input, env) {
+        if (env.HERD_JOB) return err(IN_WORKER);
+        const bad = checkRequired(input, [{ name: "gate", type: "string" }, { name: "answers", type: "object" }]);
+        if (bad) return err(bad);
+        const h = await shepherdHerd(input, env, deps.status);
+        if ("error" in h) return err(h.error);
+        const id = input.gate as string;
+        const g = await herdGate(h.herd, id, deps.gates);
+        if ("error" in g) return err(g.error);
+        const answers = input.answers as Commands["gate:answer"]["payload"]["answers"];
+        const invalid = invalidAnswers(g.row, answers);
+        if (invalid.length > 0) return ok({ status: "refused", invalid });
+        const res = await deps.answer({ id, answers, by: "shepherd", session: env.CLAUDE_CODE_SESSION_ID });
+        if (!res.ok && res.error === "owned-by") return err(`gate ${id} is owned by ${(res as { owner?: string }).owner ?? "unknown"}`);
+        if (!res.ok && res.error === "gate-closed") {
+          const reason = (res as { reason?: string }).reason ?? "closed";
+          const supersededBy = (res as { supersededBy?: string }).supersededBy;
+          return err(`gate ${id} is closed (${reason})${supersededBy ? `; superseded by ${supersededBy}` : ""}`);
+        }
+        if (!res.ok && res.error === "not-found") return err(`no gate ${id}`);
+        if (!res.ok) return fromResponse(res);
+        const winner = res.data?.row.answer;
+        if (res.data?.conflict) return ok({ status: "conflict", winner: { answers: winner?.answers ?? null, by: winner?.by ?? null } });
+        return ok({ status: "recorded", gate: id, answer: winner });
+      },
+    },
+    {
+      name: "herd_gate_park",
+      description: "Park one of this herd's open gates. Only the herd's shepherd session may call it.",
+      inputSchema: { type: "object", properties: { ...HERD_PROP, gate: { type: "string" } }, required: ["gate"], additionalProperties: false },
+      shellForms: { none: NO_CLI_TWIN },
+      async handler(input, env) {
+        if (env.HERD_JOB) return err(IN_WORKER);
+        const bad = checkRequired(input, [{ name: "gate", type: "string" }]);
+        if (bad) return err(bad);
+        const h = await shepherdHerd(input, env, deps.status);
+        if ("error" in h) return err(h.error);
+        const id = input.gate as string;
+        const g = await herdGate(h.herd, id, deps.gates);
+        if ("error" in g) return err(g.error);
+        const res = await deps.park({ id });
+        return res.ok ? ok({ status: "parked", gate: id }) : fromResponse(res);
+      },
+    },
+    {
+      name: "herd_diagnose",
+      description: "Diagnose a job that looks stuck: its pane state, open gates, last gate and watchdog strikes, with a verdict. Never returns pane text. Only the herd's shepherd session may call it.",
+      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" } }, required: ["job"], additionalProperties: false },
+      shellForms: { none: NO_CLI_TWIN },
+      async handler(input, env) {
+        if (env.HERD_JOB) return err(IN_WORKER);
+        const bad = checkRequired(input, [{ name: "job", type: "string" }]);
+        if (bad) return err(bad);
+        const h = await shepherdHerd(input, env, deps.status);
+        if ("error" in h) return err(h.error);
+        return fromResponse(await deps.diagnose({ herd: h.herd, job: input.job as string }));
+      },
+    },
+    {
+      name: "herd_nudge",
+      description: "Nudge a job about an answered gate it has not picked up, one rung up the ladder (a DM, then the pane) within its budget. Only the herd's shepherd session may call it.",
+      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, gate: { type: "string" } }, required: ["job", "gate"], additionalProperties: false },
+      shellForms: { none: NO_CLI_TWIN },
+      async handler(input, env) {
+        if (env.HERD_JOB) return err(IN_WORKER);
+        const bad = checkRequired(input, [{ name: "job", type: "string" }, { name: "gate", type: "string" }]);
+        if (bad) return err(bad);
+        const h = await shepherdHerd(input, env, deps.status);
+        if ("error" in h) return err(h.error);
+        return fromResponse(await deps.nudge({ herd: h.herd, job: input.job as string, gate: input.gate as string }));
+      },
+    },
+    {
+      name: "herd_lanes",
+      description: "Read every job's lane (or one job's): branch drift, files shared with other jobs, and the merge state of its PR or MR. Only the herd's shepherd session may call it.",
+      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" } }, additionalProperties: false },
+      shellForms: { none: NO_CLI_TWIN },
+      async handler(input, env) {
+        if (env.HERD_JOB) return err(IN_WORKER);
+        const bad = checkOptional(input, [{ name: "job", type: "string" }]);
+        if (bad) return err(bad);
+        const h = await shepherdHerd(input, env, deps.status);
+        if ("error" in h) return err(h.error);
+        const payload: Commands["herd:lanes"]["payload"] = { herd: h.herd };
+        if (typeof input.job === "string") payload.job = input.job;
+        return fromResponse(await deps.lanes(payload));
       },
     },
     {

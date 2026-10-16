@@ -2637,7 +2637,7 @@ Start a herd (room, workspace, gate subscription) for this shepherd session. rep
 ### herd_spawn
 
 <!-- mcp-lint: allow -->
-Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.
+Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.
 
 ```json
 {
@@ -2665,11 +2665,234 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
     },
     "disposable": {
       "type": "boolean"
+    },
+    "tree": {
+      "type": "string",
+      "description": "A registered tree's name; never a directory."
     }
   },
   "required": [
     "job"
   ],
+  "additionalProperties": false
+}
+```
+
+### herd_respawn
+
+<!-- mcp-lint: allow -->
+Relaunch a job's agent in its existing worktree (no provisioning). brief, account, model and effort follow herd_spawn's rules; omitted, the job's stored brief and launch settings are reused. Only the herd's shepherd session may call it. Takes minutes.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "job": {
+      "type": "string"
+    },
+    "brief": {
+      "type": "string",
+      "description": "Absolute path to the brief file; its contents are sent, not the path."
+    },
+    "model": {
+      "type": "string"
+    },
+    "effort": {
+      "type": "string"
+    },
+    "account": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_gate_answer
+
+<!-- mcp-lint: allow -->
+Answer one of this herd's open gates as the shepherd. Answer values must be the gate's option VALUES verbatim; a bad value returns status refused with each question's validValues and posts nothing. Returns status recorded, or conflict with the winning answer when another answer landed first. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "gate": {
+      "type": "string"
+    },
+    "answers": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          {
+            "type": "object",
+            "properties": {
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "note": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "Replacement for text the gate offered (an edited reply), used in its place. Comments go in note, never here."
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "writeIn": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "The human's own answer, for a question opened with writeIn: true. Sent alone, never beside value, note or text."
+              }
+            },
+            "required": [
+              "writeIn"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "gate",
+    "answers"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_gate_park
+
+<!-- mcp-lint: allow -->
+Park one of this herd's open gates. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "gate": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "gate"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_diagnose
+
+<!-- mcp-lint: allow -->
+Diagnose a job that looks stuck: its pane state, open gates, last gate and watchdog strikes, with a verdict. Never returns pane text. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "job": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_nudge
+
+<!-- mcp-lint: allow -->
+Nudge a job about an answered gate it has not picked up, one rung up the ladder (a DM, then the pane) within its budget. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "job": {
+      "type": "string"
+    },
+    "gate": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job",
+    "gate"
+  ],
+  "additionalProperties": false
+}
+```
+
+### herd_lanes
+
+<!-- mcp-lint: allow -->
+Read every job's lane (or one job's): branch drift, files shared with other jobs, and the merge state of its PR or MR. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "job": {
+      "type": "string"
+    }
+  },
   "additionalProperties": false
 }
 ```
