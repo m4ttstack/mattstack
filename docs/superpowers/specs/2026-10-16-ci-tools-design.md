@@ -105,8 +105,7 @@ My calls (Matt can overturn any of them on review):
 9. **Base windows also drop `parent_pipeline` pipelines.** GitLab lists child
    pipelines under their parent's ref, so the script's filter (schedule and
    external only) lets children take base-window slots and fewer real base
-   pipelines get compared. This is the one deliberate departure from the
-   script's rules; no fixture exercises it.
+   pipelines get compared. No fixture exercises it.
 10. **POSIX bracket classes are refused.** Patterns compile as JavaScript
     regular expressions; `[[:digit:]]` would compile and silently match
     something else, so a pattern containing `[[:` is a tool error naming it.
@@ -116,6 +115,29 @@ My calls (Matt can overturn any of them on review):
     with `traceAvailable: false` and the error text. The report never drops
     the job, so it cannot read as clean; a broken forge already fails the
     earlier pipeline and job reads.
+
+## Behaviour changes from today's scripts
+
+Everything else in `ci_triage` matches `ci-triage.sh` and its forge adapter,
+which the conformance twins pin. These differ on purpose:
+
+- No `--ref` input (Decision 5), and base windows drop `parent_pipeline`
+  pipelines (Decision 9).
+- Patterns containing `[[:` are refused (Decision 10); a trace read failure
+  keeps the job as UNCLEAR instead of failing the run (Decision 11).
+- Failed cross-project bridges are reported in `crossProject`, and so is a
+  failed trigger whose child pipeline was never created (`downstream: null`).
+  The shell adapter read every child under the parent's own project path,
+  where a cross-project child is not, and skipped a bridge with no child, so
+  a failed trigger read as no blocker.
+- `realHits` and `infraHits` drop every terminal escape for display.
+  Classification still runs on SGR-stripped text, as the script does.
+- `attempt` counts a job's retried runs, which the script did not report.
+
+New in `ci_watch {attend: true}`, with no script equivalent: only "no pipeline
+yet" or "a pipeline proved not to be this commit's" runs the no-pipeline
+clock. A merge-train pipeline that cannot be proved new, or a failed parents
+read, keeps returning `waiting` with its hint.
 
 ## Constraints
 
