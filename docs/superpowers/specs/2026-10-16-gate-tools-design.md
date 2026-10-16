@@ -138,7 +138,7 @@ Input:
 | `subject` | As `gate_ask` |
 | `handBack` | Build and fit only, open nothing (a caller that owns the gates) |
 | `outPath` | With `handBack`: also write the open to this temp-root path |
-| `runDb`, `stage`, `scope` | Optional run; `scope` defaults to `kind` (review-post opens kind `review-post`, scope `post`) |
+| `runDb`, `stage`, `scope` | Optional run; `scope` defaults to `kind`, with no kind-to-scope mapping (a review-post open passes `scope: "post"` itself) |
 
 Exactly one of `source`, `sourcePath`, `review`. Paths are confined:
 reads by `checkReadRootPath`, the `outPath` write by `checkTempRootPath`.
@@ -285,8 +285,9 @@ Shape contents:
 
 ### gate_answer (run-aware)
 
-New optional inputs: `runDb`, `stage`, `scope` (default: the answered
-row's `kind`), `record` (default true). With `runDb`, after the daemon
+New optional inputs: `runDb`, `stage`, `scope` (default: under a run, the
+scope whose `extra.gate-source.<scope>` names this gate, else the answered
+row's `kind`; the same default applies to `gate_reconcile`), `record` (default true). With `runDb`, after the daemon
 answers (recorded or `conflict: true`), the `answers` shape is recorded
 from the winning row unless `record` is false (review sites pass false and
 call `gate_record` at the point their site records). The result keeps
