@@ -1580,7 +1580,7 @@ describe("herd:spawn {tree} and herd:respawn", () => {
     expect(store.getJob(herd, "review-a")!.tree).toBeNull();
   });
 
-  test("spawning an existing job settles its old session's gates before launch", async () => {
+  test("spawning an existing job settles its old session's gates after launch", async () => {
     const t1 = claimedTree("t1");
     const { h, gate, gateStore, herd } = await started([t1]);
     expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
@@ -1594,6 +1594,32 @@ describe("herd:spawn {tree} and herd:respawn", () => {
     if (!res.ok) throw new Error(res.error);
     expect(gateStore.get(open.data.gate)).toMatchObject({ status: "closed", closedReason: "abandoned" });
     expect(gateStore.get(answered.data.gate)!.consumedAt).not.toBeNull();
+  });
+
+  test("a failed relaunch leaves the old session's gates pending for spawn and respawn alike", async () => {
+    for (const verb of ["herd:spawn", "herd:respawn"] as const) {
+      let starts = 0;
+      const agent = {
+        "agent:start": async (p: any) => {
+          starts += 1;
+          if (starts > 1) return { ok: false as const, error: "boom" };
+          return { ok: true as const, data: { id: "ag-1", sessionId: "sess-w1", paneId: "w9:p1", tabId: "w9:t1", workspaceId: "w9", repo: p.repo, cwd: p.cwd, surface: "herdr", provider: "claude" } };
+        },
+      } as unknown as HerdDeps["agent"];
+      const t1 = claimedTree("t1");
+      const { h, gate, gateStore, herd } = await started([t1], { agent });
+      expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+      const answered = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+      if (!answered.ok) throw new Error(answered.error);
+      expect((await gate["gate:answer"]({ id: answered.data.gate, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+      const open = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+      if (!open.ok) throw new Error(open.error);
+
+      const res = verb === "herd:spawn" ? await h["herd:spawn"]({ herd, job: "job-a", tree: "t1" }) : await h["herd:respawn"]({ herd, job: "job-a" });
+      expect(res.ok).toBe(false);
+      expect(gateStore.get(open.data.gate)!.status).toBe("open");
+      expect(gateStore.get(answered.data.gate)!.consumedAt).toBeNull();
+    }
   });
 
   test("respawn reuses the worktree and inherits model, effort and account", async () => {
@@ -1747,6 +1773,25 @@ describe("herd:gates", () => {
     const res = await hx.h["herd:gates"]({ herd });
     if (!res.ok) throw new Error(res.error);
     expect(res.data.gates.map((g) => g.id).sort()).toEqual([g1, g2].sort());
+  });
+
+  test("includeParked adds this herd's parked gates, never another herd's, and the default stays open-only", async () => {
+    const hx = harness({ runWorktree: (id) => (id === "run-1" ? "/w/job-a" : null) });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const herd = s.data.herd;
+    hx.store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active" });
+    const Q = [{ id: "q", label: "?", multi: false, options: ["a"] }];
+    const own = hx.gateStore.open({ subject: `herd:${herd}/job-a`, kind: "question", questions: Q }).row.id;
+    const run = hx.gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q }).row.id;
+    const other = hx.gateStore.open({ subject: "herd:hd-other/job-a", kind: "question", questions: Q }).row.id;
+    for (const id of [own, run, other]) hx.gateStore.park(id);
+    const open = await hx.h["herd:gates"]({ herd });
+    if (!open.ok) throw new Error(open.error);
+    expect(open.data.gates).toEqual([]);
+    const live = await hx.h["herd:gates"]({ herd, includeParked: true });
+    if (!live.ok) throw new Error(live.error);
+    expect(live.data.gates.map((g) => g.id).sort()).toEqual([own, run].sort());
   });
 });
 

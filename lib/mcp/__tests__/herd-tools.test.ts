@@ -29,7 +29,7 @@ afterAll(() => {
 
 const GATE_ROW = { id: "g1", questions: [{ id: "next", label: "Next?", multi: false, options: [{ value: "ship", label: "Ship" }, "hold"] }, { id: "free", label: "Notes", multi: false, options: [] }] };
 
-function fake(opts: { statusError?: string; statusData?: unknown; pluginListError?: string; answerResult?: unknown } = {}) {
+function fake(opts: { statusError?: string; statusData?: unknown; pluginListError?: string; answerResult?: unknown; parkedGate?: boolean } = {}) {
   const tempRoots = [FAKE_TEMP_ROOT];
   // A failed plugin listing leaves only the temp root, as the real resolver does.
   const readRoots = opts.pluginListError
@@ -47,7 +47,10 @@ function fake(opts: { statusError?: string; statusData?: unknown; pluginListErro
     start: rec("start"), spawn: rec("spawn"), close: rec("close"), followUp: rec("followUp"), status, list: rec("list"),
     attend: rec("attend"), wrapUp: rec("wrapUp"), resume: rec("resume"), milestone: rec("milestone"),
     respawn: rec("respawn"), diagnose: rec("diagnose"), nudge: rec("nudge"), lanes: rec("lanes"), park: rec("park"),
-    gates: (async (a: unknown) => { calls.push({ fn: "gates", a, o: undefined }); return { ok: true, data: { gates: [GATE_ROW] } }; }) as any,
+    gates: (async (a: { includeParked?: boolean }) => {
+      calls.push({ fn: "gates", a, o: undefined });
+      return { ok: true, data: { gates: opts.parkedGate && !a.includeParked ? [] : [GATE_ROW] } };
+    }) as any,
     answer: (async (a: any, o: unknown) => {
       calls.push({ fn: "answer", a, o });
       return opts.answerResult ?? { ok: true, data: { row: { ...GATE_ROW, answer: { answers: a.answers, by: a.by, answeredAt: 1 } } } };
@@ -417,6 +420,19 @@ describe("herd respawn, gate answer and park, diagnose, nudge, lanes", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toContain("g-other");
     expect(destructive()).toEqual([]);
+  });
+  test("herd_gate_answer admits a parked gate of this herd; herd_gate_park does not list parked gates", async () => {
+    const answering = fake({ parkedGate: true });
+    const r = await answering.tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { next: "ship", free: "x" } }, SESSION);
+    expect(r.body).toMatchObject({ status: "recorded", gate: "g1" });
+    expect(answering.calls.find((c) => c.fn === "gates")!.a).toEqual({ herd: "hd-1", includeParked: true });
+    const other = await answering.tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g-other", answers: { next: "ship" } }, SESSION);
+    expect(other.ok).toBe(false);
+    const parking = fake({ parkedGate: true });
+    const p = await parking.tool("herd_gate_park").handler({ herd: "hd-1", gate: "g1" }, SESSION);
+    expect(p.ok).toBe(false);
+    expect(parking.calls.find((c) => c.fn === "gates")!.a).toEqual({ herd: "hd-1" });
+    expect(parking.destructive()).toEqual([]);
   });
   test("herd_gate_answer returns refused with validValues for a bad value and never calls answer", async () => {
     const { tool, destructive } = fake();

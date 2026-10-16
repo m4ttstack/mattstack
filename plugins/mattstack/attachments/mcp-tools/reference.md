@@ -2718,7 +2718,7 @@ Relaunch a job's agent in its existing worktree (no provisioning). brief, accoun
 ### herd_gate_answer
 
 <!-- mcp-lint: allow -->
-Answer one of this herd's open gates as the shepherd. Answer values must be the gate's option VALUES verbatim; a bad value returns status refused with each question's validValues and posts nothing. Returns status recorded, or conflict with the winning answer when another answer landed first. Only the herd's shepherd session may call it.
+Answer one of this herd's open or parked gates as the shepherd. Answer values must be the gate's option VALUES verbatim; a bad value returns status refused with each question's validValues and posts nothing. Returns status recorded, or conflict with the winning answer when another answer landed first. Only the herd's shepherd session may call it.
 
 ```json
 {

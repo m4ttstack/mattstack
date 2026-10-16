@@ -1124,7 +1124,8 @@ export interface Commands {
   "herd:diagnose": { payload: { herd: string; job: string }; data: { job: string; status: HerdJobInfo["status"]; pane: string | null; paneState: "working" | "idle" | "modal" | "dead" | "gone" | null; verdict: HerdDiagnoseVerdict; openGates: Array<{ id: string; kind: string; presentation: "form" | "wait"; owner: string }>; lastGate: { id: string; status: GateStatus; consumed: boolean | null } | null; watchdog: { strikes: number; lastPokeAt: number | null } | null; budgets: HerdJobBudgets } };
   "herd:nudge": { payload: { herd: string; job: string; gate: string }; data: { gate: string; rung: "dm" | "pane"; delivered: boolean; needsHuman: boolean; why?: "pane-busy" | "form-open" | "pane-gone" | "not-claude" | "refused"; budget: HerdBudget } };
   "herd:lanes": { payload: { herd: string; job?: string }; data: { lanes: HerdLaneRow[]; collisions: Array<{ path: string; jobs: string[] }>; skipped: Array<{ job: string; reason: string }> } };
-  "herd:gates":  { payload: { herd: string }; data: { gates: GateRow[] } };
+  /** Open gates only unless `includeParked`, which the shepherd's answer path sets: a parked gate is still answerable. */
+  "herd:gates":  { payload: { herd: string; includeParked?: boolean }; data: { gates: GateRow[] } };
   "herd:ask":       { payload: { herd: string; job: string; session: string; pane?: string; questions: GateQuestion[]; context?: string }; data: { gate: string } };
   "herd:milestone": { payload: { herd: string; job: string; session: string; pane?: string; artifact: string; summary?: string }; data: { gate: string; message: number } };
   "herd:answer":    { payload: { gate: string; sessionId?: string }; data: { gate: string; status: GateStatus; answer: GateAnswer | null; closedReason: GateRow["closedReason"] } };

@@ -93,11 +93,12 @@ function launchInputs(input: Record<string, unknown>, readRoots: () => ReadRoots
   return { brief };
 }
 
-async function herdGate(herd: string, gate: string, gates: typeof herdGates): Promise<{ error: string } | { row: GateRow }> {
-  const res = await gates({ herd });
+/** A parked gate can only leave by answer or close, so answering admits it; parking stays open-only. */
+async function herdGate(herd: string, gate: string, gates: typeof herdGates, includeParked: boolean): Promise<{ error: string } | { row: GateRow }> {
+  const res = await gates(includeParked ? { herd, includeParked } : { herd });
   if (!res.ok) return { error: fromResponse(res).error ?? `cannot read herd "${herd}"'s gates` };
   const row = (res.data?.gates ?? []).find((g) => g.id === gate);
-  return row ? { row } : { error: `gate ${gate} is not an open gate of herd "${herd}"` };
+  return row ? { row } : { error: `gate ${gate} is not ${includeParked ? "an open or parked" : "an open"} gate of herd "${herd}"` };
 }
 
 /** Each question checked alone, so every bad answer is reported at once rather than only the first. */
@@ -218,7 +219,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
     },
     {
       name: "herd_gate_answer",
-      description: "Answer one of this herd's open gates as the shepherd. Answer values must be the gate's option VALUES verbatim; a bad value returns status refused with each question's validValues and posts nothing. Returns status recorded, or conflict with the winning answer when another answer landed first. Only the herd's shepherd session may call it.",
+      description: "Answer one of this herd's open or parked gates as the shepherd. Answer values must be the gate's option VALUES verbatim; a bad value returns status refused with each question's validValues and posts nothing. Returns status recorded, or conflict with the winning answer when another answer landed first. Only the herd's shepherd session may call it.",
       inputSchema: { type: "object", properties: { ...HERD_PROP, gate: { type: "string" }, answers: { type: "object", additionalProperties: ANSWER_VALUE_SCHEMA } }, required: ["gate", "answers"], additionalProperties: false },
       shellForms: { none: GATE_NO_CLI_TWIN },
       async handler(input, env) {
@@ -228,7 +229,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         const h = await shepherdHerd(input, env, deps.status);
         if ("error" in h) return err(h.error);
         const id = input.gate as string;
-        const g = await herdGate(h.herd, id, deps.gates);
+        const g = await herdGate(h.herd, id, deps.gates, true);
         if ("error" in g) return err(g.error);
         const answers = input.answers as Commands["gate:answer"]["payload"]["answers"];
         const invalid = invalidAnswers(g.row, answers);
@@ -259,7 +260,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         const h = await shepherdHerd(input, env, deps.status);
         if ("error" in h) return err(h.error);
         const id = input.gate as string;
-        const g = await herdGate(h.herd, id, deps.gates);
+        const g = await herdGate(h.herd, id, deps.gates, false);
         if ("error" in g) return err(g.error);
         const res = await deps.park({ id });
         return res.ok ? ok({ status: "parked", gate: id }) : fromResponse(res);

@@ -716,7 +716,7 @@ export function herdGates(
   a: Commands["herd:gates"]["payload"],
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["herd:gates"]["data"]>> {
-  return rtCommand<Commands["herd:gates"]["data"]>("herd:gates", { herd: a.herd }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<Commands["herd:gates"]["data"]>("herd:gates", { herd: a.herd, ...(a.includeParked && { includeParked: true }) }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function herdStatus(

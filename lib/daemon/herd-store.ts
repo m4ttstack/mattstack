@@ -307,8 +307,10 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
       db.run("INSERT INTO herd_watchdog_marks (kind, key, at) VALUES (?, ?, ?) ON CONFLICT(kind, key) DO UPDATE SET at = excluded.at", [kind, key, at]);
     },
     watchdogClear() {
-      db.run("DELETE FROM herd_watchdog_ladders");
-      db.run("DELETE FROM herd_watchdog_marks");
+      db.transaction(() => {
+        db.run("DELETE FROM herd_watchdog_ladders");
+        db.run("DELETE FROM herd_watchdog_marks");
+      })();
     },
     close_() { db.close(); },
   };

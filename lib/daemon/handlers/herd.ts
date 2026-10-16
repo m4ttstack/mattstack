@@ -226,8 +226,12 @@ export function createHerdHandlers(deps: HerdDeps) {
 
   type GateListing = { ok: true; data: GateRow[] } | { ok: false; error: string };
 
-  async function readOpenHerdGates(herdId: string): Promise<GateListing> {
-    const res = await deps.gate["gate:list"]({ open: true, subjectPrefix: herdPrefix(herdId) });
+  /** Parked gates are still answerable (gates-store has no unpark), so the shepherd's answer path lists them too. */
+  const liveGateFilter = (includeParked: boolean): Pick<Commands["gate:list"]["payload"], "open" | "status"> =>
+    includeParked ? { status: ["open", "parked"] } : { open: true };
+
+  async function readOpenHerdGates(herdId: string, includeParked = false): Promise<GateListing> {
+    const res = await deps.gate["gate:list"]({ ...liveGateFilter(includeParked), subjectPrefix: herdPrefix(herdId) });
     return res.ok ? { ok: true, data: res.data.gates } : { ok: false, error: res.error };
   }
 
@@ -236,8 +240,8 @@ export function createHerdHandlers(deps: HerdDeps) {
     return res.ok ? res.data : [];
   }
 
-  async function readHerdRunGates(herdId: string): Promise<GateListing> {
-    const runs = await deps.gate["gate:list"]({ open: true, subjectPrefix: "run:" });
+  async function readHerdRunGates(herdId: string, includeParked = false): Promise<GateListing> {
+    const runs = await deps.gate["gate:list"]({ ...liveGateFilter(includeParked), subjectPrefix: "run:" });
     if (!runs.ok) return { ok: false, error: runs.error };
     const trees = new Set(store.jobs(herdId).map((j) => j.worktree));
     return {
@@ -671,13 +675,13 @@ export function createHerdHandlers(deps: HerdDeps) {
       // A respawn that does not repeat --disposable must not un-dispose a
       // reviewer the shepherd already marked throwaway.
       const disposable = p?.disposable ?? prior?.disposable ?? false;
-      if (prior?.agentSession) await settleSessionGates(herdId, prior);
-
       const launched = await launchJob(herd, name, {
         worktree, branch, tree, disposable, prompt: prompt.text,
         model: str(p?.model) ?? null, effort: str(p?.effort) ?? null, account: str(p?.account) ?? null,
       });
       if (!launched.ok) return launched;
+      // Settled only once a new worker exists to re-ask: a failed launch leaves the old session's gates pending.
+      if (prior?.agentSession) await settleSessionGates(herdId, prior);
       if (!host) return { ok: true, data: { ...launched.data, wasOnDeck } };
       const key = await latestMilestoneArtifact(herdId, host.name);
       const used = store.tickBudget(herdId, host.name, "reviewerRounds", key);
@@ -699,7 +703,6 @@ export function createHerdHandlers(deps: HerdDeps) {
 
       const prompt = resolveBrief(herdId, name, str(p?.brief));
       if (!prompt.ok) return prompt;
-      const settled = await settleSessionGates(herdId, job);
       const launch = {
         model: str(p?.model) ?? job.model, effort: str(p?.effort) ?? job.effort, account: str(p?.account) ?? job.account,
       };
@@ -707,6 +710,7 @@ export function createHerdHandlers(deps: HerdDeps) {
         worktree: job.worktree, branch: job.branch, tree: job.tree, disposable: job.disposable, prompt: prompt.text, ...launch,
       });
       if (!launched.ok) return launched;
+      const settled = await settleSessionGates(herdId, job);
       const used = store.tickBudget(herdId, name, "respawns");
       return { ok: true, data: { ...launched.data, wasOnDeck: null, launch, budget: budgetView(used, "respawns"), settled } };
     },
@@ -827,9 +831,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       const herdId = str((raw as { herd?: unknown } | undefined)?.herd);
       if (!herdId) return { ok: false, error: "herd is required" };
       if (!store.get(herdId)) return { ok: false, error: `unknown herd "${herdId}"` };
-      const own = await openHerdGates(herdId);
-      const matched = await listHerdRunGates(herdId);
-      return { ok: true, data: { gates: [...own, ...matched] } };
+      const includeParked = (raw as { includeParked?: unknown }).includeParked === true;
+      const [own, matched] = await Promise.all([readOpenHerdGates(herdId, includeParked), readHerdRunGates(herdId, includeParked)]);
+      return { ok: true, data: { gates: [...(own.ok ? own.data : []), ...(matched.ok ? matched.data : [])] } };
     },
 
     "herd:ask": async (raw: unknown): Promise<CommandResult<"herd:ask">> => {

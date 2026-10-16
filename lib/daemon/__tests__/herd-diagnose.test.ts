@@ -59,6 +59,13 @@ describe("classifyScreen", () => {
     expect(classifyScreen("You've hit your session limit · resets 5pm\nLogin expired · Please run /login")).toBeNull();
   });
 
+  test("a limit or login line scrolled above the last 15 non-blank transcript lines does not classify", () => {
+    const newer = Array.from({ length: 15 }, (_, i) => `⏺ Newer line ${i + 1}`);
+    expect(classifyScreen(screen(["You've hit your session limit · resets 5pm", "", ...newer]))).toBeNull();
+    expect(classifyScreen(screen(["Login expired · Please run /login", ...newer]))).toBeNull();
+    expect(classifyScreen(screen(["You've hit your session limit · resets 5pm", ...newer.slice(1)]))).toBe("rate-limited");
+  });
+
   test("a plain idle screen classifies as nothing", () => {
     expect(classifyScreen(screen(["⏺ Done. Tests pass."]))).toBeNull();
   });

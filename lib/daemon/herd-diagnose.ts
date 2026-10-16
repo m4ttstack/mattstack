@@ -29,13 +29,18 @@ const GUTTER = /^\s*(?:⎿\s*)?/;
 
 export type ScreenClass = "rate-limited" | "login-expired";
 
+/** Only the final transcript block counts: a limit or login line further up is scrollback from a limit that may since have reset. */
+const TAIL_LINES = 15;
+
 export function classifyScreen(text: string): ScreenClass | null {
   const lines = text.split("\n");
-  let rule = -1;
-  for (let i = 0; i < lines.length; i++) if (RULE_LINE.test(lines[i]!)) rule = i;
-  if (rule < 0) return null;
+  const rules = lines.flatMap((l, i) => (RULE_LINE.test(l) ? [i] : []));
+  if (rules.length === 0) return null;
+  // The composer draws a rule above and below its input; the transcript ends at the upper one.
+  const top = rules.length > 1 ? rules[rules.length - 2]! : rules[0]!;
+  const tail = lines.slice(0, top).filter((l) => l.trim() !== "").slice(-TAIL_LINES);
   let limited = false;
-  for (const raw of lines.slice(0, rule)) {
+  for (const raw of tail) {
     const line = raw.replace(GUTTER, "");
     if (LOGIN_RE.test(line)) return "login-expired";
     if (LIMIT_PREFIXES.some((p) => line.startsWith(p)) || LIMIT_CREDITS_RE.test(line)) limited = true;
