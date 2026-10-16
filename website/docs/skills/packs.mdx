@@ -64,14 +64,15 @@ For the lint example, you see a failing run first, with nothing running lint. Th
 The pack starts with one pipeline, `feature`, and `/widgets:work` runs it. To give one kind of work its own stages or its own fills, ask `mattstack:extending-a-pack` for a specialized pipeline. It:
 
 1. Declares the pipeline in `pack/skills.jsonc`, say `accessibility`. A pipeline a work verb runs starts with `stage-provision`, ends with `stage-watch-ci`, and includes `stage-implement` and `stage-ship`.
-2. Adds a verb that runs it to `pack/stubs.jsonc`, named `work-<kind>` so it groups under `/widgets:work`:
+2. Runs `rt skills materialize`. Compile, check and bind read the pack's bindings file for your repo, not `pack/skills.jsonc`, so the new pipeline exists for them only after this step.
+3. Adds a verb that runs it to `pack/stubs.jsonc`, named `work-<kind>` so it groups under `/widgets:work`:
 
    ```jsonc
    "work-a11y": { "engine": "work", "pipeline": "accessibility", "description": "Use when running accessibility work end to end" }
    ```
 
-3. Binds each fill that differs for that pipeline with `rt skills bind <stage> <slot> <fill> --pipeline accessibility`. Every stage it does not override runs the default fills.
-4. Compiles and checks. Where a pipeline's fills differ, compile writes a stage copy such as `attachments/stage-evidence--accessibility/`.
+4. Binds each fill that differs for that pipeline with `rt skills bind <stage> <slot> <fill> --pipeline accessibility`. Every stage it does not override runs the default fills.
+5. Compiles and checks. Where a pipeline's fills differ, compile writes a stage copy such as `attachments/stage-evidence--accessibility/`.
 
 `/widgets:work-a11y` then runs accessibility work, and its runs record the pipeline `accessibility`. Each verb resumes only runs of its own pipeline.
 

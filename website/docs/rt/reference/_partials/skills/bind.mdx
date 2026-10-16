@@ -23,11 +23,11 @@ The override lands in the fragment under `pipelines.accessibility.bindings`. Whe
 }
 ```
 
-An empty fill (`""`) unbinds the slot for that pipeline only.
+A slot set to `""` under `pipelines.<name>.bindings` in the fragment unbinds that slot for that pipeline only. Bind itself refuses an empty fill, so write that value in the fragment by hand.
 
 Bind refuses `--pipeline` when:
 
-- the fragment does not declare the pipeline yet,
+- the pack's bindings file does not declare the pipeline (`pipeline "<name>" is not declared in this pack's manifest`): declare it in `pack/skills.jsonc`, then run `rt skills materialize`,
 - the pipeline's name does not match `[a-z][a-z0-9-]*`,
 - the pipeline's stage list does not carry the stage,
 - the verb is a compiled stage copy (`stage-evidence--accessibility`): name the stage and pass `--pipeline` instead.

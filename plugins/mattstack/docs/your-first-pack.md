@@ -166,19 +166,22 @@ specialized pipeline:
    `stage-provision`, ends with `stage-watch-ci`, and includes
    `stage-implement` and `stage-ship`; in between, any order the
    consumes/produces chain check accepts.
-2. **Adds its verb** to `pack/stubs.jsonc`, named `work-<kind>` so it groups
+2. **Materializes** with `rt skills materialize`. Compile, check and bind
+   read the pack's bindings file for your repo, not the fragment, so the
+   new pipeline exists for them only after this step.
+3. **Adds its verb** to `pack/stubs.jsonc`, named `work-<kind>` so it groups
    under `/widgets:work`:
 
    ```jsonc
    "work-a11y": { "engine": "work", "pipeline": "accessibility", "description": "Use when running accessibility work end to end" }
    ```
 
-3. **Binds its fills**, one round each with RED and GREEN on
+4. **Binds its fills**, one round each with RED and GREEN on
    `/widgets:work-a11y`:
    `rt skills bind stage-evidence domain widgets:a11y-evidence --pipeline accessibility`
    writes the override under `pipelines.accessibility.bindings`. Stages it
    does not override run the default fills.
-4. **Compiles and checks.** Where the pipeline's fills differ, compile
+5. **Compiles and checks.** Where the pipeline's fills differ, compile
    writes a stage copy, `attachments/stage-evidence--accessibility/`.
 
 `/widgets:work-a11y` runs accessibility work, and its runs record the

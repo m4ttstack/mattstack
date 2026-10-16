@@ -250,8 +250,9 @@ Degradation is loud and deterministic; prose never guesses.
 
 ## Pipeline stages (v1.1)
 
-A **stage skill** is one of the eight engines the `work` orchestrator
-walks in its fixed graph. Its marker is `metadata.stage` -- NOT
+A **stage skill** is a `stage-*` engine a manifest pipeline lists; a work
+verb walks the stages of its own pipeline, in that pipeline's order (see
+Pipeline resolution). Its marker is `metadata.stage` -- NOT
 `provides`, because a stage skill is usually itself a wrapper with a
 `domain` slot, and a SKILL.md may never declare both `slots` and
 `provides`. Pipeline membership is not slot binding, so composition depth

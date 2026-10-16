@@ -22,6 +22,7 @@ digraph extend_pack {
     "Where does the ask land?" [shape=diamond];
     "Add the roster entry in pack/stubs.jsonc" [shape=box];
     "Declare the pipeline in pack/skills.jsonc" [shape=box];
+    "rt skills materialize" [shape=plaintext];
     "Add the work-<kind> verb in pack/stubs.jsonc" [shape=box];
     "rt_verb {args: [\"skills\", \"surface\", \"set\", \"<verb>\", \"--public\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
     "A shepherdr door?" [shape=diamond];
@@ -70,7 +71,8 @@ digraph extend_pack {
     "Sort the ask" -> "Where does the ask land?";
     "Where does the ask land?" -> "Add the roster entry in pack/stubs.jsonc" [label="a new door"];
     "Where does the ask land?" -> "Declare the pipeline in pack/skills.jsonc" [label="a specialized pipeline"];
-    "Declare the pipeline in pack/skills.jsonc" -> "Add the work-<kind> verb in pack/stubs.jsonc";
+    "Declare the pipeline in pack/skills.jsonc" -> "rt skills materialize";
+    "rt skills materialize" -> "Add the work-<kind> verb in pack/stubs.jsonc";
     "Add the work-<kind> verb in pack/stubs.jsonc" -> "rt_verb {args: [\"skills\", \"surface\", \"set\", \"<verb>\", \"--public\", \"--pack\", \"<pack>\"]}";
     "Where does the ask land?" -> "Reword the description in pack/stubs.jsonc" [label="the wording of a verb"];
     "Where does the ask land?" -> "RED: run the stage or verb without the rule" [label="a context rule, or a fill for one stage or verb"];
@@ -167,16 +169,22 @@ it when the table and the pack disagree.
 
 A specialized pipeline takes two rounds or more, in this order:
 
-1. This round: `Declare the pipeline in pack/skills.jsonc`, then `Add the
-   work-<kind> verb in pack/stubs.jsonc`, put it on the surface, compile,
-   certify and check.
+1. This round: `Declare the pipeline in pack/skills.jsonc`, run
+   `rt skills materialize` on Bash, then `Add the work-<kind> verb in
+   pack/stubs.jsonc`, put it on the surface, compile, certify and check.
 2. One later round per stage whose fill differs for this pipeline: RED with
    `/<pack>:work-<kind>`, write the fill, then bind it with `--pipeline
    <name>` (the `One pipeline's fill only?` yes edge). Stages it does not
    override run the pack's default fills.
 
-`bind --pipeline` refuses a pipeline the fragment does not declare yet, so
-the declaration always comes first.
+Compile, check and bind read the pack's bindings file for the repo
+(`~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`), never the fragment,
+and only materialize writes that file from the fragment. Until it runs,
+compile refuses the new verb (`runs pipeline "<name>", which the manifest
+does not declare`) and `bind --pipeline` refuses the pipeline. So the
+declaration and the materialize always come first. `rt skills materialize`
+is not agent-safe: `rt_verb` refuses it, so run it as plain Bash. Later
+`bind` calls materialize on their own.
 
 ### Declare the pipeline in pack/skills.jsonc
 
@@ -298,7 +306,9 @@ yet: write it first. Other causes a refusal can name:
 - the fill's `provides` needs to match the slot's contract;
 - a verb-level bind (`mattstack:ship`) needs the door rostered first. The
   stage-level bind (`mattstack:stage-ship`) works either way.
-- with `--pipeline`: the pipeline is declared in the fragment, its name
+- with `--pipeline` (`pipeline "<name>" is not declared in this pack's
+  manifest`): the pack's bindings file must declare the pipeline, so declare
+  it in the fragment, then run `rt skills materialize` on Bash. Its name
   matches `^[a-z][a-z0-9-]*$`, and its stage list carries the stage. The
   verb is the stage (`stage-evidence`), never its compiled copy
   (`stage-evidence--accessibility`).
