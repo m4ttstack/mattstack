@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
@@ -450,14 +450,27 @@ describe("gate_open", () => {
     expect(f.log).toEqual([]);
   });
 
-  test("an unreadable findingsPath is refused before anything opens", async () => {
+  test("a mode-000 findingsPath fails the guard's realpath and is refused as missing before anything opens", async () => {
     const f = rooted();
     const p = copy(join(RV, "findings-v2.json"), "unreadable.json");
     chmodSync(p, 0o000);
     const res = await open({ kind: "review-post", review: { findingsPath: p, extras: loadJson(join(RV, "extras.json")) }, ...RUN }, f);
-    expect(res.ok).toBe(false);
-    expect(res.error).toContain(p);
+    expect(res.error).toBe(`review.findingsPath: file does not exist: ${p}`);
     expect(f.log).toEqual([]);
+  });
+
+  test("a .json symlink to a .txt file is refused", async () => {
+    const f = rooted();
+    const link = join(tmp, "linked.json");
+    symlinkSync(write("notes.txt", JSON.stringify(plan())), link);
+    const res = await open({ kind: "respond-plan", sourcePath: link }, f);
+    expect(res.error).toContain("must name a .json file");
+    expect(f.log).toEqual([]);
+  });
+
+  test("a .md sourcePath is refused", async () => {
+    const res = await open({ kind: "respond-plan", sourcePath: write("plan.md", JSON.stringify(plan())) });
+    expect(res.error).toContain("must name a .json file");
   });
 
   test("a findingsPath whose read fails is refused before anything opens", async () => {
@@ -591,6 +604,22 @@ describe("gate_open", () => {
       expect(res.ok).toBe(false);
       expect(res.error).toContain("temp root");
       expect(f.log).toEqual([]);
+    });
+
+    test("truncates option text like gate_ask and reports labelsTruncated", async () => {
+      const s = plan();
+      s.questions[0]!.options[0].label = "x".repeat(260);
+      const out = join(tmp, "truncated.json");
+      const res = await open({ kind: "respond-plan", source: s, handBack: true, outPath: out });
+      expect(body(res).labelsTruncated).toEqual([{ question: "thread-1", value: "reply:T1", field: "label" }]);
+      const label = (body(res).open as { questions: { options: { label: string }[] }[] }).questions[0]!.options[0]!.label;
+      expect(Buffer.byteLength(label, "utf8")).toBeLessThanOrEqual(200);
+      expect(JSON.parse(readFileSync(out, "utf8")).questions[0].options[0].label).toBe(label);
+    });
+
+    test("an open with nothing to cut carries no labelsTruncated", async () => {
+      const res = await open({ kind: "respond-plan", source: plan(), handBack: true });
+      expect(body(res).labelsTruncated).toBeUndefined();
     });
 
     test("outPath without handBack is refused", async () => {

@@ -6,8 +6,7 @@
  * `extra.context-dropped.<scope>`, `extra.gate-source.<scope>` and gate@1
  * decisions on the caller's scope.
  */
-import { readFileSync, realpathSync, writeFileSync } from "fs";
-import { extname } from "path";
+import { readFileSync, writeFileSync } from "fs";
 import { gateAnswer, gateAsk, gateWait } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion, GateRow } from "../../packages/rt-client/src/index.ts";
 import { checkSource, fitOpen, GATE_CTX_LIMIT, proseOpen, type FitResult, type GateCtxSource } from "../gates/ctx.ts";
@@ -315,19 +314,13 @@ function refused(what: string, problems: string[]): { error: string } {
   return { error: `${what} was refused:\n${problems.join("\n")}` };
 }
 
-/** checkReadRootPath admits only .md files, and its extension check runs
-    after every containment check, so a .json file refused only for its
-    extension has passed the rest of the guard. Matching the exact message
-    fails closed if the guard ever words it differently. */
 function readJsonFile(path: unknown, name: string, deps: GateToolDeps): { value: unknown } | { error: string } {
   const { roots, pluginListError } = deps.readRoots();
-  const checked = checkReadRootPath(path, roots, pluginListError);
-  const jsonOnly = !checked.ok && typeof path === "string" && extname(path) === ".json"
-    && checked.error === `path must name a .md file (got "${path}")`;
-  if (!checked.ok && !jsonOnly) return { error: `${name}: ${checked.error}` };
+  const checked = checkReadRootPath(path, roots, pluginListError, ".json");
+  if (!checked.ok) return { error: `${name}: ${checked.error}` };
   let text: string;
   try {
-    text = deps.readFile(checked.ok ? checked.realpath : realpathSync(path as string));
+    text = deps.readFile(checked.realpath);
   } catch (e) {
     return { error: `${name}: cannot read ${path}: ${messageOf(e)}` };
   }
@@ -391,7 +384,12 @@ async function handBack(
   deps: GateToolDeps,
 ): Promise<ToolResult> {
   const fitted = { questions: fit.questions as unknown as GateQuestion[], ...(fit.context !== undefined ? { context: fit.context } : {}) };
-  const { open, dropped } = dropContextsToFit(fitted, GATE_CTX_LIMIT);
+  const { open: afterDrops, dropped } = dropContextsToFit(fitted, GATE_CTX_LIMIT);
+  const shaped = wellFormed(afterDrops.questions);
+  const { questions, truncated } = shaped
+    ? truncateOptionText(afterDrops.questions)
+    : { questions: afterDrops.questions, truncated: [] as TruncatedText[] };
+  const open = { ...afterDrops, questions };
   const { formContext, proseById } = proseByQuestion(source);
   const result: Record<string, unknown> = {
     open,
@@ -401,8 +399,9 @@ async function handBack(
     contextDropped: !fit.fits,
     droppedContexts: dropped,
     ...(formContext !== undefined ? { formContext } : {}),
-    formChunks: wellFormed(open.questions) ? formChunks(open.questions, proseById) : [],
+    formChunks: shaped ? formChunks(questions, proseById) : [],
   };
+  if (truncated.length > 0) result.labelsTruncated = truncated;
 
   if (typeof input.outPath === "string") {
     let bytes = open.context === undefined ? 0 : utf8Bytes(open.context);
@@ -476,7 +475,7 @@ export async function openGate(input: Record<string, unknown>, env: NodeJS.Proce
   return ok(result);
 }
 
-const GATE_OPEN_DESCRIPTION = "Build, validate and size-fit a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. The context is fitted to the shared 8192-byte budget (structured with optional parts trimmed, else prose); the form view is always the prose of the untrimmed source. Under a run, pass runDb and stage (scope defaults to kind; review-post opens with scope post): the untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits, trimmed, contextDropped (fits false or the daemon dropped context), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks}, dropping whole question contexts largest first (then the gate context) when even prose is over budget; outPath also writes the open, in gate-ctx.sh's output shape, to a temp-root file.";
+const GATE_OPEN_DESCRIPTION = "Build, validate and size-fit a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. The context is fitted to the shared 8192-byte budget (structured with optional parts trimmed, else prose); the form view is always the prose of the untrimmed source. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: \"post\" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits, trimmed, contextDropped (fits false or the daemon dropped context), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}, with option text truncated as gate_ask does and dropping whole question contexts largest first (then the gate context) when even prose is over budget; outPath also writes the open, in gate-ctx.sh's output shape, to a temp-root file.";
 
 export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[] {
   return [
