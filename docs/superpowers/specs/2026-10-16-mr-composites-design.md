@@ -112,7 +112,8 @@ The post side of receive-review. `tree` is the worktree root it pushes from.
 - The `mr` field gives the target. A GitHub PR URL is refused (see GitHub).
 - The `branch` field gives the expected source branch, else the MR's own
   `sourceBranch`.
-- `run.started_at`, and the respond-plan decision's `decided_at`.
+- `run.started_at`, and the respond-plan decision's `decided_at` (less a
+  one-minute grace for clock skew between this machine and GitLab).
 - The gate@1 decisions `respond-plan` and `respond-post`.
 - The fields `extra.gate-source.respond-plan` and
   `extra.gate-source.respond-post`.
@@ -175,8 +176,10 @@ The post side of receive-review. `tree` is the worktree root it pushes from.
    A thread carries this run's reply when either holds:
    - a note's body equals the reply due (trimmed, line endings normalized);
    - a note by the token's own user is dated at or after the later of
-     `run.started_at` and the fresh respond-plan decision's `decided_at`, so a
-     reply this account left in an earlier review round does not count.
+     `run.started_at` and the fresh respond-plan decision's `decided_at` less
+     one minute (`decided_at` is this machine's clock, `createdAt` GitLab's,
+     so the grace absorbs skew), so a reply this account left in an earlier
+     review round does not count.
 
    A read error, or a thread GitLab no longer returns, holds every thread
    (kind `read`). Then nothing moves, no decision is recorded, and the hold

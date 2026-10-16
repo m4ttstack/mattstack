@@ -46,6 +46,8 @@ export const realMrCompositeDeps: MrCompositeDeps = {
 
 const READ_TIMEOUT_MS = 30_000;
 const NOTE_BODY_CAP = 2000;
+/** decided_at is this machine's clock and a note's createdAt is GitLab's, so the author rule allows a minute of skew before counting a note as an earlier round's. */
+export const AUTHOR_RULE_GRACE_MS = 60_000;
 
 export type ThreadPosted = { discussionId: string; found: boolean; posted: boolean; noteId: number | null; via: "body" | "author" | null };
 export type ItemPosted = { id: string; posted: boolean; noteId: number | null; discussionId: string | null };
@@ -225,13 +227,16 @@ export type RebaseWaitResult =
   | { status: "pending"; sha: string | null; rebaseInProgress: boolean; lastError?: string };
 
 /** GitLab rebases asynchronously and mr:action replies before it finishes, so
-    the budget is the sleeps added up: a slow poll never ends the wait early. */
+    the budget is the sleeps added up, with a wall-clock deadline checked before
+    each sleep as the backstop for polls that each take up to READ_TIMEOUT_MS. */
 export async function waitForRebase(
   deps: Pick<MrCompositeDeps, "command" | "sleep">,
   target: { identity: string; iid: number },
   previousSha: string | null,
-  opts: { maxWaitMs: number; pollMs: number; signal?: AbortSignal; progress?: () => void },
+  opts: { maxWaitMs: number; pollMs: number; signal?: AbortSignal; progress?: () => void; now?: () => number },
 ): Promise<RebaseWaitResult> {
+  const now = opts.now ?? Date.now;
+  const deadline = now() + opts.maxWaitMs;
   let sha = previousSha;
   let rebaseInProgress = false;
   let lastError: string | undefined;
@@ -259,7 +264,7 @@ export async function waitForRebase(
         settledNull = 0;
       }
     }
-    if (slept + opts.pollMs > opts.maxWaitMs) break;
+    if (slept + opts.pollMs > opts.maxWaitMs || now() >= deadline) break;
     await deps.sleep(opts.pollMs);
     slept += opts.pollMs;
   }
@@ -798,11 +803,11 @@ export async function executeRespondPost(
     if (treePath !== null) {
       const b = await expectedBranch(deps, target, plan.branch);
       progress?.();
-      if (!b.ok) return failRead(b.error);
-      branch = b;
+      if (b.ok) branch = b;
+      else for (const a of fixRows) hold(a.threadId, "read", b.error);
     }
     const by = self.username;
-    const since = Math.max(plan.startedAt, plan.planDecidedAt);
+    const since = Math.max(plan.startedAt, plan.planDecidedAt - AUTHOR_RULE_GRACE_MS);
     const discussions = read.discussions;
     const postedBefore = new Map(
       postedMatch(discussions, { by, since, threads: acting.filter((a) => a.post).map((a) => ({ discussionId: a.threadId, ...(a.body !== null && { body: a.body }) })) })

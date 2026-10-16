@@ -589,6 +589,20 @@ describe("waitForRebase", () => {
     expect(r).toEqual({ status: "pending", sha: "old", rebaseInProgress: true });
   });
 
+  test("a poll that runs past the wall-clock deadline ends pending with no further polls", async () => {
+    let clock = 0;
+    const { deps, commands, sleeps } = script([{ rebaseInProgress: true }]);
+    const poll = deps.command;
+    deps.command = (async (...args: unknown[]) => {
+      clock += 31_000;
+      return (poll as (...a: unknown[]) => unknown)(...args);
+    }) as any;
+    const r = await waitForRebase(deps, TARGET, "old", { maxWaitMs: 30_000, pollMs: 5_000, now: () => clock });
+    expect(r).toEqual({ status: "pending", sha: "old", rebaseInProgress: true });
+    expect(commands).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+  });
+
   test("an aborted signal stops early with pending and no further polls", async () => {
     const controller = new AbortController();
     const { deps, commands } = script([{ rebaseInProgress: true }]);

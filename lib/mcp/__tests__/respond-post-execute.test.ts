@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { GateAnswer, GateRow } from "../../../packages/rt-client/src/index.ts";
-import { executeRespondPost, mrCompositeToolDefs, type MrCompositeDeps, type RespondPostResult, type RunSnapshot, type SnapshotField } from "../mr-composite-tools.ts";
+import { executeRespondPost, mrCompositeToolDefs, realMrCompositeDeps, type MrCompositeDeps, type RespondPostResult, type RunSnapshot, type SnapshotField } from "../mr-composite-tools.ts";
+import { runToolDefs } from "../run-tools.ts";
 import type { ToolResult } from "../shared.ts";
 
 type Q = { id: string; label: string; multi: boolean; context?: Record<string, unknown>; options: unknown[] };
@@ -608,6 +612,16 @@ describe("replies", () => {
     expect(cmdCalls(calls, "discussions:reply").map((c) => (c.payload as Record<string, unknown>).discussionId)).toEqual(["T2"]);
   });
 
+  test("this account's note 30s before the plan decision counts as posted, inside the clock-skew grace", async () => {
+    const w = world();
+    laterRound(w);
+    const skewed = new Date(PLAN_AT - 30_000).toISOString();
+    w.cmd["discussions:refresh"] = [okData({ discussions: [disc("T1", [note(1, "please"), note(41, "Fixed, different words", "me-bot", skewed)]), disc("T2", [note(2, "why delay?")])], fetchedAt: 1 })];
+    const { res, calls } = await done(w);
+    expect(res.alreadyPosted).toEqual([{ threadId: "T1", noteId: 41 }]);
+    expect(cmdCalls(calls, "discussions:reply").map((c) => (c.payload as Record<string, unknown>).discussionId)).toEqual(["T2"]);
+  });
+
   test("the posted-already read asks forge:get user once", async () => {
     const { calls } = await done(world());
     expect(cmdCalls(calls, "forge:get").map((c) => c.payload)).toEqual([{ repoName: ID, path: "user" }]);
@@ -635,6 +649,21 @@ describe("the read fails", () => {
       expect(res.hold).toBe("held");
     });
   }
+});
+
+describe("the MR read fails", () => {
+  test("only the fix row is held as read; nothing is pushed and the reply row still posts", async () => {
+    const w = world();
+    w.cmd["mr:get"] = [fail("502 Bad Gateway")];
+    const { res, calls } = await done(w);
+    expect(res.held.map((h) => [h.threadId, h.kind])).toEqual([["T1", "read"]]);
+    expect(res.held[0]!.error).toContain("502");
+    expect(gitCalls(calls)).toEqual([]);
+    expect(res.pushed).toBeNull();
+    expect(res.posted).toEqual(["T2"]);
+    expect(cmdCalls(calls, "discussions:reply").map((c) => (c.payload as Record<string, unknown>).discussionId)).toEqual(["T2"]);
+    expect(res.hold).toBe("held");
+  });
 });
 
 describe("record", () => {
@@ -763,5 +792,84 @@ describe("the tool", () => {
     const r = await tool.handler({ runDb: RUN_DB, tree: "/w", stage: STAGE }, ENV, undefined, () => { ticks++; });
     expect(r.ok).toBe(true);
     expect(ticks).toBeGreaterThan(0);
+  });
+});
+
+describe("against a real run db", () => {
+  test("run_snapshot's and gate:wait's real shapes carry a reply row through to a post and a re-recorded decision", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "rt-respond-post-"));
+    try {
+      const root = join(tmp, "runs");
+      const skillDir = join(tmp, "pack", "skills", "respond");
+      mkdirSync(skillDir, { recursive: true });
+      mkdirSync(join(tmp, "pack", ".claude-plugin"));
+      writeFileSync(join(tmp, "pack", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "demo-pack", version: "0.0.1" }));
+      const env = { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+
+      const start = await runToolDefs().find((t) => t.name === "run_start")!.handler({ flags: "--repo demo --work-type fix --pipeline default", skillDir }, env);
+      if (!start.ok) throw new Error(start.error);
+      const runDb = (start.body as { runDb: string }).runDb;
+      const runTool = realMrCompositeDeps.runTool;
+      const must = async (name: "run_field_set" | "run_decision", input: Record<string, unknown>) => {
+        const r = await runTool(name, { runDb, ...input }, env);
+        if (!r.ok) throw new Error(`${name}: ${r.error}`);
+      };
+
+      const plan = planSource([planThread(1, "T1", { kind: "direction", text: "fix it" }), planThread(2, "T2", { kind: "verbatim", text: T2_VERBATIM })]);
+      const post = postSource([postThread(2, "T2", "reply", T2_OVERRIDE)]);
+      const openedAt = Date.now();
+      await must("run_field_set", { key: "mr", value: MR, stage: STAGE });
+      await must("run_field_set", { key: "extra.gate-source.respond-plan", value: JSON.stringify({ gate: "g-plan", source: plan }), stage: STAGE });
+      await must("run_decision", { contract: "gate@1", scope: "respond-plan", selection: { threads: { T1: "skip", T2: "reply" }, overrides: ["T2"], "code-changes": "skip" }, decidedBy: "matt" });
+      await must("run_field_set", { key: "extra.gate-source.respond-post", value: JSON.stringify({ gate: "g-post", source: post }), stage: STAGE });
+      await must("run_decision", { contract: "gate@1", scope: "respond-post", selection: { threads: { T2: { post: true, resolve: true } } }, decidedBy: "matt" });
+      const recordedAt = Date.now();
+      await Bun.sleep(5);
+
+      const rows: Record<string, GateRow> = {
+        "g-plan": row("g-plan", plan, { "thread-1": "skip:T1", "thread-2": "reply:T2", "code-changes": "skip" }, openedAt),
+        "g-post": row("g-post", post, { "thread-2": ["post:T2", "resolve:T2"], next: "proceed" }, openedAt),
+      };
+      const calls: Call[] = [];
+      const answers: Record<string, Reply> = {
+        "forge:get": okData({ status: 200, body: { username: "me-bot" } }),
+        "discussions:refresh": okData({ discussions: fresh(), fetchedAt: 1 }),
+        "discussions:reply": okData({ discussions: [], fetchedAt: 1, noteId: 900 }),
+        "discussions:resolve": okData({ discussions: [], fetchedAt: 1 }),
+      };
+      const deps: MrCompositeDeps = {
+        ...realMrCompositeDeps,
+        command: (async (name: string, payload: Record<string, unknown>) => {
+          calls.push({ kind: "cmd", name, payload });
+          if (name === "gate:wait") {
+            const r = rows[payload.id as string];
+            return r ? okData({ status: "answered", row: r }) : fail("not-found");
+          }
+          const a = answers[name];
+          if (!a) throw new Error(`unscripted command ${name}`);
+          return a;
+        }) as MrCompositeDeps["command"],
+        git: async () => { throw new Error("unexpected git"); },
+        resolveMr: async (input) => (input.mrUrl === MR ? { ok: true, identity: ID, iid: 7 } : { ok: false, error: `unexpected mrUrl ${String(input.mrUrl)}` }),
+      };
+
+      const r = await executeRespondPost(deps, { runDb, tree: "/unused", stage: STAGE }, env);
+      if (!r.ok) throw new Error(r.error);
+      const res = r.body as RespondPostResult;
+      expect(res.posted).toEqual(["T2"]);
+      expect(res.resolved).toEqual(["T2"]);
+      expect(res.held).toEqual([]);
+      expect(res.recorded).toBe(true);
+      expect(cmdCalls(calls, "discussions:reply").map((c) => (c.payload as Record<string, unknown>).body)).toEqual([T2_OVERRIDE]);
+
+      const snap = await runTool("run_snapshot", { runDb }, env);
+      if (!snap.ok) throw new Error(snap.error);
+      const d = (snap.body as RunSnapshot).decisions.find((x) => x.scope === "respond-post")!;
+      expect(JSON.parse(d.selection)).toEqual({ threads: { T2: { post: true, resolve: true } } });
+      expect(d.decided_by).toBe("matt");
+      expect(d.decided_at).toBeGreaterThan(recordedAt);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
