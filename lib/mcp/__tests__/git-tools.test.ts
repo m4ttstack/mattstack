@@ -285,7 +285,7 @@ describe("git_push reports what it pushed", () => {
   const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false };
   const PUSH = "push --no-follow-tags --recurse-submodules=no --end-of-options origin HEAD:refs/heads/feat/x";
   const push = async (openMr: GitToolDeps["openMr"], script: Script = {}, calls: string[] = []) => {
-    const tool = gitToolDefs({ git: fakeGit({ ...onFeature, [PUSH]: {}, ...script }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }), openMr }).find((t) => t.name === "git_push")!;
+    const tool = gitToolDefs({ ...noForge, git: fakeGit({ ...onFeature, [PUSH]: {}, ...script }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }), openMr }).find((t) => t.name === "git_push")!;
     return tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
   };
 
