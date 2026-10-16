@@ -2,13 +2,15 @@ import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { mcpTools } from "../tools.ts";
+import type { CiLease } from "../../../packages/rt-client/src/index.ts";
+import type { GuardResult } from "../../ci/lease-guard.ts";
+import { mcpTools, mrToolDeps } from "../tools.ts";
 import { normalizeGateQuestions } from "../../../packages/rt-client/src/gate-options.ts";
 import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 
-const NAMES = ["gate_answer","gate_ask","gate_open","gate_reconcile","gate_record","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_update_note","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_enter","run_next","run_resolve","run_hold","run_close","run_budget","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_posted_since","mr_resolve_branch","respond_post_execute","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","branch_sync_sweep","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","project_labels","pipeline_list","gitlab_get","branch_stack"];
+const NAMES = ["gate_answer","gate_ask","gate_open","gate_reconcile","gate_record","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_update_note","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_enter","run_next","run_resolve","run_hold","run_close","run_budget","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_posted_since","mr_resolve_branch","respond_post_execute","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","branch_sync_sweep","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","herd_respawn","herd_gate_answer","herd_gate_park","herd_diagnose","herd_nudge","herd_lanes","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","ci_triage","pipeline_jobs","project_labels","pipeline_list","gitlab_get","branch_stack"];
 
 // Captured before any mock.module call, per the repo's convention (see
 // lib/__tests__/repo-locate-dispatch.test.ts): mock.module mutates the live
@@ -707,6 +709,65 @@ describe("mcpTools", () => {
       const res = await tool.handler({ ...T, jobId: "812" }, {} as NodeJS.ProcessEnv);
       expect(res.error).toBe('"jobId" must be a number');
       expect(calls).toEqual([]);
+    });
+
+    describe("mr_retry leaseMrUrl", () => {
+      const LEASE_MR = "https://gitlab.com/acme/app/-/merge_requests/7";
+      const holder: CiLease = { mr: LEASE_MR, owner: "session:other", holder: "watch-ci", startedAt: 1, heartbeatAt: 2, ttlSeconds: 300 };
+      const real = mrToolDeps.ensureLease;
+      afterEach(() => { mrToolDeps.ensureLease = real; });
+
+      function stubGuard(result: GuardResult) {
+        const guardCalls: Array<{ url: string; env: NodeJS.ProcessEnv }> = [];
+        mrToolDeps.ensureLease = (url, env) => { guardCalls.push({ url, env }); return result; };
+        return guardCalls;
+      }
+      const env = { CLAUDE_CODE_SESSION_ID: "mine" } as NodeJS.ProcessEnv;
+      const retry = () => mcpTools().find((t) => t.name === "mr_retry")!;
+
+      test("without leaseMrUrl the guard is never called and the retry runs", async () => {
+        const calls = fakeDaemon();
+        const guardCalls = stubGuard({ ok: false, error: "must not be called" });
+        const res = await retry().handler({ ...T, jobId: 812 }, env);
+        expect(res).toEqual({ ok: true, body: { jobId: 812 } });
+        expect(guardCalls).toEqual([]);
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:action"]);
+      });
+
+      test("a refusing guard returns retried: false with the holder and never calls the daemon", async () => {
+        const calls = fakeDaemon();
+        const guardCalls = stubGuard({ ok: false, refused: "lease_held", holder });
+        const res = await retry().handler({ ...T, jobId: 812, leaseMrUrl: LEASE_MR }, env);
+        expect(res).toEqual({ ok: true, body: { retried: false, refused: "lease_held", holder } });
+        expect(guardCalls).toEqual([{ url: LEASE_MR, env }]);
+        expect(calls).toEqual([]);
+      });
+
+      test("a guard error is an error result and never calls the daemon", async () => {
+        const calls = fakeDaemon();
+        stubGuard({ ok: false, error: "not an https MR or PR URL: nope" });
+        const res = await retry().handler({ ...T, pipelineId: 555, leaseMrUrl: "nope" }, env);
+        expect(res.ok).toBe(false);
+        expect(res.error).toBe("not an https MR or PR URL: nope");
+        expect(calls).toEqual([]);
+      });
+
+      test("a held guard runs the retry", async () => {
+        const calls = fakeDaemon();
+        stubGuard({ ok: true, lease: holder, claimed: true });
+        const res = await retry().handler({ ...T, pipelineId: 555, leaseMrUrl: LEASE_MR }, env);
+        expect(res).toEqual({ ok: true, body: { pipelineId: 555 } });
+        expect(calls.map((c) => c.payload.action)).toEqual(["retryPipeline"]);
+      });
+
+      test("a non-string leaseMrUrl is refused before the guard and the daemon", async () => {
+        const calls = fakeDaemon();
+        const guardCalls = stubGuard({ ok: false, error: "must not be called" });
+        const res = await retry().handler({ ...T, jobId: 812, leaseMrUrl: 5 }, env);
+        expect(res.error).toBe('"leaseMrUrl" must be a string');
+        expect(guardCalls).toEqual([]);
+        expect(calls).toEqual([]);
+      });
     });
 
     test("mr_approve refuses a non-positive-integer iid", async () => {

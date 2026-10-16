@@ -186,11 +186,12 @@ const EXPECTED_TOOL_NAMES = [
   "git_push", "git_pull", "git_rebase", "branch_sync", "branch_sync_sweep",
   "worktree_provision", "worktree_dispose", "worktree_stop_holders",
   "herd_start", "herd_spawn", "herd_brief", "herd_close", "herd_follow_up", "herd_status", "herd_list", "herd_attend", "herd_wrap_up", "herd_resume", "herd_milestone",
+  "herd_respawn", "herd_gate_answer", "herd_gate_park", "herd_diagnose", "herd_nudge", "herd_lanes",
   "chat_read", "chat_mark", "chat_rooms", "chat_who", "chat_buddies", "chat_join", "chat_leave", "chat_away", "chat_back",
   "chat_sign_in", "chat_sign_out", "chat_archive", "chat_invite",
   "whoami",
-  "ci_lease_claim", "ci_lease_heartbeat", "ci_lease_release", "ci_lease_read", "ci_watch",
-  "project_labels", "pipeline_list", "gitlab_get", "branch_stack",
+  "ci_lease_claim", "ci_lease_heartbeat", "ci_lease_release", "ci_lease_read", "ci_watch", "ci_triage",
+  "project_labels", "pipeline_list", "pipeline_jobs", "gitlab_get", "branch_stack",
 ];
 
 describe("rt mcp serve e2e", () => {

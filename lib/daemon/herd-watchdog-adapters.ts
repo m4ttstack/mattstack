@@ -48,7 +48,7 @@ const UNREAD_PEEK_LIMIT = 200;
 // Claude Code draws its status footer below the composer's bottom rule, so
 // only that region is read: a transcript line quoting "1 shell" never counts.
 // The agents panel exists only while a subagent is still running.
-const RULE_LINE = /^\s*─{10,}\s*$/;
+export const RULE_LINE = /^\s*─{10,}\s*$/;
 const FOOTER_TASK_COUNT = /\b[1-9]\d* (?:shells?|monitors?)\b/;
 const AGENTS_PANEL_MAIN = /^\s*⏺ main\s*$/;
 
@@ -78,7 +78,7 @@ export function backgroundTask(screen: string): string | null {
     gap is logged rather than swallowed. */
 const NAMED_STATUSES: ReadonlySet<string> = new Set(["working", "idle", "blocked", "done"]);
 
-function readingState(row: PaneReading | undefined, unknown?: (status: string) => void): ReturnType<WatchdogSensors["paneState"]> {
+export function readingState(row: Pick<PaneReading, "agent" | "status"> | undefined, unknown?: (status: string) => void): ReturnType<WatchdogSensors["paneState"]> {
   if (!row) return "gone";
   if (row.agent !== "claude") return "dead";
   if (row.status === "blocked") return "modal";

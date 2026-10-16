@@ -1384,6 +1384,13 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           act: createWatchdogActuators({ herdStore, db: getStateDb("daemon"), socketFor: watchdogSensors.socketFor, herdr: herdrRequest, log: watchdogLog }),
           cfg: watchdogConfig,
           log: watchdogLog,
+          persist: {
+            load: () => herdStore.watchdogLoad(),
+            saveLadder: (row) => herdStore.watchdogSaveLadder(row),
+            deleteLadder: (key) => herdStore.watchdogDeleteLadder(key),
+            mark: (kind, key, at) => herdStore.watchdogMark(kind, key, at),
+            clear: () => herdStore.watchdogClear(),
+          },
         });
         herdWatchdog = watchdog;
         sweepHandles.push(scheduleSweep(

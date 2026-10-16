@@ -43,6 +43,8 @@ export type PluginListEntry = { id: string; installPath: string; enabled?: boole
 export type PluginRoots = {
   byName: Record<string, { dir: string; version: string; baseVersion?: string | null }>;
   list: PluginListEntry[];
+  /** Every existing installPath, deduplicated; byName keeps one root per name, so a stale second install of a plugin hides here. */
+  dirs?: string[];
   /** Roots that are read from a folder and never installed: a fill found under their skills/ cannot be invoked at run time. */
   folderOnly?: Set<string>;
 };
@@ -74,6 +76,7 @@ export function installedVersionFor(list: PluginListEntry[], id: string): string
  */
 export function buildPluginRoots(list: PluginListEntry[]): PluginRoots {
   const byName: PluginRoots["byName"] = {};
+  const dirs = new Set<string>();
 
   for (const entry of list) {
     const name = entry.id.split("@")[0];
@@ -93,9 +96,10 @@ export function buildPluginRoots(list: PluginListEntry[]): PluginRoots {
       // best-effort: a plugin without a readable manifest still resolves a root
     }
     byName[name] = { dir, version };
+    dirs.add(dir);
   }
 
-  return { byName, list };
+  return { byName, list, dirs: [...dirs] };
 }
 
 /**

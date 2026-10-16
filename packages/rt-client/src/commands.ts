@@ -243,11 +243,24 @@ export interface GateSubscription {
 export interface HerdInfo { id: string; repo: string; room: string; workspace: string; shepherdSession: string; shepherdHandle: string; shepherdName: string; herdrSocket: string | null; hidden: boolean; status: "active" | "wrapped"; createdAt: number; wrappedAt: number | null }
 /** A herd row as `herd:list` reports it: the registry row plus how many jobs hang off it. */
 export interface HerdListRow extends HerdInfo { jobs: number }
-export interface HerdJobInfo { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; handleName: string; status: "spawning" | "active" | "at-gate" | "at-milestone" | "done" | "closed" | "crashed" | "stuck-at-modal"; disposable: boolean; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
+export type HerdBudget = { used: number; cap: number; spent: boolean };
+export interface HerdJobBudgets {
+  respawns: HerdBudget; blockedNotices: HerdBudget; unmergedReports: HerdBudget;
+  nudges: Record<string, HerdBudget>; reviewerRounds: Record<string, HerdBudget>;
+}
+export type HerdDiagnoseVerdict = "no-pane" | "gone" | "dead" | "at-gate" | "parked-modal" | "needs-human" | "working" | "rate-limited" | "login-expired" | "idle";
+export interface HerdLaneRow {
+  job: string; worktree: string; branch: string | null; base: string; commits: number;
+  drift: { files: Array<{ path: string; added: number; removed: number }>; filesChanged: number; insertions: number; deletions: number };
+  collidesWith: Array<{ job: string; files: string[] }>;
+  merge: { forge: "github" | "gitlab" | null; state: "open" | "merged" | "closed" | "none" | "unknown"; url: string | null; number: number | null; mergedAt: string | null; error?: string };
+  unmergedReports: HerdBudget;
+}
+export interface HerdJobInfo { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; handleName: string; status: "spawning" | "active" | "at-gate" | "at-milestone" | "done" | "closed" | "crashed" | "stuck-at-modal"; disposable: boolean; model: string | null; effort: string | null; account: string | null; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
 /** `lastGateStatus`/`lastGateDelivery` come from the job's `lastGate` row: a TERMINAL gate (answered or closed) whose delivery is `dead-pane` is the "worker not woken" case the shepherd must act on. `lastGateConsumed` is `null` when there is nothing to consume (no last gate, not answered, or not nudged), and otherwise reports whether the nudged pane has read its answer. */
 export interface HerdStatusData {
   herd: HerdInfo;
-  jobs: Array<HerdJobInfo & { openGate: string | null; paneStatus: string | null; /** The worker session behind this job's pane is gone while the job still reads in-flight: herdr lists the pane but no claude is on it. Null when herdr does not list the pane at all (it closed, or herdr is unreachable), which proves nothing either way. */ sessionDead: boolean | null; lastGateStatus: GateStatus | null; lastGateDelivery: "delivered" | "dead-pane" | "confirmed" | "stuck" | null; lastGateConsumed: boolean | null; /** The daemon watchdog's escalation ladder for this job: strikes so far and when it last acted. Absent when the job is not on the ladder (healthy, no watchdog wired, or the daemon restarted since). */ watchdog?: { strikes: number; lastPokeAt: number | null } }>;
+  jobs: Array<HerdJobInfo & { openGate: string | null; paneStatus: string | null; /** The worker session behind this job's pane is gone while the job still reads in-flight: herdr lists the pane but no claude is on it. Null when herdr does not list the pane at all (it closed, or herdr is unreachable), which proves nothing either way. */ sessionDead: boolean | null; lastGateStatus: GateStatus | null; lastGateDelivery: "delivered" | "dead-pane" | "confirmed" | "stuck" | null; lastGateConsumed: boolean | null; /** The daemon watchdog's escalation ladder for this job: strikes so far and when it last acted. Absent when the job is not on the ladder (healthy, or no watchdog wired). */ watchdog?: { strikes: number; lastPokeAt: number | null } }>;
   unread: number;
   lifecycleConnected: boolean;
   hiddenUp: boolean | null;
@@ -1106,8 +1119,13 @@ export interface Commands {
   /** Reopens a done job for a follow-up round in its same pane: it goes back to active until its next report. */
   "herd:follow-up": { payload: { herd: string; job: string }; data: { job: string; status: "active" } };
   /** `brief` is the brief TEXT, not a path: the CLI reads the file. It is stored at `<jobsRoot>/<herd>/<job>/job.md`, so a respawn with `dir` and no `brief` reads it back. */
-  "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; model?: string; effort?: string; account?: string; disposable?: boolean }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "unchecked" } };
-  "herd:gates":  { payload: { herd: string }; data: { gates: GateRow[] } };
+  "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; model?: string; effort?: string; account?: string; disposable?: boolean; tree?: string }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "unchecked"; /** Only on a guest spawn into another job's tree: the host's reviewerRounds budget this spawn ticked, keyed by the host's latest milestone artifact. */ reviewerRound?: { host: string; key: string; budget: HerdBudget } } };
+  "herd:respawn": { payload: { herd: string; job: string; brief?: string; model?: string; effort?: string; account?: string }; data: Commands["herd:spawn"]["data"] & { launch: { model: string | null; effort: string | null; account: string | null }; budget: HerdBudget; settled: { closed: string[]; consumed: string[] } } };
+  "herd:diagnose": { payload: { herd: string; job: string }; data: { job: string; status: HerdJobInfo["status"]; pane: string | null; paneState: "working" | "idle" | "modal" | "dead" | "gone" | null; verdict: HerdDiagnoseVerdict; openGates: Array<{ id: string; kind: string; presentation: "form" | "wait"; owner: string }>; lastGate: { id: string; status: GateStatus; consumed: boolean | null } | null; watchdog: { strikes: number; lastPokeAt: number | null } | null; budgets: HerdJobBudgets } };
+  "herd:nudge": { payload: { herd: string; job: string; gate: string }; data: { gate: string; rung: "dm" | "pane"; delivered: boolean; needsHuman: boolean; why?: "pane-busy" | "form-open" | "pane-gone" | "not-claude" | "refused"; budget: HerdBudget } };
+  "herd:lanes": { payload: { herd: string; job?: string }; data: { lanes: HerdLaneRow[]; collisions: Array<{ path: string; jobs: string[] }>; skipped: Array<{ job: string; reason: string }> } };
+  /** Open gates only unless `includeParked`, which the shepherd's answer path sets: a parked gate is still answerable. */
+  "herd:gates":  { payload: { herd: string; includeParked?: boolean }; data: { gates: GateRow[] } };
   "herd:ask":       { payload: { herd: string; job: string; session: string; pane?: string; questions: GateQuestion[]; context?: string }; data: { gate: string } };
   "herd:milestone": { payload: { herd: string; job: string; session: string; pane?: string; artifact: string; summary?: string }; data: { gate: string; message: number } };
   "herd:answer":    { payload: { gate: string; sessionId?: string }; data: { gate: string; status: GateStatus; answer: GateAnswer | null; closedReason: GateRow["closedReason"] } };
@@ -1271,6 +1289,10 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "herd:close",
   "herd:follow-up",
   "herd:spawn",
+  "herd:respawn",
+  "herd:diagnose",
+  "herd:nudge",
+  "herd:lanes",
   "herd:gates",
   "herd:ask",
   "herd:milestone",

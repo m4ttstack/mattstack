@@ -54,7 +54,7 @@ function jobRow(over: Partial<HerdJobRow> = {}): HerdJobRow {
   return {
     herd: "demo-1", name: "job-a", worktree: "/w", branch: null, tree: null,
     pane: "w1:p1", agentSession: "sess-a", agentId: null, handle: "job-a",
-    status: "done", disposable: false, lastGate: null, lastReport: 7,
+    status: "done", disposable: false, model: null, effort: null, account: null, lastGate: null, lastReport: 7,
     createdAt: 0, updatedAt: 0, ...over,
   };
 }
@@ -527,7 +527,7 @@ describe("the board-37 specimen: a turn that ended before a daemon restart", () 
     return {
       herd: "demo-1", name: "board-37", worktree: "/w", branch: null, tree: null,
       pane: "w1:p1", agentSession: "sess-a", agentId: null, handle: "board-37",
-      status: "active", disposable: false, lastGate: null, lastReport: null,
+      status: "active", disposable: false, model: null, effort: null, account: null, lastGate: null, lastReport: null,
       createdAt: NOW - 120 * MIN, updatedAt: NOW - 120 * MIN,
       ...over,
     };

@@ -444,3 +444,101 @@ describe("watch budget", () => {
     expect(await watchPipeline(base, deps)).toMatchObject({ budget: { elapsedMinutes: 0, spent: false } });
   });
 });
+
+describe("attend", () => {
+  const MIN = 60_000;
+  const createdMinutesAgo = (m: number) => new Date(-m * MIN).toISOString();
+  const attend = (over: Partial<{ waitingSince: number | null; noPipelineMs: number; lastFailedPipelineId: number | null; freshMinutes: number }> = {}) =>
+    ({ waitingSince: null, noPipelineMs: 10 * MIN, lastFailedPipelineId: null, freshMinutes: 75, ...over });
+
+  test("a running pipeline past its budget returns timeout instead of running", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(80) }))]);
+    const r = await watchPipeline({ ...base, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "timeout", polls: 1, budget: { minutes: 75, spent: true } });
+  });
+  test("ten minutes of the head at the sha with no pipeline returns no_pipeline with pushed true", async () => {
+    const { deps } = fake([mr(SHA, null)]);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 900, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "no_pipeline", pushed: true, remoteSha: SHA, waitedSeconds: 600 });
+  });
+  test("a pipeline for another sha at the head counts as waiting for the no_pipeline clock", async () => {
+    const { deps } = fake([mr(SHA, pipe({ sha: OLD }))]);
+    expect(await watchPipeline({ ...base, maxWaitSeconds: 900, attend: attend() }, deps)).toMatchObject({ state: "no_pipeline", pushed: true });
+  });
+  test("a merge-train pipeline that stays unprovable past ten minutes never returns no_pipeline", async () => {
+    const { deps } = fake([mr(SHA, pipe({ sha: "m".repeat(40), mergeRequestEventType: "merge_train", status: "running" }))]);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 900, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "waiting", waitedSeconds: 900 });
+    expect((r as { next: string }).next).toContain("priorPipelineId");
+  });
+  test("parent reads that keep failing past ten minutes never return no_pipeline", async () => {
+    const { deps } = fake([mr(SHA, pipe({ sha: "m".repeat(40), mergeRequestEventType: "merged_result", status: "running" }))], { commitParents: async () => null });
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 900, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "waiting", waitedSeconds: 900 });
+  });
+  test("ten minutes of a null head returns no_pipeline with pushed false and a null remoteSha", async () => {
+    const { deps } = fake([mr(null, null)]);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 900, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "no_pipeline", pushed: false, remoteSha: null });
+  });
+  test("under ten minutes of waiting stays waiting", async () => {
+    const { deps } = fake([mr(SHA, null)]);
+    expect(await watchPipeline({ ...base, attend: attend() }, deps)).toMatchObject({ state: "waiting" });
+  });
+  test("a waitingSince from the input counts toward the window", async () => {
+    const { deps } = fake([mr(SHA, null)]);
+    const r = await watchPipeline({ ...base, attend: attend({ waitingSince: -9 * MIN }) }, deps);
+    expect(r).toMatchObject({ state: "no_pipeline", waitedSeconds: 60 });
+  });
+  test("a head at another sha still ends superseded, never no_pipeline", async () => {
+    const other = "c".repeat(40);
+    const { deps } = fake([mr(other, pipe({ sha: other }))]);
+    const r = await watchPipeline({ ...base, attend: attend({ waitingSince: -60 * MIN }) }, deps);
+    expect(r).toMatchObject({ state: "superseded", headSha: other });
+  });
+  test("a retried pipeline that last failed reopens the window as freshMinutes would", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(200) }))]);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 0, attend: attend({ lastFailedPipelineId: 10, freshMinutes: 60 }) }, deps);
+    expect(r).toMatchObject({ state: "running", budget: { minutes: 260, elapsedMinutes: 200, spent: false } });
+  });
+  test("a pipeline that last failed and still has a failed blocking job does not reopen", async () => {
+    const job = { id: "gitlab:job:7", name: "unit", stage: "test", status: "failed", allowFailure: false, webUrl: null };
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(200) }))], { failedJobs: async () => [job] });
+    const r = await watchPipeline({ ...base, attend: attend({ lastFailedPipelineId: 10 }) }, deps);
+    expect(r).toMatchObject({ state: "failed", budget: { minutes: 75, spent: true } });
+  });
+  test("a different pipeline from the one that last failed does not reopen", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(200) }))]);
+    expect(await watchPipeline({ ...base, attend: attend({ lastFailedPipelineId: 9 }) }, deps)).toMatchObject({ state: "timeout" });
+  });
+  test("observe fires once per poll with the matched pipeline, budget, prior id and waiting clock", async () => {
+    const seen: unknown[] = [];
+    const { deps } = fake([mr(SHA, null), mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(5) }))], { observe: (o) => { seen.push(o); } });
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 60, priorPipelineId: 9, attend: attend() }, deps);
+    if ("error" in r) throw new Error(r.error);
+    expect(seen).toHaveLength(r.polls);
+    expect(seen[0]).toEqual({ pipelineId: null, pipelineStatus: null, budgetMinutes: null, priorPipelineId: 9, waitingSince: 0 });
+    expect(seen[1]).toEqual({ pipelineId: 10, pipelineStatus: "running", budgetMinutes: 75, priorPipelineId: 9, waitingSince: null });
+  });
+  test("observe fires on a terminal poll after the lease is re-proved", async () => {
+    let observed = 0;
+    const { deps } = fake([mr(SHA, pipe({ status: "success" }))], { observe: () => { observed++; } });
+    const r = await watchPipeline({ ...base, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "success", polls: 1 });
+    expect(observed).toBe(1);
+  });
+  test("a stood_down lease check maps to stood_down with the holder and never observes", async () => {
+    const other = { ...LEASE, owner: "session:b" };
+    let observed = 0;
+    const { deps } = fake([mr(SHA, pipe({}))], { leaseCheck: () => ({ ok: false, reason: "stood_down", holder: other }), observe: () => { observed++; } });
+    const r = await watchPipeline({ ...base, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "stood_down", holder: { owner: "session:b" }, lease: null });
+    expect((r as { next: string }).next).toContain("stand down");
+    expect(observed).toBe(0);
+  });
+  test("an unavailable lease check maps to lease_unavailable with the error", async () => {
+    const { deps } = fake([mr(SHA, pipe({}))], { leaseCheck: () => ({ ok: false, reason: "unavailable", error: "lease lock busy" }) });
+    const r = await watchPipeline({ ...base, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "lease_unavailable", error: "lease lock busy", lease: null });
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 import {
   buildPluginRoots,
@@ -18,6 +18,7 @@ import {
   readVerbRoster,
   stageRoster,
   stripFrontmatter,
+  type PluginListEntry,
   type PluginRoots,
 } from "../sources.ts";
 import { effectiveSlotBindings } from "../pipelines.ts";
@@ -496,6 +497,56 @@ describe("buildPluginRoots", () => {
 
     expect(logged).toEqual([{ module: "skills", message: `skipping plugin "current-time" -- installPath does not exist: ${staleInstallPath}` }]);
     expect(shown).toBe("[warning] Skipped the current-time plugin  its folder is gone\n");
+  });
+
+  test("buildPluginRoots keeps a user-scope and a stale project-scope root for one plugin", () => {
+    const rootDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-plugin-dirs-")));
+    const userDir = join(rootDir, "user");
+    const projectDir = join(rootDir, "project");
+    writeFile(join(userDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "2.0.0" }));
+    writeFile(join(projectDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
+
+    const roots = buildPluginRoots([
+      { id: "mattstack@mattstack", installPath: userDir, scope: "user" },
+      { id: "mattstack@mattstack", installPath: projectDir, scope: "project", projectPath: homedir() } as PluginListEntry,
+    ]);
+
+    expect(roots.dirs).toEqual([realpathSync(userDir), realpathSync(projectDir)]);
+    expect(roots.byName.mattstack?.dir).toBe(realpathSync(projectDir));
+  });
+
+  test("buildPluginRoots dedupes a root listed twice", () => {
+    const rootDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-plugin-dedupe-")));
+    const dir = join(rootDir, "mattstack");
+    writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
+
+    const roots = buildPluginRoots([
+      { id: "mattstack@mattstack", installPath: dir, scope: "user" },
+      { id: "mattstack@mattstack", installPath: dir, scope: "project" },
+    ]);
+
+    expect(roots.dirs).toEqual([dir]);
+  });
+
+  test("buildPluginRoots skips a missing installPath in dirs", () => {
+    const rootDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-plugin-missing-")));
+    const dir = join(rootDir, "acme");
+    writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
+    warnTest.reset();
+    setWarningLog(() => {});
+    const io = captureOut();
+    let roots: PluginRoots;
+    try {
+      roots = buildPluginRoots([
+        { id: "gone@mattstack", installPath: join(rootDir, "gone") },
+        { id: "acme@acme", installPath: dir },
+      ]);
+    } finally {
+      warnTest.reset();
+      io.restore();
+    }
+
+    expect(roots.dirs).toEqual([dir]);
   });
 
   test("no missing entries: every plugin resolves, no warning printed", () => {
