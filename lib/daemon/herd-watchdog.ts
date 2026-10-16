@@ -2,11 +2,12 @@
  * Wedge detection for herd participants (workers and the shepherd), read
  * through sensors over the daemon's own stores, and the escalation ladder that
  * acts on the verdicts through injected actuators. The evaluators are pure:
- * one verdict per participant per reading, no timers, no I/O. The ladder keeps
- * only in-memory strike state and runs when the caller sweeps; it owns no timer.
+ * one verdict per participant per reading, no timers, no I/O. The ladder's
+ * strike state writes through to an optional persist store and runs when the
+ * caller sweeps; it owns no timer.
  */
 import type { Logger } from "pino";
-import { herdPrefix, type HerdJobRow, type HerdRow } from "./herd-store.ts";
+import { herdPrefix, type HerdJobRow, type HerdRow, type WatchdogLadderRow, type WatchdogMarkRow } from "./herd-store.ts";
 
 export interface WatchdogSensors {
   now(): number;
@@ -216,6 +217,14 @@ export interface WatchdogActuators {
 
 interface Ladder { strikes: number; lastPokeAt: number | null; since: number; parked: boolean }
 
+export interface WatchdogPersist {
+  load(): { ladders: WatchdogLadderRow[]; marks: WatchdogMarkRow[] };
+  saveLadder(row: WatchdogLadderRow): void;
+  deleteLadder(key: string): void;
+  mark(kind: WatchdogMarkRow["kind"], key: string, at: number): void;
+  clear(): void;
+}
+
 const SHEPHERD = "@shepherd";
 const WORKER_CAP = 5;
 const SHEPHERD_CAP = 3;
@@ -236,8 +245,9 @@ const summaryText = (party: string, evidence: string, ladder: Ladder, now: numbe
  * a healthy verdict clears the ladder.
  */
 export class HerdWatchdog {
-  /** In memory by design: a daemon restart resets every ladder to strike 1 and
-      reopens every herd's notification quiet period. */
+  /** Written through to `persist` when one is given, so a daemon restart
+      resumes each ladder at its real strike and keeps every herd's
+      notification quiet period. Without it, a restart resets them all. */
   private readonly ladders = new Map<string, Ladder>();
   private readonly notifiedAt = new Map<string, number>();
   /** When each party was last acted on, kept ACROSS a ladder clear. A poke
@@ -255,12 +265,18 @@ export class HerdWatchdog {
   private readonly act: WatchdogActuators;
   private readonly cfg: () => WatchdogConfig;
   private readonly log: Logger;
+  private readonly persist: WatchdogPersist | undefined;
 
-  constructor(deps: { sensors: WatchdogSensors; act: WatchdogActuators; cfg(): WatchdogConfig; log: Logger }) {
+  constructor(deps: { sensors: WatchdogSensors; act: WatchdogActuators; cfg(): WatchdogConfig; log: Logger; persist?: WatchdogPersist }) {
     this.sensors = deps.sensors;
     this.act = deps.act;
     this.cfg = deps.cfg;
     this.log = deps.log;
+    this.persist = deps.persist;
+    if (!this.persist) return;
+    const saved = this.persist.load();
+    for (const { key, ...ladder } of saved.ladders) this.ladders.set(key, ladder);
+    for (const m of saved.marks) (m.kind === "action" ? this.lastActionAt : this.notifiedAt).set(m.key, m.at);
   }
 
   /** True while a sweep is in flight, so the caller can skip the reading it
@@ -276,6 +292,7 @@ export class HerdWatchdog {
       // Disabled is a reset, not a pause: a ladder that survived it would
       // resume mid-escalation against evidence nobody watched in between, and
       // a surviving quiet period would swallow the first notification after.
+      if (this.ladders.size > 0 || this.notifiedAt.size > 0 || this.lastActionAt.size > 0) this.persist?.clear();
       this.ladders.clear();
       this.notifiedAt.clear();
       this.lastActionAt.clear();
@@ -307,7 +324,7 @@ export class HerdWatchdog {
     const key = `${herd.id}/${job.name}`;
     const verdict = evaluateJob(job, this.sensors, cfg);
     if (verdict.kind === "healthy" || verdict.kind === "finished-lingering" || job.pane === null) {
-      this.ladders.delete(key);
+      this.drop(key);
       return;
     }
     const ladder = this.track(key, now);
@@ -327,16 +344,17 @@ export class HerdWatchdog {
       // body names the path, and the actuator accepts only a path rt's
       // worktree registry holds (RT-200).
       if (cfg.relocationAutoAccept && await this.act.acceptRelocationModal(herd.id, job.name, job.pane)) {
-        this.ladders.delete(key);
+        this.drop(key);
         this.log.info({ herd: herd.id, job: job.name, pane: job.pane }, "accepted a mid-run relocation prompt");
         return;
       }
       if (job.tree !== null && cfg.midRunTrustAccept && await this.act.acceptTrustModal(herd.id, job.name, job.pane, job.worktree)) {
-        this.ladders.delete(key);
+        this.drop(key);
         this.log.info({ herd: herd.id, job: job.name, pane: job.pane }, "accepted a mid-run trust dialog");
         return;
       }
       ladder.parked = true;
+      this.save(key, ladder);
       this.act.parkStuckAtModal(herd.id, job.name);
       // Deliberately outside notify(): the park happens once, so this cannot
       // repeat, and the quiet period that paces repeated rung-3 summaries
@@ -356,7 +374,7 @@ export class HerdWatchdog {
     // at strike 1, not a stale dead/modal jumping straight to strike 3.
     const fresh = evaluateJob(job, this.sensors, cfg);
     if (fresh.kind === "healthy" || fresh.kind === "finished-lingering") {
-      this.ladders.delete(key);
+      this.drop(key);
       return;
     }
     this.commit(key, ladder, now, fresh.kind === "wedged" ? 1 : 3, WORKER_CAP);
@@ -375,7 +393,7 @@ export class HerdWatchdog {
     const key = `${herd.id}/${SHEPHERD}`;
     const verdict = evaluateShepherd(herd, this.sensors, cfg);
     if (verdict.kind !== "wedged") {
-      this.ladders.delete(key);
+      this.drop(key);
       return;
     }
     const ladder = this.track(key, now);
@@ -383,7 +401,7 @@ export class HerdWatchdog {
     // Same re-read-before-commit as the worker path, for the same reason.
     const fresh = evaluateShepherd(herd, this.sensors, cfg);
     if (fresh.kind !== "wedged") {
-      this.ladders.delete(key);
+      this.drop(key);
       return;
     }
     this.commit(key, ladder, now, 1, SHEPHERD_CAP);
@@ -397,8 +415,17 @@ export class HerdWatchdog {
     if (!ladder) {
       ladder = { strikes: 0, lastPokeAt: null, since: now, parked: false };
       this.ladders.set(key, ladder);
+      this.save(key, ladder);
     }
     return ladder;
+  }
+
+  private save(key: string, ladder: Ladder): void {
+    this.persist?.saveLadder({ key, ...ladder });
+  }
+
+  private drop(key: string): void {
+    if (this.ladders.delete(key)) this.persist?.deleteLadder(key);
   }
 
   /** True once retryMins has elapsed since the last action, without
@@ -414,6 +441,8 @@ export class HerdWatchdog {
     ladder.strikes = Math.min(Math.max(ladder.strikes + 1, floor), cap);
     ladder.lastPokeAt = now;
     this.lastActionAt.set(key, now);
+    this.save(key, ladder);
+    this.persist?.mark("action", key, now);
   }
 
   /** The adapter's own poke already logs warn for a real failure (herdr
@@ -437,6 +466,7 @@ export class HerdWatchdog {
       return;
     }
     this.notifiedAt.set(herd, now);
+    this.persist?.mark("notified", herd, now);
     this.act.notifyHuman(summary, pane);
     this.log.info({ ...ctx, summary }, "notified human");
   }

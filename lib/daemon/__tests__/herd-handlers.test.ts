@@ -14,6 +14,10 @@ import { createBgHandlers } from "../handlers/bg.ts";
 import { createEscapeInjector } from "../gate-escape.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import { acceptTrustOnPane } from "../trust-accept.ts";
+import { jobBudgets } from "../herd-budgets.ts";
+import { readGithubMerge, type LaneDeps } from "../herd-lanes.ts";
+import type { HerdLaneRow } from "../../../packages/rt-client/src/commands.ts";
+import type { TreeRecord } from "../../worktree/registry.ts";
 import { deleteChatSession, readChatSession, writeChatSession } from "../../chat-session.ts";
 
 const log = pino({ level: "silent" });
@@ -57,6 +61,7 @@ export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { regist
     "chat:join": async (p: any) => { chatCalls.push({ verb: "join", payload: p }); order.push("chat:join"); return { ok: true as const, data: { handle: p.handle, memberCount: 1, unread: 0 } }; },
     "chat:post": async (p: any) => { chatCalls.push({ verb: "post", payload: p }); return { ok: true as const, data: { id: chatCalls.length, recipients: p.mentions ?? [], others: 0 } }; },
     "chat:archive": async (p: any) => { chatCalls.push({ verb: "archive", payload: p }); return { ok: true as const, data: { room: p.room, archivedAt: 1 } }; },
+    "chat:dm": async (p: any) => { chatCalls.push({ verb: "dm", payload: p }); return { ok: true as const, data: { room: "dm-room", id: chatCalls.length, recipients: [p.to], recipientNames: [p.to] } }; },
     // A minted herd id carries the wall clock, so the herd's own room is read
     // back off the store; the decoy row sits first so a handler that took the
     // first room instead of the herd's would read 9, not 3.
@@ -180,7 +185,7 @@ export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { regist
     ...over,
   };
   const h = createHerdHandlers(deps);
-  return { h, store, gateStore, gate, chatCalls, agentCalls, worktreeCalls, herdrCalls, socketCalls, order, screen, trust, snapshotPanes, dir, claims, bg, bgStopCalls: () => bgStopCalls };
+  return { h, deps, store, gateStore, gate, chatCalls, agentCalls, worktreeCalls, herdrCalls, socketCalls, order, screen, trust, snapshotPanes, dir, claims, bg, bgStopCalls: () => bgStopCalls };
 }
 
 const START = { name: "demo", repo: "gh:m4ttstack/rt", session: "sess-shep" };
@@ -1432,7 +1437,7 @@ describe("herd:spawn", () => {
     expect(res.data.handle).toBe("job-a-2");
   });
 
-  test("a respawn whose agent:start fails leaves no pane on the row, since the old one is already closed", async () => {
+  test("a respawn whose agent:start fails leaves no pane on the row, since the old one is already closed, and keeps the old session", async () => {
     let starts = 0;
     const agent = {
       "agent:start": async (p: any) => {
@@ -1449,7 +1454,7 @@ describe("herd:spawn", () => {
     expect(hx.store.getJob(s.data.herd, "job-a")!.pane).toBe("w9:p1");
     expect((await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", dir: "/t" })).ok).toBe(false);
     expect(hx.herdrCalls).toContainEqual(["pane", "close", "w9:p1"]);
-    expect(hx.store.getJob(s.data.herd, "job-a")).toMatchObject({ pane: null, agentSession: null, agentId: null, status: "spawning" });
+    expect(hx.store.getJob(s.data.herd, "job-a")).toMatchObject({ pane: null, agentSession: "sess-w1", agentId: "ag-1", status: "spawning" });
   });
 
   test("refuses a bad job name, a new job with no brief, and an unknown herd", async () => {
@@ -1473,6 +1478,317 @@ describe("herd:spawn", () => {
   });
 });
 
+describe("herd:spawn {tree} and herd:respawn", () => {
+  const Q = [{ id: "q1", label: "Which?", multi: false, options: ["a", "b"] }];
+  const REPO = START.repo;
+
+  function claimedTree(name: string, over: Partial<TreeRecord> = {}): TreeRecord {
+    const path = mkdtempSync(join(tmpdir(), `rt-herd-tree-${name}-`));
+    dirs.push(path);
+    return { name, path, kind: "ephemeral", state: "claimed", branch: `br-${name}`, createdAt: "2026-10-16T00:00:00Z", ...over };
+  }
+
+  function fakeRegistry(trees: TreeRecord[]): NonNullable<HerdDeps["registry"]> {
+    return {
+      load: (repo) => (repo === REPO ? trees : []),
+      byPath: (path) => {
+        const t = trees.find((x) => x.path === path);
+        return t ? { repoName: REPO, tree: t.name } : null;
+      },
+    };
+  }
+
+  async function started(trees: TreeRecord[], over: Partial<HerdDeps> = {}) {
+    const hx = harness({ registry: fakeRegistry(trees), ...over });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    return { ...hx, herd: s.data.herd };
+  }
+
+  test("spawn with tree launches in the registered path without provisioning", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, worktreeCalls, agentCalls, herd } = await started([t1]);
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" });
+    if (!res.ok) throw new Error(res.error);
+    expect(worktreeCalls).toEqual([]);
+    expect(agentCalls[0].cwd).toBe(t1.path);
+    expect(res.data).toMatchObject({ worktree: t1.path, branch: "br-t1", tree: "t1", wasOnDeck: null });
+    expect(store.getJob(herd, "job-a")).toMatchObject({ worktree: t1.path, branch: "br-t1", tree: "t1" });
+  });
+
+  test("spawn with tree refuses an unmanaged tree", async () => {
+    const { h, agentCalls, worktreeCalls, herd } = await started([claimedTree("t1", { kind: "unmanaged", state: undefined })]);
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain('tree "t1" is unmanaged');
+    expect(agentCalls).toEqual([]);
+    expect(worktreeCalls).toEqual([]);
+  });
+
+  test("spawn persists model, effort and account on the job row", async () => {
+    const { h, store, herd } = await started([]);
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: "/t", model: "opus", effort: "high", account: "2" });
+    if (!res.ok) throw new Error(res.error);
+    expect(store.getJob(herd, "job-a")).toMatchObject({ model: "opus", effort: "high", account: "2" });
+    const bare = await h["herd:spawn"]({ herd, job: "job-b", brief: "b", dir: "/t" });
+    if (!bare.ok) throw new Error(bare.error);
+    expect(store.getJob(herd, "job-b")).toMatchObject({ model: null, effort: null, account: null });
+  });
+
+  test("guest spawn keeps tree null so wrap-up cannot dispose the host tree", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, worktreeCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    const guest = await h["herd:spawn"]({ herd, job: "review-a", brief: "review", tree: "t1" });
+    if (!guest.ok) throw new Error(guest.error);
+    expect(guest.data).toMatchObject({ worktree: t1.path, tree: null });
+    expect(store.getJob(herd, "review-a")!.tree).toBeNull();
+    const wrap = await h["herd:wrap-up"]({ herd, dispose: ["review-a"] });
+    if (!wrap.ok) throw new Error(wrap.error);
+    expect(wrap.data.refused).toEqual([{ tree: "review-a", reason: "no rt-provisioned tree for this job" }]);
+    expect(worktreeCalls.filter((c) => c.verb === "dispose")).toEqual([]);
+  });
+
+  test("guest spawn ticks the host's reviewerRounds under its latest milestone artifact", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    expect((await h["herd:milestone"]({ herd, job: "job-a", session: "sess-w1", artifact: "/a/spec.md" })).ok).toBe(true);
+    const guest = await h["herd:spawn"]({ herd, job: "review-a", brief: "review", tree: "t1" });
+    if (!guest.ok) throw new Error(guest.error);
+    expect(guest.data.reviewerRound).toEqual({ host: "job-a", key: "/a/spec.md", budget: { used: 1, cap: 2, spent: false } });
+    expect(jobBudgets(store.budgetRows(herd, "job-a")).reviewerRounds["/a/spec.md"]).toEqual({ used: 1, cap: 2, spent: false });
+    expect(jobBudgets(store.budgetRows(herd, "review-a")).reviewerRounds).toEqual({});
+  });
+
+  test("a host spawn returns no reviewerRound", async () => {
+    const t1 = claimedTree("t1");
+    const { h, herd } = await started([t1]);
+    const host = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" });
+    if (!host.ok) throw new Error(host.error);
+    expect(host.data.reviewerRound).toBeUndefined();
+  });
+
+  test("a job launched with --dir in a tree's path hosts a guest spawned into that tree", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: t1.path })).ok).toBe(true);
+    const guest = await h["herd:spawn"]({ herd, job: "review-a", brief: "review", tree: "t1" });
+    if (!guest.ok) throw new Error(guest.error);
+    expect(guest.data.tree).toBeNull();
+    expect(guest.data.reviewerRound).toEqual({ host: "job-a", key: "", budget: { used: 1, cap: 2, spent: false } });
+    expect(store.getJob(herd, "review-a")!.tree).toBeNull();
+  });
+
+  test("spawning an existing job settles its old session's gates after launch", async () => {
+    const t1 = claimedTree("t1");
+    const { h, gate, gateStore, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    const answered = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!answered.ok) throw new Error(answered.error);
+    expect((await gate["gate:answer"]({ id: answered.data.gate, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+    const open = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!open.ok) throw new Error(open.error);
+
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "round two", tree: "t1" });
+    if (!res.ok) throw new Error(res.error);
+    expect(gateStore.get(open.data.gate)).toMatchObject({ status: "closed", closedReason: "abandoned" });
+    expect(gateStore.get(answered.data.gate)!.consumedAt).not.toBeNull();
+  });
+
+  test("a failed relaunch leaves the old session's gates pending for spawn and respawn alike", async () => {
+    for (const verb of ["herd:spawn", "herd:respawn"] as const) {
+      let starts = 0;
+      const agent = {
+        "agent:start": async (p: any) => {
+          starts += 1;
+          if (starts > 1) return { ok: false as const, error: "boom" };
+          return { ok: true as const, data: { id: "ag-1", sessionId: "sess-w1", paneId: "w9:p1", tabId: "w9:t1", workspaceId: "w9", repo: p.repo, cwd: p.cwd, surface: "herdr", provider: "claude" } };
+        },
+      } as unknown as HerdDeps["agent"];
+      const t1 = claimedTree("t1");
+      const { h, gate, gateStore, herd } = await started([t1], { agent });
+      expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+      const answered = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+      if (!answered.ok) throw new Error(answered.error);
+      expect((await gate["gate:answer"]({ id: answered.data.gate, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+      const open = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+      if (!open.ok) throw new Error(open.error);
+
+      const res = verb === "herd:spawn" ? await h["herd:spawn"]({ herd, job: "job-a", tree: "t1" }) : await h["herd:respawn"]({ herd, job: "job-a" });
+      expect(res.ok).toBe(false);
+      expect(gateStore.get(open.data.gate)!.status).toBe("open");
+      expect(gateStore.get(answered.data.gate)!.consumedAt).toBeNull();
+    }
+  });
+
+  test("a relaunch after a failed one settles the session the failure kept on the row", async () => {
+    let starts = 0;
+    const agent = {
+      "agent:start": async (p: any) => {
+        starts += 1;
+        if (starts === 2) return { ok: false as const, error: "boom" };
+        return { ok: true as const, data: { id: `ag-${starts}`, sessionId: `sess-w${starts}`, paneId: `w9:p${starts}`, tabId: "w9:t1", workspaceId: "w9", repo: p.repo, cwd: p.cwd, surface: "herdr", provider: "claude" } };
+      },
+    } as unknown as HerdDeps["agent"];
+    const t1 = claimedTree("t1");
+    const { h, gate, gateStore, store, herd } = await started([t1], { agent });
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    const answered = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!answered.ok) throw new Error(answered.error);
+    expect((await gate["gate:answer"]({ id: answered.data.gate, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+    const open = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!open.ok) throw new Error(open.error);
+
+    expect((await h["herd:respawn"]({ herd, job: "job-a" })).ok).toBe(false);
+    expect(store.getJob(herd, "job-a")).toMatchObject({ agentSession: "sess-w1", agentId: "ag-1" });
+    expect(gateStore.get(open.data.gate)!.status).toBe("open");
+    expect(gateStore.get(answered.data.gate)!.consumedAt).toBeNull();
+
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.settled).toEqual({ closed: [open.data.gate], consumed: [answered.data.gate] });
+    expect(gateStore.get(open.data.gate)).toMatchObject({ status: "closed", closedReason: "abandoned" });
+    expect(gateStore.get(answered.data.gate)!.consumedAt).not.toBeNull();
+    expect(store.getJob(herd, "job-a")).toMatchObject({ agentSession: "sess-w3", agentId: "ag-3" });
+  });
+
+  test("respawn reuses the worktree and inherits model, effort and account", async () => {
+    const t1 = claimedTree("t1");
+    const { h, worktreeCalls, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1", model: "opus", effort: "high", account: "2" })).ok).toBe(true);
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(worktreeCalls).toEqual([]);
+    expect(agentCalls[1]).toMatchObject({ cwd: t1.path, model: "opus", effort: "high", account: "2" });
+    expect(res.data).toMatchObject({ worktree: t1.path, branch: "br-t1", tree: "t1", launch: { model: "opus", effort: "high", account: "2" } });
+  });
+
+  test("respawn overrides one setting and keeps the others", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1", model: "opus", effort: "high", account: "2" })).ok).toBe(true);
+    const res = await h["herd:respawn"]({ herd, job: "job-a", model: "sonnet" });
+    if (!res.ok) throw new Error(res.error);
+    expect(agentCalls[1]).toMatchObject({ model: "sonnet", effort: "high", account: "2" });
+    expect(res.data.launch).toEqual({ model: "sonnet", effort: "high", account: "2" });
+    expect(store.getJob(herd, "job-a")).toMatchObject({ model: "sonnet", effort: "high", account: "2" });
+  });
+
+  test("respawn refuses a job whose worktree is gone", async () => {
+    const t1 = claimedTree("t1");
+    const { h, worktreeCalls, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    rmSync(t1.path, { recursive: true, force: true });
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain(t1.path);
+    expect(worktreeCalls).toEqual([]);
+    expect(agentCalls).toHaveLength(1);
+  });
+
+  test("respawn refuses an unknown job", async () => {
+    const { h, herd } = await started([]);
+    const res = await h["herd:respawn"]({ herd, job: "ghost" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe(`unknown job "ghost" in herd "${herd}"`);
+  });
+
+  test("respawn refuses a job whose worktree is not a registered tree", async () => {
+    const dirJob = mkdtempSync(join(tmpdir(), "rt-herd-dir-"));
+    dirs.push(dirJob);
+    const { h, agentCalls, herd } = await started([]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: dirJob })).ok).toBe(true);
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe(`job "job-a" worktree ${dirJob} is not a registered tree; respawn it from the CLI with --dir`);
+    expect(agentCalls).toHaveLength(1);
+  });
+
+  test("respawn refuses a job whose tree is no longer claimed", async () => {
+    const t1 = claimedTree("t1");
+    const { h, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    t1.state = "disposable";
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe(`job "job-a" worktree ${t1.path}: tree "t1" is ephemeral and disposable; only a claimed ephemeral tree can host a worker`);
+    expect(agentCalls).toHaveLength(1);
+  });
+
+  test("respawn settles the old session's run gates in the job's worktree, past the first page of a listing", async () => {
+    const t1 = claimedTree("t1");
+    const runTrees: Record<string, string> = { "r-other": "/w/elsewhere", "r-job": t1.path };
+    const { h: base, deps, gate, gateStore, herd } = await started([t1], { runWorktree: (run) => runTrees[run] ?? null });
+    const listCalls: Array<number | undefined> = [];
+    const paged = {
+      ...gate,
+      "gate:list": async (p: any) => { listCalls.push(p?.cursor); return gate["gate:list"]({ ...p, limit: 2 }); },
+    } as unknown as HerdDeps["gate"];
+    const h = createHerdHandlers({ ...deps, gate: paged });
+    expect((await base["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+
+    const openRun = async (run: string, kind: string, session: string) => {
+      const r = await gate["gate:open"]({ subject: `run:${run}`, kind, questions: Q, nudge: { session } });
+      if (!r.ok) throw new Error(r.error);
+      return r.data.id;
+    };
+    const decoys = [];
+    for (const kind of ["k1", "k2", "k3", "k4"]) {
+      const id = await openRun("r-other", kind, "sess-w1");
+      expect((await gate["gate:answer"]({ id, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+      decoys.push(id);
+    }
+    const openGate = await openRun("r-job", "k-open", "sess-w1");
+    const answered = await openRun("r-job", "k-answered", "sess-w1");
+    expect((await gate["gate:answer"]({ id: answered, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+    const otherSession = await openRun("r-job", "k-other", "sess-other");
+
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.settled).toEqual({ closed: [openGate], consumed: [answered] });
+    expect(gateStore.get(openGate)).toMatchObject({ status: "closed", closedReason: "abandoned" });
+    expect(gateStore.get(answered)!.consumedAt).not.toBeNull();
+    expect(gateStore.get(otherSession)!.status).toBe("open");
+    for (const id of decoys) expect(gateStore.get(id)!.consumedAt).toBeNull();
+    expect(listCalls.filter((c) => c !== undefined).length).toBeGreaterThan(1);
+  });
+
+  test("respawn ticks respawns and reports spent at 2 but still launches the third", async () => {
+    const t1 = claimedTree("t1");
+    const { h, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    const budgets = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await h["herd:respawn"]({ herd, job: "job-a" });
+      if (!res.ok) throw new Error(res.error);
+      budgets.push(res.data.budget);
+    }
+    expect(budgets).toEqual([{ used: 1, cap: 2, spent: false }, { used: 2, cap: 2, spent: true }, { used: 3, cap: 2, spent: true }]);
+    expect(agentCalls).toHaveLength(4);
+  });
+
+  test("respawn closes the old session's open gates and settles its answered unconsumed gates", async () => {
+    const t1 = claimedTree("t1");
+    const { h, gate, gateStore, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    const answered = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!answered.ok) throw new Error(answered.error);
+    expect((await gate["gate:answer"]({ id: answered.data.gate, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+    const open = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!open.ok) throw new Error(open.error);
+    const otherSession = await h["herd:milestone"]({ herd, job: "job-a", session: "sess-other", artifact: "/a/spec.md" });
+    if (!otherSession.ok) throw new Error(otherSession.error);
+
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.settled).toEqual({ closed: [open.data.gate], consumed: [answered.data.gate] });
+    expect(gateStore.get(open.data.gate)).toMatchObject({ status: "closed", closedReason: "abandoned" });
+    expect(gateStore.get(answered.data.gate)!.consumedAt).not.toBeNull();
+    expect(gateStore.get(otherSession.data.gate)!.status).toBe("open");
+  });
+});
+
 describe("herd:gates", () => {
   test("lists herd-prefixed gates plus run gates whose worktree matches a job", async () => {
     const hx = harness({ runWorktree: (id) => (id === "run-1" ? "/w/job-a" : id === "run-2" ? "/elsewhere" : null) });
@@ -1488,6 +1804,416 @@ describe("herd:gates", () => {
     const res = await hx.h["herd:gates"]({ herd });
     if (!res.ok) throw new Error(res.error);
     expect(res.data.gates.map((g) => g.id).sort()).toEqual([g1, g2].sort());
+  });
+
+  test("lists herd and run gates that sit past the first page of a listing", async () => {
+    const hx = harness({ runWorktree: (id) => (id === "run-job" ? "/w/job-a" : "/elsewhere") });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const herd = s.data.herd;
+    hx.store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active" });
+    const Q = [{ id: "q", label: "?", multi: false, options: ["a"] }];
+    const own = hx.gateStore.open({ subject: `herd:${herd}/job-a`, kind: "question", questions: Q }).row.id;
+    for (const kind of ["k1", "k2", "k3", "k4"]) hx.gateStore.open({ subject: "run:run-other", kind, questions: Q });
+    const run = hx.gateStore.open({ subject: "run:run-job", kind: "clarify", questions: Q }).row.id;
+    const listCalls: Array<number | undefined> = [];
+    const paged = {
+      ...hx.deps.gate,
+      "gate:list": async (p: any) => { listCalls.push(p?.cursor); return hx.deps.gate["gate:list"]({ ...p, limit: 2 }); },
+    } as unknown as HerdDeps["gate"];
+    const h = createHerdHandlers({ ...hx.deps, gate: paged });
+    const res = await h["herd:gates"]({ herd });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.gates.map((g) => g.id).sort()).toEqual([own, run].sort());
+    expect(listCalls.filter((c) => c !== undefined).length).toBeGreaterThan(1);
+  });
+
+  test("includeParked adds this herd's parked gates, never another herd's, and the default stays open-only", async () => {
+    const hx = harness({ runWorktree: (id) => (id === "run-1" ? "/w/job-a" : null) });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const herd = s.data.herd;
+    hx.store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active" });
+    const Q = [{ id: "q", label: "?", multi: false, options: ["a"] }];
+    const own = hx.gateStore.open({ subject: `herd:${herd}/job-a`, kind: "question", questions: Q }).row.id;
+    const run = hx.gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q }).row.id;
+    const other = hx.gateStore.open({ subject: "herd:hd-other/job-a", kind: "question", questions: Q }).row.id;
+    for (const id of [own, run, other]) hx.gateStore.park(id);
+    const open = await hx.h["herd:gates"]({ herd });
+    if (!open.ok) throw new Error(open.error);
+    expect(open.data.gates).toEqual([]);
+    const live = await hx.h["herd:gates"]({ herd, includeParked: true });
+    if (!live.ok) throw new Error(live.error);
+    expect(live.data.gates.map((g) => g.id).sort()).toEqual([own, run].sort());
+  });
+
+  test("a failed gate listing comes back as the error, not an empty list", async () => {
+    const hx = harness();
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const failing = { ...hx.deps.gate, "gate:list": async () => ({ ok: false, error: "gates store unavailable" }) } as unknown as HerdDeps["gate"];
+    const h = createHerdHandlers({ ...hx.deps, gate: failing });
+    expect(await h["herd:gates"]({ herd: s.data.herd })).toEqual({ ok: false, error: "gates store unavailable" });
+  });
+});
+
+describe("herd:diagnose", () => {
+  const LIMIT_SCREEN = ["⏺ Working.", "  ⎿  You've hit your session limit · resets 5pm", "─".repeat(40), "> ", "─".repeat(40), "  ? for shortcuts"].join("\n");
+
+  async function started(over: Partial<HerdDeps> = {}) {
+    const reads: Array<{ pane: string; socket: string | null }> = [];
+    const hx = harness({
+      paneScreen: async (pane, socket) => { reads.push({ pane, socket }); return LIMIT_SCREEN; },
+      ...over,
+    });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    return { ...hx, herd: s.data.herd, reads };
+  }
+
+  test("diagnose returns verdict, gates and budgets but never screen text", async () => {
+    const watchdog: NonNullable<HerdDeps["watchdog"]> = { annotations: (_h, job) => (job === "job-a" ? { strikes: 1, lastPokeAt: 99 } : null) };
+    const { h, store, gateStore, snapshotPanes, herd, reads } = await started({ watchdog, runWorktree: (id) => (id === "run-1" ? "/w/job-a" : "/elsewhere") });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    store.upsertJob({ herd, name: "job-b", worktree: "/w/job-b", handle: "job-b", status: "active", pane: "w9:p2" });
+    store.tickBudget(herd, "job-a", "respawns");
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    const Q = [{ id: "q", label: "?", multi: false, options: ["a"] }];
+    const answered = gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(answered, { q: "a" }, "shepherd");
+    store.setJobStatus(herd, "job-a", "active", { lastGate: answered });
+    gateStore.open({ subject: herdSubject(herd, "job-b"), kind: "question", questions: Q });
+    gateStore.open({ subject: "run:run-2", kind: "clarify", questions: Q });
+
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({
+      job: "job-a", status: "active", pane: "w9:p1", paneState: "idle", verdict: "rate-limited", openGates: [],
+      lastGate: { id: answered, status: "answered", consumed: false },
+      watchdog: { strikes: 1, lastPokeAt: 99 },
+    });
+    expect(res.data.budgets.respawns).toEqual({ used: 1, cap: 2, spent: false });
+    expect(reads).toEqual([{ pane: "w9:p1", socket: null }]);
+    expect(JSON.stringify(res.data)).not.toContain("hit your");
+  });
+
+  test("diagnose lists the job's own open gates and its run gates, with presentation and owner", async () => {
+    const { h, store, gateStore, herd, reads } = await started({ runWorktree: (id) => (id === "run-1" ? "/w/job-a" : "/elsewhere") });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "at-gate", pane: "w9:p1" });
+    const Q = [{ id: "q", label: "?", multi: false, options: ["a"] }];
+    const own = gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q }).row.id;
+    const run = gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q }).row.id;
+    gateStore.open({ subject: "run:run-2", kind: "clarify", questions: Q });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.verdict).toBe("at-gate");
+    expect(res.data.openGates).toEqual([
+      { id: own, kind: "question", presentation: "wait", owner: "human" },
+      { id: run, kind: "clarify", presentation: "wait", owner: "human" },
+    ]);
+    expect(res.data.watchdog).toBeNull();
+    expect(reads).toEqual([]);
+  });
+
+  test("diagnose does not read the screen of a working pane", async () => {
+    const { h, store, herd, reads } = await started();
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ paneState: "working", verdict: "working" });
+    expect(reads).toEqual([]);
+  });
+
+  test("diagnose reads a hidden herd's screen on its own socket with the bare pane id", async () => {
+    const reads: Array<{ pane: string; socket: string | null }> = [];
+    const { h, store, snapshotPanes, socketCalls } = harness({ paneScreen: async (pane, socket) => { reads.push({ pane, socket }); return LIMIT_SCREEN; } });
+    const s = await h["herd:start"]({ ...START, hidden: true });
+    if (!s.ok) throw new Error(s.error);
+    const herd = s.data.herd;
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "bg:w9:p1" });
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "done" }];
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.verdict).toBe("rate-limited");
+    expect(reads).toEqual([{ pane: "w9:p1", socket: "/tmp/hidden.sock" }]);
+    expect(socketCalls.filter((c) => c.method === "session.snapshot").at(-1)!.sock).toBe("/tmp/hidden.sock");
+  });
+
+  test("diagnose's default screen read asks herdr for the visible screen", async () => {
+    const hx = harness();
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    hx.store.upsertJob({ herd: s.data.herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    hx.snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    hx.screen.text = ["Login expired · Please run /login", "─".repeat(40), "> ", "─".repeat(40)].join("\n");
+    const res = await hx.h["herd:diagnose"]({ herd: s.data.herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.verdict).toBe("login-expired");
+    expect(hx.socketCalls.find((c) => c.method === "pane.read")!.params).toEqual({ pane_id: "w9:p1", source: "visible" });
+  });
+
+  test("diagnose refuses to guess when herdr is unreachable", async () => {
+    const { h, store, herd, reads } = await started({
+      herdr: (async () => ({ ok: false, code: "unavailable", message: "no socket" })) as unknown as HerdDeps["herdr"],
+    });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    expect(res).toEqual({ ok: false, error: "herdr is unreachable on the default socket; the pane's state is unknown" });
+    expect(reads).toEqual([]);
+  });
+
+  test("diagnose treats a malformed snapshot reply as unreachable, not gone", async () => {
+    const { h, store, herd } = await started({
+      herdr: (async () => ({ ok: true, result: {} })) as unknown as HerdDeps["herdr"],
+    });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    expect(res.ok).toBe(false);
+  });
+
+  test("diagnose reads a throwing screen read as no screen", async () => {
+    const { h, store, snapshotPanes, herd } = await started({ paneScreen: async () => { throw new Error("boom"); } });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ paneState: "idle", verdict: "idle" });
+  });
+
+  test("diagnose reports no-pane for a job without a pane", async () => {
+    const { h, store, herd, reads } = await started();
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "spawning" });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ pane: null, paneState: null, verdict: "no-pane", lastGate: null });
+    expect(reads).toEqual([]);
+  });
+
+  test("diagnose refuses an unknown job", async () => {
+    const { h, herd } = await started();
+    const res = await h["herd:diagnose"]({ herd, job: "ghost" });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toBe(`unknown job "ghost" in herd "${herd}"`);
+  });
+});
+
+describe("herd:nudge", () => {
+  const Q = [{ id: "q", label: "?", multi: false, options: ["a"] }];
+
+  async function nudgeable(over: Partial<HerdDeps> = {}) {
+    const injects: Array<{ paneId: string; text: string; sockPath?: string }> = [];
+    const delivery: { result: Awaited<ReturnType<NonNullable<HerdDeps["inject"]>>> } = { result: { ok: true, data: { paneId: "w9:p1", delivered: "accepted" } } };
+    const hx = harness({
+      inject: async (o) => { injects.push({ paneId: o.paneId, text: o.text, ...(o.sockPath && { sockPath: o.sockPath }) }); return delivery.result; },
+      runWorktree: (id) => (id === "run-1" ? "/w/job-a" : "/elsewhere"),
+      ...over,
+    });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const herd = s.data.herd;
+    hx.store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a.w001", status: "active", pane: "w9:p1", agentSession: "sess-w1" });
+    hx.snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    const gate = hx.gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    hx.gateStore.answer(gate, { q: "a" }, "shepherd");
+    return { ...hx, herd, gate, injects, delivery };
+  }
+
+  const paneLine = (gate: string) => `shepherd: gate ${gate} is answered; call herd_answer {gate: "${gate}"} and act on it.`;
+
+  test("first nudge DMs the job handle from the shepherd and ticks", async () => {
+    const { h, herd, gate, chatCalls, injects, store } = await nudgeable();
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toEqual({ gate, rung: "dm", delivered: true, needsHuman: false, budget: { used: 1, cap: 2, spent: false } });
+    expect(chatCalls.filter((c) => c.verb === "dm").map((c) => c.payload)).toEqual([{ from: "shepherd", to: "job-a.w001", body: `call herd_answer for ${gate}` }]);
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("second nudge types into an idle pane with no form gate", async () => {
+    const { h, herd, gate, injects, chatCalls } = await nudgeable();
+    await h["herd:nudge"]({ herd, job: "job-a", gate });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toEqual({ gate, rung: "pane", delivered: true, needsHuman: false, budget: { used: 2, cap: 2, spent: true } });
+    expect(injects).toEqual([{ paneId: "w9:p1", text: paneLine(gate) }]);
+    expect(chatCalls.filter((c) => c.verb === "dm")).toHaveLength(1);
+  });
+
+  test("a hidden herd's pane nudge goes to the bare pane on its own socket", async () => {
+    const injects: Array<{ paneId: string; sockPath?: string }> = [];
+    const hx = harness({ inject: async (o) => { injects.push({ paneId: o.paneId, sockPath: o.sockPath }); return { ok: true, data: { paneId: o.paneId, delivered: "accepted" } }; } });
+    const s = await hx.h["herd:start"]({ ...START, hidden: true });
+    if (!s.ok) throw new Error(s.error);
+    const herd = s.data.herd;
+    hx.store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "bg:w9:p1", agentSession: "sess-w1" });
+    hx.snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    const gate = hx.gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    hx.gateStore.answer(gate, { q: "a" }, "shepherd");
+    hx.store.tickBudget(herd, "job-a", "nudges", gate);
+    const res = await hx.h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.delivered).toBe(true);
+    expect(injects).toEqual([{ paneId: "w9:p1", sockPath: "/tmp/hidden.sock" }]);
+  });
+
+  for (const failing of ["herd:", "run:"]) {
+    test(`a pane nudge refuses when the ${failing} gate listing fails, rather than read no form open`, async () => {
+      const { deps, herd, gate, injects, store } = await nudgeable();
+      store.tickBudget(herd, "job-a", "nudges", gate);
+      const broken = {
+        ...deps.gate,
+        "gate:list": async (p: any) => (p?.subjectPrefix?.startsWith(failing) ? { ok: false, error: "db locked" } : deps.gate["gate:list"](p)),
+      } as unknown as HerdDeps["gate"];
+      const h = createHerdHandlers({ ...deps, gate: broken });
+      const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+      expect(res).toEqual({ ok: false, error: "could not list the job's open gates (db locked); whether a form is open is unknown" });
+      expect(injects).toEqual([]);
+      expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+    });
+  }
+
+  test("second nudge with a form-presentation gate open returns form-open and does not tick", async () => {
+    const { h, herd, gate, gateStore, injects, store } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q, origin: { paneId: "w9:p1", presentation: "form" } });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toEqual({ gate, rung: "pane", delivered: false, needsHuman: true, why: "form-open", budget: { used: 1, cap: 2, spent: false } });
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("an open wait-presentation gate does not block the pane nudge", async () => {
+    const { h, herd, gate, gateStore, injects, store } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.delivered).toBe(true);
+    expect(injects).toHaveLength(1);
+  });
+
+  test("second nudge on a working pane returns pane-busy and does not tick", async () => {
+    const { h, herd, gate, injects, store, snapshotPanes } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "working" }];
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ rung: "pane", delivered: false, needsHuman: true, why: "pane-busy", budget: { used: 1 } });
+    expect(injects).toEqual([]);
+  });
+
+  test("a pane rung reports pane-gone, not-claude and a modal without typing", async () => {
+    const { h, herd, gate, injects, store, snapshotPanes } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    snapshotPanes.rows = [];
+    expect((await h["herd:nudge"]({ herd, job: "job-a", gate }) as any).data.why).toBe("pane-gone");
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent_status: "idle" }];
+    expect((await h["herd:nudge"]({ herd, job: "job-a", gate }) as any).data.why).toBe("not-claude");
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "blocked" }];
+    expect((await h["herd:nudge"]({ herd, job: "job-a", gate }) as any).data.why).toBe("form-open");
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("a job with no pane is refused on either rung and ticks nothing", async () => {
+    const { h, herd, gate, store, injects, chatCalls } = await nudgeable();
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a.w001", status: "active", pane: null, agentSession: "sess-w1" });
+    const first = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    expect(first).toEqual({ ok: false, error: `job "job-a" has no live pane; respawn it first` });
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    const second = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    expect(second).toEqual({ ok: false, error: `job "job-a" has no live pane; respawn it first` });
+    expect(chatCalls.filter((c) => c.verb === "dm")).toEqual([]);
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("an unreachable herdr refuses the pane rung and ticks nothing", async () => {
+    const { h, herd, gate, store, injects } = await nudgeable({
+      herdr: (async () => ({ ok: false, code: "unavailable", message: "no socket" })) as unknown as HerdDeps["herdr"],
+    });
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    expect(res).toEqual({ ok: false, error: "herdr is unreachable on the default socket; the pane's state is unknown" });
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("injector refusal returns refused, needsHuman, no tick", async () => {
+    const { h, herd, gate, store, delivery } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    for (const result of [
+      { ok: true as const, data: { paneId: "w9:p1", delivered: "refused" as const, reason: "draft in composer" } },
+      { ok: true as const, data: { paneId: "w9:p1", delivered: "queued" as const } },
+      { ok: false as const, error: "herdr went away" },
+    ]) {
+      delivery.result = result;
+      const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+      if (!res.ok) throw new Error(res.error);
+      expect(res.data).toMatchObject({ rung: "pane", delivered: false, needsHuman: true, why: "refused", budget: { used: 1 } });
+    }
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("third nudge still acts and reports spent", async () => {
+    const { h, herd, gate, injects } = await nudgeable();
+    await h["herd:nudge"]({ herd, job: "job-a", gate });
+    await h["herd:nudge"]({ herd, job: "job-a", gate });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toEqual({ gate, rung: "pane", delivered: true, needsHuman: false, budget: { used: 3, cap: 2, spent: true } });
+    expect(injects).toHaveLength(2);
+  });
+
+  test("a DM failure returns its error and ticks nothing", async () => {
+    const { h, herd, gate, store, deps } = await nudgeable();
+    deps.chat["chat:dm"] = async () => ({ ok: false, error: "chat: dm failed (retry budget exhausted)" });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    expect(res).toEqual({ ok: false, error: "chat: dm failed (retry budget exhausted)" });
+    expect(store.budgetRows(herd, "job-a")).toEqual([]);
+  });
+
+  test("refuses a gate that is not this job's, an unanswered gate, a consumed gate, and a gate from a replaced session", async () => {
+    const { h, herd, gate, gateStore, store, chatCalls, injects } = await nudgeable();
+    store.upsertJob({ herd, name: "job-b", worktree: "/w/job-b", handle: "job-b", status: "active", pane: "w9:p2", agentSession: "sess-w2" });
+    const other = gateStore.open({ subject: herdSubject(herd, "job-b"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(other, { q: "a" }, "shepherd");
+    const elsewhere = gateStore.open({ subject: "run:run-2", kind: "clarify", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(elsewhere, { q: "a" }, "shepherd");
+    const unanswered = gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    const consumed = gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(consumed, { q: "a" }, "shepherd");
+    gateStore.markConsumed(consumed);
+    const stale = gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-old" } }).row.id;
+    gateStore.answer(stale, { q: "a" }, "shepherd");
+
+    const refusal = async (g: string) => {
+      const res = await h["herd:nudge"]({ herd, job: "job-a", gate: g });
+      if (res.ok) throw new Error(`nudged ${g}`);
+      return res.error;
+    };
+    expect(await refusal(other)).toContain("not job \"job-a\"'s");
+    expect(await refusal(elsewhere)).toContain("not job \"job-a\"'s");
+    expect(await refusal("gate-missing")).toBe("gate not found: gate-missing");
+    expect(await refusal(unanswered)).toContain("is open, not answered");
+    expect(await refusal(consumed)).toContain("already consumed");
+    expect(await refusal(stale)).toContain("stale");
+    expect(store.budgetRows(herd, "job-a")).toEqual([]);
+    expect(chatCalls.filter((c) => c.verb === "dm")).toEqual([]);
+    expect(injects).toEqual([]);
+    expect((await h["herd:nudge"]({ herd, job: "job-a", gate })).ok).toBe(true);
+  });
+
+  test("a run gate in the job's worktree can be nudged", async () => {
+    const { h, herd, gateStore } = await nudgeable();
+    const run = gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(run, { q: "a" }, "shepherd");
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate: run });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ gate: run, rung: "dm", delivered: true });
   });
 });
 
@@ -1795,5 +2521,199 @@ describe("herd:wrap-up", () => {
     if (!res.ok) throw new Error(res.error);
     expect(res.data.closed).toEqual([]);
     expect(hx.store.getJob(herd, "job-a")!.status).toBe("done");
+  });
+});
+
+describe("herd:lanes", () => {
+  type Merge = HerdLaneRow["merge"];
+  const OPEN: Merge = { forge: "github", state: "open", url: "https://github.com/o/r/pull/3", number: 3, mergedAt: null };
+
+  function lanesHarness(diffs: Record<string, string>, merges: Record<string, Merge | Error> = {}, heads: Record<string, string | null> = {}) {
+    const mergeCalls: Array<{ worktree: string; branch: string }> = [];
+    const lanes: LaneDeps = {
+      git: async (cwd, args) => {
+        const name = cwd.split("/").pop()!;
+        if (args[0] === "diff") return { stdout: diffs[name] ?? "", exitCode: 0 };
+        if (args[0] === "rev-parse") {
+          const head = name in heads ? heads[name] : name;
+          return head === null ? { stdout: "", exitCode: 128 } : { stdout: `${head}\n`, exitCode: 0 };
+        }
+        if (args[0] === "rev-list") return { stdout: "1\n", exitCode: 0 };
+        if (args[0] === "config") return { stdout: "git@github.com:o/r.git\n", exitCode: 0 };
+        return { stdout: "", exitCode: 1 };
+      },
+      defaultRef: async () => "origin/main",
+      merge: async (worktree, branch) => {
+        mergeCalls.push({ worktree, branch });
+        const m = merges[worktree.split("/").pop()!];
+        if (m instanceof Error) throw m;
+        return m ?? { forge: "github", state: "none", url: null, number: null, mergedAt: null };
+      },
+    };
+    const hx = harness({ lanes });
+    const herd = "lanes-1";
+    hx.store.create({ id: herd, repo: "remote:github.com%2Fo%2Fr", room: "herd-lanes-1", workspace: "herd: lanes-1", shepherdSession: "sess-shep", shepherdHandle: "shepherd", herdrSocket: null, hidden: false });
+    const job = (name: string, o: { tree?: string | null; worktree?: string; branch?: string | null; make?: boolean } = {}) => {
+      const worktree = o.worktree ?? join(hx.dir, "wt", name);
+      if (o.make !== false) mkdirSync(worktree, { recursive: true });
+      hx.store.upsertJob({ herd, name, worktree, branch: o.branch === undefined ? name : o.branch, tree: o.tree === undefined ? `t-${name}` : o.tree, handle: `${name}.w001`, status: "active" });
+      return worktree;
+    };
+    const lanesOf = async (payload: { herd: string; job?: string }) => {
+      const res = await hx.h["herd:lanes"](payload);
+      if (!res.ok) throw new Error(res.error);
+      return res.data;
+    };
+    return { ...hx, herd, job, lanesOf, mergeCalls };
+  }
+
+  test("lanes returns per-job drift, collisions and merge", async () => {
+    const hx = lanesHarness({ a: "1\t0\tlib/x.ts\n2\t1\tlib/a.ts\n", b: "3\t3\tlib/x.ts\n" }, { a: OPEN });
+    hx.job("a"); hx.job("b");
+    const data = await hx.lanesOf({ herd: hx.herd });
+    const a = data.lanes.find((l) => l.job === "a")!;
+    expect(data.lanes.map((l) => l.job).sort()).toEqual(["a", "b"]);
+    expect(a).toMatchObject({ branch: "a", base: "origin/main", commits: 1, merge: OPEN });
+    expect(a.drift).toMatchObject({ filesChanged: 2, insertions: 3, deletions: 1 });
+    expect(a.collidesWith).toEqual([{ job: "b", files: ["lib/x.ts"] }]);
+    expect(data.collisions).toEqual([{ path: "lib/x.ts", jobs: ["a", "b"] }]);
+    expect(data.skipped).toEqual([]);
+  });
+
+  test("guest jobs get no lane row", async () => {
+    const hx = lanesHarness({ a: "1\t0\tlib/x.ts\n" });
+    const wt = hx.job("a");
+    hx.job("review-a", { tree: null, worktree: wt });
+    const data = await hx.lanesOf({ herd: hx.herd });
+    expect(data.lanes.map((l) => l.job)).toEqual(["a"]);
+    expect(data.collisions).toEqual([]);
+    expect(hx.mergeCalls).toHaveLength(1);
+  });
+
+  test("closed jobs get no lane row", async () => {
+    const hx = lanesHarness({});
+    hx.job("a"); hx.job("b");
+    hx.store.setJobStatus(hx.herd, "b", "closed");
+    expect((await hx.lanesOf({ herd: hx.herd })).lanes.map((l) => l.job)).toEqual(["a"]);
+  });
+
+  test("a row with no branch reads the merge state of the worktree's checked-out branch", async () => {
+    const hx = lanesHarness({}, { a: OPEN }, { a: "feature-x" });
+    const wt = hx.job("a", { branch: null, tree: null });
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane).toMatchObject({ branch: "feature-x", merge: OPEN });
+    expect(hx.mergeCalls).toEqual([{ worktree: wt, branch: "feature-x" }]);
+  });
+
+  test("a worker that moved to a follow-up branch is read on its current branch, not the spawn-time one", async () => {
+    const hx = lanesHarness({}, {}, { a: "a-follow-up" });
+    const wt = hx.job("a");
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.branch).toBe("a-follow-up");
+    expect(hx.mergeCalls).toEqual([{ worktree: wt, branch: "a-follow-up" }]);
+  });
+
+  test("a detached HEAD reads unknown without a forge call and does not tick unmergedReports", async () => {
+    const hx = lanesHarness({}, {}, { a: "HEAD" });
+    hx.job("a", { branch: null, tree: null });
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.branch).toBeNull();
+    expect(lane!.merge).toEqual({ forge: "github", state: "unknown", url: null, number: null, mergedAt: null, error: "no branch checked out" });
+    expect(hx.mergeCalls).toEqual([]);
+    expect(hx.store.budgetRows(hx.herd, "a")).toEqual([]);
+  });
+
+  test("a branch read that fails reads unknown, never none", async () => {
+    const hx = lanesHarness({}, {}, { a: null });
+    hx.job("a");
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.merge).toMatchObject({ state: "unknown", error: "git could not read the worktree's checked-out branch" });
+    expect(hx.mergeCalls).toEqual([]);
+  });
+
+  test("forge error reads unknown and does not tick unmergedReports", async () => {
+    const hx = lanesHarness({}, { a: new Error("GitHub said 502") });
+    hx.job("a");
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.merge).toMatchObject({ state: "unknown", url: null, number: null, mergedAt: null });
+    expect(lane!.merge.error).toContain("GitHub said 502");
+    expect(lane!.unmergedReports.used).toBe(0);
+    expect(hx.store.budgetRows(hx.herd, "a")).toEqual([]);
+  });
+
+  for (const status of [401, 503]) {
+    test(`a GitHub ${status} reads unknown and does not tick unmergedReports`, async () => {
+      const hx = lanesHarness({});
+      hx.job("a");
+      hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+      const failed = await readGithubMerge(async () => new Response("{}", { status }), "o/r", "a");
+      const lanes = { ...hx.deps.lanes!, merge: async () => failed };
+      const h = createHerdHandlers({ ...hx.deps, lanes });
+      const res = await h["herd:lanes"]({ herd: hx.herd });
+      if (!res.ok) throw new Error(res.error);
+      expect(res.data.lanes[0]!.merge.state).toBe("unknown");
+      expect(hx.store.budgetRows(hx.herd, "a")).toEqual([]);
+    });
+  }
+
+  test("a forge error never carries a credentialed URL", async () => {
+    const hx = lanesHarness({}, { a: new Error("fetch https://oauth2:glpat-SECRET@gitlab.example.com/x failed") });
+    hx.job("a");
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.merge.error).not.toContain("glpat-SECRET");
+  });
+
+  test("a done job's report read open ticks unmergedReports once per report id", async () => {
+    const hx = lanesHarness({}, { a: OPEN });
+    hx.job("a");
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+    await hx.lanesOf({ herd: hx.herd });
+    const again = (await hx.lanesOf({ herd: hx.herd })).lanes[0]!;
+    expect(again.unmergedReports).toEqual({ used: 1, cap: 2, spent: false });
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 9 });
+    expect((await hx.lanesOf({ herd: hx.herd })).lanes[0]!.unmergedReports).toEqual({ used: 2, cap: 2, spent: true });
+  });
+
+  test("an active job's open lane does not tick", async () => {
+    const hx = lanesHarness({}, { a: OPEN });
+    hx.job("a");
+    expect((await hx.lanesOf({ herd: hx.herd })).lanes[0]!.unmergedReports.used).toBe(0);
+  });
+
+  test("merged never ticks", async () => {
+    const hx = lanesHarness({}, { a: { ...OPEN, state: "merged", mergedAt: "2026-10-16T00:00:00Z" } });
+    hx.job("a");
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.unmergedReports.used).toBe(0);
+    expect(hx.store.budgetRows(hx.herd, "a")).toEqual([]);
+  });
+
+  test("a job whose worktree is gone is listed in skipped", async () => {
+    const hx = lanesHarness({});
+    hx.job("a");
+    hx.job("gone", { worktree: join(hx.dir, "nowhere"), make: false });
+    const data = await hx.lanesOf({ herd: hx.herd });
+    expect(data.lanes.map((l) => l.job)).toEqual(["a"]);
+    expect(data.skipped).toEqual([{ job: "gone", reason: expect.stringContaining("no longer exists") }]);
+  });
+
+  test("job filter narrows lanes but collisions span every job", async () => {
+    const hx = lanesHarness({ a: "1\t0\tlib/x.ts\n", b: "1\t0\tlib/x.ts\n" }, { a: OPEN });
+    hx.job("a"); hx.job("b");
+    const data = await hx.lanesOf({ herd: hx.herd, job: "a" });
+    expect(data.lanes.map((l) => l.job)).toEqual(["a"]);
+    expect(data.lanes[0]!.collidesWith).toEqual([{ job: "b", files: ["lib/x.ts"] }]);
+    expect(data.collisions).toEqual([{ path: "lib/x.ts", jobs: ["a", "b"] }]);
+    expect(hx.mergeCalls.map((c) => c.branch)).toEqual(["a"]);
+  });
+
+  test("an unknown herd or job is refused", async () => {
+    const hx = lanesHarness({});
+    hx.job("a");
+    expect((await hx.h["herd:lanes"]({ herd: "nope" })).ok).toBe(false);
+    expect((await hx.h["herd:lanes"]({ herd: hx.herd, job: "nope" })).ok).toBe(false);
   });
 });

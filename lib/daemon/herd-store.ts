@@ -8,6 +8,7 @@ import { mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
 import type { Logger } from "pino";
 import { isCorruptionError } from "../state/db.ts";
+import type { BudgetCounter } from "./herd-budgets.ts";
 
 export type HerdStatus = "active" | "wrapped";
 export type HerdJobStatus = "spawning" | "active" | "at-gate" | "at-milestone" | "done" | "closed" | "crashed" | "stuck-at-modal";
@@ -25,9 +26,13 @@ export interface HerdJobRow {
   tree: string | null;
   pane: string | null; agentSession: string | null; agentId: string | null;
   handle: string; status: HerdJobStatus; disposable: boolean;
+  model: string | null; effort: string | null; account: string | null;
   lastGate: string | null; lastReport: number | null;
   createdAt: number; updatedAt: number;
 }
+
+export interface WatchdogLadderRow { key: string; strikes: number; lastPokeAt: number | null; since: number; parked: boolean }
+export interface WatchdogMarkRow { kind: "action" | "notified"; key: string; at: number }
 
 export interface HerdStore {
   create(input: Omit<HerdRow, "status" | "createdAt" | "wrappedAt" | "shepherdPane">): HerdRow;
@@ -36,7 +41,7 @@ export interface HerdStore {
   /** An omitted or null `pane` clears the stored shepherd pane to NULL. */
   setShepherd(id: string, s: { session: string; handle: string; pane?: string | null }): void;
   setHerdStatus(id: string, status: HerdStatus): void;
-  upsertJob(input: { herd: string; name: string; worktree: string; branch?: string | null; tree?: string | null; pane?: string | null; agentSession?: string | null; agentId?: string | null; handle: string; status: HerdJobStatus; disposable?: boolean }): HerdJobRow;
+  upsertJob(input: { herd: string; name: string; worktree: string; branch?: string | null; tree?: string | null; pane?: string | null; agentSession?: string | null; agentId?: string | null; handle: string; status: HerdJobStatus; disposable?: boolean; model?: string | null; effort?: string | null; account?: string | null }): HerdJobRow;
   getJob(herd: string, name: string): HerdJobRow | null;
   jobs(herd: string): HerdJobRow[];
   jobsByPane(pane: string): HerdJobRow[];
@@ -49,6 +54,16 @@ export interface HerdStore {
   recordPaneStatus(pane: string, status: string, changedAt: number): void;
   paneStatusRows(): Array<{ pane: string; status: string; changedAt: number }>;
   forgetPaneStatus(pane: string): void;
+  /** Adds one to the counter's row and returns the new count. Counters with no key use "". */
+  tickBudget(herd: string, job: string, counter: BudgetCounter, key?: string): number;
+  /** Inserts the row at 1 only when absent; true when it inserted. */
+  markBudgetOnce(herd: string, job: string, counter: BudgetCounter, key: string): boolean;
+  budgetRows(herd: string, job: string): Array<{ counter: BudgetCounter; key: string; used: number }>;
+  watchdogLoad(): { ladders: WatchdogLadderRow[]; marks: WatchdogMarkRow[] };
+  watchdogSaveLadder(row: WatchdogLadderRow): void;
+  watchdogDeleteLadder(key: string): void;
+  watchdogMark(kind: WatchdogMarkRow["kind"], key: string, at: number): void;
+  watchdogClear(): void;
   close_(): void;
 }
 
@@ -73,7 +88,7 @@ export function mintHerdId(name: string, now: Date = new Date()): string {
 }
 
 interface HerdColumns { id: string; repo: string; room: string; workspace: string; shepherdSession: string; shepherdHandle: string; shepherdPane: string | null; herdrSocket: string | null; hidden: number; status: HerdStatus; createdAt: number; wrappedAt: number | null }
-interface JobColumns { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; status: HerdJobStatus; disposable: number; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
+interface JobColumns { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; status: HerdJobStatus; disposable: number; model: string | null; effort: string | null; account: string | null; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
 
 const toHerd = (r: HerdColumns): HerdRow => ({ ...r, hidden: r.hidden === 1 });
 const toJob = (r: JobColumns): HerdJobRow => ({ ...r, disposable: r.disposable === 1 });
@@ -134,6 +149,9 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
       handle       TEXT NOT NULL,
       status       TEXT NOT NULL,
       disposable   INTEGER NOT NULL DEFAULT 0,
+      model        TEXT,
+      effort       TEXT,
+      account      TEXT,
       lastGate     TEXT,
       lastReport   INTEGER,
       createdAt    INTEGER NOT NULL,
@@ -146,20 +164,48 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
       status    TEXT NOT NULL,
       changedAt INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS herd_budgets (
+      herd      TEXT NOT NULL,
+      job       TEXT NOT NULL,
+      counter   TEXT NOT NULL,
+      key       TEXT NOT NULL,
+      used      INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL,
+      PRIMARY KEY (herd, job, counter, key)
+    );
+    CREATE TABLE IF NOT EXISTS herd_watchdog_ladders (
+      key        TEXT PRIMARY KEY,
+      strikes    INTEGER NOT NULL,
+      lastPokeAt INTEGER,
+      since      INTEGER NOT NULL,
+      parked     INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS herd_watchdog_marks (
+      kind TEXT NOT NULL,
+      key  TEXT NOT NULL,
+      at   INTEGER NOT NULL,
+      PRIMARY KEY (kind, key)
+    );
   `);
 
-  // Idempotent migration for a herds.db predating shepherdPane:
+  // Idempotent migrations for a herds.db predating these columns:
   // CREATE TABLE IF NOT EXISTS above never adds columns to an existing table.
-  const herdCols = new Set(
-    (db.query("PRAGMA table_info(herds)").all() as Array<{ name: string }>).map((c) => c.name),
+  const columns = (table: string) => new Set(
+    (db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name),
   );
-  if (!herdCols.has("shepherdPane")) db.exec("ALTER TABLE herds ADD COLUMN shepherdPane TEXT;");
+  if (!columns("herds").has("shepherdPane")) db.exec("ALTER TABLE herds ADD COLUMN shepherdPane TEXT;");
+  const jobCols = columns("herd_jobs");
+  for (const col of ["model", "effort", "account"]) {
+    if (!jobCols.has(col)) db.exec(`ALTER TABLE herd_jobs ADD COLUMN ${col} TEXT;`);
+  }
 
   const getHerd = db.prepare("SELECT * FROM herds WHERE id = ?");
   const insertHerd = db.prepare("INSERT INTO herds (id, repo, room, workspace, shepherdSession, shepherdHandle, herdrSocket, hidden, status, createdAt, wrappedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL)");
   const getJobStmt = db.prepare("SELECT * FROM herd_jobs WHERE herd = ? AND name = ?");
   const jobsStmt = db.prepare("SELECT * FROM herd_jobs WHERE herd = ? ORDER BY createdAt");
   const jobsByPaneStmt = db.prepare("SELECT * FROM herd_jobs WHERE pane = ?");
+  const tickBudgetStmt = db.prepare("INSERT INTO herd_budgets (herd, job, counter, key, used, updatedAt) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(herd, job, counter, key) DO UPDATE SET used = used + 1, updatedAt = excluded.updatedAt RETURNING used");
+  const markBudgetStmt = db.prepare("INSERT INTO herd_budgets (herd, job, counter, key, used, updatedAt) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(herd, job, counter, key) DO NOTHING");
 
   return {
     create(input) {
@@ -190,16 +236,17 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
       const existing = getJobStmt.get(input.herd, input.name) as JobColumns | null;
       if (!existing) {
         db.run(
-          "INSERT INTO herd_jobs (herd, name, worktree, branch, tree, pane, agentSession, agentId, handle, status, disposable, lastGate, lastReport, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
-          [input.herd, input.name, input.worktree, input.branch ?? null, input.tree ?? null, input.pane ?? null, input.agentSession ?? null, input.agentId ?? null, input.handle, input.status, input.disposable ? 1 : 0, now, now],
+          "INSERT INTO herd_jobs (herd, name, worktree, branch, tree, pane, agentSession, agentId, handle, status, disposable, model, effort, account, lastGate, lastReport, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
+          [input.herd, input.name, input.worktree, input.branch ?? null, input.tree ?? null, input.pane ?? null, input.agentSession ?? null, input.agentId ?? null, input.handle, input.status, input.disposable ? 1 : 0, input.model ?? null, input.effort ?? null, input.account ?? null, now, now],
         );
       } else {
         // job-release.ts tells a tree's own job by createdAt >= the tree's
         // claimedAt, so a respawn into a fresh claim starts the clock again.
         const createdAt = input.worktree === existing.worktree ? existing.createdAt : now;
+        const keep = <T>(given: T | undefined, stored: T): T => (given !== undefined ? given : stored);
         db.run(
-          "UPDATE herd_jobs SET worktree = ?, branch = ?, tree = ?, pane = ?, agentSession = ?, agentId = ?, handle = ?, status = ?, disposable = ?, createdAt = ?, updatedAt = ? WHERE herd = ? AND name = ?",
-          [input.worktree, input.branch !== undefined ? input.branch : existing.branch, input.tree !== undefined ? input.tree : existing.tree, input.pane !== undefined ? input.pane : existing.pane, input.agentSession !== undefined ? input.agentSession : existing.agentSession, input.agentId !== undefined ? input.agentId : existing.agentId, input.handle, input.status, input.disposable === undefined ? existing.disposable : (input.disposable ? 1 : 0), createdAt, now, input.herd, input.name],
+          "UPDATE herd_jobs SET worktree = ?, branch = ?, tree = ?, pane = ?, agentSession = ?, agentId = ?, handle = ?, status = ?, disposable = ?, model = ?, effort = ?, account = ?, createdAt = ?, updatedAt = ? WHERE herd = ? AND name = ?",
+          [input.worktree, keep(input.branch, existing.branch), keep(input.tree, existing.tree), keep(input.pane, existing.pane), keep(input.agentSession, existing.agentSession), keep(input.agentId, existing.agentId), input.handle, input.status, input.disposable === undefined ? existing.disposable : (input.disposable ? 1 : 0), keep(input.model, existing.model), keep(input.effort, existing.effort), keep(input.account, existing.account), createdAt, now, input.herd, input.name],
         );
       }
       return toJob(getJobStmt.get(input.herd, input.name) as JobColumns);
@@ -234,6 +281,37 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
       return db.query("SELECT pane, status, changedAt FROM herd_pane_status").all() as Array<{ pane: string; status: string; changedAt: number }>;
     },
     forgetPaneStatus(pane) { db.run("DELETE FROM herd_pane_status WHERE pane = ?", [pane]); },
+    tickBudget(herd, job, counter, key = "") {
+      return (tickBudgetStmt.get(herd, job, counter, key, Date.now()) as { used: number }).used;
+    },
+    markBudgetOnce(herd, job, counter, key) {
+      return markBudgetStmt.run(herd, job, counter, key, Date.now()).changes === 1;
+    },
+    budgetRows(herd, job) {
+      return db.query("SELECT counter, key, used FROM herd_budgets WHERE herd = ? AND job = ? ORDER BY counter, key").all(herd, job) as Array<{ counter: BudgetCounter; key: string; used: number }>;
+    },
+    watchdogLoad() {
+      const ladders = (db.query("SELECT key, strikes, lastPokeAt, since, parked FROM herd_watchdog_ladders").all() as Array<Omit<WatchdogLadderRow, "parked"> & { parked: number }>)
+        .map((r) => ({ ...r, parked: r.parked === 1 }));
+      const marks = db.query("SELECT kind, key, at FROM herd_watchdog_marks").all() as WatchdogMarkRow[];
+      return { ladders, marks };
+    },
+    watchdogSaveLadder(row) {
+      db.run(
+        "INSERT INTO herd_watchdog_ladders (key, strikes, lastPokeAt, since, parked) VALUES (?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET strikes = excluded.strikes, lastPokeAt = excluded.lastPokeAt, since = excluded.since, parked = excluded.parked",
+        [row.key, row.strikes, row.lastPokeAt, row.since, row.parked ? 1 : 0],
+      );
+    },
+    watchdogDeleteLadder(key) { db.run("DELETE FROM herd_watchdog_ladders WHERE key = ?", [key]); },
+    watchdogMark(kind, key, at) {
+      db.run("INSERT INTO herd_watchdog_marks (kind, key, at) VALUES (?, ?, ?) ON CONFLICT(kind, key) DO UPDATE SET at = excluded.at", [kind, key, at]);
+    },
+    watchdogClear() {
+      db.transaction(() => {
+        db.run("DELETE FROM herd_watchdog_ladders");
+        db.run("DELETE FROM herd_watchdog_marks");
+      })();
+    },
     close_() { db.close(); },
   };
 }

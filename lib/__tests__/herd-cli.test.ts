@@ -139,7 +139,7 @@ function job(over: Partial<HerdStatusData["jobs"][number]>): HerdStatusData["job
   return {
     herd: "hd-1", name: "job-a", worktree: "/tmp/job-a", branch: null, tree: null, pane: "w1:p1",
     agentSession: null, agentId: null, handle: "job-a", handleName: "job-a", status: "active", disposable: false,
-    lastGate: null, lastReport: null, createdAt: 0, updatedAt: 0,
+    model: null, effort: null, account: null, lastGate: null, lastReport: null, createdAt: 0, updatedAt: 0,
     openGate: null, paneStatus: "idle", sessionDead: false, lastGateStatus: null, lastGateDelivery: null, lastGateConsumed: null,
     ...over,
   };
@@ -396,7 +396,7 @@ import { herdGatesBlocks, herdListBlocks, herdStatusBlocks } from "../../command
 
 describe("herd views at a terminal", () => {
   const herd = { id: "h-sample", repo: "sample-app", room: "herd-h-sample", workspace: "w1", shepherdSession: "s", shepherdHandle: "ana.1", shepherdName: "ana", herdrSocket: null, hidden: false, status: "active" as const, createdAt: 1, wrappedAt: null };
-  const job = { herd: "h-sample", name: "job-a", worktree: "/code/wt", branch: "job-a", tree: "wt", pane: "w1:p3", agentSession: "s2", agentId: null, handle: "job-a.2", handleName: "job-a", status: "active" as const, disposable: false, lastGate: null, lastReport: null, createdAt: 1, updatedAt: 1, openGate: null, paneStatus: "working", sessionDead: false, lastGateStatus: null, lastGateDelivery: null, lastGateConsumed: null };
+  const job = { herd: "h-sample", name: "job-a", worktree: "/code/wt", branch: "job-a", tree: "wt", pane: "w1:p3", agentSession: "s2", agentId: null, handle: "job-a.2", handleName: "job-a", status: "active" as const, disposable: false, model: null, effort: null, account: null, lastGate: null, lastReport: null, createdAt: 1, updatedAt: 1, openGate: null, paneStatus: "working", sessionDead: false, lastGateStatus: null, lastGateDelivery: null, lastGateConsumed: null };
 
   function statusCell(blocks: Block[]) {
     const section = blocks[0];

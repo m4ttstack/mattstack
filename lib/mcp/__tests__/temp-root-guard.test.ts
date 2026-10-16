@@ -323,6 +323,11 @@ describe("cachedReadRoots", () => {
     return { src, counts, advance: (ms: number) => { clock += ms; } };
   }
 
+  test("every plugin root the source returns is kept, not one per name", () => {
+    const { src } = sources({ pluginRoots: () => ["/opt/plugins/a", "/opt/plugins/b"] });
+    expect(cachedReadRoots(src, 60_000)().roots).toEqual(["/private/tmp/claude-501", "/opt/plugins/a", "/opt/plugins/b", "/opt/packs/acme"]);
+  });
+
   test("a second call within the TTL is served from the cache; after it, the roots are resolved again", () => {
     const { src, counts, advance } = sources();
     const resolve = cachedReadRoots(src, 60_000);

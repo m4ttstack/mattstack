@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import pino from "pino";
+import { Database } from "bun:sqlite";
 import { createHerdStore, herdSubject, mintHerdId, isValidJobName, type HerdStore } from "../herd-store.ts";
 
 const log = pino({ level: "silent" });
@@ -125,5 +126,91 @@ describe("herd-store", () => {
     const j = s.getJob(h.id, "job-a")!;
     expect(j.pane).toBeNull();
     expect(j.agentSession).toBe("s");
+  });
+
+  test("upsertJob stores and keeps model, effort and account", () => {
+    const s = store();
+    const h = herd(s);
+    const j = s.upsertJob({ herd: h.id, name: "job-a", worktree: "/w", handle: "job-a", status: "spawning", model: "opus", effort: "high", account: "work" });
+    expect(j).toMatchObject({ model: "opus", effort: "high", account: "work" });
+    const j2 = s.upsertJob({ herd: h.id, name: "job-a", worktree: "/w", handle: "job-a", status: "active" });
+    expect(j2).toMatchObject({ model: "opus", effort: "high", account: "work" });
+    const j3 = s.upsertJob({ herd: h.id, name: "job-a", worktree: "/w", handle: "job-a", status: "active", account: null });
+    expect(j3).toMatchObject({ model: "opus", effort: "high", account: null });
+    const fresh = s.upsertJob({ herd: h.id, name: "job-b", worktree: "/w2", handle: "job-b", status: "spawning" });
+    expect(fresh).toMatchObject({ model: null, effort: null, account: null });
+  });
+
+  test("opening an old herds.db adds the launch columns", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-herd-store-"));
+    dirs.push(dir);
+    const dbPath = join(dir, "herds.db");
+    const old = new Database(dbPath, { create: true });
+    old.exec(`CREATE TABLE herd_jobs (
+      herd TEXT NOT NULL, name TEXT NOT NULL, worktree TEXT NOT NULL, branch TEXT, tree TEXT, pane TEXT,
+      agentSession TEXT, agentId TEXT, handle TEXT NOT NULL, status TEXT NOT NULL,
+      disposable INTEGER NOT NULL DEFAULT 0, lastGate TEXT, lastReport INTEGER,
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY (herd, name)
+    );`);
+    old.run("INSERT INTO herd_jobs (herd, name, worktree, handle, status, createdAt, updatedAt) VALUES ('h-1', 'job-a', '/w', 'job-a', 'active', 1, 1)");
+    old.close();
+    const s = createHerdStore({ dbPath, log });
+    expect(s.getJob("h-1", "job-a")).toMatchObject({ model: null, effort: null, account: null });
+    expect(s.upsertJob({ herd: "h-1", name: "job-a", worktree: "/w", handle: "job-a", status: "active", model: "sonnet" }).model).toBe("sonnet");
+  });
+
+  test("tickBudget counts per key", () => {
+    const s = store();
+    expect(s.tickBudget("h-1", "job-a", "respawns")).toBe(1);
+    expect(s.tickBudget("h-1", "job-a", "respawns")).toBe(2);
+    expect(s.tickBudget("h-1", "job-a", "respawns")).toBe(3);
+    expect(s.tickBudget("h-1", "job-a", "nudges", "gt-1")).toBe(1);
+    expect(s.tickBudget("h-1", "job-a", "nudges", "gt-2")).toBe(1);
+    expect(s.tickBudget("h-1", "job-a", "nudges", "gt-1")).toBe(2);
+    expect(s.tickBudget("h-1", "job-b", "respawns")).toBe(1);
+    expect(s.budgetRows("h-1", "job-a")).toEqual(expect.arrayContaining([
+      { counter: "respawns", key: "", used: 3 },
+      { counter: "nudges", key: "gt-1", used: 2 },
+      { counter: "nudges", key: "gt-2", used: 1 },
+    ]));
+    expect(s.budgetRows("h-1", "job-a")).toHaveLength(3);
+  });
+
+  test("markBudgetOnce inserts a report id once", () => {
+    const s = store();
+    expect(s.markBudgetOnce("h-1", "job-a", "unmergedReports", "41")).toBe(true);
+    expect(s.markBudgetOnce("h-1", "job-a", "unmergedReports", "41")).toBe(false);
+    expect(s.markBudgetOnce("h-1", "job-a", "unmergedReports", "57")).toBe(true);
+    expect(s.budgetRows("h-1", "job-a")).toEqual(expect.arrayContaining([
+      { counter: "unmergedReports", key: "41", used: 1 },
+      { counter: "unmergedReports", key: "57", used: 1 },
+    ]));
+    expect(s.budgetRows("h-1", "job-a")).toHaveLength(2);
+  });
+
+  test("watchdog rows round-trip and clear", () => {
+    const s = store();
+    expect(s.watchdogLoad()).toEqual({ ladders: [], marks: [] });
+    s.watchdogSaveLadder({ key: "h-1/job-a", strikes: 1, lastPokeAt: null, since: 100, parked: false });
+    s.watchdogSaveLadder({ key: "h-1/job-a", strikes: 3, lastPokeAt: 200, since: 100, parked: true });
+    s.watchdogSaveLadder({ key: "h-1/@shepherd", strikes: 1, lastPokeAt: 150, since: 120, parked: false });
+    s.watchdogMark("action", "h-1/job-a", 200);
+    s.watchdogMark("action", "h-1/job-a", 300);
+    s.watchdogMark("notified", "h-1", 250);
+    const loaded = s.watchdogLoad();
+    expect(loaded.ladders).toEqual(expect.arrayContaining([
+      { key: "h-1/job-a", strikes: 3, lastPokeAt: 200, since: 100, parked: true },
+      { key: "h-1/@shepherd", strikes: 1, lastPokeAt: 150, since: 120, parked: false },
+    ]));
+    expect(loaded.ladders).toHaveLength(2);
+    expect(loaded.marks).toEqual(expect.arrayContaining([
+      { kind: "action", key: "h-1/job-a", at: 300 },
+      { kind: "notified", key: "h-1", at: 250 },
+    ]));
+    expect(loaded.marks).toHaveLength(2);
+    s.watchdogDeleteLadder("h-1/@shepherd");
+    expect(s.watchdogLoad().ladders.map((l) => l.key)).toEqual(["h-1/job-a"]);
+    s.watchdogClear();
+    expect(s.watchdogLoad()).toEqual({ ladders: [], marks: [] });
   });
 });

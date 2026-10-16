@@ -19,7 +19,7 @@ function herd(id: string, status: HerdRow["status"]): HerdRow {
 function job(herdId: string, name: string, status: HerdJobStatus, updatedAt: number, worktree = TREE, branch: string | null = "rt-175"): HerdJobRow {
   return {
     herd: herdId, name, worktree, branch, tree: "saruman", pane: null, agentSession: null, agentId: null,
-    handle: name, status, disposable: false, lastGate: null, lastReport: null, createdAt: 0, updatedAt,
+    handle: name, status, disposable: false, model: null, effort: null, account: null, lastGate: null, lastReport: null, createdAt: 0, updatedAt,
   };
 }
 
