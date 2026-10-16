@@ -406,9 +406,11 @@ fields (`pipeline`, `failedJobs`, `blockingFailures`, `lease`, `budget`,
 
 ### 6. Lease keepalive: `lib/ci/lease-keepalive.ts`
 
-A process-wide registry of `{mrUrl, owner, lastTouch}` and one timer that
-starts with the first entry, fires every 60 s, and is `unref`'d so it never
-keeps a CLI process alive. Each tick heartbeats every entry and drops an
+A process-wide registry of `{mrUrl, owner, lastTouch, ttlSeconds}` and one
+timer that starts with the first entry and is `unref`'d so it never keeps a
+CLI process alive. It fires every min(60 s, ttl / 2) of the smallest TTL
+held, where an entry's TTL is the lease's `ttlSeconds` as read on its touch
+or its last heartbeat, and re-arms when that smallest TTL changes. Each tick heartbeats every entry and drops an
 entry when its heartbeat reports `lost` or `none`, or when `lastTouch` is
 more than 60 minutes old. A busy lock keeps the entry for the next tick. An
 attending `ci_watch` call and a `leaseMrUrl` guard touch an entry;

@@ -291,7 +291,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           }
           if (hb.ok) {
             markHeld();
-            w.keepalive.touch(url, owner);
+            w.keepalive.touch(url, owner, hb.lease.ttlSeconds);
             return { ok: true, lease: hb.lease };
           }
           try {
@@ -312,7 +312,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             if (takeover || claim.previousOwner !== undefined) st.reclaims = 0;
             else if (st.held) st.reclaims++;
             markHeld();
-            w.keepalive.touch(url, owner);
+            w.keepalive.touch(url, owner, claim.lease.ttlSeconds);
             return { ok: true, lease: claim.lease };
           } catch (e) {
             return unavailable(e);

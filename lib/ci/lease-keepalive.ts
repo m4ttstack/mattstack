@@ -1,6 +1,7 @@
-import { heartbeatCiLease, type CiLeaseOpts, type HeartbeatResult } from "../../packages/rt-client/src/index.ts";
+import { DEFAULT_CI_LEASE_TTL_SECONDS, heartbeatCiLease, type CiLeaseOpts, type HeartbeatResult } from "../../packages/rt-client/src/index.ts";
 
 export const KEEPALIVE_TICK_MS = 60_000;
+const MIN_TICK_MS = 1_000;
 export const KEEPALIVE_IDLE_MS = 3_600_000;
 
 export interface KeepaliveDeps {
@@ -15,12 +16,14 @@ interface Entry {
   mrUrl: string;
   owner: string;
   lastTouch: number;
+  ttlSeconds: number;
 }
 
 export class LeaseKeepalive {
   private readonly deps: KeepaliveDeps;
   private readonly entries = new Map<string, Entry>();
   private handle: { unref?(): void } | null = null;
+  private handleMs = 0;
 
   constructor(deps: Partial<KeepaliveDeps> = {}) {
     const leaseOpts = deps.leaseOpts ?? (() => ({}));
@@ -34,17 +37,14 @@ export class LeaseKeepalive {
     };
   }
 
-  touch(mrUrl: string, owner: string): void {
-    this.entries.set(key(mrUrl, owner), { mrUrl, owner, lastTouch: this.deps.now() });
-    if (this.handle) return;
-    // An unref'd timer is what lets a short-lived CLI process exit with entries still registered.
-    this.handle = this.deps.setInterval(() => this.tick(), KEEPALIVE_TICK_MS);
-    this.handle.unref?.();
+  touch(mrUrl: string, owner: string, ttlSeconds: number = DEFAULT_CI_LEASE_TTL_SECONDS): void {
+    this.entries.set(key(mrUrl, owner), { mrUrl, owner, lastTouch: this.deps.now(), ttlSeconds });
+    this.rearm();
   }
 
   drop(mrUrl: string, owner: string): void {
     this.entries.delete(key(mrUrl, owner));
-    this.stopIfEmpty();
+    this.rearm();
   }
 
   tick(): void {
@@ -55,22 +55,39 @@ export class LeaseKeepalive {
         continue;
       }
       try {
-        if (!this.deps.heartbeat(e.mrUrl, e.owner).ok) this.entries.delete(k);
+        const hb = this.deps.heartbeat(e.mrUrl, e.owner);
+        if (hb.ok) e.ttlSeconds = hb.lease.ttlSeconds;
+        else this.entries.delete(k);
       } catch {
         // A busy lock or an unreadable file is not a verdict: the next tick retries.
       }
     }
-    this.stopIfEmpty();
+    this.rearm();
+  }
+
+  /** The interval the registry runs at now: half the smallest held TTL, at most KEEPALIVE_TICK_MS; 0 when idle. */
+  tickMs(): number {
+    if (this.entries.size === 0) return 0;
+    let ms = KEEPALIVE_TICK_MS;
+    for (const e of this.entries.values()) ms = Math.min(ms, Math.max(MIN_TICK_MS, Math.floor((e.ttlSeconds * 1_000) / 2)));
+    return ms;
   }
 
   size(): number {
     return this.entries.size;
   }
 
-  private stopIfEmpty(): void {
-    if (this.entries.size > 0 || !this.handle) return;
-    this.deps.clearInterval(this.handle);
+  private rearm(): void {
+    const ms = this.tickMs();
+    if (this.handle && ms === this.handleMs) return;
+    if (this.handle) this.deps.clearInterval(this.handle);
     this.handle = null;
+    this.handleMs = 0;
+    if (ms === 0) return;
+    // An unref'd timer is what lets a short-lived CLI process exit with entries still registered.
+    this.handle = this.deps.setInterval(() => this.tick(), ms);
+    this.handle.unref?.();
+    this.handleMs = ms;
   }
 }
 

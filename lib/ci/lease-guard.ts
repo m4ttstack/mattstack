@@ -41,7 +41,7 @@ export function ensureLease(mrUrl: string, env: NodeJS.ProcessEnv, opts: GuardOp
   try {
     const held = heartbeatCiLease(mrUrl, owner, leaseOpts);
     if (held.ok) {
-      keepalive.touch(mrUrl, owner);
+      keepalive.touch(mrUrl, owner, held.lease.ttlSeconds);
       return { ok: true, lease: held.lease, claimed: false };
     }
     const { lease } = readCiLease(mrUrl, leaseOpts);
@@ -52,7 +52,7 @@ export function ensureLease(mrUrl: string, env: NodeJS.ProcessEnv, opts: GuardOp
       leaseOpts,
     );
     if (!claim.claimed) return { ok: false, refused: "lease_held", holder: claim.holder };
-    keepalive.touch(mrUrl, owner);
+    keepalive.touch(mrUrl, owner, claim.lease.ttlSeconds);
     return { ok: true, lease: claim.lease, claimed: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

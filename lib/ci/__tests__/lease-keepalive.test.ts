@@ -122,4 +122,30 @@ describe("LeaseKeepalive", () => {
     ka.touch(MR, ME);
     expect(intervals).toHaveLength(2);
   });
+
+  test("the tick is half the smallest held TTL, capped at 60 s, and re-arms when that changes", () => {
+    const SHORT = "https://gitlab.example.com/group/proj/-/merge_requests/8";
+    const ka = make();
+    ka.touch(MR, ME, 600);
+    expect(intervals.map((i) => i.ms)).toEqual([60_000]);
+    ka.touch(SHORT, ME, 100);
+    expect(intervals.map((i) => i.ms)).toEqual([60_000, 50_000]);
+    expect(intervals[0]!.cleared).toBe(true);
+    expect(intervals[1]!.unrefs).toBe(1);
+    ka.touch(SHORT, ME, 100);
+    expect(intervals).toHaveLength(2);
+    ka.drop(SHORT, ME);
+    expect(intervals.map((i) => i.ms)).toEqual([60_000, 50_000, 60_000]);
+    expect(intervals[1]!.cleared).toBe(true);
+  });
+
+  test("a tick takes the TTL from the heartbeat it reads", () => {
+    claimCiLease({ mrUrl: MR, owner: ME, holder: "watch-ci", ttlSeconds: 100 }, leaseOpts());
+    const ka = make();
+    ka.touch(MR, ME);
+    expect(ka.tickMs()).toBe(60_000);
+    ka.tick();
+    expect(ka.tickMs()).toBe(50_000);
+    expect(intervals.at(-1)!.ms).toBe(50_000);
+  });
 });
