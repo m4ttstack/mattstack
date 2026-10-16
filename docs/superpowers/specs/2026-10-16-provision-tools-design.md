@@ -64,6 +64,19 @@ code and tests only; wave 3 rewrites the skills to use it.
 - No change to the daemon's error strings. Hooks, the CLI and the daemon's
   own retries match on them (`.claude/rules/output-layer.md`).
 
+## Behavior changes
+
+Ruling (Matt, through the shepherd): no behavior change from today's
+skills. A `worktree_provision` call that passes none of the new options
+behaves exactly as today, with one additive exception:
+
+- **Additive:** a successful result gains `kind: "provisioned"` beside the
+  daemon's fields (approved, DM #5804).
+
+Everything else is opt-in and reached only by passing the option: `codes`
+(JSON refusals), `precheck`, `reuse` (including resuming a surviving local
+branch), `runDb` recording, `budget`.
+
 ## Anti-goals
 
 - **A tool that gates or acts on a budget.** A refusal, a pre-check match
@@ -82,11 +95,20 @@ code and tests only; wave 3 rewrites the skills to use it.
 ### Result shape
 
 Every outcome carries a `kind`. `provisioned`, `reused` and `precheck` are
-ok results. A refusal stays an `isError` result, as today, and its text is
-the refusal object as JSON (`{"kind":"refused","code":...,"error":...}`).
+ok results. A refusal stays an `isError` result, as today. Its text depends
+on whether the caller opted in:
+
+- **Default call** (none of `codes`, `precheck`, `reuse`, `runDb`,
+  `budget`): the text is exactly today's, `explainError(raw)` for a daemon
+  refusal and `resolveRepoTarget`'s message for a repo that does not
+  resolve. No change.
+- **Opted in** (`codes: true`, or any of the other new options): the text
+  is the refusal object as JSON (`{"kind":"refused","code":...,
+  "error":...}`), `error` holding the same prose the default call shows.
+
 A caller mistake (a missing or wrong-typed input, an ambiguous `repoName`
 label, `precheck` with `reuse`, `budget` without `runDb`, a malformed
-`runDb`) stays an `isError` result with plain text, as today.
+`runDb`) stays an `isError` result with plain text in both cases.
 
 | `kind` | Fields |
 |---|---|
@@ -95,8 +117,8 @@ label, `precheck` with `reuse`, `budget` without `runDb`, a malformed
 | `precheck` | `branch`, `base`, `attached`, `sameTicket`, `sameSlug` (below) |
 | `refused` | `code`, `error`, and per code `tree`, `trees`, `step`, `detail`; plus `budget` when one was asked for |
 
-*Decided (shepherd, gate 2df70447):* refusals stay `isError` with the JSON
-refusal as their text. Compiled skills branch on ok versus error
+*Decided (shepherd, gate 2df70447, then the no-behavior-change ruling,
+DM #5804):* refusals stay `isError`, and the JSON text is opt-in. Compiled skills branch on ok versus error
 (stage-provision's "any other error" edge; shepherdr goes straight from
 `worktree_provision` to `EnterWorktree`), so an ok-shaped refusal would
 misroute them until wave 3; as an error it routes as before, the text still
@@ -124,14 +146,17 @@ they are. `error` is always `explainError(raw)`.
 | `daemon at version ... does not know "..."` (`unknownCommandReply`) | `daemon-outdated` | `detail` |
 | anything else | `error` | `detail` (the raw string) |
 
-Repo resolution happens in the tool before the daemon is asked. A
-`repoName` that matches no registered repo, or names a checkout of an
-unregistered repo, is `refused` with `code: "repo-unknown"`, so the stage's
-"repo not registered" edge and the daemon's `repo-unknown` read the same.
-An ambiguous label stays an `isError` input mistake. *My call:* the tool
-resolves with `tryResolveRepoArg` and `isRepoRegistered` directly (the
-`repoName` half of `resolveRepoTarget`), since `lib/mcp/mr-target.ts`
-returns only prose and sits outside this lane.
+Repo resolution happens in the tool before the daemon is asked, through
+`resolveRepoTarget` as today, so a default call's message is unchanged.
+When the caller opted in and resolution fails, the tool classifies the
+failure with `tryResolveRepoArg` (and `isRepoRegistered`): a `repoName`
+that matches no registered repo, or names a checkout of an unregistered
+repo, is `refused` with `code: "repo-unknown"` and `error` =
+`resolveRepoTarget`'s message, so the stage's "repo not registered" edge and
+the daemon's `repo-unknown` read the same. An ambiguous label stays a
+plain-text `isError` input mistake. *My call:* classification calls the
+resolver rather than matching `resolveRepoTarget`'s prose, since
+`lib/mcp/mr-target.ts` returns only prose and sits outside this lane.
 
 ### Precheck: a new read-only daemon verb
 
@@ -266,7 +291,8 @@ without `runDb` is an `isError` input mistake.
 
 ### Input schema
 
-`worktree_provision` gains `precheck` (boolean), `reuse` (boolean),
+`worktree_provision` gains `codes` (boolean: JSON refusals only),
+`precheck` (boolean), `reuse` (boolean),
 `runDb` (string), `stage` (string), `budget` (object `{key: string, limit:
 integer ≥ 1}`). The description is rewritten to name the four outcomes,
 the refusal codes and each option, since `reference.md` is generated from
@@ -313,7 +339,10 @@ ref type sit beside `WorktreeProvisionData`. `dist/` is rebuilt
     call;
   - precheck calls only `worktree:provision-check`, never
     `worktree:provision`;
-  - a refusal is `isError` and its text parses as the JSON refusal;
+  - a default call's refusal text is byte-identical to today's (daemon
+    refusals and an unresolved `repoName`); with `codes: true` or any other
+    new option, a refusal is `isError` and its text parses as the JSON
+    refusal;
   - reuse returns `reused` with no provision call for a claimed or
     unmanaged tree, refuses a main checkout and a disposable tree, refuses
     two trees as `branch-duplicated`, provisions with `branch: base` when
