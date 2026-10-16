@@ -378,7 +378,7 @@ describe("gitRebase", () => {
 describe("gitToolDefs guard", () => {
   test("every git tool refuses an unregistered tree before running git", async () => {
     const calls: string[] = [];
-    const guard: TreeGuardDeps = { repoIndex: () => ({}), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [] };
+    const guard: TreeGuardDeps = { repoIndex: () => ({}), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false };
     let synced = false;
     for (const [name, input] of [["git_push", {}], ["git_pull", {}], ["git_rebase", { onto: "x" }], ["branch_sync", {}]] as const) {
       const tool = gitToolDefs({ git: fakeGit({}, calls), guard, sync: async () => { synced = true; return { code: 0, stdout: "", stderr: "" }; } }).find((t) => t.name === name)!;
@@ -397,6 +397,7 @@ describe("gitToolDefs guard on a worktree nested in its checkout", () => {
     treeByPath: () => null,
     realpath: (p) => p.replace("/link/", "/real/"),
     worktreeRoots: (checkout) => (checkout === "/real/app" ? ["/real/app", "/real/app/.worktrees/nested"] : []),
+    hasGitEntry: () => false,
   };
   const run = async (name: string, input: Record<string, unknown>, tree: string) => {
     const cwds: string[] = [];
@@ -415,16 +416,19 @@ describe("gitToolDefs guard on a worktree nested in its checkout", () => {
         expect([...new Set(cwds)], tree).toEqual(["/real/app/.worktrees/nested"]);
       }
     });
-    test(`${name} refuses a subdirectory of the nested worktree and of the checkout before running git`, async () => {
-      for (const tree of ["/real/app/.worktrees/nested/src", "/real/app/src"]) {
-        const { r, cwds, synced } = await run(name, input, tree);
-        expect(r.ok, tree).toBe(false);
-        expect(r.error, tree).toContain("registered");
-        expect(cwds, tree).toEqual([]);
-        expect(synced, tree).toEqual([]);
+    test(`${name} runs a subdirectory of the nested worktree and of the checkout at that tree's own root`, async () => {
+      for (const [tree, root] of [["/real/app/.worktrees/nested/src", "/real/app/.worktrees/nested"], ["/real/app/src", "/real/app"]] as const) {
+        const { cwds } = await run(name, input, tree);
+        expect([...new Set(cwds)], tree).toEqual([root]);
       }
     });
   }
+  test("a result from a subdirectory names the root the tool ran in", async () => {
+    const git = fakeGit({ "pull --ff-only": { stdout: "Already up to date.\n" } });
+    const tool = gitToolDefs({ git, guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }) }).find((t) => t.name === "git_pull")!;
+    const r = await tool.handler({ tree: "/real/app/src" }, {} as NodeJS.ProcessEnv);
+    expect(r).toEqual({ ok: true, body: { pulled: true, output: "Already up to date.", tree: "/real/app" } });
+  });
 });
 
 describe("branchSyncPreflight", () => {
@@ -708,7 +712,7 @@ describe("branchSyncPreflight", () => {
 });
 
 describe("branch_sync tool", () => {
-  const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [] };
+  const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false };
   const clean: Script = {
     [GIT_PATHS]: { stdout: "/t/.git/rebase-merge\n/t/.git/rebase-apply\n" },
     ...on("feat/x"), "symbolic-ref --quiet refs/remotes/origin/HEAD": { stdout: "refs/remotes/origin/develop\n" },
@@ -719,7 +723,7 @@ describe("branch_sync tool", () => {
   test("exit 0 with empty stdout is synced, reporting whether the preflight saw a divergence", async () => {
     const tool = gitToolDefs({ git: fakeGit(clean), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }) }).find((t) => t.name === "branch_sync")!;
     const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
-    expect(r).toEqual({ ok: true, body: { status: "synced", divergedFromOrigin: false } });
+    expect(r).toEqual({ ok: true, body: { status: "synced", divergedFromOrigin: false, tree: "/t" } });
   });
   const runSync = async (code: number, stdout: string) => {
     const tool = gitToolDefs({ git: fakeGit(clean), guard, sync: async () => ({ code, stdout, stderr: "" }) }).find((t) => t.name === "branch_sync")!;

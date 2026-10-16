@@ -334,13 +334,15 @@ export interface GitToolDeps {
 
 export const realGitToolDeps: GitToolDeps = { git: realGitRunner, guard: realTreeGuardDeps, sync: realSyncRunner };
 
-const TREE_PROP = { tree: { type: "string", description: "Absolute path of a checkout or worktree of a repo registered with rt." } };
+const TREE_PROP = { tree: { type: "string", description: "Absolute path of a checkout or worktree of a repo registered with rt, or a directory inside one, which resolves to that tree's root (the result's tree)." } };
 
 export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
+  // The tree a tool ran in rides on its result, since a subdirectory resolves to its root.
   const guarded = (fn: (path: string, input: Record<string, unknown>) => Promise<ToolResult>) => async (input: Record<string, unknown>): Promise<ToolResult> => {
     const tree = checkRegisteredTree(input.tree, deps.guard);
     if (!tree.ok) return err(tree.error);
-    return fn(tree.path, input);
+    const r = await fn(tree.path, input);
+    return r.ok && r.body !== null && typeof r.body === "object" && !Array.isArray(r.body) ? ok({ ...r.body, tree: tree.path }) : r;
   };
   return [
     {

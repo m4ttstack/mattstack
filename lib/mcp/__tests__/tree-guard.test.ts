@@ -11,6 +11,7 @@ const deps: TreeGuardDeps = {
   treeByPath: (p) => (p === "/real/pool/app-1" ? { repoName: "remote:gitlab.com%2Facme%2Fapp", tree: "app-1" } : null),
   realpath: (p) => { if (p.startsWith("/nope")) throw new Error("ENOENT"); return p.replace("/link/", "/real/"); },
   worktreeRoots: () => [],
+  hasGitEntry: (dir) => dir === "/real/app/vendor/other",
 };
 
 describe("checkRegisteredTree", () => {
@@ -25,11 +26,28 @@ describe("checkRegisteredTree", () => {
     }
     expect((checkRegisteredTree("/real/other", deps) as { error: string }).error).toContain("registered");
   });
-  test("a subdirectory of a registered tree is refused with a message naming the root", () => {
-    const r = checkRegisteredTree("/link/app/src", deps);
-    expect(r.ok).toBe(false);
-    expect((r as { error: string }).error).toContain("root");
-    expect((r as { error: string }).error).toContain("registered");
+  test("a subdirectory of a registered checkout resolves to the checkout's root, naming where it came from", () => {
+    expect(checkRegisteredTree("/link/app/src/deep", deps)).toEqual({ ok: true, path: "/real/app", repoName: "remote:gitlab.com%2Facme%2Fapp", resolvedFrom: "/real/app/src/deep" });
+  });
+  test("a subdirectory of a registry tree resolves to that tree's root", () => {
+    expect(checkRegisteredTree("/real/pool/app-1/lib", deps)).toEqual({ ok: true, path: "/real/pool/app-1", repoName: "remote:gitlab.com%2Facme%2Fapp", resolvedFrom: "/real/pool/app-1/lib" });
+  });
+  test("a directory with its own .git inside a registered tree is another repo, refused with what to run", () => {
+    for (const inner of ["/real/app/vendor/other", "/real/app/vendor/other/src"]) {
+      const r = checkRegisteredTree(inner, deps);
+      expect(r.ok, inner).toBe(false);
+      const error = (r as { error: string }).error;
+      expect(error, inner).toContain("/real/app/vendor/other");
+      expect(error, inner).toContain("rt repos register");
+    }
+  });
+  test("an unregistered tree gets its own error, naming the path and what to run", () => {
+    const r = checkRegisteredTree("/real/other/src", deps);
+    expect(r).toEqual({ ok: false, error: "/real/other/src is not in a checkout or worktree of a repo registered with rt; register the repo from its checkout first: rt repos register <checkout path>" });
+  });
+  test("a relative path is refused as not absolute, not as unregistered", () => {
+    expect(checkRegisteredTree("app", deps)).toEqual({ ok: false, error: 'tree must be an absolute path, not "app"' });
+    expect(checkRegisteredTree(3, deps)).toEqual({ ok: false, error: "tree must be an absolute path" });
   });
 });
 
@@ -51,6 +69,7 @@ describe("checkRegisteredTree on a real filesystem", () => {
         treeByPath: (p) => findTreeByRealpath(p, byRepo, realpathSync),
         realpath: realpathSync,
         worktreeRoots: () => [],
+        hasGitEntry: () => false,
       };
       expect(checkRegisteredTree(treeLink, fsDeps)).toEqual({ ok: true, path: realpathSync(tree), repoName: "remote:example.com%2Facme%2Fapp" });
       expect(checkRegisteredTree(tree, fsDeps)).toEqual({ ok: true, path: realpathSync(tree), repoName: "remote:example.com%2Facme%2Fapp" });
@@ -102,6 +121,7 @@ describe("checkRegisteredTree on a git worktree the registry never adopted", () 
       if (checkout === "/real/lib") return ["/real/lib", "/real/lib/.worktrees/lib-wt"];
       return [];
     },
+    hasGitEntry: () => false,
   });
 
   test("admits a worktree nested in its checkout, directly and through a symlink, as that checkout's repo", () => {
@@ -117,13 +137,22 @@ describe("checkRegisteredTree on a git worktree the registry never adopted", () 
     expect(checkRegisteredTree("/real/lib/.worktrees/lib-wt", deps)).toEqual({ ok: true, path: "/real/lib/.worktrees/lib-wt", repoName: LIB });
   });
 
-  test("refuses a subdirectory of the nested worktree and of the checkout", () => {
+  test("resolves a subdirectory of the nested worktree to that worktree, never the checkout around it", () => {
     const deps = make([]);
-    for (const bad of ["/real/app/.worktrees/nested/src", "/link/app/.worktrees/nested/src", "/real/app/src", "/real/app/.worktrees"]) {
-      const r = checkRegisteredTree(bad, deps);
-      expect(r.ok, bad).toBe(false);
-      expect((r as { error: string }).error, bad).toContain("registered");
+    for (const sub of ["/real/app/.worktrees/nested/src", "/link/app/.worktrees/nested/src"]) {
+      expect(checkRegisteredTree(sub, deps), sub).toEqual({ ok: true, path: "/real/app/.worktrees/nested", repoName: APP, resolvedFrom: "/real/app/.worktrees/nested/src" });
     }
+  });
+
+  test("resolves a subdirectory of the checkout, including the folder that holds its worktrees, to the checkout", () => {
+    const deps = make([]);
+    for (const sub of ["/real/app/src", "/real/app/.worktrees"]) {
+      expect(checkRegisteredTree(sub, deps), sub).toEqual({ ok: true, path: "/real/app", repoName: APP, resolvedFrom: sub });
+    }
+  });
+
+  test("resolves a subdirectory of a worktree outside its checkout", () => {
+    expect(checkRegisteredTree("/real/elsewhere/app-side/pkg", make([]))).toEqual({ ok: true, path: "/real/elsewhere/app-side", repoName: APP, resolvedFrom: "/real/elsewhere/app-side/pkg" });
   });
 
   test("lists worktrees only from registered checkouts, and only once the cheaper lookups miss", () => {
@@ -186,7 +215,7 @@ describe("realTreeGuardDeps.worktreeRoots", () => {
 });
 
 describe("checkRegisteredTree against a real git worktree nested in its checkout", () => {
-  test("admits the nested worktree by path, trailing slash and symlink; refuses subdirectories", () => {
+  test("admits the nested worktree by path, trailing slash and symlink; resolves subdirectories to their own root", () => {
     const root = mkdtempSync(join(tmpdir(), "tree-guard-git-"));
     try {
       const repo = join(root, "app");
@@ -202,15 +231,20 @@ describe("checkRegisteredTree against a real git worktree nested in its checkout
       const link = join(root, "nested-link");
       symlinkSync(nested, link);
       const APP = "remote:example.com%2Facme%2Fapp";
-      const fsDeps: TreeGuardDeps = { repoIndex: () => ({ [APP]: repo }), treeByPath: () => null, realpath: realpathSync, worktreeRoots: listWorktreeRoots };
+      const fsDeps: TreeGuardDeps = { ...realTreeGuardDeps, repoIndex: () => ({ [APP]: repo }), treeByPath: () => null, worktreeRoots: listWorktreeRoots };
       const admitted = { ok: true as const, path: realpathSync(nested), repoName: APP };
       expect(checkRegisteredTree(nested, fsDeps)).toEqual(admitted);
       expect(checkRegisteredTree(`${nested}/`, fsDeps)).toEqual(admitted);
       expect(checkRegisteredTree(link, fsDeps)).toEqual(admitted);
       expect(checkRegisteredTree(repo, fsDeps)).toEqual({ ok: true, path: realpathSync(repo), repoName: APP });
-      expect(checkRegisteredTree(join(nested, "sub"), fsDeps).ok).toBe(false);
-      expect(checkRegisteredTree(join(repo, "sub"), fsDeps).ok).toBe(false);
-      expect(checkRegisteredTree(join(repo, ".worktrees"), fsDeps).ok).toBe(false);
+      expect(checkRegisteredTree(join(nested, "sub"), fsDeps)).toEqual({ ...admitted, resolvedFrom: realpathSync(join(nested, "sub")) });
+      expect(checkRegisteredTree(join(repo, "sub"), fsDeps)).toEqual({ ok: true, path: realpathSync(repo), repoName: APP, resolvedFrom: realpathSync(join(repo, "sub")) });
+      const other = join(repo, "vendor", "other");
+      mkdirSync(join(other, "src"), { recursive: true });
+      execFileSync("git", ["init", "-q"], { cwd: other, stdio: "pipe" });
+      const refused = checkRegisteredTree(join(other, "src"), fsDeps);
+      expect(refused.ok).toBe(false);
+      expect((refused as { error: string }).error).toContain(realpathSync(other));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
