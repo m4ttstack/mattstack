@@ -238,8 +238,10 @@ Four scenarios, every one on the rehearsal build. Set the environment above in e
 | --- | --- |
 | create | `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <the artifact's dmg> --scenario create --fresh-team-repo --no-graphics` |
 | join | `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <the artifact's dmg> --scenario join --fresh-team-repo --mint-rt <scratch>/rehearsal-app/mattstack.app/Contents/MacOS/rt --no-graphics` |
-| solo | `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <the artifact's dmg> --scenario solo --no-graphics` |
+| solo | `bash rt-tray/vm/run/team-setup.sh reset`, then `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <the artifact's dmg> --scenario solo --no-graphics` |
 | update leg | `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <scratch>/previous/mattstack-<previous ver>.dmg --scenario create --fresh-team-repo --update-dir <scratch>/update --update-version <rehearsal X.Y.Z> --keep --no-graphics` |
+
+Solo takes no `--fresh-team-repo`: its `team-upgrade` phase creates the team in the throwaway org's standing team repo, so every solo run, a rerun included, starts with `team-setup.sh reset`, which archives that repo and creates it again empty. The reset leaves `--fresh-team-repo` runs alone, since each of those mints its own repo.
 
 Two runs may go at once, never more (the macOS cap), and never two that attach the same dmg at
 the same time. Every run's preflight attaches its `--dmg` for a moment to read the version, so
