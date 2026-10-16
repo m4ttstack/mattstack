@@ -937,7 +937,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["org", "team"],
     default: [],
     merge: "add",
-    description: "Failure-log patterns that mark a CI failure as a real code defect. The list extends the engine's built-in patterns and never replaces them; ci_triage reads it. The org holds what every team shares and a team adds its own.",
+    description: "Failure-log patterns that mark a CI failure as a real code defect, as case-sensitive JavaScript regular expressions that extend ci_triage's built-in list. A pattern containing [[: (a POSIX bracket class) is refused. The org holds what every team shares and a team adds its own.",
   },
   {
     key: "ci.triage.infraPatterns",
@@ -945,7 +945,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["org", "team"],
     default: [],
     merge: "add",
-    description: "Failure-log patterns that mark a CI failure as infrastructure trouble rather than the change. The list extends the engine's built-in patterns and never replaces them; ci_triage reads it. The org holds what every team shares and a team adds its own.",
+    description: "Failure-log patterns that mark a CI failure as infrastructure trouble rather than the change, as case-sensitive JavaScript regular expressions that extend ci_triage's built-in list. A pattern containing [[: (a POSIX bracket class) is refused. The org holds what every team shares and a team adds its own.",
   },
   {
     key: "ci.triage.noisyJobs",
@@ -953,7 +953,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["org", "team"],
     default: [],
     merge: "add",
-    description: "Names of CI jobs known to fail for unrelated reasons, so ci_triage treats their failures as noise. The list extends the engine's built-in list and never replaces it. The org holds what every team shares and a team adds its own.",
+    description: "CI jobs known to fail for unrelated reasons, so ci_triage treats their failures as noise. Each entry matches any job whose name contains it, and only jobs allowed to fail. The org holds what every team shares and a team adds its own.",
   },
   {
     key: "ci.triage.baseDepth",
