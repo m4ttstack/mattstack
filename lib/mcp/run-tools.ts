@@ -1,6 +1,7 @@
 import { realpathSync } from "fs";
-import { basename, isAbsolute, resolve } from "path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 import type { ResolveNext } from "../runs/engine.ts";
+import { flagValue } from "../cli-args.ts";
 import { runEngineOp, runWriteVerb, type EngineOp, type WriteVerb } from "../../commands/runs-write.ts";
 import { listRuns } from "../../packages/rt-client/src/index.ts";
 import { packPluginIdentity } from "../skills/provenance.ts";
@@ -57,6 +58,48 @@ function checkRunStartFlags(args: string[]): string | undefined {
 
 export function packRootFrom(skillDir: string, realpath: (p: string) => string): string {
   return realpath(resolve(skillDir, "..", ".."));
+}
+
+type Prepared = { args: string[]; packRoot: string };
+
+/** What run_start and run_enter share: the flag string, the skill's pack root and the argv both pass to the run-start parser. */
+function prepareStart(input: Record<string, unknown>, deps: RunToolDeps): Prepared | { error: string } {
+  const bad = checkRequired(input, [{ name: "flags", type: "string" }, { name: "skillDir", type: "string" }]) ?? checkOptional(input, [{ name: "ticket", type: "string" }, { name: "spawnedBy", type: "string" }]);
+  if (bad) return { error: bad };
+  const skillDir = input.skillDir as string;
+  if (!isAbsolute(skillDir)) return { error: '"skillDir" must be an absolute path' };
+  const split = splitFlags(input.flags as string);
+  if (!split.ok) return { error: split.error };
+  const flagsBad = checkRunStartFlags(split.args);
+  if (flagsBad) return { error: flagsBad };
+  let packRoot: string;
+  try { packRoot = packRootFrom(skillDir, deps.realpath); } catch { return { error: `skillDir ${skillDir} does not resolve` }; }
+  if (!deps.isPackRoot(packRoot)) return { error: `skillDir ${skillDir} does not resolve to a pack (no .claude-plugin/plugin.json under ${packRoot})` };
+  const args = [...split.args, "--pack-dirs", packRoot];
+  if (typeof input.ticket === "string") args.push("--ticket", input.ticket);
+  if (typeof input.spawnedBy === "string") args.push("--spawned-by", input.spawnedBy);
+  return { args, packRoot };
+}
+
+/** realpath of the nearest existing ancestor plus the missing tail, so a path that is not there yet still compares against a realpathed root. */
+function realpathLoose(p: string, realpath: (p: string) => string): string {
+  try { return realpath(p); } catch { /* fall through to the parent */ }
+  const parent = dirname(p);
+  return parent === p ? p : join(realpathLoose(parent, realpath), basename(p));
+}
+
+/** A handed runDb names a run of the flags' own repo under the runs root. The run may be gone (pruned), so the file need not exist: the path is confined by its real location, and what comes back is rebuilt under the runs root as given, the form enterRun compares. */
+function confineHandedRunDb(runDb: string, repo: string, env: NodeJS.ProcessEnv, realpath: (p: string) => string): { ok: true; path: string } | { ok: false; error: string } {
+  if (!isAbsolute(runDb)) return { ok: false, error: '"runDb" must be an absolute path' };
+  const rawRoot = typeof env.RT_RUNS_ROOT === "string" && env.RT_RUNS_ROOT !== "" ? env.RT_RUNS_ROOT : runsRoot();
+  if (!rawRoot) return { ok: false, error: "no runs root is configured" };
+  const root = realpathLoose(resolve(rawRoot), realpath);
+  let real: string;
+  try { real = realpath(runDb); } catch { real = realpathLoose(resolve(runDb), realpath); }
+  const base = join(root, repo) + sep;
+  if (!real.startsWith(base)) return { ok: false, error: `runDb must be under the runs root for repo ${repo} (${join(root, repo)})` };
+  if (basename(real) !== "state.db") return { ok: false, error: 'runDb must name a run store\'s "state.db"' };
+  return { ok: true, path: join(rawRoot, repo, real.slice(base.length)) };
 }
 
 const RUN_DB_PROPS = {
@@ -149,22 +192,10 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       },
       shellForms: ["rt runs run-start", { id: "run-db-env", pattern: /(?<![\w-])(export|unset)\s+RT_RUN_DB\b/, example: "export RT_RUN_DB=/x", note: "keep the runDb run_start returns and pass it on every run_* call" }],
       async handler(input, env) {
-        const bad = checkRequired(input, [{ name: "flags", type: "string" }, { name: "skillDir", type: "string" }]) ?? checkOptional(input, [{ name: "ticket", type: "string" }, { name: "spawnedBy", type: "string" }]);
-        if (bad) return err(bad);
-        const skillDir = input.skillDir as string;
-        if (!isAbsolute(skillDir)) return err('"skillDir" must be an absolute path');
-        const split = splitFlags(input.flags as string);
-        if (!split.ok) return err(split.error);
-        const flagsBad = checkRunStartFlags(split.args);
-        if (flagsBad) return err(flagsBad);
-        let packRoot: string;
-        try { packRoot = packRootFrom(skillDir, deps.realpath); } catch { return err(`skillDir ${skillDir} does not resolve`); }
-        if (!deps.isPackRoot(packRoot)) return err(`skillDir ${skillDir} does not resolve to a pack (no .claude-plugin/plugin.json under ${packRoot})`);
-        const args = [...split.args, "--pack-dirs", packRoot];
-        if (typeof input.ticket === "string") args.push("--ticket", input.ticket);
-        if (typeof input.spawnedBy === "string") args.push("--spawned-by", input.spawnedBy);
+        const prepared = prepareStart(input, deps);
+        if ("error" in prepared) return err(prepared.error);
         // run-start never resolves a DB, so the pack root stands in for cwd.
-        const r = await deps.write("run-start", args, env, packRoot);
+        const r = await deps.write("run-start", prepared.args, env, prepared.packRoot);
         const body = parseOut(r.out) as { ok?: boolean; error?: string } | null;
         if (r.code !== 0 || !body?.ok) return err(body?.error ?? `rt runs run-start failed (exit ${r.code})`);
         return ok(body);
@@ -287,28 +318,21 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       },
       shellForms: NO_VERB,
       async handler(input, env) {
-        const bad = checkRequired(input, [{ name: "flags", type: "string" }, { name: "skillDir", type: "string" }])
-          ?? checkOptional(input, [{ name: "stage", type: "string" }, { name: "pipeline", type: "string" }, { name: "runDb", type: "string" }, { name: "resume", type: "string" }, { name: "fresh", type: "boolean" }, { name: "ticket", type: "string" }, { name: "spawnedBy", type: "string" }]);
+        const bad = checkOptional(input, [{ name: "stage", type: "string" }, { name: "pipeline", type: "string" }, { name: "runDb", type: "string" }, { name: "resume", type: "string" }, { name: "fresh", type: "boolean" }]);
         if (bad) return err(bad);
-        const skillDir = input.skillDir as string;
-        if (!isAbsolute(skillDir)) return err('"skillDir" must be an absolute path');
-        const split = splitFlags(input.flags as string);
-        if (!split.ok) return err(split.error);
-        const flagsBad = checkRunStartFlags(split.args);
-        if (flagsBad) return err(flagsBad);
+        const prepared = prepareStart(input, deps);
+        if ("error" in prepared) return err(prepared.error);
+        const { args, packRoot } = prepared;
         if (typeof input.resume === "string" && !isPathComponent(input.resume)) return err('"resume" must be a run id, a single path component');
         let handedRunDb: string | undefined;
         if (typeof input.runDb === "string") {
-          const db = checkRunDb(input.runDb, env, deps.realpath);
-          if (!db.ok) return err(db.error);
-          handedRunDb = input.runDb;
+          let repo: string | undefined;
+          try { repo = flagValue(args, "--repo"); } catch (e) { return err((e as Error).message); }
+          if (repo === undefined || !isPathComponent(repo)) return err('flags must name --repo as a single path component to confine "runDb"');
+          const handed = confineHandedRunDb(input.runDb, repo, env, deps.realpath);
+          if (!handed.ok) return err(handed.error);
+          handedRunDb = handed.path;
         }
-        let packRoot: string;
-        try { packRoot = packRootFrom(skillDir, deps.realpath); } catch { return err(`skillDir ${skillDir} does not resolve`); }
-        if (!deps.isPackRoot(packRoot)) return err(`skillDir ${skillDir} does not resolve to a pack (no .claude-plugin/plugin.json under ${packRoot})`);
-        const args = [...split.args, "--pack-dirs", packRoot];
-        if (typeof input.ticket === "string") args.push("--ticket", input.ticket);
-        if (typeof input.spawnedBy === "string") args.push("--spawned-by", input.spawnedBy);
         const op: EngineOp = { op: "enter", args, packRoot };
         if (typeof input.stage === "string") op.stage = input.stage;
         if (typeof input.pipeline === "string") op.pipeline = input.pipeline;

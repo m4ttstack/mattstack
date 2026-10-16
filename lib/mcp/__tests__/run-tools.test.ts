@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { EngineOp } from "../../../commands/runs-write.ts";
@@ -297,19 +297,20 @@ describe("runDb and cwd validation", () => {
 
 const FLAGS = "--repo r --work-type w --pipeline p";
 const SKILL = "/link/pack/skills/work";
+const HANDED = `${RUNS_ROOT}/r/id/state.db`;
 
 describe("run_enter", () => {
   test("builds the enter op from flags, skillDir and the optional inputs", async () => {
     const { deps, calls } = fakeEngine('{"ok":true,"mode":"started"}');
     const res = await tool(deps, "run_enter").handler(
-      { flags: FLAGS, skillDir: SKILL, stage: "plan", pipeline: "feature", runDb: DB, resume: "id-1", fresh: true, ticket: "T-1", spawnedBy: "board" },
+      { flags: FLAGS, skillDir: SKILL, stage: "plan", pipeline: "feature", runDb: HANDED, resume: "id-1", fresh: true, ticket: "T-1", spawnedBy: "board" },
       RUNS_ROOT_ENV,
     );
     expect(res).toEqual({ ok: true, body: { ok: true, mode: "started" } });
     expect(calls[0]!.op).toEqual({
       op: "enter",
       args: ["--repo", "r", "--work-type", "w", "--pipeline", "p", "--pack-dirs", "/real/pack", "--ticket", "T-1", "--spawned-by", "board"],
-      packRoot: "/real/pack", stage: "plan", pipeline: "feature", handedRunDb: DB, resume: "id-1", fresh: true,
+      packRoot: "/real/pack", stage: "plan", pipeline: "feature", handedRunDb: HANDED, resume: "id-1", fresh: true,
     });
   });
   test("only the inputs given reach the op", async () => {
@@ -323,7 +324,9 @@ describe("run_enter", () => {
     expect((await run({ flags: "--repo $(x)" })).ok).toBe(false);
     expect((await run({ flags: `${FLAGS} --evil x` })).ok).toBe(false);
     expect((await run({ skillDir: "pack/skills/work" })).error).toContain("skillDir");
-    expect((await run({ runDb: "/elsewhere/repo/id/state.db" })).error).toContain("runs root");
+    expect((await run({ runDb: "/elsewhere/r/id/state.db" })).error).toContain("runs root");
+    expect((await run({ runDb: `${RUNS_ROOT}/other/id/state.db` })).error).toContain("runs root");
+    expect((await run({ runDb: `${RUNS_ROOT}/r/id/other.db` })).error).toContain("state.db");
     expect((await run({ runDb: "repo/id/state.db" })).error).toContain("runDb");
     for (const resume of ["../x", "a/b", "..", ""]) expect((await run({ resume })).error, resume).toContain("resume");
     expect((await run({ fresh: "yes" })).ok).toBe(false);
@@ -432,8 +435,12 @@ describe("run engine tools", () => {
 });
 
 describe("run engine tools against a real run store", () => {
-  test("run_enter, run_next, run_resolve redirect", async () => {
+  const bases: string[] = [];
+  afterAll(() => { for (const b of bases) rmSync(b, { recursive: true, force: true }); });
+
+  function store(): { root: string; skillDir: string; env: NodeJS.ProcessEnv; deps: RunToolDeps } {
     const base = mkdtempSync(join(tmpdir(), "run-engine-tools-"));
+    bases.push(base);
     const root = join(base, "runs");
     const pack = join(base, "pack");
     mkdirSync(join(pack, "skills", "work"), { recursive: true });
@@ -442,11 +449,13 @@ describe("run engine tools against a real run store", () => {
       join(pack, "pack", "pipelines.json"),
       JSON.stringify({ version: 1, pipelines: { work: [{ stage: "plan", name: "Plan", file: "skills/plan/SKILL.md", consumes: [], produces: ["plan"] }, { stage: "build", name: "Build", file: "skills/build/SKILL.md", consumes: ["plan"], produces: [] }] } }),
     );
-    const env = { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
-    const deps: RunToolDeps = { ...realRunToolDeps, isPackRoot: () => true };
-    const skillDir = join(pack, "skills", "work");
+    return { root, skillDir: join(pack, "skills", "work"), env: { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv, deps: { ...realRunToolDeps, isPackRoot: () => true } };
+  }
+  const FLAGS_DEMO = "--repo demo --work-type work --pipeline work";
 
-    const entered = await tool(deps, "run_enter").handler({ flags: "--repo demo --work-type work --pipeline work", skillDir }, env);
+  test("run_enter, run_next, run_resolve redirect", async () => {
+    const { skillDir, env, deps } = store();
+    const entered = await tool(deps, "run_enter").handler({ flags: FLAGS_DEMO, skillDir }, env);
     expect(entered.ok).toBe(true);
     const e = entered.body as { mode: string; runDb: string; stages: string[]; at: { stage: string; attempt: number } };
     expect(e.mode).toBe("started");
@@ -460,5 +469,39 @@ describe("run engine tools against a real run store", () => {
 
     const resolved = await tool(deps, "run_resolve").handler({ runDb: e.runDb, stage: "build", next: "redirect", to: "plan", note: "again", decidedBy: "pane" }, env);
     expect(resolved.body).toMatchObject({ ok: true, applied: "redirect", next: { stage: "plan", attempt: 2 } });
+  });
+
+  test("a handed runDb for a running run of the repo is inherited", async () => {
+    const { skillDir, env, deps } = store();
+    const first = (await tool(deps, "run_enter").handler({ flags: FLAGS_DEMO, skillDir }, env)).body as { runDb: string; runId: string };
+    const again = await tool(deps, "run_enter").handler({ flags: FLAGS_DEMO, skillDir, runDb: first.runDb }, env);
+    expect(again.body).toMatchObject({ mode: "inherited", runId: first.runId });
+  });
+
+  test("a handed runDb that is gone (a pruned parent run) is ignored and the call continues", async () => {
+    const { root, skillDir, env, deps } = store();
+    const gone = join(root, "demo", "pruned-run", "state.db");
+    const res = await tool(deps, "run_enter").handler({ flags: FLAGS_DEMO, skillDir, runDb: gone }, env);
+    expect(res.ok).toBe(true);
+    expect(res.body).toMatchObject({ mode: "started", handedRunDb: "not-running" });
+  });
+
+  test("a gone runDb outside the root or in another repo is still refused", async () => {
+    const { root, skillDir, env, deps } = store();
+    for (const runDb of [join(root, "..", "elsewhere", "x", "state.db"), join(root, "other", "x", "state.db"), "/nonexistent/x/state.db"]) {
+      const res = await tool(deps, "run_enter").handler({ flags: FLAGS_DEMO, skillDir, runDb }, env);
+      expect(res.ok, runDb).toBe(false);
+      expect(res.error, runDb).toContain("runs root");
+    }
+  });
+
+  test("a symlink inside the root to another repo's run is refused", async () => {
+    const { root, skillDir, env, deps } = store();
+    const other = (await tool(deps, "run_enter").handler({ flags: "--repo other --work-type work --pipeline work", skillDir }, env)).body as { runDb: string };
+    mkdirSync(join(root, "demo"), { recursive: true });
+    symlinkSync(join(other.runDb, ".."), join(root, "demo", "link"));
+    const res = await tool(deps, "run_enter").handler({ flags: FLAGS_DEMO, skillDir, runDb: join(root, "demo", "link", "state.db") }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("runs root");
   });
 });

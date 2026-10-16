@@ -35,7 +35,7 @@ import { runStart, type RunStartOpts } from "../lib/runs/start.ts";
 import { runsRoot } from "../lib/runs/store.ts";
 import {
   decisionRecord, fieldGet, fieldSet, openRunDb, runIdentity, runStatus, snapshot, stageEnd, stageStart,
-  type Fail,
+  type Fail, type Ok,
 } from "../lib/runs/write.ts";
 import * as out from "../lib/ui/out.ts";
 
@@ -247,28 +247,33 @@ async function enter(op: Extract<EngineOp, { op: "enter" }>, env: NodeJS.Process
   return { out: json(r), code: 0 };
 }
 
-async function engineWrite(op: Exclude<EngineOp, { op: "enter" }>, { db, resolved }: RunDbHandle, env: NodeJS.ProcessEnv): Promise<CliResult> {
-  let r;
-  let adopts = false;
+type Applied = { r: Ok<object> | Fail; adopts: boolean };
+
+function applyOp(op: Exclude<EngineOp, { op: "enter" }>, db: Database, env: NodeJS.ProcessEnv): Applied {
   switch (op.op) {
-    case "next":
-      r = nextStage(db, { stage: op.stage, env });
-      adopts = r.ok && r.ended === "done" && "next" in r && r.repeated !== true;
-      break;
-    case "resolve":
-      r = resolveStage(db, { stage: op.stage, next: op.next, to: op.to, note: op.note, decidedBy: op.decidedBy, env });
-      adopts = r.ok && "next" in r;
-      break;
+    case "next": {
+      const r = nextStage(db, { stage: op.stage, env });
+      return { r, adopts: r.ok && r.ended === "done" && "next" in r && r.repeated !== true };
+    }
+    case "resolve": {
+      const r = resolveStage(db, { stage: op.stage, next: op.next, to: op.to, note: op.note, decidedBy: op.decidedBy, env });
+      return { r, adopts: r.ok && "next" in r };
+    }
     case "hold":
-      r = holdStage(db, { stage: op.stage, reason: op.reason, decidedBy: op.decidedBy });
-      break;
+      return { r: holdStage(db, { stage: op.stage, reason: op.reason, decidedBy: op.decidedBy }), adopts: false };
     case "close":
-      r = closeRun(db, { workType: op.workType, stage: op.stage, outcome: op.outcome, reason: op.reason, detailPath: op.detailPath });
-      break;
+      return { r: closeRun(db, { workType: op.workType, stage: op.stage, outcome: op.outcome, reason: op.reason, detailPath: op.detailPath }), adopts: false };
     case "budget":
-      r = budget(db, { key: op.key, limit: op.limit, increment: op.increment, stage: op.stage });
-      break;
+      return { r: budget(db, { key: op.key, limit: op.limit, increment: op.increment, stage: op.stage }), adopts: false };
+    default: {
+      const unreachable: never = op;
+      throw new Error(`unknown engine op ${JSON.stringify(unreachable)}`);
+    }
   }
+}
+
+async function engineWrite(op: Exclude<EngineOp, { op: "enter" }>, { db, resolved }: RunDbHandle, env: NodeJS.ProcessEnv): Promise<CliResult> {
+  const { r, adopts } = applyOp(op, db, env);
   if (!r.ok) return fail(r);
   const { ok: _ok, ...body } = r;
   await emitted(env, runIdentity(db), "stage" in op ? op.stage ?? null : null, `run-${op.op}`);

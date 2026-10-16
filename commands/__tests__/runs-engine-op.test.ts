@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -23,8 +23,12 @@ async function withFakeDaemon<T>(body: (seen: Seen[]) => Promise<T>): Promise<T>
   }
 }
 
+const bases: string[] = [];
+afterAll(() => { for (const b of bases) rmSync(b, { recursive: true, force: true }); });
+
 function fixture(): { root: string; pack: string } {
   const base = mkdtempSync(join(tmpdir(), "rt-engine-op-"));
+  bases.push(base);
   const pack = join(base, "pack");
   mkdirSync(join(pack, "pack"), { recursive: true });
   const stage = (s: string, consumes: string[], produces: string[]) => ({ stage: s, name: s, file: `skills/${s}/SKILL.md`, consumes, produces });
@@ -82,6 +86,41 @@ describe("runEngineOp", () => {
       expect(JSON.parse(next.out)).toMatchObject({ ended: "done", next: { stage: "build" } });
       expect(adopts()).toBe(2);
       await runEngineOp({ op: "hold", stage: "build", decidedBy: "me" }, env, "/");
+      expect(adopts()).toBe(2);
+    });
+  });
+
+  test("resume adopts the session", async () => {
+    const { root, pack } = fixture();
+    const base = { RT_RUNS_ROOT: root, CLAUDE_CODE_SESSION_ID: "sess-engine-1" };
+    await withFakeDaemon(async (seen) => {
+      const adopts = () => seen.filter((s) => JSON.stringify(s).includes("sess-engine-1")).length;
+      const { runId } = JSON.parse((await runEngineOp(enterOp(pack), base)).out) as { runId: string };
+      expect(adopts()).toBe(1);
+      const r = await runEngineOp(enterOp(pack, { resume: runId }), base);
+      expect(JSON.parse(r.out).mode).toBe("resumed");
+      expect(adopts()).toBe(2);
+    });
+  });
+
+  test("resolve adopts when it starts a stage (retry, redirect) and not for hold", async () => {
+    const { root, pack } = fixture();
+    const base = { RT_RUNS_ROOT: root, CLAUDE_CODE_SESSION_ID: "sess-engine-1" };
+    const quiet = { ...base, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+    const { runDb } = JSON.parse((await runEngineOp(enterOp(pack), quiet)).out) as { runDb: string };
+    const env = { ...base, RT_RUN_DB: runDb };
+    await runWriteVerb("field", ["set", "plan", "x", "--stage", "plan"], { ...quiet, RT_RUN_DB: runDb });
+    await runEngineOp({ op: "next", stage: "plan" }, { ...quiet, RT_RUN_DB: runDb }, "/");
+    await runWriteVerb("stage-fail", ["--stage", "build", "--reason", "red"], { ...quiet, RT_RUN_DB: runDb });
+    await withFakeDaemon(async (seen) => {
+      const adopts = () => seen.filter((s) => JSON.stringify(s).includes("sess-engine-1")).length;
+      const resolve = async (next: "retry" | "redirect" | "hold", extra: { to?: string } = {}) =>
+        JSON.parse((await runEngineOp({ op: "resolve", stage: "build", next, decidedBy: "me", ...extra }, env, "/")).out);
+      expect(await resolve("hold")).toMatchObject({ applied: "hold" });
+      expect(adopts()).toBe(0);
+      expect(await resolve("retry")).toMatchObject({ applied: "retry", next: { stage: "build", attempt: 2 } });
+      expect(adopts()).toBe(1);
+      expect(await resolve("redirect", { to: "plan" })).toMatchObject({ applied: "redirect", next: { stage: "plan" } });
       expect(adopts()).toBe(2);
     });
   });
