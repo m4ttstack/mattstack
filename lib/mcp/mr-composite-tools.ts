@@ -4,7 +4,7 @@
  * refuses a github.com identity before any daemon call.
  */
 import { readProjectMRs, rtCommand } from "../../packages/rt-client/src/index.ts";
-import type { Commands, Discussion } from "../../packages/rt-client/src/index.ts";
+import type { Commands, Discussion, GateRow } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
 import { joinMrsToWorktrees, type MrMapRow } from "../mr-map.ts";
 import { parseIdentity } from "../settings/identity.ts";
@@ -262,6 +262,385 @@ export async function waitForRebase(
     slept += opts.pollMs;
   }
   return { status: "pending", sha, rebaseInProgress, ...(lastError !== undefined && { lastError }) };
+}
+
+export interface SnapshotField { key: string; value: string; at: number; run_id?: string; produced_by?: string }
+export interface SnapshotDecision { contract: string; scope: string; selection: string; decided_by: string; decided_at: number; run_id?: string }
+export interface RunSnapshot { ok?: boolean; error?: string; run: Record<string, unknown> | null; stages?: unknown[]; fields: SnapshotField[]; decisions: SnapshotDecision[] }
+
+export interface PostAction { threadId: string; verb: "fix" | "override" | "reply"; post: boolean; resolve: boolean; body: string | null }
+export interface RespondPostPlan {
+  mrUrl: string;
+  branch: string | null;
+  startedAt: number;
+  actions: PostAction[];
+  postDecision: { selection: Record<string, unknown>; decidedBy: string } | null;
+  heldResume: string[] | null;
+}
+
+type RespondScope = "respond-plan" | "respond-post";
+export type GateSource = { gate: string | null; source: { context?: unknown; questions: unknown[] }; at: number };
+type SourceThread = { threadId: string; questionId: string; card: Record<string, unknown> | null };
+type PostEntry = { post: boolean; resolve: boolean; text?: string; note?: string };
+
+export const RESPOND_POST_GH_MOVE = "reply to and resolve the threads with gh";
+const GATE_CONTRACT = "gate@1";
+const PLAN_VERBS = ["reply", "fix", "skip"] as const;
+const POST_VERBS = ["post", "resolve"] as const;
+const RETIRED_KEY = /^(replies|replies-\d+|disposition)$/;
+
+class Refusal extends Error {}
+const refuse = (message: string): never => {
+  throw new Refusal(message);
+};
+
+const sourceKey = (scope: RespondScope) => `extra.gate-source.${scope}`;
+
+function readGateSource(fields: SnapshotField[], scope: RespondScope): { ok: true; field: GateSource | null } | { ok: false; error: string } {
+  const row = fields.find((f) => f.key === sourceKey(scope));
+  if (!row) return { ok: true, field: null };
+  const bad = { ok: false as const, error: `the run's ${sourceKey(scope)} field is not a gate_open source of the shape {gate, source: {context, questions}}` };
+  if (typeof row.value !== "string" || typeof row.at !== "number" || !Number.isFinite(row.at)) return bad;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.value);
+  } catch {
+    return bad;
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.source) || !Array.isArray(parsed.source.questions)) return bad;
+  const gate = parsed.gate;
+  if (gate !== null && !(typeof gate === "string" && gate)) return bad;
+  return { ok: true, field: { gate, source: parsed.source as GateSource["source"], at: row.at } };
+}
+
+export function gateSourceField(fields: SnapshotField[], scope: RespondScope): GateSource | null {
+  const r = readGateSource(fields, scope);
+  return r.ok ? r.field : null;
+}
+
+const optionValue = (o: unknown): string | null => (typeof o === "string" ? o : isRecord(o) && typeof o.value === "string" ? o.value : null);
+
+function splitPick(value: string): { verb: string; threadId: string } | null {
+  const i = value.indexOf(":");
+  if (i <= 0 || i === value.length - 1) return null;
+  return { verb: value.slice(0, i), threadId: value.slice(i + 1) };
+}
+
+/** A registry answer is a bare value, an array of values, or {value, note, text}; a write-in names no option and reads null. */
+function pickValues(a: unknown): string[] | null {
+  if (typeof a === "string") return [a];
+  if (Array.isArray(a)) return a.every((v) => typeof v === "string") ? (a as string[]) : null;
+  if (isRecord(a) && (typeof a.value === "string" || Array.isArray(a.value))) return pickValues(a.value);
+  return null;
+}
+
+const pickText = (a: unknown): string | undefined => (isRecord(a) && typeof a.text === "string" ? a.text : undefined);
+const pickNote = (a: unknown): string | undefined => (isRecord(a) && typeof a.note === "string" && a.note.trim() ? a.note : undefined);
+
+function parseContext(c: unknown): Record<string, unknown> | null {
+  if (isRecord(c)) return c;
+  if (typeof c !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(c);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function sourceThreads(scope: RespondScope, questions: unknown[], verbs: readonly string[]): SourceThread[] {
+  const threads: SourceThread[] = [];
+  for (const q of questions) {
+    if (!isRecord(q) || typeof q.id !== "string" || !Array.isArray(q.options)) refuse(`the ${scope} gate source has a question that is not {id, options}`);
+    const question = q as { id: string; options: unknown[]; context?: unknown };
+    const picks = question.options.map((o) => splitPick(optionValue(o) ?? ""));
+    if (picks.every((p) => p === null || !verbs.includes(p.verb))) continue;
+    const ids = new Set(picks.map((p) => (p && verbs.includes(p.verb) ? p.threadId : null)));
+    if (ids.size !== 1 || ids.has(null)) refuse(`the ${scope} gate source's question ${question.id} does not name exactly one thread in its option values`);
+    const threadId = picks[0]!.threadId;
+    if (threads.some((t) => t.threadId === threadId)) refuse(`the ${scope} gate source asks about ${threadId} twice`);
+    threads.push({ threadId, questionId: question.id, card: parseContext(question.context) });
+  }
+  return threads;
+}
+
+function freshDecision(snapshot: RunSnapshot, scope: RespondScope, threshold: number): SnapshotDecision {
+  const d = snapshot.decisions.find((x) => x.contract === GATE_CONTRACT && x.scope === scope);
+  if (!d || typeof d.decided_at !== "number" || d.decided_at < threshold) refuse(`${scope} has no decision recorded since its gate opened`);
+  return d!;
+}
+
+function parseSelection(scope: RespondScope, d: SnapshotDecision): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(d.selection);
+  } catch {
+    return refuse(`the ${scope} decision's selection is not JSON`);
+  }
+  if (!isRecord(parsed)) refuse(`the ${scope} decision's selection is not a JSON object`);
+  return parsed as Record<string, unknown>;
+}
+
+/** The registry row answers for a gate the source names; a hand-back source (gate null) has none, and its recorded decision is the answer. */
+function registryRow(scope: RespondScope, src: GateSource, row: GateRow | null): GateRow | null {
+  if (src.gate === null) return null;
+  if (!row || row.id !== src.gate) refuse(`the ${scope} gate ${src.gate} was not read from the registry`);
+  return row;
+}
+
+function answeredProceed(scope: RespondScope, row: GateRow): Record<string, unknown> {
+  if (row.status !== "answered" || !row.answer) refuse(`the ${scope} gate ${row.id} is ${row.status}, not answered`);
+  const answers = row.answer!.answers as Record<string, unknown>;
+  if ("next" in answers || row.questions.some((q) => q.id === "next")) {
+    const next = pickValues(answers.next);
+    if (!next || next.length === 0) refuse(`the ${scope} gate has no next answer, so it never proceeded`);
+    if (next!.length !== 1 || next![0] !== "proceed") refuse(`the ${scope} gate's next answer is ${next!.join(", ")}, not proceed`);
+  }
+  return answers;
+}
+
+/** The text the human was shown: a structured context's reply, or a prose context that carries it whole. */
+function shownInRegistry(row: GateRow, threadId: string, text: string, shape: "thread@1" | "reply@1"): boolean {
+  const q = row.questions.find((x) => x.options.some((o) => splitPick(optionValue(o) ?? "")?.threadId === threadId));
+  const ctx = q?.context;
+  if (typeof ctx !== "string" || !ctx.trim()) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(ctx);
+  } catch {
+    return ctx.includes(text);
+  }
+  if (!isRecord(parsed) || parsed["gate-ctx"] !== shape) return false;
+  if (shape === "thread@1") return isRecord(parsed.reply) && parsed.reply.kind === "verbatim" && parsed.reply.text === text;
+  return parsed.thread === threadId && parsed.text === text;
+}
+
+function optionalText(where: string, v: unknown): string | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || !v.trim()) refuse(`${where} must be a non-empty string`);
+  return v as string;
+}
+
+/** Returns the threads whose answer carried a note: the skill makes those overrides, so none of them posts its card text. */
+function checkPlanAgainstRegistry(answers: Record<string, unknown>, threads: SourceThread[], verbs: Record<string, string>, texts: Record<string, string>, codeChanges: unknown): Set<string> {
+  const regVerb = new Map<string, string>();
+  const regText = new Map<string, string>();
+  const noted = new Set<string>();
+  for (const [qid, a] of Object.entries(answers)) {
+    if (qid === "next" || qid === "code-changes") continue;
+    const values = pickValues(a);
+    if (!values) refuse(`the respond-plan gate's answer to ${qid} names no option`);
+    for (const v of values!) {
+      const p = splitPick(v);
+      if (!p || !(PLAN_VERBS as readonly string[]).includes(p.verb)) refuse(`the respond-plan gate's answer ${v} is not a reply, fix or skip pick`);
+      if (regVerb.has(p!.threadId)) refuse(`the respond-plan gate's answer picks more than one verb for ${p!.threadId}`);
+      regVerb.set(p!.threadId, p!.verb);
+      const text = pickText(a);
+      if (p!.verb === "reply" && text !== undefined) regText.set(p!.threadId, text);
+      if (pickNote(a) !== undefined) noted.add(p!.threadId);
+    }
+  }
+  for (const id of regVerb.keys()) {
+    if (!threads.some((t) => t.threadId === id)) refuse(`the respond-plan gate's answer names ${id}, which its gate source never asked about`);
+  }
+  for (const { threadId } of threads) {
+    const reg = regVerb.get(threadId);
+    if (reg !== verbs[threadId]) refuse(`the respond-plan decision for ${threadId} does not match the gate's answer: the decision says ${verbs[threadId]}, the gate ${reg ?? "nothing"}`);
+    if (reg === "reply" && regText.get(threadId) !== texts[threadId]) refuse(`the respond-plan decision for ${threadId} does not match the gate's answer text`);
+  }
+  if ("code-changes" in answers) {
+    const reg = pickValues(answers["code-changes"]);
+    if (!reg || reg.length !== 1 || reg[0] !== codeChanges) refuse(`the respond-plan decision's code-changes does not match the gate's answer`);
+  }
+  return noted;
+}
+
+function checkPostAgainstRegistry(answers: Record<string, unknown>, offered: SourceThread[], entries: Record<string, PostEntry>) {
+  const reg = new Map<string, { post: boolean; resolve: boolean; text?: string }>(offered.map((t) => [t.threadId, { post: false, resolve: false }]));
+  for (const [qid, a] of Object.entries(answers)) {
+    if (qid === "next") continue;
+    const values = pickValues(a);
+    if (!values) refuse(`the respond-post gate's answer to ${qid} names no option`);
+    for (const v of values!) {
+      const p = splitPick(v);
+      if (!p || !(POST_VERBS as readonly string[]).includes(p.verb)) refuse(`the respond-post gate's answer ${v} is not a post or resolve pick`);
+      const slot = reg.get(p!.threadId);
+      if (!slot) refuse(`the respond-post gate's answer names ${p!.threadId}, which its gate source never offered`);
+      slot![p!.verb as "post" | "resolve"] = true;
+    }
+    const text = pickText(a);
+    if (text === undefined) continue;
+    for (const v of values!) {
+      const p = splitPick(v)!;
+      if (p.verb === "post") reg.get(p.threadId)!.text = text;
+    }
+  }
+  for (const { threadId } of offered) {
+    const r = reg.get(threadId)!;
+    const d = entries[threadId]!;
+    for (const k of POST_VERBS) {
+      if (r[k] !== d[k]) refuse(`the respond-post decision for ${threadId} does not match the gate's answer: the decision has ${k} ${d[k]}, the gate ${k} ${r[k]}`);
+    }
+    if (r.text !== d.text) refuse(`the respond-post decision for ${threadId} does not match the gate's answer text`);
+  }
+}
+
+function readPostEntries(selection: Record<string, unknown>, offered: SourceThread[]): Record<string, PostEntry> {
+  if (Object.keys(selection).some((k) => RETIRED_KEY.test(k)) || !isRecord(selection.threads)) {
+    refuse("the respond-post decision is in the retired shape (replies, disposition, or no threads object); record it as {threads: {<threadId>: {post, resolve}}}");
+  }
+  const threads = selection.threads as Record<string, unknown>;
+  const entries: Record<string, PostEntry> = {};
+  for (const [id, e] of Object.entries(threads)) {
+    if (!offered.some((t) => t.threadId === id)) refuse(`the respond-post decision names ${id}, which its gate source never offered`);
+    if (!isRecord(e) || typeof e.post !== "boolean" || typeof e.resolve !== "boolean") refuse(`the respond-post decision's entry for ${id} is not {post, resolve} booleans`);
+    const entry = e as Record<string, unknown>;
+    const text = optionalText(`the respond-post decision's text for ${id}`, entry.text);
+    const note = entry.note === undefined || typeof entry.note === "string" ? (entry.note as string | undefined) : refuse(`the respond-post decision's note for ${id} must be a string`);
+    entries[id] = { post: entry.post as boolean, resolve: entry.resolve as boolean, ...(text !== undefined && { text }), ...(note !== undefined && { note }) };
+  }
+  for (const { threadId } of offered) {
+    if (!entries[threadId]) refuse(`the respond-post decision has no entry for offered thread ${threadId}, so it does not match what was offered`);
+  }
+  return entries;
+}
+
+function readMrUrl(fields: SnapshotField[]): string {
+  const mr = fields.find((f) => f.key === "mr")?.value;
+  if (typeof mr !== "string" || !mr.trim()) return refuse("the run has no mr field, so there is no MR to post to");
+  const gh = refuseGithubTarget({ mrUrl: mr }, "respond_post_execute", RESPOND_POST_GH_MOVE);
+  if (gh) refuse(gh);
+  try {
+    const u = new URL(mr.trim());
+    if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("not http");
+  } catch {
+    refuse(`the run's mr field is not an MR URL: ${mr}`);
+  }
+  return mr.trim();
+}
+
+function plan(snapshot: RunSnapshot, gates: { plan: GateRow | null; post: GateRow | null }): RespondPostPlan {
+  if (!isRecord(snapshot) || snapshot.ok === false || !Array.isArray(snapshot.fields) || !Array.isArray(snapshot.decisions)) {
+    refuse(`the run snapshot did not read${typeof snapshot?.error === "string" ? `: ${snapshot.error}` : ""}`);
+  }
+  const fields = snapshot.fields;
+  const mrUrl = readMrUrl(fields);
+  const branchValue = fields.find((f) => f.key === "branch")?.value;
+  const branch = typeof branchValue === "string" && branchValue.trim() ? branchValue.trim() : null;
+  const startedAt = snapshot.run?.started_at;
+  if (typeof startedAt !== "number" || !Number.isFinite(startedAt)) refuse("the run has no started_at, so the posted-already read has no start time");
+
+  const planRead = readGateSource(fields, "respond-plan");
+  if (!planRead.ok) return refuse(planRead.error);
+  if (!planRead.field) return refuse(`the run has no ${sourceKey("respond-plan")} field: open the respond-plan gate with gate_open {runDb} so its decision can be checked`);
+  const planSrc = planRead.field;
+  const planRow = registryRow("respond-plan", planSrc, gates.plan);
+  const planDecision = freshDecision(snapshot, "respond-plan", planRow ? planRow.openedAt : planSrc.at);
+  const planAnswers = planRow ? answeredProceed("respond-plan", planRow) : null;
+  const planSel = parseSelection("respond-plan", planDecision);
+
+  if (!isRecord(planSel.threads)) refuse("the respond-plan decision has no threads object");
+  const verbs = planSel.threads as Record<string, unknown>;
+  for (const [id, v] of Object.entries(verbs)) {
+    if (typeof v !== "string" || !(PLAN_VERBS as readonly string[]).includes(v)) refuse(`the respond-plan decision's verb for ${id} is not reply, fix or skip`);
+  }
+  const texts: Record<string, string> = {};
+  if (planSel.texts !== undefined) {
+    if (!isRecord(planSel.texts)) refuse("the respond-plan decision's texts is not an object");
+    for (const [id, t] of Object.entries(planSel.texts as Record<string, unknown>)) texts[id] = optionalText(`the respond-plan decision's text for ${id}`, t)!;
+  }
+  const overrides = planSel.overrides ?? [];
+  if (!Array.isArray(overrides) || !overrides.every((o) => typeof o === "string")) refuse("the respond-plan decision's overrides is not a list of thread ids");
+
+  const planThreads = sourceThreads("respond-plan", planSrc.source.questions, PLAN_VERBS);
+  for (const { threadId } of planThreads) {
+    if (verbs[threadId] === undefined) refuse(`the respond-plan decision has no entry for ${threadId}, so it does not match what was asked`);
+  }
+  for (const id of Object.keys(verbs)) {
+    if (!planThreads.some((t) => t.threadId === id)) refuse(`the respond-plan decision names ${id}, which its gate source never asked about`);
+  }
+  const noted = planAnswers ? checkPlanAgainstRegistry(planAnswers, planThreads, verbs as Record<string, string>, texts, planSel["code-changes"]) : new Set<string>();
+  if (planSel.notes !== undefined) {
+    if (!isRecord(planSel.notes)) refuse("the respond-plan decision's notes is not an object");
+    for (const id of Object.keys(planSel.notes as Record<string, unknown>)) noted.add(id);
+  }
+
+  const postRead = readGateSource(fields, "respond-post");
+  if (!postRead.ok) return refuse(postRead.error);
+  const postSrc = postRead.field && postRead.field.at >= planDecision.decided_at ? postRead.field : null;
+  const actions: PostAction[] = [];
+  let postDecision: RespondPostPlan["postDecision"] = null;
+  let heldResume: string[] | null = null;
+  let offered: SourceThread[] = [];
+
+  if (!postSrc) {
+    const late = snapshot.decisions.find((d) => d.contract === GATE_CONTRACT && d.scope === "respond-post" && d.decided_at >= planDecision.decided_at);
+    if (late) refuse(`respond-post has a decision recorded after the respond-plan decision but no ${sourceKey("respond-post")} field this round: open respond-post with gate_open {runDb}`);
+  } else {
+    const postRow = registryRow("respond-post", postSrc, gates.post);
+    const decision = freshDecision(snapshot, "respond-post", postRow ? postRow.openedAt : postSrc.at);
+    const postAnswers = postRow ? answeredProceed("respond-post", postRow) : null;
+    const selection = parseSelection("respond-post", decision);
+    offered = sourceThreads("respond-post", postSrc.source.questions, POST_VERBS);
+    const entries = readPostEntries(selection, offered);
+    if (postAnswers) checkPostAgainstRegistry(postAnswers, offered, entries);
+
+    for (const { threadId, card } of offered) {
+      const planVerb = verbs[threadId];
+      if (planVerb !== "fix" && planVerb !== "reply") refuse(`offered thread ${threadId} is ${planVerb ?? "missing"} in the respond-plan decision, so it has nothing to post`);
+      const cardOk = card?.["gate-ctx"] === "reply@1";
+      if (cardOk && card!.verb !== planVerb) refuse(`offered thread ${threadId}'s card says ${String(card!.verb)} but the respond-plan decision says ${planVerb}`);
+      const entry = entries[threadId]!;
+      let body: string | null = null;
+      if (entry.post) {
+        if (entry.text !== undefined) body = entry.text;
+        else {
+          const cardText = cardOk && typeof card!.text === "string" && card!.text.trim() ? (card!.text as string) : null;
+          if (cardText === null) refuse(`${threadId} is picked to post but has no reply text in the decision or on its card`);
+          if (postRow && !shownInRegistry(postRow, threadId, cardText!, "reply@1")) refuse(`${threadId}'s card text is not in the respond-post gate's question context, so the human may never have seen it`);
+          body = cardText;
+        }
+      }
+      actions.push({ threadId, verb: planVerb === "fix" ? "fix" : "override", post: entry.post, resolve: entry.resolve, body });
+    }
+    postDecision = { selection, decidedBy: decision.decided_by };
+    if (selection.held !== undefined) {
+      if (!Array.isArray(selection.held) || !selection.held.every((h) => typeof h === "string")) refuse("the respond-post decision's held is not a list of thread ids");
+      heldResume = selection.held as string[];
+    }
+  }
+
+  for (const { threadId, card } of planThreads) {
+    if (verbs[threadId] !== "reply" || (overrides as string[]).includes(threadId) || offered.some((t) => t.threadId === threadId)) continue;
+    let body = texts[threadId];
+    if (body === undefined) {
+      if (noted.has(threadId)) refuse(`${threadId} is a reply row whose answer carries a note but no edited text; make it an override and offer it at respond-post`);
+      const reply = card?.["gate-ctx"] === "thread@1" && isRecord(card.reply) ? card.reply : null;
+      const text = reply && typeof reply.text === "string" && reply.text.trim() ? reply.text : null;
+      if (!reply || reply.kind !== "verbatim" || text === null) {
+        refuse(`${threadId} is a reply row with no edited text and its card shows no verbatim reply; make it an override and offer it at respond-post`);
+      }
+      if (planRow && !shownInRegistry(planRow, threadId, text!, "thread@1")) refuse(`${threadId}'s card text is not in the respond-plan gate's question context, so the human may never have seen it; make it an override and offer it at respond-post`);
+      body = text!;
+    }
+    actions.push({ threadId, verb: "reply", post: true, resolve: false, body });
+  }
+
+  for (const id of heldResume ?? []) {
+    if (!actions.some((a) => a.threadId === id)) refuse(`the respond-post decision holds ${id}, which is neither offered nor a reply row`);
+  }
+
+  return { mrUrl, branch, startedAt: startedAt as number, actions, postDecision, heldResume };
+}
+
+/** Pure: everything acted on comes from the snapshot and the registry rows, never from the caller. Any doubt refuses before an outward move. */
+export function planRespondPost(snapshot: RunSnapshot, gates: { plan: GateRow | null; post: GateRow | null }): { ok: true; plan: RespondPostPlan } | { ok: false; error: string } {
+  try {
+    return { ok: true, plan: plan(snapshot, gates) };
+  } catch (e) {
+    if (e instanceof Refusal) return { ok: false, error: e.message };
+    return { ok: false, error: `respond_post_execute could not read the run's decisions: ${e instanceof Error ? e.message : String(e)}` };
+  }
 }
 
 export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps): McpToolDef[] {
