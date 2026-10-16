@@ -3419,6 +3419,9 @@ export async function skillsBind(args: string[]): Promise<void> {
     if (pipeline !== null && !Object.hasOwn(resolved.pipelines, pipeline)) {
       throw new SkillsUsageError(`pipeline "${pipeline}" is not declared in this pack's manifest`);
     }
+    if (pipeline !== null && !PIPELINE_NAME_RE.test(pipeline)) {
+      throw new SkillsUsageError(`pipeline "${pipeline}" must match [a-z][a-z0-9-]*`);
+    }
 
     // Roster verb wins on a name collision -- resolve() lets compileTargets reject
     // that collision pack-wide, so bind's own tie-break only ever matters for --dry-run.

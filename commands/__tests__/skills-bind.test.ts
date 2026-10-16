@@ -1237,6 +1237,18 @@ describe("skillsBind --pipeline", () => {
       expect(errors[0]).toContain(`stage-x is not a stage of pipeline "accessibility"`);
     });
 
+    test("a declared plain-list pipeline whose name an override cannot carry", async () => {
+      const errors = await refused(
+        (args) => ["stage-evidence", "domain", "acme:b", "--pipeline", "Feature", ...args],
+        ({ manifest }) => {
+          const parsed = JSON.parse(stripJsonc(readFileSync(manifest, "utf8")));
+          parsed.pipelines.Feature = PIPELINE_STAGES;
+          writeFile(manifest, JSON.stringify(parsed, null, 2));
+        },
+      );
+      expect(errors[0]).toContain(`pipeline "Feature" must match [a-z][a-z0-9-]*`);
+    });
+
     test("a copy name as the verb", async () => {
       const errors = await refused((args) => ["stage-evidence--accessibility", "domain", "acme:b", ...args]);
       expect(errors[0]).toContain("stage-evidence--accessibility is a compiled copy; bind stage-evidence --pipeline accessibility instead");
