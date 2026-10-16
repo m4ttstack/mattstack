@@ -788,7 +788,7 @@ function compileVerb(
   // Only a public roster verb is ever invoked by name, so only its ${CLAUDE_SKILL_DIR}
   // is its own directory; every other target is read as a file from a public skill.
   const stageDir = isStage
-    ? allEntries.find((e) => e.name === verb.name)?.dir ?? null
+    ? hostDir(verb.name, isPublic ? "skills" : "attachments")
     : isPublic ? null : hostDir(verb.name, "attachments");
   const internalVerbDirs = Object.entries(verbSides)
     .filter(([name, side]) => side === "attachments" && !stageNames.has(name))

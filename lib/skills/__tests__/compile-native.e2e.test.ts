@@ -448,6 +448,41 @@ describe("compile-pipelines", () => {
     expect((await checkPack({ packDir: pack, mattstackDir: ms, manifest })).staleCopies).toEqual([]);
   });
 
+  test("a stage every pipeline overrides still compiles its default", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const stages = [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci",
+    ];
+    const forge = { "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" } };
+    writeFileSync(manifest, JSON.stringify({
+      pipelines: {
+        feature: { stages, bindings: forge },
+        accessibility: { stages, bindings: { ...forge, "mattstack:stage-evidence": { domain: "acme:evidence-b" } } },
+      },
+      bindings: { "mattstack:stage-evidence": { domain: "acme:evidence-a" } },
+    }, null, 2));
+
+    const { errors, exitCode } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+    expect(exitCode).toBeUndefined();
+
+    const stage = readFileSync(join(pack, "attachments", "stage-watch-ci", "SKILL.md"), "utf8");
+    expect(stage).toContain("${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/scripts/");
+    expect(stage).not.toContain("{{");
+    for (const pipeline of ["feature", "accessibility"]) {
+      const copy = readFileSync(join(pack, "attachments", `stage-watch-ci--${pipeline}`, "SKILL.md"), "utf8");
+      expect(copy).toContain("slot:forge binding=mattstack:ci-forge-gitlab");
+      expect(copy).toContain(`\${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci--${pipeline}/parts/forge/scripts/ci-forge.sh`);
+    }
+  });
+
   test("a scoped compile leaves copies", async () => {
     const { pack, ms, manifest, args } = buildPipelines();
     await compileCapturingLogs(pack, ms, manifest);
