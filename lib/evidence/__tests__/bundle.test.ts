@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { workRoot } from "../../daemon/upload-guard.ts";
 import { allowedSourceRoots, bundleMembers, bundleStem, copyIntoRun } from "../bundle.ts";
 
 let base: string;
 let src: string;
 let dest: string;
+const savedEnv = { HOME: process.env.HOME, RT_RUNS_ROOT: process.env.RT_RUNS_ROOT };
 
 beforeEach(() => {
   base = realpathSync(mkdtempSync(join(tmpdir(), "bundle-")));
@@ -14,7 +16,13 @@ beforeEach(() => {
   dest = join(base, "run", "evidence", "retry-badge");
   mkdirSync(src, { recursive: true });
 });
-afterEach(() => rmSync(base, { recursive: true, force: true }));
+afterEach(() => {
+  for (const [k, v] of Object.entries(savedEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  rmSync(base, { recursive: true, force: true });
+});
 
 const put = (name: string, body = name) => {
   const p = join(src, name);
@@ -129,6 +137,76 @@ describe("copyIntoRun", () => {
     if (!r.ok) return;
     expect(r.copied).toEqual([]);
     expect(r.mapped.get(inPlace)).toBe(inPlace);
+  });
+});
+
+describe("hardening", () => {
+  test("work-root sources need a run", () => {
+    process.env.HOME = base;
+    process.env.RT_RUNS_ROOT = join(base, "runs");
+    mkdirSync(join(base, "runs", "repo", "r1"), { recursive: true });
+    writeFileSync(join(base, "runs", "repo", "r1", "state.db"), "");
+    const ev1 = join(base, ".mattstack", "work", "r1", "evidence");
+    const ev2 = join(base, ".mattstack", "work", "r2", "evidence");
+    mkdirSync(ev1, { recursive: true });
+    mkdirSync(ev2, { recursive: true });
+    writeFileSync(join(ev1, "x.png"), "x");
+    writeFileSync(join(ev2, "y.png"), "y");
+    const o = { allowedRoots: [workRoot()], referencedElsewhere: new Set<string>() };
+    expect(copyIntoRun([{ src: join(ev1, "x.png"), destDir: dest }], o).ok).toBe(true);
+    expect(copyIntoRun([{ src: join(ev2, "y.png"), destDir: join(base, "d2") }], o).ok).toBe(false);
+  });
+
+  test("two different sources for one destination are refused", () => {
+    mkdirSync(join(src, "a"));
+    mkdirSync(join(src, "b"));
+    writeFileSync(join(src, "a", "shot.png"), "one");
+    writeFileSync(join(src, "b", "shot.png"), "two");
+    const r = copyIntoRun(
+      [{ src: join(src, "a", "shot.png"), destDir: dest }, { src: join(src, "b", "shot.png"), destDir: dest }],
+      opts(),
+    );
+    expect(r.ok).toBe(false);
+    expect(() => statSync(dest)).toThrow();
+  });
+
+  test("same bytes from two sources dedupe", () => {
+    mkdirSync(join(src, "a"));
+    mkdirSync(join(src, "b"));
+    writeFileSync(join(src, "a", "shot.png"), "same");
+    writeFileSync(join(src, "b", "shot.png"), "same");
+    const r = copyIntoRun(
+      [{ src: join(src, "a", "shot.png"), destDir: dest }, { src: join(src, "b", "shot.png"), destDir: dest }],
+      opts(),
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.copied.length).toBe(1);
+  });
+
+  test("empty and relative roots admit nothing", () => {
+    const a = put("a.png");
+    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: ["", "rel"], referencedElsewhere: new Set() });
+    expect(r.ok).toBe(false);
+  });
+
+  test("a markdown transcript copies as single", () => {
+    const t = put("transcript.md");
+    expect(copyIntoRun([{ src: t, destDir: dest, single: true }], opts()).ok).toBe(true);
+    expect(readdirSync(dest)).toEqual(["transcript.md"]);
+  });
+
+  test("uppercase extensions join the bundle", () => {
+    expect(bundleMembers(src, "S.PNG", () => ["S.PNG", "S.c1.PNG"])).toEqual(["S.PNG", "S.c1.PNG"]);
+  });
+
+  test("a symlinked destination is refused", () => {
+    const a = put("a.png");
+    mkdirSync(dest, { recursive: true });
+    const victim = join(base, "victim.png");
+    writeFileSync(victim, "v");
+    symlinkSync(victim, join(dest, "a.png"));
+    expect(copyIntoRun([{ src: a, destDir: dest }], opts()).ok).toBe(false);
+    expect(readFileSync(victim, "utf8")).toBe("v");
   });
 });
 

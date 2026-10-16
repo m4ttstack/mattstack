@@ -1,12 +1,13 @@
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "fs";
-import { basename, dirname, extname, join } from "path";
-import { builtInEvidenceRoot, claudeTempRoots, isInsideRoot, runEvidenceRoot, UPLOAD_EXTENSIONS, workRoot } from "../daemon/upload-guard.ts";
+import { basename, dirname, extname, isAbsolute, join } from "path";
+import { builtInEvidenceRoot, claudeTempRoots, isInsideRoot, runEvidenceRoot, TEXT_EXTENSIONS, UPLOAD_EXTENSIONS, workRoot } from "../daemon/upload-guard.ts";
 import { evidenceDir } from "../rt-paths.ts";
 import { runsRoot } from "../runs/paths.ts";
 
 export const BUNDLE_EXTRA_EXTENSIONS = ["json", "txt", "log"] as const;
 
 const COPYABLE = new Set<string>([...UPLOAD_EXTENSIONS, ...BUNDLE_EXTRA_EXTENSIONS]);
+const TRANSCRIPT = new Set<string>([...COPYABLE, ...TEXT_EXTENSIONS]);
 const IMAGE_EXTS = UPLOAD_EXTENSIONS.join("|");
 
 function escapeRegExp(s: string): string {
@@ -26,6 +27,7 @@ export function bundleMembers(dir: string, fileName: string, list: (dir: string)
   const s = escapeRegExp(stem);
   const member = new RegExp(
     `^${s}\\.(?:(?:c\\d+\\.)?(?:${IMAGE_EXTS})|c\\d+\\.capture\\.json|spec\\.json|redactions\\.json|redact-[^./]+\\.png)$`,
+    "i",
   );
   const names = new Set(list(dir).filter((n) => member.test(n)));
   names.add(fileName);
@@ -65,10 +67,10 @@ function underAllowedRoot(real: string, roots: string[]): boolean {
   });
 }
 
-function checkSource(requested: string, real: string, roots: string[]): string | null {
+function checkSource(requested: string, real: string, roots: string[], single: boolean): string | null {
   const name = basename(real);
   if (name.startsWith(".")) return `${requested}: a dotfile is never copied`;
-  if (!COPYABLE.has(extname(name).slice(1).toLowerCase())) return `${requested}: only image, json, txt and log files are copied`;
+  if (!(single ? TRANSCRIPT : COPYABLE).has(extname(name).slice(1).toLowerCase())) return `${requested}: only image, json, txt and log files are copied`;
   let st;
   try {
     st = lstatSync(real);
@@ -85,6 +87,14 @@ function checkSource(requested: string, real: string, roots: string[]): string |
   return null;
 }
 
+function isSymlink(p: string): boolean {
+  try {
+    return lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 function sameBytes(a: string, b: string): boolean {
   try {
     return readFileSync(a).equals(readFileSync(b));
@@ -97,13 +107,15 @@ export function copyIntoRun(
   requests: CopyRequest[],
   o: { allowedRoots: string[]; referencedElsewhere: Set<string> },
 ): { ok: true; copied: CopyResult[]; mapped: Map<string, string> } | { ok: false; error: string } {
+  const roots = o.allowedRoots.filter((r) => typeof r === "string" && r.length > 0 && isAbsolute(r));
   const planned: Planned[] = [];
+  const claimed = new Map<string, string>();
   const mapped = new Map<string, string>();
 
   for (const req of requests) {
     const real = safeRealpath(req.src);
     if (real === null) return { ok: false, error: `${req.src}: file not found` };
-    const refusal = checkSource(req.src, real, o.allowedRoots);
+    const refusal = checkSource(req.src, real, roots, req.single === true);
     if (refusal !== null) return { ok: false, error: refusal };
 
     const destReal = safeRealpath(req.destDir) ?? req.destDir;
@@ -113,12 +125,18 @@ export function copyIntoRun(
     for (const name of members) {
       const memberReal = name === basename(real) ? real : join(dirname(real), name);
       if (name !== basename(real)) {
-        const bad = checkSource(memberReal, safeRealpath(memberReal) ?? memberReal, o.allowedRoots);
+        const bad = checkSource(memberReal, safeRealpath(memberReal) ?? memberReal, roots, false);
         if (bad !== null) return { ok: false, error: bad };
       }
       const inPlace = dirname(memberReal) === destReal;
       const to = inPlace ? memberReal : join(req.destDir, name);
-      planned.push({ requested: req.src, real: memberReal, to, inPlace });
+      const prior = claimed.get(to);
+      if (prior !== undefined && prior !== memberReal) {
+        if (!sameBytes(prior, memberReal)) return { ok: false, error: `${to}: two sources with different bytes map here (${prior} and ${memberReal})` };
+      } else {
+        claimed.set(to, memberReal);
+        planned.push({ requested: req.src, real: memberReal, to, inPlace });
+      }
       if (name === basename(real)) mapped.set(req.src, to);
     }
   }
@@ -134,6 +152,7 @@ export function copyIntoRun(
   for (const p of planned) {
     if (p.inPlace) continue;
     mkdirSync(dirname(p.to), { recursive: true });
+    if (isSymlink(p.to)) return { ok: false, error: `${p.to}: destination is a symlink` };
     if (!sameBytes(p.real, p.to)) copyFileSync(p.real, p.to);
     copied.push({ from: p.real, to: p.to });
   }
