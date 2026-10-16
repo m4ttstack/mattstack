@@ -6,6 +6,7 @@
 
 import { getKnownRepos, type KnownRepo } from "../repo-index.ts";
 import { stripJsonc } from "../jsonc.ts";
+import { effectiveSlotBindings, normalizePipelines, type BindingsMap } from "../skills/pipelines.ts";
 import type { ApplyContext } from "./apply.ts";
 import { installPlugins } from "./steps/plugins.ts";
 import { materializeSkills } from "./skills-materialize.ts";
@@ -18,8 +19,8 @@ export const NO_MANIFEST_DETAIL = "This pack has no bindings file yet. Run rt sk
 const AWAITING_CLONE_NOTE = "the pipeline check waits for a repo clone";
 
 interface PackManifest {
-  pipelines?: Record<string, string[] | undefined>;
-  bindings?: Record<string, Record<string, unknown> | undefined>;
+  pipelines?: unknown;
+  bindings?: BindingsMap;
 }
 
 function firstRegisteredRepo(): KnownRepo | null {
@@ -36,9 +37,10 @@ function parseManifest(text: string): PackManifest {
   }
 }
 
-function stageUnresolved(stage: string, bindings: PackManifest["bindings"]): boolean {
-  const entry = bindings?.[`mattstack:${stage}`] ?? bindings?.[stage];
-  if (!entry) return false;
+function stageUnresolved(stage: string, defaults: BindingsMap, overrides: BindingsMap | undefined): boolean {
+  const engineRef = `mattstack:${stage}`;
+  const known = (map: BindingsMap | undefined) => map !== undefined && Object.hasOwn(map, engineRef);
+  const entry = effectiveSlotBindings(defaults, overrides, known(defaults) || known(overrides) ? engineRef : stage);
   return Object.values(entry).some((v) => typeof v !== "string" || v.trim().length === 0);
 }
 
@@ -79,9 +81,10 @@ export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; s
 
   const workType = ctx.reqs[0]?.workType ?? DEFAULT_WORK_TYPE;
   const manifest = parseManifest(text);
-  const stages = manifest.pipelines?.[workType] ?? [];
+  const pipelines = normalizePipelines(manifest.pipelines);
+  const stages = pipelines.stages[workType] ?? [];
   for (const stage of stages) {
-    if (stageUnresolved(stage, manifest.bindings)) return { ok: false, stage, detail: `The ${stage} stage has no skill bound to it` };
+    if (stageUnresolved(stage, manifest.bindings ?? {}, pipelines.bindings[workType])) return { ok: false, stage, detail: `The ${stage} stage has no skill bound to it` };
   }
   return { ok: true, detail: `${stages.length} stage${stages.length === 1 ? "" : "s"} resolved for ${workType} work` };
 }

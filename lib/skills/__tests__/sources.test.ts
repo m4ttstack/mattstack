@@ -13,6 +13,7 @@ import {
   orgOfPackDir,
   parseStageQualifiedName,
   readManifestBindings,
+  readManifestPipelineBindings,
   readManifestPipelines,
   readVerbRoster,
   stageRoster,
@@ -508,6 +509,23 @@ test("readManifestPipelines returns the pipelines map", () => {
   const p = join(root, "skills.jsonc");
   writeFileSync(p, '// header\n{ "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-ship"] }, "bindings": {} }');
   expect(readManifestPipelines(p)).toEqual({ feature: ["mattstack:stage-plan", "mattstack:stage-ship"] });
+});
+
+test("readManifestPipelines reads the object form", () => {
+  const root = mkdtempSync(join(tmpdir(), "rt-man-"));
+  const p = join(root, "skills.jsonc");
+  writeFileSync(p, JSON.stringify({
+    pipelines: {
+      feature: ["mattstack:stage-plan", "mattstack:stage-ship"],
+      accessibility: { stages: ["mattstack:stage-plan", "mattstack:stage-evidence"], bindings: { "mattstack:stage-evidence": { domain: "acme:a" } } },
+    },
+    bindings: {},
+  }));
+  expect(readManifestPipelines(p)).toEqual({
+    feature: ["mattstack:stage-plan", "mattstack:stage-ship"],
+    accessibility: ["mattstack:stage-plan", "mattstack:stage-evidence"],
+  });
+  expect(readManifestPipelineBindings(p)).toEqual({ accessibility: { "mattstack:stage-evidence": { domain: "acme:a" } } });
 });
 
 test("stageRoster is the distinct union across pipelines, bare names", () => {

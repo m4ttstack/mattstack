@@ -10,7 +10,8 @@ export const PACK_SCOPE = ["pack", "skills", "attachments", ".claude-plugin", "s
 export type PendingFile = { path: string; status: string; from?: string };
 /** `hash` is git's blob id for what is on disk at `path` now, null when nothing is there. */
 export type HashedFile = PendingFile & { hash: string | null };
-export type BindingChange = { engineRef: string; slot: string; from: string | null; to: string | null };
+/** `pipeline` names the pipeline whose own override changed; a change to the defaults has none. */
+export type BindingChange = { engineRef: string; slot: string; from: string | null; to: string | null; pipeline?: string };
 export type SurfaceChange = { skill: string; from: "public" | "internal"; to: "public" | "internal" };
 export type PackSideChanges = { bindings: BindingChange[]; surface: SurfaceChange[] };
 export type ChangesPayload = {
@@ -148,8 +149,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function bindingsOf(doc: unknown): Record<string, Record<string, string>> {
-  const raw = isRecord(doc) ? doc.bindings : undefined;
+function bindingsFrom(raw: unknown): Record<string, Record<string, string>> {
   const out: Record<string, Record<string, string>> = {};
   if (!isRecord(raw)) return out;
   for (const [engineRef, slots] of Object.entries(raw)) {
@@ -159,17 +159,35 @@ function bindingsOf(doc: unknown): Record<string, Record<string, string>> {
   return out;
 }
 
-export function bindingChanges(before: unknown, after: unknown): BindingChange[] {
-  const a = bindingsOf(before);
-  const b = bindingsOf(after);
+function pipelineBindingsOf(doc: unknown): Record<string, Record<string, Record<string, string>>> {
+  const raw = isRecord(doc) ? doc.pipelines : undefined;
+  const out: Record<string, Record<string, Record<string, string>>> = {};
+  if (!isRecord(raw)) return out;
+  for (const [type, value] of Object.entries(raw)) {
+    if (isRecord(value)) out[type] = bindingsFrom(value.bindings);
+  }
+  return out;
+}
+
+function diffBindings(a: Record<string, Record<string, string>>, b: Record<string, Record<string, string>>, pipeline?: string): BindingChange[] {
   const out: BindingChange[] = [];
   for (const engineRef of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
     const slots = new Set([...Object.keys(a[engineRef] ?? {}), ...Object.keys(b[engineRef] ?? {})]);
     for (const slot of [...slots].sort()) {
       const from = a[engineRef]?.[slot] ?? null;
       const to = b[engineRef]?.[slot] ?? null;
-      if (from !== to) out.push({ engineRef, slot, from, to });
+      if (from !== to) out.push(pipeline === undefined ? { engineRef, slot, from, to } : { engineRef, slot, from, to, pipeline });
     }
+  }
+  return out;
+}
+
+export function bindingChanges(before: unknown, after: unknown): BindingChange[] {
+  const out = diffBindings(bindingsFrom(isRecord(before) ? before.bindings : undefined), bindingsFrom(isRecord(after) ? after.bindings : undefined));
+  const a = pipelineBindingsOf(before);
+  const b = pipelineBindingsOf(after);
+  for (const type of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
+    out.push(...diffBindings(a[type] ?? {}, b[type] ?? {}, type));
   }
   return out;
 }
@@ -270,8 +288,8 @@ export function pendingSignature(input: { files: HashedFile[] } & PackSideChange
     .map((f) => ({ path: f.path, status: f.status, from: f.from ?? null, hash: f.hash }))
     .sort((a, b) => byCodeUnit(a.path, b.path) || byCodeUnit(a.from ?? "", b.from ?? "") || byCodeUnit(a.status, b.status));
   const bindings = input.bindings
-    .map((b) => ({ engineRef: b.engineRef, slot: b.slot, from: b.from, to: b.to }))
-    .sort((a, b) => byCodeUnit(a.engineRef, b.engineRef) || byCodeUnit(a.slot, b.slot));
+    .map((b) => ({ pipeline: b.pipeline, engineRef: b.engineRef, slot: b.slot, from: b.from, to: b.to }))
+    .sort((a, b) => byCodeUnit(a.pipeline ?? "", b.pipeline ?? "") || byCodeUnit(a.engineRef, b.engineRef) || byCodeUnit(a.slot, b.slot));
   const surface = input.surface.map((s) => ({ skill: s.skill, from: s.from, to: s.to })).sort((a, b) => byCodeUnit(a.skill, b.skill));
   return createHash("sha256").update(JSON.stringify({ files, bindings, surface })).digest("hex");
 }
