@@ -1,6 +1,6 @@
 import { describe, it, expect, spyOn } from "bun:test";
 import { pickName } from "../names.ts";
-import { slugifyTicketTitle, disambiguate } from "../branch-name.ts";
+import { slugifyTicketTitle, disambiguate, belongsToTicket } from "../branch-name.ts";
 import { GOLDEN_NAME } from "../registry.ts";
 
 describe("pickName", () => {
@@ -173,5 +173,33 @@ describe("disambiguate", () => {
   it("finds first non-existing candidate", () => {
     const result = disambiguate("myname", (c) => c === "myname" || c === "myname-2");
     expect(result).toBe("myname-3");
+  });
+});
+
+describe("belongsToTicket", () => {
+  const fmt = "<ticket>-<slug>";
+
+  it("matches the ticket stem, ignoring case", () => {
+    expect(belongsToTicket("cv-12-fix-login", "CV-12", fmt)).toBe(true);
+    expect(belongsToTicket("CV-12-Fix", "cv-12", fmt)).toBe(true);
+    expect(belongsToTicket("cv-12", "cv-12", fmt)).toBe(true);
+    expect(belongsToTicket("cv-12-fix-2", "cv-12", fmt)).toBe(true);
+  });
+
+  it("rejects a longer ticket number sharing the prefix", () => {
+    expect(belongsToTicket("cv-123-x", "cv-12", fmt)).toBe(false);
+    expect(belongsToTicket("cv-10", "cv-1", fmt)).toBe(false);
+  });
+
+  it("honors a literal prefix before the ticket", () => {
+    const f = "feature/<ticket>/<slug>";
+    expect(belongsToTicket("feature/cv-12/fix", "cv-12", f)).toBe(true);
+    expect(belongsToTicket("cv-12-fix", "cv-12", f)).toBe(false);
+  });
+
+  it("finds a bounded ticket when the slug comes first", () => {
+    const f = "<slug>-<ticket>";
+    expect(belongsToTicket("fix-login-cv-12", "cv-12", f)).toBe(true);
+    expect(belongsToTicket("fix-cv-123", "cv-12", f)).toBe(false);
   });
 });
