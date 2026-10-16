@@ -593,6 +593,26 @@ export interface WorktreeProvisionData {
   /** Set only when the tree was built by hydrating from the repo's golden donor, not the on-deck pool or a cold create. */
   hydratedFrom?: string;
 }
+export interface WorktreeTreeRef {
+  tree: string; path: string; branch: string;
+  treeKind: "main" | "ephemeral" | "unmanaged" | "golden";
+  state?: "creating" | "on-deck" | "claimed" | "disposable";
+  owner?: string; disposal?: "merge" | "job"; claimedAt?: string;
+}
+export interface WorktreeProvisionCheckData {
+  /** The branch a provision would check out (`base`, or the first free `base-N`). */
+  branch: string;
+  /** The undisambiguated branch: the explicit branch, or the ticket's derived name. */
+  base: string;
+  /** Whether `base` already exists as a local branch. */
+  localBranch: boolean;
+  /** Trees whose branch is exactly `base`. */
+  attached: WorktreeTreeRef[];
+  /** Trees on a branch that belongs to the ticket (ticket mode only). */
+  sameTicket: WorktreeTreeRef[];
+  /** Trees on a branch starting with `base` (ticket mode with a titled slug only). */
+  sameSlug: WorktreeTreeRef[];
+}
 export interface WorktreeCreateData {
   tree: string; path: string;
   /** Set only for `--on-deck`, and only when that tree hydrated from the golden rather than cold-creating. */
@@ -1148,6 +1168,7 @@ export interface Commands {
 
   "system-processes": { payload: Record<string, never>; data: unknown };
 
+  "worktree:provision-check": { payload: { repoName: string; ticket?: string; ticketTitle?: string; branch?: string }; data: WorktreeProvisionCheckData };
   "worktree:provision": { payload: { repoName: string; branch?: string; ticket?: string; ticketTitle?: string; disposal?: "job" | "merge"; owner?: string }; data: WorktreeProvisionData };
   "worktree:create": { payload: { repoName: string; onDeck?: boolean }; data: WorktreeCreateData };
   "worktree:dispose": { payload: { repoName?: string; owner?: string; tree?: string; force?: boolean; callerPid?: number }; data: WorktreeDisposeData };
@@ -1309,6 +1330,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "sdm:reconnect",
   "system-processes",
   "worktree:provision",
+  "worktree:provision-check",
   "worktree:create",
   "worktree:dispose",
   "worktree:list",

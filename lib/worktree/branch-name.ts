@@ -56,3 +56,22 @@ export function disambiguate(base: string, exists: (candidate: string) => boolea
     counter++;
   }
 }
+
+/** True when `branch` was created for `ticket` under the branch `format`. */
+export function belongsToTicket(branch: string, ticket: string, format: string): boolean {
+  const ticketSlug = sanitize(ticket);
+  const lower = branch.toLowerCase();
+  const slugAt = format.indexOf("<slug>");
+  const head = (slugAt === -1 ? format : format.slice(0, slugAt)).replaceAll(
+    "<ticket>",
+    () => ticketSlug
+  );
+
+  if (head.includes(ticketSlug)) {
+    const stem = head.replace(/[^a-z0-9]+$/i, "").toLowerCase();
+    return lower === stem || (lower.startsWith(stem) && !/[a-z0-9]/.test(lower[stem.length] ?? "a"));
+  }
+
+  const escaped = ticketSlug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`).test(lower);
+}
