@@ -59,6 +59,21 @@ describe("renderSection", () => {
     expect(out).not.toContain("![z]");
   });
 
+  test("multi-line captions, waivers and labels stay on one line", () => {
+    const r = rec({ v: 2, cases: [{ id: "c", label: "A\n\n## L", waiver: "w\n## W", before: { path: "/b.png", annotated: "/b.png", caption: "cap\n\n## Injected" } }] });
+    const out = renderSection(r, up, {});
+    expect(out).toContain("Caption: cap ## Injected");
+    expect(out.split("\n").filter((l) => l.startsWith("#"))).toEqual([]);
+    const d = "## Evidence\nold\n\n## Next\n";
+    const once = spliceSection(d, "## Evidence", out);
+    expect(spliceSection(once, "## Evidence", out)).toBe(once);
+  });
+
+  test("legacy links form a tight list", () => {
+    const out = renderSection(readEvidence("see /a.png and https://x.example/y"), (p) => ({ local: p }), {});
+    expect(out).toBe("- /a.png\n- https://x.example/y");
+  });
+
   test("an empty record renders nothing", () => {
     expect(renderSection(readEvidence(null), up, {})).toBe("");
   });
@@ -102,5 +117,20 @@ describe("spliceSection", () => {
   test("keeps an HTML comment block under the heading", () => {
     const d = "## Evidence\n<!--\nfill in\n-->\nold\n";
     expect(spliceSection(d, "## Evidence", "NEW")).toBe("## Evidence\n<!--\nfill in\n-->\n\nNEW\n");
+  });
+
+  test("a deeper before heading ends the section and survives", () => {
+    const d = "## Evidence\nold\n\n### Checklist\n- [ ] x\n";
+    const once = spliceSection(d, "## Evidence", "NEW", "### Checklist");
+    expect(once).toBe("## Evidence\n\nNEW\n\n### Checklist\n- [ ] x\n");
+    expect(spliceSection(once, "## Evidence", "NEW", "### Checklist")).toBe(once);
+  });
+
+  test("CRLF descriptions keep CRLF", () => {
+    const d = "# T\r\n\r\n## Evidence\r\n_h_\r\n\r\nold\r\n\r\n## Next\r\nx\r\n";
+    const once = spliceSection(d, "## Evidence", "A\n\nB");
+    expect(once).toBe("# T\r\n\r\n## Evidence\r\n_h_\r\n\r\nA\r\n\r\nB\r\n\r\n## Next\r\nx\r\n");
+    expect(spliceSection(once, "## Evidence", "A\n\nB")).toBe(once);
+    expect(spliceSection("a\r\n", "## E", "N")).toBe("a\r\n\r\n## E\r\n\r\nN\r\n");
   });
 });

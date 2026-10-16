@@ -18,6 +18,7 @@ interface Entry {
   waiver?: string;
 }
 
+const oneLine = (s: string) => s.replace(/\s*\r?\n\s*/g, " ");
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function entriesOf(c: EvidenceCase): Entry[] {
@@ -30,8 +31,8 @@ function entriesOf(c: EvidenceCase): Entry[] {
       if (!e) byKey.set(key, (e = { key, slots: [], themes: [] }));
       if (!e.slots.includes(slot)) e.slots.push(slot);
       if (shot.theme && !e.themes.includes(shot.theme)) e.themes.push(shot.theme);
-      e.caption ??= shot.caption;
-      if (shot.waiver && shot.waiver !== c.waiver) e.waiver ??= shot.waiver;
+      e.caption ??= shot.caption && oneLine(shot.caption);
+      if (shot.waiver && shot.waiver !== c.waiver) e.waiver ??= oneLine(shot.waiver);
     }
   }
   return [...byKey.values()];
@@ -72,12 +73,12 @@ export function renderSection(
           if (shot.annotated) covered.add(shot.annotated);
         }
       }
-      const head = [`**${c.label}**`];
-      if (c.waiver) head.push(`Waived: ${c.waiver}`);
+      const head = [`**${oneLine(c.label)}**`];
+      if (c.waiver) head.push(`Waived: ${oneLine(c.waiver)}`);
       blocks.push(entries.length ? [...head, entries.map((e) => renderEntry(e, link)).join("\n")].join("\n\n") : head.join("\n\n"));
     }
-    if (record.transcript) blocks.push(`Transcript: ${record.transcript}`);
-    if (record.url) blocks.push(`Ticket: ${record.url}`);
+    if (record.transcript) blocks.push(`Transcript: ${oneLine(record.transcript)}`);
+    if (record.url) blocks.push(`Ticket: ${oneLine(record.url)}`);
     for (const line of (record.attach ?? "").split("\n")) {
       const links = linksOf(line);
       if (!line.trim() || (links.length > 0 && links.every((l) => covered.has(l)))) continue;
@@ -87,6 +88,7 @@ export function renderSection(
     for (const item of legacyItems(record.links)) {
       blocks.push(item.kind === "url" ? `- ${item.value}` : `- ${linkText(link(item.value), "")}`);
     }
+    if (blocks.length) blocks.splice(0, blocks.length, blocks.join("\n"));
   }
   if (o.appendix) blocks.push(o.appendix);
   return blocks.join("\n\n");
@@ -106,7 +108,7 @@ function scan(lines: string[]): Scanned[] {
       fence = { ch: m[1]![0]!, len: m[1]!.length };
       return { line, fenced: true, level: 0 };
     }
-    const h = /^ {0,3}(#{1,6})(?:[ \t]|$)/.exec(line);
+    const h = /^ {0,3}(#{1,6})(?:[ \t\r]|$)/.exec(line);
     return { line, fenced: false, level: h ? h[1]!.length : 0 };
   });
 }
@@ -133,33 +135,43 @@ function helperEnd(lines: string[], from: number, to: number): number {
 }
 
 export function spliceSection(description: string, heading: string, body: string, before?: string): string {
+  const crlf = description.includes("\r\n");
+  const cr = crlf ? "\r" : "";
   const endsNl = description.endsWith("\n");
   const lines = (endsNl ? description.slice(0, -1) : description).split("\n");
   const scanned = scan(lines);
-  const find = (h: string) => scanned.findIndex((s) => !s.fenced && s.line.trimEnd() === h.trimEnd());
-  const bodyLines = body ? ["", ...body.split("\n")] : [];
-  const start = find(heading);
+  const find = (h: string, from = 0) => scanned.findIndex((s, i) => i >= from && !s.fenced && s.line.trimEnd() === h.trimEnd());
+  const bodyLines = body ? ["", ...body.split(/\r?\n/)].map((l) => l + cr) : [];
+  const blank = cr;
+  const head = heading + cr;
   const tail = endsNl ? "\n" : "";
+  const finish = (out: string[]) => {
+    const text = out.join("\n");
+    return endsNl || !crlf ? text + tail : text.replace(/\r$/, "");
+  };
 
+  const start = find(heading);
   if (start === -1) {
     const at = before === undefined ? -1 : find(before);
     if (at === -1) {
-      const kept = description.replace(/\n+$/, "");
-      return `${kept ? `${kept}\n\n` : ""}${heading}${body ? `\n\n${body}` : ""}\n`;
+      const kept = description.replace(/(\r?\n)+$/, "");
+      const nl = crlf ? "\r\n" : "\n";
+      return `${kept ? `${kept}${nl}${nl}` : ""}${heading}${body ? `${nl}${nl}${body.replace(/\r?\n/g, nl)}` : ""}${nl}`;
     }
-    const head = lines.slice(0, at);
-    if (head.length && head[head.length - 1]!.trim()) head.push("");
-    return [...head, heading, ...bodyLines, "", ...lines.slice(at)].join("\n") + tail;
+    const pre = lines.slice(0, at);
+    if (pre.length && pre[pre.length - 1]!.trim()) pre.push(blank);
+    return finish([...pre, head, ...bodyLines, blank, ...lines.slice(at)]);
   }
 
   const level = levelOf(heading);
+  const stop = before === undefined ? -1 : find(before, start + 1);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
     const s = scanned[i]!;
-    if (!s.fenced && s.level > 0 && s.level <= level) { end = i; break; }
+    if (i === stop || (!s.fenced && s.level > 0 && s.level <= level)) { end = i; break; }
   }
   const keepTo = helperEnd(lines, start + 1, end);
   const out = [...lines.slice(0, keepTo), ...bodyLines];
-  if (end < lines.length) return [...out, "", ...lines.slice(end)].join("\n") + tail;
-  return out.join("\n") + tail;
+  if (end < lines.length) return finish([...out, blank, ...lines.slice(end)]);
+  return finish(out);
 }
