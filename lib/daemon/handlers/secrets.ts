@@ -36,7 +36,10 @@
  * "deck" reads the `deck` domain's cfApiToken/cfZoneId; "board" is
  * CROSS-DOMAIN, reading slackToken/slackClientSecret/slackSigningSecret
  * from the `board` domain and gitlabToken/switchboardToken/
- * switchboardAdminToken from the `rt` domain. The token gate above applies
+ * switchboardAdminToken from the `rt` domain. switchboardAdminToken is read
+ * from the org's admin-only secrets first and the local `rt` secret second
+ * (`readStoredAdminToken`); the board checks its own environment before
+ * asking. The token gate above applies
  * identically to every scope; scope is checked only after it passes, and an
  * unknown scope is refused before any domain reader runs — the whitelists
  * must never blend into one combined read, even where board's rt-domain
@@ -49,6 +52,8 @@ import { loadMachineRepoTracking, grants, type RepoTracking } from "../../repo-t
 import { getApiToken, tokenOk } from "../api-auth.ts";
 import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "../../secrets/store.ts";
 import { createRealAgeKeySeam } from "../../home/age-key.ts";
+import { currentOrg } from "../../settings/stores.ts";
+import { readStoredAdminToken, realReadAdminSecret, type AdminSource } from "../../team/board-peers.ts";
 import type { Commands, ForgeSlug } from "../../../packages/rt-client/src/commands.ts";
 import type { CommandResult, HandlerContext } from "./types.ts";
 
@@ -112,11 +117,21 @@ function defaultReadSecret(domain: string, key: string): Promise<string | null> 
   return readSecret(domain, key, defaultSecretsSeams());
 }
 
-/** Reads BOARD_SECRET_ENTRIES in order; a throw on any entry (e.g. the first `rt`-domain read after `board`'s three succeed) rejects the whole call with nothing partial returned — callers see either every readable key or an error, never a half-populated object. */
-export async function loadBoardSecrets(readSecretFn: ReadSecretFn = defaultReadSecret): Promise<BoardSecretsData> {
+/** The org this Mac reads, whose admin-only secrets hold the switchboard admin token; null on a Mac with no org. */
+function boardAdminSource(): AdminSource | null {
+  // The board has no org of its own, so it reads this Mac's current org's file; a missing one reads as null.
+  const org = currentOrg();
+  return org === null ? null : { org, read: realReadAdminSecret };
+}
+
+/** Reads BOARD_SECRET_ENTRIES in order; a throw on any entry (e.g. the first `rt`-domain read after `board`'s three succeed) rejects the whole call with nothing partial returned. The switchboard admin token comes from the org's admin-only file when this Mac can open it, else from its local entry. */
+export async function loadBoardSecrets(readSecretFn: ReadSecretFn = defaultReadSecret, admin: AdminSource | null = boardAdminSource()): Promise<BoardSecretsData> {
   const out: BoardSecretsData = {};
   for (const [domain, key] of BOARD_SECRET_ENTRIES) {
-    const value = await readSecretFn(domain, key);
+    const value =
+      domain === "rt" && key === "switchboardAdminToken"
+        ? await readStoredAdminToken((k) => readSecretFn("rt", k), admin)
+        : await readSecretFn(domain, key);
     if (value !== null) out[key] = value;
   }
   return out;

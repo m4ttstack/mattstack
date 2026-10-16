@@ -158,6 +158,8 @@ function baseJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): {
       calls.readTeamSecret.push(args);
       return null;
     }) as JoinRedeemSeams["readTeamSecret"],
+    readAdminSecret: (async () => null) as JoinRedeemSeams["readAdminSecret"],
+    readLocalSecret: async () => null,
     forgeLogin: (async (...args: unknown[]) => {
       calls.forgeLogin.push(args);
       return "dev2";
@@ -868,6 +870,68 @@ describe("joinRedeem", () => {
 
     expect(seen).toEqual(["flag-first"]);
     expect(readTeamLocal(p, POINTER.team).joinedByRt).toBe(true);
+  });
+
+  const posting = (fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[]) =>
+    redeemProbes({
+      fetch: async (url, init) => {
+        fetchCalls.push({ url, init });
+        return { status: 201, body: JSON.stringify({ username: "dev2", token: "tok-1" }), headers: {} };
+      },
+    });
+
+  test("a re-join reads the org's admin-only file first", async () => {
+    const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
+    // readTeamSecret keeps the default recording stub, so the last assertion proves it was never asked.
+    const { seams, calls } = baseJoinRedeemSeams({
+      readAdminSecret: (async (_slug: string, _domain: string, key: string) => (key === "switchboardAdminToken" ? "admin-file" : null)) as JoinRedeemSeams["readAdminSecret"],
+      readLocalSecret: async () => "admin-local",
+    });
+
+    const result = await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(result.peering).toBe("applied");
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-file");
+    expect(calls.readTeamSecret).toEqual([]);
+  });
+
+  test("then this Mac's own secret", async () => {
+    const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
+    const { seams } = baseJoinRedeemSeams({ readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin-local" : null), readTeamSecret: async () => "admin-legacy" });
+
+    await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-local");
+  });
+
+  test("and last the member-wide team secrets an older org kept it in", async () => {
+    const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
+    const { seams } = baseJoinRedeemSeams({ readTeamSecret: async () => "admin-legacy" });
+
+    await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-legacy");
+  });
+
+  test("a local secret that throws falls through to the team secrets", async () => {
+    const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
+    const { seams } = baseJoinRedeemSeams({ readLocalSecret: async () => { throw new Error("keychain sulking"); }, readTeamSecret: async () => "admin-legacy" });
+
+    await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-legacy");
+  });
+
+  test("an admin-only reader that throws falls through to this Mac's own secret", async () => {
+    const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
+    const { seams } = baseJoinRedeemSeams({
+      readAdminSecret: (async () => { throw new Error("sops crashed"); }) as JoinRedeemSeams["readAdminSecret"],
+      readLocalSecret: async () => "admin-local",
+    });
+
+    await joinRedeem(posting(fetchCalls), fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-local");
   });
 
   test("no pointer token + a readable admin token → peering applied: POSTs /boards, stores the returned board token as the local switchboardToken secret", async () => {

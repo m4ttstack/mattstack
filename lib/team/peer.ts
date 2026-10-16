@@ -13,7 +13,7 @@ import { createRealSecretsExecSeam, personalStoreReady, writeSecret } from "../s
 import { getSetting } from "../settings/resolve.ts";
 import type { Probes } from "../setup/probes.ts";
 import { forgeFromRemote, readTeamSnapshot } from "../setup/team-settings.ts";
-import { canonicalHandle, readAdminToken, realReadLocalSecret, type ReadLocalSecret } from "./board-peers.ts";
+import { canonicalHandle, readAdminToken, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "./board-peers.ts";
 import { boardEnvValue, readBoardSwitchboardToken } from "./board-token.ts";
 import { forgeLogin } from "./forge.ts";
 import { teamRemote } from "./members.ts";
@@ -23,6 +23,8 @@ import { readTeamLocal } from "./team-local.ts";
 
 export interface PeerSeams {
   readLocalSecret: ReadLocalSecret;
+  /** The org's admin-only secrets, read before `readLocalSecret` for the admin token. */
+  readAdminSecret: ReadAdminSecret;
   writeLocalSecret: (key: string, value: string) => Promise<void>;
   /** Whether `writeLocalSecret` can succeed now, asked before anything is registered. */
   localStoreReady: () => Promise<boolean>;
@@ -58,6 +60,7 @@ export function realPeerSeams(): PeerSeams {
   const seams = { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() };
   return {
     readLocalSecret: realReadLocalSecret,
+    readAdminSecret: realReadAdminSecret,
     writeLocalSecret: (key, value) => writeSecret("rt", key, value, seams),
     localStoreReady: () => personalStoreReady(seams),
     boardUsername: realBoardUsername,
@@ -89,7 +92,7 @@ function parsed<T>(body: string): T | null {
 
 /** Every token here goes only to `switchboardUrl()`. `rotate` issues a new token even when this Mac's works or the switchboard already knows the username, which stops any board still using the old one. */
 export async function peerOwnBoard(p: Probes, slug: string, opts: { rotate: boolean }, seams: PeerSeams = realPeerSeams()): Promise<PeerResult> {
-  const admin = await readAdminToken(p, seams.readLocalSecret);
+  const admin = await readAdminToken(p, seams.readLocalSecret, { org: slug, read: seams.readAdminSecret });
   if (!admin) {
     throw new UserActionableError("peer-needs-admin", "Only a Mac holding the switchboard admin token can connect its own board", {}, {
       why: `This Mac holds no switchboard admin token. ${ASK_ADMIN}`,

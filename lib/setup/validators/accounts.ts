@@ -33,6 +33,10 @@ import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../te
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
 export interface SecretPresence {
   has(domain: string, key: string): Promise<string | null>;
+  /** A key from an org's admin-only secrets, or null when absent or this Mac cannot open them. Left out, every org reads as holding none. */
+  hasAdmin?(org: string, key: string): Promise<string | null>;
+  /** This Mac's age public key, or null when it holds none. Left out, the admin-only rows cannot tell which Mac the roster holds. */
+  ownAgeKey?(): Promise<string | null>;
 }
 
 const SLACK_OAUTH_ACTION: Action = { type: "oauth", label: "Connect", integration: "slack", verb: ["setup", "slack", "connect"] };
@@ -260,9 +264,13 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence, team: TeamSna
   if (peering.kind === "unpeered") {
     const unpeered = `This Mac is in ${peering.teams.join(", ")}, but its board has no switchboard token, so it cannot peer.`;
     const joinedSome = peering.teams.some((slug) => !readTeamLocal(p, slug).createdByRt);
-    // Registering a board takes only the switchboard admin token, whoever holds it.
+    // Registering a board takes only the switchboard admin token, whoever holds it and wherever it is kept.
+    // rt team peer reads the admin-only file of this org alone.
     const canSelfInvite =
-      Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) || boardEnvHas(p, "SWITCHBOARD_ADMIN_TOKEN") || (await secrets.has("rt", "switchboardAdminToken")) !== null;
+      Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) ||
+      boardEnvHas(p, "SWITCHBOARD_ADMIN_TOKEN") ||
+      (await secrets.hasAdmin?.(team.slug, "switchboardAdminToken")) != null ||
+      (await secrets.has("rt", "switchboardAdminToken")) !== null;
     // A creator without the admin token, and no other org admin to ask, has no way to peer from here.
     if (!canSelfInvite && !joinedSome) return null;
     if (canSelfInvite) {

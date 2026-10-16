@@ -17,6 +17,7 @@ function seams(secrets: Record<string, string>, overrides: Partial<PeerSeams> = 
   const written: Array<[string, string]> = [];
   const s: PeerSeams = {
     readLocalSecret: async (key) => secrets[key] ?? null,
+    readAdminSecret: async () => null,
     writeLocalSecret: async (key, value) => {
       written.push([key, value]);
     },
@@ -55,6 +56,24 @@ describe("peerOwnBoard", () => {
     expect(post.init?.headers?.Authorization).toBe("Bearer admin");
     expect(JSON.parse(post.init!.body!)).toEqual({ username: "matt" });
     expect(p.calls.fetchInits.every((c) => c.url.startsWith(switchboardUrl()))).toBe(true);
+  });
+
+  test("an admin whose token sits only in the org's admin-only file connects their board", async () => {
+    const asked: Array<[string, string]> = [];
+    const { s, written } = seams({}, {
+      readAdminSecret: async (org, key) => {
+        asked.push([org, key]);
+        return "admin-file";
+      },
+    });
+    const p = probes((url, method) => (method === "POST" ? reply(201, { token: "board-tok" }) : reply(200, { boards: [] })));
+
+    const result = await peerOwnBoard(p, "acme", { rotate: false }, s);
+
+    expect(result.outcome).toBe("connected");
+    expect(asked).toEqual([["acme", "switchboardAdminToken"]]);
+    expect(p.calls.fetchInits.find((c) => c.init?.method === "POST")?.init?.headers?.Authorization).toBe("Bearer admin-file");
+    expect(written).toEqual([["switchboardToken", "board-tok"]]);
   });
 
   test("a stored token the switchboard accepts is already connected: nothing registered, nothing written", async () => {

@@ -8,7 +8,7 @@
 import { createTeam, type CreateTeamOpts } from "../../team/create.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinRedeem, realJoinRedeemSeams, type JoinResult } from "../../team/join.ts";
-import { personalStoreReady, writeSecret } from "../../secrets/store.ts";
+import { personalStoreReady, readSecret, writeSecret } from "../../secrets/store.ts";
 import { join } from "path";
 import { discoverOrgs, parseOriginUrl } from "../team-settings.ts";
 import { publishTeam } from "../../team/publish.ts";
@@ -158,6 +158,7 @@ async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
     forgeToken: (_p: unknown, remote: string) => forgeTokenFor(ctx, remote),
     localStoreReady: () => personalStoreReady(ctx.secrets),
     writeLocalSecret: (key: string, value: string) => writeSecret("rt", key, value, ctx.secrets),
+    readLocalSecret: (key: string) => readSecret("rt", key, ctx.secrets),
   };
 
   try {

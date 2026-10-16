@@ -48,6 +48,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
     },
     ageKeySeam: new FakeAgeKeySeam(),
     readLocalSecret: async () => null,
+    readAdminSecret: async () => null,
     lines,
     exitCodes,
     ...overrides,
@@ -1131,6 +1132,7 @@ describe("teamMembersSet", () => {
       forgeToken: async () => { throw new Error("must not read secrets"); },
       warn: () => { throw new Error("must not warn"); },
       readLocalSecret: async () => { throw new Error("must not read secrets"); },
+      readAdminSecret: async () => null,
     };
     const deps = baseDeps({ membersSeams, probes: fakeProbes({ home: "/home/x", files: {
       ...adminFiles,
@@ -1206,6 +1208,7 @@ describe("teamMembersAdd and teamMembersDrop", () => {
       forgeToken: async () => { throw new Error("must not read secrets"); },
       warn: () => { throw new Error("must not warn"); },
       readLocalSecret: async () => { throw new Error("must not read secrets"); },
+      readAdminSecret: async () => null,
     };
     const deps = baseDeps({ membersSeams, probes: fakeProbes({ home: "/home/x", files: {
       ...adminFiles,

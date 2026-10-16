@@ -251,6 +251,10 @@ export function orgSecretsDir(org: string): string {
   return join(orgDir(org), "mattstack", "org", "secrets");
 }
 
+export function orgAdminSecretsDir(org: string): string {
+  return join(orgDir(org), "mattstack", "org", "admin-secrets");
+}
+
 export function orgPacksDir(org: string): string {
   return join(orgDir(org), "mattstack", "org", "packs");
 }

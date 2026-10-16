@@ -116,6 +116,17 @@ function parseAgeKeygenOutput(output: string): { publicKey: string; privateKey: 
   return { publicKey: publicMatch[1]!, privateKey: privateMatch[1]! };
 }
 
+/** This Mac's public recipient, or null when the keychain holds no key. Never mints. */
+export async function readAgePublicKey(seams: AgeKeySeam): Promise<string | null> {
+  const existing = await readAgeKey(seams);
+  if (!("key" in existing)) return null;
+  const derived = await seams.run(["age-keygen", "-y"], { input: existing.key, sensitive: true });
+  if (derived.code !== 0) {
+    throw new Error(`age-keygen -y: could not derive the public key from the stored private key\n${derived.stderr}`);
+  }
+  return derived.stdout.trim();
+}
+
 /**
  * Mints and stores a new key ONLY on readAgeKey's provable `absent` —
  * anything else (including a keychain-access error) throws instead of
@@ -214,15 +225,17 @@ export async function importAgeKey(
 }
 
 /**
- * General form of `renderSopsYaml`: one creation rule matching `pathRegex`,
- * encrypting to every recipient in `recipients` (sops accepts a
- * comma-separated `age:` value for multi-recipient rules). team-store.ts's
- * `writeTeamRecipients` is the N-recipient caller; `renderSopsYaml` below is
- * the single-recipient personal-store case, kept as its own name since
- * every existing call site already reads `renderSopsYaml(publicKey)`.
+ * Renders `.sops.yaml` creation rules, each encrypting to every recipient it
+ * names (sops accepts a comma-separated `age:` value). team-store.ts writes
+ * an org's members and admins rules through this; `renderSopsYamlFor` is the
+ * one-rule case `lib/team/create.ts` and `renderSopsYaml` use.
  */
+export function renderSopsYamlRules(rules: { pathRegex: string; recipients: string[] }[]): string {
+  return ["creation_rules:", ...rules.flatMap((r) => [`  - path_regex: ${r.pathRegex}`, `    age: ${r.recipients.join(",")}`]), ""].join("\n");
+}
+
 export function renderSopsYamlFor(pathRegex: string, recipients: string[]): string {
-  return ["creation_rules:", `  - path_regex: ${pathRegex}`, `    age: ${recipients.join(",")}`, ""].join("\n");
+  return renderSopsYamlRules([{ pathRegex, recipients }]);
 }
 
 export function renderSopsYaml(publicKey: string): string {

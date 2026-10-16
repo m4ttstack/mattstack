@@ -66,6 +66,8 @@ function fakeJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): JoinRede
     ageKeySeam: new FakeAgeKeySeam(),
     read: fakeRead(),
     readTeamSecret: async () => null,
+    readAdminSecret: async () => null,
+    readLocalSecret: async () => null,
     forgeLogin: async () => "dev2",
     forgeToken: async () => null,
     localStoreReady: async () => true,

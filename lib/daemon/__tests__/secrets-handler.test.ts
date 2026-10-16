@@ -9,6 +9,7 @@ import { join } from "path";
 import { createSecretsHandlers, loadBoardSecrets, type BoardSecretsData, type ReadSecretFn } from "../handlers/secrets.ts";
 import { setSetting } from "../../settings/write.ts";
 import { loadRepoTracking } from "../../repo-tracking.ts";
+import type { AdminSource } from "../../team/board-peers.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const fakeCtx = { log: { info: () => {}, debug: () => {} } } as any;
@@ -471,6 +472,58 @@ describe("secrets:read scope \"board\"", () => {
 // domain typo in BOARD_SECRET_ENTRIES fails this suite even though the
 // handler-level tests above only stub the loader's return shape.
 describe("loadBoardSecrets", () => {
+  const recording = () => {
+    const calls: Array<[string, string]> = [];
+    const fake: ReadSecretFn = async (domain, key) => {
+      calls.push([domain, key]);
+      return `${domain}:${key}`;
+    };
+    return { calls, fake };
+  };
+  const adminFile = (value: string | null): AdminSource => ({
+    org: "acme",
+    read: async (org, key) => (org === "acme" && key === "switchboardAdminToken" ? value : null),
+  });
+
+  test("the admin token comes from the org's admin-only file first, and the local secret is not asked", async () => {
+    const { calls, fake } = recording();
+
+    const data = await loadBoardSecrets(fake, adminFile("file-admin"));
+
+    expect(data.switchboardAdminToken).toBe("file-admin");
+    expect(calls).not.toContainEqual(["rt", "switchboardAdminToken"]);
+    expect(data.switchboardToken).toBe("rt:switchboardToken");
+  });
+
+  test("a Mac that cannot open the file gets the local secret, read in its usual place", async () => {
+    const { calls, fake } = recording();
+
+    const data = await loadBoardSecrets(fake, adminFile(null));
+
+    expect(data.switchboardAdminToken).toBe("rt:switchboardAdminToken");
+    expect(calls.at(-1)).toEqual(["rt", "switchboardAdminToken"]);
+  });
+
+  test("an admin-only reader that throws reads as absent", async () => {
+    const { fake } = recording();
+    const failing: AdminSource = { org: "acme", read: async () => { throw new Error("sops crashed"); } };
+
+    expect((await loadBoardSecrets(fake, failing)).switchboardAdminToken).toBe("rt:switchboardAdminToken");
+  });
+
+  test("with no org on this Mac, only the local secret is read", async () => {
+    const { fake } = recording();
+    expect((await loadBoardSecrets(fake, null)).switchboardAdminToken).toBe("rt:switchboardAdminToken");
+  });
+
+  test("a throwing local admin-token read still rejects the whole call", async () => {
+    const fake: ReadSecretFn = async (domain, key) => {
+      if (key === "switchboardAdminToken") throw new Error("sops -d exploded");
+      return `${domain}:${key}`;
+    };
+    await expect(loadBoardSecrets(fake, adminFile(null))).rejects.toThrow("sops -d exploded");
+  });
+
   test("reads exactly the six (domain, key) entries, in order", async () => {
     const calls: Array<[string, string]> = [];
     const fake: ReadSecretFn = async (domain, key) => {
