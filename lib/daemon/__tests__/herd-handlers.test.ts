@@ -1710,6 +1710,119 @@ describe("herd:gates", () => {
   });
 });
 
+describe("herd:diagnose", () => {
+  const LIMIT_SCREEN = ["⏺ Working.", "  ⎿  You've hit your session limit · resets 5pm", "─".repeat(40), "> ", "─".repeat(40), "  ? for shortcuts"].join("\n");
+
+  async function started(over: Partial<HerdDeps> = {}) {
+    const reads: Array<{ pane: string; socket: string | null }> = [];
+    const hx = harness({
+      paneScreen: async (pane, socket) => { reads.push({ pane, socket }); return LIMIT_SCREEN; },
+      ...over,
+    });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    return { ...hx, herd: s.data.herd, reads };
+  }
+
+  test("diagnose returns verdict, gates and budgets but never screen text", async () => {
+    const watchdog: NonNullable<HerdDeps["watchdog"]> = { annotations: (_h, job) => (job === "job-a" ? { strikes: 1, lastPokeAt: 99 } : null) };
+    const { h, store, gateStore, snapshotPanes, herd, reads } = await started({ watchdog, runWorktree: (id) => (id === "run-1" ? "/w/job-a" : "/elsewhere") });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    store.upsertJob({ herd, name: "job-b", worktree: "/w/job-b", handle: "job-b", status: "active", pane: "w9:p2" });
+    store.tickBudget(herd, "job-a", "respawns");
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    const Q = [{ id: "q", label: "?", multi: false, options: ["a"] }];
+    const answered = gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(answered, { q: "a" }, "shepherd");
+    store.setJobStatus(herd, "job-a", "active", { lastGate: answered });
+    gateStore.open({ subject: herdSubject(herd, "job-b"), kind: "question", questions: Q });
+    gateStore.open({ subject: "run:run-2", kind: "clarify", questions: Q });
+
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({
+      job: "job-a", status: "active", pane: "w9:p1", paneState: "idle", verdict: "rate-limited", openGates: [],
+      lastGate: { id: answered, status: "answered", consumed: false },
+      watchdog: { strikes: 1, lastPokeAt: 99 },
+    });
+    expect(res.data.budgets.respawns).toEqual({ used: 1, cap: 2, spent: false });
+    expect(reads).toEqual([{ pane: "w9:p1", socket: null }]);
+    expect(JSON.stringify(res.data)).not.toContain("hit your");
+  });
+
+  test("diagnose lists the job's own open gates and its run gates, with presentation and owner", async () => {
+    const { h, store, gateStore, herd, reads } = await started({ runWorktree: (id) => (id === "run-1" ? "/w/job-a" : "/elsewhere") });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "at-gate", pane: "w9:p1" });
+    const Q = [{ id: "q", label: "?", multi: false, options: ["a"] }];
+    const own = gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q }).row.id;
+    const run = gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q }).row.id;
+    gateStore.open({ subject: "run:run-2", kind: "clarify", questions: Q });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.verdict).toBe("at-gate");
+    expect(res.data.openGates).toEqual([
+      { id: own, kind: "question", presentation: "wait", owner: "human" },
+      { id: run, kind: "clarify", presentation: "wait", owner: "human" },
+    ]);
+    expect(res.data.watchdog).toBeNull();
+    expect(reads).toEqual([]);
+  });
+
+  test("diagnose does not read the screen of a working pane", async () => {
+    const { h, store, herd, reads } = await started();
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ paneState: "working", verdict: "working" });
+    expect(reads).toEqual([]);
+  });
+
+  test("diagnose reads a hidden herd's screen on its own socket with the bare pane id", async () => {
+    const reads: Array<{ pane: string; socket: string | null }> = [];
+    const { h, store, snapshotPanes, socketCalls } = harness({ paneScreen: async (pane, socket) => { reads.push({ pane, socket }); return LIMIT_SCREEN; } });
+    const s = await h["herd:start"]({ ...START, hidden: true });
+    if (!s.ok) throw new Error(s.error);
+    const herd = s.data.herd;
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "bg:w9:p1" });
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "done" }];
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.verdict).toBe("rate-limited");
+    expect(reads).toEqual([{ pane: "w9:p1", socket: "/tmp/hidden.sock" }]);
+    expect(socketCalls.filter((c) => c.method === "session.snapshot").at(-1)!.sock).toBe("/tmp/hidden.sock");
+  });
+
+  test("diagnose's default screen read asks herdr for the visible screen", async () => {
+    const hx = harness();
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    hx.store.upsertJob({ herd: s.data.herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    hx.snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    hx.screen.text = ["Login expired · Please run /login", "─".repeat(40), "> ", "─".repeat(40)].join("\n");
+    const res = await hx.h["herd:diagnose"]({ herd: s.data.herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.verdict).toBe("login-expired");
+    expect(hx.socketCalls.find((c) => c.method === "pane.read")!.params).toEqual({ pane_id: "w9:p1", source: "visible" });
+  });
+
+  test("diagnose reports no-pane for a job without a pane", async () => {
+    const { h, store, herd, reads } = await started();
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "spawning" });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ pane: null, paneState: null, verdict: "no-pane", lastGate: null });
+    expect(reads).toEqual([]);
+  });
+
+  test("diagnose refuses an unknown job", async () => {
+    const { h, herd } = await started();
+    const res = await h["herd:diagnose"]({ herd, job: "ghost" });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toBe(`unknown job "ghost" in herd "${herd}"`);
+  });
+});
+
 describe("hidden verbs", () => {
   test("attend resolves the hidden pane's terminal and opens an attached tab in the caller's workspace", async () => {
     const hx = harness({

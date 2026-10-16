@@ -11,7 +11,9 @@ import { formatPaneRef, gatePresentation, parsePaneRef } from "../../../packages
 import type { CommandResult } from "./types.ts";
 import type { HerdStore, HerdJobRow, HerdRow } from "../herd-store.ts";
 import { admitTree } from "../herd-tree-admission.ts";
-import { budgetView } from "../herd-budgets.ts";
+import { budgetView, jobBudgets } from "../herd-budgets.ts";
+import { classifyScreen, diagnoseVerdict } from "../herd-diagnose.ts";
+import { readingState } from "../herd-watchdog-adapters.ts";
 import { findTreeByPath, loadRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { writePromptFile } from "../../agent-argv/index.ts";
 import { fillSpawnSlots } from "../../herd-brief.ts";
@@ -73,6 +75,8 @@ export interface HerdDeps {
   watchdog?: { annotations(herd: string, job: string): { strikes: number; lastPokeAt: number | null } | null };
   /** Registered trees, for `herd:spawn {tree}` and `herd:respawn`; defaults to lib/worktree/registry.ts. */
   registry?: { load(repo: string): TreeRecord[]; byPath(path: string): { repoName: string; tree: string } | null };
+  /** The visible screen text of a bare pane id on a herdr socket, or null when it cannot be read; defaults to herdr's `pane.read`. */
+  paneScreen?: (pane: string, socket: string | null) => Promise<string | null>;
   log: Logger;
 }
 
@@ -151,6 +155,11 @@ export function jobDir(jobsRoot: string, herdId: string, job: string): string { 
 export function createHerdHandlers(deps: HerdDeps) {
   const { store, log } = deps;
   const registry = deps.registry ?? { load: loadRegistry, byPath: findTreeByPath };
+  const paneScreen = deps.paneScreen ?? (async (pane: string, socket: string | null): Promise<string | null> => {
+    const res = await deps.herdr<{ read?: { text?: unknown } }>("pane.read", { pane_id: pane, source: "visible" }, socket ? { sockPath: socket } : {});
+    const text = res.ok ? res.result?.read?.text : undefined;
+    return typeof text === "string" ? text : null;
+  });
 
   /** Registers both the prefix row (herd:<id>/*, for the shepherd's own job
       gates) and the owner row (routes any gate whose `owner` is this herd,
@@ -616,6 +625,42 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!launched.ok) return launched;
       const used = store.tickBudget(herdId, name, "respawns");
       return { ok: true, data: { ...launched.data, wasOnDeck: null, launch, budget: budgetView(used, "respawns"), settled } };
+    },
+
+    "herd:diagnose": async (raw: unknown): Promise<CommandResult<"herd:diagnose">> => {
+      const p = raw as Commands["herd:diagnose"]["payload"] | undefined;
+      const herdId = str(p?.herd); const name = str(p?.job);
+      if (!herdId || !name) return { ok: false, error: "herd and job are required" };
+      const herd = store.get(herdId);
+      const job = herd ? store.getJob(herdId, name) : null;
+      if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
+
+      const bare = job.pane ? parsePaneRef(job.pane).paneId : null;
+      const [panes, own, runs] = await Promise.all([
+        bare ? paneStatuses(deps.herdr, herd.herdrSocket) : null, openHerdGates(herdId), listHerdRunGates(herdId),
+      ]);
+      const paneState = bare && panes ? readingState(panes.get(bare)) : null;
+      const gates = [
+        ...own.filter((g) => g.subject === herdSubject(herdId, name)),
+        ...runs.filter((g) => deps.runWorktree(g.subject.slice("run:".length)) === job.worktree),
+      ];
+      // The text is classified and dropped here: raw pane text never reaches
+      // the caller.
+      const screen = bare && paneState === "idle" ? await paneScreen(bare, herd.herdrSocket) : null;
+      const last = job.lastGate ? deps.gateStore.get(job.lastGate) : null;
+      return {
+        ok: true,
+        data: {
+          job: name, status: job.status,
+          pane: job.pane ? formatPaneRef(job.pane, herd.hidden ? "bg" : "visible") : null,
+          paneState,
+          verdict: diagnoseVerdict({ hasPane: bare !== null, paneState, openGates: gates.length, jobStatus: job.status, screen: screen === null ? null : classifyScreen(screen) }),
+          openGates: gates.map((g) => ({ id: g.id, kind: g.kind, presentation: g.origin?.presentation ?? "wait", owner: g.owner ?? "human" })),
+          lastGate: last ? { id: last.id, status: last.status, consumed: last.status === "answered" && last.nudge ? last.consumedAt !== null || last.released : null } : null,
+          watchdog: deps.watchdog?.annotations(herdId, name) ?? null,
+          budgets: jobBudgets(store.budgetRows(herdId, name)),
+        },
+      };
     },
 
     "herd:gates": async (raw: unknown): Promise<CommandResult<"herd:gates">> => {
