@@ -544,6 +544,111 @@ describe("joinRedeem", () => {
     expect([...ORG_CLONE_FOLDERS].sort()).toEqual([".claude-plugin", "mattstack"]);
   });
 
+  describe("the data branch", () => {
+    const MARKER_ON_MAIN = (dataBranch: string | null, layout = 4) => JSON.stringify({ role: "org", org: "acme", layout, ...(dataBranch ? { dataBranch } : {}) });
+    const clonesOf = (calls: string[][]) => calls.filter((argv) => argv[1] === "clone");
+
+    function mainPointerExec(marker: string | null, calls: string[][] = []): (argv: string[]) => ExecResult {
+      return (argv) => {
+        calls.push(argv);
+        if (argv.includes("show")) return marker === null ? { code: 128, stdout: "", stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'FETCH_HEAD'" } : { code: 0, stdout: marker, stderr: "" };
+        return ok();
+      };
+    }
+
+    test("an invite carrying dataBranch clones only that branch and never reads main's pointer", async () => {
+      const calls: string[][] = [];
+      const p = redeemProbes({ exec: (argv) => { calls.push(argv); return ok(); } });
+      const relay = fakeRelay({ fetch: relayServing({ ...POINTER, dataBranch: "mattstack" }) });
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+      expect(result.access).toBe("ok");
+      expect(clonesOf(calls)).toEqual([["git", "clone", "--sparse", "--single-branch", "--branch", "mattstack", REMOTE, TEAM_DIR]]);
+      expect(calls.some((argv) => argv.includes("show"))).toBe(false);
+    });
+
+    test("an invite without dataBranch reads main's pointer and clones the branch it names", async () => {
+      const calls: string[][] = [];
+      const p = redeemProbes({ exec: mainPointerExec(MARKER_ON_MAIN("mattstack"), calls) });
+
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+      expect(result.access).toBe("ok");
+      expect(clonesOf(calls)).toEqual([["git", "clone", "--sparse", "--single-branch", "--branch", "mattstack", REMOTE, TEAM_DIR]]);
+    });
+
+    test("an invite without dataBranch against a layout 3 org clones the default branch as before", async () => {
+      const calls: string[][] = [];
+      const p = redeemProbes({ exec: mainPointerExec(MARKER_ON_MAIN(null, 3), calls) });
+
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+      expect(result.access).toBe("ok");
+      expect(clonesOf(calls)).toEqual([["git", "clone", "--sparse", REMOTE, TEAM_DIR]]);
+      expect(calls).toContainEqual(["git", "sparse-checkout", "set", "--cone", ...ORG_CLONE_FOLDERS]);
+    });
+
+    test("an org whose main holds no marker clones the default branch", async () => {
+      const calls: string[][] = [];
+      const p = redeemProbes({ exec: mainPointerExec(null, calls) });
+
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+      expect(result.access).toBe("ok");
+      expect(clonesOf(calls)).toEqual([["git", "clone", "--sparse", REMOTE, TEAM_DIR]]);
+    });
+
+    test("a main branch rt cannot read fails like a failed clone: no clone, the flag restored, the invite unused", async () => {
+      const calls: string[][] = [];
+      const p = redeemProbes({
+        exec: (argv) => {
+          calls.push(argv);
+          return argv.includes("fetch") ? { code: 128, stdout: "", stderr: "fatal: unable to access 'https://github.com/acme/widgets.git/': Could not resolve host: github.com" } : ok();
+        },
+      });
+      const relay = fakeRelay();
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+      expect(result.access).toBe("unreachable");
+      expect(clonesOf(calls)).toEqual([]);
+      expect(relay.redeemCalls).toEqual([]);
+      expect(readTeamLocal(p, POINTER.team).joinedByRt).toBeFalsy();
+    });
+
+    test.each(["--upload-pack=sh", "a..b", "x y", ""])("a saved intent naming the data branch %p is rejected before any exec", async (dataBranch) => {
+      const intent: SetupIntent = {
+        v: 1,
+        at: NOW.toISOString(),
+        mode: "join",
+        join: { id: ID_HEX, keyB64: Buffer.from(KEY).toString("base64"), pointer: { ...POINTER, dataBranch } },
+      };
+      const p = redeemProbes({ files: { [intentPath(HOME)]: JSON.stringify(intent) } });
+
+      await expect(joinRedeem(p, fakeRelay().client, () => NO_SECRETS, {}, baseJoinRedeemSeams().seams)).rejects.toMatchObject({ code: "invite-malformed" });
+      expect(p.calls.exec).toHaveLength(0);
+    });
+
+    test("a role cone that fails after the join is a warning, not a failed join", async () => {
+      let sparseCalls = 0;
+      const p = redeemProbes({
+        exec: (argv) => {
+          if (argv[1] === "sparse-checkout" && ++sparseCalls === 2) return { code: 128, stdout: "", stderr: "fatal: cannot update sparse checkout" };
+          return ok();
+        },
+      });
+      const warnings: string[] = [];
+      const relay = fakeRelay();
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams({ warn: (m) => warnings.push(m) }).seams);
+
+      expect(result.access).toBe("ok");
+      expect(relay.redeemCalls).toEqual([ID_HEX]);
+      expect(warnings.some((w) => w.includes("cannot update sparse checkout"))).toBe(true);
+    });
+  });
+
   test("a sparse checkout that fails removes the half-made clone and fails like a failed clone, before the invite is used", async () => {
     const p = redeemProbes({
       exec: (argv) => {
@@ -1971,6 +2076,58 @@ test("a real join clone holds only the org folders and the top-level files, and 
     expect(execFileSync("git", ["-C", dir, "sparse-checkout", "list"], { env }).toString().trim().split("\n").sort()).toEqual([".claude-plugin", "mattstack"]);
     expect(execFileSync("git", ["-C", dir, "status", "--porcelain"], { env }).toString()).toBe("");
     expect(execFileSync("git", ["-C", dir, "ls-files", "--", "apps", "docs"], { env }).toString().trim().split("\n").sort()).toEqual(["apps/widgets/index.ts", "docs/guide.md"]);
+  } finally {
+    if (priorHome === undefined) delete process.env.HOME; else process.env.HOME = priorHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a real join of a data-branch org clones only that branch and narrows to the joiner's teams", async () => {
+  const home = mkdtempSync(pathJoin(tmpdir(), "join-data-branch-"));
+  const priorHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const env = { ...childEnv(), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const work = pathJoin(home, "work");
+    const write = (rel: string, text: string) => {
+      mkdirSync(pathJoin(work, rel, ".."), { recursive: true });
+      writeFileSync(pathJoin(work, rel), text);
+    };
+    const git = (...args: string[]) => execFileSync("git", ["-C", work, ...args], { env }).toString();
+    execFileSync("git", ["init", "-q", "-b", "main", work], { env });
+    write("mattstack/mattstack.jsonc", `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`);
+    git("add", ".");
+    git("commit", "-q", "-m", "pointer");
+    git("checkout", "-q", "-b", "mattstack");
+    write("mattstack/mattstack.jsonc", `{ "role": "org", "org": "acme", "layout": 4 }\n`);
+    write("mattstack/org/settings.org.jsonc", JSON.stringify({
+      "mattstack.org": { admins: ["dev1"] },
+      "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }],
+    }));
+    write("mattstack/teams/widgets/plugin/README.md", "widgets pack\n");
+    write("mattstack/teams/gadgets/plugin/README.md", "gadgets pack\n");
+    write(".claude-plugin/marketplace.json", `{ "name": "acme", "plugins": [] }\n`);
+    git("add", ".");
+    git("commit", "-q", "-m", "data");
+    git("checkout", "-q", "main");
+    const bare = pathJoin(home, "origin.git");
+    execFileSync("git", ["clone", "-q", "--bare", work, bare], { env });
+
+    const p = createRealProbes();
+    const realExec = p.exec.bind(p);
+    // The pointer's remote must be an https url; the clone itself reads the local bare repo, which join's GIT_PROTOCOL_FROM_USER=0 would refuse as a file transport.
+    p.exec = (argv, opts) => realExec(argv.map((arg) => (arg === REMOTE ? bare : arg)), { ...opts, env: { ...opts?.env, GIT_PROTOCOL_FROM_USER: "1" } });
+
+    const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+    expect(result.access).toBe("ok");
+    const dir = pathJoin(home, ".mattstack", "orgs", "acme");
+    const inDir = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { env }).toString().trim();
+    expect(inDir("rev-parse", "--abbrev-ref", "HEAD")).toBe("mattstack");
+    expect(inDir("config", "--get-all", "remote.origin.fetch")).toBe("+refs/heads/mattstack:refs/remotes/origin/mattstack");
+    expect(existsSync(pathJoin(dir, "mattstack/teams/widgets/plugin/README.md"))).toBe(true);
+    expect(existsSync(pathJoin(dir, "mattstack/teams/gadgets"))).toBe(false);
+    expect(inDir("sparse-checkout", "list").split("\n").sort()).toEqual([".claude-plugin", "mattstack/org", "mattstack/teams/widgets"]);
   } finally {
     if (priorHome === undefined) delete process.env.HOME; else process.env.HOME = priorHome;
     rmSync(home, { recursive: true, force: true });

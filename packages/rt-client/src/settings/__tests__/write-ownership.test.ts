@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { readOrgRoles, readOrgRoster } from "../active-team.ts";
@@ -117,5 +117,41 @@ describe("settings/write: the org store guard", () => {
     seedAs("dev0");
     setSetting("mattstack.org", { ...roles, owners: ["dev0", "dev1"] }, "org");
     expect(readOrgRoles("acme").owners).toEqual(["dev0", "dev1"]);
+  });
+});
+
+describe("settings/write: a malformed roles block", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-malformed-roles-")));
+    process.env.HOME = home;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  const seedMalformed = (username = "dev0") => {
+    seedOrg({ org: "acme", username, roster: [{ username: "dev0", teams: [] }], roles: { owners: ["dev0"], admins: ["dev1"], teams: {} } });
+    const file = orgSettingsPath("acme");
+    const store = JSON.parse(readFileSync(file, "utf8"));
+    store["mattstack.org"].teams = [];
+    writeFileSync(file, JSON.stringify(store));
+    return readFileSync(file, "utf8");
+  };
+
+  test("an admin cannot write another key while the roles block is malformed", () => {
+    const before = seedMalformed("dev1");
+    expect(() => setSetting("board.gitlabHost", "gitlab.example.com", "org")).toThrow(/admins and owners must each be a list of usernames/);
+    expect(readFileSync(orgSettingsPath("acme"), "utf8")).toBe(before);
+  });
+
+  test("an admin can still repair the roles block", () => {
+    seedMalformed("dev1");
+    setSetting("mattstack.org", { owners: ["dev0"], admins: ["dev1"], teams: {} }, "org");
+    expect(readOrgRoles("acme").admins).toEqual(["dev1"]);
   });
 });

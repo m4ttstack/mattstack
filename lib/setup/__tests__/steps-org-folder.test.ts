@@ -78,7 +78,8 @@ const timedOut = (daemonSide: () => void = () => {}) => async () => {
   return null;
 };
 
-function seams(opts: { locate?: (newPath: string) => Promise<{ ok: boolean; error?: string }>; marketplace?: typeof orgFolderSeams.marketplace } = {}) {
+function seams(opts: { locate?: (newPath: string) => Promise<{ ok: boolean; error?: string }>; marketplace?: typeof orgFolderSeams.marketplace; dataBranch?: typeof orgFolderSeams.dataBranch } = {}) {
+  orgFolderSeams.dataBranch = opts.dataBranch ?? (async () => null);
   const located: { newPath: string; repo?: string }[] = [];
   const marketplaces: { dir: string; stalePaths: string[] }[] = [];
   orgFolderSeams.identity = async (dir) => `gitlab.example.com/acme/org@${dir}`;
@@ -519,5 +520,88 @@ describe("org.folder: the step", () => {
     expect(s.located.map((l) => l.newPath)).toEqual([`${ORGS}/acme`]);
     expect(p.exists(`${RT}/teams/widgets.json`)).toBe(false);
     expect(s.marketplaces).toEqual([{ dir: `${ORGS}/acme`, stalePaths: [] }]);
+  });
+});
+
+describe("org.folder: the data branch piece", () => {
+  const inPlace = () => fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed() });
+  const moving = (result: Awaited<ReturnType<typeof orgFolderSeams.dataBranch>>) => {
+    const dirs: string[] = [];
+    seams({ dataBranch: async (_p, dir) => { dirs.push(dir); return result; } });
+    return dirs;
+  };
+
+  test("a layout 3 clone whose origin main points at the data branch is moved, and the step says so", async () => {
+    const dirs = moving({ kind: "moved", branch: "mattstack" });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail?.split("; ")).toContain("Moved your copy of the org to the mattstack branch");
+    expect(dirs).toEqual([`${ORGS}/acme`]);
+  });
+
+  test("a dirty clone is not moved: needs-you naming the files, with the pull remedy", async () => {
+    moving({ kind: "held", why: "dirty", files: ["mattstack/org/settings.org.jsonc"] });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out).toMatchObject({ state: "needs-you", remedy: "Save or discard those changes, then run rt team pull" });
+    expect(out.detail).toContain("Your copy of the org has unsaved changes: mattstack/org/settings.org.jsonc");
+  });
+
+  test("commits rt could not carry name an org admin, never rt team publish", async () => {
+    moving({ kind: "held", why: "uncarried", commits: 1, reason: "outside" });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out).toMatchObject({ state: "needs-you", remedy: "Ask an org admin to help move it" });
+    expect(out.detail).toContain("rt could not carry 1 unpublished commit to the org's data branch, because it changes files outside the org's data");
+  });
+
+  test("a move that carried unpublished commits says so", async () => {
+    moving({ kind: "moved", branch: "mattstack", carried: 2 });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("Moved your copy of the org to the mattstack branch, with your 2 unpublished commits");
+  });
+
+  test("an origin it cannot reach is not a failure: the step stays done and says rt checks again", async () => {
+    moving({ kind: "unchecked", log: "fatal: unable to access 'https://gitlab.example.com/acme/org.git/'" });
+    const { ctx, logs } = makeCtx(inPlace(), { update: true });
+    const out = await convergeOrgFolder(ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("rt could not check whether your org's data moved, so it checks again next time");
+    expect(logs.some((l) => l.includes("unable to access"))).toBe(true);
+  });
+
+  test("a held move keeps its remedy when a folder piece failed too", async () => {
+    seams({ locate: async () => ({ ok: false, error: "identity-mismatch: another repo" }), dataBranch: async () => ({ kind: "held", why: "dirty", files: ["a.jsonc"] }) });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out.state).toBe("failed");
+    expect(out.detail).toContain("Your copy of the org has unsaved changes: a.jsonc");
+    expect((out as { remedy?: string }).remedy).toBe(`${ORG_FOLDER_REMEDY}. Save or discard those changes, then run rt team pull`);
+  });
+
+  test("a move that failed is the step's failed outcome with the log", async () => {
+    moving({ kind: "failed", log: "fatal: could not read from remote repository" });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out).toMatchObject({ state: "failed", remedy: ORG_FOLDER_REMEDY });
+    expect(out.detail).toContain("rt could not move your copy of the org to its data branch: fatal: could not read from remote repository");
+  });
+
+  test("with a daemon present the step leaves the move to the daemon's pull, never racing it", async () => {
+    const dirs = moving({ kind: "failed", log: "fatal: Unable to create '.git/index.lock': File exists" });
+    const p = fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed(), dirs: { [RT]: ["rt.sock"] }, files: { [`${RT}/rt.sock`]: "" } });
+    const out = await convergeOrgFolder(makeCtx(p, { update: true }).ctx);
+    expect(out).toMatchObject({ state: "done", detail: "acme already in place" });
+    expect(dirs).toEqual([]);
+  });
+
+  test("with no daemon the step moves the clone itself", async () => {
+    const dirs = moving({ kind: "moved", branch: "mattstack" });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out.detail).toContain("Moved your copy of the org to the mattstack branch");
+    expect(dirs).toEqual([`${ORGS}/acme`]);
+  });
+
+  test("nothing to move leaves the step as it was", async () => {
+    moving(null);
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out).toMatchObject({ state: "done", detail: "acme already in place" });
   });
 });

@@ -148,6 +148,17 @@ describe("org.pull", () => {
     expect(outcome.detail).toBe("Pulled acme, now on the org layout");
   });
 
+  test("a pull that moved the clone to its data branch says so", async () => {
+    const detail = "Moved your copy of the org to the mattstack branch";
+    const outcome = await orgPullStep.run(makeCtx(fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => ({ ok: true, data: { outcome: "moved", detail } }),
+    })).ctx);
+    expect(outcome).toEqual({ state: "done", detail });
+  });
+
   test("a held pull ends skipped with the update sentence and no remedy", async () => {
     const sentence = "Your org uses layout 4 and this app reads up to 3. Update the app.";
     const outcome = await orgPullStep.run(makeCtx(fakeProbes({
@@ -157,6 +168,16 @@ describe("org.pull", () => {
       daemon: async () => ({ ok: true, data: { outcome: "skipped", detail: sentence, hold: { layout: 4, reads: 3 } } }),
     })).ctx);
     expect(outcome).toEqual({ state: "skipped", detail: sentence });
+  });
+
+  test("a moved hold ends skipped with the moved sentence, even when the reply carries no detail", async () => {
+    const outcome = await orgPullStep.run(makeCtx(fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => ({ ok: true, data: { outcome: "skipped", detail: null, hold: { moved: "mattstack" } } }),
+    })).ctx);
+    expect(outcome).toEqual({ state: "skipped", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes." });
   });
 
   test("a hold beside a stuck clone stays partial and keeps the hold sentence", async () => {

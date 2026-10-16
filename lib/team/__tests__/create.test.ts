@@ -14,6 +14,9 @@ import { getSetting } from "../../settings/resolve.ts";
 import { readTeamLocal, updateTeamLocal } from "../team-local.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import * as isolation from "../../../packages/rt-client/src/test-isolation.ts";
+import { ORG_LAYOUT } from "../org-marker.ts";
+import { DEFAULT_DATA_BRANCH, publishPointer } from "../org-data-branch.ts";
+import { publishTeam } from "../publish.ts";
 
 const seams = { forgeLogin: async () => "dev1", forgeToken: async () => null };
 
@@ -81,7 +84,7 @@ describe("scaffoldFiles", () => {
   test("writes the org layout: marker, org store, one team folder, marketplace, sops rule", () => {
     const files = scaffoldFiles("acme", "Acme", "https://gitlab.example.com/g/acme.git");
     expect(Object.keys(files).sort()).toEqual([".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "mattstack/mattstack.jsonc", ORG_SETTINGS, TEAM_SETTINGS].sort());
-    expect(JSON.parse(files["mattstack/mattstack.jsonc"]!)).toEqual({ role: "org", org: "acme", layout: 3 });
+    expect(JSON.parse(files["mattstack/mattstack.jsonc"]!)).toEqual({ role: "org", org: "acme", layout: ORG_LAYOUT, dataBranch: "mattstack" });
   });
 
   test("gitlab remote: the org store holds the forge and board.gitlabHost", () => {
@@ -116,7 +119,7 @@ describe("scaffoldFiles", () => {
     const files = scaffoldFiles("acme", "Acme", "https://github.com/acme/repo.git", [FAKE_PUBLIC_KEY]);
     expect(files[".sops.yaml"]).toContain(FAKE_PUBLIC_KEY);
     expect(files[".sops.yaml"]).toContain("mattstack/org/secrets/.*");
-    expect(files[".gitignore"]).toBe("mattstack/org/secrets/*.tmp\n.DS_Store\n");
+    expect(files[".gitignore"]).toBe("mattstack/org/secrets/*.tmp\nmattstack/org/admin-secrets/*.tmp\n.DS_Store\n");
   });
 });
 
@@ -164,7 +167,7 @@ describe("createTeam", () => {
     expect(await commitFiles(gitAwareFakeProbes("/home/x"), "acme", ["a"], "m")).toBe(true);
   });
 
-  test("argv sequence is CLT probe → init → remote add → add → commit, never push", async () => {
+  test("argv sequence is CLT probe → init on the data branch → remote add → add → commit, never push", async () => {
     const p = gitAwareFakeProbes("/home/x");
     const result = await createTeam(
       p,
@@ -183,14 +186,15 @@ describe("createTeam", () => {
       created: true,
     });
 
-    expect(p.calls.exec).toEqual([
+    expect(p.calls.exec.slice(0, 6)).toEqual([
       ["xcode-select", "-p"],
-      ["git", "init", "-b", "main"],
+      ["git", "init", "-b", "mattstack"],
       ["git", "remote", "add", "origin", "https://github.com/acme/mattstack-team-acme.git"],
       ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
       ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
       ["git", "commit", "-m", "team: scaffold acme", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
     ]);
+    expect(p.calls.exec.some((argv) => argv.includes("push"))).toBe(false);
   });
 
   test("writes the setup intent for the daemon/apply to resume from", async () => {
@@ -240,8 +244,8 @@ describe("createTeam", () => {
 
     expect(result).toMatchObject({ created: true });
     expect(result.gitDeferred).toBeUndefined();
-    expect(p.calls.exec.filter((c) => c[0] === "git")).toEqual([
-      ["git", "init", "-b", "main"],
+    expect(p.calls.exec.filter((c) => c[0] === "git").slice(0, 5)).toEqual([
+      ["git", "init", "-b", "mattstack"],
       ["git", "remote", "add", "origin", "https://github.com/acme/repo.git"],
       ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
       ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
@@ -269,7 +273,7 @@ describe("createTeam", () => {
     expect(readTeamLocal(p, "acme")).toEqual({ createdByRt: true, joinedByRt: false, rtMayManageMembership: false, forgeUsername: "dev1" });
   });
 
-  test("second call with the same remote only checks the committed scaffold and refreshes intent", async () => {
+  test("second call with the same remote only checks the committed scaffold and the pointer, and refreshes intent", async () => {
     const p = gitAwareFakeProbes("/home/x");
     await createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), seams);
     p.calls.exec.length = 0;
@@ -279,7 +283,10 @@ describe("createTeam", () => {
 
     expect(result.created).toBe(false);
     expect(result.remote).toBe("https://github.com/acme/repo.git");
-    expect(p.calls.exec).toEqual(["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"].map((path) => ["git", "cat-file", "-e", `HEAD:${path}`]));
+    expect(p.calls.exec).toEqual([
+      ...["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"].map((path) => ["git", "cat-file", "-e", `HEAD:${path}`]),
+      ["git", "symbolic-ref", "-q", "--short", "HEAD"],
+    ]);
     // The intent file is refreshed (finding 8), but no NEW path is ever written on the idempotent path — no scaffold file is rewritten.
     expect(Object.keys(p.calls.writes).sort()).toEqual(writePathsBefore);
     expect(readIntent(p)?.team?.remote).toBe("https://github.com/acme/repo.git");
@@ -366,7 +373,7 @@ describe("createTeam", () => {
 
       expect(err).toMatchObject({ code: "git-init-failed", message: "rt could not start the team repo" });
       const log = (err as UserActionableError).log ?? "";
-      expect(log).toStartWith("git init -b main failed (exit 128): fatal: could not reach");
+      expect(log).toStartWith("git init -b mattstack failed (exit 128): fatal: could not reach");
       expect(log).not.toContain("SECRET");
       expect(log).not.toContain("https://");
     });
@@ -441,6 +448,166 @@ describe("createTeam (real fs + real git, fake age key only) — R-T16-a / findi
       process.env.HOME = origHome;
       rmSync(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe("a new org's data branch and main's pointer (real git, empty bare origin)", () => {
+  const MARKER_PATH = "mattstack/mattstack.jsonc";
+  const DATA_FILES = [".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", MARKER_PATH, "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc"];
+  let root: string;
+  let originalHome: string | undefined;
+  let originalUser: string | undefined;
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "rt-create-data-branch-")));
+    originalHome = process.env.HOME;
+    originalUser = process.env.USER;
+    process.env.HOME = join(root, "home");
+    process.env.USER = "dev1";
+  });
+  afterEach(() => {
+    process.env.HOME = originalHome;
+    process.env.USER = originalUser;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function git(cwd: string, ...args: string[]): { code: number; out: string } {
+    const result = Bun.spawnSync(["git", ...args], { cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
+    return { code: result.exitCode, out: result.stdout.toString().trim() };
+  }
+
+  function world(intercept?: (argv: string[]) => { code: number; stdout: string; stderr: string } | undefined) {
+    const origin = join(root, "origin.git");
+    Bun.spawnSync(["git", "init", "-q", "--bare", origin], { env: childEnv() });
+    const p = createRealProbes();
+    const realExec = p.exec;
+    p.exec = async (argv, opts) => {
+      if (argv[0] === "xcode-select") return { code: 0, stdout: "/fake-clt", stderr: "" };
+      return intercept?.(argv) ?? realExec(argv, opts);
+    };
+    return { p, origin };
+  }
+
+  test("create builds main from scratch beside the data branch and pushes nothing", async () => {
+    const { p, origin } = world();
+    const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
+
+    expect(git(created.dir, "symbolic-ref", "--short", "HEAD").out).toBe(DEFAULT_DATA_BRANCH);
+    expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(MARKER_PATH);
+    expect(git(created.dir, "rev-list", "--count", "refs/heads/main").out).toBe("1");
+    expect(JSON.parse(git(created.dir, "show", `refs/heads/main:${MARKER_PATH}`).out)).toEqual({ role: "org", org: "acme", layout: ORG_LAYOUT, dataBranch: "mattstack" });
+    expect(git(created.dir, "status", "--porcelain").out).toBe("");
+    expect(git(origin, "for-each-ref", "--format=%(refname)").out).toBe("");
+  });
+
+  test("one publish pushes the data branch then the pointer, leaving the clone on the data branch alone", async () => {
+    const { p, origin } = world();
+    const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
+
+    await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote });
+
+    expect(git(origin, "for-each-ref", "--format=%(refname)", "refs/heads").out.split("\n")).toEqual(["refs/heads/main", "refs/heads/mattstack"]);
+    expect(git(origin, "ls-tree", "-r", "--name-only", "mattstack").out.split("\n").sort()).toEqual(DATA_FILES);
+    expect(JSON.parse(git(origin, "show", `mattstack:${MARKER_PATH}`).out)).toEqual({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+    expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(MARKER_PATH);
+    expect(JSON.parse(git(origin, "show", `main:${MARKER_PATH}`).out)).toEqual({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+
+    expect(git(created.dir, "symbolic-ref", "--short", "HEAD").out).toBe("mattstack");
+    expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
+    expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/remotes/origin/main").code).not.toBe(0);
+    expect(git(created.dir, "config", "--get-all", "remote.origin.fetch").out).toBe("+refs/heads/mattstack:refs/remotes/origin/mattstack");
+
+    expect(await publishPointer(p, created.dir, null, created.remote)).toBe(false);
+    const rerun = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
+    expect(rerun.created).toBe(false);
+    expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
+  });
+
+  test("a pointer push that fails keeps the local main, says why with urls stripped, and the next publish pushes it", async () => {
+    let failing = true;
+    const { p, origin } = world((argv) =>
+      failing && argv.includes("push") && argv.includes("refs/heads/main:refs/heads/main")
+        ? { code: 1, stdout: "", stderr: "fatal: unable to access 'https://x-access-token:SECRET@github.com/acme/repo.git/'" }
+        : undefined,
+    );
+    const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
+
+    const err = await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect(err).toMatchObject({ code: "pointer-push-failed" });
+    expect((err as UserActionableError).log).toContain("unable to access");
+    expect((err as UserActionableError).log).not.toContain("SECRET");
+    expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(MARKER_PATH);
+    expect(git(origin, "for-each-ref", "--format=%(refname)", "refs/heads").out).toBe("refs/heads/mattstack");
+
+    failing = false;
+    await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote });
+    expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(MARKER_PATH);
+    expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
+  });
+
+  function seedOrigin(origin: string, branch: string): string {
+    const seed = join(root, `seed-${branch}`);
+    for (const args of [["init", "-q", "-b", branch, seed], ["-C", seed, "commit", "-q", "--allow-empty", "-m", "README"], ["-C", seed, "push", "-q", origin, branch]]) {
+      expect(Bun.spawnSync(["git", ...args], { env: childEnv() }).exitCode).toBe(0);
+    }
+    return git(origin, "rev-parse", branch).out;
+  }
+
+  for (const branch of ["main", "mattstack"]) {
+    test(`an origin that already has a ${branch} branch is refused before anything is pushed`, async () => {
+      const { p, origin } = world();
+      const before = seedOrigin(origin, branch);
+      const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
+
+      const err = await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote }).catch((e: unknown) => e);
+      expect(err).toMatchObject({ code: "remote-not-empty", message: "The team repo already has commits", why: "rt starts a team in an empty repo." });
+      expect(git(origin, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads").out).toBe(`refs/heads/${branch} ${before}`);
+      expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(MARKER_PATH);
+    });
+  }
+
+  test("a pointer push that main's own commits reject says so and never suggests a retry", async () => {
+    let failing = true;
+    const { p, origin } = world((argv) => (failing && argv.includes("refs/heads/main:refs/heads/main") ? { code: 1, stdout: "", stderr: "fatal: network blip" } : undefined));
+    const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
+    await expect(publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote })).rejects.toMatchObject({ code: "pointer-push-failed" });
+    failing = false;
+    const foreign = seedOrigin(origin, "main");
+
+    const err = await publishPointer(p, created.dir, null, created.remote).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "remote-not-empty", message: "The team repo's main branch already has commits" });
+    expect((err as UserActionableError).why).not.toMatch(/retry/i);
+    expect(git(origin, "rev-parse", "main").out).toBe(foreign);
+  });
+
+  test("building main fails part way: the data branch, index and files are as they were, and a rerun builds it", async () => {
+    let failing = true;
+    const { p, origin } = world((argv) => (failing && argv[1] === "commit-tree" ? { code: 128, stdout: "", stderr: "fatal: fake commit-tree failure" } : undefined));
+    const opts = { name: "Acme", remote: origin, others: false };
+    await expect(createTeam(p, opts, new FakeAgeKeySeam(), seams)).rejects.toMatchObject({ code: "git-pointer-failed" });
+    const dir = join(process.env.HOME!, ".mattstack", "orgs", "acme");
+    expect(git(dir, "symbolic-ref", "--short", "HEAD").out).toBe("mattstack");
+    expect(git(dir, "status", "--porcelain").out).toBe("");
+    expect(git(dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
+
+    failing = false;
+    await createTeam(p, opts, new FakeAgeKeySeam(), seams);
+    expect(git(dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(MARKER_PATH);
+  });
+
+  test("a deferred creator's claim pushes the data branch and then the pointer", async () => {
+    const { p, origin } = world();
+    delete process.env.USER;
+    const created = await createTeam(p, { name: "Acme", remote: origin, others: false, firstTeam: "widgets" }, new FakeAgeKeySeam(), seams);
+    expect(created.rolesDeferred).toBe(true);
+    updateTeamLocal(p, "acme", { forgeUsername: "dev1" });
+
+    expect(await claimPendingAdmin(p, "acme", "dev1", null)).toEqual({ claimed: true, published: true });
+
+    expect(git(origin, "for-each-ref", "--format=%(refname)", "refs/heads").out.split("\n")).toEqual(["refs/heads/main", "refs/heads/mattstack"]);
+    expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(MARKER_PATH);
+    expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
   });
 });
 
@@ -647,7 +814,7 @@ describe("creator commits with an existing index", () => {
         p.exec = async (argv, opts) => {
           if (argv[0] === "xcode-select") return { code: 0, stdout: "/fake-clt", stderr: "" };
           if (failing && argv[0] === "git" && argv[1] === mode.replace("rerun-", "")) return { code: 1, stdout: "", stderr: `fake ${mode} failure` };
-          if (argv.includes("ls-remote")) return { code: 0, stdout: publishedBase ? `${publishedBase}\trefs/heads/main\n` : "", stderr: "" };
+          if (argv.includes("ls-remote")) return { code: 0, stdout: publishedBase ? `${publishedBase}\trefs/heads/mattstack\n` : "", stderr: "" };
           if (argv.includes("push")) return { code: 0, stdout: "", stderr: "" };
           return realExec(argv, opts);
         };
@@ -786,7 +953,7 @@ describe("forge identity scaffold failure recovery", () => {
           p.exec = async (argv, opts) => {
             if (argv[0] === "xcode-select") return { code: 0, stdout: "/fake-clt", stderr: "" };
             if (failing && argv[0] === "git" && argv[1] === failure) return { code: 1, stdout: "", stderr: `fake initial ${failure} failure` };
-            if (argv.includes("ls-remote")) return { code: 0, stdout: publishedBase ? `${publishedBase}\trefs/heads/main\n` : "", stderr: "" };
+            if (argv.includes("ls-remote")) return { code: 0, stdout: publishedBase ? `${publishedBase}\trefs/heads/mattstack\n` : "", stderr: "" };
             if (argv.includes("push")) {
               const paths = run(["ls-tree", "-r", "--name-only", "HEAD"]).split("\n");
               expect(paths.sort()).toEqual([".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/settings.team.jsonc", "unrelated.txt"].sort());

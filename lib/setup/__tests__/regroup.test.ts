@@ -22,7 +22,7 @@ describe("regroupTools", () => {
       "tool.chrome-signin", "tool.proxy", "tool.state-backup", "tool.team.doppler", "tool.plugins", "skills.writing-style",
       "pack.acme", "tool.linear-mcp", "repos.root", "tool.rt", "tool.rt-link", "tool.legacy-dirs", "tool.intercepts",
       "tool.app", "tool.vsix", "tool.extension", "tool.shell", "tool.daemon", "tool.flavor", "home.backup", "team.sync",
-      "team.marketplace", "team.one-per-machine", "org.folder", "org.layout",
+      "team.marketplace", "team.one-per-machine", "org.folder", "org.layout", "org.sparse", "org.branch",
     ]));
     expect(out.map((g) => [g.id, g.title])).toEqual([
       ["mac", "Your Mac"], ["accounts", "Accounts"], ["access", "Access"],
@@ -39,7 +39,7 @@ describe("regroupTools", () => {
     ]);
     expect(ids(out, "team")).toEqual([
       "tool.state-backup", "tool.team.doppler", "home.backup", "team.sync", "team.marketplace", "team.one-per-machine",
-      "org.folder", "org.layout",
+      "org.folder", "org.layout", "org.sparse", "org.branch",
     ]);
   });
 

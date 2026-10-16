@@ -14,6 +14,7 @@ import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
  *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
  *   rt team rename <name> [--team <org>] [--json]
+ *   rt team branch use <branch> [--team <org>] [--json]
  *   rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
  *   rt team members sync [--team <slug>] [--json]
@@ -67,10 +68,12 @@ import { createRelayClient } from "../lib/team/relay-client.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
+import { useBranch, type BranchUse } from "../lib/team/trial-branch.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
+import type { PullHold } from "../lib/team/org-layout.ts";
 
 export interface TeamDeps {
   useTeamSeams?: UseTeamSeams;
@@ -193,6 +196,10 @@ const REFUSAL_CODES = new Set([
   "org-behind",
   "invite-stale",
   "org-store-malformed",
+  "trial-branch-admin-only",
+  "trial-branch-not-moved",
+  "trial-branch-held",
+  "trial-branch-no-org-data",
 ]);
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
@@ -351,7 +358,10 @@ const PULL_COPY: Record<string, { status: RenderStatus; title: (slug: string) =>
   rebased: { status: "done", title: (slug) => `Pulled the ${slug} team` },
   conflict: { status: "needs-you", title: (slug) => `The ${slug} team has changes that clash with yours` },
   skipped: { status: "skipped", title: (slug) => `Skipped pulling the ${slug} team` },
+  moved: { status: "done", title: (slug) => `Moved the ${slug} team to its new branch` },
 };
+
+const HELD_COPY = { status: "needs-you" as RenderStatus, title: (slug: string) => `The ${slug} team pull is waiting on you` };
 
 export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
@@ -362,7 +372,7 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
     // for status reads) aborts mid-pull and reports an unreachable daemon for
     // a pull that then succeeds.
     const res = (await call("team:pull", { slug }, PULL_TIMEOUT_MS)) as
-      | { ok: boolean; data?: { outcome: string; detail: string | null; hold?: { layout: number; reads: number } }; error?: string; failure?: { code: string; message: string } }
+      | { ok: boolean; data?: { outcome: string; detail: string | null; hold?: PullHold; needsYou?: true }; error?: string; failure?: { code: string; message: string } }
       | null;
     if (!res) {
       throw new UserActionableError("daemon-unreachable", "The rt daemon is not running", {}, {
@@ -378,8 +388,9 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       deps.print(JSON.stringify(envelope({ slug, outcome, detail, ...(hold ? { hold } : {}) })));
       return;
     }
-    const outcome = res.data.outcome;
-    const copy = PULL_COPY[outcome];
+    const { outcome, hold } = res.data;
+    // A newer layout waits on an app update, a held move on the person's own changes; a move rt makes itself stays a skip.
+    const copy = res.data.needsYou === true || (hold !== undefined && "layout" in hold) ? HELD_COPY : PULL_COPY[outcome];
     if (copy) {
       out.print(out.line(copy.status, copy.title(slug), res.data.detail ?? undefined));
     } else {
@@ -456,6 +467,28 @@ export async function teamRename(args: string[], _ctx: CommandContext = {}, deps
       return;
     }
     out.print(...renameBlocks(result));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+export function branchUseBlocks(result: BranchUse): Block[] {
+  return [out.line("done", `Your copy of the org is on ${result.branch}`, result.trial ? "auto-commit runs here on this Mac only" : undefined)];
+}
+
+export async function teamBranchUse(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  const name = positional(args, ["--team"])[0];
+  if (!name) usageError(deps, json, "Which branch should your copy of the org be on?", "rt team branch use <branch> [--team <org>] [--json]");
+  try {
+    const slug = resolveTeamSlug(args, "team branch use");
+    const result = await useBranch(deps.probes, slug, name, { readToken: deps.forgeToken ?? storedForgeToken });
+    if (json) {
+      deps.print(JSON.stringify(envelope({ ok: true, slug, ...result })));
+      return;
+    }
+    out.print(...branchUseBlocks(result));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;

@@ -492,11 +492,91 @@ describe("team.create", () => {
       ["git", "cat-file", "-e", "HEAD:.sops.yaml"],
       ["git", "cat-file", "-e", "HEAD:.gitignore"],
       ["git", "symbolic-ref", "-q", "--short", "HEAD"],
+      ["git", "symbolic-ref", "-q", "--short", "HEAD"],
       ["git", "remote", "get-url", "--push", "--all", "origin"],
       ["git", "ls-remote", "--refs", "--", remote, "refs/heads/main"],
       ["git", "rev-list", "--max-count=1001", "refs/heads/main"],
       ["git", "push", "-u", "origin", "refs/heads/main:refs/heads/main"],
+      ["git", "symbolic-ref", "-q", "--short", "HEAD"],
     ]);
+  });
+
+  function dataBranchExec(remote: string, pointerPush: ExecResult = ok()): Probes["exec"] {
+    const base = gitExecFor(remote);
+    return async (argv, opts) => {
+      if (argv[0] === "gh") return ok(JSON.stringify({ login: "dev1" }));
+      if (argv[1] === "symbolic-ref") return ok("mattstack\n");
+      if (argv[1] === "ls-tree" && argv.includes("refs/heads/main")) return ok("mattstack/mattstack.jsonc\n");
+      if (argv[1] === "rev-parse" && argv.includes("refs/heads/main")) return ok(`${"b".repeat(40)}\n`);
+      if (argv.includes("push") && argv.includes("refs/heads/main:refs/heads/main")) return pointerPush;
+      return base(argv, opts);
+    };
+  }
+  const createIntent = (remote: string): SetupIntent => ({ v: 1, at: "", mode: "create", team: { slug: "acme", name: "Acme", remote, others: false } });
+
+  test("team.create pushes the data branch, then main's pointer, then drops the local main", async () => {
+    const remote = "https://github.com/acme/mattstack-team-acme.git";
+    const p = fakeProbes({ home: "/fake-home", exec: dataBranchExec(remote) });
+    const { ctx } = makeCtx(p, { intent: createIntent(remote) });
+
+    expect((await teamCreateStep.run(ctx)).state).toBe("done");
+    const pushes = p.calls.exec.filter((argv) => argv.includes("push")).map((argv) => argv.at(-1));
+    expect(pushes).toEqual(["refs/heads/mattstack:refs/heads/mattstack", "refs/heads/main:refs/heads/main"]);
+    const pointerPush = p.calls.exec.findIndex((argv) => argv.includes("refs/heads/main:refs/heads/main"));
+    expect(p.calls.exec.slice(pointerPush - 1, pointerPush + 2)).toEqual([
+      ["git", "config", "--replace-all", "remote.origin.fetch", "+refs/heads/mattstack:refs/remotes/origin/mattstack"],
+      ["git", "push", "-q", "origin", "refs/heads/main:refs/heads/main"],
+      ["git", "branch", "-q", "-D", "main"],
+    ]);
+  });
+
+  test("a failed pointer push fails the step with git's words, urls stripped, in the log", async () => {
+    const remote = "https://github.com/acme/mattstack-team-acme.git";
+    const refused: ExecResult = { code: 1, stdout: "", stderr: "fatal: unable to access 'https://x-access-token:SECRET@github.com/acme/r.git/' marker-pointer-zz" };
+    const p = fakeProbes({ home: "/fake-home", exec: dataBranchExec(remote, refused) });
+    const { ctx } = makeCtx(p, { intent: createIntent(remote) });
+
+    expect(await teamCreateStep.run(ctx)).toEqual({
+      state: "failed",
+      detail: "rt pushed the org but not its main branch",
+      remedy: "main tells the people you invite which branch holds the org. Retry to push it.",
+    });
+    const log = readdirSync(logsDir()).filter((f) => f.startsWith("cli.")).map((f) => readFileSync(join(logsDir(), f), "utf8")).join("");
+    expect(log).toContain("marker-pointer-zz");
+    expect(log).not.toContain("SECRET");
+  });
+
+  test("rerunning team.create after a failed pointer push ends with the pointer on origin (real git)", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-step-pointer-retry-")));
+    const originalHome = process.env.HOME;
+    const originalUser = process.env.USER;
+    process.env.HOME = join(root, "home");
+    process.env.USER = "dev1";
+    try {
+      const origin = join(root, "origin.git");
+      execSync(`git init -q --bare ${JSON.stringify(origin)}`);
+      let failing = true;
+      const p = createRealProbes();
+      const realExec = p.exec;
+      p.exec = async (argv, opts) => {
+        if (argv[0] === "xcode-select") return ok("/fake-clt");
+        if (failing && argv.includes("refs/heads/main:refs/heads/main")) return { code: 1, stdout: "", stderr: "fatal: network blip" };
+        return realExec(argv, opts);
+      };
+      const intent: SetupIntent = { v: 1, at: "", mode: "create", team: { slug: "acme", name: "Acme", remote: origin, others: false } };
+
+      expect(await teamCreateStep.run(makeCtx(p, { intent }).ctx)).toMatchObject({ state: "failed", detail: "rt pushed the org but not its main branch" });
+      failing = false;
+      expect(await teamCreateStep.run(makeCtx(p, { intent }).ctx)).toMatchObject({ state: "done" });
+
+      const show = (...args: string[]) => Bun.spawnSync(["git", "-C", origin, ...args]).stdout.toString().trim();
+      expect(show("for-each-ref", "--format=%(refname)", "refs/heads").split("\n")).toEqual(["refs/heads/main", "refs/heads/mattstack"]);
+      expect(show("ls-tree", "-r", "--name-only", "main")).toBe("mattstack/mattstack.jsonc");
+    } finally {
+      process.env.HOME = originalHome;
+      process.env.USER = originalUser;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("push-denied -> failed with a credentials remedy, from an explicit create intent", async () => {

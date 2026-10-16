@@ -38,6 +38,7 @@ function fakeHandle(overrides: Partial<HomeSnapshotHandle> = {}): { handle: Home
     pullNow: async () => ({ outcome: "skipped", detail: null }),
     status: () => status,
     settled: async () => {},
+    locked: (fn) => fn(),
     ...overrides,
   };
   return { handle, runNowCalls };
