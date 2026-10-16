@@ -1,5 +1,7 @@
 import { existsSync } from "fs";
 import { resolve } from "path";
+import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
+import { explainError } from "../explain-error.ts";
 import { rtSelfArgv } from "../rt-self.ts";
 import { GIT_GLOBAL_OPTS } from "../skills/mcp-lint.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
@@ -78,10 +80,39 @@ async function checkPushable(cwd: string, git: GitRunner, branch: string): Promi
   return { branch, defaultBranch: def.primary };
 }
 
+export type OpenMrLookup =
+  | { ok: true; mr: { iid: number; url: string | null; pipelineId: number | null } | null }
+  | { ok: false; error: string };
+
+const MR_LOOKUP_TIMEOUT_MS = 30_000;
+
+export async function realOpenMr(repoName: string, branch: string, command: typeof rtCommand = rtCommand): Promise<OpenMrLookup> {
+  const r = await command<Commands["mr:live-by-branch"]["data"]>("mr:live-by-branch", { repoName, branches: [branch] }, { timeoutMs: MR_LOOKUP_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "branch lookup failed") };
+  const pr = r.data.byBranch[branch];
+  if (!pr) return { ok: true, mr: null };
+  const pipeline = /:(\d+)$/.exec(pr.pipeline?.id ?? "");
+  return { ok: true, mr: { iid: pr.iid, url: pr.webUrl, pipelineId: pipeline ? Number(pipeline[1]) : null } };
+}
+
+// Read before the push, so a CI watch can tell the pipeline the push starts
+// from the one already there. A forge that cannot answer never blocks the push.
+async function priorPipeline(openMr: (branch: string) => Promise<OpenMrLookup>, branch: string): Promise<Record<string, unknown>> {
+  const found = await openMr(branch);
+  if (!found.ok) return { mr: null, priorPipelineId: null, mrLookup: "unavailable", mrLookupError: found.error };
+  if (!found.mr) return { mr: null, priorPipelineId: null, mrLookup: "read" };
+  return { mr: { iid: found.mr.iid, url: found.mr.url }, priorPipelineId: found.mr.pipelineId, mrLookup: "read" };
+}
+
 // A bare `git push` obeys push.default, which under `matching` pushes every
 // matching branch (main included) and under `simple` fails on a renamed
 // upstream; an explicit refspec pushes exactly one ref either way.
-export async function gitPush(cwd: string, opts: { forceWithLease?: boolean; setUpstream?: boolean }, git: GitRunner): Promise<ToolResult> {
+export async function gitPush(
+  cwd: string,
+  opts: { forceWithLease?: boolean; setUpstream?: boolean },
+  git: GitRunner,
+  openMr?: (branch: string) => Promise<OpenMrLookup>,
+): Promise<ToolResult> {
   const b = await pushableBranch(cwd, git);
   if ("error" in b) return err(b.error);
   const branch = b.branch;
@@ -119,9 +150,12 @@ export async function gitPush(cwd: string, opts: { forceWithLease?: boolean; set
   }
   // A remote name comes from config and may start with a dash.
   args.push("--end-of-options", remote, `HEAD:refs/heads/${remoteBranch}`);
+  const head = await git(["rev-parse", "--verify", "HEAD"], cwd);
+  if (head.code !== 0) return err(`git rev-parse --verify HEAD failed: ${detail(head)}`);
+  const before = openMr ? await priorPipeline(openMr, branch) : {};
   const r = await git(args, cwd);
   if (r.code !== 0) return err(`git push failed: ${detail(r)}`);
-  return ok({ pushed: true, branch, forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}` });
+  return ok({ pushed: true, branch, sha: head.stdout.trim(), forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}`, ...before });
 }
 
 export async function gitPull(cwd: string, git: GitRunner): Promise<ToolResult> {
@@ -405,30 +439,32 @@ export interface GitToolDeps {
   git: GitRunner;
   guard: TreeGuardDeps;
   sync: (cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
+  /** repoName is the identity the tree guard admitted the tree under. */
+  openMr: (repoName: string, branch: string) => Promise<OpenMrLookup>;
 }
 
-export const realGitToolDeps: GitToolDeps = { git: realGitRunner, guard: realTreeGuardDeps, sync: realSyncRunner };
+export const realGitToolDeps: GitToolDeps = { git: realGitRunner, guard: realTreeGuardDeps, sync: realSyncRunner, openMr: (repoName, branch) => realOpenMr(repoName, branch) };
 
 const TREE_PROP = { tree: { type: "string", description: "Absolute path of a checkout or worktree of a repo registered with rt, or a directory inside one, which resolves to that tree's root (the result's tree)." } };
 
 export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
   // The tree a tool ran in rides on its result, since a subdirectory resolves to its root.
-  const guarded = (fn: (path: string, input: Record<string, unknown>) => Promise<ToolResult>) => async (input: Record<string, unknown>): Promise<ToolResult> => {
+  const guarded = (fn: (path: string, input: Record<string, unknown>, repoName: string) => Promise<ToolResult>) => async (input: Record<string, unknown>): Promise<ToolResult> => {
     const tree = checkRegisteredTree(input.tree, deps.guard);
     if (!tree.ok) return err(tree.error);
-    const r = await fn(tree.path, input);
+    const r = await fn(tree.path, input, tree.repoName);
     return r.ok && r.body !== null && typeof r.body === "object" && !Array.isArray(r.body) ? ok({ ...r.body, tree: tree.path }) : r;
   };
   return [
     {
       name: "git_push",
-      description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead).",
+      description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is \"unavailable\" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.",
       inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" } }, required: ["tree"], additionalProperties: false },
       shellForms: ["git push", "rt git push"],
-      handler: guarded(async (path, input) => {
+      handler: guarded(async (path, input, repoName) => {
         const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }]);
         if (bad) return err(bad);
-        return gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true }, deps.git);
+        return gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true }, deps.git, (branch) => deps.openMr(repoName, branch));
       }),
     },
     {

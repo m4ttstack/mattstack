@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { branchSyncPreflight, gitChildEnv, gitPull, gitPush, gitRebase, gitToolDefs, realGitRunner, syncChildEnv, type GitRunner, type GitToolDeps } from "../git-tools.ts";
+import { branchSyncPreflight, gitChildEnv, gitPull, gitPush, gitRebase, gitToolDefs, realGitRunner, realOpenMr, syncChildEnv, type GitRunner, type GitToolDeps } from "../git-tools.ts";
 import type { TreeGuardDeps } from "../tree-guard.ts";
 
 const GIT_PATHS = "rev-parse --git-path rebase-merge --git-path rebase-apply";
@@ -27,7 +27,10 @@ const onFeature: Script = {
   ...on("feat/x"),
   "symbolic-ref --quiet refs/remotes/origin/HEAD": { stdout: "refs/remotes/origin/develop\n" },
   "rev-parse --abbrev-ref --symbolic-full-name @{u}": { stdout: "origin/feat/x\n" },
+  "rev-parse --verify HEAD": { stdout: "abc1234\n" },
 };
+/** No MR on any branch: what the git tools read when a test is not about the forge. */
+const noForge: Pick<GitToolDeps, "openMr"> = { openMr: async () => ({ ok: true, mr: null }) };
 
 describe("gitPush", () => {
   test("pushes HEAD to the upstream by explicit refspec, force only as --force-with-lease --force-if-includes", async () => {
@@ -273,6 +276,76 @@ describe("gitPush", () => {
   });
 });
 
+describe("git_push reports what it pushed", () => {
+  const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false };
+  const PUSH = "push --no-follow-tags --recurse-submodules=no --end-of-options origin HEAD:refs/heads/feat/x";
+  const push = async (openMr: GitToolDeps["openMr"], script: Script = {}, calls: string[] = []) => {
+    const tool = gitToolDefs({ git: fakeGit({ ...onFeature, [PUSH]: {}, ...script }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }), openMr }).find((t) => t.name === "git_push")!;
+    return tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
+  };
+
+  test("the pushed sha, and the open MR's pipeline as it stood before the push", async () => {
+    const calls: string[] = [];
+    const asked: Array<[string, string]> = [];
+    const r = await push(async (repoName, branch) => {
+      asked.push([repoName, branch]);
+      calls.push("<mr lookup>");
+      return { ok: true, mr: { iid: 7, url: "https://forge/mr/7", pipelineId: 991 } };
+    }, {}, calls);
+    expect(r).toEqual({ ok: true, body: { pushed: true, branch: "feat/x", sha: "abc1234", forceWithLease: false, upstream: "origin/feat/x", mr: { iid: 7, url: "https://forge/mr/7" }, priorPipelineId: 991, mrLookup: "read", tree: "/t" } });
+    expect(asked).toEqual([["r", "feat/x"]]);
+    expect(calls.indexOf("<mr lookup>")).toBeLessThan(calls.indexOf(PUSH));
+  });
+  test("no open MR on the branch reads as no MR and no prior pipeline", async () => {
+    const r = await push(async () => ({ ok: true, mr: null }));
+    expect(r.body).toMatchObject({ pushed: true, sha: "abc1234", mr: null, priorPipelineId: null, mrLookup: "read" });
+  });
+  test("an MR with no pipeline yet has a null prior pipeline", async () => {
+    const r = await push(async () => ({ ok: true, mr: { iid: 7, url: null, pipelineId: null } }));
+    expect(r.body).toMatchObject({ mr: { iid: 7, url: null }, priorPipelineId: null, mrLookup: "read" });
+  });
+  test("a forge that cannot be read still pushes, and says the MR is unknown rather than absent", async () => {
+    const calls: string[] = [];
+    const r = await push(async () => ({ ok: false, error: "unsupported: mr:live-by-branch needs a GitLab repo" }), {}, calls);
+    expect(r.body).toMatchObject({ pushed: true, sha: "abc1234", mr: null, priorPipelineId: null, mrLookup: "unavailable", mrLookupError: "unsupported: mr:live-by-branch needs a GitLab repo" });
+    expect(calls).toContain(PUSH);
+  });
+  test("a refused push never asks the forge", async () => {
+    let asked = false;
+    const r = await push(async () => { asked = true; return { ok: true, mr: null }; }, { [FULL_HEAD]: { stdout: "refs/heads/main\n" } });
+    expect(r.ok).toBe(false);
+    expect(asked).toBe(false);
+  });
+  test("a HEAD that cannot be read refuses before the push", async () => {
+    const calls: string[] = [];
+    const r = await push(async () => ({ ok: true, mr: null }), { "rev-parse --verify HEAD": { code: 128, stderr: "fatal: bad HEAD" } }, calls);
+    expect(r.ok).toBe(false);
+    expect(calls).not.toContain(PUSH);
+  });
+});
+
+describe("realOpenMr", () => {
+  const answer = (r: { ok: boolean; data?: unknown; error?: string }) => {
+    const sent: unknown[] = [];
+    const command = (async (verb: string, payload: unknown) => { sent.push([verb, payload]); return r; }) as unknown as Parameters<typeof realOpenMr>[2];
+    return { command, sent };
+  };
+  test("asks the daemon for the branch's live MR and keeps its iid, url and pipeline number", async () => {
+    const { command, sent } = answer({ ok: true, data: { byBranch: { "feat/x": { iid: 7, webUrl: "https://forge/mr/7", pipeline: { id: "gitlab:pipeline:991" } } } } });
+    expect(await realOpenMr("remote:gitlab.com%2Facme%2Fapp", "feat/x", command)).toEqual({ ok: true, mr: { iid: 7, url: "https://forge/mr/7", pipelineId: 991 } });
+    expect(sent).toEqual([["mr:live-by-branch", { repoName: "remote:gitlab.com%2Facme%2Fapp", branches: ["feat/x"] }]]);
+  });
+  test("a branch with no open MR, and an MR with no pipeline", async () => {
+    expect(await realOpenMr("r", "feat/x", answer({ ok: true, data: { byBranch: { "feat/x": null } } }).command)).toEqual({ ok: true, mr: null });
+    expect(await realOpenMr("r", "feat/x", answer({ ok: true, data: { byBranch: { "feat/x": { iid: 7, webUrl: null, pipeline: null } } } }).command)).toEqual({ ok: true, mr: { iid: 7, url: null, pipelineId: null } });
+  });
+  test("a daemon refusal is a failed lookup carrying its reason", async () => {
+    const r = await realOpenMr("r", "feat/x", answer({ ok: false, error: "unsupported: mr:live-by-branch needs a GitLab repo" }).command);
+    expect(r.ok).toBe(false);
+    expect((r as { error: string }).error).toContain("GitLab");
+  });
+});
+
 describe("realGitRunner", () => {
   test("runs git with terminal prompts disabled so a credential prompt fails instead of hanging", async () => {
     const dir = mkdtempSync(join(tmpdir(), "git-runner-"));
@@ -381,7 +454,7 @@ describe("gitToolDefs guard", () => {
     const guard: TreeGuardDeps = { repoIndex: () => ({}), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false };
     let synced = false;
     for (const [name, input] of [["git_push", {}], ["git_pull", {}], ["git_rebase", { onto: "x" }], ["branch_sync", {}]] as const) {
-      const tool = gitToolDefs({ git: fakeGit({}, calls), guard, sync: async () => { synced = true; return { code: 0, stdout: "", stderr: "" }; } }).find((t) => t.name === name)!;
+      const tool = gitToolDefs({ ...noForge, git: fakeGit({}, calls), guard, sync: async () => { synced = true; return { code: 0, stdout: "", stderr: "" }; } }).find((t) => t.name === name)!;
       const r = await tool.handler({ tree: "/elsewhere", ...input }, {} as NodeJS.ProcessEnv);
       expect(r.ok, name).toBe(false);
       expect(r.error, name).toContain("registered");
@@ -404,7 +477,7 @@ describe("gitToolDefs guard on a worktree nested in its checkout", () => {
     const synced: string[] = [];
     const inner = fakeGit({});
     const git: GitRunner = async (args, cwd) => { cwds.push(cwd); return inner(args, cwd); };
-    const tool = gitToolDefs({ git, guard, sync: async (cwd) => { synced.push(cwd); return { code: 0, stdout: "", stderr: "" }; } }).find((t) => t.name === name)!;
+    const tool = gitToolDefs({ ...noForge, git, guard, sync: async (cwd) => { synced.push(cwd); return { code: 0, stdout: "", stderr: "" }; } }).find((t) => t.name === name)!;
     const r = await tool.handler({ tree, ...input }, {} as NodeJS.ProcessEnv);
     return { r, cwds, synced };
   };
@@ -425,7 +498,7 @@ describe("gitToolDefs guard on a worktree nested in its checkout", () => {
   }
   test("a result from a subdirectory names the root the tool ran in", async () => {
     const git = fakeGit({ "pull --ff-only": { stdout: "Already up to date.\n" } });
-    const tool = gitToolDefs({ git, guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }) }).find((t) => t.name === "git_pull")!;
+    const tool = gitToolDefs({ ...noForge, git, guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }) }).find((t) => t.name === "git_pull")!;
     const r = await tool.handler({ tree: "/real/app/src" }, {} as NodeJS.ProcessEnv);
     expect(r).toEqual({ ok: true, body: { pulled: true, output: "Already up to date.", tree: "/real/app" } });
   });
@@ -745,7 +818,7 @@ describe("branch_sync tool", () => {
       return inner(args, cwd);
     };
   }
-  const branchSync = (git: GitRunner, sync: GitToolDeps["sync"]) => gitToolDefs({ git, guard, sync }).find((t) => t.name === "branch_sync")!;
+  const branchSync = (git: GitRunner, sync: GitToolDeps["sync"]) => gitToolDefs({ ...noForge, git, guard, sync }).find((t) => t.name === "branch_sync")!;
   const runSync = async (code: number, stdout: string, stderr = "", moves?: { head?: string; origin?: string }) => {
     const refs = { head: "aaa", origin: "aaa" };
     const { [ORIGIN_HEAD]: _answeredByRefs, ...script } = clean;
