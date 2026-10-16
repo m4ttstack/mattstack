@@ -12,6 +12,7 @@ import { basename, dirname, isAbsolute, join } from "path";
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
+import { waitForAnswers } from "../endpoint/readiness.ts";
 import { allowedSourceRoots, bundleStem, copyIntoRun, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
@@ -568,6 +569,51 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   });
 }
 
+const DEV_WAIT_DEFAULT_S = 90;
+const DEV_WAIT_MAX_S = 300;
+const DEV_ROLES_MAX = 8;
+
+type RoleReport = { claimed: boolean; port: number | null; url: string | null; running: boolean; listener: unknown; answered: boolean; status: number | null; answeredAfterMs: number | null; error?: string };
+
+async function devEndpoints(deps: EvidenceToolDeps, input: Obj, signal?: AbortSignal, progress?: () => void): Promise<ToolResult> {
+  const bad = checkRequired(input, [{ name: "tree", type: "string" }, { name: "roles", type: "array" }])
+    ?? checkOptional(input, [{ name: "waitSeconds", type: "number" }, { name: "probePath", type: "string" }]);
+  if (bad) return err(bad);
+  const roles = input.roles as unknown[];
+  if (roles.length < 1 || roles.length > DEV_ROLES_MAX || !roles.every((r) => typeof r === "string" && r !== "")) {
+    return err(`"roles" must hold 1 to ${DEV_ROLES_MAX} role names`);
+  }
+  const waitSeconds = input.waitSeconds ?? DEV_WAIT_DEFAULT_S;
+  if (!Number.isInteger(waitSeconds) || (waitSeconds as number) < 0 || (waitSeconds as number) > DEV_WAIT_MAX_S) {
+    return err(`"waitSeconds" must be an integer from 0 to ${DEV_WAIT_MAX_S}`);
+  }
+  const probePath = (input.probePath as string | undefined) ?? "/";
+  if (!probePath.startsWith("/")) return err('"probePath" must start with "/"');
+  const tree = checkRegisteredTree(input.tree, deps.guard);
+  if (!tree.ok) return err(tree.error);
+
+  const names = [...new Set(roles as string[])];
+  const reports: Record<string, RoleReport> = {};
+  const targets: Array<{ role: string; url: string }> = [];
+  await Promise.all(names.map(async (role) => {
+    const res = await deps.command<Commands["endpoint:lookup"]["data"] & { listener?: unknown }>("endpoint:lookup", { repo: tree.repoName, worktree: tree.path, role }, { timeoutMs: READ_TIMEOUT_MS });
+    const base = { answered: false, status: null, answeredAfterMs: null };
+    if (!res.ok || !res.data) {
+      reports[role] = { claimed: false, port: null, url: null, running: false, listener: null, ...base, error: res.error ?? "endpoint:lookup failed" };
+      return;
+    }
+    const d = res.data;
+    reports[role] = { claimed: d.claimed, port: d.port, url: d.url, running: d.running, listener: d.listener ?? null, ...base };
+    if (d.claimed && d.url) targets.push({ role, url: d.url + probePath });
+  }));
+
+  const probed = await waitForAnswers(targets, { waitMs: (waitSeconds as number) * 1000, signal, progress }, { fetch: deps.fetch, sleep: deps.sleep, now: deps.now });
+  for (const [role, o] of Object.entries(probed.outcomes)) Object.assign(reports[role]!, o);
+  const ordered = Object.fromEntries(names.map((r) => [r, reports[r]!]));
+  const waiting = names.filter((r) => reports[r]!.claimed && !reports[r]!.answered);
+  return ok({ tree: tree.path, waitedMs: probed.waitedMs, roles: ordered, waiting });
+}
+
 const RUN_DB = { type: "string", description: "The runDb run_start returned." };
 const STAGE = { type: "string", description: "The stage writing the field (run_field_set's stage)." };
 const SLOT = { type: "string", enum: ["before", "after"] };
@@ -638,6 +684,23 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
       },
       shellForms: { none: "uploads, renders and writes the evidence section in one step; no single shell command is equivalent" },
       handler: (input, env, signal, progress) => evidenceAttach(deps, input, env, signal, progress),
+    },
+    {
+      name: "dev_endpoints",
+      description: "Look up the dev-server endpoints rt claimed for a worktree and probe them until each answers. Pass tree (the worktree root) and roles (1 to 8 role names). For each role the daemon's claim is reported, and every claimed role gets an HTTP GET of its url plus probePath (default /) with no redirect follow; any HTTP response, a 404 or a 302 included, counts as answered, while a refused connection or a timeout does not. Probes repeat every 2 seconds until every claimed role answers or waitSeconds (default 90, at most 300, 0 probes once) passes. running is reported but is not a readiness signal; answered is. An undeclared role is reported on that role with error and does not fail the call; an unclaimed role is never waited on. Returns {tree, waitedMs, roles: {<role>: {claimed, port, url, running, listener, answered, status, answeredAfterMs, error?}}, waiting}, where waiting lists claimed roles that never answered.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tree: { type: "string", description: "Absolute path of the worktree root." },
+          roles: { type: "array", items: { type: "string" }, minItems: 1, maxItems: DEV_ROLES_MAX, description: "Endpoint role names, e.g. web, api." },
+          waitSeconds: { type: "integer", minimum: 0, maximum: DEV_WAIT_MAX_S, description: "How long to keep probing; default 90, 0 probes once." },
+          probePath: { type: "string", description: "Path appended to each url; default /." },
+        },
+        required: ["tree", "roles"],
+        additionalProperties: false,
+      },
+      shellForms: { none: "looks up endpoints and probes them in one bounded call; no single shell command is equivalent" },
+      handler: (input, _env, signal, progress) => devEndpoints(deps, input, signal, progress),
     },
   ];
 }

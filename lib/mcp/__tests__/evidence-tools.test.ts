@@ -523,3 +523,102 @@ describe("uploadEach", () => {
     expect(out[1]).toMatchObject({ path: b, ok: true });
   });
 });
+
+describe("dev_endpoints", () => {
+  const TREE = "/trees/web-1";
+  const registered: TreeGuardDeps = { ...noGuard, realpath: (p) => p, repoIndex: () => ({ [IDENT]: TREE }) };
+  type Lookup = Record<string, { claimed: boolean; port: number | null; url: string | null; running?: boolean } | string>;
+
+  function setup(lookups: Lookup, answers: (url: string) => number | null) {
+    const { deps, calls } = makeDeps({
+      guard: registered,
+      respond: (cmd, payload) => {
+        if (cmd !== "endpoint:lookup") return undefined;
+        const hit = lookups[String(payload.role)];
+        if (hit === undefined) return errRes(`role "${String(payload.role)}" is not declared`);
+        if (typeof hit === "string") return errRes(hit);
+        return okRes({ running: false, listener: null, worktree: { path: TREE, name: "web-1" }, ...hit });
+      },
+    });
+    let clock = 0;
+    const fetched: string[] = [];
+    const wired: EvidenceToolDeps = {
+      ...deps,
+      now: () => clock,
+      sleep: async (ms) => { clock += ms; },
+      fetch: (async (url: string) => {
+        fetched.push(url);
+        const status = answers(url);
+        if (status === null) throw new Error("ECONNREFUSED");
+        return { status } as Response;
+      }) as unknown as typeof fetch,
+    };
+    return { def: tool(wired, "dev_endpoints"), calls, fetched };
+  }
+  const claimed = (port: number) => ({ claimed: true, port, url: `http://localhost:${port}` });
+  const data = (r: ToolResult) => r.body as { tree: string; waitedMs: number; roles: Record<string, Record<string, unknown>>; waiting: string[] };
+
+  test("an unregistered tree returns the guard's error verbatim", async () => {
+    const { def } = setup({}, () => 200);
+    const res = await def.handler({ tree: "/nowhere", roles: ["web"] }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("is not in a checkout or worktree of a repo registered with rt");
+  });
+
+  test("bad roles and waitSeconds are refused", async () => {
+    const { def } = setup({}, () => 200);
+    expect((await def.handler({ tree: TREE, roles: [] }, env)).ok).toBe(false);
+    expect((await def.handler({ tree: TREE, roles: Array.from({ length: 9 }, (_, i) => `r${i}`) }, env)).ok).toBe(false);
+    expect((await def.handler({ tree: TREE, roles: ["web"], waitSeconds: 301 }, env)).ok).toBe(false);
+    expect((await def.handler({ tree: TREE, roles: ["web"], probePath: "x" }, env)).ok).toBe(false);
+  });
+
+  test("one role answers 302, the other is refused: waits the full deadline and lists the laggard", async () => {
+    const { def, calls } = setup({ web: claimed(3000), api: claimed(4000) }, (u) => (u.includes(":3000") ? 302 : null));
+    const res = await def.handler({ tree: TREE, roles: ["web", "api"], waitSeconds: 4 }, env);
+    expect(res.ok).toBe(true);
+    const d = data(res);
+    expect(d.tree).toBe(TREE);
+    expect(d.roles.web).toMatchObject({ claimed: true, answered: true, status: 302 });
+    expect(d.roles.api).toMatchObject({ claimed: true, answered: false, status: null });
+    expect(d.waiting).toEqual(["api"]);
+    expect(d.waitedMs).toBeGreaterThanOrEqual(4000);
+    const lookup = calls.find((c) => c.cmd === "endpoint:lookup")!;
+    expect(lookup.payload).toMatchObject({ repo: IDENT, worktree: TREE });
+  });
+
+  test("an unclaimed role is never probed and not waited on", async () => {
+    const { def, fetched } = setup({ web: claimed(3000), api: { claimed: false, port: null, url: null } }, () => 200);
+    const d = data(await def.handler({ tree: TREE, roles: ["web", "api"] }, env));
+    expect(d.roles.api).toMatchObject({ claimed: false });
+    expect(d.waiting).toEqual([]);
+    expect(fetched).toEqual(["http://localhost:3000/"]);
+  });
+
+  test("a lookup error is reported on the role and the call succeeds", async () => {
+    const { def } = setup({ web: claimed(3000) }, () => 200);
+    const res = await def.handler({ tree: TREE, roles: ["web", "x"] }, env);
+    expect(res.ok).toBe(true);
+    const d = data(res);
+    expect(String(d.roles.x!.error)).toContain("not declared");
+    expect(d.roles.x).toMatchObject({ claimed: false, answered: false });
+    expect(d.waiting).toEqual([]);
+  });
+
+  test("waitSeconds defaults to 90 and 0 probes once", async () => {
+    const never = setup({ web: claimed(3000) }, () => null);
+    const slow = data(await never.def.handler({ tree: TREE, roles: ["web"] }, env));
+    expect(slow.waitedMs).toBeGreaterThanOrEqual(90_000);
+    expect(slow.waitedMs).toBeLessThan(94_000);
+    const once = setup({ web: claimed(3000) }, () => null);
+    const quick = data(await once.def.handler({ tree: TREE, roles: ["web"], waitSeconds: 0 }, env));
+    expect(quick.waitedMs).toBe(0);
+    expect(once.fetched.length).toBe(1);
+  });
+
+  test("the probe url is the lookup url plus probePath", async () => {
+    const { def, fetched } = setup({ web: claimed(3000) }, () => 200);
+    await def.handler({ tree: TREE, roles: ["web"], probePath: "/healthz" }, env);
+    expect(fetched).toEqual(["http://localhost:3000/healthz"]);
+  });
+});
