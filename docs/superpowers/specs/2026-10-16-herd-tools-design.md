@@ -150,8 +150,8 @@ the row. The frozen human bytes are unchanged.
   either check is refused with its path.
 - **The old session's gates.** Each spawn runs a new claude session, and
   `herd:answer` consumes a gate only for the session it nudges, so gates
-  from the old session can never settle. Before launching, respawn closes
-  the job's open gates as `abandoned` through `gate:close` (the new worker
+  from the old session can never settle. After a successful launch (a
+  failed launch leaves them pending), respawn closes the job's open gates as `abandoned` through `gate:close` (the new worker
   re-asks), and stamps its answered-but-unconsumed gates consumed through
   the store's `markConsumed`, so neither the watchdog nor a nudge chases
   them. Both are existing verbs; the gate schema is untouched.
@@ -250,8 +250,9 @@ captured screens, and the spec says so in the tests.
 - The gate must be the job's: `herd:<id>/<job>`, or a run gate in its
   worktree. It must be answered, not yet consumed, and nudge the job's
   current session (a gate from a session a respawn replaced is refused as
-  stale). Anything else is refused, as input validation, and nothing
-  ticks.
+  stale). A job with no live pane (a failed relaunch leaves one) is
+  refused before either rung, since its handle reaches no one. Anything
+  else is refused, as input validation, and nothing ticks.
 - **Rung 0** (`used == 0`): the daemon DMs the job's handle from the
   shepherd's handle through `chat:dm`, with the body
   `call herd_answer for <gate>`.

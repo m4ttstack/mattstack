@@ -769,6 +769,7 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (gate.consumedAt !== null || gate.released) return { ok: false, error: `gate ${id} is already consumed; the worker has read its answer` };
       if (!gate.nudge?.session) return { ok: false, error: `gate ${id} names no session to nudge` };
       if (gate.nudge.session !== job.agentSession) return { ok: false, error: `gate ${id} is stale: it was asked by a session job "${name}" no longer runs` };
+      if (job.pane === null) return { ok: false, error: `job "${name}" has no live pane; respawn it first` };
 
       const used = store.budgetRows(herdId, name).find((r) => r.counter === "nudges" && r.key === id)?.used ?? 0;
       if (used === 0) {
@@ -843,7 +844,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!store.get(herdId)) return { ok: false, error: `unknown herd "${herdId}"` };
       const includeParked = (raw as { includeParked?: unknown }).includeParked === true;
       const [own, matched] = await Promise.all([readOpenHerdGates(herdId, includeParked), readHerdRunGates(herdId, includeParked)]);
-      return { ok: true, data: { gates: [...(own.ok ? own.data : []), ...(matched.ok ? matched.data : [])] } };
+      if (!own.ok) return own;
+      if (!matched.ok) return matched;
+      return { ok: true, data: { gates: [...own.data, ...matched.data] } };
     },
 
     "herd:ask": async (raw: unknown): Promise<CommandResult<"herd:ask">> => {

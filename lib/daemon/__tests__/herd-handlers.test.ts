@@ -1846,6 +1846,15 @@ describe("herd:gates", () => {
     if (!live.ok) throw new Error(live.error);
     expect(live.data.gates.map((g) => g.id).sort()).toEqual([own, run].sort());
   });
+
+  test("a failed gate listing comes back as the error, not an empty list", async () => {
+    const hx = harness();
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const failing = { ...hx.deps.gate, "gate:list": async () => ({ ok: false, error: "gates store unavailable" }) } as unknown as HerdDeps["gate"];
+    const h = createHerdHandlers({ ...hx.deps, gate: failing });
+    expect(await h["herd:gates"]({ herd: s.data.herd })).toEqual({ ok: false, error: "gates store unavailable" });
+  });
 });
 
 describe("herd:diagnose", () => {
@@ -2109,14 +2118,17 @@ describe("herd:nudge", () => {
     expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
   });
 
-  test("a job with no pane reports pane-gone on the pane rung", async () => {
-    const { h, herd, gate, store, injects } = await nudgeable();
+  test("a job with no pane is refused on either rung and ticks nothing", async () => {
+    const { h, herd, gate, store, injects, chatCalls } = await nudgeable();
     store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a.w001", status: "active", pane: null, agentSession: "sess-w1" });
+    const first = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    expect(first).toEqual({ ok: false, error: `job "job-a" has no live pane; respawn it first` });
     store.tickBudget(herd, "job-a", "nudges", gate);
-    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
-    if (!res.ok) throw new Error(res.error);
-    expect(res.data).toMatchObject({ delivered: false, needsHuman: true, why: "pane-gone" });
+    const second = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    expect(second).toEqual({ ok: false, error: `job "job-a" has no live pane; respawn it first` });
+    expect(chatCalls.filter((c) => c.verb === "dm")).toEqual([]);
     expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
   });
 
   test("an unreachable herdr refuses the pane rung and ticks nothing", async () => {
