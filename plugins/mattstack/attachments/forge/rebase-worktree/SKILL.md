@@ -15,7 +15,7 @@ Bring one worktree's branch current with the default branch through the
 `branch_sync` tool. This never guesses: it refuses on a dirty tree, refuses
 a stack member, and hands conflicts back to a human.
 
-`<tree>` is the worktree's absolute path. The graph is the map; each box has a section below with the how. Every gate box runs the gate steps graph under **Gates**.
+`<tree>` is the worktree's absolute path. The graph is the map; each box has a section below. Every gate box runs the gate steps graph under **Gates**.
 
 ```dot
 digraph rebase_worktree {
@@ -162,7 +162,7 @@ paths?}`. `kind` decides, and nothing else does:
 |---|---|
 | `synced` | The branch moved. `pushed: true`: origin has it, so no push gate. `pushed: false`: origin's ref lacks the new head, so **Gate push** follows. |
 | `up-to-date` | Nothing moved or was pushed. **Report the move** says "already current; nothing pushed". |
-| `push-refused` | The rebase landed locally; the push failed. Quote `refusal`; **Gate push** follows. |
+| `push-refused` | The rebase landed locally; the push failed. **Report the move** quotes `refusal`; **Gate push** follows. |
 | `dirty-tree` | Nothing ran. **Gate clarify: dirty tree** with the result's `paths`. |
 | `conflict` | The rebase is paused in the worktree. **Gate conflict:rebase-worktree:<attempt>** with the bundle's `unresolvedFiles`. Keep the result's `newHead` for **Head still the old head?**. |
 | `stacked-refused` | **Refused: stack member, tool named**: quote `refusal` and name the tool it names. The restack belongs to that tool. |
@@ -173,7 +173,7 @@ paths?}`. `kind` decides, and nothing else does:
 |---|---|
 | "The stack refusal came back, but the MR targets the default branch, so I'll rebase by hand" | `stacked-refused` is the guard's verdict, not a hint. The run ends reported; the restack is the named tool's. |
 | "The stack check could not run, so I'll check the MRs myself and rebase" | `stack-unverified` ends the run. An unverified branch is never rebased, by hand or by another tool. |
-| "`synced`, so now the push gate" | With `pushed: true` the push already happened. A push form for a push that happened is a false choice. Report it as pushed. |
+| "`synced`, so now the push gate" | With `pushed: true` the push already happened; a push form would be a false choice. Report it as pushed. |
 | "`synced` means pushed" | Read `pushed`. With `pushed: false` the new head is local only, and the push gate decides. |
 
 ### Gate clarify: dirty tree
@@ -222,12 +222,13 @@ One line: old head -> new head, each as the sha and subject from its
 result's `oldHead`. `<newHead>` is the result's `newHead` on the
 `branch_sync` path, and HEAD after an iterate where the human finished the
 rebase. The line ends "already current; nothing pushed" when the heads
-match, and "pushed by branch_sync" when `pushed` is true.
+match, "pushed by branch_sync" when `pushed` is true, and otherwise "not
+pushed", followed on `push-refused` by the quoted `refusal`.
 
 ### Gate push
 
-Scope `push`. The sentence is the old head -> new head line; nothing else
-before the form. The questions, each its own question (never fold one list
+Scope `push`. The sentence is the line from **Report the move**; nothing
+else before the form. The questions, each its own question (never fold one list
 into another: a question over 4 options sends the whole gate to the wait
 queue):
 
@@ -248,7 +249,7 @@ its text; the rebase stands unpushed.
 
 | Thought | Reality |
 |---------|---------|
-| "Push with force-with-lease now is the natural next action, so I'll mark it Recommended" | Only **Leave it unpushed** carries a recommended label, and only conditionally (an open MR others may have pulled). Render that qualifier attached to that option exactly; never move it to the push option. |
+| "Push with force-with-lease now is the natural next action, so I'll mark it Recommended" | Only **Leave it unpushed** carries a recommended label, and only conditionally (an open MR others may have pulled). Keep that qualifier on that option; never move it to the push option. |
 | "Restating the finding and explaining each option makes the ask clearer" | A gate's form is one sentence of context, then the bare option labels the gate text names, nothing more -- no restated heading, no per-option description, no conditional aside on when Hold applies. |
 
 ### Off-script gate

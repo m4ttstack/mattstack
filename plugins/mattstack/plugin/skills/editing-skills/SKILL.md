@@ -442,10 +442,9 @@ for the human to push.
 
 ### Off-script gate: feature push refused
 
-Quote both `git_push` refusals and propose the fix (the tree's
+Quote the `git_push` refusal and propose the fix (the tree's
 registration, the branch, the remote). Retry: the human fixed it;
-`git_push` again from the checkout, with the printed-root retry available
-again. Takes over: the human pushes.
+`git_push` again from the checkout. Takes over: the human pushes.
 
 ### Gate: drift survives the compile
 

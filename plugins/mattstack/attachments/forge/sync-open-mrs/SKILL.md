@@ -271,8 +271,8 @@ why. Skipped up front: NONE rows, with nothing local to rebase, and trees
 the tree is not known clean and is skipped too, saying so. On GitHub,
 a tree whose `git -C <tree> status --porcelain` is not empty is the dirty
 one. When the map was cut short, the same sentence says so: on GitLab,
-`complete: false` means it was cut at 200 open MRs; on GitHub, a truncated
-read. Every row of the map is the signed-in user's own MR, so every branch
+`complete: false` means it was cut at 200 open MRs; on GitHub, exactly 200
+rows from `gh pr list` means it was cut at 200 open PRs. Every row of the map is the signed-in user's own MR, so every branch
 starts pre-selected; deselecting skips it.
 
 **These thoughts mean you are skipping the gate -- STOP:**
@@ -311,8 +311,8 @@ sweep ends abandoned; a run this verb started closes as `abandoned`.
 branch of yours that has a tree, not the form's list. So the answer is yes
 only when all four hold:
 
-- the map was complete (`mr_map`'s `complete` is true on GitLab; no
-  truncated read on GitHub),
+- the map was complete (`mr_map`'s `complete` is true on GitLab; fewer
+  than 200 rows from `gh pr list` on GitHub),
 - the plan skipped no tree up front (no `dirty: true`, no `dirty: null`
   with a worktree on GitLab, no non-empty porcelain read on GitHub), so
   the sweep visits no tree outside the form; a NONE row does not count,
@@ -321,6 +321,9 @@ only when all four hold:
 
 Anything else is no: the per-branch path, one `branch_sync {tree}` per
 selected branch in the answer's order.
+
+On GitHub, `<checkout>` and the `repoName` passed to `branch_sync_sweep`
+are the current checkout's absolute path.
 
 ### branch_sync_sweep result?
 
