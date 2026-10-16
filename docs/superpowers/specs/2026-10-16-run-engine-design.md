@@ -115,7 +115,9 @@ Items 3 and 4 above are superseded, and both revisions are temporary:
 1. `run_stage start` (the `stage-start` write verb and `rt runs stage-start`)
    **supersedes** a running latest attempt instead of refusing: in one
    transaction it ends that attempt `redirected` with reason `superseded by
-   attempt <n+1>` and inserts attempt n+1 running. No decision is recorded.
+   attempt <n+1>` and inserts attempt n+1 running. The same transaction records a `gate@1`
+   decision `redirect:<stage>:<n>` (`decided_by` `run_stage`) with selection
+   `{from: <stage>, to: <stage>, reason: "superseded by attempt <n+1>"}`.
    `nextStage`, `resolveStage` and `enterRun` still never supersede; they call
    `stageStart` with `onRunning: "refuse"`. The refusal returns to the
    `run_stage` path in wave 3, by changing the one `onRunning` value
@@ -172,7 +174,10 @@ running; end it (done, fail or redirect) before starting another, or resume
 it with run_enter`, and nothing is written. With `onRunning: "supersede"`,
 which the MCP `run_stage` tool and the `rt runs stage-start` CLI pass (same
 function), the running row is ended `redirected` (reason `superseded by
-attempt <n+1>`) and the next attempt inserted in one IMMEDIATE transaction.
+attempt <n+1>`) and the next attempt inserted in one IMMEDIATE transaction,
+which also records the `gate@1` decision `redirect:<stage>:<n>` (`decided_by`
+`run_stage`, selection `{from: <stage>, to: <stage>, reason: "superseded by
+attempt <n+1>"}`).
 
 ### The position object
 
