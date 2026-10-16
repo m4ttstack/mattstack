@@ -37,8 +37,10 @@ Every other tool on the server is the rest of that grant.
 the server runs on every estate machine with no permission check, and a new
 tool is a write any agent can make unasked, including one reading untrusted
 text (an MR under review). `mcpTools()` in `lib/mcp/tools.ts` is the roster
-(`rt mcp tools --json` prints it). `tools.ts` itself holds the gate tools,
-the `mr_*` writes and `mr_map`, `rt_verb`, the herd worker tools
+(`rt mcp tools --json` prints it). `tools.ts` itself holds `gate_ask`,
+`gate_answer` and `gate_list` (`gate-tools.ts` is the home of the gate
+tool handlers and defines `gate_open`, `gate_record` and `gate_reconcile`
+over `lib/gates/`), the `mr_*` writes and `mr_map`, `rt_verb`, the herd worker tools
 (`herd_gates`, `herd_ask`, `herd_answer`, `herd_report`) and five chat tools
 (`chat_post`, `chat_dm`, `chat_ack`, `chat_claim`, `chat_release`), and
 spreads in the rest: run tracking (`run-tools.ts`, in-process over
@@ -74,7 +76,8 @@ commits only origin has. `herd_spawn`, `herd_close`, `herd_follow_up`,
 shepherd, never from a worker pane, and every caller-named path a herd tool
 or `rt_verb` takes (a brief, a template, an out file) is confined by
 `temp-root-guard.ts` to the Claude Code temp root or an installed plugin or
-pack root. Every result, success or error, passes through `callTool` in
+pack root (the read-root check admits `.md`, and `.json` for `gate_open`
+and `gate_record`). Every result, success or error, passes through `callTool` in
 `lib/mcp/redact.ts` (called by `commands/mcp.ts` for each tools/call), which
 strips credentials from URLs, query params, token shapes and auth headers; a
 new tool inherits it and must never answer around it.
