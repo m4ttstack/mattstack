@@ -8,9 +8,10 @@ import { childEnv } from "../../lib/subprocess.ts";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as ui from "../../lib/ui/out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../../lib/ui/warn.ts";
-import { realTeamDeps, teamAdd, teamCreate, teamInvite, teamManageMembership, teamPeer, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
+import { realTeamDeps, teamAdd, teamCreate, teamInvite, manageMembershipBlocks, teamManageMembership, teamPeer, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
@@ -27,6 +28,8 @@ const adminFiles = {
   [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
   [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
 };
+
+const memberFiles = { ...adminFiles, [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev3" }) };
 
 class FakeAgeKeySeam implements AgeKeySeam {
   async run(cmd: string[]): Promise<AgeExecResult> {
@@ -439,9 +442,8 @@ describe("teamInvite", () => {
     // membership on a team repo unless explicitly permitted. The value is one
     // the contract and the app already accept ("granted"|"manual"|"skipped").
     expect(parsed.forgeAccess).toBe("skipped");
-    // Not-created branch: the two forge web-UI steps, plus the admin sentence.
     expect(parsed.manualSteps).toHaveLength(3);
-    expect((parsed.manualSteps as string[]).at(-1)).toContain("Ask whoever runs the team repo");
+    expect((parsed.manualSteps as string[])[0]).toContain("rt team manage-membership on --team acme");
     expect(parsed.pasteBlock).toBe(pasteBlock(parsed.code, { link: parsed.link, teamName: "Acme Team" }));
   });
 
@@ -625,7 +627,7 @@ describe("teamInvite", () => {
     }
   });
 
-  test("human output names who to ask, since rt does not manage membership", async () => {
+  test("human output points at the latch when rt does not manage membership", async () => {
     const deps = inviteDeps({ exec: ghExec({ code: 127, stdout: "", stderr: "ENOENT: gh" }) });
     const io = captureOut();
     ui.__test__.setHuman(() => false);
@@ -634,7 +636,7 @@ describe("teamInvite", () => {
       const text = io.stdout();
       expect(text).toContain("mattstack://join/");
       expect(text).toContain("[needs you] zaphod cannot see the team repo yet  forge access: skipped\n");
-      expect(text).toContain("Ask whoever runs the team repo");
+      expect(text).toContain("rt team manage-membership on --team acme");
     } finally {
       io.restore();
     }
@@ -644,32 +646,27 @@ describe("teamInvite", () => {
 describe("teamManageMembership", () => {
   function manageDeps(record: TeamLocalRecord): TeamDeps & { lines: string[]; exitCodes: number[] } {
     const deps = baseDeps();
-    writeTeamLocal(deps.probes, "acme", record);
+    writeTeamLocal(deps.probes, "acme", { forgeUsername: "dev1", ...record });
     return deps;
   }
 
-  test("bare form reports the state and whether it can be offered at all", async () => {
-    const deps = manageDeps({ createdByRt: true, joinedByRt: false, rtMayManageMembership: false });
+  test("bare form reports the state and whether this Mac may turn it on", async () => {
+    const deps = manageDeps({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false });
     await teamManageMembership(["--team", "acme", "--json"], {}, deps);
-
-    const parsed = JSON.parse(deps.lines[0]!);
-    expect(parsed.mayManage).toBe(false);
-    expect(parsed.offerable).toBe(true);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ slug: "acme", mayManage: false, offerable: true });
   });
 
-  test("on writes the permission", async () => {
-    const deps = manageDeps({ createdByRt: true, joinedByRt: false, rtMayManageMembership: false });
+  test("on is offered on any org repo an admin runs, whoever created it", async () => {
+    const deps = manageDeps({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
     await teamManageMembership(["on", "--team", "acme", "--json"], {}, deps);
-
     expect(readTeamLocal(deps.probes, "acme").rtMayManageMembership).toBe(true);
   });
 
-  test("on is refused where rt did not create the repo, and writes nothing", async () => {
-    const deps = manageDeps({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false });
+  test("on is refused for someone who does not run the org, and writes nothing", async () => {
+    const deps = baseDeps({ probes: fakeProbes({ home: "/home/x", files: memberFiles }) });
     const code = await runExpectingProcessExit(() => teamManageMembership(["on", "--team", "acme", "--json"], {}, deps));
-
     expect(code).toBe(2);
-    expect(JSON.parse(deps.lines[0]!).error.code).toBe("not-rt-created");
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("team-pull-only");
     expect(readTeamLocal(deps.probes, "acme").rtMayManageMembership).toBe(false);
   });
 
@@ -680,51 +677,11 @@ describe("teamManageMembership", () => {
     expect(readTeamLocal(deps.probes, "acme").rtMayManageMembership).toBe(false);
   });
 
-  test("human mode says whether invites grant access, and how to turn it on", async () => {
-    const cases: Array<[string[], Parameters<typeof manageDeps>[0], string]> = [
-      [["on", "--team", "acme"], { createdByRt: true, joinedByRt: false, rtMayManageMembership: false }, "[ok] Invites to acme give read access on the forge  membership management is on\n"],
-      [["--team", "acme"], { createdByRt: true, joinedByRt: false, rtMayManageMembership: false }, "[off] Invites to acme leave forge access to you  membership management is off\n  next: rt team manage-membership on\n"],
-      [["--team", "acme"], { createdByRt: false, joinedByRt: false, rtMayManageMembership: false }, "[off] Invites to acme leave forge access to you  membership management is off\n  note: mattstack did not create this repo, so this cannot be turned on\n"],
-    ];
-    const io = captureOut();
-    ui.__test__.setHuman(() => false);
-    try {
-      for (const [args, local, expected] of cases) {
-        io.clear();
-        const deps = manageDeps(local);
-        await teamManageMembership(args, {}, deps);
-        expect(io.stdout()).toBe(expected);
-        expect(deps.lines).toEqual([]);
-      }
-    } finally {
-      io.restore();
-    }
-  });
-
-  test("human mode: on where rt did not create the repo is a refused line, not a failure", async () => {
-    const deps = manageDeps({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false });
-    const io = captureOut();
-    ui.__test__.setHuman(() => false);
-    try {
-      const code = await runExpectingProcessExit(() => teamManageMembership(["on", "--team", "acme"], {}, deps));
-      expect(code).toBe(2);
-      expect(io.stdout()).toBe("");
-      expect(io.stderr()).toBe(
-        "[refused] mattstack did not create the acme team's repo, so it will not manage who can see it\n  why: Whoever runs that repo gives people access.\n",
-      );
-      expect(deps.lines).toEqual([]);
-    } finally {
-      io.restore();
-    }
-  });
-
-  test("--json: the same refusal keeps today's exit-2 envelope shape", async () => {
-    const deps = manageDeps({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false });
-    const code = await runExpectingProcessExit(() => teamManageMembership(["on", "--team", "acme", "--json"], {}, deps));
-    expect(code).toBe(2);
-    const { at, ...body } = JSON.parse(deps.lines[0]!);
-    expect(typeof at).toBe("string");
-    expect(body).toEqual({ contract: 1, error: { code: "not-rt-created", message: "mattstack did not create the acme team's repo, so it will not manage who can see it" } });
+  test("human mode says who manages forge access, and how to change it", () => {
+    expect(renderPlain(manageMembershipBlocks("acme", true, true))).toContain("mattstack manages who can reach acme on the forge");
+    expect(renderPlain(manageMembershipBlocks("acme", true, true))).toContain("rt team forge-access --team acme");
+    expect(renderPlain(manageMembershipBlocks("acme", false, true))).toContain("rt team manage-membership on --team acme");
+    expect(renderPlain(manageMembershipBlocks("acme", false, false))).toContain("Only an org admin can turn this on");
   });
 
   test("human mode: a usage error asks for on or off", async () => {

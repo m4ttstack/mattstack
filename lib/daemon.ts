@@ -38,6 +38,7 @@ import {
   type DaemonLoggerHandle,
 } from "./daemon-logger.ts";
 import { onNotification, notifyEnabled, notifyEvent, loadNotificationPrefs } from "./notifier.ts";
+import { createForgeAccessSweep } from "./daemon/forge-access-sweep.ts";
 import { checkInviteReplies, INVITE_REPLIES_NS, listInviteSlugs, MEMBER_JOINED_CATEGORY } from "./daemon/invite-replies.ts";
 import { readInviteRecords } from "./team/invite-records.ts";
 import { createRelayClient } from "./team/relay-client.ts";
@@ -970,6 +971,12 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             for (const n of notified) log.info({ team: n.slug, handle: n.handle }, "invite reply landed; owner notified");
           },
           { bootDelayMs: 90_000, intervalMs: 5 * 60 * 1000 },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "forge-access",
+          createForgeAccessSweep({ probes: createRealProbes(), log }),
+          { bootDelayMs: 120_000, intervalMs: 2 * 60 * 1000 },
           log,
         ));
         sweepHandles.push(scheduleSweep(

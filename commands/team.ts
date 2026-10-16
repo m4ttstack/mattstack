@@ -6,6 +6,8 @@ import { orgStoreFile } from "../lib/team/org-store.ts";
 import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
 import { roleFor, rolesFor } from "../lib/team/roles.ts";
+import { applyForgeAccess, readForgeAccess, realForgeAccessSeams, sharedBranchSentence, type ForgeAccessApplied, type ForgeAccessReport, type ForgeAccessSeams } from "../lib/team/forge-access-apply.ts";
+import { diffLines, hasChanges, limitSentence } from "../lib/team/forge-access-plan.ts";
 import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
 /**
  * rt team create|publish|rename|invite|join|members|status: the team-repo
@@ -69,6 +71,7 @@ import { createRelayClient } from "../lib/team/relay-client.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
+import { markerState } from "../lib/team/org-marker.ts";
 import { useBranch, type BranchUse } from "../lib/team/trial-branch.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -115,6 +118,8 @@ export interface TeamDeps {
   peerSeams?: Partial<PeerSeams>;
   /** Overrides `renameOrg`'s seams; real by default. */
   renameSeams?: Partial<RenameSeams>;
+  /** The forge reads and writes `rt team forge-access` makes; real by default. */
+  forgeAccessSeams?: ForgeAccessSeams;
 }
 
 async function defaultReadCode(json: boolean): Promise<string> {
@@ -203,7 +208,15 @@ const REFUSAL_CODES = new Set([
   "trial-branch-not-moved",
   "trial-branch-held",
   "trial-branch-no-org-data",
+  "forge-access-off",
 ]);
+
+/** The checked-out branch, shown unless it is the org's own; a recorded trial reads as one, anything else as off the org's branch. */
+function branchRow(branch: string | null, homeBranch: string, trialBranch: string | undefined): Block[] {
+  if (branch === null || branch === homeBranch) return [];
+  if (branch === trialBranch) return [out.kv("branch", branch, `a trial; the org's data is on ${homeBranch}`)];
+  return [out.kv("branch", branch, `this Mac reads and publishes this branch, not ${homeBranch}`)];
+}
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
 function exitTeamError(err: UserActionableError, json: boolean, deps: TeamDeps): never {
@@ -658,9 +671,9 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
     const teams = named.length > 0 ? named : own ? [own] : [];
 
     const gate = deps.interactive ?? (await import("../lib/ui/gate.ts")).interactive;
-    if (!json && local.createdByRt && !local.rtMayManageMembership && gate()) {
+    if (!json && !local.rtMayManageMembership && gate()) {
       const ask = deps.confirm ?? (async (message: string) => (await import("../lib/ui/prompts.ts")).confirm({ message }));
-      if (await ask(`mattstack created this repo. Let it give ${handle} read access on the forge, and manage access for future invites?`)) {
+      if (await ask(`Let mattstack manage who can reach this org's repo on the forge? It gives ${handle} read access now and follows the org's roles from then on.`)) {
         updateTeamLocal(deps.probes, slug, { rtMayManageMembership: true });
       }
     }
@@ -687,8 +700,8 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
 
 /**
  * The permission is machine-local and never synced, so this is the only
- * non-interactive door to it. `on` is refused rather than ignored where rt did
- * not create the repo: rt does not administer a repo it was pointed at.
+ * non-interactive door to it. Only a Mac whose role runs the org may turn it
+ * on: the forge would refuse anyone else's changes anyway.
  */
 export async function teamManageMembership(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
@@ -699,33 +712,38 @@ export async function teamManageMembership(args: string[], _ctx: CommandContext 
 
   try {
     const slug = resolveTeamSlug(args, "team manage-membership");
-    const before = readTeamLocal(deps.probes, slug);
-    if (state === "on" && !before.createdByRt) {
-      throw new UserActionableError("not-rt-created", `mattstack did not create the ${slug} team's repo, so it will not manage who can see it`, {}, {
-        why: "Whoever runs that repo gives people access.",
+    const runsOrg = isOrgAdmin(roleFor(deps.probes, slug));
+    if (state === "on" && !runsOrg) {
+      const admins = rolesFor(deps.probes, slug).admins;
+      throw new UserActionableError("team-pull-only", "Only an org admin can let mattstack manage forge access", {}, {
+        why: admins.length > 0 ? `Ask ${admins.join(" or ")} to turn it on from their Mac.` : "This org names no admins yet.",
       });
     }
-
-    const record = state === undefined ? before : updateTeamLocal(deps.probes, slug, { rtMayManageMembership: state === "on" });
+    const record = state === undefined ? readTeamLocal(deps.probes, slug) : updateTeamLocal(deps.probes, slug, { rtMayManageMembership: state === "on" });
 
     if (json) {
-      deps.print(JSON.stringify(envelope({ slug, mayManage: record.rtMayManageMembership, offerable: record.createdByRt })));
+      deps.print(JSON.stringify(envelope({ slug, mayManage: record.rtMayManageMembership, offerable: runsOrg })));
       return;
     }
-    out.print(
-      ...(record.rtMayManageMembership
-        ? [out.line("done", `Invites to ${slug} give read access on the forge`, "membership management is on")]
-        : [
-            out.line("off", `Invites to ${slug} leave forge access to you`, "membership management is off"),
-            record.createdByRt
-              ? out.callout("next", out.cmd("rt team manage-membership on"))
-              : out.callout("note", "mattstack did not create this repo, so this cannot be turned on"),
-          ]),
-    );
+    out.print(...manageMembershipBlocks(slug, record.rtMayManageMembership, runsOrg));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
+}
+
+export function manageMembershipBlocks(slug: string, on: boolean, runsOrg: boolean): Block[] {
+  if (on) {
+    return [
+      out.line("done", `mattstack manages who can reach ${slug} on the forge`, "membership management is on"),
+      out.callout("note", "It follows the org's roles within a few minutes, and again at each app update."),
+      out.callout("next", out.cmd(`rt team forge-access --team ${slug}`)),
+    ];
+  }
+  return [
+    out.line("off", `You manage who can reach ${slug} on the forge`, "membership management is off"),
+    runsOrg ? out.callout("next", out.cmd(`rt team manage-membership on --team ${slug}`)) : out.callout("note", "Only an org admin can turn this on"),
+  ];
 }
 
 export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
@@ -1074,6 +1092,8 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     );
 
     const branch = await checkedOutBranch(deps.probes, dir);
+    const marker = markerState(deps.probes, dir);
+    const homeBranch = marker.kind === "org" && marker.dataBranch !== null ? marker.dataBranch : "main";
     const log = await deps.probes.exec(["git", "-C", dir, "log", "-1", "--format=%cI", `origin/${branch ?? "main"}`]);
     const lastPush = log.code === 0 ? log.stdout.trim() || null : null;
 
@@ -1102,7 +1122,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         name,
         name === slug ? undefined : slug,
         out.kv("remote", result.remote ?? "none"),
-        ...(branch !== null && branch !== "main" ? [out.kv("branch", branch, "this Mac reads and publishes this branch, not main")] : []),
+        ...branchRow(branch, homeBranch, readTeamLocal(deps.probes, slug).trialBranch),
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
         out.kv("your team", active.team ?? "none"),
@@ -1195,6 +1215,82 @@ export async function teamUse(args: string[], _ctx: CommandContext = {}, deps: T
       result.pack.enabled ? out.line("done", `The ${result.team} pack is on`) : out.line("needs-you", `The ${result.team} pack is not on yet`, result.pack.detail),
       result.pack.enabled ? out.callout("next", "Restart Claude Code sessions to pick up the new pack") : out.callout("next", out.cmd("rt setup pack")),
     );
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+export function forgeAccessBlocks(slug: string, report: ForgeAccessReport, applied: ForgeAccessApplied | null): Block[] {
+  switch (report.kind) {
+    case "not-admin":
+      return [out.line("refused", "Only an org admin manages forge access")];
+    case "no-forge":
+      return [out.line("skipped", "This org's repo is not on GitHub or GitLab, so rt leaves its access alone")];
+    case "not-yet":
+      return [
+        out.line("skipped", "rt leaves forge access alone for now", report.branch ? `the org's data is on ${report.branch}` : undefined),
+        out.callout("note", "rt manages forge access once the org's data has a branch of its own."),
+      ];
+    case "trial":
+      return [
+        out.line("skipped", `Forge access waits while this Mac is on the trial branch ${report.branch}`),
+        out.callout("next", "Go back to the org's data branch with ", out.cmd(`rt team branch use ${report.dataBranch} --team ${slug}`)),
+      ];
+    case "shared-branch":
+      return [out.line("refused", `rt leaves the rules of ${report.branch} alone`), out.callout("fix", sharedBranchSentence(report.branch))];
+    case "refused":
+      return [out.line("needs-you", "rt could not check forge access"), out.callout("fix", ...report.manualSteps)];
+    case "ready": {
+      const limit = applied?.limit ?? limitSentence(report.pushList, report.branch);
+      const tail: Block[] = [
+        ...(limit ? [out.callout("note", limit)] : []),
+        ...(report.wanted.invalid.length > 0 ? [out.callout("note", `rt skipped roster names that are not forge usernames: ${report.wanted.invalid.join(", ")}`)] : []),
+      ];
+      if (applied) {
+        const nothing = applied.done.length === 0 && applied.manualSteps.length === 0;
+        return [
+          ...(nothing ? [out.line("done", "Forge access already matches the org's roles", `branch ${report.branch}`)] : []),
+          ...applied.done.map((line) => out.line("done", line)),
+          ...tail,
+          ...(applied.manualSteps.length > 0 ? [out.callout("fix", ...applied.manualSteps)] : []),
+        ];
+      }
+      const waiting = report.diff.waiting.map((u) => out.line("pending", `${u} has not accepted the forge's invite yet`));
+      if (!hasChanges(report.diff)) return [out.line("done", "Forge access matches the org's roles", `branch ${report.branch}`), ...waiting, ...tail];
+      return [
+        out.line("needs-you", "The forge differs from the org's roles", `branch ${report.branch}`),
+        ...diffLines(report.diff, report.branch).map((line) => out.line("pending", line)),
+        ...waiting,
+        ...tail,
+        ...(report.lastManualSteps.length > 0 ? [out.callout("fix", ...report.lastManualSteps)] : []),
+        out.callout("next", out.cmd(report.managing ? `rt team forge-access --apply --team ${slug}` : `rt team manage-membership on --team ${slug}`)),
+      ];
+    }
+  }
+}
+
+export async function teamForgeAccess(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  const apply = args.includes("--apply");
+  try {
+    const slug = resolveTeamSlug(args, "team forge-access");
+    if (!isOrgAdmin(roleFor(deps.probes, slug))) {
+      const admins = rolesFor(deps.probes, slug).admins;
+      throw new UserActionableError("team-pull-only", "Only an org admin manages forge access", {}, {
+        why: admins.length > 0 ? `Ask ${admins.join(" or ")}.` : "This org names no admins yet.",
+      });
+    }
+    if (apply && !readTeamLocal(deps.probes, slug).rtMayManageMembership) {
+      throw new UserActionableError("forge-access-off", "rt doesn't manage forge access for this org on this Mac", {}, { next: `rt team manage-membership on --team ${slug}` });
+    }
+    const seams = deps.forgeAccessSeams ?? realForgeAccessSeams();
+    const result = apply ? await applyForgeAccess(deps.probes, slug, seams) : { report: await readForgeAccess(deps.probes, slug, seams), applied: null };
+    if (json) {
+      deps.print(JSON.stringify(envelope({ slug, report: result.report, applied: result.applied })));
+      return;
+    }
+    out.print(...forgeAccessBlocks(slug, result.report, result.applied));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;

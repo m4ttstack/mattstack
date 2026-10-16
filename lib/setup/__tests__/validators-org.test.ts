@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { TeamSnapshotEntry } from "../../daemon/team-snapshots.ts";
 import { teamLocalPath } from "../../team/team-local.ts";
+import { row } from "../contract.ts";
 import { isPushRefusal, orgRows } from "../validators/org.ts";
 import { fakeProbes } from "./fakes.ts";
 
@@ -34,6 +35,16 @@ function status(error: string | null, slug = "acme"): () => Promise<TeamSnapshot
 }
 
 describe("orgRows", () => {
+  test("the forge access row is appended last, and a null one adds nothing", async () => {
+    const p = probes({ username: "dev1" });
+    expect(await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus, forgeAccess: async () => null })).toEqual([]);
+    const access = row({ id: "org.forge-access", kind: "access", title: "Forge access", why: "w", required: false, status: "ready", detail: "d" });
+    const rows = await orgRows(probes(), "acme", { forge: GITHUB, readStatus: noStatus, forgeAccess: async () => access });
+    expect(rows.map((r) => r.id)).toEqual(["team.identity"]);
+    const withAccess = await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus, forgeAccess: async () => access });
+    expect(withAccess.at(-1)?.id).toBe("org.forge-access");
+  });
+
   test("a team member with no access problem gets no rows or writes", async () => {
     const p = probes({ username: "dev1" });
     expect(await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus })).toEqual([]);
@@ -101,6 +112,7 @@ describe("orgRows", () => {
   test("an owner gets owner token scopes when its push was refused", async () => {
     const [row] = await orgRows(probes({ username: "dev2", roster: [{ username: "dev2", teams: ["widgets"] }] }), "acme", { forge: GITHUB, readStatus: status("remote: Permission to acme/org.git denied to dev2.") });
     expect(row).toMatchObject({ id: "team.push-access", kind: "access", required: false, status: "needs-you" });
+    expect(row!.why).toBe("An org admin grants write access on the forge, or lets rt manage it.");
     expect(row!.detail).toBe("Your changes to the widgets team are saved on this Mac, but the org repo refused the push. Ask an org admin (dev1) for write access");
     expect(row!.action).toMatchObject({ type: "connect", integration: "github", create: { url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg" } });
     expect(row!.finishGated).toBeUndefined();

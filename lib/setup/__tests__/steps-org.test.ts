@@ -6,7 +6,8 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { Probes } from "../probes.ts";
 import { readTeamLocal, teamLocalPath } from "../../team/team-local.ts";
-import { cloneSlugs, orgPullStep, orgSeams, teamIdentityStep, recordForgeIdentity } from "../steps/org.ts";
+import { orgPullStep, orgSeams, teamIdentityStep, recordForgeIdentity } from "../steps/org.ts";
+import { cloneSlugs } from "../team-settings.ts";
 import { fakeProbes as baseFakeProbes } from "./fakes.ts";
 import { ORG_LAYOUT } from "../../team/org-marker.ts";
 

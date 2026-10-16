@@ -189,18 +189,40 @@ Until then their clone keeps the old folder name and everything keeps working. T
 
 Older versions of mattstack kept the org under `~/.mattstack/teams/<org>/`. The first setup check after an update moves it to `~/.mattstack/orgs/<org>/`, along with rt's record of it, the repo list and the Claude marketplace that serves your packs. Nothing in the org repo changes. The move cannot run while the clone has uncommitted changes to tracked files or a rebase in progress. Untracked files move with the folder. When the move is blocked, the setup check's notification and the output of `rt setup update --force` say what is in the way. The **Org folder** row only says the folder has not moved yet. Fix it and run `rt setup update --force`.
 
-## Forge grants
+## Forge access
 
-When rt created the org repo itself (via `--create-repo`), it can manage forge membership on that repo:
+Who can reach the org's repo on the forge follows the org's roles:
+
+| Role | Repo access | Pushes the data branch |
+|---|---|---|
+| Org owner, admin, team owner | Write (GitHub write, GitLab Developer) | Yes |
+| Member, or on no team | Read (GitHub read, GitLab Reporter) | No |
+
+rt changes the forge only after an admin lets it, on their own Mac:
 
 ```bash
-rt team manage-membership on    # enable automatic grants
-rt team manage-membership off   # disable
+rt team manage-membership on    # rt manages forge access from this Mac
+rt team manage-membership off   # you manage it yourself
 ```
 
-Grant level is read-only: GitHub `pull`, GitLab Reporter. For repos that rt did not create (pasted `--remote` URLs), rt grants nothing and prints the forge's member page URL so you can add access manually.
+With it on, rt protects the org's data branch the first time, keeps its push list to the people above, and gives each person the repo access their role needs. It does this a few minutes after a roster or role change, and again at each app update. It never lowers anyone's repo access. Someone who loses a role or leaves the roster only comes off the data branch's push list. `rt team members remove` is what takes repo access away. rt never changes the rules of any other branch. It never touches the repo access of people who are not on the org's roster, such as developers who use the same repo for code.
 
-Running `rt team invite` in a terminal also offers to toggle membership management.
+While your Mac is on a trial branch (`rt team branch use`), rt leaves forge access alone until you are back on the org's data branch.
+
+To see the difference, or to change the forge now:
+
+```bash
+rt team forge-access
+rt team forge-access --apply
+```
+
+On an admin's Mac the **Forge access** row in setup status shows the same difference. When the forge refuses a change, because your account can't administer the repo, the row shows the step to do by hand.
+
+rt manages forge access once the org's data has a branch of its own.
+
+:::note
+GitHub limits pushes to named people only on a repo an organization owns, and protects a private repo's branches only on a paid plan. GitLab names people on a protected branch only on Premium and Ultimate. Where the forge can't, anyone with write access can push the data branch, and only rt limits what they change there. The row says so.
+:::
 
 ## Team packs
 
@@ -238,7 +260,8 @@ Asks the daemon to pull the org clone immediately instead of waiting for its per
 | `rt team publish` | Push your org changes to the remote |
 | `rt team rename <name>` | Admins: rename the org; members follow at their next update |
 | `rt team invite --handle <user> [--teams <team>]` | Admins: mint an invite that puts someone on a team |
-| `rt team manage-membership [on\|off]` | Control forge grants on rt-created repos |
+| `rt team manage-membership [on\|off]` | Admins: let rt manage forge access from this Mac |
+| `rt team forge-access [--apply]` | Admins: see and fix who can reach the org's repo on the forge |
 | `rt team join` | Redeem an invite code |
 | `rt team members sync` | Admins: collect reply keys from invitees |
 | `rt team members set <user> --teams <team>` | Admins: change which teams someone is on |
