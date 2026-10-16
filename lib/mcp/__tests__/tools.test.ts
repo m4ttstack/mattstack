@@ -736,6 +736,82 @@ describe("mcpTools", () => {
       expect(res.error).toContain("unknown repo");
     });
 
+    describe("mr_rebase wait", () => {
+      const rebase = () => mcpTools().find((t) => t.name === "mr_rebase")!;
+      const MR = (over: Record<string, unknown> = {}) => ({ ok: true, data: { mr: { sha: "old", rebaseInProgress: false, mergeError: null, conflicts: false, divergedCommitsCount: 2, ...over } } });
+
+      test("without wait it is unchanged: one mr:action and {rebased: true}", async () => {
+        const calls = fakeDaemon();
+        const res = await rebase().handler({ ...T }, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { rebased: true } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:action"]);
+      });
+
+      test("wait reads the MR, asks for the rebase, then polls until the sha moves", async () => {
+        let gets = 0;
+        const calls = fakeDaemon((cmd) => (cmd === "mr:get" ? MR(gets++ === 0 ? {} : { sha: "new" }) : { ok: true }));
+        const res = await rebase().handler({ ...T, wait: true, maxWaitSeconds: 30 }, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { status: "rebased", sha: "new", previousSha: "old" } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:get", "mr:action", "mr:get"]);
+        expect(calls[1]!.payload).toEqual({ ...T, action: "rebase", args: [] });
+      });
+
+      test("wait reports progress once per poll", async () => {
+        let gets = 0;
+        fakeDaemon((cmd) => (cmd === "mr:get" ? MR(gets++ === 0 ? {} : { sha: "new" }) : { ok: true }));
+        let pings = 0;
+        await rebase().handler({ ...T, wait: true }, {} as NodeJS.ProcessEnv, undefined, () => { pings++; });
+        expect(pings).toBe(1);
+      });
+
+      test("a failed pre-read stops before the rebase is requested", async () => {
+        const calls = fakeDaemon(() => ({ ok: false, error: "GitLab returned 500: boom" }));
+        const res = await rebase().handler({ ...T, wait: true }, {} as NodeJS.ProcessEnv);
+        expect(res.ok).toBe(false);
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:get"]);
+      });
+
+      test("a failed rebase request is returned without polling", async () => {
+        const calls = fakeDaemon((cmd) => (cmd === "mr:get" ? MR() : { ok: false, error: "GitLab returned 403 Forbidden" }));
+        const res = await rebase().handler({ ...T, wait: true }, {} as NodeJS.ProcessEnv);
+        expect(res.ok).toBe(false);
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:get", "mr:action"]);
+      });
+
+      test("maxWaitSeconds above 600, below 1 or fractional is refused before any call", async () => {
+        const calls = fakeDaemon();
+        for (const bad of [601, 0, 1.5, "90"]) {
+          const res = await rebase().handler({ ...T, wait: true, maxWaitSeconds: bad }, {} as NodeJS.ProcessEnv);
+          expect(res.ok).toBe(false);
+          expect(res.error).toContain("maxWaitSeconds");
+        }
+        expect(calls).toEqual([]);
+      });
+
+      test("a string wait is refused before any call", async () => {
+        const calls = fakeDaemon();
+        const res = await rebase().handler({ ...T, wait: "true" }, {} as NodeJS.ProcessEnv);
+        expect(res.error).toBe('"wait" must be a boolean');
+        expect(calls).toEqual([]);
+      });
+
+      test("wait on a GitHub repo or mrUrl is refused with no call", async () => {
+        const calls = fakeDaemon();
+        const expected = "GitLab only: mr_rebase does not speak GitHub; no server-side rebase on GitHub";
+        expect((await rebase().handler({ repoName: "remote:github.com%2Facme%2Fapp", iid: 3, wait: true }, {} as NodeJS.ProcessEnv)).error).toBe(expected);
+        expect((await rebase().handler({ mrUrl: "https://github.com/acme/app/pull/3", wait: true }, {} as NodeJS.ProcessEnv)).error).toBe(expected);
+        expect(calls).toEqual([]);
+      });
+
+      test("schema offers wait and maxWaitSeconds (1 to 600) and the description names the statuses", () => {
+        const def = rebase();
+        const props = (def.inputSchema as { properties: Record<string, Record<string, unknown>> }).properties;
+        expect(props.wait).toMatchObject({ type: "boolean" });
+        expect(props.maxWaitSeconds).toMatchObject({ type: "integer", minimum: 1, maximum: 600 });
+        for (const word of ["rebased", "failed", "current", "unchanged", "pending"]) expect(def.description).toContain(word);
+      });
+    });
+
     test("mr_resolve_thread resolves by default and returns a compact body, not the discussions list", async () => {
       const calls = fakeDaemon(() => ({ ok: true, data: { discussions: [{ id: "d1" }], fetchedAt: 1 } }));
       const tool = mcpTools().find((t) => t.name === "mr_resolve_thread")!;

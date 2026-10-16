@@ -212,6 +212,58 @@ async function isDirty(deps: MrCompositeDeps, path: string | null): Promise<bool
   }
 }
 
+export const REBASE_POLL_MS = 5_000;
+export const REBASE_DEFAULT_WAIT_S = 90;
+export const REBASE_MAX_WAIT_S = 600;
+
+export type RebaseWaitResult =
+  | { status: "rebased"; sha: string | null; previousSha: string | null }
+  | { status: "failed"; mergeError: string | null; conflicts: boolean; sha: string | null }
+  | { status: "current" | "unchanged"; sha: string | null }
+  | { status: "pending"; sha: string | null; rebaseInProgress: boolean; lastError?: string };
+
+/** GitLab rebases asynchronously and mr:action replies before it finishes, so
+    the budget is the sleeps added up: a slow poll never ends the wait early. */
+export async function waitForRebase(
+  deps: Pick<MrCompositeDeps, "command" | "sleep">,
+  target: { identity: string; iid: number },
+  previousSha: string | null,
+  opts: { maxWaitMs: number; pollMs: number; signal?: AbortSignal; progress?: () => void },
+): Promise<RebaseWaitResult> {
+  let sha = previousSha;
+  let rebaseInProgress = false;
+  let lastError: string | undefined;
+  let settledNull = 0;
+  let slept = 0;
+
+  while (!opts.signal?.aborted) {
+    opts.progress?.();
+    const r = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: READ_TIMEOUT_MS });
+    if (!r.ok || !r.data) {
+      lastError = explainError(r.error ?? "MR read failed");
+      settledNull = 0;
+    } else {
+      lastError = undefined;
+      const pr = r.data.mr;
+      sha = pr.sha;
+      rebaseInProgress = pr.rebaseInProgress;
+      if (sha !== previousSha) return { status: "rebased", sha, previousSha };
+      if (!rebaseInProgress) {
+        if (pr.mergeError || pr.conflicts) return { status: "failed", mergeError: pr.mergeError, conflicts: pr.conflicts, sha };
+        if (pr.divergedCommitsCount === 0) return { status: "current", sha };
+        settledNull = pr.divergedCommitsCount === null ? settledNull + 1 : 0;
+        if (settledNull >= 2) return { status: "unchanged", sha };
+      } else {
+        settledNull = 0;
+      }
+    }
+    if (slept + opts.pollMs > opts.maxWaitMs) break;
+    await deps.sleep(opts.pollMs);
+    slept += opts.pollMs;
+  }
+  return { status: "pending", sha, rebaseInProgress, ...(lastError !== undefined && { lastError }) };
+}
+
 export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps): McpToolDef[] {
   return [
     {

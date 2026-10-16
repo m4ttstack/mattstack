@@ -17,14 +17,14 @@ import type { Commands, GateQuestion } from "../../packages/rt-client/src/index.
 import { explainError } from "../explain-error.ts";
 import { selfPaneRef } from "../self-pane.ts";
 import { chatToolDefs } from "./chat-tools.ts";
-import { ciToolDefs } from "./ci-tools.ts";
+import { abortableSleep, ciToolDefs } from "./ci-tools.ts";
 import { whoamiToolDefs } from "./whoami-tool.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
 import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { herdToolDefs } from "./herd-tools.ts";
 import { mrReadToolDefs } from "./mr-read-tools.ts";
-import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, type OpenMr } from "./mr-composite-tools.ts";
+import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, REBASE_DEFAULT_WAIT_S, REBASE_MAX_WAIT_S, REBASE_POLL_MS, waitForRebase, type OpenMr } from "./mr-composite-tools.ts";
 import { forgeReadToolDefs } from "./forge-read-tools.ts";
 import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
@@ -54,6 +54,7 @@ function withReviewTimeout(res: ToolResult): ToolResult {
 }
 
 const MR_CREATE_GH_MOVE = "gh pr create / gh pr view";
+const MR_REBASE_GH_MOVE = "no server-side rebase on GitHub";
 
 function existingMrResult(mr: OpenMr): ToolResult {
   return ok({ iid: mr.iid, url: mr.url, existing: true, targetBranch: mr.targetBranch, draft: mr.draft, title: mr.title, applied: false });
@@ -718,17 +719,48 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_rebase",
-      description: `GitLab only. Ask GitLab to rebase the MR's source branch onto its target server-side (no checkout). GitLab accepts the request and rebases asynchronously, so re-read the MR before assuming the rebase finished or succeeded. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Ask GitLab to rebase the MR's source branch onto its target server-side (no checkout). GitLab accepts the request and rebases asynchronously: without \`wait\` the reply only says the request was accepted, so re-read the MR before assuming the rebase finished or succeeded. With \`wait: true\` the tool reads the MR, asks for the rebase, then re-reads it every ${REBASE_POLL_MS / 1000} seconds for up to \`maxWaitSeconds\` (1 to ${REBASE_MAX_WAIT_S}, default ${REBASE_DEFAULT_WAIT_S}) and returns one of: {status: "rebased", sha, previousSha} when the source branch sha moved; {status: "failed", mergeError, conflicts, sha} when GitLab reports a merge error, or conflicts while no rebase is running; {status: "current", sha} when nothing moved and the branch is not behind its target; {status: "unchanged", sha} when nothing moved across two reads and GitLab does not say whether the branch was behind, so it may already have been current; {status: "pending", sha, rebaseInProgress, lastError?} when the budget ran out, so call again or look at the MR. A failed re-read counts as a poll and is reported as lastError only if the budget ends on it. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
-        properties: { ...MR_TARGET_PROPS },
+        properties: {
+          ...MR_TARGET_PROPS,
+          wait: { type: "boolean", description: "Poll the MR until it rebased, failed, was already current, stayed unchanged or the budget ran out." },
+          maxWaitSeconds: { type: "integer", minimum: 1, maximum: REBASE_MAX_WAIT_S, description: `Polling budget with wait; default ${REBASE_DEFAULT_WAIT_S}.` },
+        },
         additionalProperties: false,
       },
       shellForms: ["glab mr rebase"],
-      async handler(input) {
+      async handler(input, _env, signal, progress) {
+        const bad = checkOptional(input, [{ name: "wait", type: "boolean" }]);
+        if (bad) return err(bad);
+        if (input.wait !== true) {
+          const target = await resolveMrTarget(input);
+          if (!target.ok) return err(target.error);
+          return runMrAction(target, "rebase", [], { rebased: true });
+        }
+        const maxWait = input.maxWaitSeconds ?? REBASE_DEFAULT_WAIT_S;
+        if (typeof maxWait !== "number" || !Number.isInteger(maxWait) || maxWait < 1 || maxWait > REBASE_MAX_WAIT_S) {
+          return err(`"maxWaitSeconds" must be an integer from 1 to ${REBASE_MAX_WAIT_S}`);
+        }
+        const early = refuseGithubTarget(input, "mr_rebase", MR_REBASE_GH_MOVE);
+        if (early) return err(early);
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);
-        return runMrAction(target, "rebase", [], { rebased: true });
+        const refused = githubRefusal(target.identity, "mr_rebase", MR_REBASE_GH_MOVE);
+        if (refused) return err(refused);
+
+        const before = await rtCommand<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+        if (!before.ok || !before.data) return err(explainError(before.error ?? "MR read failed"));
+        const asked = await runMrAction(target, "rebase", [], null);
+        if (!asked.ok) return asked;
+
+        const result = await waitForRebase(
+          { command: rtCommand, sleep: (ms) => abortableSleep(ms, signal) },
+          target,
+          before.data.mr.sha,
+          { maxWaitMs: maxWait * 1000, pollMs: REBASE_POLL_MS, ...(signal && { signal }), ...(progress && { progress }) },
+        );
+        return ok(result);
       },
     },
     {

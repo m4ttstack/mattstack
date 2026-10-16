@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Discussion } from "../../../packages/rt-client/src/index.ts";
-import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, normalizeBody, postedMatch, selfUsername, type MrCompositeDeps } from "../mr-composite-tools.ts";
+import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, normalizeBody, postedMatch, selfUsername, waitForRebase, REBASE_DEFAULT_WAIT_S, REBASE_MAX_WAIT_S, REBASE_POLL_MS, type MrCompositeDeps } from "../mr-composite-tools.ts";
 
 type Call = { name: string; payload: Record<string, unknown> };
 
@@ -480,5 +480,134 @@ describe("EXISTING_MR", () => {
   test("matches GitLab's duplicate-MR 409 text", () => {
     expect(EXISTING_MR.test("Error: createPullRequest failed: 409 Conflict \u2014 Another open merge request already exists for this source branch: !7")).toBe(true);
     expect(EXISTING_MR.test("createPullRequest failed: 403 Forbidden")).toBe(false);
+  });
+});
+
+describe("waitForRebase", () => {
+  type Poll = { sha?: string | null; rebaseInProgress?: boolean; mergeError?: string | null; conflicts?: boolean; divergedCommitsCount?: number | null } | Error;
+  const TARGET = { identity: ID, iid: 7 };
+  const OPTS = { maxWaitMs: 30_000, pollMs: 5_000 };
+
+  function script(polls: Poll[]) {
+    const commands: Call[] = [];
+    const sleeps: number[] = [];
+    let i = 0;
+    const deps = {
+      command: (async (name: string, payload: Record<string, unknown>) => {
+        commands.push({ name, payload });
+        const p = polls[Math.min(i++, polls.length - 1)]!;
+        if (p instanceof Error) return { ok: false, error: p.message };
+        return { ok: true, data: { mr: { sha: "old", rebaseInProgress: false, mergeError: null, conflicts: false, divergedCommitsCount: 2, ...p } } };
+      }) as any,
+      sleep: async (ms: number) => { sleeps.push(ms); },
+    };
+    return { deps, commands, sleeps };
+  }
+
+  test("the constants are the spec's", () => {
+    expect([REBASE_POLL_MS, REBASE_DEFAULT_WAIT_S, REBASE_MAX_WAIT_S]).toEqual([5_000, 90, 600]);
+  });
+
+  test("an in-progress poll then a moved sha reads rebased with the previous sha", async () => {
+    const { deps, commands, sleeps } = script([{ rebaseInProgress: true }, { sha: "new" }]);
+    const r = await waitForRebase(deps, TARGET, "old", OPTS);
+    expect(r).toEqual({ status: "rebased", sha: "new", previousSha: "old" });
+    expect(commands.map((c) => c.name)).toEqual(["mr:get", "mr:get"]);
+    expect(commands[0]!.payload).toEqual({ repoName: ID, iid: 7 });
+    expect(sleeps).toEqual([5_000]);
+  });
+
+  test("a merge error reads failed with the message", async () => {
+    const { deps } = script([{ mergeError: "conflict" }]);
+    expect(await waitForRebase(deps, TARGET, "old", OPTS)).toEqual({ status: "failed", mergeError: "conflict", conflicts: false, sha: "old" });
+  });
+
+  test("conflicts with an unchanged sha fail once no rebase is in progress, and wait while one is", async () => {
+    const { deps } = script([{ conflicts: true, rebaseInProgress: true }, { conflicts: true }]);
+    expect(await waitForRebase(deps, TARGET, "old", OPTS)).toEqual({ status: "failed", mergeError: null, conflicts: true, sha: "old" });
+  });
+
+  test("a stale merge error does not fail a rebase that is still running", async () => {
+    const { deps } = script([{ mergeError: "stale", rebaseInProgress: true }, { sha: "new" }]);
+    expect((await waitForRebase(deps, TARGET, "old", OPTS)).status).toBe("rebased");
+  });
+
+  test("an unchanged sha, nothing in progress and zero diverged commits reads current", async () => {
+    const { deps } = script([{ divergedCommitsCount: 0 }]);
+    expect(await waitForRebase(deps, TARGET, "old", OPTS)).toEqual({ status: "current", sha: "old" });
+  });
+
+  test("a null diverged count reads unchanged only after two settled polls in a row", async () => {
+    const { deps, commands } = script([{ divergedCommitsCount: null }, { divergedCommitsCount: null }]);
+    expect(await waitForRebase(deps, TARGET, "old", OPTS)).toEqual({ status: "unchanged", sha: "old" });
+    expect(commands).toHaveLength(2);
+  });
+
+  test("a settled poll broken by an in-progress poll restarts the unchanged count", async () => {
+    const { deps, commands } = script([{ divergedCommitsCount: null }, { divergedCommitsCount: null, rebaseInProgress: true }, { divergedCommitsCount: null }, { divergedCommitsCount: null }]);
+    expect((await waitForRebase(deps, TARGET, "old", OPTS)).status).toBe("unchanged");
+    expect(commands).toHaveLength(4);
+  });
+
+  test("diverged commits that never move the sha leave pending once the sleeps add up to the budget", async () => {
+    const { deps, commands, sleeps } = script([{ divergedCommitsCount: 3 }]);
+    const r = await waitForRebase(deps, TARGET, "old", { maxWaitMs: 20_000, pollMs: 5_000 });
+    expect(r).toEqual({ status: "pending", sha: "old", rebaseInProgress: false });
+    expect(commands).toHaveLength(5);
+    expect(sleeps).toEqual([5_000, 5_000, 5_000, 5_000]);
+  });
+
+  test("a rebase still in progress at the end reports it", async () => {
+    const { deps } = script([{ rebaseInProgress: true }]);
+    expect(await waitForRebase(deps, TARGET, "old", { maxWaitMs: 10_000, pollMs: 5_000 })).toEqual({ status: "pending", sha: "old", rebaseInProgress: true });
+  });
+
+  test("a poll error then a moved sha reads rebased", async () => {
+    const { deps } = script([new Error("GitLab returned 502"), { sha: "new" }]);
+    expect(await waitForRebase(deps, TARGET, "old", OPTS)).toEqual({ status: "rebased", sha: "new", previousSha: "old" });
+  });
+
+  test("a poll error at the end of the budget reads pending with lastError", async () => {
+    const { deps } = script([{ rebaseInProgress: true }, new Error("GitLab returned 502")]);
+    const r = await waitForRebase(deps, TARGET, "old", { maxWaitMs: 10_000, pollMs: 5_000 });
+    expect(r.status).toBe("pending");
+    expect((r as { lastError?: string }).lastError).toContain("502");
+    expect((r as { sha: string | null }).sha).toBe("old");
+  });
+
+  test("a good poll after an error drops lastError", async () => {
+    const { deps } = script([new Error("boom"), { rebaseInProgress: true }]);
+    const r = await waitForRebase(deps, TARGET, "old", { maxWaitMs: 10_000, pollMs: 5_000 });
+    expect(r).toEqual({ status: "pending", sha: "old", rebaseInProgress: true });
+  });
+
+  test("an aborted signal stops early with pending and no further polls", async () => {
+    const controller = new AbortController();
+    const { deps, commands } = script([{ rebaseInProgress: true }]);
+    deps.sleep = async () => { if (commands.length === 1) controller.abort(); };
+    const r = await waitForRebase(deps, TARGET, "old", { ...OPTS, signal: controller.signal });
+    expect(r).toEqual({ status: "pending", sha: "old", rebaseInProgress: true });
+    expect(commands).toHaveLength(1);
+  });
+
+  test("a signal aborted before the first poll polls nothing", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { deps, commands } = script([{ sha: "new" }]);
+    expect((await waitForRebase(deps, TARGET, "old", { ...OPTS, signal: controller.signal })).status).toBe("pending");
+    expect(commands).toEqual([]);
+  });
+
+  test("progress is called once per poll", async () => {
+    let pings = 0;
+    const { deps, commands } = script([{ rebaseInProgress: true }, { rebaseInProgress: true }, { sha: "new" }]);
+    await waitForRebase(deps, TARGET, "old", { ...OPTS, progress: () => { pings++; } });
+    expect(pings).toBe(commands.length);
+    expect(pings).toBe(3);
+  });
+
+  test("a null previous sha with a null read counts as unchanged, not moved", async () => {
+    const { deps } = script([{ sha: null, divergedCommitsCount: 0 }]);
+    expect(await waitForRebase(deps, TARGET, null, OPTS)).toEqual({ status: "current", sha: null });
   });
 });
