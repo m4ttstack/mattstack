@@ -287,13 +287,13 @@ describe("createStackGuardRunners", () => {
 
   test("forgeOpenMrs on GitHub lists open PRs via gh and maps head/base", async () => {
     const p = fakeProbes({
-      exec: scripted(GITHUB, () => ok(JSON.stringify([
+      exec: scripted(GITHUB, (argv) => ok(JSON.stringify(argv.includes("--head=child") ? [
         { number: 5, headRefName: "child", baseRefName: "parent", url: "https://github.com/acme/widgets/pull/5" },
-      ]))),
+      ] : []))),
     });
-    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt");
+    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt", "child");
     expect(res).toEqual({ ok: true, mrs: [{ iid: 5, source: "child", target: "parent", url: "https://github.com/acme/widgets/pull/5" }] });
-    expect(p.calls.exec[1]).toEqual(["gh", "pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,baseRefName,url"]);
+    expect(p.calls.exec[1]).toEqual(["gh", "pr", "list", "--state", "open", "--head=child", "--limit", "100", "--json", "number,headRefName,baseRefName,url"]);
   });
 
   test("forgeOpenMrs on self-hosted GitLab lists via glab with GITLAB_HOST and maps source/target", async () => {
@@ -301,20 +301,20 @@ describe("createStackGuardRunners", () => {
     const p = fakeProbes({
       exec: scripted(GITLAB, (argv, opts) => {
         seenEnv = opts?.env;
-        return ok(JSON.stringify([
+        return ok(JSON.stringify(argv.includes("--source-branch=child") ? [
           { iid: 9, source_branch: "child", target_branch: "parent", web_url: "https://gitlab.acme.internal/acme/widgets/-/merge_requests/9" },
-        ]));
+        ] : []));
       }),
     });
-    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt");
+    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt", "child");
     expect(res).toEqual({ ok: true, mrs: [{ iid: 9, source: "child", target: "parent", url: "https://gitlab.acme.internal/acme/widgets/-/merge_requests/9" }] });
-    expect(p.calls.exec[1]).toEqual(["glab", "mr", "list", "--output", "json", "--per-page", "100"]);
+    expect(p.calls.exec[1]).toEqual(["glab", "mr", "list", "--source-branch=child", "--output", "json", "--per-page", "100"]);
     expect(seenEnv).toEqual({ GITLAB_HOST: "gitlab.acme.internal" });
   });
 
   test("forgeOpenMrs reports the CLI failure instead of guessing", async () => {
     const p = fakeProbes({ exec: scripted(GITHUB, () => ({ code: 4, stdout: "", stderr: "gh: not logged in" })) });
-    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt");
+    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt", "feat");
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error).toContain("not logged in");
@@ -322,26 +322,26 @@ describe("createStackGuardRunners", () => {
 
   test("forgeOpenMrs fails when origin is not a recognised forge", async () => {
     const p = fakeProbes({ exec: scripted("ssh://git.example.org/x/y.git", () => ok("[]")) });
-    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt");
+    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt", "feat");
     expect(res.ok).toBe(false);
     expect(p.calls.exec).toHaveLength(1);
   });
 
   test("forgeOpenMrs treats a non-array payload as a failure, not an empty listing", async () => {
     const p = fakeProbes({ exec: scripted(GITHUB, () => ok("null")) });
-    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt");
+    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt", "feat");
     expect(res.ok).toBe(false);
   });
 
   test("forgeOpenMrs on GitHub rejects a record missing its head branch instead of ignoring it", async () => {
     const p = fakeProbes({ exec: scripted(GITHUB, () => ok(JSON.stringify([{ number: 5, baseRefName: "main", url: "u" }]))) });
-    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt");
+    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt", "feat");
     expect(res.ok).toBe(false);
   });
 
   test("forgeOpenMrs on GitLab rejects a record whose iid is not an integer", async () => {
     const p = fakeProbes({ exec: scripted(GITLAB, () => ok(JSON.stringify([{ iid: "9", source_branch: "a", target_branch: "b", web_url: "u" }]))) });
-    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt");
+    const res = await createStackGuardRunners(p).forgeOpenMrs("/wt", "feat");
     expect(res.ok).toBe(false);
   });
 
@@ -356,18 +356,11 @@ describe("createStackGuardRunners", () => {
     });
     const r = createStackGuardRunners(p);
     await r.gitqStacks("/wt");
-    await r.forgeOpenMrs("/wt");
+    await r.forgeOpenMrs("/wt", "feat");
     expect(timeouts.gitq).toBeGreaterThan(0);
     expect(timeouts.gh).toBeGreaterThan(0);
   });
 
-  test("forgeOpenMrs lists once per remote across worktrees", async () => {
-    const p = fakeProbes({ exec: scripted(GITHUB, () => ok("[]")) });
-    const r = createStackGuardRunners(p);
-    await r.forgeOpenMrs("/wt-a");
-    await r.forgeOpenMrs("/wt-b");
-    expect(p.calls.exec.filter((a) => a[0] === "gh")).toHaveLength(1);
-  });
 });
 
 describe("renderStackRefusal", () => {

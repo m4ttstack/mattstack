@@ -1,21 +1,30 @@
 import { existsSync } from "fs";
-import { resolve } from "path";
+import { dirname, resolve } from "path";
+import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
+import { explainError } from "../explain-error.ts";
+import { loadRepoIndex } from "../repo-index.ts";
 import { rtSelfArgv } from "../rt-self.ts";
+import { createRealProbes } from "../setup/probes.ts";
+import { forgeFromRemote } from "../setup/team-settings.ts";
+import { forgeArgv } from "../team/forge.ts";
 import { GIT_GLOBAL_OPTS } from "../skills/mcp-lint.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
-import { checkOptional, err, ok, type McpToolDef, type ToolResult } from "./shared.ts";
+import { resolveRepoTarget } from "./mr-target.ts";
+import { checkOptional, err, MR_TARGET_PROPS, ok, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, gitChildEnv, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 
 export { gitChildEnv };
 
-export function syncChildEnv(base: Record<string, string | undefined>): Record<string, string | undefined> {
-  return gitChildEnv(base, { GIT_TERMINAL_PROMPT: "0", RT_BATCH: "1", RT_SKIP_SETUP: "1" });
+// A ceiling at the tree's parent: a tree whose .git is gone fails rather
+// than letting git find the repo around it.
+export function syncChildEnv(base: Record<string, string | undefined>, cwd: string): Record<string, string | undefined> {
+  return gitChildEnv(base, { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), RT_BATCH: "1", RT_SKIP_SETUP: "1" });
 }
 
 export type GitRunner = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export const realGitRunner: GitRunner = async (args, cwd) => {
-  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0" }) });
+  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd) }) });
   return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
 
@@ -78,10 +87,39 @@ async function checkPushable(cwd: string, git: GitRunner, branch: string): Promi
   return { branch, defaultBranch: def.primary };
 }
 
+export type OpenMrLookup =
+  | { ok: true; mr: { iid: number; url: string | null; pipelineId: number | null } | null }
+  | { ok: false; error: string };
+
+const MR_LOOKUP_TIMEOUT_MS = 30_000;
+
+export async function realOpenMr(repoName: string, branch: string, command: typeof rtCommand = rtCommand): Promise<OpenMrLookup> {
+  const r = await command<Commands["mr:live-by-branch"]["data"]>("mr:live-by-branch", { repoName, branches: [branch] }, { timeoutMs: MR_LOOKUP_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "branch lookup failed") };
+  const pr = r.data.byBranch[branch];
+  if (!pr) return { ok: true, mr: null };
+  const pipeline = /:(\d+)$/.exec(pr.pipeline?.id ?? "");
+  return { ok: true, mr: { iid: pr.iid, url: pr.webUrl, pipelineId: pipeline ? Number(pipeline[1]) : null } };
+}
+
+// Read before the push, so a CI watch can tell the pipeline the push starts
+// from the one already there. A forge that cannot answer never blocks the push.
+async function priorPipeline(openMr: (branch: string) => Promise<OpenMrLookup>, branch: string): Promise<Record<string, unknown>> {
+  const found = await openMr(branch);
+  if (!found.ok) return { mr: null, priorPipelineId: null, mrLookup: "unavailable", mrLookupError: found.error };
+  if (!found.mr) return { mr: null, priorPipelineId: null, mrLookup: "read" };
+  return { mr: { iid: found.mr.iid, url: found.mr.url }, priorPipelineId: found.mr.pipelineId, mrLookup: "read" };
+}
+
 // A bare `git push` obeys push.default, which under `matching` pushes every
 // matching branch (main included) and under `simple` fails on a renamed
 // upstream; an explicit refspec pushes exactly one ref either way.
-export async function gitPush(cwd: string, opts: { forceWithLease?: boolean; setUpstream?: boolean }, git: GitRunner): Promise<ToolResult> {
+export async function gitPush(
+  cwd: string,
+  opts: { forceWithLease?: boolean; setUpstream?: boolean },
+  git: GitRunner,
+  openMr?: (branch: string) => Promise<OpenMrLookup>,
+): Promise<ToolResult> {
   const b = await pushableBranch(cwd, git);
   if ("error" in b) return err(b.error);
   const branch = b.branch;
@@ -119,9 +157,12 @@ export async function gitPush(cwd: string, opts: { forceWithLease?: boolean; set
   }
   // A remote name comes from config and may start with a dash.
   args.push("--end-of-options", remote, `HEAD:refs/heads/${remoteBranch}`);
+  const head = await git(["rev-parse", "--verify", "HEAD"], cwd);
+  if (head.code !== 0) return err(`git rev-parse --verify HEAD failed: ${detail(head)}`);
+  const before = openMr ? await priorPipeline(openMr, branch) : {};
   const r = await git(args, cwd);
   if (r.code !== 0) return err(`git push failed: ${detail(r)}`);
-  return ok({ pushed: true, branch, forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}` });
+  return ok({ pushed: true, branch, sha: head.stdout.trim(), forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}`, ...before });
 }
 
 export async function gitPull(cwd: string, git: GitRunner): Promise<ToolResult> {
@@ -215,7 +256,12 @@ async function rebaseInProgress(cwd: string, git: GitRunner, exists: (p: string)
   return { inProgress: paths.some((p) => exists(resolve(cwd, p))) };
 }
 
-export async function branchSyncPreflight(cwd: string, git: GitRunner, exists: (p: string) => boolean = existsSync): Promise<{ ok: true; diverged: boolean } | { ok: false; error: string }> {
+// Porcelain v1 is `XY path`, or `XY orig -> path` for a rename.
+function porcelainPaths(stdout: string): string[] {
+  return stdout.split("\n").filter((l) => l.length > 3).map((l) => l.slice(3).split(" -> ").at(-1)!);
+}
+
+export async function branchSyncPreflight(cwd: string, git: GitRunner, exists: (p: string) => boolean = existsSync): Promise<{ ok: true; diverged: boolean } | { ok: false; error: string; dirty?: string[] }> {
   const rebasing = await rebaseInProgress(cwd, git, exists);
   if ("error" in rebasing) return { ok: false, error: rebasing.error };
   if (rebasing.inProgress) return { ok: false, error: "a rebase is in progress; finish it with git rebase --continue or git_rebase {abort: true}" };
@@ -234,6 +280,13 @@ export async function branchSyncPreflight(cwd: string, git: GitRunner, exists: (
   if (!SHELL_SAFE_BRANCH.test(branch)) {
     return { ok: false, error: `refusing to sync ${JSON.stringify(branch)}: the branch name has characters rt sync cannot pass safely (only letters, digits, ".", "_", "/" and "-")` };
   }
+
+  // rt sync refuses the same tree (untracked files count there too), but only
+  // after its own checks, and its refusal reads as a failure.
+  const status = await git(["status", "--porcelain"], cwd);
+  if (status.code !== 0) return { ok: false, error: `git status --porcelain failed: ${detail(status)}` };
+  const dirty = porcelainPaths(status.stdout);
+  if (dirty.length > 0) return { ok: false, dirty, error: `refusing to sync ${branch}: the tree has uncommitted changes, which the rebase could lose: ${dirty.join(", ")}` };
 
   const redirect = await pushDestinationRedirected(cwd, git, branch);
   if (!redirect.ok) return { ok: false, error: redirect.error };
@@ -322,36 +375,253 @@ const SYNC_TIMEOUT_MS = 300_000;
 
 export const realSyncRunner = async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
   const [exe, ...rest] = rtSelfArgv();
-  const r = await runCapture([exe!, ...rest, "sync", "--json", "--no-agent"], { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: syncChildEnv(childEnv()) });
+  const r = await runCapture([exe!, ...rest, "sync", "--json", "--no-agent"], { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: syncChildEnv(childEnv(), cwd) });
   return { code: r.timedOut ? 124 : r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
+
+export type BranchSyncKind = "synced" | "up-to-date" | "dirty-tree" | "conflict" | "stacked-refused" | "stack-unverified" | "push-refused" | "error";
+
+export interface BranchSyncResult {
+  kind: BranchSyncKind;
+  branch: string | null;
+  /** The branch ref, never HEAD: a paused rebase detaches HEAD but leaves the branch where it was. */
+  oldHead: string | null;
+  newHead: string | null;
+  pushed: boolean;
+  refusal: string | null;
+  [extra: string]: unknown;
+}
+
+async function refSha(cwd: string, git: GitRunner, ref: string): Promise<string | null> {
+  const r = await git(["rev-parse", "--verify", "--quiet", ref], cwd);
+  return r.code === 0 ? r.stdout.trim() || null : null;
+}
+
+function parseJson(stdout: string): Record<string, unknown> {
+  try {
+    const body = JSON.parse(stdout) as unknown;
+    return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+// rt sync --json ends a failure with its title first (commands/sync.ts
+// compactFailure), after any warning lines; these are the titles of its own
+// uncommitted-changes refusal and of a push that failed after the rebase.
+const UNCOMMITTED_TITLE = /^\[refused\] You have uncommitted changes/;
+const PUSH_FAILED_TITLE = /^(\[failed\] )?Could not push /;
+
+/** The failure rt sync ended on, from its title line down, read per line so a warning above it cannot hide the title. */
+function syncFailure(stderr: string): { kind: "dirty-tree" | "push-refused"; text: string } | null {
+  const lines = stderr.trim().split("\n").filter((l) => !l.startsWith("hint:"));
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const kind = UNCOMMITTED_TITLE.test(lines[i]!) ? "dirty-tree" : PUSH_FAILED_TITLE.test(lines[i]!) ? "push-refused" : null;
+    if (kind) return { kind, text: lines.slice(i).join(" ") };
+  }
+  return null;
+}
+
+export async function branchSync(cwd: string, deps: Pick<GitToolDeps, "git" | "sync">): Promise<BranchSyncResult> {
+  const branch = await currentBranch(cwd, deps.git);
+  const head = () => (branch === null ? Promise.resolve(null) : refSha(cwd, deps.git, `refs/heads/${branch}`));
+  const oldHead = await head();
+  const ended = async (kind: BranchSyncKind, refusal: string | null, extra: Record<string, unknown> = {}): Promise<BranchSyncResult> =>
+    ({ ...extra, kind, branch, oldHead, newHead: await head(), pushed: false, refusal });
+
+  const pre = await branchSyncPreflight(cwd, deps.git);
+  if (!pre.ok) return pre.dirty ? ended("dirty-tree", pre.error, { paths: pre.dirty }) : ended("error", pre.error);
+  const r = await deps.sync(cwd);
+  const body = parseJson(r.stdout);
+  if (r.code === 0) {
+    const newHead = await head();
+    const moved = newHead !== oldHead;
+    const pushed = moved && newHead !== null && (await refSha(cwd, deps.git, `refs/remotes/origin/${branch}`)) === newHead;
+    return { kind: moved ? "synced" : "up-to-date", branch, oldHead, newHead, pushed, refusal: null, divergedFromOrigin: pre.diverged, status: "synced" };
+  }
+  if (r.code === 3) return ended("conflict", null, { ...body, status: "conflict" });
+  if (r.code === 4 && typeof body.hint === "string") {
+    const text = typeof body.tool === "string" && body.tool !== "" ? `${body.hint}. Run: ${body.tool}` : body.hint;
+    return ended(body.kind === "stack-check-unavailable" ? "stack-unverified" : "stacked-refused", text, { stackCheck: body });
+  }
+  if (r.code === 124) return ended("error", `rt sync timed out after ${SYNC_TIMEOUT_MS / 1000}s`);
+  if (r.code === -1 && r.stderr.trim() === "") return ended("error", "could not start rt sync");
+  const known = r.code === 1 && typeof body.error !== "string" ? syncFailure(r.stderr) : null;
+  if (known) return ended(known.kind, known.text);
+  const said = typeof body.error === "string" ? body.error : detail(r);
+  return ended("error", `rt sync refused (exit ${r.code}): ${said}`);
+}
+
+export interface SweepMr {
+  iid: number;
+  branch: string;
+  url: string | null;
+}
+
+export type AuthoredMrs = { ok: true; mrs: SweepMr[]; complete: boolean } | { ok: false; error: string };
+export type RepoTrees = { ok: true; trees: Array<{ path: string; branch: string | null }> } | { ok: false; error: string };
+
+export interface SweepIo {
+  checkout: (identity: string) => string | undefined;
+  originOf: (checkout: string) => Promise<string | null>;
+  gh: (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
+  command: typeof rtCommand;
+}
+
+const SWEEP_LIST_LIMIT = 200;
+
+function realSweepIo(): SweepIo {
+  const p = createRealProbes();
+  return {
+    checkout: (identity) => loadRepoIndex()[identity],
+    originOf: async (checkout) => {
+      const r = await realGitRunner(["remote", "get-url", "origin"], checkout);
+      return r.code === 0 ? r.stdout.trim() || null : null;
+    },
+    gh: (args, cwd) => p.exec([...forgeArgv(p, "gh"), ...args], { cwd, timeoutMs: MR_LOOKUP_TIMEOUT_MS }),
+    command: rtCommand,
+  };
+}
+
+function ghPrs(stdout: string): SweepMr[] | null {
+  try {
+    const rows = JSON.parse(stdout) as unknown;
+    if (!Array.isArray(rows)) return null;
+    const mrs = (rows as Array<{ number?: unknown; headRefName?: unknown; url?: unknown }>).map((row) => ({ iid: row.number, branch: row.headRefName, url: row.url }));
+    return mrs.every((mr) => Number.isInteger(mr.iid) && typeof mr.branch === "string" && typeof mr.url === "string") ? (mrs as SweepMr[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+// The daemon's MR reads are GitLab only, so a GitHub repo asks gh, which
+// names the signed-in user as @me the way GitLab's author: me does.
+export async function realAuthoredOpenMrs(identity: string, io: SweepIo = realSweepIo()): Promise<AuthoredMrs> {
+  const checkout = io.checkout(identity);
+  if (!checkout) return { ok: false, error: `${identity} has no registered checkout` };
+  const origin = await io.originOf(checkout);
+  if (origin === null) return { ok: false, error: `${checkout} has no origin remote` };
+  const forge = forgeFromRemote(origin);
+  if (!forge) return { ok: false, error: `origin ${origin} is not a GitHub or GitLab remote` };
+  if (forge.provider === "github") {
+    const r = await io.gh(["pr", "list", "--state", "open", "--author", "@me", "--limit", String(SWEEP_LIST_LIMIT), "--json", "number,headRefName,url"], checkout);
+    if (r.code !== 0) return { ok: false, error: `gh pr list failed: ${(r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`).split("\n")[0]}` };
+    const mrs = ghPrs(r.stdout);
+    if (mrs === null) return { ok: false, error: "gh pr list answered with something other than a list of pull requests" };
+    return { ok: true, mrs, complete: mrs.length < SWEEP_LIST_LIMIT };
+  }
+  const r = await io.command<Commands["mr:list-live"]["data"]>("mr:list-live", { repoName: identity, author: "me", state: "opened", limit: SWEEP_LIST_LIMIT }, { timeoutMs: MR_LOOKUP_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "MR listing failed") };
+  return { ok: true, mrs: r.data.mrs.map((mr) => ({ iid: mr.iid, branch: mr.sourceBranch, url: mr.webUrl ?? null })), complete: !r.data.truncated };
+}
+
+export async function realRepoTrees(identity: string, command: typeof rtCommand = rtCommand): Promise<RepoTrees> {
+  const r = await command<Commands["worktree:list"]["data"]>("worktree:list", { repoName: identity }, { timeoutMs: MR_LOOKUP_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "worktree listing failed") };
+  return { ok: true, trees: (r.data.trees ?? []).map((t) => ({ path: t.path, branch: t.branch ?? null })) };
+}
+
+export async function realResolveRepo(repoName: unknown): Promise<{ ok: true; identity: string } | { ok: false; error: string }> {
+  if (typeof repoName !== "string") return { ok: false, error: '"repoName" must be a string' };
+  const target = await resolveRepoTarget({ repoName });
+  return target.ok ? { ok: true, identity: target.identity } : { ok: false, error: target.error };
+}
+
+async function treeRefusal(path: string, branch: string, identity: string, deps: GitToolDeps): Promise<string | { root: string }> {
+  const admitted = checkRegisteredTree(path, deps.guard);
+  if (!admitted.ok) return admitted.error;
+  if (admitted.repoName !== identity || admitted.resolvedFrom !== undefined) return `${path} is not a root of ${identity}, so the sweep left it alone`;
+  const live = await currentBranch(admitted.path, deps.git);
+  if (live !== branch) return `${path} now has ${live ?? "a detached HEAD"} checked out, not ${branch}, so the sweep left it alone`;
+  return { root: admitted.path };
+}
+
+/** Sequential, and never aborts a paused rebase: rt sync --json leaves a conflict paused, and each tree is its own checkout. */
+export async function branchSyncSweep(
+  repoName: unknown,
+  deps: GitToolDeps,
+  progress?: () => void,
+  syncTree: (tree: string) => Promise<BranchSyncResult> = (tree) => branchSync(tree, deps),
+): Promise<ToolResult> {
+  const repo = await deps.resolveRepo(repoName);
+  if (!repo.ok) return err(repo.error);
+  const [mrs, trees] = await Promise.all([deps.authoredOpenMrs(repo.identity), deps.repoTrees(repo.identity)]);
+  if (!mrs.ok) return err(`could not list your open merge requests: ${mrs.error}`);
+  if (!trees.ok) return err(`could not list the repo's worktrees: ${trees.error}`);
+  const results: Array<BranchSyncResult & { tree: string; mr: { iid: number; url: string | null } }> = [];
+  const noTree: Array<{ branch: string; mr: { iid: number; url: string | null } }> = [];
+  for (const mr of mrs.mrs) {
+    const ref = { iid: mr.iid, url: mr.url };
+    const candidates = trees.trees.filter((t) => t.branch === mr.branch);
+    if (candidates.length === 0) {
+      noTree.push({ branch: mr.branch, mr: ref });
+      continue;
+    }
+    progress?.();
+    // The daemon's tree list can lag a checkout switch and can list a branch
+    // twice, and branch_sync syncs whatever is checked out, so each tree's own
+    // answer decides; the first refusal is reported when none qualifies.
+    let chosen: string | null = null;
+    let first: { tree: string; refusal: string } | null = null;
+    for (const tree of candidates) {
+      const refusal = await treeRefusal(tree.path, mr.branch, repo.identity, deps);
+      if (typeof refusal !== "string") {
+        chosen = refusal.root;
+        break;
+      }
+      first ??= { tree: tree.path, refusal };
+    }
+    if (chosen === null) {
+      results.push({ kind: "error", branch: mr.branch, oldHead: null, newHead: null, pushed: false, refusal: first!.refusal, tree: first!.tree, mr: ref });
+      continue;
+    }
+    results.push({ ...(await syncTree(chosen)), tree: chosen, mr: ref });
+  }
+  return ok({ repoName: repo.identity, results, noTree, complete: mrs.complete });
+}
 
 export interface GitToolDeps {
   git: GitRunner;
   guard: TreeGuardDeps;
   sync: (cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
+  /** repoName is the identity the tree guard admitted the tree under. */
+  openMr: (repoName: string, branch: string) => Promise<OpenMrLookup>;
+  resolveRepo: (repoName: unknown) => Promise<{ ok: true; identity: string } | { ok: false; error: string }>;
+  /** The caller's own open MRs on the repo; complete is false when the forge may have cut the list short. */
+  authoredOpenMrs: (identity: string) => Promise<AuthoredMrs>;
+  repoTrees: (identity: string) => Promise<RepoTrees>;
 }
 
-export const realGitToolDeps: GitToolDeps = { git: realGitRunner, guard: realTreeGuardDeps, sync: realSyncRunner };
+export const realGitToolDeps: GitToolDeps = {
+  git: realGitRunner,
+  guard: realTreeGuardDeps,
+  sync: realSyncRunner,
+  openMr: (repoName, branch) => realOpenMr(repoName, branch),
+  resolveRepo: realResolveRepo,
+  authoredOpenMrs: (identity) => realAuthoredOpenMrs(identity),
+  repoTrees: (identity) => realRepoTrees(identity),
+};
 
-const TREE_PROP = { tree: { type: "string", description: "Absolute path of a checkout or worktree of a repo registered with rt." } };
+const TREE_PROP = { tree: { type: "string", description: "Absolute path of a checkout or worktree of a repo registered with rt, or a directory inside one, which resolves to that tree's root (the result's tree)." } };
 
 export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
-  const guarded = (fn: (path: string, input: Record<string, unknown>) => Promise<ToolResult>) => async (input: Record<string, unknown>): Promise<ToolResult> => {
+  // The tree a tool ran in rides on its result, since a subdirectory resolves to its root.
+  const guarded = (fn: (path: string, input: Record<string, unknown>, repoName: string) => Promise<ToolResult>) => async (input: Record<string, unknown>): Promise<ToolResult> => {
     const tree = checkRegisteredTree(input.tree, deps.guard);
     if (!tree.ok) return err(tree.error);
-    return fn(tree.path, input);
+    const r = await fn(tree.path, input, tree.repoName);
+    return r.ok && r.body !== null && typeof r.body === "object" && !Array.isArray(r.body) ? ok({ ...r.body, tree: tree.path }) : r;
   };
   return [
     {
       name: "git_push",
-      description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead).",
+      description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is \"unavailable\" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.",
       inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" } }, required: ["tree"], additionalProperties: false },
       shellForms: ["git push", "rt git push"],
-      handler: guarded(async (path, input) => {
+      handler: guarded(async (path, input, repoName) => {
         const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }]);
         if (bad) return err(bad);
-        return gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true }, deps.git);
+        return gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true }, deps.git, (branch) => deps.openMr(repoName, branch));
       }),
     },
     {
@@ -374,24 +644,17 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
     },
     {
       name: "branch_sync",
-      description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. A rebase conflict returns status conflict with rt sync's bundle and leaves the rebase paused.",
+      description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. Returns {kind, branch, oldHead, newHead, pushed, refusal}, oldHead and newHead being the branch ref before and after. kind is synced (the branch moved; pushed says origin now has it), up-to-date (nothing moved or was pushed), dirty-tree (uncommitted or untracked changes, listed in paths; nothing ran), conflict (rt sync's bundle, the rebase left paused; nothing was pushed, though newHead differs from oldHead when rt sync first reset a GitLab-rebased branch to origin), stacked-refused (the branch is in a stack; stackCheck carries rt sync's refusal and refusal names the tool to run), stack-unverified (the stack check could not run, so nothing ran; refusal says why and names no tool), push-refused (the rebase landed locally but the push failed) or error (any other refusal or failure, its reason in refusal).",
       inputSchema: { type: "object", properties: { ...TREE_PROP }, required: ["tree"], additionalProperties: false },
       shellForms: ["rt sync"],
-      handler: guarded(async (path) => {
-        const pre = await branchSyncPreflight(path, deps.git);
-        if (!pre.ok) return err(pre.error);
-        const r = await deps.sync(path);
-        let body: unknown = null;
-        try { body = JSON.parse(r.stdout); } catch { body = null; }
-        const obj = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-        if (r.code === 0) return ok({ status: "synced", divergedFromOrigin: pre.diverged, ...obj });
-        if (r.code === 3) return ok({ status: "conflict", ...obj });
-        if (r.code === 124) return err(`rt sync timed out after ${SYNC_TIMEOUT_MS / 1000}s`);
-        if (r.code === -1 && r.stderr.trim() === "") return err("could not start rt sync");
-        const hint = typeof obj.hint === "string" ? (typeof obj.tool === "string" && obj.tool !== "" ? `${obj.hint}. Run: ${obj.tool}` : obj.hint) : null;
-        const message = typeof obj.error === "string" ? obj.error : hint ?? detail(r);
-        return err(`rt sync refused (exit ${r.code}): ${message}`);
-      }),
+      handler: guarded(async (path) => ok(await branchSync(path, deps))),
+    },
+    {
+      name: "branch_sync_sweep",
+      description: `Run branch_sync, one branch at a time, on every branch of yours with an open MR in the repo that has a local worktree. A conflict on one branch leaves that rebase paused for you and the sweep moves on to the next. Your open MRs are read from GitLab (author: me) or GitHub (gh pr list --author @me). Returns {repoName, results, noTree, complete}: results holds one branch_sync result per branch (kind, branch, oldHead, newHead, pushed, refusal), each with its tree and mr {iid, url}; noTree lists your open-MR branches that have no worktree, which the sweep skips; complete is false when the forge may have cut the MR list short. Opens no gate and pushes only what branch_sync itself pushes. repoName is the repo's serialized identity, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo.`,
+      inputSchema: { type: "object", properties: { repoName: MR_TARGET_PROPS.repoName }, required: ["repoName"], additionalProperties: false },
+      shellForms: { none: "rt sync all syncs every worktree and aborts a conflict; no shell command sweeps only your open-MR branches and leaves a conflict paused" },
+      handler: async (input, _env, _signal, progress) => branchSyncSweep(input.repoName, deps, progress),
     },
   ];
 }

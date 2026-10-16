@@ -13,9 +13,17 @@
  * with no pool) is found by listing each registered checkout's worktrees
  * with that checkout as git's cwd, never the candidate path: a candidate
  * directory's own .git must not decide whether it is admitted.
+ *
+ * A directory inside an admitted root resolves to the deepest such root, so
+ * a subdirectory of a worktree nested in its checkout lands on the worktree.
+ * A `.git` entry between the directory and that root marks another repo
+ * (a submodule, a vendored clone, an unregistered worktree), which is
+ * refused: it can only narrow what is admitted, never widen it. So is a
+ * directory that root's git ignores, where pool and agent worktrees live.
  */
-import { realpathSync } from "fs";
-import { dirname, isAbsolute } from "path";
+import { spawnSync } from "child_process";
+import { existsSync, realpathSync } from "fs";
+import { dirname, isAbsolute, join } from "path";
 import { listWorktreeRoots } from "../git-worktrees.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { childEnv } from "../subprocess.ts";
@@ -27,6 +35,10 @@ export interface TreeGuardDeps {
   treeByPath: (p: string) => { repoName: string; tree: string } | null;
   realpath: (p: string) => string;
   worktreeRoots: (checkout: string) => string[];
+  /** Read from the filesystem, never by running git in dir. */
+  hasGitEntry: (dir: string) => boolean;
+  /** Whether git in the admitted root ignores path; null when it could not say. Git runs in root, never in path. */
+  ignoredBy: (root: string, path: string) => boolean | null;
 }
 
 // Each of these outranks cwd, so git would answer for (and push from) a repo
@@ -75,10 +87,27 @@ export const realTreeGuardDeps: TreeGuardDeps = {
       env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(checkout) }),
       timeoutMs: 10_000,
     }),
+  hasGitEntry: (dir) => existsSync(join(dir, ".git")),
+  ignoredBy: (root, path) => {
+    const r = spawnSync("git", ["check-ignore", "-q", "--", path], {
+      cwd: root,
+      env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(root) }),
+      stdio: "ignore",
+      timeout: 10_000,
+    });
+    return r.status === 0 ? true : r.status === 1 ? false : null;
+  },
 };
 
-export const UNREGISTERED_TREE =
-  "tree must be the absolute path of the root of a checkout or worktree of a repo registered with rt, not a directory inside one (rt repos register in its checkout first)";
+export type TreeCheck =
+  | { ok: true; path: string; repoName: string; resolvedFrom?: string }
+  | { ok: false; error: string };
+
+const NOT_ABSOLUTE = "tree must be an absolute path";
+
+function unregistered(path: string): TreeCheck {
+  return { ok: false, error: `${path} is not in a checkout or worktree of a repo registered with rt; register the repo from its checkout first: rt repos register <checkout path>` };
+}
 
 function tryRealpath(p: string, realpath: (p: string) => string): string | null {
   try {
@@ -88,27 +117,44 @@ function tryRealpath(p: string, realpath: (p: string) => string): string | null 
   }
 }
 
-export function checkRegisteredTree(
-  tree: unknown,
-  deps: TreeGuardDeps = realTreeGuardDeps,
-): { ok: true; path: string; repoName: string } | { ok: false; error: string } {
-  if (typeof tree !== "string" || !isAbsolute(tree)) return { ok: false, error: UNREGISTERED_TREE };
+export function checkRegisteredTree(tree: unknown, deps: TreeGuardDeps = realTreeGuardDeps): TreeCheck {
+  if (typeof tree !== "string") return { ok: false, error: NOT_ABSOLUTE };
+  if (!isAbsolute(tree)) return { ok: false, error: `${NOT_ABSOLUTE}, not ${JSON.stringify(tree)}` };
   let path: string;
   try {
     path = deps.realpath(tree);
   } catch {
     return { ok: false, error: `tree ${tree} does not exist` };
   }
-  const checkouts = Object.entries(deps.repoIndex());
-  for (const [repoName, checkout] of checkouts) {
-    if (tryRealpath(checkout, deps.realpath) === path) return { ok: true, path, repoName };
-  }
-  const hit = deps.treeByPath(path);
-  if (hit) return { ok: true, path, repoName: hit.repoName };
-  for (const [repoName, checkout] of checkouts) {
-    for (const root of deps.worktreeRoots(checkout)) {
-      if (tryRealpath(root, deps.realpath) === path) return { ok: true, path, repoName };
+  const checkouts = Object.entries(deps.repoIndex()).map(([repoName, checkout]) => ({ repoName, checkout, real: tryRealpath(checkout, deps.realpath) }));
+  let worktrees: Array<{ repoName: string; real: string | null }> | null = null;
+  const rootAt = (dir: string): string | null => {
+    const checkout = checkouts.find((c) => c.real === dir);
+    if (checkout) return checkout.repoName;
+    const hit = deps.treeByPath(dir);
+    if (hit) return hit.repoName;
+    worktrees ??= checkouts.flatMap((c) => deps.worktreeRoots(c.checkout).map((root) => ({ repoName: c.repoName, real: tryRealpath(root, deps.realpath) })));
+    return worktrees.find((w) => w.real === dir)?.repoName ?? null;
+  };
+
+  const exact = rootAt(path);
+  if (exact !== null) return { ok: true, path, repoName: exact };
+  const passed = [path];
+  for (let dir = dirname(path); ; dir = dirname(dir)) {
+    const repoName = rootAt(dir);
+    if (repoName !== null) {
+      const inner = passed.find((d) => deps.hasGitEntry(d));
+      if (inner !== undefined) {
+        return { ok: false, error: `${path} is inside ${dir}, but ${inner} is a separate git repo or worktree that rt has not registered; register it first: rt repos register ${inner}` };
+      }
+      // A worktree folder whose .git is gone (pool and agent trees live in
+      // ignored folders) must not resolve to the checkout around it.
+      if (deps.ignoredBy(dir, path) !== false) {
+        return { ok: false, error: `${path} is inside ${dir}, in a folder its git ignores (or rt could not tell), so it is not resolved to that tree; pass the tree's own root` };
+      }
+      return { ok: true, path: dir, repoName, resolvedFrom: path };
     }
+    if (dirname(dir) === dir) return unregistered(path);
+    passed.push(dir);
   }
-  return { ok: false, error: UNREGISTERED_TREE };
 }

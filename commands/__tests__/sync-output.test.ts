@@ -49,7 +49,7 @@ describe("reportSync under --json", () => {
 });
 
 // lib/mcp/__tests__/git-tools.test.ts feeds this same text to branch_sync and
-// pins the error an agent reads; change one and the other must follow.
+// pins the dirty-tree result an agent reads; change one and the other must follow.
 const REFUSED_STDERR =
   "[refused] You have uncommitted changes\n" +
   "  why: Syncing rewrites the branch, and a conflict would lose them.\n" +
@@ -67,6 +67,16 @@ describe("how a sync ends", () => {
   test("under --json the uncommitted-changes guard is a refused note on stderr, stdout empty, code 1", () => {
     expect(reportSync(summary({ error: uncommitted.title, failure: uncommitted, refused: true }), true)).toBe(1);
     expect(io.stderr()).toBe(REFUSED_STDERR);
+    expect(io.stdout()).toBe("");
+  });
+
+  // branch_sync (lib/mcp/git-tools.ts) reads a stderr line starting "Could not
+  // push " as kind push-refused; change one and the other must follow.
+  test("under --json a failed push opens stderr with its title, the rejected line beside it", () => {
+    const pushFailed = { title: "Could not push feature", details: "Command failed: git push --force-with-lease origin feature\n ! [rejected]        feature -> feature (stale info)\nerror: failed to push some refs" };
+    expect(reportSync(summary({ error: pushFailed.title, failure: pushFailed }), true)).toBe(1);
+    expect(io.stderr()).toStartWith("Could not push feature");
+    expect(io.stderr()).toContain("! [rejected] feature -> feature (stale info)");
     expect(io.stdout()).toBe("");
   });
 
