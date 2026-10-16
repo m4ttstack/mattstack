@@ -503,7 +503,17 @@ sync-open-mrs:
 
 | scenario | RED deviations | GREEN deviations | notes |
 |---|---|---|---|
-| (filled in by the implementation) | | | |
+| 1 stack-unverified | 10: manual stack check with gh pr view/list (5/5), shell pre-reads | | |
+| 2 dirty-tree | 7: porcelain and symbolic-ref pre-reads (5/5), 2 improvised gate shapes | | the porcelain pre-read reached a dirty gate before branch_sync |
+| 3 run git_pull first | 5: pre-reads only | | pull and re-sync were already right |
+| 4 stacked-refused | 5: pre-reads only | | tool named correctly |
+| 5 push-refused | 20: reported and stopped, no push gate or git_push (5/5) | | the old text has no row for push-refused |
+| 6 conflict | 5: pre-reads only | | |
+| 7 all selected | 20: no sweep, per-branch walk; b and d skipped, no push or dirty gate (5/5) | | |
+| 8 two selected | 10: manual stack check for c (5/5), pre-reads | | |
+| 9 push gate refusal | 20: push-refused skipped, push and off-script gates never reached (5/5) | | |
+
+RED: 102 deviations over 45 agent-scenarios (10 sonnet/low agents, describe-only); no suffix parsing seen, since agents mapped `kind` by meaning.
 
 ## Left to the builder
 
