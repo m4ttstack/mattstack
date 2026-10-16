@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { listWorktreeRoots } from "../../git-worktrees.ts";
@@ -12,6 +12,7 @@ const deps: TreeGuardDeps = {
   realpath: (p) => { if (p.startsWith("/nope")) throw new Error("ENOENT"); return p.replace("/link/", "/real/"); },
   worktreeRoots: () => [],
   hasGitEntry: (dir) => dir === "/real/app/vendor/other",
+  ignoredBy: (_root, path) => (path.startsWith("/real/app/.claude/") ? true : path.startsWith("/real/app/unreadable") ? null : false),
 };
 
 describe("checkRegisteredTree", () => {
@@ -40,6 +41,14 @@ describe("checkRegisteredTree", () => {
       expect(error, inner).toContain("/real/app/vendor/other");
       expect(error, inner).toContain("rt repos register");
     }
+  });
+  test("a directory the root's git ignores is never resolved upward, so a leftover worktree folder cannot land on the checkout", () => {
+    const r = checkRegisteredTree("/real/app/.claude/worktrees/gone/src", deps);
+    expect(r.ok).toBe(false);
+    expect((r as { error: string }).error).toContain("ignores");
+  });
+  test("a directory whose ignore status cannot be read is refused, not resolved", () => {
+    expect(checkRegisteredTree("/real/app/unreadable/x", deps).ok).toBe(false);
   });
   test("an unregistered tree gets its own error, naming the path and what to run", () => {
     const r = checkRegisteredTree("/real/other/src", deps);
@@ -70,6 +79,7 @@ describe("checkRegisteredTree on a real filesystem", () => {
         realpath: realpathSync,
         worktreeRoots: () => [],
         hasGitEntry: () => false,
+        ignoredBy: () => false,
       };
       expect(checkRegisteredTree(treeLink, fsDeps)).toEqual({ ok: true, path: realpathSync(tree), repoName: "remote:example.com%2Facme%2Fapp" });
       expect(checkRegisteredTree(tree, fsDeps)).toEqual({ ok: true, path: realpathSync(tree), repoName: "remote:example.com%2Facme%2Fapp" });
@@ -122,6 +132,7 @@ describe("checkRegisteredTree on a git worktree the registry never adopted", () 
       return [];
     },
     hasGitEntry: () => false,
+    ignoredBy: () => false,
   });
 
   test("admits a worktree nested in its checkout, directly and through a symlink, as that checkout's repo", () => {
@@ -245,6 +256,9 @@ describe("checkRegisteredTree against a real git worktree nested in its checkout
       const refused = checkRegisteredTree(join(other, "src"), fsDeps);
       expect(refused.ok).toBe(false);
       expect((refused as { error: string }).error).toContain(realpathSync(other));
+      writeFileSync(join(repo, ".gitignore"), "stale/\n");
+      mkdirSync(join(repo, "stale", "tree", "src"), { recursive: true });
+      expect(checkRegisteredTree(join(repo, "stale", "tree", "src"), fsDeps).ok).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

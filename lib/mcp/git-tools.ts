@@ -1,5 +1,5 @@
 import { existsSync } from "fs";
-import { resolve } from "path";
+import { dirname, resolve } from "path";
 import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
 import { loadRepoIndex } from "../repo-index.ts";
@@ -15,14 +15,16 @@ import { checkRegisteredTree, gitChildEnv, realTreeGuardDeps, type TreeGuardDeps
 
 export { gitChildEnv };
 
-export function syncChildEnv(base: Record<string, string | undefined>): Record<string, string | undefined> {
-  return gitChildEnv(base, { GIT_TERMINAL_PROMPT: "0", RT_BATCH: "1", RT_SKIP_SETUP: "1" });
+// A ceiling at the tree's parent: a tree whose .git is gone fails rather
+// than letting git find the repo around it.
+export function syncChildEnv(base: Record<string, string | undefined>, cwd: string): Record<string, string | undefined> {
+  return gitChildEnv(base, { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), RT_BATCH: "1", RT_SKIP_SETUP: "1" });
 }
 
 export type GitRunner = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export const realGitRunner: GitRunner = async (args, cwd) => {
-  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0" }) });
+  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd) }) });
   return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
 
@@ -373,7 +375,7 @@ const SYNC_TIMEOUT_MS = 300_000;
 
 export const realSyncRunner = async (cwd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
   const [exe, ...rest] = rtSelfArgv();
-  const r = await runCapture([exe!, ...rest, "sync", "--json", "--no-agent"], { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: syncChildEnv(childEnv()) });
+  const r = await runCapture([exe!, ...rest, "sync", "--json", "--no-agent"], { cwd, stderr: "pipe", timeoutMs: SYNC_TIMEOUT_MS, env: syncChildEnv(childEnv(), cwd) });
   return { code: r.timedOut ? 124 : r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
 
@@ -407,8 +409,18 @@ function parseJson(stdout: string): Record<string, unknown> {
 // rt sync --json ends a failure with its title first (commands/sync.ts
 // compactFailure), after any warning lines; these are the titles of its own
 // uncommitted-changes refusal and of a push that failed after the rebase.
-const UNCOMMITTED_TITLE = /^\[refused\] You have uncommitted changes/m;
-const PUSH_FAILED_TITLE = /^(\[failed\] )?Could not push /m;
+const UNCOMMITTED_TITLE = /^\[refused\] You have uncommitted changes/;
+const PUSH_FAILED_TITLE = /^(\[failed\] )?Could not push /;
+
+/** The failure rt sync ended on, from its title line down, read per line so a warning above it cannot hide the title. */
+function syncFailure(stderr: string): { kind: "dirty-tree" | "push-refused"; text: string } | null {
+  const lines = stderr.trim().split("\n").filter((l) => !l.startsWith("hint:"));
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const kind = UNCOMMITTED_TITLE.test(lines[i]!) ? "dirty-tree" : PUSH_FAILED_TITLE.test(lines[i]!) ? "push-refused" : null;
+    if (kind) return { kind, text: lines.slice(i).join(" ") };
+  }
+  return null;
+}
 
 export async function branchSync(cwd: string, deps: Pick<GitToolDeps, "git" | "sync">): Promise<BranchSyncResult> {
   const branch = await currentBranch(cwd, deps.git);
@@ -434,9 +446,9 @@ export async function branchSync(cwd: string, deps: Pick<GitToolDeps, "git" | "s
   }
   if (r.code === 124) return ended("error", `rt sync timed out after ${SYNC_TIMEOUT_MS / 1000}s`);
   if (r.code === -1 && r.stderr.trim() === "") return ended("error", "could not start rt sync");
+  const known = r.code === 1 && typeof body.error !== "string" ? syncFailure(r.stderr) : null;
+  if (known) return ended(known.kind, known.text);
   const said = typeof body.error === "string" ? body.error : detail(r);
-  if (r.code === 1 && UNCOMMITTED_TITLE.test(said)) return ended("dirty-tree", said);
-  if (r.code === 1 && PUSH_FAILED_TITLE.test(said)) return ended("push-refused", said);
   return ended("error", `rt sync refused (exit ${r.code}): ${said}`);
 }
 
@@ -537,9 +549,18 @@ export async function branchSyncSweep(
       continue;
     }
     progress?.();
+    // The daemon's tree list can lag a checkout switch, and branch_sync syncs
+    // whatever is checked out, so the tree's own answer decides.
+    const refused = (refusal: string) => results.push({ kind: "error", branch: mr.branch, oldHead: null, newHead: null, pushed: false, refusal, tree: tree.path, mr: ref });
     const admitted = checkRegisteredTree(tree.path, deps.guard);
-    if (!admitted.ok) {
-      results.push({ kind: "error", branch: mr.branch, oldHead: null, newHead: null, pushed: false, refusal: admitted.error, tree: tree.path, mr: ref });
+    if (!admitted.ok) { refused(admitted.error); continue; }
+    if (admitted.repoName !== repo.identity || admitted.resolvedFrom !== undefined) {
+      refused(`${tree.path} is not a root of ${repo.identity}, so the sweep left it alone`);
+      continue;
+    }
+    const live = await currentBranch(admitted.path, deps.git);
+    if (live !== mr.branch) {
+      refused(`${tree.path} now has ${live ?? "a detached HEAD"} checked out, not ${mr.branch}, so the sweep left it alone`);
       continue;
     }
     results.push({ ...(await syncTree(admitted.path)), tree: admitted.path, mr: ref });
@@ -611,7 +632,7 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
     },
     {
       name: "branch_sync",
-      description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. Returns {kind, branch, oldHead, newHead, pushed, refusal}, oldHead and newHead being the branch ref before and after. kind is synced (the branch moved; pushed says origin now has it), up-to-date (nothing moved or was pushed), dirty-tree (uncommitted or untracked changes, listed in paths; nothing ran), conflict (rt sync's bundle, the rebase left paused and the branch ref not yet moved), stacked-refused (stackCheck carries the stack refusal, and refusal names the tool to run), push-refused (the rebase landed locally but the push failed) or error (any other refusal or failure, its reason in refusal).",
+      description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. Returns {kind, branch, oldHead, newHead, pushed, refusal}, oldHead and newHead being the branch ref before and after. kind is synced (the branch moved; pushed says origin now has it), up-to-date (nothing moved or was pushed), dirty-tree (uncommitted or untracked changes, listed in paths; nothing ran), conflict (rt sync's bundle, the rebase left paused; nothing was pushed, though newHead differs from oldHead when rt sync first reset a GitLab-rebased branch to origin), stacked-refused (stackCheck carries the stack refusal, and refusal names the tool to run), push-refused (the rebase landed locally but the push failed) or error (any other refusal or failure, its reason in refusal).",
       inputSchema: { type: "object", properties: { ...TREE_PROP }, required: ["tree"], additionalProperties: false },
       shellForms: ["rt sync"],
       handler: guarded(async (path) => ok(await branchSync(path, deps))),

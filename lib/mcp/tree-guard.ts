@@ -18,8 +18,10 @@
  * a subdirectory of a worktree nested in its checkout lands on the worktree.
  * A `.git` entry between the directory and that root marks another repo
  * (a submodule, a vendored clone, an unregistered worktree), which is
- * refused: it can only narrow what is admitted, never widen it.
+ * refused: it can only narrow what is admitted, never widen it. So is a
+ * directory that root's git ignores, where pool and agent worktrees live.
  */
+import { spawnSync } from "child_process";
 import { existsSync, realpathSync } from "fs";
 import { dirname, isAbsolute, join } from "path";
 import { listWorktreeRoots } from "../git-worktrees.ts";
@@ -35,6 +37,8 @@ export interface TreeGuardDeps {
   worktreeRoots: (checkout: string) => string[];
   /** Read from the filesystem, never by running git in dir. */
   hasGitEntry: (dir: string) => boolean;
+  /** Whether git in the admitted root ignores path; null when it could not say. Git runs in root, never in path. */
+  ignoredBy: (root: string, path: string) => boolean | null;
 }
 
 // Each of these outranks cwd, so git would answer for (and push from) a repo
@@ -84,6 +88,15 @@ export const realTreeGuardDeps: TreeGuardDeps = {
       timeoutMs: 10_000,
     }),
   hasGitEntry: (dir) => existsSync(join(dir, ".git")),
+  ignoredBy: (root, path) => {
+    const r = spawnSync("git", ["check-ignore", "-q", "--", path], {
+      cwd: root,
+      env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(root) }),
+      stdio: "ignore",
+      timeout: 10_000,
+    });
+    return r.status === 0 ? true : r.status === 1 ? false : null;
+  },
 };
 
 export type TreeCheck =
@@ -133,6 +146,11 @@ export function checkRegisteredTree(tree: unknown, deps: TreeGuardDeps = realTre
       const inner = passed.find((d) => deps.hasGitEntry(d));
       if (inner !== undefined) {
         return { ok: false, error: `${path} is inside ${dir}, but ${inner} is a separate git repo or worktree that rt has not registered; register it first: rt repos register ${inner}` };
+      }
+      // A worktree folder whose .git is gone (pool and agent trees live in
+      // ignored folders) must not resolve to the checkout around it.
+      if (deps.ignoredBy(dir, path) !== false) {
+        return { ok: false, error: `${path} is inside ${dir}, in a folder its git ignores (or rt could not tell), so it is not resolved to that tree; pass the tree's own root` };
       }
       return { ok: true, path: dir, repoName, resolvedFrom: path };
     }
