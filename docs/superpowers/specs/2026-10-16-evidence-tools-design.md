@@ -136,7 +136,9 @@ One merge, validate and write of the `evidence` field.
   It names the repo whose checkout and worktrees count as allowed copy
   sources. Without it, only the repo-independent sources count. The run's
   `repo` column is a folder name, not an identity, so it cannot name the
-  repo.
+  repo by itself; the tree must still belong to the run's repo (its
+  identity's slug matches that folder name), or the call is refused before
+  any copy, so a run cannot launder another repo's files into its folder.
 - `case` is the case id (`^[a-z0-9][a-z0-9-]{0,63}$`). `label` names a new
   case. It can also come from `cases[]`, and it is required when the case
   is new.
@@ -166,7 +168,12 @@ Then, in order:
    `slot`).
 2. `cases` entries set a case's `label` and/or case `waiver`.
 3. **Recaptures.** For each `(case, slot)`, the `images` entries whose
-   `path` differs from the image now at that address are a recapture. They
+   `path` is new content for that address are a recapture. This is decided
+   once, on the sources, before anything is copied: an entry is unchanged
+   only when its source is, or lands on, the recorded file and the bytes
+   match. (Comparing paths after the copy would read a recapture saved
+   under the recorded file's name as a cover update and keep a stale
+   cover.) They
    set that slot to exactly those images: today's rule that "an AFTER for
    an existing case's id sets that case's after". When the case carries a
    case `waiver`, it first moves onto each of the case's existing images
