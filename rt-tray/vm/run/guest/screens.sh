@@ -221,7 +221,7 @@ screen_row_repo_root() {
 # answers that are on it, then its primary button, which is Install on the
 # last page.
 screen_readiness() {
-  local n=12 turned=0 ids page wording tool
+  local n=12 turned=0 paged=0 ids page wording tool
   SCREEN_ROWS_DONE=" "
   ax_shot 03-readiness-initial
   screen_wait_plan 60 || ax_fail "the checklist drew no row within 60s"
@@ -230,6 +230,10 @@ screen_readiness() {
     ids=$(ax_dump_ids || true)
     if ax_ids_have "$ids" setup.install.screen; then return 0; fi
     page=$(ax_page "$ids" || true)
+    # An app from before the wizard (the update leg installs one) draws a
+    # single list with no page id, whose button reads Install from the start.
+    # Latched: one look that misses a wizard's page id must not lift the guard.
+    if ax_page "$ids" >/dev/null; then paged=1; fi
     if screen_row_due "$ids" perm.fda; then screen_row_fda; fi
     if screen_row_due "$ids" perm.login-items; then screen_row_login_items; fi
     if screen_row_due "$ids" perm.notifications; then screen_row_notifications; fi
@@ -255,7 +259,7 @@ screen_readiness() {
         # The wizard opens on its first page, and a relaunch that landed
         # further on was turned back above, so Install on the first pass means
         # the pages before it went unwalked.
-        [ "$turned" = 1 ] || ax_fail "the wizard is on its last page before any page was walked: it could not be turned back to its first"
+        [ "$turned" = 1 ] || [ "$paged" = 0 ] || ax_fail "the wizard is on its last page before any page was walked: it could not be turned back to its first"
         case "$SCREEN_ROWS_DONE" in *" tool.proxy "*) ;; *) ax_fail "tool.proxy row is not on the checklist" ;; esac
         case "$SCREEN_ROWS_DONE" in *" account.$FORGE "*) ;; *) ax_log "account.$FORGE row is on no page of the checklist" ;; esac
         ;;
