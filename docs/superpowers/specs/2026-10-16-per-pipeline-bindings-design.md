@@ -100,9 +100,9 @@ the existing `work` engine, naming the pipeline it runs:
 
 A run started by a work verb records work type `work` and pipeline `<name>`
 (`--work-type work --pipeline accessibility`). Work type stays `work` so
-console keeps classifying it as a work run. New default runs record
-pipeline `feature`; old runs keep `work`, and console shows whatever a run
-stored.
+console keeps classifying it as a work run. New plain `work` runs record
+the pipeline plain `work` resolves to (usually `feature`); old runs keep
+`work`, and console shows whatever a run stored.
 
 Stage names in a run record stay the plain stage names (`evidence`), for
 every pipeline. Anything that needs a run's pipeline-specific stage copy
@@ -153,8 +153,11 @@ carrying the stages and that pipeline's binding overrides:
 - When a higher layer replaces a pipeline's stage list and drops
   a stage that a lower layer's override names, check warns and the
   override is ignored, since layering cannot delete the lower key. An
-  override naming a stage missing from the same layer's own list is an
-  error.
+  override naming a stage missing from the same layer's own list fails
+  materialize.
+- A pipeline name that does not match `^[a-z][a-z0-9-]*$` (the schema's
+  rule, and the `{{verb.path}}` rule a copy's name must pass) fails
+  materialize, naming the pipeline.
 - The manifest's provenance header records which layer set each pipeline
   override slot, as it does for default slots.
 - A pipeline with no overrides renders as a plain list in the generated
@@ -177,8 +180,9 @@ carrying the stages and that pipeline's binding overrides:
   materialize, naming the pipeline.
 - `rt skills check` errors on: a pipeline override for a stage the pipeline
   does not list; a work verb naming an undeclared pipeline; a pipeline that
-  does not start with `stage-provision` or lacks `stage-ship` or
-  `stage-watch-ci` (the work digraph special-cases all three); a pipeline's
+  does not start with `stage-provision`, end with `stage-watch-ci`, and
+  include `stage-ship` (the work digraph special-cases all three, and its
+  close step treats the last row as watch-ci); a pipeline's
   stages that fail the existing consumes/produces chain check
   (`pipelineChainErrors`).
 
