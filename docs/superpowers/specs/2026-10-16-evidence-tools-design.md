@@ -218,6 +218,11 @@ ends ingestion's `upload_root` question.
 
   Anything else is refused before anything is copied, naming the file and
   the roots.
+- **Destinations.** A copy lands only under `~/.mattstack/work`. A symlink
+  above that folder is followed, the way the upload guard resolves it. A
+  symlink at or below the run folder, whether the run folder, `evidence`,
+  a case folder or the destination file itself, is refused before anything
+  is copied, so a copy never leaves the run.
 - **Bundles.** An image copies as its whole bundle.
   - **The stem.** For a capture named `<stem>.c<n>.<ext>`, the stem is that
     `<stem>`. For any other image, it is the file name minus its extension.

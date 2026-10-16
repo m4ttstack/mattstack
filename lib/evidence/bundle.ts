@@ -1,5 +1,5 @@
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
-import { basename, dirname, extname, isAbsolute, join } from "path";
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from "path";
 import { builtInEvidenceRoot, claudeTempRoots, isInsideRoot, runEvidenceRoot, TEXT_EXTENSIONS, UPLOAD_EXTENSIONS, workRoot } from "../daemon/upload-guard.ts";
 import { evidenceDir } from "../rt-paths.ts";
 import { runsRoot } from "../runs/paths.ts";
@@ -95,6 +95,16 @@ function isSymlink(p: string): boolean {
   }
 }
 
+/** The upload guard resolves the work root and splits the rest literally, so a link below it would send a copy out of the run. */
+function symlinkBelow(root: string, dir: string): string | null {
+  let p = root;
+  for (const part of relative(root, dir).split(sep)) {
+    p = join(p, part);
+    if (isSymlink(p)) return p;
+  }
+  return null;
+}
+
 export function sameBytes(a: string, b: string): boolean {
   try {
     const sa = statSync(a);
@@ -113,7 +123,7 @@ export function mapKey(src: string, destDir: string): string {
 
 export function copyIntoRun(
   requests: CopyRequest[],
-  o: { allowedRoots: string[]; referencedElsewhere: Set<string> },
+  o: { allowedRoots: string[]; referencedElsewhere: Set<string>; destRoot: string },
 ): { ok: true; copied: CopyResult[]; mapped: Map<string, string> } | { ok: false; error: string } {
   const roots = o.allowedRoots.filter((r) => typeof r === "string" && r.length > 0 && isAbsolute(r));
   const planned: Planned[] = [];
@@ -126,6 +136,9 @@ export function copyIntoRun(
     const refusal = checkSource(req.src, real, roots, req.single === true);
     if (refusal !== null) return { ok: false, error: refusal };
 
+    if (!isInsideRoot(req.destDir, o.destRoot)) return { ok: false, error: `${req.destDir}: destination is outside ${o.destRoot}` };
+    const link = symlinkBelow(o.destRoot, req.destDir);
+    if (link !== null) return { ok: false, error: `${link}: destination directory is a symlink` };
     const destReal = safeRealpath(req.destDir) ?? req.destDir;
     const members = req.single
       ? [basename(real)]

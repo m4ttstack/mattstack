@@ -336,7 +336,8 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   }
 
   const current = parseCurrent(read.value);
-  const evidenceRoot = join(deps.home(), ".mattstack", "work", runId, "evidence");
+  const workDir = join(deps.home(), ".mattstack", "work");
+  const evidenceRoot = join(workDir, runId, "evidence");
   const merge = markRecaptures(current, parsed.merge, evidenceRoot);
   const dry = mergeRecord(current, merge);
   if (!dry.ok) return err(dry.error);
@@ -346,7 +347,7 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   }
 
   const roots = allowedSourceRoots({ home: deps.home(), uid: deps.uid(), repoRoots, uploadRoots: deps.uploadRoots() });
-  const copy = copyIntoRun(copyRequests(merge, evidenceRoot), { allowedRoots: roots, referencedElsewhere: referencedElsewhere(current, merge.images ?? []) });
+  const copy = copyIntoRun(copyRequests(merge, evidenceRoot), { allowedRoots: roots, referencedElsewhere: referencedElsewhere(current, merge.images ?? []), destRoot: workDir });
   if (!copy.ok) return err(copy.error);
   const copied: CopyResult[] = [...new Map(copy.copied.map((c) => [c.to, c])).values()];
 

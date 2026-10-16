@@ -29,7 +29,7 @@ const put = (name: string, body = name) => {
   writeFileSync(p, body);
   return p;
 };
-const opts = () => ({ allowedRoots: [src], referencedElsewhere: new Set<string>() });
+const opts = () => ({ allowedRoots: [src], referencedElsewhere: new Set<string>(), destRoot: base });
 
 describe("bundleStem", () => {
   test("strips a capture suffix and the extension", () => {
@@ -114,7 +114,7 @@ describe("copyIntoRun", () => {
     mkdirSync(dest, { recursive: true });
     writeFileSync(join(dest, "a.png"), "other");
     put("a.spec.json");
-    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: [src], referencedElsewhere: new Set([join(dest, "a.png")]) });
+    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: [src], referencedElsewhere: new Set([join(dest, "a.png")]), destRoot: base });
     expect(r.ok).toBe(false);
     expect(readdirSync(dest)).toEqual(["a.png"]);
     expect(readFileSync(join(dest, "a.png"), "utf8")).toBe("other");
@@ -132,7 +132,7 @@ describe("copyIntoRun", () => {
     mkdirSync(dest, { recursive: true });
     const inPlace = join(dest, "a.png");
     writeFileSync(inPlace, "x");
-    const r = copyIntoRun([{ src: inPlace, destDir: dest }], { allowedRoots: [dest], referencedElsewhere: new Set() });
+    const r = copyIntoRun([{ src: inPlace, destDir: dest }], { allowedRoots: [dest], referencedElsewhere: new Set(), destRoot: base });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.copied).toEqual([]);
@@ -143,10 +143,11 @@ describe("copyIntoRun", () => {
     mkdirSync(dest, { recursive: true });
     writeFileSync(join(dest, "a.png"), "x");
     const link = join(base, "link");
-    symlinkSync(dest, link);
-    const r = copyIntoRun([{ src: join(dest, "a.png"), destDir: link }], { allowedRoots: [dest], referencedElsewhere: new Set() });
+    symlinkSync(base, link);
+    const linked = join(link, "run", "evidence", "retry-badge");
+    const r = copyIntoRun([{ src: join(dest, "a.png"), destDir: linked }], { allowedRoots: [dest], referencedElsewhere: new Set(), destRoot: link });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.mapped.get(mapKey(join(dest, "a.png"), link))).toBe(join(link, "a.png"));
+    if (r.ok) expect(r.mapped.get(mapKey(join(dest, "a.png"), linked))).toBe(join(linked, "a.png"));
   });
 
   test("one source requested into two folders maps into each", () => {
@@ -172,7 +173,7 @@ describe("hardening", () => {
     mkdirSync(ev2, { recursive: true });
     writeFileSync(join(ev1, "x.png"), "x");
     writeFileSync(join(ev2, "y.png"), "y");
-    const o = { allowedRoots: [workRoot()], referencedElsewhere: new Set<string>() };
+    const o = { allowedRoots: [workRoot()], referencedElsewhere: new Set<string>(), destRoot: base };
     expect(copyIntoRun([{ src: join(ev1, "x.png"), destDir: dest }], o).ok).toBe(true);
     expect(copyIntoRun([{ src: join(ev2, "y.png"), destDir: join(base, "d2") }], o).ok).toBe(false);
   });
@@ -205,7 +206,7 @@ describe("hardening", () => {
 
   test("empty and relative roots admit nothing", () => {
     const a = put("a.png");
-    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: ["", "rel"], referencedElsewhere: new Set() });
+    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: ["", "rel"], referencedElsewhere: new Set(), destRoot: base });
     expect(r.ok).toBe(false);
   });
 
@@ -227,6 +228,43 @@ describe("hardening", () => {
     symlinkSync(victim, join(dest, "a.png"));
     expect(copyIntoRun([{ src: a, destDir: dest }], opts()).ok).toBe(false);
     expect(readFileSync(victim, "utf8")).toBe("v");
+  });
+
+  test("a symlinked evidence folder is refused and nothing lands where it points", () => {
+    const a = put("a.png");
+    const elsewhere = join(base, "elsewhere");
+    mkdirSync(elsewhere);
+    mkdirSync(join(base, "run"));
+    symlinkSync(elsewhere, join(base, "run", "evidence"));
+    const r = copyIntoRun([{ src: a, destDir: dest }], opts());
+    expect(r).toEqual({ ok: false, error: `${join(base, "run", "evidence")}: destination directory is a symlink` });
+    expect(readdirSync(elsewhere)).toEqual([]);
+  });
+
+  test("a symlinked case folder is refused", () => {
+    const a = put("a.png");
+    const elsewhere = join(base, "elsewhere");
+    mkdirSync(elsewhere);
+    mkdirSync(join(base, "run", "evidence"), { recursive: true });
+    symlinkSync(elsewhere, dest);
+    expect(copyIntoRun([{ src: a, destDir: dest }], opts()).ok).toBe(false);
+    expect(readdirSync(elsewhere)).toEqual([]);
+  });
+
+  test("a symlink above the destination root is followed", () => {
+    const a = put("a.png");
+    mkdirSync(join(base, "real-work"));
+    symlinkSync(join(base, "real-work"), join(base, "work"));
+    const to = join(base, "work", "run", "evidence", "c");
+    const r = copyIntoRun([{ src: a, destDir: to }], { ...opts(), destRoot: join(base, "work") });
+    expect(r.ok).toBe(true);
+    expect(readFileSync(join(base, "real-work", "run", "evidence", "c", "a.png"), "utf8")).toBe("a.png");
+  });
+
+  test("a destination outside the destination root is refused", () => {
+    const a = put("a.png");
+    const r = copyIntoRun([{ src: a, destDir: join(base, "run") }], { ...opts(), destRoot: join(base, "run", "evidence") });
+    expect(r.ok).toBe(false);
   });
 });
 
