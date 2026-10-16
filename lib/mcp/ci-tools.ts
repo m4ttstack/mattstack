@@ -282,7 +282,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
 
         try {
           const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, budgetMinutes, ...(extendMinutes !== undefined && { extendMinutes }), ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
-          return "error" in r ? err(r.error) : ok(r);
+          return "state" in r ? ok(r) : err(r.error);
         } catch (e) {
           return err(e instanceof Error ? e.message : String(e));
         }
