@@ -101,8 +101,15 @@ design departs from today's behavior is listed under
 
   Everything below works on main today and stays correct once #822 lands.
 - Every upload goes through the daemon's `mr:upload`, so the path guard,
-  #822's redaction gate and the `runId` record check run on every file. No
-  tool reads or sends file bytes to a forge itself.
+  #822's redaction gate and the `runId` record check run on every file
+  sent. No tool reads or sends file bytes to a forge itself.
+- The one exception is B2's reuse, which sends nothing. It is limited so
+  that it never skips a check that could now refuse:
+  - the file is in the record's upload set, which is what the record check
+    tests;
+  - its bytes match the upload by sha256;
+  - it has no `<stem>.redactions.json` beside it, so a gated board always
+    goes back through the daemon.
 - Run reads and writes go through `runToolDefs`' handlers (`run_snapshot`,
   `run_field_get`, `run_field_set`), which reuse their `runDb`
   confinement. The `evidence` write therefore still passes `fieldSet`'s
@@ -123,8 +130,13 @@ One merge, validate and write of the `evidence` field.
             path?, annotated?, caption?, waiver?}],
  cases?: [{id, label?, waiver?}],
  remove?: [{case, slot?, theme?}],
- transcript?, url?, plan?: "none"}
+ transcript?, url?, plan?: "none", tree?}
 ```
+- `tree` is the run's worktree root, checked with `checkRegisteredTree`.
+  It names the repo whose checkout and worktrees count as allowed copy
+  sources. Without it, only the repo-independent sources count. The run's
+  `repo` column is a folder name, not an identity, so it cannot name the
+  repo.
 - `case` is the case id (`^[a-z0-9][a-z0-9-]{0,63}$`). `label` names a new
   case. It can also come from `cases[]`, and it is required when the case
   is new.
@@ -199,11 +211,21 @@ ends ingestion's `upload_root` question.
 
   Anything else is refused before anything is copied, naming the file and
   the roots.
-- **Bundles.** An image copies as its whole bundle: every regular file in
-  the source's folder named `<stem>` or `<stem>.*`, where `<stem>` is the
-  file name up to its first `.`. That keeps the board, spec, captures,
-  redaction record and crops together, flat, as #822's guard and pair specs
-  need. A transcript copies alone.
+- **Bundles.** An image copies as its whole bundle.
+  - **The stem.** For a capture named `<stem>.c<n>.<ext>`, the stem is that
+    `<stem>`. For any other image, it is the file name minus its extension.
+  - **The bundle** is the image itself plus these regular files beside it
+    in the source folder, when they exist:
+    - `<stem>.<image ext>` (the board);
+    - `<stem>.c<n>.<image ext>` and `<stem>.c<n>.capture.json`;
+    - `<stem>.spec.json`;
+    - `<stem>.redactions.json` and `<stem>.redact-*.png`.
+  - Nothing else is swept up. A capture inside a checkout therefore never
+    drags its neighbours along, and an empty stem or a dotfile copies
+    nothing.
+  - That keeps the board, spec, captures, redaction record and crops
+    together, as #822's guard and pair specs need.
+  - A transcript copies alone.
 - **Re-copy is the refresh.** A destination with identical bytes is left
   as is, and one with different bytes is overwritten. So calling again
   after `fast-browser compose --confirm` or a re-render refreshes the
@@ -261,10 +283,17 @@ description. The skill calls it only after the attach gate's proceed.
   field. The repo is that target's, else the run's `repo` column.
 
 **Steps:**
-1. **Read.** `run_snapshot` gives `evidence`, `evidence-uploads`, `mr`
-   and the run's repo. A record that is not evidence@2 uploads nothing; its
-   section carries only `Transcript:`/`Ticket:` lines. With no record at
-   all, the section is empty and the description is untouched.
+1. **Read.** `run_snapshot` gives `evidence`, `evidence-uploads` and
+   `mr`.
+   - The record is read with `readEvidence`, so v1 and v2 records both
+     upload, as ship does today.
+   - A `plan:text`/`plan:ticket` value uploads nothing; its section
+     carries only `Transcript:`/`Ticket:` lines.
+   - With no record, or `plan:none`, the section is empty and the
+     description is untouched.
+   - The repo is the target's: `mrUrl`, else `repoName`, else the run's
+     `mr` field. With none of these the call is refused; a handback before
+     an MR exists passes `repoName`, such as the tree path.
 2. **GitHub** (a github.com identity or PR URL; #844's helpers):
    - uploads nothing;
    - every entry carries its local path;
@@ -277,9 +306,12 @@ description. The skill calls it only after the attach gate's proceed.
    - Each distinct `annotated` path, and each waived image's `path`, once,
      in record order. Never a base whose image is annotated, never a
      sidecar, never a transcript.
-   - A file whose `evidence-uploads` entry matches its realpath, current
-     sha256 and target project is reused, not re-uploaded. A revised board
-     at the same path has new bytes, so it re-uploads.
+   - A file is reused, not re-uploaded, when all of these hold:
+     - its `evidence-uploads` entry matches its realpath, its current
+       sha256 and the target project;
+     - it has no `<stem>.redactions.json` beside it (see Constraints).
+
+     A revised board at the same path has new bytes, so it re-uploads.
 4. **Upload.** `mr:upload {repoName, path, runId}` per file, sequentially.
    A timeout (`isTimeoutError`) retries once, as the skills do today; a
    second timeout lands in `timedOutTwice`. Any other error is a refusal,
@@ -289,19 +321,31 @@ description. The skill calls it only after the attach gate's proceed.
    |---|---|
    | `record` | not in the run's evidence record; run has no evidence record; run not found |
    | `raw-capture` | is the raw capture for case ... |
-   | `redaction` (#822) | redactions changed, crop missing or changed, redaction not yet confirmed |
-   | `import` (#822) | unredacted original of an imported ticket image |
-   | `roots` | outside the allowed upload roots |
-   | `missing` | file not found; path must be absolute |
-   | `bytes` | extension, signature, not a regular file, other hard links, changed or grew during read |
-   | `size` | file is N MB; the upload cap is ... |
-   | `forge` | anything else (GitLab status, token, network) |
+   | `import` (#822) | `is the unredacted original of an imported ticket image` |
+   | `redaction` (#822) | `has no redaction record beside it`, `redaction record is malformed`, `changed since its redactions were recorded`, `redaction crop`, `has a redaction not yet confirmed` |
+   | `roots` | `outside the allowed upload roots` |
+   | `missing` | `file not found`, `path must be absolute` |
+   | `size` | `the upload cap is` |
+   | `bytes` | `extension must be one of`, `file bytes do not match`, `not a regular file`, `other hard links`, `cannot open file`, `cannot stat open file`, `changed identity`, `read short`, `grew during read` |
+   | `other` | anything else, verbatim: GitLab status, token, network, `repo-unknown` |
 
-   Tests pin each bucket against messages produced by the real guard
-   functions. #822's strings are pinned as literals until it merges.
+   Rows match top to bottom, so `record`'s `run ... not found` wins over
+   `missing`'s `file not found`, and `redaction` wins over `bytes`.
+   - Main's guard strings are pinned in tests against messages produced by
+     calling the real guard functions.
+   - #822's strings are pinned as literals copied from
+     `composed-evidence-m4` at `b402be333`
+     (`lib/daemon/redaction-record-check.ts:66-90`) until it merges.
 5. **Remember.** New uploads merge into the `evidence-uploads` run field
-   (below) via `run_field_set` under `stage`. A failed write comes back in
-   `writeErrors` and does not undo the uploads.
+   (below) via `run_field_set` under `stage`.
+   - Under `linkRefused: true`, each refused or twice-timed-out file is
+     also recorded there as `{linked: true}`, so a resumed run sees the
+     Take.
+   - Today's `run_field_set {key: evidence, value: <the record plus
+     attach>}` after the description write is not repeated (B5). The record
+     stays what was verified, and `evidence-uploads` holds where it went.
+   - A failed write comes back in `writeErrors` and does not undo the
+     uploads.
 6. **Render** the section body from the record (format below). An
    uploaded or reused file prints its upload markdown. A refused or
    twice-timed-out file prints its local path only when `linkRefused: true`
@@ -339,17 +383,22 @@ version, which reduces to today's when no board is shared.
   themes in parens (`- Before and after (light):`,
   `- After (light and dark):`).
 - The entry text is the upload markdown, with its alt text set to the
-  lowercase label. Where nothing uploaded, it is the bare local path.
+  covered slots joined by "and", lowercase, with no theme (`![after]`,
+  `![before and after]`), as the page's examples print. Where nothing
+  uploaded, it is the bare local path.
 - A caption prints once as `  Caption: <caption>`, and an image waiver as
   `  Waived: <reason>`.
 - After the cases come `Transcript: <path>`, then `Ticket: <url>`, then the
   lines of `attach` whose links no case file covers, then `appendix`.
+- A link counts as covered when it is:
+  - a case image's `path` or `annotated`;
+  - or an upload URL that `evidence-uploads` maps to one of those files.
 
 **Returns:**
 ```
 {forge: "gitlab"|"github", mr: url|null,
  uploaded: [{path, url, markdown, reused}],
- refused: {<bucket>: [{path, error}]},
+ refused: {record|raw-capture|import|redaction|roots|missing|size|bytes|other: [{path, error}]},
  timedOutTwice: [path], section, description?,
  descriptionWritten,
  notWritten?: "no-mr"|"refused"|"github"|"unchanged",
@@ -364,7 +413,8 @@ GitHub with uploads requested through a GitLab target.
 This is Matt's ruling (gate `8f4b7290`, q2): a separate field, with no
 evidence@2 change. Its value is JSON:
 ```
-{"v": 1, "uploads": {"<realpath>": {"sha256", "project": "<repo identity>", "url", "markdown", "at"}}}
+{"v": 1, "uploads": {"<realpath>": {"sha256", "project": "<repo identity>", "url", "markdown", "at"}
+                     | {"linked": true, "at"}}}
 ```
 - Only `evidence_attach` reads and writes it.
 - An unreadable value counts as empty and is overwritten on the next
@@ -445,6 +495,8 @@ its retry.
 | B1 | `evidence_record` copies captures (whole bundles) into one run folder, `~/.mattstack/work/<run id>/evidence/<case>/`, for every team, instead of each domain's folder. That ends ingestion's `upload_root` question once wave 3 adopts it. | Approved by Matt (gate `8f4b7290` q1; shepherd DM #5811). |
 | B2 | A resumed attach reuses an earlier upload, by sha256 and project, instead of re-uploading. | Approved by Matt (gate `8f4b7290` q2). |
 | B3 | Shared boards print once and upload once (#822's rules) rather than main's one entry per image. | Flagged improvement: follows #822, which lands in the same release, and is identical to today when no board is shared. |
+| B5 | `evidence_attach` no longer rewrites `evidence` with "the record plus attach" after the description write. Upload markdown and the Take's linked paths live in `evidence-uploads` instead, so `attach` stays legacy-only and the dedupe stays exact. | Flagged improvement (builder check). |
+| B6 | A twice-timed-out file is reported per file while the rest still upload. Today one STOP ends the loop at the first such file. | Flagged improvement: the off-script gate still sees every refused file at once. |
 | B4 | `mr_upload {paths}` and the three new tools are additive. Single-path `mr_upload` is unchanged. | No change. |
 
 Everything else mirrors today's skill text:
@@ -469,5 +521,8 @@ Everything else mirrors today's skill text:
 - The renderer prints a local path bare, with no backticks.
 - `evidence_attach` never copies. A refused file is only ever moved by the
   human.
+- GitHub detection reuses #844's `refuseGithubTarget`/`githubRefusal` as
+  detectors (a non-null return means GitHub). `evidence_attach` turns that
+  into its GitHub branch rather than refusing.
 - `dev_endpoints` lives beside the evidence tools rather than in a new
   file, since capture is its first caller.
