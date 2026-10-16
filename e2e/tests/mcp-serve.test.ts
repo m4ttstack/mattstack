@@ -179,6 +179,7 @@ const EXPECTED_TOOL_NAMES = [
   "gate_answer", "gate_ask", "gate_list",
   "herd_answer", "herd_ask", "herd_gates", "herd_report",
   "mr_approve", "mr_comment", "mr_comment_inline", "mr_create", "mr_map", "mr_ready", "mr_rebase", "mr_reply_thread", "mr_resolve_thread", "mr_retry", "mr_review_submit", "mr_update", "mr_update_note", "mr_upload",
+  "mr_posted_since", "respond_post_execute", "mr_resolve_branch",
   "rt_verb",
   "run_start", "run_stage", "run_field_set", "run_field_get", "run_decision", "run_status", "run_snapshot", "run_enter", "run_next", "run_resolve", "run_hold", "run_close", "run_budget", "run_list",
   "mr_view", "mr_list", "mr_for_branch", "mr_threads", "mr_pipeline", "mr_job_trace", "mr_merge",

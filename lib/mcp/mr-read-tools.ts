@@ -3,7 +3,7 @@
  * reads the daemon's open-MR cache, so any MR the token can see is readable.
  */
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
-import type { Commands } from "../../packages/rt-client/src/index.ts";
+import type { Commands, Discussion } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
 import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { sliceTrace, type TraceMode } from "./trace-slice.ts";
@@ -25,6 +25,25 @@ const JOB_ID_NOTE = "jobId is the numeric part of a job id like gitlab:job:123. 
 
 const TRACE_TAIL_LINES = 200;
 
+const BOT_USERNAME = [/^(project|group)_\d+_bot/i, /^ghost$/i, /[-_]bot$/i, /\[bot\]$/i];
+
+export function isBotUsername(username: string): boolean {
+  return BOT_USERNAME.some((re) => re.test(username));
+}
+
+export function filterHumanThreads(discussions: Discussion[]): { discussions: Discussion[]; dropped: { resolved: number; system: number; bot: number } } {
+  const dropped = { resolved: 0, system: 0, bot: 0 };
+  const kept: Discussion[] = [];
+  for (const d of discussions) {
+    const first = d.notes[0];
+    if (d.resolved === true) dropped.resolved++;
+    else if (!first || first.system) dropped.system++;
+    else if (isBotUsername(first.author.username)) dropped.bot++;
+    else kept.push({ ...d, notes: d.notes.filter((n) => !n.system) });
+  }
+  return { discussions: kept, dropped };
+}
+
 export function tailTrace(raw: string, tailLines: number): { trace: string; truncated: boolean; totalLines: number } {
   return sliceTrace(raw, { kind: "tail", lines: tailLines });
 }
@@ -45,11 +64,9 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     {
       name: "mr_view",
       description: `GitLab only. One MR by iid, in full: opened, merged or closed. ${LIVE_NOTE}. ${REPO_NAME_RULE}`,
-      inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, maxAgeMs: IGNORED_MAX_AGE }, additionalProperties: false },
+      inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS }, additionalProperties: false },
       shellForms: ["glab mr view", { id: "glab", pattern: /(?<![\w-])glab\b/, example: "glab issue list", note: "mr_view, mr_list, mr_for_branch, mr_threads, mr_pipeline, mr_job_trace, pipeline_list, project_labels, mr_merge, an mr_* write, or gitlab_get for any other read" }],
       async handler(input) {
-        const bad = checkOptional(input, [{ name: "maxAgeMs", type: "number" }]);
-        if (bad) return err(bad);
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);
         const read = await getMr(target.identity, target.iid);
@@ -127,15 +144,17 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     {
       name: "mr_threads",
       description: `GitLab only. The MR's discussion threads, fetched from GitLab on every call. ${REPO_NAME_RULE}`,
-      inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, refresh: { type: "boolean", description: "Accepted and ignored; every read is live." } }, additionalProperties: false },
+      inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, refresh: { type: "boolean", description: "Accepted and ignored; every read is live." }, filter: { type: "string", enum: ["unresolved-human"], description: "unresolved-human keeps unresolved threads started by a person, drops system notes, and adds dropped counts." } }, additionalProperties: false },
       shellForms: { none: "discussions have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
-        const bad = checkOptional(input, [{ name: "refresh", type: "boolean" }]);
+        const bad = checkOptional(input, [{ name: "refresh", type: "boolean" }, { name: "filter", type: "string" }]);
         if (bad) return err(bad);
+        if (input.filter !== undefined && input.filter !== "unresolved-human") return err('"filter" must be unresolved-human');
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);
         const r = await deps.command<Commands["discussions:refresh"]["data"]>("discussions:refresh", { repoName: target.identity, iid: target.iid }, { timeoutMs: READ_TIMEOUT_MS });
         if (!r.ok || !r.data) return err(explainError(r.error ?? "thread read failed"));
+        if (input.filter === "unresolved-human") return ok({ ...filterHumanThreads(r.data.discussions), fetchedAt: r.data.fetchedAt, stale: false });
         return ok({ discussions: r.data.discussions, fetchedAt: r.data.fetchedAt, stale: false });
       },
     },

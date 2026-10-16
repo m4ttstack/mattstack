@@ -1,117 +1,59 @@
 import { describe, expect, test } from "bun:test";
-import { joinMrsToWorktrees, type MrMapRow } from "../mr-map.ts";
+import { joinMrsToWorktrees } from "../mr-map.ts";
+
+const mr = (iid: number, sourceBranch: string, over: Partial<{ title: string; author: string | null; targetBranch: string; draft: boolean; state: string }> = {}) => ({
+  iid,
+  title: over.title ?? `MR ${iid}`,
+  author: over.author === undefined ? "alice" : over.author,
+  sourceBranch,
+  targetBranch: over.targetBranch ?? "main",
+  draft: over.draft ?? false,
+  state: over.state ?? "opened",
+});
+const opts = (over: Partial<{ defaultBranch: string | null; ciStatus: (iid: number) => string | null }> = {}) => ({
+  defaultBranch: over.defaultBranch === undefined ? "main" : over.defaultBranch,
+  ciStatus: over.ciStatus ?? (() => null),
+});
 
 describe("joinMrsToWorktrees", () => {
-  test("exact-equality join: foo-1 does not match foo-10", () => {
-    const mrs = [
-      { iid: 1, title: "Feature A", sourceBranch: "foo-1", state: "opened", pipelineStatus: "success" },
-    ];
-    const trees = [{ path: "/repo/foo-1", branch: "foo-10" }];
-
-    const result = joinMrsToWorktrees(mrs, trees);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      ref: "!1",
-      title: "Feature A",
-      sourceBranch: "foo-1",
-      worktree: null,
-      mrState: "opened",
-      ciStatus: "success",
-    });
+  test("branches that prefix each other join exactly", () => {
+    const trees = [{ path: "/repo/foo-10", branch: "foo-10" }];
+    const result = joinMrsToWorktrees([mr(1, "foo-1"), mr(2, "foo-10")], trees, opts());
+    expect(result[0]!.worktree).toBeNull();
+    expect(result[1]!.worktree).toBe("/repo/foo-10");
   });
 
-  test("exact-equality join: foo-1 matches foo-1 exactly", () => {
-    const mrs = [
-      { iid: 2, title: "Feature B", sourceBranch: "foo-1", state: "opened", pipelineStatus: null },
-    ];
-    const trees = [{ path: "/repo/foo-1", branch: "foo-1" }];
-
-    const result = joinMrsToWorktrees(mrs, trees);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      ref: "!2",
-      title: "Feature B",
-      sourceBranch: "foo-1",
-      worktree: "/repo/foo-1",
-      mrState: "opened",
-      ciStatus: null,
-    });
-  });
-
-  test("MR with no matching tree produces worktree: null", () => {
-    const mrs = [{ iid: 3, title: "Feature C", sourceBranch: "no-match", state: "opened", pipelineStatus: "running" }];
-    const trees = [{ path: "/repo/foo-1", branch: "foo-1" }];
-
-    const result = joinMrsToWorktrees(mrs, trees);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]!.worktree).toBe(null);
-  });
-
-  test("one row per MR in input order", () => {
-    const mrs = [
-      { iid: 10, title: "First", sourceBranch: "branch-a", state: "opened", pipelineStatus: "success" },
-      { iid: 20, title: "Second", sourceBranch: "branch-b", state: "merged", pipelineStatus: null },
-      { iid: 30, title: "Third", sourceBranch: "branch-c", state: "closed", pipelineStatus: "failed" },
-    ];
-    const trees = [
-      { path: "/path/a", branch: "branch-a" },
-      { path: "/path/b", branch: "branch-b" },
-    ];
-
-    const result = joinMrsToWorktrees(mrs, trees);
-
-    expect(result).toHaveLength(3);
-    expect(result[0]!.ref).toBe("!10");
-    expect(result[1]!.ref).toBe("!20");
-    expect(result[2]!.ref).toBe("!30");
-    expect(result[0]!.worktree).toBe("/path/a");
-    expect(result[1]!.worktree).toBe("/path/b");
-    expect(result[2]!.worktree).toBe(null);
-  });
-
-  test("tree with null branch never matches any MR", () => {
-    const mrs = [
-      { iid: 40, title: "Orphan", sourceBranch: "some-branch", state: "opened", pipelineStatus: null },
-    ];
-    const trees = [{ path: "/detached", branch: null }];
-
-    const result = joinMrsToWorktrees(mrs, trees);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]!.worktree).toBe(null);
-  });
-
-  test("multiple trees with same branch uses the last one", () => {
-    const mrs = [{ iid: 50, title: "Dupe branch", sourceBranch: "shared", state: "opened", pipelineStatus: null }];
+  test("with two trees on one branch the last one wins", () => {
     const trees = [
       { path: "/first/shared", branch: "shared" },
       { path: "/second/shared", branch: "shared" },
     ];
-
-    const result = joinMrsToWorktrees(mrs, trees);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]!.worktree).toBe("/second/shared");
+    expect(joinMrsToWorktrees([mr(50, "shared")], trees, opts())[0]!.worktree).toBe("/second/shared");
   });
 
-  test("empty MRs and trees", () => {
-    const result = joinMrsToWorktrees([], []);
-    expect(result).toHaveLength(0);
+  test("a tree with a null branch never matches", () => {
+    expect(joinMrsToWorktrees([mr(40, "some-branch")], [{ path: "/detached", branch: null }], opts())[0]!.worktree).toBeNull();
   });
 
-  test("empty MRs with trees", () => {
-    const trees = [{ path: "/repo", branch: "main" }];
-    const result = joinMrsToWorktrees([], trees);
-    expect(result).toHaveLength(0);
+  test("carries every MR field in input order", () => {
+    const result = joinMrsToWorktrees(
+      [mr(10, "a", { title: "First", author: "bob", targetBranch: "a-base", draft: true }), mr(20, "b", { author: null })],
+      [{ path: "/path/a", branch: "a" }],
+      opts({ ciStatus: (iid) => (iid === 10 ? "success" : null) }),
+    );
+    expect(result).toEqual([
+      { ref: "!10", iid: 10, title: "First", author: "bob", sourceBranch: "a", targetBranch: "a-base", draft: true, stacked: true, worktree: "/path/a", mrState: "opened", ciStatus: "success" },
+      { ref: "!20", iid: 20, title: "MR 20", author: null, sourceBranch: "b", targetBranch: "main", draft: false, stacked: false, worktree: null, mrState: "opened", ciStatus: null },
+    ]);
   });
 
-  test("MRs with no trees", () => {
-    const mrs = [{ iid: 60, title: "No trees", sourceBranch: "orphan", state: "opened", pipelineStatus: null }];
-    const result = joinMrsToWorktrees(mrs, []);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.worktree).toBe(null);
+  test("stacked is null when the default branch is unknown, and false when the target is the default", () => {
+    expect(joinMrsToWorktrees([mr(1, "x", { targetBranch: "other" })], [], opts({ defaultBranch: null }))[0]!.stacked).toBeNull();
+    expect(joinMrsToWorktrees([mr(1, "x", { targetBranch: "main" })], [], opts())[0]!.stacked).toBe(false);
+    expect(joinMrsToWorktrees([mr(1, "x", { targetBranch: "other" })], [], opts())[0]!.stacked).toBe(true);
+  });
+
+  test("empty inputs give no rows", () => {
+    expect(joinMrsToWorktrees([], [{ path: "/repo", branch: "main" }], opts())).toEqual([]);
   });
 });
