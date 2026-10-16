@@ -44,9 +44,13 @@ Two things block it today:
 
 ## Anti-goals
 
-- Any change in compiled output, generated manifests or run records for a
-  pack that declares one pipeline and no overrides, beyond new runs
-  recording `feature` (below). Existing packs must not notice this landed.
+- Any change in compiled stages, other verbs, generated manifests or run
+  records for a pack that declares one pipeline and no overrides. The
+  allowed exceptions: new runs record `feature` (below), and the compiled
+  `work` orchestrator's own text changes once, since its stage table
+  becomes generated (*my call*: it need not reproduce today's hand-written
+  table byte for byte, only carry the same stages, paths, consumes and
+  produces). Existing packs must not otherwise notice this landed.
 - A migration. Today's plain-list pipelines stay valid forever.
 - A specialized run that console shows as anything other than a work run.
 
@@ -81,8 +85,9 @@ the existing `work` engine, naming the pipeline it runs:
 }
 ```
 
-- `work` with no `pipeline` keeps today's behavior: it runs the `feature`
-  pipeline.
+- `work` with no `pipeline` keeps today's behavior. *My call:* it runs the
+  pack's only pipeline when there is exactly one, whatever its name, else
+  `feature`; check errors if there are several and none is `feature`.
 - The recommended name is `work-<kind>`, so every kind groups under
   `/<pack>:work` in autocomplete and `work` stays the default. Mattstack
   does not enforce names; the pack skills recommend this one.
@@ -97,6 +102,18 @@ A run started by a work verb records work type `work` and pipeline `<name>`
 console keeps classifying it as a work run. New default runs record
 pipeline `feature`; old runs keep `work`, and console shows whatever a run
 stored.
+
+Stage names in a run record stay the plain stage names (`evidence`), for
+every pipeline. Anything that needs a run's pipeline-specific stage copy
+finds it through the run's `pipeline` field.
+
+### Resuming
+
+*My call:* a work verb only offers to resume running runs of its own
+pipeline, so `work-a11y` never picks up a `feature` run with the wrong
+fills, and the reverse. `run_list` (`lib/mcp/run-tools.ts`) gains a
+pipeline filter and the orchestrator's resume branch uses it. When `work`
+resumes, a run recorded with the old pipeline `work` counts as `feature`.
 
 ### Manifest shape
 
@@ -131,6 +148,11 @@ carrying the stages and that pipeline's binding overrides:
     bindings do.
 - A layer may set a pipeline's `bindings` without restating its `stages`.
   The merged result must end with a stage list for every pipeline.
+- *My call:* when a higher layer replaces a pipeline's stage list and drops
+  a stage that a lower layer's override names, check warns and the
+  override is ignored, since layering cannot delete the lower key. An
+  override naming a stage missing from the same layer's own list is an
+  error.
 - The manifest's provenance header records which layer set each pipeline
   override slot, as it does for default slots.
 - A pipeline with no overrides renders as a plain list in the generated
@@ -163,6 +185,9 @@ list. Without `--pipeline`, it writes the default, as today.
   `<pipeline> pipeline · ...` and search already matches pipeline. The
   stage strip already reads the run's own `pipeline-stages` field, so a
   pipeline with a different stage list draws correctly.
+- **Run detail**: the stage-doc route (`apps/console/src/server/stageDoc.ts`)
+  resolves a stage's text through the run's `pipeline`, so an
+  accessibility run shows its own stage copy, not the default.
 - **Wiring graph**: the pipeline view shows each pipeline's real fills (an
   accessibility stage shows its override, not the default).
 - **Rebind drawer**: the existing drawer (`drawer/rebind.ts`,
@@ -225,7 +250,13 @@ same project:
   slot to fill A by default and fill B for `accessibility`, and adds a
   `work-a11y` command. `work` runs use fill A; `work-a11y` runs use fill B.
 - A pack with one plain-list pipeline and no overrides compiles to
-  byte-identical output and an identical generated manifest.
+  byte-identical stages and non-work verbs and an identical generated
+  manifest; its `work` verb carries the same stages, paths, consumes and
+  produces as today.
+- `work-a11y` never offers to resume a `feature` run, and `work` never
+  offers to resume an `accessibility` run.
+- An accessibility run's detail page shows the accessibility copy of each
+  overridden stage.
 - A base pack, the pack, and the personal override layer can each set a
   pipeline override slot, and the manifest's provenance shows which layer
   won.
