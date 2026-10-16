@@ -45,6 +45,11 @@ describe("classifyScreen", () => {
     expect(classifyScreen(screen(["  Note: Opus requires usage credits. on some plans"]))).toBeNull();
   });
 
+  test("login text inside a longer sentence does not classify", () => {
+    expect(classifyScreen(screen(["⏺ The doc says Please run /login after a 401 error"]))).toBeNull();
+    expect(classifyScreen(screen(["  If that fails, Run /login again to refresh."]))).toBeNull();
+  });
+
   test("ignores text below the composer rule", () => {
     expect(classifyScreen(screen([], ["You've hit your session limit · resets 5pm"]))).toBeNull();
     expect(classifyScreen(screen([], ["Login expired · Please run /login"]))).toBeNull();

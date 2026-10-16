@@ -651,7 +651,7 @@ export function herdRespawn(
 ): Promise<RtResponse<Commands["herd:respawn"]["data"]>> {
   const payload: Record<string, unknown> = { herd: a.herd, job: a.job };
   for (const k of ["brief", "model", "effort", "account"] as const) if (a[k] !== undefined) payload[k] = a[k];
-  return rtCommand<Commands["herd:respawn"]["data"]>("herd:respawn", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
+  return rtCommand<Commands["herd:respawn"]["data"]>("herd:respawn", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 300_000 });
 }
 
 export function herdDiagnose(

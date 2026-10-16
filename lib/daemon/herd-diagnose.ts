@@ -23,7 +23,7 @@ export const LIMIT_PREFIXES: readonly string[] = [
 
 export const LIMIT_CREDITS_RE = /^(?:Fable|Haiku|Mythos|Opus|Sonnet)(?: [^·\n]{1,40})? requires usage credits\./;
 
-export const LOGIN_RE = /(?:Please run|Run) \/login\b|^(?:Login expired|OAuth token revoked|Not logged in)\b/;
+export const LOGIN_RE = /^(?:API Error: 401|Login expired|OAuth token revoked|Not logged in|Please run \/login|Session expired|Failed to authenticate|Authentication required)/;
 
 const GUTTER = /^\s*(?:⎿\s*)?/;
 
