@@ -28,6 +28,7 @@ import { runRtVerb } from "./rt-verb.ts";
 import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { herdToolDefs } from "./herd-tools.ts";
 import { mrReadToolDefs } from "./mr-read-tools.ts";
+import { mrCompositeToolDefs } from "./mr-composite-tools.ts";
 import { forgeReadToolDefs } from "./forge-read-tools.ts";
 import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
@@ -895,6 +896,7 @@ export function mcpTools(): McpToolDef[] {
     },
     ...runToolDefs(),
     ...mrReadToolDefs(),
+    ...mrCompositeToolDefs(),
     ...forgeReadToolDefs(),
     ...stackToolDefs(),
     ...gitToolDefs(realGitToolDeps),
