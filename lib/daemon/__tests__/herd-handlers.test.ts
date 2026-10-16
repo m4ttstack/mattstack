@@ -14,6 +14,8 @@ import { createBgHandlers } from "../handlers/bg.ts";
 import { createEscapeInjector } from "../gate-escape.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import { acceptTrustOnPane } from "../trust-accept.ts";
+import { jobBudgets } from "../herd-budgets.ts";
+import type { TreeRecord } from "../../worktree/registry.ts";
 import { deleteChatSession, readChatSession, writeChatSession } from "../../chat-session.ts";
 
 const log = pino({ level: "silent" });
@@ -1470,6 +1472,163 @@ describe("herd:spawn", () => {
     if (!second.ok) throw new Error(second.error);
     expect(hx.agentCalls.map((c) => c.handle)).toEqual(["job-a.w001", "job-a.w002"]);
     expect(hx.store.getJob(s.data.herd, "job-a")!.handle).toBe("job-a.w002");
+  });
+});
+
+describe("herd:spawn {tree} and herd:respawn", () => {
+  const Q = [{ id: "q1", label: "Which?", multi: false, options: ["a", "b"] }];
+  const REPO = START.repo;
+
+  function claimedTree(name: string, over: Partial<TreeRecord> = {}): TreeRecord {
+    const path = mkdtempSync(join(tmpdir(), `rt-herd-tree-${name}-`));
+    dirs.push(path);
+    return { name, path, kind: "ephemeral", state: "claimed", branch: `br-${name}`, createdAt: "2026-10-16T00:00:00Z", ...over };
+  }
+
+  function fakeRegistry(trees: TreeRecord[]): NonNullable<HerdDeps["registry"]> {
+    return {
+      load: (repo) => (repo === REPO ? trees : []),
+      byPath: (path) => {
+        const t = trees.find((x) => x.path === path);
+        return t ? { repoName: REPO, tree: t.name } : null;
+      },
+    };
+  }
+
+  async function started(trees: TreeRecord[]) {
+    const hx = harness({ registry: fakeRegistry(trees) });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    return { ...hx, herd: s.data.herd };
+  }
+
+  test("spawn with tree launches in the registered path without provisioning", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, worktreeCalls, agentCalls, herd } = await started([t1]);
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" });
+    if (!res.ok) throw new Error(res.error);
+    expect(worktreeCalls).toEqual([]);
+    expect(agentCalls[0].cwd).toBe(t1.path);
+    expect(res.data).toMatchObject({ worktree: t1.path, branch: "br-t1", tree: "t1", wasOnDeck: null });
+    expect(store.getJob(herd, "job-a")).toMatchObject({ worktree: t1.path, branch: "br-t1", tree: "t1" });
+  });
+
+  test("spawn with tree refuses an unmanaged tree", async () => {
+    const { h, agentCalls, worktreeCalls, herd } = await started([claimedTree("t1", { kind: "unmanaged", state: undefined })]);
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain('tree "t1" is unmanaged');
+    expect(agentCalls).toEqual([]);
+    expect(worktreeCalls).toEqual([]);
+  });
+
+  test("spawn persists model, effort and account on the job row", async () => {
+    const { h, store, herd } = await started([]);
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: "/t", model: "opus", effort: "high", account: "2" });
+    if (!res.ok) throw new Error(res.error);
+    expect(store.getJob(herd, "job-a")).toMatchObject({ model: "opus", effort: "high", account: "2" });
+    const bare = await h["herd:spawn"]({ herd, job: "job-b", brief: "b", dir: "/t" });
+    if (!bare.ok) throw new Error(bare.error);
+    expect(store.getJob(herd, "job-b")).toMatchObject({ model: null, effort: null, account: null });
+  });
+
+  test("guest spawn keeps tree null so wrap-up cannot dispose the host tree", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, worktreeCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    const guest = await h["herd:spawn"]({ herd, job: "review-a", brief: "review", tree: "t1" });
+    if (!guest.ok) throw new Error(guest.error);
+    expect(guest.data).toMatchObject({ worktree: t1.path, tree: null });
+    expect(store.getJob(herd, "review-a")!.tree).toBeNull();
+    const wrap = await h["herd:wrap-up"]({ herd, dispose: ["review-a"] });
+    if (!wrap.ok) throw new Error(wrap.error);
+    expect(wrap.data.refused).toEqual([{ tree: "review-a", reason: "no rt-provisioned tree for this job" }]);
+    expect(worktreeCalls.filter((c) => c.verb === "dispose")).toEqual([]);
+  });
+
+  test("guest spawn ticks the host's reviewerRounds under its latest milestone artifact", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    expect((await h["herd:milestone"]({ herd, job: "job-a", session: "sess-w1", artifact: "/a/spec.md" })).ok).toBe(true);
+    expect((await h["herd:spawn"]({ herd, job: "review-a", brief: "review", tree: "t1" })).ok).toBe(true);
+    expect(jobBudgets(store.budgetRows(herd, "job-a")).reviewerRounds["/a/spec.md"]).toEqual({ used: 1, cap: 2, spent: false });
+    expect(jobBudgets(store.budgetRows(herd, "review-a")).reviewerRounds).toEqual({});
+  });
+
+  test("respawn reuses the worktree and inherits model, effort and account", async () => {
+    const t1 = claimedTree("t1");
+    const { h, worktreeCalls, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1", model: "opus", effort: "high", account: "2" })).ok).toBe(true);
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(worktreeCalls).toEqual([]);
+    expect(agentCalls[1]).toMatchObject({ cwd: t1.path, model: "opus", effort: "high", account: "2" });
+    expect(res.data).toMatchObject({ worktree: t1.path, branch: "br-t1", tree: "t1", launch: { model: "opus", effort: "high", account: "2" } });
+  });
+
+  test("respawn overrides one setting and keeps the others", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1", model: "opus", effort: "high", account: "2" })).ok).toBe(true);
+    const res = await h["herd:respawn"]({ herd, job: "job-a", model: "sonnet" });
+    if (!res.ok) throw new Error(res.error);
+    expect(agentCalls[1]).toMatchObject({ model: "sonnet", effort: "high", account: "2" });
+    expect(res.data.launch).toEqual({ model: "sonnet", effort: "high", account: "2" });
+    expect(store.getJob(herd, "job-a")).toMatchObject({ model: "sonnet", effort: "high", account: "2" });
+  });
+
+  test("respawn refuses a job whose worktree is gone", async () => {
+    const t1 = claimedTree("t1");
+    const { h, worktreeCalls, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    rmSync(t1.path, { recursive: true, force: true });
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain(t1.path);
+    expect(worktreeCalls).toEqual([]);
+    expect(agentCalls).toHaveLength(1);
+  });
+
+  test("respawn refuses an unknown job", async () => {
+    const { h, herd } = await started([]);
+    const res = await h["herd:respawn"]({ herd, job: "ghost" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe(`unknown job "ghost" in herd "${herd}"`);
+  });
+
+  test("respawn ticks respawns and reports spent at 2 but still launches the third", async () => {
+    const t1 = claimedTree("t1");
+    const { h, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    const budgets = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await h["herd:respawn"]({ herd, job: "job-a" });
+      if (!res.ok) throw new Error(res.error);
+      budgets.push(res.data.budget);
+    }
+    expect(budgets).toEqual([{ used: 1, cap: 2, spent: false }, { used: 2, cap: 2, spent: true }, { used: 3, cap: 2, spent: true }]);
+    expect(agentCalls).toHaveLength(4);
+  });
+
+  test("respawn closes the old session's open gates and settles its answered unconsumed gates", async () => {
+    const t1 = claimedTree("t1");
+    const { h, gate, gateStore, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    const answered = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!answered.ok) throw new Error(answered.error);
+    expect((await gate["gate:answer"]({ id: answered.data.gate, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+    const open = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!open.ok) throw new Error(open.error);
+    const otherSession = await h["herd:milestone"]({ herd, job: "job-a", session: "sess-other", artifact: "/a/spec.md" });
+    if (!otherSession.ok) throw new Error(otherSession.error);
+
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.settled).toEqual({ closed: [open.data.gate], consumed: [answered.data.gate] });
+    expect(gateStore.get(open.data.gate)).toMatchObject({ status: "closed", closedReason: "abandoned" });
+    expect(gateStore.get(answered.data.gate)!.consumedAt).not.toBeNull();
+    expect(gateStore.get(otherSession.data.gate)!.status).toBe("open");
   });
 });
 

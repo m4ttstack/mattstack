@@ -6,10 +6,13 @@
 import { chmodSync, existsSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import type { Logger } from "pino";
-import type { Commands, GateQuestion, GateRow, HerdStatusData } from "../../../packages/rt-client/src/commands.ts";
+import type { Commands, GateQuestion, GateRow, GateStatus, HerdStatusData } from "../../../packages/rt-client/src/commands.ts";
 import { formatPaneRef, gatePresentation, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
 import type { CommandResult } from "./types.ts";
-import type { HerdStore, HerdJobRow } from "../herd-store.ts";
+import type { HerdStore, HerdJobRow, HerdRow } from "../herd-store.ts";
+import { admitTree } from "../herd-tree-admission.ts";
+import { budgetView } from "../herd-budgets.ts";
+import { findTreeByPath, loadRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { writePromptFile } from "../../agent-argv/index.ts";
 import { fillSpawnSlots } from "../../herd-brief.ts";
 import { herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-store.ts";
@@ -68,6 +71,8 @@ export interface HerdDeps {
   /** The daemon's herd watchdog, read for herd:status's per-job ladder; absent
       when no watchdog is wired (tests, a daemon booting without one). */
   watchdog?: { annotations(herd: string, job: string): { strikes: number; lastPokeAt: number | null } | null };
+  /** Registered trees, for `herd:spawn {tree}` and `herd:respawn`; defaults to lib/worktree/registry.ts. */
+  registry?: { load(repo: string): TreeRecord[]; byPath(path: string): { repoName: string; tree: string } | null };
   log: Logger;
 }
 
@@ -145,6 +150,7 @@ export function jobDir(jobsRoot: string, herdId: string, job: string): string { 
 
 export function createHerdHandlers(deps: HerdDeps) {
   const { store, log } = deps;
+  const registry = deps.registry ?? { load: loadRegistry, byPath: findTreeByPath };
 
   /** Registers both the prefix row (herd:<id>/*, for the shepherd's own job
       gates) and the owner row (routes any gate whose `owner` is this herd,
@@ -288,6 +294,122 @@ export function createHerdHandlers(deps: HerdDeps) {
     return false;
   }
 
+  /** Writes a given brief to the job's dir, or reads back the stored one. */
+  function resolveBrief(herdId: string, name: string, given: string | undefined): { ok: true; text: string } | { ok: false; error: string } {
+    const dir = jobDir(deps.jobsRoot, herdId, name);
+    const briefPath = join(dir, "job.md");
+    if (given) { writePromptFile(dir, "job.md", given); return { ok: true, text: given }; }
+    if (!existsSync(briefPath)) return { ok: false, error: `no brief: pass --brief <file> (none stored at ${briefPath})` };
+    // The read-back path tightens modes without rewriting the only copy of the brief.
+    chmodSync(dir, 0o700);
+    chmodSync(briefPath, 0o600);
+    return { ok: true, text: readFileSync(briefPath, "utf8") };
+  }
+
+  /** The launch spawn and respawn share; they differ only in where the worktree comes from. */
+  async function launchJob(
+    herd: HerdRow, name: string,
+    o: { worktree: string; branch: string | null; tree: string | null; disposable: boolean; prompt: string; model: string | null; effort: string | null; account: string | null },
+  ): Promise<{ ok: true; data: Omit<Commands["herd:spawn"]["data"], "wasOnDeck"> } | { ok: false; error: string }> {
+    const herdId = herd.id;
+    const { worktree, branch, tree } = o;
+    const shepherdName = deps.identityNames([herd.shepherdHandle]).get(herd.shepherdHandle) ?? herd.shepherdHandle;
+    const prompt = fillSpawnSlots(o.prompt, { "shepherd handle": shepherdName, "shepherd id": herd.shepherdHandle });
+
+    const prior = store.getJob(herdId, name);
+    // agent:start dedups on the tab label and would focus the dead tab
+    // instead of launching; the old pane goes first.
+    if (prior?.pane) await closePane(herd.herdrSocket, prior.pane, { herd: herdId, job: name });
+
+    const workerId = deps.mintWorkerId(name);
+    // The prior pane is closed above, so the row must not go on naming it
+    // while agent:start decides whether there is a new one.
+    store.upsertJob({
+      herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", disposable: o.disposable,
+      pane: null, agentSession: null, agentId: null, model: o.model, effort: o.effort, account: o.account,
+    });
+    const started = await deps.agent["agent:start"]({
+      // Pinned, never inherited from the agent.provider default: a worker
+      // depends on claude-only machinery (the reserved chat handle
+      // chat:sign-in binds presence to, and the gate-fork --settings hook),
+      // so a global codex default would silently degrade every herd. codex
+      // workers are a separate change.
+      provider: "claude",
+      repo: herd.repo, cwd: worktree, prompt, surface: "herdr",
+      ...(o.model && { model: o.model }), ...(o.effort && { effort: o.effort }), ...(o.account && { account: o.account }),
+      label: name, caller: `herd:${herdId}`, workspace: herd.workspace, tab: name, handle: workerId,
+      subject: herdSubject(herdId, name),
+      env: { HERD_ID: herdId, HERD_JOB: name, HERD_ROOM: herd.room },
+      ...(herd.herdrSocket && { herdrSocket: herd.herdrSocket }),
+      // Longer than agent:start's own interactive default: a herd worker's
+      // pane is mid worktree-provision when the dialog paints, and the old
+      // in-spawn retry gave it 15s before parking stuck-at-modal.
+      trustWaitMs: TRUST_BUDGET_MS,
+    });
+    if (!started.ok) return started;
+    const rec = started.data;
+    store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", pane: rec.paneId ?? null, agentSession: rec.sessionId, agentId: rec.id });
+
+    // Chat identity first: the trust wait can spend its whole budget, and a
+    // worker with no handle can neither report nor be reached meanwhile.
+    const signIn = await deps.chat["chat:sign-in"]({ sessionId: rec.sessionId, continue: workerId, pane: rec.paneId, cwd: worktree, noRoom: true });
+    if (!signIn.ok) log.warn({ herd: herdId, job: name, error: signIn.error }, "herd: worker chat sign-in failed; reports will not deliver until it signs in");
+    const handle = signIn.ok ? signIn.data.handle : workerId;
+    if (signIn.ok) recordChatSession(log, rec.sessionId, { handle, baseHandle: signIn.data.baseHandle, name: signIn.data.name });
+    const joined = await deps.chat["chat:join"]({ room: herd.room, handle, pane: rec.paneId, cwd: worktree });
+    if (!joined.ok) log.warn({ herd: herdId, job: name, error: joined.error }, "herd: worker room join failed");
+    if (handle !== workerId) store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle, status: "spawning" });
+
+    // agent:start drives the dialog for every claude pane it launches
+    // (RT-156); a non-claude provider's record carries no outcome at all.
+    const trust: TrustOutcome = rec.trust ?? "none";
+    // Parked, not just logged: a worker still on the modal has not read its
+    // brief, and `spawning` would read as a launch merely in progress.
+    // herd-lifecycle clears it back to active the moment herdr detects the
+    // agent, so a hand-accepted modal needs no second command.
+    if (trust === "stuck") store.setJobStatus(herdId, name, "stuck-at-modal");
+
+    const paneRef = rec.paneId ? formatPaneRef(rec.paneId, herd.hidden ? "bg" : "visible") : "";
+    return { ok: true, data: { herd: herdId, job: name, pane: paneRef, worktree, branch, tree, agentId: rec.id, sessionId: rec.sessionId, handle, trust } };
+  }
+
+  /** The key a reviewer round counts under: the artifact of the job's latest milestone, or "" before its first. */
+  async function latestMilestoneArtifact(herdId: string, job: string): Promise<string> {
+    const res = await deps.gate["gate:list"]({ subject: herdSubject(herdId, job), kind: "milestone" });
+    const last = res.ok ? res.data.gates.reduce<GateRow | null>((a, g) => (!a || g.openedAt >= a.openedAt ? g : a), null) : null;
+    const artifact = last?.meta?.artifact;
+    return typeof artifact === "string" ? artifact : "";
+  }
+
+  /** `herd:answer` consumes a gate only for the session it nudges, so the
+      replaced session's gates could never settle on their own: open ones
+      close as abandoned (the new worker re-asks), answered ones are stamped
+      consumed so neither the watchdog nor a nudge chases them. */
+  async function settleSessionGates(herdId: string, job: HerdJobRow): Promise<{ closed: string[]; consumed: string[] }> {
+    const settled = { closed: [] as string[], consumed: [] as string[] };
+    const session = job.agentSession;
+    if (!session) return settled;
+    const status: GateStatus[] = ["open", "parked", "answered"];
+    const [own, runs] = await Promise.all([
+      deps.gate["gate:list"]({ subject: herdSubject(herdId, job.name), status }),
+      deps.gate["gate:list"]({ subjectPrefix: "run:", status }),
+    ]);
+    const gates = [
+      ...(own.ok ? own.data.gates : []),
+      ...(runs.ok ? runs.data.gates.filter((g) => deps.runWorktree(g.subject.slice("run:".length)) === job.worktree) : []),
+    ].filter((g) => g.nudge?.session === session);
+    for (const g of gates) {
+      if (g.status === "answered") {
+        if (g.consumedAt === null && !g.released && deps.gateStore.markConsumed(g.id)) settled.consumed.push(g.id);
+        continue;
+      }
+      const closed = await deps.gate["gate:close"]({ id: g.id, reason: "abandoned" });
+      if (closed.ok) settled.closed.push(g.id);
+      else log.warn({ herd: herdId, job: job.name, gate: g.id, error: closed.error }, "herd respawn: could not close the old session's gate");
+    }
+    return settled;
+  }
+
   function uniqueHerdId(name: string): string {
     const base = mintHerdId(name);
     if (!store.get(base)) return base;
@@ -415,31 +537,27 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!isValidJobName(name)) return { ok: false, error: `invalid job name "${name}" (must match ^[a-z][a-z0-9_-]{0,31}$)` };
       const herd = store.get(herdId);
       if (!herd) return { ok: false, error: `unknown herd "${herdId}"` };
+      const treeName = str(p?.tree);
+      if (treeName && str(p?.dir)) return { ok: false, error: "pass tree or dir, not both" };
 
-      const dir = jobDir(deps.jobsRoot, herdId, name);
-      const briefPath = join(dir, "job.md");
-      let brief = str(p?.brief);
-      if (brief) writePromptFile(dir, "job.md", brief);
-      else if (existsSync(briefPath)) {
-        brief = readFileSync(briefPath, "utf8");
-        // The read-back path tightens modes without rewriting the only copy of the brief.
-        chmodSync(dir, 0o700);
-        chmodSync(briefPath, 0o600);
-      } else return { ok: false, error: `no brief: pass --brief <file> (none stored at ${briefPath})` };
-
-      const shepherdName = deps.identityNames([herd.shepherdHandle]).get(herd.shepherdHandle) ?? herd.shepherdHandle;
-      const prompt = fillSpawnSlots(brief, { "shepherd handle": shepherdName, "shepherd id": herd.shepherdHandle });
+      const prompt = resolveBrief(herdId, name, str(p?.brief));
+      if (!prompt.ok) return prompt;
 
       const prior = store.getJob(herdId, name);
-      // agent:start dedups on the tab label and would focus the dead tab
-      // instead of launching; the old pane goes first.
-      if (prior?.pane) await closePane(herd.herdrSocket, prior.pane, { herd: herdId, job: name });
-
       let worktree = str(p?.dir); let branch: string | null = prior?.branch ?? null; let tree: string | null = prior?.tree ?? null;
-      // null = no provisioning happened (--dir); false is the cold-create
-      // case the caller should announce, since it can take minutes.
+      // null = no provisioning happened (--dir or a tree); false is the
+      // cold-create case the caller should announce, since it can take minutes.
       let wasOnDeck: boolean | null = null;
-      if (!worktree) {
+      let host: HerdJobRow | undefined;
+      if (treeName) {
+        const admitted = admitTree(registry.load(herd.repo).find((t) => t.name === treeName), treeName);
+        if (!admitted.ok) return admitted;
+        worktree = admitted.tree.path; branch = admitted.tree.branch;
+        host = store.jobs(herdId).find((j) => j.name !== name && j.tree === treeName && j.status !== "closed");
+        // A guest's row never names the tree, so wrap-up cannot dispose the
+        // host's tree through it.
+        tree = host ? null : treeName;
+      } else if (!worktree) {
         const prov = await deps.worktree["worktree:provision"]({ repoName: herd.repo, branch: name, disposal: "job", owner: `herd:${herdId}` });
         if (!prov.ok) return { ok: false, error: `provision failed: ${prov.error}` };
         worktree = prov.data.path as string; branch = prov.data.branch as string; tree = prov.data.tree as string;
@@ -449,53 +567,40 @@ export function createHerdHandlers(deps: HerdDeps) {
       // reviewer the shepherd already marked throwaway.
       const disposable = p?.disposable ?? prior?.disposable ?? false;
 
-      const workerId = deps.mintWorkerId(name);
-      // The prior pane is closed above, so the row must not go on naming it
-      // while agent:start decides whether there is a new one.
-      store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", disposable, pane: null, agentSession: null, agentId: null });
-      const started = await deps.agent["agent:start"]({
-        // Pinned, never inherited from the agent.provider default: a worker
-        // depends on claude-only machinery (the reserved chat handle
-        // chat:sign-in binds presence to, and the gate-fork --settings hook),
-        // so a global codex default would silently degrade every herd. codex
-        // workers are a separate change.
-        provider: "claude",
-        repo: herd.repo, cwd: worktree, prompt, surface: "herdr",
-        ...(str(p?.model) && { model: p!.model }), ...(str(p?.effort) && { effort: p!.effort }), ...(str(p?.account) && { account: p!.account }),
-        label: name, caller: `herd:${herdId}`, workspace: herd.workspace, tab: name, handle: workerId,
-        subject: herdSubject(herdId, name),
-        env: { HERD_ID: herdId, HERD_JOB: name, HERD_ROOM: herd.room },
-        ...(herd.herdrSocket && { herdrSocket: herd.herdrSocket }),
-        // Longer than agent:start's own interactive default: a herd worker's
-        // pane is mid worktree-provision when the dialog paints, and the old
-        // in-spawn retry gave it 15s before parking stuck-at-modal.
-        trustWaitMs: TRUST_BUDGET_MS,
+      const launched = await launchJob(herd, name, {
+        worktree, branch, tree, disposable, prompt: prompt.text,
+        model: str(p?.model) ?? null, effort: str(p?.effort) ?? null, account: str(p?.account) ?? null,
       });
-      if (!started.ok) return started;
-      const rec = started.data;
-      store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", pane: rec.paneId ?? null, agentSession: rec.sessionId, agentId: rec.id });
+      if (!launched.ok) return launched;
+      if (host) store.tickBudget(herdId, host.name, "reviewerRounds", await latestMilestoneArtifact(herdId, host.name));
+      return { ok: true, data: { ...launched.data, wasOnDeck } };
+    },
 
-      // Chat identity first: the trust wait can spend its whole budget, and a
-      // worker with no handle can neither report nor be reached meanwhile.
-      const signIn = await deps.chat["chat:sign-in"]({ sessionId: rec.sessionId, continue: workerId, pane: rec.paneId, cwd: worktree, noRoom: true });
-      if (!signIn.ok) log.warn({ herd: herdId, job: name, error: signIn.error }, "herd: worker chat sign-in failed; reports will not deliver until it signs in");
-      const handle = signIn.ok ? signIn.data.handle : workerId;
-      if (signIn.ok) recordChatSession(log, rec.sessionId, { handle, baseHandle: signIn.data.baseHandle, name: signIn.data.name });
-      const joined = await deps.chat["chat:join"]({ room: herd.room, handle, pane: rec.paneId, cwd: worktree });
-      if (!joined.ok) log.warn({ herd: herdId, job: name, error: joined.error }, "herd: worker room join failed");
-      if (handle !== workerId) store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle, status: "spawning" });
+    "herd:respawn": async (raw: unknown): Promise<CommandResult<"herd:respawn">> => {
+      const p = raw as Commands["herd:respawn"]["payload"] | undefined;
+      const herdId = str(p?.herd); const name = str(p?.job);
+      if (!herdId || !name) return { ok: false, error: "herd and job are required" };
+      const herd = store.get(herdId);
+      const job = herd ? store.getJob(herdId, name) : null;
+      if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
+      if (!existsSync(job.worktree)) return { ok: false, error: `job "${name}" worktree ${job.worktree} no longer exists; spawn the job fresh instead` };
+      const hit = registry.byPath(job.worktree);
+      if (!hit) return { ok: false, error: `job "${name}" worktree ${job.worktree} is not a registered tree; respawn it from the CLI with --dir` };
+      const admitted = admitTree(registry.load(hit.repoName).find((t) => t.name === hit.tree), hit.tree);
+      if (!admitted.ok) return { ok: false, error: `job "${name}" worktree ${job.worktree}: ${admitted.error}` };
 
-      // agent:start drives the dialog for every claude pane it launches
-      // (RT-156); a non-claude provider's record carries no outcome at all.
-      const trust: TrustOutcome = rec.trust ?? "none";
-      // Parked, not just logged: a worker still on the modal has not read its
-      // brief, and `spawning` would read as a launch merely in progress.
-      // herd-lifecycle clears it back to active the moment herdr detects the
-      // agent, so a hand-accepted modal needs no second command.
-      if (trust === "stuck") store.setJobStatus(herdId, name, "stuck-at-modal");
-
-      const paneRef = rec.paneId ? formatPaneRef(rec.paneId, herd.hidden ? "bg" : "visible") : "";
-      return { ok: true, data: { herd: herdId, job: name, pane: paneRef, worktree, branch, tree, wasOnDeck, agentId: rec.id, sessionId: rec.sessionId, handle, trust } };
+      const prompt = resolveBrief(herdId, name, str(p?.brief));
+      if (!prompt.ok) return prompt;
+      const settled = await settleSessionGates(herdId, job);
+      const launch = {
+        model: str(p?.model) ?? job.model, effort: str(p?.effort) ?? job.effort, account: str(p?.account) ?? job.account,
+      };
+      const launched = await launchJob(herd, name, {
+        worktree: job.worktree, branch: job.branch, tree: job.tree, disposable: job.disposable, prompt: prompt.text, ...launch,
+      });
+      if (!launched.ok) return launched;
+      const used = store.tickBudget(herdId, name, "respawns");
+      return { ok: true, data: { ...launched.data, wasOnDeck: null, launch, budget: budgetView(used, "respawns"), settled } };
     },
 
     "herd:gates": async (raw: unknown): Promise<CommandResult<"herd:gates">> => {
