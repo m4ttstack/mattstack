@@ -38,6 +38,8 @@ export interface CopyRequest {
   src: string;
   destDir: string;
   single?: boolean;
+  /** Recorded files of the address this copy writes: landing on one of them with new bytes is a refresh, not a collision. */
+  refreshes?: string[];
 }
 export interface CopyResult {
   from: string;
@@ -49,6 +51,7 @@ interface Planned {
   real: string;
   to: string;
   inPlace: boolean;
+  refreshes: Set<string>;
 }
 
 function safeRealpath(p: string): string | null {
@@ -123,11 +126,11 @@ export function mapKey(src: string, destDir: string): string {
 
 export function copyIntoRun(
   requests: CopyRequest[],
-  o: { allowedRoots: string[]; referencedElsewhere: Set<string>; destRoot: string },
+  o: { allowedRoots: string[]; recorded: Set<string>; destRoot: string },
 ): { ok: true; copied: CopyResult[]; mapped: Map<string, string> } | { ok: false; error: string } {
   const roots = o.allowedRoots.filter((r) => typeof r === "string" && r.length > 0 && isAbsolute(r));
   const planned: Planned[] = [];
-  const claimed = new Map<string, string>();
+  const claimed = new Map<string, Planned>();
   const mapped = new Map<string, string>();
 
   for (const req of requests) {
@@ -153,11 +156,15 @@ export function copyIntoRun(
       const to = join(req.destDir, name);
       if (!inPlace && isSymlink(to)) return { ok: false, error: `${to}: destination is a symlink` };
       const prior = claimed.get(to);
-      if (prior !== undefined && prior !== memberReal) {
-        if (!sameBytes(prior, memberReal)) return { ok: false, error: `${to}: two sources with different bytes map here (${prior} and ${memberReal})` };
+      if (prior !== undefined) {
+        if (prior.real !== memberReal && !sameBytes(prior.real, memberReal)) {
+          return { ok: false, error: `${to}: two sources with different bytes map here (${prior.real} and ${memberReal})` };
+        }
+        for (const f of req.refreshes ?? []) prior.refreshes.add(f);
       } else {
-        claimed.set(to, memberReal);
-        planned.push({ requested: req.src, real: memberReal, to, inPlace });
+        const p: Planned = { requested: req.src, real: memberReal, to, inPlace, refreshes: new Set(req.refreshes) };
+        claimed.set(to, p);
+        planned.push(p);
       }
       if (name === basename(real)) mapped.set(mapKey(req.src, req.destDir), to);
     }
@@ -165,7 +172,7 @@ export function copyIntoRun(
 
   for (const p of planned) {
     if (p.inPlace) continue;
-    if (o.referencedElsewhere.has(p.to) && !sameBytes(p.real, p.to) && safeRealpath(p.to) !== null) {
+    if (o.recorded.has(p.to) && !p.refreshes.has(p.to) && !sameBytes(p.real, p.to) && safeRealpath(p.to) !== null) {
       return { ok: false, error: `${p.to}: already used by another image with different bytes (from ${p.requested})` };
     }
   }

@@ -29,7 +29,7 @@ const put = (name: string, body = name) => {
   writeFileSync(p, body);
   return p;
 };
-const opts = () => ({ allowedRoots: [src], referencedElsewhere: new Set<string>(), destRoot: base });
+const opts = () => ({ allowedRoots: [src], recorded: new Set<string>(), destRoot: base });
 
 describe("bundleStem", () => {
   test("strips a capture suffix and the extension", () => {
@@ -114,10 +114,23 @@ describe("copyIntoRun", () => {
     mkdirSync(dest, { recursive: true });
     writeFileSync(join(dest, "a.png"), "other");
     put("a.spec.json");
-    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: [src], referencedElsewhere: new Set([join(dest, "a.png")]), destRoot: base });
+    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: [src], recorded: new Set([join(dest, "a.png")]), destRoot: base });
     expect(r.ok).toBe(false);
     expect(readdirSync(dest)).toEqual(["a.png"]);
     expect(readFileSync(join(dest, "a.png"), "utf8")).toBe("other");
+  });
+
+  test("a recorded destination is refreshed only by a request that names it as its own", () => {
+    const a = put("a.png", "one");
+    mkdirSync(dest, { recursive: true });
+    writeFileSync(join(dest, "a.png"), "other");
+    const recorded = new Set([join(dest, "a.png")]);
+    const other = copyIntoRun([{ src: a, destDir: dest, refreshes: [join(dest, "b.png")] }], { allowedRoots: [src], recorded, destRoot: base });
+    expect(other.ok).toBe(false);
+    expect(readFileSync(join(dest, "a.png"), "utf8")).toBe("other");
+    const own = copyIntoRun([{ src: a, destDir: dest, refreshes: [join(dest, "a.png")] }], { allowedRoots: [src], recorded, destRoot: base });
+    expect(own.ok).toBe(true);
+    expect(readFileSync(join(dest, "a.png"), "utf8")).toBe("one");
   });
 
   test("never copies a dotfile or a script", () => {
@@ -132,7 +145,7 @@ describe("copyIntoRun", () => {
     mkdirSync(dest, { recursive: true });
     const inPlace = join(dest, "a.png");
     writeFileSync(inPlace, "x");
-    const r = copyIntoRun([{ src: inPlace, destDir: dest }], { allowedRoots: [dest], referencedElsewhere: new Set(), destRoot: base });
+    const r = copyIntoRun([{ src: inPlace, destDir: dest }], { allowedRoots: [dest], recorded: new Set(), destRoot: base });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.copied).toEqual([]);
@@ -145,7 +158,7 @@ describe("copyIntoRun", () => {
     const link = join(base, "link");
     symlinkSync(base, link);
     const linked = join(link, "run", "evidence", "retry-badge");
-    const r = copyIntoRun([{ src: join(dest, "a.png"), destDir: linked }], { allowedRoots: [dest], referencedElsewhere: new Set(), destRoot: link });
+    const r = copyIntoRun([{ src: join(dest, "a.png"), destDir: linked }], { allowedRoots: [dest], recorded: new Set(), destRoot: link });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.mapped.get(mapKey(join(dest, "a.png"), linked))).toBe(join(linked, "a.png"));
   });
@@ -173,7 +186,7 @@ describe("hardening", () => {
     mkdirSync(ev2, { recursive: true });
     writeFileSync(join(ev1, "x.png"), "x");
     writeFileSync(join(ev2, "y.png"), "y");
-    const o = { allowedRoots: [workRoot()], referencedElsewhere: new Set<string>(), destRoot: base };
+    const o = { allowedRoots: [workRoot()], recorded: new Set<string>(), destRoot: base };
     expect(copyIntoRun([{ src: join(ev1, "x.png"), destDir: dest }], o).ok).toBe(true);
     expect(copyIntoRun([{ src: join(ev2, "y.png"), destDir: join(base, "d2") }], o).ok).toBe(false);
   });
@@ -206,7 +219,7 @@ describe("hardening", () => {
 
   test("empty and relative roots admit nothing", () => {
     const a = put("a.png");
-    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: ["", "rel"], referencedElsewhere: new Set(), destRoot: base });
+    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: ["", "rel"], recorded: new Set(), destRoot: base });
     expect(r.ok).toBe(false);
   });
 

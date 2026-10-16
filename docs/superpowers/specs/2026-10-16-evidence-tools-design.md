@@ -243,9 +243,14 @@ ends ingestion's `upload_root` question.
   after `fast-browser compose --confirm` or a re-render refreshes the
   redaction record and crops beside the board (m4-premerge's ordering
   trap).
-- **Name collision.** A destination name that another image in the record
-  already uses, with different bytes copied from a different source, is
-  refused and nothing is copied.
+- **Name collision.** A copy may overwrite a recorded file only when that
+  file belongs to the address the copy's own entry writes (its path or its
+  board). Any other recorded file at the destination with different bytes
+  is a collision: it is refused and nothing is copied. That holds even when
+  the image owning that file is resent in the same call, so a cover-only
+  resend never lets another image's recapture land on its capture. A
+  shared pair board refreshed through one slot is that slot's own board,
+  so it still refreshes.
 - Copying happens before validation, and returns `copied: [{from, to}]`
   even when nothing is written. The next call can then name the copied
   paths.

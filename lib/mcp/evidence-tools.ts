@@ -200,17 +200,17 @@ function parseRecordInput(input: Obj): { ok: true; merge: MergeInput; plan: bool
   return { ok: true, merge, plan };
 }
 
-/** Record paths outside the addresses this call writes: a copy landing on one of them with other bytes is a collision. A file an addressed image also uses (a shared pair board) is being refreshed, not collided with. */
-function referencedElsewhere(current: RawRecord, images: ImageInput[]): Set<string> {
-  const filesOf = (img: { path: string; annotated?: string }) => [img.path, ...(img.annotated ? [img.annotated] : [])];
-  const addressed = new Set<string>();
-  const others: string[] = [];
-  for (const a of imageAddresses(current)) {
-    const named = images.some((e) => e.case === a.case && e.slot === a.slot && (e.theme === undefined || e.theme === a.theme));
-    if (named) for (const f of filesOf(a.image)) addressed.add(f);
-    else others.push(...filesOf(a.image));
-  }
-  return new Set(others.filter((f) => !addressed.has(f)));
+const filesOf = (img: { path: string; annotated?: string }) => [img.path, ...(img.annotated ? [img.annotated] : [])];
+
+function recordedFiles(current: RawRecord): Set<string> {
+  return new Set(imageAddresses(current).flatMap((a) => filesOf(a.image)));
+}
+
+/** An entry without a theme writes every theme of its slot, so it owns all of their files. */
+function ownFiles(current: RawRecord, e: ImageInput): string[] {
+  return imageAddresses(current)
+    .filter((a) => a.case === e.case && a.slot === e.slot && (e.theme === undefined || e.theme === a.theme))
+    .flatMap((a) => filesOf(a.image));
 }
 
 /**
@@ -248,15 +248,18 @@ function overwritesUncovered(current: RawRecord, merge: MergeInput, dry: RawReco
   });
 }
 
-function copyRequests(merge: MergeInput, evidenceRoot: string): CopyRequest[] {
-  const seen = new Set<string>();
+function copyRequests(current: RawRecord, merge: MergeInput, evidenceRoot: string): CopyRequest[] {
+  const seen = new Map<string, CopyRequest>();
   const out: CopyRequest[] = [];
   const add = (req: CopyRequest) => {
     const key = `${req.src}\0${req.destDir}`;
-    if (!seen.has(key)) { seen.add(key); out.push(req); }
+    const prior = seen.get(key);
+    if (prior === undefined) { seen.set(key, req); out.push(req); return; }
+    prior.refreshes = [...new Set([...(prior.refreshes ?? []), ...(req.refreshes ?? [])])];
   };
   for (const e of merge.images ?? []) {
-    for (const p of [e.path, e.annotated]) if (p !== undefined) add({ src: p, destDir: join(evidenceRoot, e.case) });
+    const refreshes = ownFiles(current, e);
+    for (const p of [e.path, e.annotated]) if (p !== undefined) add({ src: p, destDir: join(evidenceRoot, e.case), refreshes });
   }
   if (merge.transcript !== undefined) add({ src: merge.transcript, destDir: evidenceRoot, single: true });
   return out;
@@ -347,7 +350,7 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   }
 
   const roots = allowedSourceRoots({ home: deps.home(), uid: deps.uid(), repoRoots, uploadRoots: deps.uploadRoots() });
-  const copy = copyIntoRun(copyRequests(merge, evidenceRoot), { allowedRoots: roots, referencedElsewhere: referencedElsewhere(current, merge.images ?? []), destRoot: workDir });
+  const copy = copyIntoRun(copyRequests(current, merge, evidenceRoot), { allowedRoots: roots, recorded: recordedFiles(current), destRoot: workDir });
   if (!copy.ok) return err(copy.error);
   const copied: CopyResult[] = [...new Map(copy.copied.map((c) => [c.to, c])).values()];
 

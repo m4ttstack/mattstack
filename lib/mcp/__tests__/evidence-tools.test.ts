@@ -279,6 +279,26 @@ describe("evidence_record", () => {
     expect(written.cases[0].after.annotated).toBe(board);
   });
 
+  test("a recapture landing on another image's capture is refused even when that image is resent cover-only", async () => {
+    const dir = evidenceDir("retry-badge");
+    const beforeShot = put("shot.png", "before bytes", dir);
+    const beforeBoard = put("shot-board.png", "before board", dir);
+    const afterShot = put("other.png", "after bytes", dir);
+    const afterBoard = put("other-board.png", "after board", dir);
+    const evidence = v2([{ id: "retry-badge", label: "Retry badge", before: { path: beforeShot, annotated: beforeBoard, caption: "b1" }, after: { path: afterShot, annotated: afterBoard, caption: "a1" } }]);
+    const recapture = put("shot.png", "new after bytes");
+    const board = put("after-board.png", "new after board");
+    const after = { case: "retry-badge", slot: "after", path: recapture, annotated: board, caption: "a2" };
+    for (const images of [[{ case: "retry-badge", slot: "before", caption: "b2" }, after], [after]]) {
+      const { deps, fields } = makeDeps({ fields: { evidence } });
+      const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images }, env);
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain(`${beforeShot}: already used by another image with different bytes`);
+      expect(readFileSync(beforeShot, "utf8")).toBe("before bytes");
+      expect(fields.get("evidence")).toBe(evidence);
+    }
+  });
+
   test("a recapture to the same file name drops the old cover instead of keeping it", async () => {
     const { deps, fields } = makeDeps();
     const shot = put("badge-after.c1.png", "capture v1");
