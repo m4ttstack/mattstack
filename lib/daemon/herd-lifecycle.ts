@@ -243,6 +243,7 @@ export function createHerdLifecycle(opts: {
         if (blockedTimers.has(key) || !WATCHED.has(job.status)) return;
         blockedTimers.set(key, setTimer(() => {
           blockedTimers.delete(key);
+          store.tickBudget(job.herd, job.name, "blockedNotices");
           fireAndForget(post(room, shepherd, `${job.name} blocked (pane ${ref})`), { socket, pane });
         }, debounceMs));
       } else if (ev.agent_status === "idle") {
