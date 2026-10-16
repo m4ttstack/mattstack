@@ -68,8 +68,6 @@ digraph ship {
     "git_rebase {tree: <root>, abort: true} (go back)" [shape=plaintext];
     "git_push {tree: <root>, setUpstream: true}" [shape=plaintext];
     "git_push result?" [shape=diamond];
-    "Retried with the printed root?" [shape=diamond];
-    "git_push {tree: <the root the error prints>, setUpstream: true}" [shape=plaintext];
     "STOP: push only with git_push; a shell push is off-script" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Off-script gate (gate-protocol, scope off-script:ship:<n>)" [shape=box];
     "off-script answer?" [shape=diamond];
@@ -187,12 +185,8 @@ digraph ship {
     "Continue result?" -> "git_rebase {tree: <root>, abort: true} (after a failed continue)" [label="any other error: a failure, quoted"];
     "git_rebase {tree: <root>, abort: true} (after a failed continue)" -> "run_stage {action: fail, stage: ship, reason}" [label="a failure, the continue error is the reason"];
     "git_push {tree: <root>, setUpstream: true}" -> "git_push result?";
-    "git_push {tree: <the root the error prints>, setUpstream: true}" -> "git_push result?";
     "git_push result?" -> "git remote get-url origin" [label="ok"];
-    "git_push result?" -> "Retried with the printed root?" [label="tree must be the absolute path of the root"];
     "git_push result?" -> "STOP: push only with git_push; a shell push is off-script" [label="any other error"];
-    "Retried with the printed root?" -> "git_push {tree: <the root the error prints>, setUpstream: true}" [label="no"];
-    "Retried with the printed root?" -> "STOP: push only with git_push; a shell push is off-script" [label="yes"];
     "STOP: push only with git_push; a shell push is off-script" -> "Off-script gate (gate-protocol, scope off-script:ship:<n>)";
     "Off-script gate (gate-protocol, scope off-script:ship:<n>)" -> "off-script answer?";
     "off-script answer?" -> "Make the recorded move once" [label="proceed + take"];

@@ -81,8 +81,6 @@ digraph publish_skill {
     "Gate: default-branch push rejected" [shape=box];
     "git_push {tree: <checkout>, setUpstream: true}" [shape=plaintext];
     "git_push result?" [shape=diamond];
-    "Retried with the printed root?" [shape=diamond];
-    "git_push {tree: <the root the error prints>, setUpstream: true}" [shape=plaintext];
     "STOP: push feature branches only with git_push" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Off-script gate: feature push refused" [shape=box];
     "List the packs to bring current" [shape=box];
@@ -161,11 +159,8 @@ digraph publish_skill {
     "Gate: default-branch push rejected" -> "Push the default branch from the checkout" [label="retry: human fixed it"];
     "Gate: default-branch push rejected" -> "Handed to the human" [label="human takes over"];
     "git_push {tree: <checkout>, setUpstream: true}" -> "git_push result?";
-    "git_push {tree: <the root the error prints>, setUpstream: true}" -> "git_push result?";
     "git_push result?" -> "Pushed: sync waits until the branch lands on main" [label="ok"];
-    "git_push result?" -> "Retried with the printed root?" [label="refused"];
-    "Retried with the printed root?" -> "git_push {tree: <the root the error prints>, setUpstream: true}" [label="no"];
-    "Retried with the printed root?" -> "STOP: push feature branches only with git_push" [label="yes"];
+    "git_push result?" -> "STOP: push feature branches only with git_push" [label="refused"];
     "STOP: push feature branches only with git_push" -> "Off-script gate: feature push refused";
     "Off-script gate: feature push refused" -> "git_push {tree: <checkout>, setUpstream: true}" [label="retry: human fixed it"];
     "Off-script gate: feature push refused" -> "Handed to the human" [label="human takes over"];
