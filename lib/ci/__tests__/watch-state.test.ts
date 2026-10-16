@@ -17,7 +17,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 function sample(over: Partial<PersistedWatch> = {}): PersistedWatch {
   return {
     version: 1, mr: MR, sha: SHA, pipelineId: 7, pipelineStatus: "running", lastResult: "failed",
-    budgetMinutes: 30, priorPipelineId: 3, waitingSince: 1000, held: true, reclaims: 2, updatedAt: 0, ...over,
+    budgetMinutes: 30, priorPipelineId: 3, waitingSince: 1000, held: true, heldBy: "session:aaa", reclaims: 2, updatedAt: 0, ...over,
   };
 }
 
@@ -50,6 +50,13 @@ describe("watch state", () => {
     writeWatchState(sample(), { dir });
     expect(readWatchState(MR, "ABCDEF1", { dir }).reclaims).toBe(2);
     expect(readWatchState(MR, `${SHA}ffff`, { dir }).reclaims).toBe(2);
+  });
+
+  test("a file written before heldBy existed reads it as null", () => {
+    const { heldBy: _, ...old } = sample();
+    mkdirSync(join(dir, "watch"), { recursive: true });
+    writeFileSync(watchStatePath(MR, { dir }), JSON.stringify(old));
+    expect(readWatchState(MR, SHA, { dir })).toMatchObject({ version: 1, held: true, heldBy: null, reclaims: 2 });
   });
 
   test("leaves no temp files", () => {

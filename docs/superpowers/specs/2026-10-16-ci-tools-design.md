@@ -345,8 +345,11 @@ lease. A call that ends `stood_down` or `lease_unavailable` never writes, so
 a session and a doctor cannot overwrite each other's window; the lease
 already makes them exclusive. Fields: the commit being watched, its matched
 pipeline id and last seen status, its budget minutes, its proven prior
-pipeline id, when it was first seen waiting, whether this session held the
-lease, the re-claim count, and the time of the last write. A new commit
+pipeline id, when it was first seen waiting, whether the lease was held and
+by which owner (a file without the owner reads as none), the re-claim count,
+and the time of the last write. Held and the re-claim count apply only to
+that owner: another session attending the same commit makes a free first
+claim and keeps the window. A new commit
 replaces the state, carrying the old commit's last head pipeline id forward
 as the new commit's prior pipeline id. An unreadable or malformed file reads
 as no state. The directory keeps the lease folder's `*.json` scan

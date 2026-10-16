@@ -15,6 +15,7 @@ export interface PersistedWatch {
   priorPipelineId: number | null;
   waitingSince: number | null;
   held: boolean;
+  heldBy: string | null;
   reclaims: number;
   updatedAt: number;
 }
@@ -28,14 +29,15 @@ export function watchStatePath(mrUrl: string, opts: { dir?: string } = {}): stri
 function fresh(mr: string, sha: string, priorPipelineId: number | null, now: number): PersistedWatch {
   return {
     version: 1, mr, sha, pipelineId: null, pipelineStatus: null, lastResult: null, budgetMinutes: null,
-    priorPipelineId, waitingSince: null, held: false, reclaims: 0, updatedAt: now,
+    priorPipelineId, waitingSince: null, held: false, heldBy: null, reclaims: 0, updatedAt: now,
   };
 }
 
 function parse(raw: string): PersistedWatch | null {
   try {
     const v = JSON.parse(raw) as PersistedWatch;
-    return v && v.version === 1 && typeof v.sha === "string" ? v : null;
+    if (!(v && v.version === 1 && typeof v.sha === "string")) return null;
+    return { ...v, heldBy: typeof v.heldBy === "string" ? v.heldBy : null };
   } catch {
     return null;
   }

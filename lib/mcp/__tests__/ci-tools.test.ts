@@ -351,7 +351,7 @@ describe("ci_watch attend", () => {
     const r = await watch.handler({ ...target, sha: SHA, attend: true }, A);
     expect(r).toMatchObject({ ok: true, body: { state: "success", lease: { owner: "session:aaa" } } });
     expect(readCiLease(MR, { dir }).lease).toMatchObject({ owner: "session:aaa", holder: "watch-ci", branch: "feat" });
-    expect(state()).toMatchObject({ sha: SHA, held: true, reclaims: 0, pipelineId: 10, pipelineStatus: "success", lastResult: "success" });
+    expect(state()).toMatchObject({ sha: SHA, held: true, heldBy: "session:aaa", reclaims: 0, pipelineId: 10, pipelineStatus: "success", lastResult: "success" });
     expect(keepalive.size()).toBe(1);
   });
   test("holder doctor claims as doctor", async () => {
@@ -413,6 +413,17 @@ describe("ci_watch attend", () => {
     expect(r).toMatchObject({ ok: true, body: { state: "running", lease: { owner: "session:bbb" }, budget: { minutes: 230, spent: false } } });
     expect(state()).toMatchObject({ held: true, reclaims: 0, budgetMinutes: 230, pipelineId: 10 });
     expect(readCiLease(MR, { dir }).lease).toMatchObject({ owner: "session:bbb" });
+  });
+  test("a new session after another's release gets a free first claim and keeps the window", async () => {
+    const world = { sha: SHA, pipeline: pipeline({ status: "running", createdAt: new Date(-200 * MIN).toISOString() }) };
+    const a = attendDefs(world);
+    await a.watch.handler({ ...target, sha: SHA, attend: true, extendMinutes: 30, maxWaitSeconds: 0 }, A);
+    writeWatchState({ ...state(), reclaims: 2 }, { dir });
+    await a.release.handler({ mrUrl: MR }, A);
+    const b = attendDefs(world);
+    const r = await b.watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 0 }, B);
+    expect(r).toMatchObject({ ok: true, body: { state: "running", lease: { owner: "session:bbb" }, budget: { minutes: 230 } } });
+    expect(state()).toMatchObject({ held: true, heldBy: "session:bbb", reclaims: 0, budgetMinutes: 230 });
   });
   test("a fresh foreign lease is stood_down with its holder, and nothing is written", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, B);

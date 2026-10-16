@@ -266,6 +266,15 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             w.keepalive.drop(url, owner);
             return { ok: false, reason: "unavailable", error: e instanceof Error ? e.message : String(e) };
           };
+          // held and reclaims belong to the owner that held the lease; another owner starts its own count.
+          if (st.heldBy !== owner) {
+            st.held = false;
+            st.reclaims = 0;
+          }
+          const markHeld = () => {
+            st.held = true;
+            st.heldBy = owner;
+          };
           let hb: ReturnType<typeof heartbeatCiLease>;
           try {
             hb = heartbeatCiLease(url, owner, opts);
@@ -274,14 +283,14 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             try {
               const { lease } = readCiLease(url, opts);
               if (lease && leaseOwner(lease) === owner) {
-                st.held = true;
+                markHeld();
                 return { ok: true, lease };
               }
             } catch { /* the heartbeat's own error is the one to report */ }
             return unavailable(e);
           }
           if (hb.ok) {
-            st.held = true;
+            markHeld();
             w.keepalive.touch(url, owner);
             return { ok: true, lease: hb.lease };
           }
@@ -302,7 +311,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             if (!claim.claimed) return { ok: false, reason: "stood_down", holder: claim.holder };
             if (takeover || claim.previousOwner !== undefined) st.reclaims = 0;
             else if (st.held) st.reclaims++;
-            st.held = true;
+            markHeld();
             w.keepalive.touch(url, owner);
             return { ok: true, lease: claim.lease };
           } catch (e) {
