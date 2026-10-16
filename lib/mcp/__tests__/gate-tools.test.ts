@@ -70,6 +70,7 @@ function fake(o: FakeOpts = {}) {
       list: (async () => ({ ok: true, data: { runs: [] } })) as unknown as GateToolDeps["runDeps"]["list"],
       realpath: (p) => p,
       isPackRoot: () => true,
+      engine: async () => { throw new Error("unexpected engine call"); },
     },
     readRoots: () => ({ roots: [] }),
     tempRoots: () => [],
