@@ -114,6 +114,7 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
     const t = await resolveRepoTarget({ repoName: input.repoName });
     return t.ok ? { identity: t.identity } : { error: t.error };
   }
+  const pickBudget = ({ key, spent, limit, remaining, exhausted }: Record<string, unknown>) => ({ key, spent, limit, remaining, exhausted });
   /** Every structured refusal leaves through here, and is where a budget is charged. */
   async function refuse(refusal: ProvisionRefusal, ctx: RunContext) {
     if (ctx.budget && ctx.runDb) {
@@ -121,7 +122,7 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
       if (!tool) refusal.budget = { error: "run_budget is not available on this rt" };
       else {
         const r = await tool.handler({ runDb: ctx.runDb, key: ctx.budget.key, limit: ctx.budget.limit, stage: ctx.stage }, ctx.env);
-        refusal.budget = r.ok ? (r.body as Record<string, unknown>) : { error: r.error };
+        refusal.budget = r.ok ? pickBudget(r.body as Record<string, unknown>) : { error: r.error };
       }
     }
     return err(JSON.stringify(refusal));
@@ -155,7 +156,7 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
         "precheck: report the branch a provision would use and the trees already on it, and create nothing.",
         "reuse: hand back the tree already on the branch when it is claimed or not managed by rt, instead of provisioning. In ticket mode a local branch that survives its tree is checked out again. Provisions as usual when there is nothing to reuse.",
         'runDb and stage: write the tree\'s branch and worktree path to that run (stage defaults to "provision"). The result says recorded, or recordError when a write failed. Precheck and refusals write nothing.',
-        "budget {key, limit}, with runDb: each refusal is counted through run_budget, and the result's budget shows what is spent and left. When run_budget is missing or fails, budget holds an error instead.",
+        "budget {key, limit}, with runDb: each refusal is counted through run_budget, and the result's budget shows what is spent and left. The stage must already be started on the run (run_stage start), or budget holds an error instead of a count; it also holds an error when run_budget is missing.",
         REPO_NAME_RULE,
       ].join(" "),
       inputSchema: {

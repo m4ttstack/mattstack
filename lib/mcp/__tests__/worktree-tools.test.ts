@@ -257,7 +257,7 @@ describe("worktree tools", () => {
       const command = (async (name: string, payload: unknown) => { calls.push({ name, payload: payload as any }); return replies[name] ?? { ok: false, error: "no reply for " + name }; }) as any;
       const defs: any[] = [];
       if (!opts.noFieldSet) defs.push({ name: "run_field_set", handler: async (input: any, env: unknown) => { fieldWrites.push(input); envs.push(env); return (opts.fieldSet ?? (() => ({ ok: true, body: {} })))(input); } });
-      if (opts.budget !== null) defs.push({ name: "run_budget", handler: async (input: any) => { budgetCalls.push(input); return (opts.budget ?? (() => ({ ok: true, body: { key: "provision", spent: 1, limit: 2, remaining: 1, exhausted: false } })))(input); } });
+      if (opts.budget !== null) defs.push({ name: "run_budget", handler: async (input: any) => { budgetCalls.push(input); return (opts.budget ?? (() => ({ ok: true, body: { ok: true, key: "provision", spent: 1, limit: 2, remaining: 1, exhausted: false } })))(input); } });
       const tool = worktreeToolDefs({ command, resolveRepo: async () => ({ identity: ID }), runTools: () => defs }).find((t) => t.name === "worktree_provision")!;
       return { calls, fieldWrites, budgetCalls, envs, tool };
     }
@@ -331,6 +331,11 @@ describe("worktree tools", () => {
       expect(r.error).toBe('"stage" must be a non-empty string');
       expect(calls).toEqual([]);
     });
+    test("budget keeps run_budget's five fields and drops the rest of its body", async () => {
+      const { tool } = rig({ "worktree:provision": { ok: false, error: "busy" } }, { budget: () => ({ ok: true, body: { ok: true, runDbResolved: "cwd", key: "provision", spent: 2, limit: 2, remaining: 0, exhausted: true } }) });
+      const r = await tool.handler({ repoName: ID, branch: "b", runDb: RUN_DB, budget: { key: "provision", limit: 2 } }, ENV);
+      expect(JSON.parse(r.error!).budget).toEqual({ key: "provision", spent: 2, limit: 2, remaining: 0, exhausted: true });
+    });
     test("a reuse refusal charges the budget under the given stage", async () => {
       const { tool, budgetCalls } = rig({ "worktree:provision-check": { ok: true, data: checkData({ attached: [{ ...ref, state: "disposable" }] }) } });
       const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true, runDb: RUN_DB, stage: "checkout", budget: { key: "k", limit: 3 } }, ENV);
@@ -376,6 +381,7 @@ describe("worktree tools", () => {
     });
     test("the description names the five opting-in options and that stage alone does not opt in", () => {
       const d = rig({}).tool.description;
+      expect(d).toContain("The stage must already be started");
       expect(d).toContain("Using any of codes, precheck, reuse, runDb or budget makes every refusal JSON text with a code");
       expect(d).not.toContain("Using any one");
     });
