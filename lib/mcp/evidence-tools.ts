@@ -526,6 +526,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const refused = emptyRefused();
   const uploaded: Uploaded[] = [];
   const timedOutTwice: string[] = [];
+  const linked: Array<{ path: string; error: string }> = [];
   const writeErrors: string[] = [];
   const description = typeof input.description === "string" ? input.description : undefined;
   const splice = (text: string, section: string) => spliceSection(text, heading, section, input.before as string | undefined);
@@ -534,7 +535,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   if (target.forge === "github") {
     const section = isEmptyRecord(record) ? "" : renderSection(record, (path) => ({ local: path }), { appendix });
     return ok({
-      forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, section,
+      forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, linked, section,
       ...(description !== undefined && { description: section ? splice(description, section) : description }),
       descriptionWritten: false, notWritten: "github", next: ghMove(target.number),
     });
@@ -543,10 +544,11 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const paths = [...new Set(uploadablePaths(record))];
   const toSend: string[] = [];
   const shas = new Map<string, string>();
+  const wasLinked = new Set<string>();
   for (const path of paths) {
     const real = realOr(path);
     const entry = uploadsMap[real];
-    if (!linkRefused && entry && "linked" in entry && entry.linked === true) continue;
+    if (!linkRefused && entry && "linked" in entry && entry.linked === true) wasLinked.add(path);
     const reuse = reusable(entry, real, target.identity);
     if (reuse) {
       uploaded.push({ path, url: reuse.url, markdown: reuse.markdown, reused: true });
@@ -571,7 +573,9 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
       if (sha) fresh[realOr(r.path)] = { sha256: sha, project: target.identity, url: r.url, markdown: r.markdown, at };
       continue;
     }
-    if (r.timedOut) timedOutTwice.push(r.path);
+    // an earlier Take already linked it: refused again, it stays linked rather than reopening the gate
+    if (wasLinked.has(r.path)) linked.push({ path: r.path, error: r.error });
+    else if (r.timedOut) timedOutTwice.push(r.path);
     else refused[bucketFor(r.error)].push({ path: r.path, error: r.error });
     if (linkRefused) fresh[realOr(r.path)] = { linked: true, at };
   }
@@ -630,7 +634,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   }
 
   return ok({
-    forge: "gitlab", mr, uploaded, refused, timedOutTwice, section,
+    forge: "gitlab", mr, uploaded, refused, timedOutTwice, linked, section,
     ...(descriptionOut !== undefined && { description: descriptionOut }),
     descriptionWritten,
     ...(notWritten && { notWritten }),
@@ -735,7 +739,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way stays linked and is not sent again. The target is mrUrl, or repoName with iid, else the run's mr field; with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way is sent again, and if it is refused again it stays linked, is listed in linked, and does not block. The target is mrUrl, or repoName with iid, else the run's mr field; with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {

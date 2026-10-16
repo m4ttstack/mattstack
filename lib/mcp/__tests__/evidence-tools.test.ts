@@ -410,7 +410,7 @@ function twoWaived() {
 
 type AttachBody = {
   forge: string; mr: string | null; uploaded: Array<{ path: string; url: string; markdown: string; reused: boolean }>;
-  refused: Record<string, Array<{ path: string; error: string }>>; timedOutTwice: string[]; section: string;
+  refused: Record<string, Array<{ path: string; error: string }>>; timedOutTwice: string[]; linked: Array<{ path: string; error: string }>; section: string;
   description?: string; descriptionWritten: boolean; notWritten?: string; writeErrors?: string[];
 };
 
@@ -484,17 +484,32 @@ describe("evidence_attach", () => {
     expect(parseUploads(fields.get("evidence-uploads")!)[realpathSync(one)]).toEqual({ linked: true, at: 1_700_000_000_000 });
   });
 
-  test("a resumed call without linkRefused keeps a remembered linked file linked: no re-upload, no refusal", async () => {
+  test("a resumed call re-sends a remembered linked file and, refused again, keeps it linked without blocking", async () => {
     const { one, evidence } = twoWaived();
-    const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes("path is outside the allowed upload roots (...)") : undefined);
+    const refusal = "path is outside the allowed upload roots (...)";
+    const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes(refusal) : undefined);
     const { deps, calls } = makeDeps({ fields: { evidence }, respond });
     await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, linkRefused: true }, env);
     const before = calls.length;
     const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
-    expect(uploads(calls.slice(before)).some((c) => c.payload.path === one)).toBe(false);
+    expect(uploads(calls.slice(before)).some((c) => c.payload.path === one)).toBe(true);
     expect(Object.values(body.refused).flat()).toEqual([]);
+    expect(body.linked).toEqual([{ path: one, error: refusal }]);
     expect(body.section).toContain(`- Before: ${one}`);
     expect(body.notWritten).toBe("unchanged");
+  });
+
+  test("a remembered linked file uploads once its cause is fixed and is no longer remembered as linked", async () => {
+    const { one, evidence } = twoWaived();
+    const respond: Responder = (cmd, p, nth) => (cmd === "mr:upload" && p.path === one && nth === 1 ? errRes("path is outside the allowed upload roots (...)") : undefined);
+    const { deps, fields } = makeDeps({ fields: { evidence }, respond });
+    await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, linkRefused: true }, env);
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(body.linked).toEqual([]);
+    expect(body.uploaded.find((u) => u.path === one)?.reused).toBe(false);
+    expect(body.section).not.toContain(`- Before: ${one}`);
+    expect(body.descriptionWritten).toBe(true);
+    expect(parseUploads(fields.get("evidence-uploads")!)[realpathSync(one)]).toMatchObject({ sha256: sha256Of(one), project: IDENT });
   });
 
   test("reuse: a matching sha256 and project skips the upload; new bytes or a redaction record re-upload", async () => {

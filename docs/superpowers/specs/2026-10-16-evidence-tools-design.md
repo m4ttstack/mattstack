@@ -358,6 +358,11 @@ description. The skill calls it only after the attach gate's proceed.
    - Under `linkRefused: true`, each refused or twice-timed-out file is
      also recorded there as `{linked: true}`, so a resumed run sees the
      Take.
+   - A later call without `linkRefused` sends a `{linked: true}` file
+     again, so a cause the human fixed (a new upload root) clears it: an
+     upload replaces the entry. Refused again, it stays linked: it prints
+     its local path, is listed in `linked: [{path, error}]` rather than
+     `refused`, and does not block the description write.
    - Today's `run_field_set {key: evidence, value: <the record plus
      attach>}` after the description write is not repeated (B5). The record
      stays what was verified, and `evidence-uploads` holds where it went.
@@ -416,7 +421,7 @@ version, which reduces to today's when no board is shared.
 {forge: "gitlab"|"github", mr: url|null,
  uploaded: [{path, url, markdown, reused}],
  refused: {record|raw-capture|import|redaction|roots|missing|size|bytes|other: [{path, error}]},
- timedOutTwice: [path], section, description?,
+ timedOutTwice: [path], linked: [{path, error}], section, description?,
  descriptionWritten,
  notWritten?: "no-mr"|"refused"|"github"|"unchanged",
  writeErrors?: [string]}
