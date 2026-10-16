@@ -1,4 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { runStart } from "../../runs/start.ts";
+import { openRunDb, stageStart } from "../../runs/write.ts";
 import { explainError } from "../../explain-error.ts";
 import { parseProvisionError, worktreeToolDefs, type WorktreeToolDeps } from "../worktree-tools.ts";
 
@@ -389,5 +394,41 @@ describe("worktree tools", () => {
       const d = rig({}).tool.description;
       for (const word of ["provisioned", "precheck", "reused", "codes", "reuse", "runDb", "stage", "budget", "run_budget", "branch-attached", "busy", "create-failed", "repo-unknown"]) expect(d).toContain(word);
     });
+  });
+});
+
+describe("worktree_provision budget against the real run_budget", () => {
+  const bases: string[] = [];
+  afterAll(() => { for (const b of bases) rmSync(b, { recursive: true, force: true }); });
+
+  function realRun(startProvision: boolean) {
+    const root = mkdtempSync(join(tmpdir(), "wt-budget-runs-"));
+    bases.push(root);
+    const started = runStart(root, { repo: "demo", workType: "work", pipeline: "work", env: {} });
+    if (!started.ok) throw new Error(started.error);
+    if (startProvision) {
+      const db = openRunDb(started.runDb);
+      stageStart(db, "provision", {});
+      db.close();
+    }
+    const command = (async () => ({ ok: false, error: "busy" })) as any;
+    const tool = worktreeToolDefs({ command, resolveRepo: async () => ({ identity: ID }) }).find((t) => t.name === "worktree_provision")!;
+    const env = { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+    return { runDb: started.runDb, tool, env };
+  }
+
+  test("two refusals charge the real counter and report exactly the five fields", async () => {
+    const { runDb, tool, env } = realRun(true);
+    const input = { repoName: ID, branch: "b", runDb, budget: { key: "provision", limit: 2 } };
+    const first = JSON.parse((await tool.handler(input, env)).error!);
+    expect(first.budget).toEqual({ key: "provision", spent: 1, limit: 2, remaining: 1, exhausted: false });
+    const second = JSON.parse((await tool.handler(input, env)).error!);
+    expect(second.budget).toEqual({ key: "provision", spent: 2, limit: 2, remaining: 0, exhausted: true });
+  });
+
+  test("a stage that was never started reports the engine's error", async () => {
+    const { runDb, tool, env } = realRun(false);
+    const r = await tool.handler({ repoName: ID, branch: "b", runDb, budget: { key: "provision", limit: 2 } }, env);
+    expect(JSON.parse(r.error!).budget).toEqual({ error: "stage provision has no row in this run" });
   });
 });
