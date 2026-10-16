@@ -94,9 +94,8 @@ My calls (Matt can overturn any of them on review):
 5. **`ci_triage` has no ref input.** It triages the pipeline it is given, or
    the MR's current head pipeline when none is given. Resolving "the newest
    pipeline for a branch" is the `--ref` hazard, so it does not exist.
-6. **Config comes as `configPath` or inline `config`**, one schema with the
-   same keys as the packs' `ci-config.json`. Packs keep their files; wave 3
-   swaps the bash line for a tool call naming the same file.
+6. **The team's patterns are rt settings** (Matt, through the gate, after
+   weighing it against a `configPath` input). See section 9.
 7. **The new tools declare `shellForms: {none: ...}` this wave.** A string
    form such as `ci-triage.sh` becomes a strict skills-lint rule, and today's
    skills still call the script, so the plugin job would fail. Wave 3 adds
@@ -126,7 +125,8 @@ My calls (Matt can overturn any of them on review):
   parameter only; the git-guards lane owns the rest), `commands/ci.ts`, this
   spec and its plan, and the `__tests__` beside them. Decision 3 adds
   `plugins/mattstack/attachments/mcp-tools/reference.md` and
-  `plugins/mattstack/.claude-plugin/plugin.json`.
+  `plugins/mattstack/.claude-plugin/plugin.json`. Decision 6 adds the settings
+  declaration files listed in section 9.
 - **Every tool on the server runs with no permission prompt** on every estate
   machine (`.claude/rules/mcp-and-gates.md`). Each new input is a grant: a
   caller-named path is confined, an MR URL is validated, and every result
@@ -173,7 +173,8 @@ triage as a tool error.
 - REAL and INFRA defaults are the script's two lists, unchanged. Config
   arrays (`real-patterns`, `infra-patterns`, `noisy-jobs`) extend them; they
   never replace them. The forge's `infraPatterns()` extends INFRA too.
-- Scalars resolve input, then config, then default: `base-depth` (default 3),
+- The tool merges settings and any inline `config` into one config before
+  the engine runs (section 3). Scalars resolve input, then config, then default: `base-depth` (default 3),
   `base-ref`, `skip-base`. `noBase: true` or `skip-base: true` turns the base
   comparison off.
 - Each trace is ANSI-stripped (SGR sequences, as the script's `sed`), then:
@@ -261,12 +262,17 @@ pattern the mattstack GitLab adapter emits today.
 
 **Input**: the MR target (`repoName` and `iid`, or `mrUrl`), `pipelineId?`
 (the number in `gitlab:pipeline:N`; default the MR's head pipeline),
-`configPath?` or `config?` (not both), `base?`, `noBase?`.
+`config?`, `base?`, `noBase?`.
 
-- `configPath` is confined with `checkReadRootPath` and
-  `readRootsForThisProcess` (the Claude Code temp root or an installed plugin
-  or pack root), then parsed as JSON. Unknown keys (`description`, `timeout`)
-  are ignored; a known key of the wrong type is an error.
+- The patterns and scalars come from the `ci.triage.*` settings (section 9),
+  resolved for the session's team. Callers normally pass nothing.
+- `config` is an optional one-off override with the same keys as the packs'
+  `ci-config.json` (`real-patterns`, `infra-patterns`, `noisy-jobs`,
+  `base-depth`, `base-ref`, `skip-base`). Its arrays extend the settings'
+  arrays, which extend the engine defaults; its scalars beat the settings'.
+  Unknown keys (`description`, `timeout`) are ignored; a known key of the
+  wrong type is an error. There is no path input, so the tool reads no
+  caller-named file.
 - On a GitHub PR it returns `{state: "unsupported_forge", forge: "github",
   next}` before any GitLab-only read.
 - Otherwise it returns `{state: "triaged", ...TriageReport, next}`, where
@@ -413,6 +419,40 @@ Regenerate `reference.md` with `bun cli.ts mcp tools --json | bun
 plugins/mattstack/scripts/gen-mcp-tools.ts`, and bump `plugin.json`'s patch
 version, as the last change before the push.
 
+### 9. Triage settings: `ci.triage.*`
+
+Six declared keys, allowing `org` and `team` scopes (no repo sections):
+
+| Key | Type | Merge | Default |
+|---|---|---|---|
+| `ci.triage.realPatterns` | string array | `add` | `[]` |
+| `ci.triage.infraPatterns` | string array | `add` | `[]` |
+| `ci.triage.noisyJobs` | string array | `add` | `[]` |
+| `ci.triage.baseDepth` | integer 1 to 20 | `replace` | 3 |
+| `ci.triage.baseRef` | string | `replace` | `defaultNote` (the MR's target branch) |
+| `ci.triage.skipBase` | boolean | `replace` | false |
+
+`add` concatenates every layer weakest first with duplicates dropped, so the
+org store holds the patterns the org pack carries today and each team store
+adds its own, the same shape as an org pack plus a team pack. The arrays
+extend the engine defaults; they never replace them. The values are data in
+the org repo's stores, never in rt.
+
+Each key gets the full add-a-key set from the rt:settings contract: the
+registry row in `packages/rt-client/src/settings/registry-defs.ts`, a zod
+schema in `registry-schemas.ts`, examples in `schema-examples.ts`, a console
+group in `apps/console/src/app/settings/groups.ts`, and the regenerated lock
+(`bun run cli.ts settings schema lock`). The rt-client `dist/` is rebuilt
+after the change. These files join the write fence.
+
+**Seeding is not in this PR.** An org or team store write is never a
+migration, and the org's stores are live data. After merge an admin seeds
+each scope once with `rt settings set ci.triage.<key> '<json>' --scope org`
+or `--scope team --team <team>`, from today's `ci-config.json` files; the
+report lists the commands without values (purity). Until seeded, the tool
+runs on the engine defaults, and the shell path keeps reading the JSON
+files until wave 3 retires it.
+
 ## Testing
 
 **Conformance with the shell suite.** A fixture adapter in the tests reads
@@ -451,7 +491,9 @@ validation replaces them), `env-skip` (no environment knobs; `noBase` is
 covered).
 
 **Unit tests**: pattern compilation errors, config validation (types,
-unknown keys ignored, `configPath` outside the read roots refused), the
+unknown keys ignored), settings resolution (org and team arrays concatenate,
+an inline `config` extends them, scalars resolve input over config over
+setting over default), the
 GitLab adapter over a fake `rtCommand` (paging, truncation retry, same-project
 recursion, optional-bridge inheritance, cross-project bridge rows, `attempt`),
 `ci_watch` with `attend` over the existing fake deps (each new state, first
