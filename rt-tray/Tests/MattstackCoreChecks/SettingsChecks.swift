@@ -248,6 +248,16 @@ let settingsChecks: [Check] = [
             c.expect(!m.canSwitchTeam)
         }
     },
+    Check("an org owner gets the Invite section, like an admin") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[],"role":"org-owner","activeTeam":"widgets","teams":["widgets"],"orgTeams":["gadgets","widgets"]}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        await MainActor.run {
+            c.expect(m.isAdmin)
+            c.expectEqual(m.inviteTeamChoices, ["gadgets", "widgets"])
+        }
+    },
     Check("an rt that reports no role keeps the Invite section, as the app showed before") { c in
         let rt = ScriptedRt()
         rt.answers["team status"] = (0, #"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[]}"#)
