@@ -299,6 +299,24 @@ describe("evidence_record", () => {
     }
   });
 
+  test("an uncovered unthemed recapture over a themed slot never overwrites a theme's recorded capture", async () => {
+    const dir = evidenceDir("c");
+    const files = { lc: "light capture", lb: "light board", dc: "dark capture", db: "dark board" };
+    const lc = put("l.c1.png", files.lc, dir);
+    const lb = put("l.png", files.lb, dir);
+    const dc = put("d.c1.png", files.dc, dir);
+    const db = put("d.png", files.db, dir);
+    const evidence = v2([{ id: "c", label: "C", after: { light: { path: lc, annotated: lb, caption: "l" }, dark: { path: dc, annotated: db, caption: "d" } } }]);
+    const recapture = put("d.c1.png", "new dark capture");
+    put("d.png", "new dark board");
+    const { deps, fields } = makeDeps({ fields: { evidence } });
+    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "c", slot: "after", path: recapture }] }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('case "c" after: this recapture would overwrite the recorded capture while it has no cover');
+    for (const [p, body] of [[lc, files.lc], [lb, files.lb], [dc, files.dc], [db, files.db]] as const) expect(readFileSync(p, "utf8")).toBe(body);
+    expect(fields.get("evidence")).toBe(evidence);
+  });
+
   test("a recapture to the same file name drops the old cover instead of keeping it", async () => {
     const { deps, fields } = makeDeps();
     const shot = put("badge-after.c1.png", "capture v1");

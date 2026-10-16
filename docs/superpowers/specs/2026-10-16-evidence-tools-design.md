@@ -363,9 +363,10 @@ description. The skill calls it only after the attach gate's proceed.
      Take.
    - A later call without `linkRefused` sends a `{linked: true}` file
      again, so a cause the human fixed (a new upload root) clears it: an
-     upload replaces the entry. Refused again, it stays linked: it prints
-     its local path, is listed in `linked: [{path, error}]` rather than
-     `refused`, and does not block the description write.
+     upload replaces the entry. Refused or timed out twice again, it stays
+     linked: it prints its local path, is listed in `linked: [{path,
+     error}]` rather than `refused` or `timedOutTwice`, and does not block
+     the description write.
    - Today's `run_field_set {key: evidence, value: <the record plus
      attach>}` after the description write is not repeated (B5). The record
      stays what was verified, and `evidence-uploads` holds where it went.

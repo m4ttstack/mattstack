@@ -596,10 +596,11 @@ export function mcpTools(): McpToolDef[] {
       },
       shellForms: { none: "uploads have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input, _env, signal, progress) {
-        const bad = checkOptional(input, [{ name: "path", type: "string" }, { name: "runId", type: "string" }]);
+        const single = input.paths === undefined;
+        const pathField = [{ name: "path", type: "string" as const }];
+        const bad = (single ? checkRequired(input, pathField) : checkOptional(input, pathField)) ?? checkOptional(input, [{ name: "runId", type: "string" }]);
         if (bad) return err(bad);
-        if (input.path !== undefined && input.paths !== undefined) return err('pass "path" or "paths", not both');
-        if (input.path === undefined && input.paths === undefined) return err('"path" is required');
+        if (!single && input.path !== undefined) return err('pass "path" or "paths", not both');
         if (input.paths !== undefined) {
           const paths = input.paths;
           if (!Array.isArray(paths) || paths.some((p) => typeof p !== "string")) return err('"paths" must be an array of strings');

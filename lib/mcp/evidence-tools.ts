@@ -206,11 +206,12 @@ function recordedFiles(current: RawRecord): Set<string> {
   return new Set(imageAddresses(current).flatMap((a) => filesOf(a.image)));
 }
 
-/** An entry without a theme writes every theme of its slot, so it owns all of their files. */
+/** An entry without a theme writes every theme of its slot. */
+const writesAddress = (a: { case: string; slot: string; theme?: string }, e: ImageInput) =>
+  a.case === e.case && a.slot === e.slot && (e.theme === undefined || e.theme === a.theme);
+
 function ownFiles(current: RawRecord, e: ImageInput): string[] {
-  return imageAddresses(current)
-    .filter((a) => a.case === e.case && a.slot === e.slot && (e.theme === undefined || e.theme === a.theme))
-    .flatMap((a) => filesOf(a.image));
+  return imageAddresses(current).filter((a) => writesAddress(a, e)).flatMap((a) => filesOf(a.image));
 }
 
 /**
@@ -239,12 +240,11 @@ function overwritesUncovered(current: RawRecord, merge: MergeInput, dry: RawReco
   const same = (a: { case: string; slot: string; theme?: string }, b: { case: string; slot: string; theme?: string }) =>
     a.case === b.case && a.slot === b.slot && a.theme === b.theme;
   return (merge.images ?? []).flatMap((e) => {
-    if (!e.recapture || e.path === undefined) return [];
-    const at = recorded.find((a) => same(a, e))?.image.path;
-    if (at === undefined) return [];
+    if (!e.recapture || e.path === undefined || !open.some((u) => same(u, e))) return [];
     const real = realOr(e.path);
-    const lands = join(evidenceRoot, e.case, basename(real)) === at || real === realOr(at);
-    return lands && open.some((u) => same(u, e)) ? [`case "${e.case}" ${e.slot}${e.theme ? ` ${e.theme}` : ""}`] : [];
+    const landing = join(evidenceRoot, e.case, basename(real));
+    const lands = recorded.some(({ image: { path: at }, ...a }) => writesAddress(a, e) && (landing === at || real === realOr(at)) && !sameBytes(real, at));
+    return lands ? [`case "${e.case}" ${e.slot}${e.theme ? ` ${e.theme}` : ""}`] : [];
   });
 }
 
@@ -581,7 +581,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
       if (sha) fresh[realOr(r.path)] = { sha256: sha, project: target.identity, url: r.url, markdown: r.markdown, at };
       continue;
     }
-    // an earlier Take already linked it: refused again, it stays linked rather than reopening the gate
+    // an earlier Take already linked it: refused or timed out again, it stays linked rather than reopening the gate
     if (wasLinked.has(r.path)) linked.push({ path: r.path, error: r.error });
     else if (r.timedOut) timedOutTwice.push(r.path);
     else refused[bucketFor(r.error)].push({ path: r.path, error: r.error });
@@ -747,7 +747,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way is sent again, and if it is refused again it stays linked, is listed in linked, and does not block. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way is sent again, and if it is refused or times out twice again it stays linked, is listed in linked, and does not block. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {

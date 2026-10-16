@@ -1203,6 +1203,7 @@ describe("mcpTools", () => {
       const calls = fakeDaemon();
       const tool = mcpTools().find((t) => t.name === "mr_upload")!;
       expect((await tool.handler({ repoName: "remote:x" }, {} as NodeJS.ProcessEnv)).error).toBe('"path" is required');
+      expect((await tool.handler({ repoName: "remote:x", path: null }, {} as NodeJS.ProcessEnv)).error).toBe('"path" is required');
       expect((await tool.handler({ path: "/tmp/shot.png" }, {} as NodeJS.ProcessEnv)).error).toBe('pass "repoName" or "mrUrl"');
       expect(calls).toEqual([]);
     });
