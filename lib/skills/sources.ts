@@ -9,7 +9,7 @@ import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
 import { findPlaceholders } from "./placeholders.ts";
-import { normalizePipelines, type BindingsMap } from "./pipelines.ts";
+import { fillsDiffer, normalizePipelines, PIPELINE_NAME_RE, stageCopyName, type BindingsMap } from "./pipelines.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
 
@@ -541,12 +541,14 @@ export function readVerbRoster(packDir: string): VerbDef[] {
   // its surface is still manageable, so absence is an empty roster, not an error.
   if (!existsSync(stubsPath)) return [];
   const parsed = JSON.parse(stripJsonc(readFileSync(stubsPath, "utf8"))) as {
-    verbs?: Record<string, { engine: string; description: string }>;
+    verbs?: Record<string, { engine: string; description: string; pipeline?: string }>;
   };
   const verbs = parsed.verbs ?? {};
   return Object.entries(verbs).map(([name, def]) => {
     assertSafeVerbName(name, stubsPath);
-    return { name, engine: def.engine, description: def.description };
+    const verb: VerbDef = { name, engine: def.engine, description: def.description };
+    if (def.pipeline !== undefined) verb.pipeline = def.pipeline;
+    return verb;
   });
 }
 
@@ -578,19 +580,36 @@ function readNormalizedPipelines(manifestPath: string): ReturnType<typeof normal
 /**
  * `description` is left empty here -- the caller fills it in from the
  * loaded step's frontmatter once each stage is resolved to a StepSource.
+ * A copy follows the deduped stages for each (pipeline, stage) whose
+ * effective fills differ from the default. The name check repeats
+ * materialize's because a hand-written --manifest never passes through it.
  */
-export function stageRoster(pipelines: Record<string, string[]>): VerbDef[] {
+export function stageRoster(
+  pipelines: Record<string, string[]>,
+  pipelineBindings: Record<string, BindingsMap>,
+  defaults: BindingsMap,
+): VerbDef[] {
+  for (const type of Object.keys(pipelineBindings)) {
+    if (!PIPELINE_NAME_RE.test(type)) throw new Error(`pipeline "${type}" must match [a-z][a-z0-9-]*`);
+  }
   const seen = new Set<string>();
   const out: VerbDef[] = [];
+  const copies: VerbDef[] = [];
   for (const [type, list] of Object.entries(pipelines)) {
+    const overrides = Object.hasOwn(pipelineBindings, type) ? pipelineBindings[type] : undefined;
     for (const qualified of list) {
       const name = parseStageQualifiedName(qualified, `pipeline "${type}"`);
-      if (seen.has(name)) continue;
-      seen.add(name);
-      out.push({ name, engine: name, description: "" });
+      if (!seen.has(name)) {
+        seen.add(name);
+        out.push({ name, engine: name, description: "" });
+      }
+      const copy = stageCopyName(name, type);
+      if (seen.has(copy) || !fillsDiffer(defaults, overrides, qualified)) continue;
+      seen.add(copy);
+      copies.push({ name: copy, engine: name, description: "", pipeline: type });
     }
   }
-  return out;
+  return [...out, ...copies];
 }
 
 export type SurfaceConfig = { public: string[] };

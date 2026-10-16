@@ -65,6 +65,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
+import { effectiveSlotBindings, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -77,6 +78,7 @@ import {
   orgOfPackDir,
   parseStageQualifiedName,
   readManifestBindings,
+  readManifestPipelineBindings,
   readManifestPipelines,
   readSurface,
   readVerbRoster,
@@ -563,6 +565,7 @@ type Resolved = {
   base: boolean;
   provenance: Record<string, string>;
   pipelines: Record<string, string[]>;
+  pipelineBindings: Record<string, BindingsMap>;
   stages: VerbDef[];
   stageEntries: Record<string, StageEntry[]>;
   repoKey: string;
@@ -649,9 +652,10 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const internalRoster = computeInternalRoster(team, packDir, surface, fullRoster);
 
   const pipelines = manifestPath ? readManifestPipelines(manifestPath) : {};
+  const pipelineBindings = manifestPath ? readManifestPipelineBindings(manifestPath) : {};
   let stages: VerbDef[];
   try {
-    stages = stageRoster(pipelines);
+    stages = stageRoster(pipelines, pipelineBindings, bindings);
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
@@ -660,19 +664,21 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const packSha = computePackSha(pipelines, self, packDir);
   let stageEntries: Record<string, StageEntry[]>;
   try {
-    stageEntries = buildStageEntries({ pipelines, pluginRoots, publicSet: surface ? new Set(surface.public) : null });
+    const copies = new Set(stages.filter((s) => s.pipeline !== undefined).map((s) => s.name));
+    stageEntries = buildStageEntries({ pipelines, pluginRoots, publicSet: surface ? new Set(surface.public) : null, copies });
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
 
   return {
     packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, base, provenance,
-    pipelines, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha,
+    pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha,
   };
 }
 
-function loadFillsFor(step: StepSource, resolved: Resolved, where: string): Record<string, AttachmentSource | null> {
-  const slotBindings = resolved.bindings[`${step.plugin}:${step.name}`] ?? {};
+function loadFillsFor(step: StepSource, resolved: Resolved, where: string, pipeline?: string): Record<string, AttachmentSource | null> {
+  const overrides = pipeline !== undefined && Object.hasOwn(resolved.pipelineBindings, pipeline) ? resolved.pipelineBindings[pipeline] : undefined;
+  const slotBindings = effectiveSlotBindings(resolved.bindings, overrides, `${step.plugin}:${step.name}`);
   const fills: Record<string, AttachmentSource | null> = {};
   for (const slotName of Object.keys(step.slots)) {
     const bindingName = slotBindings[slotName];
@@ -730,13 +736,13 @@ function loadIncludesFor(
 function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageEntry[]>): string[] {
   const rules: string[] = [];
   const seen = new Set<string>();
-  for (const list of Object.values(entries)) {
+  for (const [type, list] of Object.entries(entries)) {
     for (const entry of list) {
       if (seen.has(entry.name)) continue;
       seen.add(entry.name);
-      const step = loadStepSource(entry.name, resolved.pluginRoots);
+      const step = loadStepSource(entry.engine, resolved.pluginRoots);
       rules.push(...step.allowedTools);
-      for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`))) {
+      for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`, type))) {
         if (fill) rules.push(...fill.allowedTools);
       }
     }
@@ -771,12 +777,13 @@ function compileVerb(
   if (isStage) verb = { ...verb, description: step.description };
 
   const entries = resolved.stageEntries;
-  const allStageDirs = Object.values(entries).flat().map((e) => e.dir);
+  const allEntries = Object.values(entries).flat();
+  const allStageDirs = allEntries.map((e) => e.dir);
   const stageNames = new Set(resolved.stages.map((s) => s.name));
   // Only a public roster verb is ever invoked by name, so only its ${CLAUDE_SKILL_DIR}
   // is its own directory; every other target is read as a file from a public skill.
   const stageDir = isStage
-    ? allStageDirs.find((d) => d.endsWith(`/${verb.name}`)) ?? null
+    ? allEntries.find((e) => e.name === verb.name)?.dir ?? null
     : isPublic ? null : hostDir(verb.name, "attachments");
   const internalVerbDirs = Object.entries(verbSides)
     .filter(([name, side]) => side === "attachments" && !stageNames.has(name))
@@ -784,7 +791,7 @@ function compileVerb(
   const isOrchestrator = findPlaceholders(step.body).some((p) => p.kind === "pipeline.stages");
 
   try {
-    const fills = loadFillsFor(step, resolved, where);
+    const fills = loadFillsFor(step, resolved, where, isStage ? verb.pipeline : undefined);
     const includes = loadIncludesFor(step, fills, resolved, where);
     const result = compileSkill(verb, step, fills, resolved.invocable, {
       internalRoster: resolved.internalRoster,
@@ -998,6 +1005,27 @@ export function floorWrite(
   return { written: [FLOOR_REL], removed: [], stale: false };
 }
 
+const STAGE_COPY_DIR_RE = /^stage-[a-z0-9-]+--[a-z][a-z0-9-]*$/;
+
+/**
+ * Compiled stage copies no target claims any more. `verbSides` must be the
+ * full target set from compileTargets: a --verb-scoped set would leave live
+ * copies unclaimed, and the caller deletes what this returns.
+ */
+function staleStageCopies(packDir: string, verbSides: Record<string, Side>): { name: string; dir: string }[] {
+  const stale: { name: string; dir: string }[] = [];
+  for (const side of ["attachments", "skills"] as const) {
+    const sideDir = join(packDir, side);
+    if (!existsSync(sideDir)) continue;
+    for (const entry of readdirSync(sideDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !STAGE_COPY_DIR_RE.test(entry.name) || Object.hasOwn(verbSides, entry.name)) continue;
+      const dir = join(sideDir, entry.name);
+      if (hasCompiledHeader(dir)) stale.push({ name: entry.name, dir });
+    }
+  }
+  return stale;
+}
+
 /**
  * The real-write path shared by skillsCompile and compilePackAll: compiles
  * every target, writes on success (sweeping a stale other-side dir first),
@@ -1013,6 +1041,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   misplaced: string[];
   writes: CompileWrites;
   emitted: EmittedRow[];
+  staleCopies: string[];
 } {
   if (write) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
@@ -1031,6 +1060,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
 
   const writing = write && failures.length === 0;
   const writes: CompileWrites = { written: [], removed: [] };
+  const staleCopies = failures.length === 0 ? staleStageCopies(resolved.packDir, verbSides) : [];
   if (writing) {
     // Stale folders go before any verb writes: an internal verb may now own a freed attachments/<name>.
     for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
@@ -1046,6 +1076,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       if (existsSync(stale) && !isHandWrittenDir(stale)) removeCompiledDir(resolved.packDir, stale, writes);
       writeCompiledVerb(resolved.packDir, outDirFor(resolved.packDir, verb.name, isPublic), outcome.result, writes);
     }
+    for (const copy of staleCopies) removeCompiledDir(resolved.packDir, copy.dir, writes);
     const floor = floorWrite(resolved, readIfPresent, true);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
@@ -1081,7 +1112,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     ...plan.stale.map((s) => ({ name: s.name, removed: true as const, why: s.why })),
   ];
 
-  return { outcomes, failures, misplaced, writes, emitted };
+  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleCopies.map((c) => c.name) };
 }
 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
@@ -1116,6 +1147,11 @@ export function compileBlocks(rows: CompiledRow[], writing: boolean, emitted: Em
     // compile.ts writes its surface-internal notes with their own "note: " label.
     ...(row.warnings.length > 0 ? [out.callout("note", ...row.warnings.map((w) => w.replace(/^note: /, "")))] : []),
   ])];
+}
+
+export function staleCopyBlocks(names: string[], writing: boolean): Block[] {
+  const why = "no pipeline overrides its fills any more";
+  return names.map((name) => writing ? out.line("done", `Removed ${name}`, why) : out.line("pending", name, `would remove; ${why}`));
 }
 
 export function compileFailure(failures: string[]): out.FailureInput {
@@ -1195,7 +1231,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written: false, verbs: targets.map(target => ({ name: target.verb.name, status: "errored", files: [], warnings: [], errors: [err.message], side: target.isPublic ? "skills" : "attachments" })), misplaced: [] });
       process.exit(2);
     }
-    const { outcomes, failures, misplaced, emitted } = compiledResult;
+    const { outcomes, failures, misplaced, emitted, staleCopies } = compiledResult;
     if (failures.length > 0 && !flags.json) {
       out.fail(compileFailure(failures));
       process.exit(1);
@@ -1222,7 +1258,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
     const compiled: CompiledRow[] = outcomes.flatMap(({ target, outcome }) =>
       outcome.ok ? [{ name: target.verb.name, side: target.isPublic ? ("skills" as const) : ("attachments" as const), files: outcome.result.files.length, warnings: outcome.result.warnings }] : [],
     );
-    out.print(...compileBlocks(compiled, writing, emitted));
+    out.print(...compileBlocks(compiled, writing, emitted), ...staleCopyBlocks(staleCopies, writing));
 
     if (misplaced.length > 0) {
       out.fail(misplacedFailure(misplaced));
@@ -1322,6 +1358,8 @@ export type CheckPayload = {
   baseErrors: string[];
   /** A verb whose compile would refuse: no row can say so, so it rides here and counts as drift. */
   compileErrors: string[];
+  /** Compiled stage copies no pipeline needs any more; compile removes them. Not part of check --json. */
+  staleCopies: string[];
   /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
   extendsBase: boolean;
 };
@@ -1478,8 +1516,10 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const baseErrors = plan.errors;
   const attachments = flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : [];
   if (baseErrors.length > 0 || attachments.some((row) => row.status !== "in-sync")) anyStale = true;
+  const staleCopies = staleStageCopies(resolved.packDir, verbSides).map((c) => c.name);
+  if (staleCopies.length > 0) anyStale = true;
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, extendsBase: plan.base !== null };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, staleCopies, extendsBase: plan.base !== null };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1533,6 +1573,10 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
       const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
       blocks.push(out.line("stale", row.name, `changed since the last compile: ${files}`));
     }
+  }
+  for (const name of payload.staleCopies) {
+    stale = true;
+    blocks.push(out.line("stale", `stale stage copy ${name}: run rt skills compile`));
   }
   blocks.push(...payload.baseErrors.map((baseError) => out.line("failed", baseError)));
   blocks.push(...payload.compileErrors.map((compileError) => out.line("failed", compileError)));
@@ -2462,7 +2506,7 @@ function stageNamesFor(flags: SurfaceFlags, packDir: string): Set<string> {
     }
   }
   try {
-    return new Set(stageRoster(readManifestPipelines(manifest)).map((v) => v.name));
+    return new Set(stageRoster(readManifestPipelines(manifest), readManifestPipelineBindings(manifest), readManifestBindings(manifest)).map((v) => v.name));
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }

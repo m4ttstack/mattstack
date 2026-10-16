@@ -381,7 +381,7 @@ describe("compile-pipelines", () => {
     } finally {
       io.restore();
     }
-    expect(io.lines()).toContain(`[stale] stale stage copy ${COPY}: run rt skills compile`);
+    expect(io.lines()).toContain(`[out of date] stale stage copy ${COPY}: run rt skills compile`);
     expect(process.exitCode).toBe(1);
 
     process.exitCode = 0;

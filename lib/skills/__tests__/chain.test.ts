@@ -4,7 +4,7 @@ import type { StageEntry } from "../types.ts";
 
 const SEED = ["work-type", "ticket", "repo", "mode"];
 const e = (name: string, consumes: string[], produces: string[]): StageEntry =>
-  ({ name, stage: name.replace(/^stage-/, ""), dir: `x/${name}`, consumes, produces });
+  ({ name, engine: name, stage: name.replace(/^stage-/, ""), dir: `x/${name}`, consumes, produces });
 
 describe("validateChain", () => {
   test("a sound chain has no errors", () => {

@@ -126,6 +126,11 @@ export function substituteAttachmentPlaceholders(body: string, opts: AttachmentR
   });
 }
 
+/** `engine` stays out so a pack with no stage copies compiles the same bytes it always has. */
+function stageTableJson(pipelines: Record<string, StageEntry[]>): Record<string, Omit<StageEntry, "engine">[]> {
+  return Object.fromEntries(Object.entries(pipelines).map(([type, list]) => [type, list.map(({ engine: _engine, ...entry }) => entry)]));
+}
+
 function workTypeText(pipelines: Record<string, StageEntry[]>, where: string): string {
   const types = Object.keys(pipelines);
   if (types.length === 0) throw new Error(`${where}: {{work-type}} cannot be filled -- the manifest declares no pipelines`);
@@ -278,7 +283,7 @@ function substituteLine(line: string, i: number, ctx: PlaceholderContext, where:
         used.includes.push(arg);
         return includeText(arg, inc, ctx);
       }
-      case "pipeline.stages": return fenced(ctx.pipelines);
+      case "pipeline.stages": return fenced(stageTableJson(ctx.pipelines));
       case "work-type": return workTypeText(ctx.pipelines, where);
       case "run-start.flags": return runStartFlags(ctx, arg, raw, where);
       case "verb.path": return verbPath(ctx, arg, raw, where);
