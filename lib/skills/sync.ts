@@ -574,7 +574,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
           engineSourceVersion = await readInTreeVersion(deps, inTreeRoot!, engine.dir);
           return skipped(`The engine is in the shared checkout at ${engine.dir}, which rt keeps current when it updates this Mac${branchNote}`);
         }
-        const res = await deps.run("git", ["pull", "--ff-only"], { cwd: engine.dir });
+        const res = await originGit(deps, ["pull", "--ff-only"], { cwd: engine.dir });
         if (res.code !== 0) return refused(`Pulling ${engine.dir} failed: ${res.stderr.trim()}. Sort it out by hand, then run this again`);
         engineSourceVersion = readManifestVersion(engine.dir);
         return ran(res.stdout.trim() || "up to date");
@@ -594,15 +594,17 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (clone !== null) {
       const branch = await deps.run("git", ["branch", "--show-current"], { cwd: clone });
       if (branch.code !== 0) return pullFailed(branch.stderr);
-      const tip = `refs/remotes/origin/${branch.stdout.trim()}`;
+      const current = branch.stdout.trim();
+      if (current === "") return pullFailed(`the org clone at ${clone} is not on a branch`);
+      const tip = `refs/remotes/origin/${current}`;
       // Named, because an org clone's refspec is narrowed to the data branch and a trial branch would never move.
-      const fetched = await originGit(deps, ["fetch", "origin", `+refs/heads/${branch.stdout.trim()}:${tip}`], { cwd: clone });
+      const fetched = await originGit(deps, ["fetch", "origin", `+refs/heads/${current}:${tip}`], { cwd: clone });
       if (fetched.code !== 0) return pullFailed(fetched.stderr);
       const shown = await deps.run("git", ["show", markerAtRef(tip)], { cwd: clone });
       const own = await deps.run("git", ["show", markerAtRef("HEAD")], { cwd: clone });
       let verdict: GateVerdict | null;
       try {
-        verdict = gateVerdict(shown, branch.stdout.trim(), shownDataBranch(own));
+        verdict = gateVerdict(shown, current, shownDataBranch(own));
       } catch (e) {
         return pullFailed(e instanceof Error ? e.message : String(e));
       }

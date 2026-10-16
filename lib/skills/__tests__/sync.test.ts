@@ -2904,6 +2904,19 @@ describe("git that talks to origin", () => {
     await syncPack(pack, engine, deps);
 
     expect(origin).toContainEqual({ args: ["pull", "--ff-only"], cwd: pack.dir, push: false });
+    expect(origin).toContainEqual({ args: ["pull", "--ff-only"], cwd: engine.dir, push: false });
+  });
+
+  test("an org clone on a detached HEAD refuses before it fetches", async () => {
+    const { clone, pack } = orgClonePack();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const { deps, origin } = withOrigin({ ...makeDeps(pack, engine, { calls, branchByDir: { [engine.dir]: "main", [clone]: "", [pack.dir]: "main" } }), orgsRoot: dirname(clone) });
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "pull-pack")).toEqual({ name: "pull-pack", status: "refused", detail: `Pulling ${pack.dir} failed: the org clone at ${clone} is not on a branch. Sort it out by hand, then run this again` });
+    expect(origin.some((c) => c.cwd === clone)).toBe(false);
   });
 
   test("the version commit pushes through runOrigin", async () => {
