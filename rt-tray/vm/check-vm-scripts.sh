@@ -169,7 +169,15 @@ t "screens.sh probes the skipped row in its group by its .status id, not the bar
 # grep exits 2 on a missing directory, so only 1 (no match) passes.
 t "nothing under vm reads an id the summary dropped" bash -c \
   'grep -rqE "setup\.done\.stillToDo|ax_find setup\.done\.beforeYouFinish( |$)|setup\.checklist\.continueLimited" run golden lib; [ $? -eq 1 ]'
-t "ax page helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_click_raw ax_click_reading ax_title ax_progress ax_page_step ax_page_rewind ax_row_statuses ax_reveal_row >/dev/null && ! ax_page_step continue && ! ax_title x >/dev/null 2>&1 && ! ax_click_reading x Install && ! ax_reveal_row setup.checklist.row.x.status && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
+# ax-button.js fails with its own "process not running" before it touches the
+# tree, so that line in the log proves the script compiled and ran.
+t "ax page helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && : > "$AX_LOG" && declare -F ax_click_raw ax_click_reading ax_title ax_progress ax_page_step ax_page_rewind ax_row_statuses ax_reveal_row >/dev/null && ! ax_page_step continue && ! ax_title x >/dev/null 2>&1 && ! ax_click_reading x Install && ! ax_reveal_row setup.checklist.row.x.status && ! grep -qi "script error\|Expected \|syntax error\|SyntaxError\|ReferenceError\|TypeError" "$AX_LOG" && [ "$(grep -c "process not running: definitely-not-running" "$AX_LOG")" -ge 3 ]'
+t "ax-button.js compiles"        osacompile -l JavaScript -o /tmp/vmcheck-ax/ax-button.scpt run/guest/ax-button.js
+# System Events reads the wizard's primary button as "button": its wording is
+# read, and the button pressed, only through ax-button.js, in one run.
+t "ax.sh reads and presses the primary button only through ax-button.js" bash -c \
+  'grep -q "ax_button step \"\$1\"" run/guest/ax.sh && grep -q "ax_button press \"\$1\" \"\$2\"" run/guest/ax.sh && grep -q "ax_button read \"\$1\"" run/guest/ax.sh \
+   && ! grep -q "wording(" run/guest/ax.sh'
 # The wizard's primary button is Install on the last page: screens.sh presses
 # it only through the script that checks its wording in the same breath.
 t "screens.sh never presses the wizard's primary button unread" bash -c \

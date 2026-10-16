@@ -12,7 +12,8 @@ GUEST_RUN="${GUEST_RUN:-/Volumes/My Shared Files/run}"
 # osascript parses (which fails as a grammar error, not our own "not found" error).
 ax_esc() { local v="$1"; v="${v//\\/\\\\}"; v="${v//\"/\\\"}"; printf '%s' "$v"; }
 
-AX_APP="${AX_APP:-mattstack}"; AX_APP="$(ax_esc "$AX_APP")"
+AX_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AX_PROC="${AX_APP:-mattstack}"; AX_APP="$(ax_esc "$AX_PROC")"
 : "${VM_ADMIN_USER:=admin}"; : "${VM_ADMIN_PASS:=admin}"
 AX_LOG="$GUEST_RUN/logs/drive.log"; mkdir -p "$(dirname "$AX_LOG")" 2>/dev/null || true
 
@@ -42,29 +43,10 @@ using terms from application "System Events"
 end using terms from
 '
 
-# A button's wording is its name, its title or its description, depending on
-# how the control exposes its label.
-AX_WORDING_AS='
-using terms from application "System Events"
-  on wording(el)
-    set t to ""
-    try
-      set t to name of el as text
-    end try
-    if t is "" or t is "missing value" then
-      try
-        set t to title of el as text
-      end try
-    end if
-    if t is "" or t is "missing value" then
-      try
-        set t to description of el as text
-      end try
-    end if
-    return t
-  end wording
-end using terms from
-'
+# A button's wording, read through the accessibility API by ax-button.js:
+# System Events reads a SwiftUI label held only in AXAttributedDescription as
+# the role description, "button".
+ax_button() { osascript -l JavaScript "$AX_HERE/ax-button.js" "$AX_PROC" "$@" 2>>"$AX_LOG"; }
 
 # A status element's value is the raw status. Its description is the label
 # VoiceOver reads, "<row title>: <status>", so a read that falls back to the
@@ -207,26 +189,12 @@ ax_progress() {
 # only while it reads "Continue": on the last page, and until a plan has
 # landed, the same button reads "Install". Back is never pressed on the first
 # page (step 3, after Welcome and Your team), where it leaves the checklist.
-# The check and the click are one script, so a plan that lands between them
-# cannot turn the press into Install.
+# The check and the press are one ax-button.js run, so a plan that lands
+# between them cannot turn the press into Install.
 ax_page_step() {  # back|continue → exit 0 when the page changed
   local before after n=5
   case "$1" in back|continue) ;; *) return 1 ;; esac
-  before=$(ax_osa "$AX_WALK_AS$AX_WORDING_AS
-    tell application \"System Events\" to tell process \"$AX_APP\"
-      set frontmost to true
-      set p to my walk(window 1, \"setup.window.progress\")
-      if p is missing value then error \"axid not found: setup.window.progress\"
-      set v to value of p as text
-      if v does not contain \" of \" then error (\"page step held: the wizard's progress reads \" & v)
-      if \"$1\" is \"back\" and v starts with \"3 of \" then error \"page step held: no page before the first\"
-      set r to my walk(window 1, \"setup.checklist.$1\")
-      if r is missing value then error \"axid not found: setup.checklist.$1\"
-      if \"$1\" is \"continue\" and (my wording(r)) is not \"Continue\" then error (\"page step held: the button reads \" & (my wording(r)))
-      if not (enabled of r) then error \"page step held: setup.checklist.$1 is disabled\"
-      click r
-      return v
-    end tell" 2>/dev/null) || return 1
+  before=$(ax_button step "$1" 2>/dev/null) || return 1
   while [ "$n" -gt 0 ]; do
     after=$(ax_progress || true)
     case "$after" in
@@ -317,30 +285,15 @@ ax_click() {  # <axid>
   ax_click_raw "$1" || ax_fail "click $1"
 }
 
-ax_title() {  # <axid> → the wording on a button
-  local id; id=$(ax_esc "$1")
-  ax_osa "$AX_WALK_AS$AX_WORDING_AS
-    tell application \"System Events\" to tell process \"$AX_APP\"
-      set r to my walk(window 1, \"$id\")
-      if r is missing value then error \"axid not found: $id\"
-      return my wording(r)
-    end tell" 2>/dev/null
+ax_title() {  # <axid> → the wording on a button; exit 1 when it does not read
+  ax_button read "$1" 2>/dev/null
 }
 
 # Presses a button only while it reads the wording the caller acted on and is
-# enabled. The read and the click are one script: a plan that lands after an
-# earlier read can change which press this is.
+# enabled. The read and the press are one ax-button.js run: a plan that lands
+# after an earlier read can change which press this is.
 ax_click_reading() {  # <axid> <wording> -- returns 1 when nothing was pressed; callers decide
-  local id want; id=$(ax_esc "$1"); want=$(ax_esc "$2")
-  ax_osa "$AX_WALK_AS$AX_WORDING_AS
-    tell application \"System Events\" to tell process \"$AX_APP\"
-      set frontmost to true
-      set r to my walk(window 1, \"$id\")
-      if r is missing value then error \"axid not found: $id\"
-      if (my wording(r)) is not \"$want\" then error (\"press held: $id reads \" & (my wording(r)) & \", wanted $want\")
-      if not (enabled of r) then error \"press held: $id is disabled\"
-      click r
-    end tell" >/dev/null || return 1
+  ax_button press "$1" "$2" >/dev/null || return 1
   ax_log "clicked $1 ($2)"
 }
 

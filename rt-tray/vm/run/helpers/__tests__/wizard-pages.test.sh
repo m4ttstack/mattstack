@@ -6,9 +6,9 @@
 #
 # The model replaces ax_page_step and ax_click_reading with its own. Their
 # real guards (no Back on the first page, Continue only while it reads
-# Continue, a press only on the wording asked for) live inside AppleScript,
-# and here that script is only compiled and searched for the guard's text.
-# Nothing in this file runs those guards.
+# Continue, a press only on the wording asked for) live in ax-button.js, and
+# here they run as plain functions: what the accessibility tree hands them is
+# outside this file.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GUEST_RUN="$(mktemp -d)"; export GUEST_RUN
@@ -23,39 +23,57 @@ fails=0
 check() { if eval "$2"; then echo "  ok   $1"; else echo "  FAIL $1"; fails=$((fails+1)); fi; }
 
 # osascript reports a script that never compiled and a miss at run time the
-# same way, so each new script is compiled from an ax_osa that prints it.
+# same way, so each AppleScript is compiled from an ax_osa that prints it.
 S="$GUEST_RUN/scripts"; mkdir -p "$S"
 ax_osa() { printf '%s' "$1" > "$S/$OUT.applescript"; return 1; }
-OUT=step-back; ax_page_step back || true
-OUT=step-continue; ax_page_step continue || true
-OUT=title; ax_title x || true
 OUT=progress; ax_progress || true
 OUT=statuses; ax_row_statuses || true
 OUT=click; ax_click_raw x || true
-OUT=press; ax_click_reading x Install || true
-for OUT in step-back step-continue title progress statuses click press; do
+for OUT in progress statuses click; do
   check "$OUT AppleScript compiles" 'osacompile -o "$S/$OUT.scpt" "$S/$OUT.applescript" 2>/dev/null'
 done
-check "the Back script holds on the first page" 'grep -q "starts with \"3 of \"" "$S/step-back.applescript"'
-check "the Continue script presses only a button that reads Continue" 'grep -q "is not \"Continue\" then error" "$S/step-continue.applescript"'
-check "the press script holds on any other wording, and on a disabled button" \
-  'grep -q "is not \"Install\" then error" "$S/press.applescript" && grep -q "if not (enabled of r) then error" "$S/press.applescript"'
-check "every script that clicks brings the app to the front first" \
-  '( for f in step-back step-continue click press; do grep -q "set frontmost to true" "$S/$f.applescript" || exit 1; done )'
+check "the click script brings the app to the front first" 'grep -q "set frontmost to true" "$S/click.applescript"'
+
+# The primary button is read, checked and pressed in one ax-button.js run.
+JS="$HERE/../../guest/ax-button.js"
+ax_button() { printf '%s\n' "$*" >> "$S/button-calls"; return 1; }
+ax_page_step back || true; ax_page_step continue || true; ax_title x || true; ax_click_reading x Install || true
+check "each page step, read and press is one ax-button.js run" \
+  '[ "$(cat "$S/button-calls")" = "$(printf "step back\nstep continue\nread x\npress x Install")" ]'
+check "ax-button.js compiles" 'osacompile -l JavaScript -o "$S/button.scpt" "$JS" 2>/dev/null'
+check "ax-button.js presses only after its guard, with the app in front" \
+  '[ "$(grep -c "pressEl(b" "$JS")" -eq 2 ] && [ -z "$(awk "/pressEl\(b/ && prev !~ /refuse\(/ { print FNR } { prev = \$0 }" "$JS")" ] && [ "$(grep -c "p.frontmost = true" "$JS")" -eq 2 ]'
+# Each expression is evaluated against the guards in ax-button.js; a held
+# step or press is a non-empty reason.
+guard() {
+  osascript -l JavaScript -e "eval(\$.NSString.stringWithContentsOfFileEncodingError('$JS', \$.NSUTF8StringEncoding, null).js); run = function () { return String($1); };" 2>/dev/null
+}
+held() { [ -n "$(guard "$1")" ]; }
+check "the Back step holds on the first page and moves from any other" \
+  'held "stepHeld(\"back\", \"3 of 9\", \"\", true)" && ! held "stepHeld(\"back\", \"4 of 9\", \"\", true)"'
+check "the Continue step presses only an enabled button that reads Continue" \
+  '! held "stepHeld(\"continue\", \"4 of 9\", \"Continue\", true)" && held "stepHeld(\"continue\", \"4 of 9\", \"Install\", true)" && held "stepHeld(\"continue\", \"4 of 9\", \"\", true)" && held "stepHeld(\"continue\", \"4 of 9\", \"Continue\", false)"'
+check "a step holds when the progress does not read N of M" 'held "stepHeld(\"continue\", \"\", \"Continue\", true)"'
+check "the press holds on any other wording, on no wording, and on a disabled button" \
+  '! held "pressHeld(\"x\", \"Install\", \"Install\", true)" && held "pressHeld(\"x\", \"Install\", \"Continue\", true)" && held "pressHeld(\"x\", \"\", \"\", true)" && held "pressHeld(\"x\", \"Install\", \"Install\", false)"'
+check "a wording is the title, else the description, else the attributed description" \
+  '[ "$(guard "wordingOf(\"Install\", \"\", \"Continue\", \"button\")")" = Install ] && [ "$(guard "wordingOf(\"\", \"Back\", \"Continue\", \"button\")")" = Back ] && [ "$(guard "wordingOf(null, \"\", \"Continue\", \"button\")")" = Continue ]'
+check "the role description never reads as a wording" \
+  '[ -z "$(guard "wordingOf(\"\", \"button\", \"\", \"button\")")" ] && [ -z "$(guard "wordingOf(\"\", \"Taste\", \"\", \"Taste\")")" ] && [ "$(guard "wordingOf(\"\", \"button\", \"Continue\", \"button\")")" = Continue ]'
 
 sleep() { :; }
-ax_osa() { printf '3 of 9'; }
+ax_button() { printf '3 of 9'; }
 ax_progress() { printf '4 of 9'; }
 check "a page step that moved returns 0" 'ax_page_step continue 2>/dev/null'
 ax_progress() { printf '3 of 9'; }
 check "a page step that did not move returns 1" '! ax_page_step continue 2>/dev/null'
 ax_progress() { return 1; }
 check "a page step whose progress cannot be read returns 1" '! ax_page_step continue 2>/dev/null'
-ax_osa() { return 1; }
+ax_button() { return 1; }
 check "a held page step returns 1" '! ax_page_step back 2>/dev/null'
-ax_osa() { : > "$GUEST_RUN/osa-called"; }
+ax_button() { : > "$GUEST_RUN/osa-called"; }
 check "a page step takes only back or continue" '! ax_page_step install && [ ! -e "$GUEST_RUN/osa-called" ]'
-ax_osa() { return 1; }
+ax_button() { return 1; }
 
 check "ax_ids_have matches a whole identifier" \
   'ax_ids_have "$(printf "a.b\nc.d\n")" c.d && ! ax_ids_have "$(printf "a.b\nc.d\n")" c && ! ax_ids_have "" c.d'
