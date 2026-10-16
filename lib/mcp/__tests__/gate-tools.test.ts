@@ -920,6 +920,19 @@ describe("gate_record", () => {
     expect(body(res).recorded).toBe(true);
   });
 
+  test("a hand-back source stored before this gate opened gives the cards", async () => {
+    const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", null, plan(), 900)] });
+    const res = await record(REC, f);
+    expect((body(res).rows as { verdict: string }[]).map((r) => r.verdict)).toEqual(["valid", "pushback"]);
+  });
+
+  test("a hand-back source stored after this gate opened belongs to a later re-ask and gives no cards", async () => {
+    const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", null, plan(), 1100)] });
+    const res = await record(REC, f);
+    expect(body(res).recorded).toBe(true);
+    expect((body(res).rows as { verdict: string }[]).map((r) => r.verdict)).toEqual(["unknown", "unknown"]);
+  });
+
   test("an answered gate clears waiting-gate when it names the gate", async () => {
     const f = fake({ waitRes: answeredPlan, fields: [ARMED] });
     await record(REC, f);

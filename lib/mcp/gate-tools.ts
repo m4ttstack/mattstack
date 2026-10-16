@@ -648,8 +648,10 @@ export async function recordGate(input: Record<string, unknown>, env: NodeJS.Pro
     return ok({ recorded: false, skipped: `stale gate; ${scope}'s latest gate is ${stored.gate}`, ...answerFields(data.row) });
   }
   // Another gate's cards would misbuild this gate's selection; without them the
-  // builders fall back to the row's own stored questions.
-  const ownCards = stored !== null && (stored.gate === id || stored.gate === null) ? stored.source : undefined;
+  // builders fall back to the row's own stored questions. A hand-back source
+  // stored after this gate opened belongs to a later re-ask.
+  const handBackBefore = stored?.gate === null && stored.at <= data.row.openedAt;
+  const ownCards = stored !== null && (stored.gate === id || handBackBefore) ? stored.source : undefined;
   return ok(await recordAnswered(run, data.row, { ...o, source: given ?? ownCards, upsert: true }));
 }
 
