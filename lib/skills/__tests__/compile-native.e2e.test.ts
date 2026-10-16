@@ -375,6 +375,16 @@ describe("compile-pipelines", () => {
     expect(payload.staleCopies).toEqual([COPY]);
     expect(payload.drift).toBe(true);
 
+    const json = captureSkills();
+    try {
+      await skillsCheck([...args, "--json"]);
+    } finally {
+      json.restore();
+    }
+    expect(JSON.parse(json.stdout()).staleCopies).toEqual([COPY]);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+
     const io = captureSkills();
     try {
       await skillsCheck(args);

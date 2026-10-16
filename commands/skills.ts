@@ -1358,7 +1358,7 @@ export type CheckPayload = {
   baseErrors: string[];
   /** A verb whose compile would refuse: no row can say so, so it rides here and counts as drift. */
   compileErrors: string[];
-  /** Compiled stage copies no pipeline needs any more; compile removes them. Not part of check --json. */
+  /** Compiled stage copies no pipeline needs any more; compile removes them. In check --json only when non-empty. */
   staleCopies: string[];
   /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
   extendsBase: boolean;
@@ -1611,8 +1611,9 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors } = payload;
-      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors });
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, staleCopies } = payload;
+      // Only when present: the envelope's existing keys are frozen, and a clean pack keeps its exact bytes.
+      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, ...(staleCopies.length > 0 ? { staleCopies } : {}) });
       return;
     }
     out.print(...checkBlocks(payload, flags.strict));
