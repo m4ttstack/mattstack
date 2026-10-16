@@ -219,7 +219,9 @@ landed.)
   stale gate: `extra.gate-source.<scope>` names a different gate, opened
   later. It returns `skipped: "stale gate; <scope>'s latest gate is
   <id>"`. A scope with no stored source (a plain `gate_ask` gate) has no
-  staleness check.
+  staleness check. Signals (`gate_answer`, `gate_reconcile`) refuse a
+  stale gate the same way, before the late-answer rule, and still clear
+  `waiting-gate` when it names the gate.
   A re-ask opens a new gate (later `openedAt`), so an earlier decision on
   the same scope never shadows it. Without a run the field is absent.
   The rule is exported (`decisionForGate(decisions, scope, since)`) so
@@ -374,6 +376,9 @@ What a caller sees differently once this ships, beyond the new tools:
   else the row's `kind`. Without a run the scope is unused.
 - `gate_answer` refuses an empty or whitespace `scope`, like the other gate
   tools.
+- Under a run, `gate_answer` and `gate_reconcile` record nothing for a
+  stale gate (the scope's `extra.gate-source.<scope>` names a later gate)
+  and return `skipped: "stale gate; <scope>'s latest gate is <id>"`.
 - `checkReadRootPath` takes an optional extension (default `.md`).
   Existing callers are unchanged; `gate_open` and `gate_record` read
   `.json`, checked on the realpath.

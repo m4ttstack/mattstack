@@ -819,6 +819,50 @@ describe("the answered scope default", () => {
   });
 });
 
+describe("a stale gate on the signal paths", () => {
+  const sourceFor = (gate: string, at: number): Field => ({ key: "extra.gate-source.question", value: JSON.stringify({ gate, source: { questions: [] } }), at });
+  const g2 = row({ id: "g2", openedAt: 1500 });
+  const reconcile = (id: string, r: GateRow, fields: Field[]) => {
+    const f = fake({ waitRes: { ok: true, data: { status: "answered", row: r } }, fields });
+    return { f, res: tool("gate_reconcile", f.deps).handler({ id, ...RUN }, ENV) };
+  };
+
+  test("an older gate reconciled after the scope re-asked is skipped with no decision write", async () => {
+    const { f, res } = reconcile("g1", row(), [sourceFor("g2", 1500), { key: "waiting-gate", value: "g2", at: 1500 }]);
+    expect(body(await res)).toMatchObject({ status: "answered", recorded: false, skipped: "stale gate; question's latest gate is g2" });
+    expect(f.log).toEqual(["snapshot", "wait"]);
+  });
+
+  test("a stale gate still clears waiting-gate when it names this gate", async () => {
+    const { f, res } = reconcile("g1", row(), [sourceFor("g2", 1500), ARMED]);
+    expect(body(await res)).toMatchObject({ recorded: false, skipped: "stale gate; question's latest gate is g2" });
+    expect(f.log).toEqual(["snapshot", "wait", CLEAR]);
+  });
+
+  test("the newer gate's own reconcile then records normally", async () => {
+    const { f, res } = reconcile("g2", g2, [sourceFor("g2", 1500)]);
+    expect(body(await res)).toMatchObject({ recorded: true });
+    expect(f.log.at(-1)).toBe(recordLine("question", { q1: "yes" }, "pane"));
+  });
+
+  test("gate_answer skips a stale gate the same way", async () => {
+    const f = fake({ fields: [sourceFor("g2", 1500)] });
+    const res = await answerGate({ id: "g1", answers: { q1: "yes" }, ...RUN }, ENV, f.deps);
+    expect(body(res)).toMatchObject({ recorded: false, skipped: "stale gate; question's latest gate is g2" });
+    expect(f.log).toEqual(["snapshot", "answer"]);
+  });
+
+  test("no gate source, one naming this gate, or one stored before it opened records as before", async () => {
+    for (const fields of [[], [sourceFor("g1", 1100)], [sourceFor("g0", 900)]]) {
+      const { f, res } = reconcile("g1", row(), fields);
+      expect(body(await res)).toMatchObject({ recorded: true });
+      expect(f.log.at(-1)).toBe(recordLine("question", { q1: "yes" }, "pane"));
+      const a = fake({ fields });
+      expect(body(await answerGate({ id: "g1", answers: { q1: "yes" }, ...RUN }, ENV, a.deps))).toMatchObject({ recorded: true });
+    }
+  });
+});
+
 describe("gate_record", () => {
   const record = (input: Record<string, unknown>, f: ReturnType<typeof fake>) => tool("gate_record", f.deps).handler(input, ENV);
   const REC = { ...RUN, scope: "respond-plan", shape: "respond-plan", gateId: "g1" };

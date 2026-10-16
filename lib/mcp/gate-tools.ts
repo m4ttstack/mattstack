@@ -264,7 +264,7 @@ async function clearWaitingGate(run: RunHandle, gateId: string): Promise<string 
 }
 
 /** `gate` is null for a handed decision; `lateSince` null skips the
-    late-answer rule (an explicit record upserts). */
+    late-answer and stale-gate rules (an explicit record upserts). */
 async function recordDecision(
   run: RunHandle,
   fields: AnswerFields,
@@ -275,7 +275,10 @@ async function recordDecision(
   const result: RecordResult = { recorded: false, ...fields };
   const runErrors: string[] = [];
 
-  if (lateSince !== null && decisionForGate(run.snapshot.decisions, o.scope, lateSince)) {
+  const stale = gate !== null && lateSince !== null ? staleGate(run, o.scope, gate.id, lateSince) : null;
+  if (stale) {
+    result.skipped = stale;
+  } else if (lateSince !== null && decisionForGate(run.snapshot.decisions, o.scope, lateSince)) {
     result.alreadyReconciled = true;
     result.skipped = `already reconciled: ${o.scope} has a decision since this gate opened`;
   } else if (!o.record) {
@@ -318,8 +321,8 @@ async function recordDecision(
 }
 
 /** Records an answered row's decision on the run and clears waiting-gate when
-    it names this gate, recorded or not. The late-answer rule applies unless
-    `upsert` (gate_record re-recording its own gate). */
+    it names this gate, recorded or not. The stale-gate and late-answer rules
+    apply unless `upsert` (gate_record re-recording its own gate). */
 export async function recordAnswered(
   run: RunHandle,
   row: GateRow,
@@ -611,6 +614,14 @@ function storedSource(run: RunHandle, scope: string): { gate: string | null; at:
   }
 }
 
+/** The skip reason when the scope's stored source names a different gate
+    stored after this one opened: a later re-ask owns the scope. */
+function staleGate(run: RunHandle, scope: string, gateId: string, openedAt: number): string | null {
+  const stored = storedSource(run, scope);
+  if (typeof stored?.gate !== "string" || stored.gate === gateId || stored.at <= openedAt) return null;
+  return `stale gate; ${scope}'s latest gate is ${stored.gate}`;
+}
+
 export async function recordGate(input: Record<string, unknown>, env: NodeJS.ProcessEnv, deps: GateToolDeps): Promise<ToolResult> {
   const bad = recordInputError(input);
   if (bad) return err(bad);
@@ -645,9 +656,8 @@ export async function recordGate(input: Record<string, unknown>, env: NodeJS.Pro
   const data = res.data;
   if (data.status === "timeout") return err(`gate ${id} is still open; record it once it is answered`);
   if (data.status === "closed") return err(`gate ${id} is closed (${data.row.closedReason ?? "closed"}) and has no answer to record`);
-  if (typeof stored?.gate === "string" && stored.gate !== id && stored.at > data.row.openedAt) {
-    return ok({ recorded: false, skipped: `stale gate; ${scope}'s latest gate is ${stored.gate}`, ...answerFields(data.row) });
-  }
+  const stale = staleGate(run, scope, id, data.row.openedAt);
+  if (stale) return ok({ recorded: false, skipped: stale, ...answerFields(data.row) });
   // Another gate's cards would misbuild this gate's selection; without them the
   // builders fall back to the row's own stored questions. A hand-back source
   // stored after this gate opened belongs to a later re-ask.
