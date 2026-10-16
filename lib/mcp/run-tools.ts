@@ -1,9 +1,10 @@
 import { realpathSync } from "fs";
 import { basename, isAbsolute, resolve } from "path";
-import { runWriteVerb, type WriteVerb } from "../../commands/runs-write.ts";
+import type { ResolveNext } from "../runs/engine.ts";
+import { runEngineOp, runWriteVerb, type EngineOp, type WriteVerb } from "../../commands/runs-write.ts";
 import { listRuns } from "../../packages/rt-client/src/index.ts";
 import { packPluginIdentity } from "../skills/provenance.ts";
-import { runsRoot } from "../runs/paths.ts";
+import { isPathComponent, runsRoot } from "../runs/paths.ts";
 import { checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolResult } from "./shared.ts";
 
 export interface RunToolDeps {
@@ -11,6 +12,7 @@ export interface RunToolDeps {
   list: typeof listRuns;
   realpath: (p: string) => string;
   isPackRoot: (packRoot: string) => boolean;
+  engine: typeof runEngineOp;
 }
 
 export const realRunToolDeps: RunToolDeps = {
@@ -18,6 +20,7 @@ export const realRunToolDeps: RunToolDeps = {
   list: listRuns,
   realpath: (p) => realpathSync(p),
   isPackRoot: (p) => packPluginIdentity(p) !== null,
+  engine: runEngineOp,
 };
 
 // A quote or substitution in the compiled flag string would need a shell to
@@ -102,7 +105,23 @@ function runTarget(input: Record<string, unknown>, env: NodeJS.ProcessEnv, realp
   return { error: NO_RUN };
 }
 
+const NO_VERB = { none: "MCP only; no rt runs verb" };
+const RESOLVE_NEXT = ["retry", "redirect", "iterate", "hold", "abandon", "done"];
+
+function engineFailure(r: { out: string; code: number }, label: string): string {
+  const body = parseOut(r.out) as { error?: unknown } | null;
+  return typeof body?.error === "string" ? body.error : `${label} failed (exit ${r.code})`;
+}
+
 export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
+  async function engine(op: EngineOp, input: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<ToolResult> {
+    const target = runTarget(input, env, deps.realpath);
+    if ("error" in target) return err(target.error);
+    const r = await deps.engine(op, target.env, target.cwd);
+    if (r.code !== 0) return err(engineFailure(r, `run_${op.op}`));
+    return ok(parseOut(r.out) ?? { ok: true });
+  }
+
   async function write(verb: WriteVerb, args: string[], input: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<ToolResult> {
     const target = runTarget(input, env, deps.realpath);
     if ("error" in target) return err(target.error);
@@ -248,10 +267,151 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       async handler(input, env) { return write("snapshot", [], input, env); },
     },
     {
+      name: "run_enter",
+      description: "Start, resume or inherit a pipeline run and return where it stands, or the candidate runs to choose between. It returns results and opens no gates; the skill asks any question the result raises.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          flags: { type: "string", description: "The compiled run-start flag string verbatim (--repo and --work-type come from it)." },
+          skillDir: { type: "string", description: "Absolute path of the loaded skill's directory (CLAUDE_SKILL_DIR)." },
+          stage: { type: "string", description: "A standalone verb's own stage name; the run's manifest is that one stage." },
+          pipeline: { type: "string", description: "The pipelines.json key to run when the flags' --pipeline is not one." },
+          runDb: { type: "string", description: "The runDb a parent run handed down; inherited when its run is still running." },
+          resume: { type: "string", description: "A run id in this repo to resume." },
+          fresh: { type: "boolean", description: "Start a new run without listing candidates." },
+          ticket: { type: "string" },
+          spawnedBy: { type: "string" },
+        },
+        required: ["flags", "skillDir"],
+        additionalProperties: false,
+      },
+      shellForms: NO_VERB,
+      async handler(input, env) {
+        const bad = checkRequired(input, [{ name: "flags", type: "string" }, { name: "skillDir", type: "string" }])
+          ?? checkOptional(input, [{ name: "stage", type: "string" }, { name: "pipeline", type: "string" }, { name: "runDb", type: "string" }, { name: "resume", type: "string" }, { name: "fresh", type: "boolean" }, { name: "ticket", type: "string" }, { name: "spawnedBy", type: "string" }]);
+        if (bad) return err(bad);
+        const skillDir = input.skillDir as string;
+        if (!isAbsolute(skillDir)) return err('"skillDir" must be an absolute path');
+        const split = splitFlags(input.flags as string);
+        if (!split.ok) return err(split.error);
+        const flagsBad = checkRunStartFlags(split.args);
+        if (flagsBad) return err(flagsBad);
+        if (typeof input.resume === "string" && !isPathComponent(input.resume)) return err('"resume" must be a run id, a single path component');
+        let handedRunDb: string | undefined;
+        if (typeof input.runDb === "string") {
+          const db = checkRunDb(input.runDb, env, deps.realpath);
+          if (!db.ok) return err(db.error);
+          handedRunDb = input.runDb;
+        }
+        let packRoot: string;
+        try { packRoot = packRootFrom(skillDir, deps.realpath); } catch { return err(`skillDir ${skillDir} does not resolve`); }
+        if (!deps.isPackRoot(packRoot)) return err(`skillDir ${skillDir} does not resolve to a pack (no .claude-plugin/plugin.json under ${packRoot})`);
+        const args = [...split.args, "--pack-dirs", packRoot];
+        if (typeof input.ticket === "string") args.push("--ticket", input.ticket);
+        if (typeof input.spawnedBy === "string") args.push("--spawned-by", input.spawnedBy);
+        const op: EngineOp = { op: "enter", args, packRoot };
+        if (typeof input.stage === "string") op.stage = input.stage;
+        if (typeof input.pipeline === "string") op.pipeline = input.pipeline;
+        if (handedRunDb !== undefined) op.handedRunDb = handedRunDb;
+        if (typeof input.resume === "string") op.resume = input.resume;
+        if (typeof input.fresh === "boolean") op.fresh = input.fresh;
+        const r = await deps.engine(op, env, packRoot);
+        if (r.code !== 0) return err(engineFailure(r, "run_enter"));
+        return ok(parseOut(r.out) ?? { ok: true });
+      },
+    },
+    {
+      name: "run_next",
+      description: "Read how a stage ended and move the run on: starts the next stage when every produce is set, or reports failed, held, waiting or the last stage. It returns results and opens no gates.",
+      inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, stage: { type: "string" } }, required: ["stage"], additionalProperties: false },
+      shellForms: NO_VERB,
+      async handler(input, env) {
+        const bad = checkRequired(input, [{ name: "stage", type: "string" }]);
+        if (bad) return err(bad);
+        return engine({ op: "next", stage: input.stage as string }, input, env);
+      },
+    },
+    {
+      name: "run_resolve",
+      description: "Apply a gate's answer to a stage: retry, redirect, iterate, hold, abandon or done. It applies the answer it is given and opens no gates.",
+      inputSchema: {
+        type: "object",
+        properties: { ...RUN_DB_PROPS, stage: { type: "string" }, next: { type: "string", enum: RESOLVE_NEXT }, to: { type: "string" }, note: { type: "string" }, decidedBy: { type: "string" } },
+        required: ["stage", "next", "decidedBy"],
+        additionalProperties: false,
+      },
+      shellForms: NO_VERB,
+      async handler(input, env) {
+        const bad = checkRequired(input, [{ name: "stage", type: "string" }, { name: "next", type: "string" }, { name: "decidedBy", type: "string" }])
+          ?? checkOptional(input, [{ name: "to", type: "string" }, { name: "note", type: "string" }]);
+        if (bad) return err(bad);
+        if (!RESOLVE_NEXT.includes(input.next as string)) return err(`"next" must be ${RESOLVE_NEXT.join(", ")}`);
+        const op: EngineOp = { op: "resolve", stage: input.stage as string, next: input.next as ResolveNext, decidedBy: input.decidedBy as string };
+        if (typeof input.to === "string") op.to = input.to;
+        if (typeof input.note === "string") op.note = input.note;
+        return engine(op, input, env);
+      },
+    },
+    {
+      name: "run_hold",
+      description: "Record that a stage is held, with an optional reason. It returns the result and opens no gates.",
+      inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, stage: { type: "string" }, reason: { type: "string" }, decidedBy: { type: "string" } }, required: ["stage", "decidedBy"], additionalProperties: false },
+      shellForms: NO_VERB,
+      async handler(input, env) {
+        const bad = checkRequired(input, [{ name: "stage", type: "string" }, { name: "decidedBy", type: "string" }]) ?? checkOptional(input, [{ name: "reason", type: "string" }]);
+        if (bad) return err(bad);
+        const op: EngineOp = { op: "hold", stage: input.stage as string, decidedBy: input.decidedBy as string };
+        if (typeof input.reason === "string") op.reason = input.reason;
+        return engine(op, input, env);
+      },
+    },
+    {
+      name: "run_close",
+      description: "Close a standalone verb's own run as done, failed or abandoned; a run the verb inherited is refused. It returns the result and opens no gates.",
+      inputSchema: {
+        type: "object",
+        properties: { ...RUN_DB_PROPS, workType: { type: "string" }, stage: { type: "string" }, outcome: { type: "string", enum: ["done", "failed", "abandoned"] }, reason: { type: "string" }, detailPath: { type: "string" } },
+        required: ["workType", "stage", "outcome"],
+        additionalProperties: false,
+      },
+      shellForms: NO_VERB,
+      async handler(input, env) {
+        const bad = checkRequired(input, [{ name: "workType", type: "string" }, { name: "stage", type: "string" }, { name: "outcome", type: "string" }])
+          ?? checkOptional(input, [{ name: "reason", type: "string" }, { name: "detailPath", type: "string" }]);
+        if (bad) return err(bad);
+        if (input.outcome !== "done" && input.outcome !== "failed" && input.outcome !== "abandoned") return err('"outcome" must be done, failed or abandoned');
+        const op: EngineOp = { op: "close", workType: input.workType as string, stage: input.stage as string, outcome: input.outcome };
+        if (typeof input.reason === "string") op.reason = input.reason;
+        if (typeof input.detailPath === "string") op.detailPath = input.detailPath;
+        return engine(op, input, env);
+      },
+    },
+    {
+      name: "run_budget",
+      description: "Count against a named budget on the run and return spent, remaining and whether it is exhausted. It counts past the limit, never refuses and opens no gates.",
+      inputSchema: {
+        type: "object",
+        properties: { ...RUN_DB_PROPS, key: { type: "string" }, limit: { type: "integer", minimum: 1 }, increment: { type: "integer", minimum: 0 }, stage: { type: "string", description: "Scopes the counter to this stage's latest attempt." } },
+        required: ["key", "limit"],
+        additionalProperties: false,
+      },
+      shellForms: NO_VERB,
+      async handler(input, env) {
+        const bad = checkRequired(input, [{ name: "key", type: "string" }, { name: "limit", type: "number" }]) ?? checkOptional(input, [{ name: "increment", type: "number" }, { name: "stage", type: "string" }]);
+        if (bad) return err(bad);
+        if (!Number.isInteger(input.limit) || (input.limit as number) < 1) return err('"limit" must be an integer of at least 1');
+        if (input.increment !== undefined && (!Number.isInteger(input.increment) || (input.increment as number) < 0)) return err('"increment" must be an integer of at least 0');
+        const op: EngineOp = { op: "budget", key: input.key as string, limit: input.limit as number };
+        if (typeof input.increment === "number") op.increment = input.increment;
+        if (typeof input.stage === "string") op.stage = input.stage;
+        return engine(op, input, env);
+      },
+    },
+    {
       name: "run_list",
       description: "List runs the daemon knows, newest first, optionally narrowed to one repo directory name.",
       inputSchema: { type: "object", properties: { repo: { type: "string" } }, additionalProperties: false },
-      shellForms: [{ id: "rt-runs", pattern: /(?<![\w-])rt\s+runs\b/, example: "rt runs --repo x", note: "run_start, run_stage, run_field_set, run_field_get, run_decision, run_status, run_snapshot, run_list" }],
+      shellForms: [{ id: "rt-runs", pattern: /(?<![\w-])rt\s+runs\b/, example: "rt runs --repo x", note: "run_start, run_stage, run_field_set, run_field_get, run_decision, run_status, run_snapshot, run_enter, run_next, run_resolve, run_hold, run_close, run_budget, run_list" }],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "repo", type: "string" }]);
         if (bad) return err(bad);
