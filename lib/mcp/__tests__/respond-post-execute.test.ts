@@ -320,6 +320,22 @@ describe("push, when a fix row is picked", () => {
     expect(cmdCalls(calls, "discussions:resolve")).toEqual([]);
   });
 
+  test("a branch with no upstream holds T1 as a mismatch naming git_push setUpstream", async () => {
+    const w = world();
+    w.git["rev-parse --abbrev-ref --symbolic-full-name @{u}"] = gitFail("fatal: no upstream configured for branch 'feat-x'", 128);
+    const { res, calls } = await done(w);
+    expect(res.held.map((h) => [h.threadId, h.kind])).toEqual([["T1", "mismatch"]]);
+    expect(res.held[0]!.error).toEndWith("; the branch has no upstream, so push it once with git_push {setUpstream: true} and call again");
+    expect(pushCalls(calls)).toEqual([]);
+  });
+
+  test("a mismatch with an upstream carries no setUpstream remedy", async () => {
+    const w = world();
+    w.git["rev-parse --abbrev-ref @{push}"] = gitOk("upstream/feat-x\n");
+    const { res } = await done(w);
+    expect(res.held[0]!.error).not.toContain("setUpstream");
+  });
+
   test("@{u} on upstream/feat-x while @{push} is origin/feat-x holds T1 as a mismatch and T2 still posts", async () => {
     const w = world();
     w.git["rev-parse --abbrev-ref --symbolic-full-name @{u}"] = gitOk("upstream/feat-x\n");

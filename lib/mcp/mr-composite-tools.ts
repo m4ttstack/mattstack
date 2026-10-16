@@ -409,7 +409,18 @@ function answeredProceed(scope: RespondScope, row: GateRow): Record<string, unkn
   return answers;
 }
 
-/** The text the human was shown: a structured context's reply, or a prose context that carries it whole. */
+/** The prose forms gate-ctx.sh renders: thread@1 ends on a `Will post as reply: <text>` line; reply@1 is one `<file> REPLY|FIX[ · <sha>]: <text>` card. */
+function shownInProse(ctx: string, text: string, shape: "thread@1" | "reply@1"): boolean {
+  if (shape === "thread@1") {
+    const marker = `Will post as reply: ${text}`;
+    return ctx === marker || ctx.endsWith(`\n${marker}`);
+  }
+  if (!ctx.endsWith(`: ${text}`)) return false;
+  const head = ctx.slice(0, ctx.length - text.length - 2);
+  return /^[^\n]* (?:REPLY|FIX(?: · [^\s:]+)?)$/.test(head);
+}
+
+/** The text the human was shown: a structured context's reply, or a prose context whose card marker line carries it whole. */
 function shownInRegistry(row: GateRow, threadId: string, text: string, shape: "thread@1" | "reply@1"): boolean {
   const q = row.questions.find((x) => x.options.some((o) => splitPick(optionValue(o) ?? "")?.threadId === threadId));
   const ctx = q?.context;
@@ -418,7 +429,7 @@ function shownInRegistry(row: GateRow, threadId: string, text: string, shape: "t
   try {
     parsed = JSON.parse(ctx);
   } catch {
-    return ctx.includes(text);
+    return shownInProse(ctx, text, shape);
   }
   if (!isRecord(parsed) || parsed["gate-ctx"] !== shape) return false;
   if (shape === "thread@1") return isRecord(parsed.reply) && parsed.reply.kind === "verbatim" && parsed.reply.text === text;
@@ -802,7 +813,7 @@ export async function executeRespondPost(
       const onOrigin = (r: { code: number; stdout: string }) => r.code === 0 && r.stdout.trim() === `origin/${want}`;
       const matches = sym.code === 0 && sym.stdout.trim() === `refs/heads/${want}` && onOrigin(pushRef) && onOrigin(upstream);
       if (branch.mismatch !== null || !matches) {
-        const why = `${branch.mismatch ? `${branch.mismatch}; ` : ""}expected HEAD on ${want} pushing to and tracking origin/${want}, but git symbolic-ref --quiet HEAD printed ${gitOutput(sym)}, git rev-parse --abbrev-ref @{push} printed ${gitOutput(pushRef)} and git rev-parse --abbrev-ref --symbolic-full-name @{u} printed ${gitOutput(upstream)}`;
+        const why = `${branch.mismatch ? `${branch.mismatch}; ` : ""}expected HEAD on ${want} pushing to and tracking origin/${want}, but git symbolic-ref --quiet HEAD printed ${gitOutput(sym)}, git rev-parse --abbrev-ref @{push} printed ${gitOutput(pushRef)} and git rev-parse --abbrev-ref --symbolic-full-name @{u} printed ${gitOutput(upstream)}${upstream.code !== 0 ? `; the branch has no upstream, so push it once with git_push {setUpstream: true} and call again` : ""}`;
         for (const a of fixRows) hold(a.threadId, "mismatch", why);
       } else {
         let pushed = await gitPush(treePath, {}, deps.git);

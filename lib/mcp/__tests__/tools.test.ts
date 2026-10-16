@@ -788,6 +788,16 @@ describe("mcpTools", () => {
         expect(calls).toEqual([]);
       });
 
+      test("maxWaitSeconds without wait: true is refused before any call", async () => {
+        const calls = fakeDaemon();
+        for (const input of [{ ...T, maxWaitSeconds: 30 }, { ...T, wait: false, maxWaitSeconds: 30 }]) {
+          const res = await rebase().handler(input, {} as NodeJS.ProcessEnv);
+          expect(res.ok).toBe(false);
+          expect(res.error).toBe("maxWaitSeconds needs wait: true");
+        }
+        expect(calls).toEqual([]);
+      });
+
       test("a string wait is refused before any call", async () => {
         const calls = fakeDaemon();
         const res = await rebase().handler({ ...T, wait: "true" }, {} as NodeJS.ProcessEnv);

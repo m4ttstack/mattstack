@@ -363,11 +363,39 @@ describe("missing entries and unseen words", () => {
     expect(refusal(s)).toMatch(/T2's card text is not in the respond-plan gate's question context/);
   });
 
-  test("a prose question context carrying the card text passes", () => {
-    const s = happy();
+  const withPlanProse = (s: Scenario, prose: string) => {
     const plan = s.gates.plan!;
-    s.gates.plan = { ...plan, questions: plan.questions.map((q) => (q.id === "thread-2" ? { ...q, context: `queue/file-2.ts:2 REPLY: ${T2_VERBATIM}` } : q)) };
+    s.gates.plan = { ...plan, questions: plan.questions.map((q) => (q.id === "thread-2" ? { ...q, context: prose } : q)) };
+  };
+  const withPostProse = (s: Scenario, prose: string) => {
+    const post = s.gates.post!;
+    s.gates.post = { ...post, questions: post.questions.map((q) => (q.id === "thread-1" ? { ...q, context: prose } : q)) };
+  };
+
+  test("a prose thread card carrying the card text on its Will post as reply line passes", () => {
+    const s = happy();
+    withPlanProse(s, `[BLOCKING] renee: ask T2\nVerdict: valid -- confirmed\nWill post as reply: ${T2_VERBATIM}`);
     expect(accepted(s).actions[1]?.body).toBe(T2_VERBATIM);
+  });
+
+  test("a prose thread card carrying the card text only outside its Will post as reply line refuses", () => {
+    const s = happy();
+    withPlanProse(s, `[BLOCKING] renee: ${T2_VERBATIM}\nVerdict: valid -- ${T2_VERBATIM}\nWill post as reply: something else`);
+    expect(refusal(s)).toMatch(/T2's card text is not in the respond-plan gate's question context/);
+  });
+
+  test("a prose reply card carrying the card text after its FIX marker passes", () => {
+    const s = happy();
+    withPostProse(s, `queue/file-1.ts:1 FIX · ab12cd3: ${T1_FIXED}`);
+    expect(accepted(s).actions[0]?.body).toBe(T1_FIXED);
+  });
+
+  test("a prose reply card carrying the card text only before its marker refuses", () => {
+    const s = happy();
+    withPostProse(s, `queue/file-1.ts:1 FIX · ab12cd3: You wrote: ${T1_FIXED}`);
+    expect(refusal(s)).toMatch(/T1's card text is not in the respond-post gate's question context/);
+    withPostProse(s, `${T1_FIXED}\nqueue/file-1.ts:1 REPLY: other`);
+    expect(refusal(s)).toMatch(/T1's card text is not in the respond-post gate's question context/);
   });
 
   test("a respond-post card text absent from the registry row's question context refuses", () => {
