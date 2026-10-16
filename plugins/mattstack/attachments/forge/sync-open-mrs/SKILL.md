@@ -7,6 +7,7 @@ allowed-tools:
   - Bash(git worktree list:*)
   - Bash(git -C * status:*)
   - Bash(git -C * log:*)
+  - Bash(git -C * remote get-url:*)
 type: pipeline-step
 slots: {}
 ---
@@ -15,7 +16,7 @@ slots: {}
 
 Bring every open MR or PR current with the default branch in one sweep:
 rebase each, then offer to push and watch CI. The sweep covers the open
-MRs `map-open-mrs` returns. This verb owns the sequencing, the batch gates
+MRs the map returns: `mr_map` on GitLab, `map-open-mrs` on GitHub. This verb owns the sequencing, the batch gates
 and the report. Discovery and CI watching belong to the verbs it follows;
 rebasing belongs to `branch_sync_sweep` and `branch_sync`. Gates stay human
 decisions: never stash a tree, never resolve a conflict.
@@ -41,6 +42,11 @@ digraph sync_open_mrs {
     "run_start {flags, skillDir, spawnedBy?}" [shape=plaintext];
     "run_start ok with a runDb?" [shape=diamond];
     "run_stage {action: start, stage: sync-open-mrs}" [shape=plaintext];
+    "git -C <checkout> remote get-url origin" [shape=plaintext];
+    "Forge?" [shape=diamond];
+    "mr_map {repoName, author: me}" [shape=plaintext];
+    "mr_map result?" [shape=diamond];
+    "STOP: GitLab MR reads go through mr_map" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Follow map-open-mrs for the table" [shape=box];
     "Plan the sweep" [shape=box];
     "Gate sweep" [shape=box];
@@ -101,7 +107,7 @@ digraph sync_open_mrs {
     "run_snapshot {runDb}" -> "run.status = running?";
     "run.status = running?" -> "Inherit the run" [label="yes"];
     "run.status = running?" -> "Spawned by a surface?" [label="no"];
-    "Inherit the run" -> "Follow map-open-mrs for the table";
+    "Inherit the run" -> "git -C <checkout> remote get-url origin";
     "Spawned by a surface?" -> "run_start {flags, skillDir, spawnedBy?}" [label="yes: start fresh"];
     "Spawned by a surface?" -> "run_list {repo}" [label="no: launched by hand"];
     "run_list {repo}" -> "Running sync-open-mrs runs?";
@@ -114,11 +120,19 @@ digraph sync_open_mrs {
     "run_stage {runDb: <resumed>, action: start, stage: sync-open-mrs}" -> "run_field_set {runDb: <resumed>, key: hold, value: -, stage: sync-open-mrs}";
     "run_field_set {runDb: <resumed>, key: hold, value: -, stage: sync-open-mrs}" -> "run_snapshot {runDb: <resumed>}";
     "run_snapshot {runDb: <resumed>}" -> "Keep the recorded answers";
-    "Keep the recorded answers" -> "Follow map-open-mrs for the table";
+    "Keep the recorded answers" -> "git -C <checkout> remote get-url origin";
     "run_start {flags, skillDir, spawnedBy?}" -> "run_start ok with a runDb?";
     "run_start ok with a runDb?" -> "run_stage {action: start, stage: sync-open-mrs}" [label="yes"];
     "run_start ok with a runDb?" -> "rt too old: told the user to update" [label="no"];
-    "run_stage {action: start, stage: sync-open-mrs}" -> "Follow map-open-mrs for the table";
+    "run_stage {action: start, stage: sync-open-mrs}" -> "git -C <checkout> remote get-url origin";
+    "git -C <checkout> remote get-url origin" -> "Forge?";
+    "Forge?" -> "mr_map {repoName, author: me}" [label="GitLab"];
+    "Forge?" -> "Follow map-open-mrs for the table" [label="GitHub"];
+    "Forge?" -> "STOP: GitLab MR reads go through mr_map" [label="tempted to use the GitLab CLI"];
+    "STOP: GitLab MR reads go through mr_map" -> "mr_map {repoName, author: me}";
+    "mr_map {repoName, author: me}" -> "mr_map result?";
+    "mr_map result?" -> "Plan the sweep" [label="rows"];
+    "mr_map result?" -> "Report every branch in one bucket" [label="GitLab error: quoted"];
     "Follow map-open-mrs for the table" -> "Plan the sweep";
     "Plan the sweep" -> "Gate sweep";
     "Gate sweep" -> "sweep answer?";
@@ -231,20 +245,32 @@ an iterate edge always asks afresh (a re-ask after Hold or Iterate opens a
 new gate). **Resumed run already holds this gate's decision?** reads this
 rule.
 
+### mr_map result?
+
+**rows**: the call returned `{rows, complete}` with `repoName` = the
+checkout's absolute path; each row is a map row (`ref`, `title`, `author`,
+`sourceBranch`, and `worktree`, where null is a NONE row), and its `dirty`
+and the result's `complete` feed the plan. **GitLab error**: there is no
+map, so nothing is planned, rebased or pushed; the report's one line is
+the error, quoted, and the sweep ends abandoned.
+
 ### Follow map-open-mrs for the table
 
-Follow the pack's compiled `map-open-mrs` verb (`../map-open-mrs/SKILL.md`,
+The GitHub path. Follow the pack's compiled `map-open-mrs` verb (`../map-open-mrs/SKILL.md`,
 relative to this file, when the pack compiles both on the same side; a
 different surface changes the path) and get its table: MR ref, title,
 author, source branch, worktree path or NONE.
 
 ### Plan the sweep
 
-One sentence: how many branches rebase, how many are skipped up front (NONE
-rows with nothing local to rebase, and trees whose
-`git -C <tree> status --porcelain` is not empty, which `branch_sync` would
-refuse) and why. When the map came back truncated, the same sentence says
-so. Every row of the map is the signed-in user's own MR, so every branch
+One sentence: how many branches rebase, how many are skipped up front and
+why. Skipped up front: NONE rows, with nothing local to rebase, and trees
+`branch_sync` would refuse as dirty. On GitLab a row's `dirty` decides:
+`true` is a dirty tree, and `null` with a tree means the read failed, so
+the tree is not known clean and is skipped too, saying so. On GitHub,
+a tree whose `git -C <tree> status --porcelain` is not empty is the dirty
+one. When the map was cut short (`complete: false` on GitLab, a truncated
+read on GitHub), the same sentence says it was cut at 200. Every row of the map is the signed-in user's own MR, so every branch
 starts pre-selected; deselecting skips it.
 
 **These thoughts mean you are skipping the gate -- STOP:**
@@ -283,7 +309,8 @@ sweep ends abandoned; a run this verb started closes as `abandoned`.
 branch of yours that has a tree, not the form's list. So the answer is yes
 only when all four hold:
 
-- the map was complete (no truncated read),
+- the map was complete (`mr_map`'s `complete` is true on GitLab; no
+  truncated read on GitHub),
 - the plan pre-skipped no dirty tree (so no tree the sweep would
   visit outside the form),
 - every listed branch is selected,
@@ -446,13 +473,15 @@ pack-qualified skill name) per pushed branch. It inherits this run and its
 
 ### Report every branch in one bucket
 
-One table, every branch from the map-open-mrs table landing in exactly one
+One table, every branch from the map landing in exactly one
 bucket: rebased, still unpushed (old and new sha + subject), pushed,
 current (nothing to push), conflicted (needs-hands, with its files), push
 failed (with reason), or skipped (with reason: dirty tree, a `refusal`, a
 `git_pull` error, no worktree). Below it: a branch the sweep synced that
 the map did not list, the sweep's error when the sweep fell to the
 per-branch path, and the `complete: false` line when the sweep returned it.
+When `mr_map` failed there is no table: the report is that one line, the
+GitLab error quoted.
 
 ### Starting the run
 
