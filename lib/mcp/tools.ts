@@ -14,20 +14,17 @@ import {
   rtCommand,
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion } from "../../packages/rt-client/src/index.ts";
-import { joinMrsToWorktrees } from "../mr-map.ts";
-import { repoLabel } from "../repo-label.ts";
-import { reverseLookupByName } from "../repo-name-lookup.ts";
-import { parseIdentity } from "../settings/identity.ts";
 import { explainError } from "../explain-error.ts";
 import { selfPaneRef } from "../self-pane.ts";
 import { chatToolDefs } from "./chat-tools.ts";
-import { ciToolDefs } from "./ci-tools.ts";
+import { abortableSleep, ciToolDefs } from "./ci-tools.ts";
 import { whoamiToolDefs } from "./whoami-tool.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
 import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { herdToolDefs } from "./herd-tools.ts";
 import { mrReadToolDefs } from "./mr-read-tools.ts";
+import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, REBASE_DEFAULT_WAIT_S, REBASE_MAX_WAIT_S, REBASE_POLL_MS, waitForRebase, type OpenMr } from "./mr-composite-tools.ts";
 import { forgeReadToolDefs } from "./forge-read-tools.ts";
 import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
@@ -56,6 +53,13 @@ function withReviewTimeout(res: ToolResult): ToolResult {
   return err(`mr_review_submit timed out and its outcome is unknown; the review may still land; look at the MR before retrying (${res.error})`);
 }
 
+const MR_CREATE_GH_MOVE = "gh pr create / gh pr view";
+const MR_REBASE_GH_MOVE = "no server-side rebase on GitHub";
+
+function existingMrResult(mr: OpenMr): ToolResult {
+  return ok({ iid: mr.iid, url: mr.url, existing: true, targetBranch: mr.targetBranch, draft: mr.draft, title: mr.title, applied: false });
+}
+
 type MrActionName = Commands["mr:action"]["payload"]["action"];
 
 /** mr:action replies a bare {ok:true}, so each tool names its own result body. */
@@ -79,35 +83,6 @@ async function verifyMerge(target: { identity: string; iid: number }, requested:
   if (requested === "autoMerge" && pr?.autoMergeEnabled === true) return ok({ autoMerge: true });
   if (typeof pr?.mergeError === "string" && pr.mergeError.trim() !== "") return err(`GitLab reports a merge error on !${target.iid}: ${pr.mergeError}`);
   return ok({ requested, verified: false, ...(pr ? { state: pr.state } : {}) });
-}
-
-/** Matches input.repo against the daemon's repo registry, either as the raw
-    serialized identity or its human-friendly label (repoLabel), and returns
-    the matched identity. Shares reverseLookupByName (lib/repo-name-lookup.ts)
-    with the CLI's tryResolveRepoArg so a legacy-name/identity heal pair
-    collapses to one match here too, instead of reading ambiguous. Deliberately
-    does not import lib/repo-arg.ts itself (that module pulls in
-    lib/state/index.ts and lib/settings/resolve.ts on top of the daemon round
-    trip this tool already does): reverseLookupByName is pure over the id-path
-    map the "repos" verb already returns. */
-async function resolveRepoIdentity(repo: string): Promise<{ identity: string } | { error: string }> {
-  const res = await rtCommand<Commands["repos"]["data"]>("repos", {});
-  if (!res.ok || !res.data) return { error: res.error ?? "failed to list repos" };
-  const repos = res.data.repos ?? {};
-  const identities = Object.keys(repos);
-  if (parseIdentity(repo) && identities.includes(repo)) return { identity: repo };
-  const index: Record<string, string> = {};
-  for (const [id, entry] of Object.entries(repos)) index[id] = entry.path;
-  const matches = reverseLookupByName(repo, index);
-  if (matches.length > 1) {
-    return { error: `"${repo}" matches more than one repo: ${matches.map(([id]) => id).join(", ")}; pass the full identity` };
-  }
-  const match = matches[0];
-  if (!match) {
-    const known = identities.map((id) => repoLabel(id)).sort().join(", ");
-    return { error: `no repo matching "${repo}"; known repos: ${known}` };
-  }
-  return { identity: match[0] };
 }
 
 const ANSWER_VALUE_SCHEMA = {
@@ -532,7 +507,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_create",
-      description: `GitLab only. Create a merge request from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it. Creates once and never retries. Returns iid, url (null when GitLab created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Create a merge request from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it. Creates once and never retries. Returns iid, url (null when GitLab created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied, and that MR may target a different branch, so compare its targetBranch with the one you asked for; otherwise it creates and the result adds existing false. A lookup error is returned and nothing is created. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -544,6 +519,7 @@ export function mcpTools(): McpToolDef[] {
           draft: { type: "boolean" },
           labels: { type: "array", items: { type: "string" } },
           squash: { type: "boolean" },
+          ifExists: { type: "string", enum: ["return"] },
         },
         required: ["sourceBranch", "targetBranch", "title"],
         additionalProperties: false,
@@ -557,8 +533,18 @@ export function mcpTools(): McpToolDef[] {
         ]) ?? checkOptional(input, [{ name: "description", type: "string" }, { name: "draft", type: "boolean" }, { name: "squash", type: "boolean" }])
           ?? checkStringArray(input, "labels");
         if (bad) return err(bad);
+        if (input.ifExists !== undefined && input.ifExists !== "return") return err('"ifExists" must be "return"');
+        const returnExisting = input.ifExists === "return";
+        if (returnExisting) {
+          const early = refuseGithubTarget(input, "mr_create", MR_CREATE_GH_MOVE);
+          if (early) return err(early);
+        }
         const target = await resolveRepoTarget(input);
         if (!target.ok) return err(target.error);
+        if (returnExisting) {
+          const refused = githubRefusal(target.identity, "mr_create", MR_CREATE_GH_MOVE);
+          if (refused) return err(refused);
+        }
         const payload: Commands["mr:create"]["payload"] = {
           repoName: target.identity,
           sourceBranch: input.sourceBranch as string,
@@ -569,7 +555,19 @@ export function mcpTools(): McpToolDef[] {
         if (input.draft !== undefined) payload.draft = input.draft as boolean;
         if (input.labels !== undefined) payload.labels = input.labels as string[];
         if (input.squash !== undefined) payload.squash = input.squash as boolean;
+        if (!returnExisting) {
+          const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+          return withLandingHint(fromResponse(res), "mr_map for an open MR on the source branch");
+        }
+        const found = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
+        if (!found.ok) return err(found.error);
+        if (found.mr) return existingMrResult(found.mr);
         const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+        if (res.ok) return ok({ ...res.data, existing: false });
+        if (EXISTING_MR.test(res.error ?? "")) {
+          const raced = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
+          if (raced.ok && raced.mr) return existingMrResult(raced.mr);
+        }
         return withLandingHint(fromResponse(res), "mr_map for an open MR on the source branch");
       },
     },
@@ -721,17 +719,49 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_rebase",
-      description: `GitLab only. Ask GitLab to rebase the MR's source branch onto its target server-side (no checkout). GitLab accepts the request and rebases asynchronously, so re-read the MR before assuming the rebase finished or succeeded. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Ask GitLab to rebase the MR's source branch onto its target server-side (no checkout). GitLab accepts the request and rebases asynchronously: without \`wait\` the reply only says the request was accepted, so re-read the MR before assuming the rebase finished or succeeded. With \`wait: true\` the tool reads the MR, asks for the rebase, then re-reads it every ${REBASE_POLL_MS / 1000} seconds for up to \`maxWaitSeconds\` (1 to ${REBASE_MAX_WAIT_S}, default ${REBASE_DEFAULT_WAIT_S}) and returns one of: {status: "rebased", sha, previousSha} when the source branch sha moved; {status: "failed", mergeError, conflicts, sha} when, with no rebase running, GitLab reports a merge error or conflicts; {status: "current", sha} when nothing moved and the branch is not behind its target; {status: "unchanged", sha} when nothing moved across two reads and GitLab does not say whether the branch was behind, so it may already have been current; {status: "pending", sha, rebaseInProgress, lastError?} when the budget ran out, so call again or look at the MR. A failed re-read counts as a poll and is reported as lastError only if the budget ends on it. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
-        properties: { ...MR_TARGET_PROPS },
+        properties: {
+          ...MR_TARGET_PROPS,
+          wait: { type: "boolean", description: "Poll the MR until it rebased, failed, was already current, stayed unchanged or the budget ran out." },
+          maxWaitSeconds: { type: "integer", minimum: 1, maximum: REBASE_MAX_WAIT_S, description: `Polling budget in seconds with wait; default ${REBASE_DEFAULT_WAIT_S}. Under ${REBASE_POLL_MS / 1000} means one read, no poll.` },
+        },
         additionalProperties: false,
       },
       shellForms: ["glab mr rebase"],
-      async handler(input) {
+      async handler(input, _env, signal, progress) {
+        const bad = checkOptional(input, [{ name: "wait", type: "boolean" }]);
+        if (bad) return err(bad);
+        if (input.wait !== true && input.maxWaitSeconds !== undefined) return err("maxWaitSeconds needs wait: true");
+        if (input.wait !== true) {
+          const target = await resolveMrTarget(input);
+          if (!target.ok) return err(target.error);
+          return runMrAction(target, "rebase", [], { rebased: true });
+        }
+        const maxWait = input.maxWaitSeconds ?? REBASE_DEFAULT_WAIT_S;
+        if (typeof maxWait !== "number" || !Number.isInteger(maxWait) || maxWait < 1 || maxWait > REBASE_MAX_WAIT_S) {
+          return err(`"maxWaitSeconds" must be an integer from 1 to ${REBASE_MAX_WAIT_S}`);
+        }
+        const early = refuseGithubTarget(input, "mr_rebase", MR_REBASE_GH_MOVE);
+        if (early) return err(early);
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);
-        return runMrAction(target, "rebase", [], { rebased: true });
+        const refused = githubRefusal(target.identity, "mr_rebase", MR_REBASE_GH_MOVE);
+        if (refused) return err(refused);
+
+        const before = await rtCommand<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+        if (!before.ok || !before.data) return err(explainError(before.error ?? "MR read failed"));
+        const asked = await runMrAction(target, "rebase", [], null);
+        if (!asked.ok) return asked;
+
+        const result = await waitForRebase(
+          { command: rtCommand, sleep: (ms) => abortableSleep(ms, signal) },
+          target,
+          before.data.mr.sha,
+          { maxWaitMs: maxWait * 1000, pollMs: REBASE_POLL_MS, ...(signal && { signal }), ...(progress && { progress }) },
+        );
+        return ok(result);
       },
     },
     {
@@ -760,45 +790,6 @@ export function mcpTools(): McpToolDef[] {
         if (typeof input.removeSourceBranch === "boolean") merge.shouldRemoveSourceBranch = input.removeSourceBranch;
         const done = withLandingHint(await runMrAction(target, "merge", [merge], null), "the MR's state");
         return done.ok ? verifyMerge(target, "merge") : done;
-      },
-    },
-    {
-      name: "mr_map",
-      description: "Open MRs for a repo joined to the local worktrees holding their branches. Lists ALL open MRs for the repo (not only yours). repo is the repo's registered name: either its serialized identity (e.g. remote:gitlab.com%2Facme%2Facme-dev) or its short repo-label alias.",
-      inputSchema: {
-        type: "object",
-        properties: { repo: { type: "string" } },
-        required: ["repo"],
-        additionalProperties: false,
-      },
-      shellForms: { none: "joins the daemon's open-MR cache to the local worktrees; no shell command is equivalent" },
-      async handler(input) {
-        const bad = checkRequired(input, [{ name: "repo", type: "string" }]);
-        if (bad) return err(bad);
-        const resolved = await resolveRepoIdentity(input.repo as string);
-        if ("error" in resolved) return err(resolved.error);
-        const identity = resolved.identity;
-        const [mrsRes, treesRes] = await Promise.all([
-          readProjectMRs(identity, 20_000),
-          rtCommand<Commands["worktree:list"]["data"]>("worktree:list", { repoName: identity }),
-        ]);
-        if (!mrsRes.ok || !mrsRes.data) return err(explainError(mrsRes.error ?? "failed to read MRs"));
-        if (!treesRes.ok || !treesRes.data) return err(explainError(treesRes.error ?? "failed to list worktrees"));
-
-        const mrs = Object.values(mrsRes.data.mrs ?? {})
-          .map((entry) => entry.pr)
-          .filter((pr) => pr.state === "opened")
-          .map((pr) => ({
-            iid: pr.iid,
-            title: pr.title,
-            sourceBranch: pr.sourceBranch,
-            state: pr.state,
-            pipelineStatus: pr.pipeline?.status ?? null,
-          }));
-
-        const trees = (treesRes.data.trees ?? []).map((t) => ({ path: t.path, branch: t.branch }));
-
-        return ok({ rows: joinMrsToWorktrees(mrs, trees) });
       },
     },
     {
@@ -895,6 +886,7 @@ export function mcpTools(): McpToolDef[] {
     },
     ...runToolDefs(),
     ...mrReadToolDefs(),
+    ...mrCompositeToolDefs(),
     ...forgeReadToolDefs(),
     ...stackToolDefs(),
     ...gitToolDefs(realGitToolDeps),
