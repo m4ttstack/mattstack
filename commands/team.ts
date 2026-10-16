@@ -71,6 +71,7 @@ import { createRelayClient } from "../lib/team/relay-client.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
+import { markerState } from "../lib/team/org-marker.ts";
 import { useBranch, type BranchUse } from "../lib/team/trial-branch.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -209,6 +210,13 @@ const REFUSAL_CODES = new Set([
   "trial-branch-no-org-data",
   "forge-access-off",
 ]);
+
+/** The checked-out branch, shown unless it is the org's own; a recorded trial reads as one, anything else as off the org's branch. */
+function branchRow(branch: string | null, homeBranch: string, trialBranch: string | undefined): Block[] {
+  if (branch === null || branch === homeBranch) return [];
+  if (branch === trialBranch) return [out.kv("branch", branch, `a trial; the org's data is on ${homeBranch}`)];
+  return [out.kv("branch", branch, `this Mac reads and publishes this branch, not ${homeBranch}`)];
+}
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
 function exitTeamError(err: UserActionableError, json: boolean, deps: TeamDeps): never {
@@ -1084,6 +1092,8 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     );
 
     const branch = await checkedOutBranch(deps.probes, dir);
+    const marker = markerState(deps.probes, dir);
+    const homeBranch = marker.kind === "org" && marker.dataBranch !== null ? marker.dataBranch : "main";
     const log = await deps.probes.exec(["git", "-C", dir, "log", "-1", "--format=%cI", `origin/${branch ?? "main"}`]);
     const lastPush = log.code === 0 ? log.stdout.trim() || null : null;
 
@@ -1112,7 +1122,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         name,
         name === slug ? undefined : slug,
         out.kv("remote", result.remote ?? "none"),
-        ...(branch !== null && branch !== "main" ? [out.kv("branch", branch, "this Mac reads and publishes this branch, not main")] : []),
+        ...branchRow(branch, homeBranch, readTeamLocal(deps.probes, slug).trialBranch),
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
         out.kv("your team", active.team ?? "none"),
