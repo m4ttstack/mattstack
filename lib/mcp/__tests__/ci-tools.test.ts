@@ -7,6 +7,7 @@ import { boardDoctorOwner, ciLeaseFileName, claimCiLease, readCiLease, releaseCi
 import { LeaseKeepalive } from "../../ci/lease-keepalive.ts";
 import { watchStatePath, writeWatchState } from "../../ci/watch-state.ts";
 import { abortableSleep, ciToolDefs } from "../ci-tools.ts";
+import { MR_URL_SHAPE, resolveMrTarget } from "../mr-target.ts";
 
 const MR = "https://gitlab.example.com/grp/proj/-/merge_requests/42";
 let dir: string;
@@ -480,6 +481,18 @@ describe("ci_watch attend", () => {
     expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
     expect(typeof (r as any).body.next).toBe("string");
   });
+  test("a GitHub PR passed as mrUrl with attend is unsupported_forge before the target resolves", async () => {
+    let resolved = false;
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() }, { resolve: async () => { resolved = true; return { ok: false, error: "must not resolve" }; } });
+    const r = await watch.handler({ mrUrl: "https://github.com/acme/proj/pull/42", sha: SHA, attend: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github", sha: SHA } });
+    expect(resolved).toBe(false);
+  });
+  test("a GitHub PR passed as mrUrl without attend is still a resolve error", async () => {
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() }, { resolve: resolveMrTarget });
+    const r = await watch.handler({ mrUrl: "https://github.com/acme/proj/pull/42", sha: SHA }, A);
+    expect(r).toEqual({ ok: false, error: MR_URL_SHAPE });
+  });
   test("holder without attend is an error", async () => {
     const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() });
     const r = await watch.handler({ ...target, sha: SHA, holder: "doctor" }, A);
@@ -547,6 +560,12 @@ describe("ci_triage", () => {
     expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
     expect(typeof (r.body as any).next).toBe("string");
     expect(calls.map((c) => c.name)).toEqual(["mr:get"]);
+  });
+  test("a GitHub PR passed as mrUrl is unsupported_forge with no read at all", async () => {
+    const { t, calls } = triageTool();
+    const r = await t.handler({ mrUrl: GITHUB_URL, noBase: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
+    expect(calls).toEqual([]);
   });
   test("a github: head pipeline id is unsupported_forge too", async () => {
     const { t } = triageTool({ pipeline: { id: "github:run:3", status: "failed", jobs: [] } });

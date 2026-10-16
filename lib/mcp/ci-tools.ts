@@ -20,7 +20,7 @@ import { watchPipeline, type LeaseCheck, type WatchDeps, type WatchPipeline } fr
 import type { Pipeline as GlancePipeline } from "@mattstack/glance";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget } from "./mr-target.ts";
-import { readPipelineSubject, tailTrace, unsupportedGithub } from "./mr-read-tools.ts";
+import { isGithubPrUrl, readPipelineSubject, tailTrace, unsupportedGithub } from "./mr-read-tools.ts";
 import { checkOptional, checkPositiveInts, checkRequired, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 
 export interface CiLeaseToolDeps {
@@ -242,6 +242,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         const extendMinutes = fresh ? setting : (input.extendMinutes as number | undefined);
         const owner = deps.owner(env);
         if (!owner) return err(NO_SESSION);
+        if (attend && isGithubPrUrl(input.mrUrl)) return ok({ ...unsupportedGithub("ci_watch"), sha });
         const target = await w.resolve(input);
         if (!target.ok) return err(target.error);
 
@@ -423,6 +424,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           return err(e instanceof Error ? e.message : String(e));
         }
         if ("error" in config) return err(config.error);
+        if (isGithubPrUrl(input.mrUrl)) return ok(unsupportedGithub("ci_triage"));
         const target = await tri.resolve(input);
         if (!target.ok) return err(target.error);
         const subject = await readPipelineSubject(tri.command, target, input.pipelineId as number | undefined);

@@ -358,6 +358,11 @@ describe("pipeline_jobs", () => {
     expect(await t.handler({ repoName: ID, iid: 2 }, env)).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
     expect(calls.map((c) => c.name)).toEqual(["mr:get"]);
   });
+  test("a GitHub PR passed as mrUrl is unsupported_forge with no read at all", async () => {
+    const { t, calls } = jobsTool();
+    expect(await t.handler({ mrUrl: "https://github.com/acme/proj/pull/2" }, env)).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
+    expect(calls).toEqual([]);
+  });
   test("no head pipeline and no pipelineId is a tool error", async () => {
     const { t } = jobsTool({ pipeline: null });
     const r = await t.handler({ repoName: ID, iid: 2 }, env);

@@ -5,6 +5,7 @@
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion } from "../../packages/rt-client/src/index.ts";
 import { walkPipeline } from "../ci/gitlab-forge.ts";
+import { isHttpsMrUrl } from "../ci/lease-guard.ts";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { sliceTrace, type TraceMode } from "./trace-slice.ts";
@@ -75,6 +76,11 @@ export async function readPipelineSubject(command: typeof rtCommand, target: { i
   const id = pipelineId ?? pipelineNumber(mr);
   if (id === undefined) return { kind: "error", error: "the MR has no pipeline; pass pipelineId" };
   return { kind: "gitlab", pipelineId: id, targetBranch: mr.targetBranch ?? null };
+}
+
+/** A GitHub PR URL, which resolveMrTarget rejects by shape before any read could tell the forge. */
+export function isGithubPrUrl(mrUrl: unknown): boolean {
+  return typeof mrUrl === "string" && isHttpsMrUrl(mrUrl) && parseMrUrl(mrUrl) === null;
 }
 
 export function unsupportedGithub(tool: string) {
@@ -221,6 +227,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
         const bad = checkOptional(input, [{ name: "pipelineId", type: "number" }, { name: "scope", type: "string" }, { name: "name", type: "string" }]) ?? checkPositiveInts(input, ["pipelineId"]);
         if (bad) return err(bad);
         if (input.scope !== undefined && !JOB_SCOPES.includes(input.scope as typeof JOB_SCOPES[number])) return err(`"scope" must be one of ${JOB_SCOPES.join(", ")}`);
+        if (isGithubPrUrl(input.mrUrl)) return ok(unsupportedGithub("pipeline_jobs"));
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);
         const subject = await readPipelineSubject(deps.command, target, input.pipelineId as number | undefined);
