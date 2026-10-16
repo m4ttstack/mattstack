@@ -21,8 +21,8 @@ import {
 
 export type GateCtxSource = { context?: unknown; questions: unknown[]; [k: string]: unknown };
 
-const GATE_SHAPES = ["plan@1", "post@1", "review@1"];
-const QUESTION_SHAPES = ["thread@1", "reply@1", "findings@1", "carryover@1", "skipped@1"];
+export const GATE_SHAPES = ["plan@1", "post@1", "review@1"];
+export const QUESTION_SHAPES = ["thread@1", "reply@1", "findings@1", "carryover@1", "skipped@1"];
 const PER_THREAD = ["reply@1", "carryover@1"];
 const TIERS = ["critical", "important", "minor"];
 

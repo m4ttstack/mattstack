@@ -1,15 +1,12 @@
 import type { GateQuestion } from "../../packages/rt-client/src/commands.ts";
 import { type GateOptionObject, normalizeGateOptions } from "../../packages/rt-client/src/gate-options.ts";
-import { contextShapeErrors, proseContext } from "./ctx.ts";
+import { GATE_SHAPES, QUESTION_SHAPES, contextShapeErrors, proseContext } from "./ctx.ts";
 import { isObject, utf8Bytes } from "./jq.ts";
 import { endTrunc, midTrunc } from "./review-source.ts";
 
 export const LABEL_CAP_BYTES = 200;
 export const DESCRIPTION_CAP_BYTES = 1024;
 const FORM_CHUNK_SIZE = 4;
-
-const GATE_SHAPES = ["plan@1", "post@1", "review@1"];
-const QUESTION_SHAPES = ["thread@1", "reply@1", "findings@1", "carryover@1", "skipped@1"];
 
 export interface TruncatedText {
   question: string;
@@ -22,7 +19,7 @@ export function truncateOptionText(questions: GateQuestion[]): { questions: Gate
   const out = questions.map((q) => ({
     ...q,
     options: q.options.map((o) => {
-      if (typeof o === "string" || o === null || typeof o !== "object") return o;
+      if (typeof o !== "object" || o === null) return o;
       const next = { ...o };
       if (typeof o.label === "string" && utf8Bytes(o.label) > LABEL_CAP_BYTES) {
         next.label = midTrunc(o.label, LABEL_CAP_BYTES);
