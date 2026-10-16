@@ -51,7 +51,8 @@ export type StackVerdict =
 export interface StackGuardRunners {
   /** stdout of `gitq stacks --json` for cwd, or null when gitq cannot answer here. */
   gitqStacks(cwd: string): Promise<string | null>;
-  forgeOpenMrs(cwd: string): Promise<{ ok: true; mrs: ForgeMr[] } | { ok: false; error: string }>;
+  /** Open MRs from or into `branch`; a listing the forge may have cut short is a failure, never a shorter list. */
+  forgeOpenMrs(cwd: string, branch: string): Promise<{ ok: true; mrs: ForgeMr[] } | { ok: false; error: string }>;
 }
 
 interface GitqStackJson {
@@ -135,7 +136,7 @@ export async function checkStackMembership(opts: {
   if (opts.defaultBranch === null) {
     return unavailable(opts.branch, "rt could not find the default branch, so it cannot tell whether this branch is in a stack");
   }
-  const forge = await opts.runners.forgeOpenMrs(opts.cwd);
+  const forge = await opts.runners.forgeOpenMrs(opts.cwd, opts.branch);
   if (!forge.ok) {
     return unavailable(opts.branch, `rt could not list the open merge requests, so it cannot tell whether this branch is in a stack (${forge.error})`);
   }
@@ -189,45 +190,55 @@ function parseListing<T>(stdout: string, map: (row: T) => ForgeMr): ForgeListing
   }
 }
 
-async function listOpenMrs(p: Probes, remote: string): Promise<ForgeListing> {
-  const forge = forgeFromRemote(remote);
-  if (!forge) return { ok: false, error: `origin ${remote} is not a GitHub or GitLab remote` };
-  if (forge.provider === "github") {
-    const r = await p.exec([...forgeArgv(p, "gh"), "pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,baseRefName,url"], { timeoutMs: CLI_TIMEOUT_MS });
-    if (r.code !== 0) return failure("gh pr list failed", r);
-    return parseListing<{ number: number; headRefName: string; baseRefName: string; url: string }>(r.stdout, (row) => ({
-      iid: row.number, source: row.headRefName, target: row.baseRefName, url: row.url,
-    }));
-  }
-  const r = await p.exec([...forgeArgv(p, "glab"), "mr", "list", "--output", "json", "--per-page", "100"], { env: glabEnv(forge.host), timeoutMs: CLI_TIMEOUT_MS });
-  if (r.code !== 0) return failure("glab mr list failed", r);
-  return parseListing<{ iid: number; source_branch: string; target_branch: string; web_url: string }>(r.stdout, (row) => ({
-    iid: row.iid, source: row.source_branch, target: row.target_branch, url: row.web_url,
-  }));
+/** A filtered listing this long may be cut short, since the forge stops at the page size rt asks for. */
+const LISTING_LIMIT = 100;
+
+function complete(listing: ForgeListing, query: string): ForgeListing {
+  if (!listing.ok || listing.mrs.length < LISTING_LIMIT) return listing;
+  return { ok: false, error: `${query} returned ${LISTING_LIMIT} rows, the most rt asks for, so the listing may be incomplete` };
 }
 
-/**
- * Real runners over the machine's gitq and forge CLIs. The forge listing is
- * per remote, not per worktree, so one instance serves a whole `rt sync all`
- * sweep with a single gh/glab call.
- */
+async function listGithub(p: Probes, filter: string): Promise<ForgeListing> {
+  const r = await p.exec([...forgeArgv(p, "gh"), "pr", "list", "--state", "open", filter, "--limit", String(LISTING_LIMIT), "--json", "number,headRefName,baseRefName,url"], { timeoutMs: CLI_TIMEOUT_MS });
+  if (r.code !== 0) return failure("gh pr list failed", r);
+  return complete(parseListing<{ number: number; headRefName: string; baseRefName: string; url: string }>(r.stdout, (row) => ({
+    iid: row.number, source: row.headRefName, target: row.baseRefName, url: row.url,
+  })), `gh pr list ${filter}`);
+}
+
+async function listGitlab(p: Probes, host: string, filter: string): Promise<ForgeListing> {
+  const r = await p.exec([...forgeArgv(p, "glab"), "mr", "list", filter, "--output", "json", "--per-page", String(LISTING_LIMIT)], { env: glabEnv(host), timeoutMs: CLI_TIMEOUT_MS });
+  if (r.code !== 0) return failure("glab mr list failed", r);
+  return complete(parseListing<{ iid: number; source_branch: string; target_branch: string; web_url: string }>(r.stdout, (row) => ({
+    iid: row.iid, source: row.source_branch, target: row.target_branch, url: row.web_url,
+  })), `glab mr list ${filter}`);
+}
+
+// Filtered by branch on the forge's side, so how many other MRs are open never
+// decides whether this branch's own MR or its dependents are seen. The `=`
+// form keeps a dash-leading branch name from parsing as a flag.
+async function listBranchMrs(p: Probes, remote: string, branch: string): Promise<ForgeListing> {
+  const forge = forgeFromRemote(remote);
+  if (!forge) return { ok: false, error: `origin ${remote} is not a GitHub or GitLab remote` };
+  const [own, dependents] = forge.provider === "github"
+    ? [await listGithub(p, `--head=${branch}`), await listGithub(p, `--base=${branch}`)]
+    : [await listGitlab(p, forge.host, `--source-branch=${branch}`), await listGitlab(p, forge.host, `--target-branch=${branch}`)];
+  if (!own.ok) return own;
+  if (!dependents.ok) return dependents;
+  return { ok: true, mrs: [...own.mrs, ...dependents.mrs] };
+}
+
+/** Real runners over the machine's gitq and forge CLIs. */
 export function createStackGuardRunners(p: Probes): StackGuardRunners {
-  const listings = new Map<string, Promise<ForgeListing>>();
   return {
     async gitqStacks(cwd) {
       const r = await p.exec([...(bundledToolExec(p, "gitq") ?? ["gitq"]), "stacks", "--json", "-C", cwd], { timeoutMs: CLI_TIMEOUT_MS });
       return r.code === 0 ? r.stdout : null;
     },
-    async forgeOpenMrs(cwd) {
+    async forgeOpenMrs(cwd, branch) {
       const remote = await p.exec(["git", "remote", "get-url", "origin"], { cwd, timeoutMs: CLI_TIMEOUT_MS });
       if (remote.code !== 0) return failure("no origin remote", remote);
-      const url = remote.stdout.trim();
-      let pending = listings.get(url);
-      if (!pending) {
-        pending = listOpenMrs(p, url);
-        listings.set(url, pending);
-      }
-      return pending;
+      return listBranchMrs(p, remote.stdout.trim(), branch);
     },
   };
 }
