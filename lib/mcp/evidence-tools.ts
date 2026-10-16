@@ -13,7 +13,7 @@ import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
-import { allowedSourceRoots, bundleStem, copyIntoRun, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
+import { allowedSourceRoots, bundleStem, copyIntoRun, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
 import { renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
@@ -209,6 +209,26 @@ function referencedElsewhere(current: RawRecord, images: ImageInput[]): Set<stri
   return new Set(others.filter((f) => !addressed.has(f)));
 }
 
+/**
+ * Decided once, on the sources, before anything is copied: after the copy a
+ * recapture landing on the recorded file's name has the recorded path, so
+ * comparing paths then would read it as a cover update and keep a stale cover.
+ */
+function markRecaptures(current: RawRecord, merge: MergeInput, evidenceRoot: string): MergeInput {
+  const recorded = imageAddresses(current);
+  const images = (merge.images ?? []).map((e): ImageInput => {
+    if (e.path === undefined) return e;
+    const at = recorded.find((a) => a.case === e.case && a.slot === e.slot && a.theme === e.theme)?.image.path;
+    if (at === undefined) return { ...e, recapture: true };
+    const real = realOr(e.path);
+    const destDir = join(evidenceRoot, e.case);
+    const landing = dirname(real) === realOr(destDir) ? real : join(destDir, basename(real));
+    const unchanged = (real === realOr(at) || landing === at) && sameBytes(real, at);
+    return { ...e, recapture: !unchanged };
+  });
+  return { ...merge, images };
+}
+
 function copyRequests(merge: MergeInput, evidenceRoot: string): CopyRequest[] {
   const seen = new Set<string>();
   const out: CopyRequest[] = [];
@@ -281,16 +301,17 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   }
 
   const current = parseCurrent(read.value);
-  const dry = mergeRecord(current, parsed.merge);
+  const evidenceRoot = join(deps.home(), ".mattstack", "work", runId, "evidence");
+  const merge = markRecaptures(current, parsed.merge, evidenceRoot);
+  const dry = mergeRecord(current, merge);
   if (!dry.ok) return err(dry.error);
 
-  const evidenceRoot = join(deps.home(), ".mattstack", "work", runId, "evidence");
   const roots = allowedSourceRoots({ home: deps.home(), uid: deps.uid(), repoRoots, uploadRoots: deps.uploadRoots() });
-  const copy = copyIntoRun(copyRequests(parsed.merge, evidenceRoot), { allowedRoots: roots, referencedElsewhere: referencedElsewhere(current, parsed.merge.images ?? []) });
+  const copy = copyIntoRun(copyRequests(merge, evidenceRoot), { allowedRoots: roots, referencedElsewhere: referencedElsewhere(current, merge.images ?? []) });
   if (!copy.ok) return err(copy.error);
   const copied: CopyResult[] = [...new Map(copy.copied.map((c) => [c.to, c])).values()];
 
-  const merged = mergeRecord(current, remap(parsed.merge, copy.mapped));
+  const merged = mergeRecord(current, remap(merge, copy.mapped));
   if (!merged.ok) return err(`${merged.error} (the files were copied: ${copied.map((c) => c.to).join(", ") || "none"})`);
   const serialized = serializeRecord(merged.record);
   if (!serialized.ok) return err(serialized.error);

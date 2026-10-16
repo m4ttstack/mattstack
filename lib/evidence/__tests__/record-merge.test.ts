@@ -144,6 +144,14 @@ describe("mergeRecord", () => {
     expect(noDark.cases[0]!.after).toEqual({ light: { path: "/l.png", waiver: "w" } });
   });
 
+  test("an explicit recapture flag wins over path comparison", () => {
+    const cur = parseCurrent('{"v":2,"cases":[{"id":"a","label":"A","before":{"path":"/b.png","annotated":"/ba.png","caption":"old"}}]}');
+    const same = merged(cur, { images: [{ case: "a", slot: "before", path: "/b.png", recapture: true }] });
+    expect(same.cases[0]!.before).toEqual({ path: "/b.png" });
+    const moved = merged(cur, { images: [{ case: "a", slot: "before", path: "/elsewhere/b.png", recapture: false, caption: "new" }] });
+    expect(moved.cases[0]!.before).toEqual({ path: "/b.png", annotated: "/ba.png", caption: "new" });
+  });
+
   test("transcript and url set run-level keys", () => {
     const rec = merged(parseCurrent(two), { transcript: "/t.txt", url: "https://t" });
     expect(rec.transcript).toBe("/t.txt");

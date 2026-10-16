@@ -1,4 +1,4 @@
-import { copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "fs";
+import { copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { basename, dirname, extname, isAbsolute, join } from "path";
 import { builtInEvidenceRoot, claudeTempRoots, isInsideRoot, runEvidenceRoot, TEXT_EXTENSIONS, UPLOAD_EXTENSIONS, workRoot } from "../daemon/upload-guard.ts";
 import { evidenceDir } from "../rt-paths.ts";
@@ -95,8 +95,11 @@ function isSymlink(p: string): boolean {
   }
 }
 
-function sameBytes(a: string, b: string): boolean {
+export function sameBytes(a: string, b: string): boolean {
   try {
+    const sa = statSync(a);
+    const sb = statSync(b);
+    if (!sa.isFile() || !sb.isFile() || sa.size !== sb.size) return false;
     return readFileSync(a).equals(readFileSync(b));
   } catch {
     return false;

@@ -242,6 +242,47 @@ describe("evidence_record", () => {
     expect(written.cases[0].after.annotated).toBe(board);
   });
 
+  test("a recapture to the same file name drops the old cover instead of keeping it", async () => {
+    const { deps, fields } = makeDeps();
+    const shot = put("badge-after.c1.png", "capture v1");
+    const board = put("badge-after.png", "board v1");
+    const first = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry", slot: "after", path: shot, annotated: board, caption: "v1 marks" }] }, env);
+    expect((first.body as { written: boolean }).written).toBe(true);
+    writeFileSync(shot, "capture v2");
+    const second = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", slot: "after", path: shot }] }, env);
+    const body = second.body as { written: boolean; uncovered: Array<{ why: string }> };
+    expect(body.written).toBe(false);
+    expect(body.uncovered.map((u) => u.why)).toEqual(["no-cover"]);
+    expect(JSON.parse(fields.get("evidence")!).cases[0].after.caption).toBe("v1 marks");
+  });
+
+  test("an unchanged capture sent again with a new board is a cover update", async () => {
+    const { deps, fields } = makeDeps();
+    const shot = put("badge-after.c1.png", "capture");
+    const board = put("badge-after.png", "board v1");
+    await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry", slot: "after", path: shot, annotated: board, caption: "v1" }] }, env);
+    writeFileSync(board, "board v2");
+    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", slot: "after", path: shot, annotated: board, caption: "v2" }] }, env);
+    expect((res.body as { written: boolean }).written).toBe(true);
+    expect(JSON.parse(fields.get("evidence")!).cases[0].after.caption).toBe("v2");
+    expect(readFileSync(join(evidenceDir("retry-badge"), "badge-after.png"), "utf8")).toBe("board v2");
+  });
+
+  test("a themed refresh with one theme's capture resent and the other cover-only succeeds", async () => {
+    const { deps, fields } = makeDeps();
+    for (const n of ["l.c1.png", "l.png", "d.c1.png", "d.png"]) put(n);
+    const im = (theme: string, p: string) => ({ case: "c", label: "C", slot: "after", theme, path: join(src, `${p}.c1.png`), annotated: join(src, `${p}.png`), caption: "x" });
+    const first = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [im("light", "l"), im("dark", "d")] }, env);
+    expect(first.ok).toBe(true);
+    writeFileSync(join(src, "l.png"), "l board v2");
+    const second = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [im("light", "l"), { case: "c", slot: "after", theme: "dark", annotated: join(src, "d.png"), caption: "y" }] }, env);
+    expect(second.ok).toBe(true);
+    expect((second.body as { written: boolean }).written).toBe(true);
+    const after = JSON.parse(fields.get("evidence")!).cases[0].after;
+    expect(after.dark.caption).toBe("y");
+    expect(after.light.caption).toBe("x");
+  });
+
   test("a fieldSet refusal comes back verbatim", async () => {
     const shot = put("a.png");
     const refusal = 'evidence@2: case "a" has no annotated image and no waiver; annotate it or add a waiver with a reason';

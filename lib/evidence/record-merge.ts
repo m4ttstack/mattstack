@@ -6,7 +6,8 @@ export interface RawImage { path: string; annotated?: string; caption?: string; 
 export type RawSlot = RawImage | { light?: RawImage; dark?: RawImage };
 export interface RawCase { id: string; label: string; waiver?: string; before?: RawSlot; after?: RawSlot; [k: string]: unknown }
 export interface RawRecord { cases: RawCase[]; transcript?: string; url?: string; attach?: string; extra: Record<string, unknown> }
-export interface ImageInput { case: string; label?: string; slot: Slot; theme?: Theme; path?: string; annotated?: string; caption?: string; waiver?: string }
+/** recapture, when set, is the caller's decision that path replaces the image; unset falls back to comparing paths. */
+export interface ImageInput { case: string; label?: string; slot: Slot; theme?: Theme; path?: string; annotated?: string; caption?: string; waiver?: string; recapture?: boolean }
 export interface MergeInput {
   images?: ImageInput[];
   cases?: Array<{ id: string; label?: string; waiver?: string }>;
@@ -191,7 +192,7 @@ export function mergeRecord(current: RawRecord, input: MergeInput): { ok: true; 
   const covers: ImageInput[] = [];
   for (const e of images) {
     const existing = imageAt(findCase(e.case), e.slot, e.theme);
-    if (e.path !== undefined && e.path !== existing?.path) {
+    if (e.path !== undefined && (e.recapture ?? e.path !== existing?.path)) {
       const key = `${e.case}\0${e.slot}`;
       recaptures.set(key, [...(recaptures.get(key) ?? []), e]);
     } else covers.push(e);
