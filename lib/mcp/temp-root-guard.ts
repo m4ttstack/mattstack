@@ -191,6 +191,15 @@ export function checkReadRootPath(path: unknown, roots: readonly string[], plugi
   } catch {
     return { ok: false, error: `file does not exist: ${path}` };
   }
+  // macOS realpath may resolve a hardlink to any of its names, including one
+  // outside every root, so the link count is checked before containment.
+  const stat = statSync(real, { throwIfNoEntry: false });
+  if (!stat || !stat.isFile()) {
+    return { ok: false, error: `path must be a regular file (got "${path}")` };
+  }
+  if (stat.nlink !== 1) {
+    return { ok: false, error: `path must not be a hardlinked file (got "${path}")` };
+  }
   const root = matchingRoot(real, roots);
   if (root === null) {
     if (pluginListError) {
@@ -203,14 +212,6 @@ export function checkReadRootPath(path: unknown, roots: readonly string[], plugi
   }
   if (extname(real) !== ".md") {
     return { ok: false, error: `path must name a .md file (got "${path}")` };
-  }
-
-  const stat = statSync(real, { throwIfNoEntry: false });
-  if (!stat || !stat.isFile()) {
-    return { ok: false, error: `path must be a regular file (got "${path}")` };
-  }
-  if (stat.nlink !== 1) {
-    return { ok: false, error: `path must not be a hardlinked file (got "${path}")` };
   }
   return { ok: true, realpath: real };
 }
