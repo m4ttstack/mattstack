@@ -116,6 +116,7 @@ flag.
 | C10 | `status: synced` always read as "pushed by branch_sync" | `synced` with `pushed: false` (origin's ref does not hold the new head) goes to the push gate / the rebased-still-unpushed bucket | bug fix: today it would report a push that did not happen |
 | C11 | `editing-skills` ("Retried with the printed root?") and the shepherdr job template ("Push attempts = 2?") retry git_push once on any refusal, with a root the error never prints | A refused push goes straight to the existing off-script gate / `herd_ask` | the brief drops that edge; a transient failure that a blind second push might have cleared now reaches a human |
 | C12 | The sweep rebased branches in the order the sweep answer gave | Unchanged on the per-branch path; the sweep tool runs only when the answer kept the listed order (below) | none: drawn as a condition |
+| C13 | map-open-mrs listed GitHub PRs with `gh pr list --author @me` (30 rows, no truncation signal) | `--limit 200`, and exactly 200 rows counts as cut, so a cut map never feeds the sweep | none: up to 200 PRs mapped instead of 30; added after the final review |
 
 Kept as today: the dirty-tree gate and its retry budget, the stack-member
 refusal naming its tool, the pull-once loop, the conflict gate and its iterate
@@ -442,6 +443,18 @@ In `pipeline/ship`, `pipeline/stage-ship`, `pipeline/watch-ci`,
 the diamond goes where its budget-spent edge went. An edge label naming the
 root-path refusal goes. Prose explaining the retry is cut in the same file;
 nothing else changes.
+
+## Known limitations
+
+- **Dirty, then behind origin.** The pull pass runs before the batch dirty
+  gate, and `branch_sync`'s preflight checks dirty before behind-origin. A
+  listed branch that was dirty and, after the human's retry, comes back "run
+  git_pull first" is skipped with that refusal quoted; it never gets its own
+  pull. This follows the "at most once each" rule above.
+- **MRs opened during the sweep gate.** `branch_sync_sweep` reads its own
+  open-MR list, so an MR opened between the map and the sweep call can be
+  synced without being listed. Skill text cannot close this; a `branches`
+  filter on the tool is on the follow-up list.
 
 ## Phase 2: after #844 merges
 

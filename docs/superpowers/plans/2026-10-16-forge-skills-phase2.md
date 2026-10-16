@@ -53,6 +53,6 @@
 ### Task 3: GREEN, bump, checks (controller-run)
 
 - [ ] **Step 1: GREEN.** Add scenarios 10-12 to the scenario file (10: sync-open-mrs on GitLab, `mr_map` returns four rows, one `dirty: true`, `complete: true`, all selected; 11: checkout given `!42`, `mr_resolve_branch` returns `trees: []`; 12: checkout given an MR URL, `trees` has one path). Five fresh agents per skill (sonnet, low, describe-only). Pass: one `mr_map` / `mr_resolve_branch` call, no `mr_list`/`mr_view`/porcelain/worktree reads on those paths, routing as above. Record the rows in the spec's deviation table.
-- [ ] **Step 2: Bump.** plugin.json `0.31.9` (main is 0.31.8 after #844) and `plugins/mattstack/pack/requires.json` `minEngine` `0.31.9`, one commit.
+- [ ] **Step 2: Bump.** plugin.json `0.31.10` (main is 0.31.9 after #843) and `plugins/mattstack/pack/requires.json` `minEngine` `0.31.10`, one commit.
 - [ ] **Step 3: Checks.** The phase 1 Task 5 static list, then `bun run purity`.
-- [ ] **Step 4: Commit** `mattstack 0.31.9: forge skills on mr_map and mr_resolve_branch`.
+- [ ] **Step 4: Commit** `mattstack 0.31.10: forge skills on mr_map and mr_resolve_branch`.
