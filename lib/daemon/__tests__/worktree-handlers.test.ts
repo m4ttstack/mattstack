@@ -495,6 +495,107 @@ describe("worktree:provision", () => {
   });
 });
 
+describe("worktree:provision-check", () => {
+  test("ticket mode reports the branch a provision would use and the trees already on it", async () => {
+    const repo = makeRepo();
+    seedClaimed(repo, repoName, "first", "rt-99-do-the-thing", "pane-1");
+    seedClaimed(repo, repoName, "second", "rt-99-other");
+    const { h } = makeHandlers({ [repoName]: repo });
+
+    const res: any = await h["worktree:provision-check"]!({
+      repoName, ticket: "RT-99", ticketTitle: "Do the thing",
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.data.base).toBe("rt-99-do-the-thing");
+    expect(res.data.branch).toBe("rt-99-do-the-thing-2");
+    expect(res.data.localBranch).toBe(true);
+    expect(res.data.attached).toHaveLength(1);
+    expect(res.data.attached[0]).toMatchObject({
+      tree: "first", branch: "rt-99-do-the-thing", treeKind: "ephemeral", state: "claimed",
+      owner: "pane-1", disposal: "merge",
+    });
+    expect(res.data.attached[0].path).toBe(join(repo, ".worktrees", "first"));
+    expect(res.data.sameTicket.map((t: any) => t.tree).sort()).toEqual(["first", "second"]);
+    expect(res.data.sameSlug.map((t: any) => t.tree)).toEqual(["first"]);
+  });
+
+  test("changes nothing: registry, events and reconciler kicks are untouched", async () => {
+    const repo = makeRepo();
+    seedOnDeck(repo, repoName, "alpha", new Date().toISOString());
+    seedClaimed(repo, repoName, "first", "rt-99-do-the-thing");
+    const before = loadRegistry(repoName);
+    const harness = makeHandlers({ [repoName]: repo });
+
+    const res: any = await harness.h["worktree:provision-check"]!({
+      repoName, ticket: "RT-99", ticketTitle: "Do the thing",
+    });
+
+    expect(res.ok).toBe(true);
+    expect(loadRegistry(repoName)).toEqual(before);
+    expect(harness.events.find((e) => e.type === "worktree:claimed")).toBeUndefined();
+    expect(harness.kicks).toBe(0);
+  });
+
+  test("an on-deck tree is never listed, even when asked for its own branch", async () => {
+    const repo = makeRepo();
+    const deck = seedOnDeck(repo, repoName, "alpha", new Date().toISOString());
+    const { h } = makeHandlers({ [repoName]: repo });
+
+    const ticketRes: any = await h["worktree:provision-check"]!({
+      repoName, ticket: "RT-99", ticketTitle: "Do the thing",
+    });
+    const branchRes: any = await h["worktree:provision-check"]!({ repoName, branch: deck.branch! });
+
+    for (const r of [ticketRes, branchRes]) {
+      expect(r.ok).toBe(true);
+      expect(r.data.attached).toEqual([]);
+      expect(r.data.sameTicket).toEqual([]);
+      expect(r.data.sameSlug).toEqual([]);
+    }
+  });
+
+  test("branch mode: base equals branch, no tree, then a local branch appears", async () => {
+    const repo = makeRepo();
+    const { h } = makeHandlers({ [repoName]: repo });
+
+    const first: any = await h["worktree:provision-check"]!({ repoName, branch: "feat-x" });
+    expect(first).toEqual({
+      ok: true,
+      data: { branch: "feat-x", base: "feat-x", localBranch: false, attached: [], sameTicket: [], sameSlug: [] },
+    });
+
+    sh("git branch feat-x", repo);
+    const second: any = await h["worktree:provision-check"]!({ repoName, branch: "feat-x" });
+    expect(second.data.localBranch).toBe(true);
+  });
+
+  test("a ticket with no title lists no sameSlug trees", async () => {
+    const repo = makeRepo();
+    seedClaimed(repo, repoName, "first", "rt-99-do-the-thing");
+    const { h } = makeHandlers({ [repoName]: repo });
+
+    const res: any = await h["worktree:provision-check"]!({ repoName, ticket: "RT-99" });
+
+    expect(res.data.base).toBe("rt-99");
+    expect(res.data.sameTicket.map((t: any) => t.tree)).toEqual(["first"]);
+    expect(res.data.sameSlug).toEqual([]);
+  });
+
+  test("refuses the way provision does: no intent, unknown repo, unsafe ref", async () => {
+    const repo = makeRepo();
+    const { h } = makeHandlers({ [repoName]: repo });
+
+    expect(await h["worktree:provision-check"]!({ repoName })).toEqual({ ok: false, error: "branch-unresolved" });
+    expect(await h["worktree:provision-check"]!({ repoName: "remote:nope", branch: "x" })).toEqual({
+      ok: false, error: "repo-unknown",
+    });
+    const unsafe: any = await h["worktree:provision-check"]!({ repoName, branch: "--upload-pack=x" });
+    expect(unsafe.ok).toBe(false);
+    expect(unsafe.error).toContain("unsafe git ref");
+  });
+});
+
 describe("worktree:await-ready", () => {
   test("joins the in-flight settle from an async provision and reports readiness", async () => {
     const repo = makeRepo();

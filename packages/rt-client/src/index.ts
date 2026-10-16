@@ -156,6 +156,8 @@ export type {
   HerdStatusData,
   WorktreeTreeRow,
   WorktreeListData,
+  WorktreeTreeRef,
+  WorktreeProvisionCheckData,
 } from "./commands.ts";
 
 export { subscribe, createRelay, DEFAULT_WS_URL } from "./relay.ts";
