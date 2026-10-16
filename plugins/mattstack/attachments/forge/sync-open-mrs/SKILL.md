@@ -16,10 +16,11 @@ slots: {}
 
 Bring every open MR or PR current with the default branch in one sweep:
 rebase each, then offer to push and watch CI. The sweep covers the open
-MRs the map returns: `mr_map` on GitLab, `map-open-mrs` on GitHub. This verb owns the sequencing, the batch gates
-and the report. Discovery and CI watching belong to the verbs it follows;
-rebasing belongs to `branch_sync_sweep` and `branch_sync`. Gates stay human
-decisions: never stash a tree, never resolve a conflict.
+MRs the map returns: `mr_map` on GitLab, `map-open-mrs` on GitHub. This
+verb owns the sequencing, the batch gates and the report. Discovery and CI
+watching belong to the verbs it follows; rebasing belongs to
+`branch_sync_sweep` and `branch_sync`. Gates stay human decisions: never
+stash a tree, never resolve a conflict.
 
 ```dot
 digraph sync_open_mrs {
@@ -256,10 +257,10 @@ the error, quoted, and the sweep ends abandoned.
 
 ### Follow map-open-mrs for the table
 
-The GitHub path. Follow the pack's compiled `map-open-mrs` verb (`../map-open-mrs/SKILL.md`,
-relative to this file, when the pack compiles both on the same side; a
-different surface changes the path) and get its table: MR ref, title,
-author, source branch, worktree path or NONE.
+The GitHub path. Follow the pack's compiled `map-open-mrs` verb
+(`../map-open-mrs/SKILL.md`, relative to this file, when the pack compiles
+both on the same side; a different surface changes the path) and get its
+table: MR ref, title, author, source branch, worktree path or NONE.
 
 ### Plan the sweep
 
@@ -269,8 +270,9 @@ why. Skipped up front: NONE rows, with nothing local to rebase, and trees
 `true` is a dirty tree, and `null` with a tree means the read failed, so
 the tree is not known clean and is skipped too, saying so. On GitHub,
 a tree whose `git -C <tree> status --porcelain` is not empty is the dirty
-one. When the map was cut short (`complete: false` on GitLab, a truncated
-read on GitHub), the same sentence says it was cut at 200. Every row of the map is the signed-in user's own MR, so every branch
+one. When the map was cut short, the same sentence says so: on GitLab,
+`complete: false` means it was cut at 200 open MRs; on GitHub, a truncated
+read. Every row of the map is the signed-in user's own MR, so every branch
 starts pre-selected; deselecting skips it.
 
 **These thoughts mean you are skipping the gate -- STOP:**
@@ -311,8 +313,9 @@ only when all four hold:
 
 - the map was complete (`mr_map`'s `complete` is true on GitLab; no
   truncated read on GitHub),
-- the plan pre-skipped no dirty tree (so no tree the sweep would
-  visit outside the form),
+- the plan skipped no tree up front (no `dirty: true`, no `dirty: null`
+  with a worktree on GitLab, no non-empty porcelain read on GitHub), so
+  the sweep visits no tree outside the form; a NONE row does not count,
 - every listed branch is selected,
 - the answer asked for no reorder.
 
