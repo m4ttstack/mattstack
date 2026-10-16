@@ -30,12 +30,12 @@ export async function waitForAnswers(
   const outcomes: Record<string, ProbeOutcome> = {};
   for (const t of targets) outcomes[t.role] = { answered: false, status: null, answeredAfterMs: null };
 
-  const probe = async (t: { role: string; url: string }, roundAt: number): Promise<void> => {
-    const timeout = AbortSignal.timeout(timeoutMs);
+  const probe = async (t: { role: string; url: string }, budgetMs: number): Promise<void> => {
+    const timeout = AbortSignal.timeout(budgetMs);
     const signal = o.signal ? AbortSignal.any([o.signal, timeout]) : timeout;
     try {
       const res = await deps.fetch(t.url, { redirect: "manual", signal });
-      outcomes[t.role] = { answered: true, status: res.status, answeredAfterMs: roundAt - start };
+      outcomes[t.role] = { answered: true, status: res.status, answeredAfterMs: deps.now() - start };
       try {
         res.body?.cancel().catch(() => {});
       } catch {
@@ -46,14 +46,17 @@ export async function waitForAnswers(
     }
   };
 
+  const left = () => o.waitMs - (deps.now() - start);
   for (;;) {
-    const roundAt = deps.now();
+    // waitMs 0 is "probe once", so that one round keeps the full request timeout
+    const budgetMs = o.waitMs === 0 ? timeoutMs : Math.min(timeoutMs, left());
     const pending = targets.filter((t) => !outcomes[t.role]!.answered);
-    await Promise.all(pending.map((t) => probe(t, roundAt)));
+    await Promise.all(pending.map((t) => probe(t, budgetMs)));
     o.progress?.();
     const done = targets.every((t) => outcomes[t.role]!.answered);
-    if (done || o.signal?.aborted || deps.now() - start >= o.waitMs) break;
-    await deps.sleep(intervalMs);
+    if (done || o.signal?.aborted || left() <= 0) break;
+    await deps.sleep(Math.min(intervalMs, left()));
+    if (o.signal?.aborted || left() <= 0) break;
   }
   return { outcomes, waitedMs: deps.now() - start };
 }

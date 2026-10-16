@@ -6,6 +6,9 @@ function clock() {
   const sleeps: number[] = [];
   return {
     sleeps,
+    advance: (ms: number) => {
+      t += ms;
+    },
     now: () => t,
     sleep: async (ms: number) => {
       sleeps.push(ms);
@@ -124,7 +127,54 @@ describe("waitForAnswers", () => {
         throw new Error("refused");
       }),
     );
-    expect(n).toBe(3);
+    expect(n).toBe(2);
+  });
+
+  test("answeredAfterMs counts the request time, not the round start", async () => {
+    const c = clock();
+    const r = await waitForAnswers(
+      [{ role: "web", url: "http://x/" }],
+      { waitMs: 10000 },
+      deps(c, async () => {
+        c.advance(3000);
+        return new Response("", { status: 200 });
+      }),
+    );
+    expect(r.outcomes.web!.answeredAfterMs).toBe(3000);
+  });
+
+  test("a wait shorter than the interval sleeps only to the limit and starts no second round", async () => {
+    const c = clock();
+    let calls = 0;
+    const r = await waitForAnswers(
+      [{ role: "web", url: "http://x/" }],
+      { waitMs: 1000, intervalMs: 2000 },
+      deps(c, async () => {
+        calls++;
+        throw new Error("refused");
+      }),
+    );
+    expect(calls).toBe(1);
+    expect(c.sleeps).toEqual([1000]);
+    expect(r.waitedMs).toBe(1000);
+  });
+
+  test("an in-flight request is cut off at the wait limit", async () => {
+    const started = Date.now();
+    const r = await waitForAnswers(
+      [{ role: "web", url: "http://x/" }],
+      { waitMs: 50, intervalMs: 20, requestTimeoutMs: 5000 },
+      {
+        fetch: ((_u: string, i?: RequestInit) =>
+          new Promise<Response>((_res, rej) => {
+            i?.signal?.addEventListener("abort", () => rej(new Error("aborted")));
+          })) as unknown as typeof fetch,
+        sleep: (ms) => Bun.sleep(ms),
+        now: () => Date.now(),
+      },
+    );
+    expect(r.outcomes.web!.answered).toBe(false);
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 
   test("fetch gets redirect manual and a signal", async () => {
