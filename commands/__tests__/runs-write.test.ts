@@ -155,6 +155,8 @@ describe("rt runs write verbs", () => {
     expect(snap.ok).toBe(true);
     expect(snap.run.status).toBe("running");
     expect(snap.decisions).toHaveLength(1);
+    expect(Array.isArray(snap.manifest)).toBe(true);
+    expect(snap.budgets).toEqual([]);
     expect((await runWriteVerb("run-status", ["--status", "done"], env)).out).toBe('{"ok":true}');
     expect((await runWriteVerb("run-status", ["--status", "paused"], env)).code).toBe(2);
     expect(JSON.parse((await runWriteVerb("snapshot", [], env)).out).run.status).toBe("done");
@@ -216,7 +218,7 @@ describe("RT_RUN_DB fallback", () => {
     const { env } = await startRun();
     expect(await runWriteVerb("field", ["set", "branch", "x", "--stage", "provision"], { ...env, CLAUDE_CODE_SESSION_ID: "sess-cli-2" })).toEqual({ out: '{"ok":true}', code: 0 });
     const snap = JSON.parse((await runWriteVerb("snapshot", [], env)).out);
-    expect(Object.keys(snap)).toEqual(["ok", "run", "stages", "fields", "decisions"]);
+    expect(Object.keys(snap)).toEqual(["ok", "run", "stages", "fields", "decisions", "manifest", "budgets"]);
   });
 
   test("field get without RT_RUN_DB still prints the raw value", async () => {
@@ -231,7 +233,7 @@ describe("RT_RUN_DB fallback", () => {
     const env = { RT_RUNS_ROOT: root, CLAUDE_CODE_SESSION_ID: "sess-cli-5", ...QUIET };
     await runWriteVerb("run-start", RUN, env);
     const snap = JSON.parse((await runWriteVerb("snapshot", [], env)).out);
-    expect(Object.keys(snap)).toEqual(["ok", "run", "stages", "fields", "decisions", "runDbResolved"]);
+    expect(Object.keys(snap)).toEqual(["ok", "run", "stages", "fields", "decisions", "manifest", "budgets", "runDbResolved"]);
     expect(snap.runDbResolved).toBe("session");
   });
 

@@ -157,6 +157,32 @@ describe("runEngineOp", () => {
     });
   });
 
+  test("an op that wrote nothing emits nothing: repeated, held, closed, a zero budget increment", async () => {
+    const { root, pack } = fixture();
+    const quiet = { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+    const { runDb } = JSON.parse((await runEngineOp(enterOp(pack), quiet)).out) as { runDb: string };
+    const env = { ...quiet, RT_RUN_DB: runDb };
+    await runWriteVerb("field", ["set", "plan", "x", "--stage", "plan"], env);
+    const loud = { RT_RUN_DB: runDb };
+    await withFakeDaemon(async (seen) => {
+      const run = async (op: EngineOp) => JSON.parse((await runEngineOp(op, loud, "/")).out);
+      expect(await run({ op: "next", stage: "plan" })).toMatchObject({ ended: "done" });
+      expect(seen.map((s) => s.payload.kind)).toEqual(["run-next"]);
+      expect(await run({ op: "next", stage: "plan" })).toMatchObject({ ended: "done", repeated: true });
+      expect(await run({ op: "budget", key: "k", limit: 2, increment: 0 })).toMatchObject({ spent: 0 });
+      expect(await run({ op: "resolve", stage: "build", next: "iterate", attempt: 1, decidedBy: "me" })).toMatchObject({ applied: "iterate" });
+      expect(seen.map((s) => s.payload.kind)).toEqual(["run-next", "run-resolve"]);
+      expect(await run({ op: "resolve", stage: "build", next: "iterate", attempt: 1, decidedBy: "me" })).toMatchObject({ applied: "iterate", repeated: true });
+      expect(await run({ op: "hold", stage: "build", decidedBy: "me" })).toMatchObject({ held: true });
+      expect(seen).toHaveLength(3);
+      expect(await run({ op: "next", stage: "build" })).toMatchObject({ ended: "held" });
+      await run({ op: "resolve", stage: "build", next: "abandon", decidedBy: "me" });
+      expect(seen).toHaveLength(4);
+      expect(await run({ op: "next", stage: "build" })).toMatchObject({ ended: "closed" });
+      expect(seen).toHaveLength(4);
+    });
+  });
+
   test("close closes a standalone run and refuses a work-type mismatch", async () => {
     const { root, pack } = fixture();
     const quiet = { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;

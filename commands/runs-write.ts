@@ -193,7 +193,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
     case "snapshot":
       return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
         const r = snapshot(db);
-        return r.ok ? ok(resolved, { run: r.run, stages: r.stages, fields: r.fields, decisions: r.decisions }) : fail(r);
+        return r.ok ? ok(resolved, { run: r.run, stages: r.stages, fields: r.fields, decisions: r.decisions, manifest: r.manifest, budgets: r.budgets }) : fail(r);
       });
   }
 }
@@ -218,7 +218,7 @@ async function withRunDbAsync(env: NodeJS.ProcessEnv, cwd: string, body: (run: R
 export type EngineOp =
   | { op: "enter"; args: string[]; packRoot: string; stage?: string; pipeline?: string; handedRunDb?: string; resume?: string; fresh?: boolean }
   | { op: "next"; stage: string }
-  | { op: "resolve"; stage: string; next: ResolveNext; to?: string; note?: string; decidedBy: string }
+  | { op: "resolve"; stage: string; next: ResolveNext; to?: string; note?: string; attempt?: number; decidedBy: string }
   | { op: "hold"; stage: string; reason?: string; decidedBy: string }
   | { op: "close"; workType: string; stage: string; outcome: "done" | "failed" | "abandoned"; reason?: string; detailPath?: string }
   | { op: "budget"; key: string; limit: number; increment?: number; stage?: string };
@@ -256,8 +256,8 @@ function applyOp(op: Exclude<EngineOp, { op: "enter" }>, db: Database, env: Node
       return { r, adopts: r.ok && r.ended === "done" && "next" in r && r.repeated !== true };
     }
     case "resolve": {
-      const r = resolveStage(db, { stage: op.stage, next: op.next, to: op.to, note: op.note, decidedBy: op.decidedBy, env });
-      return { r, adopts: r.ok && "next" in r };
+      const r = resolveStage(db, { stage: op.stage, next: op.next, to: op.to, note: op.note, attempt: op.attempt, decidedBy: op.decidedBy, env });
+      return { r, adopts: r.ok && "next" in r && r.repeated !== true };
     }
     case "hold":
       return { r: holdStage(db, { stage: op.stage, reason: op.reason, decidedBy: op.decidedBy }), adopts: false };
@@ -272,11 +272,18 @@ function applyOp(op: Exclude<EngineOp, { op: "enter" }>, db: Database, env: Node
   }
 }
 
+function wroteNothing(op: Exclude<EngineOp, { op: "enter" }>, body: Record<string, unknown>): boolean {
+  if (body.repeated === true) return true;
+  if (op.op === "budget") return op.increment === 0;
+  if (op.op === "next") return body.ended === "held" || body.ended === "waiting" || body.ended === "closed";
+  return false;
+}
+
 async function engineWrite(op: Exclude<EngineOp, { op: "enter" }>, { db, resolved }: RunDbHandle, env: NodeJS.ProcessEnv): Promise<CliResult> {
   const { r, adopts } = applyOp(op, db, env);
   if (!r.ok) return fail(r);
   const { ok: _ok, ...body } = r;
-  await emitted(env, runIdentity(db), "stage" in op ? op.stage ?? null : null, `run-${op.op}`);
+  if (!wroteNothing(op, body)) await emitted(env, runIdentity(db), "stage" in op ? op.stage ?? null : null, `run-${op.op}`);
   if (adopts) await adoptRunSession(db, env);
   return ok(resolved, body);
 }

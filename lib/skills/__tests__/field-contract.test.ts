@@ -28,6 +28,12 @@ describe("scanFieldUses", () => {
     expect(writes.map((w) => w.key)).toEqual(["ci"]);
   });
 
+  test("a key ending a sentence loses the trailing dot or dash", () => {
+    const { reads, writes } = scanFieldUses("run_field_get {key: mr-}\nrun_field_get {key: ci.}\nrun_field_set {key: plan.-, value: x}\nrt runs field get mode.");
+    expect(reads.map((r) => r.key)).toEqual(["mr", "ci", "mode"]);
+    expect(writes.map((w) => w.key)).toEqual(["plan"]);
+  });
+
   test("marks templates", () => {
     const a = scanFieldUses("run_field_set {key: extra.context-dropped.<scope>, value: x}");
     expect(a.writes).toEqual([{ key: "extra.context-dropped.", line: 1, template: true }]);

@@ -320,6 +320,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       async handler(input, env) {
         const bad = checkOptional(input, [{ name: "stage", type: "string" }, { name: "pipeline", type: "string" }, { name: "runDb", type: "string" }, { name: "resume", type: "string" }, { name: "fresh", type: "boolean" }]);
         if (bad) return err(bad);
+        if (typeof input.stage === "string" && !/^\S+$/.test(input.stage)) return err('"stage" must be a single token with no whitespace');
         const prepared = prepareStart(input, deps);
         if ("error" in prepared) return err(prepared.error);
         const { args, packRoot } = prepared;
@@ -360,19 +361,21 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       description: "Apply a gate's answer to a stage: retry, redirect, iterate, hold, abandon or done. It applies the answer it is given and opens no gates.",
       inputSchema: {
         type: "object",
-        properties: { ...RUN_DB_PROPS, stage: { type: "string" }, next: { type: "string", enum: RESOLVE_NEXT }, to: { type: "string" }, note: { type: "string" }, decidedBy: { type: "string" } },
+        properties: { ...RUN_DB_PROPS, stage: { type: "string" }, next: { type: "string", enum: RESOLVE_NEXT }, to: { type: "string" }, note: { type: "string" }, attempt: { type: "integer", minimum: 1, description: "The attempt the gate was asked about (the <n> in its scope); a retried call for an answer already applied returns it with repeated: true." }, decidedBy: { type: "string" } },
         required: ["stage", "next", "decidedBy"],
         additionalProperties: false,
       },
       shellForms: NO_VERB,
       async handler(input, env) {
         const bad = checkRequired(input, [{ name: "stage", type: "string" }, { name: "next", type: "string" }, { name: "decidedBy", type: "string" }])
-          ?? checkOptional(input, [{ name: "to", type: "string" }, { name: "note", type: "string" }]);
+          ?? checkOptional(input, [{ name: "to", type: "string" }, { name: "note", type: "string" }, { name: "attempt", type: "number" }]);
         if (bad) return err(bad);
+        if (input.attempt !== undefined && (!Number.isInteger(input.attempt) || (input.attempt as number) < 1)) return err('"attempt" must be an integer of at least 1');
         if (!RESOLVE_NEXT.includes(input.next as string)) return err(`"next" must be ${RESOLVE_NEXT.join(", ")}`);
         const op: EngineOp = { op: "resolve", stage: input.stage as string, next: input.next as ResolveNext, decidedBy: input.decidedBy as string };
         if (typeof input.to === "string") op.to = input.to;
         if (typeof input.note === "string") op.note = input.note;
+        if (typeof input.attempt === "number") op.attempt = input.attempt;
         return engine(op, input, env);
       },
     },

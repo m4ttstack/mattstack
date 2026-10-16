@@ -25,7 +25,10 @@ function scan(lines: string[], res: RegExp[]): FieldUse[] {
   const out: FieldUse[] = [];
   lines.forEach((text, i) => {
     for (const re of res) {
-      for (const m of text.matchAll(re)) out.push({ key: m[1]!, line: i + 1, template: m[2] === "<" });
+      for (const m of text.matchAll(re)) {
+        const template = m[2] === "<";
+        out.push({ key: template ? m[1]! : m[1]!.replace(/[.-]+$/, ""), line: i + 1, template });
+      }
     }
   });
   return out.sort((a, b) => a.line - b.line);
