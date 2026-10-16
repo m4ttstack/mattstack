@@ -1,7 +1,8 @@
 /**
- * The gate tools: gate_open, and the run-aware paths behind gate_ask and
- * gate_answer. Run reads and writes go through runToolDefs()'s own handlers,
- * so a caller's runDb meets the same runs-root confinement as run_* tools.
+ * The gate tools: gate_open, gate_reconcile, gate_record, and the run-aware
+ * paths behind gate_ask and gate_answer. Run reads and writes go through
+ * runToolDefs()'s own handlers, so a caller's runDb meets the same runs-root
+ * confinement as run_* tools.
  * The only run writes here are `gate`, `waiting-gate`,
  * `extra.context-dropped.<scope>`, `extra.gate-source.<scope>` and gate@1
  * decisions on the caller's scope.
@@ -213,23 +214,43 @@ export async function askGate(
   return ok(result);
 }
 
-function answerFields(row: GateRow): Pick<RecordResult, "decidedBy" | "answers" | "writeIn" | "next" | "actOnWriteIn"> {
-  const answers = normalizeAnswers(row.answer?.answers ?? {});
-  return { decidedBy: row.answer?.by ?? "unknown", answers, writeIn: writeInsOf(answers), next: nextOf(answers), actOnWriteIn: actOnWriteIn(answers) };
+type AnswerFields = Pick<RecordResult, "decidedBy" | "answers" | "writeIn" | "next" | "actOnWriteIn">;
+
+function answerFieldsOf(raw: AnswersMap, decidedBy: string): AnswerFields {
+  const answers = normalizeAnswers(raw);
+  return { decidedBy, answers, writeIn: writeInsOf(answers), next: nextOf(answers), actOnWriteIn: actOnWriteIn(answers) };
 }
 
-/** Records an answered row's decision on the run under the late-answer rule,
-    and clears waiting-gate when it names this gate, recorded or not. */
-export async function recordAnswered(
+function answerFields(row: GateRow): AnswerFields {
+  return answerFieldsOf(row.answer?.answers ?? {}, row.answer?.by ?? "unknown");
+}
+
+export interface RecordOptions {
+  scope: string;
+  shape: RecordShape;
+  record: boolean;
+  source?: GateCtxSource;
+  contextDropped?: boolean | string[];
+  held?: string[];
+}
+
+async function clearWaitingGate(run: RunHandle, gateId: string): Promise<string | null> {
+  return fieldValue(run, "waiting-gate") === gateId ? run.field("waiting-gate", "-") : null;
+}
+
+/** `gate` is null for a handed decision; `lateSince` null skips the
+    late-answer rule (an explicit record upserts). */
+async function recordDecision(
   run: RunHandle,
-  row: GateRow,
-  o: { scope: string; shape: RecordShape; record: boolean; source?: GateCtxSource; contextDropped?: boolean | string[]; held?: string[] },
+  fields: AnswerFields,
+  gate: { id: string; questions: GateQuestion[] } | null,
+  lateSince: number | null,
+  o: RecordOptions,
 ): Promise<RecordResult> {
-  const fields = answerFields(row);
   const result: RecordResult = { recorded: false, ...fields };
   const runErrors: string[] = [];
 
-  if (decisionForGate(run.snapshot.decisions, o.scope, row.openedAt)) {
+  if (lateSince !== null && decisionForGate(run.snapshot.decisions, o.scope, lateSince)) {
     result.alreadyReconciled = true;
     result.skipped = `already reconciled: ${o.scope} has a decision since this gate opened`;
   } else if (!o.record) {
@@ -241,16 +262,16 @@ export async function recordAnswered(
     } else {
       let selection: Record<string, unknown>;
       if (o.shape === "respond-plan") {
-        const droppedHere = fieldValue(run, `extra.context-dropped.${o.scope}`) === row.id;
+        const droppedHere = gate !== null && fieldValue(run, `extra.context-dropped.${o.scope}`) === gate.id;
         const built = respondPlanSelection(fields.answers, {
           source: o.source,
-          storedQuestions: row.questions,
+          storedQuestions: gate?.questions,
           contextDropped: droppedHere ? true : o.contextDropped,
         });
         selection = built.selection;
         result.rows = built.rows;
       } else if (o.shape === "respond-post") {
-        selection = respondPostSelection(fields.answers, { source: o.source, storedQuestions: row.questions, held: o.held });
+        selection = respondPostSelection(fields.answers, { source: o.source, storedQuestions: gate?.questions, held: o.held });
       } else if (o.shape === "post") {
         selection = postSelection(fields.answers, { source: o.source });
       } else {
@@ -263,12 +284,23 @@ export async function recordAnswered(
     }
   }
 
-  if (fieldValue(run, "waiting-gate") === row.id) {
-    const failed = await run.field("waiting-gate", "-");
+  if (gate) {
+    const failed = await clearWaitingGate(run, gate.id);
     if (failed) runErrors.push(failed);
   }
   if (runErrors.length > 0) result.runErrors = runErrors;
   return result;
+}
+
+/** Records an answered row's decision on the run and clears waiting-gate when
+    it names this gate, recorded or not. The late-answer rule applies unless
+    `upsert` (gate_record re-recording its own gate). */
+export async function recordAnswered(
+  run: RunHandle,
+  row: GateRow,
+  o: RecordOptions & { upsert?: boolean },
+): Promise<RecordResult> {
+  return recordDecision(run, answerFields(row), row, o.upsert ? null : row.openedAt, o);
 }
 
 export async function answerGate(input: Record<string, unknown>, env: NodeJS.ProcessEnv, deps: GateToolDeps): Promise<ToolResult> {
@@ -475,7 +507,129 @@ export async function openGate(input: Record<string, unknown>, env: NodeJS.Proce
   return ok(result);
 }
 
+export async function reconcileGate(input: Record<string, unknown>, env: NodeJS.ProcessEnv, deps: GateToolDeps): Promise<ToolResult> {
+  const bad = checkRequired(input, [{ name: "id", type: "string" }])
+    ?? checkOptional(input, [{ name: "record", type: "boolean" }])
+    ?? scopeError(input);
+  if (bad) return err(bad);
+  const opened = await openRun(input, env, deps);
+  if (opened && "error" in opened) return err(opened.error);
+  const run = opened?.run ?? null;
+
+  const id = input.id as string;
+  const payload: Commands["gate:wait"]["payload"] = { id, waitMs: 2000 };
+  if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
+  const res = await deps.wait(payload);
+  if (!res.ok && res.error === "not-found") return err(`no gate ${id}`);
+  if (!res.ok || !res.data) return fromResponse(res);
+  const data = res.data;
+  if (data.status === "timeout") return ok({ status: "open", id });
+
+  const { row } = data;
+  if (data.status === "closed") {
+    const result: Record<string, unknown> = { status: "closed", id, closedReason: row.closedReason, supersededBy: row.supersededBy };
+    const failed = run ? await clearWaitingGate(run, id) : null;
+    if (failed) result.runErrors = [failed];
+    return ok(result);
+  }
+  if (!run) return ok({ status: "answered", row, recorded: false, ...answerFields(row) });
+  const recorded = await recordAnswered(run, row, {
+    scope: typeof input.scope === "string" ? input.scope : row.kind,
+    shape: "answers",
+    record: input.record !== false,
+  });
+  return ok({ status: "answered", row, ...recorded });
+}
+
+const RECORD_SHAPES: RecordShape[] = ["answers", "respond-plan", "respond-post", "post"];
+
+const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
+
+function recordInputError(input: Record<string, unknown>): string | undefined {
+  const bad = checkRequired(input, [{ name: "runDb", type: "string" }, { name: "stage", type: "string" }, { name: "scope", type: "string" }])
+    ?? checkOptional(input, [{ name: "shape", type: "string" }, { name: "gateId", type: "string" }, { name: "decidedBy", type: "string" }])
+    ?? scopeError(input);
+  if (bad) return bad;
+  if (input.shape !== undefined && !RECORD_SHAPES.includes(input.shape as RecordShape)) {
+    return `"shape" must be one of ${RECORD_SHAPES.join(", ")}`;
+  }
+  if ((input.gateId === undefined) === (input.answers === undefined)) return 'pass exactly one of "gateId" or "answers"';
+  if (input.answers !== undefined) {
+    const answers = checkRequired(input, [{ name: "answers", type: "object" }]);
+    if (answers) return answers;
+    if (typeof input.decidedBy !== "string" || input.decidedBy.trim() === "") return '"decidedBy" is required with "answers"';
+  } else if (input.decidedBy !== undefined) {
+    return '"decidedBy" is only for handed "answers"';
+  }
+  if (input.held !== undefined && !isStringArray(input.held)) return '"held" must be an array of strings';
+  const dropped = input.contextDropped;
+  if (dropped !== undefined && typeof dropped !== "boolean" && !isStringArray(dropped)) {
+    return '"contextDropped" must be a boolean or an array of question ids';
+  }
+  return undefined;
+}
+
+/** The scope's stored gate source, or null when absent or unreadable. */
+function storedSource(run: RunHandle, scope: string): { gate: string | null; source?: GateCtxSource } | null {
+  const raw = fieldValue(run, `extra.gate-source.${scope}`);
+  if (raw === undefined) return null;
+  try {
+    const parsed = JSON.parse(raw) as { gate?: unknown; source?: unknown };
+    return {
+      gate: typeof parsed.gate === "string" ? parsed.gate : null,
+      ...(isObject(parsed.source) ? { source: parsed.source as unknown as GateCtxSource } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function recordGate(input: Record<string, unknown>, env: NodeJS.ProcessEnv, deps: GateToolDeps): Promise<ToolResult> {
+  const bad = recordInputError(input);
+  if (bad) return err(bad);
+  let given: GateCtxSource | undefined;
+  if (["source", "sourcePath", "review"].some((k) => input[k] !== undefined)) {
+    const resolved = resolveSource(input, deps);
+    if ("error" in resolved) return err(resolved.error);
+    given = resolved.source;
+  }
+  const opened = await openRun(input, env, deps);
+  if (!opened || "error" in opened) return err(opened?.error ?? "run_snapshot failed");
+  const { run } = opened;
+
+  const scope = input.scope as string;
+  const stored = storedSource(run, scope);
+  const o: RecordOptions = {
+    scope,
+    shape: (input.shape as RecordShape | undefined) ?? "answers",
+    record: true,
+    source: given ?? stored?.source,
+    contextDropped: input.contextDropped as boolean | string[] | undefined,
+    held: input.held as string[] | undefined,
+  };
+  if (input.answers !== undefined) {
+    const fields = answerFieldsOf(input.answers as AnswersMap, (input.decidedBy as string).trim());
+    return ok(await recordDecision(run, fields, null, null, o));
+  }
+
+  const id = input.gateId as string;
+  const res = await deps.wait({ id, waitMs: 0 });
+  if (!res.ok && res.error === "not-found") return err(`no gate ${id}`);
+  if (!res.ok || !res.data) return fromResponse(res);
+  const data = res.data;
+  if (data.status === "timeout") return err(`gate ${id} is still open; record it once it is answered`);
+  if (data.status === "closed") return err(`gate ${id} is closed (${data.row.closedReason ?? "closed"}) and has no answer to record`);
+  if (typeof stored?.gate === "string" && stored.gate !== id) {
+    return ok({ recorded: false, skipped: `stale gate; ${scope}'s latest gate is ${stored.gate}`, ...answerFields(data.row) });
+  }
+  return ok(await recordAnswered(run, data.row, { ...o, upsert: true }));
+}
+
 const GATE_OPEN_DESCRIPTION = "Build, validate and size-fit a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. The context is fitted to the shared 8192-byte budget (structured with optional parts trimmed, else prose); the form view is always the prose of the untrimmed source. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: \"post\" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits, trimmed, contextDropped (fits false or the daemon dropped context), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}, with option text truncated as gate_ask does and dropping whole question contexts largest first (then the gate context) when even prose is over budget; outPath also writes the open, in gate-ctx.sh's output shape, to a temp-root file.";
+
+const GATE_RECONCILE_DESCRIPTION = "The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: \"answered\", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the gate's kind) with the answer's by as the decider, unless a decision on that scope already landed since the gate opened (alreadyReconciled) or record is false; it clears waiting-gate when it names this gate. closed: returns {status: \"closed\", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: \"open\"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.";
+
+const GATE_RECORD_DESCRIPTION = "Record a gate decision on a run that no gate tool recorded at answer time: a review scope at its site's own point (respond-plan, respond-post and post after acting), or a decision handed in by the caller (answers plus decidedBy, for a board wrapper). runDb, stage and scope are required. gateId reads that answered gate (an open or closed gate is refused) and its answer's by is the decider. shape picks the selection: answers (the normalized answers map, never skipped), respond-plan ({threads, texts?, overrides?, notes?, code-changes} plus rows for the report), respond-post ({threads: {<id>: {post, resolve, text?, note?}}, held?}) or post ({findings, disposition, replies?, restored?}); the three review shapes record nothing when a next answer other than proceed is present. Cards come from source, sourcePath or review when passed, else from the run's extra.gate-source.<scope>. It always upserts its own gate, so a held respond-post resume re-records with held; it refuses only a stale gate, one whose scope's stored source names a later gate. Returns {recorded, selection, decidedBy, rows?, answers, writeIn, next, actOnWriteIn, skipped?, runErrors?}. It records only; the skill acts.";
 
 export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[] {
   return [
@@ -504,6 +658,58 @@ export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[
       shellForms: { none: "replaces sh gate-ctx.sh / review-source.sh once wave 3 rewrites the skills" },
       async handler(input, env) {
         return openGate(input, env, deps);
+      },
+    },
+    {
+      name: "gate_reconcile",
+      description: GATE_RECONCILE_DESCRIPTION,
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The gate id." },
+          record: { type: "boolean", description: "Record the answers map on the run (default true); review sites pass false and record with gate_record." },
+          ...GATE_RUN_PROPS,
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+      shellForms: { none: "replaces rt gate wait <id> --timeout 2s and the run bookkeeping a skill did by hand after a wait, doorbell or held gate" },
+      async handler(input, env) {
+        return reconcileGate(input, env, deps);
+      },
+    },
+    {
+      name: "gate_record",
+      description: GATE_RECORD_DESCRIPTION,
+      inputSchema: {
+        type: "object",
+        properties: {
+          runDb: { type: "string", description: "The run's runDb; the decision is written there." },
+          stage: { type: "string", description: "The stage recording." },
+          scope: { type: "string", description: "The decision scope on the run (respond-plan, respond-post, post, ...)." },
+          shape: { type: "string", enum: RECORD_SHAPES, description: "How the selection is built; default answers." },
+          gateId: { type: "string", description: "An answered gate whose row is read; its answer's by is the decider." },
+          answers: { type: "object", description: "A handed decision's answers, recorded with decidedBy instead of a gate's row." },
+          decidedBy: { type: "string", description: "Who decided a handed decision (board, console, ...); required with answers." },
+          source: { type: "object", description: "A gate-ctx@1 source the cards are rebuilt from: {context?, questions}." },
+          sourcePath: { type: "string", description: "A .json gate-ctx@1 source file under a read root." },
+          review: {
+            type: "object",
+            description: "Build the source from a review's findings, as gate_open takes it.",
+            properties: { findings: { type: "object" }, findingsPath: { type: "string" }, extras: { type: "object" } },
+          },
+          contextDropped: {
+            description: "respond-plan: true, or the question ids whose context never reached the gate.",
+            oneOf: [{ type: "boolean" }, { type: "array", items: { type: "string" } }],
+          },
+          held: { type: "array", items: { type: "string" }, description: "respond-post: the thread ids held back from posting." },
+        },
+        required: ["runDb", "stage", "scope"],
+        additionalProperties: false,
+      },
+      shellForms: { none: "replaces the jq selection builders and rt run decision calls the review skills ran by hand" },
+      async handler(input, env) {
+        return recordGate(input, env, deps);
       },
     },
   ];

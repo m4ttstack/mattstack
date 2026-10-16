@@ -22,6 +22,7 @@ interface FakeOpts {
   decisions?: DecisionRow[];
   askData?: Partial<AskData>;
   answerRes?: { ok: boolean; data?: unknown; error?: string; [k: string]: unknown };
+  waitRes?: { ok: boolean; data?: unknown; error?: string };
   failWrite?: (line: string) => string | undefined;
 }
 
@@ -29,6 +30,7 @@ function fake(o: FakeOpts = {}) {
   const log: string[] = [];
   const asks: Record<string, unknown>[] = [];
   const answers: Record<string, unknown>[] = [];
+  const waits: Record<string, unknown>[] = [];
   const deps: GateToolDeps = {
     ask: (async (p: Record<string, unknown>) => {
       log.push("ask");
@@ -40,7 +42,11 @@ function fake(o: FakeOpts = {}) {
       answers.push(p);
       return o.answerRes ?? { ok: true, data: { row: row() } };
     }) as unknown as GateToolDeps["answer"],
-    wait: (async () => { throw new Error("unexpected wait"); }) as unknown as GateToolDeps["wait"],
+    wait: (async (p: Record<string, unknown>) => {
+      log.push("wait");
+      waits.push(p);
+      return o.waitRes ?? { ok: true, data: { status: "answered", row: row() } };
+    }) as unknown as GateToolDeps["wait"],
     runDeps: {
       write: async (verb, args) => {
         const line = [verb, ...args].join(" ");
@@ -70,7 +76,7 @@ function fake(o: FakeOpts = {}) {
     readFile: () => { throw new Error("unexpected read"); },
     writeFile: () => { throw new Error("unexpected write"); },
   };
-  return { deps, log, asks, answers };
+  return { deps, log, asks, answers, waits };
 }
 
 function row(over: Partial<GateRow> = {}): GateRow {
@@ -651,5 +657,255 @@ describe("askGate scope", () => {
     const res = await askGate({ ...ASK, ...RUN, scope: 7 }, ENV, f.deps, { run: opened.run });
     expect(res.error).toBe('"scope" must be a non-empty string');
     expect(f.log).toEqual(["snapshot"]);
+  });
+});
+
+const decided = (scope: string, decided_at: number): DecisionRow => ({ contract: "gate@1", scope, selection: "{}", decided_by: "board", decided_at });
+const recordLine = (scope: string, selection: unknown, by: string) =>
+  `decision record --contract gate@1 --scope ${scope} --selection ${JSON.stringify(selection)} --decided-by ${by}`;
+const tool = (name: string, deps: GateToolDeps) => gateToolDefs(deps).find((d) => d.name === name)!;
+const ARMED: Field = { key: "waiting-gate", value: "g1", at: 1 };
+const CLEAR = "field set waiting-gate - --stage s";
+
+describe("gate_reconcile", () => {
+  const reconcile = (input: Record<string, unknown>, f: ReturnType<typeof fake>) => tool("gate_reconcile", f.deps).handler(input, ENV);
+  const byBoard = row({ answer: { answers: { q1: "yes" }, by: "board", answeredAt: 2000 } });
+  const answered = (r: GateRow = byBoard) => ({ ok: true, data: { status: "answered", row: r } });
+  const closed = { ok: true, data: { status: "closed", row: row({ status: "closed", answer: null, closedAt: 3000, closedReason: "superseded", supersededBy: "g2" }) } };
+  const timedOut = { ok: true, data: { status: "timeout" } };
+
+  test("has a none shell form", () => {
+    expect(tool("gate_reconcile", fake().deps).shellForms).toEqual({
+      none: "replaces rt gate wait <id> --timeout 2s and the run bookkeeping a skill did by hand after a wait, doorbell or held gate",
+    });
+  });
+
+  test("answered: re-reads with this session, records the answers map as the row's by and clears waiting-gate", async () => {
+    const f = fake({ waitRes: answered(), fields: [ARMED] });
+    const res = await reconcile({ id: "g1", ...RUN }, f);
+    expect(f.waits[0]).toEqual({ id: "g1", waitMs: 2000, sessionId: "sess-1" });
+    expect(f.log).toEqual(["snapshot", "wait", recordLine("question", { q1: "yes" }, "board"), CLEAR]);
+    expect(body(res)).toMatchObject({ status: "answered", row: byBoard, recorded: true, decidedBy: "board", answers: { q1: "yes" } });
+  });
+
+  test("answered and already reconciled records nothing", async () => {
+    const f = fake({ waitRes: answered(), fields: [ARMED], decisions: [decided("question", 1000)] });
+    const res = await reconcile({ id: "g1", ...RUN }, f);
+    expect(f.log).toEqual(["snapshot", "wait", CLEAR]);
+    expect(body(res)).toMatchObject({ status: "answered", recorded: false, alreadyReconciled: true });
+  });
+
+  test("record: false records nothing but clears waiting-gate", async () => {
+    const f = fake({ waitRes: answered(), fields: [ARMED] });
+    const res = await reconcile({ id: "g1", ...RUN, record: false }, f);
+    expect(f.log).toEqual(["snapshot", "wait", CLEAR]);
+    expect(body(res)).toMatchObject({ status: "answered", recorded: false, skipped: "record: false" });
+  });
+
+  test("an explicit scope records under it", async () => {
+    const f = fake({ waitRes: answered() });
+    await reconcile({ id: "g1", ...RUN, scope: "custom" }, f);
+    expect(f.log.at(-1)).toBe(recordLine("custom", { q1: "yes" }, "board"));
+  });
+
+  test("closed: clears waiting-gate, never an answer, records nothing", async () => {
+    const f = fake({ waitRes: closed, fields: [ARMED] });
+    const res = await reconcile({ id: "g1", ...RUN }, f);
+    expect(f.log).toEqual(["snapshot", "wait", CLEAR]);
+    expect(body(res)).toEqual({ status: "closed", id: "g1", closedReason: "superseded", supersededBy: "g2" });
+  });
+
+  test("timeout: status open, waiting-gate left armed, no run writes", async () => {
+    const f = fake({ waitRes: timedOut, fields: [ARMED] });
+    const res = await reconcile({ id: "g1", ...RUN }, f);
+    expect(f.log).toEqual(["snapshot", "wait"]);
+    expect(body(res)).toEqual({ status: "open", id: "g1" });
+  });
+
+  test("without a run, the same statuses come back with no run calls", async () => {
+    const a = fake({ waitRes: answered() });
+    expect(body(await reconcile({ id: "g1" }, a))).toMatchObject({ status: "answered", recorded: false, decidedBy: "board" });
+    const c = fake({ waitRes: closed });
+    expect(body(await reconcile({ id: "g1" }, c))).toEqual({ status: "closed", id: "g1", closedReason: "superseded", supersededBy: "g2" });
+    const t = fake({ waitRes: timedOut });
+    expect(body(await reconcile({ id: "g1" }, t))).toEqual({ status: "open", id: "g1" });
+    for (const f of [a, c, t]) expect(f.log).toEqual(["wait"]);
+  });
+
+  test("a failed record after the re-read returns the answer with runErrors", async () => {
+    const f = fake({ waitRes: answered(), failWrite: (l) => (l.startsWith("decision") ? "disk full" : undefined) });
+    const res = await reconcile({ id: "g1", ...RUN }, f);
+    expect(res.ok).toBe(true);
+    expect(body(res)).toMatchObject({ status: "answered", recorded: false, runErrors: ["disk full"] });
+  });
+
+  test("an unknown gate and a missing id are refused", async () => {
+    const f = fake({ waitRes: { ok: false, error: "not-found" } });
+    expect((await reconcile({ id: "g9" }, f)).error).toBe("no gate g9");
+    const bare = fake();
+    expect((await reconcile({}, bare)).error).toContain('"id"');
+    expect(bare.log).toEqual([]);
+  });
+
+  test("runDb without stage is refused before the re-read", async () => {
+    const f = fake();
+    const res = await reconcile({ id: "g1", runDb: DB }, f);
+    expect(res.error).toContain('"stage"');
+    expect(f.log).toEqual([]);
+  });
+});
+
+describe("gate_record", () => {
+  const record = (input: Record<string, unknown>, f: ReturnType<typeof fake>) => tool("gate_record", f.deps).handler(input, ENV);
+  const REC = { ...RUN, scope: "respond-plan", shape: "respond-plan", gateId: "g1" };
+  const sourceField = (scope: string, gate: string | null, src: unknown, at = 1100): Field =>
+    ({ key: `extra.gate-source.${scope}`, value: JSON.stringify({ gate, source: src }), at });
+  const planRow = (answers: Record<string, unknown>) => row({
+    kind: "respond-plan",
+    questions: fitOpen(plan()).questions as unknown as GateRow["questions"],
+    answer: { answers: answers as NonNullable<GateRow["answer"]>["answers"], by: "pane", answeredAt: 2000 },
+  });
+  const PLAN_ANSWERS = { "thread-1": "fix:T1", "thread-2": "reply:T2", "code-changes": "approve" };
+  const answeredPlan = { ok: true, data: { status: "answered", row: planRow(PLAN_ANSWERS) } };
+
+  test("has a none shell form", () => {
+    expect(tool("gate_record", fake().deps).shellForms).toEqual({
+      none: "replaces the jq selection builders and rt run decision calls the review skills ran by hand",
+    });
+  });
+
+  test("respond-plan by gateId reads the row at waitMs 0 and takes its cards from the stored source", async () => {
+    const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", "g1", plan())] });
+    const res = await record(REC, f);
+    expect(f.waits[0]).toEqual({ id: "g1", waitMs: 0 });
+    const selection = { threads: { T1: "fix", T2: "reply" }, "code-changes": "approve" };
+    expect(f.log).toEqual(["snapshot", "wait", recordLine("respond-plan", selection, "pane")]);
+    expect(body(res)).toMatchObject({ recorded: true, selection, decidedBy: "pane" });
+    const rows = body(res).rows as { threadId: string; verdict: string; gate1: string; reply: string }[];
+    expect(rows.map((r) => [r.threadId, r.verdict, r.gate1])).toEqual([["T1", "valid", "fix"], ["T2", "pushback", "reply"]]);
+    expect(rows[1]!.reply).toStartWith("the wait is a fixed 30s delay");
+  });
+
+  test("the run's context-dropped mark for this gate makes every textless reply an override", async () => {
+    const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", "g1", plan()), { key: "extra.context-dropped.respond-plan", value: "g1", at: 1050 }] });
+    const res = await record(REC, f);
+    expect(body(res).selection).toEqual({ threads: { T1: "fix", T2: "reply" }, overrides: ["T2"], "code-changes": "approve" });
+    expect((body(res).rows as { gate1: string }[])[1]!.gate1).toBe("override");
+  });
+
+  test("a passed source wins over the stored one", async () => {
+    const f = fake({ waitRes: answeredPlan });
+    const res = await record({ ...REC, source: plan() }, f);
+    expect((body(res).rows as { verdict: string }[]).map((r) => r.verdict)).toEqual(["valid", "pushback"]);
+  });
+
+  test("respond-post with held upserts over a decision already on the scope", async () => {
+    const post = loadJson(join(RR, "post-source.json"));
+    const postRow = row({ kind: "respond-post", answer: { answers: { "thread-1": ["post:T1", "resolve:T1"], next: "proceed" }, by: "console", answeredAt: 2000 } });
+    const f = fake({
+      waitRes: { ok: true, data: { status: "answered", row: postRow } },
+      fields: [sourceField("respond-post", "g1", post)],
+      decisions: [decided("respond-post", 2500)],
+    });
+    const res = await record({ ...RUN, scope: "respond-post", shape: "respond-post", gateId: "g1", held: ["T1"] }, f);
+    const selection = { threads: { T1: { post: true, resolve: true }, T2: { post: false, resolve: false } }, held: ["T1"] };
+    expect(f.log).toEqual(["snapshot", "wait", recordLine("respond-post", selection, "console")]);
+    expect(body(res)).toMatchObject({ recorded: true, selection });
+    expect(body(res).alreadyReconciled).toBeUndefined();
+  });
+
+  test("a stale gate is skipped with no write", async () => {
+    const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-post", "g2", plan()), ARMED] });
+    const res = await record({ ...RUN, scope: "respond-post", shape: "respond-post", gateId: "g1" }, f);
+    expect(f.log).toEqual(["snapshot", "wait"]);
+    expect(body(res)).toMatchObject({ recorded: false, skipped: "stale gate; respond-post's latest gate is g2" });
+  });
+
+  test("a hand-back source (gate null) never makes a gate stale", async () => {
+    const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", null, plan())] });
+    const res = await record(REC, f);
+    expect(body(res).recorded).toBe(true);
+  });
+
+  test("an answered gate clears waiting-gate when it names the gate", async () => {
+    const f = fake({ waitRes: answeredPlan, fields: [ARMED] });
+    await record(REC, f);
+    expect(f.log.at(-1)).toBe(CLEAR);
+  });
+
+  test("a still-open gateId is refused with no write", async () => {
+    const f = fake({ waitRes: { ok: true, data: { status: "timeout" } } });
+    const res = await record(REC, f);
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("gate g1 is still open; record it once it is answered");
+    expect(f.log).toEqual(["snapshot", "wait"]);
+  });
+
+  test("a closed or unknown gateId is refused", async () => {
+    const closedRow = row({ status: "closed", answer: null, closedReason: "abandoned" });
+    const c = await record(REC, fake({ waitRes: { ok: true, data: { status: "closed", row: closedRow } } }));
+    expect(c.error).toBe("gate g1 is closed (abandoned) and has no answer to record");
+    const n = await record(REC, fake({ waitRes: { ok: false, error: "not-found" } }));
+    expect(n.error).toBe("no gate g1");
+  });
+
+  test("post with next hold decides nothing", async () => {
+    const holdRow = row({ answer: { answers: { "findings-1": ["F1"], outcome: "comment", next: "hold" }, by: "pane", answeredAt: 2000 } });
+    const f = fake({ waitRes: { ok: true, data: { status: "answered", row: holdRow } } });
+    const res = await record({ ...RUN, scope: "post", shape: "post", gateId: "g1" }, f);
+    expect(f.log).toEqual(["snapshot", "wait"]);
+    expect(body(res)).toMatchObject({ recorded: false, skipped: "next is hold: post decides nothing", next: "hold" });
+  });
+
+  test("the answers shape records a hold next as is", async () => {
+    const holdRow = row({ answer: { answers: { q1: "yes", next: "hold" }, by: "pane", answeredAt: 2000 } });
+    const f = fake({ waitRes: { ok: true, data: { status: "answered", row: holdRow } } });
+    await record({ ...RUN, scope: "question", gateId: "g1" }, f);
+    expect(f.log.at(-1)).toBe(recordLine("question", { q1: "yes", next: "hold" }, "pane"));
+  });
+
+  test("handed answers record as the named decider without reading the registry", async () => {
+    const f = fake();
+    const res = await record({ ...RUN, scope: "question", answers: { q1: { value: "yes", note: "" } }, decidedBy: "board" }, f);
+    expect(f.log).toEqual(["snapshot", recordLine("question", { q1: "yes" }, "board")]);
+    expect(body(res)).toMatchObject({ recorded: true, decidedBy: "board", answers: { q1: "yes" } });
+  });
+
+  test("a handed respond-plan takes its cards from a hand-back source", async () => {
+    const f = fake({ fields: [sourceField("respond-plan", null, plan())] });
+    const res = await record({ ...RUN, scope: "respond-plan", shape: "respond-plan", answers: PLAN_ANSWERS, decidedBy: "board" }, f);
+    expect((body(res).rows as { verdict: string }[]).map((r) => r.verdict)).toEqual(["valid", "pushback"]);
+    expect(f.log.at(-1)).toStartWith("decision record --contract gate@1 --scope respond-plan");
+  });
+
+  test("a failed record returns the result with runErrors", async () => {
+    const f = fake({ failWrite: (l) => (l.startsWith("decision") ? "disk full" : undefined) });
+    const res = await record({ ...RUN, scope: "question", answers: { q1: "yes" }, decidedBy: "board" }, f);
+    expect(res.ok).toBe(true);
+    expect(body(res)).toMatchObject({ recorded: false, runErrors: ["disk full"] });
+  });
+
+  test("bad inputs are refused before any call", async () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [{ ...RUN, scope: "question", answers: { q1: "yes" } }, '"decidedBy" is required with "answers"'],
+      [{ ...RUN, scope: "question", answers: { q1: "yes" }, decidedBy: "" }, '"decidedBy" is required with "answers"'],
+      [{ ...RUN, scope: "question" }, 'pass exactly one of "gateId" or "answers"'],
+      [{ ...RUN, scope: "question", gateId: "g1", answers: { q1: "yes" }, decidedBy: "board" }, 'pass exactly one of "gateId" or "answers"'],
+      [{ ...RUN, scope: "question", gateId: "g1", decidedBy: "board" }, '"decidedBy" is only for handed "answers"'],
+      [{ stage: "s", scope: "question", gateId: "g1" }, '"runDb" is required'],
+      [{ runDb: DB, scope: "question", gateId: "g1" }, '"stage" is required'],
+      [{ ...RUN, gateId: "g1" }, '"scope" is required'],
+      [{ ...RUN, scope: " ", gateId: "g1" }, '"scope" must be a non-empty string'],
+      [{ ...RUN, scope: "q", gateId: "g1", shape: "plan" }, '"shape" must be one of answers, respond-plan, respond-post, post'],
+      [{ ...RUN, scope: "q", gateId: "g1", held: "T1" }, '"held" must be an array of strings'],
+      [{ ...RUN, scope: "q", gateId: "g1", contextDropped: "yes" }, '"contextDropped" must be a boolean or an array of question ids'],
+      [{ ...RUN, scope: "q", gateId: "g1", source: plan(), sourcePath: "/x.json" }, 'pass exactly one of "source", "sourcePath" or "review"'],
+    ];
+    for (const [input, error] of cases) {
+      const f = fake();
+      const res = await record(input, f);
+      expect(res.error).toBe(error);
+      expect(f.log).toEqual([]);
+    }
   });
 });
