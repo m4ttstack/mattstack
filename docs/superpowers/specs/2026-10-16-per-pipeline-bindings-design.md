@@ -1,0 +1,241 @@
+# Per-pipeline bindings and specialized work commands
+
+Ticket: RT-491. Status: design, awaiting approval.
+
+## Intent
+
+Work means taking a ticket end to end through a pipeline's stages. Today
+there is one pipeline, `feature`, and it covers most work. A team should be
+able to add a pipeline built for one kind of task (accessibility, a bug
+fix) that runs its own stage list with its own fills, without forking any
+mattstack engine. No team needs one yet: this makes it possible.
+
+Two things block it today:
+
+1. **Nothing runs a second pipeline.** A manifest can declare several
+   `pipelines` keys, but the work orchestrator
+   (`plugins/mattstack/attachments/pipeline/work/SKILL.md`) has a fixed
+   eight-row stage table and always starts runs with
+   `{{run-start.flags:work}}`, so every run records work type `work` and
+   pipeline `work`. The work-type menu was removed on purpose at the work
+   cutover (`plugins/mattstack/docs/superpowers/specs/2026-09-27-work-cutover-design.md`).
+2. **Bindings have no pipeline in them.** `bindings` is keyed by engine ref
+   and slot (`lib/skills/manifest-merge.ts`), and `stageRoster`
+   (`lib/skills/sources.ts`) compiles each stage once however many
+   pipelines list it, so every pipeline gets the same fills.
+
+## Goals
+
+- A pack can declare a second pipeline with its own stage list and its own
+  fills for any stage in it.
+- A pack exposes each specialized pipeline as its own command, so the
+  command you run decides the pipeline. No menu, no guessing.
+- Runs record which pipeline they ran, and console shows and filters by it.
+- Pack authoring (init, the pack skills, docs) teaches the new shape.
+
+## Non-goals
+
+- Bringing back a pipeline menu inside `work`.
+- Per-pipeline overrides for anything other than the pipeline's stages (the
+  work engine's own slots, roster verbs, board launches).
+- The board's review, doctor and respond skills: their `resolve-args.sh`
+  keeps reading default bindings, since they never run inside a pipeline.
+- Forking or parameterizing any stage engine.
+
+## Anti-goals
+
+- Any change in compiled output, generated manifests or run records for a
+  pack that declares one pipeline and no overrides, beyond new runs
+  recording `feature` (below). Existing packs must not notice this landed.
+- A migration. Today's plain-list pipelines stay valid forever.
+- A specialized run that console shows as anything other than a work run.
+
+## Vocabulary
+
+- **Stage**: a step a pipeline runs, in order (plan, evidence, ship).
+  Engines are mattstack's and are the same for every team.
+- **Binding**: a team's skill plugged into a slot a stage (or verb) leaves
+  open.
+- **Work type**: the kind of run (`work`, `review`, `receive-review`).
+  Console derives a run's kind from it (`apps/console/src/app/runs/derive/kind.ts`).
+- **Pipeline**: which version of work a run is (`feature`, `accessibility`,
+  `bugfix`).
+
+## Decided
+
+### Commands
+
+A pack adds a specialized pipeline as a new verb in `pack/stubs.jsonc` on
+the existing `work` engine, naming the pipeline it runs:
+
+```jsonc
+{
+  "verbs": {
+    "work": { "engine": "work", "description": "Run a unit of work" },
+    "work-a11y": {
+      "engine": "work",
+      "pipeline": "accessibility",
+      "description": "Run accessibility work end to end"
+    }
+  }
+}
+```
+
+- `work` with no `pipeline` keeps today's behavior: it runs the `feature`
+  pipeline.
+- The recommended name is `work-<kind>`, so every kind groups under
+  `/<pack>:work` in autocomplete and `work` stays the default. Mattstack
+  does not enforce names; the pack skills recommend this one.
+- The work orchestrator's stage table stops being hand-written rows and is
+  built at compile time from the verb's pipeline, so each compiled work
+  verb points at its own pipeline's stage copies.
+
+### Run records
+
+A run started by a work verb records work type `work` and pipeline `<name>`
+(`--work-type work --pipeline accessibility`). Work type stays `work` so
+console keeps classifying it as a work run. New default runs record
+pipeline `feature`; old runs keep `work`, and console shows whatever a run
+stored.
+
+### Manifest shape
+
+A pipeline's value is either today's plain list of stages, or an object
+carrying the stages and that pipeline's binding overrides:
+
+```jsonc
+"pipelines": {
+  "feature": ["mattstack:stage-plan", "...", "mattstack:stage-evidence"],
+  "accessibility": {
+    "stages": ["mattstack:stage-plan", "...", "mattstack:stage-evidence"],
+    "bindings": {
+      "mattstack:stage-evidence": { "evidence-domain": "acme:capture-a11y-evidence" }
+    }
+  }
+},
+"bindings": {
+  "mattstack:stage-evidence": { "evidence-domain": "acme:capture-evidence" }
+}
+```
+
+- Top-level `bindings` stay the default for every pipeline and for
+  everything that is not a stage.
+- A pipeline's `bindings` override per slot. Slots it does not list come
+  from the default. An empty string unbinds the slot for that pipeline
+  only, matching how an empty fill unbinds today.
+- Stages and bindings are siblings, not inline on each stage, so layering
+  keeps its two rules:
+  - a layer that sets a pipeline's `stages` replaces the list whole, as
+    today;
+  - a layer's pipeline `bindings` merge one slot at a time, as top-level
+    bindings do.
+- A layer may set a pipeline's `bindings` without restating its `stages`.
+  The merged result must end with a stage list for every pipeline.
+- The manifest's provenance header records which layer set each pipeline
+  override slot, as it does for default slots.
+- A pipeline with no overrides renders as a plain list in the generated
+  manifest, so existing manifests are byte-identical.
+
+### Compile
+
+- A stage compiles once per distinct set of fills. A pipeline whose fills
+  for a stage match the default shares the default copy; a pipeline with
+  different fills gets its own copy.
+- Allowed-tools unions, `{{verb.path:...}}`, stale sweeps and `rt skills
+  check`'s recompile-and-diff all cover the extra copies.
+- `rt skills check` errors on: a pipeline override for a stage the pipeline
+  does not list; a work verb naming an undeclared pipeline; a pipeline's
+  stages that fail the existing consumes/produces chain check
+  (`pipelineChainErrors`).
+
+### `rt skills bind`
+
+`rt skills bind <verb> <slot> <fill> --pipeline <name>` writes
+`pipelines.<name>.bindings.<engineRef>.<slot>` in the pack fragment,
+turning a plain-list pipeline into the object form when needed. It refuses
+a pipeline the pack does not declare, and a stage that pipeline does not
+list. Without `--pipeline`, it writes the default, as today.
+
+### Console
+
+- **Runs**: each row in the runs list shows its pipeline, and the list can
+  be filtered by pipeline. The run and record headers already read
+  `<pipeline> pipeline · ...` and search already matches pipeline. The
+  stage strip already reads the run's own `pipeline-stages` field, so a
+  pipeline with a different stage list draws correctly.
+- **Wiring graph**: the pipeline view shows each pipeline's real fills (an
+  accessibility stage shows its override, not the default).
+- **Rebind drawer**: the existing drawer (`drawer/rebind.ts`,
+  `POST /api/skills/bind`) gains a pipeline choice and passes `--pipeline`.
+- **Pending changes**: binding changes carry their pipeline, so the
+  unsynced banner and rows say which pipeline changed.
+- The used-by index (`invertBindings`) and the orphan check count a fill
+  bound only by a pipeline override as used.
+
+### Pack authoring in scope
+
+Everything that would be out of date after this lands is updated in the
+same project:
+
+- `rt skills init`: seeded `skills.jsonc` comments (no longer "a fixed
+  order" for every pack) and the seeded `stubs.jsonc`.
+- `mattstack:creating-a-pack`, `mattstack:extending-a-pack` (a recipe for
+  adding a specialized pipeline and command), `mattstack:editing-skills`.
+- `plugins/mattstack/docs/your-first-pack.md`, the example
+  `plugins/mattstack/plugin/examples/skills.jsonc`, and the manifest schema
+  `plugins/mattstack/plugin/schemas/skills-manifest.schema.json`.
+- Docs site pages under `website/docs/rt/reference/skills/` (`bind`,
+  `compile`, `composition`, `anatomy`, `check`) and any page that
+  describes pipelines.
+- The work orchestrator skill itself.
+
+## Constraints
+
+- Skill edits go through `superpowers:writing-skills` and
+  `mattstack:editing-skills`. A change under `plugins/mattstack` bumps
+  `.claude-plugin/plugin.json`'s version (the `plugin-mattstack` CI job).
+- rt's `--json` envelopes (composition, check, bind) are frozen: new
+  fields are additive, existing keys and values unchanged
+  (`commands/__tests__/skills-json-frozen.test.ts`).
+- Console's server types in `apps/console/src/server/skills.ts` mirror
+  rt's composition and changes payloads and move in step with them.
+- Examples in this repo use `acme`, never a real team's pack name.
+- Stage copy directory names pass `isSafeName` and never collide with a
+  roster verb name (`compileTargets` throws on that today).
+
+## Left to the builder
+
+- The compiled directory name for a pipeline's stage copy, and how
+  `StageEntry` records which engine a copy runs (it has no engine field
+  today).
+- Whether the orchestrator's stage table comes from `{{pipeline.stages}}`
+  or a new placeholder, and what happens to `{{work-type}}`, which nothing
+  will use.
+- The exact provenance key format for pipeline override slots, within what
+  `readManifestProvenance` can parse.
+- How `run-start.flags` is keyed once work type and pipeline differ.
+- Which stages the work engine's digraph treats specially (gates,
+  evidence, the `pipeline-stages` field), and whether a pipeline that
+  leaves one out is refused by check or skipped at run time. Pick one and
+  say which.
+
+## Acceptance
+
+- A pack declares `feature` and `accessibility`, binds `stage-evidence`'s
+  slot to fill A by default and fill B for `accessibility`, and adds a
+  `work-a11y` command. `work` runs use fill A; `work-a11y` runs use fill B.
+- A pack with one plain-list pipeline and no overrides compiles to
+  byte-identical output and an identical generated manifest.
+- A base pack, the pack, and the personal override layer can each set a
+  pipeline override slot, and the manifest's provenance shows which layer
+  won.
+- `rt skills bind --pipeline` writes the override, and refuses an
+  undeclared pipeline or a stage outside it.
+- `rt skills check` flags each error listed under Compile.
+- A `work-a11y` run records work type `work`, pipeline `accessibility`,
+  and shows in console as a work run with its pipeline in the list row,
+  header and filter.
+- Console's wiring graph and rebind drawer show and change per-pipeline
+  fills.
+- The pack skills, init output, example, schema and docs pages describe the
+  new shape.
