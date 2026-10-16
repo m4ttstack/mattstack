@@ -50,7 +50,7 @@ export type ForgeAccessReport =
   | { kind: "not-admin" }
   | { kind: "no-forge" }
   | { kind: "not-yet"; branch: string | null }
-  | { kind: "trial"; branch: string }
+  | { kind: "trial"; branch: string; dataBranch: string }
   | { kind: "refused"; manualSteps: string[] }
   | { kind: "shared-branch"; branch: string }
   | { kind: "ready"; provider: "github" | "gitlab"; branch: string; pushList: PushList; wanted: Wanted; diff: AccessDiff; managing: boolean; lastManualSteps: string[] };
@@ -61,6 +61,8 @@ export interface ForgeAccessApplied {
   limit: string | null;
   /** Kept off the push list this run (an invite not accepted yet, a grant that failed); the sweep comes back for them. */
   heldOff: string[];
+  /** The forge refused to protect the branch or set its push list; the sweep comes back for it. */
+  incomplete: boolean;
 }
 
 export interface AdminFollow {
@@ -89,7 +91,7 @@ function rosterFor(p: Pick<Probes, "readFile" | "home">, slug: string): RosterEn
   return raw === null ? [] : rosterFrom(parseStoreText(file, raw));
 }
 
-type DataBranch = { kind: "none" } | { kind: "trial"; branch: string } | { kind: "own"; branch: string };
+type DataBranch = { kind: "none" } | { kind: "trial"; branch: string; dataBranch: string } | { kind: "own"; branch: string };
 
 /**
  * The branch rt manages. "none" while the marker names no data branch: the
@@ -101,9 +103,9 @@ async function managedDataBranch(p: Probes, slug: string): Promise<DataBranch> {
   const dir = orgDirUnder(p.home, slug);
   const marker = markerState(p, dir);
   if (marker.kind !== "org" || marker.dataBranch === null) return { kind: "none" };
+  const own = await dataBranchOf(p, dir);
   const trial = readTeamLocal(p, slug).trialBranch;
-  if (trial !== undefined) return { kind: "trial", branch: trial };
-  return { kind: "own", branch: await dataBranchOf(p, dir) };
+  return trial !== undefined ? { kind: "trial", branch: trial, dataBranch: own } : { kind: "own", branch: own };
 }
 
 export async function wantedFingerprint(p: Probes, slug: string): Promise<string | null> {
@@ -115,7 +117,7 @@ async function inspect(p: Probes, slug: string, seams: ForgeAccessSeams): Promis
   if (!isOrgAdmin(roleFor(p, slug))) return { report: { kind: "not-admin" }, access: null };
   const data = await managedDataBranch(p, slug);
   if (data.kind === "none") return { report: { kind: "not-yet", branch: await checkedOutBranch(p, orgDirUnder(p.home, slug)) }, access: null };
-  if (data.kind === "trial") return { report: { kind: "trial", branch: data.branch }, access: null };
+  if (data.kind === "trial") return { report: { kind: "trial", branch: data.branch, dataBranch: data.dataBranch }, access: null };
   const branch = data.branch;
   const remote = teamRemote(p, slug);
   const access = remote === null ? null : seams.access(p, remote, await seams.forgeToken(p, remote));
@@ -152,6 +154,7 @@ export async function applyForgeAccess(p: Probes, slug: string, seams: ForgeAcce
   const done: string[] = [];
   const manualSteps: string[] = [];
   let limit: string | null = null;
+  let incomplete = false;
 
   // Grants come first: a forge only puts someone with write on a push list. They only ever raise a level.
   const offList = new Map(diff.waiting.map((u) => [key(u), u]));
@@ -171,7 +174,10 @@ export async function applyForgeAccess(p: Probes, slug: string, seams: ForgeAcce
   let list: PushList = report.pushList;
   if (list.kind === "unprotected") {
     const r = await access.protect(branch);
-    if (!r.ok) manualSteps.push(...r.manualSteps);
+    if (!r.ok) {
+      manualSteps.push(...r.manualSteps);
+      incomplete = true;
+    }
     else if (r.value === "unavailable") list = { kind: "unavailable", why: "This forge plan can't protect the branch" };
     else {
       done.push(`Protected the ${branch} branch`);
@@ -183,13 +189,17 @@ export async function applyForgeAccess(p: Probes, slug: string, seams: ForgeAcce
   if (list.kind === "open" || (list.kind === "named" && listChanges)) {
     const pushers = wanted.pushers.filter((u) => !offList.has(key(u)));
     const r = await access.setPushList(branch, pushers);
-    if (!r.ok) manualSteps.push(...r.manualSteps);
+    if (!r.ok) {
+      manualSteps.push(...r.manualSteps);
+      incomplete = true;
+    }
     else if (r.value === "cannot-name-users") limit = limitSentence({ kind: "open", why: "This forge can't limit pushes to named people here" }, branch);
     else done.push(`Set who can push ${branch}: ${pushers.join(", ")}`);
   }
 
-  editTeamLocal(p, slug, () => ({ forgeAccess: { fingerprint: fingerprintOf(wanted, branch), manualSteps } }));
-  return { report, applied: { done, manualSteps, limit, heldOff: [...offList.values()] } };
+  // A push list left unset keeps the old fingerprint (an empty one when there was none), so the sweep runs again.
+  editTeamLocal(p, slug, (current) => ({ forgeAccess: { fingerprint: incomplete ? current.forgeAccess?.fingerprint ?? "" : fingerprintOf(wanted, branch), manualSteps } }));
+  return { report, applied: { done, manualSteps, limit, heldOff: [...offList.values()], incomplete } };
 }
 
 /**

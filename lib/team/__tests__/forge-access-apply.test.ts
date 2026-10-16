@@ -68,8 +68,8 @@ for (const provider of ["github", "gitlab"] as const) {
     });
 
     test("while this Mac is on its trial branch, nothing is asked of the forge or written", async () => {
-      const { p, forge, seams } = setup(provider, { users: USERS, members: MEMBERS }, { dataBranch: "mattstack-trial", local: { trialBranch: "mattstack-trial" } });
-      expect((await applyForgeAccess(p, "acme", seams)).report).toEqual({ kind: "trial", branch: "mattstack-trial" });
+      const { p, forge, seams } = setup(provider, { users: USERS, members: MEMBERS }, { local: { trialBranch: "mattstack-trial" } });
+      expect((await applyForgeAccess(p, "acme", seams)).report).toEqual({ kind: "trial", branch: "mattstack-trial", dataBranch: "mattstack" });
       expect(p.calls.exec.filter((argv) => argv.includes("api"))).toEqual([]);
       expect(forge.writes).toEqual([]);
       expect(await wantedFingerprint(p, "acme")).toBeNull();
@@ -77,7 +77,7 @@ for (const provider of ["github", "gitlab"] as const) {
 
     test("a trial branch made from the data branch, whose marker still names the data branch, waits too", async () => {
       const { p, forge, seams } = setup(provider, { users: USERS, members: MEMBERS }, { local: { trialBranch: "try-roles" } });
-      expect((await applyForgeAccess(p, "acme", seams)).report).toEqual({ kind: "trial", branch: "try-roles" });
+      expect((await applyForgeAccess(p, "acme", seams)).report).toEqual({ kind: "trial", branch: "try-roles", dataBranch: "mattstack" });
       expect(forge.writes).toEqual([]);
     });
 
@@ -124,6 +124,14 @@ for (const provider of ["github", "gitlab"] as const) {
       const { applied } = await applyForgeAccess(p, "acme", seams);
       expect(applied?.manualSteps.length).toBeGreaterThan(0);
       expect(readTeamLocal(p, "acme").forgeAccess?.manualSteps).toEqual(applied!.manualSteps);
+    });
+
+    test("a push list the forge would not set keeps the old fingerprint and says the run is incomplete, so the sweep comes back", async () => {
+      const { p, seams } = setup(provider, { users: USERS, members: MEMBERS, readOnly: true });
+      const { applied } = await applyForgeAccess(p, "acme", seams);
+      expect(applied?.incomplete).toBe(true);
+      expect(readTeamLocal(p, "acme").forgeAccess?.fingerprint).toBe("");
+      expect(await wantedFingerprint(p, "acme")).not.toBe("");
     });
 
     test("where the forge cannot name people, the run says plainly that anyone with write can push", async () => {
@@ -175,7 +183,7 @@ describe("applyForgeAccessAndFollow", () => {
   });
 
   test("does not follow when nothing was applied: no latch, or a trial branch", async () => {
-    for (const opts of [{ latch: false }, { dataBranch: "mattstack-trial", local: { trialBranch: "mattstack-trial" } }]) {
+    for (const opts of [{ latch: false }, { local: { trialBranch: "mattstack-trial" } }]) {
       const { p, seams } = setup("gitlab", { users: USERS, members: MEMBERS }, opts);
       const { calls, follow } = recorder();
       expect((await applyForgeAccessAndFollow(p, "acme", secrets, seams, follow)).admin).toBeNull();

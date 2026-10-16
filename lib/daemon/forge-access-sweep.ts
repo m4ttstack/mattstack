@@ -60,7 +60,7 @@ export function createForgeAccessSweep(deps: ForgeAccessSweepDeps): () => Promis
           if (due !== undefined ? at < due : wanted === local.forgeAccess?.fingerprint) continue;
           const { report, applied, admin } = await run(deps.probes, slug, secretsFor(slug));
           const step = heldStep(report);
-          if (step !== undefined || (applied?.heldOff.length ?? 0) > 0) retryAt.set(slug, at + FORGE_ACCESS_RETRY_MS);
+          if (step !== undefined || (applied?.heldOff.length ?? 0) > 0 || applied?.incomplete) retryAt.set(slug, at + FORGE_ACCESS_RETRY_MS);
           else retryAt.delete(slug);
           if (step === undefined) warnedFor.delete(slug);
           else if (warnedFor.get(slug) !== wanted) {

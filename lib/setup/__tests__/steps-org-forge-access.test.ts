@@ -11,7 +11,7 @@ const SECRETS = { marker: "team secrets for acme" } as unknown as SecretsSeams;
 const real = forgeAccessStepSeams.run;
 afterEach(() => { forgeAccessStepSeams.run = real; });
 const ran = (applied: { done: string[]; manualSteps: string[] }, admin: { reencrypted: string[]; failure: string | null } | null = null) =>
-  async () => ({ report: { kind: "no-forge" as const }, applied: { ...applied, limit: null, heldOff: [] }, admin });
+  async () => ({ report: { kind: "no-forge" as const }, applied: { ...applied, limit: null, heldOff: [], incomplete: false }, admin });
 
 function ctx(me: string, latch: boolean): ApplyContext {
   const p = fakeProbes({
@@ -36,7 +36,7 @@ describe("org.forge-access", () => {
     const seen: unknown[] = [];
     forgeAccessStepSeams.run = async (_p, _slug, secrets) => {
       seen.push(secrets);
-      return { report: { kind: "no-forge" }, applied: { done: ["Gave dev2 write access"], manualSteps: [], limit: null, heldOff: [] }, admin: null };
+      return { report: { kind: "no-forge" }, applied: { done: ["Gave dev2 write access"], manualSteps: [], limit: null, heldOff: [], incomplete: false }, admin: null };
     };
     expect(await orgForgeAccessStep.run(ctx("dev1", true))).toEqual({ state: "done", detail: "acme: Gave dev2 write access" });
     expect(seen).toEqual([SECRETS]);
@@ -52,6 +52,10 @@ describe("org.forge-access", () => {
   test("an admin-only secrets failure is partial, with the verb that retries it", async () => {
     forgeAccessStepSeams.run = ran({ done: [], manualSteps: [] }, { reencrypted: [], failure: "sops refused" });
     expect(await orgForgeAccessStep.run(ctx("dev1", true))).toMatchObject({ state: "partial", remedy: "Run rt team admin-secrets" });
+  });
+  test("an org that waits is skipped with its reason, never called already matching", async () => {
+    forgeAccessStepSeams.run = async () => ({ report: { kind: "trial", branch: "try-roles", dataBranch: "mattstack" }, applied: null, admin: null });
+    expect(await orgForgeAccessStep.run(ctx("dev1", true))).toEqual({ state: "skipped", detail: "acme: forge access waits while this Mac is on the trial branch try-roles" });
   });
   test("a data branch shared with the rest of the repo needs the admin, and is never called a forge refusal", async () => {
     forgeAccessStepSeams.run = async () => ({ report: { kind: "shared-branch", branch: "main" }, applied: null, admin: null });

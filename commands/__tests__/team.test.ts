@@ -680,7 +680,7 @@ describe("teamManageMembership", () => {
   test("human mode says who manages forge access, and how to change it", () => {
     expect(renderPlain(manageMembershipBlocks("acme", true, true))).toContain("mattstack manages who can reach acme on the forge");
     expect(renderPlain(manageMembershipBlocks("acme", true, true))).toContain("rt team forge-access --team acme");
-    expect(renderPlain(manageMembershipBlocks("acme", false, true))).toContain("rt team manage-membership on");
+    expect(renderPlain(manageMembershipBlocks("acme", false, true))).toContain("rt team manage-membership on --team acme");
     expect(renderPlain(manageMembershipBlocks("acme", false, false))).toContain("Only an org admin can turn this on");
   });
 

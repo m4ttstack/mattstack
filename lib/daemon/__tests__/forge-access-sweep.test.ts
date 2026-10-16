@@ -17,7 +17,7 @@ function probes(me: string, latch: boolean, applied: string | null) {
 }
 const log = { info: () => {}, warn: () => {} };
 const secrets = () => ({}) as SecretsSeams;
-const result = (admin: { reencrypted: string[]; failure: string | null } | null = null) => ({ report: { kind: "no-forge" as const }, applied: { done: [], manualSteps: [], limit: null, heldOff: [] }, admin });
+const result = (admin: { reencrypted: string[]; failure: string | null } | null = null) => ({ report: { kind: "no-forge" as const }, applied: { done: [], manualSteps: [], limit: null, heldOff: [], incomplete: false }, admin });
 const refused = (step = "Sign in, then run this again: gh auth login") => ({ report: { kind: "refused", manualSteps: [step] } as ForgeAccessReport, applied: null, admin: null });
 const MINUTE = 60 * 1000;
 
@@ -114,6 +114,30 @@ describe("forge access sweep", () => {
     await sweep();
     expect(calls).toBe(2);
     clock = 120 * MINUTE;
+    await sweep();
+    expect(calls).toBe(2);
+  });
+  test("a push list the forge would not set brings the sweep back after 30 minutes", async () => {
+    let clock = 0;
+    let calls = 0;
+    const sweep = createForgeAccessSweep({
+      probes: probes("dev1", true, "old"),
+      slugs: () => ["acme"],
+      fingerprint: async () => "new",
+      secrets,
+      run: async () => {
+        calls++;
+        const r = result();
+        return { ...r, applied: { ...r.applied, manualSteps: ["Open https://github.com/acme/widgets/settings/branches"], incomplete: true } };
+      },
+      log,
+      now: () => clock,
+    });
+    await sweep();
+    clock = 10 * MINUTE;
+    await sweep();
+    expect(calls).toBe(1);
+    clock = 31 * MINUTE;
     await sweep();
     expect(calls).toBe(2);
   });

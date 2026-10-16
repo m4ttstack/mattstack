@@ -38,9 +38,9 @@ describe("forgeAccessBlocks", () => {
     expect(text).toContain("once the org's data has a branch of its own");
   });
   test("on a trial branch: says the access sync waits", () => {
-    const text = renderPlain(forgeAccessBlocks("acme", { kind: "trial", branch: "mattstack-trial" }, null));
+    const text = renderPlain(forgeAccessBlocks("acme", { kind: "trial", branch: "mattstack-trial", dataBranch: "mattstack" }, null));
     expect(text).toContain("Forge access waits while this Mac is on the trial branch mattstack-trial");
-    expect(text).toContain(`rt team branch use`);
+    expect(text).toContain("rt team branch use mattstack --team acme");
   });
   test("a data branch shared with the rest of the repo is refused by policy, with the move as the fix", () => {
     const blocks = forgeAccessBlocks("acme", { kind: "shared-branch", branch: "main" }, null);
@@ -60,7 +60,7 @@ describe("forgeAccessBlocks", () => {
     expect(renderPlain(forgeAccessBlocks("acme", ready({ managing: true }), null))).toContain("rt team forge-access --apply --team acme");
   });
   test("an applied run lists what changed, the limit and the steps by hand", () => {
-    const text = renderPlain(forgeAccessBlocks("acme", ready({ managing: true }), { done: ["Gave dev2 write access"], manualSteps: ["Open https://gitlab.com/acme/widgets/-/settings/repository"], limit: "x. Anyone with write access can push mattstack, and only rt limits what they change there.", heldOff: [] }));
+    const text = renderPlain(forgeAccessBlocks("acme", ready({ managing: true }), { done: ["Gave dev2 write access"], manualSteps: ["Open https://gitlab.com/acme/widgets/-/settings/repository"], limit: "x. Anyone with write access can push mattstack, and only rt limits what they change there.", heldOff: [], incomplete: false }));
     expect(text).toContain("Gave dev2 write access");
     expect(text).toContain("only rt limits what they change there");
     expect(text).toContain("Open https://gitlab.com/acme/widgets/-/settings/repository");

@@ -742,7 +742,7 @@ export function manageMembershipBlocks(slug: string, on: boolean, runsOrg: boole
   }
   return [
     out.line("off", `You manage who can reach ${slug} on the forge`, "membership management is off"),
-    runsOrg ? out.callout("next", out.cmd("rt team manage-membership on")) : out.callout("note", "Only an org admin can turn this on"),
+    runsOrg ? out.callout("next", out.cmd(`rt team manage-membership on --team ${slug}`)) : out.callout("note", "Only an org admin can turn this on"),
   ];
 }
 
@@ -1235,7 +1235,7 @@ export function forgeAccessBlocks(slug: string, report: ForgeAccessReport, appli
     case "trial":
       return [
         out.line("skipped", `Forge access waits while this Mac is on the trial branch ${report.branch}`),
-        out.callout("next", "Go back to the org's data branch with ", out.cmd("rt team branch use <data branch>")),
+        out.callout("next", "Go back to the org's data branch with ", out.cmd(`rt team branch use ${report.dataBranch} --team ${slug}`)),
       ];
     case "shared-branch":
       return [out.line("refused", `rt leaves the rules of ${report.branch} alone`), out.callout("fix", sharedBranchSentence(report.branch))];

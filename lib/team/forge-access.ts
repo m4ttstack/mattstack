@@ -6,7 +6,7 @@
  */
 
 import type { ExecResult, Probes } from "../setup/probes.ts";
-import { classifyExecFailure, forgeArgv, type FailureReason } from "./forge.ts";
+import { classifyExecFailure, FORGE_API_TIMEOUT_MS, forgeArgv, type FailureReason } from "./forge.ts";
 
 export type AccessLevel = "none" | "guest" | "read" | "write" | "admin";
 
@@ -45,7 +45,7 @@ export interface OrgForgeAccess {
   protect(branch: string): Promise<ForgeResult<"protected" | "unavailable">>;
 }
 
-export const FORGE_API_TIMEOUT_MS = 20_000;
+export { FORGE_API_TIMEOUT_MS };
 
 export interface ApiCall {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";

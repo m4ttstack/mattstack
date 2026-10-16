@@ -16,7 +16,7 @@ describe("forgeAccessRow", () => {
     for (const report of [{ kind: "not-admin" }, { kind: "no-forge" }, { kind: "not-yet", branch: "main" }] as ForgeAccessReport[]) expect(await rowFor(report)).toBeNull();
   });
   test("on a trial branch it says the access sync waits", async () => {
-    expect(await rowFor({ kind: "trial", branch: "mattstack-trial" })).toMatchObject({
+    expect(await rowFor({ kind: "trial", branch: "mattstack-trial", dataBranch: "mattstack" })).toMatchObject({
       status: "skipped",
       detail: "Forge access waits while this Mac is on the trial branch mattstack-trial",
       action: null,

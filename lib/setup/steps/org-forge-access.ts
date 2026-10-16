@@ -7,7 +7,7 @@
  */
 
 import { isOrgAdmin } from "../../../packages/rt-client/src/settings/org-roles.ts";
-import { applyForgeAccessAndFollow, sharedBranchSentence } from "../../team/forge-access-apply.ts";
+import { applyForgeAccessAndFollow, sharedBranchSentence, type ForgeAccessReport } from "../../team/forge-access-apply.ts";
 import { roleFor } from "../../team/roles.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
@@ -16,6 +16,24 @@ import { toFailedOutcome } from "./step-utils.ts";
 
 export const forgeAccessStepSeams = { run: applyForgeAccessAndFollow };
 
+/** Why rt did not check an org's forge access this run, or null when it did. */
+function waitedSentence(report: ForgeAccessReport): string | null {
+  switch (report.kind) {
+    case "not-admin":
+      return "only an org admin manages forge access";
+    case "no-forge":
+      return "the org's repo is not on GitHub or GitLab";
+    case "not-yet":
+      return "rt manages forge access once the org's data has a branch of its own";
+    case "trial":
+      return `forge access waits while this Mac is on the trial branch ${report.branch}`;
+    case "refused":
+    case "shared-branch":
+    case "ready":
+      return null;
+  }
+}
+
 async function run(ctx: ApplyContext): Promise<StepOutcome> {
   const slugs = cloneSlugs(ctx.p).filter((slug) => isOrgAdmin(roleFor(ctx.p, slug)) && readTeamLocal(ctx.p, slug).rtMayManageMembership);
   if (slugs.length === 0) return { state: "skipped", detail: "rt does not manage forge access on this Mac" };
@@ -23,8 +41,13 @@ async function run(ctx: ApplyContext): Promise<StepOutcome> {
   const manual: string[] = [];
   const secretFailures: string[] = [];
   const shared: string[] = [];
+  const waited: string[] = [];
+  let checked = false;
   for (const slug of slugs) {
     const { report, applied, admin } = await forgeAccessStepSeams.run(ctx.p, slug, ctx.teamSecrets(slug));
+    const why = applied === null ? waitedSentence(report) : null;
+    if (why !== null) waited.push(`${slug}: ${why}`);
+    else checked = true;
     if (report.kind === "refused") manual.push(...report.manualSteps);
     if (report.kind === "shared-branch") shared.push(`${slug}: ${sharedBranchSentence(report.branch)}`);
     const changed = [...(applied?.done ?? []), ...(admin && admin.reencrypted.length > 0 ? ["re-encrypted the admin-only secrets for the current owners and admins"] : [])];
@@ -37,7 +60,8 @@ async function run(ctx: ApplyContext): Promise<StepOutcome> {
   }
   if (secretFailures.length > 0) return { state: "partial", detail: [...notes, ...secretFailures, ...shared].join("; "), remedy: "Run rt team admin-secrets" };
   if (shared.length > 0) return { state: "needs-you", detail: [...notes, ...shared].join("; ") };
-  return { state: "done", detail: notes.length > 0 ? notes.join("; ") : "Forge access already matches the org's roles" };
+  if (!checked) return { state: "skipped", detail: waited.join("; ") };
+  return { state: "done", detail: [...(notes.length > 0 ? notes : ["Forge access already matches the org's roles"]), ...waited].join("; ") };
 }
 
 export const orgForgeAccessStep: StepDef = {

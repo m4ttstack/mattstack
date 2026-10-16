@@ -107,10 +107,12 @@ export function membershipSteps(remote: string, handle: string): string[] {
   return gitlabBaseSteps(parsed.host, parsed.path, handle, "Invite");
 }
 
+export const FORGE_API_TIMEOUT_MS = 20_000;
+
 export type GitlabUserLookup = { id: number } | { id: null; reason: FailureReason };
 
 export async function lookupGitlabUserId(p: Probes, host: string, handle: string, token: string | null | undefined): Promise<GitlabUserLookup> {
-  const result = await p.exec([...forgeArgv(p, "glab"), "api", `users?username=${encodeURIComponent(handle)}`], { env: forgeAuthEnv("gitlab", host, token) });
+  const result = await p.exec([...forgeArgv(p, "glab"), "api", `users?username=${encodeURIComponent(handle)}`], { env: forgeAuthEnv("gitlab", host, token), timeoutMs: FORGE_API_TIMEOUT_MS });
   if (result.code !== 0) return { id: null, reason: classifyExecFailure(result) };
   try {
     const parsed: unknown = JSON.parse(result.stdout);
