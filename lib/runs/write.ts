@@ -10,7 +10,7 @@ import { dirname } from "path";
 import { validateEvidence } from "../../packages/rt-client/src/evidence.ts";
 import { recordIdentity } from "./identity.ts";
 
-export const KNOWN_SCHEMA_VERSION = 2;
+export const KNOWN_SCHEMA_VERSION = 3;
 
 export type Fail = { ok: false; error: string; code: 1 | 2 | 3 };
 export type Ok<T extends object = {}> = { ok: true } & T;
@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS decisions (
   run_id TEXT NOT NULL REFERENCES runs(id), contract TEXT NOT NULL,
   scope TEXT NOT NULL, selection TEXT NOT NULL, decided_by TEXT NOT NULL,
   decided_at INTEGER NOT NULL, PRIMARY KEY (run_id, contract, scope));
+CREATE TABLE IF NOT EXISTS manifest (
+  run_id TEXT NOT NULL REFERENCES runs(id), ordinal INTEGER NOT NULL,
+  stage TEXT NOT NULL, name TEXT, file TEXT, pack_root TEXT,
+  consumes TEXT NOT NULL, produces TEXT NOT NULL,
+  PRIMARY KEY (run_id, ordinal));
+CREATE TABLE IF NOT EXISTS budgets (
+  run_id TEXT NOT NULL REFERENCES runs(id), key TEXT NOT NULL,
+  spent INTEGER NOT NULL, "limit" INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (run_id, key));
 `;
 
 function columns(db: Database, table: string): string[] {
@@ -55,7 +64,8 @@ export function migrate(db: Database): void {
   add("stages", "detail_path", "TEXT");
   add("runs", "pack_commits", "TEXT");
   add("runs", "pack_dirty", "INTEGER DEFAULT 0");
-  if (columns(db, "stages").includes("reason") && columns(db, "runs").includes("pack_commits")) {
+  db.run(SCHEMA_SQL);
+  if (columns(db, "stages").includes("reason") && columns(db, "runs").includes("pack_commits") && columns(db, "manifest").length > 0 && columns(db, "budgets").length > 0) {
     db.run(`PRAGMA user_version=${KNOWN_SCHEMA_VERSION}`);
   }
 }
@@ -93,9 +103,20 @@ export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, n
   try {
     db.run(
       `INSERT INTO stages (run_id, name, status, attempt, started_at)
-       SELECT id, ?, 'running', COALESCE((SELECT MAX(attempt) FROM stages WHERE name = ?), 0) + 1, ? FROM runs`,
-      [name, name, now],
+       SELECT id, ?, 'running', COALESCE((SELECT MAX(attempt) FROM stages WHERE name = ?), 0) + 1, ? FROM runs
+       WHERE NOT EXISTS (SELECT 1 FROM stages s WHERE s.name = ? AND s.status = 'running' AND s.attempt = (SELECT MAX(attempt) FROM stages WHERE name = ?))`,
+      [name, name, now, name, name],
     );
+    if (changes(db) === 0) {
+      const latest = db.query("SELECT attempt FROM stages WHERE name=? ORDER BY attempt DESC LIMIT 1").get(name) as { attempt: number } | undefined;
+      if (latest) {
+        return {
+          ok: false,
+          error: `stage ${name} attempt ${latest.attempt} is still running; end it (done, fail or redirect) before starting another, or resume it with run_enter`,
+          code: 2,
+        };
+      }
+    }
     db.run("UPDATE runs SET current_stage=?", [name]);
     recordIdentity(db, env, now);
     return { ok: true };
@@ -183,7 +204,7 @@ export type Row = Record<string, unknown>;
 // Raw rows from the open handle, not store.ts's readRun: that one keys on
 // (repo, runId) under runsRoot() and returns the enriched RunDetail shape,
 // while callers of snapshot expect the table rows the script printed.
-export function snapshot(db: Database): Ok<{ run: Row | null; stages: Row[]; fields: Row[]; decisions: Row[] }> | Fail {
+export function snapshot(db: Database): Ok<{ run: Row | null; stages: Row[]; fields: Row[]; decisions: Row[]; manifest: Row[]; budgets: Row[] }> | Fail {
   try {
     return {
       ok: true,
@@ -191,6 +212,8 @@ export function snapshot(db: Database): Ok<{ run: Row | null; stages: Row[]; fie
       stages: db.query("SELECT * FROM stages ORDER BY started_at, attempt").all() as Row[],
       fields: db.query("SELECT * FROM fields ORDER BY at").all() as Row[],
       decisions: db.query("SELECT * FROM decisions ORDER BY decided_at").all() as Row[],
+      manifest: db.query("SELECT * FROM manifest ORDER BY ordinal").all() as Row[],
+      budgets: db.query("SELECT * FROM budgets ORDER BY key").all() as Row[],
     };
   } catch (err) {
     return { ok: false, error: `sqlite read failed: ${String(err)}`, code: 1 };

@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "fs";
+import { mkdirSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { createRunDb, KNOWN_SCHEMA_VERSION, migrate, openRunDb, runStatus, stageStart, stageEnd, fieldSet, fieldGet, decisionRecord, snapshot } from "../write.ts";
 import { runStart } from "../start.ts";
 import { seedRun } from "./fixtures.ts";
@@ -27,7 +27,7 @@ describe("createRunDb", () => {
     const db = createRunDb(path);
     try {
       const tables = (db.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
-      expect(tables).toEqual(["decisions", "fields", "runs", "stages"]);
+      expect(tables).toEqual(["budgets", "decisions", "fields", "manifest", "runs", "stages"]);
       expect(userVersion(db)).toBe(KNOWN_SCHEMA_VERSION);
       expect(cols(db, "stages")).toContain("reason");
       expect(cols(db, "runs")).toContain("pack_dirty");
@@ -40,17 +40,49 @@ describe("createRunDb", () => {
 });
 
 describe("migrate", () => {
-  test("brings a v1 DB to v2 in place and is idempotent", () => {
+  test("brings a v1 DB to the current version in place and is idempotent", () => {
     const root = tmp();
     seedRun(root, "r", "20260901-000000-abcd-1", 1000, 1);
     const path = join(root, "r", "20260901-000000-abcd-1", "state.db");
     const db = openRunDb(path);
     try {
-      expect(userVersion(db)).toBe(2);
+      expect(userVersion(db)).toBe(KNOWN_SCHEMA_VERSION);
       expect(cols(db, "stages")).toContain("detail_path");
       expect(cols(db, "runs")).toContain("pack_commits");
       migrate(db);
-      expect(userVersion(db)).toBe(2);
+      expect(userVersion(db)).toBe(KNOWN_SCHEMA_VERSION);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("createRunDb stamps user_version 3 and creates manifest and budgets", () => {
+    const db = createRunDb(join(tmp(), "r", "x", "state.db"));
+    try {
+      expect(KNOWN_SCHEMA_VERSION).toBe(3);
+      expect(userVersion(db)).toBe(3);
+      expect(cols(db, "manifest")).toEqual(["run_id", "ordinal", "stage", "name", "file", "pack_root", "consumes", "produces"]);
+      expect(cols(db, "budgets")).toEqual(["run_id", "key", "spent", "limit", "updated_at"]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("migrate upgrades a v2 db: adds both tables, stamps 3, keeps rows", () => {
+    const path = join(tmp(), "r", "x", "state.db");
+    mkdirSync(dirname(path), { recursive: true });
+    const old = new Database(path);
+    old.run(`CREATE TABLE runs (id TEXT PRIMARY KEY, repo TEXT NOT NULL, work_type TEXT NOT NULL, pipeline TEXT NOT NULL, status TEXT NOT NULL, current_stage TEXT, spawned_by TEXT, started_at INTEGER NOT NULL, ended_at INTEGER, pack_commits TEXT, pack_dirty INTEGER DEFAULT 0)`);
+    old.run(`CREATE TABLE stages (run_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 1, started_at INTEGER, ended_at INTEGER, reason TEXT, detail_path TEXT, PRIMARY KEY (run_id, name, attempt))`);
+    old.run("INSERT INTO runs (id, repo, work_type, pipeline, status, started_at) VALUES ('r1','demo','fix','default','running',1)");
+    old.run("PRAGMA user_version=2");
+    old.close();
+    const db = openRunDb(path);
+    try {
+      expect(userVersion(db)).toBe(3);
+      expect(cols(db, "manifest")).toContain("pack_root");
+      expect(cols(db, "budgets")).toContain("spent");
+      expect(db.query("SELECT id FROM runs").get()).toEqual({ id: "r1" });
     } finally {
       db.close();
     }
@@ -96,6 +128,30 @@ describe("stage lifecycle", () => {
     const rows = db.query("SELECT attempt, status, started_at, ended_at FROM stages ORDER BY attempt").all();
     expect(rows).toEqual([{ attempt: 1, status: "done", started_at: 10, ended_at: 20 }, { attempt: 2, status: "running", started_at: 30, ended_at: null }]);
     expect(db.query("SELECT current_stage FROM runs").get()).toEqual({ current_stage: "plan" });
+    db.close();
+  });
+
+  test("stage-start refuses while the latest attempt is running", () => {
+    const db = started();
+    expect(stageStart(db, "plan", {}, 10)).toEqual({ ok: true });
+    const again = stageStart(db, "plan", { HERDR_PANE_ID: "w1:p4" }, 20);
+    expect(again).toMatchObject({ ok: false, code: 2 });
+    if (again.ok) return;
+    expect(again.error).toContain("stage plan attempt 1 is still running");
+    expect(again.error).toBe("stage plan attempt 1 is still running; end it (done, fail or redirect) before starting another, or resume it with run_enter");
+    expect((db.query("SELECT COUNT(*) AS n FROM stages").get() as { n: number }).n).toBe(1);
+    expect(db.query("SELECT value FROM fields WHERE key='herdr-pane'").get()).toBeNull();
+    db.close();
+  });
+
+  test("stage-start after done or failed starts the next attempt", () => {
+    const db = started();
+    stageStart(db, "plan", {}, 10);
+    stageEnd(db, "plan", "done", { now: 20 });
+    expect(stageStart(db, "plan", {}, 30)).toEqual({ ok: true });
+    stageEnd(db, "plan", "failed", { now: 40 });
+    expect(stageStart(db, "plan", {}, 50)).toEqual({ ok: true });
+    expect(db.query("SELECT attempt FROM stages ORDER BY attempt").all()).toEqual([{ attempt: 1 }, { attempt: 2 }, { attempt: 3 }]);
     db.close();
   });
 
@@ -240,6 +296,23 @@ describe("decisions", () => {
 });
 
 describe("snapshot", () => {
+  test("returns manifest and budgets arrays", () => {
+    const db = started();
+    const s = snapshot(db);
+    expect(s.ok).toBe(true);
+    if (!s.ok) return;
+    expect(s.manifest).toEqual([]);
+    expect(s.budgets).toEqual([]);
+    const id = (db.query("SELECT id FROM runs").get() as { id: string }).id;
+    db.run("INSERT INTO manifest VALUES (?,2,'b',NULL,NULL,NULL,'[]','[]'),(?,1,'a',NULL,NULL,NULL,'[]','[]')", [id, id]);
+    db.run('INSERT INTO budgets VALUES (?,\'z\',1,5,9),(?,\'k\',2,5,9)', [id, id]);
+    const s2 = snapshot(db);
+    if (!s2.ok) return;
+    expect(s2.manifest.map((r) => r.stage)).toEqual(["a", "b"]);
+    expect(s2.budgets.map((r) => r.key)).toEqual(["k", "z"]);
+    db.close();
+  });
+
   test("returns raw rows in the script's order", () => {
     const db = started();
     stageStart(db, "plan", {}, 10);
