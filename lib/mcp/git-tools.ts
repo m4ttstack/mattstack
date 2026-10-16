@@ -2,10 +2,15 @@ import { existsSync } from "fs";
 import { resolve } from "path";
 import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
+import { loadRepoIndex } from "../repo-index.ts";
 import { rtSelfArgv } from "../rt-self.ts";
+import { createRealProbes } from "../setup/probes.ts";
+import { forgeFromRemote } from "../setup/team-settings.ts";
+import { forgeArgv } from "../team/forge.ts";
 import { GIT_GLOBAL_OPTS } from "../skills/mcp-lint.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
-import { checkOptional, err, ok, type McpToolDef, type ToolResult } from "./shared.ts";
+import { resolveRepoTarget } from "./mr-target.ts";
+import { checkOptional, err, MR_TARGET_PROPS, ok, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, gitChildEnv, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 
 export { gitChildEnv };
@@ -435,15 +440,134 @@ export async function branchSync(cwd: string, deps: Pick<GitToolDeps, "git" | "s
   return ended("error", `rt sync refused (exit ${r.code}): ${said}`);
 }
 
+export interface SweepMr {
+  iid: number;
+  branch: string;
+  url: string | null;
+}
+
+export type AuthoredMrs = { ok: true; mrs: SweepMr[]; complete: boolean } | { ok: false; error: string };
+export type RepoTrees = { ok: true; trees: Array<{ path: string; branch: string | null }> } | { ok: false; error: string };
+
+export interface SweepIo {
+  checkout: (identity: string) => string | undefined;
+  originOf: (checkout: string) => Promise<string | null>;
+  gh: (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
+  command: typeof rtCommand;
+}
+
+const SWEEP_LIST_LIMIT = 200;
+
+function realSweepIo(): SweepIo {
+  const p = createRealProbes();
+  return {
+    checkout: (identity) => loadRepoIndex()[identity],
+    originOf: async (checkout) => {
+      const r = await realGitRunner(["remote", "get-url", "origin"], checkout);
+      return r.code === 0 ? r.stdout.trim() || null : null;
+    },
+    gh: (args, cwd) => p.exec([...forgeArgv(p, "gh"), ...args], { cwd, timeoutMs: MR_LOOKUP_TIMEOUT_MS }),
+    command: rtCommand,
+  };
+}
+
+function ghPrs(stdout: string): SweepMr[] | null {
+  try {
+    const rows = JSON.parse(stdout) as unknown;
+    if (!Array.isArray(rows)) return null;
+    const mrs = (rows as Array<{ number?: unknown; headRefName?: unknown; url?: unknown }>).map((row) => ({ iid: row.number, branch: row.headRefName, url: row.url }));
+    return mrs.every((mr) => Number.isInteger(mr.iid) && typeof mr.branch === "string" && typeof mr.url === "string") ? (mrs as SweepMr[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+// The daemon's MR reads are GitLab only, so a GitHub repo asks gh, which
+// names the signed-in user as @me the way GitLab's author: me does.
+export async function realAuthoredOpenMrs(identity: string, io: SweepIo = realSweepIo()): Promise<AuthoredMrs> {
+  const checkout = io.checkout(identity);
+  if (!checkout) return { ok: false, error: `${identity} has no registered checkout` };
+  const origin = await io.originOf(checkout);
+  if (origin === null) return { ok: false, error: `${checkout} has no origin remote` };
+  const forge = forgeFromRemote(origin);
+  if (!forge) return { ok: false, error: `origin ${origin} is not a GitHub or GitLab remote` };
+  if (forge.provider === "github") {
+    const r = await io.gh(["pr", "list", "--state", "open", "--author", "@me", "--limit", String(SWEEP_LIST_LIMIT), "--json", "number,headRefName,url"], checkout);
+    if (r.code !== 0) return { ok: false, error: `gh pr list failed: ${(r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`).split("\n")[0]}` };
+    const mrs = ghPrs(r.stdout);
+    if (mrs === null) return { ok: false, error: "gh pr list answered with something other than a list of pull requests" };
+    return { ok: true, mrs, complete: mrs.length < SWEEP_LIST_LIMIT };
+  }
+  const r = await io.command<Commands["mr:list-live"]["data"]>("mr:list-live", { repoName: identity, author: "me", state: "opened", limit: SWEEP_LIST_LIMIT }, { timeoutMs: MR_LOOKUP_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "MR listing failed") };
+  return { ok: true, mrs: r.data.mrs.map((mr) => ({ iid: mr.iid, branch: mr.sourceBranch, url: mr.webUrl ?? null })), complete: !r.data.truncated };
+}
+
+export async function realRepoTrees(identity: string, command: typeof rtCommand = rtCommand): Promise<RepoTrees> {
+  const r = await command<Commands["worktree:list"]["data"]>("worktree:list", { repoName: identity }, { timeoutMs: MR_LOOKUP_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "worktree listing failed") };
+  return { ok: true, trees: (r.data.trees ?? []).map((t) => ({ path: t.path, branch: t.branch ?? null })) };
+}
+
+export async function realResolveRepo(repoName: unknown): Promise<{ ok: true; identity: string } | { ok: false; error: string }> {
+  if (typeof repoName !== "string") return { ok: false, error: '"repoName" must be a string' };
+  const target = await resolveRepoTarget({ repoName });
+  return target.ok ? { ok: true, identity: target.identity } : { ok: false, error: target.error };
+}
+
+/** Sequential, and never aborts a paused rebase: rt sync --json leaves a conflict paused, and each tree is its own checkout. */
+export async function branchSyncSweep(
+  repoName: unknown,
+  deps: GitToolDeps,
+  progress?: () => void,
+  syncTree: (tree: string) => Promise<BranchSyncResult> = (tree) => branchSync(tree, deps),
+): Promise<ToolResult> {
+  const repo = await deps.resolveRepo(repoName);
+  if (!repo.ok) return err(repo.error);
+  const [mrs, trees] = await Promise.all([deps.authoredOpenMrs(repo.identity), deps.repoTrees(repo.identity)]);
+  if (!mrs.ok) return err(`could not list your open merge requests: ${mrs.error}`);
+  if (!trees.ok) return err(`could not list the repo's worktrees: ${trees.error}`);
+  const results: Array<BranchSyncResult & { tree: string; mr: { iid: number; url: string | null } }> = [];
+  const noTree: Array<{ branch: string; mr: { iid: number; url: string | null } }> = [];
+  for (const mr of mrs.mrs) {
+    const ref = { iid: mr.iid, url: mr.url };
+    const tree = trees.trees.find((t) => t.branch === mr.branch);
+    if (!tree) {
+      noTree.push({ branch: mr.branch, mr: ref });
+      continue;
+    }
+    progress?.();
+    const admitted = checkRegisteredTree(tree.path, deps.guard);
+    if (!admitted.ok) {
+      results.push({ kind: "error", branch: mr.branch, oldHead: null, newHead: null, pushed: false, refusal: admitted.error, tree: tree.path, mr: ref });
+      continue;
+    }
+    results.push({ ...(await syncTree(admitted.path)), tree: admitted.path, mr: ref });
+  }
+  return ok({ repoName: repo.identity, results, noTree, complete: mrs.complete });
+}
+
 export interface GitToolDeps {
   git: GitRunner;
   guard: TreeGuardDeps;
   sync: (cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
   /** repoName is the identity the tree guard admitted the tree under. */
   openMr: (repoName: string, branch: string) => Promise<OpenMrLookup>;
+  resolveRepo: (repoName: unknown) => Promise<{ ok: true; identity: string } | { ok: false; error: string }>;
+  /** The caller's own open MRs on the repo; complete is false when the forge may have cut the list short. */
+  authoredOpenMrs: (identity: string) => Promise<AuthoredMrs>;
+  repoTrees: (identity: string) => Promise<RepoTrees>;
 }
 
-export const realGitToolDeps: GitToolDeps = { git: realGitRunner, guard: realTreeGuardDeps, sync: realSyncRunner, openMr: (repoName, branch) => realOpenMr(repoName, branch) };
+export const realGitToolDeps: GitToolDeps = {
+  git: realGitRunner,
+  guard: realTreeGuardDeps,
+  sync: realSyncRunner,
+  openMr: (repoName, branch) => realOpenMr(repoName, branch),
+  resolveRepo: realResolveRepo,
+  authoredOpenMrs: (identity) => realAuthoredOpenMrs(identity),
+  repoTrees: (identity) => realRepoTrees(identity),
+};
 
 const TREE_PROP = { tree: { type: "string", description: "Absolute path of a checkout or worktree of a repo registered with rt, or a directory inside one, which resolves to that tree's root (the result's tree)." } };
 
@@ -491,6 +615,13 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
       inputSchema: { type: "object", properties: { ...TREE_PROP }, required: ["tree"], additionalProperties: false },
       shellForms: ["rt sync"],
       handler: guarded(async (path) => ok(await branchSync(path, deps))),
+    },
+    {
+      name: "branch_sync_sweep",
+      description: `Run branch_sync, one branch at a time, on every branch of yours with an open MR in the repo that has a local worktree. A conflict on one branch leaves that rebase paused for you and the sweep moves on to the next. Your open MRs are read from GitLab (author: me) or GitHub (gh pr list --author @me). Returns {repoName, results, noTree, complete}: results holds one branch_sync result per branch (kind, branch, oldHead, newHead, pushed, refusal), each with its tree and mr {iid, url}; noTree lists your open-MR branches that have no worktree, which the sweep skips; complete is false when the forge may have cut the MR list short. Opens no gate and pushes only what branch_sync itself pushes. repoName is the repo's serialized identity, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo.`,
+      inputSchema: { type: "object", properties: { repoName: MR_TARGET_PROPS.repoName }, required: ["repoName"], additionalProperties: false },
+      shellForms: { none: "rt sync all syncs every worktree and aborts a conflict; no shell command sweeps only your open-MR branches and leaves a conflict paused" },
+      handler: async (input, _env, _signal, progress) => branchSyncSweep(input.repoName, deps, progress),
     },
   ];
 }
