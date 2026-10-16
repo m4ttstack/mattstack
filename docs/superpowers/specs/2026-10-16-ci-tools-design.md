@@ -263,7 +263,8 @@ verbs, so nothing shells out and nothing needs glab or jq:
 - `forge:get` for `pipelineInfo` (`/projects/:id/pipelines/<id>`; a 404 is
   `null`, any other non-2xx throws), the
   default branch (`/projects/:id`), and the walk: `/projects/:id/pipelines/
-  <id>/jobs` (with `include_retried`) and `/projects/:id/pipelines/<id>/
+  <id>/jobs` (with `include_retried` and never a scope, which filters the
+  latest rows by status after the read) and `/projects/:id/pipelines/<id>/
   bridges`, paged. A page that comes back truncated (the 256 KiB cap) is
   re-read with a smaller page size; one still truncated at the smallest size
   is an error, never a silent short list.
@@ -279,7 +280,8 @@ this). A failed bridge whose downstream is in another project becomes a
 webUrl}}` with no trace: its jobs are not triaged, and the row is the signal
 that something outside the report failed. `attempt` is 1 plus the number of
 earlier retried runs of the same job name in that pipeline (GitLab marks them
-`retried`); only the latest run of each job is reported.
+`retried`), whatever their status and whatever the scope; only the latest run
+of each job is reported.
 
 `infraPatterns()` returns GitLab's own `registry.gitlab.com.*error`, the
 pattern the mattstack GitLab adapter emits today.

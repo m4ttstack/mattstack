@@ -346,7 +346,7 @@ describe("pipeline_jobs", () => {
     const r = await t.handler({ repoName: ID, iid: 2, scope: "failed", name: "unit" }, env);
     expect((r.body as any).jobs.map((j: any) => j.name)).toEqual(["unit"]);
     const jobCall = calls.find((c) => c.payload.path === "/projects/:id/pipelines/9/jobs")!;
-    expect((jobCall.payload.query as any)["scope[]"]).toBe("failed");
+    expect(jobCall.payload.query).toEqual({ include_retried: true });
   });
   test("an unknown scope is refused", async () => {
     const { t } = jobsTool();

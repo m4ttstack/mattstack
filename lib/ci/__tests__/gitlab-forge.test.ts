@@ -58,7 +58,7 @@ describe("walkPipeline", () => {
     expect(walk?.jobs.map((j) => j.jobId)).toEqual([1, 2]);
     const jobCalls = calls.filter((c) => c.payload.path === `${P}/5/jobs`);
     expect(jobCalls.map((c) => [c.payload.page, c.payload.perPage])).toEqual([[1, 50], [2, 50]]);
-    expect(jobCalls[0]?.payload.query).toEqual({ include_retried: true, "scope[]": "failed" });
+    expect(jobCalls[0]?.payload.query).toEqual({ include_retried: true });
     expect(jobCalls[0]?.payload.repoName).toBe(TARGET.identity);
   });
 
@@ -139,6 +139,17 @@ describe("walkPipeline", () => {
     expect(walk?.jobs.map((j) => [j.name, j.jobId, j.attempt])).toEqual([["lint", 2, 2], ["unit", 3, 1]]);
   });
 
+  test("under a scope, attempt still counts every earlier run and only scoped rows return", async () => {
+    const { command } = fake({
+      [`forge:get ${P}/5`]: () => pipelineInfo(5),
+      [`forge:get ${P}/5/jobs`]: () =>
+        get([job(2, "lint"), job(1, "lint", { status: "canceled", retried: true }), job(3, "unit", { status: "success" })]),
+      [`forge:get ${P}/5/bridges`]: () => get([]),
+    });
+    const walk = await walkPipeline(command, TARGET, 5, { scope: "failed" });
+    expect(walk?.jobs.map((j) => [j.name, j.jobId, j.attempt])).toEqual([["lint", 2, 2]]);
+  });
+
   test("name filters by substring", async () => {
     const { command } = fake({
       [`forge:get ${P}/5`]: () => pipelineInfo(5),
@@ -168,7 +179,7 @@ describe("gitlabTriageForge", () => {
       { name: "deploy", status: "failed", blocking: true, downstream: { projectId: 2, pipelineId: 90, webUrl: "https://gl/pipelines/90" } },
       { name: "optional-deploy", status: "failed", blocking: false, downstream: { projectId: 2, pipelineId: 91, webUrl: "https://gl/pipelines/91" } },
     ]);
-    expect(calls.find((c) => c.payload.path === `${P}/5/jobs`)?.payload.query).toMatchObject({ "scope[]": "failed" });
+    expect(calls.find((c) => c.payload.path === `${P}/5/jobs`)?.payload.query).toEqual({ include_retried: true });
   });
 
   test("failedJobs keeps a failed bridge with no downstream pipeline, blocking unless allow_failure", async () => {

@@ -106,11 +106,11 @@ interface RawBridge {
   downstream_pipeline?: { id: number; project_id: number; status?: string; web_url?: string | null } | null;
 }
 
-function jobRows(raw: RawJob[], pipelineId: number, allowFailureUnder: boolean): ForgeJob[] {
+function jobRows(raw: RawJob[], pipelineId: number, allowFailureUnder: boolean, scope: string | undefined): ForgeJob[] {
   const retriedRuns = new Map<string, number>();
   for (const j of raw) if (j.retried === true) retriedRuns.set(j.name, (retriedRuns.get(j.name) ?? 0) + 1);
   return raw
-    .filter((j) => j.retried !== true)
+    .filter((j) => j.retried !== true && (scope === undefined || j.status === scope))
     .map((j) => ({
       pipelineId,
       jobId: j.id,
@@ -174,10 +174,9 @@ export async function walkPipeline(
   async function visit(id: number, allowFailureUnder: boolean): Promise<void> {
     if (seen.has(id)) return;
     seen.add(id);
-    const jobQuery: Record<string, string | number | boolean> = { include_retried: true };
-    if (opts.scope) jobQuery["scope[]"] = opts.scope;
-    const rawJobs = (await readAllPages(command, target, id, `/projects/:id/pipelines/${id}/jobs`, jobQuery)) as RawJob[];
-    jobs.push(...jobRows(rawJobs, id, allowFailureUnder));
+    // Unscoped on purpose: attempt counts every earlier run, and a scoped read hides the runs of other statuses.
+    const rawJobs = (await readAllPages(command, target, id, `/projects/:id/pipelines/${id}/jobs`, { include_retried: true })) as RawJob[];
+    jobs.push(...jobRows(rawJobs, id, allowFailureUnder, opts.scope || undefined));
     const rawBridges = (await readAllPages(command, target, id, `/projects/:id/pipelines/${id}/bridges`, {})) as RawBridge[];
     for (const raw of rawBridges) {
       const bridge = bridgeRow(raw, rootProjectId);
