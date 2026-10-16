@@ -1061,6 +1061,10 @@ GitLab only. Retry one CI job (jobId) or a whole pipeline (pipelineId) on an MR;
     },
     "pipelineId": {
       "type": "number"
+    },
+    "leaseMrUrl": {
+      "type": "string",
+      "description": "The MR or PR https URL whose CI lease this session must hold (or can claim) for the retry to run. Refused with retried: false while another owner holds a fresh lease."
     }
   },
   "additionalProperties": false
@@ -2004,6 +2008,52 @@ GitLab only. The MR's head pipeline, carrying sha, ref and mergeRequestEventType
 }
 ```
 
+### pipeline_jobs
+
+<!-- mcp-lint: allow -->
+GitLab only. The jobs of one pipeline and its same-project child pipelines: {state: "listed", pipeline, jobs, bridges}. A job row is {jobId, name, stage, status, allowFailure, blocking, pipelineId, attempt, webUrl}; only the latest run of each job is listed, attempt counts its runs. bridges lists every bridge with its downstream pipeline and a crossProject flag. pipelineId defaults to the MR's head pipeline; scope is one GitLab job scope (failed, success, running, pending, manual, canceled, skipped, created); name keeps jobs whose name contains it. Read a job's log with mr_job_trace. Read from GitLab on every call: any MR the token can see, whoever wrote it. A GitLab refusal comes back as GitLab's own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "repoName": {
+      "type": "string",
+      "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "iid": {
+      "type": "number",
+      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+    },
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR's https URL; supplies both the repo and iid."
+    },
+    "pipelineId": {
+      "type": "number"
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "failed",
+        "success",
+        "running",
+        "pending",
+        "manual",
+        "canceled",
+        "skipped",
+        "created"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "description": "Substring of the job name."
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### mr_job_trace
 
 <!-- mcp-lint: allow -->
@@ -2363,6 +2413,10 @@ Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; 
     },
     "setUpstream": {
       "type": "boolean"
+    },
+    "leaseMrUrl": {
+      "type": "string",
+      "description": "The MR or PR https URL whose CI lease this session must hold (or can claim) for the push to run. Refused with pushed: false while another owner holds a fresh lease."
     }
   },
   "required": [
@@ -3237,7 +3291,7 @@ Read the MR's CI attendant lease: {lease: <fresh lease or null>, stale: <a stale
 ### ci_watch
 
 <!-- mcp-lint: allow -->
-GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1500) passes, polling every intervalSeconds (default 30, 10 to 120, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default 75), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1500) passes, polling every intervalSeconds (default 30, 10 to 120, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default 75), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. With attend: true the call attends the MR itself: every poll heartbeats this session's lease or, when none is held, claims it (holder, with the MR's source branch); a lease that vanishes is re-claimed at most 2 times per commit, and the lease is kept alive between calls until ci_lease_release. The budget window, prior pipeline id and waiting clock persist per MR, so later calls need not pass budgetMinutes or priorPipelineId, and a pipeline that last failed and runs again opens a fresh window by itself. attend adds the states timeout (still running past the budget), no_pipeline (10 minutes of waiting with no pipeline for sha; pushed says whether the MR head is at sha, remoteSha is that head), stood_down (another owner attends; carries holder), lease_unavailable (the lease could not be claimed or kept; carries error) and unsupported_forge (a GitHub PR), and never returns lease_lost. With underBoardLease and attend it still only reads the board doctor lease. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
 {
@@ -3283,11 +3337,64 @@ GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles 
     },
     "underBoardLease": {
       "type": "boolean"
+    },
+    "attend": {
+      "type": "boolean",
+      "description": "true: claim and keep this session's lease and persist the watch window for the MR."
+    },
+    "holder": {
+      "type": "string",
+      "enum": [
+        "watch-ci",
+        "doctor"
+      ],
+      "description": "The role a claim takes, watch-ci (default) or doctor; only with attend."
     }
   },
   "required": [
     "sha"
   ],
+  "additionalProperties": false
+}
+```
+
+### ci_triage
+
+<!-- mcp-lint: allow -->
+GitLab only. Sort a pipeline's failed jobs, same-project child pipelines included, into REAL, INFRA or UNCLEAR by their log, and mark each blocking job yours, INHERITED (also failing on the target branch) or UNKNOWN. pipelineId defaults to the MR's head pipeline. Returns state triaged with pipeline, base, blocking, nonBlocking, crossProject, summary and next. Patterns and base settings come from ci.triage.*; config adds one-off real-patterns, infra-patterns and noisy-jobs, and sets base-depth, base-ref and skip-base. base names the comparison branch and noBase turns the comparison off. It reports; retrying is the caller's decision. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "repoName": {
+      "type": "string",
+      "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "iid": {
+      "type": "number",
+      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+    },
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR's https URL; supplies both the repo and iid."
+    },
+    "pipelineId": {
+      "type": "number",
+      "description": "The numeric part of a gitlab:pipeline:N id; default the MR's head pipeline."
+    },
+    "config": {
+      "type": "object",
+      "description": "Optional one-off override with the keys of a pack's ci-config.json."
+    },
+    "base": {
+      "type": "string",
+      "description": "The branch whose recent failures mark a job INHERITED."
+    },
+    "noBase": {
+      "type": "boolean"
+    }
+  },
   "additionalProperties": false
 }
 ```
