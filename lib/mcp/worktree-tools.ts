@@ -1,5 +1,5 @@
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
-import type { Commands } from "../../packages/rt-client/src/index.ts";
+import type { Commands, WorktreeTreeRef } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
 import { tryResolveRepoArg } from "../repo-arg.ts";
 import { isRepoRegistered } from "../repo-index.ts";
@@ -8,6 +8,7 @@ import { checkOptional, checkRequired, err, fromResponse, ok, REPO_NAME_RULE, ty
 
 const PROVISION_TIMEOUT_MS = 300_000;
 const DISPOSE_TIMEOUT_MS = 120_000;
+const CHECK_TIMEOUT_MS = 30_000;
 const REPO_PROP = { repoName: { type: "string", description: "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo." } };
 
 export interface ProvisionRefusal {
@@ -38,6 +39,15 @@ export function parseProvisionError(raw: string): ProvisionRefusal {
   if (raw.startsWith("rt daemon unreachable at ")) return refusal("daemon-unreachable", { detail: raw });
   if (/^daemon at version .* does not know "/.test(raw)) return refusal("daemon-outdated", { detail: raw });
   return refusal("error", { detail: raw });
+}
+
+function isReusable(t: WorktreeTreeRef): boolean {
+  return t.treeKind === "unmanaged" || (t.treeKind === "ephemeral" && t.state === "claimed");
+}
+
+function attachedReason(t: WorktreeTreeRef): string {
+  if (t.treeKind === "main") return "main-checkout";
+  return t.state === "disposable" ? "disposable" : (t.state ?? t.treeKind);
 }
 
 export interface WorktreeToolDeps {
@@ -72,36 +82,68 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
     const t = await resolveRepoTarget({ repoName: input.repoName });
     return t.ok ? { identity: t.identity } : { error: t.error };
   }
+  /** Every structured refusal leaves through here. */
+  function refuse(refusal: ProvisionRefusal) {
+    return err(JSON.stringify(refusal));
+  }
+  async function provision(payload: Commands["worktree:provision"]["payload"], opted: boolean) {
+    const res = await deps.command<Commands["worktree:provision"]["data"]>("worktree:provision", payload, { timeoutMs: PROVISION_TIMEOUT_MS });
+    if (res.ok) return ok({ kind: "provisioned", ...res.data });
+    const raw = res.error ?? "request failed";
+    return opted ? refuse(parseProvisionError(raw)) : err(explainError(raw));
+  }
   return [
     {
       name: "worktree_provision",
       description: `Claim a worktree for a ticket or branch (from the on-deck pool, or freshly created) and get back its path; then enter it with EnterWorktree in path mode. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
-        properties: { ...REPO_PROP, ticket: { type: "string" }, ticketTitle: { type: "string" }, branch: { type: "string" }, disposal: { type: "string", enum: ["merge", "job"] }, owner: { type: "string" }, codes: { type: "boolean", description: "Refusals come back as JSON text with a machine-readable code instead of prose." } },
+        properties: { ...REPO_PROP, ticket: { type: "string" }, ticketTitle: { type: "string" }, branch: { type: "string" }, disposal: { type: "string", enum: ["merge", "job"] }, owner: { type: "string" }, codes: { type: "boolean", description: "Refusals come back as JSON text with a machine-readable code instead of prose." },
+          precheck: { type: "boolean", description: "Only report the branch a provision would use and the trees already on it; nothing is created. Not with reuse." },
+          reuse: { type: "boolean", description: "Return the tree already on the branch (an unmanaged or claimed one) instead of provisioning; provisions only when none is. Not with precheck." },
+        },
         required: ["repoName"],
         additionalProperties: false,
       },
       shellForms: ["rt worktree provision", "git worktree add"],
       async handler(input) {
-        const bad = checkOptional(input, [{ name: "ticket", type: "string" }, { name: "ticketTitle", type: "string" }, { name: "branch", type: "string" }, { name: "disposal", type: "string" }, { name: "owner", type: "string" }, { name: "codes", type: "boolean" }]);
+        const bad = checkOptional(input, [{ name: "ticket", type: "string" }, { name: "ticketTitle", type: "string" }, { name: "branch", type: "string" }, { name: "disposal", type: "string" }, { name: "owner", type: "string" }, { name: "codes", type: "boolean" }, { name: "precheck", type: "boolean" }, { name: "reuse", type: "boolean" }]);
         if (bad) return err(bad);
         if (typeof input.ticket !== "string" && typeof input.branch !== "string") return err("pass a ticket (with an optional ticketTitle) or a branch");
         if (input.disposal !== undefined && input.disposal !== "merge" && input.disposal !== "job") return err('"disposal" must be merge or job');
+        if (input.precheck === true && input.reuse === true) return err("precheck and reuse are separate calls");
         const badRepo = checkRequired(input, [{ name: "repoName", type: "string" }]);
         if (badRepo) return err(badRepo);
         const opted = optedIn(input);
         const r = await resolveRepo(input.repoName);
         if ("error" in r) {
-          return opted && r.unknown ? err(JSON.stringify({ kind: "refused", code: "repo-unknown", error: r.error })) : err(r.error);
+          return opted && r.unknown ? refuse({ kind: "refused", code: "repo-unknown", error: r.error }) : err(r.error);
+        }
+        if (input.precheck === true || input.reuse === true) {
+          const checkPayload: Commands["worktree:provision-check"]["payload"] = { repoName: r.identity };
+          for (const k of ["ticket", "ticketTitle", "branch"] as const) if (typeof input[k] === "string") checkPayload[k] = input[k] as string;
+          const check = await deps.command<Commands["worktree:provision-check"]["data"]>("worktree:provision-check", checkPayload, { timeoutMs: CHECK_TIMEOUT_MS });
+          if (!check.ok || !check.data) return refuse(parseProvisionError(check.error ?? "request failed"));
+          if (input.precheck === true) return ok({ kind: "precheck", ...check.data });
+          const { attached, base, localBranch } = check.data;
+          if (attached.length > 1) return refuse({ kind: "refused", code: "branch-duplicated", trees: attached.map((t) => t.tree), error: explainError("branch-duplicated") });
+          const only = attached[0];
+          if (only) {
+            if (!isReusable(only)) return refuse({ kind: "refused", code: "branch-attached", tree: only.tree, reason: attachedReason(only), error: explainError(`branch-attached:${only.tree}`) });
+            const { tree, path, branch, treeKind, state, owner, disposal } = only;
+            return ok({ kind: "reused", tree, path, branch, treeKind, ...(state ? { state } : {}), ...(owner ? { owner } : {}), ...(disposal ? { disposal } : {}) });
+          }
+          if (localBranch && typeof input.branch !== "string") {
+            const resume: Commands["worktree:provision"]["payload"] = { repoName: r.identity, branch: base };
+            if (typeof input.owner === "string") resume.owner = input.owner;
+            if (input.disposal === "merge" || input.disposal === "job") resume.disposal = input.disposal;
+            return provision(resume, opted);
+          }
         }
         const payload: Commands["worktree:provision"]["payload"] = { repoName: r.identity };
         for (const k of ["ticket", "ticketTitle", "branch", "owner"] as const) if (typeof input[k] === "string") payload[k] = input[k] as string;
         if (input.disposal === "merge" || input.disposal === "job") payload.disposal = input.disposal;
-        const res = await deps.command<Commands["worktree:provision"]["data"]>("worktree:provision", payload, { timeoutMs: PROVISION_TIMEOUT_MS });
-        if (res.ok) return ok({ kind: "provisioned", ...res.data });
-        const raw = res.error ?? "request failed";
-        return opted ? err(JSON.stringify(parseProvisionError(raw))) : err(explainError(raw));
+        return provision(payload, opted);
       },
     },
     {
