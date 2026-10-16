@@ -10,6 +10,7 @@ import { isTeamSyncFirstPullPending, ONE_TEAM_ROW_ID } from "../validators/rt-he
 import { rowsToChecks } from "../../../commands/verify.ts";
 import type { Row } from "../contract.ts";
 import { BOARD_PEERING_ROW_ID, SELF_INVITE_STEPS } from "../validators/accounts.ts";
+import { BOARD_TEAM_FIELDS_ROW_ID } from "../validators/board-team-fields.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -21,6 +22,7 @@ type MemberTask = { verb: "connect" | "install"; label: string };
 const UNPEERED_NOTE = "Board not peered: ask your org admin to re-invite you";
 const SELF_INVITE_NOTE = "Board not peered: run rt team peer";
 const SEVERAL_TEAMS_NOTE = "More than one team on this Mac: open Setup status";
+const BOARD_TEAM_FIELDS_NOTE = "Old board settings not carried over: open Setup status";
 
 /**
  * Install never connects an account or installs a team-declared tool: both
@@ -62,6 +64,8 @@ export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): Step
     ...(peeringRow?.status === "needs-you" ? [JSON.stringify(peeringRow.action) === JSON.stringify(SELF_INVITE_STEPS) ? SELF_INVITE_NOTE : UNPEERED_NOTE] : []),
     // Not required either, and nothing else tells a Mac that already has two zones.
     ...(byId.get(ONE_TEAM_ROW_ID)?.status === "needs-you" ? [SEVERAL_TEAMS_NOTE] : []),
+    // Not required either: the board just shows less until a team admin sets what the old file held.
+    ...(byId.get(BOARD_TEAM_FIELDS_ROW_ID)?.status === "needs-you" ? [BOARD_TEAM_FIELDS_NOTE] : []),
   ].join(". ");
   if (failures.length > 0) {
     return {

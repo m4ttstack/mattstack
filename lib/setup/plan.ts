@@ -15,6 +15,7 @@ import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, type SecretsSeams
 import { regroupTools } from "./regroup.ts";
 import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type OrgRef } from "./contract.ts";
 import { UserActionableError } from "../errors.ts";
+import { activeTeamFor } from "../team/active-team.ts";
 import { applyFinishGate, readWaived } from "./finish-gate.ts";
 import { readIntent, orgRefFromIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
@@ -25,6 +26,7 @@ import { forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type T
 import { accessRows } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { adminSecretsRowSafe } from "./validators/admin-secrets.ts";
+import { boardTeamFieldsRowFor } from "./validators/board-team-fields.ts";
 import { macRows } from "./validators/mac.ts";
 import { repoRootRow } from "./validators/repo-root.ts";
 import { orgRows } from "./validators/org.ts";
@@ -192,7 +194,8 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
       const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs) });
       const repoRoot = repoRootRow(i.p, team, snapshot);
-      return [...tools, ...(repoRoot ? [repoRoot] : []), ...healthRows];
+      const boardFields = boardTeamFieldsRowFor(i.p, { solo, teamFor: () => (i.orgs.includes(team.slug) ? activeTeamFor(i.p, team.slug).team : null) });
+      return [...tools, ...(repoRoot ? [repoRoot] : []), ...healthRows, ...(boardFields ? [boardFields] : [])];
     }),
   ]);
 

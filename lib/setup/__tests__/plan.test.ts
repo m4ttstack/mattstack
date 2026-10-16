@@ -186,6 +186,16 @@ describe("composePlan", () => {
     }
   });
 
+  test("an old board file holding team fields adds the board.team-fields row to the team group", async () => {
+    const p = fakeProbes({ exec: readyExec, tray: grantedTray, files: { "/fake-home/.mattstack/board/config.json.imported": JSON.stringify({ title: "Ours" }) } });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: [] });
+    const team = plan.groups.find((g) => g.id === "team")!;
+    const r = team.rows.find((x) => x.id === "board.team-fields")!;
+    expect(r.status).toBe("needs-you");
+    expect(r.required).toBe(false);
+    expect(plan.requiredMissing).not.toContain("board.team-fields");
+  });
+
   test("create, join and restore intents produce the same rows as before solo existed", async () => {
     // readyExec puts no fast-browser on PATH, so the row's "missing" branch is the one asserted; the pending branches already read required:false in every mode.
     for (const intent of [createIntent(), joinIntent(), restoreIntent()]) {
