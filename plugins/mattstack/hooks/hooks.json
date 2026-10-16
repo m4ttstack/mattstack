@@ -8,6 +8,11 @@
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/spill-read-note.sh\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-effort-note.sh\"",
+            "timeout": 5
           }
         ]
       }
