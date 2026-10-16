@@ -22,7 +22,7 @@ import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
 import { checkPack, compilePackAll, NO_PACKS_WHY } from "./skills.ts";
-import { childEnv } from "../lib/subprocess.ts";
+import { runSkillsOrigin, spawnCapture } from "../lib/skills/origin-git.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { readDevModeConfig } from "./settings.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
@@ -240,11 +240,8 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
       if (found.kind === "outside") return true;
       return found.kind === "current" && mayWritePath(currentRole(found.org), found.rel);
     },
-    run: async (cmd, cmdArgs, opts) => {
-      const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
-      const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      return { code: await proc.exited, stdout, stderr };
-    },
+    run: (cmd, cmdArgs, opts) => spawnCapture([cmd, ...cmdArgs], opts?.cwd),
+    runOrigin: (gitArgs, opts) => runSkillsOrigin(gitArgs, opts),
     claudeBin: resolveClaudeBin(),
     checkPack: async (name) => {
       const payload = await checkPack({ pack: name, ...target });
