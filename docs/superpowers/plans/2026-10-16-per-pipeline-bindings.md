@@ -21,7 +21,7 @@
 - Skill edits load `superpowers:writing-skills` and `mattstack:editing-skills` first.
 - Console UI changes are rendered in Fast Browser and screenshotted in light and dark before the task is done.
 - Run `bun test` from the repo root only, on targeted files. A compiled `rt` binary only ever runs under `env -i HOME=<temp>`.
-- Pipeline names match `^[a-z][a-z0-9-]*$`. Stage copy names are `${stage}--${pipeline}` (e.g. `stage-evidence--accessibility`), and two pipelines never share a copy.
+- Pipeline names match `^[a-z][a-z0-9-]*$` where a pipeline has overrides or a work verb names it; plain-list pipelines are never name-checked. Stage copy names are `${stage}--${pipeline}` (e.g. `stage-evidence--accessibility`), and two pipelines never share a copy.
 - The stage allowed-tools union stays off for `work`: nothing new may use `{{pipeline.stages}}`.
 - Output goes through `lib/ui/out.ts`; lib code warns through `warn()` from `lib/ui/warn.ts`; no `console.*`.
 
@@ -156,7 +156,7 @@ The `compile-native` fixture stays untouched; it is the byte-identity baseline.
 - Modify: `lib/skills/types.ts` (`PlaceholderContext.pipeline`)
 - Modify: `lib/skills/placeholders.ts:139-153,270-300` (`run-start.flags`, new `pipeline.table` and `run-list.pipelines`, trace parts)
 - Modify: `lib/skills/compile.ts` (`compileSkill` options carry `pipeline` into the context)
-- Modify: `lib/skills/anatomy.ts` (only if `buildParts` needs per-row rendered lines for a multi-part trace entry)
+- Modify: `lib/skills/anatomy.ts` and `TraceEntry` in `lib/skills/placeholders.ts`: a trace placeholder record gains an optional row offset (`line?: number`, relative to the entry's `outStart`), and `buildParts` gives such a part only its own rendered line instead of the whole entry's span
 - Modify: `commands/skills.ts` (`compileVerb` sets `pipeline`; the new errors run wherever `pipelineChainErrors` runs: compile, `compilePackAll`, check; `CheckPayload` gains `droppedOverrides`)
 - Modify: `plugins/mattstack/attachments/pipeline/work/SKILL.md`, `plugins/mattstack/.claude-plugin/plugin.json`
 - Test: `lib/skills/__tests__/placeholders.test.ts`, `lib/skills/__tests__/anatomy.test.ts`, `commands/__tests__/skills.test.ts`, `lib/skills/__tests__/compile-native.e2e.test.ts` (`compile-pipelines`)
@@ -189,6 +189,7 @@ The `compile-native` fixture stays untouched; it is the byte-identity baseline.
     - several pipelines, none `feature`, a table verb with no `pipeline`: `verb "work" names no pipeline and the manifest declares several with none named feature`.
     - a pipeline run by a table verb that does not start with `mattstack:stage-provision`, end with `mattstack:stage-watch-ci`, and include `mattstack:stage-implement` and `mattstack:stage-ship`: `pipeline "accessibility" must start with stage-provision, end with stage-watch-ci, and include stage-implement and stage-ship`.
     - the same subset pipeline in a pack whose verbs never use `{{pipeline.table}}` passes, as today. Existing subset fixtures stay green.
+    - a work verb naming a plain-list pipeline `Access_ibility`: `pipeline "Access_ibility" must match [a-z][a-z0-9-]*`, reported by check and refused by compile.
     - a hand-written `--manifest` override naming an unlisted stage: `pipeline "accessibility" binds mattstack:stage-x but does not list it`.
     - a generated manifest with a `// dropped:` line: check passes, and `--json` carries `droppedOverrides`.
   - `compile-native.e2e.test.ts` (`compile-pipelines`):
