@@ -236,4 +236,133 @@ describe("worktree tools", () => {
       expect((await tool.handler({ repoName: ID, ticket: "t", reuse: 1 }, ENV)).error).toContain("reuse");
     });
   });
+  describe("run recording and the retry budget", () => {
+    const RUN_DB = "/runs/x/state.db";
+    const DATA = { tree: "new", path: "/trees/new", branch: "cv-1-fix" };
+    const PROVISIONED = { ok: true, data: DATA };
+    const ref = { tree: "frodo", path: "/trees/frodo", branch: "cv-1-fix", treeKind: "ephemeral", state: "claimed" };
+    const checkData = (o: Record<string, unknown> = {}) => ({ branch: "cv-1-fix", base: "cv-1-fix", localBranch: false, attached: [], sameTicket: [], sameSlug: [], ...o });
+    function rig(replies: Record<string, { ok: boolean; data?: unknown; error?: string }>, opts: { fieldSet?: (input: any) => { ok: boolean; body?: unknown; error?: string }; budget?: ((input: any) => { ok: boolean; body?: unknown; error?: string }) | null; noFieldSet?: boolean } = {}) {
+      const calls: Array<{ name: string; payload: any }> = [];
+      const fieldWrites: any[] = [];
+      const budgetCalls: any[] = [];
+      const envs: unknown[] = [];
+      const command = (async (name: string, payload: unknown) => { calls.push({ name, payload: payload as any }); return replies[name] ?? { ok: false, error: "no reply for " + name }; }) as any;
+      const defs: any[] = [];
+      if (!opts.noFieldSet) defs.push({ name: "run_field_set", handler: async (input: any, env: unknown) => { fieldWrites.push(input); envs.push(env); return (opts.fieldSet ?? (() => ({ ok: true, body: {} })))(input); } });
+      if (opts.budget !== null) defs.push({ name: "run_budget", handler: async (input: any) => { budgetCalls.push(input); return (opts.budget ?? (() => ({ ok: true, body: { key: "provision", spent: 1, limit: 2, remaining: 1, exhausted: false } })))(input); } });
+      const tool = worktreeToolDefs({ command, resolveRepo: async () => ({ identity: ID }), runTools: () => defs }).find((t) => t.name === "worktree_provision")!;
+      return { calls, fieldWrites, budgetCalls, envs, tool };
+    }
+    test("a provisioned tree is recorded as branch then worktree", async () => {
+      const { tool, fieldWrites, envs } = rig({ "worktree:provision": PROVISIONED });
+      const env = { X: "1" } as NodeJS.ProcessEnv;
+      const r = await tool.handler({ repoName: ID, branch: "cv-1-fix", runDb: RUN_DB }, env);
+      expect(r.ok).toBe(true);
+      expect(r.body).toEqual({ kind: "provisioned", ...DATA, recorded: true });
+      expect(fieldWrites).toEqual([
+        { runDb: RUN_DB, key: "branch", value: "cv-1-fix", stage: "provision" },
+        { runDb: RUN_DB, key: "worktree", value: "/trees/new", stage: "provision" },
+      ]);
+      expect(envs).toEqual([env, env]);
+    });
+    test("a reused tree is recorded under the given stage", async () => {
+      const { tool, fieldWrites } = rig({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref] }) } });
+      const r = await tool.handler({ repoName: ID, ticket: "CV-1", reuse: true, runDb: RUN_DB, stage: "checkout" }, ENV);
+      expect((r.body as any).kind).toBe("reused");
+      expect((r.body as any).recorded).toBe(true);
+      expect(fieldWrites).toEqual([
+        { runDb: RUN_DB, key: "branch", value: "cv-1-fix", stage: "checkout" },
+        { runDb: RUN_DB, key: "worktree", value: "/trees/frodo", stage: "checkout" },
+      ]);
+    });
+    test("a failed branch write stops the recording and keeps the tree", async () => {
+      const { tool, fieldWrites } = rig({ "worktree:provision": PROVISIONED }, { fieldSet: () => ({ ok: false, error: "stage provision has no row in this run" }) });
+      const r = await tool.handler({ repoName: ID, branch: "cv-1-fix", runDb: RUN_DB }, ENV);
+      expect(r.ok).toBe(true);
+      expect(r.body).toEqual({ kind: "provisioned", ...DATA, recordError: "stage provision has no row in this run" });
+      expect(fieldWrites.map((w) => w.key)).toEqual(["branch"]);
+    });
+    test("a missing run_field_set tool is a recordError", async () => {
+      const { tool } = rig({ "worktree:provision": PROVISIONED }, { noFieldSet: true });
+      const r = await tool.handler({ repoName: ID, branch: "cv-1-fix", runDb: RUN_DB }, ENV);
+      expect(r.ok).toBe(true);
+      expect((r.body as any).recordError).toBe("run_field_set is not available");
+    });
+    test("precheck and a refusal record nothing", async () => {
+      const a = rig({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref] }) } });
+      await a.tool.handler({ repoName: ID, ticket: "CV-1", precheck: true, runDb: RUN_DB }, ENV);
+      expect(a.fieldWrites).toEqual([]);
+      const b = rig({ "worktree:provision": { ok: false, error: "busy" } });
+      const r = await b.tool.handler({ repoName: ID, branch: "b", runDb: RUN_DB }, ENV);
+      expect(JSON.parse(r.error!).code).toBe("busy");
+      expect(b.fieldWrites).toEqual([]);
+    });
+    test.each([["relative/state.db"], ["/runs/x/other.db"], [""]])("runDb %j is an input error before any call", async (runDb) => {
+      const { tool, calls } = rig({ "worktree:provision": PROVISIONED });
+      const r = await tool.handler({ repoName: ID, branch: "b", runDb }, ENV);
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe('"runDb" must be the absolute path of a run\'s state.db');
+      expect(calls).toEqual([]);
+    });
+    test("runDb and stage must be strings", async () => {
+      const { tool, calls } = rig({ "worktree:provision": PROVISIONED });
+      expect((await tool.handler({ repoName: ID, branch: "b", runDb: 5 }, ENV)).error).toContain("runDb");
+      expect((await tool.handler({ repoName: ID, branch: "b", runDb: RUN_DB, stage: 5 }, ENV)).error).toContain("stage");
+      expect(calls).toEqual([]);
+    });
+    test("a refusal with a budget charges run_budget and returns its body", async () => {
+      const { tool, budgetCalls } = rig({ "worktree:provision": { ok: false, error: "busy" } });
+      const r = await tool.handler({ repoName: ID, branch: "b", runDb: RUN_DB, budget: { key: "provision", limit: 2 } }, ENV);
+      expect(JSON.parse(r.error!).budget).toEqual({ key: "provision", spent: 1, limit: 2, remaining: 1, exhausted: false });
+      expect(budgetCalls).toEqual([{ runDb: RUN_DB, key: "provision", limit: 2, stage: "provision" }]);
+    });
+    test("a reuse refusal charges the budget under the given stage", async () => {
+      const { tool, budgetCalls } = rig({ "worktree:provision-check": { ok: true, data: checkData({ attached: [{ ...ref, state: "disposable" }] }) } });
+      const r = await tool.handler({ repoName: ID, ticket: "CV-1", reuse: true, runDb: RUN_DB, stage: "checkout", budget: { key: "k", limit: 3 } }, ENV);
+      expect(JSON.parse(r.error!).code).toBe("branch-attached");
+      expect(budgetCalls).toEqual([{ runDb: RUN_DB, key: "k", limit: 3, stage: "checkout" }]);
+    });
+    test("a repo-unknown refusal charges the budget", async () => {
+      const calls: any[] = [];
+      const tool = worktreeToolDefs({ command: (async () => ({ ok: true })) as any, resolveRepo: async () => ({ error: "nope", unknown: true }), runTools: () => [{ name: "run_budget", handler: async (i: any) => { calls.push(i); return { ok: true, body: { key: "k" } }; } } as any] }).find((t) => t.name === "worktree_provision")!;
+      const r = await tool.handler({ repoName: "x", branch: "b", runDb: RUN_DB, budget: { key: "k", limit: 2 } }, ENV);
+      expect(JSON.parse(r.error!)).toEqual({ kind: "refused", code: "repo-unknown", error: "nope", budget: { key: "k" } });
+      expect(calls).toHaveLength(1);
+    });
+    test("a success with a budget does not charge", async () => {
+      const { tool, budgetCalls } = rig({ "worktree:provision": PROVISIONED });
+      await tool.handler({ repoName: ID, branch: "b", runDb: RUN_DB, budget: { key: "provision", limit: 2 } }, ENV);
+      expect(budgetCalls).toEqual([]);
+    });
+    test("no run_budget tool gives a budget error", async () => {
+      const { tool } = rig({ "worktree:provision": { ok: false, error: "busy" } }, { budget: null });
+      const r = await tool.handler({ repoName: ID, branch: "b", runDb: RUN_DB, budget: { key: "provision", limit: 2 } }, ENV);
+      expect(JSON.parse(r.error!).budget).toEqual({ error: "run_budget is not available on this rt" });
+    });
+    test("a run_budget refusal comes back as budget.error", async () => {
+      const { tool } = rig({ "worktree:provision": { ok: false, error: "busy" } }, { budget: () => ({ ok: false, error: "stage provision has no row in this run" }) });
+      const r = await tool.handler({ repoName: ID, branch: "b", runDb: RUN_DB, budget: { key: "provision", limit: 2 } }, ENV);
+      expect(JSON.parse(r.error!).budget).toEqual({ error: "stage provision has no row in this run" });
+    });
+    test.each([
+      [{ budget: { key: "k", limit: 2 } }, '"budget" needs "runDb"'],
+      [{ runDb: "/runs/x/state.db", budget: { key: "", limit: 2 } }, "budget"],
+      [{ runDb: "/runs/x/state.db", budget: { key: "k", limit: 0 } }, "budget"],
+      [{ runDb: "/runs/x/state.db", budget: { key: "k", limit: 1.5 } }, "budget"],
+      [{ runDb: "/runs/x/state.db", budget: "k" }, "budget"],
+      [{ runDb: "/runs/x/state.db", budget: [] }, "budget"],
+    ])("budget input %j is an input error with no calls", async (extra, msg) => {
+      const { tool, calls, budgetCalls } = rig({ "worktree:provision": { ok: false, error: "busy" } });
+      const r = await tool.handler({ repoName: ID, branch: "b", ...extra }, ENV);
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain(msg);
+      expect(calls).toEqual([]);
+      expect(budgetCalls).toEqual([]);
+    });
+    test("the description names the outcomes, codes and options", () => {
+      const d = rig({}).tool.description;
+      for (const word of ["provisioned", "precheck", "reused", "codes", "reuse", "runDb", "stage", "budget", "run_budget", "branch-attached", "busy", "create-failed", "repo-unknown"]) expect(d).toContain(word);
+    });
+  });
 });
