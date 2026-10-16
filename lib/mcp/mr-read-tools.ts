@@ -4,8 +4,10 @@
  */
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion } from "../../packages/rt-client/src/index.ts";
+import { walkPipeline } from "../ci/gitlab-forge.ts";
+import { isHttpsMrUrl } from "../ci/lease-guard.ts";
 import { explainError } from "../explain-error.ts";
-import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
+import { parseMrUrl, resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { sliceTrace, type TraceMode } from "./trace-slice.ts";
 import { checkOptional, checkPositiveInts, checkStringArray, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, type McpToolDef } from "./shared.ts";
 
@@ -53,12 +55,42 @@ function pipelineNumber(pr: { pipeline?: { id?: string } | null }): number | und
   return m ? Number(m[1]) : undefined;
 }
 
+async function readMr(command: typeof rtCommand, identity: string, iid: number): Promise<{ ok: true; data: Commands["mr:get"]["data"] } | { ok: false; error: string }> {
+  const r = await command<Commands["mr:get"]["data"]>("mr:get", { repoName: identity, iid }, { timeoutMs: READ_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "MR read failed") };
+  return { ok: true, data: r.data };
+}
+
+export type PipelineSubject =
+  | { kind: "github" }
+  | { kind: "gitlab"; pipelineId: number; targetBranch: string | null }
+  | { kind: "error"; error: string };
+
+/** The one mr:get read behind ci_triage and pipeline_jobs: it tells a GitHub PR apart
+    before any GitLab-only read, and defaults the pipeline to the MR's head pipeline. */
+export async function readPipelineSubject(command: typeof rtCommand, target: { identity: string; iid: number }, pipelineId: number | undefined): Promise<PipelineSubject> {
+  const read = await readMr(command, target.identity, target.iid);
+  if (!read.ok) return { kind: "error", error: read.error };
+  const mr = read.data.mr;
+  if (parseMrUrl(mr.webUrl ?? "") === null || mr.pipeline?.id.startsWith("github:")) return { kind: "github" };
+  const id = pipelineId ?? pipelineNumber(mr);
+  if (id === undefined) return { kind: "error", error: "the MR has no pipeline; pass pipelineId" };
+  return { kind: "gitlab", pipelineId: id, targetBranch: mr.targetBranch ?? null };
+}
+
+/** A GitHub PR URL, which resolveMrTarget rejects by shape before any read could tell the forge. */
+export function isGithubPrUrl(mrUrl: unknown): boolean {
+  return typeof mrUrl === "string" && isHttpsMrUrl(mrUrl) && parseMrUrl(mrUrl) === null;
+}
+
+export function unsupportedGithub(tool: string) {
+  return { state: "unsupported_forge", forge: "github", next: `${tool} reads GitLab pipelines only; this is a GitHub pull request, so read its checks on GitHub.` } as const;
+}
+
+const JOB_SCOPES = ["failed", "success", "running", "pending", "manual", "canceled", "skipped", "created"] as const;
+
 export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] {
-  async function getMr(identity: string, iid: number): Promise<{ ok: true; data: Commands["mr:get"]["data"] } | { ok: false; error: string }> {
-    const r = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: identity, iid }, { timeoutMs: READ_TIMEOUT_MS });
-    if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "MR read failed") };
-    return { ok: true, data: r.data };
-  }
+  const getMr = (identity: string, iid: number) => readMr(deps.command, identity, iid);
 
   return [
     {
@@ -180,6 +212,37 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
           body.job = job.data?.type === "trace" ? { type: "trace", traceVia: "mr_job_trace" } : job.data;
         }
         return ok(body);
+      },
+    },
+    {
+      name: "pipeline_jobs",
+      description: `GitLab only. The jobs of one pipeline and its same-project child pipelines: {state: "listed", pipeline, jobs, bridges}. A job row is {jobId, name, stage, status, allowFailure, blocking, pipelineId, attempt, webUrl}; only the latest run of each job is listed, attempt counts its runs. bridges lists every bridge with its downstream pipeline and a crossProject flag. pipelineId defaults to the MR's head pipeline; scope is one GitLab job scope (${JOB_SCOPES.join(", ")}); name keeps jobs whose name contains it. Read a job's log with mr_job_trace. ${LIVE_NOTE}. ${REPO_NAME_RULE}`,
+      inputSchema: {
+        type: "object",
+        properties: { ...MR_TARGET_PROPS, pipelineId: { type: "number" }, scope: { type: "string", enum: [...JOB_SCOPES] }, name: { type: "string", description: "Substring of the job name." } },
+        additionalProperties: false,
+      },
+      shellForms: { none: "no glab verb lists every job of a pipeline with its retry attempts; the script forms join in wave 3" },
+      async handler(input) {
+        const bad = checkOptional(input, [{ name: "pipelineId", type: "number" }, { name: "scope", type: "string" }, { name: "name", type: "string" }]) ?? checkPositiveInts(input, ["pipelineId"]);
+        if (bad) return err(bad);
+        if (input.scope !== undefined && !JOB_SCOPES.includes(input.scope as typeof JOB_SCOPES[number])) return err(`"scope" must be one of ${JOB_SCOPES.join(", ")}`);
+        if (isGithubPrUrl(input.mrUrl)) return ok(unsupportedGithub("pipeline_jobs"));
+        const target = await resolveMrTarget(input);
+        if (!target.ok) return err(target.error);
+        const subject = await readPipelineSubject(deps.command, target, input.pipelineId as number | undefined);
+        if (subject.kind === "error") return err(subject.error);
+        if (subject.kind === "github") return ok(unsupportedGithub("pipeline_jobs"));
+        try {
+          const walk = await walkPipeline(deps.command, target, subject.pipelineId, {
+            ...(typeof input.scope === "string" && { scope: input.scope }),
+            ...(typeof input.name === "string" && { name: input.name }),
+          });
+          if (!walk) return err(`pipeline ${subject.pipelineId} not found`);
+          return ok({ state: "listed", pipeline: walk.pipeline, jobs: walk.jobs.map((j) => ({ ...j, blocking: !j.allowFailure })), bridges: walk.bridges });
+        } catch (e) {
+          return err(e instanceof Error ? e.message : String(e));
+        }
       },
     },
     {

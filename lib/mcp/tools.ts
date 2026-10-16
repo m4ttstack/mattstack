@@ -14,6 +14,7 @@ import {
   rtCommand,
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion } from "../../packages/rt-client/src/index.ts";
+import { ensureLease } from "../ci/lease-guard.ts";
 import { explainError } from "../explain-error.ts";
 import { selfPaneRef } from "../self-pane.ts";
 import { chatToolDefs } from "./chat-tools.ts";
@@ -60,6 +61,9 @@ const MR_REBASE_GH_MOVE = "no server-side rebase on GitHub";
 function existingMrResult(mr: OpenMr): ToolResult {
   return ok({ iid: mr.iid, url: mr.url, existing: true, targetBranch: mr.targetBranch, draft: mr.draft, title: mr.title, applied: false });
 }
+
+/** The CI lease guard mr_retry reads; a test replaces `ensureLease` and restores it. */
+export const mrToolDeps = { ensureLease };
 
 type MrActionName = Commands["mr:action"]["payload"]["action"];
 
@@ -671,18 +675,22 @@ export function mcpTools(): McpToolDef[] {
       description: `GitLab only. Retry one CI job (jobId) or a whole pipeline (pipelineId) on an MR; pass exactly one. The MR named by the target is the one whose state is refreshed afterward. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
-        properties: { ...MR_TARGET_PROPS, jobId: { type: "number" }, pipelineId: { type: "number" } },
+        properties: { ...MR_TARGET_PROPS, jobId: { type: "number" }, pipelineId: { type: "number" }, leaseMrUrl: { type: "string", description: "The MR or PR https URL whose CI lease this session must hold (or can claim) for the retry to run. Refused with retried: false while another owner holds a fresh lease." } },
         additionalProperties: false,
       },
       shellForms: ["glab ci retry"],
-      async handler(input) {
-        const bad = checkOptional(input, [{ name: "jobId", type: "number" }, { name: "pipelineId", type: "number" }])
+      async handler(input, env) {
+        const bad = checkOptional(input, [{ name: "jobId", type: "number" }, { name: "pipelineId", type: "number" }, { name: "leaseMrUrl", type: "string" }])
           ?? checkPositiveInts(input, ["jobId", "pipelineId"]);
         if (bad) return err(bad);
         const hasJob = input.jobId !== undefined;
         if (hasJob === (input.pipelineId !== undefined)) return err('pass exactly one of "jobId" or "pipelineId"');
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);
+        if (input.leaseMrUrl !== undefined) {
+          const lease = mrToolDeps.ensureLease(input.leaseMrUrl as string, env);
+          if (!lease.ok) return "refused" in lease ? ok({ retried: false, refused: lease.refused, holder: lease.holder }) : err(lease.error);
+        }
         return hasJob
           ? runMrAction(target, "retryJob", [input.jobId], { jobId: input.jobId })
           : runMrAction(target, "retryPipeline", [input.pipelineId], { pipelineId: input.pipelineId });

@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { branchSyncPreflight, branchSyncSweep, gitChildEnv, gitPull, gitPush, gitRebase, gitToolDefs, realAuthoredOpenMrs, realGitRunner, realOpenMr, realRepoTrees, realResolveRepo, syncChildEnv, type BranchSyncResult, type GitRunner, type GitToolDeps, type SweepIo } from "../git-tools.ts";
+import type { CiLease } from "../../../packages/rt-client/src/index.ts";
+import type { GuardResult } from "../../ci/lease-guard.ts";
 import type { TreeGuardDeps } from "../tree-guard.ts";
 
 const GIT_PATHS = "rev-parse --git-path rebase-merge --git-path rebase-apply";
@@ -1142,5 +1144,72 @@ describe("the sweep's real seams", () => {
   });
   test("repoName must be a string", async () => {
     expect(await realResolveRepo(3)).toEqual({ ok: false, error: '"repoName" must be a string' });
+  });
+});
+
+describe("git_push leaseMrUrl", () => {
+  const MR = "https://gitlab.com/acme/app/-/merge_requests/7";
+  const treeGuard: TreeGuardDeps = { repoIndex: () => ({ r: "/real/app" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => ["/real/app"], hasGitEntry: () => false, ignoredBy: () => false };
+  const holder: CiLease = { mr: MR, owner: "session:other", holder: "watch-ci", startedAt: 1, heartbeatAt: 2, ttlSeconds: 300 };
+  const pushKey = "push --no-follow-tags --recurse-submodules=no --end-of-options origin HEAD:refs/heads/feat/x";
+  const env = { CLAUDE_CODE_SESSION_ID: "mine" } as NodeJS.ProcessEnv;
+
+  function setup(guardResult: GuardResult) {
+    const gitCalls: string[] = [];
+    const guardCalls: Array<{ url: string; env: NodeJS.ProcessEnv; opts: unknown }> = [];
+    const tool = gitToolDefs({
+      ...noForge,
+      git: fakeGit({ ...onFeature, [pushKey]: {} }, gitCalls),
+      guard: treeGuard,
+      sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      ensureLease: (url, e, opts) => { guardCalls.push({ url, env: e, opts }); return guardResult; },
+    }).find((t) => t.name === "git_push")!;
+    return { tool, gitCalls, guardCalls };
+  }
+
+  test("without leaseMrUrl the guard is never called and the push runs", async () => {
+    const { tool, gitCalls, guardCalls } = setup({ ok: false, error: "must not be called" });
+    const r = await tool.handler({ tree: "/real/app" }, env);
+    expect(r.ok).toBe(true);
+    expect(guardCalls).toEqual([]);
+    expect(gitCalls).toContain(pushKey);
+  });
+
+  test("a refusing guard returns pushed: false with the holder and never runs git push", async () => {
+    const { tool, gitCalls, guardCalls } = setup({ ok: false, refused: "lease_held", holder });
+    const r = await tool.handler({ tree: "/real/app", leaseMrUrl: MR }, env);
+    expect(r).toEqual({ ok: true, body: { pushed: false, refused: "lease_held", holder, tree: "/real/app" } });
+    expect(guardCalls).toEqual([{ url: MR, env, opts: { branch: "feat/x" } }]);
+    expect(gitCalls.some((c) => c.startsWith("push"))).toBe(false);
+  });
+
+  test("a guard error is an error result and never runs git push", async () => {
+    const { tool, gitCalls } = setup({ ok: false, error: "not an https MR or PR URL: nope" });
+    const r = await tool.handler({ tree: "/real/app", leaseMrUrl: "nope" }, env);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe("not an https MR or PR URL: nope");
+    expect(gitCalls.some((c) => c.startsWith("push"))).toBe(false);
+  });
+
+  test("a held guard pushes", async () => {
+    const { tool, gitCalls } = setup({ ok: true, lease: holder, claimed: false });
+    const r = await tool.handler({ tree: "/real/app", leaseMrUrl: MR }, env);
+    expect(r.ok).toBe(true);
+    expect(gitCalls).toContain(pushKey);
+  });
+
+  test("a non-string leaseMrUrl is refused before the guard", async () => {
+    const { tool, guardCalls } = setup({ ok: false, error: "must not be called" });
+    const r = await tool.handler({ tree: "/real/app", leaseMrUrl: 5 }, env);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("leaseMrUrl");
+    expect(guardCalls).toEqual([]);
+  });
+
+  test("an unregistered tree is refused before the guard", async () => {
+    const { tool, guardCalls } = setup({ ok: false, error: "must not be called" });
+    const r = await tool.handler({ tree: "/elsewhere", leaseMrUrl: MR }, env);
+    expect(r.ok).toBe(false);
+    expect(guardCalls).toEqual([]);
   });
 });

@@ -189,8 +189,8 @@ const EXPECTED_TOOL_NAMES = [
   "chat_read", "chat_mark", "chat_rooms", "chat_who", "chat_buddies", "chat_join", "chat_leave", "chat_away", "chat_back",
   "chat_sign_in", "chat_sign_out", "chat_archive", "chat_invite",
   "whoami",
-  "ci_lease_claim", "ci_lease_heartbeat", "ci_lease_release", "ci_lease_read", "ci_watch",
-  "project_labels", "pipeline_list", "gitlab_get", "branch_stack",
+  "ci_lease_claim", "ci_lease_heartbeat", "ci_lease_release", "ci_lease_read", "ci_watch", "ci_triage",
+  "project_labels", "pipeline_list", "pipeline_jobs", "gitlab_get", "branch_stack",
 ];
 
 describe("rt mcp serve e2e", () => {

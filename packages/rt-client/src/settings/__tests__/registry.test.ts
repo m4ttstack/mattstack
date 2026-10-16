@@ -388,6 +388,12 @@ describe("settings/registry", () => {
         "rt.notify.eventBridges",
         "rt.gates.escalationTtlMinutes",
         "ci.watch.budgetMinutes",
+        "ci.triage.realPatterns",
+        "ci.triage.infraPatterns",
+        "ci.triage.noisyJobs",
+        "ci.triage.baseDepth",
+        "ci.triage.baseRef",
+        "ci.triage.skipBase",
         "skills.writingStyle",
         "herd.watchdog.enabled",
         "herd.watchdog.fastMins",
@@ -404,7 +410,7 @@ describe("settings/registry", () => {
         "rt.hooks",
         "rt.branchNaming",
       ];
-      expect(suiteKeys).toHaveLength(89);
+      expect(suiteKeys).toHaveLength(95);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
