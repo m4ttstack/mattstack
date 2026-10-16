@@ -118,7 +118,16 @@ export function stageStart(
     if (opts.onRunning === "supersede") {
       const latest = db.query("SELECT attempt, status FROM stages WHERE name=? ORDER BY attempt DESC LIMIT 1").get(name) as { attempt: number; status: string } | undefined;
       if (latest?.status === "running") {
-        db.run("UPDATE stages SET status='redirected', ended_at=?, reason=? WHERE name=? AND attempt=?", [now, `superseded by attempt ${latest.attempt + 1}`, name, latest.attempt]);
+        const reason = `superseded by attempt ${latest.attempt + 1}`;
+        db.run("UPDATE stages SET status='redirected', ended_at=?, reason=? WHERE name=? AND attempt=?", [now, reason, name, latest.attempt]);
+        const recorded = decisionRecord(db, {
+          contract: "gate@1",
+          scope: `redirect:${name}:${latest.attempt}`,
+          selection: JSON.stringify({ from: name, to: name, reason }),
+          decidedBy: "run_stage",
+          now,
+        });
+        if (!recorded.ok) throw new Error(recorded.error);
       }
     }
     db.run(

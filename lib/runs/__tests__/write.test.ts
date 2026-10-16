@@ -163,7 +163,9 @@ describe("stage lifecycle", () => {
     ]);
     expect((db.query("SELECT COUNT(*) AS n FROM stages WHERE status='running'").get() as { n: number }).n).toBe(1);
     expect(db.query("SELECT current_stage FROM runs").get()).toEqual({ current_stage: "plan" });
-    expect(db.query("SELECT COUNT(*) AS n FROM decisions").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT contract, scope, selection, decided_by, decided_at FROM decisions").all()).toEqual([
+      { contract: "gate@1", scope: "redirect:plan:1", selection: '{"from":"plan","to":"plan","reason":"superseded by attempt 2"}', decided_by: "run_stage", decided_at: 20 },
+    ]);
     expect(db.query("SELECT value FROM fields WHERE key='herdr-pane'").get()).toEqual({ value: "w1:p4" });
     db.close();
   });

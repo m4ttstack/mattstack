@@ -117,7 +117,7 @@ describe("rt runs write verbs", () => {
       { attempt: 1, status: "redirected", reason: "superseded by attempt 2" },
       { attempt: 2, status: "running", reason: null },
     ]);
-    expect(db.query("SELECT COUNT(*) AS n FROM decisions").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT scope, decided_by FROM decisions").all()).toEqual([{ scope: "redirect:plan:1", decided_by: "run_stage" }]);
     db.close();
   });
 
