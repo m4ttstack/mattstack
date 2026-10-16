@@ -99,8 +99,28 @@ export function runStatus(db: Database, status: string, now: number = Date.now()
   }
 }
 
-export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, now: number = Date.now()): Ok | Fail {
-  try {
+export type StageStartOpts = {
+  // "refuse" answers code 2 and writes nothing when the stage's latest attempt
+  // is running; "supersede" ends that attempt redirected and starts the next.
+  // The engine always passes "refuse": only an agent's explicit start may
+  // supersede, never a run_next, run_resolve or run_enter.
+  onRunning?: "refuse" | "supersede";
+};
+
+export function stageStart(
+  db: Database,
+  name: string,
+  env: NodeJS.ProcessEnv,
+  now: number = Date.now(),
+  opts: StageStartOpts = {},
+): Ok | Fail {
+  const start = (): Ok | Fail => {
+    if (opts.onRunning === "supersede") {
+      const latest = db.query("SELECT attempt, status FROM stages WHERE name=? ORDER BY attempt DESC LIMIT 1").get(name) as { attempt: number; status: string } | undefined;
+      if (latest?.status === "running") {
+        db.run("UPDATE stages SET status='redirected', ended_at=?, reason=? WHERE name=? AND attempt=?", [now, `superseded by attempt ${latest.attempt + 1}`, name, latest.attempt]);
+      }
+    }
     db.run(
       `INSERT INTO stages (run_id, name, status, attempt, started_at)
        SELECT id, ?, 'running', COALESCE((SELECT MAX(attempt) FROM stages WHERE name = ?), 0) + 1, ? FROM runs
@@ -120,6 +140,12 @@ export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, n
     db.run("UPDATE runs SET current_stage=?", [name]);
     recordIdentity(db, env, now);
     return { ok: true };
+  };
+  try {
+    if (opts.onRunning !== "supersede" || db.inTransaction) return start();
+    // IMMEDIATE takes the write lock before the read of the latest attempt, so a
+    // concurrent start cannot slip between the supersede and the insert.
+    return db.transaction(start).immediate();
   } catch (err) {
     return { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };
   }

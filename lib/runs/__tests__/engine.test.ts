@@ -271,6 +271,17 @@ describe("nextStage", () => {
     expect(nextStage(db, { stage: "ship", env: {} })).toMatchObject({ ended: "failed", earlier: ["plan"] });
   });
 
+  test("a following stage already running refuses the start and rolls the whole call back", () => {
+    const db = pipeline();
+    set(db, "approach", "tdd", "plan");
+    expect(stageStart(db, "implement", {}, 110).ok).toBe(true);
+    expect(nextStage(db, { stage: "plan", env: {}, now: 200 })).toMatchObject({ ok: false, code: 2 });
+    expect(db.query("SELECT name, attempt, status FROM stages ORDER BY name").all()).toEqual([
+      { name: "implement", attempt: 1, status: "running" },
+      { name: "plan", attempt: 1, status: "running" },
+    ]);
+  });
+
   test("held and waiting are returned without writes", () => {
     const db = pipeline();
     set(db, "approach", "tdd", "plan");

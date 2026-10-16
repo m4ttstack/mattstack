@@ -158,7 +158,7 @@ function resumeRun(i: EnterInput, id: string, handedFlag: { handedRunDb?: "not-r
       if (current === null) {
         const first = manifest[0];
         if (!first) return refused(`run ${id} has no stage to start`);
-        must(stageStart(db, first.stage, i.env, now));
+        must(stageStart(db, first.stage, i.env, now, { onRunning: "refuse" }));
         current = first.stage;
       }
       if (clearedHold) must(fieldSet(db, "hold", "-", current, now));
@@ -225,7 +225,7 @@ function startRun(i: EnterInput, handedFlag: { handedRunDb?: "not-running" }): O
     return db.transaction((): Ok<EnterResult> | Fail => {
       writeManifest(db, stages, i.stage !== undefined ? null : i.packRoot);
       must(fieldSet(db, "pipeline-stages", stages.map((s) => s.stage).join(" "), stages[0]!.stage, now));
-      must(stageStart(db, stages[0]!.stage, i.env, now));
+      must(stageStart(db, stages[0]!.stage, i.env, now, { onRunning: "refuse" }));
       return {
         ok: true,
         mode: "started",

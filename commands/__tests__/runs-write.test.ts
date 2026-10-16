@@ -108,6 +108,19 @@ describe("rt runs write verbs", () => {
     db.close();
   });
 
+  test("stage-start on a running stage supersedes it: attempt 1 redirected, attempt 2 running, one running row", async () => {
+    const { env, runDb } = await startRun();
+    await runWriteVerb("stage-start", ["--stage", "plan"], env);
+    expect(await runWriteVerb("stage-start", ["--stage", "plan"], env)).toEqual({ out: '{"ok":true}', code: 0 });
+    const db = new Database(runDb, { readonly: true });
+    expect(db.query("SELECT attempt, status, reason FROM stages ORDER BY attempt").all()).toEqual([
+      { attempt: 1, status: "redirected", reason: "superseded by attempt 2" },
+      { attempt: 2, status: "running", reason: null },
+    ]);
+    expect(db.query("SELECT COUNT(*) AS n FROM decisions").get()).toEqual({ n: 0 });
+    db.close();
+  });
+
   test("stage-redirect closes the running attempt as redirected with the default reason", async () => {
     const { env, runDb } = await startRun();
     await runWriteVerb("stage-start", ["--stage", "implement"], env);
