@@ -32,7 +32,7 @@ The full list, with every tool's description and input schema, is the [MCP tools
 | Tool | What it does |
 | --- | --- |
 | `gate_ask` | Open a decision gate with daemon-side ceremony (subject resolution, presentation, nudge). Returns the gate id and presentation. |
-| `gate_answer` | Answer an open gate's questions as this pane. Values must match option values verbatim; nuance goes in a `note` field. |
+| `gate_answer` | Answer an open gate's questions as this pane. Values must match option values verbatim; nuance goes in a `note` field. A question opened with `writeIn: true` may take `{writeIn}`, the human's own words, instead. |
 | `gate_list` | List gates (every status, or only open ones), optionally filtered by subject prefix or kind. Supports cursor-based paging. |
 
 ### Run tracking

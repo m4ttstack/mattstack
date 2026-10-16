@@ -62,6 +62,21 @@ Each question can carry its own `context` field for material specific to that ch
 ]
 ```
 
+### Write-ins
+
+A question can also take an answer in the human's own words. Mark it with `"writeIn": true`, and set it only on a decision question whose free-text answer the agent can act on, never on `next`. The question still needs options; a question with none is free-form already.
+
+```json
+{
+  "id": "approach",
+  "label": "How should we split this?",
+  "options": ["One MR", "Two MRs"],
+  "writeIn": true
+}
+```
+
+In the console and the board, the human leaves the options alone and types into the question's note box.
+
 ## Answering
 
 ```bash
@@ -70,6 +85,15 @@ rt gate answer <id> --answers '{"q1":"refactor"}' --by human   # answer one
 ```
 
 Answer values must match an option's value verbatim. Free-text feedback rides a per-answer `note` field. For multi-select questions, the answer is an array of values.
+
+A question marked `writeIn` may instead take the human's own words, sent alone with no `value`, `note` or `text`:
+
+```bash
+rt gate answer <id> --by human \
+  --answers '{"approach":{"writeIn":"migration in its own MR"}}'
+```
+
+The daemon refuses an empty write-in, and a write-in on a question not marked for one. The agent treats a write-in as the human's instruction and never maps it onto the nearest option.
 
 ### Herd ownership
 
