@@ -465,6 +465,17 @@ describe("attend", () => {
     const { deps } = fake([mr(SHA, pipe({ sha: OLD }))]);
     expect(await watchPipeline({ ...base, maxWaitSeconds: 900, attend: attend() }, deps)).toMatchObject({ state: "no_pipeline", pushed: true });
   });
+  test("a merge-train pipeline that stays unprovable past ten minutes never returns no_pipeline", async () => {
+    const { deps } = fake([mr(SHA, pipe({ sha: "m".repeat(40), mergeRequestEventType: "merge_train", status: "running" }))]);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 900, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "waiting", waitedSeconds: 900 });
+    expect((r as { next: string }).next).toContain("priorPipelineId");
+  });
+  test("parent reads that keep failing past ten minutes never return no_pipeline", async () => {
+    const { deps } = fake([mr(SHA, pipe({ sha: "m".repeat(40), mergeRequestEventType: "merged_result", status: "running" }))], { commitParents: async () => null });
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 900, attend: attend() }, deps);
+    expect(r).toMatchObject({ state: "waiting", waitedSeconds: 900 });
+  });
   test("ten minutes of a null head returns no_pipeline with pushed false and a null remoteSha", async () => {
     const { deps } = fake([mr(null, null)]);
     const r = await watchPipeline({ ...base, maxWaitSeconds: 900, attend: attend() }, deps);

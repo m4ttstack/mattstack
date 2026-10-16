@@ -323,7 +323,8 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
           ? "cannot prove this merge-train pipeline is new since the push; call again with priorPipelineId (the head pipeline id read before the push)"
           : "no pipeline for the pushed sha yet; call again";
         last = { state: "waiting", mr, hint };
-        waitingKind = true;
+        // An unprovable or unread match may be the pipeline for sha, so it never runs the no_pipeline clock.
+        waitingKind = !p || m === false;
       }
     }
 
