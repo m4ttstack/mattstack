@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Discussion } from "../../../packages/rt-client/src/index.ts";
-import { githubRefusal, mrCompositeToolDefs, refuseGithubTarget, normalizeBody, postedMatch, selfUsername, type MrCompositeDeps } from "../mr-composite-tools.ts";
+import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, normalizeBody, postedMatch, selfUsername, type MrCompositeDeps } from "../mr-composite-tools.ts";
 
 type Call = { name: string; payload: Record<string, unknown> };
 
@@ -450,5 +450,35 @@ describe("mr_map", () => {
     expect(t.description).toContain("200");
     expect(t.description).toContain("Name the target with repoName");
     expect(Object.keys((t.inputSchema as any).properties).sort()).toEqual(["author", "mrUrl", "repo", "repoName"]);
+  });
+});
+
+describe("findOpenMrForBranch", () => {
+  const pr = { iid: 7, title: "T", draft: true, webUrl: "https://gitlab.com/acme/acme-dev/-/merge_requests/7", sourceBranch: "feat", targetBranch: "main", description: "d" };
+
+  test("reads mr:live-by-branch for the branch and trims the MR to the fields it returns", async () => {
+    const { deps, calls } = fake({ "mr:live-by-branch": { byBranch: { feat: pr } } });
+    const r = await findOpenMrForBranch(deps, ID, "feat");
+    expect(r).toEqual({ ok: true, mr: { iid: 7, url: pr.webUrl, targetBranch: "main", draft: true, title: "T" } });
+    expect(calls).toEqual([{ name: "mr:live-by-branch", payload: { repoName: ID, branches: ["feat"] } }]);
+  });
+
+  test("a branch with no open MR reads mr null", async () => {
+    const { deps } = fake({ "mr:live-by-branch": { byBranch: { feat: null } } });
+    expect(await findOpenMrForBranch(deps, ID, "feat")).toEqual({ ok: true, mr: null });
+  });
+
+  test("a lookup error is returned, never read as no MR", async () => {
+    const { deps } = fake({ "mr:live-by-branch": new Error("GitLab returned 403 Forbidden: no") });
+    const r = await findOpenMrForBranch(deps, ID, "feat");
+    expect(r.ok).toBe(false);
+    expect((r as { error: string }).error).toContain("403");
+  });
+});
+
+describe("EXISTING_MR", () => {
+  test("matches GitLab's duplicate-MR 409 text", () => {
+    expect(EXISTING_MR.test("Error: createPullRequest failed: 409 Conflict \u2014 Another open merge request already exists for this source branch: !7")).toBe(true);
+    expect(EXISTING_MR.test("createPullRequest failed: 403 Forbidden")).toBe(false);
   });
 });

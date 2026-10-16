@@ -78,6 +78,23 @@ export function refuseGithubTarget(input: { repoName?: unknown; mrUrl?: unknown 
   return null;
 }
 
+/** GitLab's 409 text inside "createPullRequest failed: 409 ..." when the source branch already has an open MR. */
+export const EXISTING_MR = /already exists/i;
+
+export type OpenMr = { iid: number; url: string | null; targetBranch: string; draft: boolean; title: string };
+
+export async function findOpenMrForBranch(
+  deps: Pick<MrCompositeDeps, "command">,
+  identity: string,
+  sourceBranch: string,
+): Promise<{ ok: true; mr: OpenMr | null } | { ok: false; error: string }> {
+  const r = await deps.command<Commands["mr:live-by-branch"]["data"]>("mr:live-by-branch", { repoName: identity, branches: [sourceBranch] }, { timeoutMs: READ_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "open MR lookup failed") };
+  const pr = r.data.byBranch[sourceBranch];
+  if (!pr) return { ok: true, mr: null };
+  return { ok: true, mr: { iid: pr.iid, url: pr.webUrl, targetBranch: pr.targetBranch, draft: pr.draft, title: pr.title } };
+}
+
 export function normalizeBody(s: string): string {
   return s.replace(/\r\n?/g, "\n").split("\n").map((l) => l.replace(/[ \t]+$/, "")).join("\n").trim();
 }

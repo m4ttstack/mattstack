@@ -443,10 +443,10 @@ describe("mcpTools", () => {
       expect(res.error).toBe("no gitlabToken in secrets");
     });
 
-    test("mr_create schema requires the branches and title, offers repoName, mrUrl, labels and squash, and has no iid", () => {
+    test("mr_create schema requires the branches and title, offers repoName, mrUrl, labels, squash and ifExists, and has no iid", () => {
       const schema = mcpTools().find((t) => t.name === "mr_create")!.inputSchema as { required?: string[]; properties?: Record<string, unknown> };
       expect(schema.required).toEqual(["sourceBranch", "targetBranch", "title"]);
-      expect(Object.keys(schema.properties ?? {}).sort()).toEqual(["description", "draft", "labels", "mrUrl", "repoName", "sourceBranch", "squash", "targetBranch", "title"]);
+      expect(Object.keys(schema.properties ?? {}).sort()).toEqual(["description", "draft", "ifExists", "labels", "mrUrl", "repoName", "sourceBranch", "squash", "targetBranch", "title"]);
     });
 
     test("mr_create sends mr:create, leaving draft to the daemon default when omitted", async () => {
@@ -479,6 +479,86 @@ describe("mcpTools", () => {
       const res = await tool.handler({ repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a", "b"], squash: true }, {} as NodeJS.ProcessEnv);
       expect(res).toEqual({ ok: true, body: { iid: 12, url: "u", squashApplied: true } });
       expect(calls[0]!.payload).toEqual({ repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a", "b"], squash: true });
+    });
+
+    describe("mr_create ifExists", () => {
+      const base = { repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T", ifExists: "return" };
+      const OPEN = { iid: 7, title: "Existing", draft: true, webUrl: "https://gitlab.example.com/acme/app/-/merge_requests/7", sourceBranch: "feat", targetBranch: "develop" };
+      const CONFLICT = "Error: createPullRequest failed: 409 Conflict \u2014 Another open merge request already exists for this source branch: !7";
+      const create = () => mcpTools().find((t) => t.name === "mr_create")!;
+
+      test("an open MR on the branch is returned and mr:create is never sent", async () => {
+        const calls = fakeDaemon(() => ({ ok: true, data: { byBranch: { feat: OPEN } } }));
+        const res = await create().handler(base, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 7, url: OPEN.webUrl, existing: true, targetBranch: "develop", draft: true, title: "Existing", applied: false } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch"]);
+        expect(calls[0]!.payload).toEqual({ repoName: "remote:x", branches: ["feat"] });
+      });
+
+      test("no open MR creates as today and adds existing false", async () => {
+        const calls = fakeDaemon((cmd) => (cmd === "mr:live-by-branch" ? { ok: true, data: { byBranch: { feat: null } } } : { ok: true, data: { iid: 12, url: "u" } }));
+        const res = await create().handler(base, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 12, url: "u", existing: false } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch", "mr:create"]);
+        expect(calls[1]!.payload).toEqual({ repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T" });
+        expect(calls[1]!.timeoutMs).toBe(30_000);
+      });
+
+      test("a create that loses a race to an existing MR reads again and returns it", async () => {
+        let reads = 0;
+        const calls = fakeDaemon((cmd) => {
+          if (cmd === "mr:create") return { ok: false, error: CONFLICT };
+          return { ok: true, data: { byBranch: { feat: reads++ === 0 ? null : OPEN } } };
+        });
+        const res = await create().handler(base, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 7, url: OPEN.webUrl, existing: true, targetBranch: "develop", draft: true, title: "Existing", applied: false } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch", "mr:create", "mr:live-by-branch"]);
+      });
+
+      test("a conflict whose re-read finds nothing returns the create error", async () => {
+        fakeDaemon((cmd) => (cmd === "mr:create" ? { ok: false, error: CONFLICT } : { ok: true, data: { byBranch: { feat: null } } }));
+        const res = await create().handler(base, {} as NodeJS.ProcessEnv);
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain("already exists");
+      });
+
+      test("a create failure that is not a duplicate is returned with no second read", async () => {
+        const calls = fakeDaemon((cmd) => (cmd === "mr:create" ? { ok: false, error: "createPullRequest failed: 403 Forbidden" } : { ok: true, data: { byBranch: { feat: null } } }));
+        const res = await create().handler(base, {} as NodeJS.ProcessEnv);
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain("403");
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch", "mr:create"]);
+      });
+
+      test("a lookup error is returned and nothing is created", async () => {
+        const calls = fakeDaemon(() => ({ ok: false, error: "GitLab returned 500: boom" }));
+        const res = await create().handler(base, {} as NodeJS.ProcessEnv);
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain("500");
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch"]);
+      });
+
+      test("a value other than return is refused before any call", async () => {
+        const calls = fakeDaemon(() => ({ ok: true, data: {} }));
+        const res = await create().handler({ ...base, ifExists: "update" }, {} as NodeJS.ProcessEnv);
+        expect(res.error).toBe('"ifExists" must be "return"');
+        expect(calls).toEqual([]);
+      });
+
+      test("a GitHub repo is refused with the gh moves and no call", async () => {
+        const calls = fakeDaemon(() => ({ ok: true, data: {} }));
+        const res = await create().handler({ ...base, repoName: "remote:github.com%2Facme%2Fapp" }, {} as NodeJS.ProcessEnv);
+        expect(res.ok).toBe(false);
+        expect(res.error).toBe("GitLab only: mr_create does not speak GitHub; gh pr create / gh pr view");
+        expect(calls).toEqual([]);
+      });
+
+      test("a GitHub mrUrl is refused before target resolution", async () => {
+        const calls = fakeDaemon(() => ({ ok: true, data: {} }));
+        const res = await create().handler({ ...base, repoName: undefined, mrUrl: "https://github.com/acme/app/pull/3" }, {} as NodeJS.ProcessEnv);
+        expect(res.error).toBe("GitLab only: mr_create does not speak GitHub; gh pr create / gh pr view");
+        expect(calls).toEqual([]);
+      });
     });
 
     test("mr_create refuses a non-array labels and a string squash before calling the daemon", async () => {

@@ -24,7 +24,7 @@ import { runRtVerb } from "./rt-verb.ts";
 import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { herdToolDefs } from "./herd-tools.ts";
 import { mrReadToolDefs } from "./mr-read-tools.ts";
-import { mrCompositeToolDefs } from "./mr-composite-tools.ts";
+import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, type OpenMr } from "./mr-composite-tools.ts";
 import { forgeReadToolDefs } from "./forge-read-tools.ts";
 import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
@@ -51,6 +51,12 @@ const REVIEW_SEQUENCE_ERROR = /^(Error: )?(review not posted|publish failed)/;
 function withReviewTimeout(res: ToolResult): ToolResult {
   if (res.ok || REVIEW_SEQUENCE_ERROR.test(res.error ?? "") || !isTimeoutError(res.error)) return res;
   return err(`mr_review_submit timed out and its outcome is unknown; the review may still land; look at the MR before retrying (${res.error})`);
+}
+
+const MR_CREATE_GH_MOVE = "gh pr create / gh pr view";
+
+function existingMrResult(mr: OpenMr): ToolResult {
+  return ok({ iid: mr.iid, url: mr.url, existing: true, targetBranch: mr.targetBranch, draft: mr.draft, title: mr.title, applied: false });
 }
 
 type MrActionName = Commands["mr:action"]["payload"]["action"];
@@ -500,7 +506,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_create",
-      description: `GitLab only. Create a merge request from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it. Creates once and never retries. Returns iid, url (null when GitLab created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Create a merge request from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it. Creates once and never retries. Returns iid, url (null when GitLab created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied; otherwise it creates and the result adds existing false. A lookup error is returned and nothing is created. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -512,6 +518,7 @@ export function mcpTools(): McpToolDef[] {
           draft: { type: "boolean" },
           labels: { type: "array", items: { type: "string" } },
           squash: { type: "boolean" },
+          ifExists: { type: "string", enum: ["return"] },
         },
         required: ["sourceBranch", "targetBranch", "title"],
         additionalProperties: false,
@@ -525,8 +532,18 @@ export function mcpTools(): McpToolDef[] {
         ]) ?? checkOptional(input, [{ name: "description", type: "string" }, { name: "draft", type: "boolean" }, { name: "squash", type: "boolean" }])
           ?? checkStringArray(input, "labels");
         if (bad) return err(bad);
+        if (input.ifExists !== undefined && input.ifExists !== "return") return err('"ifExists" must be "return"');
+        const returnExisting = input.ifExists === "return";
+        if (returnExisting) {
+          const early = refuseGithubTarget(input, "mr_create", MR_CREATE_GH_MOVE);
+          if (early) return err(early);
+        }
         const target = await resolveRepoTarget(input);
         if (!target.ok) return err(target.error);
+        if (returnExisting) {
+          const refused = githubRefusal(target.identity, "mr_create", MR_CREATE_GH_MOVE);
+          if (refused) return err(refused);
+        }
         const payload: Commands["mr:create"]["payload"] = {
           repoName: target.identity,
           sourceBranch: input.sourceBranch as string,
@@ -537,7 +554,19 @@ export function mcpTools(): McpToolDef[] {
         if (input.draft !== undefined) payload.draft = input.draft as boolean;
         if (input.labels !== undefined) payload.labels = input.labels as string[];
         if (input.squash !== undefined) payload.squash = input.squash as boolean;
+        if (!returnExisting) {
+          const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+          return withLandingHint(fromResponse(res), "mr_map for an open MR on the source branch");
+        }
+        const found = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
+        if (!found.ok) return err(found.error);
+        if (found.mr) return existingMrResult(found.mr);
         const res = await rtCommand<Commands["mr:create"]["data"]>("mr:create", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+        if (res.ok) return ok({ ...res.data, existing: false });
+        if (EXISTING_MR.test(res.error ?? "")) {
+          const raced = await findOpenMrForBranch({ command: rtCommand }, target.identity, payload.sourceBranch);
+          if (raced.ok && raced.mr) return existingMrResult(raced.mr);
+        }
         return withLandingHint(fromResponse(res), "mr_map for an open MR on the source branch");
       },
     },
