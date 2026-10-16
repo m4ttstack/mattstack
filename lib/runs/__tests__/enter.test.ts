@@ -112,6 +112,7 @@ describe("start", () => {
     ro(r.runDb, (db) => {
       expect(readManifest(db).map((m) => [m.stage, m.file, m.packRoot])).toEqual([["verify", null, null]]);
       expect(db.query("SELECT current_stage FROM runs").get()).toEqual({ current_stage: "verify" });
+      expect(db.query("SELECT value, produced_by FROM fields WHERE key = 'pipeline-stages'").get()).toEqual({ value: "verify", produced_by: "verify" });
     });
   });
 

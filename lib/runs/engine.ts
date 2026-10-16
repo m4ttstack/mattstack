@@ -38,18 +38,18 @@ function sqliteFail(err: unknown): Fail {
 
 // write.ts helpers return Fail instead of throwing; throwing it inside a
 // transaction rolls every earlier write back, and failOf maps it back out.
-class FailError extends Error {
+export class FailError extends Error {
   constructor(readonly fail: Fail) {
     super(fail.error);
   }
 }
 
-function must<T extends { ok: boolean }>(r: T | Fail): T {
+export function must<T extends { ok: boolean }>(r: T | Fail): T {
   if (!r.ok) throw new FailError(r as Fail);
   return r as T;
 }
 
-function failOf(err: unknown): Fail {
+export function failOf(err: unknown): Fail {
   return err instanceof FailError ? err.fail : sqliteFail(err);
 }
 

@@ -8,7 +8,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { join, resolve, sep } from "path";
 import { parsePipelinesManifest, PIPELINES_REL } from "../skills/pipeline-manifest.ts";
-import { cleared, positionOf, readManifest, setManifestRoot, writeManifest, type ManifestInput, type Position } from "./engine.ts";
+import { cleared, failOf, must, positionOf, readManifest, setManifestRoot, writeManifest, type ManifestInput, type Position } from "./engine.ts";
 import { recordIdentity } from "./identity.ts";
 import { isPathComponent } from "./paths.ts";
 import { runStart, type RunStartOpts } from "./start.ts";
@@ -35,23 +35,6 @@ export type EnterInput = {
 
 function refuse(error: string): Fail {
   return { ok: false, error, code: 2 };
-}
-
-// A thrown Fail rolls the surrounding transaction back; this is engine.ts's
-// must/failOf seam, which that module does not export.
-class FailError extends Error {
-  constructor(readonly fail: Fail) {
-    super(fail.error);
-  }
-}
-
-function must<T extends { ok: boolean }>(r: T | Fail): T {
-  if (!r.ok) throw new FailError(r as Fail);
-  return r as T;
-}
-
-function failOf(err: unknown): Fail {
-  return err instanceof FailError ? err.fail : { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };
 }
 
 export function pickManifest(
@@ -240,7 +223,7 @@ function startRun(i: EnterInput, handedFlag: { handedRunDb?: "not-running" }): O
   try {
     return db.transaction((): Ok<EnterResult> | Fail => {
       writeManifest(db, stages, i.stage !== undefined ? null : i.packRoot);
-      if (i.stage === undefined) must(fieldSet(db, "pipeline-stages", stages.map((s) => s.stage).join(" "), stages[0]!.stage, now));
+      must(fieldSet(db, "pipeline-stages", stages.map((s) => s.stage).join(" "), stages[0]!.stage, now));
       must(stageStart(db, stages[0]!.stage, i.env, now));
       return {
         ok: true,
