@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { budget, cleared, holdStage, nextStage, positionOf, readManifest, setManifestRoot, writeManifest } from "../engine.ts";
+import { budget, cleared, closeRun, holdStage, nextStage, positionOf, readManifest, resolveStage, setManifestRoot, writeManifest } from "../engine.ts";
 import { createRunDb, fieldSet, stageEnd, stageStart } from "../write.ts";
 
 const dirs: string[] = [];
@@ -225,8 +225,10 @@ describe("nextStage", () => {
 
   test("earlier skips manifest stages that never started", () => {
     const db = pipeline();
-    db.run("UPDATE stages SET status='failed', reason='x'");
-    expect(nextStage(db, { stage: "plan", env: {} })).toMatchObject({ ended: "failed", earlier: [] });
+    expect(stageEnd(db, "plan", "done", { now: 120 }).ok).toBe(true);
+    expect(stageStart(db, "ship", {}, 130).ok).toBe(true);
+    expect(stageEnd(db, "ship", "failed", { reason: "x", now: 140 }).ok).toBe(true);
+    expect(nextStage(db, { stage: "ship", env: {} })).toMatchObject({ ended: "failed", earlier: ["plan"] });
   });
 
   test("held and waiting are returned without writes", () => {
@@ -343,5 +345,217 @@ describe("nextStage", () => {
     db.run("CREATE TRIGGER no_stage_insert BEFORE INSERT ON stages BEGIN SELECT RAISE(ABORT, 'boom'); END");
     expect(nextStage(db, { stage: "plan", env: {}, now: 200 })).toMatchObject({ ok: false, code: 1 });
     expect(db.query("SELECT status FROM stages WHERE name='plan'").get()).toEqual({ status: "running" });
+  });
+});
+
+describe("resolveStage", () => {
+  const NO_MANIFEST = "this run has no pipeline manifest; resume it with run_enter to record one";
+  const stages = [
+    { stage: "plan", file: "plan.md", consumes: [], produces: ["approach"] },
+    { stage: "implement", file: "implement.md", consumes: ["approach"], produces: ["commits"] },
+    { stage: "ship", consumes: ["commits"], produces: ["mr"] },
+    { stage: "watch-ci", consumes: ["mr"], produces: ["ci"] },
+  ];
+  const ok = (r: unknown) => expect(r).toMatchObject({ ok: true });
+
+  // plan and implement done, ship running, every produce and shipTarget set
+  function atShip(): Database {
+    const db = mkdb();
+    writeManifest(db, stages, "/pack");
+    for (const s of ["plan", "implement"]) attempt(db, s);
+    ok(stageStart(db, "ship", {}, 100));
+    for (const [k, v, by] of [["approach", "tdd", "plan"], ["commits", "abc", "implement"], ["mr", "!1", "ship"], ["ci", "green", "watch-ci"], ["shipTarget", "main", "ship"]] as const) {
+      ok(fieldSet(db, k, v, by, 110));
+    }
+    return db;
+  }
+  const field = (db: Database, key: string) => db.query("SELECT value, produced_by FROM fields WHERE key = ?").get(key);
+  const resolve = (db: Database, o: Partial<Parameters<typeof resolveStage>[1]> & { next: Parameters<typeof resolveStage>[1]["next"] }) =>
+    resolveStage(db, { stage: "ship", decidedBy: "matt", env: {}, now: 500, ...o });
+  const snap = (db: Database) =>
+    JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM decisions").all(), db.query("SELECT * FROM runs").all()]);
+
+  test("retry after a failure starts attempt 2; retry of ship clears shipTarget", () => {
+    const db = atShip();
+    ok(stageEnd(db, "ship", "failed", { reason: "boom", now: 120 }));
+    expect(resolve(db, { next: "retry" })).toEqual({
+      ok: true,
+      applied: "retry",
+      next: { stage: "ship", attempt: 2, status: "running", file: null },
+      cleared: ["shipTarget"],
+    });
+    expect(field(db, "shipTarget")).toEqual({ value: "-", produced_by: "ship" });
+    expect(field(db, "mr")).toEqual({ value: "!1", produced_by: "ship" });
+  });
+
+  test("retry of a stage without consent fields clears nothing", () => {
+    const db = atShip();
+    ok(stageEnd(db, "ship", "redirected", { reason: "r" }));
+    ok(stageStart(db, "implement", {}));
+    ok(stageEnd(db, "implement", "failed", { reason: "red" }));
+    expect(resolve(db, { stage: "implement", next: "retry" })).toMatchObject({ applied: "retry", next: { stage: "implement", attempt: 3 }, cleared: [] });
+  });
+
+  test("retry refuses a running or done row", () => {
+    const db = atShip();
+    const before = snap(db);
+    expect(resolve(db, { next: "retry" })).toMatchObject({ ok: false, code: 2 });
+    expect(resolve(db, { stage: "plan", next: "retry" })).toMatchObject({ ok: false, code: 2 });
+    expect(snap(db)).toBe(before);
+  });
+
+  test("redirect from a running ship to implement", () => {
+    const db = atShip();
+    const r = resolve(db, { next: "redirect", to: "implement", note: "tests missing" });
+    expect(r).toEqual({
+      ok: true,
+      applied: "redirect",
+      next: { stage: "implement", attempt: 2, status: "running", file: "/pack/implement.md" },
+      cleared: ["commits", "mr", "ci", "shipTarget"],
+    });
+    expect(db.query("SELECT contract, scope, selection, decided_by FROM decisions").all()).toEqual([
+      { contract: "gate@1", scope: "redirect:ship:1", selection: '{"from":"ship","to":"implement","reason":"tests missing"}', decided_by: "matt" },
+    ]);
+    expect(db.query("SELECT name, attempt, status, reason FROM stages WHERE name = 'ship'").all()).toEqual([
+      { name: "ship", attempt: 1, status: "redirected", reason: "tests missing" },
+    ]);
+    for (const k of ["commits", "mr", "ci"]) expect(field(db, k)).toEqual({ value: "-", produced_by: "implement" });
+    expect(field(db, "shipTarget")).toEqual({ value: "-", produced_by: "ship" });
+    expect(field(db, "approach")).toEqual({ value: "tdd", produced_by: "plan" });
+    expect((db.query("SELECT current_stage FROM runs").get() as { current_stage: string }).current_stage).toBe("implement");
+  });
+
+  test("redirect after close (last row done) records the decision and does not end the row", () => {
+    const db = atShip();
+    ok(stageEnd(db, "ship", "done"));
+    attempt(db, "watch-ci");
+    const r = resolve(db, { stage: "watch-ci", next: "redirect", to: "ship" });
+    expect(r).toMatchObject({ applied: "redirect", next: { stage: "ship", attempt: 2 }, cleared: ["mr", "ci", "shipTarget"] });
+    expect(db.query("SELECT status FROM stages WHERE name = 'watch-ci'").all()).toEqual([{ status: "done" }]);
+    expect(db.query("SELECT scope, selection FROM decisions").get()).toEqual({
+      scope: "redirect:watch-ci:1",
+      selection: '{"from":"watch-ci","to":"ship","reason":"redirected to ship"}',
+    });
+  });
+
+  test("iterate defaults to the same stage; note becomes the reason; no note gives 'redirected to <to>'", () => {
+    const db = atShip();
+    expect(resolve(db, { next: "iterate", note: "polish" })).toMatchObject({ applied: "iterate", next: { stage: "ship", attempt: 2 }, cleared: ["mr", "ci", "shipTarget"] });
+    expect(db.query("SELECT status, reason FROM stages WHERE name = 'ship' AND attempt = 1").get()).toEqual({ status: "redirected", reason: "polish" });
+    expect(db.query("SELECT selection FROM decisions WHERE scope = 'redirect:ship:1'").get()).toEqual({ selection: '{"from":"ship","to":"ship","reason":"polish"}' });
+    const db2 = atShip();
+    resolve(db2, { next: "iterate" });
+    expect(db2.query("SELECT reason FROM stages WHERE name = 'ship' AND attempt = 1").get()).toEqual({ reason: "redirected to ship" });
+  });
+
+  test("redirect refuses a missing, unknown or later to, writing nothing", () => {
+    const db = atShip();
+    const before = snap(db);
+    expect(resolve(db, { next: "redirect" })).toMatchObject({ ok: false, code: 2 });
+    const unknown = resolve(db, { next: "redirect", to: "nope" });
+    expect(unknown).toMatchObject({ ok: false, code: 2 });
+    expect((unknown as { error: string }).error).toContain("plan, implement, ship, watch-ci");
+    expect(resolve(db, { next: "redirect", to: "watch-ci" })).toMatchObject({ ok: false, code: 2 });
+    expect(snap(db)).toBe(before);
+  });
+
+  test("refuses an unknown stage, an empty decidedBy and a run with no manifest, writing nothing", () => {
+    const db = atShip();
+    const before = snap(db);
+    const unknown = resolve(db, { stage: "nope", next: "abandon" });
+    expect(unknown).toMatchObject({ ok: false, code: 2 });
+    expect((unknown as { error: string }).error).toContain("plan, implement, ship, watch-ci");
+    expect(resolve(db, { next: "abandon", decidedBy: "" })).toMatchObject({ ok: false, code: 2 });
+    expect(snap(db)).toBe(before);
+    const bare = mkdb();
+    expect(resolve(bare, { next: "abandon" })).toEqual({ ok: false, error: NO_MANIFEST, code: 2 });
+  });
+
+  test("a failed start rolls the redirect back", () => {
+    const db = atShip();
+    db.run("CREATE TRIGGER no_stage_insert BEFORE INSERT ON stages BEGIN SELECT RAISE(ABORT, 'boom'); END");
+    const before = snap(db);
+    expect(resolve(db, { next: "redirect", to: "implement" })).toMatchObject({ ok: false, code: 1 });
+    expect(snap(db)).toBe(before);
+  });
+
+  test("hold delegates to holdStage", () => {
+    const db = atShip();
+    expect(resolve(db, { next: "hold", note: "waiting on design" })).toEqual({
+      ok: true,
+      applied: "hold",
+      held: { at: { stage: "ship", attempt: 1, status: "running", file: null }, scope: "hold:ship:1" },
+    });
+    expect(field(db, "hold")).toEqual({ value: "waiting on design", produced_by: "ship" });
+    expect(db.query("SELECT scope FROM decisions").all()).toEqual([{ scope: "hold:ship:1" }]);
+  });
+
+  test("abandon fails a running row and sets the run abandoned", () => {
+    const db = atShip();
+    expect(resolve(db, { next: "abandon" })).toEqual({ ok: true, applied: "abandon", status: "abandoned" });
+    expect(db.query("SELECT status, reason FROM stages WHERE name = 'ship'").get()).toEqual({ status: "failed", reason: "abandoned" });
+    expect(db.query("SELECT status FROM runs").get()).toEqual({ status: "abandoned" });
+  });
+
+  test("abandon of a stage whose row already ended leaves the row alone", () => {
+    const db = atShip();
+    ok(stageEnd(db, "ship", "failed", { reason: "boom" }));
+    expect(resolve(db, { next: "abandon", note: "giving up" })).toMatchObject({ applied: "abandon", status: "abandoned" });
+    expect(db.query("SELECT reason FROM stages WHERE name = 'ship'").get()).toEqual({ reason: "boom" });
+  });
+
+  test("done sets the run done only when the last stage is done", () => {
+    const db = atShip();
+    expect(resolve(db, { next: "done" })).toMatchObject({ ok: false, code: 2 });
+    expect(resolve(db, { stage: "watch-ci", next: "done" })).toMatchObject({ ok: false, code: 2 });
+    attempt(db, "watch-ci");
+    expect(resolve(db, { stage: "plan", next: "done" })).toMatchObject({ ok: false, code: 2 });
+    expect(resolve(db, { stage: "watch-ci", next: "done" })).toEqual({ ok: true, applied: "done", status: "done" });
+    expect(db.query("SELECT status FROM runs").get()).toEqual({ status: "done" });
+  });
+});
+
+describe("closeRun", () => {
+  function standalone(): Database {
+    const db = mkdb();
+    writeManifest(db, [{ stage: "review", consumes: [], produces: [] }], null);
+    expect(stageStart(db, "review", {}, 100).ok).toBe(true);
+    return db;
+  }
+
+  test("own single-stage run: row done, run done", () => {
+    const db = standalone();
+    expect(closeRun(db, { workType: "work", stage: "review", outcome: "done", now: 200 })).toEqual({ ok: true, closed: true, status: "done" });
+    expect(db.query("SELECT status FROM stages").get()).toEqual({ status: "done" });
+    expect(db.query("SELECT status, ended_at FROM runs").get()).toEqual({ status: "done", ended_at: 200 });
+  });
+
+  test("failed carries the reason and detailPath", () => {
+    const db = standalone();
+    expect(closeRun(db, { workType: "work", stage: "review", outcome: "failed", reason: "tests red", detailPath: "/tmp/d.txt" })).toMatchObject({ closed: true, status: "failed" });
+    expect(db.query("SELECT status, reason, detail_path FROM stages").get()).toEqual({ status: "failed", reason: "tests red", detail_path: "/tmp/d.txt" });
+  });
+
+  test("a run with no manifest rows closes when the work type matches", () => {
+    const db = mkdb();
+    expect(stageStart(db, "review", {}).ok).toBe(true);
+    expect(closeRun(db, { workType: "work", stage: "review", outcome: "abandoned" })).toMatchObject({ ok: true, status: "abandoned" });
+  });
+
+  test("refuses another work type and a multi-stage manifest, writing nothing", () => {
+    const db = standalone();
+    expect(closeRun(db, { workType: "ship", stage: "review", outcome: "done" })).toEqual({
+      ok: false,
+      error: "this run belongs to work; an inherited run closes nothing",
+      code: 2,
+    });
+    writeManifest(db, [{ stage: "review", consumes: [], produces: [] }, { stage: "ship", consumes: [], produces: [] }], null);
+    expect(closeRun(db, { workType: "work", stage: "review", outcome: "done" })).toEqual({
+      ok: false,
+      error: "a pipeline run closes through run_resolve",
+      code: 2,
+    });
+    expect(db.query("SELECT status FROM runs").get()).toEqual({ status: "running" });
+    expect(db.query("SELECT status FROM stages").get()).toEqual({ status: "running" });
   });
 });

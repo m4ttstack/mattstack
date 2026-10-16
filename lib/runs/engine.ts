@@ -5,7 +5,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { join } from "path";
-import { decisionRecord, fieldSet, stageEnd, stageStart, type Fail, type Ok } from "./write.ts";
+import { decisionRecord, fieldSet, runStatus, stageEnd, stageStart, type Fail, type Ok } from "./write.ts";
 
 export type StageStatus = "running" | "done" | "failed" | "redirected";
 export type Position = { stage: string; attempt: number; status: StageStatus; file: string | null };
@@ -167,6 +167,8 @@ function refuse(error: string): Fail {
   return { ok: false, error, code: 2 };
 }
 
+const NO_MANIFEST = "this run has no pipeline manifest; resume it with run_enter to record one";
+
 function fieldAfter(db: Database, key: string, since: number): string | null {
   const row = db.query("SELECT value, at FROM fields WHERE key = ?").get(key) as { value: string; at: number } | undefined;
   return row && row.at >= since && !cleared(row.value) ? row.value : null;
@@ -181,7 +183,7 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
       if (run.status !== "running") return { ok: true, ended: "closed", status: run.status };
 
       const manifest = readManifest(db);
-      if (manifest.length === 0) return refuse("this run has no pipeline manifest; resume it with run_enter to record one");
+      if (manifest.length === 0) return refuse(NO_MANIFEST);
       const index = manifest.findIndex((m) => m.stage === o.stage);
       if (index < 0) return refuse(`stage ${o.stage} is not in this run's pipeline manifest`);
       const entry = manifest[index]!;
@@ -250,6 +252,124 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
         must(stageStart(db, following.stage, o.env, now));
       }
       return finished(false);
+    })();
+  } catch (err) {
+    return failOf(err);
+  }
+}
+
+export type ResolveNext = "retry" | "redirect" | "iterate" | "hold" | "abandon" | "done";
+export type ResolveResult =
+  | { applied: "retry"; next: Position; cleared: string[] }
+  | { applied: "redirect" | "iterate"; next: Position; cleared: string[] }
+  | { applied: "hold"; held: { at: Position; scope: string } }
+  | { applied: "abandon" | "done"; status: string };
+
+function latestStatus(db: Database, stage: string): StageStatus | null {
+  const row = db.query("SELECT status FROM stages WHERE name = ? ORDER BY attempt DESC LIMIT 1").get(stage) as { status: StageStatus } | undefined;
+  return row?.status ?? null;
+}
+
+function clearConsent(db: Database, stage: string, now: number): string[] {
+  const keys = CONSENT_FIELDS[stage] ?? [];
+  for (const key of keys) must(fieldSet(db, key, "-", stage, now));
+  return keys.slice();
+}
+
+export function resolveStage(
+  db: Database,
+  o: { stage: string; next: ResolveNext; to?: string; note?: string; decidedBy: string; env: NodeJS.ProcessEnv; now?: number },
+): Ok<ResolveResult> | Fail {
+  const now = o.now ?? Date.now();
+  if (o.decidedBy.trim() === "") return refuse("run_resolve needs decidedBy");
+  const manifest = readManifest(db);
+  if (manifest.length === 0) return refuse(NO_MANIFEST);
+  const names = manifest.map((m) => m.stage);
+  const index = names.indexOf(o.stage);
+  if (index < 0) return refuse(`stage ${o.stage} is not in this run's pipeline manifest (stages: ${names.join(", ")})`);
+
+  if (o.next === "hold") {
+    const r = holdStage(db, { stage: o.stage, reason: o.note, decidedBy: o.decidedBy, now });
+    return r.ok ? { ok: true, applied: "hold", held: { at: r.at, scope: r.scope } } : r;
+  }
+
+  try {
+    return db.transaction((): Ok<ResolveResult> | Fail => {
+      const status = latestStatus(db, o.stage);
+
+      if (o.next === "retry") {
+        if (status !== "failed") return refuse(`stage ${o.stage} cannot be retried: ${status ? `its latest attempt is ${status}` : "it has no row"}, not failed`);
+        const cleared = clearConsent(db, o.stage, now);
+        must(stageStart(db, o.stage, o.env, now));
+        return { ok: true, applied: "retry", next: positionOf(db, o.stage)!, cleared };
+      }
+
+      if (o.next === "redirect" || o.next === "iterate") {
+        const to = o.to ?? (o.next === "iterate" ? o.stage : undefined);
+        if (to === undefined) return refuse("redirect needs a target stage (to)");
+        const toIndex = names.indexOf(to);
+        if (toIndex < 0) return refuse(`stage ${to} is not in this run's pipeline manifest (stages: ${names.join(", ")})`);
+        if (toIndex > index) return refuse(`cannot redirect ${o.stage} forward to ${to}; the target must be ${o.stage} or an earlier stage`);
+        const from = positionOf(db, o.stage);
+        if (!from) return { ok: false, error: `stage ${o.stage} has no row in this run`, code: 3 };
+
+        const reason = o.note ?? `redirected to ${to}`;
+        must(
+          decisionRecord(db, {
+            contract: "gate@1",
+            scope: `redirect:${o.stage}:${from.attempt}`,
+            selection: JSON.stringify({ from: o.stage, to, reason }),
+            decidedBy: o.decidedBy,
+            now,
+          }),
+        );
+        if (from.status === "running") must(stageEnd(db, o.stage, "redirected", { reason, now }));
+
+        const cleared: string[] = [];
+        for (const m of manifest.slice(toIndex)) {
+          for (const key of m.produces) {
+            must(fieldSet(db, key, "-", to, now));
+            cleared.push(key);
+          }
+        }
+        for (const m of manifest.slice(toIndex)) cleared.push(...clearConsent(db, m.stage, now));
+        must(stageStart(db, to, o.env, now));
+        return { ok: true, applied: o.next, next: positionOf(db, to)!, cleared };
+      }
+
+      if (o.next === "abandon") {
+        if (status === "running") must(stageEnd(db, o.stage, "failed", { reason: o.note ?? "abandoned", now }));
+        must(runStatus(db, "abandoned", now));
+        return { ok: true, applied: "abandon", status: "abandoned" };
+      }
+
+      if (index !== names.length - 1 || status !== "done") {
+        return refuse(`run cannot be marked done at ${o.stage}: done needs the last stage (${names[names.length - 1]}) with a done row`);
+      }
+      must(runStatus(db, "done", now));
+      return { ok: true, applied: "done", status: "done" };
+    })();
+  } catch (err) {
+    return failOf(err);
+  }
+}
+
+export function closeRun(
+  db: Database,
+  o: { workType: string; stage: string; outcome: "done" | "failed" | "abandoned"; reason?: string; detailPath?: string; now?: number },
+): Ok<{ closed: true; status: string }> | Fail {
+  const now = o.now ?? Date.now();
+  try {
+    return db.transaction((): Ok<{ closed: true; status: string }> | Fail => {
+      const run = db.query("SELECT work_type FROM runs LIMIT 1").get() as { work_type: string } | undefined;
+      if (!run) return refuse("this run has no run row");
+      if (run.work_type !== o.workType) return refuse(`this run belongs to ${run.work_type}; an inherited run closes nothing`);
+      if (readManifest(db).length > 1) return refuse("a pipeline run closes through run_resolve");
+      if (latestStatus(db, o.stage) === "running") {
+        must(stageEnd(db, o.stage, o.outcome === "done" ? "done" : "failed", { reason: o.reason, detailPath: o.detailPath, now }));
+      }
+      must(runStatus(db, o.outcome, now));
+      return { ok: true, closed: true, status: o.outcome };
     })();
   } catch (err) {
     return failOf(err);
