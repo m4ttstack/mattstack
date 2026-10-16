@@ -54,13 +54,15 @@
   - `effectiveSlotBindings(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): Record<string, string>`: default slots with the override slots on top.
   - `fillsDiffer(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): boolean`: true when the effective map differs from the default's, treating a `""` slot and an absent slot as equal.
   - `defaultPipeline(stages: Record<string, string[]>): string | null`: the only key when there is one, else `"feature"` when present, else null.
+- `PIPELINE_NAME_RE` applies only to a pipeline that carries `bindings` (its name becomes a copy directory) and to a pipeline a work verb names (Task 4); a plain-list pipeline is never name-checked. `stageRoster`'s guard (Task 3) applies to the same pipelines.
 - Produces, in `manifest-merge.ts`: `Fragment.pipelines?: Record<string, PipelineValue>`; `MergedManifest` gains `pipelineBindings: Record<string, BindingsMap>` and `dropped: { key: string; layer: string }[]`; `readManifestDropped(text: string): { key: string; layer: string }[]`.
 
 - [ ] **Step 1: Write the failing tests.** `pipelines.test.ts` covers each helper, including `fillsDiffer` true for `"acme:b"` over `"acme:a"`, false for `"acme:a"` over `"acme:a"`, false for `""` over an absent slot, true for `""` over `"acme:a"`. `manifest-merge.test.ts` adds:
   - `object pipeline parses`: accepts `{"pipelines":{"accessibility":{"stages":["mattstack:stage-plan"],"bindings":{"mattstack:stage-plan":{"x":"acme:y"}}}}}`. Rejects `{"pipelines":{"a":{"stages":"x"}}}` with `fragment pipelines.a.stages is not an array of strings: <path>`, and `{"pipelines":{"a":{"bindings":{"r":{"s":1}}}}}` with `fragment pipelines.a.bindings.r.s is not a string: <path>`.
   - `stages replace whole, pipeline bindings merge per slot`: layers default `{a:{stages:[s1,s2],bindings:{r:{x:"f1"}}}}`, pack `{a:{bindings:{r:{y:"f2"}}}}`, override `{a:{stages:[s1]}}` merge to `pipelines.a == [s1]` and `pipelineBindings.a.r == {x:"f1", y:"f2"}`, with provenance `pipeline a <- override`, `a/r x <- default`, `a/r y <- pack` (here `r` is listed in `[s1]`).
   - `bindings-only pipeline with no stages anywhere`: throws `FragmentError` `pipeline "a" has bindings but no layer gives it stages`.
-  - `bad pipeline name`: a key `Access_ibility` throws `FragmentError` `pipeline "Access_ibility" must match [a-z][a-z0-9-]*`.
+  - `bad pipeline name`: a key `Access_ibility` that carries `bindings` throws `FragmentError` `fragment pipeline "Access_ibility" must match [a-z][a-z0-9-]*: <path>`. A plain-list pipeline named `Feature` still parses, so existing packs are untouched.
+  - Update the existing `__proto__` pollution test (`manifest-merge.test.ts:42-48`): its `"pipelines": { "__proto__": [...] }` key still parses (a plain list is not name-checked) and its bindings pollution assertions stay as they are.
   - `override for a stage a higher layer dropped`: base sets `a.bindings["mattstack:stage-gates"]`, the pack sets `a.stages` without it. The merged `pipelineBindings.a` lacks that ref, and `dropped == [{key:"a/mattstack:stage-gates <slot>", layer:"base:acme-base"}]`.
   - `override for a stage missing from its own layer's list`: throws `FragmentError` `pipeline "a" binds <ref> but does not list it`.
   - `render: no overrides stays a plain list`: byte-identical to today's `renderManifest` output (pin the expected string from current code before editing).
@@ -86,7 +88,7 @@
 
 - [ ] **Step 1: Write the failing tests:**
   - `readManifestPipelines reads the object form`: both stage lists come back; `readManifestPipelineBindings` returns only `accessibility`'s map.
-  - `pipeline override changes carry their pipeline`: changing only `pipelines.accessibility.bindings["mattstack:stage-evidence"]["evidence-domain"]` from `"acme:a"` to `"acme:b"` yields `[{engineRef:"mattstack:stage-evidence", slot:"evidence-domain", from:"acme:a", to:"acme:b", pipeline:"accessibility"}]`; a default-only change has no `pipeline` key.
+  - `pipeline override changes carry their pipeline`: changing only `pipelines.accessibility.bindings["mattstack:stage-evidence"]["domain"]` from `"acme:a"` to `"acme:b"` yields `[{engineRef:"mattstack:stage-evidence", slot:"domain", from:"acme:a", to:"acme:b", pipeline:"accessibility"}]`; a default-only change has no `pipeline` key.
   - Setup: an object-form `feature` reports `8 stages resolved for feature work`; a stage whose `feature` override is `""` while the default is bound reports `The stage-x stage has no skill bound to it`.
   - Materialize: one dropped override calls `warn` once with `` `${key} from ${layer} is ignored: the pipeline no longer lists that stage` `` (assert through `setWarningLog`, with `__test__.reset()` before and after).
 - [ ] **Step 2: Run** those files. Expected: FAIL.
@@ -113,7 +115,7 @@
   - `buildStageEntries` input gains `copies: Set<string>`; a pipeline's entry for a copied stage uses the copy's name and dir.
   - `loadFillsFor(step, resolved, where, pipeline?: string)`
 
-**Fixture:** `compile-pipelines` is a test that builds a temp mattstack root with the same layout as `compile-native`'s helper. It copies the real `plugins/mattstack/attachments/pipeline/` (the `work` engine and all eight stages) and adds a pack `acme`:
+**Fixture:** `compile-pipelines` is a test that builds a temp mattstack root with the same layout as `compile-native`'s helper. It copies all of the real `plugins/mattstack/attachments/` (the `work` engine, all eight stages, and the includes they load: `gate-protocol`, `wrap-up-form`, `evidence-record`, `execution-strategy`, `run-identity`), and adds a pack `acme`:
 - the eight-stage `feature` pipeline;
 - an `accessibility` pipeline with the same stages;
 - two fills providing `stage-evidence`'s domain slot contract, `acme:evidence-a` and `acme:evidence-b`, with default `evidence-a` and an `accessibility` override `evidence-b`;
@@ -122,12 +124,12 @@
 The `compile-native` fixture stays untouched; it is the byte-identity baseline.
 
 - [ ] **Step 1: Write the failing tests:**
-  - `sources.test.ts`, `stageRoster` with both pipelines listing `mattstack:stage-evidence` and the default `{ "mattstack:stage-evidence": { "evidence-domain": "acme:a" } }`:
+  - `sources.test.ts`, `stageRoster` with both pipelines listing `mattstack:stage-evidence` and the default `{ "mattstack:stage-evidence": { "domain": "acme:a" } }`:
     - `override equal to default makes no copy`.
     - `empty override over an absent slot makes no copy`.
     - override `"acme:b"` adds `{ name: "stage-evidence--accessibility", engine: "stage-evidence", pipeline: "accessibility" }`.
     - `empty override unbinds in the copy only`.
-    - a key `../x` throws the name error.
+    - a key `../x` carrying an override throws the name error.
   - `readVerbRoster` reads `pipeline`.
   - `layout.test.ts`: `accessibility`'s evidence entry has the copy's name, `engine: "stage-evidence"`, and a dir ending `/attachments/stage-evidence--accessibility`; `feature`'s keeps `stage-evidence`.
   - `compile-native.e2e.test.ts`:
@@ -142,9 +144,9 @@ The `compile-native` fixture stays untouched; it is the byte-identity baseline.
   - **Sweep:** after writing, `performCompile` removes any dir under the pack's `attachments/` or `skills/` that:
     - matches `^stage-[a-z0-9-]+--[a-z][a-z0-9-]*$`,
     - holds a `SKILL.md` that starts with the compiled-by header,
-    - and is not a current target.
+    - and is not a key of `verbSides` (the full, unfiltered target set from `compileTargets`; never the `--verb`-filtered `targets`).
 
-    `check` reports each such dir as drift: `stale stage copy <name>: run rt skills compile`.
+    `check` reports each such dir, judged the same way, in a new additive `CheckPayload.staleCopies: string[]` and as a drift line `stale stage copy <name>: run rt skills compile`. Add a test `a scoped compile leaves copies`: `compile --verb work` and `rt skills bind <roster-verb> ...` (which recompiles with `--verb`) both leave `stage-evidence--accessibility/` in place.
 - [ ] **Step 4: Run** the files plus `commands/__tests__/skills.test.ts`. Expected: PASS.
 - [ ] **Step 5: Commit** `skills: compile a stage copy per pipeline that overrides its fills`.
 
@@ -191,7 +193,8 @@ The `compile-native` fixture stays untouched; it is the byte-identity baseline.
     - a generated manifest with a `// dropped:` line: check passes, and `--json` carries `droppedOverrides`.
   - `compile-native.e2e.test.ts` (`compile-pipelines`):
     - `work-a11y compiles against its pipeline`: the accessibility table, `--pipeline accessibility`, and a resume line naming `` `accessibility` ``.
-    - plain `work` carries `--pipeline feature`, the same eight rows as today, and every `.md` it emits passes `python3 plugins/mattstack/plugin/skills/process-digraphs/check-dot.py`.
+    - plain `work` carries `--pipeline feature`, the same eight rows as today, and every `.md` it emits passes `python3 plugins/mattstack/plugin/skills/process-digraphs/check-dot.py`. That assertion skips when `dot` is not on PATH (the macOS unit job has no graphviz); Step 4's manual run and the `plugin-mattstack` CI job cover it.
+  - `skills.test.ts`: composition `targets` for `work` list `verb.path` placeholders for each table row (expand `{{pipeline.table}}` in `buildCompositionTargets`), so console's pending-changes rebuild list still names `work` when a stage flips public or internal.
 - [ ] **Step 2: Run** those files. Expected: FAIL.
 - [ ] **Step 3: Implement** the context field, placeholders, trace parts and checks.
 - [ ] **Step 4: Edit `work/SKILL.md`** (load writing-skills and editing-skills first):
@@ -239,7 +242,7 @@ The `compile-native` fixture stays untouched; it is the byte-identity baseline.
   - `CompositionVerb.pipeline?: string`. A copy's composition target gains `engine` and `pipeline`.
 
 - [ ] **Step 1: Write the failing tests** in `skills-bind.test.ts`:
-  - `--pipeline writes the override`: a plain-list `accessibility` becomes `{ "stages": [<same list>], "bindings": { "mattstack:stage-evidence": { "evidence-domain": "acme:b" } } }`. With no `accessibility` key in the fragment, only `{ "bindings": ... }` is written.
+  - `--pipeline writes the override`: a plain-list `accessibility` becomes `{ "stages": [<same list>], "bindings": { "mattstack:stage-evidence": { "domain": "acme:b" } } }`. With no `accessibility` key in the fragment, only `{ "bindings": ... }` is written.
   - Refusals, nothing written:
     - an undeclared pipeline: `pipeline "nope" is not declared in this pack's manifest`;
     - a stage the pipeline does not list: `stage-x is not a stage of pipeline "accessibility"`;
