@@ -232,6 +232,22 @@ function markRecaptures(current: RawRecord, merge: MergeInput, evidenceRoot: str
   return { ...merge, images };
 }
 
+/** A copy that overwrites a recorded capture while the record stays unwritten leaves its old cover paired with new bytes. */
+function overwritesUncovered(current: RawRecord, merge: MergeInput, dry: RawRecord, evidenceRoot: string): string[] {
+  const recorded = imageAddresses(current);
+  const open = uncoveredImages(dry);
+  const same = (a: { case: string; slot: string; theme?: string }, b: { case: string; slot: string; theme?: string }) =>
+    a.case === b.case && a.slot === b.slot && a.theme === b.theme;
+  return (merge.images ?? []).flatMap((e) => {
+    if (!e.recapture || e.path === undefined) return [];
+    const at = recorded.find((a) => same(a, e))?.image.path;
+    if (at === undefined) return [];
+    const real = realOr(e.path);
+    const lands = join(evidenceRoot, e.case, basename(real)) === at || real === realOr(at);
+    return lands && open.some((u) => same(u, e)) ? [`case "${e.case}" ${e.slot}${e.theme ? ` ${e.theme}` : ""}`] : [];
+  });
+}
+
 function copyRequests(merge: MergeInput, evidenceRoot: string): CopyRequest[] {
   const seen = new Set<string>();
   const out: CopyRequest[] = [];
@@ -324,6 +340,10 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const merge = markRecaptures(current, parsed.merge, evidenceRoot);
   const dry = mergeRecord(current, merge);
   if (!dry.ok) return err(dry.error);
+  const clobbers = overwritesUncovered(current, merge, dry.record, evidenceRoot);
+  if (clobbers.length) {
+    return err(`${clobbers.join(", ")}: this recapture would overwrite the recorded capture while it has no cover; pass its annotated and caption, or a waiver, in the same call`);
+  }
 
   const roots = allowedSourceRoots({ home: deps.home(), uid: deps.uid(), repoRoots, uploadRoots: deps.uploadRoots() });
   const copy = copyIntoRun(copyRequests(merge, evidenceRoot), { allowedRoots: roots, referencedElsewhere: referencedElsewhere(current, merge.images ?? []) });

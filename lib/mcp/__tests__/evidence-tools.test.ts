@@ -287,10 +287,15 @@ describe("evidence_record", () => {
     expect((first.body as { written: boolean }).written).toBe(true);
     writeFileSync(shot, "capture v2");
     const second = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", slot: "after", path: shot }] }, env);
-    const body = second.body as { written: boolean; uncovered: Array<{ why: string }> };
-    expect(body.written).toBe(false);
-    expect(body.uncovered.map((u) => u.why)).toEqual(["no-cover"]);
+    expect(second.ok).toBe(false);
+    expect(second.error).toContain('case "retry-badge" after: this recapture would overwrite the recorded capture while it has no cover');
+    expect(readFileSync(join(evidenceDir("retry-badge"), "badge-after.c1.png"), "utf8")).toBe("capture v1");
     expect(JSON.parse(fields.get("evidence")!).cases[0].after.caption).toBe("v1 marks");
+    writeFileSync(board, "board v2");
+    const third = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", slot: "after", path: shot, annotated: board, caption: "v2 marks" }] }, env);
+    expect((third.body as { written: boolean }).written).toBe(true);
+    expect(JSON.parse(fields.get("evidence")!).cases[0].after.caption).toBe("v2 marks");
+    expect(readFileSync(join(evidenceDir("retry-badge"), "badge-after.c1.png"), "utf8")).toBe("capture v2");
   });
 
   test("an unchanged capture sent again with a new board is a cover update", async () => {
