@@ -8,8 +8,8 @@ import { buildReviewSource, reviewSourceErrors } from "../review-source.ts";
 
 const ROOT = join(import.meta.dir, "../../..");
 const REVIEW_DIR = join(ROOT, "plugins/mattstack/attachments/review");
-const GC = join(REVIEW_DIR, "receive-review/scripts/gate-ctx.sh");
-const RS = join(REVIEW_DIR, "review/scripts/review-source.sh");
+const GC = join(ROOT, "plugins/mattstack/attachments/review/receive-review/scripts/gate-ctx.sh");
+const RS = join(ROOT, "plugins/mattstack/attachments/review/review/scripts/review-source.sh");
 const RR = join(REVIEW_DIR, "receive-review/tests/fixtures");
 const RV = join(REVIEW_DIR, "review/tests/fixtures");
 
