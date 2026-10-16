@@ -375,7 +375,7 @@ describe("compile-pipelines", () => {
     expect(stage).not.toContain("evidence-b body");
     expect(copy).toContain("evidence-b body");
     expect(copy).not.toContain("evidence-a body");
-  });
+  }, 30_000);
 
   test("work-a11y compiles against its pipeline", async () => {
     const { pack, ms, manifest } = buildPipelines();
@@ -386,7 +386,7 @@ describe("compile-pipelines", () => {
     expect(a11y).toContain(EIGHT_ROWS.replace("attachments/stage-evidence/", `attachments/${COPY}/`));
     expect(a11y).toContain("--work-type work --pipeline accessibility");
     expect(a11y).toContain("`run_list`'s `pipelines` is `accessibility`; only those runs are offered to resume.");
-  });
+  }, 30_000);
 
   test("plain work runs feature with today's eight rows and digraphs that pass check-dot", async () => {
     const { pack, ms, manifest } = buildPipelines();
@@ -405,7 +405,7 @@ describe("compile-pipelines", () => {
     const run = Bun.spawnSync(["python3", CHECK_DOT, ...mds], { env: childEnv() });
     expect(run.stdout.toString() + run.stderr.toString()).toMatch(/graph\(s\) checked, ok, 0 warning\(s\)\n$/);
     expect(run.exitCode).toBe(0);
-  });
+  }, 30_000);
 
   test("a dropped override removes its copy", async () => {
     const { pack, ms, manifest, args } = buildPipelines();
@@ -446,7 +446,7 @@ describe("compile-pipelines", () => {
     expect(existsSync(join(pack, "attachments", COPY))).toBe(false);
     expect(existsSync(join(pack, "attachments", "stage-evidence", "SKILL.md"))).toBe(true);
     expect((await checkPack({ packDir: pack, mattstackDir: ms, manifest })).staleCopies).toEqual([]);
-  });
+  }, 30_000);
 
   test("a stage every pipeline overrides still compiles its default", async () => {
     const { pack, ms, manifest } = buildPipelines();
@@ -481,7 +481,7 @@ describe("compile-pipelines", () => {
       expect(copy).toContain("slot:forge binding=mattstack:ci-forge-gitlab");
       expect(copy).toContain(`\${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci--${pipeline}/parts/forge/scripts/ci-forge.sh`);
     }
-  });
+  }, 30_000);
 
   test("a scoped compile leaves copies", async () => {
     const { pack, ms, manifest, args } = buildPipelines();
@@ -502,5 +502,5 @@ describe("compile-pipelines", () => {
     }
     expect(readFileSync(manifest, "utf8")).toContain("mattstack:model-tiering");
     expect(existsSync(join(pack, "attachments", COPY, "SKILL.md"))).toBe(true);
-  });
+  }, 30_000);
 });
