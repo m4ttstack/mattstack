@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { checkBlocks, compileBlocks, compositionBlocks, installedCacheBlocks, materializeBlocks, packsBlocks, type CheckPayload, type CompositionPayload } from "../skills.ts";
 
-const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [], baseErrors: [], compileErrors: [], extendsBase: true };
+const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [], baseErrors: [], compileErrors: [], fieldContract: [], extendsBase: true };
 
 test("check lists each verb, names what moved, and gives the fix once", () => {
   const payload: CheckPayload = {
@@ -212,4 +212,13 @@ test("check names a verb whose compile throws and points at the compile that sho
   const text = renderPlain(checkBlocks({ ...base, drift: true, compileErrors: ['verb "watch-ci": no fill acme:missing'] }, false));
   expect(text).toContain('[failed] verb "watch-ci": no fill acme:missing');
   expect(text).toContain("next: rt skills compile");
+});
+
+test("check shows field-contract lines as a warning with no compile hint", () => {
+  const line = 'field contract: attachments/stage-plan/SKILL.md:3 reads "x", which nothing in this pack writes';
+  const text = renderPlain(checkBlocks({ ...base, fieldContract: [line] }, true));
+  expect(text).toContain("[warning] field contract: 1 warning");
+  expect(text).toContain(line);
+  expect(text).not.toContain("[failed]");
+  expect(text).not.toContain("next: rt skills compile");
 });
