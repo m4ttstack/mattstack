@@ -211,8 +211,23 @@ describe("hardening", () => {
 });
 
 describe("allowedSourceRoots", () => {
-  test("lists repo, upload, work and fast-browser roots", () => {
+  test("lists repo, upload, work and claude temp roots", () => {
     const roots = allowedSourceRoots({ home: "/h", uid: 501, repoRoots: ["/repo"], uploadRoots: ["/up"] });
-    expect(roots).toEqual(expect.arrayContaining(["/repo", "/up", "/h/.mattstack/work", "/h/.fast-browser/screenshots", "/private/tmp/claude-501", "/tmp/claude-501"]));
+    expect(roots).toEqual(expect.arrayContaining(["/repo", "/up", "/h/.mattstack/work", "/private/tmp/claude-501", "/tmp/claude-501"]));
+  });
+
+  test("the fast-browser folder is admitted only as a real directory the user owns", () => {
+    const uid = process.getuid!();
+    const shots = join(base, ".fast-browser", "screenshots");
+    const has = (o: { uid: number | null }) => allowedSourceRoots({ home: base, uid: o.uid, repoRoots: [], uploadRoots: [] }).includes(shots);
+    expect(has({ uid })).toBe(false);
+    mkdirSync(shots, { recursive: true });
+    expect(has({ uid })).toBe(true);
+    expect(has({ uid: null })).toBe(false);
+    expect(has({ uid: uid + 1 })).toBe(false);
+    rmSync(shots, { recursive: true });
+    mkdirSync(join(base, "elsewhere"));
+    symlinkSync(join(base, "elsewhere"), shots);
+    expect(has({ uid })).toBe(false);
   });
 });

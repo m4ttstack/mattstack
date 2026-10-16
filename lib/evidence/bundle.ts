@@ -163,13 +163,12 @@ export function copyIntoRun(
 }
 
 export function allowedSourceRoots(o: { home: string; uid: number | null; repoRoots: string[]; uploadRoots: string[] }): string[] {
-  const builtIn = builtInEvidenceRoot(evidenceDir(), o.uid);
+  const builtIn = [builtInEvidenceRoot(evidenceDir(), o.uid), builtInEvidenceRoot(join(o.home, ".fast-browser", "screenshots"), o.uid)];
   return [
     ...o.repoRoots,
     ...claudeTempRoots(o.uid),
-    ...(builtIn === null ? [] : [builtIn]),
+    ...builtIn.filter((r): r is string => r !== null),
     ...o.uploadRoots,
     join(o.home, ".mattstack", "work"),
-    join(o.home, ".fast-browser", "screenshots"),
   ];
 }

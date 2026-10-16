@@ -199,16 +199,40 @@ describe("evidence_record", () => {
     expect(runCalls.some((c) => c.name === "run_field_set")).toBe(false);
   });
 
+  const slugRunDb = () => {
+    mkdirSync(join(runsRoot, "gitlab.com-acme-web", RUN_ID), { recursive: true });
+    const db = join(runsRoot, "gitlab.com-acme-web", RUN_ID, "state.db");
+    writeFileSync(db, "");
+    return db;
+  };
+
   test("a checkout source is admitted only when tree names that repo", async () => {
     const checkout = join(base, "web");
     const shot = put("shot.png", "s", checkout);
     const guard: TreeGuardDeps = { ...noGuard, repoIndex: () => ({ [IDENT]: checkout }) };
-    const input = { runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry badge", slot: "before", path: shot, waiver: "no ui" }] };
+    const input = { runDb: slugRunDb(), stage: "verify", images: [{ case: "retry-badge", label: "Retry badge", slot: "before", path: shot, waiver: "no ui" }] };
     const without = await tool(makeDeps({ guard, repoRoots: () => [checkout] }).deps, "evidence_record").handler(input, env);
     expect(without.ok).toBe(false);
     const withTree = await tool(makeDeps({ guard, repoRoots: (id) => (id === IDENT ? [checkout] : []) }).deps, "evidence_record").handler({ ...input, tree: checkout }, env);
     expect(withTree.ok).toBe(true);
     expect((withTree.body as { written: boolean }).written).toBe(true);
+  });
+
+  test("a tree from another repo than the run's is refused before any copy, naming both", async () => {
+    const checkout = join(base, "api");
+    const shot = put("shot.png", "s", checkout);
+    const other = "remote:gitlab.com%2Facme%2Fapi";
+    const guard: TreeGuardDeps = { ...noGuard, repoIndex: () => ({ [other]: checkout }) };
+    const { deps, runCalls } = makeDeps({ guard, repoRoots: () => [checkout] });
+    const res = await tool(deps, "evidence_record").handler(
+      { runDb: slugRunDb(), stage: "verify", tree: checkout, images: [{ case: "retry-badge", label: "Retry badge", slot: "before", path: shot, waiver: "no ui" }] },
+      env,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain(other);
+    expect(res.error).toContain("gitlab.com-acme-web");
+    expect(existsSync(evidenceDir())).toBe(false);
+    expect(runCalls.some((c) => c.name === "run_field_set")).toBe(false);
   });
 
   test("a case id that is not a plain slug is refused before any copy", async () => {

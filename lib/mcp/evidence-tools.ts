@@ -19,6 +19,7 @@ import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts"
 import { renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
 import { parseUploads, serializeUploads, sha256Of, type UploadEntry } from "../evidence/uploads-field.ts";
 import { loadRepoIndex } from "../repo-index.ts";
+import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { loadRegistry } from "../worktree/registry.ts";
 import { githubRefusal, refuseGithubTarget } from "./mr-composite-tools.ts";
@@ -269,6 +270,19 @@ function runIdOf(runDb: string): string | null {
   }
 }
 
+/** The run's repo is its runs-root folder: run-start's --repo, the pack's repos/<slug> name, so an identity matches through its slug. */
+function isRunRepo(identity: string, runDb: string): { ok: true } | { ok: false; runRepo: string } {
+  let runRepo: string;
+  try {
+    runRepo = basename(dirname(dirname(realpathSync(runDb))));
+  } catch {
+    return { ok: false, runRepo: "(unresolved)" };
+  }
+  const parsed = parseIdentity(identity);
+  const names = [identity, ...(parsed ? [repoIdentitySlug(parsed.id)] : [])].map((n) => n.toLowerCase());
+  return names.includes(runRepo.toLowerCase()) ? { ok: true } : { ok: false, runRepo };
+}
+
 async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.ProcessEnv): Promise<ToolResult> {
   const bad = checkRequired(input, [{ name: "runDb", type: "string" }, { name: "stage", type: "string" }]);
   if (bad) return err(bad);
@@ -277,17 +291,19 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const runDb = input.runDb as string;
   const stage = input.stage as string;
 
-  let repoRoots: string[] = [];
-  if (input.tree !== undefined) {
-    const tree = checkRegisteredTree(input.tree, deps.guard);
-    if (!tree.ok) return err(tree.error);
-    repoRoots = deps.repoRoots(tree.repoName);
-  }
-
   const read = await readField(deps, runDb, "evidence", env);
   if (!read.ok) return err(read.error);
   const runId = runIdOf(runDb);
   if (runId === null) return err(`runDb ${runDb} does not resolve`);
+
+  let repoRoots: string[] = [];
+  if (input.tree !== undefined) {
+    const tree = checkRegisteredTree(input.tree, deps.guard);
+    if (!tree.ok) return err(tree.error);
+    const same = isRunRepo(tree.repoName, runDb);
+    if (!same.ok) return err(`tree ${tree.path} is in repo ${tree.repoName}, but the run is in ${same.runRepo}; pass the run's own worktree root`);
+    repoRoots = deps.repoRoots(tree.repoName);
+  }
 
   const write = async (value: string): Promise<ToolResult | null> => {
     const res = await deps.runTool("run_field_set", { runDb, key: "evidence", value, stage }, env);
