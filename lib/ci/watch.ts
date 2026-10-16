@@ -3,7 +3,13 @@ import { leaseOwner, type CiLease } from "../../packages/rt-client/src/index.ts"
 export interface WatchJob { id: string; name: string; stage: string; status: string; allowFailure: boolean; webUrl: string | null }
 export interface WatchPipeline { id: string; status: string; sha: string | null; ref: string | null; mergeRequestEventType: string | null; webUrl: string | null; createdAt: string | null; jobs: WatchJob[] }
 export interface WatchMr { iid: number; sha: string | null; webUrl: string | null; pipeline: WatchPipeline | null }
-export type LeaseCheck = { ok: true; lease: CiLease | null } | { ok: false; holder: CiLease | null; reason?: "none" | "lost" };
+export type LeaseCheck =
+  | { ok: true; lease: CiLease | null }
+  | { ok: false; holder: CiLease | null; reason?: "none" | "lost" }
+  | { ok: false; reason: "stood_down"; holder: CiLease | null }
+  | { ok: false; reason: "unavailable"; error: string };
+
+export interface WatchObservation { pipelineId: number | null; pipelineStatus: string | null; budgetMinutes: number | null; priorPipelineId: number | null; waitingSince: number | null }
 
 export interface WatchDeps {
   now(): number;
@@ -13,13 +19,17 @@ export interface WatchDeps {
   commitParents(sha: string): Promise<string[] | null>;
   failedJobs(pipelineId: number): Promise<WatchJob[] | null>;
   traceTail(jobId: number): Promise<string | null>;
+  observe?(o: WatchObservation): void;
 }
 
-export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSeconds: number; budgetMinutes: number; extendMinutes?: number; priorPipelineId?: number; signal?: AbortSignal }
+export interface WatchAttend { waitingSince: number | null; noPipelineMs: number; lastFailedPipelineId: number | null; freshMinutes: number }
+
+export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSeconds: number; budgetMinutes: number; extendMinutes?: number; priorPipelineId?: number; attend?: WatchAttend; signal?: AbortSignal }
 
 export type WatchState =
   | "success" | "success_with_warnings" | "failed" | "canceled" | "skipped" | "manual"
-  | "running" | "waiting" | "superseded" | "lease_lost" | "aborted";
+  | "running" | "waiting" | "superseded" | "lease_lost" | "aborted"
+  | "timeout" | "no_pipeline" | "stood_down" | "lease_unavailable" | "unsupported_forge";
 
 export interface WatchResult {
   state: WatchState;
@@ -35,6 +45,10 @@ export interface WatchResult {
   polls: number;
   budget: WatchBudget | null;
   next: string;
+  pushed?: boolean;
+  remoteSha?: string | null;
+  error?: string;
+  forge?: string;
 }
 
 export interface WatchBudget { minutes: number; elapsedMinutes: number; spent: boolean }
@@ -70,6 +84,15 @@ function leaseView(lease: CiLease | null): WatchResult["lease"] {
   return { owner: leaseOwner(lease), heartbeatAt: lease.heartbeatAt, expiresAt: lease.heartbeatAt + lease.ttlSeconds * 1_000 };
 }
 
+function measureBudget(created: number, minutes: number, now: number): { budget: WatchBudget; endsAt: number } {
+  const endsAt = created + minutes * MINUTE_MS;
+  return { budget: { minutes, elapsedMinutes: Math.floor(Math.max(0, now - created) / MINUTE_MS), spent: now >= endsAt }, endsAt };
+}
+
+function widenBudget(minutes: number, created: number, now: number, extra: number): number {
+  return Math.max(minutes, Math.ceil(Math.max(0, now - created) / MINUTE_MS) + extra);
+}
+
 function stripJobs(p: WatchPipeline | null): WatchResult["pipeline"] {
   if (!p) return null;
   const { jobs: _jobs, ...rest } = p;
@@ -100,6 +123,11 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
   let budgetMinutes = input.budgetMinutes;
   let extendPending = input.extendMinutes !== undefined;
   let last: { state: WatchState; mr: WatchMr | null; hint: string } = { state: "waiting", mr: null, hint: "call again" };
+  const attend = input.attend;
+  let waitingSince = attend?.waitingSince ?? null;
+  let matched: { id: number | null; status: string } | null = null;
+  // A retry reopens the window once per call, so a reopened window still runs out.
+  let reopened = false;
 
   const result = (state: WatchState, mr: WatchMr | null, next: string, extra: Partial<WatchResult> = {}): WatchResult => ({
     state,
@@ -116,6 +144,16 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     ...(provenPrior !== undefined && { priorPipelineId: provenPrior }),
     ...extra,
   });
+
+  function observe(): void {
+    deps.observe?.({
+      pipelineId: matched?.id ?? null,
+      pipelineStatus: matched?.status ?? null,
+      budgetMinutes: budget?.minutes ?? null,
+      priorPipelineId: provenPrior ?? input.priorPipelineId ?? null,
+      waitingSince,
+    });
+  }
 
   async function matches(mr: WatchMr, p: WatchPipeline): Promise<boolean | "undetermined" | "unprovable"> {
     if (!isMergeRefPipeline(p, mr.iid)) return shaMatches(p.sha, input.sha);
@@ -180,9 +218,19 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     return { failedJobs: out, blockingFailures: out.filter((j) => !j.allowFailure).length, fetchFailed };
   }
 
-  function standDown(lc: Extract<LeaseCheck, { ok: false }>): string {
+  function standDown(lc: Extract<LeaseCheck, { ok: false; reason?: "none" | "lost" }>): string {
     if (lc.reason === "none") return "no lease held for this MR; call ci_lease_claim first";
     return lc.holder ? "another owner attends this MR now; stand down" : "this MR's lease is gone; stand down";
+  }
+
+  function leaseEnd(lc: Extract<LeaseCheck, { ok: false }>, mr: WatchMr | null): WatchResult {
+    if (lc.reason === "stood_down") {
+      return result("stood_down", mr, lc.holder ? "another owner attends this MR now; stand down" : "the board doctor's lease is gone; stand down", { holder: lc.holder, lease: null });
+    }
+    if (lc.reason === "unavailable") {
+      return result("lease_unavailable", mr, `the CI lease could not be claimed or kept (${lc.error}); stop watching and report it`, { error: lc.error, lease: null });
+    }
+    return result("lease_lost", mr, standDown(lc), { holder: lc.holder, lease: null });
   }
 
   const again = (hint: string) => (provenPrior === undefined ? `${hint}; call again` : `${hint}; call again with priorPipelineId ${provenPrior}`);
@@ -191,25 +239,30 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     if (input.signal?.aborted) return result("aborted", last.mr, again("the call was cancelled"));
     const lc = deps.leaseCheck();
     polls++;
-    if (!lc.ok) return result("lease_lost", last.mr, standDown(lc), { holder: lc.holder, lease: null });
+    if (!lc.ok) return leaseEnd(lc, last.mr);
     lease = lc.lease;
 
     const read = await deps.readMr();
     if (!read.ok) {
       if (last.mr === null) return { error: read.error };
+      observe();
       return result(last.state, last.mr, again(`reading the MR failed (${read.error})`));
     }
     const mr = read.mr;
     budget = null;
     budgetEndsAt = null;
+    matched = null;
+    let waitingKind = false;
 
     if (!shaMatches(mr.sha, input.sha)) {
       // A null head is an MR whose head GitLab has not reported, not a moved head, so it never starts or reports the grace clock:
       // a stale mismatch clock from an earlier non-null head must not fire superseded against a null head.
       if (mr.sha !== null) mismatchSince ??= deps.now();
       if (mr.sha !== null && mismatchSince !== null && deps.now() - mismatchSince >= HEAD_LAG_GRACE_MS) {
+        observe();
         return result("superseded", mr, `the MR head is not at the pushed sha (head: ${mr.sha})`);
       }
+      waitingKind = mr.sha === null;
       last = { state: "waiting", mr, hint: "the MR head has not reached the pushed sha yet; call again" };
     } else {
       mismatchSince = null;
@@ -217,22 +270,23 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       const p = mr.pipeline;
       const m = p ? await matches(mr, p) : false;
       if (p && m === true) {
+        matched = { id: idNumber(p.id), status: p.status };
+        waitingSince = null;
         const created = p.createdAt ? Date.parse(p.createdAt) : NaN;
         if (!Number.isNaN(created)) {
-          const elapsed = Math.max(0, deps.now() - created);
           if (extendPending) {
             extendPending = false;
-            budgetMinutes = Math.max(budgetMinutes, Math.ceil(elapsed / MINUTE_MS) + (input.extendMinutes ?? 0));
+            budgetMinutes = widenBudget(budgetMinutes, created, deps.now(), input.extendMinutes ?? 0);
           }
-          budgetEndsAt = created + budgetMinutes * MINUTE_MS;
-          budget = { minutes: budgetMinutes, elapsedMinutes: Math.floor(elapsed / MINUTE_MS), spent: deps.now() >= budgetEndsAt };
+          ({ budget, endsAt: budgetEndsAt } = measureBudget(created, budgetMinutes, deps.now()));
         }
         if (TERMINAL.has(p.status)) {
           const f = await failures(p, p.status === "failed");
           // Trace fetches can outlast the poll's heartbeat, so the lease is re-proved before reporting.
           const after = deps.leaseCheck();
-          if (!after.ok) return result("lease_lost", mr, standDown(after), { holder: after.holder, lease: null });
+          if (!after.ok) return leaseEnd(after, mr);
           lease = after.lease;
+          observe();
           const next = p.status !== "failed"
             ? "done"
             : f.fetchFailed
@@ -245,15 +299,23 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
         const early = await failures(p, true);
         if (early.blockingFailures > 0) {
           const after = deps.leaseCheck();
-          if (!after.ok) return result("lease_lost", mr, standDown(after), { holder: after.holder, lease: null });
+          if (!after.ok) return leaseEnd(after, mr);
           lease = after.lease;
+          observe();
           return result("failed", mr, "a blocking job failed while the pipeline is still running; read more of its log with mr_job_trace", {
             failedJobs: early.failedJobs,
             blockingFailures: early.blockingFailures,
           });
         }
+        // Keyed on the last result, not the pipeline's status: a blocking job usually fails while the pipeline still runs.
+        if (attend && !reopened && !Number.isNaN(created) && matched.id !== null && matched.id === attend.lastFailedPipelineId) {
+          reopened = true;
+          budgetMinutes = widenBudget(budgetMinutes, created, deps.now(), attend.freshMinutes);
+          ({ budget, endsAt: budgetEndsAt } = measureBudget(created, budgetMinutes, deps.now()));
+        }
         if (budget?.spent) {
-          return result("running", mr, `the pipeline is still running past the ${budget.minutes} minute watch budget (ci.watch.budgetMinutes); stop watching and report it`);
+          observe();
+          return result(attend ? "timeout" : "running", mr, `the pipeline is still running past the ${budget.minutes} minute watch budget (ci.watch.budgetMinutes); stop watching and report it`);
         }
         last = { state: "running", mr, hint: again("the pipeline for the pushed sha is still running") };
       } else {
@@ -261,11 +323,27 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
           ? "cannot prove this merge-train pipeline is new since the push; call again with priorPipelineId (the head pipeline id read before the push)"
           : "no pipeline for the pushed sha yet; call again";
         last = { state: "waiting", mr, hint };
+        // An unprovable or unread match may be the pipeline for sha, so it never runs the no_pipeline clock.
+        waitingKind = !p || m === false;
       }
     }
 
+    if (attend && waitingKind) {
+      waitingSince ??= deps.now();
+      if (deps.now() - waitingSince >= attend.noPipelineMs) {
+        observe();
+        const minutes = Math.round(attend.noPipelineMs / MINUTE_MS);
+        const hint = mr.sha === null
+          ? `GitLab reported no head commit for the MR for ${minutes} minutes; check the push reached the remote, then report it`
+          : `no pipeline started for the pushed sha in ${minutes} minutes; stop watching and report it`;
+        return result("no_pipeline", mr, hint, { pushed: mr.sha !== null, remoteSha: mr.sha });
+      }
+    }
+    observe();
+
     if (deadline - deps.now() <= 0) return result(last.state, last.mr, last.hint);
-    const remaining = Math.min(deadline, budgetEndsAt ?? Infinity) - deps.now();
+    const noPipelineEndsAt = attend && waitingKind && waitingSince !== null ? waitingSince + attend.noPipelineMs : Infinity;
+    const remaining = Math.min(deadline, budgetEndsAt ?? Infinity, noPipelineEndsAt) - deps.now();
     // Half the lease's ttl bounds the interval so the heartbeat each poll gives never lets the lease go stale.
     const interval = Math.min(input.intervalSeconds * 1_000, lease ? (lease.ttlSeconds * 1_000) / 2 : Infinity);
     await deps.sleep(Math.min(interval, remaining), input.signal);

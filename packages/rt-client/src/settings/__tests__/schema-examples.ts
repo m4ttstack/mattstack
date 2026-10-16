@@ -370,6 +370,9 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [{ value: { review: ["/Users/dev/src/app"] }, path: ["review"] }],
     layer: [{ respond: "/Users/dev/src/app" }],
   },
+  "ci.triage.realPatterns": { good: [[], ["Segmentation fault", "AssertionError"]], bad: [{ value: [7], path: [0] }] },
+  "ci.triage.infraPatterns": { good: [[], ["Connection reset by peer", "no space left on device"]], bad: [{ value: [7], path: [0] }] },
+  "ci.triage.noisyJobs": { good: [[], ["lint", "e2e-flaky"]], bad: [{ value: [7], path: [0] }] },
   "boxscore.projects": { good: [[], ["acme/app"]], bad: [{ value: [7], path: [0] }] },
   "boxscore.linearDoneStates": { good: [[], ["Done", "Released"]], bad: [{ value: [null], path: [0] }] },
   "boxscore.sizeBand": {

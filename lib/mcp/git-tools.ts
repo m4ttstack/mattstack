@@ -1,6 +1,7 @@
 import { existsSync } from "fs";
 import { dirname, resolve } from "path";
 import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
+import { ensureLease } from "../ci/lease-guard.ts";
 import { explainError } from "../explain-error.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { rtSelfArgv } from "../rt-self.ts";
@@ -590,6 +591,7 @@ export interface GitToolDeps {
   /** The caller's own open MRs on the repo; complete is false when the forge may have cut the list short. */
   authoredOpenMrs: (identity: string) => Promise<AuthoredMrs>;
   repoTrees: (identity: string) => Promise<RepoTrees>;
+  ensureLease?: typeof ensureLease;
 }
 
 export const realGitToolDeps: GitToolDeps = {
@@ -616,13 +618,18 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
     {
       name: "git_push",
       description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is \"unavailable\" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.",
-      inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" } }, required: ["tree"], additionalProperties: false },
+      inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" }, leaseMrUrl: { type: "string", description: "The MR or PR https URL whose CI lease this session must hold (or can claim) for the push to run. Refused with pushed: false while another owner holds a fresh lease." } }, required: ["tree"], additionalProperties: false },
       shellForms: ["git push", "rt git push"],
-      handler: guarded(async (path, input, repoName) => {
-        const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }]);
+      handler: (input, env) => guarded(async (path, input, repoName) => {
+        const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }, { name: "leaseMrUrl", type: "string" }]);
         if (bad) return err(bad);
+        if (input.leaseMrUrl !== undefined) {
+          const branch = await currentBranch(path, deps.git);
+          const lease = (deps.ensureLease ?? ensureLease)(input.leaseMrUrl as string, env, branch === null ? {} : { branch });
+          if (!lease.ok) return "refused" in lease ? ok({ pushed: false, refused: lease.refused, holder: lease.holder }) : err(lease.error);
+        }
         return gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true }, deps.git, (branch) => deps.openMr(repoName, branch));
-      }),
+      })(input),
     },
     {
       name: "git_pull",
