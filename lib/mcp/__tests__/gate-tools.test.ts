@@ -821,6 +821,21 @@ describe("gate_record", () => {
     expect(body(res)).toMatchObject({ recorded: false, skipped: "stale gate; respond-post's latest gate is g2" });
   });
 
+  test("a gate opened after the stored source's gate records normally", async () => {
+    const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", "g0", plan(), 500)] });
+    const res = await record(REC, f);
+    expect(body(res)).toMatchObject({ recorded: true });
+    expect(body(res).skipped).toBeUndefined();
+    expect(f.log.at(-1)).toStartWith("decision record --contract gate@1 --scope respond-plan");
+  });
+
+  test("a source naming another gate, stored after this gate opened, makes it stale", async () => {
+    const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", "g2", plan(), 1500)] });
+    const res = await record(REC, f);
+    expect(f.log).toEqual(["snapshot", "wait"]);
+    expect(body(res)).toMatchObject({ recorded: false, skipped: "stale gate; respond-plan's latest gate is g2" });
+  });
+
   test("a hand-back source (gate null) never makes a gate stale", async () => {
     const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", null, plan())] });
     const res = await record(REC, f);

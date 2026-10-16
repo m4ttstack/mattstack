@@ -570,13 +570,14 @@ function recordInputError(input: Record<string, unknown>): string | undefined {
 }
 
 /** The scope's stored gate source, or null when absent or unreadable. */
-function storedSource(run: RunHandle, scope: string): { gate: string | null; source?: GateCtxSource } | null {
-  const raw = fieldValue(run, `extra.gate-source.${scope}`);
-  if (raw === undefined) return null;
+function storedSource(run: RunHandle, scope: string): { gate: string | null; at: number; source?: GateCtxSource } | null {
+  const field = run.snapshot.fields.find((f) => f.key === `extra.gate-source.${scope}`);
+  if (field === undefined) return null;
   try {
-    const parsed = JSON.parse(raw) as { gate?: unknown; source?: unknown };
+    const parsed = JSON.parse(field.value) as { gate?: unknown; source?: unknown };
     return {
       gate: typeof parsed.gate === "string" ? parsed.gate : null,
+      at: field.at,
       ...(isObject(parsed.source) ? { source: parsed.source as unknown as GateCtxSource } : {}),
     };
   } catch {
@@ -619,7 +620,7 @@ export async function recordGate(input: Record<string, unknown>, env: NodeJS.Pro
   const data = res.data;
   if (data.status === "timeout") return err(`gate ${id} is still open; record it once it is answered`);
   if (data.status === "closed") return err(`gate ${id} is closed (${data.row.closedReason ?? "closed"}) and has no answer to record`);
-  if (typeof stored?.gate === "string" && stored.gate !== id) {
+  if (typeof stored?.gate === "string" && stored.gate !== id && stored.at > data.row.openedAt) {
     return ok({ recorded: false, skipped: `stale gate; ${scope}'s latest gate is ${stored.gate}`, ...answerFields(data.row) });
   }
   return ok(await recordAnswered(run, data.row, { ...o, upsert: true }));
@@ -629,7 +630,7 @@ const GATE_OPEN_DESCRIPTION = "Build, validate and size-fit a structured gate fr
 
 const GATE_RECONCILE_DESCRIPTION = "The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: \"answered\", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the gate's kind) with the answer's by as the decider, unless a decision on that scope already landed since the gate opened (alreadyReconciled) or record is false; it clears waiting-gate when it names this gate. closed: returns {status: \"closed\", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: \"open\"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.";
 
-const GATE_RECORD_DESCRIPTION = "Record a gate decision on a run that no gate tool recorded at answer time: a review scope at its site's own point (respond-plan, respond-post and post after acting), or a decision handed in by the caller (answers plus decidedBy, for a board wrapper). runDb, stage and scope are required. gateId reads that answered gate (an open or closed gate is refused) and its answer's by is the decider. shape picks the selection: answers (the normalized answers map, never skipped), respond-plan ({threads, texts?, overrides?, notes?, code-changes} plus rows for the report), respond-post ({threads: {<id>: {post, resolve, text?, note?}}, held?}) or post ({findings, disposition, replies?, restored?}); the three review shapes record nothing when a next answer other than proceed is present. Cards come from source, sourcePath or review when passed, else from the run's extra.gate-source.<scope>. It always upserts its own gate, so a held respond-post resume re-records with held; it refuses only a stale gate, one whose scope's stored source names a later gate. Returns {recorded, selection, decidedBy, rows?, answers, writeIn, next, actOnWriteIn, skipped?, runErrors?}. It records only; the skill acts.";
+const GATE_RECORD_DESCRIPTION = "Record a gate decision on a run that no gate tool recorded at answer time: a review scope at its site's own point (respond-plan, respond-post and post after acting), or a decision handed in by the caller (answers plus decidedBy, for a board wrapper). runDb, stage and scope are required. gateId reads that answered gate (an open or closed gate is refused) and its answer's by is the decider. shape picks the selection: answers (the normalized answers map, never skipped), respond-plan ({threads, texts?, overrides?, notes?, code-changes} plus rows for the report), respond-post ({threads: {<id>: {post, resolve, text?, note?}}, held?}) or post ({findings, disposition, replies?, restored?}); the three review shapes record nothing when a next answer other than proceed is present. Cards come from source, sourcePath or review when passed, else from the run's extra.gate-source.<scope>. It always upserts its own gate, so a held respond-post resume re-records with held; it refuses only a stale gate, one whose scope's stored source names a different gate stored after this one opened. Returns {recorded, selection, decidedBy, rows?, answers, writeIn, next, actOnWriteIn, skipped?, runErrors?}. It records only; the skill acts.";
 
 export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[] {
   return [
