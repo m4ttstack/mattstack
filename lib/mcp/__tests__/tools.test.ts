@@ -146,9 +146,9 @@ describe("mcpTools", () => {
 
     // A form gate told to background a wait never reaches the pane's form:
     // the wait is the wait branch only.
-    test("description branches on the returned presentation: form asks in the pane, only wait backgrounds rt gate wait", () => {
+    test("description branches on the result's paneAction: form asks in the pane, only wait backgrounds rt gate wait", () => {
       const tool = mcpTools().find((t) => t.name === "gate_ask")!;
-      expect(tool.description).toContain("act on the returned presentation");
+      expect(tool.description).toContain("act on the result's paneAction");
       expect(tool.description).toContain("form: ask it in the pane with AskUserQuestion");
       expect(tool.description).toContain("then answer with the gate_answer tool");
       expect(tool.description).not.toContain("--by pane");
