@@ -52,7 +52,7 @@ import { FLOOR_REL, readFloor } from "../lib/engine-floor.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { fieldContractErrors, type CompiledDoc } from "../lib/skills/field-contract.ts";
 import { pipelinesWrite } from "../lib/skills/pipeline-manifest.ts";
-import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan } from "../lib/skills/base-attachments.ts";
+import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan, type EmittedAttachment } from "../lib/skills/base-attachments.ts";
 import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
@@ -969,17 +969,18 @@ function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): B
 }
 
 /** Paths stay pack-relative: they are what a field-contract error prints. */
-function compiledDocsOf(outcomes: { target: CompileTarget; outcome: CompileOutcome }[]): CompiledDoc[] {
+function compiledDocsOf(outcomes: { target: CompileTarget; outcome: CompileOutcome }[], emits: EmittedAttachment[] = []): CompiledDoc[] {
   const docs: CompiledDoc[] = [];
-  for (const { target, outcome } of outcomes) {
-    if (!outcome.ok) continue;
-    const side: Side = target.isPublic ? "skills" : "attachments";
-    for (const file of outcome.result.files) {
+  const add = (dir: string, files: CompiledFile[]) => {
+    for (const file of files) {
       if (!file.path.endsWith(".md")) continue;
-      const text = "content" in file ? file.content : readFileSync(file.copyFrom, "utf8");
-      docs.push({ path: `${side}/${target.verb.name}/${file.path}`, text });
+      docs.push({ path: `${dir}/${file.path}`, text: "content" in file ? file.content : readFileSync(file.copyFrom, "utf8") });
     }
+  };
+  for (const { target, outcome } of outcomes) {
+    if (outcome.ok) add(`${target.isPublic ? "skills" : "attachments"}/${target.verb.name}`, outcome.result.files);
   }
+  for (const emit of emits) add(`attachments/${emit.name}`, emit.files);
   return docs;
 }
 
@@ -1046,7 +1047,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   );
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
   if (verbFilter === null && failures.length === 0) {
-    failures.push(...fieldContractErrors(compiledDocsOf(outcomes), resolved.stageEntries));
+    failures.push(...fieldContractErrors(compiledDocsOf(outcomes, plan.emits), resolved.stageEntries));
   }
 
   const writing = write && failures.length === 0;
@@ -1492,7 +1493,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   }
 
   if (flags.verbs === null && !neverCompiled && !compileFailed) {
-    const contractErrors = fieldContractErrors(compiledDocsOf(compiled), resolved.stageEntries);
+    const contractErrors = fieldContractErrors(compiledDocsOf(compiled, plan.emits), resolved.stageEntries);
     if (contractErrors.length > 0) anyStale = true;
     compileErrors.push(...contractErrors);
   }

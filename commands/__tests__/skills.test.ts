@@ -1471,6 +1471,25 @@ describe("base pack attachments", () => {
     expect(rows.find((r) => r.name === "review")).toBeUndefined();
   });
 
+  test("a field written only by an emitted base attachment counts as written, and its reads are checked", async () => {
+    const reader = DOMAIN_SKILL_MD + "Read it: run_field_get {key: extra.plan-verdict}\n";
+    const writer = "---\nname: plan-writer\ndescription: records the verdict\n---\nWrite it: run_field_set {key: extra.plan-verdict, value: yes, stage: plan}\n";
+    const withWriter = seedBaseAndTeam({ domainBody: reader, baseFiles: { "attachments/plan-writer/SKILL.md": writer } });
+
+    expect((await withWriter.compile()).errors).toEqual([]);
+    expect(existsSync(join(withWriter.packDir, "attachments", "plan-writer", "SKILL.md"))).toBe(true);
+
+    const noWriter = seedBaseAndTeam({ domainBody: reader });
+    const failed = await noWriter.compile();
+    expect(failed.exitCode).toBe(1);
+    expect(failed.errors.join("\n")).toContain('reads "extra.plan-verdict", which nothing in this pack writes');
+
+    const emittedReader = seedBaseAndTeam({ baseFiles: { "attachments/plan-reader/SKILL.md": "---\nname: plan-reader\ndescription: reads the verdict\n---\nRead it: run_field_get {key: extra.plan-verdict}\n" } });
+    const emittedFailure = await emittedReader.compile();
+    expect(emittedFailure.exitCode).toBe(1);
+    expect(emittedFailure.errors.join("\n")).toContain("field contract: attachments/plan-reader/SKILL.md:");
+  });
+
   test("a pack that extends a base but has no verbs still emits", async () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
