@@ -298,7 +298,8 @@ The git and forge reads sit behind injectable deps in a new
 ### Shepherd gate answers
 
 - `herd_gate_answer {gate, answers}` answers only a gate that
-  `herd:gates` lists for this herd. It takes no `override`: that flag
+  `herd:gates` lists for this herd, open or parked (a parked gate leaves
+  only by an answer or a close, as with the CLI's `--by shepherd` line). It takes no `override`: that flag
   stamps the answer as a human override, which an agent tool must not
   claim, and the shepherd session already passes the owner check for its
   own herd's gates. It posts `gate:answer` with
