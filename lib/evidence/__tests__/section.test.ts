@@ -1,0 +1,106 @@
+import { describe, expect, test } from "bun:test";
+import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
+import { type FileLink, renderSection, spliceSection } from "../section.ts";
+
+const up = (p: string): FileLink => {
+  const name = p.split("/").pop()!.replace(/\.[a-z]+$/, "");
+  return { markdown: `![${name}](/uploads/h/${p.split("/").pop()})` };
+};
+const rec = (v: unknown) => readEvidence(JSON.stringify(v));
+
+describe("renderSection", () => {
+  test("single annotated image rewrites the alt text and prints the caption", () => {
+    const r = rec({ v: 2, cases: [{ id: "retry-badge", label: "Retry badge on the job row", before: { path: "/b.png", annotated: "/before-annotated.png", caption: "Red box: the badge reads 0" } }] });
+    expect(renderSection(r, up, {})).toBe(
+      "**Retry badge on the job row**\n\n- Before: ![before](/uploads/h/before-annotated.png)\n  Caption: Red box: the badge reads 0",
+    );
+  });
+
+  test("a shared board prints once; a waived dark image prints its own waiver", () => {
+    const r = rec({
+      v: 2,
+      cases: [{
+        id: "c", label: "Case",
+        before: { light: { path: "/b.png", annotated: "/pair.png", caption: "Both" } },
+        after: { light: { path: "/a.png", annotated: "/pair.png" }, dark: { path: "/d.png", waiver: "same marks" } },
+      }],
+    });
+    const out = renderSection(r, up, {});
+    expect(out).toContain("- Before and after (light): ![before and after](/uploads/h/pair.png)\n  Caption: Both");
+    expect(out).toContain("- After (dark): ![after](/uploads/h/d.png)");
+    expect(out).toContain("  Waived: same marks");
+    expect(out.match(/pair\.png/g)?.length).toBe(1);
+  });
+
+  test("a case waiver prints once under the label, not per image", () => {
+    const r = rec({ v: 2, cases: [{ id: "c", label: "Case", waiver: "w", before: { path: "/b.png" }, after: { path: "/a.png" } }] });
+    const out = renderSection(r, up, {});
+    expect(out.match(/Waived: w/g)?.length).toBe(1);
+    expect(out).toContain("**Case**\n\nWaived: w\n\n- Before:");
+    expect(out).not.toContain("  Waived:");
+  });
+
+  test("a local link prints the bare path", () => {
+    const r = rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", annotated: "/abs/b.png" } }] });
+    expect(renderSection(r, (p) => ({ local: p }), {})).toContain("- Before: /abs/b.png");
+  });
+
+  test("trailing lines come in order and covered attach lines drop", () => {
+    const r = rec({
+      v: 2,
+      cases: [{ id: "c", label: "Case", before: { path: "/b.png", annotated: "/b-annotated.png" } }],
+      transcript: "/t.txt", url: "https://t",
+      attach: "![x](/b-annotated.png)\n![y](/uploads/h/other.png)\n![z](/uploads/h/b-annotated.png)",
+    });
+    const out = renderSection(r, up, { coveredUrls: new Set(["/uploads/h/b-annotated.png"]), appendix: "<details>\nA\n</details>" });
+    const tail = out.slice(out.indexOf("Transcript:"));
+    expect(tail).toBe("Transcript: /t.txt\n\nTicket: https://t\n\n![y](/uploads/h/other.png)\n\n<details>\nA\n</details>");
+    expect(out).not.toContain("![x]");
+    expect(out).not.toContain("![z]");
+  });
+
+  test("an empty record renders nothing", () => {
+    expect(renderSection(readEvidence(null), up, {})).toBe("");
+  });
+});
+
+describe("spliceSection", () => {
+  const doc = "# T\n\n## Evidence\n_helper_\n\nold\n\n## Checklist\n- [ ] x\n";
+
+  test("replaces the section and keeps the helper and later text", () => {
+    expect(spliceSection(doc, "## Evidence", "NEW")).toBe("# T\n\n## Evidence\n_helper_\n\nNEW\n\n## Checklist\n- [ ] x\n");
+  });
+
+  test("ignores the heading inside a fence", () => {
+    const d = "```\n## Evidence\n```\n\n## Evidence\nold\n";
+    expect(spliceSection(d, "## Evidence", "NEW")).toBe("```\n## Evidence\n```\n\n## Evidence\n\nNEW\n");
+  });
+
+  test("only the first heading counts", () => {
+    const d = "## Evidence\nold\n\n## Evidence\nsecond\n";
+    expect(spliceSection(d, "## Evidence", "NEW")).toBe("## Evidence\n\nNEW\n\n## Evidence\nsecond\n");
+  });
+
+  test("a deeper heading stays inside the section", () => {
+    const d = "## Evidence\nold\n### Sub\nx\n## Next\n";
+    expect(spliceSection(d, "## Evidence", "NEW")).toBe("## Evidence\n\nNEW\n\n## Next\n");
+  });
+
+  test("inserts above before, else appends", () => {
+    const d = "# T\n\n## Checklist\n- [ ] x\n";
+    expect(spliceSection(d, "## Evidence", "NEW", "## Checklist")).toBe("# T\n\n## Evidence\n\nNEW\n\n## Checklist\n- [ ] x\n");
+    expect(spliceSection(d, "## Evidence", "NEW")).toBe("# T\n\n## Checklist\n- [ ] x\n\n## Evidence\n\nNEW\n");
+  });
+
+  test("splicing twice is a no-op", () => {
+    for (const args of [[doc, "## Evidence"], ["# T\n\n## Checklist\n", "## Evidence", "## Checklist"]] as const) {
+      const once = spliceSection(args[0], args[1], "NEW", args[2]);
+      expect(spliceSection(once, args[1], "NEW", args[2])).toBe(once);
+    }
+  });
+
+  test("keeps an HTML comment block under the heading", () => {
+    const d = "## Evidence\n<!--\nfill in\n-->\nold\n";
+    expect(spliceSection(d, "## Evidence", "NEW")).toBe("## Evidence\n<!--\nfill in\n-->\n\nNEW\n");
+  });
+});
