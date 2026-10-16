@@ -503,17 +503,19 @@ sync-open-mrs:
 
 | scenario | RED deviations | GREEN deviations | notes |
 |---|---|---|---|
-| 1 stack-unverified | 10: manual stack check with gh pr view/list (5/5), shell pre-reads | | |
-| 2 dirty-tree | 7: porcelain and symbolic-ref pre-reads (5/5), 2 improvised gate shapes | | the porcelain pre-read reached a dirty gate before branch_sync |
-| 3 run git_pull first | 5: pre-reads only | | pull and re-sync were already right |
-| 4 stacked-refused | 5: pre-reads only | | tool named correctly |
-| 5 push-refused | 20: reported and stopped, no push gate or git_push (5/5) | | the old text has no row for push-refused |
-| 6 conflict | 5: pre-reads only | | |
-| 7 all selected | 20: no sweep, per-branch walk; b and d skipped, no push or dirty gate (5/5) | | |
-| 8 two selected | 10: manual stack check for c (5/5), pre-reads | | |
-| 9 push gate refusal | 20: push-refused skipped, push and off-script gates never reached (5/5) | | |
+| 1 stack-unverified | 10: manual stack check with gh pr view/list (5/5), shell pre-reads | 0 | |
+| 2 dirty-tree | 7: porcelain and symbolic-ref pre-reads (5/5), 2 improvised gate shapes | 0 (round 0: Hold placement unclear 4/5; fixed) | the porcelain pre-read reached a dirty gate before branch_sync |
+| 3 run git_pull first | 5: pre-reads only | 0 | pull and re-sync were already right |
+| 4 stacked-refused | 5: pre-reads only | 0 | tool named correctly |
+| 5 push-refused | 20: reported and stopped, no push gate or git_push (5/5) | 0 routing; 2/5 noted the kind table and Gate push disagree on quoting `refusal` (round 0: off-script scope with no run 5/5; fixed) | the old text has no row for push-refused |
+| 6 conflict | 5: pre-reads only | 0 | |
+| 7 all selected | 20: no sweep, per-branch walk; b and d skipped, no push or dirty gate (5/5) | 0: one sweep, batch dirty gate, push gate for b only | |
+| 8 two selected | 10: manual stack check for c (5/5), pre-reads | 0 (round 0: no bucket for deselected branches 5/5; fixed) | |
+| 9 push gate refusal | 20: push-refused skipped, push and off-script gates never reached (5/5) | 0: mechanical failure to the off-script gate, handed back | |
 
 RED: 102 deviations over 45 agent-scenarios (10 sonnet/low agents, describe-only); no suffix parsing seen, since agents mapped `kind` by meaning.
+
+GREEN: round 0 routed every scenario on target and surfaced four skill-text gaps, fixed in one wording round; round 1 (10 fresh agents): zero shell, suffix, manual, route, loop or stop-gate deviations across 45 agent-scenarios. Remaining gaps were harness-only (unexpanded includes, unscripted answers, fields the script omitted) plus the one push-refused quoting note in row 5. The sync-open-mrs plan step's `status --porcelain` pre-skip read is the kept rule, not a deviation.
 
 ## Left to the builder
 
