@@ -1,0 +1,10 @@
+### Pipeline rules
+
+Check reports these as errors:
+
+- A pipeline a work verb runs must start with `stage-provision`, end with `stage-watch-ci`, and include `stage-implement` and `stage-ship`. Other pipelines take any order the consumes/produces chain check accepts.
+- A work verb names a pipeline the manifest does not declare.
+- A pipeline override names a stage that pipeline does not list.
+- A stage copy no pipeline needs any more is still on disk: `stale stage copy stage-evidence--accessibility: run rt skills compile`. Compile removes it.
+
+An override that a higher layer dropped by replacing the pipeline's stage list is a warning, not an error: check prints `Override <key> from <layer> is ignored`, and the generated manifest's header carries a `// dropped: <key> <- <layer>` line.

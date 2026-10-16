@@ -47,7 +47,7 @@ $ claude
 > our pipeline shipped an MR without running bun run lint; make ship run lint before it opens an MR on this repo
 ```
 
-The skill sorts the ask into one of four places:
+The skill sorts the ask into one of five places:
 
 | The ask is about | Where it lands |
 | --- | --- |
@@ -55,8 +55,25 @@ The skill sorts the ask into one of four places:
 | Something one stage or verb should do differently | A fill bound to that stage's slot |
 | A new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | A roster entry in `pack/stubs.jsonc` |
 | The wording of an existing verb | Its `description` in `pack/stubs.jsonc` |
+| One kind of work (accessibility, a bug fix) that runs its own stages or fills | A specialized pipeline in `pack/skills.jsonc` plus a `work-<kind>` verb that runs it |
 
 For the lint example, you see a failing run first, with nothing running lint. Then a small fill skill written in your team's words is bound to the ship stage, `tests/certify.sh` and `rt skills check` pass, and the same task runs again with lint blocking the push. Publishing goes through `mattstack:editing-skills`: bump the pack version, commit, push, `rt skills sync --pack widgets`, `/reload-plugins`. A rule is undone the same way: remove the binding and the fill, bump, publish.
+
+## Add a specialized pipeline
+
+The pack starts with one pipeline, `feature`, and `/widgets:work` runs it. To give one kind of work its own stages or its own fills, ask `mattstack:extending-a-pack` for a specialized pipeline. It:
+
+1. Declares the pipeline in `pack/skills.jsonc`, say `accessibility`. A pipeline a work verb runs starts with `stage-provision`, ends with `stage-watch-ci`, and includes `stage-implement` and `stage-ship`.
+2. Adds a verb that runs it to `pack/stubs.jsonc`, named `work-<kind>` so it groups under `/widgets:work`:
+
+   ```jsonc
+   "work-a11y": { "engine": "work", "pipeline": "accessibility", "description": "Use when running accessibility work end to end" }
+   ```
+
+3. Binds each fill that differs for that pipeline with `rt skills bind <stage> <slot> <fill> --pipeline accessibility`. Every stage it does not override runs the default fills.
+4. Compiles and checks. Where a pipeline's fills differ, compile writes a stage copy such as `attachments/stage-evidence--accessibility/`.
+
+`/widgets:work-a11y` then runs accessibility work, and its runs record the pipeline `accessibility`. Each verb resumes only runs of its own pipeline.
 
 ## When a pack needs a newer app
 
@@ -64,7 +81,7 @@ For the lint example, you see a failing run first, with nothing running lint. Th
 
 ## What not to do
 
-- Do not edit `skills/work/`, `attachments/stage-*/`, `pack/requires.json` or an attachment folder holding `compiled.json`: compiled output, overwritten on the next compile.
+- Do not edit `skills/work/`, `attachments/stage-*/` (stage copies like `attachments/stage-evidence--accessibility/` included), `pack/requires.json` or an attachment folder holding `compiled.json`: compiled output, overwritten on the next compile.
 - Do not edit the mattstack engine in the plugin cache: every team compiles from it, and the next update erases the edit.
 - Do not edit a repo's generated `skills.jsonc` under `~/.mattstack/repos/`: `rt skills materialize` regenerates it, and `pack/skills.jsonc` is the source.
 - Do not copy another team's pack: its fills carry that team's rules.

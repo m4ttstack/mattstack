@@ -150,14 +150,20 @@ public doors of this plugin.
 
 The do-a-unit-of-work pipeline is built on the primitive. `work` and its
 eight stage skills all set `disable-model-invocation`; they are reached only
-through a pack's compiled `work` verb (`/<pack>:work`), which the pack's
-surface config makes public, and a pack rosters the eight stages by listing
-all of them in its manifest's `pipelines` array; the stage order is fixed in
-`work`'s graph. Two of the stages also ship a standalone counterpart for
+through a pack's compiled work verbs (`/<pack>:work`, plus a `work-<kind>`
+verb per specialized pipeline), which the pack's surface config makes
+public. Each work verb runs one pipeline from the manifest's `pipelines`:
+`work` runs the pack's only pipeline, else `feature`, and a `work-<kind>`
+verb names its own with `"pipeline"`. A pipeline a work verb runs starts
+with `stage-provision`, ends with `stage-watch-ci`, and includes
+`stage-implement` and `stage-ship`; in between, any order the
+consumes/produces chain check accepts. A pipeline can override the
+pack's fills per slot, and compile then writes a `<stage>--<pipeline>`
+stage copy for it. Two of the stages also ship a standalone counterpart for
 running that one step outside a full pipeline.
 
-- **mattstack:work** -- run one unit of work through the eight stages its
-  graph walks, gating each decision through gate-protocol.
+- **mattstack:work** -- run one unit of work through the stages of its
+  verb's pipeline, gating each decision through gate-protocol.
 - **mattstack:stage-provision** -- provision the environment: ticket + repo
   in, branch + worktree out.
 - **mattstack:stage-plan** -- approach triage; prints the APPROACH

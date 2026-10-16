@@ -1,0 +1,33 @@
+Without `--pipeline`, the fill becomes the default for every pipeline, under the fragment's top-level `bindings`:
+
+```bash
+rt skills bind stage-evidence domain acme:capture-evidence --pack acme
+```
+
+With `--pipeline`, the fill overrides that slot for one pipeline only. Every other slot, and every other pipeline, keeps the default:
+
+```bash
+rt skills bind stage-evidence domain acme:capture-a11y-evidence --pipeline accessibility --pack acme
+```
+
+The override lands in the fragment under `pipelines.accessibility.bindings`. When the pipeline is still a plain stage list, bind turns it into the object form first:
+
+```jsonc
+"pipelines": {
+  "accessibility": {
+    "stages": ["mattstack:stage-provision", "...", "mattstack:stage-watch-ci"],
+    "bindings": {
+      "mattstack:stage-evidence": { "domain": "acme:capture-a11y-evidence" }
+    }
+  }
+}
+```
+
+An empty fill (`""`) unbinds the slot for that pipeline only.
+
+Bind refuses `--pipeline` when:
+
+- the fragment does not declare the pipeline yet,
+- the pipeline's name does not match `[a-z][a-z0-9-]*`,
+- the pipeline's stage list does not carry the stage,
+- the verb is a compiled stage copy (`stage-evidence--accessibility`): name the stage and pass `--pipeline` instead.
