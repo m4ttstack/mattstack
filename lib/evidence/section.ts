@@ -53,6 +53,11 @@ function renderEntry(e: Entry, link: (path: string) => FileLink): string {
   return lines.join("\n");
 }
 
+/** A carried-over attach line prints as text, never as a heading or a fence that would move the section's end on the next splice. */
+function inert(line: string): string {
+  return line.replace(/^( {0,3})(#{1,6}(?=[ \t]|$)|`{3,}|~{3,})/, "$1\\$2");
+}
+
 function linksOf(line: string): string[] {
   return (line.match(/[^\s()[\]]+/g) ?? []).filter((t) => t.startsWith("/") || /^https?:\/\//.test(t));
 }
@@ -82,7 +87,7 @@ export function renderSection(
     for (const line of (record.attach ?? "").split("\n")) {
       const links = linksOf(line);
       if (!line.trim() || (links.length > 0 && links.every((l) => covered.has(l)))) continue;
-      blocks.push(line);
+      blocks.push(inert(line));
     }
   } else if (record.version === 0) {
     for (const item of legacyItems(record.links)) {
@@ -97,8 +102,12 @@ export function renderSection(
 interface Scanned { line: string; fenced: boolean; level: number }
 
 function scan(lines: string[]): Scanned[] {
+  return scanOpen(lines).rows;
+}
+
+function scanOpen(lines: string[]): { rows: Scanned[]; open: boolean } {
   let fence: { ch: string; len: number } | null = null;
-  return lines.map((line) => {
+  const rows = lines.map((line): Scanned => {
     const m = /^ {0,3}(`{3,}|~{3,})/.exec(line);
     if (fence) {
       if (m && m[1]![0] === fence.ch && m[1]!.length >= fence.len && !line.slice(m[0].length).trim()) fence = null;
@@ -111,12 +120,24 @@ function scan(lines: string[]): Scanned[] {
     const h = /^ {0,3}(#{1,6})(?:[ \t\r]|$)/.exec(line);
     return { line, fenced: false, level: h ? h[1]!.length : 0 };
   });
+  return { rows, open: fence !== null };
 }
 
 const levelOf = (heading: string) => /^ {0,3}(#{1,6})/.exec(heading)?.[1]?.length ?? 0;
 
-function helperEnd(lines: string[], from: number, to: number): number {
-  let end = from;
+/** Why appendix would end the section early (or swallow what follows it) on the next splice under heading; null when it splices safely. */
+export function appendixProblem(appendix: string, heading: string): string | null {
+  const level = levelOf(heading);
+  const { rows, open } = scanOpen(appendix.split(/\r?\n/));
+  const early = rows.find((r) => !r.fenced && r.level > 0 && r.level <= level);
+  if (early) return `"appendix" has the heading "${early.line.trim()}", at or above the section's level, so it would end the section; use a deeper heading`;
+  if (open) return `"appendix" opens a code fence it never closes, so the next splice would swallow the rest of the description; close the fence`;
+  return null;
+}
+
+/** Ends of each helper unit (a comment block, then one italic line) under the heading, in order; blank lines between units are skipped. */
+function helperUnits(lines: string[], from: number, to: number): number[] {
+  const ends: number[] = [];
   let i = from;
   let italic = false;
   while (i < to) {
@@ -125,11 +146,28 @@ function helperEnd(lines: string[], from: number, to: number): number {
     if (l.trimStart().startsWith("<!--")) {
       let j = i;
       while (j < to && !lines[j]!.includes("-->")) j++;
-      i = end = Math.min(j + 1, to);
+      if (j >= to) break;
+      i = j + 1;
+      ends.push(i);
     } else if (!italic && /^\s*(_[^_].*_|\*[^*].*\*)\s*$/.test(l)) {
       italic = true;
-      i = end = i + 1;
+      i += 1;
+      ends.push(i);
     } else break;
+  }
+  return ends;
+}
+
+const textOf = (lines: string[]) => lines.map((l) => l.trimEnd()).filter((l) => l !== "").join("\n");
+
+/** A helper unit that is the start of the body being spliced is the previous splice's body, not the template's, so it is replaced rather than kept. */
+function helperEnd(lines: string[], from: number, to: number, body: string): number {
+  const ends = helperUnits(lines, from, to);
+  const end = ends.length ? ends[ends.length - 1]! : from;
+  const bodyText = textOf(body.split(/\r?\n/));
+  for (const start of [from, ...ends.slice(0, -1)]) {
+    const kept = textOf(lines.slice(start, end));
+    if (kept && (bodyText === kept || bodyText.startsWith(`${kept}\n`))) return start;
   }
   return end;
 }
@@ -170,7 +208,7 @@ export function spliceSection(description: string, heading: string, body: string
     const s = scanned[i]!;
     if (i === stop || (!s.fenced && s.level > 0 && s.level <= level)) { end = i; break; }
   }
-  const keepTo = helperEnd(lines, start + 1, end);
+  const keepTo = helperEnd(lines, start + 1, end, body);
   const out = [...lines.slice(0, keepTo), ...bodyLines];
   if (end < lines.length) return finish([...out, blank, ...lines.slice(end)]);
   return finish(out);

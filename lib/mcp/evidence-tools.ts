@@ -16,7 +16,7 @@ import { waitForAnswers } from "../endpoint/readiness.ts";
 import { allowedSourceRoots, bundleStem, copyIntoRun, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
-import { renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
+import { appendixProblem, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
 import { parseUploads, serializeUploads, sha256Of, type UploadEntry } from "../evidence/uploads-field.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
@@ -474,6 +474,8 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const heading = input.heading as string;
   if (!ATX_HEADING.test(heading)) return err('"heading" must be one markdown heading line, such as "## Verification Evidence"');
   if (typeof input.before === "string" && !ATX_HEADING.test(input.before)) return err('"before" must be one markdown heading line');
+  const appendixBad = typeof input.appendix === "string" ? appendixProblem(input.appendix, heading) : null;
+  if (appendixBad) return err(appendixBad);
   const runDb = input.runDb as string;
   const stage = input.stage as string;
   const linkRefused = input.linkRefused === true;
@@ -711,7 +713,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
           stage: STAGE,
           heading: { type: "string", description: "The section's full heading line, e.g. ## Verification Evidence." },
           before: { type: "string", description: "A heading line the section is inserted above when heading is absent." },
-          appendix: { type: "string", description: "Markdown printed inside the section after the generated content." },
+          appendix: { type: "string", description: "Markdown printed inside the section after the generated content. A heading at or above heading's level, or a code fence left open, is refused." },
           ...MR_TARGET_PROPS,
           description: { type: "string", description: "A description to splice the section into when there is no MR to write, or on GitHub." },
           linkRefused: { type: "boolean", description: "The off-script gate's Take: link refused files by local path and write anyway." },

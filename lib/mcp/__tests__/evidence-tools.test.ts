@@ -480,6 +480,21 @@ describe("evidence_attach", () => {
     expect(second.descriptionWritten).toBe(false);
   });
 
+  test("an appendix that would break the next splice is refused before anything outward", async () => {
+    const { evidence } = boardRecord();
+    for (const [appendix, says] of [["<details>\n\n## Log\n\nline\n\n</details>", "## Log"], ["```\nlog without close", "fence"]] as const) {
+      const { deps, calls, runCalls } = makeDeps({ fields: { evidence } });
+      const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, appendix }, env);
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain(says);
+      expect(calls.length).toBe(0);
+      expect(runCalls.length).toBe(0);
+    }
+    const { deps } = makeDeps({ fields: { evidence } });
+    const fine = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, appendix: "### Log\n\n```\nline\n```" }, env);
+    expect(fine.ok).toBe(true);
+  });
+
   test("no MR anywhere and no repoName is an error", async () => {
     const { evidence } = boardRecord();
     const { deps, calls } = makeDeps({ fields: { evidence } });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
-import { type FileLink, renderSection, spliceSection } from "../section.ts";
+import { appendixProblem, type FileLink, renderSection, spliceSection } from "../section.ts";
 
 const up = (p: string): FileLink => {
   const name = p.split("/").pop()!.replace(/\.[a-z]+$/, "");
@@ -132,5 +132,64 @@ describe("spliceSection", () => {
     expect(once).toBe("# T\r\n\r\n## Evidence\r\n_h_\r\n\r\nA\r\n\r\nB\r\n\r\n## Next\r\nx\r\n");
     expect(spliceSection(once, "## Evidence", "A\n\nB")).toBe(once);
     expect(spliceSection("a\r\n", "## E", "N")).toBe("a\r\n\r\n## E\r\n\r\nN\r\n");
+  });
+
+  const twice = (d: string, body: string, before?: string) => {
+    const once = spliceSection(d, "## Evidence", body, before);
+    return { once, again: spliceSection(once, "## Evidence", body, before) };
+  };
+  const tail = "## Evidence\n\nold\n\n## Checklist\n- [ ] x\n";
+
+  test("an appendix with a deeper heading stays inside the section on every splice", () => {
+    const { once, again } = twice(tail, "**Case**\n\n<details>\n\n### Log\n\nline\n\n</details>");
+    expect(again).toBe(once);
+    expect(once.endsWith("</details>\n\n## Checklist\n- [ ] x\n")).toBe(true);
+  });
+
+  test("a body starting with an italic line is not kept as a helper on the next splice", () => {
+    const { once, again } = twice("## Evidence\n\nold\n", "_note_\n\nmore");
+    expect(once).toBe("## Evidence\n\n_note_\n\nmore\n");
+    expect(again).toBe(once);
+  });
+
+  test("a template helper and an italic body line both survive, once each", () => {
+    const { once, again } = twice("## Evidence\n_helper_\n\nold\n", "_note_\n\nmore");
+    expect(once).toBe("## Evidence\n_helper_\n\n_note_\n\nmore\n");
+    expect(again).toBe(once);
+  });
+
+  test("a body starting with an HTML comment is not kept as a helper on the next splice", () => {
+    const { once, again } = twice("## Evidence\n\nold\n", "<!-- n -->\nmore");
+    expect(again).toBe(once);
+  });
+
+  test("an unclosed HTML comment under the heading is not a helper and does not swallow the section", () => {
+    const d = "## Evidence\n<!-- fill in\nold\n\n## Checklist\n- [ ] x\n";
+    expect(spliceSection(d, "## Evidence", "NEW")).toBe("## Evidence\n\nNEW\n\n## Checklist\n- [ ] x\n");
+  });
+
+  test("legacy attach lines that look like a heading or a fence are escaped and splice idempotently", () => {
+    for (const attach of ["## Old evidence\n/x.png", "```\n/x.png", "~~~ log\n/x.png", "# Top"]) {
+      const section = renderSection(rec({ v: 2, cases: [{ id: "a", label: "A", before: { path: "/a.png", waiver: "w" } }], attach }), (p) => ({ local: p }), {});
+      expect(section).not.toMatch(/^ {0,3}(#|```|~~~)/m);
+      const { once, again } = twice(tail, section);
+      expect(again).toBe(once);
+      expect(once.endsWith("## Checklist\n- [ ] x\n")).toBe(true);
+    }
+    const section = renderSection(rec({ v: 2, cases: [{ id: "a", label: "A", before: { path: "/a.png", waiver: "w" } }], attach: "## Old" }), (p) => ({ local: p }), {});
+    expect(section).toContain("\\## Old");
+  });
+});
+
+describe("appendixProblem", () => {
+  test("a deeper heading is fine; a heading at or above the section level is named", () => {
+    expect(appendixProblem("### sub\n\ntext", "## Evidence")).toBeNull();
+    expect(appendixProblem("## Log", "## Evidence")).toContain("## Log");
+    expect(appendixProblem("# Top", "## Evidence")).toContain("# Top");
+  });
+
+  test("a heading inside a closed fence is fine; an unbalanced fence is named", () => {
+    expect(appendixProblem("```\n## not a heading\n```", "## Evidence")).toBeNull();
+    expect(appendixProblem("```\nlog without close", "## Evidence")).toContain("fence");
   });
 });
