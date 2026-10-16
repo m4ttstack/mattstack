@@ -9,11 +9,11 @@ import { explainError } from "../explain-error.ts";
 import { joinMrsToWorktrees, type MrMapRow } from "../mr-map.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { statusPorcelainAsync } from "../worktree/git-async.ts";
-import { realGitRunner, type GitRunner } from "./git-tools.ts";
-import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
+import { gitPush, realGitRunner, type GitRunner } from "./git-tools.ts";
+import { resolveMrTarget, resolveRepoTarget, type MrTarget, type TargetInput } from "./mr-target.ts";
 import { runToolDefs } from "./run-tools.ts";
-import { err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, type McpToolDef, type ToolResult } from "./shared.ts";
-import { realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
+import { checkRequired, err, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, type McpToolDef, type ToolResult } from "./shared.ts";
+import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 
 export interface MrCompositeDeps {
   command: typeof rtCommand;
@@ -23,6 +23,7 @@ export interface MrCompositeDeps {
   guard: TreeGuardDeps;
   status: (path: string) => Promise<string>;
   sleep: (ms: number) => Promise<void>;
+  resolveMr?: (input: TargetInput) => Promise<MrTarget>;
 }
 
 let runTools: McpToolDef[] | undefined;
@@ -40,6 +41,7 @@ export const realMrCompositeDeps: MrCompositeDeps = {
   guard: realTreeGuardDeps,
   status: statusPorcelainAsync,
   sleep: (ms) => Bun.sleep(ms),
+  resolveMr: resolveMrTarget,
 };
 
 const READ_TIMEOUT_MS = 30_000;
@@ -648,6 +650,219 @@ export function planRespondPost(snapshot: RunSnapshot, gates: { plan: GateRow | 
   }
 }
 
+export interface RespondPostResult {
+  mr: string;
+  pushed: { branch: string } | null;
+  posted: string[];
+  alreadyPosted: Array<{ threadId: string; noteId: number }>;
+  resolved: string[];
+  alreadyResolved: string[];
+  held: Array<{ threadId: string; kind: "read" | "mismatch" | "push" | "reply" | "resolve"; error: string }>;
+  recorded: boolean;
+  hold: "held" | null;
+}
+
+type HeldKind = RespondPostResult["held"][number]["kind"];
+type Target = { identity: string; iid: number };
+type ThreadsRead = { ok: true; discussions: Discussion[] } | { ok: false; error: string };
+
+async function readGateRow(deps: MrCompositeDeps, id: string): Promise<{ ok: true; row: GateRow } | { ok: false; error: string }> {
+  const r = await deps.command<Commands["gate:wait"]["data"]>("gate:wait", { id, waitMs: 0 }, { timeoutMs: READ_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? `reading gate ${id} failed`) };
+  if (r.data.status === "timeout") return { ok: false, error: `gate ${id} is still open; answer it before running respond_post_execute` };
+  return { ok: true, row: r.data.row };
+}
+
+async function readThreads(deps: MrCompositeDeps, t: Target): Promise<ThreadsRead> {
+  const r = await deps.command<Commands["discussions:refresh"]["data"]>("discussions:refresh", { repoName: t.identity, iid: t.iid }, { timeoutMs: READ_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "thread read failed") };
+  return { ok: true, discussions: r.data.discussions };
+}
+
+const gitOutput = (r: { code: number; stdout: string; stderr: string }) => (r.code === 0 ? JSON.stringify(r.stdout.trim()) : `exit ${r.code}: ${JSON.stringify(r.stderr.trim() || r.stdout.trim())}`);
+
+/** The branch a fix reply claims: the run's branch field, which must also be the MR's source branch, or the MR's source branch when the run has none. */
+async function expectedBranch(deps: MrCompositeDeps, t: Target, fromRun: string | null): Promise<{ ok: true; branch: string; mismatch: string | null } | { ok: false; error: string }> {
+  const r = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: t.identity, iid: t.iid }, { timeoutMs: READ_TIMEOUT_MS });
+  if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "MR read failed") };
+  const source = r.data.mr.sourceBranch;
+  if (fromRun === null) return { ok: true, branch: source, mismatch: null };
+  return { ok: true, branch: fromRun, mismatch: source === fromRun ? null : `the run's branch is ${fromRun} but the MR's source branch is ${source}` };
+}
+
+/** Acts only on the recorded decisions planRespondPost checked. A doubt before the first outward call refuses; one after it holds the thread instead. */
+export async function executeRespondPost(
+  deps: MrCompositeDeps,
+  input: { runDb: string; tree: string; stage: string },
+  env: NodeJS.ProcessEnv,
+  progress?: () => void,
+): Promise<ToolResult> {
+  const { runDb, tree, stage } = input;
+  const snap = await deps.runTool("run_snapshot", { runDb }, env);
+  if (!snap.ok) return err(snap.error ?? "run_snapshot failed");
+  const snapshot = snap.body as RunSnapshot;
+  const fields = isRecord(snapshot) && Array.isArray(snapshot.fields) ? snapshot.fields : [];
+  const mrField = fields.find((f) => f.key === "mr")?.value;
+  const gh = refuseGithubTarget({ mrUrl: mrField }, "respond_post_execute", RESPOND_POST_GH_MOVE);
+  if (gh) return err(gh);
+
+  const gates: { plan: GateRow | null; post: GateRow | null } = { plan: null, post: null };
+  for (const [scope, slot] of [["respond-plan", "plan"], ["respond-post", "post"]] as const) {
+    const id = gateSourceField(fields, scope)?.gate;
+    if (!id) continue;
+    const g = await readGateRow(deps, id);
+    if (!g.ok) return err(g.error);
+    gates[slot] = g.row;
+  }
+  const planned = planRespondPost(snapshot, gates);
+  if (!planned.ok) return err(planned.error);
+  const plan = planned.plan;
+
+  const resolved = await (deps.resolveMr ?? resolveMrTarget)({ mrUrl: plan.mrUrl });
+  if (!resolved.ok) return err(resolved.error);
+  const ghIdentity = githubRefusal(resolved.identity, "respond_post_execute", RESPOND_POST_GH_MOVE);
+  if (ghIdentity) return err(ghIdentity);
+  const target: Target = { identity: resolved.identity, iid: resolved.iid };
+
+  const resume = plan.heldResume === null ? null : new Set(plan.heldResume);
+  const acting = plan.actions.filter((a) => (a.post || a.resolve) && (resume === null || resume.has(a.threadId)));
+  const fixRows = acting.filter((a) => a.verb === "fix");
+  let treePath: string | null = null;
+  if (fixRows.length > 0) {
+    const t = checkRegisteredTree(tree, deps.guard);
+    if (!t.ok) return err(t.error);
+    if (t.repoName !== target.identity) return err(`tree ${tree} is a checkout of ${t.repoName}, not of the MR's repo ${target.identity}, so a fix push from it would not reach the MR`);
+    treePath = t.path;
+  }
+
+  const result: RespondPostResult = { mr: plan.mrUrl, pushed: null, posted: [], alreadyPosted: [], resolved: [], alreadyResolved: [], held: [], recorded: false, hold: null };
+  const heldIds = new Set<string>();
+  const hold = (threadId: string, kind: HeldKind, error: string) => {
+    result.held.push({ threadId, kind, error });
+    heldIds.add(threadId);
+  };
+  const setHold = async () => {
+    if (result.held.length === 0) return;
+    const r = await deps.runTool("run_field_set", { runDb, key: "hold", value: "held", stage }, env);
+    progress?.();
+    result.hold = r.ok ? "held" : null;
+  };
+
+  const failRead = async (error: string) => {
+    for (const a of acting) hold(a.threadId, "read", error);
+    await setHold();
+    return ok(result);
+  };
+
+  if (acting.length > 0) {
+    const self = await selfUsername(deps, target.identity);
+    progress?.();
+    if (!self.ok) return failRead(self.error);
+    const read = await readThreads(deps, target);
+    progress?.();
+    if (!read.ok) return failRead(read.error);
+    const missing = acting.filter((a) => !read.discussions.some((d) => d.id === a.threadId)).map((a) => a.threadId);
+    if (missing.length > 0) return failRead(`GitLab no longer returns thread ${missing.join(", ")}`);
+    let branch: { branch: string; mismatch: string | null } | null = null;
+    if (treePath !== null) {
+      const b = await expectedBranch(deps, target, plan.branch);
+      progress?.();
+      if (!b.ok) return failRead(b.error);
+      branch = b;
+    }
+    const by = self.username;
+    const since = plan.startedAt;
+    const discussions = read.discussions;
+    const postedBefore = new Map(
+      postedMatch(discussions, { by, since, threads: acting.filter((a) => a.post).map((a) => ({ discussionId: a.threadId, ...(a.body !== null && { body: a.body }) })) })
+        .threads.map((t) => [t.discussionId, t]),
+    );
+
+    if (treePath !== null && branch !== null) {
+      const want = branch.branch;
+      const sym = await deps.git(["symbolic-ref", "--quiet", "HEAD"], treePath);
+      const pushRef = await deps.git(["rev-parse", "--abbrev-ref", "@{push}"], treePath);
+      const matches = sym.code === 0 && sym.stdout.trim() === `refs/heads/${want}` && pushRef.code === 0 && pushRef.stdout.trim() === `origin/${want}`;
+      if (branch.mismatch !== null || !matches) {
+        const why = `${branch.mismatch ? `${branch.mismatch}; ` : ""}expected HEAD on ${want} pushing to origin/${want}, but git symbolic-ref --quiet HEAD printed ${gitOutput(sym)} and git rev-parse --abbrev-ref @{push} printed ${gitOutput(pushRef)}`;
+        for (const a of fixRows) hold(a.threadId, "mismatch", why);
+      } else {
+        let pushed = await gitPush(treePath, {}, deps.git);
+        progress?.();
+        if (!pushed.ok) {
+          pushed = await gitPush(treePath, {}, deps.git);
+          progress?.();
+        }
+        if (pushed.ok) result.pushed = { branch: want };
+        else for (const a of fixRows) hold(a.threadId, "push", pushed.error ?? "git push failed");
+      }
+    }
+
+    const reply = (a: PostAction) =>
+      deps.command<Commands["discussions:reply"]["data"]>("discussions:reply", { repoName: target.identity, iid: target.iid, discussionId: a.threadId, body: a.body! }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+    for (const a of acting) {
+      if (!a.post || heldIds.has(a.threadId)) continue;
+      const before = postedBefore.get(a.threadId);
+      if (before?.posted && before.noteId !== null) {
+        result.alreadyPosted.push({ threadId: a.threadId, noteId: before.noteId });
+        continue;
+      }
+      const first = await reply(a);
+      progress?.();
+      if (first.ok) {
+        result.posted.push(a.threadId);
+        continue;
+      }
+      const firstError = explainError(first.error ?? "reply failed");
+      // The error may have come after GitLab stored the note, so only a re-read that shows no reply makes a second post safe.
+      const reread = await readThreads(deps, target);
+      progress?.();
+      if (!reread.ok) {
+        hold(a.threadId, "reply", `${firstError}; the re-read to check whether it landed also failed (${reread.error}), so it was not retried`);
+        continue;
+      }
+      const landed = postedMatch(reread.discussions, { by, since, threads: [{ discussionId: a.threadId, body: a.body! }] }).threads[0];
+      if (landed?.posted) {
+        result.posted.push(a.threadId);
+        continue;
+      }
+      const second = await reply(a);
+      progress?.();
+      if (second.ok) result.posted.push(a.threadId);
+      else hold(a.threadId, "reply", explainError(second.error ?? "reply failed"));
+    }
+
+    const resolve = (a: PostAction) =>
+      deps.command<Commands["discussions:resolve"]["data"]>("discussions:resolve", { repoName: target.identity, iid: target.iid, discussionId: a.threadId, resolved: true }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+    for (const a of acting) {
+      if (!a.resolve || heldIds.has(a.threadId)) continue;
+      if (discussions.find((d) => d.id === a.threadId)?.resolved === true) {
+        result.alreadyResolved.push(a.threadId);
+        continue;
+      }
+      let r = await resolve(a);
+      progress?.();
+      if (!r.ok) {
+        r = await resolve(a);
+        progress?.();
+      }
+      if (r.ok) result.resolved.push(a.threadId);
+      else hold(a.threadId, "resolve", explainError(r.error ?? "resolve failed"));
+    }
+  }
+
+  if (plan.postDecision) {
+    const selection: Record<string, unknown> = { ...plan.postDecision.selection };
+    delete selection.held;
+    if (heldIds.size > 0) selection.held = [...heldIds];
+    const r = await deps.runTool("run_decision", { runDb, contract: GATE_CONTRACT, scope: "respond-post", selection, decidedBy: plan.postDecision.decidedBy }, env);
+    progress?.();
+    result.recorded = r.ok;
+  }
+  await setHold();
+  return ok(result);
+}
+
 export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps): McpToolDef[] {
   return [
     {
@@ -703,6 +918,26 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         const r = await deps.command<Commands["discussions:refresh"]["data"]>("discussions:refresh", { repoName: target.identity, iid: target.iid }, { timeoutMs: READ_TIMEOUT_MS });
         if (!r.ok || !r.data) return err(explainError(r.error ?? "thread read failed"));
         return ok({ by, since, ...postedMatch(r.data.discussions, { by, since, threads, items }) });
+      },
+    },
+    {
+      name: "respond_post_execute",
+      description: "GitLab only. Receive-review's post side in one call: it acts only on the respond-plan and respond-post decisions recorded on the run, after checking each against its gate source and registry answer, and refuses before anything moves when one is missing, stale or does not match. It reads the threads once, so a reply already on GitLab counts as alreadyPosted and a resolved thread as alreadyResolved; it pushes the run's branch from `tree` (never forced) only when a fix row is picked and HEAD and @{push} name that branch on origin; then it posts the replies and resolves the threads. Pushes, replies and resolves are each retried once, and a reply that errored is re-read first so it never posts twice. Threads it could not finish come back in held[] with the hold field set to held under `stage`, for the skill's off-script gates; the respond-post decision is re-recorded with those ids as `held`, and a later call acts only on them. Returns {mr, pushed, posted, alreadyPosted, resolved, alreadyResolved, held, recorded, hold}. On GitHub it refuses; reply to and resolve the threads with gh.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          runDb: { type: "string", description: "The runDb run_start returned." },
+          tree: { type: "string", description: "Absolute path of the registered worktree root a fix push goes from." },
+          stage: { type: "string", description: "The stage the hold field is written under." },
+        },
+        required: ["runDb", "tree", "stage"],
+        additionalProperties: false,
+      },
+      shellForms: { none: "composes git_push, mr_reply_thread and mr_resolve_thread; no single shell command is equivalent" },
+      async handler(input, env, _signal, progress) {
+        const bad = checkRequired(input, [{ name: "runDb", type: "string" }, { name: "tree", type: "string" }, { name: "stage", type: "string" }]);
+        if (bad) return err(bad);
+        return executeRespondPost(deps, { runDb: input.runDb as string, tree: input.tree as string, stage: input.stage as string }, env, progress);
       },
     },
     {
