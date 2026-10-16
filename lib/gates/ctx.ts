@@ -26,25 +26,25 @@ const QUESTION_SHAPES = ["thread@1", "reply@1", "findings@1", "carryover@1", "sk
 const PER_THREAD = ["reply@1", "carryover@1"];
 const TIERS = ["critical", "important", "minor"];
 
-const chk = (f: () => unknown, msg: string): string[] => (ok(f) ? [] : [msg]);
+export const chk = (f: () => unknown, msg: string): string[] => (ok(f) ? [] : [msg]);
 const str = (v: unknown): boolean => typeof v === "string" && hasNonSpace(v);
-const int = (v: unknown): boolean => typeof v === "number" && v === Math.floor(v) && v >= 0;
-const atLeastOne = (v: unknown): boolean => typeof v === "number" && v === Math.floor(v) && v >= 1;
-const optional = (o: unknown, k: string, f: (v: unknown) => boolean): boolean => !jqHas(o, k) || f(jqGet(o, k));
-const among = (v: unknown, xs: string[]): boolean => xs.some((x) => jqEqual(x, v));
+export const int = (v: unknown): boolean => typeof v === "number" && v === Math.floor(v) && v >= 0;
+export const atLeastOne = (v: unknown): boolean => typeof v === "number" && v === Math.floor(v) && v >= 1;
+export const optional = (o: unknown, k: string, f: (v: unknown) => boolean): boolean => !jqHas(o, k) || f(jqGet(o, k));
+export const among = (v: unknown, xs: string[]): boolean => xs.some((x) => jqEqual(x, v));
 const contains = (xs: unknown[], v: unknown): boolean => xs.some((x) => jqEqual(x, v));
-const at = (v: unknown, ...path: string[]): unknown => path.reduce<unknown>((o, k) => jqGet(o, k), v);
+export const at = (v: unknown, ...path: string[]): unknown => path.reduce<unknown>((o, k) => jqGet(o, k), v);
 
-function entries(o: unknown, k: string): unknown[] {
+export function entries(o: unknown, k: string): unknown[] {
   const v = jqGet(o, k);
   return Array.isArray(v) ? v : [];
 }
 
-/** jq's `.id?`: an entry jq cannot index contributes nothing. */
-function optionalIds(xs: unknown[]): unknown[] {
+/** jq's `.<key>?`: an entry jq cannot index contributes nothing. */
+export function optionalIds(xs: unknown[], key = "id"): unknown[] {
   return xs.flatMap((x) => {
     try {
-      return [jqGet(x, "id")];
+      return [jqGet(x, key)];
     } catch (e) {
       if (e instanceof JqError) return [];
       throw e;
@@ -52,7 +52,7 @@ function optionalIds(xs: unknown[]): unknown[] {
   });
 }
 
-function duplicates(ids: unknown[]): unknown[] {
+export function duplicates(ids: unknown[]): unknown[] {
   return jqGroupBy(ids, (x) => x)
     .filter((g) => g.length > 1)
     .map((g) => g[0]);
