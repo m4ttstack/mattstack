@@ -38,11 +38,13 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
-import { canonicalHandle, realReadLocalSecret, revokeBoard, type ReadLocalSecret } from "./board-peers.ts";
+import { canonicalHandle, realReadAdminSecret, realReadLocalSecret, revokeBoard, type ReadAdminSecret, type ReadLocalSecret } from "./board-peers.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
 import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
 import { orgOwnersAsk, writeRefusalFor } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { followRosterChange } from "./admin-secrets.ts";
+import * as out from "../ui/out.ts";
 import { assertTeamFolders } from "./team-names.ts";
 import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
@@ -181,6 +183,8 @@ export interface MembersSeams {
   warn: (message: string, shown?: ShownWarning) => void;
   /** An rt-scope secret (the switchboard admin token), seamed like invite.ts's. */
   readLocalSecret: ReadLocalSecret;
+  /** The org's admin-only secrets, where the switchboard admin token is looked for first. */
+  readAdminSecret: ReadAdminSecret;
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
@@ -201,6 +205,7 @@ export function realMembersSeams(): MembersSeams {
     forgeToken: storedForgeToken,
     warn: defaultWarn,
     readLocalSecret: realReadLocalSecret,
+    readAdminSecret: realReadAdminSecret,
   };
 }
 
@@ -390,6 +395,15 @@ export async function membersSync(
     throw new MembersSyncAbortedError(added, pending, err instanceof Error ? err.message : String(err));
   }
 
+  const admin = await followRosterChange(p, slug, seams.readTeamStore(slug), secrets);
+  for (const f of admin.reencrypted) reencrypted.add(f);
+  if (admin.failure) {
+    seams.warn(`rt team members sync: admin-only secrets: ${admin.failure}`, {
+      title: "rt could not lock the org's admin-only secrets to its owners and admins",
+      next: out.cmd("rt team admin-secrets"),
+    });
+  }
+
   return { added, addedHandles, pending, reencrypted: [...reencrypted].sort() };
 }
 
@@ -488,7 +502,7 @@ export async function membersRemove(
   // A removed member's board must not keep receiving the org's peer traffic.
   // Like forge access, this fails open, so a board left connected is said
   // plainly rather than read as removed.
-  const board = await revokeBoard(p, seams.readLocalSecret, handle);
+  const board = await revokeBoard(p, seams.readLocalSecret, handle, { org: slug, read: seams.readAdminSecret });
   const boardPeering: BoardPeeringOutcome =
     board.kind === "revoked" ? "revoked" : board.kind === "not-peered" ? "not-peered" : board.kind === "no-admin-token" ? "left-peered" : "failed";
   const boardSteps =
@@ -508,10 +522,16 @@ export async function membersRemove(
     reencrypted = [...new Set([...reencrypted, ...result.reencrypted])];
   }
 
+  // The roster no longer carries their key, so the admins rule loses it even while the admins list still names them.
+  const admin = await followRosterChange(p, slug, seams.readTeamStore(slug), secrets);
+  reencrypted = [...new Set([...reencrypted, ...admin.reencrypted])];
+  if (admin.failure) warnLine("team", `admin-only secrets after removing ${handle}: ${admin.failure}`);
+  const adminSteps = admin.failure ? [`rt could not lock the org's admin-only secrets away from ${handle} yet. Retry with rt team admin-secrets`] : [];
+
   return {
     forgeAccess: revoke.access,
     boardPeering,
-    manualSteps: [...revoke.manualSteps, ...boardSteps],
+    manualSteps: [...revoke.manualSteps, ...boardSteps, ...adminSteps],
     reencrypted,
     rosterRemoved,
     residueNote: RESIDUE_NOTE,

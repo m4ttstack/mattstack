@@ -9,7 +9,8 @@
  */
 
 import type { DaemonResponse } from "../daemon-client.ts";
-import { createRealAgeKeySeam } from "../home/age-key.ts";
+import { realReadAdminSecret } from "../team/board-peers.ts";
+import { createRealAgeKeySeam, readAgePublicKey } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, type SecretsSeams } from "../secrets/store.ts";
 import { regroupTools } from "./regroup.ts";
 import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type OrgRef } from "./contract.ts";
@@ -23,6 +24,7 @@ import { readStagedSecret } from "./staging.ts";
 import { forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { accessRows } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
+import { adminSecretsRowSafe } from "./validators/admin-secrets.ts";
 import { macRows } from "./validators/mac.ts";
 import { repoRootRow } from "./validators/repo-root.ts";
 import { orgRows } from "./validators/org.ts";
@@ -180,7 +182,8 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
         forge: snapshot.integrations.forge ?? (snapshot.remote ? forgeFromRemote(snapshot.remote) : null),
         readStatus: () => readTeamSnapshotStatus(i.p),
       }) : [];
-      return [...accounts, ...org];
+      const adminSecrets = i.orgs.includes(team.slug) ? await adminSecretsRowSafe(i.p, team.slug, i.secrets) : null;
+      return [...accounts, ...org, ...(adminSecrets ? [adminSecrets] : [])];
     }),
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
@@ -215,5 +218,7 @@ export function realSecretPresence(): SecretPresence {
       }
       return readStagedSecret(p, domain, key);
     },
+    hasAdmin: (org, key) => realReadAdminSecret(org, key),
+    ownAgeKey: () => readAgePublicKey(seams.ageKeySeam),
   };
 }

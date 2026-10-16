@@ -36,6 +36,7 @@ import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
 import { orgBranch, shellQuote } from "./org-branch.ts";
 import { readMainPointer } from "./main-pointer.ts";
+import { realReadAdminSecret, type ReadAdminSecret } from "./board-peers.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
@@ -134,8 +135,10 @@ export interface MintInviteSeams {
   forgeLogin: typeof forgeLogin;
   /** The forge token rt holds for the team remote's host, or null. */
   forgeToken: typeof storedForgeToken;
-  /** A secret from the operator's LOCAL rt domain (the switchboard admin token lives there, not in team secrets a not-yet-synced invitee could never read anyway). */
+  /** This Mac's own LOCAL rt secret: where the switchboard admin token comes from when the org's admin-only file does not hold it or this Mac cannot open it. */
   readLocalSecret: (key: string) => Promise<string | null>;
+  /** The org's admin-only secrets, read first for the switchboard admin token. */
+  readAdminSecret: ReadAdminSecret;
   /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
   warn: (message: string, shown?: ShownWarning) => void;
 }
@@ -256,6 +259,7 @@ export function realMintInviteSeams(): MintInviteSeams {
     forgeLogin,
     forgeToken: storedForgeToken,
     readLocalSecret: (key) => readSecret("rt", key, { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() }),
+    readAdminSecret: realReadAdminSecret,
     warn: defaultWarn,
   };
 }
@@ -367,7 +371,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   let embedFailure: string | null = null;
   let adminToken: string | null = null;
   try {
-    adminToken = await seams.readLocalSecret("switchboardAdminToken");
+    adminToken = (await seams.readAdminSecret(opts.slug, "switchboardAdminToken")) || (await seams.readLocalSecret("switchboardAdminToken"));
   } catch (err) {
     embedFailure = err instanceof Error ? err.message : String(err);
   }
