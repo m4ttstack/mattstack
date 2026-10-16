@@ -26,4 +26,9 @@ describe("admitTree", () => {
       expect(refusal(tree({ state }))).toBe(`tree "t1" is ephemeral and ${state}; only a claimed ephemeral tree can host a worker`);
     }
   });
+
+  test("refuses a claimed tree a person released from its owner", () => {
+    const r = admitTree(tree({ releasedAt: "2026-10-16T01:00:00Z" }), "t1");
+    expect(r).toEqual({ ok: false, error: 'tree "t1" was released by a person and may be disposed; only a claimed ephemeral tree can host a worker' });
+  });
 });

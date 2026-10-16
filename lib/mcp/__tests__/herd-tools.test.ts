@@ -59,6 +59,7 @@ function fake(opts: { statusError?: string; statusData?: unknown; pluginListErro
   const destructive = () => calls.filter((c) => ["spawn", "close", "followUp", "wrapUp", "resume", "attend", "respawn", "diagnose", "nudge", "lanes", "answer", "park"].includes(c.fn));
   return { calls, destructive, tool: (n: string) => herdToolDefs(deps).find((t) => t.name === n)! };
 }
+const tool0 = (n: string) => fake().tool(n);
 const SESSION = { CLAUDE_CODE_SESSION_ID: "s1", HERDR_PANE_ID: "p1", HERDR_WORKSPACE_ID: "w1" } as NodeJS.ProcessEnv;
 const WORKER = { ...SESSION, HERD_ID: "hd-1", HERD_JOB: "j" } as NodeJS.ProcessEnv;
 const OTHER_SESSION = { ...SESSION, CLAUDE_CODE_SESSION_ID: "s2" } as NodeJS.ProcessEnv;
@@ -348,14 +349,36 @@ describe("herd shepherd tools", () => {
 });
 
 describe("herd respawn, gate answer and park, diagnose, nudge, lanes", () => {
-  test("herd_respawn passes inherited-free payload and never a dir", async () => {
+  test("herd_respawn passes inherited-free payload", async () => {
     const { tool, destructive } = fake();
-    const r = await tool("herd_respawn").handler({ herd: "hd-1", job: "j", brief: BRIEF, model: "opus", dir: FAKE_TEMP_ROOT }, SESSION);
+    const r = await tool("herd_respawn").handler({ herd: "hd-1", job: "j", brief: BRIEF, model: "opus" }, SESSION);
     expect(r.ok).toBe(true);
     expect(destructive()[0]!.a).toEqual({ herd: "hd-1", job: "j", brief: BRIEF_BODY, model: "opus" });
     expect(destructive()[0]!.o.timeoutMs).toBeGreaterThanOrEqual(180_000);
     const schema = tool("herd_respawn").inputSchema as { properties: Record<string, unknown> };
     expect(schema.properties.dir).toBeUndefined();
+  });
+  test("herd_respawn refuses a stray dir with zero daemon calls", async () => {
+    const { tool, calls } = fake();
+    const r = await tool("herd_respawn").handler({ herd: "hd-1", job: "j", dir: FAKE_TEMP_ROOT }, SESSION);
+    expect(r).toMatchObject({ ok: false, error: "dir is not accepted: herd_respawn reuses the job's own worktree" });
+    expect(calls).toEqual([]);
+  });
+  test("only the gate answer and park tools name the shepherd's gate lines as their missing CLI twin", () => {
+    const reason = (name: string) => (tool0(name).shellForms as { none: string }).none;
+    for (const name of ["herd_gate_answer", "herd_gate_park"]) expect(reason(name)).toContain("rt gate answer --by shepherd");
+    for (const name of ["herd_respawn", "herd_diagnose", "herd_nudge", "herd_lanes"]) {
+      expect(reason(name)).not.toContain("rt gate");
+      expect(reason(name)).toContain("no CLI twin");
+    }
+  });
+  test("herd_spawn's rt-herd note lists the six newer herd tools", () => {
+    const forms = tool0("herd_spawn").shellForms as Array<string | { id: string; note?: string }>;
+    const note = forms.find((f): f is { id: string; note?: string } => typeof f !== "string" && f.id === "rt-herd")!.note!;
+    for (const name of NEW_TOOLS) expect(note).toContain(name);
+  });
+  test("herd_spawn's description names the reviewerRound a guest spawn returns", () => {
+    expect(tool0("herd_spawn").description).toContain("reviewerRound");
   });
   test("herd_respawn keeps herd_spawn's brief confinement, dash check and token check, with zero daemon calls", async () => {
     writeFileSync(DASH_BRIEF, "--settings={}\n");

@@ -1554,9 +1554,46 @@ describe("herd:spawn {tree} and herd:respawn", () => {
     const { h, store, herd } = await started([t1]);
     expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
     expect((await h["herd:milestone"]({ herd, job: "job-a", session: "sess-w1", artifact: "/a/spec.md" })).ok).toBe(true);
-    expect((await h["herd:spawn"]({ herd, job: "review-a", brief: "review", tree: "t1" })).ok).toBe(true);
+    const guest = await h["herd:spawn"]({ herd, job: "review-a", brief: "review", tree: "t1" });
+    if (!guest.ok) throw new Error(guest.error);
+    expect(guest.data.reviewerRound).toEqual({ host: "job-a", key: "/a/spec.md", budget: { used: 1, cap: 2, spent: false } });
     expect(jobBudgets(store.budgetRows(herd, "job-a")).reviewerRounds["/a/spec.md"]).toEqual({ used: 1, cap: 2, spent: false });
     expect(jobBudgets(store.budgetRows(herd, "review-a")).reviewerRounds).toEqual({});
+  });
+
+  test("a host spawn returns no reviewerRound", async () => {
+    const t1 = claimedTree("t1");
+    const { h, herd } = await started([t1]);
+    const host = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" });
+    if (!host.ok) throw new Error(host.error);
+    expect(host.data.reviewerRound).toBeUndefined();
+  });
+
+  test("a job launched with --dir in a tree's path hosts a guest spawned into that tree", async () => {
+    const t1 = claimedTree("t1");
+    const { h, store, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: t1.path })).ok).toBe(true);
+    const guest = await h["herd:spawn"]({ herd, job: "review-a", brief: "review", tree: "t1" });
+    if (!guest.ok) throw new Error(guest.error);
+    expect(guest.data.tree).toBeNull();
+    expect(guest.data.reviewerRound).toEqual({ host: "job-a", key: "", budget: { used: 1, cap: 2, spent: false } });
+    expect(store.getJob(herd, "review-a")!.tree).toBeNull();
+  });
+
+  test("spawning an existing job settles its old session's gates before launch", async () => {
+    const t1 = claimedTree("t1");
+    const { h, gate, gateStore, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    const answered = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!answered.ok) throw new Error(answered.error);
+    expect((await gate["gate:answer"]({ id: answered.data.gate, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+    const open = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });
+    if (!open.ok) throw new Error(open.error);
+
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "round two", tree: "t1" });
+    if (!res.ok) throw new Error(res.error);
+    expect(gateStore.get(open.data.gate)).toMatchObject({ status: "closed", closedReason: "abandoned" });
+    expect(gateStore.get(answered.data.gate)!.consumedAt).not.toBeNull();
   });
 
   test("respawn reuses the worktree and inherits model, effort and account", async () => {
@@ -1913,6 +1950,22 @@ describe("herd:nudge", () => {
     expect(res.data.delivered).toBe(true);
     expect(injects).toEqual([{ paneId: "w9:p1", sockPath: "/tmp/hidden.sock" }]);
   });
+
+  for (const failing of ["herd:", "run:"]) {
+    test(`a pane nudge refuses when the ${failing} gate listing fails, rather than read no form open`, async () => {
+      const { deps, herd, gate, injects, store } = await nudgeable();
+      store.tickBudget(herd, "job-a", "nudges", gate);
+      const broken = {
+        ...deps.gate,
+        "gate:list": async (p: any) => (p?.subjectPrefix?.startsWith(failing) ? { ok: false, error: "db locked" } : deps.gate["gate:list"](p)),
+      } as unknown as HerdDeps["gate"];
+      const h = createHerdHandlers({ ...deps, gate: broken });
+      const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+      expect(res).toEqual({ ok: false, error: "could not list the job's open gates (db locked); whether a form is open is unknown" });
+      expect(injects).toEqual([]);
+      expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+    });
+  }
 
   test("second nudge with a form-presentation gate open returns form-open and does not tick", async () => {
     const { h, herd, gate, gateStore, injects, store } = await nudgeable();
@@ -2365,12 +2418,16 @@ describe("herd:lanes", () => {
   type Merge = HerdLaneRow["merge"];
   const OPEN: Merge = { forge: "github", state: "open", url: "https://github.com/o/r/pull/3", number: 3, mergedAt: null };
 
-  function lanesHarness(diffs: Record<string, string>, merges: Record<string, Merge | Error> = {}) {
+  function lanesHarness(diffs: Record<string, string>, merges: Record<string, Merge | Error> = {}, heads: Record<string, string | null> = {}) {
     const mergeCalls: Array<{ worktree: string; branch: string }> = [];
     const lanes: LaneDeps = {
       git: async (cwd, args) => {
         const name = cwd.split("/").pop()!;
         if (args[0] === "diff") return { stdout: diffs[name] ?? "", exitCode: 0 };
+        if (args[0] === "rev-parse") {
+          const head = name in heads ? heads[name] : name;
+          return head === null ? { stdout: "", exitCode: 128 } : { stdout: `${head}\n`, exitCode: 0 };
+        }
         if (args[0] === "rev-list") return { stdout: "1\n", exitCode: 0 };
         if (args[0] === "config") return { stdout: "git@github.com:o/r.git\n", exitCode: 0 };
         return { stdout: "", exitCode: 1 };
@@ -2430,11 +2487,38 @@ describe("herd:lanes", () => {
     expect((await hx.lanesOf({ herd: hx.herd })).lanes.map((l) => l.job)).toEqual(["a"]);
   });
 
-  test("a job with no branch reads none without a forge call", async () => {
-    const hx = lanesHarness({});
-    hx.job("a", { branch: null, tree: null });
+  test("a row with no branch reads the merge state of the worktree's checked-out branch", async () => {
+    const hx = lanesHarness({}, { a: OPEN }, { a: "feature-x" });
+    const wt = hx.job("a", { branch: null, tree: null });
     const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
-    expect(lane!.merge).toEqual({ forge: "github", state: "none", url: null, number: null, mergedAt: null });
+    expect(lane).toMatchObject({ branch: "feature-x", merge: OPEN });
+    expect(hx.mergeCalls).toEqual([{ worktree: wt, branch: "feature-x" }]);
+  });
+
+  test("a worker that moved to a follow-up branch is read on its current branch, not the spawn-time one", async () => {
+    const hx = lanesHarness({}, {}, { a: "a-follow-up" });
+    const wt = hx.job("a");
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.branch).toBe("a-follow-up");
+    expect(hx.mergeCalls).toEqual([{ worktree: wt, branch: "a-follow-up" }]);
+  });
+
+  test("a detached HEAD reads unknown without a forge call and does not tick unmergedReports", async () => {
+    const hx = lanesHarness({}, {}, { a: "HEAD" });
+    hx.job("a", { branch: null, tree: null });
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.branch).toBeNull();
+    expect(lane!.merge).toEqual({ forge: "github", state: "unknown", url: null, number: null, mergedAt: null, error: "no branch checked out" });
+    expect(hx.mergeCalls).toEqual([]);
+    expect(hx.store.budgetRows(hx.herd, "a")).toEqual([]);
+  });
+
+  test("a branch read that fails reads unknown, never none", async () => {
+    const hx = lanesHarness({}, {}, { a: null });
+    hx.job("a");
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.merge).toMatchObject({ state: "unknown", error: "git could not read the worktree's checked-out branch" });
     expect(hx.mergeCalls).toEqual([]);
   });
 

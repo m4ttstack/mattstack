@@ -224,22 +224,37 @@ export function createHerdHandlers(deps: HerdDeps) {
     return row?.unread ?? 0;
   }
 
-  async function openHerdGates(herdId: string): Promise<GateRow[]> {
+  type GateListing = { ok: true; data: GateRow[] } | { ok: false; error: string };
+
+  async function readOpenHerdGates(herdId: string): Promise<GateListing> {
     const res = await deps.gate["gate:list"]({ open: true, subjectPrefix: herdPrefix(herdId) });
-    return res.ok ? res.data.gates : [];
+    return res.ok ? { ok: true, data: res.data.gates } : { ok: false, error: res.error };
+  }
+
+  async function openHerdGates(herdId: string): Promise<GateRow[]> {
+    const res = await readOpenHerdGates(herdId);
+    return res.ok ? res.data : [];
+  }
+
+  async function readHerdRunGates(herdId: string): Promise<GateListing> {
+    const runs = await deps.gate["gate:list"]({ open: true, subjectPrefix: "run:" });
+    if (!runs.ok) return { ok: false, error: runs.error };
+    const trees = new Set(store.jobs(herdId).map((j) => j.worktree));
+    return {
+      ok: true,
+      data: runs.data.gates.filter((g) => {
+        const wt = deps.runWorktree(g.subject.slice("run:".length));
+        return wt !== null && trees.has(wt);
+      }),
+    };
   }
 
   /** Open `run:*` gates whose worktree belongs to one of this herd's jobs --
       shared by `herd:gates` (its own listing) and `herd:resume` (its count
       of what a resumed shepherd is on the hook for). */
   async function listHerdRunGates(herdId: string): Promise<GateRow[]> {
-    const runs = await deps.gate["gate:list"]({ open: true, subjectPrefix: "run:" });
-    if (!runs.ok) return [];
-    const trees = new Set(store.jobs(herdId).map((j) => j.worktree));
-    return runs.data.gates.filter((g) => {
-      const wt = deps.runWorktree(g.subject.slice("run:".length));
-      return wt !== null && trees.has(wt);
-    });
+    const res = await readHerdRunGates(herdId);
+    return res.ok ? res.data : [];
   }
 
   async function statusData(herdId: string): Promise<HerdStatusData | null> {
@@ -457,17 +472,21 @@ export function createHerdHandlers(deps: HerdDeps) {
   }
 
   /** The job's pane reading and its open gates. A pane herdr cannot snapshot
-      is unknown, never gone, so the caller refuses rather than guesses. */
+      is unknown, never gone, and a failed gate listing leaves an open form
+      unknown, so the caller refuses rather than guesses. */
   async function readJobPane(herd: HerdRow, job: HerdJobRow): Promise<
     { ok: true; bare: string | null; paneState: ReturnType<typeof readingState> | null; gates: GateRow[] } | { ok: false; error: string }
   > {
     const bare = job.pane ? parsePaneRef(job.pane).paneId : null;
     const [panes, own, runs] = await Promise.all([
-      bare ? paneStatusSnapshot(deps.herdr, herd.herdrSocket) : null, openHerdGates(herd.id), listHerdRunGates(herd.id),
+      bare ? paneStatusSnapshot(deps.herdr, herd.herdrSocket) : null, readOpenHerdGates(herd.id), readHerdRunGates(herd.id),
     ]);
     if (bare && !panes) return { ok: false, error: `herdr is unreachable on ${herd.herdrSocket ?? "the default socket"}; the pane's state is unknown` };
+    const unlisted = (why: string) => ({ ok: false as const, error: `could not list the job's open gates (${why}); whether a form is open is unknown` });
+    if (!own.ok) return unlisted(own.error);
+    if (!runs.ok) return unlisted(runs.error);
     const paneState = bare && panes ? readingState(panes.get(bare)) : null;
-    return { ok: true, bare, paneState, gates: [...own, ...runs].filter((g) => isJobGate(g, herd.id, job)) };
+    return { ok: true, bare, paneState, gates: [...own.data, ...runs.data].filter((g) => isJobGate(g, herd.id, job)) };
   }
 
   /** One job per worktree measures it: the tree holder, else the earliest
@@ -481,13 +500,18 @@ export function createHerdHandlers(deps: HerdDeps) {
     return jobs.filter((j) => hosts.get(j.worktree) === j);
   }
 
-  async function laneMerge(job: HerdJobRow): Promise<HerdLaneRow["merge"]> {
+  /** The merge state of the branch checked out in the worktree now: the row's
+      spawn-time branch goes stale once a worker moves to a follow-up branch. */
+  async function laneMerge(job: HerdJobRow): Promise<{ branch: string | null; merge: HerdLaneRow["merge"] }> {
     const forge = forgeOf(await originUrl(lanes, job.worktree).catch(() => undefined));
-    if (!job.branch) return { forge, state: "none", url: null, number: null, mergedAt: null };
+    const head = await lanes.git(job.worktree, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => null);
+    if (!head || head.exitCode !== 0) return { branch: null, merge: unknownMerge(forge, "git could not read the worktree's checked-out branch") };
+    const branch = head.stdout.trim();
+    if (!branch || branch === "HEAD") return { branch: null, merge: unknownMerge(forge, "no branch checked out") };
     try {
-      return await lanes.merge(job.worktree, job.branch);
+      return { branch, merge: await lanes.merge(job.worktree, branch) };
     } catch (err) {
-      return unknownMerge(forge, err);
+      return { branch, merge: unknownMerge(forge, err) };
     }
   }
 
@@ -634,7 +658,7 @@ export function createHerdHandlers(deps: HerdDeps) {
         const admitted = admitTree(registry.load(herd.repo).find((t) => t.name === treeName), treeName);
         if (!admitted.ok) return admitted;
         worktree = admitted.tree.path; branch = admitted.tree.branch;
-        host = store.jobs(herdId).find((j) => j.name !== name && j.tree === treeName && j.status !== "closed");
+        host = store.jobs(herdId).find((j) => j.name !== name && j.status !== "closed" && (j.tree === treeName || j.worktree === admitted.tree.path));
         // A guest's row never names the tree, so wrap-up cannot dispose the
         // host's tree through it.
         tree = host ? null : treeName;
@@ -647,14 +671,17 @@ export function createHerdHandlers(deps: HerdDeps) {
       // A respawn that does not repeat --disposable must not un-dispose a
       // reviewer the shepherd already marked throwaway.
       const disposable = p?.disposable ?? prior?.disposable ?? false;
+      if (prior?.agentSession) await settleSessionGates(herdId, prior);
 
       const launched = await launchJob(herd, name, {
         worktree, branch, tree, disposable, prompt: prompt.text,
         model: str(p?.model) ?? null, effort: str(p?.effort) ?? null, account: str(p?.account) ?? null,
       });
       if (!launched.ok) return launched;
-      if (host) store.tickBudget(herdId, host.name, "reviewerRounds", await latestMilestoneArtifact(herdId, host.name));
-      return { ok: true, data: { ...launched.data, wasOnDeck } };
+      if (!host) return { ok: true, data: { ...launched.data, wasOnDeck } };
+      const key = await latestMilestoneArtifact(herdId, host.name);
+      const used = store.tickBudget(herdId, host.name, "reviewerRounds", key);
+      return { ok: true, data: { ...launched.data, wasOnDeck, reviewerRound: { host: host.name, key, budget: budgetView(used, "reviewerRounds") } } };
     },
 
     "herd:respawn": async (raw: unknown): Promise<CommandResult<"herd:respawn">> => {
@@ -779,7 +806,7 @@ export function createHerdHandlers(deps: HerdDeps) {
 
       const rows = await Promise.all(live.filter((m) => !only || m.job.name === only).map(async (m): Promise<HerdLaneRow> => {
         const { job } = m;
-        const merge = await laneMerge(job);
+        const { branch, merge } = await laneMerge(job);
         if (job.status === "done" && job.lastReport !== null && UNMERGED_STATES.has(merge.state)) {
           store.markBudgetOnce(herdId, job.name, "unmergedReports", String(job.lastReport));
         }
@@ -789,7 +816,7 @@ export function createHerdHandlers(deps: HerdDeps) {
           .map((o) => ({ job: o.job.name, files: o.drift.files.map((f) => f.path).filter((path) => mine.has(path)) }))
           .filter((c) => c.files.length > 0);
         return {
-          job: job.name, worktree: job.worktree, branch: job.branch, base: m.base, commits: m.commits, drift: m.drift,
+          job: job.name, worktree: job.worktree, branch, base: m.base, commits: m.commits, drift: m.drift,
           collidesWith, merge, unmergedReports: jobBudgets(store.budgetRows(herdId, job.name)).unmergedReports,
         };
       }));

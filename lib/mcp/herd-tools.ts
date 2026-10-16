@@ -139,7 +139,8 @@ const ANSWER_VALUE_SCHEMA = {
   ],
 };
 
-const NO_CLI_TWIN = "no CLI twin; the shepherd's rt gate answer --by shepherd and rt gate park lines stay on Bash until the skill moves";
+const NO_CLI_TWIN = "no CLI twin; the daemon verb is reached only through this tool";
+const GATE_NO_CLI_TWIN = "no CLI twin; the shepherd's rt gate answer --by shepherd and rt gate park lines stay on Bash until the skill moves";
 
 async function herdFor(input: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<{ herd: string } | { error: string }> {
   if (typeof input.herd === "string") return { herd: input.herd };
@@ -169,9 +170,9 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
     },
     {
       name: "herd_spawn",
-      description: "Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with \"-\"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.",
+      description: "Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with \"-\"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. A spawn into a tree another job already holds is a guest (a reviewer): it ticks the host's reviewerRounds budget and returns it as reviewerRound {host, key, budget}. Only the herd's shepherd session may call it. Takes minutes.",
       inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" }, disposable: { type: "boolean" }, tree: { type: "string", description: "A registered tree's name; never a directory." } }, required: ["job"], additionalProperties: false },
-      shellForms: ["rt herd spawn", { id: "rt-herd", pattern: /(?<![\w-])rt\s+herd\b/, example: "rt herd stop", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_follow_up, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone" }],
+      shellForms: ["rt herd spawn", { id: "rt-herd", pattern: /(?<![\w-])rt\s+herd\b/, example: "rt herd stop", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_follow_up, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone, herd_respawn, herd_gate_answer, herd_gate_park, herd_diagnose, herd_nudge, herd_lanes" }],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         // The server does not enforce additionalProperties, and a caller-chosen dir would land the worker in a folder whose
@@ -202,6 +203,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       shellForms: { none: NO_CLI_TWIN },
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
+        if ("dir" in input) return err("dir is not accepted: herd_respawn reuses the job's own worktree");
         const bad = checkRequired(input, [{ name: "job", type: "string" }]) ?? checkOptional(input, [{ name: "brief", type: "string" }, { name: "model", type: "string" }, { name: "effort", type: "string" }, { name: "account", type: "string" }]);
         if (bad) return err(bad);
         const launch = launchInputs(input, deps.readRoots);
@@ -218,7 +220,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_gate_answer",
       description: "Answer one of this herd's open gates as the shepherd. Answer values must be the gate's option VALUES verbatim; a bad value returns status refused with each question's validValues and posts nothing. Returns status recorded, or conflict with the winning answer when another answer landed first. Only the herd's shepherd session may call it.",
       inputSchema: { type: "object", properties: { ...HERD_PROP, gate: { type: "string" }, answers: { type: "object", additionalProperties: ANSWER_VALUE_SCHEMA } }, required: ["gate", "answers"], additionalProperties: false },
-      shellForms: { none: NO_CLI_TWIN },
+      shellForms: { none: GATE_NO_CLI_TWIN },
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         const bad = checkRequired(input, [{ name: "gate", type: "string" }, { name: "answers", type: "object" }]);
@@ -249,7 +251,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_gate_park",
       description: "Park one of this herd's open gates. Only the herd's shepherd session may call it.",
       inputSchema: { type: "object", properties: { ...HERD_PROP, gate: { type: "string" } }, required: ["gate"], additionalProperties: false },
-      shellForms: { none: NO_CLI_TWIN },
+      shellForms: { none: GATE_NO_CLI_TWIN },
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         const bad = checkRequired(input, [{ name: "gate", type: "string" }]);
