@@ -272,6 +272,20 @@ function isRunRepo(identity: string, runDb: string): { ok: true } | { ok: false;
   return names.includes(runRepo.toLowerCase()) ? { ok: true } : { ok: false, runRepo };
 }
 
+const runQueues = new Map<string, Promise<void>>();
+
+/** The MCP server runs tool calls concurrently and run_field_set has no compare-and-set, so calls on one run take turns. */
+function onRun<T>(runDb: unknown, task: () => Promise<T>): Promise<T> {
+  if (typeof runDb !== "string") return task();
+  let key = runDb;
+  try { key = realpathSync(runDb); } catch { /* an unresolvable runDb is refused inside the task */ }
+  const next = (runQueues.get(key) ?? Promise.resolve()).then(task, task);
+  const tail = next.then(() => {}, () => {});
+  runQueues.set(key, tail);
+  void tail.then(() => { if (runQueues.get(key) === tail) runQueues.delete(key); });
+  return next;
+}
+
 async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.ProcessEnv): Promise<ToolResult> {
   const bad = checkRequired(input, [{ name: "runDb", type: "string" }, { name: "stage", type: "string" }]);
   if (bad) return err(bad);
@@ -295,6 +309,9 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   }
 
   const write = async (value: string): Promise<ToolResult | null> => {
+    const now = await readField(deps, runDb, "evidence", env);
+    if (!now.ok) return err(now.error);
+    if (now.value !== read.value) return err("the evidence field changed during this call; call again");
     const res = await deps.runTool("run_field_set", { runDb, key: "evidence", value, stage }, env);
     return res.ok ? null : err(res.error ?? "run_field_set failed");
   };
@@ -553,8 +570,11 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const order = new Map(paths.map((p, i) => [p, i]));
   uploaded.sort((a, b) => order.get(a.path)! - order.get(b.path)!);
 
-  const merged = { ...uploadsMap, ...fresh };
+  let merged = { ...uploadsMap, ...fresh };
   if (Object.keys(fresh).length) {
+    // another process may have remembered uploads meanwhile: merge onto its value rather than over it
+    const latest = await readField(deps, runDb, "evidence-uploads", env);
+    if (latest.ok) merged = { ...uploadsMap, ...parseUploads(latest.value), ...fresh };
     const res = await deps.runTool("run_field_set", { runDb, key: "evidence-uploads", value: serializeUploads(merged), stage }, env);
     if (!res.ok) writeErrors.push(`remembering the uploads in evidence-uploads failed: ${res.error ?? "run_field_set failed"}`);
   }
@@ -706,7 +726,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
         additionalProperties: false,
       },
       shellForms: { none: "merges, copies and writes the evidence field in one step; no single shell command is equivalent" },
-      handler: (input, env) => evidenceRecord(deps, input, env),
+      handler: (input, env) => onRun(input.runDb, () => evidenceRecord(deps, input, env)),
     },
     {
       name: "evidence_attach",
@@ -727,7 +747,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
         additionalProperties: false,
       },
       shellForms: { none: "uploads, renders and writes the evidence section in one step; no single shell command is equivalent" },
-      handler: (input, env, signal, progress) => evidenceAttach(deps, input, env, signal, progress),
+      handler: (input, env, signal, progress) => onRun(input.runDb, () => evidenceAttach(deps, input, env, signal, progress)),
     },
     {
       name: "dev_endpoints",

@@ -363,6 +363,36 @@ describe("evidence_record", () => {
     expect(readFileSync(first.annotated, "utf8")).toBe("board v1");
   });
 
+  test("two concurrent calls on one run both land their cases", async () => {
+    const { deps, fields } = makeDeps();
+    const one = put("one.png");
+    const two = put("two.png");
+    const call = (id: string, path: string) =>
+      tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: id, label: id, slot: "before", path, waiver: "no ui" }] }, env);
+    const [a, b] = await Promise.all([call("one", one), call("two", two)]);
+    expect((a.body as { written: boolean }).written).toBe(true);
+    expect((b.body as { written: boolean }).written).toBe(true);
+    expect(JSON.parse(fields.get("evidence")!).cases.map((c: { id: string }) => c.id).sort()).toEqual(["one", "two"]);
+  });
+
+  test("a field another process changed during the call is not overwritten", async () => {
+    const { deps, fields, runCalls } = makeDeps();
+    const peer = v2([{ id: "peer", label: "Peer", before: { path: "/p.png", waiver: "w" } }]);
+    const runTool = deps.runTool;
+    let reads = 0;
+    deps.runTool = async (name, input, e) => {
+      if (name === "run_field_get" && input.key === "evidence" && ++reads === 2) fields.set("evidence", peer);
+      return runTool(name, input, e);
+    };
+    const shot = put("one.png");
+    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "one", label: "One", slot: "before", path: shot, waiver: "no ui" }] }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("the evidence field changed during this call; call again");
+    expect(res.error).toContain(join(evidenceDir("one"), "one.png"));
+    expect(fields.get("evidence")).toBe(peer);
+    expect(runCalls.some((c) => c.name === "run_field_set")).toBe(false);
+  });
+
   test("no file already in the run folder ever changes bytes, across recaptures, board refreshes and a new transcript", async () => {
     const { deps } = makeDeps();
     const runFolder = join(home, ".mattstack", "work", RUN_ID);
@@ -567,6 +597,22 @@ describe("evidence_attach", () => {
     expect(body.linked).toEqual([{ path: one, error: refusal }]);
     expect(body.section).toContain(`- Before: ${one}`);
     expect(body.notWritten).toBe("unchanged");
+  });
+
+  test("uploads remembered by another process during the call are kept, not overwritten", async () => {
+    const { one, evidence } = twoWaived();
+    const peerEntry = { sha256: "f".repeat(64), project: IDENT, url: "https://gitlab.com/acme/web/uploads/peer/x.png", markdown: "![x](/uploads/peer/x.png)", at: 5 };
+    const box: { fields?: Map<string, string> } = {};
+    const respond: Responder = (cmd, p) => {
+      if (cmd === "mr:upload" && p.path === one) box.fields!.set("evidence-uploads", serializeUploads({ "/elsewhere/x.png": peerEntry }));
+      return undefined;
+    };
+    const { deps, fields } = makeDeps({ fields: { evidence }, respond });
+    box.fields = fields;
+    await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env);
+    const remembered = parseUploads(fields.get("evidence-uploads")!);
+    expect(remembered["/elsewhere/x.png"]).toEqual(peerEntry);
+    expect(remembered[realpathSync(one)]).toMatchObject({ sha256: sha256Of(one), project: IDENT });
   });
 
   test("a remembered linked file that times out twice on the resend lands in timedOutTwice and blocks", async () => {
