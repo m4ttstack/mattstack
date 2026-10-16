@@ -2059,6 +2059,12 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "More than one team on this Mac: open Setup status" });
       });
 
+      test("board team fields left in the old board file read as needs-you, so an update run reports them", () => {
+        const rows = [{ ...rowOf("board.team-fields", "tool", "Old board settings", "needs-you"), required: false }];
+        const checks = [{ name: "board.team-fields", status: "warn" as const, detail: "", severity: "warning" as const }];
+        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "Old board settings not carried over: open Setup status" });
+      });
+
       test("a genuine failure stays failed, is named by its row title, and still names what is left to connect", () => {
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.app", "tool", "mattstack.app", "error"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
         expect(outcomeFromChecks([fail("account.slack"), fail("tool.app"), fail("tool.team.doppler")], rows)).toEqual({
