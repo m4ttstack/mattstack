@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { spawnSync } from "child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, truncateSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, join } from "path";
 import type { RtResponse } from "../../../packages/rt-client/src/index.ts";
+import { UPLOAD_MAX_BYTES } from "../../daemon/upload-guard.ts";
 import { runStart } from "../../runs/start.ts";
 import { spliceSection } from "../../evidence/section.ts";
 import { parseUploads, serializeUploads, sha256Of } from "../../evidence/uploads-field.ts";
@@ -442,6 +444,22 @@ describe("evidence_attach", () => {
     put("badge.redactions.json", "{}", evidenceDir("retry-badge"));
     expect((await run()).ups).toBe(1);
   });
+
+  test("a FIFO or an oversize file in the record is never read: it goes to the daemon unhashed and is not remembered", async () => {
+    const dir = evidenceDir("retry-badge");
+    mkdirSync(dir, { recursive: true });
+    const fifo = join(dir, "pipe.png");
+    expect(spawnSync("mkfifo", [fifo]).status).toBe(0);
+    const big = put("big.png", "", dir);
+    truncateSync(big, UPLOAD_MAX_BYTES + 1);
+    const evidence = v2([{ id: "retry-badge", label: "Retry badge", before: { path: fifo, waiver: "w1" }, after: { path: big, waiver: "w2" } }]);
+    const prior = serializeUploads({ [realpathSync(fifo)]: { sha256: "x", project: IDENT, url: "u", markdown: "![p](u)", at: 1 } });
+    const { deps, calls, fields } = makeDeps({ fields: { evidence, "evidence-uploads": prior } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(uploads(calls).map((c) => c.payload.path)).toEqual([fifo, big]);
+    expect(body.uploaded.every((u) => !u.reused)).toBe(true);
+    expect(Object.keys(parseUploads(fields.get("evidence-uploads")!))).toEqual([realpathSync(fifo)]);
+  }, 5000);
 
   test("description: the live text is spliced and written; a second all-reused call leaves it unchanged", async () => {
     const { evidence } = boardRecord();
