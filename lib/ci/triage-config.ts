@@ -49,24 +49,17 @@ export interface CompiledPatterns {
   infra: RegExp[];
 }
 
-const DEFAULT_BASE_DEPTH = 3;
-
-function strings(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
-}
-
 export function settingsConfig(
   read: (key: string) => unknown = (k) => getSetting(k).value,
 ): TriageConfig {
-  const depth = read("ci.triage.baseDepth");
   const ref = read("ci.triage.baseRef");
   return {
-    realPatterns: strings(read("ci.triage.realPatterns")),
-    infraPatterns: strings(read("ci.triage.infraPatterns")),
-    noisyJobs: strings(read("ci.triage.noisyJobs")),
-    baseDepth: typeof depth === "number" ? depth : DEFAULT_BASE_DEPTH,
-    baseRef: typeof ref === "string" && ref !== "" ? ref : null,
-    skipBase: read("ci.triage.skipBase") === true,
+    realPatterns: read("ci.triage.realPatterns") as string[],
+    infraPatterns: read("ci.triage.infraPatterns") as string[],
+    noisyJobs: read("ci.triage.noisyJobs") as string[],
+    baseDepth: read("ci.triage.baseDepth") as number,
+    baseRef: ref === undefined ? null : (ref as string),
+    skipBase: read("ci.triage.skipBase") as boolean,
   };
 }
 
