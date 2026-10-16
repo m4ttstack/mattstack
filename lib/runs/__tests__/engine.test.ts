@@ -90,6 +90,46 @@ describe("holdStage", () => {
   });
 });
 
+describe("holdStage on a finished run", () => {
+  test("is refused with nothing written", () => {
+    const db = mkdb();
+    writeManifest(db, [{ stage: "plan", consumes: [], produces: [] }], null);
+    attempt(db, "plan");
+    expect(runStatus(db, "done", 5).ok).toBe(true);
+    const before = JSON.stringify([db.query("SELECT * FROM decisions").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM runs").all()]);
+    expect(holdStage(db, { stage: "plan", decidedBy: "me" })).toEqual({ ok: false, error: "this run is done; nothing to hold", code: 2 });
+    expect(JSON.stringify([db.query("SELECT * FROM decisions").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM runs").all()])).toBe(before);
+  });
+});
+
+describe("write transactions take the write lock first", () => {
+  // A second connection holding the write lock makes a bare read inside an
+  // IMMEDIATE transaction fail; a deferred one would read through WAL.
+  function locked(run: (db: Database) => unknown): unknown {
+    const db = mkdb();
+    writeManifest(db, [{ stage: "plan", consumes: [], produces: [] }], null);
+    attempt(db, "plan");
+    expect(runStatus(db, "done", 5).ok).toBe(true);
+    const other = new Database(db.filename);
+    db.run("PRAGMA busy_timeout=0");
+    other.run("BEGIN IMMEDIATE");
+    try {
+      return run(db);
+    } finally {
+      other.run("ROLLBACK");
+      other.close();
+    }
+  }
+  const env = {};
+  const refusedBusy = (r: unknown) => expect(r).toMatchObject({ ok: false, code: 1 });
+
+  test("nextStage", () => refusedBusy(locked((db) => nextStage(db, { stage: "plan", env }))));
+  test("resolveStage", () => refusedBusy(locked((db) => resolveStage(db, { stage: "plan", next: "done", decidedBy: "me", env }))));
+  test("closeRun", () => refusedBusy(locked((db) => closeRun(db, { workType: "work", stage: "plan", outcome: "done" }))));
+  test("holdStage", () => refusedBusy(locked((db) => holdStage(db, { stage: "plan", decidedBy: "me" }))));
+  test("budget", () => refusedBusy(locked((db) => budget(db, { key: "k", limit: 1 }))));
+});
+
 describe("budget", () => {
   test("counts up, reports remaining and exhausted, and keeps counting past the limit", () => {
     const db = mkdb();
@@ -531,6 +571,85 @@ describe("resolveStage", () => {
     expect(resolve(db, { stage: "plan", next: "done" })).toMatchObject({ ok: false, code: 2 });
     expect(resolve(db, { stage: "watch-ci", next: "done" })).toEqual({ ok: true, applied: "done", status: "done" });
     expect(db.query("SELECT status FROM runs").get()).toEqual({ status: "done" });
+  });
+
+  describe("attempt", () => {
+    const count = (db: Database, sql: string) => (db.query(sql).get() as { n: number }).n;
+
+    test("iterate twice with the same attempt repeats the first answer and writes nothing", () => {
+      const db = atShip();
+      const first = resolve(db, { next: "iterate", attempt: 1 });
+      expect(first).toMatchObject({ applied: "iterate", next: { stage: "ship", attempt: 2 } });
+      expect(first).not.toHaveProperty("repeated");
+      const after = snap(db);
+      expect(resolve(db, { next: "iterate", attempt: 1, now: 900 })).toEqual({
+        ok: true,
+        applied: "iterate",
+        next: { stage: "ship", attempt: 2, status: "running", file: null },
+        cleared: [],
+        repeated: true,
+      });
+      expect(snap(db)).toBe(after);
+      expect(count(db, "SELECT COUNT(*) AS n FROM decisions WHERE scope = 'redirect:ship:1'")).toBe(1);
+      expect(count(db, "SELECT COUNT(*) AS n FROM stages WHERE name = 'ship' AND status = 'running'")).toBe(1);
+    });
+
+    test("redirect to an earlier stage twice repeats instead of refusing the running target", () => {
+      const db = atShip();
+      expect(resolve(db, { next: "redirect", to: "implement", attempt: 1 })).toMatchObject({ applied: "redirect" });
+      const after = snap(db);
+      expect(resolve(db, { next: "redirect", to: "implement", attempt: 1 })).toEqual({
+        ok: true,
+        applied: "redirect",
+        next: { stage: "implement", attempt: 2, status: "running", file: "/pack/implement.md" },
+        cleared: [],
+        repeated: true,
+      });
+      expect(snap(db)).toBe(after);
+    });
+
+    test("retry twice with the same attempt repeats", () => {
+      const db = atShip();
+      ok(stageEnd(db, "ship", "failed", { reason: "boom", now: 120 }));
+      expect(resolve(db, { next: "retry", attempt: 1 })).toMatchObject({ applied: "retry", next: { attempt: 2 } });
+      const after = snap(db);
+      expect(resolve(db, { next: "retry", attempt: 1 })).toEqual({
+        ok: true,
+        applied: "retry",
+        next: { stage: "ship", attempt: 2, status: "running", file: null },
+        cleared: [],
+        repeated: true,
+      });
+      expect(snap(db)).toBe(after);
+    });
+
+    test("an answer for an earlier attempt that was not already applied is refused, writing nothing", () => {
+      const db = atShip();
+      resolve(db, { next: "iterate", attempt: 1 });
+      const before = snap(db);
+      const stale = "stage ship is at attempt 2; this answer was for attempt 1";
+      expect(resolve(db, { next: "redirect", to: "implement", attempt: 1 })).toEqual({ ok: false, error: stale, code: 2 });
+      expect(resolve(db, { next: "retry", attempt: 1 })).toEqual({ ok: false, error: stale, code: 2 });
+      expect(snap(db)).toBe(before);
+    });
+
+    test("an attempt past the latest is refused for every answer, naming the latest", () => {
+      const db = atShip();
+      const before = snap(db);
+      for (const next of ["retry", "redirect", "iterate", "hold", "abandon", "done"] as const) {
+        const r = resolve(db, { next, to: "implement", attempt: 3 });
+        expect(r).toMatchObject({ ok: false, code: 2 });
+        expect((r as { error: string }).error).toContain("attempt 1");
+      }
+      expect(snap(db)).toBe(before);
+    });
+
+    test("hold, abandon and done ignore an earlier attempt", () => {
+      const db = atShip();
+      resolve(db, { next: "iterate", attempt: 1 });
+      expect(resolve(db, { next: "hold", attempt: 1 })).toMatchObject({ applied: "hold", held: { scope: "hold:ship:2" } });
+      expect(resolve(db, { next: "abandon", attempt: 1 })).toMatchObject({ applied: "abandon" });
+    });
   });
 });
 

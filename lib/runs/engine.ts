@@ -100,21 +100,24 @@ export function cleared(value: string | null | undefined): boolean {
   return t === "" || t === "-";
 }
 
-export function holdStage(
-  db: Database,
-  o: { stage: string; reason?: string; decidedBy: string; now?: number },
-): Ok<{ held: true; at: Position; scope: string }> | Fail {
+type Held = Ok<{ held: true; at: Position; scope: string }> | Fail;
+
+function holdInTx(db: Database, o: { stage: string; reason?: string; decidedBy: string; now?: number }): Held {
+  const run = db.query("SELECT status FROM runs LIMIT 1").get() as { status: string } | undefined;
+  if (!run) return refuse("this run has no run row");
+  if (run.status !== "running") return refuse(`this run is ${run.status}; nothing to hold`);
+  const at = positionOf(db, o.stage);
+  if (!at) return { ok: false, error: `stage ${o.stage} has no row in this run`, code: 3 };
   const reason = o.reason ?? "held";
+  const scope = `hold:${o.stage}:${at.attempt}`;
+  must(decisionRecord(db, { contract: "gate@1", scope, selection: JSON.stringify({ reason }), decidedBy: o.decidedBy, now: o.now }));
+  must(fieldSet(db, "hold", reason, o.stage, o.now));
+  return { ok: true, held: true, at, scope };
+}
+
+export function holdStage(db: Database, o: { stage: string; reason?: string; decidedBy: string; now?: number }): Held {
   try {
-    return db.transaction((): Ok<{ held: true; at: Position; scope: string }> | Fail => {
-      const at = positionOf(db, o.stage);
-      if (!at) return { ok: false, error: `stage ${o.stage} has no row in this run`, code: 3 };
-      const scope = `hold:${o.stage}:${at.attempt}`;
-      const d = decisionRecord(db, { contract: "gate@1", scope, selection: JSON.stringify({ reason }), decidedBy: o.decidedBy, now: o.now });
-      must(d);
-      must(fieldSet(db, "hold", reason, o.stage, o.now));
-      return { ok: true, held: true, at, scope };
-    })();
+    return db.transaction((): Held => holdInTx(db, o)).immediate();
   } catch (err) {
     return failOf(err);
   }
@@ -147,7 +150,7 @@ export function budget(
         )
         .get(stored, increment, o.limit, o.now ?? Date.now()) as { spent: number };
       return { ok: true, key: o.key, spent: row.spent, limit: o.limit, remaining: Math.max(0, o.limit - row.spent), exhausted: row.spent >= o.limit };
-    })();
+    }).immediate();
   } catch (err) {
     return sqliteFail(err);
   }
@@ -252,7 +255,7 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
         must(stageStart(db, following.stage, o.env, now));
       }
       return finished(false);
-    })();
+    }).immediate();
   } catch (err) {
     return failOf(err);
   }
@@ -260,8 +263,8 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
 
 export type ResolveNext = "retry" | "redirect" | "iterate" | "hold" | "abandon" | "done";
 export type ResolveResult =
-  | { applied: "retry"; next: Position; cleared: string[] }
-  | { applied: "redirect" | "iterate"; next: Position; cleared: string[] }
+  | { applied: "retry"; next: Position; cleared: string[]; repeated?: true }
+  | { applied: "redirect" | "iterate"; next: Position; cleared: string[]; repeated?: true }
   | { applied: "hold"; held: { at: Position; scope: string } }
   | { applied: "abandon" | "done"; status: string };
 
@@ -276,35 +279,64 @@ function clearConsent(db: Database, stage: string, now: number): string[] {
   return keys.slice();
 }
 
+function redirectedTo(db: Database, stage: string, attempt: number): string | null {
+  const row = db.query("SELECT selection FROM decisions WHERE contract = 'gate@1' AND scope = ?").get(`redirect:${stage}:${attempt}`) as
+    | { selection: string }
+    | undefined;
+  if (!row) return null;
+  try {
+    const to = (JSON.parse(row.selection) as { to?: unknown }).to;
+    return typeof to === "string" ? to : null;
+  } catch {
+    return null;
+  }
+}
+
 export function resolveStage(
   db: Database,
-  o: { stage: string; next: ResolveNext; to?: string; note?: string; decidedBy: string; env: NodeJS.ProcessEnv; now?: number },
+  o: { stage: string; next: ResolveNext; to?: string; note?: string; attempt?: number; decidedBy: string; env: NodeJS.ProcessEnv; now?: number },
 ): Ok<ResolveResult> | Fail {
   const now = o.now ?? Date.now();
   if (o.decidedBy.trim() === "") return refuse("run_resolve needs decidedBy");
-  const manifest = readManifest(db);
-  if (manifest.length === 0) return refuse(NO_MANIFEST);
-  const names = manifest.map((m) => m.stage);
-  const index = names.indexOf(o.stage);
-  if (index < 0) return refuse(`stage ${o.stage} is not in this run's pipeline manifest (stages: ${names.join(", ")})`);
-
-  const run = db.query("SELECT status FROM runs LIMIT 1").get() as { status: string } | undefined;
-  if (!run) return refuse("this run has no run row");
-  if (run.status !== "running") {
-    if (o.next === "done" && run.status === "done") return { ok: true, applied: "done", status: "done" };
-    return refuse(`this run is ${run.status}; nothing to resolve`);
-  }
-
-  if (o.next === "hold") {
-    const r = holdStage(db, { stage: o.stage, reason: o.note, decidedBy: o.decidedBy, now });
-    return r.ok ? { ok: true, applied: "hold", held: { at: r.at, scope: r.scope } } : r;
-  }
-
   try {
     return db.transaction((): Ok<ResolveResult> | Fail => {
-      const status = latestStatus(db, o.stage);
+      const manifest = readManifest(db);
+      if (manifest.length === 0) return refuse(NO_MANIFEST);
+      const names = manifest.map((m) => m.stage);
+      const index = names.indexOf(o.stage);
+      if (index < 0) return refuse(`stage ${o.stage} is not in this run's pipeline manifest (stages: ${names.join(", ")})`);
+
+      const run = db.query("SELECT status FROM runs LIMIT 1").get() as { status: string } | undefined;
+      if (!run) return refuse("this run has no run row");
+      if (run.status !== "running") {
+        if (o.next === "done" && run.status === "done") return { ok: true, applied: "done", status: "done" };
+        return refuse(`this run is ${run.status}; nothing to resolve`);
+      }
+
+      const latest = db.query("SELECT attempt, status FROM stages WHERE name = ? ORDER BY attempt DESC LIMIT 1").get(o.stage) as
+        | { attempt: number; status: StageStatus }
+        | undefined;
+      const stale = (latestAttempt: number): Fail => refuse(`stage ${o.stage} is at attempt ${latestAttempt}; this answer was for attempt ${o.attempt}`);
+      if (o.attempt !== undefined && latest && o.attempt > latest.attempt) {
+        return refuse(`stage ${o.stage} is at attempt ${latest.attempt}; this answer was for attempt ${o.attempt}, which has not started`);
+      }
+      const answeredEarlier = o.attempt !== undefined && latest !== undefined && o.attempt < latest.attempt;
+
+      if (o.next === "hold") {
+        const r = holdInTx(db, { stage: o.stage, reason: o.note, decidedBy: o.decidedBy, now });
+        return r.ok ? { ok: true, applied: "hold", held: { at: r.at, scope: r.scope } } : r;
+      }
+
+      const status = latest?.status ?? null;
 
       if (o.next === "retry") {
+        if (answeredEarlier) {
+          const earlier = db.query("SELECT status FROM stages WHERE name = ? AND attempt = ?").get(o.stage, o.attempt!) as { status: StageStatus } | undefined;
+          if (status === "running" && earlier?.status === "failed") {
+            return { ok: true, applied: "retry", next: positionOf(db, o.stage)!, cleared: [], repeated: true };
+          }
+          return stale(latest!.attempt);
+        }
         if (status !== "failed") return refuse(`stage ${o.stage} cannot be retried: ${status ? `its latest attempt is ${status}` : "it has no row"}, not failed`);
         const cleared = clearConsent(db, o.stage, now);
         must(stageStart(db, o.stage, o.env, now));
@@ -319,6 +351,13 @@ export function resolveStage(
         if (toIndex > index) return refuse(`cannot redirect ${o.stage} forward to ${to}; the target must be ${o.stage} or an earlier stage`);
         const from = positionOf(db, o.stage);
         if (!from) return { ok: false, error: `stage ${o.stage} has no row in this run`, code: 3 };
+
+        if (o.attempt !== undefined) {
+          if (redirectedTo(db, o.stage, o.attempt) === to) {
+            return { ok: true, applied: o.next, next: positionOf(db, to)!, cleared: [], repeated: true };
+          }
+          if (answeredEarlier) return stale(latest!.attempt);
+        }
 
         const reason = o.note ?? `redirected to ${to}`;
         must(
@@ -355,7 +394,7 @@ export function resolveStage(
       }
       must(runStatus(db, "done", now));
       return { ok: true, applied: "done", status: "done" };
-    })();
+    }).immediate();
   } catch (err) {
     return failOf(err);
   }
@@ -388,7 +427,7 @@ export function closeRun(
       }
       must(runStatus(db, o.outcome, now));
       return { ok: true, closed: true, status: o.outcome };
-    })();
+    }).immediate();
   } catch (err) {
     return failOf(err);
   }
