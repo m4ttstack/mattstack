@@ -63,7 +63,7 @@ describe("waitForAnswers", () => {
     );
     expect(r.waitedMs).toBeGreaterThanOrEqual(6000);
     expect(r.outcomes.api).toEqual({ answered: false, status: null, answeredAfterMs: null });
-    expect(r.outcomes.web.answered).toBe(true);
+    expect(r.outcomes.web!.answered).toBe(true);
     expect(seen.filter((u) => u === "http://web/")).toHaveLength(1);
   });
 
@@ -80,7 +80,7 @@ describe("waitForAnswers", () => {
     );
     expect(calls).toBe(1);
     expect(c.sleeps).toEqual([]);
-    expect(r.outcomes.web.answered).toBe(false);
+    expect(r.outcomes.web!.answered).toBe(false);
   });
 
   test("pre-aborted signal stops after one round", async () => {
@@ -141,6 +141,6 @@ describe("waitForAnswers", () => {
           }),
       ),
     );
-    expect(r.outcomes.web.answered).toBe(false);
+    expect(r.outcomes.web!.answered).toBe(false);
   });
 });
