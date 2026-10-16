@@ -209,6 +209,19 @@ describe("run tools pass runDb as RT_RUN_DB and cwd through", () => {
     await tool(deps, "run_list").handler({}, {} as NodeJS.ProcessEnv);
     expect(seen).toEqual(["acme", undefined]);
   });
+  test("legacy work runs match the default verb", async () => {
+    const { deps } = fakeDeps();
+    const runs = [{ id: "1", pipeline: "feature" }, { id: "2", pipeline: "work" }, { id: "3", pipeline: "accessibility" }, { id: "4", pipeline: "" }];
+    deps.list = (async () => ({ ok: true, data: { runs } })) as any;
+    const ids = async (pipelines: unknown) => {
+      const res = await tool(deps, "run_list").handler({ pipelines }, {} as NodeJS.ProcessEnv);
+      return res.ok ? (res.body as { runs: Array<{ id: string }> }).runs.map((r) => r.id) : res.error;
+    };
+    expect(await ids(["feature", "work"])).toEqual(["1", "2", "4"]);
+    expect(await ids(["accessibility"])).toEqual(["3"]);
+    expect(await ids("x")).toBe('"pipelines" must be an array of strings');
+    expect(await ids([1])).toBe('"pipelines" must be an array of strings');
+  });
   test("a non-zero write result surfaces the envelope's error", async () => {
     const { deps } = fakeDeps('{"ok":false,"error":"stage not running"}', 2);
     const res = await tool(deps, "run_snapshot").handler({ runDb: DB }, RUNS_ROOT_ENV);

@@ -249,13 +249,20 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     },
     {
       name: "run_list",
-      description: "List runs the daemon knows, newest first, optionally narrowed to one repo directory name.",
-      inputSchema: { type: "object", properties: { repo: { type: "string" } }, additionalProperties: false },
+      description: "List runs the daemon knows, newest first, optionally narrowed to one repo directory name and to runs of the given pipelines.",
+      inputSchema: { type: "object", properties: { repo: { type: "string" }, pipelines: { type: "array", items: { type: "string" }, description: "Keep only runs of these pipelines; a run recorded without a pipeline counts as work." } }, additionalProperties: false },
       shellForms: [{ id: "rt-runs", pattern: /(?<![\w-])rt\s+runs\b/, example: "rt runs --repo x", note: "run_start, run_stage, run_field_set, run_field_get, run_decision, run_status, run_snapshot, run_list" }],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "repo", type: "string" }]);
         if (bad) return err(bad);
-        return fromResponse(await deps.list(typeof input.repo === "string" ? input.repo : undefined, {}));
+        const pipelines = input.pipelines;
+        if (pipelines !== undefined && (!Array.isArray(pipelines) || !pipelines.every((p) => typeof p === "string"))) return err('"pipelines" must be an array of strings');
+        const res = await deps.list(typeof input.repo === "string" ? input.repo : undefined, {});
+        if (res.ok && pipelines !== undefined && Array.isArray(res.data?.runs)) {
+          const keep = new Set(pipelines as string[]);
+          res.data.runs = res.data.runs.filter((r) => keep.has(r.pipeline || "work"));
+        }
+        return fromResponse(res);
       },
     },
   ];
