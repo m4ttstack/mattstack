@@ -106,6 +106,11 @@ export function sameBytes(a: string, b: string): boolean {
   }
 }
 
+/** copyIntoRun's mapped is keyed per request, since one source can be requested into several case folders. */
+export function mapKey(src: string, destDir: string): string {
+  return `${destDir}\0${src}`;
+}
+
 export function copyIntoRun(
   requests: CopyRequest[],
   o: { allowedRoots: string[]; referencedElsewhere: Set<string> },
@@ -132,7 +137,7 @@ export function copyIntoRun(
         if (bad !== null) return { ok: false, error: bad };
       }
       const inPlace = dirname(memberReal) === destReal;
-      const to = inPlace ? memberReal : join(req.destDir, name);
+      const to = join(req.destDir, name);
       if (!inPlace && isSymlink(to)) return { ok: false, error: `${to}: destination is a symlink` };
       const prior = claimed.get(to);
       if (prior !== undefined && prior !== memberReal) {
@@ -141,7 +146,7 @@ export function copyIntoRun(
         claimed.set(to, memberReal);
         planned.push({ requested: req.src, real: memberReal, to, inPlace });
       }
-      if (name === basename(real)) mapped.set(req.src, to);
+      if (name === basename(real)) mapped.set(mapKey(req.src, req.destDir), to);
     }
   }
 

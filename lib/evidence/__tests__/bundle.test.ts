@@ -3,7 +3,7 @@ import { linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSy
 import { tmpdir } from "os";
 import { join } from "path";
 import { workRoot } from "../../daemon/upload-guard.ts";
-import { allowedSourceRoots, bundleMembers, bundleStem, copyIntoRun } from "../bundle.ts";
+import { allowedSourceRoots, bundleMembers, bundleStem, copyIntoRun, mapKey } from "../bundle.ts";
 
 let base: string;
 let src: string;
@@ -62,7 +62,7 @@ describe("copyIntoRun", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(readdirSync(dest).sort()).toEqual(["s.c1.png", "s.png", "s.spec.json"]);
-    expect(r.mapped.get(board)).toBe(join(dest, "s.png"));
+    expect(r.mapped.get(mapKey(board, dest))).toBe(join(dest, "s.png"));
   });
 
   test("single copies only the file", () => {
@@ -136,7 +136,27 @@ describe("copyIntoRun", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.copied).toEqual([]);
-    expect(r.mapped.get(inPlace)).toBe(inPlace);
+    expect(r.mapped.get(mapKey(inPlace, dest))).toBe(inPlace);
+  });
+
+  test("an in-place source maps to the destDir spelling, the same string a copy would get", () => {
+    mkdirSync(dest, { recursive: true });
+    writeFileSync(join(dest, "a.png"), "x");
+    const link = join(base, "link");
+    symlinkSync(dest, link);
+    const r = copyIntoRun([{ src: join(dest, "a.png"), destDir: link }], { allowedRoots: [dest], referencedElsewhere: new Set() });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.mapped.get(mapKey(join(dest, "a.png"), link))).toBe(join(link, "a.png"));
+  });
+
+  test("one source requested into two folders maps into each", () => {
+    const shot = put("shot.png");
+    const other = join(base, "run", "evidence", "second");
+    const r = copyIntoRun([{ src: shot, destDir: dest }, { src: shot, destDir: other }], opts());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.mapped.get(mapKey(shot, dest))).toBe(join(dest, "shot.png"));
+    expect(r.mapped.get(mapKey(shot, other))).toBe(join(other, "shot.png"));
   });
 });
 

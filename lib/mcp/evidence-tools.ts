@@ -13,7 +13,7 @@ import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
-import { allowedSourceRoots, bundleStem, copyIntoRun, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
+import { allowedSourceRoots, bundleStem, copyIntoRun, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
 import { appendixProblem, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
@@ -225,8 +225,7 @@ function markRecaptures(current: RawRecord, merge: MergeInput, evidenceRoot: str
     const at = recorded.find((a) => a.case === e.case && a.slot === e.slot && a.theme === e.theme)?.image.path;
     if (at === undefined) return { ...e, recapture: true };
     const real = realOr(e.path);
-    const destDir = join(evidenceRoot, e.case);
-    const landing = dirname(real) === realOr(destDir) ? real : join(destDir, basename(real));
+    const landing = join(evidenceRoot, e.case, basename(real));
     const unchanged = (real === realOr(at) || landing === at) && sameBytes(real, at);
     return { ...e, recapture: !unchanged };
   });
@@ -247,15 +246,16 @@ function copyRequests(merge: MergeInput, evidenceRoot: string): CopyRequest[] {
   return out;
 }
 
-function remap(merge: MergeInput, mapped: Map<string, string>): MergeInput {
-  const to = (p: string | undefined) => (p === undefined ? undefined : mapped.get(p) ?? p);
+function remap(merge: MergeInput, mapped: Map<string, string>, evidenceRoot: string): MergeInput {
+  const to = (p: string, destDir: string) => mapped.get(mapKey(p, destDir)) ?? p;
   const images = (merge.images ?? []).map((e) => {
     const next: ImageInput = { ...e };
-    if (e.path !== undefined) next.path = to(e.path);
-    if (e.annotated !== undefined) next.annotated = to(e.annotated);
+    const destDir = join(evidenceRoot, e.case);
+    if (e.path !== undefined) next.path = to(e.path, destDir);
+    if (e.annotated !== undefined) next.annotated = to(e.annotated, destDir);
     return next;
   });
-  return { ...merge, images, ...(merge.transcript !== undefined && { transcript: to(merge.transcript) }) };
+  return { ...merge, images, ...(merge.transcript !== undefined && { transcript: to(merge.transcript, evidenceRoot) }) };
 }
 
 async function readField(deps: EvidenceToolDeps, runDb: string, key: string, env: NodeJS.ProcessEnv): Promise<{ ok: true; value: string | null } | { ok: false; error: string }> {
@@ -330,7 +330,7 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   if (!copy.ok) return err(copy.error);
   const copied: CopyResult[] = [...new Map(copy.copied.map((c) => [c.to, c])).values()];
 
-  const merged = mergeRecord(current, remap(merge, copy.mapped));
+  const merged = mergeRecord(current, remap(merge, copy.mapped, evidenceRoot));
   if (!merged.ok) return err(`${merged.error} (the files were copied: ${copied.map((c) => c.to).join(", ") || "none"})`);
   const serialized = serializeRecord(merged.record);
   if (!serialized.ok) return err(serialized.error);

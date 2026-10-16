@@ -309,6 +309,19 @@ describe("evidence_record", () => {
     expect(after.light.caption).toBe("x");
   });
 
+  test("one source used by two cases points each case into its own folder", async () => {
+    const shot = put("shared.png");
+    const { deps, fields } = makeDeps();
+    const res = await tool(deps, "evidence_record").handler({
+      runDb, stage: "verify",
+      images: [{ case: "one", label: "One", slot: "before", path: shot, waiver: "w" }, { case: "two", label: "Two", slot: "before", path: shot, waiver: "w" }],
+    }, env);
+    expect((res.body as { written: boolean }).written).toBe(true);
+    const cases = JSON.parse(fields.get("evidence")!).cases;
+    expect(cases[0].before.path).toBe(join(evidenceDir("one"), "shared.png"));
+    expect(cases[1].before.path).toBe(join(evidenceDir("two"), "shared.png"));
+  });
+
   test("a fieldSet refusal comes back verbatim", async () => {
     const shot = put("a.png");
     const refusal = 'evidence@2: case "a" has no annotated image and no waiver; annotate it or add a waiver with a reason';
