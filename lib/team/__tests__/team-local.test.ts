@@ -129,3 +129,11 @@ describe("trialBranch", () => {
     expect(readTeamLocal(bad, SLUG).trialBranch).toBeUndefined();
   });
 });
+
+test("forgeAccess round-trips, and a malformed one reads as absent", () => {
+  const p = fakeProbes({ home: "/h" });
+  writeTeamLocal(p, "acme", { createdByRt: false, joinedByRt: false, rtMayManageMembership: true, forgeAccess: { fingerprint: "abc", manualSteps: ["Open x"] } });
+  expect(readTeamLocal(p, "acme").forgeAccess).toEqual({ fingerprint: "abc", manualSteps: ["Open x"] });
+  p.writeFile(teamLocalPath("/h", "acme"), JSON.stringify({ forgeAccess: { fingerprint: 7, manualSteps: "x" } }));
+  expect(readTeamLocal(p, "acme").forgeAccess).toBeUndefined();
+});

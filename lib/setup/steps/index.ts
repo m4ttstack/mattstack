@@ -9,6 +9,7 @@ import { installShims } from "../../endpoint/shim.ts";
 import { homeInitStep, homeRestoreStep } from "./home.ts";
 import { orgFolderStep } from "./org-folder.ts";
 import { orgPullStep, teamIdentityStep } from "./org.ts";
+import { orgForgeAccessStep } from "./org-forge-access.ts";
 import { teamCreateStep, teamJoinStep } from "./team.ts";
 import { secretsWriteStep } from "./secrets.ts";
 import { gitIdentityStep } from "./git-identity.ts";
@@ -59,6 +60,7 @@ export const STEPS: StepDef[] = [
   orgFolderStep,
   orgPullStep,
   teamIdentityStep,
+  orgForgeAccessStep,
   secretsWriteStep,
   gitIdentityStep,
   pathLinkStep,

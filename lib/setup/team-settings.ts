@@ -96,6 +96,14 @@ export function discoverOrgs(p: Probes): string[] {
   return p.readDir(dir).filter((name) => p.exists(join(dir, name, "mattstack", "org", "settings.org.jsonc")));
 }
 
+export function cloneSlugs(p: Pick<Probes, "readDir" | "exists" | "home">): string[] {
+  const orgsRoot = orgsDirUnder(p.home);
+  return p
+    .readDir(orgsRoot)
+    .filter((name) => p.exists(join(orgsRoot, name, ".git", "config")))
+    .sort();
+}
+
 /** The forge an unconverted clone's own store declares. Its org layer is not readable yet, so the snapshot has none. */
 export function legacyDeclaredForge(p: Pick<Probes, "home" | "readFile">, slug: string): TeamIntegrations["forge"] | null {
   const file = join(orgDirUnder(p.home, slug), "mattstack", "settings.team.jsonc");

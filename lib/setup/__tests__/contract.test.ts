@@ -92,6 +92,7 @@ describe("STEP_IDS", () => {
       "org.folder",
       "org.pull",
       "team.identity",
+      "org.forge-access",
       "secrets.write",
       "git.identity",
       "path.link",

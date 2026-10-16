@@ -3,6 +3,8 @@ import { join } from "path";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
+import { ORG_MARKER_REL } from "../../lib/team/org-marker.ts";
+import { teamLocalPath } from "../../lib/team/team-local.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import type { SettingsReader } from "../../lib/setup/team-settings.ts";
 import * as ui from "../../lib/ui/out.ts";
@@ -30,12 +32,12 @@ function fakeRead(values: Record<string, unknown>): SettingsReader {
   return <T>(key: string): T | undefined => values[key] as T | undefined;
 }
 
-function clonedDeps(overrides: { exec?: TeamDeps["probes"]["exec"]; fetch?: TeamDeps["probes"]["fetch"]; read?: Record<string, unknown>; gitConfig?: string } = {}): TeamDeps & { lines: string[] } {
+function clonedDeps(overrides: { exec?: TeamDeps["probes"]["exec"]; fetch?: TeamDeps["probes"]["fetch"]; read?: Record<string, unknown>; gitConfig?: string; files?: Record<string, string> } = {}): TeamDeps & { lines: string[] } {
   return baseDeps({
     probes: fakeProbes({
       home: HOME,
       dirs: { [TEAM_DIR]: [] },
-      files: { [join(TEAM_DIR, ".git", "config")]: overrides.gitConfig ?? GIT_CONFIG },
+      files: { [join(TEAM_DIR, ".git", "config")]: overrides.gitConfig ?? GIT_CONFIG, ...overrides.files },
       exec: overrides.exec,
       fetch: overrides.fetch,
     }),
@@ -255,6 +257,40 @@ describe("teamStatus", () => {
     } finally {
       io.restore();
     }
+  });
+
+  describe("on an org with a data branch", () => {
+    const MARKER = { [join(TEAM_DIR, ORG_MARKER_REL)]: JSON.stringify({ role: "org", org: SLUG, layout: 4, dataBranch: "mattstack" }) };
+    async function humanStatus(checkedOut: string, files: Record<string, string> = {}): Promise<string> {
+      const deps = clonedDeps({
+        files: { ...MARKER, ...files },
+        exec: async (argv) => (argv.includes("symbolic-ref") ? { code: 0, stdout: `${checkedOut}\n`, stderr: "" } : { code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }),
+      });
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      try {
+        await teamStatus(["--team", SLUG], {}, deps);
+        return io.stdout();
+      } finally {
+        io.restore();
+      }
+    }
+
+    test("the data branch shows no branch line", async () => {
+      expect(await humanStatus("mattstack")).not.toContain("branch:");
+    });
+
+    test("a recorded trial branch shows as a trial, not as off the org's branch", async () => {
+      const stdout = await humanStatus("try-roles", { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ trialBranch: "try-roles" }) });
+      expect(stdout).toContain("branch: try-roles");
+      expect(stdout).toContain("a trial; the org's data is on mattstack");
+      expect(stdout).not.toContain("not ");
+    });
+
+    test("any other branch is flagged against the data branch", async () => {
+      const stdout = await humanStatus("stray");
+      expect(stdout).toContain("this Mac reads and publishes this branch, not mattstack");
+    });
   });
 
   test("a clone on main shows no branch line", async () => {

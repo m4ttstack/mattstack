@@ -21,14 +21,14 @@ interface ParsedForgeRemote {
   path: string;
 }
 
-function parseForgeRemote(remote: string): ParsedForgeRemote | null {
+export function parseForgeRemote(remote: string): ParsedForgeRemote | null {
   const forge = forgeFromRemote(remote);
   const parsed = parseRemoteUrl(remote);
   if (!forge || !parsed) return null;
   return { provider: forge.provider, host: forge.host, path: parsed.projectPath };
 }
 
-function splitOwnerRepo(path: string): { owner: string; repo: string } {
+export function splitOwnerRepo(path: string): { owner: string; repo: string } {
   const [owner, ...rest] = path.split("/");
   return { owner: owner ?? "", repo: rest.join("/") };
 }
@@ -38,10 +38,10 @@ export function glabEnv(host: string): Record<string, string> | undefined {
   return host === "gitlab.com" ? undefined : { GITLAB_HOST: host };
 }
 
-type FailureReason = "not-installed" | "not-authenticated" | "org-policy" | "unknown-handle" | "insufficient-permission" | "other";
+export type FailureReason = "not-installed" | "not-authenticated" | "org-policy" | "unknown-handle" | "insufficient-permission" | "other";
 
 /** Coarse, honest classification of a failed `gh`/`glab` call from its exit code and stderr shape — the CLIs don't expose a structured error, so this is pattern matching, not certainty; anything unrecognized stays "other" rather than being forced into a wrong bucket. */
-function classifyExecFailure(result: Pick<ExecResult, "code" | "stdout" | "stderr">): FailureReason {
+export function classifyExecFailure(result: Pick<ExecResult, "code" | "stdout" | "stderr">): FailureReason {
   if (result.code === 127) return "not-installed";
   const text = `${result.stdout}\n${result.stderr}`;
   if (/not logged in|HTTP 401|401 Unauthorized/i.test(text)) return "not-authenticated";
@@ -107,10 +107,12 @@ export function membershipSteps(remote: string, handle: string): string[] {
   return gitlabBaseSteps(parsed.host, parsed.path, handle, "Invite");
 }
 
-type GitlabUserLookup = { id: number } | { id: null; reason: FailureReason };
+export const FORGE_API_TIMEOUT_MS = 20_000;
 
-async function lookupGitlabUserId(p: Probes, host: string, handle: string, token: string | null | undefined): Promise<GitlabUserLookup> {
-  const result = await p.exec([...forgeArgv(p, "glab"), "api", `users?username=${encodeURIComponent(handle)}`], { env: forgeAuthEnv("gitlab", host, token) });
+export type GitlabUserLookup = { id: number } | { id: null; reason: FailureReason };
+
+export async function lookupGitlabUserId(p: Probes, host: string, handle: string, token: string | null | undefined): Promise<GitlabUserLookup> {
+  const result = await p.exec([...forgeArgv(p, "glab"), "api", `users?username=${encodeURIComponent(handle)}`], { env: forgeAuthEnv("gitlab", host, token), timeoutMs: FORGE_API_TIMEOUT_MS });
   if (result.code !== 0) return { id: null, reason: classifyExecFailure(result) };
   try {
     const parsed: unknown = JSON.parse(result.stdout);
@@ -205,7 +207,7 @@ export function forgeArgv(p: Probes, name: "gh" | "glab", bundled: typeof bundle
  * The CLI's own token variable, so a machine whose gh/glab was never logged
  * in still acts with the token rt holds. Env only: never argv, never a URL.
  */
-function forgeAuthEnv(provider: "github" | "gitlab", host: string, token: string | null | undefined): Record<string, string> | undefined {
+export function forgeAuthEnv(provider: "github" | "gitlab", host: string, token: string | null | undefined): Record<string, string> | undefined {
   const base = provider === "gitlab" ? glabEnv(host) : undefined;
   if (!token) return base;
   return { ...base, ...(provider === "github" ? { GH_TOKEN: token } : { GITLAB_TOKEN: token }) };

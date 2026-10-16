@@ -7,6 +7,7 @@ const UPDATE_SAFE: StepId[] = [
   "org.folder",
   "org.pull",
   "team.identity",
+  "org.forge-access",
   "path.link",
   "settings.seed",
   "skills.materialize",

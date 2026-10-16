@@ -570,7 +570,7 @@ describe("membersRemove", () => {
     return `[remote "origin"]\n\turl = ${remote}\n`;
   }
 
-  // MAT-387: removal FAILS OPEN — the person keeps repo access when rt is not
+  // Removal fails open: the person keeps repo access when rt is not
   // permitted to revoke it. Silence there would read as "removed" while they
   // could still clone, so the warning is the point of these two tests.
   test("without the membership permission: never calls the forge, and says they still have access", async () => {
@@ -594,7 +594,8 @@ describe("membersRemove", () => {
 
     expect(revokeCalls).toEqual([]);
     expect(result.forgeAccess).toBe("skipped");
-    expect(result.manualSteps.join(" ")).toContain("can still see the team repo");
+    expect(result.manualSteps.join(" ")).toContain("can still see the org's repo");
+    expect(result.manualSteps.join(" ")).toContain(`rt team manage-membership on --team ${SLUG}`);
     expect(result.manualSteps[0]).toStartWith("alice ");
     // The rest of the removal still happens — declining to administer someone
     // else's repo must not leave the member half-removed locally.
@@ -602,31 +603,27 @@ describe("membersRemove", () => {
     expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
   });
 
-  // Mirrors the mint side's own regression test (MAT-387): the permission
-  // alone must not be enough on a repo rt did not create, since the record
-  // is a file a human can hand-edit.
-  test("the permission alone, without createdByRt, still never calls the forge", async () => {
+  test("the latch alone revokes, on any org repo", async () => {
     const remote = "git@github.com:acme/widgets.git";
     const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "orgs", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
     const { execSeam, secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
     execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
 
-    const revokeCalls: unknown[] = [];
+    const revokeCalls: string[] = [];
     const { seams } = fakeMembersSeams({
       readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }),
       readTeamLocal: () => ({ createdByRt: false, joinedByRt: false, rtMayManageMembership: true }),
-      revokeRead: async (...args) => {
-        revokeCalls.push(args);
+      revokeRead: async (_p, _remote, handle) => {
+        revokeCalls.push(handle);
         return { access: "revoked", manualSteps: [] };
       },
     });
 
     const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
 
-    expect(revokeCalls).toEqual([]);
-    expect(result.forgeAccess).toBe("skipped");
-    expect(result.manualSteps.join(" ")).toContain("can still see the team repo");
+    expect(revokeCalls).toEqual(["alice"]);
+    expect(result.forgeAccess).toBe("revoked");
   });
 
   test("without the permission, the key recorded on mattstack.roster is still revoked and the row removed", async () => {

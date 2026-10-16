@@ -11,10 +11,9 @@ import { publishTeam } from "./publish.ts";
  * client-generated id, stored on the relay as ciphertext only, and handed
  * back as a short paste-able code.
  *
- * It does NOT grant the invitee access to the team's repo. Membership is a
- * precondition administered by whoever owns that repo (MAT-387); rt touches it
- * only when the operator has explicitly granted `rtMayManageMembership` for
- * this team, which defaults to off.
+ * It does NOT grant the invitee access to the team's repo unless the operator
+ * has granted `rtMayManageMembership` for this org on this Mac, which defaults
+ * to off.
  */
 
 import { createRealAgeKeySeam } from "../home/age-key.ts";
@@ -292,10 +291,8 @@ function assertValidHandle(handle: string): void {
 }
 
 /**
- * rt administers membership only where it created the repo AND the operator
- * granted the permission (MAT-387). Both, not either: the record is a file, so
- * requiring only the permission would let a hand-edited flag act on a repo rt
- * was merely pointed at.
+ * rt grants forge access only where the operator turned on
+ * `rtMayManageMembership` for this org on this Mac (`rt team manage-membership`).
  */
 async function resolveForgeAccess(
   p: Probes,
@@ -305,27 +302,10 @@ async function resolveForgeAccess(
   handle: string,
   token: string | null,
 ): Promise<{ access: ForgeAccess; manualSteps: string[] }> {
-  const local = seams.readTeamLocal(p, slug);
-  if (local.createdByRt && local.rtMayManageMembership) {
-    return seams.grantRead(p, remote, handle, token);
-  }
-  if (local.createdByRt) {
-    return {
-      access: "skipped",
-      manualSteps: [
-        `Let mattstack give ${handle} access, then invite them again: rt team manage-membership on --team ${slug}`,
-        ...membershipSteps(remote, handle),
-      ],
-    };
-  }
-  // The admin sentence is appended here, never returned by membershipSteps,
-  // so a remote that cannot be parsed still leaves the reader one true line.
+  if (seams.readTeamLocal(p, slug).rtMayManageMembership) return seams.grantRead(p, remote, handle, token);
   return {
     access: "skipped",
-    manualSteps: [
-      ...membershipSteps(remote, handle),
-      `Ask whoever runs the team repo to give ${handle} read access. mattstack did not create it, so they decide.`,
-    ],
+    manualSteps: [`Let mattstack give ${handle} access, then invite them again: rt team manage-membership on --team ${slug}`, ...membershipSteps(remote, handle)],
   };
 }
 

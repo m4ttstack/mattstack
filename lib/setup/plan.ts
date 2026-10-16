@@ -28,6 +28,7 @@ import { adminSecretsRowSafe } from "./validators/admin-secrets.ts";
 import { macRows } from "./validators/mac.ts";
 import { repoRootRow } from "./validators/repo-root.ts";
 import { orgRows } from "./validators/org.ts";
+import { forgeAccessRow } from "./validators/org-forge-access.ts";
 import { readTeamSnapshotStatus, rtHealthRows } from "./validators/rt-health.ts";
 import { INSTALLED_BY_INSTALL_NOTE, toolRows } from "./validators/tools.ts";
 
@@ -181,6 +182,7 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
       const org = i.orgs.includes(team.slug) ? await orgRows(i.p, team.slug, {
         forge: snapshot.integrations.forge ?? (snapshot.remote ? forgeFromRemote(snapshot.remote) : null),
         readStatus: () => readTeamSnapshotStatus(i.p),
+        forgeAccess: () => forgeAccessRow(i.p, team.slug),
       }) : [];
       const adminSecrets = i.orgs.includes(team.slug) ? await adminSecretsRowSafe(i.p, team.slug, i.secrets) : null;
       return [...accounts, ...org, ...(adminSecrets ? [adminSecrets] : [])];

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { fakeProbes, ok, missing } from "../../setup/__tests__/fakes.ts";
-import { grantRead, revokeRead, forgeLogin, forgeProfile, forgeArgv, membershipSteps } from "../forge.ts";
+import { FORGE_API_TIMEOUT_MS, grantRead, lookupGitlabUserId, revokeRead, forgeLogin, forgeProfile, forgeArgv, membershipSteps } from "../forge.ts";
 import type { ExecScript } from "../../setup/__tests__/fakes.ts";
 
 const GITHUB_REMOTE = "git@github.com:acme/widgets.git";
@@ -446,5 +446,19 @@ describe("membershipSteps", () => {
 
   test("a remote it cannot parse yields no steps, never a guessed URL", () => {
     expect(membershipSteps("not-a-remote", "octocat")).toEqual([]);
+  });
+});
+
+describe("lookupGitlabUserId", () => {
+  test("caps the lookup at the forge API timeout, so a hung glab cannot hold the daemon's sweep", async () => {
+    const seen: unknown[] = [];
+    const p = fakeProbes({
+      exec: async (_argv, opts) => {
+        seen.push(opts);
+        return { code: 0, stdout: JSON.stringify([{ id: 7 }]), stderr: "" };
+      },
+    });
+    expect(await lookupGitlabUserId(p, "gitlab.com", "dev1", "t")).toEqual({ id: 7 });
+    expect(seen).toEqual([expect.objectContaining({ timeoutMs: FORGE_API_TIMEOUT_MS })]);
   });
 });

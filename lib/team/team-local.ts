@@ -16,14 +16,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 
 export interface TeamLocalRecord {
-  /**
-   * rt created this team's remote itself (`gh repo create`), rather than being
-   * pointed at one that already existed.
-   *
-   * Confers no rights. It only decides whether the membership permission is
-   * OFFERED, so rt never asks "shall I manage membership on
-   * <someone-else's-repo>?" — a question that should not be answerable yes.
-   */
+  /** rt created this org's remote itself (`gh repo create`). Provenance only: it confers nothing. */
   createdByRt: boolean;
   /**
    * This machine's clone arrived by redeeming an invite. Provenance, like
@@ -33,13 +26,7 @@ export interface TeamLocalRecord {
    * pushing rather than silently going inert.
    */
   joinedByRt: boolean;
-  /**
-   * The operator has asked rt to add and remove people on this team's remote
-   * when teammates are added or removed.
-   *
-   * Absent means false: a permission that was never granted is not held. Every
-   * team that predates this file is therefore off, with no migration.
-   */
+  /** The operator has asked rt to manage this org's forge access from this Mac: it grants the repo access each role needs and keeps the data branch's push list, following the org's roles (`lib/team/forge-access-apply.ts`). It never lowers anyone's repo access. Absent means false: a permission that was never granted is not held. */
   rtMayManageMembership: boolean;
   /**
    * The age recipient this machine sent the owner when it redeemed its
@@ -63,6 +50,15 @@ export interface TeamLocalRecord {
   movedFrom?: string;
   /** A branch other than the data branch this Mac chose to publish from; the daemon auto-commits there too. */
   trialBranch?: string;
+  /** The last forge access apply on this Mac. */
+  forgeAccess?: ForgeAccessRecord;
+}
+
+export interface ForgeAccessRecord {
+  /** The wanted access rt last applied (`fingerprintOf`); the daemon applies again when the org's roles or roster move it. */
+  fingerprint: string;
+  /** What the forge refused at the last apply, as the steps to do by hand. */
+  manualSteps: string[];
 }
 
 export interface PendingPackShare {
@@ -74,6 +70,13 @@ function pendingPackShares(raw: unknown): PendingPackShare[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((entry): entry is PendingPackShare =>
     typeof entry?.pack === "string" && Array.isArray(entry.paths) && entry.paths.length > 0 && entry.paths.every((path: unknown) => typeof path === "string"));
+}
+
+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === "string");
+
+function isForgeAccessRecord(v: unknown): v is ForgeAccessRecord {
+  const r = v as Partial<ForgeAccessRecord> | null | undefined;
+  return typeof r?.fingerprint === "string" && isStrings(r.manualSteps);
 }
 
 const RECORD_MODE = 0o600;
@@ -102,6 +105,7 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       ...(typeof parsed.forgeUsername === "string" && parsed.forgeUsername.trim() !== "" ? { forgeUsername: parsed.forgeUsername.trim() } : {}),
       ...(typeof parsed.trialBranch === "string" && parsed.trialBranch !== "" ? { trialBranch: parsed.trialBranch } : {}),
       ...(typeof parsed.movedFrom === "string" && parsed.movedFrom !== "" ? { movedFrom: parsed.movedFrom } : {}),
+      ...(isForgeAccessRecord(parsed.forgeAccess) ? { forgeAccess: parsed.forgeAccess } : {}),
       ...(pendingPackShares(parsed.pendingPackShares).length > 0 ? { pendingPackShares: pendingPackShares(parsed.pendingPackShares) } : {}),
     };
   } catch {
