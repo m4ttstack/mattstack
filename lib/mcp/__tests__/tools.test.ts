@@ -931,6 +931,16 @@ describe("mcpTools", () => {
       return calls;
     }
 
+    test("batch mr_upload refuses a label that resolves to a github.com repo, before the daemon", async () => {
+      setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fghapp", "/repos/ghapp");
+      const calls = fakeDaemon();
+      const tool = mcpTools().find((t) => t.name === "mr_upload")!;
+      const res = await tool.handler({ repoName: "ghapp", paths: ["/tmp/a.png"] }, {} as NodeJS.ProcessEnv);
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("GitLab only: mr_upload does not speak GitHub");
+      expect(calls).toEqual([]);
+    });
+
     test("a repo label resolves to the registered identity before the daemon call", async () => {
       setKvValue(REPO_INDEX_NS, APP, "/repos/app");
       const calls = fakeDaemon();

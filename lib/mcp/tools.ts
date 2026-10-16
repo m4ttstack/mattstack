@@ -610,6 +610,8 @@ export function mcpTools(): McpToolDef[] {
           if (early) return err(early);
           const batchTarget = await resolveRepoTarget(input);
           if (!batchTarget.ok) return err(batchTarget.error);
+          const resolvedGithub = githubRefusal(batchTarget.identity, "mr_upload", MR_UPLOAD_GH_MOVE);
+          if (resolvedGithub) return err(resolvedGithub);
           const results = await uploadEach({ ...realEvidenceToolDeps, command: rtCommand }, {
             identity: batchTarget.identity,
             paths: paths as string[],
