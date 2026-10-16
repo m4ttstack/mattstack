@@ -3,9 +3,9 @@
  * wrote the change (the board, the console, a CLI verb). The comparison is a
  * local read; the forge is asked only when the wanted access moved since this
  * Mac last applied it. The same run re-encrypts the admin-only secrets for the
- * new owners and admins (plan 4's followRosterChange). A run the forge refused,
- * or one that kept people off the push list, comes back after
- * FORGE_ACCESS_RETRY_MS, whether or not the wanted access moved meanwhile.
+ * new owners and admins. A run the forge refused, or one that kept people off
+ * the push list, comes back after FORGE_ACCESS_RETRY_MS, whether or not the
+ * wanted access moved meanwhile.
  */
 
 import type { Logger } from "pino";

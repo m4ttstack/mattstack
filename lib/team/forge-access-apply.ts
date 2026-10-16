@@ -13,6 +13,7 @@ import { orgDirUnder } from "../rt-paths.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { parseStoreText } from "../settings/stores.ts";
 import type { Probes } from "../setup/probes.ts";
+import { followRosterChange } from "./admin-secrets.ts";
 import { parseForgeRemote, splitOwnerRepo } from "./forge.ts";
 import type { OrgForgeAccess, PushList } from "./forge-access.ts";
 import { githubForgeAccess } from "./forge-access-github.ts";
@@ -67,11 +68,8 @@ export interface AdminFollow {
   failure: string | null;
 }
 
-/** Plan 4's `followRosterChange` (lib/team/admin-secrets.ts), by its exact signature; never throws. */
+/** `followRosterChange`'s signature; never throws. */
 export type FollowRosterChange = (p: Pick<Probes, "readFile" | "home">, slug: string, orgStore: Record<string, unknown>, secrets: SecretsSeams) => Promise<AdminFollow>;
-
-// Stands in until plan 4 merges; the import of lib/team/admin-secrets.ts replaces it.
-const followRosterChange: FollowRosterChange = async () => ({ reencrypted: [], failure: null });
 
 const SHARED_BRANCH_NAMES = new Set(["main", "master"]);
 
@@ -96,15 +94,16 @@ type DataBranch = { kind: "none" } | { kind: "trial"; branch: string } | { kind:
 /**
  * The branch rt manages. "none" while the marker names no data branch: the
  * data then shares a branch with the rest of the repo, whose rules rt never
- * edits. "trial" while that branch is the trial this Mac recorded (plan 2's
- * `rt team branch use`): nothing happens until the Mac is back.
+ * edits. "trial" while this Mac sits on a trial branch (`rt team branch use`),
+ * whose roles may not be the org's yet: nothing happens until the Mac is back.
  */
 async function managedDataBranch(p: Probes, slug: string): Promise<DataBranch> {
   const dir = orgDirUnder(p.home, slug);
   const marker = markerState(p, dir);
   if (marker.kind !== "org" || marker.dataBranch === null) return { kind: "none" };
-  const branch = await dataBranchOf(p, dir);
-  return branch === readTeamLocal(p, slug).trialBranch ? { kind: "trial", branch } : { kind: "own", branch };
+  const trial = readTeamLocal(p, slug).trialBranch;
+  if (trial !== undefined) return { kind: "trial", branch: trial };
+  return { kind: "own", branch: await dataBranchOf(p, dir) };
 }
 
 export async function wantedFingerprint(p: Probes, slug: string): Promise<string | null> {
@@ -196,7 +195,9 @@ export async function applyForgeAccess(p: Probes, slug: string, seams: ForgeAcce
 /**
  * The step and the sweep come through here: after an apply that ran, when the
  * org's roles or roster moved since this Mac last applied them, the admin-only
- * secrets follow too (plan 4), so a promotion or demotion re-encrypts them.
+ * secrets follow too, so a promotion or demotion re-encrypts them. The
+ * follow runs only after an apply, which needs an admin and the latch, since
+ * `followRosterChange` refuses on a member's Mac.
  */
 export async function applyForgeAccessAndFollow(
   p: Probes,

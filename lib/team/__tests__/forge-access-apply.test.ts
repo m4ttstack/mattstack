@@ -75,6 +75,12 @@ for (const provider of ["github", "gitlab"] as const) {
       expect(await wantedFingerprint(p, "acme")).toBeNull();
     });
 
+    test("a trial branch made from the data branch, whose marker still names the data branch, waits too", async () => {
+      const { p, forge, seams } = setup(provider, { users: USERS, members: MEMBERS }, { local: { trialBranch: "try-roles" } });
+      expect((await applyForgeAccess(p, "acme", seams)).report).toEqual({ kind: "trial", branch: "try-roles" });
+      expect(forge.writes).toEqual([]);
+    });
+
     test("the report names who to raise and put on the push list, and lowers no one", async () => {
       const { p, seams } = setup(provider, { users: USERS, members: MEMBERS });
       const report = await readForgeAccess(p, "acme", seams);

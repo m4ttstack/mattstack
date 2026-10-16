@@ -3,7 +3,7 @@
  * update run, on a Mac whose role runs the org and whose operator turned on
  * `rtMayManageMembership`. Update-safe: it only adds access and sets the data
  * branch's push list, never lowering anyone, and a second run changes
- * nothing. When the roles moved, the admin-only secrets follow (plan 4).
+ * nothing. When the roles moved, the admin-only secrets follow.
  */
 
 import { isOrgAdmin } from "../../../packages/rt-client/src/settings/org-roles.ts";
