@@ -124,6 +124,7 @@ function world(): World {
     git: {
       "symbolic-ref --quiet HEAD": gitOk("refs/heads/feat-x\n"),
       "rev-parse --abbrev-ref @{push}": gitOk("origin/feat-x\n"),
+      "rev-parse --verify HEAD": gitOk("0123abc\n"),
       "symbolic-ref --quiet refs/remotes/origin/HEAD": gitOk("refs/remotes/origin/main\n"),
       "ls-remote --symref --end-of-options origin HEAD": gitOk("ref: refs/heads/main\tHEAD\n"),
       "rev-parse --abbrev-ref --symbolic-full-name @{u}": gitOk("origin/feat-x\n"),
@@ -181,7 +182,7 @@ function fake(w: World): { deps: MrCompositeDeps; calls: Call[]; progress: numbe
       if (!q || q.length === 0) throw new Error(`unscripted git ${args.join(" ")}`);
       return q.length > 1 ? q.shift()! : q[0]!;
     },
-    guard: { repoIndex: () => ({ [ID]: "/w" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [] },
+    guard: { repoIndex: () => ({ [ID]: "/w" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false, ignoredBy: () => false },
     status: async () => { throw new Error("unexpected status"); },
     sleep: async () => {},
     resolveMr: async (input) => {
@@ -419,7 +420,7 @@ describe("push, when a fix row is picked", () => {
     const w = world();
     w.tree = "/elsewhere";
     const { error, calls } = await refused(w);
-    expect(error).toContain("tree must be the absolute path of the root of a checkout or worktree");
+    expect(error).toContain("is not in a checkout or worktree of a repo registered with rt");
     expect(outward(calls)).toEqual([]);
   });
 
