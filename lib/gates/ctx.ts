@@ -182,7 +182,8 @@ function findingsErrs(c: unknown, values: unknown[]): string[] {
 
 function skippedErrs(c: unknown, values: unknown[]): string[] {
   const list = entries(c, "skipped");
-  const restores = optionalIds(list).map((id) => `restore:${tostring(id)}`);
+  const ids = optionalIds(list);
+  const restores = ids.map((id) => `restore:${tostring(id)}`);
   return [
     ...chk(() => {
       const s = at(c, "skipped");
@@ -201,7 +202,7 @@ function skippedErrs(c: unknown, values: unknown[]): string[] {
       ),
     ]),
     ...values.filter((v) => !contains(restores, v)).map((v) => `option ${tostring(v)}: no skipped entry carries its value`),
-    ...duplicates(optionalIds(list)).map((id) => `skipped: id ${tostring(id)} appears more than once`),
+    ...duplicates(ids).map((id) => `skipped: id ${tostring(id)} appears more than once`),
   ];
 }
 
