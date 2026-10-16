@@ -27,7 +27,7 @@
 
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
-import { applyEdits, modify } from "jsonc-parser";
+import { applyEdits, findNodeAtLocation, getNodeValue, modify, parseTree } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
@@ -65,7 +65,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
-import { defaultPipeline, effectiveSlotBindings, PIPELINE_NAME_RE, type BindingsMap } from "../lib/skills/pipelines.ts";
+import { defaultPipeline, effectiveSlotBindings, PIPELINE_NAME_RE, pipelineBindingKey, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -1771,15 +1771,22 @@ type CompositionVerb = {
   slots: CompositionSlot[];
   includes: string[];
   engineError?: string;
+  /** The pipeline a work verb runs, when its stub names one. */
+  pipeline?: string;
 };
 
 type CompositionBinderKind = "verb" | "stage" | "skill" | "external";
+type CompositionBinderOverride = { pipeline: string; boundTo: string; layer: string | null };
 type CompositionBinder = {
   ref: string;
   verb: string | null;
   kind: CompositionBinderKind;
-  /** `layer` names the bindings layer that set the slot, as a verb slot's does. */
-  slots: ({ name: string; boundTo: string; layer: string | null } & OriginFields)[];
+  /**
+   * `layer` names the bindings layer that set the slot, as a verb slot's does.
+   * `boundTo` is "" when only pipeline overrides bind the slot; `overrides` is
+   * present only when a pipeline overrides it.
+   */
+  slots: ({ name: string; boundTo: string; layer: string | null; overrides?: CompositionBinderOverride[] } & OriginFields)[];
 };
 
 type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean } & OriginFields;
@@ -1795,6 +1802,9 @@ type CompositionTarget = {
   /** The slots the template declares, so a stage's slots are known without a roster entry. */
   slots: { name: string; contract: string; required: boolean }[];
   engineError: string | null;
+  /** A stage copy's own stage and the pipeline it was compiled for; absent on every other target. */
+  engine?: string;
+  pipeline?: string;
 };
 
 export type CompositionPayload = {
@@ -1837,6 +1847,7 @@ export type CompositionPayload = {
 function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<string> | null): CompositionVerb {
   const isPublic = !publicSet || publicSet.has(verb.name);
   const artifactPath = outDirFor(resolved.packDir, verb.name, isPublic);
+  const pipelineField = verb.pipeline === undefined ? {} : { pipeline: verb.pipeline };
 
   let step;
   try {
@@ -1854,6 +1865,7 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
       slots: [],
       includes: [],
       engineError: (err as Error).message,
+      ...pipelineField,
     };
   }
 
@@ -1920,6 +1932,7 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
     artifactPath,
     slots,
     includes: includeNames([step.body, ...fillBodies]),
+    ...pipelineField,
   };
 }
 
@@ -1929,7 +1942,8 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
  * binding keys intersect on a minority -- the rest are pipeline stages,
  * cross-plugin keys (e.g. board:review), and mattstack skills that bind
  * fills without being a roster verb or a pipeline stage. binders[] inverts
- * every key in Resolved.bindings instead, so an inverse index built from it
+ * every key in Resolved.bindings and every pipeline override's key instead,
+ * so an inverse index built from it
  * (rather than from verbs[]) doesn't render genuinely-bound fills as
  * orphaned.
  *
@@ -1948,7 +1962,11 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
   const verbByEngineRef = new Map<string, string>();
   for (const verb of resolved.fullRoster) verbByEngineRef.set(`mattstack:${verb.engine}`, verb.name);
 
-  return Object.entries(resolved.bindings).map(([ref, slotBindings]) => {
+  const overridesByPipeline = Object.entries(resolved.pipelineBindings);
+  const refs = new Set(Object.keys(resolved.bindings));
+  for (const [, overrides] of overridesByPipeline) for (const ref of Object.keys(overrides)) refs.add(ref);
+
+  return [...refs].map((ref) => {
     const verbName = verbByEngineRef.get(ref) ?? null;
     const kind: CompositionBinderKind = verbName
       ? "verb"
@@ -1957,16 +1975,28 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
         : ref.startsWith("mattstack:")
           ? "skill"
           : "external";
+    const defaults = Object.hasOwn(resolved.bindings, ref) ? resolved.bindings[ref]! : {};
+    const slotOverrides = (name: string): CompositionBinderOverride[] =>
+      overridesByPipeline.flatMap(([pipeline, overrides]) => {
+        const slots = Object.hasOwn(overrides, ref) ? overrides[ref]! : {};
+        if (!Object.hasOwn(slots, name)) return [];
+        return [{ pipeline, boundTo: slots[name]!, layer: resolved.provenance[pipelineBindingKey(pipeline, ref, name)] ?? null }];
+      });
+    const slotNames = new Set(Object.keys(defaults));
+    for (const [, overrides] of overridesByPipeline) {
+      if (Object.hasOwn(overrides, ref)) for (const name of Object.keys(overrides[ref]!)) slotNames.add(name);
+    }
     return {
       ref,
       verb: verbName,
       kind,
-      slots: Object.entries(slotBindings).map(([name, boundTo]) => ({
-        name,
-        boundTo,
-        layer: resolved.provenance[`${ref} ${name}`] ?? null,
-        ...bindingOrigin(resolved.pluginRoots, boundTo),
-      })),
+      slots: [...slotNames].map((name) => {
+        const overrides = slotOverrides(name);
+        const base = Object.hasOwn(defaults, name)
+          ? { name, boundTo: defaults[name]!, layer: resolved.provenance[`${ref} ${name}`] ?? null, ...bindingOrigin(resolved.pluginRoots, defaults[name]!) }
+          : { name, boundTo: "", layer: null };
+        return overrides.length > 0 ? { ...base, overrides } : base;
+      }),
     };
   });
 }
@@ -2013,6 +2043,7 @@ function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): Composi
         ? Object.entries(step.slots).map(([name, spec]) => ({ name, contract: spec.contract, required: spec.required ?? false }))
         : [],
       engineError,
+      ...(t.isStage && t.verb.pipeline !== undefined ? { engine: t.verb.engine, pipeline: t.verb.pipeline } : {}),
     };
   });
 }
@@ -2315,7 +2346,7 @@ export async function skillsChanges(args: string[]): Promise<void> {
       out.table([...fileRows("Pack files", payload.files), ...fileRows("Other files", outsideScope)], ["Status", "Path"]),
     ];
     if (payload.bindings.length > 0) {
-      blocks.push(out.table(payload.bindings.map((b) => [`${b.engineRef} ${b.slot}`, b.from ?? "(none)", b.to ?? "(none)"]), ["Binding", "Was", "Now"]));
+      blocks.push(out.table(payload.bindings.map((b) => [b.pipeline === undefined ? `${b.engineRef} ${b.slot}` : `${b.pipeline}: ${b.engineRef} ${b.slot}`, b.from ?? "(none)", b.to ?? "(none)"]), ["Binding", "Was", "Now"]));
     }
     if (payload.surface.length > 0) {
       blocks.push(out.table(payload.surface.map((c) => [c.skill, c.from, c.to]), ["Skill", "Was", "Now"]));
@@ -3085,6 +3116,7 @@ type BindFlags = {
   packDir: string | null;
   mattstackDir: string | null;
   json: boolean;
+  pipeline: string | null;
 };
 
 function parseBindFlags(args: string[]): BindFlags {
@@ -3095,6 +3127,7 @@ function parseBindFlags(args: string[]): BindFlags {
   let packDir: string | null = null;
   let mattstackDir: string | null = null;
   let json = false;
+  let pipeline: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -3107,12 +3140,13 @@ function parseBindFlags(args: string[]): BindFlags {
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;
       case "--json": json = true; break;
+      case "--pipeline": pipeline = requireFlagValue("--pipeline", args[++i]); break;
       default:
         throw new SkillsUsageError(`unrecognized argument "${a}"`);
     }
   }
 
-  return { team, manifest, repo, dryRun, packDir, mattstackDir, json };
+  return { team, manifest, repo, dryRun, packDir, mattstackDir, json, pipeline };
 }
 
 type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: string[] };
@@ -3124,9 +3158,9 @@ type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: 
  * skillsBind falls through to its existing error -- the non-TTY / --json paths
  * never call this and stay byte-for-byte unchanged.
  */
-/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
+/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir/--pipeline). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
 function separateBindArgs(args: string[]): { positionals: string[]; flagArgs: string[] } {
-  const valued = new Set(["--pack", "--team", "--manifest", "--repo", "--pack-dir", "--mattstack-dir"]);
+  const valued = new Set(["--pack", "--team", "--manifest", "--repo", "--pack-dir", "--mattstack-dir", "--pipeline"]);
   const positionals: string[] = [];
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -3172,7 +3206,7 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
       options.push({ value: v.name, label: v.name, hint: `verb  -> ${v.engine}` });
     }
     for (const s of resolved.stages) {
-      if (seen.has(s.name)) continue;
+      if (seen.has(s.name) || s.pipeline !== undefined) continue;
       options.push({ value: s.name, label: s.name, hint: `stage  -> ${s.engine}` });
     }
     if (options.length === 0) return null;
@@ -3244,13 +3278,24 @@ export async function applyBind(opts: {
   engineRef: string;
   slotName: string;
   fill: string;
+  pipeline: string | null;
   fixtureMode: boolean;
   materialize: () => Promise<RegenerateOutcome>;
 }): Promise<BindOutcome> {
-  const edit = (text: string) =>
-    applyEdits(text, modify(text, ["bindings", opts.engineRef, opts.slotName], opts.fill, {
-      formattingOptions: { insertSpaces: true, tabSize: 2 },
-    }));
+  const formattingOptions = { insertSpaces: true, tabSize: 2 };
+  const edit = (text: string) => {
+    if (opts.pipeline === null) {
+      return applyEdits(text, modify(text, ["bindings", opts.engineRef, opts.slotName], opts.fill, { formattingOptions }));
+    }
+    const pipelinePath = ["pipelines", opts.pipeline];
+    const root = parseTree(text);
+    const current = root ? findNodeAtLocation(root, pipelinePath) : undefined;
+    // A plain-list pipeline has no key for bindings; it becomes the object form first.
+    const objectForm = current?.type === "array"
+      ? applyEdits(text, modify(text, pipelinePath, { stages: getNodeValue(current) }, { formattingOptions }))
+      : text;
+    return applyEdits(objectForm, modify(objectForm, [...pipelinePath, "bindings", opts.engineRef, opts.slotName], opts.fill, { formattingOptions }));
+  };
   const writeManifestOnly = (): { fragmentUpdated: null; shadowedBy: null } => {
     writeFileSync(opts.manifestPath, edit(readFileSync(opts.manifestPath, "utf8")));
     return { fragmentUpdated: null, shadowedBy: null };
@@ -3283,11 +3328,15 @@ export async function applyBind(opts: {
     return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: false, regenerateDetail: regen.detail };
   }
 
-  if (readManifestBindings(opts.manifestPath)[opts.engineRef]?.[opts.slotName] === opts.fill) {
+  const landed = opts.pipeline === null
+    ? readManifestBindings(opts.manifestPath)[opts.engineRef]?.[opts.slotName]
+    : readManifestPipelineBindings(opts.manifestPath)[opts.pipeline]?.[opts.engineRef]?.[opts.slotName];
+  if (landed === opts.fill) {
     return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: true };
   }
   const provenance = readManifestProvenance(readFileSync(opts.manifestPath, "utf8"));
-  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[`${opts.engineRef} ${opts.slotName}`] ?? "another layer", regenerated: true };
+  const key = opts.pipeline === null ? `${opts.engineRef} ${opts.slotName}` : pipelineBindingKey(opts.pipeline, opts.engineRef, opts.slotName);
+  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[key] ?? "another layer", regenerated: true };
 }
 
 function samePath(a: string, b: string): boolean {
@@ -3349,7 +3398,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       }
     }
     if (!verbName || !slotName || !fill) {
-      throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>", usageFailure("Bind which verb, slot and fill?", "rt skills bind <verb> <slot> <fill>"));
+      throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>", usageFailure("Bind which verb, slot and fill?", "rt skills bind <verb> <slot> <fill> [--pipeline <name>]"));
     }
 
     const bindFlags = parseBindFlags(rest);
@@ -3366,11 +3415,18 @@ export async function skillsBind(args: string[]): Promise<void> {
       strict: false,
       bind: true,
     });
+    const pipeline = bindFlags.pipeline;
+    if (pipeline !== null && !Object.hasOwn(resolved.pipelines, pipeline)) {
+      throw new SkillsUsageError(`pipeline "${pipeline}" is not declared in this pack's manifest`);
+    }
 
     // Roster verb wins on a name collision -- resolve() lets compileTargets reject
     // that collision pack-wide, so bind's own tie-break only ever matters for --dry-run.
     const rosterVerb = resolved.fullRoster.find((v) => v.name === verbName);
     const verb = rosterVerb ?? resolved.stages.find((v) => v.name === verbName);
+    if (!rosterVerb && verb?.pipeline !== undefined) {
+      throw new SkillsUsageError(`${verbName} is a compiled copy; bind ${verb.engine} --pipeline ${verb.pipeline} instead`);
+    }
     if (!verb && resolved.base && resolved.fullRoster.length === 0) {
       const fragment = join(resolved.packDir, "pack", "skills.jsonc");
       throw new SkillsUsageError(
@@ -3395,6 +3451,11 @@ export async function skillsBind(args: string[]): Promise<void> {
       step = loadStepSource(verb.engine, resolved.pluginRoots);
     } catch (err) {
       throw new SkillsUsageError(`verb "${verbName}": ${(err as Error).message}`);
+    }
+
+    const engineRef = `${step.plugin}:${verb.engine}`;
+    if (pipeline !== null && !resolved.pipelines[pipeline]!.includes(engineRef)) {
+      throw new SkillsUsageError(`${verbName} is not a stage of pipeline "${pipeline}"`);
     }
 
     const slotSpec = step.slots[slotName];
@@ -3425,21 +3486,24 @@ export async function skillsBind(args: string[]): Promise<void> {
       throw new SkillsUsageError(`pack "${resolved.team}" has no manifest to bind into`);
     }
 
-    const engineRef = `${step.plugin}:${verb.engine}`;
-    const oldValue = resolved.bindings[engineRef]?.[slotName] ?? "(unbound)";
+    const oldValue = pipeline === null
+      ? resolved.bindings[engineRef]?.[slotName] ?? "(unbound)"
+      : effectiveSlotBindings(resolved.bindings, resolved.pipelineBindings[pipeline], engineRef)[slotName] || "(unbound)";
+    const pipelineField = pipeline === null ? {} : { pipeline };
+    const label = pipeline === null ? verbName : `${pipeline}: ${verbName}`;
     if (!bindFlags.dryRun) {
       try {
         refuseUnlessPackOwned(resolved.packDir);
       } catch (err) {
         if (!(err instanceof SkillsRefusal) || !bindFlags.json) throw err;
-        out.json({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated: null, shadowedBy: null, compileErrors: [err.message] });
+        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill, fragmentUpdated: null, shadowedBy: null, compileErrors: [err.message] });
         process.exit(2);
       }
     }
-    const bound = { verb: verbName, slot: slotName, from: oldValue, to: fill, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null };
+    const bound = { verb: label, slot: slotName, from: oldValue, to: fill, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null };
 
     if (bindFlags.dryRun) {
-      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, slot: slotName, from: oldValue, to: fill });
+      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill });
       else out.print(...bindBlocks(bound));
       return;
     }
@@ -3451,12 +3515,13 @@ export async function skillsBind(args: string[]): Promise<void> {
       engineRef,
       slotName,
       fill,
+      pipeline,
       fixtureMode: bindFlags.mattstackDir !== null,
       materialize: () => regeneratePackFile(manifestPath),
     });
     if (resolved.base) {
       if (bindFlags.json) {
-        out.json({ ok: true, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true });
+        out.json({ ok: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true });
         return;
       }
       out.print(...bindBlocks({ ...bound, basePack: resolved.team }));
@@ -3466,14 +3531,14 @@ export async function skillsBind(args: string[]): Promise<void> {
     if (regenerated === false) {
       process.exitCode = 1;
       if (bindFlags.json) {
-        out.json({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
+        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
         return;
       }
       out.print(...bindBlocks({ ...bound, fragmentUpdated }));
       out.fail({ title: "The bindings file was not rebuilt, so nothing was recompiled", ...(regenerateDetail ? { why: regenerateDetail } : {}), next: out.cmd("rt skills materialize") });
       return;
     }
-    if (shadowedBy) out.note(...shadowWarning(verbName, slotName, shadowedBy, manifestPath));
+    if (shadowedBy) out.note(...shadowWarning(label, slotName, shadowedBy, manifestPath));
 
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every
@@ -3496,6 +3561,7 @@ export async function skillsBind(args: string[]): Promise<void> {
         ok: compileResult.ok,
         verb: verbName,
         slot: slotName,
+        ...pipelineField,
         from: oldValue,
         to: fill,
         fragmentUpdated,

@@ -3346,6 +3346,60 @@ describe("skillsComposition --json", () => {
 
     expect(() => JSON.parse(io.lines().join("\n"))).not.toThrow();
   });
+
+  describe("compile-pipelines", () => {
+    const PIPELINES_FIX = join(import.meta.dir, "..", "..", "lib", "skills", "__tests__", "fixtures", "compile-pipelines");
+    const REAL_ATTACHMENTS = join(import.meta.dir, "..", "..", "plugins", "mattstack", "attachments");
+
+    function pipelinesFlags(editManifest: (text: string) => string = (t) => t): string[] {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-pipelines-")));
+      cpSync(PIPELINES_FIX, root, { recursive: true });
+      const ms = join(root, "mattstack-home");
+      cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
+      const manifest = join(ms, "repos", "my-repo", "skills.jsonc");
+      writeFile(manifest, editManifest(`//   accessibility/mattstack:stage-evidence domain <- team\n${readFileSync(manifest, "utf8")}`));
+      return ["--pack-dir", join(root, "pack"), "--mattstack-dir", ms, "--manifest", manifest];
+    }
+
+    test("the evidence binder slot carries the accessibility override, work-a11y its pipeline, and the copy target its engine and pipeline", async () => {
+      const payload = await compositionJson(pipelinesFlags());
+
+      const evidence = payload.binders.find((b: { ref: string }) => b.ref === "mattstack:stage-evidence");
+      expect(evidence.kind).toBe("stage");
+      expect(evidence.slots).toHaveLength(1);
+      expect(evidence.slots[0]).toMatchObject({
+        name: "domain",
+        boundTo: "acme:evidence-a",
+        overrides: [{ pipeline: "accessibility", boundTo: "acme:evidence-b", layer: "team" }],
+      });
+
+      const verbs = Object.fromEntries(payload.verbs.map((v: { name: string }) => [v.name, v]));
+      expect(verbs["work-a11y"].pipeline).toBe("accessibility");
+      expect("pipeline" in verbs.work).toBe(false);
+
+      const copy = payload.targets.find((t: { name: string }) => t.name === "stage-evidence--accessibility");
+      expect(copy).toMatchObject({ kind: "stage", engine: "stage-evidence", pipeline: "accessibility", engineError: null });
+      const stage = payload.targets.find((t: { name: string }) => t.name === "stage-evidence");
+      expect("engine" in stage).toBe(false);
+      expect("pipeline" in stage).toBe(false);
+
+      const plan = payload.binders.find((b: { ref: string }) => b.ref === "mattstack:stage-plan");
+      expect(plan).toBeUndefined();
+      expect(payload.pipelines.accessibility).toHaveLength(8);
+    });
+
+    test("a ref bound only by a pipeline override still gets a binder, with an empty default", async () => {
+      const payload = await compositionJson(pipelinesFlags((t) => t.replace(`"bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" } }\n}`, `"bindings": {}\n}`)));
+
+      const evidence = payload.binders.find((b: { ref: string }) => b.ref === "mattstack:stage-evidence");
+      expect(evidence).toEqual({
+        ref: "mattstack:stage-evidence",
+        verb: null,
+        kind: "stage",
+        slots: [{ name: "domain", boundTo: "", layer: null, overrides: [{ pipeline: "accessibility", boundTo: "acme:evidence-b", layer: "team" }] }],
+      });
+    });
+  });
 });
 
 describe("skillsAnatomy --json", () => {
@@ -3805,6 +3859,17 @@ describe("skillsChanges human output", () => {
     const text = await runSkills(["changes", "--pack", "acme", "--pack-dir", packDir]);
     expect(text).toContain("acme");
     expect(text).toContain("pack/skills.jsonc");
+  });
+
+  test("a pipeline override's binding row names its pipeline; a default row stays as it was", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({
+      pipelines: { accessibility: { bindings: { "mattstack:stage-plan": { domain: "acme:plan-a11y" } } } },
+      bindings: { "mattstack:stage-plan": { domain: "acme:plan-policy-strict" } },
+    }));
+    const lines = (await runSkills(["changes", "--pack", "acme", "--pack-dir", packDir])).split("\n");
+    expect(lines).toContainEqual(expect.stringMatching(/^mattstack:stage-plan domain +acme:plan-policy +acme:plan-policy-strict$/));
+    expect(lines).toContainEqual(expect.stringMatching(/^accessibility: mattstack:stage-plan domain +\(none\) +acme:plan-a11y$/));
   });
 });
 
