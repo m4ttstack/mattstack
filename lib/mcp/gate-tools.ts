@@ -604,13 +604,12 @@ export async function recordGate(input: Record<string, unknown>, env: NodeJS.Pro
     scope,
     shape: (input.shape as RecordShape | undefined) ?? "answers",
     record: true,
-    source: given ?? stored?.source,
     contextDropped: input.contextDropped as boolean | string[] | undefined,
     held: input.held as string[] | undefined,
   };
   if (input.answers !== undefined) {
     const fields = answerFieldsOf(input.answers as AnswersMap, (input.decidedBy as string).trim());
-    return ok(await recordDecision(run, fields, null, null, o));
+    return ok(await recordDecision(run, fields, null, null, { ...o, source: given ?? stored?.source }));
   }
 
   const id = input.gateId as string;
@@ -623,7 +622,10 @@ export async function recordGate(input: Record<string, unknown>, env: NodeJS.Pro
   if (typeof stored?.gate === "string" && stored.gate !== id && stored.at > data.row.openedAt) {
     return ok({ recorded: false, skipped: `stale gate; ${scope}'s latest gate is ${stored.gate}`, ...answerFields(data.row) });
   }
-  return ok(await recordAnswered(run, data.row, { ...o, upsert: true }));
+  // Another gate's cards would misbuild this gate's selection; without them the
+  // builders fall back to the row's own stored questions.
+  const ownCards = stored !== null && (stored.gate === id || stored.gate === null) ? stored.source : undefined;
+  return ok(await recordAnswered(run, data.row, { ...o, source: given ?? ownCards, upsert: true }));
 }
 
 const GATE_OPEN_DESCRIPTION = "Build, validate and size-fit a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. The context is fitted to the shared 8192-byte budget (structured with optional parts trimmed, else prose); the form view is always the prose of the untrimmed source. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: \"post\" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits, trimmed, contextDropped (fits false or the daemon dropped context), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}, with option text truncated as gate_ask does and dropping whole question contexts largest first (then the gate context) when even prose is over budget; outPath also writes the open, in gate-ctx.sh's output shape, to a temp-root file.";
@@ -631,6 +633,16 @@ const GATE_OPEN_DESCRIPTION = "Build, validate and size-fit a structured gate fr
 const GATE_RECONCILE_DESCRIPTION = "The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: \"answered\", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the gate's kind) with the answer's by as the decider, unless a decision on that scope already landed since the gate opened (alreadyReconciled) or record is false; it clears waiting-gate when it names this gate. closed: returns {status: \"closed\", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: \"open\"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.";
 
 const GATE_RECORD_DESCRIPTION = "Record a gate decision on a run that no gate tool recorded at answer time: a review scope at its site's own point (respond-plan, respond-post and post after acting), or a decision handed in by the caller (answers plus decidedBy, for a board wrapper). runDb, stage and scope are required. gateId reads that answered gate (an open or closed gate is refused) and its answer's by is the decider. shape picks the selection: answers (the normalized answers map, never skipped), respond-plan ({threads, texts?, overrides?, notes?, code-changes} plus rows for the report), respond-post ({threads: {<id>: {post, resolve, text?, note?}}, held?}) or post ({findings, disposition, replies?, restored?}); the three review shapes record nothing when a next answer other than proceed is present. Cards come from source, sourcePath or review when passed, else from the run's extra.gate-source.<scope>. It always upserts its own gate, so a held respond-post resume re-records with held; it refuses only a stale gate, one whose scope's stored source names a different gate stored after this one opened. Returns {recorded, selection, decidedBy, rows?, answers, writeIn, next, actOnWriteIn, skipped?, runErrors?}. It records only; the skill acts.";
+
+const GATE_SOURCE_PROPS = {
+  source: { type: "object", description: "A gate-ctx@1 source: {context?, questions}." },
+  sourcePath: { type: "string", description: "A .json gate-ctx@1 source file under the Claude Code temp root or an installed plugin or pack root." },
+  review: {
+    type: "object",
+    description: "Build the source from a review's findings first: findings inline or findingsPath (a .json file under a read root), and extras {target, reviewer?, round?, questions}.",
+    properties: { findings: { type: "object" }, findingsPath: { type: "string" }, extras: { type: "object" } },
+  },
+};
 
 export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[] {
   return [
@@ -641,13 +653,7 @@ export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[
         type: "object",
         properties: {
           kind: { type: "string", description: "The registry kind, as gate_ask takes it (respond-plan, review-post, ...)." },
-          source: { type: "object", description: "A gate-ctx@1 source: {context?, questions}." },
-          sourcePath: { type: "string", description: "A .json gate-ctx@1 source file under the Claude Code temp root or an installed plugin or pack root." },
-          review: {
-            type: "object",
-            description: "Build the source from a review's findings first: findings inline or findingsPath (a .json file under a read root), and extras {target, reviewer?, round?, questions}.",
-            properties: { findings: { type: "object" }, findingsPath: { type: "string" }, extras: { type: "object" } },
-          },
+          ...GATE_SOURCE_PROPS,
           subject: { type: "string" },
           handBack: { type: "boolean", description: "Build and fit only; open nothing." },
           outPath: { type: "string", description: "With handBack: also write the open to this path under the Claude Code temp root." },
@@ -692,13 +698,7 @@ export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[
           gateId: { type: "string", description: "An answered gate whose row is read; its answer's by is the decider." },
           answers: { type: "object", description: "A handed decision's answers, recorded with decidedBy instead of a gate's row." },
           decidedBy: { type: "string", description: "Who decided a handed decision (board, console, ...); required with answers." },
-          source: { type: "object", description: "A gate-ctx@1 source the cards are rebuilt from: {context?, questions}." },
-          sourcePath: { type: "string", description: "A .json gate-ctx@1 source file under a read root." },
-          review: {
-            type: "object",
-            description: "Build the source from a review's findings, as gate_open takes it.",
-            properties: { findings: { type: "object" }, findingsPath: { type: "string" }, extras: { type: "object" } },
-          },
+          ...GATE_SOURCE_PROPS,
           contextDropped: {
             description: "respond-plan: true, or the question ids whose context never reached the gate.",
             oneOf: [{ type: "boolean" }, { type: "array", items: { type: "string" } }],

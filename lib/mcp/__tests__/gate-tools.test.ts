@@ -715,6 +715,19 @@ describe("gate_reconcile", () => {
     expect(body(res)).toEqual({ status: "closed", id: "g1", closedReason: "superseded", supersededBy: "g2" });
   });
 
+  test("closed leaves a waiting-gate naming another gate alone", async () => {
+    const f = fake({ waitRes: closed, fields: [{ key: "waiting-gate", value: "g0", at: 1 }] });
+    await reconcile({ id: "g1", ...RUN }, f);
+    expect(f.log).toEqual(["snapshot", "wait"]);
+  });
+
+  test("the re-read omits sessionId when the session has none", async () => {
+    const f = fake({ waitRes: timedOut });
+    await tool("gate_reconcile", f.deps).handler({ id: "g1" }, { RT_RUNS_ROOT: "/runs" } as NodeJS.ProcessEnv);
+    expect(f.waits[0]).toEqual({ id: "g1", waitMs: 2000 });
+    expect("sessionId" in f.waits[0]!).toBe(false);
+  });
+
   test("timeout: status open, waiting-gate left armed, no run writes", async () => {
     const f = fake({ waitRes: timedOut, fields: [ARMED] });
     const res = await reconcile({ id: "g1", ...RUN }, f);
@@ -815,18 +828,41 @@ describe("gate_record", () => {
   });
 
   test("a stale gate is skipped with no write", async () => {
-    const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-post", "g2", plan()), ARMED] });
+    const postRow = row({ kind: "respond-post", answer: { answers: { "thread-1": ["post:T1"], next: "proceed" }, by: "pane", answeredAt: 2000 } });
+    const f = fake({
+      waitRes: { ok: true, data: { status: "answered", row: postRow } },
+      fields: [sourceField("respond-post", "g2", loadJson(join(RR, "post-source.json"))), ARMED],
+    });
     const res = await record({ ...RUN, scope: "respond-post", shape: "respond-post", gateId: "g1" }, f);
     expect(f.log).toEqual(["snapshot", "wait"]);
     expect(body(res)).toMatchObject({ recorded: false, skipped: "stale gate; respond-post's latest gate is g2" });
   });
 
-  test("a gate opened after the stored source's gate records normally", async () => {
+  test("a gate opened after the stored source's gate records normally, from its own row's cards", async () => {
     const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", "g0", plan(), 500)] });
     const res = await record(REC, f);
-    expect(body(res)).toMatchObject({ recorded: true });
     expect(body(res).skipped).toBeUndefined();
-    expect(f.log.at(-1)).toStartWith("decision record --contract gate@1 --scope respond-plan");
+    const selection = { threads: { T1: "fix", T2: "reply" }, overrides: ["T2"], "code-changes": "approve" };
+    expect(f.log.at(-1)).toBe(recordLine("respond-plan", selection, "pane"));
+    expect(body(res)).toMatchObject({ recorded: true, selection });
+    const rows = body(res).rows as { file: string; verdict: string; reply: string }[];
+    expect(rows.map((r) => [r.file, r.verdict, r.reply])).toEqual([["queue/enqueue.ts:88", "unknown", "none"], ["queue/README.md:12", "unknown", "none"]]);
+  });
+
+  test("a passed sourcePath is read through the read-root guard and gives the cards", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "gate-record-")));
+    try {
+      const path = join(dir, "plan-source.json");
+      copyFileSync(join(RR, "plan-source.json"), path);
+      const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", "g0", plan(), 500)] });
+      f.deps.readRoots = () => ({ roots: [dir] });
+      f.deps.readFile = (p) => readFileSync(p, "utf8");
+      const res = await record({ ...REC, sourcePath: path }, f);
+      expect((body(res).rows as { verdict: string }[]).map((r) => r.verdict)).toEqual(["valid", "pushback"]);
+      expect(body(res).selection).toEqual({ threads: { T1: "fix", T2: "reply" }, "code-changes": "approve" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("a source naming another gate, stored after this gate opened, makes it stale", async () => {
