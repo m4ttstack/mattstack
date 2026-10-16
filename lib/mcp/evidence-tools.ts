@@ -200,66 +200,33 @@ function parseRecordInput(input: Obj): { ok: true; merge: MergeInput; plan: bool
   return { ok: true, merge, plan };
 }
 
-const filesOf = (img: { path: string; annotated?: string }) => [img.path, ...(img.annotated ? [img.annotated] : [])];
-
-function recordedFiles(current: RawRecord): Set<string> {
-  return new Set(imageAddresses(current).flatMap((a) => filesOf(a.image)));
-}
-
-/** An entry without a theme writes every theme of its slot. */
-const writesAddress = (a: { case: string; slot: string; theme?: string }, e: ImageInput) =>
-  a.case === e.case && a.slot === e.slot && (e.theme === undefined || e.theme === a.theme);
-
-function ownFiles(current: RawRecord, e: ImageInput): string[] {
-  return imageAddresses(current).filter((a) => writesAddress(a, e)).flatMap((a) => filesOf(a.image));
-}
-
 /**
- * Decided once, on the sources, before anything is copied: after the copy a
- * recapture landing on the recorded file's name has the recorded path, so
- * comparing paths then would read it as a cover update and keep a stale cover.
+ * Decided once, on the sources, before anything is copied: an entry is
+ * unchanged only when it is the recorded file, or carries its name and bytes.
+ * A changed bundle lands in a content folder, so its path never matches.
  */
-function markRecaptures(current: RawRecord, merge: MergeInput, evidenceRoot: string): MergeInput {
+function markRecaptures(current: RawRecord, merge: MergeInput): MergeInput {
   const recorded = imageAddresses(current);
   const images = (merge.images ?? []).map((e): ImageInput => {
     if (e.path === undefined) return e;
     const at = recorded.find((a) => a.case === e.case && a.slot === e.slot && a.theme === e.theme)?.image.path;
     if (at === undefined) return { ...e, recapture: true };
     const real = realOr(e.path);
-    const landing = join(evidenceRoot, e.case, basename(real));
-    const unchanged = (real === realOr(at) || landing === at) && sameBytes(real, at);
+    const unchanged = (real === realOr(at) || basename(real) === basename(at)) && sameBytes(real, at);
     return { ...e, recapture: !unchanged };
   });
   return { ...merge, images };
 }
 
-/** A copy that overwrites a recorded capture while the record stays unwritten leaves its old cover paired with new bytes. */
-function overwritesUncovered(current: RawRecord, merge: MergeInput, dry: RawRecord, evidenceRoot: string): string[] {
-  const recorded = imageAddresses(current);
-  const open = uncoveredImages(dry);
-  const same = (a: { case: string; slot: string; theme?: string }, b: { case: string; slot: string; theme?: string }) =>
-    a.case === b.case && a.slot === b.slot && a.theme === b.theme;
-  return (merge.images ?? []).flatMap((e) => {
-    if (!e.recapture || e.path === undefined || !open.some((u) => same(u, e))) return [];
-    const real = realOr(e.path);
-    const landing = join(evidenceRoot, e.case, basename(real));
-    const lands = recorded.some(({ image: { path: at }, ...a }) => writesAddress(a, e) && (landing === at || real === realOr(at)) && !sameBytes(real, at));
-    return lands ? [`case "${e.case}" ${e.slot}${e.theme ? ` ${e.theme}` : ""}`] : [];
-  });
-}
-
-function copyRequests(current: RawRecord, merge: MergeInput, evidenceRoot: string): CopyRequest[] {
-  const seen = new Map<string, CopyRequest>();
+function copyRequests(merge: MergeInput, evidenceRoot: string): CopyRequest[] {
+  const seen = new Set<string>();
   const out: CopyRequest[] = [];
   const add = (req: CopyRequest) => {
     const key = `${req.src}\0${req.destDir}`;
-    const prior = seen.get(key);
-    if (prior === undefined) { seen.set(key, req); out.push(req); return; }
-    prior.refreshes = [...new Set([...(prior.refreshes ?? []), ...(req.refreshes ?? [])])];
+    if (!seen.has(key)) { seen.add(key); out.push(req); }
   };
   for (const e of merge.images ?? []) {
-    const refreshes = ownFiles(current, e);
-    for (const p of [e.path, e.annotated]) if (p !== undefined) add({ src: p, destDir: join(evidenceRoot, e.case), refreshes });
+    for (const p of [e.path, e.annotated]) if (p !== undefined) add({ src: p, destDir: join(evidenceRoot, e.case) });
   }
   if (merge.transcript !== undefined) add({ src: merge.transcript, destDir: evidenceRoot, single: true });
   return out;
@@ -341,16 +308,12 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const current = parseCurrent(read.value);
   const workDir = join(deps.home(), ".mattstack", "work");
   const evidenceRoot = join(workDir, runId, "evidence");
-  const merge = markRecaptures(current, parsed.merge, evidenceRoot);
+  const merge = markRecaptures(current, parsed.merge);
   const dry = mergeRecord(current, merge);
   if (!dry.ok) return err(dry.error);
-  const clobbers = overwritesUncovered(current, merge, dry.record, evidenceRoot);
-  if (clobbers.length) {
-    return err(`${clobbers.join(", ")}: this recapture would overwrite the recorded capture while it has no cover; pass its annotated and caption, or a waiver, in the same call`);
-  }
 
   const roots = allowedSourceRoots({ home: deps.home(), uid: deps.uid(), repoRoots, uploadRoots: deps.uploadRoots() });
-  const copy = copyIntoRun(copyRequests(current, merge, evidenceRoot), { allowedRoots: roots, recorded: recordedFiles(current), destRoot: workDir });
+  const copy = copyIntoRun(copyRequests(merge, evidenceRoot), { allowedRoots: roots, destRoot: workDir });
   if (!copy.ok) return err(copy.error);
   const copied: CopyResult[] = [...new Map(copy.copied.map((c) => [c.to, c])).values()];
 
@@ -581,9 +544,9 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
       if (sha) fresh[realOr(r.path)] = { sha256: sha, project: target.identity, url: r.url, markdown: r.markdown, at };
       continue;
     }
-    // an earlier Take already linked it: refused or timed out again, it stays linked rather than reopening the gate
-    if (wasLinked.has(r.path)) linked.push({ path: r.path, error: r.error });
-    else if (r.timedOut) timedOutTwice.push(r.path);
+    // an earlier Take already linked it: refused again, it stays linked rather than reopening the gate
+    if (r.timedOut) timedOutTwice.push(r.path);
+    else if (wasLinked.has(r.path)) linked.push({ path: r.path, error: r.error });
     else refused[bucketFor(r.error)].push({ path: r.path, error: r.error });
     if (linkRefused) fresh[realOr(r.path)] = { linked: true, at };
   }
@@ -705,7 +668,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
   return [
     {
       name: "evidence_record",
-      description: "Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A source must sit under the target repo's checkout or worktrees (pass tree, the run's own worktree root, to name the repo; a tree in another repo is refused), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and writes nothing, so call again with each listed image's cover. plan: \"none\" writes {\"plan\":\"none\"} and takes nothing else. Returns {written, encoding, value, uncovered, copied}.",
+      description: "Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A file already there is never rewritten: a bundle that would change one lands whole in a content folder beside it (<case>/<12 hex>/, names unchanged), so a capture the record names keeps its bytes until the record moves. A source must sit under the target repo's checkout or worktrees (pass tree, the run's own worktree root, to name the repo; a tree in another repo is refused), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and writes nothing, so call again with each listed image's cover. plan: \"none\" writes {\"plan\":\"none\"} and takes nothing else. Returns {written, encoding, value, uncovered, copied}.",
       inputSchema: {
         type: "object",
         properties: {
@@ -747,7 +710,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way is sent again, and if it is refused or times out twice again it stays linked, is listed in linked, and does not block. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {

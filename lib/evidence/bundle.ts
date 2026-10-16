@@ -1,4 +1,5 @@
-import { copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
+import { createHash } from "crypto";
+import { constants as fsConstants, copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "path";
 import { builtInEvidenceRoot, claudeTempRoots, isInsideRoot, runEvidenceRoot, TEXT_EXTENSIONS, UPLOAD_EXTENSIONS, workRoot } from "../daemon/upload-guard.ts";
 import { evidenceDir } from "../rt-paths.ts";
@@ -38,20 +39,10 @@ export interface CopyRequest {
   src: string;
   destDir: string;
   single?: boolean;
-  /** Recorded files of the address this copy writes: landing on one of them with new bytes is a refresh, not a collision. */
-  refreshes?: string[];
 }
 export interface CopyResult {
   from: string;
   to: string;
-}
-
-interface Planned {
-  requested: string;
-  real: string;
-  to: string;
-  inPlace: boolean;
-  refreshes: Set<string>;
 }
 
 function safeRealpath(p: string): string | null {
@@ -124,13 +115,30 @@ export function mapKey(src: string, destDir: string): string {
   return `${destDir}\0${src}`;
 }
 
+/** A content folder's name: the first 12 hex of a sha256 over the bundle's names and bytes. */
+export const CONTENT_DIR = /^[0-9a-f]{12}$/;
+
+function bundleDigest(members: Array<{ name: string; real: string }>): string {
+  const h = createHash("sha256");
+  for (const m of [...members].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+    h.update(`${m.name}\0${createHash("sha256").update(readFileSync(m.real)).digest("hex")}\n`);
+  }
+  return h.digest("hex").slice(0, 12);
+}
+
+/**
+ * Nothing already in the run folder is ever rewritten. A bundle that would
+ * change any existing file lands whole in a content folder beside it, file
+ * names unchanged, since #822's guard pairs a board with its redaction record
+ * and crops by name.
+ */
 export function copyIntoRun(
   requests: CopyRequest[],
-  o: { allowedRoots: string[]; recorded: Set<string>; destRoot: string },
+  o: { allowedRoots: string[]; destRoot: string },
 ): { ok: true; copied: CopyResult[]; mapped: Map<string, string> } | { ok: false; error: string } {
   const roots = o.allowedRoots.filter((r) => typeof r === "string" && r.length > 0 && isAbsolute(r));
-  const planned: Planned[] = [];
-  const claimed = new Map<string, Planned>();
+  const planned = new Map<string, string>();
+  const copied: CopyResult[] = [];
   const mapped = new Map<string, string>();
 
   for (const req of requests) {
@@ -143,46 +151,51 @@ export function copyIntoRun(
     const link = symlinkBelow(o.destRoot, req.destDir);
     if (link !== null) return { ok: false, error: `${link}: destination directory is a symlink` };
     const destReal = safeRealpath(req.destDir) ?? req.destDir;
-    const members = req.single
-      ? [basename(real)]
-      : bundleMembers(dirname(real), basename(real), (d) => readdirSync(d));
-    for (const name of members) {
-      const memberReal = name === basename(real) ? real : join(dirname(real), name);
-      if (name !== basename(real)) {
-        const bad = checkSource(memberReal, safeRealpath(memberReal) ?? memberReal, roots, false);
-        if (bad !== null) return { ok: false, error: bad };
-      }
-      const inPlace = dirname(memberReal) === destReal;
-      const to = join(req.destDir, name);
-      if (!inPlace && isSymlink(to)) return { ok: false, error: `${to}: destination is a symlink` };
-      const prior = claimed.get(to);
-      if (prior !== undefined) {
-        if (prior.real !== memberReal && !sameBytes(prior.real, memberReal)) {
-          return { ok: false, error: `${to}: two sources with different bytes map here (${prior.real} and ${memberReal})` };
-        }
-        for (const f of req.refreshes ?? []) prior.refreshes.add(f);
-      } else {
-        const p: Planned = { requested: req.src, real: memberReal, to, inPlace, refreshes: new Set(req.refreshes) };
-        claimed.set(to, p);
-        planned.push(p);
-      }
-      if (name === basename(real)) mapped.set(mapKey(req.src, req.destDir), to);
+    const srcDir = dirname(real);
+    if (srcDir === destReal || isInsideRoot(srcDir, destReal)) {
+      mapped.set(mapKey(req.src, req.destDir), join(req.destDir, relative(destReal, real)));
+      continue;
     }
+
+    const names = req.single ? [basename(real)] : bundleMembers(srcDir, basename(real), (d) => readdirSync(d));
+    const members = names.map((name) => ({ name, real: name === basename(real) ? real : join(srcDir, name) }));
+    for (const m of members) {
+      if (m.real === real) continue;
+      const bad = checkSource(m.real, safeRealpath(m.real) ?? m.real, roots, false);
+      if (bad !== null) return { ok: false, error: bad };
+    }
+    const symlinked = (dir: string) => members.map((m) => join(dir, m.name)).find(isSymlink);
+    const fits = (dir: string) => members.every((m) => {
+      const to = join(dir, m.name);
+      const prior = planned.get(to);
+      if (prior !== undefined) return prior === m.real || sameBytes(prior, m.real);
+      return safeRealpath(to) === null || sameBytes(m.real, to);
+    });
+
+    let dir = req.destDir;
+    const linked = symlinked(dir);
+    if (linked !== undefined) return { ok: false, error: `${linked}: destination is a symlink` };
+    if (!fits(dir)) {
+      dir = join(req.destDir, bundleDigest(members));
+      if (isSymlink(dir)) return { ok: false, error: `${dir}: destination directory is a symlink` };
+      const inner = symlinked(dir);
+      if (inner !== undefined) return { ok: false, error: `${inner}: destination is a symlink` };
+      if (!fits(dir)) return { ok: false, error: `${dir}: holds other bytes under this bundle's names` };
+    }
+    for (const m of members) {
+      const to = join(dir, m.name);
+      if (!planned.has(to)) {
+        planned.set(to, m.real);
+        copied.push({ from: m.real, to });
+      }
+    }
+    mapped.set(mapKey(req.src, req.destDir), join(dir, basename(real)));
   }
 
-  for (const p of planned) {
-    if (p.inPlace) continue;
-    if (o.recorded.has(p.to) && !p.refreshes.has(p.to) && !sameBytes(p.real, p.to) && safeRealpath(p.to) !== null) {
-      return { ok: false, error: `${p.to}: already used by another image with different bytes (from ${p.requested})` };
-    }
-  }
-
-  const copied: CopyResult[] = [];
-  for (const p of planned) {
-    if (p.inPlace) continue;
-    mkdirSync(dirname(p.to), { recursive: true });
-    if (!sameBytes(p.real, p.to)) copyFileSync(p.real, p.to);
-    copied.push({ from: p.real, to: p.to });
+  for (const c of copied) {
+    if (safeRealpath(c.to) !== null) continue;
+    mkdirSync(dirname(c.to), { recursive: true });
+    copyFileSync(c.from, c.to, fsConstants.COPYFILE_EXCL);
   }
   return { ok: true, copied, mapped };
 }

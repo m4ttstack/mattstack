@@ -170,10 +170,9 @@ Then, in order:
 3. **Recaptures.** For each `(case, slot)`, the `images` entries whose
    `path` is new content for that address are a recapture. This is decided
    once, on the sources, before anything is copied: an entry is unchanged
-   only when its source is, or lands on, the recorded file and the bytes
-   match. (Comparing paths after the copy would read a recapture saved
-   under the recorded file's name as a cover update and keep a stale
-   cover.) They
+   only when its source is the recorded file, or carries the recorded
+   file's name, and the bytes match. (A changed bundle lands in a content
+   folder, so comparing paths after the copy says nothing.) They
    set that slot to exactly those images: today's rule that "an AFTER for
    an existing case's id sets that case's after". When the case carries a
    case `waiver`, it first moves onto each of the case's existing images
@@ -194,8 +193,9 @@ question (gate `8f4b7290` q1, reaffirmed in shepherd DM #5811 over the
 narrower reading in #5808). Every team files into one run folder, which
 ends ingestion's `upload_root` question.
 - Each image's `path` and `annotated` named in the call is copied to
-  `~/.mattstack/work/<run id>/evidence/<case>/`, unless it is already
-  there, and the record stores the copied path.
+  `~/.mattstack/work/<run id>/evidence/<case>/` (or a content folder under
+  it, below), unless it is already there, and the record stores the
+  copied path.
 - A `transcript` is copied to `~/.mattstack/work/<run id>/evidence/`.
 - `<run id>` is the path segment before `/state.db` in `runDb`. Folders
   are created as needed, and that run folder is the only place the tool
@@ -204,7 +204,8 @@ ends ingestion's `upload_root` question.
   the one evidence root.
 - Per-case folders fit #822. A pair board covers its own case's before and
   after, so a pair spec's bare-name reference to the before bundle resolves
-  inside the same case folder. A board's redaction record and crops copy
+  inside the same case folder, or inside the content folder its bundle
+  landed in. A board's redaction record and crops copy
   beside it as part of its bundle.
 - Only bundle file types are copied: the upload extensions plus `json`,
   `txt` and `log`. Never a dotfile.
@@ -238,19 +239,25 @@ ends ingestion's `upload_root` question.
   - That keeps the board, spec, captures, redaction record and crops
     together, as #822's guard and pair specs need.
   - A transcript copies alone.
-- **Re-copy is the refresh.** A destination with identical bytes is left
-  as is, and one with different bytes is overwritten. So calling again
-  after `fast-browser compose --confirm` or a re-render refreshes the
-  redaction record and crops beside the board (m4-premerge's ordering
-  trap).
-- **Name collision.** A copy may overwrite a recorded file only when that
-  file belongs to the address the copy's own entry writes (its path or its
-  board). Any other recorded file at the destination with different bytes
-  is a collision: it is refused and nothing is copied. That holds even when
-  the image owning that file is resent in the same call, so a cover-only
-  resend never lets another image's recapture land on its capture. A
-  shared pair board refreshed through one slot is that slot's own board,
-  so it still refreshes.
+- **Never overwrite** (Matt's ruling after review round 2). No file
+  already in the run folder is ever rewritten; copies use `COPYFILE_EXCL`.
+  - A bundle whose every file is absent from the case folder, or already
+    there with the same bytes, lands in the case folder. Identical files
+    are left as they are.
+  - A bundle that would change any existing file lands whole in a content
+    folder, `<case>/<12 hex>/`: the first 12 hex digits of a sha256 over
+    the bundle's file names and bytes. File names stay as they are, since
+    #822's guard pairs a board with its redaction record and crops by
+    name. The same bundle sent again lands in the same folder, and a
+    source already inside the case folder or one of its content folders is
+    not copied.
+  - The record then points at the new copy, so an old capture stays intact
+    and paired with its cover until the record is rewritten. A recapture
+    that leaves the record unwritten (uncovered) changes nothing the record
+    names. Calling again after `fast-browser compose --confirm` or a
+    re-render lands the new redaction record and crops beside their board
+    in its content folder (m4-premerge's ordering trap).
+  - A transcript follows the same rule in `evidence/`.
 - Copying happens before validation, and returns `copied: [{from, to}]`
   even when nothing is written. The next call can then name the copied
   paths.
@@ -363,10 +370,10 @@ description. The skill calls it only after the attach gate's proceed.
      Take.
    - A later call without `linkRefused` sends a `{linked: true}` file
      again, so a cause the human fixed (a new upload root) clears it: an
-     upload replaces the entry. Refused or timed out twice again, it stays
-     linked: it prints its local path, is listed in `linked: [{path,
-     error}]` rather than `refused` or `timedOutTwice`, and does not block
-     the description write.
+     upload replaces the entry. Refused again, it stays linked: it prints
+     its local path, is listed in `linked: [{path, error}]` rather than
+     `refused`, and does not block the description write. Timed out twice,
+     it lands in `timedOutTwice` like any other file.
    - Today's `run_field_set {key: evidence, value: <the record plus
      attach>}` after the description write is not repeated (B5). The record
      stays what was verified, and `evidence-uploads` holds where it went.
@@ -524,6 +531,7 @@ its retry.
 | B5 | `evidence_attach` no longer rewrites `evidence` with "the record plus attach" after the description write. Upload markdown and the Take's linked paths live in `evidence-uploads` instead, so `attach` stays legacy-only and the dedupe stays exact. | Flagged improvement (builder check). |
 | B6 | A twice-timed-out file is reported per file while the rest still upload. Today one STOP ends the loop at the first such file. | Flagged improvement: the off-script gate still sees every refused file at once. |
 | B7 | A carried-over `attach` line that would read as a heading (`#` to `######`) or open a fence (three or more backticks or tildes), up to three spaces in, prints with a backslash before that marker. Today's skill pastes the line as is. | Flagged change: an unescaped heading or fence would move the section's end on the next splice, so a re-attach could swallow the text after it; the escaped line reads the same in the rendered description. |
+| B8 | A copy never rewrites a file in the run folder. A bundle that would change one lands in a content folder, `<case>/<12 hex>/`, and the record points there. A shared pair board refreshed through one slot therefore moves only that slot's `annotated`; the other slot keeps the board it was captioned against until it is resent. | Matt's ruling after review round 2; the content-folder form and the pair-board consequence approved by the shepherd (DM #5962). |
 | B4 | `mr_upload {paths}` and the three new tools are additive. A single-path `mr_upload` call behaves as today, missing-path error included (`"path" is required`). The one schema change: `path` is no longer in `required`, since a `{paths}` call carries none and the Claude API refuses a top-level `anyOf`; the handler refuses a call with neither. | Flagged change (schema only), approved by the shepherd (gate `92dc5722`). |
 
 Everything else mirrors today's skill text:

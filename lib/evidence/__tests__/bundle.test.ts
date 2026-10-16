@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 import { workRoot } from "../../daemon/upload-guard.ts";
-import { allowedSourceRoots, bundleMembers, bundleStem, copyIntoRun, mapKey } from "../bundle.ts";
+import { allowedSourceRoots, bundleMembers, bundleStem, CONTENT_DIR, copyIntoRun, mapKey } from "../bundle.ts";
 
 let base: string;
 let src: string;
@@ -29,7 +29,7 @@ const put = (name: string, body = name) => {
   writeFileSync(p, body);
   return p;
 };
-const opts = () => ({ allowedRoots: [src], recorded: new Set<string>(), destRoot: base });
+const opts = () => ({ allowedRoots: [src], destRoot: base });
 
 describe("bundleStem", () => {
   test("strips a capture suffix and the extension", () => {
@@ -97,7 +97,7 @@ describe("copyIntoRun", () => {
     expect(copyIntoRun([{ src: a, destDir: dest }], opts()).ok).toBe(false);
   });
 
-  test("identical bytes are not rewritten, different bytes are", () => {
+  test("identical bytes are not rewritten, and different bytes never replace a file", () => {
     const a = put("a.png", "one");
     expect(copyIntoRun([{ src: a, destDir: dest }], opts()).ok).toBe(true);
     const target = join(dest, "a.png");
@@ -105,32 +105,48 @@ describe("copyIntoRun", () => {
     expect(copyIntoRun([{ src: a, destDir: dest }], opts()).ok).toBe(true);
     expect(statSync(target).mtimeMs).toBe(1000 * 1000);
     writeFileSync(a, "two");
-    expect(copyIntoRun([{ src: a, destDir: dest }], opts()).ok).toBe(true);
-    expect(readFileSync(target, "utf8")).toBe("two");
+    const r = copyIntoRun([{ src: a, destDir: dest }], opts());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(readFileSync(target, "utf8")).toBe("one");
+    const moved = r.mapped.get(mapKey(a, dest))!;
+    expect(readFileSync(moved, "utf8")).toBe("two");
+    expect(moved).not.toBe(target);
   });
 
-  test("a differing destination referenced elsewhere is a collision", () => {
+  test("a bundle that would change a file lands whole in a content folder, names unchanged", () => {
+    const a = put("a.png", "one");
+    put("a.spec.json", "spec v2");
+    put("a.redactions.json", "record v2");
+    mkdirSync(dest, { recursive: true });
+    writeFileSync(join(dest, "a.png"), "other");
+    writeFileSync(join(dest, "a.spec.json"), "spec v1");
+    const r = copyIntoRun([{ src: a, destDir: dest }], opts());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const to = r.mapped.get(mapKey(a, dest))!;
+    const folder = basename(dirname(to));
+    expect(dirname(dirname(to))).toBe(dest);
+    expect(CONTENT_DIR.test(folder)).toBe(true);
+    expect(readdirSync(join(dest, folder)).sort()).toEqual(["a.png", "a.redactions.json", "a.spec.json"]);
+    expect(readFileSync(join(dest, "a.png"), "utf8")).toBe("other");
+    expect(readFileSync(join(dest, "a.spec.json"), "utf8")).toBe("spec v1");
+    const again = copyIntoRun([{ src: a, destDir: dest }], opts());
+    expect(again.ok && again.mapped.get(mapKey(a, dest))).toBe(to);
+  });
+
+  test("a source already in a content folder of destDir maps to itself", () => {
     const a = put("a.png", "one");
     mkdirSync(dest, { recursive: true });
     writeFileSync(join(dest, "a.png"), "other");
-    put("a.spec.json");
-    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: [src], recorded: new Set([join(dest, "a.png")]), destRoot: base });
-    expect(r.ok).toBe(false);
-    expect(readdirSync(dest)).toEqual(["a.png"]);
-    expect(readFileSync(join(dest, "a.png"), "utf8")).toBe("other");
-  });
-
-  test("a recorded destination is refreshed only by a request that names it as its own", () => {
-    const a = put("a.png", "one");
-    mkdirSync(dest, { recursive: true });
-    writeFileSync(join(dest, "a.png"), "other");
-    const recorded = new Set([join(dest, "a.png")]);
-    const other = copyIntoRun([{ src: a, destDir: dest, refreshes: [join(dest, "b.png")] }], { allowedRoots: [src], recorded, destRoot: base });
-    expect(other.ok).toBe(false);
-    expect(readFileSync(join(dest, "a.png"), "utf8")).toBe("other");
-    const own = copyIntoRun([{ src: a, destDir: dest, refreshes: [join(dest, "a.png")] }], { allowedRoots: [src], recorded, destRoot: base });
-    expect(own.ok).toBe(true);
-    expect(readFileSync(join(dest, "a.png"), "utf8")).toBe("one");
+    const first = copyIntoRun([{ src: a, destDir: dest }], opts());
+    if (!first.ok) throw new Error(first.error);
+    const inFolder = first.mapped.get(mapKey(a, dest))!;
+    const r = copyIntoRun([{ src: inFolder, destDir: dest }], { allowedRoots: [dest], destRoot: base });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.copied).toEqual([]);
+    expect(r.mapped.get(mapKey(inFolder, dest))).toBe(inFolder);
   });
 
   test("never copies a dotfile or a script", () => {
@@ -145,7 +161,7 @@ describe("copyIntoRun", () => {
     mkdirSync(dest, { recursive: true });
     const inPlace = join(dest, "a.png");
     writeFileSync(inPlace, "x");
-    const r = copyIntoRun([{ src: inPlace, destDir: dest }], { allowedRoots: [dest], recorded: new Set(), destRoot: base });
+    const r = copyIntoRun([{ src: inPlace, destDir: dest }], { allowedRoots: [dest], destRoot: base });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.copied).toEqual([]);
@@ -158,7 +174,7 @@ describe("copyIntoRun", () => {
     const link = join(base, "link");
     symlinkSync(base, link);
     const linked = join(link, "run", "evidence", "retry-badge");
-    const r = copyIntoRun([{ src: join(dest, "a.png"), destDir: linked }], { allowedRoots: [dest], recorded: new Set(), destRoot: link });
+    const r = copyIntoRun([{ src: join(dest, "a.png"), destDir: linked }], { allowedRoots: [dest], destRoot: link });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.mapped.get(mapKey(join(dest, "a.png"), linked))).toBe(join(linked, "a.png"));
   });
@@ -186,12 +202,12 @@ describe("hardening", () => {
     mkdirSync(ev2, { recursive: true });
     writeFileSync(join(ev1, "x.png"), "x");
     writeFileSync(join(ev2, "y.png"), "y");
-    const o = { allowedRoots: [workRoot()], recorded: new Set<string>(), destRoot: base };
+    const o = { allowedRoots: [workRoot()], destRoot: base };
     expect(copyIntoRun([{ src: join(ev1, "x.png"), destDir: dest }], o).ok).toBe(true);
     expect(copyIntoRun([{ src: join(ev2, "y.png"), destDir: join(base, "d2") }], o).ok).toBe(false);
   });
 
-  test("two different sources for one destination are refused", () => {
+  test("two different sources for one destination both land, the second in a content folder", () => {
     mkdirSync(join(src, "a"));
     mkdirSync(join(src, "b"));
     writeFileSync(join(src, "a", "shot.png"), "one");
@@ -200,8 +216,11 @@ describe("hardening", () => {
       [{ src: join(src, "a", "shot.png"), destDir: dest }, { src: join(src, "b", "shot.png"), destDir: dest }],
       opts(),
     );
-    expect(r.ok).toBe(false);
-    expect(() => statSync(dest)).toThrow();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(readFileSync(r.mapped.get(mapKey(join(src, "a", "shot.png"), dest))!, "utf8")).toBe("one");
+    expect(readFileSync(r.mapped.get(mapKey(join(src, "b", "shot.png"), dest))!, "utf8")).toBe("two");
+    expect(readFileSync(join(dest, "shot.png"), "utf8")).toBe("one");
   });
 
   test("same bytes from two sources dedupe", () => {
@@ -219,7 +238,7 @@ describe("hardening", () => {
 
   test("empty and relative roots admit nothing", () => {
     const a = put("a.png");
-    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: ["", "rel"], recorded: new Set(), destRoot: base });
+    const r = copyIntoRun([{ src: a, destDir: dest }], { allowedRoots: ["", "rel"], destRoot: base });
     expect(r.ok).toBe(false);
   });
 

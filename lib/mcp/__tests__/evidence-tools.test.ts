@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, truncateSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, truncateSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, join } from "path";
 import type { RtResponse } from "../../../packages/rt-client/src/index.ts";
@@ -262,7 +262,7 @@ describe("evidence_record", () => {
     }
   });
 
-  test("a pair board refreshed through one slot overwrites the shared copy", async () => {
+  test("a pair board refreshed through one slot moves only that slot, and the shared copy keeps its bytes", async () => {
     const dir = evidenceDir("retry-badge");
     const board = put("badge.png", "old board", dir);
     const before = put("badge.c1.png", "b", dir);
@@ -273,13 +273,14 @@ describe("evidence_record", () => {
     const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", slot: "after", annotated: fresh, caption: "pair" }] }, env);
     expect(res.ok).toBe(true);
     expect((res.body as { written: boolean }).written).toBe(true);
-    expect(readFileSync(board, "utf8")).toBe("new board");
+    expect(readFileSync(board, "utf8")).toBe("old board");
     const written = JSON.parse(fields.get("evidence")!);
     expect(written.cases[0].before.annotated).toBe(board);
-    expect(written.cases[0].after.annotated).toBe(board);
+    expect(written.cases[0].after.annotated).not.toBe(board);
+    expect(readFileSync(written.cases[0].after.annotated, "utf8")).toBe("new board");
   });
 
-  test("a recapture landing on another image's capture is refused even when that image is resent cover-only", async () => {
+  test("a recapture named like another image's capture never touches it, even when that image is resent cover-only", async () => {
     const dir = evidenceDir("retry-badge");
     const beforeShot = put("shot.png", "before bytes", dir);
     const beforeBoard = put("shot-board.png", "before board", dir);
@@ -292,10 +293,13 @@ describe("evidence_record", () => {
     for (const images of [[{ case: "retry-badge", slot: "before", caption: "b2" }, after], [after]]) {
       const { deps, fields } = makeDeps({ fields: { evidence } });
       const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images }, env);
-      expect(res.ok).toBe(false);
-      expect(res.error).toContain(`${beforeShot}: already used by another image with different bytes`);
+      expect((res.body as { written: boolean }).written).toBe(true);
       expect(readFileSync(beforeShot, "utf8")).toBe("before bytes");
-      expect(fields.get("evidence")).toBe(evidence);
+      const c = JSON.parse(fields.get("evidence")!).cases[0];
+      expect(c.before.path).toBe(beforeShot);
+      expect(c.before.annotated).toBe(beforeBoard);
+      expect(c.after.path).not.toBe(c.before.path);
+      expect(readFileSync(c.after.path, "utf8")).toBe("new after bytes");
     }
   });
 
@@ -309,12 +313,16 @@ describe("evidence_record", () => {
     const evidence = v2([{ id: "c", label: "C", after: { light: { path: lc, annotated: lb, caption: "l" }, dark: { path: dc, annotated: db, caption: "d" } } }]);
     const recapture = put("d.c1.png", "new dark capture");
     put("d.png", "new dark board");
-    const { deps, fields } = makeDeps({ fields: { evidence } });
+    const { deps, fields, runCalls } = makeDeps({ fields: { evidence } });
     const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "c", slot: "after", path: recapture }] }, env);
-    expect(res.ok).toBe(false);
-    expect(res.error).toContain('case "c" after: this recapture would overwrite the recorded capture while it has no cover');
-    for (const [p, body] of [[lc, files.lc], [lb, files.lb], [dc, files.dc], [db, files.db]] as const) expect(readFileSync(p, "utf8")).toBe(body);
+    expect(res.ok).toBe(true);
+    const body = res.body as { written: boolean; uncovered: Array<{ why: string }>; copied: Array<{ to: string }> };
+    expect(body.written).toBe(false);
+    expect(body.uncovered.map((u) => u.why)).toEqual(["no-cover"]);
+    expect(body.copied.every((c) => !Object.values({ lc, lb, dc, db }).includes(c.to))).toBe(true);
+    for (const [p, bytes] of [[lc, files.lc], [lb, files.lb], [dc, files.dc], [db, files.db]] as const) expect(readFileSync(p, "utf8")).toBe(bytes);
     expect(fields.get("evidence")).toBe(evidence);
+    expect(runCalls.some((c) => c.name === "run_field_set")).toBe(false);
   });
 
   test("a recapture to the same file name drops the old cover instead of keeping it", async () => {
@@ -323,17 +331,21 @@ describe("evidence_record", () => {
     const board = put("badge-after.png", "board v1");
     const first = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry", slot: "after", path: shot, annotated: board, caption: "v1 marks" }] }, env);
     expect((first.body as { written: boolean }).written).toBe(true);
+    const recorded = JSON.parse(fields.get("evidence")!).cases[0].after;
     writeFileSync(shot, "capture v2");
     const second = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", slot: "after", path: shot }] }, env);
-    expect(second.ok).toBe(false);
-    expect(second.error).toContain('case "retry-badge" after: this recapture would overwrite the recorded capture while it has no cover');
-    expect(readFileSync(join(evidenceDir("retry-badge"), "badge-after.c1.png"), "utf8")).toBe("capture v1");
-    expect(JSON.parse(fields.get("evidence")!).cases[0].after.caption).toBe("v1 marks");
+    expect(second.ok).toBe(true);
+    expect((second.body as { written: boolean; uncovered: unknown[] }).written).toBe(false);
+    expect(readFileSync(recorded.path, "utf8")).toBe("capture v1");
+    expect(JSON.parse(fields.get("evidence")!).cases[0].after).toEqual(recorded);
     writeFileSync(board, "board v2");
     const third = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", slot: "after", path: shot, annotated: board, caption: "v2 marks" }] }, env);
     expect((third.body as { written: boolean }).written).toBe(true);
-    expect(JSON.parse(fields.get("evidence")!).cases[0].after.caption).toBe("v2 marks");
-    expect(readFileSync(join(evidenceDir("retry-badge"), "badge-after.c1.png"), "utf8")).toBe("capture v2");
+    const after = JSON.parse(fields.get("evidence")!).cases[0].after;
+    expect(after.caption).toBe("v2 marks");
+    expect(readFileSync(after.path, "utf8")).toBe("capture v2");
+    expect(readFileSync(after.annotated, "utf8")).toBe("board v2");
+    expect(readFileSync(recorded.path, "utf8")).toBe("capture v1");
   });
 
   test("an unchanged capture sent again with a new board is a cover update", async () => {
@@ -341,11 +353,51 @@ describe("evidence_record", () => {
     const shot = put("badge-after.c1.png", "capture");
     const board = put("badge-after.png", "board v1");
     await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", label: "Retry", slot: "after", path: shot, annotated: board, caption: "v1" }] }, env);
+    const first = JSON.parse(fields.get("evidence")!).cases[0].after;
     writeFileSync(board, "board v2");
     const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", slot: "after", path: shot, annotated: board, caption: "v2" }] }, env);
     expect((res.body as { written: boolean }).written).toBe(true);
-    expect(JSON.parse(fields.get("evidence")!).cases[0].after.caption).toBe("v2");
-    expect(readFileSync(join(evidenceDir("retry-badge"), "badge-after.png"), "utf8")).toBe("board v2");
+    const after = JSON.parse(fields.get("evidence")!).cases[0].after;
+    expect(after.caption).toBe("v2");
+    expect(readFileSync(after.annotated, "utf8")).toBe("board v2");
+    expect(readFileSync(first.annotated, "utf8")).toBe("board v1");
+  });
+
+  test("no file already in the run folder ever changes bytes, across recaptures, board refreshes and a new transcript", async () => {
+    const { deps } = makeDeps();
+    const runFolder = join(home, ".mattstack", "work", RUN_ID);
+    const snapshot = () => {
+      const out = new Map<string, string>();
+      const walk = (d: string) => {
+        if (!existsSync(d)) return;
+        for (const n of readdirSync(d, { withFileTypes: true })) {
+          const p = join(d, n.name);
+          if (n.isDirectory()) walk(p);
+          else out.set(p, readFileSync(p, "utf8"));
+        }
+      };
+      walk(runFolder);
+      return out;
+    };
+    const shot = put("s.c1.png", "capture 1");
+    const board = put("s.png", "board 1");
+    put("s.spec.json", "spec 1");
+    const transcript = put("t.txt", "transcript 1");
+    const calls: Array<() => Record<string, unknown>> = [
+      () => ({ images: [{ case: "k", label: "K", slot: "after", path: shot, annotated: board, caption: "c1" }], transcript }),
+      () => { writeFileSync(shot, "capture 2"); return { images: [{ case: "k", slot: "after", path: shot }] }; },
+      () => { writeFileSync(board, "board 2"); writeFileSync(join(src, "s.spec.json"), "spec 2"); return { images: [{ case: "k", slot: "after", path: shot, annotated: board, caption: "c2" }] }; },
+      () => { writeFileSync(transcript, "transcript 2"); return { transcript }; },
+      () => { writeFileSync(board, "board 3"); return { images: [{ case: "k", slot: "after", annotated: board, caption: "c3" }] }; },
+    ];
+    for (const next of calls) {
+      const before = snapshot();
+      const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", ...next() }, env);
+      expect(res.ok).toBe(true);
+      const after = snapshot();
+      for (const [p, bytes] of before) expect(after.get(p)).toBe(bytes);
+    }
+    expect(snapshot().size).toBeGreaterThan(4);
   });
 
   test("a themed refresh with one theme's capture resent and the other cover-only succeeds", async () => {
@@ -515,6 +567,20 @@ describe("evidence_attach", () => {
     expect(body.linked).toEqual([{ path: one, error: refusal }]);
     expect(body.section).toContain(`- Before: ${one}`);
     expect(body.notWritten).toBe("unchanged");
+  });
+
+  test("a remembered linked file that times out twice on the resend lands in timedOutTwice and blocks", async () => {
+    const { one, evidence } = twoWaived();
+    const respond: Responder = (cmd, p, nth) => {
+      if (cmd !== "mr:upload" || p.path !== one) return undefined;
+      return nth === 1 ? errRes("path is outside the allowed upload roots (...)") : errRes("request timed out");
+    };
+    const { deps } = makeDeps({ fields: { evidence }, respond });
+    await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, linkRefused: true }, env);
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(body.timedOutTwice).toEqual([one]);
+    expect(body.linked).toEqual([]);
+    expect(body.descriptionWritten).toBe(false);
   });
 
   test("a remembered linked file uploads once its cause is fixed and is no longer remembered as linked", async () => {
