@@ -361,6 +361,18 @@ describe("renderPackFiles", () => {
       "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" },
     });
   });
+  test("seeded fragment explains pipelines", () => {
+    const seeded = renderPackFiles({ pack: "acme", workDescription: "d" });
+    const fragment = seeded["pack/skills.jsonc"]!;
+    const stubs = seeded["pack/stubs.jsonc"]!;
+    expect(fragment).toContain("add a specialized pipeline with mattstack:extending-a-pack");
+    expect(stubs).toContain('"pipeline"');
+    expect(stubs).toContain("work-<kind>");
+    expect(JSON.parse(stripJsonc(stubs))).toEqual({ verbs: { work: { engine: "work", description: "d" } } });
+    const manifest = JSON.parse(stripJsonc(fragment));
+    expect(Object.keys(manifest.pipelines)).toEqual(["feature"]);
+    expect(manifest.pipelines.feature).toEqual(PIPELINE_STAGES.map((s) => `mattstack:${s}`));
+  });
   test("PACK.md names the two authoring skills, calls the description a placeholder, no dashes", () => {
     expect(files["PACK.md"]).toContain("mattstack:extending-a-pack");
     expect(files["PACK.md"]).toContain("mattstack:creating-a-pack");
