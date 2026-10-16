@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mrReadToolDefs, tailTrace, type MrReadDeps } from "../mr-read-tools.ts";
+import { filterHumanThreads, isBotUsername, mrReadToolDefs, tailTrace, type MrReadDeps } from "../mr-read-tools.ts";
 
 const pr = (iid: number, state: string, draft = false) => ({
   iid, state, draft, sourceBranch: `b${iid}`, targetBranch: "main", title: `t${iid}`, description: "long body",
@@ -59,11 +59,18 @@ describe("mr read tools ask GitLab, never the cache", () => {
 
   test("the old maxAgeMs and refresh arguments are accepted and not sent", async () => {
     const { deps, calls } = fake({ "mr:get": { mr: pr(1, "opened"), fetchedAt: 1 }, "mr:list-live": { mrs: [], truncated: false }, "discussions:refresh": { discussions: [], fetchedAt: 1 } });
-    expect((await tool(deps, "mr_view").handler({ repoName: ID, iid: 1, maxAgeMs: 5000 }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
     expect((await tool(deps, "mr_list").handler({ repoName: ID, maxAgeMs: 5000, state: "opened" }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
     expect((await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 1, maxAgeMs: 5000 }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
     expect((await tool(deps, "mr_threads").handler({ repoName: ID, iid: 1, refresh: true }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
     for (const c of calls) expect(c.payload).not.toHaveProperty("maxAgeMs");
+  });
+
+  test("mr_view declares no maxAgeMs and ignores one passed anyway", async () => {
+    const { deps, calls } = fake({ "mr:get": { mr: pr(2, "opened"), fetchedAt: 5 } });
+    expect(tool(deps, "mr_view").inputSchema.properties).not.toHaveProperty("maxAgeMs");
+    const res = await tool(deps, "mr_view").handler({ repoName: ID, iid: 2, maxAgeMs: "x" }, {} as NodeJS.ProcessEnv);
+    expect(res.ok).toBe(true);
+    expect(calls[0]!.payload).not.toHaveProperty("maxAgeMs");
   });
 
   test("mr_list sends its filters and reports truncation", async () => {
@@ -252,5 +259,50 @@ describe("mr_job_trace modes", () => {
   });
   test("lineCount without fromLine is refused", async () => {
     expect((await run({ lineCount: 5 })).error).toBe('"lineCount" needs "fromLine"');
+  });
+});
+
+const note = (username: string, system = false) => ({
+  id: 1, body: "b", author: { username, name: username }, createdAt: "t", system, type: null, resolvable: null, resolved: null, position: null,
+});
+const disc = (id: string, resolved: boolean | null, notes: ReturnType<typeof note>[], resolvable: boolean | null = true) => ({ id, resolvable, resolved, notes });
+
+describe("isBotUsername", () => {
+  test.each(["project_12_bot_ab12cd", "GROUP_3_BOT", "ghost", "renovate-bot", "danger_bot", "dependabot[bot]"])("%s is a bot", (u) => {
+    expect(isBotUsername(u)).toBe(true);
+  });
+  test.each(["abbot", "robot", "bottomley", "alice", "bot-maker"])("%s is human", (u) => {
+    expect(isBotUsername(u)).toBe(false);
+  });
+});
+
+describe("filterHumanThreads", () => {
+  const discussions = [
+    disc("resolved", true, [note("alice")]),
+    disc("system", false, [note("alice", true)]),
+    disc("bot", false, [note("renovate-bot")]),
+    disc("plain", null, [note("bob")], false),
+    disc("open", false, [note("carol"), note("alice", true), note("dave")]),
+  ] as any;
+
+  test("keeps human threads, drops system notes inside them, and counts what it dropped", () => {
+    const out = filterHumanThreads(discussions);
+    expect(out.discussions.map((d) => d.id)).toEqual(["plain", "open"]);
+    expect(out.discussions[1]!.notes.map((n) => n.author.username)).toEqual(["carol", "dave"]);
+    expect(out.dropped).toEqual({ resolved: 1, system: 1, bot: 1 });
+  });
+
+  test("mr_threads filter unresolved-human returns the filtered threads and dropped", async () => {
+    const { deps } = fake({ "discussions:refresh": { discussions, fetchedAt: 7 } });
+    const res = await tool(deps, "mr_threads").handler({ repoName: ID, iid: 2, filter: "unresolved-human" }, {} as NodeJS.ProcessEnv);
+    expect(res.ok).toBe(true);
+    expect((res.body as any).discussions.map((d: any) => d.id)).toEqual(["plain", "open"]);
+    expect((res.body as any).dropped).toEqual({ resolved: 1, system: 1, bot: 1 });
+  });
+
+  test("mr_threads rejects any other filter", async () => {
+    const { deps } = fake({ "discussions:refresh": { discussions: [], fetchedAt: 7 } });
+    const res = await tool(deps, "mr_threads").handler({ repoName: ID, iid: 2, filter: "all" }, {} as NodeJS.ProcessEnv);
+    expect(res).toMatchObject({ ok: false, error: '"filter" must be unresolved-human' });
   });
 });
