@@ -28,7 +28,7 @@ import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, r
 import { forgeReadToolDefs } from "./forge-read-tools.ts";
 import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
-import { answerGate, askGate, GATE_RUN_PROPS, realGateToolDeps } from "./gate-tools.ts";
+import { answerGate, askGate, GATE_RUN_PROPS, gateToolDefs, realGateToolDeps } from "./gate-tools.ts";
 import { worktreeToolDefs } from "./worktree-tools.ts";
 import {
   checkOptional, checkPositiveInts, checkRequired, checkStringArray,
@@ -214,6 +214,7 @@ export function mcpTools(): McpToolDef[] {
         return askGate(input, env, realGateToolDeps);
       },
     },
+    ...gateToolDefs(),
     {
       name: "chat_post",
       description: "Post a message to an rt chat room as the signed-in identity. mentions are names or ids; a name reaches whoever holds it now. Requires a signed-in chat session; call chat_sign_in first.",

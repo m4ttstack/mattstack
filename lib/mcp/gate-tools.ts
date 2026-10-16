@@ -1,24 +1,29 @@
 /**
- * The gate tools' run-aware paths: the shared open path behind gate_ask,
- * the answer path behind gate_answer, and the recorder that writes a gate@1
- * decision. Run reads and writes go through runToolDefs()'s own handlers, so
- * a caller's runDb meets the same runs-root confinement as run_* tools. The
- * only run writes here are `gate`, `waiting-gate`,
- * `extra.context-dropped.<scope>` and gate@1 decisions on the caller's scope.
+ * The gate tools: gate_open, and the run-aware paths behind gate_ask and
+ * gate_answer. Run reads and writes go through runToolDefs()'s own handlers,
+ * so a caller's runDb meets the same runs-root confinement as run_* tools.
+ * The only run writes here are `gate`, `waiting-gate`,
+ * `extra.context-dropped.<scope>`, `extra.gate-source.<scope>` and gate@1
+ * decisions on the caller's scope.
  */
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, realpathSync, writeFileSync } from "fs";
+import { extname } from "path";
 import { gateAnswer, gateAsk, gateWait } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion, GateRow } from "../../packages/rt-client/src/index.ts";
-import type { GateCtxSource } from "../gates/ctx.ts";
-import { flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
+import { checkSource, fitOpen, GATE_CTX_LIMIT, proseOpen, type FitResult, type GateCtxSource } from "../gates/ctx.ts";
+import { dropContextsToFit, flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
+import { isObject, tojson, utf8Bytes } from "../gates/jq.ts";
+import { buildReviewSource, reviewSourceErrors } from "../gates/review-source.ts";
 import {
   actOnWriteIn, decisionForGate, nextOf, normalizeAnswers, postSelection, respondPlanSelection, respondPostSelection,
   skipReason, writeInsOf,
   type AnswersMap, type DecisionRow, type PlanRow, type RecordShape,
 } from "../gates/record.ts";
 import { realRunToolDeps, runToolDefs, type RunToolDeps } from "./run-tools.ts";
-import { checkOptional, checkRequired, err, fromResponse, ok, type ToolResult } from "./shared.ts";
-import { readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots } from "./temp-root-guard.ts";
+import { checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolResult } from "./shared.ts";
+import {
+  checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots,
+} from "./temp-root-guard.ts";
 
 export interface GateToolDeps {
   ask: typeof gateAsk;
@@ -138,6 +143,12 @@ function wellFormed(questions: unknown[]): questions is GateQuestion[] {
   return questions.every((q) => typeof q === "object" && q !== null && Array.isArray((q as { options?: unknown }).options));
 }
 
+function scopeError(input: Record<string, unknown>): string | undefined {
+  const scope = input.scope;
+  if (scope !== undefined && (typeof scope !== "string" || scope.trim() === "")) return '"scope" must be a non-empty string';
+  return undefined;
+}
+
 /** The shared open path (gate_ask and gate_open). */
 export async function askGate(
   input: Record<string, unknown>,
@@ -145,7 +156,7 @@ export async function askGate(
   deps: GateToolDeps,
   extra: { proseById?: Record<string, string>; formContext?: string; contextDropped?: boolean; run?: RunHandle | null } = {},
 ): Promise<ToolResult> {
-  const bad = checkRequired(input, [{ name: "questions", type: "array" }]);
+  const bad = checkRequired(input, [{ name: "questions", type: "array" }]) ?? scopeError(input);
   if (bad) return err(bad);
 
   let run: RunHandle | null;
@@ -296,4 +307,205 @@ export async function answerGate(input: Record<string, unknown>, env: NodeJS.Pro
     record: input.record !== false,
   });
   return ok({ ...res.data, ...recorded });
+}
+
+const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+function refused(what: string, problems: string[]): { error: string } {
+  return { error: `${what} was refused:\n${problems.join("\n")}` };
+}
+
+/** checkReadRootPath admits only .md files, and its extension check runs
+    after every containment check, so a .json file refused only for its
+    extension has passed the rest of the guard. Matching the exact message
+    fails closed if the guard ever words it differently. */
+function readJsonFile(path: unknown, name: string, deps: GateToolDeps): { value: unknown } | { error: string } {
+  const { roots, pluginListError } = deps.readRoots();
+  const checked = checkReadRootPath(path, roots, pluginListError);
+  const jsonOnly = !checked.ok && typeof path === "string" && extname(path) === ".json"
+    && checked.error === `path must name a .md file (got "${path}")`;
+  if (!checked.ok && !jsonOnly) return { error: `${name}: ${checked.error}` };
+  let text: string;
+  try {
+    text = deps.readFile(checked.ok ? checked.realpath : realpathSync(path as string));
+  } catch (e) {
+    return { error: `${name}: cannot read ${path}: ${messageOf(e)}` };
+  }
+  try {
+    return { value: JSON.parse(text) };
+  } catch (e) {
+    return { error: `${name}: ${path} is not valid JSON (${messageOf(e)})` };
+  }
+}
+
+function validated(source: unknown): { source: GateCtxSource } | { error: string } {
+  const checked = checkSource(source);
+  if (!checked.ok) return refused("the gate source", checked.problems);
+  const s = source as GateCtxSource;
+  return { source: "context" in s ? { context: s.context, questions: s.questions } : { questions: s.questions } };
+}
+
+function reviewSource(review: unknown, deps: GateToolDeps): { source: GateCtxSource } | { error: string } {
+  if (!isObject(review)) return { error: '"review" must be an object' };
+  if ((review.findings !== undefined) === (review.findingsPath !== undefined)) {
+    return { error: 'pass exactly one of "review.findings" or "review.findingsPath"' };
+  }
+  if (review.extras === undefined) return { error: '"review.extras" is required' };
+  let findings = review.findings;
+  if (review.findingsPath !== undefined) {
+    const read = readJsonFile(review.findingsPath, "review.findingsPath", deps);
+    if ("error" in read) return read;
+    findings = read.value;
+  }
+  const problems = reviewSourceErrors(findings, review.extras);
+  if (problems.length > 0) return refused("the review source", problems);
+  return validated(buildReviewSource(findings as Record<string, unknown>, review.extras as Record<string, unknown>));
+}
+
+/** The validated, untrimmed gate source named by exactly one of `source`,
+    `sourcePath` or `review`. */
+export function resolveSource(input: Record<string, unknown>, deps: GateToolDeps): { source: GateCtxSource } | { error: string } {
+  const given = ["source", "sourcePath", "review"].filter((k) => input[k] !== undefined);
+  if (given.length !== 1) return { error: 'pass exactly one of "source", "sourcePath" or "review"' };
+  if (input.source !== undefined) return validated(input.source);
+  if (input.sourcePath !== undefined) {
+    const read = readJsonFile(input.sourcePath, "sourcePath", deps);
+    return "error" in read ? read : validated(read.value);
+  }
+  return reviewSource(input.review, deps);
+}
+
+function proseByQuestion(source: GateCtxSource): { formContext?: string; proseById: Record<string, string> } {
+  const prose = proseOpen(source);
+  const proseById: Record<string, string> = {};
+  for (const q of prose.questions) if (typeof q.context === "string") proseById[String(q.id)] = q.context;
+  return { formContext: prose.context, proseById };
+}
+
+async function handBack(
+  input: Record<string, unknown>,
+  source: GateCtxSource,
+  fit: FitResult,
+  run: RunHandle | null,
+  scope: string,
+  deps: GateToolDeps,
+): Promise<ToolResult> {
+  const fitted = { questions: fit.questions as unknown as GateQuestion[], ...(fit.context !== undefined ? { context: fit.context } : {}) };
+  const { open, dropped } = dropContextsToFit(fitted, GATE_CTX_LIMIT);
+  const { formContext, proseById } = proseByQuestion(source);
+  const result: Record<string, unknown> = {
+    open,
+    mode: fit.mode,
+    fits: fit.fits,
+    trimmed: fit.trimmed,
+    contextDropped: !fit.fits,
+    droppedContexts: dropped,
+    ...(formContext !== undefined ? { formContext } : {}),
+    formChunks: wellFormed(open.questions) ? formChunks(open.questions, proseById) : [],
+  };
+
+  if (typeof input.outPath === "string") {
+    let bytes = open.context === undefined ? 0 : utf8Bytes(open.context);
+    for (const q of open.questions) if (typeof q.context === "string") bytes += utf8Bytes(q.context);
+    const file = { mode: fit.mode, trimmed: fit.trimmed, ...(open.context !== undefined ? { context: open.context } : {}), questions: open.questions, bytes, fits: fit.fits };
+    try {
+      deps.writeFile(input.outPath, `${tojson(file)}\n`);
+    } catch (e) {
+      return err(`outPath: could not write ${input.outPath}: ${messageOf(e)}`);
+    }
+    result.outPath = input.outPath;
+  }
+
+  if (run) {
+    const failed = await run.field(`extra.gate-source.${scope}`, JSON.stringify({ gate: null, source }));
+    if (failed) result.runErrors = [failed];
+  }
+  return ok(result);
+}
+
+export async function openGate(input: Record<string, unknown>, env: NodeJS.ProcessEnv, deps: GateToolDeps): Promise<ToolResult> {
+  const bad = checkRequired(input, [{ name: "kind", type: "string" }])
+    ?? checkOptional(input, [
+      { name: "sourcePath", type: "string" }, { name: "subject", type: "string" }, { name: "handBack", type: "boolean" },
+      { name: "outPath", type: "string" }, { name: "runDb", type: "string" }, { name: "stage", type: "string" },
+    ])
+    ?? scopeError(input);
+  if (bad) return err(bad);
+  const kind = (input.kind as string).trim();
+  if (kind === "") return err('"kind" must be a non-empty string');
+  const handingBack = input.handBack === true;
+  if (input.outPath !== undefined && !handingBack) return err('"outPath" is written only with "handBack": true');
+  if (handingBack && input.outPath !== undefined) {
+    const out = checkTempRootPath(input.outPath, deps.tempRoots());
+    if (!out.ok) return err(`outPath: ${out.error}`);
+  }
+
+  const resolved = resolveSource(input, deps);
+  if ("error" in resolved) return err(resolved.error);
+  const { source } = resolved;
+  const fit = fitOpen(source);
+
+  const opened = await openRun(input, env, deps);
+  if (opened && "error" in opened) return err(opened.error);
+  const run = opened?.run ?? null;
+  const scope = typeof input.scope === "string" ? input.scope : kind;
+  if (handingBack) return handBack(input, source, fit, run, scope, deps);
+
+  const { formContext, proseById } = proseByQuestion(source);
+  const askInput: Record<string, unknown> = { questions: fit.questions, kind: input.kind };
+  if (fit.context !== undefined) askInput.context = fit.context;
+  if (input.subject !== undefined) askInput.subject = input.subject;
+  if (input.scope !== undefined) askInput.scope = input.scope;
+  const asked = await askGate(askInput, env, deps, { run, proseById, formContext, contextDropped: !fit.fits });
+  if (!asked.ok) return asked;
+
+  const data = asked.body as Record<string, unknown>;
+  const runErrors = [...((data.runErrors as string[] | undefined) ?? [])];
+  if (run) {
+    const failed = await run.field(`extra.gate-source.${scope}`, JSON.stringify({ gate: data.id, source }));
+    if (failed) runErrors.push(failed);
+  }
+  const result: Record<string, unknown> = {
+    ...data,
+    mode: fit.mode,
+    fits: fit.fits,
+    trimmed: fit.trimmed,
+    contextDropped: !fit.fits || data.contextOmitted === true,
+  };
+  if (runErrors.length > 0) result.runErrors = runErrors;
+  return ok(result);
+}
+
+const GATE_OPEN_DESCRIPTION = "Build, validate and size-fit a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. The context is fitted to the shared 8192-byte budget (structured with optional parts trimmed, else prose); the form view is always the prose of the untrimmed source. Under a run, pass runDb and stage (scope defaults to kind; review-post opens with scope post): the untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits, trimmed, contextDropped (fits false or the daemon dropped context), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks}, dropping whole question contexts largest first (then the gate context) when even prose is over budget; outPath also writes the open, in gate-ctx.sh's output shape, to a temp-root file.";
+
+export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[] {
+  return [
+    {
+      name: "gate_open",
+      description: GATE_OPEN_DESCRIPTION,
+      inputSchema: {
+        type: "object",
+        properties: {
+          kind: { type: "string", description: "The registry kind, as gate_ask takes it (respond-plan, review-post, ...)." },
+          source: { type: "object", description: "A gate-ctx@1 source: {context?, questions}." },
+          sourcePath: { type: "string", description: "A .json gate-ctx@1 source file under the Claude Code temp root or an installed plugin or pack root." },
+          review: {
+            type: "object",
+            description: "Build the source from a review's findings first: findings inline or findingsPath (a .json file under a read root), and extras {target, reviewer?, round?, questions}.",
+            properties: { findings: { type: "object" }, findingsPath: { type: "string" }, extras: { type: "object" } },
+          },
+          subject: { type: "string" },
+          handBack: { type: "boolean", description: "Build and fit only; open nothing." },
+          outPath: { type: "string", description: "With handBack: also write the open to this path under the Claude Code temp root." },
+          ...GATE_RUN_PROPS,
+        },
+        required: ["kind"],
+        additionalProperties: false,
+      },
+      shellForms: { none: "replaces sh gate-ctx.sh / review-source.sh once wave 3 rewrites the skills" },
+      async handler(input, env) {
+        return openGate(input, env, deps);
+      },
+    },
+  ];
 }

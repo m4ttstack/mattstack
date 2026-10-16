@@ -1,7 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { chmodSync, copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
+import { fitOpen } from "../../gates/ctx.ts";
 import type { DecisionRow } from "../../gates/record.ts";
-import { answerGate, askGate, openRun, type GateToolDeps } from "../gate-tools.ts";
+import { buildReviewSource } from "../../gates/review-source.ts";
+import { answerGate, askGate, gateToolDefs, openRun, type GateToolDeps } from "../gate-tools.ts";
+import { checkReadRootPath } from "../temp-root-guard.ts";
 
 const DB = "/runs/r/1/state.db";
 const ENV = { RT_RUNS_ROOT: "/runs", CLAUDE_CODE_SESSION_ID: "sess-1", HERDR_PANE_ID: "pane-1" } as NodeJS.ProcessEnv;
@@ -346,5 +352,275 @@ describe("answerGate", () => {
   test("a missing id is refused naming it", async () => {
     const res = await answerGate({ answers: {} }, ENV, fake().deps);
     expect(res.error).toContain("id");
+  });
+});
+
+const FIX = join(import.meta.dir, "../../../plugins/mattstack/attachments/review");
+const RR = join(FIX, "receive-review/tests/fixtures");
+const RV = join(FIX, "review/tests/fixtures");
+type Src = { context?: Record<string, any>; questions: Record<string, any>[] };
+const loadJson = (p: string) => JSON.parse(readFileSync(p, "utf8"));
+const plan = (): Src => loadJson(join(RR, "plan-source.json"));
+const PLAN_GATE_LINE = "Responding to renee's review · round 1 · 2 threads, 1 blocking · 1 valid, 1 pushback · fresh-context adjudicated";
+const bigAdjudication = (): Src => {
+  const s = plan();
+  s.context!.adjudication = "x".repeat(9 * 1024);
+  return s;
+};
+
+describe("gate_open", () => {
+  let tmp = "";
+  beforeAll(() => {
+    tmp = realpathSync(mkdtempSync(join(tmpdir(), "gate-open-")));
+  });
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+
+  function rooted(o: FakeOpts = {}) {
+    const f = fake(o);
+    f.deps.readRoots = () => ({ roots: [tmp] });
+    f.deps.tempRoots = () => [tmp];
+    f.deps.readFile = (p) => readFileSync(p, "utf8");
+    f.deps.writeFile = (p, s) => writeFileSync(p, s);
+    return f;
+  }
+  const copy = (src: string, name: string) => {
+    const p = join(tmp, name);
+    copyFileSync(src, p);
+    return p;
+  };
+  const write = (name: string, text: string) => {
+    const p = join(tmp, name);
+    writeFileSync(p, text);
+    return p;
+  };
+  const gateOpen = (deps: GateToolDeps) => gateToolDefs(deps).find((d) => d.name === "gate_open")!;
+  const open = (input: Record<string, unknown>, f = rooted(), env = ENV) => gateOpen(f.deps).handler(input, env);
+  const sourceLine = (scope: string, gate: string | null, src: unknown) =>
+    `field set extra.gate-source.${scope} ${JSON.stringify({ gate, source: src })} --stage s`;
+  const reviewInput = () => ({ findingsPath: copy(join(RV, "findings-v2.json"), "findings-v2.json"), extras: loadJson(join(RV, "extras.json")) });
+
+  test("gateToolDefs holds gate_open with a none shell form", () => {
+    const def = gateOpen(rooted().deps);
+    expect(def.shellForms).toEqual({ none: "replaces sh gate-ctx.sh / review-source.sh once wave 3 rewrites the skills" });
+  });
+
+  test("a plan source opens its fit verbatim with the prose form view", async () => {
+    const f = rooted();
+    const fit = fitOpen(plan());
+    const res = await open({ kind: "respond-plan", source: plan() }, f);
+    expect(res.ok).toBe(true);
+    expect(f.log).toEqual(["ask"]);
+    expect(f.asks[0]).toEqual({ questions: fit.questions, context: fit.context, kind: "respond-plan", sessionId: "sess-1", paneId: "pane-1" });
+    expect(body(res)).toMatchObject({ id: "g1", mode: "structured", fits: true, trimmed: [], contextDropped: false, formContext: PLAN_GATE_LINE });
+    const chunks = body(res).formChunks as { text: string }[][];
+    expect(chunks[0]![0]!.text).toStartWith("queue/enqueue.ts:88\n[BLOCKING] renee:");
+  });
+
+  test("a sourcePath reads the same source", async () => {
+    const f = rooted();
+    await open({ kind: "respond-plan", sourcePath: copy(join(RR, "plan-source.json"), "plan-source.json") }, f);
+    expect(f.asks[0]!.context).toBe(fitOpen(plan()).context!);
+  });
+
+  test("a review findingsPath builds the source with the review-source port first", async () => {
+    const f = rooted();
+    const review = reviewInput();
+    const expected = fitOpen(buildReviewSource(loadJson(review.findingsPath), review.extras));
+    const res = await open({ kind: "review-post", review }, f);
+    expect(res.ok).toBe(true);
+    expect(f.asks[0]).toMatchObject({ questions: expected.questions, context: expected.context, kind: "review-post" });
+  });
+
+  test("a findingsPath outside the read roots is refused with the guard's message and nothing opens", async () => {
+    const f = rooted({});
+    const outside = join(RV, "findings-v2.json");
+    const guard = checkReadRootPath(outside, [tmp]);
+    if (guard.ok) throw new Error("fixture dir is inside the temp root");
+    const res = await open({ kind: "review-post", review: { findingsPath: outside, extras: {} }, ...RUN }, f);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain(guard.error);
+    expect(f.log).toEqual([]);
+  });
+
+  test("review input without extras is refused before anything opens", async () => {
+    const f = rooted();
+    const res = await open({ kind: "review-post", review: { findingsPath: reviewInput().findingsPath }, ...RUN }, f);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("extras");
+    expect(f.log).toEqual([]);
+  });
+
+  test("an unreadable findingsPath is refused before anything opens", async () => {
+    const f = rooted();
+    const p = copy(join(RV, "findings-v2.json"), "unreadable.json");
+    chmodSync(p, 0o000);
+    const res = await open({ kind: "review-post", review: { findingsPath: p, extras: loadJson(join(RV, "extras.json")) }, ...RUN }, f);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain(p);
+    expect(f.log).toEqual([]);
+  });
+
+  test("a findingsPath whose read fails is refused before anything opens", async () => {
+    const f = rooted();
+    f.deps.readFile = () => { throw new Error("EIO"); };
+    const res = await open({ kind: "review-post", review: reviewInput(), ...RUN }, f);
+    expect(res.error).toContain("review.findingsPath: cannot read");
+    expect(res.error).toContain("EIO");
+    expect(f.log).toEqual([]);
+  });
+
+  test("non-object review inputs refuse with the port's not-a-JSON-object line", async () => {
+    const extras = loadJson(join(RV, "extras.json"));
+    const nullFile = await open({ kind: "review-post", review: { findingsPath: write("null.json", "null"), extras } });
+    expect(nullFile.error).toContain("findings file: not a JSON object");
+    const badExtras = await open({ kind: "review-post", review: { findings: loadJson(join(RV, "findings-v2.json")), extras: "x" } });
+    expect(badExtras.error).toContain("extras: not a JSON object");
+  });
+
+  test("a refused source lists every problem line and never asks", async () => {
+    const f = rooted();
+    const s = plan();
+    s.questions[1]!.context.verdict.call = "maybe";
+    s.questions[0]!.context.severity = "loud";
+    const res = await open({ kind: "respond-plan", source: s, ...RUN }, f);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("thread-1: severity: blocking|non-blocking|question|none");
+    expect(res.error).toContain("thread-2: verdict.call: valid|valid-low-value|pushback|needs-clarification|no-ask");
+    expect(f.log).toEqual([]);
+  });
+
+  test("zero or two of source, sourcePath and review are refused", async () => {
+    const f = rooted();
+    const none = await open({ kind: "respond-plan" }, f);
+    const two = await open({ kind: "respond-plan", source: plan(), sourcePath: join(tmp, "plan-source.json") }, f);
+    for (const res of [none, two]) expect(res.error).toBe('pass exactly one of "source", "sourcePath" or "review"');
+    expect(f.log).toEqual([]);
+  });
+
+  test("runDb without stage is refused and nothing opens", async () => {
+    const f = rooted();
+    const res = await open({ kind: "respond-plan", source: plan(), runDb: DB }, f);
+    expect(res.error).toContain('"stage"');
+    expect(f.log).toEqual([]);
+  });
+
+  test("with a run, the untrimmed source is stored under the scope after the open", async () => {
+    const f = rooted();
+    const res = await open({ kind: "respond-plan", source: plan(), ...RUN }, f);
+    expect(res.ok).toBe(true);
+    expect(f.log).toEqual(["snapshot", "field set gate respond-plan --stage s", "ask", sourceLine("respond-plan", "g1", plan())]);
+    expect(body(res).runErrors).toBeUndefined();
+  });
+
+  test("review-post under scope post writes gate = post and stores the built source", async () => {
+    const f = rooted();
+    const review = reviewInput();
+    const built = buildReviewSource(loadJson(review.findingsPath), review.extras);
+    await open({ kind: "review-post", scope: "post", review, ...RUN }, f);
+    expect(f.log[1]).toBe("field set gate post --stage s");
+    expect(f.log.at(-1)).toBe(sourceLine("post", "g1", built));
+  });
+
+  test("an open that does not fit also saves the dropped fact", async () => {
+    const f = rooted();
+    const res = await open({ kind: "respond-plan", source: bigAdjudication(), ...RUN }, f);
+    expect(body(res)).toMatchObject({ mode: "prose", fits: false, contextDropped: true });
+    expect(f.log.slice(3)).toEqual(["field set extra.context-dropped.respond-plan g1 --stage s", sourceLine("respond-plan", "g1", bigAdjudication())]);
+  });
+
+  test("a daemon contextOmitted reports contextDropped", async () => {
+    const res = await open({ kind: "respond-plan", source: plan() }, rooted({ askData: { contextOmitted: true } }));
+    expect(body(res)).toMatchObject({ fits: true, contextDropped: true });
+  });
+
+  test("a failed gate-source write returns the open gate with runErrors", async () => {
+    const f = rooted({ failWrite: (l) => (l.includes("extra.gate-source") ? "disk full" : undefined) });
+    const res = await open({ kind: "respond-plan", source: plan(), ...RUN }, f);
+    expect(res.ok).toBe(true);
+    expect(body(res)).toMatchObject({ id: "g1", runErrors: ["disk full"] });
+  });
+
+  describe("handBack", () => {
+    test("builds and fits only: no ask, the fit as the open", async () => {
+      const f = rooted();
+      const fit = fitOpen(plan());
+      const res = await open({ kind: "respond-plan", source: plan(), handBack: true }, f);
+      expect(res.ok).toBe(true);
+      expect(f.log).toEqual([]);
+      expect(body(res)).toMatchObject({
+        open: { context: fit.context, questions: fit.questions },
+        mode: "structured", fits: true, trimmed: [], contextDropped: false, droppedContexts: [], formContext: PLAN_GATE_LINE,
+      });
+      expect((body(res).formChunks as { text: string }[][])[0]![0]!.text).toStartWith("queue/enqueue.ts:88\n[BLOCKING] renee:");
+    });
+
+    test("over budget drops whole question contexts, largest first", async () => {
+      const s = plan();
+      s.questions[0]!.context.claim.summary = "y".repeat(9 * 1024);
+      const res = await open({ kind: "respond-plan", source: s, handBack: true });
+      const o = body(res).open as { context?: string; questions: { id: string; context?: string }[] };
+      expect(body(res)).toMatchObject({ fits: false, contextDropped: true, droppedContexts: ["thread-1"] });
+      expect(o.context).toBe(fitOpen(s).context!);
+      expect(o.questions[0]!.context).toBeUndefined();
+      expect(o.questions[1]!.context).toBe(fitOpen(s).questions[1]!.context as string);
+    });
+
+    test("a gate context alone over budget drops every question context, then the gate context, and still returns the open", async () => {
+      const res = await open({ kind: "respond-plan", source: bigAdjudication(), handBack: true });
+      expect(res.ok).toBe(true);
+      const o = body(res).open as { context?: string; questions: { id: string; context?: string }[] };
+      expect((body(res).droppedContexts as string[]).toSorted()).toEqual(["thread-1", "thread-2"]);
+      expect(o.context).toBeUndefined();
+      expect(o.questions.map((q) => q.id)).toEqual(["thread-1", "thread-2", "code-changes"]);
+      expect(o.questions.every((q) => q.context === undefined)).toBe(true);
+      expect(body(res).contextDropped).toBe(true);
+    });
+
+    test("outPath in a temp root holds gate-ctx.sh's output shape", async () => {
+      const out = join(tmp, "open.json");
+      const res = await open({ kind: "respond-plan", source: plan(), handBack: true, outPath: out });
+      expect(body(res).outPath).toBe(out);
+      const file = readFileSync(out, "utf8");
+      expect(Object.keys(JSON.parse(file))).toEqual(["mode", "trimmed", "context", "questions", "bytes", "fits"]);
+      expect(JSON.parse(file)).toEqual(JSON.parse(JSON.stringify(fitOpen(plan()))));
+    });
+
+    test("an outPath outside the temp roots is refused and nothing is written", async () => {
+      const f = rooted();
+      const res = await open({ kind: "respond-plan", source: plan(), handBack: true, outPath: join(RR, "open.json"), ...RUN }, f);
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("temp root");
+      expect(f.log).toEqual([]);
+    });
+
+    test("outPath without handBack is refused", async () => {
+      const res = await open({ kind: "respond-plan", source: plan(), outPath: join(tmp, "x.json") });
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("handBack");
+    });
+
+    test("with a run, the source is stored with gate null and nothing else is written", async () => {
+      const f = rooted();
+      await open({ kind: "respond-plan", source: plan(), handBack: true, ...RUN }, f);
+      expect(f.log).toEqual(["snapshot", sourceLine("respond-plan", null, plan())]);
+    });
+  });
+});
+
+describe("askGate scope", () => {
+  test("an empty-string scope is refused before any call", async () => {
+    const f = fake();
+    const res = await askGate({ ...ASK, ...RUN, scope: "" }, ENV, f.deps);
+    expect(res.error).toBe('"scope" must be a non-empty string');
+    expect(f.log).toEqual([]);
+  });
+
+  test("a non-string scope is refused even with a handed run", async () => {
+    const f = fake();
+    const opened = await openRun(RUN, ENV, f.deps);
+    if (!opened || "error" in opened) throw new Error("openRun failed");
+    const res = await askGate({ ...ASK, ...RUN, scope: 7 }, ENV, f.deps, { run: opened.run });
+    expect(res.error).toBe('"scope" must be a non-empty string');
+    expect(f.log).toEqual(["snapshot"]);
   });
 });
