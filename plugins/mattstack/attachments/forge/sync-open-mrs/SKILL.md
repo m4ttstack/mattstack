@@ -284,7 +284,7 @@ branch of yours that has a tree, not the form's list. So the answer is yes
 only when all four hold:
 
 - the map was complete (no truncated read),
-- the plan pre-skipped nothing (no dirty tree, so no tree the sweep would
+- the plan pre-skipped no dirty tree (so no tree so no tree the sweep would
   visit outside the form),
 - every listed branch is selected,
 - the answer asked for no reorder.
@@ -326,6 +326,10 @@ blocks the rest of the sweep:
 | any other `error` (a preflight refusal, a sweep tree refusal, an rt sync failure) | skipped, `refusal` quoted |
 | a `git_pull` error | skipped, the error quoted |
 | a sweep `noTree` row, a map NONE row | skipped: no worktree |
+| a branch deselected at the sweep gate | skipped at the gate, reported, never synced |
+
+A sweep `dirty-tree` result for a branch the map did not list is reported
+and skipped: dirty tree, never gated.
 
 A branch passes the pull pass and the dirty gate at most once each, so
 neither loops. The pushed and rebased lines carry the move as sha +
@@ -357,7 +361,8 @@ leaves the rest skipped (dirty tree, aborted by the human). Never stash.
 
 The retried tree's `branch_sync` result goes into its bucket by the table
 under **Record the branch in its bucket**. A second `dirty-tree` is
-skipped: dirty tree.
+skipped: dirty tree. A retry that returns "run git_pull first" is skipped
+with the refusal quoted: the pull pass has already run.
 
 ### Summarize the rebase pass
 

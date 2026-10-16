@@ -179,8 +179,13 @@ paths?}`. `kind` decides, and nothing else does:
 ### Gate clarify: dirty tree
 
 Scope `clarify`. One sentence listing the uncommitted paths (the result's
-`paths`), then the questions `tree`: **I committed them, retry** /
-**Abort**; **Hold**. Selection `{"tree":"retry|abort"}`. Never stash and
+`paths`), then two questions, each its own question:
+
+- `tree`: **I committed them, retry** / **Abort**
+- `next`: **Proceed** / **Hold**
+
+Selection `{"tree":"retry|abort"}`. Read `next` first: **Hold** ends the
+turn with nothing moved. Never stash and
 proceed: moving someone's uncommitted work is not this skill's call. The
 table under **Gate push** binds this form too.
 
@@ -250,7 +255,8 @@ its text; the rebase stands unpushed.
 
 Its origin is the `git_push` refusal "not registered with rt". Scope
 `off-script:<run.current_stage>:<n>`, `n` counting from 1 per
-rebase-worktree invocation; with no run, per the gate steps. The
+rebase-worktree invocation; with no run, the site is `rebase-worktree`
+(scope `off-script:rebase-worktree:<n>`). The
 context sentence quotes the `git_push` refusal. The questions, each its
 own question:
 
