@@ -95,6 +95,9 @@ async function uploadOnce(deps: EvidenceToolDeps, identity: string, path: string
   return { ok: false, error: res.error ?? "upload failed" };
 }
 
+/** A guard refusal can name a case like session-timeout, so only an unbucketed error reads as a timeout. */
+const timedOut = (error: string) => bucketFor(error) === "other" && isTimeoutError(error);
+
 /** Sequential, one mr:upload per path; a failure never stops the rest. */
 export async function uploadEach(
   deps: EvidenceToolDeps,
@@ -108,14 +111,14 @@ export async function uploadEach(
     }
     o.progress?.();
     let res = await uploadOnce(deps, o.identity, path, o.runId);
-    if (!res.ok && o.retryTimeoutOnce && isTimeoutError(res.error) && !o.signal?.aborted) {
+    if (!res.ok && o.retryTimeoutOnce && timedOut(res.error) && !o.signal?.aborted) {
       o.progress?.();
       res = await uploadOnce(deps, o.identity, path, o.runId);
     }
     if (res.ok) out.push({ path, ok: true, url: res.url, markdown: res.markdown });
     else {
-      const timedOut = isTimeoutError(res.error);
-      out.push({ path, ok: false, error: timedOut ? `${res.error}; ${LANDING_HINT}` : res.error, timedOut });
+      const late = timedOut(res.error);
+      out.push({ path, ok: false, error: late ? `${res.error}; ${LANDING_HINT}` : res.error, timedOut: late });
     }
   }
   return out;

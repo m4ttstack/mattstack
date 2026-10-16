@@ -413,6 +413,17 @@ describe("evidence_attach", () => {
     expect(calls.some((c) => c.cmd === "mr:update")).toBe(false);
   });
 
+  test("a refusal whose text says timeout is a refusal, not a timeout: no retry, bucketed", async () => {
+    const { one, evidence } = twoWaived();
+    const refusal = `${one} is the raw capture for case "session-timeout"; upload its annotated image`;
+    const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes(refusal) : undefined);
+    const { deps, calls } = makeDeps({ fields: { evidence }, respond });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(uploads(calls).filter((c) => c.payload.path === one).length).toBe(1);
+    expect(body.timedOutTwice).toEqual([]);
+    expect(body.refused["raw-capture"]).toEqual([{ path: one, error: refusal }]);
+  });
+
   test("linkRefused prints the refused file's local path, writes, and remembers it as linked", async () => {
     const { one, evidence } = twoWaived();
     const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes("path is outside the allowed upload roots (...)") : undefined);
