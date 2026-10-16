@@ -13,6 +13,8 @@ check() { # name expected actual
 
 out="$(echo '{"source":"startup"}' | sh "$HOOK")"; code=$?
 check "exits 0" "0" "$code"
+printf '%s' "$out" | jq -e . >/dev/null 2>&1 && valid=yes || valid=no
+check "whole output is valid JSON" "yes" "$valid"
 check "event name" "SessionStart" "$(printf '%s' "$out" | jq -r .hookSpecificOutput.hookEventName)"
 ctx="$(printf '%s' "$out" | jq -r .hookSpecificOutput.additionalContext)"
 case "$ctx" in *model*effort*model-tiering*) named=yes ;; *) named=no ;; esac
