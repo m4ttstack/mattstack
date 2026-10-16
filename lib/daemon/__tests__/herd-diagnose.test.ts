@@ -50,6 +50,10 @@ describe("classifyScreen", () => {
     expect(classifyScreen(screen([], ["Login expired · Please run /login"]))).toBeNull();
   });
 
+  test("a screen with no composer rule reads nothing", () => {
+    expect(classifyScreen("You've hit your session limit · resets 5pm\nLogin expired · Please run /login")).toBeNull();
+  });
+
   test("a plain idle screen classifies as nothing", () => {
     expect(classifyScreen(screen(["⏺ Done. Tests pass."]))).toBeNull();
   });

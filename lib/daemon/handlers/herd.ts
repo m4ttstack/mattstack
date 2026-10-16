@@ -32,7 +32,7 @@ import { readChatSession, writeChatSession } from "../../chat-session.ts";
 import { attendPane } from "../attend.ts";
 import type { TrustOutcome } from "../trust-accept.ts";
 import { BG_SESSION } from "../bg-service.ts";
-import { paneStatuses } from "../pane-statuses.ts";
+import { paneStatusSnapshot, paneStatuses } from "../pane-statuses.ts";
 import type { BgService } from "../bg-service.ts";
 import type { BgClaimsStore } from "../bg-claims-store.ts";
 
@@ -155,11 +155,19 @@ export function jobDir(jobsRoot: string, herdId: string, job: string): string { 
 export function createHerdHandlers(deps: HerdDeps) {
   const { store, log } = deps;
   const registry = deps.registry ?? { load: loadRegistry, byPath: findTreeByPath };
-  const paneScreen = deps.paneScreen ?? (async (pane: string, socket: string | null): Promise<string | null> => {
+  const readScreen = deps.paneScreen ?? (async (pane: string, socket: string | null): Promise<string | null> => {
     const res = await deps.herdr<{ read?: { text?: unknown } }>("pane.read", { pane_id: pane, source: "visible" }, socket ? { sockPath: socket } : {});
     const text = res.ok ? res.result?.read?.text : undefined;
     return typeof text === "string" ? text : null;
   });
+  async function paneScreen(pane: string, socket: string | null): Promise<string | null> {
+    try {
+      return await readScreen(pane, socket);
+    } catch (err) {
+      log.warn({ err, pane }, "herd diagnose: the screen read threw; classifying nothing");
+      return null;
+    }
+  }
 
   /** Registers both the prefix row (herd:<id>/*, for the shepherd's own job
       gates) and the owner row (routes any gate whose `owner` is this herd,
@@ -637,8 +645,9 @@ export function createHerdHandlers(deps: HerdDeps) {
 
       const bare = job.pane ? parsePaneRef(job.pane).paneId : null;
       const [panes, own, runs] = await Promise.all([
-        bare ? paneStatuses(deps.herdr, herd.herdrSocket) : null, openHerdGates(herdId), listHerdRunGates(herdId),
+        bare ? paneStatusSnapshot(deps.herdr, herd.herdrSocket) : null, openHerdGates(herdId), listHerdRunGates(herdId),
       ]);
+      if (bare && !panes) return { ok: false, error: `herdr is unreachable on ${herd.herdrSocket ?? "the default socket"}; the pane's state is unknown` };
       const paneState = bare && panes ? readingState(panes.get(bare)) : null;
       const gates = [
         ...own.filter((g) => g.subject === herdSubject(herdId, name)),

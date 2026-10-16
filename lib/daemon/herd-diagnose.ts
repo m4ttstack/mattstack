@@ -31,8 +31,9 @@ export type ScreenClass = "rate-limited" | "login-expired";
 
 export function classifyScreen(text: string): ScreenClass | null {
   const lines = text.split("\n");
-  let rule = lines.length;
+  let rule = -1;
   for (let i = 0; i < lines.length; i++) if (RULE_LINE.test(lines[i]!)) rule = i;
+  if (rule < 0) return null;
   let limited = false;
   for (const raw of lines.slice(0, rule)) {
     const line = raw.replace(GUTTER, "");

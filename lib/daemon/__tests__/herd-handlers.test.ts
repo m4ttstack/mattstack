@@ -1805,6 +1805,34 @@ describe("herd:diagnose", () => {
     expect(hx.socketCalls.find((c) => c.method === "pane.read")!.params).toEqual({ pane_id: "w9:p1", source: "visible" });
   });
 
+  test("diagnose refuses to guess when herdr is unreachable", async () => {
+    const { h, store, herd, reads } = await started({
+      herdr: (async () => ({ ok: false, code: "unavailable", message: "no socket" })) as unknown as HerdDeps["herdr"],
+    });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    expect(res).toEqual({ ok: false, error: "herdr is unreachable on the default socket; the pane's state is unknown" });
+    expect(reads).toEqual([]);
+  });
+
+  test("diagnose treats a malformed snapshot reply as unreachable, not gone", async () => {
+    const { h, store, herd } = await started({
+      herdr: (async () => ({ ok: true, result: {} })) as unknown as HerdDeps["herdr"],
+    });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    expect(res.ok).toBe(false);
+  });
+
+  test("diagnose reads a throwing screen read as no screen", async () => {
+    const { h, store, snapshotPanes, herd } = await started({ paneScreen: async () => { throw new Error("boom"); } });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "w9:p1" });
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    const res = await h["herd:diagnose"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ paneState: "idle", verdict: "idle" });
+  });
+
   test("diagnose reports no-pane for a job without a pane", async () => {
     const { h, store, herd, reads } = await started();
     store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "spawning" });
