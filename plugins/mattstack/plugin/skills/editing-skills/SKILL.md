@@ -237,7 +237,13 @@ The source path for each estate is in the table above. Compiled output
 (`<pack>/skills/<verb>/` and the compiled internal verbs and stages under
 `<pack>/attachments/`, each carrying `compiled:` metadata) and cache copies
 are never edited: the next compile or update overwrites them. Edit the
-engine, include or fill instead.
+engine, include or fill instead. A stage copy
+(`<pack>/attachments/<stage>--<pipeline>/`, such as
+`stage-evidence--accessibility`) is compiled output too: compile writes it
+for a pipeline whose fills differ from the default and removes it when they
+match again. Change one through its fill or a
+`rt_verb {args: ["skills", "bind", "<stage>", "<slot>", "<pack>:<fill>", "--pipeline", "<name>", "--pack", "<pack>"]}`,
+naming the stage, never the copy.
 
 ### Compile the checkout's sources on Bash
 
