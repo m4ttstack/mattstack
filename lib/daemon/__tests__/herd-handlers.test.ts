@@ -182,7 +182,7 @@ export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { regist
     ...over,
   };
   const h = createHerdHandlers(deps);
-  return { h, store, gateStore, gate, chatCalls, agentCalls, worktreeCalls, herdrCalls, socketCalls, order, screen, trust, snapshotPanes, dir, claims, bg, bgStopCalls: () => bgStopCalls };
+  return { h, deps, store, gateStore, gate, chatCalls, agentCalls, worktreeCalls, herdrCalls, socketCalls, order, screen, trust, snapshotPanes, dir, claims, bg, bgStopCalls: () => bgStopCalls };
 }
 
 const START = { name: "demo", repo: "gh:m4ttstack/rt", session: "sess-shep" };
@@ -1495,8 +1495,8 @@ describe("herd:spawn {tree} and herd:respawn", () => {
     };
   }
 
-  async function started(trees: TreeRecord[]) {
-    const hx = harness({ registry: fakeRegistry(trees) });
+  async function started(trees: TreeRecord[], over: Partial<HerdDeps> = {}) {
+    const hx = harness({ registry: fakeRegistry(trees), ...over });
     const s = await hx.h["herd:start"](START);
     if (!s.ok) throw new Error(s.error);
     return { ...hx, herd: s.data.herd };
@@ -1595,6 +1595,66 @@ describe("herd:spawn {tree} and herd:respawn", () => {
     const res = await h["herd:respawn"]({ herd, job: "ghost" });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe(`unknown job "ghost" in herd "${herd}"`);
+  });
+
+  test("respawn refuses a job whose worktree is not a registered tree", async () => {
+    const dirJob = mkdtempSync(join(tmpdir(), "rt-herd-dir-"));
+    dirs.push(dirJob);
+    const { h, agentCalls, herd } = await started([]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: dirJob })).ok).toBe(true);
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe(`job "job-a" worktree ${dirJob} is not a registered tree; respawn it from the CLI with --dir`);
+    expect(agentCalls).toHaveLength(1);
+  });
+
+  test("respawn refuses a job whose tree is no longer claimed", async () => {
+    const t1 = claimedTree("t1");
+    const { h, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+    t1.state = "disposable";
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe(`job "job-a" worktree ${t1.path}: tree "t1" is ephemeral and disposable; only a claimed ephemeral tree can host a worker`);
+    expect(agentCalls).toHaveLength(1);
+  });
+
+  test("respawn settles the old session's run gates in the job's worktree, past the first page of a listing", async () => {
+    const t1 = claimedTree("t1");
+    const runTrees: Record<string, string> = { "r-other": "/w/elsewhere", "r-job": t1.path };
+    const { h: base, deps, gate, gateStore, herd } = await started([t1], { runWorktree: (run) => runTrees[run] ?? null });
+    const listCalls: Array<number | undefined> = [];
+    const paged = {
+      ...gate,
+      "gate:list": async (p: any) => { listCalls.push(p?.cursor); return gate["gate:list"]({ ...p, limit: 2 }); },
+    } as unknown as HerdDeps["gate"];
+    const h = createHerdHandlers({ ...deps, gate: paged });
+    expect((await base["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1" })).ok).toBe(true);
+
+    const openRun = async (run: string, kind: string, session: string) => {
+      const r = await gate["gate:open"]({ subject: `run:${run}`, kind, questions: Q, nudge: { session } });
+      if (!r.ok) throw new Error(r.error);
+      return r.data.id;
+    };
+    const decoys = [];
+    for (const kind of ["k1", "k2", "k3", "k4"]) {
+      const id = await openRun("r-other", kind, "sess-w1");
+      expect((await gate["gate:answer"]({ id, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+      decoys.push(id);
+    }
+    const openGate = await openRun("r-job", "k-open", "sess-w1");
+    const answered = await openRun("r-job", "k-answered", "sess-w1");
+    expect((await gate["gate:answer"]({ id: answered, answers: { q1: "a" }, by: "console" })).ok).toBe(true);
+    const otherSession = await openRun("r-job", "k-other", "sess-other");
+
+    const res = await h["herd:respawn"]({ herd, job: "job-a" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.settled).toEqual({ closed: [openGate], consumed: [answered] });
+    expect(gateStore.get(openGate)).toMatchObject({ status: "closed", closedReason: "abandoned" });
+    expect(gateStore.get(answered)!.consumedAt).not.toBeNull();
+    expect(gateStore.get(otherSession)!.status).toBe("open");
+    for (const id of decoys) expect(gateStore.get(id)!.consumedAt).toBeNull();
+    expect(listCalls.filter((c) => c !== undefined).length).toBeGreaterThan(1);
   });
 
   test("respawn ticks respawns and reports spent at 2 but still launches the third", async () => {

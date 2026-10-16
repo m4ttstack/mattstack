@@ -381,6 +381,21 @@ export function createHerdHandlers(deps: HerdDeps) {
     return typeof artifact === "string" ? artifact : "";
   }
 
+  /** Every page of a gate listing: gate:list caps a page, and answered gates
+      linger until retention, so one page can miss the newest rows. The store
+      returns the table head as the cursor once a page is short, so the loop
+      ends on the first empty page. */
+  async function listEveryGate(filter: Omit<Commands["gate:list"]["payload"], "cursor">): Promise<GateRow[]> {
+    const all: GateRow[] = [];
+    let cursor: number | undefined;
+    for (;;) {
+      const res = await deps.gate["gate:list"]({ ...filter, ...(cursor !== undefined && { cursor }) });
+      if (!res.ok || res.data.gates.length === 0) return all;
+      all.push(...res.data.gates);
+      cursor = res.data.cursor;
+    }
+  }
+
   /** `herd:answer` consumes a gate only for the session it nudges, so the
       replaced session's gates could never settle on their own: open ones
       close as abandoned (the new worker re-asks), answered ones are stamped
@@ -391,12 +406,12 @@ export function createHerdHandlers(deps: HerdDeps) {
     if (!session) return settled;
     const status: GateStatus[] = ["open", "parked", "answered"];
     const [own, runs] = await Promise.all([
-      deps.gate["gate:list"]({ subject: herdSubject(herdId, job.name), status }),
-      deps.gate["gate:list"]({ subjectPrefix: "run:", status }),
+      listEveryGate({ subject: herdSubject(herdId, job.name), status }),
+      listEveryGate({ subjectPrefix: "run:", status }),
     ]);
     const gates = [
-      ...(own.ok ? own.data.gates : []),
-      ...(runs.ok ? runs.data.gates.filter((g) => deps.runWorktree(g.subject.slice("run:".length)) === job.worktree) : []),
+      ...own,
+      ...runs.filter((g) => deps.runWorktree(g.subject.slice("run:".length)) === job.worktree),
     ].filter((g) => g.nudge?.session === session);
     for (const g of gates) {
       if (g.status === "answered") {
