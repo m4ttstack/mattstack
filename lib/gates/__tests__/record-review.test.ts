@@ -43,7 +43,7 @@ describe("respondPlanSelection", () => {
   test("a textless reply on a direction card is an override", () => {
     const { selection, rows } = respondPlanSelection({ "thread-1": "reply:T1" }, { source: planSource() });
     expect(selection).toEqual({ threads: { T1: "reply" }, overrides: ["T1"] });
-    expect(rows[0].gate1).toBe("override");
+    expect(rows[0]?.gate1).toBe("override");
   });
 
   test("a note makes a verbatim reply an override and lands in notes", () => {
@@ -92,7 +92,14 @@ describe("respondPlanSelection", () => {
       { id: "thread-1", label: "a.ts", multi: false, options: [{ value: "reply:X", label: "Reply (Recommended)" }, { value: "fix:X", label: "fix" }] },
     ];
     const { rows } = respondPlanSelection({ "thread-1": "fix:X" }, { storedQuestions: stored });
-    expect(rows[0].recommended).toBe("reply");
+    expect(rows[0]?.recommended).toBe("reply");
+  });
+
+  test("threads and rows follow thread-<n> order and ignore other keys", () => {
+    const a: AnswersMap = { "thread-10": "skip:T10", foo: "bar", "thread-2": "fix:T2", "thread-1": "fix:T1" };
+    const { selection, rows } = respondPlanSelection(a, { source: planSource() });
+    expect(Object.keys(selection.threads as object)).toEqual(["T1", "T2", "T10"]);
+    expect(rows.map((r) => r.threadId)).toEqual(["T1", "T2", "T10"]);
   });
 
   test("the key order is threads, texts, overrides, notes, code-changes", () => {

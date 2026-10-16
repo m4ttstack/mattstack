@@ -87,7 +87,7 @@ function valuesOf(a: AnswerWire | undefined): string[] {
 
 function extraOf(a: AnswerWire | undefined, key: "text" | "note"): string | undefined {
   if (!isObj(a) || isWriteIn(a as AnswerWire)) return undefined;
-  const v = a[key];
+  const v = (a as Obj)[key];
   return nonEmpty(v) ? v : undefined;
 }
 
@@ -153,8 +153,8 @@ export function respondPlanSelection(
     return stored === undefined || stored.context === undefined || stored.context === null || stored.context === "";
   };
 
-  for (const [qid, answer] of Object.entries(a)) {
-    if (qid === "code-changes" || qid === "next") continue;
+  for (const qid of numberedKeys(a as unknown as Obj, "thread")) {
+    const answer = a[qid];
     const [value] = valuesOf(answer);
     if (value === undefined) continue;
     const { verb, id } = splitVerb(value);
