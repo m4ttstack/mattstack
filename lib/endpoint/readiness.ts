@@ -36,6 +36,11 @@ export async function waitForAnswers(
     try {
       const res = await deps.fetch(t.url, { redirect: "manual", signal });
       outcomes[t.role] = { answered: true, status: res.status, answeredAfterMs: roundAt - start };
+      try {
+        res.body?.cancel().catch(() => {});
+      } catch {
+        // a locked body cannot be cancelled; the status is all a probe needs
+      }
     } catch {
       // not answered this round
     }

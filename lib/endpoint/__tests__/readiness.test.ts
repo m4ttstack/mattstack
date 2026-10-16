@@ -19,6 +19,20 @@ function deps(c: ReturnType<typeof clock>, f: (url: string, init?: RequestInit) 
 }
 
 describe("waitForAnswers", () => {
+  test("the response body is cancelled once the status is read, and a failing cancel is ignored", async () => {
+    const c = clock();
+    let cancelled = 0;
+    const res = (fail: boolean) => ({ status: 200, body: { cancel: () => { cancelled++; return fail ? Promise.reject(new Error("gone")) : Promise.resolve(); } } }) as unknown as Response;
+    const r = await waitForAnswers(
+      [{ role: "web", url: "http://x/" }, { role: "api", url: "http://y/" }],
+      { waitMs: 0 },
+      deps(c, async (url) => res(url === "http://y/")),
+    );
+    expect(cancelled).toBe(2);
+    expect(r.outcomes.web!.answered).toBe(true);
+    expect(r.outcomes.api!.answered).toBe(true);
+  });
+
   test("any status counts as answered after one round", async () => {
     const c = clock();
     const r = await waitForAnswers(
