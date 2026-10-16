@@ -57,6 +57,12 @@ const org = {
       'mattstack/teams/acme/plugin/attachments/stage-plan/SKILL.md':
         'ACME PLAN',
     },
+    ddd4444: {
+      'mattstack/teams/acme/plugin/attachments/stage-evidence/SKILL.md':
+        'DEFAULT EVIDENCE',
+      'mattstack/teams/acme/plugin/attachments/stage-evidence--accessibility/SKILL.md':
+        'ACCESSIBILITY EVIDENCE',
+    },
   },
 };
 
@@ -67,9 +73,11 @@ const deps = (extra: Partial<StageDocDeps> = {}): StageDocDeps => ({
     { name: 'mattstack', dir: '/mono/plugins/mattstack' },
   ],
   readFile: async p =>
-    p === '/cache/0.30.20/attachments/pipeline/stage-ship/SKILL.md'
-      ? 'SHIP DOC'
-      : null,
+    ({
+      '/cache/0.30.20/attachments/pipeline/stage-ship/SKILL.md': 'SHIP DOC',
+      '/cache/0.30.20/attachments/pipeline/stage-ship--accessibility/SKILL.md':
+        'ACCESSIBILITY SHIP DOC',
+    })[p] ?? null,
   pluginCacheDir: '/cache',
   ...extra,
 });
@@ -95,6 +103,7 @@ describe('resolveStageDoc', () => {
       await resolveStageDoc(deps(), {
         packCommits: 'acme=ccc3333',
         stage: 'plan',
+        pipeline: null,
       })
     ).toMatchObject({ text: 'ACME PLAN' });
   });
@@ -105,6 +114,7 @@ describe('resolveStageDoc', () => {
       await resolveStageDoc(deps({ readFile }), {
         packCommits: 'mattstack=0.30.20/../../../x',
         stage: 'ship',
+        pipeline: null,
       })
     ).toBeNull();
     expect(readFile).not.toHaveBeenCalled();
@@ -115,6 +125,7 @@ describe('resolveStageDoc', () => {
       await resolveStageDoc(deps(), {
         packCommits: 'acme=aaa1111',
         stage: 'plan',
+        pipeline: null,
       })
     ).toMatchObject({ text: 'OLD PLAN', pack: 'acme' });
   });
@@ -124,6 +135,7 @@ describe('resolveStageDoc', () => {
       await resolveStageDoc(deps(), {
         packCommits: 'plugin=bbb2222,mattstack=0.30.20',
         stage: 'plan',
+        pipeline: null,
       })
     ).toMatchObject({ text: 'NEW PLAN', pack: 'acme' });
   });
@@ -133,6 +145,7 @@ describe('resolveStageDoc', () => {
       await resolveStageDoc(deps(), {
         packCommits: 'acme=bbb2222,mattstack=0.30.20',
         stage: 'ship',
+        pipeline: null,
       })
     ).toMatchObject({ text: 'SHIP DOC', pack: 'mattstack' });
   });
@@ -142,13 +155,58 @@ describe('resolveStageDoc', () => {
       await resolveStageDoc(deps(), {
         packCommits: 'acme=bbb2222',
         stage: 'gates',
+        pipeline: null,
       })
     ).toBeNull();
   });
 
   it('is null with nothing recorded', async () => {
     expect(
-      await resolveStageDoc(deps(), { packCommits: null, stage: 'plan' })
+      await resolveStageDoc(deps(), {
+        packCommits: null,
+        stage: 'plan',
+        pipeline: null,
+      })
     ).toBeNull();
+  });
+
+  it("reads the run's pipeline copy of a stage over the default", async () => {
+    const at = (pipeline: string | null) =>
+      resolveStageDoc(deps(), {
+        packCommits: 'acme=ddd4444',
+        stage: 'evidence',
+        pipeline,
+      });
+    expect(await at('accessibility')).toMatchObject({
+      text: 'ACCESSIBILITY EVIDENCE',
+      pack: 'acme',
+    });
+    expect(await at('feature')).toMatchObject({ text: 'DEFAULT EVIDENCE' });
+    expect(await at(null)).toMatchObject({ text: 'DEFAULT EVIDENCE' });
+  });
+
+  it('reads a version-recorded pipeline copy from the plugin cache', async () => {
+    const at = (pipeline: string) =>
+      resolveStageDoc(deps(), {
+        packCommits: 'mattstack=0.30.20',
+        stage: 'ship',
+        pipeline,
+      });
+    expect(await at('accessibility')).toMatchObject({
+      text: 'ACCESSIBILITY SHIP DOC',
+    });
+    expect(await at('feature')).toMatchObject({ text: 'SHIP DOC' });
+  });
+
+  it('ignores a pipeline name that could leave the stage directory', async () => {
+    const readFile = vi.fn(async () => null);
+    await resolveStageDoc(deps({ readFile }), {
+      packCommits: 'mattstack=0.30.20',
+      stage: 'ship',
+      pipeline: '../../x',
+    });
+    expect(readFile.mock.calls).toEqual([
+      ['/cache/0.30.20/attachments/pipeline/stage-ship/SKILL.md'],
+    ]);
   });
 });
