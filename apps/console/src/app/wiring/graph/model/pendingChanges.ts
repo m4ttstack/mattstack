@@ -1,4 +1,4 @@
-import { suffixOf, type SkillsComposition } from '../../outline';
+import { stageCopyOf, suffixOf, type SkillsComposition } from '../../outline';
 import type { SkillsChanges } from '../../useWiring';
 import { stepLabel } from './focusModel';
 
@@ -58,10 +58,18 @@ function compiledOutputOf(
   const rebuilt: string[] = [];
   const removed: string[] = [];
 
-  for (const change of changes.bindings)
-    for (const binder of composition.binders ?? [])
-      if (binder.ref === change.engineRef)
-        names.add(binder.verb ?? suffixOf(binder.ref));
+  for (const change of changes.bindings) {
+    const copy = stageCopyOf(
+      composition.targets,
+      suffixOf(change.engineRef),
+      change.pipeline ?? null
+    );
+    if (copy) names.add(copy.name);
+    else
+      for (const binder of composition.binders ?? [])
+        if (binder.ref === change.engineRef)
+          names.add(binder.verb ?? suffixOf(binder.ref));
+  }
 
   for (const change of changes.surface) {
     for (const target of targets)
@@ -101,9 +109,9 @@ export function pendingChangesOf(
 ): PendingChange[] {
   const named: PendingChange[] = [
     ...changes.bindings.map(change => ({
-      key: `binding:${change.engineRef}:${change.slot}`,
+      key: `binding:${change.pipeline ?? ''}:${change.engineRef}:${change.slot}`,
       name: stepLabel(suffixOf(change.engineRef)),
-      detail: `${change.slot} slot: ${fillName(change.from)} → ${fillName(change.to)}`,
+      detail: `${change.pipeline ? `${change.slot} · ${change.pipeline}` : `${change.slot} slot`}: ${fillName(change.from)} → ${fillName(change.to)}`,
     })),
     ...changes.surface.map(change => ({
       key: `surface:${change.skill}`,
@@ -142,7 +150,8 @@ function signatureOf(changes: SkillsChanges): string {
     sorted(changes.files.map(f => `${f.status} ${f.from ?? ''} ${f.path}`)),
     sorted(
       changes.bindings.map(
-        b => `${b.engineRef} ${b.slot} ${b.from ?? ''} ${b.to ?? ''}`
+        b =>
+          `${b.pipeline ?? ''} ${b.engineRef} ${b.slot} ${b.from ?? ''} ${b.to ?? ''}`
       )
     ),
     sorted(changes.surface.map(s => `${s.skill} ${s.from} ${s.to}`)),

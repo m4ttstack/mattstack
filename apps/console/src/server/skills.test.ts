@@ -2137,6 +2137,76 @@ describe('skills bind route', () => {
     ]);
   });
 
+  describe('a pipeline override', () => {
+    const withPipelines = () => ({
+      ...bindComposition(),
+      pipelines: {
+        feature: ['mattstack:watch-ci'],
+        accessibility: ['mattstack:watch-ci'],
+      },
+    });
+    const rtWith = () =>
+      fakeRtHandler(argv =>
+        isComposition(argv)
+          ? { code: 0, stdout: JSON.stringify(withPipelines()), stderr: '' }
+          : { code: 0, stdout: '', stderr: '' }
+      );
+    const body = (pipeline: unknown) => ({
+      pack: 'demo',
+      verb: 'watch-ci',
+      slot: 'domain',
+      fill: 'demo:watch-ci-domain-v2',
+      pipeline,
+    });
+
+    it('runs rt with --pipeline', async () => {
+      const rt = rtWith();
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await postBind(app, body('accessibility'));
+
+      expect(res.status).toBe(200);
+      expect(rt.calls.find(isBind)).toEqual([
+        'skills',
+        'bind',
+        'watch-ci',
+        'domain',
+        'demo:watch-ci-domain-v2',
+        '--pipeline',
+        'accessibility',
+        '--pack',
+        'demo',
+      ]);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        pipeline: 'accessibility',
+      });
+    });
+
+    it('rejects a pipeline the pack does not declare before any bind spawn', async () => {
+      const rt = rtWith();
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await postBind(app, body('nope'));
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        error: expect.stringContaining('nope'),
+      });
+      expect(rt.calls.some(isBind)).toBe(false);
+    });
+
+    it('rejects a pipeline that is not a string before touching rt', async () => {
+      const rt = rtWith();
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await postBind(app, body(7));
+
+      expect(res.status).toBe(400);
+      expect(rt.run).not.toHaveBeenCalled();
+    });
+  });
+
   it('surfaces a non-zero rt exit as 502, carrying rt own stderr -- never a false success', async () => {
     const rt = fakeRtHandler(argv => {
       if (isComposition(argv)) {

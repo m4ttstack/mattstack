@@ -72,6 +72,15 @@ interface SkillsCompositionVerb {
       order. Optional because an rt older than the field answers without it. */
   includes?: string[];
   engineError?: string;
+  /** The pipeline a work verb runs, when its stub names one. */
+  pipeline?: string;
+}
+/** A pipeline's own fill for a binder slot. rt states no origin for it, so
+    the team pack owns it. */
+interface SkillsCompositionBinderOverride {
+  pipeline: string;
+  boundTo: string;
+  layer: string | null;
 }
 interface SkillsCompositionBinder {
   ref: string;
@@ -86,6 +95,9 @@ interface SkillsCompositionBinder {
     origin?: 'base';
     base?: string;
     baseVersion?: string | null;
+    /** `boundTo` is "" when only these bind the slot. Present only when a
+        pipeline overrides the slot. */
+    overrides?: SkillsCompositionBinderOverride[];
   }[];
   /** The console's own addition, on an `external` binder: the SKILL.md the
       app installed under that name, or null when none is installed. */
@@ -115,6 +127,10 @@ interface SkillsCompositionTarget {
       field answers without it. */
   slots?: { name: string; contract: string; required: boolean }[];
   engineError: string | null;
+  /** A stage copy's own stage and the pipeline it was compiled for; absent
+      on every other target. */
+  engine?: string;
+  pipeline?: string;
 }
 interface SkillsCompositionResponse {
   pack: string;
@@ -247,6 +263,8 @@ interface SkillsBindResponse {
   verb: string;
   slot: string;
   fill: string;
+  /** Set when the write was that pipeline's override. */
+  pipeline?: string;
   ok: boolean;
   error?: string;
 }
@@ -322,6 +340,8 @@ interface SkillsBindingChange {
   slot: string;
   from: string | null;
   to: string | null;
+  /** The pipeline whose override changed; absent for a default change. */
+  pipeline?: string;
 }
 interface SkillsSurfaceChange {
   skill: string;
@@ -610,18 +630,30 @@ const surfaceApplyBody = validator(
 
 const bindBody = validator(
   'json',
-  (value): { pack?: string; verb?: string; slot?: string; fill?: string } => {
+  (
+    value
+  ): {
+    pack?: string;
+    verb?: string;
+    slot?: string;
+    fill?: string;
+    pipeline?: string;
+  } => {
     const v = value as {
       pack?: unknown;
       verb?: unknown;
       slot?: unknown;
       fill?: unknown;
+      pipeline?: unknown;
     };
     return {
       pack: typeof v?.pack === 'string' ? v.pack : undefined,
       verb: typeof v?.verb === 'string' ? v.verb : undefined,
       slot: typeof v?.slot === 'string' ? v.slot : undefined,
       fill: typeof v?.fill === 'string' ? v.fill : undefined,
+      // A non-string reads as "", which no pack declares, so it is refused
+      // rather than read as a default write.
+      pipeline: expectOf(v?.pipeline),
     };
   }
 );
@@ -1165,11 +1197,14 @@ export function mountSkills(
       }
     })
     .post('/api/skills/bind', bindBody, async c => {
-      const { pack, verb, slot, fill } = c.req.valid('json');
+      const { pack, verb, slot, fill, pipeline } = c.req.valid('json');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
       if (!verb) return c.json({ error: 'verb is required' }, 400);
       if (!slot) return c.json({ error: 'slot is required' }, 400);
       if (!fill) return c.json({ error: 'fill is required' }, 400);
+      if (pipeline === '') {
+        return c.json({ error: 'pipeline must be a pipeline name' }, 400);
+      }
       const rt = heldOpen(c.env, c.req.raw);
 
       try {
@@ -1195,7 +1230,7 @@ export function mountSkills(
         }
         const composition = compositionPayload as SkillsCompositionResponse;
 
-        // Checked against the roster/composition BEFORE any of the three
+        // Checked against the roster/composition BEFORE any of these
         // names reaches an argv -- a name that is not really this pack's is
         // rejected here, never handed to a spawn.
         const verbEntry = composition.verbs.find(v => v.name === verb);
@@ -1228,13 +1263,31 @@ export function mountSkills(
             400
           );
         }
+        if (
+          pipeline !== undefined &&
+          !Object.hasOwn(composition.pipelines ?? {}, pipeline)
+        ) {
+          return c.json(
+            { error: `"${pipeline}" is not a pipeline ${pack} declares` },
+            400
+          );
+        }
 
         // `bind` recompiles the verb, so composition/check/compile all go
         // stale too -- the same per-pack cache sweep the surface-apply route
         // runs. Never a narrower invalidation, and never skipped on a failure
         // or a kill: the binding may already be written.
         const run = await rt(
-          ['skills', 'bind', verb, slot, fill, '--pack', pack],
+          [
+            'skills',
+            'bind',
+            verb,
+            slot,
+            fill,
+            ...(pipeline !== undefined ? ['--pipeline', pipeline] : []),
+            '--pack',
+            pack,
+          ],
           WRITE
         ).finally(() => dropCachedReads(pack));
         const ok = run.code === 0;
@@ -1244,6 +1297,7 @@ export function mountSkills(
           verb,
           slot,
           fill,
+          ...(pipeline !== undefined ? { pipeline } : {}),
           ok,
           error: ok ? undefined : run.stderr.trim() || 'rt exited nonzero',
         };

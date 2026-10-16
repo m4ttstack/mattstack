@@ -406,7 +406,12 @@ export function useSkillsApply(pack: string) {
 
   const bind = useMutation({
     mutationKey,
-    mutationFn: (write: { verb: string; slot: string; fill: string }) => {
+    mutationFn: (write: {
+      verb: string;
+      slot: string;
+      fill: string;
+      pipeline?: string;
+    }) => {
       if (!pack) return Promise.reject(new Error('no pack selected'));
       return postSkillsWrite<SkillsBindResponse>(client.api.skills.bind.$post, {
         pack,

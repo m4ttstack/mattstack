@@ -1,7 +1,9 @@
 import { layerLabel } from '../../layerLabel';
 import {
   invertBindings,
+  leadsAPipeline,
   ORCHESTRATOR_VERB,
+  overrideOf,
   pluginOf,
   suffixOf,
   type SkillsCheck,
@@ -263,44 +265,72 @@ function variableTitle(name: string): string {
 export function slotFactsOf(
   composition: SkillsComposition,
   skill: string,
-  ref: string
+  ref: string,
+  workType: string | null = null
 ): Map<string, SlotFacts> {
   const facts = new Map<string, SlotFacts>();
   const provides = new Map(
     composition.fills.map(fill => [fill.binding, fill.provides] as const)
   );
-  const verb = composition.verbs.find(v => v.name === skill);
-  for (const slot of verb?.slots ?? []) {
-    facts.set(slot.name, {
-      contract: slot.contract,
-      required: slot.required,
-      boundTo: slot.boundTo,
-      resolveError: slot.resolveError ?? null,
-      layer: slot.layer ?? null,
-    });
-  }
+  const target = composition.targets?.find(t => t.name === skill);
+  const pipeline = target?.pipeline ?? workType;
   const binder = composition.binders.find(b => b.ref === ref);
   const bound = new Map(binder?.slots.map(slot => [slot.name, slot]));
-  const target = composition.targets?.find(t => t.name === skill);
+  /** The binder's fill and the layer that chose it, in this pipeline. */
+  const binding = (name: string) => {
+    const slot = bound.get(name);
+    if (!slot) return null;
+    const override = overrideOf(slot, pipeline);
+    return {
+      boundTo: (override?.boundTo ?? slot.boundTo) || null,
+      layer: (override ? override.layer : slot.layer) ?? null,
+      overridden: override !== undefined,
+    };
+  };
+
+  const verb = composition.verbs.find(v => v.name === skill);
+  for (const slot of verb?.slots ?? []) {
+    const own = binding(slot.name);
+    facts.set(
+      slot.name,
+      own?.overridden
+        ? {
+            contract: slot.contract,
+            required: slot.required,
+            boundTo: own.boundTo,
+            resolveError: null,
+            layer: own.layer,
+          }
+        : {
+            contract: slot.contract,
+            required: slot.required,
+            boundTo: slot.boundTo,
+            resolveError: slot.resolveError ?? null,
+            layer: slot.layer ?? null,
+          }
+    );
+  }
   for (const slot of target?.slots ?? []) {
     if (facts.has(slot.name)) continue;
-    const binding = bound.get(slot.name);
+    const own = binding(slot.name);
     facts.set(slot.name, {
       contract: slot.contract,
       required: slot.required,
-      boundTo: binding?.boundTo ?? null,
+      boundTo: own?.boundTo ?? null,
       resolveError: null,
-      layer: binding?.layer ?? null,
+      layer: own?.layer ?? null,
     });
   }
   for (const slot of binder?.slots ?? []) {
     if (facts.has(slot.name)) continue;
+    const own = binding(slot.name);
+    if (!own?.boundTo) continue;
     facts.set(slot.name, {
-      contract: provides.get(slot.boundTo) ?? null,
+      contract: provides.get(own.boundTo) ?? null,
       required: null,
-      boundTo: slot.boundTo,
+      boundTo: own.boundTo,
       resolveError: null,
-      layer: slot.layer ?? null,
+      layer: own.layer,
     });
   }
   return facts;
@@ -323,20 +353,30 @@ function slotState(
 
 function usageCounts(composition: SkillsComposition) {
   const sites = invertBindings(composition);
+  // A stage copy pastes what its engine pastes; the engine counts for both.
   const includeUses = (name: string) =>
     composition.targets
-      ? composition.targets.filter(target =>
-          target.placeholders.some(p => p.kind === 'include' && p.arg === name)
+      ? composition.targets.filter(
+          target =>
+            target.engine === undefined &&
+            target.placeholders.some(
+              p => p.kind === 'include' && p.arg === name
+            )
         ).length
       : composition.verbs.filter(v => v.includes?.includes(name)).length;
   const fillUses = (ref: string) => sites[ref]?.length ?? 0;
   return { includeUses, fillUses };
 }
 
-export function textNounOf(anatomy: SkillsAnatomy): TextNoun {
+export function textNounOf(
+  anatomy: SkillsAnatomy,
+  composition?: Pick<SkillsComposition, 'verbs'>
+): TextNoun {
   if (anatomy.kind === 'stage') return 'step';
+  const verb = composition?.verbs.find(v => v.name === anatomy.skill);
   if (
     anatomy.skill === ORCHESTRATOR_VERB ||
+    (verb !== undefined && leadsAPipeline(verb)) ||
     anatomy.parts.some(part => part.kind === 'verb.path')
   )
     return 'orchestrator';
@@ -355,19 +395,29 @@ export function buildTemplateView(input: {
   const { anatomy, composition, check, changes, step } = input;
   const stepOf = stepNumbers(composition, input.workType ?? null);
   const pack = anatomy.pack;
-  const textNoun = textNounOf(anatomy);
+  const textNoun = textNounOf(anatomy, composition);
   const slotFacts = slotFactsOf(
     composition,
     anatomy.skill,
-    anatomy.template.ref
+    anatomy.template.ref,
+    input.workType ?? null
   );
   const { includeUses, fillUses } = usageCounts(composition);
   const checkRows = new Map<string, CheckRow>(
     (check?.verbs ?? []).map(row => [row.name, row] as const)
   );
+  // A stage copy compiles from its pipeline's override, and every other
+  // skill from the default, so only that change rebuilds what is shown.
+  const shownPipeline =
+    composition.targets?.find(target => target.name === anatomy.skill)
+      ?.pipeline ?? null;
   const pendingSlots = new Set(
     (changes?.bindings ?? [])
-      .filter(change => change.engineRef === anatomy.template.ref)
+      .filter(
+        change =>
+          change.engineRef === anatomy.template.ref &&
+          (change.pipeline ?? null) === shownPipeline
+      )
       .map(change => change.slot)
   );
 
@@ -735,8 +785,14 @@ function stepNumbers(composition: SkillsComposition, workType: string | null) {
     (workType !== null ? pipelines[workType] : undefined) ??
     Object.values(pipelines)[0] ??
     [];
+  const engines = new Map(
+    (composition.targets ?? []).flatMap(target =>
+      target.engine !== undefined ? [[target.name, target.engine] as const] : []
+    )
+  );
   return (skill: string): number | null => {
-    const at = order.findIndex(ref => suffixOf(ref) === skill);
+    const stage = engines.get(skill) ?? skill;
+    const at = order.findIndex(ref => suffixOf(ref) === stage);
     return at === -1 ? null : at + 1;
   };
 }

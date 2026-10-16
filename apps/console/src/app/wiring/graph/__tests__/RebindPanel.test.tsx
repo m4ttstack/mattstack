@@ -50,7 +50,9 @@ vi.mock('../../../api', () => ({
               ok(
                 query.skill === 'work'
                   ? designFixture('anatomy.work')
-                  : designFixture('anatomy.stage-plan')
+                  : query.skill === 'stage-evidence--accessibility'
+                    ? designFixture('anatomy.stage-evidence--accessibility')
+                    : designFixture('anatomy.stage-plan')
               )
             ),
         },
@@ -334,6 +336,49 @@ describe('RebindPanel', () => {
     await waitFor(() => expect(params().get('rebind')).toBeNull());
     expect(params().get('select')).toBe('row:136');
     expect(screen.queryByTestId('rebind-panel')).toBeNull();
+  });
+
+  it("writes the accessibility pipeline's own binding from its evidence step", async () => {
+    renderAt(
+      '?tab=graph&focus=stage-evidence@accessibility&select=row:299&rebind=1'
+    );
+    const root = await panel();
+
+    expect(
+      within(root)
+        .getAllByTestId('rebind-fact')
+        .map(fact => fact.textContent)
+    ).toEqual([
+      'contractevidence-domain@1',
+      'set bythis pack',
+      'requiredno',
+      'pipelineaccessibility',
+    ]);
+    expect(within(root).getByTestId('rebind-current')).toHaveTextContent(
+      'evidence-a11ynow'
+    );
+
+    await userEvent.click(picker(root));
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^evidence-policy/ })
+    );
+    expect(within(root).getByTestId('rebind-command')).toHaveTextContent(
+      'rt skills bind stage-evidence domain acme:evidence-policy --pipeline accessibility --pack acme' +
+        "Writes the accessibility pipeline's own binding in this pack, then rebuilds its evidence step. Nothing is shared until you sync."
+    );
+
+    await confirmApply(root);
+    await waitFor(() =>
+      expect(bindPost).toHaveBeenCalledWith({
+        json: {
+          pack: 'acme',
+          verb: 'stage-evidence',
+          slot: 'domain',
+          fill: 'acme:evidence-policy',
+          pipeline: 'accessibility',
+        },
+      })
+    );
   });
 
   it('writes nothing when the confirm is cancelled', async () => {

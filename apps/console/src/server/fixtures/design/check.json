@@ -11,6 +11,12 @@
       "staleBecause": ["source"]
     },
     {
+      "name": "work-a11y",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": []
+    },
+    {
       "name": "shepherdr",
       "status": "in-sync",
       "staleFiles": [],
@@ -146,6 +152,12 @@
       "orphanFiles": [],
       "side": "attachments",
       "staleBecause": ["source"]
+    },
+    {
+      "name": "stage-evidence--accessibility",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": []
     }
   ],
   "chainErrors": [],

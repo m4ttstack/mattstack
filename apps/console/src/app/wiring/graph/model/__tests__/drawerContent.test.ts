@@ -422,7 +422,7 @@ describe('an input card (drawer-input-card)', () => {
 
   it('reads as the board does', () => {
     expect(content?.sentence).toBe(
-      'A mattstack partial. 14 skills in this pack paste it in.'
+      'A mattstack partial. 15 skills in this pack paste it in.'
     );
     expect(content?.meta).toBe('mattstack 0.30.4 · installed copy, read only');
     expect(content?.tabs).toEqual(['text', 'used-by', 'history']);
