@@ -50,7 +50,9 @@ import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { FLOOR_REL, readFloor } from "../lib/engine-floor.ts";
 import { validateChain } from "../lib/skills/chain.ts";
-import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan } from "../lib/skills/base-attachments.ts";
+import { fieldContractErrors, routeFieldContract, type CompiledDoc } from "../lib/skills/field-contract.ts";
+import { pipelinesWrite } from "../lib/skills/pipeline-manifest.ts";
+import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan, type EmittedAttachment } from "../lib/skills/base-attachments.ts";
 import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
@@ -966,6 +968,22 @@ function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): B
   return plan;
 }
 
+/** Paths stay pack-relative: they are what a field-contract error prints. */
+function compiledDocsOf(outcomes: { target: CompileTarget; outcome: CompileOutcome }[], emits: EmittedAttachment[] = []): CompiledDoc[] {
+  const docs: CompiledDoc[] = [];
+  const add = (dir: string, files: CompiledFile[]) => {
+    for (const file of files) {
+      if (!file.path.endsWith(".md")) continue;
+      docs.push({ path: `${dir}/${file.path}`, text: "content" in file ? file.content : readFileSync(file.copyFrom, "utf8") });
+    }
+  };
+  for (const { target, outcome } of outcomes) {
+    if (outcome.ok) add(`${target.isPublic ? "skills" : "attachments"}/${target.verb.name}`, outcome.result.files);
+  }
+  for (const emit of emits) add(`attachments/${emit.name}`, emit.files);
+  return docs;
+}
+
 function readIfPresent(path: string): string | null {
   try {
     return readFileSync(path, "utf8");
@@ -1013,6 +1031,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   misplaced: string[];
   writes: CompileWrites;
   emitted: EmittedRow[];
+  fieldContract: string[];
 } {
   if (write) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
@@ -1028,6 +1047,12 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     (target) => ({ target, outcome: tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned) }),
   );
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
+  let fieldContract: string[] = [];
+  if (verbFilter === null && failures.length === 0) {
+    const routed = routeFieldContract(fieldContractErrors(compiledDocsOf(outcomes, plan.emits), resolved.stageEntries));
+    failures.push(...routed.errors);
+    fieldContract = routed.warnings;
+  }
 
   const writing = write && failures.length === 0;
   const writes: CompileWrites = { written: [], removed: [] };
@@ -1049,6 +1074,11 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     const floor = floorWrite(resolved, readIfPresent, true);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
+    if (verbFilter === null) {
+      const manifest = pipelinesWrite(resolved, readIfPresent, true);
+      writes.written.push(...manifest.written);
+      writes.removed.push(...manifest.removed);
+    }
   }
 
   const misplaced: string[] = [];
@@ -1081,7 +1111,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     ...plan.stale.map((s) => ({ name: s.name, removed: true as const, why: s.why })),
   ];
 
-  return { outcomes, failures, misplaced, writes, emitted };
+  return { outcomes, failures, misplaced, writes, emitted, fieldContract };
 }
 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
@@ -1093,7 +1123,13 @@ export type EmittedRow =
 
 const countOf = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
-export function compileBlocks(rows: CompiledRow[], writing: boolean, emitted: EmittedRow[] = []): Block[] {
+/** The field-contract lines a report shows as a warning: the pack author's words stay exact. */
+function fieldContractBlocks(lines: string[], hint: string): Block[] {
+  if (lines.length === 0) return [];
+  return [out.line("warn", `field contract: ${countOf(lines.length, "warning", "warnings")}`, hint), out.callout("note", ...lines)];
+}
+
+export function compileBlocks(rows: CompiledRow[], writing: boolean, emitted: EmittedRow[] = [], fieldContract: string[] = []): Block[] {
   if (rows.length === 0 && emitted.length === 0) return [out.line("skipped", "Nothing to compile", "this pack has no verbs")];
   const removedWhy = (why: "dropped" | "no-base" | "retired") =>
     why === "dropped" ? "its base no longer has it" : why === "no-base" ? "this pack no longer extends a base" : "left by a verb this pack no longer compiles";
@@ -1115,7 +1151,7 @@ export function compileBlocks(rows: CompiledRow[], writing: boolean, emitted: Em
       : out.line("pending", row.name, `would write ${countOf(row.files, "file", "files")}`),
     // compile.ts writes its surface-internal notes with their own "note: " label.
     ...(row.warnings.length > 0 ? [out.callout("note", ...row.warnings.map((w) => w.replace(/^note: /, "")))] : []),
-  ])];
+  ]), ...fieldContractBlocks(fieldContract, "advisory; the compile is not blocked")];
 }
 
 export function compileFailure(failures: string[]): out.FailureInput {
@@ -1195,7 +1231,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written: false, verbs: targets.map(target => ({ name: target.verb.name, status: "errored", files: [], warnings: [], errors: [err.message], side: target.isPublic ? "skills" : "attachments" })), misplaced: [] });
       process.exit(2);
     }
-    const { outcomes, failures, misplaced, emitted } = compiledResult;
+    const { outcomes, failures, misplaced, emitted, fieldContract } = compiledResult;
     if (failures.length > 0 && !flags.json) {
       out.fail(compileFailure(failures));
       process.exit(1);
@@ -1215,14 +1251,14 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // non-JSON path's exits. `written` stays honest on an empty target set.
       if (failures.length > 0 || misplaced.length > 0) process.exitCode = 1;
       const written = writing && (outcomes.length > 0 || emitted.some((row) => !("kept" in row)));
-      out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced });
+      out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced, fieldContract });
       return;
     }
 
     const compiled: CompiledRow[] = outcomes.flatMap(({ target, outcome }) =>
       outcome.ok ? [{ name: target.verb.name, side: target.isPublic ? ("skills" as const) : ("attachments" as const), files: outcome.result.files.length, warnings: outcome.result.warnings }] : [],
     );
-    out.print(...compileBlocks(compiled, writing, emitted));
+    out.print(...compileBlocks(compiled, writing, emitted, fieldContract));
 
     if (misplaced.length > 0) {
       out.fail(misplacedFailure(misplaced));
@@ -1322,6 +1358,8 @@ export type CheckPayload = {
   baseErrors: string[];
   /** A verb whose compile would refuse: no row can say so, so it rides here and counts as drift. */
   compileErrors: string[];
+  /** Field-contract lines that only warn: they neither mark drift nor change the exit code. */
+  fieldContract: string[];
   /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
   extendsBase: boolean;
 };
@@ -1379,6 +1417,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   let anyStale = false;
   const rows: CheckVerbRow[] = [];
   const compileErrors: string[] = [];
+  let fieldContract: string[] = [];
 
   // Pack-level staleness: the stage list a compiled orchestrator carries no
   // longer folds, so recompiling would refuse. No row can express that, so
@@ -1394,6 +1433,9 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const plan = basePlanFor(resolved, verbSides);
   const planned = plannedAttachmentsOf(plan);
 
+  const compiled: { target: CompileTarget; outcome: CompileOutcome }[] = [];
+  let neverCompiled = false;
+  let compileFailed = false;
   for (const target of targets) {
     const { verb, isPublic } = target;
     const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
@@ -1401,6 +1443,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
 
     if (!existsSync(outDir)) {
       anyStale = true;
+      neverCompiled = true;
       rows.push({ name: verb.name, status: "never-compiled", staleFiles: [], orphanFiles: [], side });
       continue;
     }
@@ -1408,9 +1451,11 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned);
     if (!outcome.ok) {
       anyStale = true;
+      compileFailed = true;
       compileErrors.push(outcome.message);
       continue;
     }
+    compiled.push({ target, outcome });
     const { result } = outcome;
     const staleFiles: string[] = [];
     const orphanFiles: string[] = [];
@@ -1460,6 +1505,13 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     }
   }
 
+  if (flags.verbs === null && !neverCompiled && !compileFailed) {
+    const routed = routeFieldContract(fieldContractErrors(compiledDocsOf(compiled, plan.emits), resolved.stageEntries));
+    if (routed.errors.length > 0) anyStale = true;
+    compileErrors.push(...routed.errors);
+    fieldContract = routed.warnings;
+  }
+
   // The settings/marketplace walk in discoverPacks() is skipped when no plugin
   // is actually installed (fixture mode's list is always empty): there is
   // nothing to compare against, so it would only cost a real filesystem scan
@@ -1474,12 +1526,16 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     compileErrors.push("pack/requires.json is out of date with the engine's floor");
     anyStale = true;
   }
+  if (flags.verbs === null && pipelinesWrite(resolved, readIfPresent, false).stale) {
+    compileErrors.push("pack/pipelines.json is out of date with the pack's pipelines");
+    anyStale = true;
+  }
 
   const baseErrors = plan.errors;
   const attachments = flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : [];
   if (baseErrors.length > 0 || attachments.some((row) => row.status !== "in-sync")) anyStale = true;
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, extendsBase: plan.base !== null };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, extendsBase: plan.base !== null };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1538,6 +1594,7 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
   blocks.push(...payload.compileErrors.map((compileError) => out.line("failed", compileError)));
   if (payload.compileErrors.length > 0) stale = true;
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
+  blocks.push(...fieldContractBlocks(payload.fieldContract, "advisory; it never fails a check"));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 
   if (payload.mcpLint.length === 0) {
@@ -1567,8 +1624,8 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors } = payload;
-      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors });
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract } = payload;
+      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract });
       return;
     }
     out.print(...checkBlocks(payload, flags.strict));

@@ -28,12 +28,14 @@ import { existsSync } from "fs";
 import { flagValue, required, Usage } from "../lib/cli-args.ts";
 import { adoptRunSession, adoptRunSessionAt } from "../lib/runs/adopt.ts";
 import { emitRunUpdated } from "../lib/runs/emit.ts";
+import { budget, closeRun, holdStage, nextStage, resolveStage, type ResolveNext } from "../lib/runs/engine.ts";
+import { enterRun } from "../lib/runs/enter.ts";
 import { resolveRunDb, type RunDbSource } from "../lib/runs/resolve-db.ts";
-import { runStart } from "../lib/runs/start.ts";
+import { runStart, type RunStartOpts } from "../lib/runs/start.ts";
 import { runsRoot } from "../lib/runs/store.ts";
 import {
   decisionRecord, fieldGet, fieldSet, openRunDb, runIdentity, runStatus, snapshot, stageEnd, stageStart,
-  type Fail,
+  type Fail, type Ok,
 } from "../lib/runs/write.ts";
 import * as out from "../lib/ui/out.ts";
 
@@ -78,26 +80,32 @@ export async function runWriteVerb(verb: WriteVerb, args: string[], env: NodeJS.
   }
 }
 
+function startOpts(args: string[], env: NodeJS.ProcessEnv): RunStartOpts {
+  const repo = required(args, "--repo");
+  const workType = required(args, "--work-type");
+  const pipeline = required(args, "--pipeline");
+  const dirty = flagValue(args, "--mattstack-dirty");
+  if (dirty !== undefined && dirty !== "0" && dirty !== "1") throw new Usage("--mattstack-dirty must be 0 or 1");
+  const packDirs = (flagValue(args, "--pack-dirs") ?? "").split(":").filter((d) => d !== "");
+  return {
+    repo, workType, pipeline,
+    runId: flagValue(args, "--run-id"),
+    spawnedBy: flagValue(args, "--spawned-by"),
+    packDirs,
+    ticket: flagValue(args, "--ticket"),
+    mattstackSha: flagValue(args, "--mattstack-sha"),
+    mattstackDirty: dirty === "1",
+    packSha: flagValue(args, "--pack-sha"),
+    env,
+  };
+}
+
 async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv, cwd: string): Promise<CliResult> {
   switch (verb) {
     case "run-start": {
-      const repo = required(args, "--repo");
-      const workType = required(args, "--work-type");
-      const pipeline = required(args, "--pipeline");
-      const dirty = flagValue(args, "--mattstack-dirty");
-      if (dirty !== undefined && dirty !== "0" && dirty !== "1") throw new Usage("--mattstack-dirty must be 0 or 1");
-      const packDirs = (flagValue(args, "--pack-dirs") ?? "").split(":").filter((d) => d !== "");
-      const r = runStart(env.RT_RUNS_ROOT ?? runsRoot(), {
-        repo, workType, pipeline,
-        runId: flagValue(args, "--run-id"),
-        spawnedBy: flagValue(args, "--spawned-by"),
-        packDirs,
-        ticket: flagValue(args, "--ticket"),
-        mattstackSha: flagValue(args, "--mattstack-sha"),
-        mattstackDirty: dirty === "1",
-        packSha: flagValue(args, "--pack-sha"),
-        env,
-      });
+      const opts = startOpts(args, env);
+      const repo = opts.repo;
+      const r = runStart(env.RT_RUNS_ROOT ?? runsRoot(), opts);
       if (!r.ok) return fail(r);
       await emitted(env, { repo, runId: r.runId }, null, "run-start");
       await adoptRunSessionAt(r.runDb, env);
@@ -115,7 +123,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
     case "stage-start": {
       const stage = required(args, "--stage");
       return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
-        const r = stageStart(db, stage, env);
+        const r = stageStart(db, stage, env, undefined, { onRunning: "supersede" });
         if (!r.ok) return fail(r);
         await emitted(env, runIdentity(db), stage, "stage-start");
         await adoptRunSession(db, env);
@@ -185,7 +193,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
     case "snapshot":
       return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
         const r = snapshot(db);
-        return r.ok ? ok(resolved, { run: r.run, stages: r.stages, fields: r.fields, decisions: r.decisions }) : fail(r);
+        return r.ok ? ok(resolved, { run: r.run, stages: r.stages, fields: r.fields, decisions: r.decisions, manifest: r.manifest, budgets: r.budgets }) : fail(r);
       });
   }
 }
@@ -205,6 +213,79 @@ async function withRunDbAsync(env: NodeJS.ProcessEnv, cwd: string, body: (run: R
   } finally {
     db?.close();
   }
+}
+
+export type EngineOp =
+  | { op: "enter"; args: string[]; packRoot: string; stage?: string; pipeline?: string; handedRunDb?: string; resume?: string; fresh?: boolean }
+  | { op: "next"; stage: string }
+  | { op: "resolve"; stage: string; next: ResolveNext; to?: string; note?: string; attempt?: number; decidedBy: string }
+  | { op: "hold"; stage: string; reason?: string; decidedBy: string }
+  | { op: "close"; workType: string; stage: string; outcome: "done" | "failed" | "abandoned"; reason?: string; detailPath?: string }
+  | { op: "budget"; key: string; limit: number; increment?: number; stage?: string };
+
+/** The MCP engine tools' entry: one structured op, the same JSON envelope and exit codes as runWriteVerb. */
+export async function runEngineOp(op: EngineOp, env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd()): Promise<CliResult> {
+  try {
+    return op.op === "enter" ? await enter(op, env) : await withRunDbAsync(env, cwd, (run) => engineWrite(op, run, env));
+  } catch (err) {
+    if (err instanceof Usage) return { out: json({ ok: false, error: err.message }), code: 2 };
+    return { out: json({ ok: false, error: `sqlite write failed: ${String(err)}` }), code: 1 };
+  }
+}
+
+async function enter(op: Extract<EngineOp, { op: "enter" }>, env: NodeJS.ProcessEnv): Promise<CliResult> {
+  const start = startOpts(op.args, env);
+  const r = enterRun({
+    root: env.RT_RUNS_ROOT ?? runsRoot(), packRoot: op.packRoot, start,
+    stage: op.stage, pipeline: op.pipeline, handedRunDb: op.handedRunDb, resume: op.resume, fresh: op.fresh, env,
+  });
+  if (!r.ok) return fail(r);
+  if (r.mode === "started" || r.mode === "resumed") {
+    await emitted(env, { repo: start.repo, runId: r.runId }, null, r.mode === "started" ? "run-start" : "run-resume");
+    await adoptRunSessionAt(r.runDb, env);
+  }
+  return { out: json(r), code: 0 };
+}
+
+type Applied = { r: Ok<object> | Fail; adopts: boolean };
+
+function applyOp(op: Exclude<EngineOp, { op: "enter" }>, db: Database, env: NodeJS.ProcessEnv): Applied {
+  switch (op.op) {
+    case "next": {
+      const r = nextStage(db, { stage: op.stage, env });
+      return { r, adopts: r.ok && r.ended === "done" && "next" in r && r.repeated !== true };
+    }
+    case "resolve": {
+      const r = resolveStage(db, { stage: op.stage, next: op.next, to: op.to, note: op.note, attempt: op.attempt, decidedBy: op.decidedBy, env });
+      return { r, adopts: r.ok && "next" in r && r.repeated !== true };
+    }
+    case "hold":
+      return { r: holdStage(db, { stage: op.stage, reason: op.reason, decidedBy: op.decidedBy }), adopts: false };
+    case "close":
+      return { r: closeRun(db, { workType: op.workType, stage: op.stage, outcome: op.outcome, reason: op.reason, detailPath: op.detailPath }), adopts: false };
+    case "budget":
+      return { r: budget(db, { key: op.key, limit: op.limit, increment: op.increment, stage: op.stage }), adopts: false };
+    default: {
+      const unreachable: never = op;
+      throw new Error(`unknown engine op ${JSON.stringify(unreachable)}`);
+    }
+  }
+}
+
+function wroteNothing(op: Exclude<EngineOp, { op: "enter" }>, body: Record<string, unknown>): boolean {
+  if (body.repeated === true) return true;
+  if (op.op === "budget") return op.increment === 0;
+  if (op.op === "next") return body.ended === "held" || body.ended === "waiting" || body.ended === "closed";
+  return false;
+}
+
+async function engineWrite(op: Exclude<EngineOp, { op: "enter" }>, { db, resolved }: RunDbHandle, env: NodeJS.ProcessEnv): Promise<CliResult> {
+  const { r, adopts } = applyOp(op, db, env);
+  if (!r.ok) return fail(r);
+  const { ok: _ok, ...body } = r;
+  if (!wroteNothing(op, body)) await emitted(env, runIdentity(db), "stage" in op ? op.stage ?? null : null, `run-${op.op}`);
+  if (adopts) await adoptRunSession(db, env);
+  return ok(resolved, body);
 }
 
 async function finish(result: CliResult): Promise<void> {

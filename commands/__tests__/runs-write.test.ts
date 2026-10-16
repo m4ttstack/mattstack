@@ -108,6 +108,19 @@ describe("rt runs write verbs", () => {
     db.close();
   });
 
+  test("stage-start on a running stage supersedes it: attempt 1 redirected, attempt 2 running, one running row", async () => {
+    const { env, runDb } = await startRun();
+    await runWriteVerb("stage-start", ["--stage", "plan"], env);
+    expect(await runWriteVerb("stage-start", ["--stage", "plan"], env)).toEqual({ out: '{"ok":true}', code: 0 });
+    const db = new Database(runDb, { readonly: true });
+    expect(db.query("SELECT attempt, status, reason FROM stages ORDER BY attempt").all()).toEqual([
+      { attempt: 1, status: "redirected", reason: "superseded by attempt 2" },
+      { attempt: 2, status: "running", reason: null },
+    ]);
+    expect(db.query("SELECT scope, decided_by FROM decisions").all()).toEqual([{ scope: "redirect:plan:1", decided_by: "run_stage" }]);
+    db.close();
+  });
+
   test("stage-redirect closes the running attempt as redirected with the default reason", async () => {
     const { env, runDb } = await startRun();
     await runWriteVerb("stage-start", ["--stage", "implement"], env);
@@ -155,6 +168,8 @@ describe("rt runs write verbs", () => {
     expect(snap.ok).toBe(true);
     expect(snap.run.status).toBe("running");
     expect(snap.decisions).toHaveLength(1);
+    expect(Array.isArray(snap.manifest)).toBe(true);
+    expect(snap.budgets).toEqual([]);
     expect((await runWriteVerb("run-status", ["--status", "done"], env)).out).toBe('{"ok":true}');
     expect((await runWriteVerb("run-status", ["--status", "paused"], env)).code).toBe(2);
     expect(JSON.parse((await runWriteVerb("snapshot", [], env)).out).run.status).toBe("done");
@@ -216,7 +231,7 @@ describe("RT_RUN_DB fallback", () => {
     const { env } = await startRun();
     expect(await runWriteVerb("field", ["set", "branch", "x", "--stage", "provision"], { ...env, CLAUDE_CODE_SESSION_ID: "sess-cli-2" })).toEqual({ out: '{"ok":true}', code: 0 });
     const snap = JSON.parse((await runWriteVerb("snapshot", [], env)).out);
-    expect(Object.keys(snap)).toEqual(["ok", "run", "stages", "fields", "decisions"]);
+    expect(Object.keys(snap)).toEqual(["ok", "run", "stages", "fields", "decisions", "manifest", "budgets"]);
   });
 
   test("field get without RT_RUN_DB still prints the raw value", async () => {
@@ -231,7 +246,7 @@ describe("RT_RUN_DB fallback", () => {
     const env = { RT_RUNS_ROOT: root, CLAUDE_CODE_SESSION_ID: "sess-cli-5", ...QUIET };
     await runWriteVerb("run-start", RUN, env);
     const snap = JSON.parse((await runWriteVerb("snapshot", [], env)).out);
-    expect(Object.keys(snap)).toEqual(["ok", "run", "stages", "fields", "decisions", "runDbResolved"]);
+    expect(Object.keys(snap)).toEqual(["ok", "run", "stages", "fields", "decisions", "manifest", "budgets", "runDbResolved"]);
     expect(snap.runDbResolved).toBe("session");
   });
 

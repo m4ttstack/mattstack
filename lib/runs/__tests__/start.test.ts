@@ -17,7 +17,7 @@ function userVersion(db: Database): number {
 afterEach(() => { delete process.env.RT_RUNS_ROOT; });
 
 describe("runStart", () => {
-  test("creates the DB under root/repo/runId, records ticket under producer work, stamps v2", () => {
+  test("creates the DB under root/repo/runId, records ticket under producer work, stamps v3", () => {
     const root = tmp();
     const r = runStart(root, { repo: "demo", workType: "feature", pipeline: "default", spawnedBy: "test", ticket: "ABC-1", env: {}, now: 5000 });
     expect(r.ok).toBe(true);
@@ -27,7 +27,7 @@ describe("runStart", () => {
     const run = db.query("SELECT * FROM runs").get() as Record<string, unknown>;
     expect(run).toMatchObject({ id: r.runId, repo: "demo", work_type: "feature", pipeline: "default", status: "running", spawned_by: "test", started_at: 5000, pack_commits: null, pack_dirty: 0 });
     expect(db.query("SELECT value, produced_by FROM fields WHERE key='ticket'").get()).toEqual({ value: "ABC-1", produced_by: "work" });
-    expect(userVersion(db)).toBe(2);
+    expect(userVersion(db)).toBe(3);
     db.close();
   });
 
@@ -60,7 +60,7 @@ describe("runStart", () => {
     const dup = runStart(root, { repo: "demo", workType: "fix", pipeline: "default", runId: "20260901-000000-abcd-1", env: {} });
     expect(dup).toMatchObject({ ok: false, code: 1 });
     const db = new Database(join(root, "demo", "20260901-000000-abcd-1", "state.db"), { readonly: true });
-    expect(userVersion(db)).toBe(2);
+    expect(userVersion(db)).toBe(3);
     db.close();
   });
 

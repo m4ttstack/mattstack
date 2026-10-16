@@ -1117,7 +1117,7 @@ Start a pipeline run and get back its runDb. flags is the compiled run-start fla
 ### run_stage
 
 <!-- mcp-lint: allow -->
-Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason).
+Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason). A start on a stage whose latest attempt is still running ends that attempt as redirected (superseded) and begins the next one.
 
 ```json
 {
@@ -1316,6 +1316,264 @@ The run's stages, fields and decisions.
       "description": "Absolute worktree path, used only when runDb is omitted."
     }
   },
+  "additionalProperties": false
+}
+```
+
+### run_enter
+
+<!-- mcp-lint: allow -->
+Start, resume or inherit a pipeline run and return where it stands, or the candidate runs to choose between. It returns results and opens no gates; the skill asks any question the result raises.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "flags": {
+      "type": "string",
+      "description": "The compiled run-start flag string verbatim (--repo and --work-type come from it)."
+    },
+    "skillDir": {
+      "type": "string",
+      "description": "Absolute path of the loaded skill's directory (CLAUDE_SKILL_DIR)."
+    },
+    "stage": {
+      "type": "string",
+      "description": "A standalone verb's own stage name; the run's manifest is that one stage."
+    },
+    "pipeline": {
+      "type": "string",
+      "description": "The pipelines.json key to run when the flags' --pipeline is not one."
+    },
+    "runDb": {
+      "type": "string",
+      "description": "The runDb a parent run handed down; inherited when its run is still running."
+    },
+    "resume": {
+      "type": "string",
+      "description": "A run id in this repo to resume."
+    },
+    "fresh": {
+      "type": "boolean",
+      "description": "Start a new run without listing candidates."
+    },
+    "ticket": {
+      "type": "string"
+    },
+    "spawnedBy": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "flags",
+    "skillDir"
+  ],
+  "additionalProperties": false
+}
+```
+
+### run_next
+
+<!-- mcp-lint: allow -->
+Read how a stage ended and move the run on: starts the next stage when every produce is set, or reports failed, held, waiting or the last stage. It returns results and opens no gates.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runDb": {
+      "type": "string",
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required and the run is this session's run, else the newest running one whose worktree holds cwd."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Absolute worktree path, used only when runDb is omitted."
+    },
+    "stage": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "stage"
+  ],
+  "additionalProperties": false
+}
+```
+
+### run_resolve
+
+<!-- mcp-lint: allow -->
+Apply a gate's answer to a stage: retry, redirect, iterate, hold, abandon or done. It applies the answer it is given and opens no gates.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runDb": {
+      "type": "string",
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required and the run is this session's run, else the newest running one whose worktree holds cwd."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Absolute worktree path, used only when runDb is omitted."
+    },
+    "stage": {
+      "type": "string"
+    },
+    "next": {
+      "type": "string",
+      "enum": [
+        "retry",
+        "redirect",
+        "iterate",
+        "hold",
+        "abandon",
+        "done"
+      ]
+    },
+    "to": {
+      "type": "string"
+    },
+    "note": {
+      "type": "string"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The attempt the gate was asked about (the <n> in its scope); a retried call for an answer already applied returns it with repeated: true."
+    },
+    "decidedBy": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "stage",
+    "next",
+    "decidedBy"
+  ],
+  "additionalProperties": false
+}
+```
+
+### run_hold
+
+<!-- mcp-lint: allow -->
+Record that a stage is held, with an optional reason. It returns the result and opens no gates.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runDb": {
+      "type": "string",
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required and the run is this session's run, else the newest running one whose worktree holds cwd."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Absolute worktree path, used only when runDb is omitted."
+    },
+    "stage": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "decidedBy": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "stage",
+    "decidedBy"
+  ],
+  "additionalProperties": false
+}
+```
+
+### run_close
+
+<!-- mcp-lint: allow -->
+Close a standalone verb's own run as done, failed or abandoned; a run the verb inherited is refused. It returns the result and opens no gates.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runDb": {
+      "type": "string",
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required and the run is this session's run, else the newest running one whose worktree holds cwd."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Absolute worktree path, used only when runDb is omitted."
+    },
+    "workType": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "done",
+        "failed",
+        "abandoned"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "detailPath": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "workType",
+    "stage",
+    "outcome"
+  ],
+  "additionalProperties": false
+}
+```
+
+### run_budget
+
+<!-- mcp-lint: allow -->
+Count against a named budget on the run and return spent, remaining and whether it is exhausted. It counts past the limit, never refuses and opens no gates.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runDb": {
+      "type": "string",
+      "description": "The runDb run_start returned. Always pass it; omitted, cwd is required and the run is this session's run, else the newest running one whose worktree holds cwd."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Absolute worktree path, used only when runDb is omitted."
+    },
+    "key": {
+      "type": "string"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "increment": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stage": {
+      "type": "string",
+      "description": "Scopes the counter to this stage's latest attempt."
+    }
+  },
+  "required": [
+    "key",
+    "limit"
+  ],
   "additionalProperties": false
 }
 ```
