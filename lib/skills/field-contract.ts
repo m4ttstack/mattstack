@@ -84,3 +84,18 @@ export function fieldContractErrors(docs: CompiledDoc[], stageEntries: Record<st
   errors.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line));
   return errors.map((e) => e.message);
 }
+
+/** Flip to "error" to make the field-contract check fail compile and check again. */
+export const FIELD_CONTRACT_SEVERITY: "warn" | "error" = "warn";
+
+let severityOverride: "warn" | "error" | null = null;
+
+/** Test seam: route as the given severity until called with null. */
+export function setFieldContractSeverityForTest(severity: "warn" | "error" | null): void {
+  severityOverride = severity;
+}
+
+/** Splits the check's lines into those that only warn and those that fail the compile or check. */
+export function routeFieldContract(lines: string[]): { warnings: string[]; errors: string[] } {
+  return (severityOverride ?? FIELD_CONTRACT_SEVERITY) === "error" ? { warnings: [], errors: lines } : { warnings: lines, errors: [] };
+}

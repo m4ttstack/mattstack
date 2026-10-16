@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { fieldContractErrors, scanFieldUses, sourceOf } from "../field-contract.ts";
+import { afterEach, describe, expect, test } from "bun:test";
+import { FIELD_CONTRACT_SEVERITY, fieldContractErrors, routeFieldContract, scanFieldUses, setFieldContractSeverityForTest, sourceOf } from "../field-contract.ts";
 import type { StageEntry } from "../types.ts";
 
 const entry = (produces: string[]): StageEntry => ({ name: "s", stage: "s", dir: "d", consumes: [], produces });
@@ -99,5 +99,23 @@ describe("fieldContractErrors", () => {
     expect(errs).toHaveLength(2);
     expect(errs[0]).toContain("d0/SKILL.md:1 ");
     expect(errs[1]).toContain("d0/SKILL.md:4 ");
+  });
+});
+
+describe("routeFieldContract", () => {
+  afterEach(() => setFieldContractSeverityForTest(null));
+
+  test("warn severity routes every line to warnings", () => {
+    setFieldContractSeverityForTest("warn");
+    expect(routeFieldContract(["a", "b"])).toEqual({ warnings: ["a", "b"], errors: [] });
+  });
+
+  test("error severity routes every line to errors", () => {
+    setFieldContractSeverityForTest("error");
+    expect(routeFieldContract(["a", "b"])).toEqual({ warnings: [], errors: ["a", "b"] });
+  });
+
+  test("the default follows the exported constant", () => {
+    expect(routeFieldContract(["a"])).toEqual(FIELD_CONTRACT_SEVERITY === "warn" ? { warnings: ["a"], errors: [] } : { warnings: [], errors: ["a"] });
   });
 });
