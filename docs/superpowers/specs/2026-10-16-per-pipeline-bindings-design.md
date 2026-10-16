@@ -155,9 +155,11 @@ carrying the stages and that pipeline's binding overrides:
   override is ignored, since layering cannot delete the lower key. An
   override naming a stage missing from the same layer's own list fails
   materialize.
-- A pipeline name that does not match `^[a-z][a-z0-9-]*$` (the schema's
-  rule, and the `{{verb.path}}` rule a copy's name must pass) fails
-  materialize, naming the pipeline.
+- A pipeline that carries overrides and whose name does not match
+  `^[a-z][a-z0-9-]*$` (the schema's rule, and the `{{verb.path}}` rule a
+  copy's name must pass) fails materialize, naming the pipeline. A
+  pipeline with no overrides is not checked here, so an existing pack is
+  untouched; check catches a bad name a work verb names.
 - The manifest's provenance header records which layer set each pipeline
   override slot, as it does for default slots.
 - A pipeline with no overrides renders as a plain list in the generated
@@ -174,6 +176,10 @@ carrying the stages and that pipeline's binding overrides:
   extra copies. Compile removes a copy's directory once it is no longer a
   target (today no sweep removes a stage directory), and check reports a
   leftover one, since console and runs would otherwise read a stale copy.
+  The sweep removes only `stage-*--*` directories whose `SKILL.md` carries
+  the compiler's header, and judges "no longer a target" against the full
+  target set, never a `--verb`-scoped one, so a scoped compile or bind's
+  recompile never deletes a live copy.
 - Console's wiring view finds a work verb's stage links through its
   `verb.path` anatomy parts. The generated table keeps one such part per
   row, so existing packs keep their stage links.
@@ -298,7 +304,9 @@ same project:
   won.
 - `rt skills bind --pipeline` writes the override, and refuses an
   undeclared pipeline or a stage outside it.
-- `rt skills check` flags each error listed under Compile.
+- `rt skills check` flags each error listed under Compile, and
+  materialize fails, naming the pipeline, for each manifest error listed
+  under Manifest shape and Compile.
 - A `work-a11y` run records work type `work`, pipeline `accessibility`,
   and shows in console as a work run with its pipeline in the list row,
   header and filter.
