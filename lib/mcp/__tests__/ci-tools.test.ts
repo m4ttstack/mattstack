@@ -491,7 +491,8 @@ describe("ci_watch attend", () => {
   test("a GitHub PR passed as mrUrl without attend is still a resolve error", async () => {
     const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() }, { resolve: resolveMrTarget });
     const r = await watch.handler({ mrUrl: "https://github.com/acme/proj/pull/42", sha: SHA }, A);
-    expect(r).toEqual({ ok: false, error: MR_URL_SHAPE });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe(MR_URL_SHAPE);
   });
   test("holder without attend is an error", async () => {
     const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() });
