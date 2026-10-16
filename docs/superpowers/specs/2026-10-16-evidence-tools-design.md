@@ -523,7 +523,7 @@ its retry.
 | B5 | `evidence_attach` no longer rewrites `evidence` with "the record plus attach" after the description write. Upload markdown and the Take's linked paths live in `evidence-uploads` instead, so `attach` stays legacy-only and the dedupe stays exact. | Flagged improvement (builder check). |
 | B6 | A twice-timed-out file is reported per file while the rest still upload. Today one STOP ends the loop at the first such file. | Flagged improvement: the off-script gate still sees every refused file at once. |
 | B7 | A carried-over `attach` line that would read as a heading (`#` to `######`) or open a fence (three or more backticks or tildes), up to three spaces in, prints with a backslash before that marker. Today's skill pastes the line as is. | Flagged change: an unescaped heading or fence would move the section's end on the next splice, so a re-attach could swallow the text after it; the escaped line reads the same in the rendered description. |
-| B4 | `mr_upload {paths}` and the three new tools are additive. Single-path `mr_upload` is unchanged. | No change. |
+| B4 | `mr_upload {paths}` and the three new tools are additive. A single-path `mr_upload` call behaves as today, missing-path error included (`"path" is required`). The one schema change: `path` is no longer in `required`, since a `{paths}` call carries none and the Claude API refuses a top-level `anyOf`; the handler refuses a call with neither. | Flagged change (schema only), approved by the shepherd (gate `92dc5722`). |
 
 Everything else mirrors today's skill text:
 - the merge table;
