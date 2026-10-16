@@ -289,10 +289,16 @@ Shape contents:
 
 New optional inputs: `runDb`, `stage`, `scope` (default: under a run, the
 scope whose `extra.gate-source.<scope>` names this gate, else the answered
-row's `kind`; the same default applies to `gate_reconcile`), `record` (default true). With `runDb`, after the daemon
-answers (recorded or `conflict: true`), the `answers` shape is recorded
-from the winning row unless `record` is false (review sites pass false and
-call `gate_record` at the point their site records). The result keeps
+row's `kind`; the same default applies to `gate_reconcile`), `record`
+(default true, except on a review gate: kind `respond-plan`,
+`respond-post` or `review-post`, or scope `post`, `respond-plan` or
+`respond-post`, where it defaults false; the same default applies to
+`gate_reconcile`). With `runDb`, after the daemon answers (recorded or
+`conflict: true`), the `answers` shape is recorded from the winning row
+unless `record` is false. A review site records its review shape with
+`gate_record` at the point its site records; with `record` unpassed, a
+review gate returns `skipped: "<scope> records its review shape with
+gate_record; ..."` and still clears `waiting-gate`. The result keeps
 today's `{row, conflict?}` and adds the recorder's fields. Refusals are
 unchanged.
 
@@ -379,6 +385,9 @@ What a caller sees differently once this ships, beyond the new tools:
 - Under a run, `gate_answer` and `gate_reconcile` record nothing for a
   stale gate (the scope's `extra.gate-source.<scope>` names a later gate)
   and return `skipped: "stale gate; <scope>'s latest gate is <id>"`.
+- Under a run, `gate_answer` and `gate_reconcile` record nothing on a
+  review gate unless `record: true` is passed (today `gate_answer` records
+  unless `record: false`), and return a `skipped` naming `gate_record`.
 - `checkReadRootPath` takes an optional extension (default `.md`).
   Existing callers are unchanged; `gate_open` and `gate_record` read
   `.json`, checked on the realpath.

@@ -28,7 +28,7 @@ import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, r
 import { forgeReadToolDefs } from "./forge-read-tools.ts";
 import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
-import { ANSWERED_RUN_PROPS, answerGate, askGate, GATE_RUN_PROPS, gateToolDefs, realGateToolDeps } from "./gate-tools.ts";
+import { ANSWERED_RUN_PROPS, answerGate, askGate, GATE_RUN_PROPS, gateToolDefs, RECORD_PROP_DESCRIPTION, realGateToolDeps } from "./gate-tools.ts";
 import { worktreeToolDefs } from "./worktree-tools.ts";
 import {
   checkOptional, checkPositiveInts, checkRequired, checkStringArray,
@@ -146,7 +146,7 @@ export function mcpTools(): McpToolDef[] {
   return [
     {
       name: "gate_answer",
-      description: "Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}. A question opened with writeIn: true may instead take {writeIn: \"<the human's own words>\"}, sent alone. Under a run, pass runDb and stage and the answer (the CAS winner's, on a conflict) is recorded as the scope's gate@1 decision; a review site passes record: false and records with gate_record.",
+      description: "Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}. A question opened with writeIn: true may instead take {writeIn: \"<the human's own words>\"}, sent alone. Under a run, pass runDb and stage and the answer (the CAS winner's, on a conflict) is recorded as the scope's gate@1 decision. A review gate records nothing unless record: true, since its site records the review shape with gate_record, and a stale gate (the scope's extra.gate-source.<scope> names a later gate) records nothing.",
       inputSchema: {
         type: "object",
         properties: {
@@ -154,7 +154,7 @@ export function mcpTools(): McpToolDef[] {
           answers: { type: "object", additionalProperties: ANSWER_VALUE_SCHEMA },
           override: { type: "boolean" },
           ...ANSWERED_RUN_PROPS,
-          record: { type: "boolean", description: "Record the answer as the scope's decision (default true). A review site passes false and records with gate_record." },
+          record: { type: "boolean", description: RECORD_PROP_DESCRIPTION },
         },
         required: ["id", "answers"],
         additionalProperties: false,

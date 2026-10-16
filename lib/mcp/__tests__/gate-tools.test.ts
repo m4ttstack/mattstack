@@ -802,24 +802,66 @@ describe("the answered scope default", () => {
 
   test("an on-time review-post reconcile records under post", async () => {
     const f = fake({ waitRes: answeredPost, fields: [storedFor("g1")] });
-    await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
+    await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN, record: true }, ENV);
     expect(f.log.at(-1)).toBe(recordLine("post", { outcome: "comment" }, "pane"));
   });
 
   test("with no gate source naming this gate, the scope stays the row's kind", async () => {
     const f = fake({ waitRes: answeredPost, fields: [storedFor("g0"), { key: "extra.gate-source.bad", value: "not json", at: 1 }], decisions: [decided("post", 1500)] });
-    const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
+    const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN, record: true }, ENV);
     expect(body(res)).toMatchObject({ recorded: true });
     expect(f.log.at(-1)).toBe(recordLine("review-post", { outcome: "comment" }, "pane"));
     const a = fake({ answerRes: { ok: true, data: { row: postRow } }, fields: [storedFor("g0")] });
-    await answerGate({ id: "g1", answers: { outcome: "comment" }, ...RUN }, ENV, a.deps);
+    await answerGate({ id: "g1", answers: { outcome: "comment" }, ...RUN, record: true }, ENV, a.deps);
     expect(a.log.at(-1)).toBe(recordLine("review-post", { outcome: "comment" }, "pane"));
   });
 
   test("an explicit scope still wins over the gate source", async () => {
     const f = fake({ waitRes: answeredPost, fields: [storedFor("g1")] });
-    await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN, scope: "custom" }, ENV);
+    await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN, scope: "custom", record: true }, ENV);
     expect(f.log.at(-1)).toBe(recordLine("custom", { outcome: "comment" }, "pane"));
+  });
+  describe("the record default for a review gate", () => {
+    const skip = (scope: string) => `${scope} records its review shape with gate_record; pass record: true to record the answers map`;
+    const plain = row({ answer: { answers: { q1: "yes" }, by: "pane", answeredAt: 2000 } });
+
+    test("a review-kind gate with no record skips the write and still clears waiting-gate", async () => {
+      const f = fake({ waitRes: answeredPost, fields: [storedFor("g1"), ARMED] });
+      const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
+      expect(body(res)).toMatchObject({ status: "answered", recorded: false, skipped: skip("post") });
+      expect(f.log).toEqual(["snapshot", "wait", CLEAR]);
+      const a = fake({ answerRes: { ok: true, data: { row: postRow } }, fields: [ARMED] });
+      expect(body(await answerGate({ id: "g1", answers: { outcome: "comment" }, ...RUN }, ENV, a.deps))).toMatchObject({ recorded: false, skipped: skip("review-post") });
+      expect(a.log).toEqual(["snapshot", "answer", CLEAR]);
+    });
+
+    test("a review scope on a generic kind with no record skips the write", async () => {
+      const f = fake({ waitRes: { ok: true, data: { status: "answered", row: plain } } });
+      const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN, scope: "respond-plan" }, ENV);
+      expect(body(res)).toMatchObject({ recorded: false, skipped: skip("respond-plan") });
+      expect(f.log).toEqual(["snapshot", "wait"]);
+    });
+
+    test("an explicit record: true writes the answers map on a review gate", async () => {
+      const f = fake({ waitRes: answeredPost, fields: [storedFor("g1")] });
+      const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN, record: true }, ENV);
+      expect(body(res)).toMatchObject({ recorded: true });
+      expect(f.log.at(-1)).toBe(recordLine("post", { outcome: "comment" }, "pane"));
+    });
+
+    test("an explicit record: false skips as today", async () => {
+      const f = fake({ waitRes: answeredPost, fields: [storedFor("g1"), ARMED] });
+      const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN, record: false }, ENV);
+      expect(body(res)).toMatchObject({ recorded: false, skipped: "record: false" });
+      expect(f.log).toEqual(["snapshot", "wait", CLEAR]);
+    });
+
+    test("a generic gate still records by default", async () => {
+      const f = fake({ waitRes: { ok: true, data: { status: "answered", row: plain } } });
+      const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
+      expect(body(res)).toMatchObject({ recorded: true });
+      expect(f.log.at(-1)).toBe(recordLine("question", { q1: "yes" }, "pane"));
+    });
   });
 });
 
