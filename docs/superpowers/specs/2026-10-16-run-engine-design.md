@@ -127,6 +127,8 @@ Items 3 and 4 above are superseded, and both revisions are temporary:
    again once the pack fix merges, by flipping the one constant
    `FIELD_CONTRACT_SEVERITY` in `lib/skills/field-contract.ts` from `"warn"`
    to `"error"`; the error routing is already tested.
+   The warnings surface in `rt skills compile` and `rt skills check`;
+   `rt skills sync` does not show them while the severity is `warn`.
 
 ## Design
 

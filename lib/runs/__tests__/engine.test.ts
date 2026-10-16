@@ -668,11 +668,70 @@ describe("resolveStage", () => {
       expect(snap(db)).toBe(before);
     });
 
+    test("a conflicting second redirect for the same attempt is refused, with or without an attempt", () => {
+      for (const attemptArg of [1, undefined]) {
+        const db = atShip();
+        ok(resolve(db, { next: "redirect", to: "implement", attempt: 1 }));
+        const after = snap(db);
+        expect(resolve(db, { next: "redirect", to: "plan", attempt: attemptArg })).toEqual({
+          ok: false,
+          error: "stage ship attempt 1 was already redirected to implement",
+          code: 2,
+        });
+        expect(snap(db)).toBe(after);
+        expect(resolve(db, { next: "redirect", to: "implement", attempt: attemptArg })).toMatchObject({ applied: "redirect", repeated: true });
+        expect(snap(db)).toBe(after);
+      }
+    });
+
     test("hold, abandon and done ignore an earlier attempt", () => {
       const db = atShip();
       resolve(db, { next: "iterate", attempt: 1 });
       expect(resolve(db, { next: "hold", attempt: 1 })).toMatchObject({ applied: "hold", held: { scope: "hold:ship:2" } });
       expect(resolve(db, { next: "abandon", attempt: 1 })).toMatchObject({ applied: "abandon" });
+    });
+  });
+
+  describe("current stage", () => {
+    const wedged = () => {
+      const db = atShip();
+      ok(stageEnd(db, "ship", "done", { now: 120 }));
+      ok(stageStart(db, "watch-ci", {}, 130));
+      return db;
+    };
+
+    test("redirect, iterate and retry from a stage that is not current are refused, writing nothing", () => {
+      const db = wedged();
+      const before = snap(db);
+      const refusal = "stage ship is not the run's current stage (watch-ci); answer the gate for watch-ci";
+      expect(resolve(db, { next: "redirect", to: "implement" })).toEqual({ ok: false, error: refusal, code: 2 });
+      expect(resolve(db, { next: "iterate" })).toEqual({ ok: false, error: refusal, code: 2 });
+      expect(resolve(db, { next: "retry" })).toEqual({ ok: false, error: refusal, code: 2 });
+      expect(snap(db)).toBe(before);
+    });
+
+    test("a repeated answer from a stage that is no longer current still repeats", () => {
+      const db = atShip();
+      ok(resolve(db, { next: "redirect", to: "implement", attempt: 1 }));
+      expect(resolve(db, { next: "redirect", to: "implement", attempt: 1 })).toMatchObject({ applied: "redirect", repeated: true });
+    });
+
+    test("redirect after a close gate, retry after a failure gate and iterate on the current stage still pass", () => {
+      const closed = atShip();
+      ok(stageEnd(closed, "ship", "done"));
+      attempt(closed, "watch-ci");
+      expect(resolve(closed, { stage: "watch-ci", next: "redirect", to: "ship" })).toMatchObject({ applied: "redirect" });
+
+      const failed = atShip();
+      ok(stageEnd(failed, "ship", "failed", { reason: "boom", now: 120 }));
+      expect(resolve(failed, { next: "retry", attempt: 1 })).toMatchObject({ applied: "retry", next: { attempt: 2 } });
+      expect(resolve(failed, { next: "retry", attempt: 1 })).toMatchObject({ repeated: true });
+
+      const failedRedirect = atShip();
+      ok(stageEnd(failedRedirect, "ship", "failed", { reason: "boom", now: 120 }));
+      expect(resolve(failedRedirect, { next: "redirect", to: "implement" })).toMatchObject({ applied: "redirect", next: { stage: "implement" } });
+
+      expect(resolve(atShip(), { next: "iterate" })).toMatchObject({ applied: "iterate" });
     });
   });
 });

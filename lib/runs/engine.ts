@@ -321,6 +321,11 @@ export function resolveStage(
         return refuse(`stage ${o.stage} is at attempt ${latest.attempt}; this answer was for attempt ${o.attempt}, which has not started`);
       }
       const answeredEarlier = o.attempt !== undefined && latest !== undefined && o.attempt < latest.attempt;
+      const offStageRefusal = (): Fail | null => {
+        const current = (db.query("SELECT current_stage FROM runs LIMIT 1").get() as { current_stage: string | null }).current_stage;
+        if (current === null || current === o.stage) return null;
+        return refuse(`stage ${o.stage} is not the run's current stage (${current}); answer the gate for ${current}`);
+      };
 
       if (o.next === "hold") {
         const r = holdInTx(db, { stage: o.stage, reason: o.note, decidedBy: o.decidedBy, now });
@@ -337,6 +342,8 @@ export function resolveStage(
           }
           return stale(latest!.attempt);
         }
+        const offStage = offStageRefusal();
+        if (offStage) return offStage;
         if (status !== "failed") return refuse(`stage ${o.stage} cannot be retried: ${status ? `its latest attempt is ${status}` : "it has no row"}, not failed`);
         const cleared = clearConsent(db, o.stage, now);
         must(stageStart(db, o.stage, o.env, now, { onRunning: "refuse" }));
@@ -352,12 +359,12 @@ export function resolveStage(
         const from = positionOf(db, o.stage);
         if (!from) return { ok: false, error: `stage ${o.stage} has no row in this run`, code: 3 };
 
-        if (o.attempt !== undefined) {
-          if (redirectedTo(db, o.stage, o.attempt) === to) {
-            return { ok: true, applied: o.next, next: positionOf(db, to)!, cleared: [], repeated: true };
-          }
-          if (answeredEarlier) return stale(latest!.attempt);
-        }
+        const answered = redirectedTo(db, o.stage, o.attempt ?? from.attempt);
+        if (answered === to) return { ok: true, applied: o.next, next: positionOf(db, to)!, cleared: [], repeated: true };
+        if (answeredEarlier) return stale(latest!.attempt);
+        if (answered !== null) return refuse(`stage ${o.stage} attempt ${from.attempt} was already redirected to ${answered}`);
+        const offStage = offStageRefusal();
+        if (offStage) return offStage;
 
         const reason = o.note ?? `redirected to ${to}`;
         must(
