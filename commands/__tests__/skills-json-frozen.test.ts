@@ -45,21 +45,21 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-test("skills check --json is the check payload minus drift, in this key order, ending with attachments, baseErrors and compileErrors", async () => {
+test("skills check --json is the check payload minus drift, in this key order, ending with attachments, baseErrors, compileErrors and fieldContract", async () => {
   const dir = makePack();
-  const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors } = await checkPack({ packDir: dir });
+  const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract } = await checkPack({ packDir: dir });
   expect(baseErrors).toEqual([]);
   expect(compileErrors).toEqual([]);
   io.clear();
   await skillsCheck(["--pack-dir", dir, "--json"]);
-  expect(io.stdout()).toBe(JSON.stringify({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors }) + "\n");
-  expect(Object.keys(oneJsonLine().value).slice(-3)).toEqual(["attachments", "baseErrors", "compileErrors"]);
-  expect(io.stdout()).toContain('"baseErrors":[],"compileErrors":[]');
+  expect(io.stdout()).toBe(JSON.stringify({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract }) + "\n");
+  expect(Object.keys(oneJsonLine().value).slice(-4)).toEqual(["attachments", "baseErrors", "compileErrors", "fieldContract"]);
+  expect(io.stdout()).toContain('"baseErrors":[],"compileErrors":[],"fieldContract":[]');
 });
 
 test("skills compile --json is one line with these keys", async () => {
   await skillsCompile(["--pack-dir", makePack(), "--dry-run", "--json"]);
-  expect(Object.keys(oneJsonLine().value)).toEqual(["pack", "packDir", "manifestPath", "repoKey", "written", "verbs", "misplaced"]);
+  expect(Object.keys(oneJsonLine().value)).toEqual(["pack", "packDir", "manifestPath", "repoKey", "written", "verbs", "misplaced", "fieldContract"]);
 });
 
 test("skills composition --json is one line with these keys", async () => {

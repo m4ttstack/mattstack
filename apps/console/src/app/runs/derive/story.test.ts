@@ -172,6 +172,32 @@ describe('liveStory', () => {
     );
   });
 
+  it('renders a supersede decision as a redirect back to the same stage', () => {
+    const story = liveStory(
+      input({
+        stages: [
+          st('watch-ci', 1, 'redirected', 0, 10, {
+            reason: 'superseded by attempt 2',
+          }),
+          st('watch-ci', 2, 'running', 10, null),
+        ],
+        decisions: [
+          {
+            ...dec('redirect:watch-ci:1', 10, {
+              from: 'watch-ci',
+              to: 'watch-ci',
+              reason: 'superseded by attempt 2',
+            }),
+            decided_by: 'run_stage',
+          },
+        ],
+      })
+    );
+    expect(story.entries[0]!.redirect).toBe(
+      'back to watch-ci: superseded by attempt 2'
+    );
+  });
+
   it('records a hold with its reason against its attempt', () => {
     const story = liveStory(
       input({
