@@ -130,6 +130,10 @@ which the conformance twins pin. These differ on purpose:
   The shell adapter read every child under the parent's own project path,
   where a cross-project child is not, and skipped a bridge with no child, so
   a failed trigger read as no blocker.
+- A failed same-project bridge (not `allow_failure`) whose child pipeline
+  produced no failed job, such as a child whose CI config is invalid, is
+  reported in `crossProject` with `blocking: true` and its downstream. The
+  shell walked into the child, found nothing and read clean.
 - `realHits` and `infraHits` drop every terminal escape for display.
   Classification still runs on SGR-stripped text, as the script does.
 - `attempt` counts a job's retried runs, which the script did not report.

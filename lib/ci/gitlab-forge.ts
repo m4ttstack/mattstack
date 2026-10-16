@@ -13,7 +13,13 @@ export interface WalkBridge {
   crossProject: boolean;
 }
 
-export interface WalkResult { pipeline: ForgePipeline; jobs: ForgeJob[]; bridges: WalkBridge[] }
+export interface WalkResult {
+  pipeline: ForgePipeline;
+  jobs: ForgeJob[];
+  bridges: WalkBridge[];
+  /** Failed same-project bridges whose downstream walk produced no failed job and no such bridge of its own. */
+  emptyFailedBridges: WalkBridge[];
+}
 
 interface Target { identity: string; iid: number }
 
@@ -161,7 +167,9 @@ export async function walkPipeline(
   const rootProjectId = root.projectId;
   const jobs: ForgeJob[] = [];
   const bridges: WalkBridge[] = [];
+  const emptyFailedBridges: WalkBridge[] = [];
   const seen = new Set<number>();
+  const failedSoFar = () => jobs.filter((j) => j.status === "failed").length + emptyFailedBridges.length;
 
   async function visit(id: number, allowFailureUnder: boolean): Promise<void> {
     if (seen.has(id)) return;
@@ -174,22 +182,25 @@ export async function walkPipeline(
     for (const raw of rawBridges) {
       const bridge = bridgeRow(raw, rootProjectId);
       bridges.push(bridge);
-      if (bridge.downstream && !bridge.crossProject) {
+      if (bridge.downstream && !bridge.crossProject && !seen.has(bridge.downstream.pipelineId)) {
+        const before = failedSoFar();
         await visit(bridge.downstream.pipelineId, allowFailureUnder || bridge.allowFailure || bridge.status === "success");
+        if (bridge.status === "failed" && !bridge.allowFailure && failedSoFar() === before) {
+          emptyFailedBridges.push({ ...bridge, blocking: !allowFailureUnder });
+        }
       }
     }
   }
 
   await visit(pipelineId, false);
   const name = opts.name;
-  return { pipeline: root.pipeline, jobs: name ? jobs.filter((j) => j.name.includes(name)) : jobs, bridges };
+  return { pipeline: root.pipeline, jobs: name ? jobs.filter((j) => j.name.includes(name)) : jobs, bridges, emptyFailedBridges };
 }
 
 function asFailedJobs(walk: WalkResult): FailedJobs {
   const crossProject: BridgeRow[] = [];
-  for (const b of walk.bridges) {
-    if (b.status !== "failed") continue;
-    if (b.downstream && !b.crossProject) continue;
+  const reported = walk.bridges.filter((b) => b.status === "failed" && !(b.downstream && !b.crossProject));
+  for (const b of [...reported, ...walk.emptyFailedBridges]) {
     const d = b.downstream;
     crossProject.push({
       name: b.name,

@@ -185,6 +185,30 @@ describe("gitlabTriageForge", () => {
     ]);
   });
 
+  test("failedJobs reports a failed same-project bridge whose child has no failed job", async () => {
+    const { command } = fake({
+      [`forge:get ${P}/5`]: () => pipelineInfo(5),
+      [`forge:get ${P}/5/jobs`]: () => get([]),
+      [`forge:get ${P}/5/bridges`]: () =>
+        get([
+          bridge("bad-config-child", { id: 60, project_id: 1 }),
+          bridge("optional-child", { id: 61, project_id: 1 }, { allow_failure: true }),
+          bridge("child-with-failure", { id: 62, project_id: 1 }),
+        ]),
+      [`forge:get ${P}/60/jobs`]: () => get([]),
+      [`forge:get ${P}/60/bridges`]: () => get([]),
+      [`forge:get ${P}/61/jobs`]: () => get([]),
+      [`forge:get ${P}/61/bridges`]: () => get([]),
+      [`forge:get ${P}/62/jobs`]: () => get([job(3, "unit")]),
+      [`forge:get ${P}/62/bridges`]: () => get([]),
+    });
+    const failed = await gitlabTriageForge(command, TARGET).failedJobs(5);
+    expect(failed?.jobs.map((j) => j.jobId)).toEqual([3]);
+    expect(failed?.crossProject).toEqual([
+      { name: "bad-config-child", status: "failed", blocking: true, downstream: { projectId: 1, pipelineId: 60, webUrl: "https://gl/pipelines/60" } },
+    ]);
+  });
+
   test("failedJobs is null for a missing pipeline", async () => {
     const { command } = fake({ [`forge:get ${P}/5`]: () => notFound });
     expect(await gitlabTriageForge(command, TARGET).failedJobs(5)).toBeNull();
