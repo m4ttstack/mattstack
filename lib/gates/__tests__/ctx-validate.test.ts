@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { JqError } from "../jq.ts";
 import { checkSource, ctxErrors } from "../ctx.ts";
 
-const FIXTURES = join(
-  import.meta.dir,
-  "../../../plugins/mattstack/attachments/review/receive-review/tests/fixtures",
-);
+const ROOT = join(import.meta.dir, "../../..");
+const FIXTURE: Record<string, string> = {
+  plan: "plugins/mattstack/attachments/review/receive-review/tests/fixtures/plan-source.json",
+  post: "plugins/mattstack/attachments/review/receive-review/tests/fixtures/post-source.json",
+  review: "plugins/mattstack/attachments/review/receive-review/tests/fixtures/review-source.json",
+};
 type Src = Record<string, any>;
-const load = (name: string): Src => JSON.parse(readFileSync(join(FIXTURES, `${name}-source.json`), "utf8"));
+const load = (name: string): Src => JSON.parse(readFileSync(join(ROOT, FIXTURE[name]!), "utf8"));
 const PLAN = "plan";
 const POST = "post";
 const REVIEW = "review";

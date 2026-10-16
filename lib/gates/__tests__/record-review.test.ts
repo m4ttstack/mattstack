@@ -6,14 +6,18 @@ import type { GateCtxSource } from "../ctx.ts";
 import { type AnswersMap, postSelection, respondPlanSelection, respondPostSelection } from "../record.ts";
 import { buildReviewSource } from "../review-source.ts";
 
-const ROOT = join(import.meta.dir, "../../../plugins/mattstack/attachments/review");
-const RR = join(ROOT, "receive-review/tests/fixtures");
-const RV = join(ROOT, "review/tests/fixtures");
-const load = (dir: string, name: string) => JSON.parse(readFileSync(join(dir, name), "utf8"));
+const ROOT = join(import.meta.dir, "../../..");
+const FIXTURE = {
+  plan: "plugins/mattstack/attachments/review/receive-review/tests/fixtures/plan-source.json",
+  post: "plugins/mattstack/attachments/review/receive-review/tests/fixtures/post-source.json",
+  findingsV3: "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3.json",
+  extras: "plugins/mattstack/attachments/review/review/tests/fixtures/extras.json",
+};
+const load = (path: string) => JSON.parse(readFileSync(join(ROOT, path), "utf8"));
 
-const planSource = (): GateCtxSource => load(RR, "plan-source.json");
-const postSource = (): GateCtxSource => load(RR, "post-source.json");
-const reviewSource = (): GateCtxSource => buildReviewSource(load(RV, "findings-v3.json"), load(RV, "extras.json"));
+const planSource = (): GateCtxSource => load(FIXTURE.plan);
+const postSource = (): GateCtxSource => load(FIXTURE.post);
+const reviewSource = (): GateCtxSource => buildReviewSource(load(FIXTURE.findingsV3), load(FIXTURE.extras));
 
 function storedFrom(source: GateCtxSource, dropContextOf: string[] = []): GateQuestion[] {
   return (source.questions as Record<string, any>[]).map((q) => {

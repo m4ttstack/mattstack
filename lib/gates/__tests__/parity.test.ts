@@ -7,11 +7,17 @@ import { tojson } from "../jq.ts";
 import { buildReviewSource, reviewSourceErrors } from "../review-source.ts";
 
 const ROOT = join(import.meta.dir, "../../..");
-const REVIEW_DIR = join(ROOT, "plugins/mattstack/attachments/review");
 const GC = join(ROOT, "plugins/mattstack/attachments/review/receive-review/scripts/gate-ctx.sh");
 const RS = join(ROOT, "plugins/mattstack/attachments/review/review/scripts/review-source.sh");
-const RR = join(REVIEW_DIR, "receive-review/tests/fixtures");
-const RV = join(REVIEW_DIR, "review/tests/fixtures");
+const FIXTURE: Record<string, string> = {
+  "plan-source": "plugins/mattstack/attachments/review/receive-review/tests/fixtures/plan-source.json",
+  "post-source": "plugins/mattstack/attachments/review/receive-review/tests/fixtures/post-source.json",
+  "review-source": "plugins/mattstack/attachments/review/receive-review/tests/fixtures/review-source.json",
+  "findings-v1": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v1.json",
+  "findings-v2": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v2.json",
+  "findings-v3": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3.json",
+  extras: "plugins/mattstack/attachments/review/review/tests/fixtures/extras.json",
+};
 
 const TMP = mkdtempSync(join(tmpdir(), "gate-parity-"));
 afterAll(() => rmSync(TMP, { recursive: true, force: true }));
@@ -21,7 +27,7 @@ type J = any;
 /** A jq filter from a shell suite, or a hostile edit written here. */
 type Mutation = string | ((j: J) => void);
 
-const fixture = (dir: string, name: string): string => readFileSync(join(dir, `${name}.json`), "utf8");
+const fixture = (name: string): string => readFileSync(join(ROOT, FIXTURE[name]!), "utf8");
 
 function jq(filter: string, input: string): string {
   const r = Bun.spawnSync(["jq", "-c", filter], { stdin: Buffer.from(input), env: ENV });
@@ -138,7 +144,7 @@ const rsInputs = new Map<string, { findings: string; extras: string }>();
 function rsInput(c: RsCase) {
   let v = rsInputs.get(c.name);
   if (!v) {
-    v = { findings: apply(fixture(RV, c.findings), c.f), extras: apply(fixture(RV, c.extras), c.x) };
+    v = { findings: apply(fixture(c.findings), c.f), extras: apply(fixture(c.extras), c.x) };
     rsInputs.set(c.name, v);
   }
   return v;
@@ -269,7 +275,7 @@ const GC_MUTATIONS: [string, string, Mutation | undefined][] = [
 ];
 
 const GC_CASES: GcCase[] = [
-  ...GC_MUTATIONS.map(([name, base, m]) => ({ name, source: () => apply(fixture(RR, base), m) })),
+  ...GC_MUTATIONS.map(([name, base, m]) => ({ name, source: () => apply(fixture(base), m) })),
   ...RS_CASES.filter((c) => runRs(c).exitCode === 0).map((c) => ({
     name: `review-source ${c.name}`,
     source: () => runRs(c).stdout,

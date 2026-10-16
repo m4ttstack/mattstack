@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
 import { fitOpen } from "../../gates/ctx.ts";
 import type { DecisionRow } from "../../gates/record.ts";
@@ -370,12 +370,16 @@ describe("answerGate", () => {
   });
 });
 
-const FIX = join(import.meta.dir, "../../../plugins/mattstack/attachments/review");
-const RR = join(FIX, "receive-review/tests/fixtures");
-const RV = join(FIX, "review/tests/fixtures");
+const REPO = join(import.meta.dir, "../../..");
+const FIXTURE = {
+  plan: join(REPO, "plugins/mattstack/attachments/review/receive-review/tests/fixtures/plan-source.json"),
+  post: join(REPO, "plugins/mattstack/attachments/review/receive-review/tests/fixtures/post-source.json"),
+  findingsV2: join(REPO, "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v2.json"),
+  extras: join(REPO, "plugins/mattstack/attachments/review/review/tests/fixtures/extras.json"),
+};
 type Src = { context?: Record<string, any>; questions: Record<string, any>[] };
 const loadJson = (p: string) => JSON.parse(readFileSync(p, "utf8"));
-const plan = (): Src => loadJson(join(RR, "plan-source.json"));
+const plan = (): Src => loadJson(FIXTURE.plan);
 const PLAN_GATE_LINE = "Responding to renee's review · round 1 · 2 threads, 1 blocking · 1 valid, 1 pushback · fresh-context adjudicated";
 const bigAdjudication = (): Src => {
   const s = plan();
@@ -412,7 +416,7 @@ describe("gate_open", () => {
   const open = (input: Record<string, unknown>, f = rooted(), env = ENV) => gateOpen(f.deps).handler(input, env);
   const sourceLine = (scope: string, gate: string | null, src: unknown) =>
     `field set extra.gate-source.${scope} ${JSON.stringify({ gate, source: src })} --stage s`;
-  const reviewInput = () => ({ findingsPath: copy(join(RV, "findings-v2.json"), "findings-v2.json"), extras: loadJson(join(RV, "extras.json")) });
+  const reviewInput = () => ({ findingsPath: copy(FIXTURE.findingsV2, "findings-v2.json"), extras: loadJson(FIXTURE.extras) });
 
   test("gateToolDefs holds gate_open with a none shell form", () => {
     const def = gateOpen(rooted().deps);
@@ -433,7 +437,7 @@ describe("gate_open", () => {
 
   test("a sourcePath reads the same source", async () => {
     const f = rooted();
-    await open({ kind: "respond-plan", sourcePath: copy(join(RR, "plan-source.json"), "plan-source.json") }, f);
+    await open({ kind: "respond-plan", sourcePath: copy(FIXTURE.plan, "plan-source.json") }, f);
     expect(f.asks[0]!.context).toBe(fitOpen(plan()).context!);
   });
 
@@ -448,7 +452,7 @@ describe("gate_open", () => {
 
   test("a findingsPath outside the read roots is refused with the guard's message and nothing opens", async () => {
     const f = rooted({});
-    const outside = join(RV, "findings-v2.json");
+    const outside = FIXTURE.findingsV2;
     const guard = checkReadRootPath(outside, [tmp]);
     if (guard.ok) throw new Error("fixture dir is inside the temp root");
     const res = await open({ kind: "review-post", review: { findingsPath: outside, extras: {} }, ...RUN }, f);
@@ -467,9 +471,9 @@ describe("gate_open", () => {
 
   test("a mode-000 findingsPath fails the guard's realpath and is refused as missing before anything opens", async () => {
     const f = rooted();
-    const p = copy(join(RV, "findings-v2.json"), "unreadable.json");
+    const p = copy(FIXTURE.findingsV2, "unreadable.json");
     chmodSync(p, 0o000);
-    const res = await open({ kind: "review-post", review: { findingsPath: p, extras: loadJson(join(RV, "extras.json")) }, ...RUN }, f);
+    const res = await open({ kind: "review-post", review: { findingsPath: p, extras: loadJson(FIXTURE.extras) }, ...RUN }, f);
     expect(res.error).toBe(`review.findingsPath: file does not exist: ${p}`);
     expect(f.log).toEqual([]);
   });
@@ -498,10 +502,10 @@ describe("gate_open", () => {
   });
 
   test("non-object review inputs refuse with the port's not-a-JSON-object line", async () => {
-    const extras = loadJson(join(RV, "extras.json"));
+    const extras = loadJson(FIXTURE.extras);
     const nullFile = await open({ kind: "review-post", review: { findingsPath: write("null.json", "null"), extras } });
     expect(nullFile.error).toContain("findings file: not a JSON object");
-    const badExtras = await open({ kind: "review-post", review: { findings: loadJson(join(RV, "findings-v2.json")), extras: "x" } });
+    const badExtras = await open({ kind: "review-post", review: { findings: loadJson(FIXTURE.findingsV2), extras: "x" } });
     expect(badExtras.error).toContain("extras: not a JSON object");
   });
 
@@ -615,7 +619,7 @@ describe("gate_open", () => {
 
     test("an outPath outside the temp roots is refused and nothing is written", async () => {
       const f = rooted();
-      const res = await open({ kind: "respond-plan", source: plan(), handBack: true, outPath: join(RR, "open.json"), ...RUN }, f);
+      const res = await open({ kind: "respond-plan", source: plan(), handBack: true, outPath: join(dirname(FIXTURE.plan), "open.json"), ...RUN }, f);
       expect(res.ok).toBe(false);
       expect(res.error).toContain("temp root");
       expect(f.log).toEqual([]);
@@ -908,7 +912,7 @@ describe("gate_record", () => {
   });
 
   test("respond-post with held upserts over a decision already on the scope", async () => {
-    const post = loadJson(join(RR, "post-source.json"));
+    const post = loadJson(FIXTURE.post);
     const postRow = row({ kind: "respond-post", answer: { answers: { "thread-1": ["post:T1", "resolve:T1"], next: "proceed" }, by: "console", answeredAt: 2000 } });
     const f = fake({
       waitRes: { ok: true, data: { status: "answered", row: postRow } },
@@ -926,7 +930,7 @@ describe("gate_record", () => {
     const postRow = row({ kind: "respond-post", answer: { answers: { "thread-1": ["post:T1"], next: "proceed" }, by: "pane", answeredAt: 2000 } });
     const f = fake({
       waitRes: { ok: true, data: { status: "answered", row: postRow } },
-      fields: [sourceField("respond-post", "g2", loadJson(join(RR, "post-source.json"))), ARMED],
+      fields: [sourceField("respond-post", "g2", loadJson(FIXTURE.post)), ARMED],
     });
     const res = await record({ ...RUN, scope: "respond-post", shape: "respond-post", gateId: "g1" }, f);
     expect(f.log).toEqual(["snapshot", "wait"]);
@@ -948,7 +952,7 @@ describe("gate_record", () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "gate-record-")));
     try {
       const path = join(dir, "plan-source.json");
-      copyFileSync(join(RR, "plan-source.json"), path);
+      copyFileSync(FIXTURE.plan, path);
       const f = fake({ waitRes: answeredPlan, fields: [sourceField("respond-plan", "g0", plan(), 500)] });
       f.deps.readRoots = () => ({ roots: [dir] });
       f.deps.readFile = (p) => readFileSync(p, "utf8");

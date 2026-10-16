@@ -5,9 +5,15 @@ import { checkSource, fitOpen, proseOpen } from "../ctx.ts";
 import { jqKeys, tojson, utf8Bytes } from "../jq.ts";
 import { buildReviewSource, endTrunc, midTrunc, reviewSourceErrors } from "../review-source.ts";
 
-const FIXTURES = join(import.meta.dir, "../../../plugins/mattstack/attachments/review/review/tests/fixtures");
+const ROOT = join(import.meta.dir, "../../..");
+const FIXTURE: Record<string, string> = {
+  "findings-v1": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v1.json",
+  "findings-v2": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v2.json",
+  "findings-v3": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3.json",
+  extras: "plugins/mattstack/attachments/review/review/tests/fixtures/extras.json",
+};
 type J = Record<string, any>;
-const load = (name: string): J => JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), "utf8"));
+const load = (name: string): J => JSON.parse(readFileSync(join(ROOT, FIXTURE[name]!), "utf8"));
 const V1 = "findings-v1";
 const V2 = "findings-v2";
 const V3 = "findings-v3";
