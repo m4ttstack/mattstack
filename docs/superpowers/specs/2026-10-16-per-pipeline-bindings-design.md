@@ -46,7 +46,8 @@ Two things block it today:
 
 - Any change in compiled stages, other verbs, generated manifests or run
   records for a pack that declares one pipeline and no overrides. The
-  allowed exceptions: new runs record `feature` (below), and the compiled
+  allowed exceptions: new runs record the pipeline plain `work` resolves
+  to (usually `feature`, below), and the compiled
   `work` orchestrator's own text changes once, since its stage table
   becomes generated (*my call*: it need not reproduce today's hand-written
   table byte for byte, only carry the same stages, paths, consumes and
@@ -112,8 +113,9 @@ finds it through the run's `pipeline` field.
 A work verb only offers to resume running runs of its own
 pipeline, so `work-a11y` never picks up a `feature` run with the wrong
 fills, and the reverse. `run_list` (`lib/mcp/run-tools.ts`) gains a
-pipeline filter and the orchestrator's resume branch uses it. When `work`
-resumes, a run recorded with the old pipeline `work` counts as `feature`.
+pipeline filter and the orchestrator's resume branch uses it. When plain
+`work` resumes, a run recorded with the old pipeline `work` counts as the
+pipeline plain `work` resolves to.
 
 ### Manifest shape
 
@@ -160,13 +162,23 @@ carrying the stages and that pipeline's binding overrides:
 
 ### Compile
 
-- A stage compiles once per distinct set of fills. A pipeline whose fills
-  for a stage match the default shares the default copy; a pipeline with
-  different fills gets its own copy.
-- Allowed-tools unions, `{{verb.path:...}}`, stale sweeps and `rt skills
-  check`'s recompile-and-diff all cover the extra copies.
+- A pipeline whose effective fills for a stage match the default uses the
+  default copy. A pipeline whose fills differ gets its own copy, named
+  `<stage>--<pipeline>` (e.g. `stage-evidence--accessibility`). Two
+  pipelines never share a copy, even with identical fills, so anything
+  holding a (pipeline, stage) pair can find the copy by name.
+- `{{verb.path:...}}`, stale sweeps and `rt skills check`'s
+  recompile-and-diff cover the extra copies.
+- The stage allowed-tools union stays off for `work`, as the work cutover
+  left it. The generated stage table must not use `{{pipeline.stages}}`,
+  whose presence is what turns the union on (`commands/skills.ts`
+  `isOrchestrator`).
+- A pipeline override for a pipeline no layer gives a stage list fails
+  materialize, naming the pipeline.
 - `rt skills check` errors on: a pipeline override for a stage the pipeline
-  does not list; a work verb naming an undeclared pipeline; a pipeline's
+  does not list; a work verb naming an undeclared pipeline; a pipeline that
+  does not start with `stage-provision` or lacks `stage-ship` or
+  `stage-watch-ci` (the work digraph special-cases all three); a pipeline's
   stages that fail the existing consumes/produces chain check
   (`pipelineChainErrors`).
 
@@ -189,7 +201,9 @@ list. Without `--pipeline`, it writes the default, as today.
   resolves a stage's text through the run's `pipeline`, so an
   accessibility run shows its own stage copy, not the default.
 - **Wiring graph**: the pipeline view shows each pipeline's real fills (an
-  accessibility stage shows its override, not the default).
+  accessibility stage shows its override, not the default), and each
+  pipeline's spine leads with the work verb that runs it (`work-a11y` for
+  `accessibility`), not always `work`.
 - **Rebind drawer**: the existing drawer (`drawer/rebind.ts`,
   `POST /api/skills/bind`) gains a pipeline choice and passes `--pipeline`.
 - **Pending changes**: binding changes carry their pipeline, so the
@@ -207,8 +221,13 @@ same project:
 - `mattstack:creating-a-pack`, `mattstack:extending-a-pack` (a recipe for
   adding a specialized pipeline and command), `mattstack:editing-skills`.
 - `plugins/mattstack/docs/your-first-pack.md`, the example
-  `plugins/mattstack/plugin/examples/skills.jsonc`, and the manifest schema
-  `plugins/mattstack/plugin/schemas/skills-manifest.schema.json`.
+  `plugins/mattstack/plugin/examples/skills.jsonc`, the manifest schema
+  `plugins/mattstack/plugin/schemas/skills-manifest.schema.json` and its
+  prose `plugins/mattstack/plugin/schemas/skills-manifest.md`.
+- `plugins/mattstack/README.md` (Pipeline section: "lists all eight",
+  "order is fixed") and
+  `plugins/mattstack/attachments/parameterized-skills/references/convention.md`
+  ("Pipeline resolution").
 - Docs site pages under `website/docs/rt/reference/skills/` (`bind`,
   `compile`, `composition`, `anatomy`, `check`) and any page that
   describes pipelines.
@@ -223,26 +242,29 @@ same project:
   fields are additive, existing keys and values unchanged
   (`commands/__tests__/skills-json-frozen.test.ts`).
 - Console's server types in `apps/console/src/server/skills.ts` mirror
-  rt's composition and changes payloads and move in step with them.
+  rt's composition and changes payloads and move in step with them. The
+  composition's `pipelines` stays `Record<string, string[]>` (stage lists
+  only); overrides travel in a new additive field.
+- Every reader of a manifest's `pipelines` accepts both shapes. One has no
+  type to lead the builder to it: `lib/setup/pack.ts` parses the
+  generated manifest with its own local type, iterates
+  `pipelines[workType]`, and checks only top-level `bindings` for unbound
+  stage slots. It must normalize the shape and check a pipeline's
+  overrides too.
 - Examples in this repo use `acme`, never a real team's pack name.
 - Stage copy directory names pass `isSafeName` and never collide with a
   roster verb name (`compileTargets` throws on that today).
 
 ## Left to the builder
 
-- The compiled directory name for a pipeline's stage copy, and how
-  `StageEntry` records which engine a copy runs (it has no engine field
-  today).
-- Whether the orchestrator's stage table comes from `{{pipeline.stages}}`
-  or a new placeholder, and what happens to `{{work-type}}`, which nothing
-  will use.
+- How `StageEntry` records which engine a copy runs (it has no engine
+  field today).
+- The new placeholder that renders the orchestrator's stage table (not
+  `{{pipeline.stages}}`, see Compile), and what happens to `{{work-type}}`,
+  which nothing will use.
 - The exact provenance key format for pipeline override slots, within what
   `readManifestProvenance` can parse.
 - How `run-start.flags` is keyed once work type and pipeline differ.
-- Which stages the work engine's digraph treats specially (gates,
-  evidence, the `pipeline-stages` field), and whether a pipeline that
-  leaves one out is refused by check or skipped at run time. Pick one and
-  say which.
 
 ## Acceptance
 
