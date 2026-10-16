@@ -14,10 +14,6 @@ import {
   rtCommand,
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion } from "../../packages/rt-client/src/index.ts";
-import { joinMrsToWorktrees } from "../mr-map.ts";
-import { repoLabel } from "../repo-label.ts";
-import { reverseLookupByName } from "../repo-name-lookup.ts";
-import { parseIdentity } from "../settings/identity.ts";
 import { explainError } from "../explain-error.ts";
 import { selfPaneRef } from "../self-pane.ts";
 import { chatToolDefs } from "./chat-tools.ts";
@@ -80,35 +76,6 @@ async function verifyMerge(target: { identity: string; iid: number }, requested:
   if (requested === "autoMerge" && pr?.autoMergeEnabled === true) return ok({ autoMerge: true });
   if (typeof pr?.mergeError === "string" && pr.mergeError.trim() !== "") return err(`GitLab reports a merge error on !${target.iid}: ${pr.mergeError}`);
   return ok({ requested, verified: false, ...(pr ? { state: pr.state } : {}) });
-}
-
-/** Matches input.repo against the daemon's repo registry, either as the raw
-    serialized identity or its human-friendly label (repoLabel), and returns
-    the matched identity. Shares reverseLookupByName (lib/repo-name-lookup.ts)
-    with the CLI's tryResolveRepoArg so a legacy-name/identity heal pair
-    collapses to one match here too, instead of reading ambiguous. Deliberately
-    does not import lib/repo-arg.ts itself (that module pulls in
-    lib/state/index.ts and lib/settings/resolve.ts on top of the daemon round
-    trip this tool already does): reverseLookupByName is pure over the id-path
-    map the "repos" verb already returns. */
-async function resolveRepoIdentity(repo: string): Promise<{ identity: string } | { error: string }> {
-  const res = await rtCommand<Commands["repos"]["data"]>("repos", {});
-  if (!res.ok || !res.data) return { error: res.error ?? "failed to list repos" };
-  const repos = res.data.repos ?? {};
-  const identities = Object.keys(repos);
-  if (parseIdentity(repo) && identities.includes(repo)) return { identity: repo };
-  const index: Record<string, string> = {};
-  for (const [id, entry] of Object.entries(repos)) index[id] = entry.path;
-  const matches = reverseLookupByName(repo, index);
-  if (matches.length > 1) {
-    return { error: `"${repo}" matches more than one repo: ${matches.map(([id]) => id).join(", ")}; pass the full identity` };
-  }
-  const match = matches[0];
-  if (!match) {
-    const known = identities.map((id) => repoLabel(id)).sort().join(", ");
-    return { error: `no repo matching "${repo}"; known repos: ${known}` };
-  }
-  return { identity: match[0] };
 }
 
 const ANSWER_VALUE_SCHEMA = {
@@ -761,45 +728,6 @@ export function mcpTools(): McpToolDef[] {
         if (typeof input.removeSourceBranch === "boolean") merge.shouldRemoveSourceBranch = input.removeSourceBranch;
         const done = withLandingHint(await runMrAction(target, "merge", [merge], null), "the MR's state");
         return done.ok ? verifyMerge(target, "merge") : done;
-      },
-    },
-    {
-      name: "mr_map",
-      description: "Open MRs for a repo joined to the local worktrees holding their branches. Lists ALL open MRs for the repo (not only yours). repo is the repo's registered name: either its serialized identity (e.g. remote:gitlab.com%2Facme%2Facme-dev) or its short repo-label alias.",
-      inputSchema: {
-        type: "object",
-        properties: { repo: { type: "string" } },
-        required: ["repo"],
-        additionalProperties: false,
-      },
-      shellForms: { none: "joins the daemon's open-MR cache to the local worktrees; no shell command is equivalent" },
-      async handler(input) {
-        const bad = checkRequired(input, [{ name: "repo", type: "string" }]);
-        if (bad) return err(bad);
-        const resolved = await resolveRepoIdentity(input.repo as string);
-        if ("error" in resolved) return err(resolved.error);
-        const identity = resolved.identity;
-        const [mrsRes, treesRes] = await Promise.all([
-          readProjectMRs(identity, 20_000),
-          rtCommand<Commands["worktree:list"]["data"]>("worktree:list", { repoName: identity }),
-        ]);
-        if (!mrsRes.ok || !mrsRes.data) return err(explainError(mrsRes.error ?? "failed to read MRs"));
-        if (!treesRes.ok || !treesRes.data) return err(explainError(treesRes.error ?? "failed to list worktrees"));
-
-        const mrs = Object.values(mrsRes.data.mrs ?? {})
-          .map((entry) => entry.pr)
-          .filter((pr) => pr.state === "opened")
-          .map((pr) => ({
-            iid: pr.iid,
-            title: pr.title,
-            sourceBranch: pr.sourceBranch,
-            state: pr.state,
-            pipelineStatus: pr.pipeline?.status ?? null,
-          }));
-
-        const trees = (treesRes.data.trees ?? []).map((t) => ({ path: t.path, branch: t.branch }));
-
-        return ok({ rows: joinMrsToWorktrees(mrs, trees) });
       },
     },
     {

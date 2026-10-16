@@ -6,12 +6,13 @@
 import { readProjectMRs, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
+import { joinMrsToWorktrees, type MrMapRow } from "../mr-map.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { statusPorcelainAsync } from "../worktree/git-async.ts";
 import { realGitRunner, type GitRunner } from "./git-tools.ts";
-import { resolveMrTarget } from "./mr-target.ts";
+import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { runToolDefs } from "./run-tools.ts";
-import { err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
+import { err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, type McpToolDef, type ToolResult } from "./shared.ts";
 import { realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 
 export interface MrCompositeDeps {
@@ -164,6 +165,36 @@ function checkItems(v: unknown): string | ItemQuery[] {
   return v as ItemQuery[];
 }
 
+const MR_MAP_LIMIT = 200;
+const MR_MAP_GH_MOVE = "gh pr list --author @me and the worktree list";
+
+async function defaultBranchOf(deps: MrCompositeDeps, identity: string): Promise<string | null> {
+  const r = await deps.command<Commands["forge:get"]["data"]>("forge:get", { repoName: identity, path: "projects/:id" }, { timeoutMs: READ_TIMEOUT_MS });
+  const branch = r.ok ? (r.data?.body as { default_branch?: unknown } | null)?.default_branch : undefined;
+  return typeof branch === "string" && branch ? branch : null;
+}
+
+async function cachedCiStatus(deps: MrCompositeDeps, identity: string): Promise<Map<number, string | null>> {
+  const byIid = new Map<number, string | null>();
+  try {
+    const r = await deps.readMrCache(identity);
+    if (!r.ok || !r.data) return byIid;
+    for (const entry of Object.values(r.data.mrs ?? {})) byIid.set(entry.pr.iid, entry.pr.pipeline?.status ?? null);
+  } catch {
+    // ciStatus is best-effort: a cache miss or error reads null
+  }
+  return byIid;
+}
+
+async function isDirty(deps: MrCompositeDeps, path: string | null): Promise<boolean | null> {
+  if (path === null) return null;
+  try {
+    return (await deps.status(path)).trim() !== "";
+  } catch {
+    return null;
+  }
+}
+
 export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps): McpToolDef[] {
   return [
     {
@@ -245,6 +276,56 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
           iid: pr.iid, state: pr.state, title: pr.title, author: pr.author.username,
           sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch, webUrl: pr.webUrl, trees,
         });
+      },
+    },
+    {
+      name: "mr_map",
+      description: `GitLab only. A repo's open MRs joined to the local worktrees holding their branches, read live from GitLab on every call. Lists every author's MRs unless \`author\` is passed (a username, or "me" for the token's own user). Each row is {ref, iid, title, author, sourceBranch, targetBranch, draft, stacked, worktree, dirty, mrState, ciStatus}: stacked is whether targetBranch is not the project's default branch (null when the default branch could not be read); worktree is the path of the registered tree whose branch equals sourceBranch exactly (the last one when two share it), or null; dirty is whether that tree has uncommitted changes (null with no tree or on a git error); ciStatus is the pipeline status from the daemon's synced MR list, null when that list lacks the MR. Returns {rows, complete}, where complete false means the repo has more than ${MR_MAP_LIMIT} open MRs and only the first ${MR_MAP_LIMIT} are listed. \`repo\` is a legacy alias for repoName; pass one, not both. ${REPO_NAME_RULE}`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...REPO_TARGET_PROPS,
+          repo: { type: "string", description: "Legacy alias for repoName; pass one, not both." },
+          author: { type: "string", description: 'A GitLab username, or "me" for the token\'s own user. Omit for every author.' },
+        },
+        additionalProperties: false,
+      },
+      shellForms: { none: "joins a live GitLab MR list to the local worktrees; no shell command is equivalent" },
+      async handler(input) {
+        if (input.repoName !== undefined && input.repo !== undefined) return err("pass repoName, not both repoName and repo");
+        if (input.repo !== undefined && typeof input.repo !== "string") return err('"repo" must be a string');
+        if (input.author !== undefined && (typeof input.author !== "string" || !input.author.trim())) return err('"author" must be a GitLab username or "me"');
+        const targetInput = { repoName: input.repoName ?? input.repo, mrUrl: input.mrUrl };
+
+        const early = refuseGithubTarget(targetInput, "mr_map", MR_MAP_GH_MOVE);
+        if (early) return err(early);
+        const target = await resolveRepoTarget(targetInput);
+        if (!target.ok) return err(target.error);
+        const refused = githubRefusal(target.identity, "mr_map", MR_MAP_GH_MOVE);
+        if (refused) return err(refused);
+        const identity = target.identity;
+
+        const listPayload: Record<string, unknown> = { repoName: identity, state: "opened", limit: MR_MAP_LIMIT };
+        if (typeof input.author === "string") listPayload.author = input.author.trim();
+        const [list, trees, defaultBranch, ci] = await Promise.all([
+          deps.command<Commands["mr:list-live"]["data"]>("mr:list-live", listPayload, { timeoutMs: READ_TIMEOUT_MS }),
+          deps.command<Commands["worktree:list"]["data"]>("worktree:list", { repoName: identity }, { timeoutMs: READ_TIMEOUT_MS }),
+          defaultBranchOf(deps, identity),
+          cachedCiStatus(deps, identity),
+        ]);
+        if (!list.ok || !list.data) return err(explainError(list.error ?? "MR list read failed"));
+        if (!trees.ok || !trees.data) return err(explainError(trees.error ?? "worktree list failed"));
+
+        const joined = joinMrsToWorktrees(
+          list.data.mrs,
+          (trees.data.trees ?? []).map((t) => ({ path: t.path, branch: t.branch })),
+          { defaultBranch, ciStatus: (iid) => ci.get(iid) ?? null },
+        );
+        const rows = await Promise.all(joined.map(async (row): Promise<MrMapRow> => {
+          const { mrState, ciStatus, ...head } = row;
+          return { ...head, dirty: await isDirty(deps, row.worktree), mrState, ciStatus };
+        }));
+        return ok({ rows, complete: !list.data.truncated });
       },
     },
   ];

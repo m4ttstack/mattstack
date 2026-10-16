@@ -22,8 +22,6 @@ const NAMES = ["gate_answer","gate_ask","gate_list","chat_post","chat_dm","chat_
 // binding. Mocking index.ts leaks into every other test in this file that
 // exercises those functions (e.g. herd_gates); mocking transport.ts directly
 // is the one place that resets cleanly for all consumers.
-const realRtClient = await import("../../../packages/rt-client/src/index.ts");
-const { serializeIdentity } = realRtClient;
 const realTransport = await import("../../../packages/rt-client/src/transport.ts");
 const realRtCommand = realTransport.rtCommand;
 const ID = "remote:gitlab.com%2Facme%2Facme-dev";
@@ -355,7 +353,7 @@ describe("mcpTools", () => {
       { name: "mr_ready", field: "repoName" },
       { name: "mr_retry", field: "repoName" },
       { name: "mr_rebase", field: "repoName" },
-      { name: "mr_map", field: "repo" },
+      { name: "mr_map", field: "repoName" },
     ];
     for (const { name, field } of repoArgTools) {
       const tool = mcpTools().find((t) => t.name === name)!;
@@ -1009,183 +1007,16 @@ describe("mcpTools", () => {
   });
 
   describe("mr_map", () => {
-    afterEach(() => {
-      mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: realRtCommand }));
-    });
-
     test("roster contains mr_map", () => {
       expect(mcpTools().map((t) => t.name)).toContain("mr_map");
     });
 
-    test("missing repo returns a field error", async () => {
-      const tool = mcpTools().find((t) => t.name === "mr_map")!;
-      const res = await tool.handler({}, {} as NodeJS.ProcessEnv);
-      expect(res.ok).toBe(false);
-      expect(res.error).toBe('"repo" is required');
-    });
-
-    test("schema requires repo and forbids extras", () => {
+    test("schema takes repoName, mrUrl, the legacy repo and author, and forbids extras", () => {
       const tool = mcpTools().find((t) => t.name === "mr_map")!;
       const schema = tool.inputSchema as { required?: string[]; additionalProperties?: boolean; properties?: Record<string, unknown> };
-      expect(schema.required).toEqual(["repo"]);
+      expect(schema.required).toBeUndefined();
       expect(schema.additionalProperties).toBe(false);
-      expect(Object.keys(schema.properties ?? {})).toEqual(["repo"]);
-    });
-
-    test("unmatched repo names the known repos", async () => {
-      const glanceId = serializeIdentity({ kind: "remote", id: "github.com/m4ttstack/glance" });
-      const rtId = serializeIdentity({ kind: "remote", id: "github.com/m4ttstack/rt" });
-      mock.module("../../../packages/rt-client/src/transport.ts", () => ({
-        ...realTransport,
-        rtCommand: async (cmd: string) => {
-          if (cmd === "repos") {
-            return {
-              ok: true,
-              data: {
-                repos: {
-                  [glanceId]: { path: "/g", worktrees: [] },
-                  [rtId]: { path: "/r", worktrees: [] },
-                },
-                watched: [],
-              },
-            };
-          }
-          throw new Error(`unexpected rtCommand("${cmd}")`);
-        },
-      }));
-      const tool = mcpTools().find((t) => t.name === "mr_map")!;
-      const res = await tool.handler({ repo: "nope" }, {} as NodeJS.ProcessEnv);
-      expect(res.ok).toBe(false);
-      expect(res.error).toContain("glance");
-      expect(res.error).toContain("rt");
-    });
-
-    test("ambiguous repo label names all matching identities instead of picking one", async () => {
-      const orgAId = serializeIdentity({ kind: "remote", id: "github.com/org-a/rt" });
-      const orgBId = serializeIdentity({ kind: "remote", id: "gitlab.com/org-b/rt" });
-      mock.module("../../../packages/rt-client/src/transport.ts", () => ({
-        ...realTransport,
-        rtCommand: async (cmd: string) => {
-          if (cmd === "repos") {
-            return {
-              ok: true,
-              data: {
-                repos: {
-                  [orgAId]: { path: "/a", worktrees: [] },
-                  [orgBId]: { path: "/b", worktrees: [] },
-                },
-                watched: [],
-              },
-            };
-          }
-          throw new Error(`unexpected rtCommand("${cmd}")`);
-        },
-      }));
-      const tool = mcpTools().find((t) => t.name === "mr_map")!;
-      const res = await tool.handler({ repo: "rt" }, {} as NodeJS.ProcessEnv);
-      expect(res.ok).toBe(false);
-      expect(res.error).toContain(orgAId);
-      expect(res.error).toContain(orgBId);
-    });
-
-    test("heal-pair rows (legacy name key + identity key at the same path) collapse instead of reading ambiguous", async () => {
-      const rtId = serializeIdentity({ kind: "remote", id: "github.com/m4ttstack/rt" });
-      mock.module("../../../packages/rt-client/src/transport.ts", () => ({
-        ...realTransport,
-        rtCommand: async (cmd: string, payload: Record<string, unknown>) => {
-          if (cmd === "repos") {
-            return {
-              ok: true,
-              data: {
-                repos: {
-                  rt: { path: "/same/path", worktrees: [] },
-                  [rtId]: { path: "/same/path", worktrees: [] },
-                },
-                watched: [],
-              },
-            };
-          }
-          if (cmd === "worktree:list") {
-            expect(payload.repoName).toBe(rtId);
-            return { ok: true, data: { trees: [] } };
-          }
-          if (cmd === "project-mrs:read") {
-            expect(payload.repoName).toBe(rtId);
-            return { ok: true, data: { mrs: {}, listSyncedAt: 0, source: "poll", syncedAt: 0 } };
-          }
-          throw new Error(`unexpected rtCommand("${cmd}")`);
-        },
-      }));
-      const tool = mcpTools().find((t) => t.name === "mr_map")!;
-      const res = await tool.handler({ repo: "rt" }, {} as NodeJS.ProcessEnv);
-      expect(res.ok).toBe(true);
-      expect(res.body).toEqual({ rows: [] });
-    });
-
-    test("a raw daemon error code from worktree:list is explained instead of returned bare", async () => {
-      const rtId = serializeIdentity({ kind: "remote", id: "github.com/m4ttstack/rt" });
-      mock.module("../../../packages/rt-client/src/transport.ts", () => ({
-        ...realTransport,
-        rtCommand: async (cmd: string) => {
-          if (cmd === "repos") {
-            return { ok: true, data: { repos: { [rtId]: { path: "/r", worktrees: [] } }, watched: [] } };
-          }
-          if (cmd === "worktree:list") {
-            return { ok: false, error: "repo-unknown" };
-          }
-          if (cmd === "project-mrs:read") {
-            return { ok: true, data: { mrs: {}, listSyncedAt: 0, source: "poll", syncedAt: 0 } };
-          }
-          throw new Error(`unexpected rtCommand("${cmd}")`);
-        },
-      }));
-      const tool = mcpTools().find((t) => t.name === "mr_map")!;
-      const res = await tool.handler({ repo: "rt" }, {} as NodeJS.ProcessEnv);
-      expect(res.ok).toBe(false);
-      expect(res.error).not.toBe("repo-unknown");
-      expect(res.error).toContain("unknown repo");
-    });
-
-    test("matches by registered name and joins open MRs to worktrees", async () => {
-      const rtId = serializeIdentity({ kind: "remote", id: "github.com/m4ttstack/rt" });
-      mock.module("../../../packages/rt-client/src/transport.ts", () => ({
-        ...realTransport,
-        // readProjectMRs (client.ts) calls this same rtCommand with
-        // "project-mrs:read", so one fake covers both daemon round trips.
-        rtCommand: async (cmd: string, payload: Record<string, unknown>) => {
-          if (cmd === "repos") {
-            return { ok: true, data: { repos: { [rtId]: { path: "/r", worktrees: [] } }, watched: [] } };
-          }
-          if (cmd === "worktree:list") {
-            expect(payload.repoName).toBe(rtId);
-            return { ok: true, data: { trees: [{ path: "/r/wt1", branch: "feature-1" }] } };
-          }
-          if (cmd === "project-mrs:read") {
-            expect(payload.repoName).toBe(rtId);
-            return {
-              ok: true,
-              data: {
-                mrs: {
-                  a: { pr: { iid: 42, title: "Do the thing", sourceBranch: "feature-1", state: "opened", pipeline: { status: "success" } }, fetchedAt: 0 },
-                  b: { pr: { iid: 43, title: "Closed one", sourceBranch: "old", state: "closed" }, fetchedAt: 0 },
-                },
-                listSyncedAt: 0,
-                source: "poll",
-                syncedAt: 0,
-              },
-            };
-          }
-          throw new Error(`unexpected rtCommand("${cmd}")`);
-        },
-      }));
-      const tool = mcpTools().find((t) => t.name === "mr_map")!;
-      const res = await tool.handler({ repo: "rt" }, {} as NodeJS.ProcessEnv);
-      expect(res.ok).toBe(true);
-      expect(res.body).toEqual({
-        rows: [
-          { ref: "!42", title: "Do the thing", sourceBranch: "feature-1", worktree: "/r/wt1", mrState: "opened", ciStatus: "success" },
-        ],
-      });
+      expect(Object.keys(schema.properties ?? {}).sort()).toEqual(["author", "mrUrl", "repo", "repoName"]);
     });
   });
 

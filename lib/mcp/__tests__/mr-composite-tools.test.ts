@@ -321,3 +321,134 @@ describe("mr_resolve_branch", () => {
     expect(t.description).toContain("Name the target with repoName");
   });
 });
+
+describe("mr_map", () => {
+  const summary = (iid: number, sourceBranch: string, over: Record<string, unknown> = {}) => ({
+    iid, title: `MR ${iid}`, state: "opened", draft: false, sourceBranch, targetBranch: "main", author: "alice", webUrl: null, detailedMergeStatus: null, ...over,
+  });
+  const tree = (name: string, branch: string | null) => ({ name, kind: "worktree", path: `/trees/${name}`, branch, repoName: ID, mr: null });
+  const answers = (over: Record<string, unknown> = {}) => ({
+    "mr:list-live": { mrs: [summary(1, "feat-a"), summary(2, "feat-b", { targetBranch: "feat-a", draft: true, author: "bob" }), summary(3, "feat-c")], truncated: false },
+    "worktree:list": { trees: [tree("a", "feat-a"), tree("b", "feat-b")] },
+    "forge:get": { status: 200, body: { default_branch: "main" }, truncated: false, nextPage: null, totalPages: null },
+    ...over,
+  });
+  const cache = (pipelines: Record<number, string>) => (async () => ({
+    ok: true,
+    data: { mrs: Object.fromEntries(Object.entries(pipelines).map(([iid, status]) => [`k${iid}`, { pr: { iid: Number(iid), pipeline: { status } }, fetchedAt: 0 }])) },
+  })) as any;
+  const withDeps = (over: Record<string, unknown> = {}, extra: Partial<MrCompositeDeps> = {}) => {
+    const f = fake(answers(over));
+    f.deps.readMrCache = cache({ 1: "success" });
+    f.deps.status = async (path: string) => (path === "/trees/a" ? " M x\n" : "");
+    Object.assign(f.deps, extra);
+    return f;
+  };
+  const call = (deps: MrCompositeDeps, input: Record<string, unknown>) => tool(deps, "mr_map").handler(input, ENV);
+
+  test("joins a live open-MR list to the trees with every row field", async () => {
+    const { deps, calls } = withDeps();
+    const res = await call(deps, { repoName: ID });
+    expect(res).toEqual({
+      ok: true,
+      body: {
+        complete: true,
+        rows: [
+          { ref: "!1", iid: 1, title: "MR 1", author: "alice", sourceBranch: "feat-a", targetBranch: "main", draft: false, stacked: false, worktree: "/trees/a", dirty: true, mrState: "opened", ciStatus: "success" },
+          { ref: "!2", iid: 2, title: "MR 2", author: "bob", sourceBranch: "feat-b", targetBranch: "feat-a", draft: true, stacked: true, worktree: "/trees/b", dirty: false, mrState: "opened", ciStatus: null },
+          { ref: "!3", iid: 3, title: "MR 3", author: "alice", sourceBranch: "feat-c", targetBranch: "main", draft: false, stacked: false, worktree: null, dirty: null, mrState: "opened", ciStatus: null },
+        ],
+      },
+    } as any);
+    expect(calls.find((c) => c.name === "mr:list-live")!.payload).toEqual({ repoName: ID, state: "opened", limit: 200 });
+    expect(calls.find((c) => c.name === "forge:get")!.payload).toEqual({ repoName: ID, path: "projects/:id" });
+    expect(calls.find((c) => c.name === "worktree:list")!.payload).toEqual({ repoName: ID });
+  });
+
+  test("author is passed through to mr:list-live", async () => {
+    const { deps, calls } = withDeps();
+    await call(deps, { repoName: ID, author: "me" });
+    expect(calls.find((c) => c.name === "mr:list-live")!.payload).toEqual({ repoName: ID, state: "opened", limit: 200, author: "me" });
+  });
+
+  test("complete is false when the list was truncated", async () => {
+    const { deps } = withDeps({ "mr:list-live": { mrs: [], truncated: true } });
+    expect(await call(deps, { repoName: ID })).toMatchObject({ ok: true, body: { rows: [], complete: false } });
+  });
+
+  test("a failed default-branch read leaves stacked null and the call still succeeds", async () => {
+    const { deps } = withDeps({ "forge:get": new Error("403 Forbidden") });
+    const res = (await call(deps, { repoName: ID })) as any;
+    expect(res.ok).toBe(true);
+    expect(res.body.rows.map((r: any) => r.stacked)).toEqual([null, null, null]);
+  });
+
+  test("dirty is null when git status throws", async () => {
+    const { deps } = withDeps({}, { status: async () => { throw new Error("not a git repo"); } });
+    const res = (await call(deps, { repoName: ID })) as any;
+    expect(res.body.rows.map((r: any) => r.dirty)).toEqual([null, null, null]);
+  });
+
+  test("ciStatus is null on a cache error, thrown or returned", async () => {
+    for (const readMrCache of [(async () => { throw new Error("socket"); }) as any, (async () => ({ ok: false, error: "x" })) as any]) {
+      const { deps } = withDeps({}, { readMrCache });
+      const res = (await call(deps, { repoName: ID })) as any;
+      expect(res.ok).toBe(true);
+      expect(res.body.rows.map((r: any) => r.ciStatus)).toEqual([null, null, null]);
+    }
+  });
+
+  test("an mr:list-live error fails the call", async () => {
+    const { deps } = withDeps({ "mr:list-live": new Error("GitLab returned 500") });
+    const res = await call(deps, { repoName: ID });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("GitLab returned 500");
+  });
+
+  test("a worktree:list error fails the call", async () => {
+    const { deps } = withDeps({ "worktree:list": new Error("daemon down") });
+    const res = await call(deps, { repoName: ID });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("daemon down");
+  });
+
+  test("the legacy repo works like repoName", async () => {
+    const { deps, calls } = withDeps();
+    const res = await call(deps, { repo: ID });
+    expect(res.ok).toBe(true);
+    expect(calls.find((c) => c.name === "mr:list-live")!.payload.repoName).toBe(ID);
+  });
+
+  test("repoName and repo together are refused", async () => {
+    const { deps, calls } = withDeps();
+    const res = await call(deps, { repoName: ID, repo: ID });
+    expect(res).toEqual({ ok: false, error: "pass repoName, not both repoName and repo" } as any);
+    expect(calls).toEqual([]);
+  });
+
+  test("an empty author is refused", async () => {
+    const { deps } = withDeps();
+    const res = await call(deps, { repoName: ID, author: " " });
+    expect(res.ok).toBe(false);
+  });
+
+  test("a GitHub repoName, legacy repo or mrUrl is refused naming the gh move, before any command", async () => {
+    for (const input of [{ repoName: GH }, { repo: GH }, { repo: "github.com/acme/app" }, { mrUrl: "https://github.com/acme/app/pull/3" }]) {
+      const { deps, calls } = withDeps();
+      const res = await call(deps, input);
+      expect(res.ok).toBe(false);
+      expect(res.error).toStartWith("GitLab only: mr_map does not speak GitHub; ");
+      expect(res.error).toContain("gh pr list --author @me");
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("the description starts GitLab only, says live, and names the target rule", () => {
+    const t = tool(fake().deps, "mr_map");
+    expect(t.description).toStartWith("GitLab only.");
+    expect(t.description).toContain("live");
+    expect(t.description).toContain("200");
+    expect(t.description).toContain("Name the target with repoName");
+    expect(Object.keys((t.inputSchema as any).properties).sort()).toEqual(["author", "mrUrl", "repo", "repoName"]);
+  });
+});
