@@ -599,7 +599,7 @@ export function mcpTools(): McpToolDef[] {
         const bad = checkOptional(input, [{ name: "path", type: "string" }, { name: "runId", type: "string" }]);
         if (bad) return err(bad);
         if (input.path !== undefined && input.paths !== undefined) return err('pass "path" or "paths", not both');
-        if (input.path === undefined && input.paths === undefined) return err('pass "path" or "paths"');
+        if (input.path === undefined && input.paths === undefined) return err('"path" is required');
         if (input.paths !== undefined) {
           const paths = input.paths;
           if (!Array.isArray(paths) || paths.some((p) => typeof p !== "string")) return err('"paths" must be an array of strings');

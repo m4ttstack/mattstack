@@ -1202,7 +1202,7 @@ describe("mcpTools", () => {
     test("refuses a missing path and a missing target before calling the daemon", async () => {
       const calls = fakeDaemon();
       const tool = mcpTools().find((t) => t.name === "mr_upload")!;
-      expect((await tool.handler({ repoName: "remote:x" }, {} as NodeJS.ProcessEnv)).error).toBe('pass "path" or "paths"');
+      expect((await tool.handler({ repoName: "remote:x" }, {} as NodeJS.ProcessEnv)).error).toBe('"path" is required');
       expect((await tool.handler({ path: "/tmp/shot.png" }, {} as NodeJS.ProcessEnv)).error).toBe('pass "repoName" or "mrUrl"');
       expect(calls).toEqual([]);
     });
