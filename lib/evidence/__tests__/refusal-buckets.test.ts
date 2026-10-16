@@ -46,7 +46,7 @@ test("record check messages", () => {
   const msg = (run: Parameters<typeof evidenceUploadRefusal>[0]["run"]) => evidenceUploadRefusal({ ...base, run })!;
   expect(bucketFor(msg({ found: false }))).toBe("record");
   expect(bucketFor(msg({ found: true, evidence: null }))).toBe("record");
-  const record = JSON.stringify({ v: 2, cases: [{ id: "c1", label: "Case", after: [{ path: "/x/other.png", annotated: "/x/other-ann.png" }] }] });
+  const record = JSON.stringify({ v: 2, cases: [{ id: "c1", label: "Case", after: { path: "/x/other.png", annotated: "/x/other-ann.png" } }] });
   expect(bucketFor(msg({ found: true, evidence: record }))).toBe("record");
 });
 
@@ -54,7 +54,7 @@ test("raw capture message", () => {
   const dir = temp();
   const raw = join(dir, "raw.png");
   writeFileSync(raw, "x");
-  const record = { v: 2, cases: [{ id: "c1", label: "Case", after: [{ path: raw, annotated: join(dir, "ann.png") }] }] };
+  const record = { v: 2, cases: [{ id: "c1", label: "Case", after: { path: raw, annotated: join(dir, "ann.png") } }] };
   const msg = evidenceUploadRefusal({ runId: "r1", realpath: raw, filename: "raw.png", run: { found: true, evidence: JSON.stringify(record) } });
   expect(bucketFor(msg ?? "")).toBe("raw-capture");
 });
