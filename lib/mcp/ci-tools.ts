@@ -261,16 +261,36 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             if (lease && lease.owner === boardDoctorOwner(url)) return { ok: true, lease };
             return { ok: false, reason: "stood_down", holder: lease };
           }
+          const unavailable = (e: unknown): LeaseCheck => {
+            w.keepalive.drop(url, owner);
+            return { ok: false, reason: "unavailable", error: e instanceof Error ? e.message : String(e) };
+          };
+          let hb: ReturnType<typeof heartbeatCiLease>;
           try {
-            const hb = heartbeatCiLease(url, owner, opts);
-            if (hb.ok) {
-              w.keepalive.touch(url, owner);
-              return { ok: true, lease: hb.lease };
-            }
-            const { lease: current } = readCiLease(url, opts);
+            hb = heartbeatCiLease(url, owner, opts);
+          } catch (e) {
+            // A busy lock is not a verdict: an unlocked read that still shows this session's fresh lease keeps the watch going.
+            try {
+              const { lease } = readCiLease(url, opts);
+              if (lease && leaseOwner(lease) === owner) {
+                st.held = true;
+                return { ok: true, lease };
+              }
+            } catch { /* the heartbeat's own error is the one to report */ }
+            return unavailable(e);
+          }
+          if (hb.ok) {
+            st.held = true;
+            w.keepalive.touch(url, owner);
+            return { ok: true, lease: hb.lease };
+          }
+          try {
+            const { lease: current, stale } = readCiLease(url, opts);
             if (current && leaseOwner(current) !== owner) return { ok: false, reason: "stood_down", holder: current };
-            if (st.held && st.reclaims >= MAX_RECLAIMS) {
-              return { ok: false, reason: "unavailable", error: `the lease vanished again after ${MAX_RECLAIMS} re-claims for this commit` };
+            // Taking over another owner's stale lease is this session's first claim; the re-claim count on disk was theirs.
+            const takeover = stale !== null && leaseOwner(stale) !== owner;
+            if (!takeover && st.held && st.reclaims >= MAX_RECLAIMS) {
+              return unavailable(`the lease vanished again after ${MAX_RECLAIMS} re-claims for this commit`);
             }
             const label = deps.label(env);
             const claim = claimCiLease({
@@ -279,12 +299,13 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
               ...(label !== undefined && { sessionLabel: label }),
             }, opts);
             if (!claim.claimed) return { ok: false, reason: "stood_down", holder: claim.holder };
-            if (st.held) st.reclaims++;
-            else st.held = true;
+            if (takeover || claim.previousOwner !== undefined) st.reclaims = 0;
+            else if (st.held) st.reclaims++;
+            st.held = true;
             w.keepalive.touch(url, owner);
             return { ok: true, lease: claim.lease };
           } catch (e) {
-            return { ok: false, reason: "unavailable", error: e instanceof Error ? e.message : String(e) };
+            return unavailable(e);
           }
         };
 

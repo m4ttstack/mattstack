@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { boardDoctorOwner, ciLeaseFileName, claimCiLease, readCiLease, releaseCiLease } from "../../../packages/rt-client/src/index.ts";
 import { LeaseKeepalive } from "../../ci/lease-keepalive.ts";
-import { watchStatePath } from "../../ci/watch-state.ts";
+import { watchStatePath, writeWatchState } from "../../ci/watch-state.ts";
 import { abortableSleep, ciToolDefs } from "../ci-tools.ts";
 
 const MR = "https://gitlab.example.com/grp/proj/-/merge_requests/42";
@@ -319,10 +319,10 @@ describe("ci_watch attend", () => {
   const pipeline = (over: Record<string, unknown> = {}) => ({ id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [], ...over });
   const target = { repoName: "remote:x", iid: 42 };
 
-  function attendDefs(world: { sha: string | null; webUrl?: string; pipeline: Record<string, unknown> | null; failed?: unknown[] }, over: Record<string, unknown> = {}) {
+  function attendDefs(world: { sha: string | null; webUrl?: string; pipeline: Record<string, unknown> | null; failed?: unknown[] }, over: Record<string, unknown> = {}, leaseOpts: Record<string, unknown> = {}) {
     const keepalive = new LeaseKeepalive({ setInterval: () => ({}), clearInterval: () => {}, leaseOpts: () => ({ dir }) });
     const defs = ciToolDefs({
-      leaseOpts: () => ({ dir }),
+      leaseOpts: () => ({ dir, ...leaseOpts }),
       label: () => undefined,
       watch: {
         resolve: async () => ({ ok: true, identity: "remote:x", iid: 42 }),
@@ -368,6 +368,50 @@ describe("ci_watch attend", () => {
     expect(r).toMatchObject({ ok: true, body: { state: "lease_unavailable", polls: 4, lease: null } });
     expect(typeof (r as any).body.error).toBe("string");
     expect(state()).toMatchObject({ held: true, reclaims: 2, lastResult: null });
+  });
+  test("a lease held through heartbeats counts its first vanishing as a re-claim", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    let clock = 0;
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline({ status: "running" }) }, {
+      now: () => clock,
+      sleep: async (ms: number) => { clock += ms; releaseCiLease(MR, "session:aaa", { dir }); },
+    });
+    const r = await watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 300 }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "lease_unavailable", polls: 4 } });
+    expect(state()).toMatchObject({ held: true, reclaims: 2 });
+  });
+  const busyLock = () => writeFileSync(join(dir, ciLeaseFileName(MR).replace(/\.json$/, ".lock")), JSON.stringify({ token: "someone-else", at: Date.now() }));
+  test("a heartbeat behind a busy lock keeps polling while this session's lease is still fresh", async () => {
+    claimCiLease({ mrUrl: MR, owner: "session:aaa", holder: "watch-ci" }, { dir });
+    busyLock();
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() }, {}, { lockWaitMs: 10, lockStaleMs: 60_000 });
+    const r = await watch.handler({ ...target, sha: SHA, attend: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "success", lease: { owner: "session:aaa" } } });
+    expect(state()).toMatchObject({ held: true, lastResult: "success" });
+  });
+  test("a heartbeat behind a busy lock with no fresh lease of this session's ends lease_unavailable and drops the keepalive", async () => {
+    claimCiLease({ mrUrl: MR, owner: "session:aaa", holder: "watch-ci", ttlSeconds: 60 }, { dir, now: () => 0 });
+    busyLock();
+    const { watch, keepalive } = attendDefs({ sha: SHA, pipeline: pipeline() }, {}, { lockWaitMs: 10, lockStaleMs: 60_000 });
+    keepalive.touch(MR, "session:aaa");
+    const r = await watch.handler({ ...target, sha: SHA, attend: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "lease_unavailable" } });
+    expect((r as any).body.error).toMatch(/lease lock busy/);
+    expect(keepalive.size()).toBe(0);
+  });
+  test("a session taking over a stale foreign lease inherits the window and starts its own re-claim count", async () => {
+    const world = { sha: SHA, pipeline: pipeline({ status: "running", createdAt: new Date(-200 * MIN).toISOString() }) };
+    const a = attendDefs(world);
+    expect(await a.watch.handler({ ...target, sha: SHA, attend: true, extendMinutes: 30, maxWaitSeconds: 0 }, A)).toMatchObject({ body: { budget: { minutes: 230 } } });
+    writeWatchState({ ...state(), reclaims: 2 }, { dir });
+    const b = attendDefs(world);
+    expect(await b.watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 0 }, B)).toMatchObject({ ok: true, body: { state: "stood_down", holder: { owner: "session:aaa" } } });
+    expect(state()).toMatchObject({ reclaims: 2 });
+    claimCiLease({ mrUrl: MR, owner: "session:aaa", holder: "watch-ci", ttlSeconds: 60 }, { dir, now: () => 0 });
+    const r = await b.watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 0 }, B);
+    expect(r).toMatchObject({ ok: true, body: { state: "running", lease: { owner: "session:bbb" }, budget: { minutes: 230, spent: false } } });
+    expect(state()).toMatchObject({ held: true, reclaims: 0, budgetMinutes: 230, pipelineId: 10 });
+    expect(readCiLease(MR, { dir }).lease).toMatchObject({ owner: "session:bbb" });
   });
   test("a fresh foreign lease is stood_down with its holder, and nothing is written", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, B);
