@@ -1,0 +1,6 @@
+{
+  "verbs": {
+    "work": { "engine": "work", "description": "Run a unit of work" },
+    "work-a11y": { "engine": "work", "pipeline": "accessibility", "description": "Run accessibility work end to end" }
+  }
+}

@@ -20,6 +20,7 @@ import {
   stripFrontmatter,
   type PluginRoots,
 } from "../sources.ts";
+import { effectiveSlotBindings } from "../pipelines.ts";
 import * as out from "../../ui/out.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../../ui/warn.ts";
@@ -367,6 +368,21 @@ describe("readVerbRoster", () => {
 
     expect(() => readVerbRoster(rootDir)).toThrow(/"\.\.\/evil"/);
   });
+
+  test("reads a verb's pipeline", () => {
+    const rootDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-pack-")));
+    writeFile(join(rootDir, "pack", "stubs.jsonc"), JSON.stringify({
+      verbs: {
+        work: { engine: "work", description: "Run work" },
+        "work-a11y": { engine: "work", pipeline: "accessibility", description: "Run accessibility work" },
+      },
+    }));
+
+    const roster = readVerbRoster(rootDir);
+
+    expect(roster[0]).not.toHaveProperty("pipeline");
+    expect(roster[1]).toEqual({ name: "work-a11y", engine: "work", description: "Run accessibility work", pipeline: "accessibility" });
+  });
 });
 
 describe("readManifestBindings", () => {
@@ -529,24 +545,70 @@ test("readManifestPipelines reads the object form", () => {
 });
 
 test("stageRoster is the distinct union across pipelines, bare names", () => {
-  expect(stageRoster({ feature: ["mattstack:stage-plan", "mattstack:stage-ship"], bugfix: ["mattstack:stage-plan"] }))
+  expect(stageRoster({ feature: ["mattstack:stage-plan", "mattstack:stage-ship"], bugfix: ["mattstack:stage-plan"] }, {}, {}))
     .toEqual([
       { name: "stage-plan", engine: "stage-plan", description: "" },
       { name: "stage-ship", engine: "stage-ship", description: "" },
     ]);
 });
 
+describe("stageRoster stage copies", () => {
+  const pipelines = {
+    feature: ["mattstack:stage-plan", "mattstack:stage-evidence"],
+    accessibility: ["mattstack:stage-plan", "mattstack:stage-evidence"],
+  };
+  const defaults = { "mattstack:stage-evidence": { domain: "acme:a" } };
+  const base = [
+    { name: "stage-plan", engine: "stage-plan", description: "" },
+    { name: "stage-evidence", engine: "stage-evidence", description: "" },
+  ];
+
+  test("override equal to default makes no copy", () => {
+    const overrides = { accessibility: { "mattstack:stage-evidence": { domain: "acme:a" } } };
+    expect(stageRoster(pipelines, overrides, defaults)).toEqual(base);
+  });
+
+  test("empty override over an absent slot makes no copy", () => {
+    const overrides = { accessibility: { "mattstack:stage-evidence": { forge: "" } } };
+    expect(stageRoster(pipelines, overrides, defaults)).toEqual(base);
+  });
+
+  test("an override that changes a fill adds a copy for that pipeline", () => {
+    const overrides = { accessibility: { "mattstack:stage-evidence": { domain: "acme:b" } } };
+    expect(stageRoster(pipelines, overrides, defaults)).toEqual([
+      ...base,
+      { name: "stage-evidence--accessibility", engine: "stage-evidence", description: "", pipeline: "accessibility" },
+    ]);
+  });
+
+  test("empty override unbinds in the copy only", () => {
+    const overrides = { accessibility: { "mattstack:stage-evidence": { domain: "" } } };
+    expect(stageRoster(pipelines, overrides, defaults)).toEqual([
+      ...base,
+      { name: "stage-evidence--accessibility", engine: "stage-evidence", description: "", pipeline: "accessibility" },
+    ]);
+    expect(effectiveSlotBindings(defaults, overrides.accessibility, "mattstack:stage-evidence")).toEqual({ domain: "" });
+    expect(effectiveSlotBindings(defaults, undefined, "mattstack:stage-evidence")).toEqual({ domain: "acme:a" });
+  });
+
+  test("a pipeline name that is not a skill name throws when it carries an override", () => {
+    const overrides = { "../x": { "mattstack:stage-evidence": { domain: "acme:b" } } };
+    expect(() => stageRoster({ ...pipelines, "../x": ["mattstack:stage-evidence"] }, overrides, defaults))
+      .toThrow('pipeline "../x" must match [a-z][a-z0-9-]*');
+  });
+});
+
 describe("stageRoster path-breakout guard", () => {
   test("rejects a \"..\" stage name naming the offending pipeline entry", () => {
-    expect(() => stageRoster({ feature: ["mattstack:../../victim"] })).toThrow(/\.\.\/victim/);
+    expect(() => stageRoster({ feature: ["mattstack:../../victim"] }, {}, {})).toThrow(/\.\.\/victim/);
   });
 
   test("rejects a \"/\" stage name", () => {
-    expect(() => stageRoster({ feature: ["mattstack:a/b"] })).toThrow(/not a safe directory name/);
+    expect(() => stageRoster({ feature: ["mattstack:a/b"] }, {}, {})).toThrow(/not a safe directory name/);
   });
 
   test("rejects a \"\\\\\" stage name", () => {
-    expect(() => stageRoster({ feature: ["mattstack:a\\b"] })).toThrow(/not a safe directory name/);
+    expect(() => stageRoster({ feature: ["mattstack:a\\b"] }, {}, {})).toThrow(/not a safe directory name/);
   });
 });
 

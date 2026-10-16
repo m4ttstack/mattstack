@@ -1,0 +1,150 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`compile-native end to end no overrides is byte-identical 1`] = `
+{
+  ".claude-plugin/plugin.json": 
+"{"name":"acme","version":"0.1.0"}
+"
+,
+  "attachments/plan-policy/SKILL.md": 
+"---
+name: plan-policy
+description: "plan-policy"
+metadata:
+  provides: "plan-domain@1"
+---
+
+policy text
+
+{{include:gitlab-note}}
+"
+,
+  "attachments/stage-implement/SKILL.md": 
+"---
+name: "stage-implement"
+description: "stage-implement"
+metadata:
+  compiled: "mattstack@1.0.0"
+---
+
+<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+
+<!-- part: step source=mattstack:stage-implement version=1.0.0 path=attachments/pipeline/stage-implement/SKILL.md lines=11-11 -->
+
+You consume \`approach\`. You must produce \`commits\`.
+"
+,
+  "attachments/stage-plan/SKILL.md": 
+"---
+name: "stage-plan"
+description: "stage-plan"
+metadata:
+  compiled: "mattstack@1.0.0 + acme:plan-policy@0.1.0"
+---
+
+<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+
+<!-- part: step source=mattstack:stage-plan version=1.0.0 path=attachments/pipeline/stage-plan/SKILL.md lines=13-14 -->
+
+You consume \`ticket\`. You must produce \`approach\`.
+<!-- part: slot:domain binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md lines=8-10 -->
+policy text
+
+<!-- part: include:gitlab-note source=mattstack:gitlab-note version=1.0.0 path=attachments/gitlab-note/SKILL.md lines=6-8 -->
+note body
+
+See \${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh for the note script.
+"
+,
+  "attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh": 
+"#!/bin/sh
+echo note
+"
+,
+  "attachments/stage-ship/SKILL.md": 
+"---
+name: "stage-ship"
+description: "stage-ship"
+metadata:
+  compiled: "mattstack@1.0.0"
+---
+
+<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+
+<!-- part: step source=mattstack:stage-ship version=1.0.0 path=attachments/pipeline/stage-ship/SKILL.md lines=11-11 -->
+
+You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
+"
+,
+  "pack/stubs.jsonc": 
+"{"verbs":{"work":{"engine":"work","description":"Run a unit of work"}}}
+"
+,
+  "pack/surface.jsonc": 
+"{"public":["work"]}
+"
+,
+  "skills/work/SKILL.md": 
+"---
+name: "work"
+description: "Run a unit of work"
+metadata:
+  compiled: "mattstack@1.0.0"
+---
+
+<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+
+<!-- part: step source=mattstack:work version=1.0.0 path=attachments/pipeline/work/SKILL.md lines=7-11 -->
+
+The work type is \`feature\`. Continue.
+
+\`\`\`json
+{
+  "feature": [
+    {
+      "name": "stage-plan",
+      "stage": "plan",
+      "dir": "\${CLAUDE_SKILL_DIR}/../../attachments/stage-plan",
+      "consumes": [
+        "ticket"
+      ],
+      "produces": [
+        "approach"
+      ]
+    },
+    {
+      "name": "stage-implement",
+      "stage": "implement",
+      "dir": "\${CLAUDE_SKILL_DIR}/../../attachments/stage-implement",
+      "consumes": [
+        "approach"
+      ],
+      "produces": [
+        "commits"
+      ]
+    },
+    {
+      "name": "stage-ship",
+      "stage": "ship",
+      "dir": "\${CLAUDE_SKILL_DIR}/../../attachments/stage-ship",
+      "consumes": [
+        "commits",
+        "ticket"
+      ],
+      "produces": [
+        "mr"
+      ]
+    }
+  ]
+}
+\`\`\`
+
+Start: "$RT_PIPELINE_STATE" run-start \`\`\`json
+{
+  "feature": "--repo my-repo --work-type feature --pipeline feature --mattstack-sha 1.0.0 --mattstack-dirty 0 --pack-sha acme=0.1.0"
+}
+\`\`\`
+"
+,
+}
+`;
