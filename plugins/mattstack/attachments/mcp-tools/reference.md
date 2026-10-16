@@ -1669,7 +1669,7 @@ GitLab only. One read-only GET against GitLab's REST API, for a fact no other to
 ### branch_stack
 
 <!-- mcp-lint: allow -->
-Whether the tree's checked-out branch is a member of a tracked stack. Returns {branch, member, stackStore}; a member also carries stack (its name), parent, root and children. stackStore is "unavailable" when the stack store could not be read, in which case member: false is not proof. Reads no forge. tree is the absolute path of a registered checkout or worktree root.
+Whether the tree's checked-out branch is a member of a tracked stack. Returns {branch, member, stackStore}; a member also carries stack (its name), parent, root and children. stackStore is "unavailable" when the stack store could not be read, in which case member: false is not proof. Reads no forge. tree is the absolute path of a registered checkout or worktree, or a directory inside one, which resolves to that tree's root; the result's tree is the root it read.
 
 ```json
 {
@@ -1677,7 +1677,7 @@ Whether the tree's checked-out branch is a member of a tracked stack. Returns {b
   "properties": {
     "tree": {
       "type": "string",
-      "description": "Absolute path of a registered checkout or worktree root."
+      "description": "Absolute path of a registered checkout or worktree, or a directory inside one."
     }
   },
   "required": [
@@ -1690,7 +1690,7 @@ Whether the tree's checked-out branch is a member of a tracked stack. Returns {b
 ### git_push
 
 <!-- mcp-lint: allow -->
-Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead).
+Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is "unavailable" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.
 
 ```json
 {
@@ -1698,7 +1698,7 @@ Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; 
   "properties": {
     "tree": {
       "type": "string",
-      "description": "Absolute path of a checkout or worktree of a repo registered with rt."
+      "description": "Absolute path of a checkout or worktree of a repo registered with rt, or a directory inside one, which resolves to that tree's root (the result's tree)."
     },
     "forceWithLease": {
       "type": "boolean"
@@ -1725,7 +1725,7 @@ Fast-forward the tree's current branch from its upstream (--ff-only). A diverged
   "properties": {
     "tree": {
       "type": "string",
-      "description": "Absolute path of a checkout or worktree of a repo registered with rt."
+      "description": "Absolute path of a checkout or worktree of a repo registered with rt, or a directory inside one, which resolves to that tree's root (the result's tree)."
     }
   },
   "required": [
@@ -1746,7 +1746,7 @@ Rebase the tree's current branch onto a named branch or ref; a remote-tracking r
   "properties": {
     "tree": {
       "type": "string",
-      "description": "Absolute path of a checkout or worktree of a repo registered with rt."
+      "description": "Absolute path of a checkout or worktree of a repo registered with rt, or a directory inside one, which resolves to that tree's root (the result's tree)."
     },
     "onto": {
       "type": "string"
@@ -1765,7 +1765,7 @@ Rebase the tree's current branch onto a named branch or ref; a remote-tracking r
 ### branch_sync
 
 <!-- mcp-lint: allow -->
-Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. A rebase conflict returns status conflict with rt sync's bundle and leaves the rebase paused.
+Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. Returns {kind, branch, oldHead, newHead, pushed, refusal}, oldHead and newHead being the branch ref before and after. kind is synced (the branch moved; pushed says origin now has it), up-to-date (nothing moved or was pushed), dirty-tree (uncommitted or untracked changes, listed in paths; nothing ran), conflict (rt sync's bundle, the rebase left paused and the branch ref not yet moved), stacked-refused (stackCheck carries the stack refusal, and refusal names the tool to run), push-refused (the rebase landed locally but the push failed) or error (any other refusal or failure, its reason in refusal).
 
 ```json
 {
@@ -1773,11 +1773,32 @@ Bring the tree's branch current in one call through rt sync: fetch origin; if th
   "properties": {
     "tree": {
       "type": "string",
-      "description": "Absolute path of a checkout or worktree of a repo registered with rt."
+      "description": "Absolute path of a checkout or worktree of a repo registered with rt, or a directory inside one, which resolves to that tree's root (the result's tree)."
     }
   },
   "required": [
     "tree"
+  ],
+  "additionalProperties": false
+}
+```
+
+### branch_sync_sweep
+
+<!-- mcp-lint: allow -->
+Run branch_sync, one branch at a time, on every branch of yours with an open MR in the repo that has a local worktree. A conflict on one branch leaves that rebase paused for you and the sweep moves on to the next. Your open MRs are read from GitLab (author: me) or GitHub (gh pr list --author @me). Returns {repoName, results, noTree, complete}: results holds one branch_sync result per branch (kind, branch, oldHead, newHead, pushed, refusal), each with its tree and mr {iid, url}; noTree lists your open-MR branches that have no worktree, which the sweep skips; complete is false when the forge may have cut the MR list short. Opens no gate and pushes only what branch_sync itself pushes. repoName is the repo's serialized identity, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "repoName": {
+      "type": "string",
+      "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    }
+  },
+  "required": [
+    "repoName"
   ],
   "additionalProperties": false
 }
