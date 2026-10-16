@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Discussion } from "../../../packages/rt-client/src/index.ts";
-import { githubRefusal, mrCompositeToolDefs, normalizeBody, postedMatch, selfUsername, type MrCompositeDeps } from "../mr-composite-tools.ts";
+import { githubRefusal, mrCompositeToolDefs, refuseGithubTarget, normalizeBody, postedMatch, selfUsername, type MrCompositeDeps } from "../mr-composite-tools.ts";
 
 type Call = { name: string; payload: Record<string, unknown> };
 
@@ -129,6 +129,28 @@ describe("githubRefusal", () => {
   });
 });
 
+describe("refuseGithubTarget", () => {
+  const gh = "read threads with gh";
+  const refusal = "GitLab only: mr_posted_since does not speak GitHub; read threads with gh";
+
+  test("refuses a github.com mrUrl", () => {
+    expect(refuseGithubTarget({ mrUrl: "https://github.com/acme/app/pull/3" }, "mr_posted_since", gh)).toBe(refusal);
+    expect(refuseGithubTarget({ mrUrl: "https://GitHub.com/acme/app/pull/3" }, "mr_posted_since", gh)).toBe(refusal);
+  });
+
+  test("refuses a github.com repoName in identity or label form", () => {
+    expect(refuseGithubTarget({ repoName: GH }, "mr_posted_since", gh)).toBe(refusal);
+    expect(refuseGithubTarget({ repoName: "github.com/acme/app" }, "mr_posted_since", gh)).toBe(refusal);
+  });
+
+  test("passes a GitLab target and an empty input", () => {
+    expect(refuseGithubTarget({ repoName: ID }, "mr_posted_since", gh)).toBeNull();
+    expect(refuseGithubTarget({ mrUrl: "https://gitlab.com/acme/acme-dev/-/merge_requests/7" }, "mr_posted_since", gh)).toBeNull();
+    expect(refuseGithubTarget({}, "mr_posted_since", gh)).toBeNull();
+    expect(refuseGithubTarget({ mrUrl: "not a url" }, "mr_posted_since", gh)).toBeNull();
+  });
+});
+
 describe("selfUsername", () => {
   test("reads data.body.username from forge:get user", async () => {
     const { deps, calls } = fake({ "forge:get": { status: 200, body: { username: "me-bot" }, truncated: false, nextPage: null, totalPages: null } });
@@ -189,6 +211,14 @@ describe("mr_posted_since", () => {
     expect(calls).toEqual([]);
   });
 
+  test("a GitHub mrUrl is refused naming the gh move, before any command", async () => {
+    const { deps, calls } = fake(answers());
+    const res = await tool(deps, "mr_posted_since").handler({ mrUrl: "https://github.com/acme/app/pull/3", since: SINCE, threads: [{ discussionId: "d1" }] }, ENV);
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("GitLab only: mr_posted_since does not speak GitHub; read threads with gh");
+    expect(calls).toEqual([]);
+  });
+
   test("a discussions:refresh error passes through verbatim", async () => {
     const { deps } = fake({ ...answers(), "discussions:refresh": new Error("GitLab returned 404 Not Found: 404 Merge Request Not Found") });
     const res = await tool(deps, "mr_posted_since").handler({ repoName: ID, iid: 7, since: SINCE, by: "me-bot", threads: [{ discussionId: "d1" }] }, ENV);
@@ -199,6 +229,94 @@ describe("mr_posted_since", () => {
   test("the description starts GitLab only and names the target rule", () => {
     const { deps } = fake();
     const t = tool(deps, "mr_posted_since");
+    expect(t.description).toStartWith("GitLab only.");
+    expect(t.description).toContain("Name the target with repoName");
+    expect(t.description).not.toContain("by by");
+    expect(t.description).not.toContain("since since");
+  });
+});
+
+describe("mr_resolve_branch", () => {
+  const mr = (over: Record<string, unknown> = {}) => ({
+    iid: 7, state: "opened", title: "Add x", author: { username: "alice", name: "Alice" },
+    sourceBranch: "feat-x", targetBranch: "main", webUrl: "https://gitlab.com/acme/acme-dev/-/merge_requests/7", description: "long", ...over,
+  });
+  const tree = (name: string, branch: string | null) => ({ name, kind: "worktree", path: `/trees/${name}`, branch, repoName: ID, mr: null });
+  const answers = (over: Record<string, unknown> = {}) => ({
+    "mr:get": { mr: mr(), fetchedAt: 5 },
+    "worktree:list": { trees: [tree("a", "feat-x"), tree("b", "feat-x-2"), tree("main", "main"), tree("c", null)] },
+    ...over,
+  });
+
+  test("returns the MR fields and only the trees on the exact source branch", async () => {
+    const { deps, calls } = fake(answers());
+    const res = await tool(deps, "mr_resolve_branch").handler({ repoName: ID, iid: 7 }, ENV);
+    expect(res).toMatchObject({
+      ok: true,
+      body: {
+        iid: 7, state: "opened", title: "Add x", author: "alice", sourceBranch: "feat-x", targetBranch: "main",
+        webUrl: "https://gitlab.com/acme/acme-dev/-/merge_requests/7", trees: [{ name: "a", path: "/trees/a" }],
+      },
+    });
+    expect(Object.keys((res as any).body.trees[0])).toEqual(["name", "path"]);
+    expect(calls).toEqual([
+      { name: "mr:get", payload: { repoName: ID, iid: 7 } },
+      { name: "worktree:list", payload: { repoName: ID } },
+    ]);
+  });
+
+  test("two trees on the branch return both", async () => {
+    const { deps } = fake(answers({ "worktree:list": { trees: [tree("a", "feat-x"), tree("b", "feat-x")] } }));
+    const res = await tool(deps, "mr_resolve_branch").handler({ repoName: ID, iid: 7 }, ENV);
+    expect(res).toMatchObject({ ok: true, body: { trees: [{ name: "a", path: "/trees/a" }, { name: "b", path: "/trees/b" }] } });
+  });
+
+  test("no tree returns an empty list", async () => {
+    const { deps } = fake(answers({ "worktree:list": { trees: [tree("main", "main")] } }));
+    const res = await tool(deps, "mr_resolve_branch").handler({ repoName: ID, iid: 7 }, ENV);
+    expect(res).toMatchObject({ ok: true, body: { trees: [] } });
+  });
+
+  test("a merged MR still resolves", async () => {
+    const { deps } = fake(answers({ "mr:get": { mr: mr({ state: "merged" }), fetchedAt: 5 } }));
+    const res = await tool(deps, "mr_resolve_branch").handler({ repoName: ID, iid: 7 }, ENV);
+    expect(res).toMatchObject({ ok: true, body: { state: "merged", trees: [{ name: "a" }] } });
+  });
+
+  test("a GitHub identity is refused naming the gh move, before any command", async () => {
+    const { deps, calls } = fake(answers());
+    const res = await tool(deps, "mr_resolve_branch").handler({ repoName: GH, iid: 3 }, ENV);
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("GitLab only: mr_resolve_branch does not speak GitHub; gh pr view <n> --json headRefName");
+    expect(calls).toEqual([]);
+  });
+
+  test("a GitHub mrUrl is refused naming the gh move, before any command", async () => {
+    const { deps, calls } = fake(answers());
+    const res = await tool(deps, "mr_resolve_branch").handler({ mrUrl: "https://github.com/acme/app/pull/3" }, ENV);
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("GitLab only: mr_resolve_branch does not speak GitHub; gh pr view <n> --json headRefName");
+    expect(calls).toEqual([]);
+  });
+
+  test("an mr:get error passes through verbatim and skips the worktree read", async () => {
+    const { deps, calls } = fake(answers({ "mr:get": new Error("GitLab returned 404 Not Found: 404 Merge Request Not Found") }));
+    const res = await tool(deps, "mr_resolve_branch").handler({ repoName: ID, iid: 7 }, ENV);
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("GitLab returned 404 Not Found: 404 Merge Request Not Found");
+    expect(calls.map((c) => c.name)).toEqual(["mr:get"]);
+  });
+
+  test("a worktree:list error passes through", async () => {
+    const { deps } = fake(answers({ "worktree:list": new Error("daemon down") }));
+    const res = await tool(deps, "mr_resolve_branch").handler({ repoName: ID, iid: 7 }, ENV);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("daemon down");
+  });
+
+  test("the description starts GitLab only and names the target rule", () => {
+    const { deps } = fake();
+    const t = tool(deps, "mr_resolve_branch");
     expect(t.description).toStartWith("GitLab only.");
     expect(t.description).toContain("Name the target with repoName");
   });

@@ -58,6 +58,25 @@ export function githubRefusal(identity: string, tool: string, ghMove: string): s
   return null;
 }
 
+const isGithubHost = (host: string) => host === "github.com" || host === "www.github.com";
+
+/** Runs before target resolution, which rejects a github.com mrUrl for its shape before githubRefusal could name the gh move. */
+export function refuseGithubTarget(input: { repoName?: unknown; mrUrl?: unknown }, tool: string, ghMove: string): string | null {
+  const refusal = `GitLab only: ${tool} does not speak GitHub; ${ghMove}`;
+  if (typeof input.mrUrl === "string") {
+    try {
+      if (isGithubHost(new URL(input.mrUrl.trim()).hostname.toLowerCase())) return refusal;
+    } catch {
+      // not a URL: resolveMrTarget reports the shape error
+    }
+  }
+  if (typeof input.repoName === "string") {
+    const name = input.repoName.trim();
+    if (githubRefusal(name, tool, ghMove) || /^(remote:)?github\.com(\/|%2f)/i.test(name)) return refusal;
+  }
+  return null;
+}
+
 export function normalizeBody(s: string): string {
   return s.replace(/\r\n?/g, "\n").split("\n").map((l) => l.replace(/[ \t]+$/, "")).join("\n").trim();
 }
@@ -149,7 +168,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
   return [
     {
       name: "mr_posted_since",
-      description: `GitLab only. Whether this account (or by) already posted on the MR: one live thread read, nothing posted, nothing judged beyond the match. since is epoch milliseconds or an ISO time; a note counts when it is at or after since. by defaults to "me", the token's own user. threads [{discussionId, body?}]: posted when the discussion holds a note whose body equals body (any author, any time; CRLF and trailing spaces ignored), or a note by by since since; each row is {discussionId, found, posted, noteId, via: "body" | "author" | null}, found false when GitLab no longer returns the discussion. items [{id, body?, contains?, path?, line?}]: posted when a note by by since since has that body or contains that text, and, when path or line is given, sits at that new-side position; each row is {id, posted, noteId, discussionId}. Pass threads, items or both. Returns {by, since, threads, items, notes}, where notes is every non-system note by by since since (body cut at ${NOTE_BODY_CAP} characters). System notes never match. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Whether this account (or \`by\`) already posted on the MR: one live thread read, nothing posted, nothing judged beyond the match. \`since\` is epoch milliseconds or an ISO time; a note counts when it is at or after \`since\`. \`by\` defaults to "me", the token's own user. \`threads\` [{discussionId, body?}]: posted when the discussion holds a note whose body equals \`body\` (any author, any time; CRLF and trailing spaces ignored), or a note by \`by\` at or after \`since\`; each row is {discussionId, found, posted, noteId, via: "body" | "author" | null}, found false when GitLab no longer returns the discussion. \`items\` [{id, body?, contains?, path?, line?}]: posted when a note by \`by\` at or after \`since\` has that \`body\` or contains that text, and, when \`path\` or \`line\` is given, sits at that new-side position; each row is {id, posted, noteId, discussionId}. Pass \`threads\`, \`items\` or both. Returns {by, since, threads, items, notes}, where \`notes\` is every non-system note by \`by\` at or after \`since\` (body cut at ${NOTE_BODY_CAP} characters). System notes never match. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -184,6 +203,8 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         const items = input.items === undefined ? [] : checkItems(input.items);
         if (typeof items === "string") return err(items);
 
+        const early = refuseGithubTarget(input, "mr_posted_since", "read threads with gh");
+        if (early) return err(early);
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);
         const refused = githubRefusal(target.identity, "mr_posted_since", "read threads with gh");
@@ -198,6 +219,32 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         const r = await deps.command<Commands["discussions:refresh"]["data"]>("discussions:refresh", { repoName: target.identity, iid: target.iid }, { timeoutMs: READ_TIMEOUT_MS });
         if (!r.ok || !r.data) return err(explainError(r.error ?? "thread read failed"));
         return ok({ by, since, ...postedMatch(r.data.discussions, { by, since, threads, items }) });
+      },
+    },
+    {
+      name: "mr_resolve_branch",
+      description: `GitLab only. An MR to its branch and the registered trees on it, for checkout: one MR read and one worktree list, nothing provisioned. Works on opened, merged and closed MRs. Returns {iid, state, title, author (username), sourceBranch, targetBranch, webUrl, trees: [{name, path}]}, where trees holds the registered worktrees whose branch equals sourceBranch exactly: usually none or one, more only for a duplicate branch. Call worktree_provision to make a tree when trees is empty. ${REPO_NAME_RULE}`,
+      inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS }, additionalProperties: false },
+      shellForms: { none: "a branch-to-tree lookup has no glab verb; glab mr view hits the glab catch-all on mr_view" },
+      async handler(input) {
+        const early = refuseGithubTarget(input, "mr_resolve_branch", "gh pr view <n> --json headRefName");
+        if (early) return err(early);
+        const target = await resolveMrTarget(input);
+        if (!target.ok) return err(target.error);
+        const refused = githubRefusal(target.identity, "mr_resolve_branch", "gh pr view <n> --json headRefName");
+        if (refused) return err(refused);
+
+        const mr = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: READ_TIMEOUT_MS });
+        if (!mr.ok || !mr.data) return err(explainError(mr.error ?? "MR read failed"));
+        const list = await deps.command<Commands["worktree:list"]["data"]>("worktree:list", { repoName: target.identity }, { timeoutMs: READ_TIMEOUT_MS });
+        if (!list.ok || !list.data) return err(explainError(list.error ?? "worktree list failed"));
+
+        const pr = mr.data.mr;
+        const trees = list.data.trees.filter((t) => t.branch === pr.sourceBranch).map((t) => ({ name: t.name, path: t.path }));
+        return ok({
+          iid: pr.iid, state: pr.state, title: pr.title, author: pr.author.username,
+          sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch, webUrl: pr.webUrl, trees,
+        });
       },
     },
   ];
