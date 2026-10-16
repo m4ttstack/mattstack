@@ -63,6 +63,12 @@ const org = {
       'mattstack/teams/acme/plugin/attachments/stage-evidence--accessibility/SKILL.md':
         'ACCESSIBILITY EVIDENCE',
     },
+    eee5555: {
+      'mattstack/teams/acme/plugin/attachments/stage-evidence/SKILL.md':
+        'ACME EVIDENCE',
+      'mattstack/teams/globex/plugin/attachments/stage-evidence--accessibility/SKILL.md':
+        'GLOBEX ACCESSIBILITY EVIDENCE',
+    },
   },
 };
 
@@ -183,6 +189,16 @@ describe('resolveStageDoc', () => {
     });
     expect(await at('feature')).toMatchObject({ text: 'DEFAULT EVIDENCE' });
     expect(await at(null)).toMatchObject({ text: 'DEFAULT EVIDENCE' });
+  });
+
+  it("reads this pack's default over another team's copy at the same commit", async () => {
+    expect(
+      await resolveStageDoc(deps(), {
+        packCommits: 'acme=eee5555',
+        stage: 'evidence',
+        pipeline: 'accessibility',
+      })
+    ).toMatchObject({ text: 'ACME EVIDENCE', pack: 'acme' });
   });
 
   it('reads a version-recorded pipeline copy from the plugin cache', async () => {

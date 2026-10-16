@@ -97,16 +97,19 @@ async function fromSha(
         token.ref,
       ])) ?? '';
     const paths = tree.split('\n');
-    const hits =
-      stages
-        .map(stage => paths.filter(p => docPath(stage).test(p)))
-        .find(h => h.length > 0) ?? [];
-    if (hits.length === 0) continue;
+    const byStage = stages.map(stage =>
+      paths.filter(p => docPath(stage).test(p))
+    );
     const rel = d.dir.startsWith(root) ? d.dir.slice(root.length + 1) : '';
-    const pick =
+    // An org commit holds every team's packs, so another team's copy must
+    // never beat this pack's own default.
+    const ownPick = (hits: string[]) =>
       hits.find(p => rel && p.startsWith(rel + '/')) ??
-      hits.find(p => p.includes(`/${token.pack}/`)) ??
-      hits[0];
+      hits.find(p => p.includes(`/${token.pack}/`));
+    const pick =
+      byStage.map(ownPick).find(p => p !== undefined) ??
+      byStage.find(h => h.length > 0)?.[0];
+    if (pick === undefined) continue;
     const text = await git(deps, ['-C', root, 'show', `${token.ref}:${pick}`]);
     if (text != null) {
       return {
