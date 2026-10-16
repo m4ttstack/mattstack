@@ -6,6 +6,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { checkPack, compilePackAll, computeRows, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
 import { compileSkill, HEADER_COMMENT } from "../../lib/skills/compile.ts";
+import { setFieldContractSeverityForTest } from "../../lib/skills/field-contract.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
 import type { PluginRoots } from "../../lib/skills/sources.ts";
@@ -1469,6 +1470,28 @@ describe("base pack attachments", () => {
     const { rows } = computeRows(packDir, new Set(["watch-ci"]), null, new Set());
     expect(rows.find((r) => r.name === "self-review")?.kind).toBe("compiled");
     expect(rows.find((r) => r.name === "review")).toBeUndefined();
+  });
+
+  test("a field written only by an emitted base attachment counts as written, and its reads are checked", async () => {
+    const reader = DOMAIN_SKILL_MD + "Read it: run_field_get {key: extra.plan-verdict}\n";
+    const writer = "---\nname: plan-writer\ndescription: records the verdict\n---\nWrite it: run_field_set {key: extra.plan-verdict, value: yes, stage: plan}\n";
+    const withWriter = seedBaseAndTeam({ domainBody: reader, baseFiles: { "attachments/plan-writer/SKILL.md": writer } });
+
+    expect((await withWriter.compile()).errors).toEqual([]);
+    expect(existsSync(join(withWriter.packDir, "attachments", "plan-writer", "SKILL.md"))).toBe(true);
+
+    const noWriter = seedBaseAndTeam({ domainBody: reader });
+    io.clear();
+    const warned = await noWriter.compile();
+    expect(warned.exitCode).toBeUndefined();
+    expect(warned.errors).toEqual([]);
+    expect(io.lines().join("\n")).toContain('reads "extra.plan-verdict", which nothing in this pack writes');
+
+    const emittedReader = seedBaseAndTeam({ baseFiles: { "attachments/plan-reader/SKILL.md": "---\nname: plan-reader\ndescription: reads the verdict\n---\nRead it: run_field_get {key: extra.plan-verdict}\n" } });
+    io.clear();
+    const emittedWarned = await emittedReader.compile();
+    expect(emittedWarned.exitCode).toBeUndefined();
+    expect(io.lines().join("\n")).toContain("field contract: attachments/plan-reader/SKILL.md:");
   });
 
   test("a pack that extends a base but has no verbs still emits", async () => {
@@ -4422,5 +4445,176 @@ describe("a work verb's pipeline", () => {
     expect(rows.map((p: { arg: string }) => p.arg)).toEqual(WORK_RUN.map((r) => r.slice("mattstack:".length)));
     expect(new Set(rows.map((p: { line: number }) => p.line)).size).toBe(1);
     expect(work.placeholders.some((p: { kind: string }) => p.kind === "pipeline.table")).toBe(false);
+  });
+});
+
+describe("pack/pipelines.json and the field contract in compile and check", () => {
+  const fillMd = (name: string, body: string) =>
+    `---\nname: ${name}\ndescription: "${name}"\nmetadata:\n  provides: "watch-ci-domain@1"\n---\n\n${body}\n`;
+  const stageMd = (name: string, stage: string) =>
+    `---\nname: ${name}\ndescription: "${stage} stage"\ntype: pipeline-step\nslots:\n  domain: { contract: "watch-ci-domain@1" }\nmetadata:\n  stage: ${stage}\n---\n\n{{slot:domain}}\n`;
+
+  /** Two slotted stages: plan reads extra.plan-verdict; provision writes it only when `writer` is set. */
+  function makeFieldPack(opts: { writer: boolean }) {
+    const mattstackDir = makeMattstackDir();
+    const mattstackPluginDir = join(mattstackDir, "plugins", "mattstack");
+    writeFile(join(mattstackPluginDir, "attachments", "pipeline", "stage-plan", "SKILL.md"), stageMd("stage-plan", "plan"));
+    writeFile(join(mattstackPluginDir, "attachments", "pipeline", "stage-provision", "SKILL.md"), stageMd("stage-provision", "provision"));
+    const acmeDir = join(mattstackDir, "plugins", "acme");
+    writeFile(join(acmeDir, "attachments", "plan-reader", "SKILL.md"), fillMd("plan-reader", "Read it: run_field_get {key: extra.plan-verdict}"));
+    writeFile(join(acmeDir, "attachments", "provision-fill", "SKILL.md"), fillMd(
+      "provision-fill",
+      opts.writer ? "Write it: run_field_set {key: extra.plan-verdict, value: yes, stage: plan}" : "Nothing to record.",
+    ));
+    const packDir = makePackDir();
+    const manifestDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-fieldpack-")));
+    const manifestPath = join(manifestDir, "skills.jsonc");
+    writeFile(manifestPath, JSON.stringify({
+      pipelines: { feature: ["mattstack:stage-plan", "mattstack:stage-provision"] },
+      bindings: {
+        "mattstack:watch-ci": { domain: "acme:watch-ci-domain", forge: "mattstack:gitlab-forge" },
+        "mattstack:stage-plan": { domain: "acme:plan-reader" },
+        "mattstack:stage-provision": { domain: "acme:provision-fill" },
+      },
+    }));
+    return { mattstackDir, packDir, manifestPath, flags: ["--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath] };
+  }
+
+  test("compile writes pack/pipelines.json for a pack with a pipeline", async () => {
+    const { mattstackDir, packDir, manifestPath } = makeFieldPack({ writer: true });
+
+    const result = await compilePackAll({ pack: "t", packDir, mattstackDir, manifest: manifestPath });
+
+    expect(result.ok).toBe(true);
+    expect(result.written).toContain("pack/pipelines.json");
+    expect(JSON.parse(readFileSync(join(packDir, "pack", "pipelines.json"), "utf8"))).toEqual({
+      version: 1,
+      pipelines: {
+        feature: [
+          { stage: "plan", name: "stage-plan", file: "attachments/stage-plan/SKILL.md", consumes: [], produces: [] },
+          { stage: "provision", name: "stage-provision", file: "attachments/stage-provision/SKILL.md", consumes: [], produces: [] },
+        ],
+      },
+    });
+  });
+
+  test("check reports a missing or stale pack/pipelines.json", async () => {
+    const { flags, packDir } = makeFieldPack({ writer: true });
+    await skillsCompile(flags);
+    rmSync(join(packDir, "pack", "pipelines.json"));
+    io.clear();
+
+    await skillsCheck(flags);
+
+    expect(io.lines().some((l) => l.includes("pack/pipelines.json is out of date with the pack's pipelines"))).toBe(true);
+    expect(process.exitCode).toBe(1);
+
+    process.exitCode = 0;
+    io.clear();
+    await skillsCheck([...flags, "--json"]);
+    expect(JSON.parse(io.lines().join("\n")).compileErrors).toContain("pack/pipelines.json is out of date with the pack's pipelines");
+  });
+
+  test("compile warns, and still writes, when a fill reads a field nothing writes", async () => {
+    const { flags, packDir } = makeFieldPack({ writer: false });
+
+    const { exitCode, stderr } = await runSkillsCapturing(["compile", ...flags]);
+
+    expect(exitCode).toBeUndefined();
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(true);
+    expect(stderr).not.toContain("did not compile");
+    const text = io.lines().join("\n");
+    expect(text).toContain("field contract: 1 warning");
+    expect(text).toContain('field contract: attachments/stage-plan/SKILL.md');
+    expect(text).toContain('reads "extra.plan-verdict", which nothing in this pack writes');
+  });
+
+  test("compile --json lists the field-contract lines under fieldContract and exits 0, even under strict", async () => {
+    const { flags, packDir } = makeFieldPack({ writer: false });
+
+    await skillsCompile([...flags, "--json", "--strict"]);
+
+    const parsed = JSON.parse(io.stdout());
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(parsed.written).toBe(true);
+    expect(parsed.fieldContract).toHaveLength(1);
+    expect(parsed.fieldContract[0]).toContain('field contract: attachments/stage-plan/SKILL.md');
+    expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(true);
+  });
+
+  test("compile --json carries an empty fieldContract when the pack is clean", async () => {
+    const { flags } = makeFieldPack({ writer: true });
+
+    await skillsCompile([...flags, "--json"]);
+
+    expect(JSON.parse(io.stdout()).fieldContract).toEqual([]);
+  });
+
+  test("check warns on the same pack: fieldContract set, no drift, exit 0", async () => {
+    const { flags } = makeFieldPack({ writer: false });
+    await skillsCompile(flags);
+    io.clear();
+
+    await skillsCheck([...flags, "--json", "--strict"]);
+
+    const parsed = JSON.parse(io.stdout());
+    expect(parsed.fieldContract).toHaveLength(1);
+    expect(parsed.fieldContract[0]).toStartWith("field contract: attachments/stage-plan/SKILL.md");
+    expect(parsed.compileErrors).toEqual([]);
+    expect(process.exitCode ?? 0).toBe(0);
+
+    io.clear();
+    await skillsCheck(flags);
+    expect(io.lines().join("\n")).toContain("field contract: 1 warning");
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  describe("when the field contract is routed as an error", () => {
+    beforeEach(() => setFieldContractSeverityForTest("error"));
+    afterEach(() => setFieldContractSeverityForTest(null));
+
+    test("compile fails and writes nothing", async () => {
+      const { flags, packDir } = makeFieldPack({ writer: false });
+
+      const { exitCode, stderr } = await runSkillsCapturing(["compile", ...flags]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('field contract: attachments/stage-plan/SKILL.md');
+      expect(stderr).toContain("(from acme:plan-reader");
+      expect(stderr).toContain('reads "extra.plan-verdict", which nothing in this pack writes');
+      expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(false);
+    });
+
+    test("check reports it in compileErrors, marks drift and exits 1", async () => {
+      const { flags } = makeFieldPack({ writer: false });
+      // Compile scoped to the stages so the dirs exist; the pack-wide check is what a full check adds.
+      await skillsCompile([...flags, "--verb", "watch-ci", "--verb", "stage-plan", "--verb", "stage-provision"]);
+      io.clear();
+
+      await skillsCheck([...flags, "--json"]);
+
+      const parsed = JSON.parse(io.stdout());
+      expect(parsed.compileErrors.some((e: string) => e.startsWith("field contract: attachments/stage-plan/SKILL.md"))).toBe(true);
+      expect(parsed.fieldContract).toEqual([]);
+      expect(process.exitCode).toBe(1);
+    });
+  });
+
+  test("compile passes when another verb's fill writes the field", async () => {
+    const { mattstackDir, packDir, manifestPath } = makeFieldPack({ writer: true });
+
+    const result = await compilePackAll({ pack: "t", packDir, mattstackDir, manifest: manifestPath });
+
+    expect(result).toMatchObject({ ok: true, errors: [] });
+  });
+
+  test("a --verb scoped compile skips both", async () => {
+    const { mattstackDir, packDir, manifestPath } = makeFieldPack({ writer: false });
+
+    const result = await compilePackAll({ pack: "t", packDir, mattstackDir, manifest: manifestPath, verbs: ["stage-plan"] });
+
+    expect(result).toMatchObject({ ok: true, errors: [] });
+    expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(false);
   });
 });

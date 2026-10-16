@@ -76,6 +76,50 @@ metadata:
 You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
 "
 ,
+  "pack/pipelines.json": 
+"{
+  "version": 1,
+  "pipelines": {
+    "feature": [
+      {
+        "stage": "plan",
+        "name": "stage-plan",
+        "file": "attachments/stage-plan/SKILL.md",
+        "consumes": [
+          "ticket"
+        ],
+        "produces": [
+          "approach"
+        ]
+      },
+      {
+        "stage": "implement",
+        "name": "stage-implement",
+        "file": "attachments/stage-implement/SKILL.md",
+        "consumes": [
+          "approach"
+        ],
+        "produces": [
+          "commits"
+        ]
+      },
+      {
+        "stage": "ship",
+        "name": "stage-ship",
+        "file": "attachments/stage-ship/SKILL.md",
+        "consumes": [
+          "commits",
+          "ticket"
+        ],
+        "produces": [
+          "mr"
+        ]
+      }
+    ]
+  }
+}
+"
+,
   "pack/stubs.jsonc": 
 "{"verbs":{"work":{"engine":"work","description":"Run a unit of work"}}}
 "
