@@ -23,6 +23,7 @@ import { LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
 import { checkPack, compilePackAll, NO_PACKS_WHY } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
+import { runGitOrigin } from "../lib/worktree/fetch-auth.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { readDevModeConfig } from "./settings.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
@@ -64,6 +65,12 @@ function realDir(path: string): string | null {
 }
 
 /** An unreadable listing reads as nothing installed, so deriveEngine refuses with its own message rather than this one's. */
+async function spawnCapture(argv: string[], cwd: string | undefined, env?: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(argv, { cwd, env: { ...childEnv(), ...env }, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  return { code: await proc.exited, stdout, stderr };
+}
+
 async function installedPlugins(deps: SyncDeps): Promise<PluginListEntry[]> {
   if (!deps.claudeBin) return [];
   const res = await deps.run(deps.claudeBin, ["plugin", "list", "--json"]);
@@ -240,10 +247,17 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
       if (found.kind === "outside") return true;
       return found.kind === "current" && mayWritePath(currentRole(found.org), found.rel);
     },
-    run: async (cmd, cmdArgs, opts) => {
-      const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
-      const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      return { code: await proc.exited, stdout, stderr };
+    run: (cmd, cmdArgs, opts) => spawnCapture([cmd, ...cmdArgs], opts?.cwd),
+    runOrigin: async (gitArgs, opts) => {
+      // The pack checkout's own git hooks still run: runGitOrigin's default runner turns them off.
+      const r = await runGitOrigin(opts.cwd, gitArgs, {
+        push: opts.push,
+        run: async (cwd, a, o) => {
+          const res = await spawnCapture(["git", ...a], cwd, o.env);
+          return { exitCode: res.code, stdout: res.stdout, stderr: res.stderr };
+        },
+      });
+      return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
     },
     claudeBin: resolveClaudeBin(),
     checkPack: async (name) => {

@@ -16,6 +16,8 @@ export type RunResult = { code: number; stdout: string; stderr: string };
 export type SyncDeps = {
   mayCompile(packName: string): boolean;
   run: (cmd: string, args: string[], opts?: { cwd?: string }) => Promise<RunResult>;
+  /** A git command that reaches the pack's origin. An https org clone has no credential helper of its own, so the real one retries with rt's forge token; without it, `run` is used. */
+  runOrigin?: (args: string[], opts: { cwd: string; push?: boolean }) => Promise<RunResult>;
   claudeBin: string | null;
   checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean }>;
   /** `written` and `removed` are the pack-relative files the compile touched: the version commit holds exactly these and the manifest. */
@@ -72,6 +74,10 @@ export function bumpPatchVersion(packDir: string): { before: string; after: stri
   const after = `${m[1]}.${m[2]}.${Number(m[3]) + 1}`;
   writeManifestVersion(packDir, after);
   return { before: before as string, after };
+}
+
+function originGit(deps: SyncDeps, args: string[], opts: { cwd: string; push?: boolean }): Promise<RunResult> {
+  return deps.runOrigin ? deps.runOrigin(args, opts) : deps.run("git", args, { cwd: opts.cwd });
 }
 
 type Outcome = Pick<SyncStep, "status" | "detail" | typeof LAYOUT_HOLD>;
@@ -586,11 +592,12 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const clone = orgCloneTop(pack.dir);
     let res: RunResult;
     if (clone !== null) {
-      const fetched = await deps.run("git", ["fetch"], { cwd: clone });
-      if (fetched.code !== 0) return pullFailed(fetched.stderr);
       const branch = await deps.run("git", ["branch", "--show-current"], { cwd: clone });
       if (branch.code !== 0) return pullFailed(branch.stderr);
       const tip = `refs/remotes/origin/${branch.stdout.trim()}`;
+      // Named, because an org clone's refspec is narrowed to the data branch and a trial branch would never move.
+      const fetched = await originGit(deps, ["fetch", "origin", `+refs/heads/${branch.stdout.trim()}:${tip}`], { cwd: clone });
+      if (fetched.code !== 0) return pullFailed(fetched.stderr);
       const shown = await deps.run("git", ["show", markerAtRef(tip)], { cwd: clone });
       const own = await deps.run("git", ["show", markerAtRef("HEAD")], { cwd: clone });
       let verdict: GateVerdict | null;
@@ -603,7 +610,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       // A merge of the gated ref, not a pull: a pull fetches again and could land a newer tip the gate never read.
       res = await deps.run("git", ["merge", "--ff-only", tip], { cwd: clone });
     } else {
-      res = await deps.run("git", ["pull", "--ff-only"], { cwd: pack.dir });
+      res = await originGit(deps, ["pull", "--ff-only"], { cwd: pack.dir });
     }
     if (res.code !== 0) return pullFailed(res.stderr);
     packSourceVersion = readManifestVersion(pack.dir);
@@ -952,7 +959,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (id.sha === null) return abandon("rt could not tell which commit git made for the version bump", [], versionStaged, refused, "Look over the commit, then run this again");
     const rode = await rodeIn(id.sha, snapshot.stdout.trim(), "the version bump", versionStaged);
     if (rode !== null) return rode;
-    const push = await deps.run("git", ["push"], { cwd: pack.dir });
+    const push = await originGit(deps, ["push"], { cwd: pack.dir, push: true });
     if (push.code !== 0) return stop(`git push failed: ${push.stderr.trim()}`, versionStaged, true);
     return ran(`committed and pushed v${bumpAfter}`);
   });

@@ -2850,3 +2850,71 @@ describe("member sync", () => {
     });
   }
 });
+
+describe("git that talks to origin", () => {
+  type OriginCall = { args: string[]; cwd: string; push: boolean };
+  function withOrigin(deps: SyncDeps): { deps: SyncDeps; origin: OriginCall[] } {
+    const origin: OriginCall[] = [];
+    return {
+      origin,
+      deps: {
+        ...deps,
+        runOrigin: (args, opts) => {
+          origin.push({ args, cwd: opts.cwd, push: opts.push === true });
+          return deps.run("git", args, { cwd: opts.cwd });
+        },
+      },
+    };
+  }
+
+  test("an org clone's fetch goes through runOrigin", async () => {
+    const { clone, pack } = orgClonePack();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const { deps, origin } = withOrigin({ ...makeDeps(pack, engine, { calls, drift: [false], originMarker: { [clone]: null } }), orgsRoot: dirname(clone) });
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "pull-pack")!.status).toBe("ran");
+    expect(origin).toContainEqual({ args: ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"], cwd: clone, push: false });
+  });
+
+  test("an org clone on a trial branch fetches that branch, which its narrowed refspec leaves out", async () => {
+    const { clone, pack } = orgClonePack();
+    writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`);
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const trial = "mattstack-layout-5";
+    const { deps, origin } = withOrigin({
+      ...makeDeps(pack, engine, { calls, drift: [false], branchByDir: { [engine.dir]: "main", [clone]: trial, [pack.dir]: trial }, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }` } }),
+      orgsRoot: dirname(clone),
+    });
+
+    await syncPack(pack, engine, deps);
+
+    expect(origin).toContainEqual({ args: ["fetch", "origin", `+refs/heads/${trial}:refs/remotes/origin/${trial}`], cwd: clone, push: false });
+  });
+
+  test("a pack outside an org clone pulls through runOrigin", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const { deps, origin } = withOrigin(makeDeps(pack, engine, { calls, installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false] }));
+
+    await syncPack(pack, engine, deps);
+
+    expect(origin).toContainEqual({ args: ["pull", "--ff-only"], cwd: pack.dir, push: false });
+  });
+
+  test("the version commit pushes through runOrigin", async () => {
+    const pack = fixturePack("acme", "local", "0.5.2");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const { deps, origin } = withOrigin(makeDeps(pack, engine, { calls, installed: { [pluginId(pack)]: "0.5.2", [pluginId(engine)]: "2.0.0" }, drift: [true, false] }));
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "commit-push")!.status).toBe("ran");
+    expect(origin).toContainEqual({ args: ["push"], cwd: pack.dir, push: true });
+  });
+});
