@@ -156,7 +156,13 @@ function check(opts: Options): Checked {
   const roles = rolesFrom(parseStoreText(ORG_STORE_REL, storeText ?? ""));
   if (!isOrgAdmin(roleOf(opts.admin, roles))) refuse(`${opts.admin} is not an admin of this org`);
   const taken = [opts.dataBranch, ...(opts.pointer ? [`${opts.dataBranch}-pointer`] : [])].find((name) => succeeds(clone, "ls-remote", "--exit-code", "--heads", "origin", name));
-  if (taken !== undefined) refuse(`origin already has a branch named ${taken}`, "The move creates it from scratch, so it will not overwrite one that exists.", "Choose another name with --data-branch, or delete that branch on origin if it is a leftover.");
+  if (taken !== undefined) {
+    refuse(
+      `origin already has a branch named ${taken}`,
+      "The move creates it from scratch, so it will not overwrite one that exists. Choose another name with --data-branch, or delete that branch on origin if it is a leftover.",
+      `git -C ${shellQuote(clone)} push origin --delete ${shellQuote(taken)}`,
+    );
+  }
   const present = gitIn(clone, "ls-tree", "--name-only", mainSha, "--", ...DATA_PATHS).trim().split("\n").filter(Boolean);
   return { org: marker.org, mainSha, present };
 }
@@ -270,7 +276,7 @@ function convert(opts: Options, checked: Checked): { pointer: PointerOutcome | n
         return { pointer: { kind: "branch", branch, why: errorText(pushErr) } };
       }
     }
-    throw new UserActionableError("main-kept-moving", "Main kept changing while the pointer was being committed", {}, { log: `gave up after ${MAX_ATTEMPTS} attempts`, next: "Run the move again once main is quiet" });
+    throw new UserActionableError("main-kept-moving", "Main kept changing while the pointer was being committed", {}, { why: "Others kept pushing to main, so the pointer could not land. Run the move again once main is quiet.", log: `gave up after ${MAX_ATTEMPTS} attempts`, next: USAGE });
   } catch (err) {
     if (!dataPushed) throw err;
     const cause = errorText(err);

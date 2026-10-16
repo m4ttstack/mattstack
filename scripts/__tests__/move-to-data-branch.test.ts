@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSyn
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { orgDir } from "../../lib/rt-paths.ts";
+import { shellQuote } from "../../lib/team/org-branch.ts";
 import { childEnv } from "../../lib/subprocess.ts";
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 
@@ -226,6 +227,8 @@ test("a data branch name origin already has is refused", () => {
   const result = run(dir, "me", "--write");
   expect(result.exitCode).toBe(2);
   expect(err(result)).toContain("origin already has a branch named mattstack");
+  expect(err(result)).toContain("Choose another name with --data-branch, or delete that branch on origin if it is a leftover.");
+  expect(err(result)).toContain(`git -C ${shellQuote(dir)} push origin --delete mattstack`);
   expect(remote("rev-parse", "mattstack").trim()).toBe(remote("rev-parse", "main").trim());
 });
 
