@@ -5,6 +5,8 @@ description: "Use when every open MR or PR should be brought current with the de
 allowed-tools:
   - Bash(gh pr list:*)
   - Bash(git worktree list:*)
+  - Bash(git -C * status:*)
+  - Bash(git -C * log:*)
 type: pipeline-step
 slots: {}
 ---
@@ -13,9 +15,10 @@ slots: {}
 
 Bring every open MR or PR current with the default branch in one sweep:
 rebase each, then offer to push and watch CI. The sweep covers the open
-MRs `map-open-mrs` returns. This verb owns the sequencing, the two batch
-gates and the report; discovery, rebasing and CI watching belong to the
-verbs it follows, never reimplemented here.
+MRs `map-open-mrs` returns. This verb owns the sequencing, the batch gates
+and the report. Discovery and CI watching belong to the verbs it follows;
+rebasing belongs to `branch_sync_sweep` and `branch_sync`. Gates stay human
+decisions: never stash a tree, never resolve a conflict.
 
 ```dot
 digraph sync_open_mrs {
@@ -43,10 +46,24 @@ digraph sync_open_mrs {
     "Gate sweep" [shape=box];
     "sweep answer?" [shape=diamond];
     "Say nothing was selected" [shape=box];
+    "Every listed branch selected?" [shape=diamond];
+    "branch_sync_sweep {repoName}" [shape=plaintext];
+    "branch_sync_sweep result?" [shape=diamond];
+    "Record every sweep result in its bucket" [shape=box];
     "Selected branches left?" [shape=diamond];
-    "Follow rebase-worktree for the next branch" [shape=box];
-    "rebase-worktree ended Held?" [shape=diamond];
+    "branch_sync {tree}" [shape=plaintext];
     "Record the branch in its bucket" [shape=box];
+    "Branches to pull left?" [shape=diamond];
+    "git_pull {tree}" [shape=plaintext];
+    "git_pull result?" [shape=diamond];
+    "branch_sync {tree: <pulled tree>}" [shape=plaintext];
+    "Record the re-sync in its bucket" [shape=box];
+    "Any listed tree came back dirty?" [shape=diamond];
+    "Gate clarify: dirty trees" [shape=box];
+    "dirty answer?" [shape=diamond];
+    "Retried trees left?" [shape=diamond];
+    "branch_sync {tree: <retried tree>}" [shape=plaintext];
+    "Record the retry in its bucket" [shape=box];
     "Any rebased, still unpushed?" [shape=diamond];
     "Summarize the rebase pass" [shape=box];
     "Gate push" [shape=box];
@@ -56,8 +73,6 @@ digraph sync_open_mrs {
     "git_push result?" [shape=diamond];
     "Record pushed" [shape=box];
     "Record push failed, reason quoted" [shape=box];
-    "Retried this branch once?" [shape=diamond];
-    "git_push {tree: <the root the error prints>, forceWithLease: true}" [shape=plaintext];
     "Record push failed, mechanical" [shape=box];
     "Any mechanical push failure?" [shape=diamond];
     "STOP: push only with git_push" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -107,17 +122,37 @@ digraph sync_open_mrs {
     "Follow map-open-mrs for the table" -> "Plan the sweep";
     "Plan the sweep" -> "Gate sweep";
     "Gate sweep" -> "sweep answer?";
-    "sweep answer?" -> "Selected branches left?" [label="proceed with branches"];
+    "sweep answer?" -> "Every listed branch selected?" [label="proceed with branches"];
     "sweep answer?" -> "Say nothing was selected" [label="proceed with none selected"];
     "sweep answer?" -> "Plan the sweep" [label="iterate"];
     "sweep answer?" -> "Held: end the turn naming the gate" [label="hold"];
     "Say nothing was selected" -> "Started this run here?";
-    "Selected branches left?" -> "Follow rebase-worktree for the next branch" [label="yes"];
-    "Selected branches left?" -> "Any rebased, still unpushed?" [label="no"];
-    "Follow rebase-worktree for the next branch" -> "rebase-worktree ended Held?";
-    "rebase-worktree ended Held?" -> "Held: end the turn naming the gate" [label="yes: its dirty-tree question was held"];
-    "rebase-worktree ended Held?" -> "Record the branch in its bucket" [label="no"];
+    "Every listed branch selected?" -> "branch_sync_sweep {repoName}" [label="yes: all four conditions hold"];
+    "Every listed branch selected?" -> "Selected branches left?" [label="no: per branch, in the answer's order"];
+    "branch_sync_sweep {repoName}" -> "branch_sync_sweep result?";
+    "branch_sync_sweep result?" -> "Record every sweep result in its bucket" [label="results"];
+    "branch_sync_sweep result?" -> "Selected branches left?" [label="error: per branch over the selected rows"];
+    "Record every sweep result in its bucket" -> "Branches to pull left?";
+    "Selected branches left?" -> "branch_sync {tree}" [label="yes"];
+    "Selected branches left?" -> "Branches to pull left?" [label="no"];
+    "branch_sync {tree}" -> "Record the branch in its bucket";
     "Record the branch in its bucket" -> "Selected branches left?";
+    "Branches to pull left?" -> "git_pull {tree}" [label="yes"];
+    "Branches to pull left?" -> "Any listed tree came back dirty?" [label="no"];
+    "git_pull {tree}" -> "git_pull result?";
+    "git_pull result?" -> "branch_sync {tree: <pulled tree>}" [label="fast-forwarded"];
+    "git_pull result?" -> "Record the re-sync in its bucket" [label="error: skipped, quoted"];
+    "branch_sync {tree: <pulled tree>}" -> "Record the re-sync in its bucket";
+    "Record the re-sync in its bucket" -> "Branches to pull left?";
+    "Any listed tree came back dirty?" -> "Gate clarify: dirty trees" [label="yes"];
+    "Any listed tree came back dirty?" -> "Any rebased, still unpushed?" [label="no"];
+    "Gate clarify: dirty trees" -> "dirty answer?";
+    "dirty answer?" -> "Retried trees left?" [label="proceed: retry the picked trees, the rest skipped"];
+    "dirty answer?" -> "Held: end the turn naming the gate" [label="hold"];
+    "Retried trees left?" -> "branch_sync {tree: <retried tree>}" [label="yes"];
+    "Retried trees left?" -> "Any rebased, still unpushed?" [label="no"];
+    "branch_sync {tree: <retried tree>}" -> "Record the retry in its bucket";
+    "Record the retry in its bucket" -> "Retried trees left?";
     "Any rebased, still unpushed?" -> "Summarize the rebase pass" [label="yes"];
     "Any rebased, still unpushed?" -> "Report every branch in one bucket" [label="no"];
     "Summarize the rebase pass" -> "Gate push";
@@ -128,14 +163,10 @@ digraph sync_open_mrs {
     "Selected pushes left?" -> "git_push {tree, forceWithLease: true}" [label="yes"];
     "Selected pushes left?" -> "Any mechanical push failure?" [label="no"];
     "git_push {tree, forceWithLease: true}" -> "git_push result?";
-    "git_push {tree: <the root the error prints>, forceWithLease: true}" -> "git_push result?";
     "git_push result?" -> "Record pushed" [label="pushed"];
     "git_push result?" -> "Record push failed, reason quoted" [label="safety refusal: lease, protected or default branch, detached HEAD, upstream mismatch"];
-    "git_push result?" -> "Retried this branch once?" [label="tree must be the absolute path of the root"];
     "git_push result?" -> "Record push failed, mechanical" [label="not registered with rt"];
     "git_push result?" -> "Record push failed, reason quoted" [label="any other error"];
-    "Retried this branch once?" -> "git_push {tree: <the root the error prints>, forceWithLease: true}" [label="no"];
-    "Retried this branch once?" -> "Record push failed, mechanical" [label="yes"];
     "Record pushed" -> "Selected pushes left?";
     "Record push failed, reason quoted" -> "Selected pushes left?";
     "Record push failed, mechanical" -> "Selected pushes left?";
@@ -210,10 +241,11 @@ author, source branch, worktree path or NONE.
 ### Plan the sweep
 
 One sentence: how many branches rebase, how many are skipped up front (NONE
-rows with nothing local to rebase, and trees whose `git status --porcelain`
-is not empty, which `rebase-worktree` would refuse) and why. Every row of
-the map is the signed-in user's own MR, so every branch starts
-pre-selected; deselecting skips it.
+rows with nothing local to rebase, and trees whose
+`git -C <tree> status --porcelain` is not empty, which `branch_sync` would
+refuse) and why. When the map came back truncated, the same sentence says
+so. Every row of the map is the signed-in user's own MR, so every branch
+starts pre-selected; deselecting skips it.
 
 **These thoughts mean you are skipping the gate -- STOP:**
 
@@ -245,39 +277,93 @@ here** goes back to **Plan the sweep** and ignores `branches`; only
 One sentence: no branch was selected, so nothing is rebased or pushed. The
 sweep ends abandoned; a run this verb started closes as `abandoned`.
 
-### Follow rebase-worktree for the next branch
+### Every listed branch selected?
 
-In the order the sweep answer gave, follow the pack's compiled
-`rebase-worktree` verb (a public verb; invoke it by its pack-qualified
-skill name) for the next selected branch, saying you compose it as the
-per-branch step of this sweep, so it hands conflicts and pushes back
-instead of gating them. It inherits this run and its `runDb`, and closes
-nothing.
+`branch_sync_sweep` reads its own MR list and syncs (and pushes) every
+branch of yours that has a tree, not the form's list. So the answer is yes
+only when all four hold:
+
+- the map was complete (no truncated read),
+- the plan pre-skipped nothing (no dirty tree, so no tree the sweep would
+  visit outside the form),
+- every listed branch is selected,
+- the answer asked for no reorder.
+
+Anything else is no: the per-branch path, one `branch_sync {tree}` per
+selected branch in the answer's order.
+
+### branch_sync_sweep result?
+
+**results**: the call returned `{repoName, results, noTree, complete}`.
+**error**: the call itself failed (it could not list). On error, take the
+per-branch loop over the selected rows (the map already listed them) and
+put the sweep's error in the report.
+
+### Record every sweep result in its bucket
+
+Each entry of `results` goes into its bucket by the table under **Record
+the branch in its bucket**; each `noTree` row is skipped: no worktree.
+`complete: false` is one report line: the forge may have cut the MR list
+short. A result for a branch the map did not list (an MR opened after the
+map) lands in its bucket like any other and the report names it as one the
+map did not list.
 
 ### Record the branch in its bucket
 
-What `rebase-worktree` hands back decides the bucket. Apart from a
-**Held**, no branch's outcome blocks the rest of the sweep:
+The `branch_sync` result's `kind` decides the bucket. No branch's outcome
+blocks the rest of the sweep:
 
-- The conflicted-files sentence (the branch is left mid-rebase): needs-hands.
-- "pushed by branch_sync": pushed.
-- "already current; nothing pushed": current.
-- An old head -> new head line with the push still to decide (the manual
-  path): rebased, still unpushed.
-- Any refusal or error (dirty tree, no upstream, a stack refusal, a
-  `git_rebase` error, a `branch_sync` refusal): skipped, with its text as
-  the reason. `rebase-worktree` already pulls once on "run git_pull
-  first", so that text arrives here only when the refusal survived the
-  pull.
-- `rebase-worktree` ending at **Aborted: nothing touched** on its
-  dirty-tree question: skipped, with that reason. A **Held** there never
-  reaches this step: it holds the whole sweep, and the turn ends naming
-  that gate.
+| result | bucket |
+|---|---|
+| `synced`, `pushed: true` | pushed ("pushed by branch_sync") |
+| `synced`, `pushed: false` | rebased, still unpushed (origin does not hold the new head) |
+| `up-to-date` | current |
+| `conflict` | needs-hands, files from `unresolvedFiles`; the rebase stays paused |
+| `push-refused` | rebased, still unpushed (to the push gate) |
+| `stacked-refused`, `stack-unverified` | skipped, `refusal` quoted |
+| `error` whose refusal says "run git_pull first" | the pull pass (first time only); after the pull pass, skipped with the refusal |
+| `dirty-tree` on a branch the form listed | the dirty gate (first time only); after the retry, skipped: dirty tree |
+| any other `error` (a preflight refusal, a sweep tree refusal, an rt sync failure) | skipped, `refusal` quoted |
+| a `git_pull` error | skipped, the error quoted |
+| a sweep `noTree` row, a map NONE row | skipped: no worktree |
+
+A branch passes the pull pass and the dirty gate at most once each, so
+neither loops. The pushed and rebased lines carry the move as sha +
+subject: read `git -C <tree> log -1 --oneline --no-decorate <oldHead>` and
+the same for `<newHead>`.
+
+### Record the re-sync in its bucket
+
+The pull pass's `branch_sync` result, or the `git_pull` error, goes into
+its bucket by the table under **Record the branch in its bucket**. A
+second "run git_pull first" refusal is skipped with the refusal.
+
+### Gate clarify: dirty trees
+
+Scope `clarify:dirty-trees`, once for the batch of listed branches that
+came back `dirty-tree`. One sentence per tree listing its uncommitted
+`paths`. The questions, each its own question:
+
+- `retry`: a multi-select "I committed them, retry" of those branches,
+  none pre-selected; over 4 branches it splits into `retry-1`, `retry-2`,
+  ... of up to 4 options each, whose answers read as one union
+- `next`: **Proceed** (recommended) / **Hold**
+
+Selection `{"retry":[...]}`. Read `next` first: **Hold** ends the turn
+with nothing more synced; **Proceed** re-syncs the picked trees once and
+leaves the rest skipped (dirty tree, aborted by the human). Never stash.
+
+### Record the retry in its bucket
+
+The retried tree's `branch_sync` result goes into its bucket by the table
+under **Record the branch in its bucket**. A second `dirty-tree` is
+skipped: dirty tree.
 
 ### Summarize the rebase pass
 
-One sentence: which branches rebased clean (old head -> new head each,
-"pushed by branch_sync" where that happened) and which were already current.
+One sentence: which branches rebased clean (the old and new sha + subject
+each, "pushed by branch_sync" where that happened), which are rebased but
+still unpushed, and which were already current.
 
 ### Gate push
 
@@ -312,11 +398,9 @@ branch: never gated, never retried; so is any other `git_push` error.
 
 ### Record push failed, mechanical
 
-The branch lands in push failed with the refusal quoted, marked mechanical:
-"tree must be the absolute path of the root" after its one retry with the
-printed root, or "not registered with rt" (no retry; it prints no root).
-The rest carry on; the mechanical ones go to the batch off-script gate once
-the queue is empty.
+The branch lands in push failed with the "not registered with rt" refusal
+quoted, marked mechanical. The rest carry on; the mechanical ones go to the
+batch off-script gate once the queue is empty.
 
 ### Off-script gate
 
@@ -340,8 +424,8 @@ force-with-lease push, once per listed branch; retrying the refused tool is
 ### Queue the mechanical failures again
 
 Every branch recorded push failed, mechanical goes back into the push
-queue for this round, with its one printed-root retry available again.
-Branches already pushed or failed for a safety reason stay where they are.
+queue for this round. Branches already pushed or failed for a safety reason
+stay where they are.
 
 ### Make the recorded move once per listed branch
 
@@ -358,9 +442,12 @@ pack-qualified skill name) per pushed branch. It inherits this run and its
 ### Report every branch in one bucket
 
 One table, every branch from the map-open-mrs table landing in exactly one
-bucket: rebased (old head -> new head), pushed, current (nothing to push),
-conflicted (needs-hands), push failed (with reason), or skipped (with
-reason -- dirty tree, no upstream, NONE row).
+bucket: rebased, still unpushed (old and new sha + subject), pushed,
+current (nothing to push), conflicted (needs-hands, with its files), push
+failed (with reason), or skipped (with reason: dirty tree, a `refusal`, a
+`git_pull` error, no worktree). Below it: a branch the sweep synced that
+the map did not list, the sweep's error when the sweep fell to the
+per-branch path, and the `complete: false` line when the sweep returned it.
 
 ### Starting the run
 
