@@ -222,9 +222,11 @@ landed.)
   staleness check.
   A re-ask opens a new gate (later `openedAt`), so an earlier decision on
   the same scope never shadows it. Without a run the field is absent.
-  The rule is exported (`decisionForGate`) so other readers of a scope's
-  decision, `respond_post_execute` among them, refuse a stale one the same
-  way.
+  The rule is exported (`decisionForGate(decisions, scope, since)`) so
+  other readers of a scope's decision, `respond_post_execute` among them,
+  refuse a stale one the same way. `since` is the gate row's `openedAt`, or,
+  on a hand-back (`extra.gate-source.<scope>` with `"gate": null`, the
+  decision recorded through the handed path), that field row's own `at`.
 - **decidedBy** is the answered row's `answer.by` (the CAS winner:
   `pane`, `board`, `console`, `shepherd`), or the caller-named decider for
   a handed decision. Never a verb name.
