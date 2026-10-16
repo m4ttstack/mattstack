@@ -35,6 +35,7 @@ import { canon } from "../../fs-canon.ts";
 import { decodeRepo, type SerializedIdentity } from "../identity-decoder.ts";
 import { validateGitRef } from "../git-ref-validation.ts";
 import type { HandlerContext, HandlerMap } from "./types.ts";
+import type { WorktreeProvisionCheckData, WorktreeTreeRef } from "../../../packages/rt-client/src/commands.ts";
 import {
   findByBranch,
   loadRegistry,
@@ -43,7 +44,7 @@ import {
   type TreeRecord,
 } from "../../worktree/registry.ts";
 import { markHandoffDelivered, patchTree } from "../../worktree/patch.ts";
-import { disambiguate, slugifyTicketTitle } from "../../worktree/branch-name.ts";
+import { belongsToTicket, disambiguate, slugifyTicketTitle } from "../../worktree/branch-name.ts";
 import { classifyDirtyAsync, disposeTree, type DisposeDeps } from "../../worktree/dispose.ts";
 import type { RunningRunScan } from "../../runs/store.ts";
 import { restoreTree } from "../../worktree/restore.ts";
@@ -252,6 +253,65 @@ export function isClaimable(rec: TreeRecord | undefined): boolean {
   return rec !== undefined && rec.kind === "ephemeral" && rec.state === "on-deck";
 }
 
+/**
+ * The branch a provision would put the tree on. An explicit `branch` wins; a
+ * ticket derives `base` from its title and `branch` is the first free
+ * `base`, `base-2`, ... against local and registered branches. In branch mode
+ * `base === branch`. Shared by `worktree:provision` and `worktree:provision-check`
+ * so the precheck can never name a branch the provision would not use.
+ */
+async function resolveProvisionBranch(
+  payload: any,
+  branchFormat: string,
+  trees: TreeRecord[],
+  repoPath: string,
+): Promise<
+  | { ok: true; branch: string; base: string; mode: "branch" | "ticket" }
+  | { ok: false; error: string }
+> {
+  let branch: string;
+  let base: string;
+  let mode: "branch" | "ticket";
+  if (typeof payload.branch === "string" && payload.branch.length > 0) {
+    branch = payload.branch;
+    base = branch;
+    mode = "branch";
+  } else if (typeof payload.ticket === "string" && payload.ticket.length > 0) {
+    base = slugifyTicketTitle(
+      payload.ticket,
+      typeof payload.ticketTitle === "string" ? payload.ticketTitle : "",
+      branchFormat,
+    ).replace(/-+$/, "");
+    const local = await localBranchNames(repoPath);
+    const registered = new Set(
+      trees.map((t) => t.branch).filter((b): b is string => typeof b === "string"),
+    );
+    branch = disambiguate(base, (candidate) => local.has(candidate) || registered.has(candidate));
+    mode = "ticket";
+  } else {
+    return { ok: false, error: "branch-unresolved" };
+  }
+
+  // S010: a branch that git would parse as an option (e.g.
+  // "--upload-pack=...") must never reach a runGit call.
+  const refCheck = validateGitRef(branch);
+  if (!refCheck.ok) return { ok: false, error: refCheck.error };
+  return { ok: true, branch, base, mode };
+}
+
+function treeRef(t: TreeRecord): WorktreeTreeRef {
+  return {
+    tree: t.name,
+    path: t.path,
+    branch: t.branch!,
+    treeKind: t.kind,
+    ...(t.state ? { state: t.state } : {}),
+    ...(t.owner ? { owner: t.owner } : {}),
+    ...(t.disposal ? { disposal: t.disposal } : {}),
+    ...(t.claimedAt ? { claimedAt: t.claimedAt } : {}),
+  };
+}
+
 // Named-key return type (not a bare HandlerMap), same trick as
 // endpoint.ts/repos.ts: keeps every command's compile-time proof (it exists,
 // for TypedHandlers) without narrowing this factory's `payload: any` reads,
@@ -261,7 +321,7 @@ export function createWorktreeHandlers(
   ctx: Pick<HandlerContext, "repoIndex" | "cache" | "log">,
   opts: WorktreeHandlerOpts,
 ): Record<
-    "worktree:provision" | "worktree:create" | "worktree:dispose" | "worktree:list"
+    "worktree:provision" | "worktree:provision-check" | "worktree:create" | "worktree:dispose" | "worktree:list"
     | "worktree:restore" | "worktree:freshen" | "worktree:adopt",
     (payload: any, signal?: AbortSignal) => Promise<any>
   > & HandlerMap {
@@ -301,6 +361,37 @@ export function createWorktreeHandlers(
   }
 
   return {
+    "worktree:provision-check": async (payload: any) => {
+      const decoded = decodeRepo(payload);
+      if (!decoded.ok) return decoded;
+      const repoName: SerializedIdentity = decoded.repo;
+      const repoPath = ctx.repoIndex()[repoName];
+      if (!repoPath) return { ok: false, error: "repo-unknown" };
+
+      const cfg = await loadWorktreeRepoConfig(repoName, repoPath);
+      const trees = loadRegistry(repoName);
+      const resolved = await resolveProvisionBranch(payload, cfg.branchFormat, trees, repoPath);
+      if (!resolved.ok) return resolved;
+      const { branch, base, mode } = resolved;
+
+      const branched = trees.filter((t) => typeof t.branch === "string" && t.state !== "on-deck");
+      const hasTitleSlug = mode === "ticket"
+        && slugifyTicketTitle(payload.ticket, typeof payload.ticketTitle === "string" ? payload.ticketTitle : "", "<slug>") !== "";
+      const data: WorktreeProvisionCheckData = {
+        branch,
+        base,
+        localBranch: await branchExistsLocalAsync(repoPath, base),
+        attached: branched.filter((t) => t.branch === base).map(treeRef),
+        sameTicket: mode === "ticket"
+          ? branched.filter((t) => belongsToTicket(t.branch!, payload.ticket, cfg.branchFormat)).map(treeRef)
+          : [],
+        sameSlug: hasTitleSlug
+          ? branched.filter((t) => t.branch!.toLowerCase().startsWith(base.toLowerCase())).map(treeRef)
+          : [],
+      };
+      return { ok: true, data };
+    },
+
     "worktree:provision": async (payload: any) => {
       const decoded = decodeRepo(payload);
       if (!decoded.ok) return decoded;
@@ -312,29 +403,9 @@ export function createWorktreeHandlers(
       const trees = loadRegistry(repoName);
 
       // ── 1. Intent + every registry-decidable refusal, before any tree moves.
-      let branch: string;
-      if (typeof payload.branch === "string" && payload.branch.length > 0) {
-        branch = payload.branch;
-      } else if (typeof payload.ticket === "string" && payload.ticket.length > 0) {
-        const base = slugifyTicketTitle(
-          payload.ticket,
-          typeof payload.ticketTitle === "string" ? payload.ticketTitle : "",
-          cfg.branchFormat,
-        ).replace(/-+$/, "");
-        const local = await localBranchNames(repoPath);
-        const registered = new Set(
-          trees.map((t) => t.branch).filter((b): b is string => typeof b === "string"),
-        );
-        branch = disambiguate(base, (candidate) => local.has(candidate) || registered.has(candidate));
-      } else {
-        return { ok: false, error: "branch-unresolved" };
-      }
-
-      // S010: a branch that git would parse as an option (e.g.
-      // "--upload-pack=...") must never reach a runGit call, including
-      // divergence()'s below — both read this same `branch`.
-      const refCheck = validateGitRef(branch);
-      if (!refCheck.ok) return { ok: false, error: refCheck.error };
+      const resolved = await resolveProvisionBranch(payload, cfg.branchFormat, trees, repoPath);
+      if (!resolved.ok) return resolved;
+      const branch = resolved.branch;
 
       const attached = findByBranch(trees, branch);
       if (attached.length > 1) return { ok: false, error: "branch-duplicated" };
