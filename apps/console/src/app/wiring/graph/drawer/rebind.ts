@@ -100,9 +100,9 @@ function whereBound(
 /**
  * What a slot can be rebound to in `workType`: the fills that provide its
  * contract, the current one first, then the ones fewest other skills bind.
- * A stage copy reads and writes its own pipeline's override. Any other
- * pipeline but the default writes its override too, as does one that
- * already overrides the slot.
+ * A stage copy reads and writes its own pipeline's override. A stage of any
+ * other pipeline but the default writes that pipeline's override too, as
+ * does a stage the pipeline already overrides at the slot.
  */
 export function rebindChoices(
   composition: SkillsComposition,
@@ -118,8 +118,13 @@ export function rebindChoices(
     .find(binder => binder.ref === ref)
     ?.slots.find(candidate => candidate.name === slot);
   const overridden = overrideOf(binderSlot ?? {}, reading) !== undefined;
-  const pipeline =
+  // rt overrides only a stage the pipeline lists; anything else, a work
+  // verb's own slots included, takes the default.
+  const isStageOf =
     reading !== null &&
+    (composition.pipelines?.[reading]?.includes(ref) ?? false);
+  const pipeline =
+    isStageOf &&
     (overridden || reading !== defaultPipelineOf(composition.pipelines))
       ? reading
       : null;

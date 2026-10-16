@@ -50,9 +50,11 @@ vi.mock('../../../api', () => ({
               ok(
                 query.skill === 'work'
                   ? designFixture('anatomy.work')
-                  : query.skill === 'stage-evidence--accessibility'
-                    ? designFixture('anatomy.stage-evidence--accessibility')
-                    : designFixture('anatomy.stage-plan')
+                  : query.skill === 'work-a11y'
+                    ? designFixture('anatomy.work-a11y')
+                    : query.skill === 'stage-evidence--accessibility'
+                      ? designFixture('anatomy.stage-evidence--accessibility')
+                      : designFixture('anatomy.stage-plan')
               )
             ),
         },
@@ -379,6 +381,43 @@ describe('RebindPanel', () => {
         },
       })
     );
+  });
+
+  it("writes the default for the accessibility lead's own tiering slot", async () => {
+    const composition = designFixture('composition');
+    composition.fills = [
+      ...composition.fills,
+      {
+        binding: 'acme:tiering-lite',
+        provides: 'model-tiering@1',
+        sourcePath: '/fixture/packs/acme/attachments/tiering-lite/SKILL.md',
+        registered: false,
+      },
+    ];
+    compositionGet.mockImplementation(() => Promise.resolve(ok(composition)));
+    renderAt('?tab=graph&focus=pipeline:accessibility&select=row:242&rebind=1');
+    const root = await panel();
+
+    expect(
+      within(root)
+        .getAllByTestId('rebind-fact')
+        .map(fact => fact.textContent)
+    ).toEqual(['contractmodel-tiering@1', 'set bythis pack', 'requiredno']);
+
+    await userEvent.click(
+      within(root).getByRole('combobox', {
+        name: 'What fills the tiering slot',
+      })
+    );
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^tiering-lite/ })
+    );
+    const command = within(root).getByTestId('rebind-command');
+    expect(command).toHaveTextContent(
+      'rt skills bind work-a11y tiering acme:tiering-lite --pack acme' +
+        'Writes the binding in this pack, then rebuilds work-a11y. Nothing is shared until you sync.'
+    );
+    expect(command.textContent).not.toContain('--pipeline');
   });
 
   it('writes nothing when the confirm is cancelled', async () => {

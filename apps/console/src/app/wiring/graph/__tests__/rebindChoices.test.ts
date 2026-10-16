@@ -132,6 +132,22 @@ describe('rebindChoices per pipeline', () => {
     });
   });
 
+  it("writes the default for the lead's own slot, which no pipeline overrides", () => {
+    expect(
+      rebindChoices(
+        composition,
+        'work-a11y',
+        'mattstack:work',
+        'tiering',
+        'accessibility'
+      )
+    ).toMatchObject({
+      current: 'mattstack:model-tiering',
+      verb: 'work-a11y',
+      pipeline: null,
+    });
+  });
+
   it('binds a stage copy through its engine and its own pipeline', () => {
     expect(evidence(null, 'stage-evidence--accessibility')).toMatchObject({
       current: 'acme:evidence-a11y',
