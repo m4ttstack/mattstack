@@ -512,6 +512,9 @@ sync-open-mrs:
 | 7 all selected | 20: no sweep, per-branch walk; b and d skipped, no push or dirty gate (5/5) | 0: one sweep, batch dirty gate, push gate for b only | |
 | 8 two selected | 10: manual stack check for c (5/5), pre-reads | 0 (round 0: no bucket for deselected branches 5/5; fixed) | |
 | 9 push gate refusal | 20: push-refused skipped, push and off-script gates never reached (5/5) | 0: mechanical failure to the off-script gate, handed back | |
+| 10 GitLab map (phase 2) | n/a (new path) | 0: one remote read, one `mr_map`, no porcelain reads; dirty c skipped up front, so per-branch for a and b (5/5) | |
+| 11 checkout, no tree (phase 2) | n/a (new path) | 0: one `mr_resolve_branch`, provision on `sourceBranch` (5/5) | |
+| 12 checkout, merged, tree exists (phase 2) | n/a (new path) | 0: points at the tree, report names "merged" (5/5) | |
 
 RED: 102 deviations over 45 agent-scenarios (10 sonnet/low agents, describe-only); no suffix parsing seen, since agents mapped `kind` by meaning.
 
