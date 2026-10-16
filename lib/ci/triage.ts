@@ -4,7 +4,7 @@ import { compilePatterns, type CompiledPatterns, type TriageConfig } from "./tri
 
 export interface ForgePipeline { id: number; status: string; webUrl: string | null; sha: string | null; ref: string | null }
 export interface ForgeJob { pipelineId: number; jobId: number; name: string; stage: string; status: string; allowFailure: boolean; attempt: number; webUrl: string | null }
-export interface BridgeRow { name: string; status: string; blocking: boolean; downstream: { projectId: number; pipelineId: number; webUrl: string | null } }
+export interface BridgeRow { name: string; status: string; blocking: boolean; downstream: { projectId: number; pipelineId: number; webUrl: string | null } | null }
 export interface FailedJobs { jobs: ForgeJob[]; crossProject: BridgeRow[] }
 
 export interface TriageForge {

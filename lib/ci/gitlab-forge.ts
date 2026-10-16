@@ -188,12 +188,14 @@ export async function walkPipeline(
 function asFailedJobs(walk: WalkResult): FailedJobs {
   const crossProject: BridgeRow[] = [];
   for (const b of walk.bridges) {
-    if (!b.crossProject || b.status !== "failed" || !b.downstream) continue;
+    if (b.status !== "failed") continue;
+    if (b.downstream && !b.crossProject) continue;
+    const d = b.downstream;
     crossProject.push({
       name: b.name,
       status: b.status,
       blocking: b.blocking,
-      downstream: { projectId: b.downstream.projectId, pipelineId: b.downstream.pipelineId, webUrl: b.downstream.webUrl },
+      downstream: d ? { projectId: d.projectId, pipelineId: d.pipelineId, webUrl: d.webUrl } : null,
     });
   }
   return { jobs: walk.jobs, crossProject };

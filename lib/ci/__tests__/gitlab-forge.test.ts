@@ -171,6 +171,20 @@ describe("gitlabTriageForge", () => {
     expect(calls.find((c) => c.payload.path === `${P}/5/jobs`)?.payload.query).toMatchObject({ "scope[]": "failed" });
   });
 
+  test("failedJobs keeps a failed bridge with no downstream pipeline, blocking unless allow_failure", async () => {
+    const { command } = fake({
+      [`forge:get ${P}/5`]: () => pipelineInfo(5),
+      [`forge:get ${P}/5/jobs`]: () => get([]),
+      [`forge:get ${P}/5/bridges`]: () =>
+        get([bridge("trigger", null), bridge("optional-trigger", null, { allow_failure: true }), bridge("pending-trigger", null, { status: "running" })]),
+    });
+    const failed = await gitlabTriageForge(command, TARGET).failedJobs(5);
+    expect(failed?.crossProject).toEqual([
+      { name: "trigger", status: "failed", blocking: true, downstream: null },
+      { name: "optional-trigger", status: "failed", blocking: false, downstream: null },
+    ]);
+  });
+
   test("failedJobs is null for a missing pipeline", async () => {
     const { command } = fake({ [`forge:get ${P}/5`]: () => notFound });
     expect(await gitlabTriageForge(command, TARGET).failedJobs(5)).toBeNull();

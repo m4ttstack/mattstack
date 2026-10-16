@@ -74,6 +74,13 @@ describe("runTriage", () => {
     expect(r.summary.allInfraBlocking).toBe(false);
   });
 
+  test("a blocking bridge with no downstream pipeline reports in crossProject and blocks allInfraBlocking", async () => {
+    const orphan: BridgeRow = { name: "trigger", status: "failed", blocking: true, downstream: null };
+    const r = await run(memoryForge({ jobs: [job(10, "a")], traces: { 10: "ECONNRESET" }, crossProject: [orphan] }));
+    expect(r.crossProject).toEqual([orphan]);
+    expect(r.summary.allInfraBlocking).toBe(false);
+  });
+
   test("allInfraBlocking is false with no blocking jobs", async () => {
     const r = await run(memoryForge({ jobs: [job(10, "a", true)], traces: { 10: "ECONNRESET" } }));
     expect(r.summary.blocking).toBe(0);
