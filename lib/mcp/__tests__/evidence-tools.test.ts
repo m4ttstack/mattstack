@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, join } from "path";
 import type { RtResponse } from "../../../packages/rt-client/src/index.ts";
@@ -108,8 +108,8 @@ function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fie
     guard: o.guard ?? noGuard,
     async resolveRepo(input) {
       if (typeof input.mrUrl === "string") {
-        const m = /\/-\/merge_requests\/(\d+)$/.exec(input.mrUrl);
-        return m ? { ok: true, identity: IDENT, iid: Number(m[1]) } : { ok: false, error: "mrUrl must look like an MR URL" };
+        const m = /^https:\/\/gitlab\.com\/acme\/(\w+)\/-\/merge_requests\/(\d+)$/.exec(input.mrUrl);
+        return m ? { ok: true, identity: `remote:gitlab.com%2Facme%2F${m[1]}`, iid: Number(m[2]) } : { ok: false, error: "mrUrl must look like an MR URL" };
       }
       if (typeof input.repoName === "string") return { ok: true, identity: IDENT, iid: typeof input.iid === "number" ? input.iid : undefined };
       return { ok: false, error: 'pass "repoName" or "mrUrl"' };
@@ -225,6 +225,23 @@ describe("evidence_record", () => {
     expect(res.ok).toBe(false);
   });
 
+  test("a pair board refreshed through one slot overwrites the shared copy", async () => {
+    const dir = evidenceDir("retry-badge");
+    const board = put("badge.png", "old board", dir);
+    const before = put("badge.c1.png", "b", dir);
+    const after = put("badge.c2.png", "a", dir);
+    const evidence = v2([{ id: "retry-badge", label: "Retry badge", before: { path: before, annotated: board, caption: "pair" }, after: { path: after, annotated: board, caption: "pair" } }]);
+    const fresh = put("badge.png", "new board");
+    const { deps, fields } = makeDeps({ fields: { evidence } });
+    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "retry-badge", slot: "after", annotated: fresh, caption: "pair" }] }, env);
+    expect(res.ok).toBe(true);
+    expect((res.body as { written: boolean }).written).toBe(true);
+    expect(readFileSync(board, "utf8")).toBe("new board");
+    const written = JSON.parse(fields.get("evidence")!);
+    expect(written.cases[0].before.annotated).toBe(board);
+    expect(written.cases[0].after.annotated).toBe(board);
+  });
+
   test("a fieldSet refusal comes back verbatim", async () => {
     const shot = put("a.png");
     const refusal = 'evidence@2: case "a" has no annotated image and no waiver; annotate it or add a waiver with a reason';
@@ -323,6 +340,7 @@ describe("evidence_attach", () => {
     const { deps, calls } = makeDeps({ fields: { evidence }, respond });
     const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
     expect(body.refused["raw-capture"]!.map((r) => r.path)).toEqual([one]);
+    expect(body.section).not.toContain(one);
     expect(body.refused.record).toEqual([]);
     expect(body.notWritten).toBe("refused");
     expect(calls.some((c) => c.cmd === "mr:update")).toBe(false);
@@ -405,6 +423,53 @@ describe("evidence_attach", () => {
     const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING }, env)).body as AttachBody;
     expect(body.mr).toBe(MR_URL);
     expect(calls.find((c) => c.cmd === "mr:update")!.payload).toMatchObject({ repoName: IDENT, iid: 7 });
+  });
+
+  test("repoName alone takes the run's mr field when it names the same repo", async () => {
+    const { evidence } = boardRecord();
+    const { deps, calls } = makeDeps({ fields: { evidence, mr: MR_URL } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "web" }, env)).body as AttachBody;
+    expect(body.mr).toBe(MR_URL);
+    expect(calls.some((c) => c.cmd === "mr:get")).toBe(true);
+    expect(calls.find((c) => c.cmd === "mr:update")!.payload).toMatchObject({ repoName: IDENT, iid: 7 });
+    expect(body.descriptionWritten).toBe(true);
+  });
+
+  test("repoName alone with a run mr field in another repo is refused before any upload", async () => {
+    const { evidence } = boardRecord();
+    const { deps, calls } = makeDeps({ fields: { evidence, mr: "https://gitlab.com/acme/api/-/merge_requests/3" } });
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "web" }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("remote:gitlab.com%2Facme%2Fapi");
+    expect(calls.length).toBe(0);
+  });
+
+  test("an abort mid-run remembers only real uploads and skips the description write", async () => {
+    const { one, two, evidence } = twoWaived();
+    const ctl = new AbortController();
+    const respond: Responder = (cmd, p) => {
+      if (cmd === "mr:upload" && p.path === one) ctl.abort();
+      return undefined;
+    };
+    const { deps, calls, fields } = makeDeps({ fields: { evidence }, respond });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, linkRefused: true }, env, ctl.signal)).body as AttachBody;
+    expect(uploads(calls).map((c) => c.payload.path)).toEqual([one]);
+    expect(body.uploaded.map((u) => u.path)).toEqual([one]);
+    expect(Object.values(body.refused).flat()).toEqual([]);
+    expect(Object.keys(parseUploads(fields.get("evidence-uploads")!))).toEqual([realpathSync(one)]);
+    expect(calls.some((c) => c.cmd === "mr:get" || c.cmd === "mr:update")).toBe(false);
+    expect(body.writeErrors![0]).toContain("cancelled");
+    expect(body.writeErrors![0]).toContain(two);
+    expect(body.notWritten).toBeUndefined();
+    expect(body.section).not.toContain(two);
+  });
+
+  test("an http github.com mrUrl is still GitHub, with its PR number", async () => {
+    const { evidence } = boardRecord();
+    const { deps } = makeDeps({ fields: { evidence } });
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "http://github.com/acme/web/pull/3" }, env);
+    expect((res.body as AttachBody).mr).toBe("http://github.com/acme/web/pull/3");
+    expect(JSON.stringify(res.body)).toContain("gh pr edit 3");
   });
 
   test("a github.com target uploads nothing, links local paths and names the gh move", async () => {

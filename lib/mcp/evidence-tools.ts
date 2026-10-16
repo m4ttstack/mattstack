@@ -81,6 +81,8 @@ export const realEvidenceToolDeps: EvidenceToolDeps = {
 
 export type UploadOne = { path: string; ok: true; url: string; markdown: string } | { path: string; ok: false; error: string; timedOut: boolean };
 
+export const UPLOAD_CANCELLED = "cancelled before this upload started";
+
 const LANDING_HINT = "the upload may have landed anyway, and an unused upload is harmless, so retrying is safe";
 
 async function uploadOnce(deps: EvidenceToolDeps, identity: string, path: string, runId: string | undefined): Promise<{ ok: true; url: string; markdown: string } | { ok: false; error: string }> {
@@ -99,7 +101,7 @@ export async function uploadEach(
   const out: UploadOne[] = [];
   for (const path of o.paths) {
     if (o.signal?.aborted) {
-      out.push({ path, ok: false, error: "cancelled before this upload started", timedOut: false });
+      out.push({ path, ok: false, error: UPLOAD_CANCELLED, timedOut: false });
       continue;
     }
     o.progress?.();
@@ -193,16 +195,17 @@ function parseRecordInput(input: Obj): { ok: true; merge: MergeInput; plan: bool
   return { ok: true, merge, plan };
 }
 
-/** Record paths outside the addresses this call writes: a copy landing on one of them with other bytes is a collision. */
+/** Record paths outside the addresses this call writes: a copy landing on one of them with other bytes is a collision. A file an addressed image also uses (a shared pair board) is being refreshed, not collided with. */
 function referencedElsewhere(current: RawRecord, images: ImageInput[]): Set<string> {
-  const out = new Set<string>();
+  const filesOf = (img: { path: string; annotated?: string }) => [img.path, ...(img.annotated ? [img.annotated] : [])];
+  const addressed = new Set<string>();
+  const others: string[] = [];
   for (const a of imageAddresses(current)) {
     const named = images.some((e) => e.case === a.case && e.slot === a.slot && (e.theme === undefined || e.theme === a.theme));
-    if (named) continue;
-    out.add(a.image.path);
-    if (a.image.annotated) out.add(a.image.annotated);
+    if (named) for (const f of filesOf(a.image)) addressed.add(f);
+    else others.push(...filesOf(a.image));
   }
-  return out;
+  return new Set(others.filter((f) => !addressed.has(f)));
 }
 
 function copyRequests(merge: MergeInput, evidenceRoot: string): CopyRequest[] {
@@ -314,21 +317,59 @@ function prNumber(url: unknown, iid: unknown): number | null {
   return typeof iid === "number" && Number.isInteger(iid) && iid > 0 ? iid : null;
 }
 
+function githubUrl(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  try {
+    const host = new URL(v.trim()).hostname.toLowerCase();
+    return host === "github.com" || host === "www.github.com" ? v.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The MR is mrUrl, or repoName plus iid, else the run's mr field; repoName alone takes the field's MR only when both name one repo. */
 async function resolveAttachTarget(deps: EvidenceToolDeps, input: Obj, mrField: string | undefined): Promise<Target | { error: string }> {
   const explicit = input.mrUrl !== undefined || input.repoName !== undefined;
-  const mrUrl = explicit ? input.mrUrl : mrField;
-  if (!explicit && mrUrl === undefined) {
+  if (!explicit && mrField === undefined) {
     return { error: "no MR target: pass mrUrl, or repoName (with iid once an MR exists); the run has no mr field" };
   }
-  const githubUrl = typeof mrUrl === "string" && /^https:\/\/(www\.)?github\.com\//i.test(mrUrl.trim()) ? mrUrl.trim() : null;
-  if (refuseGithubTarget({ repoName: input.repoName, mrUrl }, "evidence_attach", "") !== null) {
-    return { forge: "github", mr: githubUrl, number: prNumber(mrUrl, input.iid) };
-  }
+  const mrUrl = explicit ? input.mrUrl : mrField;
+  const fieldFallback = input.mrUrl === undefined && input.iid === undefined ? mrField : undefined;
+  const github = (): Target => {
+    const url = githubUrl(mrUrl) ?? githubUrl(fieldFallback);
+    return { forge: "github", mr: url, number: prNumber(url, input.iid) };
+  };
+  if (refuseGithubTarget({ repoName: input.repoName, mrUrl }, "evidence_attach", "") !== null) return github();
   const target = await deps.resolveRepo(explicit ? { repoName: input.repoName, iid: input.iid, mrUrl: input.mrUrl } : { mrUrl });
   if (!target.ok) return { error: target.error };
-  if (githubRefusal(target.identity, "evidence_attach", "") !== null) return { forge: "github", mr: githubUrl, number: prNumber(mrUrl, input.iid) };
+  if (githubRefusal(target.identity, "evidence_attach", "") !== null) return github();
+  if (target.iid === undefined && fieldFallback !== undefined) {
+    const mismatch = (named: string) => ({ error: `repoName resolves to ${target.identity}, but the run's mr field names ${named}; pass mrUrl, or repoName with iid` });
+    if (githubUrl(fieldFallback)) return mismatch(fieldFallback.trim());
+    const fromField = await deps.resolveRepo({ mrUrl: fieldFallback });
+    if (!fromField.ok) return { error: `the run's mr field does not resolve: ${fromField.error}` };
+    if (fromField.identity !== target.identity) return mismatch(fromField.identity);
+    return { forge: "gitlab", identity: target.identity, iid: fromField.iid, mr: fieldFallback.trim() };
+  }
   const mr = target.iid === undefined ? null : typeof mrUrl === "string" ? mrUrl.trim() : null;
   return { forge: "gitlab", identity: target.identity, iid: target.iid, mr };
+}
+
+/** Refused files leave the section unless the Take links them, so no local path prints by accident. */
+function withoutFiles(record: EvidenceRecord, drop: Set<string>): EvidenceRecord {
+  if (record.version !== 2 || drop.size === 0) return record;
+  const keep = (s: { path: string; annotated?: string; waiver?: string }) => {
+    const key = s.annotated ?? (s.waiver ? s.path : undefined);
+    return key === undefined || !drop.has(key);
+  };
+  return {
+    ...record,
+    cases: record.cases.map((c) => ({
+      ...c,
+      ...(c.before && { before: c.before.filter(keep) }),
+      ...(c.after && { after: c.after.filter(keep) }),
+    })),
+  };
 }
 
 /** plan:text and plan:ticket carry no cases; readEvidence would read their paths as legacy links. */
@@ -448,7 +489,12 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const results = await uploadEach(deps, { identity: target.identity, paths: toSend, runId, retryTimeoutOnce: true, signal, progress });
   const fresh: Record<string, UploadEntry> = {};
   const at = deps.now();
+  const notStarted: string[] = [];
   for (const r of results) {
+    if (!r.ok && r.error === UPLOAD_CANCELLED) {
+      notStarted.push(r.path);
+      continue;
+    }
     if (r.ok) {
       uploaded.push({ path: r.path, url: r.url, markdown: r.markdown, reused: false });
       const sha = shas.get(r.path);
@@ -468,20 +514,24 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
     if (!res.ok) writeErrors.push(`remembering the uploads in evidence-uploads failed: ${res.error ?? "run_field_set failed"}`);
   }
 
+  const unsent = new Set([...timedOutTwice, ...BUCKETS.flatMap((b) => refused[b].map((r) => r.path)), ...notStarted]);
   const byPath = new Map(uploaded.map((u) => [u.path, u.markdown]));
   const link = (path: string): FileLink => {
     const markdown = byPath.get(path);
     return markdown === undefined ? { local: path } : { markdown };
   };
   const empty = isEmptyRecord(record);
-  const section = empty ? "" : renderSection(record, link, { coveredUrls: coveredUrls(record, merged), appendix });
   const blocked = !linkRefused && (timedOutTwice.length > 0 || BUCKETS.some((b) => refused[b].length > 0));
+  const shown = blocked || notStarted.length ? withoutFiles(record, linkRefused ? new Set(notStarted) : unsent) : record;
+  const section = empty ? "" : renderSection(shown, link, { coveredUrls: coveredUrls(record, merged), appendix });
 
   let notWritten: "no-mr" | "refused" | "unchanged" | undefined;
   let descriptionOut: string | undefined;
   let descriptionWritten = false;
   let mr = target.mr;
-  if (empty) {
+  if (notStarted.length) {
+    writeErrors.push(`cancelled: ${notStarted.length} file(s) never uploaded (${notStarted.join(", ")}), so the description was not written; the uploads that finished are remembered, so calling again resumes`);
+  } else if (empty) {
     notWritten = "unchanged";
     descriptionOut = description;
   } else if (blocked) {
