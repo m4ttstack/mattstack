@@ -6,11 +6,12 @@
  * cannot claim, heartbeat, release or watch on another session's behalf.
  */
 import {
-  boardDoctorOwner, claimCiLease, getSetting, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, releaseCiLease, rtCommand,
+  boardDoctorOwner, claimCiLease, getSetting, heartbeatCiLease, leaseOwner, readCiLease, releaseCiLease, rtCommand,
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
 import { gitlabTriageForge } from "../ci/gitlab-forge.ts";
+import { isHttpsMrUrl, ownerFromEnv } from "../ci/lease-guard.ts";
 import { mergeConfig, settingsConfig, type InlineConfig } from "../ci/triage-config.ts";
 import { runTriage } from "../ci/triage.ts";
 import { watchPipeline, type WatchDeps, type WatchPipeline } from "../ci/watch.ts";
@@ -37,20 +38,7 @@ const HOLDERS: CiLeaseHolder[] = ["watch-ci", "doctor"];
 const NO_SESSION = "CLAUDE_CODE_SESSION_ID is not set; the lease is owned by a Claude Code session";
 const LEASE_NOTE = "One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.";
 
-export function ownerFromEnv(env: NodeJS.ProcessEnv): string | null {
-  return env.CLAUDE_CODE_SESSION_ID ? `session:${env.CLAUDE_CODE_SESSION_ID}` : null;
-}
-
-/** An https MR or PR URL. A scheme-less URL fails `new URL` and would slug from
-    its whole text, naming a different lease file than the https form. */
-export function isHttpsMrUrl(mrUrl: string): boolean {
-  try {
-    if (new URL(mrUrl).protocol !== "https:") return false;
-  } catch {
-    return false;
-  }
-  return parseMrIid(mrUrl) !== null;
-}
+export { ownerFromEnv, isHttpsMrUrl } from "../ci/lease-guard.ts";
 
 const realLeaseDeps: CiLeaseToolDeps = {
   leaseOpts: () => ({}),
