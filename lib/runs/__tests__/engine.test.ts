@@ -567,10 +567,23 @@ describe("resolveStage", () => {
     const db = atShip();
     expect(resolve(db, { next: "done" })).toMatchObject({ ok: false, code: 2 });
     expect(resolve(db, { stage: "watch-ci", next: "done" })).toMatchObject({ ok: false, code: 2 });
+    ok(stageEnd(db, "ship", "done"));
     attempt(db, "watch-ci");
     expect(resolve(db, { stage: "plan", next: "done" })).toMatchObject({ ok: false, code: 2 });
     expect(resolve(db, { stage: "watch-ci", next: "done" })).toEqual({ ok: true, applied: "done", status: "done" });
     expect(db.query("SELECT status FROM runs").get()).toEqual({ status: "done" });
+  });
+
+  test("done refuses while a redirect after close has a stage running", () => {
+    const db = atShip();
+    ok(stageEnd(db, "ship", "done"));
+    attempt(db, "watch-ci");
+    ok(resolve(db, { stage: "watch-ci", next: "redirect", to: "implement" }));
+    const before = snap(db);
+    const r = resolve(db, { stage: "watch-ci", next: "done" });
+    expect(r).toMatchObject({ ok: false, code: 2 });
+    expect(r).toMatchObject({ error: expect.stringContaining("stage implement attempt 2 is running; the run is not at its close") });
+    expect(snap(db)).toBe(before);
   });
 
   describe("attempt", () => {

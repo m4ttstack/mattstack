@@ -392,6 +392,14 @@ export function resolveStage(
       if (index !== names.length - 1 || status !== "done") {
         return refuse(`run cannot be marked done at ${o.stage}: done needs the last stage (${names[names.length - 1]}) with a done row`);
       }
+      const live = db.query("SELECT name, attempt FROM stages s WHERE status = 'running' AND attempt = (SELECT MAX(attempt) FROM stages WHERE name = s.name) ORDER BY started_at DESC LIMIT 1").get() as
+        | { name: string; attempt: number }
+        | undefined;
+      const current = (db.query("SELECT current_stage FROM runs LIMIT 1").get() as { current_stage: string | null }).current_stage;
+      if (live || (current !== null && current !== names[names.length - 1])) {
+        const at = live ?? { name: current!, attempt: (db.query("SELECT MAX(attempt) AS a FROM stages WHERE name = ?").get(current!) as { a: number }).a };
+        return refuse(`stage ${at.name} attempt ${at.attempt} is ${live ? "running" : "current"}; the run is not at its close`);
+      }
       must(runStatus(db, "done", now));
       return { ok: true, applied: "done", status: "done" };
     }).immediate();
