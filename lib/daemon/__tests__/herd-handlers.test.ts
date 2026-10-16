@@ -15,6 +15,8 @@ import { createEscapeInjector } from "../gate-escape.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import { acceptTrustOnPane } from "../trust-accept.ts";
 import { jobBudgets } from "../herd-budgets.ts";
+import type { LaneDeps } from "../herd-lanes.ts";
+import type { HerdLaneRow } from "../../../packages/rt-client/src/commands.ts";
 import type { TreeRecord } from "../../worktree/registry.ts";
 import { deleteChatSession, readChatSession, writeChatSession } from "../../chat-session.ts";
 
@@ -2356,5 +2358,153 @@ describe("herd:wrap-up", () => {
     if (!res.ok) throw new Error(res.error);
     expect(res.data.closed).toEqual([]);
     expect(hx.store.getJob(herd, "job-a")!.status).toBe("done");
+  });
+});
+
+describe("herd:lanes", () => {
+  type Merge = HerdLaneRow["merge"];
+  const OPEN: Merge = { forge: "github", state: "open", url: "https://github.com/o/r/pull/3", number: 3, mergedAt: null };
+
+  function lanesHarness(diffs: Record<string, string>, merges: Record<string, Merge | Error> = {}) {
+    const mergeCalls: Array<{ worktree: string; branch: string }> = [];
+    const lanes: LaneDeps = {
+      git: async (cwd, args) => {
+        const name = cwd.split("/").pop()!;
+        if (args[0] === "diff") return { stdout: diffs[name] ?? "", exitCode: 0 };
+        if (args[0] === "rev-list") return { stdout: "1\n", exitCode: 0 };
+        if (args[0] === "config") return { stdout: "git@github.com:o/r.git\n", exitCode: 0 };
+        return { stdout: "", exitCode: 1 };
+      },
+      defaultRef: async () => "origin/main",
+      merge: async (worktree, branch) => {
+        mergeCalls.push({ worktree, branch });
+        const m = merges[worktree.split("/").pop()!];
+        if (m instanceof Error) throw m;
+        return m ?? { forge: "github", state: "none", url: null, number: null, mergedAt: null };
+      },
+    };
+    const hx = harness({ lanes });
+    const herd = "lanes-1";
+    hx.store.create({ id: herd, repo: "remote:github.com%2Fo%2Fr", room: "herd-lanes-1", workspace: "herd: lanes-1", shepherdSession: "sess-shep", shepherdHandle: "shepherd", herdrSocket: null, hidden: false });
+    const job = (name: string, o: { tree?: string | null; worktree?: string; branch?: string | null; make?: boolean } = {}) => {
+      const worktree = o.worktree ?? join(hx.dir, "wt", name);
+      if (o.make !== false) mkdirSync(worktree, { recursive: true });
+      hx.store.upsertJob({ herd, name, worktree, branch: o.branch === undefined ? name : o.branch, tree: o.tree === undefined ? `t-${name}` : o.tree, handle: `${name}.w001`, status: "active" });
+      return worktree;
+    };
+    const lanesOf = async (payload: { herd: string; job?: string }) => {
+      const res = await hx.h["herd:lanes"](payload);
+      if (!res.ok) throw new Error(res.error);
+      return res.data;
+    };
+    return { ...hx, herd, job, lanesOf, mergeCalls };
+  }
+
+  test("lanes returns per-job drift, collisions and merge", async () => {
+    const hx = lanesHarness({ a: "1\t0\tlib/x.ts\n2\t1\tlib/a.ts\n", b: "3\t3\tlib/x.ts\n" }, { a: OPEN });
+    hx.job("a"); hx.job("b");
+    const data = await hx.lanesOf({ herd: hx.herd });
+    const a = data.lanes.find((l) => l.job === "a")!;
+    expect(data.lanes.map((l) => l.job).sort()).toEqual(["a", "b"]);
+    expect(a).toMatchObject({ branch: "a", base: "origin/main", commits: 1, merge: OPEN });
+    expect(a.drift).toMatchObject({ filesChanged: 2, insertions: 3, deletions: 1 });
+    expect(a.collidesWith).toEqual([{ job: "b", files: ["lib/x.ts"] }]);
+    expect(data.collisions).toEqual([{ path: "lib/x.ts", jobs: ["a", "b"] }]);
+    expect(data.skipped).toEqual([]);
+  });
+
+  test("guest jobs get no lane row", async () => {
+    const hx = lanesHarness({ a: "1\t0\tlib/x.ts\n" });
+    const wt = hx.job("a");
+    hx.job("review-a", { tree: null, worktree: wt });
+    const data = await hx.lanesOf({ herd: hx.herd });
+    expect(data.lanes.map((l) => l.job)).toEqual(["a"]);
+    expect(data.collisions).toEqual([]);
+    expect(hx.mergeCalls).toHaveLength(1);
+  });
+
+  test("closed jobs get no lane row", async () => {
+    const hx = lanesHarness({});
+    hx.job("a"); hx.job("b");
+    hx.store.setJobStatus(hx.herd, "b", "closed");
+    expect((await hx.lanesOf({ herd: hx.herd })).lanes.map((l) => l.job)).toEqual(["a"]);
+  });
+
+  test("a job with no branch reads none without a forge call", async () => {
+    const hx = lanesHarness({});
+    hx.job("a", { branch: null, tree: null });
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.merge).toEqual({ forge: "github", state: "none", url: null, number: null, mergedAt: null });
+    expect(hx.mergeCalls).toEqual([]);
+  });
+
+  test("forge error reads unknown and does not tick unmergedReports", async () => {
+    const hx = lanesHarness({}, { a: new Error("GitHub said 502") });
+    hx.job("a");
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.merge).toMatchObject({ state: "unknown", url: null, number: null, mergedAt: null });
+    expect(lane!.merge.error).toContain("GitHub said 502");
+    expect(lane!.unmergedReports.used).toBe(0);
+    expect(hx.store.budgetRows(hx.herd, "a")).toEqual([]);
+  });
+
+  test("a forge error never carries a credentialed URL", async () => {
+    const hx = lanesHarness({}, { a: new Error("fetch https://oauth2:glpat-SECRET@gitlab.example.com/x failed") });
+    hx.job("a");
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.merge.error).not.toContain("glpat-SECRET");
+  });
+
+  test("a done job's report read open ticks unmergedReports once per report id", async () => {
+    const hx = lanesHarness({}, { a: OPEN });
+    hx.job("a");
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+    await hx.lanesOf({ herd: hx.herd });
+    const again = (await hx.lanesOf({ herd: hx.herd })).lanes[0]!;
+    expect(again.unmergedReports).toEqual({ used: 1, cap: 2, spent: false });
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 9 });
+    expect((await hx.lanesOf({ herd: hx.herd })).lanes[0]!.unmergedReports).toEqual({ used: 2, cap: 2, spent: true });
+  });
+
+  test("an active job's open lane does not tick", async () => {
+    const hx = lanesHarness({}, { a: OPEN });
+    hx.job("a");
+    expect((await hx.lanesOf({ herd: hx.herd })).lanes[0]!.unmergedReports.used).toBe(0);
+  });
+
+  test("merged never ticks", async () => {
+    const hx = lanesHarness({}, { a: { ...OPEN, state: "merged", mergedAt: "2026-10-16T00:00:00Z" } });
+    hx.job("a");
+    hx.store.setJobStatus(hx.herd, "a", "done", { lastReport: 7 });
+    const [lane] = (await hx.lanesOf({ herd: hx.herd })).lanes;
+    expect(lane!.unmergedReports.used).toBe(0);
+    expect(hx.store.budgetRows(hx.herd, "a")).toEqual([]);
+  });
+
+  test("a job whose worktree is gone is listed in skipped", async () => {
+    const hx = lanesHarness({});
+    hx.job("a");
+    hx.job("gone", { worktree: join(hx.dir, "nowhere"), make: false });
+    const data = await hx.lanesOf({ herd: hx.herd });
+    expect(data.lanes.map((l) => l.job)).toEqual(["a"]);
+    expect(data.skipped).toEqual([{ job: "gone", reason: expect.stringContaining("no longer exists") }]);
+  });
+
+  test("job filter narrows lanes but collisions span every job", async () => {
+    const hx = lanesHarness({ a: "1\t0\tlib/x.ts\n", b: "1\t0\tlib/x.ts\n" }, { a: OPEN });
+    hx.job("a"); hx.job("b");
+    const data = await hx.lanesOf({ herd: hx.herd, job: "a" });
+    expect(data.lanes.map((l) => l.job)).toEqual(["a"]);
+    expect(data.lanes[0]!.collidesWith).toEqual([{ job: "b", files: ["lib/x.ts"] }]);
+    expect(data.collisions).toEqual([{ path: "lib/x.ts", jobs: ["a", "b"] }]);
+    expect(hx.mergeCalls.map((c) => c.branch)).toEqual(["a"]);
+  });
+
+  test("an unknown herd or job is refused", async () => {
+    const hx = lanesHarness({});
+    hx.job("a");
+    expect((await hx.h["herd:lanes"]({ herd: "nope" })).ok).toBe(false);
+    expect((await hx.h["herd:lanes"]({ herd: hx.herd, job: "nope" })).ok).toBe(false);
   });
 });

@@ -6,13 +6,14 @@
 import { chmodSync, existsSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import type { Logger } from "pino";
-import type { Commands, GateQuestion, GateRow, GateStatus, HerdStatusData } from "../../../packages/rt-client/src/commands.ts";
+import type { Commands, GateQuestion, GateRow, GateStatus, HerdLaneRow, HerdStatusData } from "../../../packages/rt-client/src/commands.ts";
 import { formatPaneRef, gatePresentation, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
 import type { CommandResult } from "./types.ts";
 import type { HerdStore, HerdJobRow, HerdRow } from "../herd-store.ts";
 import { admitTree } from "../herd-tree-admission.ts";
 import { budgetView, jobBudgets } from "../herd-budgets.ts";
 import { classifyScreen, diagnoseVerdict } from "../herd-diagnose.ts";
+import { collisions, forgeOf, measureLane, originUrl, realLaneDeps, unknownMerge, type LaneDeps } from "../herd-lanes.ts";
 import { readingState } from "../herd-watchdog-adapters.ts";
 import { findTreeByPath, loadRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { writePromptFile } from "../../agent-argv/index.ts";
@@ -80,6 +81,8 @@ export interface HerdDeps {
   paneScreen?: (pane: string, socket: string | null) => Promise<string | null>;
   /** Types a line into a pane for `herd:nudge`; defaults to lib/daemon/inject.ts. */
   inject?: typeof injectIntoPane;
+  /** Git and forge reads for `herd:lanes`; defaults to lib/daemon/herd-lanes.ts. */
+  lanes?: LaneDeps;
   log: Logger;
 }
 
@@ -128,6 +131,8 @@ const TRUST_BUDGET_MS = 15_000;
 // ones whose missing agent proves the worker session died rather than never
 // having started.
 const LIVE_WORKER_STATUSES: ReadonlySet<string> = new Set(["active", "at-gate", "at-milestone"]);
+// `unknown` is absent so a forge outage cannot spend the budget.
+const UNMERGED_STATES: ReadonlySet<HerdLaneRow["merge"]["state"]> = new Set(["open", "closed", "none"]);
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.length > 0 ? v : undefined);
 /** A bare pane id headed into a gate's `pane` field: formatted per the herd's
     hidden-ness so the ref rides addressably wherever that field surfaces
@@ -157,6 +162,7 @@ export function jobDir(jobsRoot: string, herdId: string, job: string): string { 
 
 export function createHerdHandlers(deps: HerdDeps) {
   const { store, log } = deps;
+  const lanes = deps.lanes ?? realLaneDeps;
   const registry = deps.registry ?? { load: loadRegistry, byPath: findTreeByPath };
   const readScreen = deps.paneScreen ?? (async (pane: string, socket: string | null): Promise<string | null> => {
     const res = await deps.herdr<{ read?: { text?: unknown } }>("pane.read", { pane_id: pane, source: "visible" }, socket ? { sockPath: socket } : {});
@@ -464,6 +470,27 @@ export function createHerdHandlers(deps: HerdDeps) {
     return { ok: true, bare, paneState, gates: [...own, ...runs].filter((g) => isJobGate(g, herd.id, job)) };
   }
 
+  /** One job per worktree measures it: the tree holder, else the earliest
+      row. Every other non-closed job sharing that worktree is a guest. */
+  function laneHosts(jobs: HerdJobRow[]): HerdJobRow[] {
+    const hosts = new Map<string, HerdJobRow>();
+    for (const j of [...jobs].sort((a, b) => a.createdAt - b.createdAt)) {
+      const held = hosts.get(j.worktree);
+      if (!held || (held.tree === null && j.tree !== null)) hosts.set(j.worktree, j);
+    }
+    return jobs.filter((j) => hosts.get(j.worktree) === j);
+  }
+
+  async function laneMerge(job: HerdJobRow): Promise<HerdLaneRow["merge"]> {
+    const forge = forgeOf(await originUrl(lanes, job.worktree).catch(() => undefined));
+    if (!job.branch) return { forge, state: "none", url: null, number: null, mergedAt: null };
+    try {
+      return await lanes.merge(job.worktree, job.branch);
+    } catch (err) {
+      return unknownMerge(forge, err);
+    }
+  }
+
   function uniqueHerdId(name: string): string {
     const base = mintHerdId(name);
     if (!store.get(base)) return base;
@@ -730,6 +757,43 @@ export function createHerdHandlers(deps: HerdDeps) {
         return undelivered("refused");
       }
       return { ok: true, data: { gate: id, rung: "pane", delivered: true, needsHuman: false, budget: budgetView(store.tickBudget(herdId, name, "nudges", id), "nudges") } };
+    },
+
+    "herd:lanes": async (raw: unknown): Promise<CommandResult<"herd:lanes">> => {
+      const p = raw as Commands["herd:lanes"]["payload"] | undefined;
+      const herdId = str(p?.herd); const only = str(p?.job);
+      if (!herdId) return { ok: false, error: "herd is required" };
+      if (!store.get(herdId)) return { ok: false, error: `unknown herd "${herdId}"` };
+      const all = store.jobs(herdId);
+      if (only && !all.some((j) => j.name === only)) return { ok: false, error: `unknown job "${only}" in herd "${herdId}"` };
+
+      const skipped: Commands["herd:lanes"]["data"]["skipped"] = [];
+      const measured = await Promise.all(laneHosts(all.filter((j) => j.status !== "closed")).map(async (job) => {
+        if (!existsSync(job.worktree)) { skipped.push({ job: job.name, reason: `worktree ${job.worktree} no longer exists` }); return null; }
+        const lane = await measureLane(lanes, job.worktree).catch((err: unknown) => ({ ok: false as const, error: String(err) }));
+        if (!lane.ok) { skipped.push({ job: job.name, reason: lane.error }); return null; }
+        return { job, ...lane };
+      }));
+      const live = measured.filter((m) => m !== null);
+      const shared = collisions(live.map((m) => ({ job: m.job.name, files: m.drift.files.map((f) => f.path) })));
+
+      const rows = await Promise.all(live.filter((m) => !only || m.job.name === only).map(async (m): Promise<HerdLaneRow> => {
+        const { job } = m;
+        const merge = await laneMerge(job);
+        if (job.status === "done" && job.lastReport !== null && UNMERGED_STATES.has(merge.state)) {
+          store.markBudgetOnce(herdId, job.name, "unmergedReports", String(job.lastReport));
+        }
+        const mine = new Set(m.drift.files.map((f) => f.path));
+        const collidesWith = live
+          .filter((o) => o.job.name !== job.name)
+          .map((o) => ({ job: o.job.name, files: o.drift.files.map((f) => f.path).filter((path) => mine.has(path)) }))
+          .filter((c) => c.files.length > 0);
+        return {
+          job: job.name, worktree: job.worktree, branch: job.branch, base: m.base, commits: m.commits, drift: m.drift,
+          collidesWith, merge, unmergedReports: jobBudgets(store.budgetRows(herdId, job.name)).unmergedReports,
+        };
+      }));
+      return { ok: true, data: { lanes: rows, collisions: shared, skipped } };
     },
 
     "herd:gates": async (raw: unknown): Promise<CommandResult<"herd:gates">> => {
