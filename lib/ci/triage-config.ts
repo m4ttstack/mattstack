@@ -51,15 +51,24 @@ export interface CompiledPatterns {
 
 export function settingsConfig(
   read: (key: string) => unknown = (k) => getSetting(k).value,
-): TriageConfig {
+): TriageConfig | { error: string } {
+  const depth = read("ci.triage.baseDepth");
+  if (typeof depth !== "number" || !Number.isInteger(depth) || depth < 1 || depth > 20) {
+    return { error: "setting ci.triage.baseDepth must be an integer from 1 to 20" };
+  }
   const ref = read("ci.triage.baseRef");
+  if (ref !== undefined && (typeof ref !== "string" || ref === "")) {
+    return { error: "setting ci.triage.baseRef must be a non-empty string or unset" };
+  }
+  const skip = read("ci.triage.skipBase");
+  if (typeof skip !== "boolean") return { error: "setting ci.triage.skipBase must be a boolean" };
   return {
     realPatterns: read("ci.triage.realPatterns") as string[],
     infraPatterns: read("ci.triage.infraPatterns") as string[],
     noisyJobs: read("ci.triage.noisyJobs") as string[],
-    baseDepth: read("ci.triage.baseDepth") as number,
-    baseRef: ref === undefined ? null : (ref as string),
-    skipBase: read("ci.triage.skipBase") as boolean,
+    baseDepth: depth,
+    baseRef: ref === undefined ? null : ref,
+    skipBase: skip,
   };
 }
 

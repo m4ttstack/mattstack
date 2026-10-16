@@ -428,7 +428,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (input.config !== undefined && (typeof input.config !== "object" || input.config === null || Array.isArray(input.config))) return err('"config" must be an object');
         let config;
         try {
-          config = mergeConfig(settingsConfig(tri.readSetting), input.config as InlineConfig | undefined);
+          const base = settingsConfig(tri.readSetting);
+          config = "error" in base ? base : mergeConfig(base, input.config as InlineConfig | undefined);
         } catch (e) {
           return err(e instanceof Error ? e.message : String(e));
         }

@@ -142,9 +142,28 @@ describe("settingsConfig", () => {
           string,
           unknown
         >)[k] ?? defaultFor(k),
-    );
+    ) as TriageConfig;
     expect(cfg.baseDepth).toBe(5);
     expect(cfg.baseRef).toBe("develop");
     expect(cfg.skipBase).toBe(true);
+  });
+
+  test.each([
+    ["ci.triage.baseDepth", 0, "setting ci.triage.baseDepth must be an integer from 1 to 20"],
+    ["ci.triage.baseDepth", 25.5, "setting ci.triage.baseDepth must be an integer from 1 to 20"],
+    ["ci.triage.baseDepth", 500, "setting ci.triage.baseDepth must be an integer from 1 to 20"],
+    ["ci.triage.baseDepth", "3", "setting ci.triage.baseDepth must be an integer from 1 to 20"],
+    ["ci.triage.baseRef", "", "setting ci.triage.baseRef must be a non-empty string or unset"],
+    ["ci.triage.baseRef", 7, "setting ci.triage.baseRef must be a non-empty string or unset"],
+    ["ci.triage.skipBase", "yes", "setting ci.triage.skipBase must be a boolean"],
+  ])("%s set to %p is an error naming the key", (key, value, error) => {
+    expect(settingsConfig((k) => (k === key ? value : defaultFor(k)))).toEqual({ error });
+  });
+
+  test("baseDepth at 1 and 20 is accepted", () => {
+    for (const d of [1, 20]) {
+      const cfg = settingsConfig((k) => (k === "ci.triage.baseDepth" ? d : defaultFor(k)));
+      expect((cfg as { baseDepth: number }).baseDepth).toBe(d);
+    }
   });
 });

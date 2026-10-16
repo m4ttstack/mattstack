@@ -463,6 +463,11 @@ adds its own, the same shape as an org pack plus a team pack. The arrays
 extend the engine defaults; they never replace them. The values are data in
 the org repo's stores, never in rt.
 
+`ci_triage` checks the three scalars when it reads them: a stored
+`baseDepth` outside 1 to 20 or not an integer, a `baseRef` that is empty or
+not a string, or a `skipBase` that is not a boolean is a tool error naming
+the key, never a silent clamp.
+
 Each key gets the full add-a-key set from the rt:settings contract: the
 registry row in `packages/rt-client/src/settings/registry-defs.ts`, a zod
 schema in `registry-schemas.ts`, examples in `schema-examples.ts`, a console

@@ -583,6 +583,17 @@ describe("ci_triage", () => {
     const { t } = triageTool({ pipeline: { id: "github:run:3", status: "failed", jobs: [] } });
     expect(await t.handler(target, A)).toMatchObject({ body: { state: "unsupported_forge", forge: "github" } });
   });
+  test("a store-set baseDepth out of range is a tool error naming the key, before any read", async () => {
+    settings["ci.triage.baseDepth"] = 0;
+    try {
+      const { t, calls } = triageTool();
+      const r = await t.handler(target, A);
+      expect(r).toMatchObject({ ok: false, error: expect.stringContaining("ci.triage.baseDepth") });
+      expect(calls).toEqual([]);
+    } finally {
+      settings["ci.triage.baseDepth"] = 3;
+    }
+  });
   test("with no pipelineId it triages the head pipeline", async () => {
     const { t, calls } = triageTool();
     const r = await t.handler(target, A);
