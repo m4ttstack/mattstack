@@ -82,9 +82,10 @@ type World = {
   snapshot: RunSnapshot;
   gates: Record<string, Reply>;
   cmd: Record<string, Reply[]>;
-  git: Record<string, GitReply>;
+  git: Record<string, GitReply | GitReply[]>;
   pushes: GitReply[];
   tree: string;
+  runFail?: Record<string, string>;
 };
 
 const okData = (data: unknown): Reply => ({ ok: true, data });
@@ -153,6 +154,7 @@ function fake(w: World): { deps: MrCompositeDeps; calls: Call[]; progress: numbe
   const progress = [0];
   const queues: Record<string, Reply[]> = Object.fromEntries(Object.entries(w.cmd).map(([k, v]) => [k, [...v]]));
   const pushes = [...w.pushes];
+  const gitQueues: Record<string, GitReply[]> = Object.fromEntries(Object.entries(w.git).map(([k, v]) => [k, Array.isArray(v) ? [...v] : [v]]));
   const deps: MrCompositeDeps = {
     command: (async (name: string, payload: Record<string, unknown>) => {
       calls.push({ kind: "cmd", name, payload });
@@ -165,6 +167,8 @@ function fake(w: World): { deps: MrCompositeDeps; calls: Call[]; progress: numbe
     async runTool(name, input) {
       calls.push({ kind: "run", name, payload: input });
       if (name === "run_snapshot") return { ok: true, body: w.snapshot };
+      const failure = w.runFail?.[name];
+      if (failure !== undefined) return { ok: false, body: undefined, error: failure };
       return { ok: true, body: { ok: true } };
     },
     async git(args, cwd) {
@@ -173,9 +177,9 @@ function fake(w: World): { deps: MrCompositeDeps; calls: Call[]; progress: numbe
         const r = pushes.length > 1 ? pushes.shift()! : pushes[0]!;
         return r;
       }
-      const r = w.git[args.join(" ")];
-      if (!r) throw new Error(`unscripted git ${args.join(" ")}`);
-      return r;
+      const q = gitQueues[args.join(" ")];
+      if (!q || q.length === 0) throw new Error(`unscripted git ${args.join(" ")}`);
+      return q.length > 1 ? q.shift()! : q[0]!;
     },
     guard: { repoIndex: () => ({ [ID]: "/w" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [] },
     status: async () => { throw new Error("unexpected status"); },
@@ -237,6 +241,15 @@ describe("reading", () => {
     w.snapshot.fields = w.snapshot.fields.map((f) => (f.key === "extra.gate-source.respond-plan" ? sourceField("respond-plan", null, PLAN, 1_000) : f));
     const { calls } = await done(w);
     expect(cmdCalls(calls, "gate:wait")).toEqual([]);
+  });
+
+  test("a respond-post source older than the plan decision is not read, so reply rows still post", async () => {
+    const w = world();
+    noFixRow(w);
+    w.snapshot.fields.push(sourceField("respond-post", "g-old", POST_T1, 1_500));
+    const { res, calls } = await done(w);
+    expect(cmdCalls(calls, "gate:wait").map((c) => (c.payload as Record<string, unknown>).id)).toEqual(["g-plan"]);
+    expect(res.posted).toEqual(["T2"]);
   });
 
   test("a gate still open refuses before anything moves", async () => {
@@ -304,6 +317,31 @@ describe("push, when a fix row is picked", () => {
     expect(res.posted).toEqual(["T2"]);
     expect(cmdCalls(calls, "discussions:reply").map((c) => (c.payload as Record<string, unknown>).discussionId)).toEqual(["T2"]);
     expect(cmdCalls(calls, "discussions:resolve")).toEqual([]);
+  });
+
+  test("@{u} on upstream/feat-x while @{push} is origin/feat-x holds T1 as a mismatch and T2 still posts", async () => {
+    const w = world();
+    w.git["rev-parse --abbrev-ref --symbolic-full-name @{u}"] = gitOk("upstream/feat-x\n");
+    const { res, calls } = await done(w);
+    expect(res.held.map((h) => [h.threadId, h.kind])).toEqual([["T1", "mismatch"]]);
+    expect(res.held[0]!.error).toContain("upstream/feat-x");
+    expect(res.held[0]!.error).toContain("@{u}");
+    expect(pushCalls(calls)).toEqual([]);
+    expect(res.pushed).toBeNull();
+    expect(res.posted).toEqual(["T2"]);
+    expect(cmdCalls(calls, "discussions:resolve")).toEqual([]);
+  });
+
+  test("a push that reports landing off origin holds T1 as push", async () => {
+    const w = world();
+    w.git["rev-parse --abbrev-ref --symbolic-full-name @{u}"] = [gitOk("origin/feat-x\n"), gitOk("upstream/feat-x\n")];
+    w.git["symbolic-ref --quiet refs/remotes/upstream/HEAD"] = gitOk("refs/remotes/upstream/main\n");
+    w.git["ls-remote --symref --end-of-options upstream HEAD"] = gitOk("ref: refs/heads/main\tHEAD\n");
+    const { res, calls } = await done(w);
+    expect(pushCalls(calls)).toHaveLength(1);
+    expect(res.pushed).toBeNull();
+    expect(res.held).toEqual([{ threadId: "T1", kind: "push", error: "git push went to upstream/feat-x, not origin/feat-x, so the fix is not on the MR's branch" }]);
+    expect(res.posted).toEqual(["T2"]);
   });
 
   test("a symbolic-ref on another branch holds T1 as a mismatch", async () => {
@@ -561,6 +599,30 @@ describe("record", () => {
     const { res, calls } = await done(w);
     expect(named(calls, "run_decision")).toEqual([]);
     expect(res.recorded).toBe(false);
+  });
+
+  test("a failed re-record reads recorded false with its error in writeErrors", async () => {
+    const w = world();
+    w.runFail = { run_decision: "database is locked" };
+    const { res } = await done(w);
+    expect(res.recorded).toBe(false);
+    expect(res.writeErrors).toEqual(["re-recording the respond-post decision failed: database is locked"]);
+  });
+
+  test("a failed hold write reads hold null with its error in writeErrors", async () => {
+    const w = world();
+    w.git["rev-parse --abbrev-ref @{push}"] = gitOk("upstream/feat-x\n");
+    w.runFail = { run_field_set: "database is locked" };
+    const { res } = await done(w);
+    expect(res.held).toHaveLength(1);
+    expect(res.hold).toBeNull();
+    expect(res.recorded).toBe(true);
+    expect(res.writeErrors).toEqual(["setting the hold field failed: database is locked"]);
+  });
+
+  test("a clean pass carries no writeErrors", async () => {
+    const { res } = await done(world());
+    expect(res.writeErrors).toBeUndefined();
   });
 
   test("the record goes last, after every resolve", async () => {
