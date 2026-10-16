@@ -65,7 +65,8 @@ Mac that cannot open the file reads it as absent. The daemon's `secrets:read` bo
 puts this Mac's token in when the file holds none (`--replace-token` after
 the token changes); `rt team members sync` and `remove` run the same sync,
 and the `org.admin-secrets` row asks for it when the roles drift or this
-Mac's token is not shared yet. An rt older than this refuses a `.sops.yaml`
+Mac's token is not shared yet, and reads `skipped` instead on a Mac whose
+age key is not the one the roster holds, since the verb refuses there. An rt older than this refuses a `.sops.yaml`
 with both rules, so share the token only once every admin runs this rt.
 
 Change invite, join, peer and the row together or not

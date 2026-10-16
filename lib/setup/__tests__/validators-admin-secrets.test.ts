@@ -84,9 +84,41 @@ describe("the org.admin-secrets row", () => {
     expect(steps.at(-1)).toBe("Re-check this row");
   });
 
-  test("the environment's token is the one compared", async () => {
+  test("the environment's token is the one compared, and the remedy names it", async () => {
     const r = await adminSecretsRow(machine({ env: { SWITCHBOARD_ADMIN_TOKEN: "admin-1" } }), "acme", withFile("admin-2", null));
     expect(r?.detail).toBe("The org shares a different switchboard admin token from this Mac's");
+    expect((r!.action as { steps: string[] }).steps[1]).toBe("If the org's token is the right one, remove SWITCHBOARD_ADMIN_TOKEN from the environment rt runs in so the org's is used");
+  });
+
+  test("a token from rt's secrets is named as that source", async () => {
+    const r = await adminSecretsRow(machine(), "acme", withFile("admin-2", "admin-1"));
+    expect((r!.action as { steps: string[] }).steps[1]).toBe("If the org's token is the right one, remove switchboardAdminToken from rt's secrets so the org's is used");
+  });
+
+  const onMac = (key: string | null, secrets: SecretPresence): SecretPresence => ({ ...secrets, ownAgeKey: async () => key });
+
+  test("a Mac whose age key the roster does not hold is pointed at the Mac it does, not at a verb that refuses it", async () => {
+    const r = await adminSecretsRow(machine(), "acme", onMac("age1second", withFile(null, "admin-1")));
+    expect(r).toMatchObject({ id: ADMIN_SECRETS_ROW_ID, status: "skipped" });
+    expect(r!.detail).toContain("Check this row on the Mac whose key the roster holds");
+    expect(r!.action).toBeNull();
+  });
+
+  test("so is one that would otherwise be asked to re-lock the file", async () => {
+    expect((await adminSecretsRow(machine({ admins: ["dev1", "dev2"] }), "acme", onMac("age1second", holding(null))))?.status).toBe("skipped");
+  });
+
+  test("the Mac the roster holds still gets the share request", async () => {
+    expect((await adminSecretsRow(machine(), "acme", onMac("age1dev1", withFile(null, "admin-1"))))?.status).toBe("needs-you");
+  });
+
+  test("a key that cannot be read keeps the share request", async () => {
+    const failing: SecretPresence = { ...withFile(null, "admin-1"), ownAgeKey: async () => { throw new Error("keychain locked"); } };
+    expect((await adminSecretsRow(machine(), "acme", failing))?.status).toBe("needs-you");
+  });
+
+  test("a healthy row stays hidden on a Mac the roster does not hold", async () => {
+    expect(await adminSecretsRow(machine(), "acme", onMac("age1second", withFile("admin-1", "admin-1")))).toBeNull();
   });
 
   test("a current rule whose file holds the same token reads healthy", async () => {

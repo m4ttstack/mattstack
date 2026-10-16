@@ -634,6 +634,11 @@ describe("accountRows: account.board-peering", () => {
     expect(r.detail).not.toContain("invite you again");
   });
 
+  test("another org's admin-only file does not count, since rt team peer reads only this org's", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: true }, beta: { joinedByRt: true } }), withAdminFile("beta"));
+    expect(r.detail).toContain("invite you again");
+  });
+
   test("a Mac that cannot open the admin-only file and holds no token keeps the re-invite remedy", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: true } }), withAdminFile("other"));
     expect(r.detail).toContain("invite you again");
