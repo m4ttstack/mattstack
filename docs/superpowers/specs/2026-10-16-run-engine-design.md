@@ -8,12 +8,12 @@ go back, clear stale produces and `shipTarget`, record a hold, count retries.
 That is code written in English. Agents pay for it on every run and drift
 from it: a skipped `shipTarget` clear reuses an old ship consent for an
 outward push, a skipped produce clear lets the completeness check pass on
-stale values, a second `run_stage start` leaves a row running forever, a
+stale values, a repeated `run_stage start` can leave two rows running, a
 retry counter held in prose resets on compaction, and a hand-built
 `<attempt>` in a decision scope silently overwrites an earlier decision.
 
 This wave moves those mechanics into rt: six MCP tools over the run DB, a
-refusal in `run_stage start`, and a compiler that emits each pack's pipeline
+supersede rule in `run_stage start`, and a compiler that emits each pack's pipeline
 manifest and checks its field contract at compile time. Wave 3 shrinks the
 skills to call these tools; this wave edits no skill.
 
@@ -27,13 +27,14 @@ skills to call these tools; this wave edits no skill.
   answer, clearing stale produces and `shipTarget` on every redirect.
 - `run_hold`, `run_close`: the hold pair and a standalone verb's exit, with
   attempts computed.
-- `run_stage start` refuses a second start while that stage's latest row is
-  still running.
+- `run_stage start` on a stage whose latest row is still running ends that
+  row as redirected and starts the next attempt, so no stage ever has two
+  rows running; the engine itself still refuses to start over a running row.
 - `run_budget`: persisted per-run loop counters that survive compaction and
   resume.
 - `rt skills compile` writes `pack/pipelines.json` (stages, consumes,
-  produces, file) that the run engine reads, and fails a pack whose skills
-  read a run field nothing in the pack writes.
+  produces, file) that the run engine reads, and warns about a pack whose
+  skills read a run field nothing in the pack writes.
 
 ## Non-goals
 
@@ -99,13 +100,33 @@ skills to call these tools; this wave edits no skill.
    check), plus tests in `commands/__tests__/skills.test.ts`. The logic lives
    in `lib/skills`.
 3. The field-contract check is an **error** in `rt skills compile` and
-   `rt skills check`. The ingestion-platform pack fails to compile until
-   wave 3 fixes `hobgoblin-gates`' `extra.plan-verdict` read, so that fix must
-   ship with or before the rt that carries this.
+   `rt skills check`. A pack with an unwritten `extra.plan-verdict` read fails
+   to compile until wave 3 fixes that read, so that fix must ship with or
+   before the rt that carries this.
 4. `run_stage start` **refuses** a second start on a running stage.
    `run_enter`'s resume adopts the running attempt instead. Until wave 3
    moves skills to `run_enter`, today's resume paths (a held `work` stage, a
    standalone ship/watch-ci/review resume) get the refusal and stop.
+
+## Revised by the operator (2026-10-16)
+
+Items 3 and 4 above are superseded, and both revisions are temporary:
+
+1. `run_stage start` (the `stage-start` write verb and `rt runs stage-start`)
+   **supersedes** a running latest attempt instead of refusing: in one
+   transaction it ends that attempt `redirected` with reason `superseded by
+   attempt <n+1>` and inserts attempt n+1 running. No decision is recorded.
+   `nextStage`, `resolveStage` and `enterRun` still never supersede; they call
+   `stageStart` with `onRunning: "refuse"`. The refusal returns to the
+   `run_stage` path in wave 3, by changing the one `onRunning` value
+   `stage-start` passes in `commands/runs-write.ts` back to `"refuse"`.
+2. The field-contract check **warns** and never fails: compile still writes
+   and check sets neither drift nor an exit code, even under `--strict`. The
+   lines ride in a `fieldContract: string[]` key of the `--json` output of
+   both verbs and show as a warning in the human output. It becomes an error
+   again once the pack fix merges, by flipping the one constant
+   `FIELD_CONTRACT_SEVERITY` in `lib/skills/field-contract.ts` from `"warn"`
+   to `"error"`; the error routing is already tested.
 
 ## Design
 
@@ -138,15 +159,18 @@ tables have no rows). An older rt reading a v3 DB already reports
 `schemaAhead`; an older rt writing one is unaffected (the new tables are
 additive).
 
-### `run_stage start` refusal
+### `run_stage start` on a running stage
 
-`stageStart` inserts only when the stage's latest row is not `running`, in
-the same statement (`INSERT ... SELECT ... WHERE NOT EXISTS`), so a
-concurrent start cannot slip between check and write. Refused, it returns
-code 2 with: `stage <name> attempt <n> is still running; end it (done, fail
-or redirect) before starting another, or resume it with run_enter`. This
-applies to the MCP `run_stage` tool and the `rt runs stage-start` CLI alike
-(same function).
+`stageStart(db, name, env, now, { onRunning })` inserts only when the stage's
+latest row is not `running`, in the same statement (`INSERT ... SELECT ...
+WHERE NOT EXISTS`), so a concurrent start cannot slip between check and
+write. With `onRunning: "refuse"` (the default, and what the engine passes) a
+running latest row returns code 2 with: `stage <name> attempt <n> is still
+running; end it (done, fail or redirect) before starting another, or resume
+it with run_enter`, and nothing is written. With `onRunning: "supersede"`,
+which the MCP `run_stage` tool and the `rt runs stage-start` CLI pass (same
+function), the running row is ended `redirected` (reason `superseded by
+attempt <n+1>`) and the next attempt inserted in one IMMEDIATE transaction.
 
 ### The position object
 
@@ -388,15 +412,20 @@ files). The pack's written keys are the union of:
   `hold` (engine), `gate`, `waiting-gate` and the prefixes
   `extra.context-dropped.` and `extra.gate-source.` (gate tools).
 
-Each read of a key outside that set is an error, attributed through the
+Each read of a key outside that set is a finding, attributed through the
 compiled file's `<!-- part: ... -->` markers to the source it came from:
 
-`field contract: attachments/stage-gates/SKILL.md:88 (from ingestion-platform:hobgoblin-gates attachments/hobgoblin-gates/SKILL.md:34) reads "extra.plan-verdict", which nothing in this pack writes`
+`field contract: attachments/stage-gates/SKILL.md:88 (from acme:plan-gates attachments/plan-gates/SKILL.md:34) reads "extra.plan-verdict", which nothing in this pack writes`
 
-In `rt skills compile` the errors join `failures`, so nothing is written; in
-`rt skills check` they join `compileErrors`, so check exits 1. Both run only
-when every target compiled (a failure elsewhere is reported first) and only
-on a full compile.
+Findings are routed by `routeFieldContract` according to
+`FIELD_CONTRACT_SEVERITY`, which ships as `"warn"`. As warnings they never
+change an exit code or block a write: `rt skills compile` writes as usual and
+reports them under `fieldContract` in `--json` (always present, `[]` when
+clean) and as a warning in the human output; `rt skills check` carries the
+same `fieldContract` key and sets neither drift nor an exit code. Set to
+`"error"`, they join compile `failures` (nothing is written) and check
+`compileErrors` (check exits 1). Both run only when every target compiled (a
+failure elsewhere is reported first) and only on a full compile.
 
 ### MCP reference and plugin version
 
@@ -410,11 +439,10 @@ and bump the patch version in `plugins/mattstack/.claude-plugin/plugin.json`.
   root, including `lib/mcp/__tests__/run-tools.test.ts` and
   `lib/mcp/__tests__/tools.test.ts`.
 - `bun run check` and `bun run purity`.
-- The field-contract check run read-only over the compiled sibling team,
-  ingestion-platform and mattstack packs on this machine: the only error is
-  ingestion-platform's `extra.plan-verdict` read. Any other error is a
-  finding to raise before shipping, since it would also break that pack's
-  compile.
+- The field-contract check run read-only over the compiled sibling team
+  and mattstack packs on this machine: any finding beyond the one known
+  unwritten read is raised before shipping, since it would also break a
+  pack's compile once the severity is flipped to `"error"`.
 - `bun cli.ts skills compile --dry-run --pack-dir plugins/mattstack
   --mattstack-dir <temp>` still passes (CI runs it).
 

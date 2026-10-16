@@ -1121,7 +1121,7 @@ Start a pipeline run and get back its runDb. flags is the compiled run-start fla
 ### run_stage
 
 <!-- mcp-lint: allow -->
-Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason).
+Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason). A start on a stage whose latest attempt is still running ends that attempt as redirected (superseded) and begins the next one.
 
 ```json
 {
