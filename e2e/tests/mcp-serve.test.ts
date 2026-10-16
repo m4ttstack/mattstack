@@ -176,7 +176,7 @@ function writeHostileCwd(dir: string, marker: string): void {
 
 const EXPECTED_TOOL_NAMES = [
   "chat_ack", "chat_claim", "chat_dm", "chat_post", "chat_release",
-  "gate_answer", "gate_ask", "gate_list",
+  "gate_answer", "gate_ask", "gate_open", "gate_reconcile", "gate_record", "gate_list",
   "herd_answer", "herd_ask", "herd_gates", "herd_report",
   "mr_approve", "mr_comment", "mr_comment_inline", "mr_create", "mr_map", "mr_ready", "mr_rebase", "mr_reply_thread", "mr_resolve_thread", "mr_retry", "mr_review_submit", "mr_update", "mr_update_note", "mr_upload",
   "mr_posted_since", "respond_post_execute", "mr_resolve_branch",

@@ -8,7 +8,7 @@
  */
 import {
   chatAck, chatClaim, chatDm, chatPost, chatRelease,
-  gateAnswer, gateAsk, gateList,
+  gateList,
   herdAnswer, herdAsk, herdGates, herdReport,
   readProjectMRs,
   rtCommand,
@@ -28,6 +28,7 @@ import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, r
 import { forgeReadToolDefs } from "./forge-read-tools.ts";
 import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
+import { ANSWERED_RUN_PROPS, answerGate, askGate, GATE_RUN_PROPS, gateToolDefs, RECORD_PROP_DESCRIPTION, realGateToolDeps } from "./gate-tools.ts";
 import { worktreeToolDefs } from "./worktree-tools.ts";
 import {
   checkOptional, checkPositiveInts, checkRequired, checkStringArray,
@@ -145,13 +146,15 @@ export function mcpTools(): McpToolDef[] {
   return [
     {
       name: "gate_answer",
-      description: "Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}. A question opened with writeIn: true may instead take {writeIn: \"<the human's own words>\"}, sent alone.",
+      description: "Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}. A question opened with writeIn: true may instead take {writeIn: \"<the human's own words>\"}, sent alone. Under a run, pass runDb and stage and the answer (the CAS winner's, on a conflict) is recorded as the scope's gate@1 decision. A review gate records nothing unless record: true, since its site records the review shape with gate_record, and a stale gate (the scope's extra.gate-source.<scope> names a later gate) records nothing.",
       inputSchema: {
         type: "object",
         properties: {
           id: { type: "string" },
           answers: { type: "object", additionalProperties: ANSWER_VALUE_SCHEMA },
           override: { type: "boolean" },
+          ...ANSWERED_RUN_PROPS,
+          record: { type: "boolean", description: RECORD_PROP_DESCRIPTION },
         },
         required: ["id", "answers"],
         additionalProperties: false,
@@ -163,27 +166,7 @@ export function mcpTools(): McpToolDef[] {
         note: "answers as this pane; the shepherd's --by shepherd answer stays on Bash",
       }],
       async handler(input, env) {
-        const bad = checkRequired(input, [{ name: "id", type: "string" }, { name: "answers", type: "object" }]);
-        if (bad) return err(bad);
-        const payload: Commands["gate:answer"]["payload"] = {
-          id: input.id as string,
-          answers: input.answers as Commands["gate:answer"]["payload"]["answers"],
-          by: "pane",
-          session: env.CLAUDE_CODE_SESSION_ID,
-        };
-        if (input.override !== undefined) payload.override = input.override as boolean;
-        const res = await gateAnswer(payload);
-        if (!res.ok && res.error === "owned-by") {
-          const owner = (res as { owner?: string }).owner ?? "unknown";
-          return err(`gate ${input.id} is owned by ${owner}; pass override: true to answer anyway`);
-        }
-        if (!res.ok && res.error === "gate-closed") {
-          const reason = (res as { reason?: string }).reason ?? "closed";
-          const supersededBy = (res as { supersededBy?: string }).supersededBy;
-          return err(`gate ${input.id} is closed (${reason})${supersededBy ? `; superseded by ${supersededBy}` : ""}`);
-        }
-        if (!res.ok && res.error === "not-found") return err(`no gate ${input.id}`);
-        return fromResponse(res);
+        return answerGate(input, env, realGateToolDeps);
       },
     },
     {
@@ -213,7 +196,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "gate_ask",
-      description: "Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId}; then act on the returned presentation. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words.",
+      description: "Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId, paneAction, formChunks}; then act on the result's paneAction, which says form or wait for this pane. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words. Under a run, pass runDb and stage. formChunks hold the questions 4 to a form.",
       inputSchema: {
         type: "object",
         properties: {
@@ -221,29 +204,17 @@ export function mcpTools(): McpToolDef[] {
           context: { type: "string" },
           kind: { type: "string" },
           subject: { type: "string" },
+          ...GATE_RUN_PROPS,
         },
         required: ["questions"],
         additionalProperties: false,
       },
       shellForms: ["rt gate ask"],
       async handler(input, env) {
-        const bad = checkRequired(input, [{ name: "questions", type: "array" }]);
-        if (bad) return err(bad);
-        const payload: Commands["gate:ask"]["payload"] = {
-          questions: input.questions as GateQuestion[],
-        };
-        if (input.context !== undefined) payload.context = input.context as string;
-        if (input.kind !== undefined) payload.kind = input.kind as string;
-        // No RT_GATE_SUBJECT read (contract C13): the var carries an agent:<id>
-        // fallback on every rt-agent launch and would shadow the daemon
-        // ladder's run rung; absent an input subject, the daemon resolves
-        // session -> run -> the agent record's own subject.
-        if (input.subject !== undefined) payload.subject = input.subject as string;
-        if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
-        if (env.HERDR_PANE_ID) payload.paneId = env.HERDR_PANE_ID;
-        return fromResponse(await gateAsk(payload));
+        return askGate(input, env, realGateToolDeps);
       },
     },
+    ...gateToolDefs(),
     {
       name: "chat_post",
       description: "Post a message to an rt chat room as the signed-in identity. mentions are names or ids; a name reaches whoever holds it now. Requires a signed-in chat session; call chat_sign_in first.",
