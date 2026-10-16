@@ -556,6 +556,60 @@
       "additionalProperties": {}
     }
   },
+  "ci.triage.baseDepth": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+    }
+  },
+  "ci.triage.baseRef": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "ci.triage.infraPatterns": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "ci.triage.noisyJobs": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "ci.triage.realPatterns": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "ci.triage.skipBase": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "boolean"
+    }
+  },
   "claude.marketplaces": {
     "storeVersion": 1,
     "schema": {
