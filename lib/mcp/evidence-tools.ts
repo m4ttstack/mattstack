@@ -166,8 +166,8 @@ function parseRecordInput(input: Obj): { ok: true; merge: MergeInput; plan: bool
   const remove = arrayOf(input, "remove");
   if (!remove.ok) return remove;
   const plan = input.plan === "none";
-  if (plan && (images.items.length || input.transcript !== undefined || input.url !== undefined)) {
-    return { ok: false, error: 'plan "none" cannot go with images, a transcript or a url' };
+  if (plan && (images.items.length || cases.items.length || remove.items.length || input.transcript !== undefined || input.url !== undefined)) {
+    return { ok: false, error: 'plan "none" clears the record; pass nothing else' };
   }
   for (const [i, e] of images.items.entries()) {
     const where = `images[${i}]`;
@@ -330,15 +330,16 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   if (!copy.ok) return err(copy.error);
   const copied: CopyResult[] = [...new Map(copy.copied.map((c) => [c.to, c])).values()];
 
+  const withCopied = (error: string) => err(`${error} (the files were copied: ${copied.map((c) => c.to).join(", ") || "none"})`);
   const merged = mergeRecord(current, remap(merge, copy.mapped, evidenceRoot));
-  if (!merged.ok) return err(`${merged.error} (the files were copied: ${copied.map((c) => c.to).join(", ") || "none"})`);
+  if (!merged.ok) return withCopied(merged.error);
   const serialized = serializeRecord(merged.record);
-  if (!serialized.ok) return err(serialized.error);
+  if (!serialized.ok) return withCopied(serialized.error);
   const uncovered = uncoveredImages(merged.record);
   const result = { encoding: serialized.encoding, value: serialized.value, uncovered, copied };
   if (uncovered.length) return ok({ written: false, ...result });
   const failed = await write(serialized.value);
-  return failed ?? ok({ written: true, ...result });
+  return failed ? withCopied(failed.error ?? "run_field_set failed") : ok({ written: true, ...result });
 }
 
 type Refused = Record<Bucket, Array<{ path: string; error: string }>>;
@@ -666,7 +667,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
   return [
     {
       name: "evidence_record",
-      description: "Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A source must sit under the target repo's checkout or worktrees (pass tree, the run's worktree root, to name the repo), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and writes nothing, so call again with each listed image's cover. plan: \"none\" writes {\"plan\":\"none\"}. Returns {written, encoding, value, uncovered, copied}.",
+      description: "Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A source must sit under the target repo's checkout or worktrees (pass tree, the run's own worktree root, to name the repo; a tree in another repo is refused), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and writes nothing, so call again with each listed image's cover. plan: \"none\" writes {\"plan\":\"none\"} and takes nothing else. Returns {written, encoding, value, uncovered, copied}.",
       inputSchema: {
         type: "object",
         properties: {

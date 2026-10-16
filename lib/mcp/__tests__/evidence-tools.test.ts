@@ -245,10 +245,21 @@ describe("evidence_record", () => {
     expect(existsSync(join(home, ".mattstack"))).toBe(false);
   });
 
-  test("plan none alongside images is refused", async () => {
-    const { deps } = makeDeps();
-    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", plan: "none", url: "https://example.com/t/1" }, env);
-    expect(res.ok).toBe(false);
+  test("plan none alongside anything else is refused before any read", async () => {
+    const others: Array<Record<string, unknown>> = [
+      { url: "https://example.com/t/1" },
+      { transcript: "/t.txt" },
+      { images: [{ case: "a", slot: "before", waiver: "w" }] },
+      { cases: [{ id: "a", label: "A" }] },
+      { remove: [{ case: "a" }] },
+    ];
+    for (const extra of others) {
+      const { deps, runCalls } = makeDeps();
+      const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", plan: "none", ...extra }, env);
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe('plan "none" clears the record; pass nothing else');
+      expect(runCalls).toEqual([]);
+    }
   });
 
   test("a pair board refreshed through one slot overwrites the shared copy", async () => {
@@ -322,13 +333,13 @@ describe("evidence_record", () => {
     expect(cases[1].before.path).toBe(join(evidenceDir("two"), "shared.png"));
   });
 
-  test("a fieldSet refusal comes back verbatim", async () => {
+  test("a fieldSet refusal comes back verbatim, still naming what was copied", async () => {
     const shot = put("a.png");
     const refusal = 'evidence@2: case "a" has no annotated image and no waiver; annotate it or add a waiver with a reason';
     const { deps } = makeDeps({ fieldSetError: refusal });
     const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "a", label: "A", slot: "before", path: shot, waiver: "w" }] }, env);
     expect(res.ok).toBe(false);
-    expect(res.error).toBe(refusal);
+    expect(res.error).toBe(`${refusal} (the files were copied: ${join(evidenceDir("a"), "a.png")})`);
   });
 
   test("against a real run db through the run tools' handlers", async () => {
