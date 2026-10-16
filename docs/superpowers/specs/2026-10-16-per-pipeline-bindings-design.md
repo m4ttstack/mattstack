@@ -1,6 +1,6 @@
 # Per-pipeline bindings and specialized work commands
 
-Ticket: RT-491. Status: design, awaiting approval.
+Ticket: RT-491. Status: approved 2026-10-16.
 
 ## Intent
 
@@ -109,7 +109,7 @@ finds it through the run's `pipeline` field.
 
 ### Resuming
 
-*My call:* a work verb only offers to resume running runs of its own
+A work verb only offers to resume running runs of its own
 pipeline, so `work-a11y` never picks up a `feature` run with the wrong
 fills, and the reverse. `run_list` (`lib/mcp/run-tools.ts`) gains a
 pipeline filter and the orchestrator's resume branch uses it. When `work`
@@ -148,7 +148,7 @@ carrying the stages and that pipeline's binding overrides:
     bindings do.
 - A layer may set a pipeline's `bindings` without restating its `stages`.
   The merged result must end with a stage list for every pipeline.
-- *My call:* when a higher layer replaces a pipeline's stage list and drops
+- When a higher layer replaces a pipeline's stage list and drops
   a stage that a lower layer's override names, check warns and the
   override is ignored, since layering cannot delete the lower key. An
   override naming a stage missing from the same layer's own list is an
