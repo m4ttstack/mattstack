@@ -87,6 +87,23 @@ test("Bun's own refusal from a closed port is one the wait retries", async () =>
   expect(calls).toBe(2);
 });
 
+test('the ECONNREFUSED code newer bun gives a refusal is retried too', async () => {
+  let calls = 0;
+  const res = await withDeckWait(
+    async () => {
+      if (++calls < 2) {
+        throw Object.assign(new TypeError('Unable to connect'), {
+          code: 'ECONNREFUSED',
+        });
+      }
+      return new Response('{}');
+    },
+    { insideRun: true, waitMs: 1000, sleep: async () => {} }
+  );
+  expect(res.status).toBe(200);
+  expect(calls).toBe(2);
+});
+
 test('inside a deck run, a deck that is restarting is waited for', async () => {
   let calls = 0;
   const res = await withDeckWait(

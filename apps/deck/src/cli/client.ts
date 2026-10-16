@@ -41,8 +41,10 @@ export async function withDeckWait(
       return await attempt();
     } catch (err) {
       const code = (err as { code?: unknown }).code;
+      // bun 1.4.3 renamed fetch's refusal code; deck from source can still run on an older bun.
       const unanswered =
         code === 'ConnectionRefused' ||
+        code === 'ECONNREFUSED' ||
         (code === 'ECONNRESET' && resendAfterReset);
       if (!insideRun || !unanswered || now() >= deadline) throw err;
       await sleep(500);

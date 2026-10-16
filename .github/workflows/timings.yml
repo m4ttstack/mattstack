@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.3
       - name: Install backup dependencies
         run: brew install age zstd git-lfs
       - name: Install dependencies
