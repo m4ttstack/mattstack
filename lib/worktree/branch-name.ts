@@ -68,7 +68,7 @@ export function belongsToTicket(branch: string, ticket: string, format: string):
   );
 
   if (head.includes(ticketSlug)) {
-    const stem = head.replace(/[^a-z0-9]+$/i, "");
+    const stem = head.replace(/[^a-z0-9]+$/i, "").toLowerCase();
     return lower === stem || (lower.startsWith(stem) && !/[a-z0-9]/.test(lower[stem.length] ?? "a"));
   }
 

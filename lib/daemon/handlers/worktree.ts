@@ -386,7 +386,7 @@ export function createWorktreeHandlers(
           ? branched.filter((t) => belongsToTicket(t.branch!, payload.ticket, cfg.branchFormat)).map(treeRef)
           : [],
         sameSlug: hasTitleSlug
-          ? branched.filter((t) => t.branch!.toLowerCase().startsWith(base)).map(treeRef)
+          ? branched.filter((t) => t.branch!.toLowerCase().startsWith(base.toLowerCase())).map(treeRef)
           : [],
       };
       return { ok: true, data };

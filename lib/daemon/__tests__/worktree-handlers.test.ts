@@ -520,6 +520,22 @@ describe("worktree:provision-check", () => {
     expect(res.data.sameSlug.map((t: any) => t.tree)).toEqual(["first"]);
   });
 
+  test("an uppercase literal in branchFormat still matches sameTicket and sameSlug", async () => {
+    const repo = makeRepo();
+    await declareWorktrees(repo, repoName, { branchFormat: "Feature/<ticket>/<slug>" });
+    seedClaimed(repo, repoName, "first", "Feature/rt-99/do-the-thing");
+    const { h } = makeHandlers({ [repoName]: repo });
+
+    const res: any = await h["worktree:provision-check"]!({
+      repoName, ticket: "RT-99", ticketTitle: "Do the thing",
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.data.base).toBe("Feature/rt-99/do-the-thing");
+    expect(res.data.sameTicket.map((t: any) => t.tree)).toEqual(["first"]);
+    expect(res.data.sameSlug.map((t: any) => t.tree)).toEqual(["first"]);
+  });
+
   test("changes nothing: registry, events and reconciler kicks are untouched", async () => {
     const repo = makeRepo();
     seedOnDeck(repo, repoName, "alpha", new Date().toISOString());

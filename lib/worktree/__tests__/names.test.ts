@@ -194,6 +194,7 @@ describe("belongsToTicket", () => {
   it("honors a literal prefix before the ticket", () => {
     const f = "feature/<ticket>/<slug>";
     expect(belongsToTicket("feature/acme-12/fix", "acme-12", f)).toBe(true);
+    expect(belongsToTicket("Feature/acme-12/fix-login", "ACME-12", "Feature/<ticket>/<slug>")).toBe(true);
     expect(belongsToTicket("acme-12-fix", "acme-12", f)).toBe(false);
   });
 
