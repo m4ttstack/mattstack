@@ -377,6 +377,24 @@ describe("compile-pipelines", () => {
     expect(copy).not.toContain("evidence-a body");
   }, 30_000);
 
+  test("pack/pipelines.json points each pipeline at its own stage copy", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const { errors } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+
+    const { pipelines } = JSON.parse(readFileSync(join(pack, "pack", "pipelines.json"), "utf8"));
+    expect(Object.keys(pipelines).sort()).toEqual(["accessibility", "feature"]);
+    const evidence = (pipeline: string) => pipelines[pipeline].find((s: { stage: string }) => s.stage === "evidence");
+    expect(evidence("feature")).toMatchObject({ name: "stage-evidence", file: "attachments/stage-evidence/SKILL.md" });
+    expect(evidence("accessibility")).toMatchObject({ name: COPY, file: `attachments/${COPY}/SKILL.md` });
+    for (const stages of Object.values(pipelines) as { file: string }[][]) {
+      for (const { file } of stages) expect(existsSync(join(pack, file))).toBe(true);
+    }
+    const payload = await checkPack({ packDir: pack, mattstackDir: ms, manifest });
+    expect(payload.compileErrors).toEqual([]);
+    expect(payload.drift).toBe(false);
+  }, 30_000);
+
   test("work-a11y compiles against its pipeline", async () => {
     const { pack, ms, manifest } = buildPipelines();
     const { errors } = await compileCapturingLogs(pack, ms, manifest);
