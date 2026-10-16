@@ -297,7 +297,10 @@ description. The skill calls it only after the attach gate's proceed.
   blocks. It is printed inside the section after the generated content, so
   it is replaced along with the section, never duplicated.
 - The target is `mrUrl` (or `repoName` plus `iid`), else the run's `mr`
-  field. The repo is that target's, else the run's `repo` column.
+  field. The repo is that target's, else the run's `repo` column. An `iid`
+  passed with neither `mrUrl` nor `repoName` must match the `mr` field's
+  iid (a GitHub field's PR number); a mismatch is refused before any
+  upload.
 
 **Steps:**
 1. **Read.** `run_snapshot` gives `evidence`, `evidence-uploads` and

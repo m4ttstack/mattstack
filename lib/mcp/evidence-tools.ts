@@ -401,14 +401,22 @@ async function resolveAttachTarget(deps: EvidenceToolDeps, input: Obj, mrField: 
   }
   const mrUrl = explicit ? input.mrUrl : mrField;
   const fieldFallback = input.mrUrl === undefined && input.iid === undefined ? mrField : undefined;
-  const github = (): Target => {
+  const loneIid = explicit ? undefined : input.iid;
+  const iidMismatch = (named: number | null | undefined) =>
+    loneIid !== undefined && named !== loneIid
+      ? { error: `iid ${String(loneIid)} does not match the run's mr field ${String(mrUrl).trim()}; pass mrUrl, or repoName with iid` }
+      : null;
+  const github = (): Target | { error: string } => {
     const url = githubUrl(mrUrl) ?? githubUrl(fieldFallback);
-    return { forge: "github", mr: url, number: prNumber(url, input.iid) };
+    const number = prNumber(url, input.iid);
+    return iidMismatch(number) ?? { forge: "github", mr: url, number };
   };
   if (refuseGithubTarget({ repoName: input.repoName, mrUrl }, "evidence_attach", "") !== null) return github();
   const target = await deps.resolveRepo(explicit ? { repoName: input.repoName, iid: input.iid, mrUrl: input.mrUrl } : { mrUrl });
   if (!target.ok) return { error: target.error };
   if (githubRefusal(target.identity, "evidence_attach", "") !== null) return github();
+  const mismatch = iidMismatch(target.iid);
+  if (mismatch) return mismatch;
   if (target.iid === undefined && fieldFallback !== undefined) {
     const mismatch = (named: string) => ({ error: `repoName resolves to ${target.identity}, but the run's mr field names ${named}; pass mrUrl, or repoName with iid` });
     if (githubUrl(fieldFallback)) return mismatch(fieldFallback.trim());
@@ -739,7 +747,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way is sent again, and if it is refused again it stays linked, is listed in linked, and does not block. The target is mrUrl, or repoName with iid, else the run's mr field; with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way is sent again, and if it is refused again it stays linked, is listed in linked, and does not block. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {

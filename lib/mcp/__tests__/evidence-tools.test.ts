@@ -621,6 +621,29 @@ describe("evidence_attach", () => {
     expect(body.descriptionWritten).toBe(true);
   });
 
+  test("an iid alone must match the run's mr field: a match proceeds, a mismatch is refused before any upload", async () => {
+    const { evidence } = boardRecord();
+    const same = makeDeps({ fields: { evidence, mr: MR_URL } });
+    const body = (await tool(same.deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, iid: 7 }, env)).body as AttachBody;
+    expect(body.descriptionWritten).toBe(true);
+    expect(same.calls.find((c) => c.cmd === "mr:update")!.payload).toMatchObject({ repoName: IDENT, iid: 7 });
+
+    const other = makeDeps({ fields: { evidence, mr: MR_URL } });
+    const res = await tool(other.deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, iid: 8 }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe(`iid 8 does not match the run's mr field ${MR_URL}; pass mrUrl, or repoName with iid`);
+    expect(other.calls.length).toBe(0);
+  });
+
+  test("an iid alone that does not match a GitHub mr field is refused", async () => {
+    const { evidence } = boardRecord();
+    const gh = "https://github.com/acme/web/pull/5";
+    const { deps } = makeDeps({ fields: { evidence, mr: gh } });
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, iid: 6 }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe(`iid 6 does not match the run's mr field ${gh}; pass mrUrl, or repoName with iid`);
+  });
+
   test("repoName alone with a run mr field in another repo is refused before any upload", async () => {
     const { evidence } = boardRecord();
     const { deps, calls } = makeDeps({ fields: { evidence, mr: "https://gitlab.com/acme/api/-/merge_requests/3" } });
