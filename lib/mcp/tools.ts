@@ -15,6 +15,7 @@ import {
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion } from "../../packages/rt-client/src/index.ts";
 import { ensureLease } from "../ci/lease-guard.ts";
+import { isAbsolute } from "path";
 import { explainError } from "../explain-error.ts";
 import { selfPaneRef } from "../self-pane.ts";
 import { chatToolDefs } from "./chat-tools.ts";
@@ -26,6 +27,7 @@ import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { herdToolDefs } from "./herd-tools.ts";
 import { mrReadToolDefs } from "./mr-read-tools.ts";
 import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, REBASE_DEFAULT_WAIT_S, REBASE_MAX_WAIT_S, REBASE_POLL_MS, waitForRebase, type OpenMr } from "./mr-composite-tools.ts";
+import { evidenceToolDefs, MR_UPLOAD_TIMEOUT_MS, realEvidenceToolDeps, uploadEach } from "./evidence-tools.ts";
 import { forgeReadToolDefs } from "./forge-read-tools.ts";
 import { stackToolDefs } from "./stack-tool.ts";
 import { runToolDefs } from "./run-tools.ts";
@@ -42,7 +44,6 @@ import {
 export type { McpToolDef } from "./shared.ts";
 
 /** A 50 MB multipart POST over a slow link outlives the 30s write timeout. */
-const MR_UPLOAD_TIMEOUT_MS = 120_000;
 
 /** A review is one GitLab request per comment and reply, in sequence. */
 const MR_REVIEW_SUBMIT_TIMEOUT_MS = 180_000;
@@ -56,6 +57,7 @@ function withReviewTimeout(res: ToolResult): ToolResult {
 }
 
 const MR_CREATE_GH_MOVE = "gh pr create / gh pr view";
+const MR_UPLOAD_GH_MOVE = "GitHub has no upload API; link the local path instead";
 const MR_REBASE_GH_MOVE = "no server-side rebase on GitHub";
 
 function existingMrResult(mr: OpenMr): ToolResult {
@@ -583,21 +585,41 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_upload",
-      description: `GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Pass runId when the file is a pipeline run's evidence: the daemon then also refuses a file that run's evidence record does not list as an annotated image or a waived capture, and names the file. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Upload local images or videos (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; pass path for one file or paths (1 to 20, never both) for several, which upload in order, report each file as {path, ok, url, markdown} or {path, ok: false, error} under results, and do not stop at a failure; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. Every path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Pass runId when the file is a pipeline run's evidence: the daemon then also refuses a file that run's evidence record does not list as an annotated image or a waived capture, and names the file. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
           ...REPO_TARGET_PROPS,
-          path: { type: "string", description: "Absolute path of the file to upload." },
+          path: { type: "string", description: "Absolute path of the file to upload. Pass this or paths." },
+          paths: { type: "array", items: { type: "string" }, description: "1 to 20 absolute paths, uploaded one at a time in order. Pass this or path." },
           runId: { type: "string", description: "A pipeline run's id. With it, the file must be in that run's evidence record as an annotated image or a waived capture." },
         },
-        required: ["path"],
         additionalProperties: false,
       },
       shellForms: { none: "uploads have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
-        const bad = checkRequired(input, [{ name: "path", type: "string" }]) ?? checkOptional(input, [{ name: "runId", type: "string" }]);
+        const bad = checkOptional(input, [{ name: "path", type: "string" }, { name: "runId", type: "string" }]);
         if (bad) return err(bad);
+        if (input.path !== undefined && input.paths !== undefined) return err('pass "path" or "paths", not both');
+        if (input.path === undefined && input.paths === undefined) return err('pass "path" or "paths"');
+        if (input.paths !== undefined) {
+          const paths = input.paths;
+          if (!Array.isArray(paths) || paths.some((p) => typeof p !== "string")) return err('"paths" must be an array of strings');
+          if (paths.length < 1 || paths.length > 20) return err(`"paths" takes 1 to 20 paths; got ${paths.length}`);
+          const relative = (paths as string[]).find((p) => !isAbsolute(p));
+          if (relative !== undefined) return err(`"paths" entries must be absolute; "${relative}" is not`);
+          const early = refuseGithubTarget(input, "mr_upload", MR_UPLOAD_GH_MOVE);
+          if (early) return err(early);
+          const batchTarget = await resolveRepoTarget(input);
+          if (!batchTarget.ok) return err(batchTarget.error);
+          const results = await uploadEach({ ...realEvidenceToolDeps, command: rtCommand }, {
+            identity: batchTarget.identity,
+            paths: paths as string[],
+            runId: typeof input.runId === "string" ? input.runId : undefined,
+            retryTimeoutOnce: false,
+          });
+          return ok({ results: results.map((r) => (r.ok ? r : { path: r.path, ok: false, error: r.error })) });
+        }
         const target = await resolveRepoTarget(input);
         if (!target.ok) return err(target.error);
         const payload: Commands["mr:upload"]["payload"] = { repoName: target.identity, path: input.path as string };
@@ -874,5 +896,6 @@ export function mcpTools(): McpToolDef[] {
     ...chatToolDefs(),
     ...whoamiToolDefs(),
     ...ciToolDefs(),
+    ...evidenceToolDefs(),
   ];
 }
