@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import type { Logger } from "pino";
 import type { HerdJobRow, HerdRow } from "../herd-store.ts";
-import { evaluateJob, evaluateShepherd, HerdWatchdog, runWatchdogSweep, type WatchdogActuators, type WatchdogConfig, type WatchdogSensors } from "../herd-watchdog.ts";
+import { evaluateJob, evaluateShepherd, HerdWatchdog, runWatchdogSweep, type WatchdogActuators, type WatchdogConfig, type WatchdogPersist, type WatchdogSensors } from "../herd-watchdog.ts";
 
 const NOW = 10_000_000;
 const MIN = 60_000;
@@ -32,8 +32,8 @@ function job(over: Partial<HerdJobRow> = {}): HerdJobRow {
   return {
     herd: "demo-1", name: "job-a", worktree: "/w", branch: null, tree: null,
     pane: "w1:p1", agentSession: "sess-a", agentId: null, handle: "job-a",
-    status: "active", disposable: false, lastGate: null, lastReport: null,
-    createdAt: NOW - 60 * MIN, updatedAt: NOW - 60 * MIN,
+    status: "active", disposable: false, model: null, effort: null, account: null,
+    lastGate: null, lastReport: null, createdAt: NOW - 60 * MIN, updatedAt: NOW - 60 * MIN,
     ...over,
   };
 }
@@ -394,7 +394,7 @@ describe("evaluateShepherd", () => {
 describe("HerdWatchdog ladder", () => {
   type Level = "info" | "warn" | "debug" | "error";
 
-  function rig(opts: { sensors?: Partial<WatchdogSensors>; cfg?: Partial<WatchdogConfig>; herd?: HerdRow; jobs?: HerdJobRow[] } = {}) {
+  function rig(opts: { sensors?: Partial<WatchdogSensors>; cfg?: Partial<WatchdogConfig>; herd?: HerdRow; jobs?: HerdJobRow[]; persist?: WatchdogPersist } = {}) {
     const clock = { now: NOW };
     const pokes: { pane: string; text: string }[] = [];
     const parks: { herd: string; job: string }[] = [];
@@ -424,7 +424,7 @@ describe("HerdWatchdog ladder", () => {
     const jobs = opts.jobs ?? [job()];
     const s = sensors({ now: () => clock.now, herds: () => [h], jobs: (id) => (id === h.id ? jobs : []), ...opts.sensors });
     const c: WatchdogConfig = { ...cfg, ...opts.cfg };
-    const wd = new HerdWatchdog({ sensors: s, act, cfg: () => c, log });
+    const wd = new HerdWatchdog({ sensors: s, act, cfg: () => c, log, persist: opts.persist });
     const tick = async (mins = 0) => { clock.now += mins * MIN; await wd.sweep(); };
     const shepherdPokes = () => pokes.filter((p) => p.pane === "w1:p0");
     const workerPokes = () => pokes.filter((p) => p.pane === "w1:p1");
@@ -435,6 +435,89 @@ describe("HerdWatchdog ladder", () => {
 
   const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
   const shepherdWedged = (): Partial<WatchdogSensors> => ({ paneState: () => "idle", openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }] });
+
+  function memoryPersist() {
+    const ladders = new Map<string, { key: string; strikes: number; lastPokeAt: number | null; since: number; parked: boolean }>();
+    const marks = new Map<string, { kind: "action" | "notified"; key: string; at: number }>();
+    const persist: WatchdogPersist = {
+      load: () => ({ ladders: [...ladders.values()].map((l) => ({ ...l })), marks: [...marks.values()].map((m) => ({ ...m })) }),
+      saveLadder: (row) => { ladders.set(row.key, { ...row }); },
+      deleteLadder: (key) => { ladders.delete(key); },
+      mark: (kind, key, at) => { marks.set(`${kind}:${key}`, { kind, key, at }); },
+      clear: () => { ladders.clear(); marks.clear(); },
+    };
+    return persist;
+  }
+
+  test("ladder survives a rebuild from the same persist store", async () => {
+    const persist = memoryPersist();
+    const r = rig({ sensors: workerWedged(), persist });
+    await r.tick();
+    await r.tick(5);
+    await r.tick(5);
+    expect(r.wd.annotations("demo-1", "job-a")).toEqual({ strikes: 3, lastPokeAt: NOW + 10 * MIN });
+
+    const rebuilt = rig({ sensors: workerWedged(), persist });
+    expect(rebuilt.wd.annotations("demo-1", "job-a")).toEqual({ strikes: 3, lastPokeAt: NOW + 10 * MIN });
+    rebuilt.clock.now = NOW + 15 * MIN;
+    await rebuilt.tick();
+    expect(rebuilt.wd.annotations("demo-1", "job-a")).toEqual({ strikes: 4, lastPokeAt: NOW + 15 * MIN });
+    expect(rebuilt.workerPokes()).toEqual([]);
+  });
+
+  test("a rebuilt watchdog keeps the retry clock and the notification quiet period", async () => {
+    const persist = memoryPersist();
+    const r = rig({ sensors: workerWedged(), persist, herd: herd({ shepherdPane: null }) });
+    await r.tick();
+    await r.tick(5);
+    await r.tick(5);
+    expect(r.notes).toHaveLength(1);
+
+    const rebuilt = rig({ sensors: workerWedged(), persist, herd: herd({ shepherdPane: null }) });
+    rebuilt.clock.now = NOW + 12 * MIN;
+    await rebuilt.tick();
+    expect(rebuilt.wd.annotations("demo-1", "job-a")?.strikes).toBe(3);
+    await rebuilt.tick(3);
+    expect(rebuilt.wd.annotations("demo-1", "job-a")?.strikes).toBe(4);
+    expect(rebuilt.notes).toEqual([]);
+  });
+
+  test("disabling clears persisted ladders and marks", async () => {
+    const persist = memoryPersist();
+    const r = rig({ sensors: workerWedged(), persist });
+    await r.tick();
+    expect(persist.load().ladders).toHaveLength(1);
+    expect(persist.load().marks).toHaveLength(1);
+
+    r.conf.enabled = false;
+    await r.tick(10);
+    expect(persist.load()).toEqual({ ladders: [], marks: [] });
+  });
+
+  test("a healthy verdict deletes the persisted ladder", async () => {
+    const persist = memoryPersist();
+    const wedged = { on: true };
+    const r = rig({ sensors: { ...idleFor(3), unreadDmMentionsFor: (h) => (h === "job-a" && wedged.on ? 1 : 0) }, persist });
+    await r.tick();
+    expect(persist.load().ladders).toEqual([{ key: "demo-1/job-a", strikes: 1, lastPokeAt: NOW, since: NOW, parked: false }]);
+
+    wedged.on = false;
+    await r.tick(1);
+    expect(persist.load().ladders).toEqual([]);
+    expect(persist.load().marks).toEqual([{ kind: "action", key: "demo-1/job-a", at: NOW }]);
+  });
+
+  test("a parked ladder persists its park flag", async () => {
+    const persist = memoryPersist();
+    const r = rig({ sensors: { paneState: () => "modal", idleSinceMs: () => NOW - 5 * MIN }, persist });
+    await r.tick();
+    expect(r.parks).toHaveLength(1);
+    expect(persist.load().ladders[0]).toMatchObject({ key: "demo-1/job-a", parked: true });
+    const rebuilt = rig({ sensors: { paneState: () => "modal", idleSinceMs: () => NOW - 5 * MIN }, persist });
+    rebuilt.clock.now = NOW + 6 * MIN;
+    await rebuilt.tick();
+    expect(rebuilt.parks).toEqual([]);
+  });
 
   test("a verdict that goes healthy before the poke lands is not injected: the evidence is re-read at poke time", async () => {
     // The unread count is read live, not from the pane snapshot, so a worker

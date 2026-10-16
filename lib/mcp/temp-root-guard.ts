@@ -78,7 +78,7 @@ export function cachedReadRoots(src: ReadRootSources, ttlMs = READ_ROOTS_TTL_MS)
 /** One per process, so herd_brief's handler and rt_verb's real deps share a resolution. */
 export const readRootsForThisProcess = cachedReadRoots({
   tempRoots: tempRootsForThisProcess,
-  pluginRoots: () => Object.values(buildPluginRoots(listInstalledPlugins({ timeoutMs: PLUGIN_LIST_TIMEOUT_MS })).byName).map((p) => p.dir),
+  pluginRoots: () => buildPluginRoots(listInstalledPlugins({ timeoutMs: PLUGIN_LIST_TIMEOUT_MS })).dirs ?? [],
   packRoots: () => discoverPacks().map((p) => p.dir),
   now: Date.now,
 });
