@@ -216,6 +216,11 @@ describe("postSelection", () => {
     expect(postSelection(handed, {})).toEqual({ findings: [], disposition: "comment", replies, restored });
   });
 
+  test("a handed outcome carrying a note records its value as the disposition", () => {
+    const handed = { findings: ["f1"], outcome: { value: "approve", note: "ship it" } } as unknown as AnswersMap;
+    expect(postSelection(handed, {})).toEqual({ findings: ["f1"], disposition: "approve" });
+  });
+
   test("a legacy tiers answer gives levels", () => {
     expect(postSelection({ tiers: ["Critical"], outcome: "comment" }, {})).toEqual({ levels: ["Critical"], disposition: "comment" });
   });

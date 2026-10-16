@@ -265,7 +265,7 @@ export function postSelection(a: AnswersMap, o: { source?: GateCtxSource }): Rec
   const outcome = a.outcome === undefined ? undefined : answerValue(a.outcome);
 
   if (Array.isArray(raw.findings)) {
-    const handed: Record<string, unknown> = { findings: raw.findings, disposition: raw.outcome };
+    const handed: Record<string, unknown> = { findings: raw.findings, disposition: outcome };
     if (raw.replies !== undefined) handed.replies = raw.replies;
     if (raw.restored !== undefined) handed.restored = raw.restored;
     return handed;
