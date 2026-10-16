@@ -284,7 +284,7 @@ branch of yours that has a tree, not the form's list. So the answer is yes
 only when all four hold:
 
 - the map was complete (no truncated read),
-- the plan pre-skipped no dirty tree (so no tree so no tree the sweep would
+- the plan pre-skipped no dirty tree (so no tree the sweep would
   visit outside the form),
 - every listed branch is selected,
 - the answer asked for no reorder.
