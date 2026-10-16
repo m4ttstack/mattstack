@@ -358,6 +358,28 @@ nothing was recorded (a `hold` / `iterate` next, or already reconciled).
 - Gates before done: `bun test` on every touched test file, `bun run
   check`, `bun run purity`.
 
+## Behavior changes from today
+
+What a caller sees differently once this ships, beyond the new tools:
+
+- `gate_ask` truncates an object option label over 200 bytes (middle)
+  and a description over 1024 bytes (end), and reports them in
+  `labelsTruncated`. Today the daemon refuses the open. This applies with
+  or without a run.
+- `gate_ask` / `gate_answer` results gain fields (`paneAction`,
+  `formChunks`, `formContext`, and the record fields on `gate_answer`).
+  Existing fields are unchanged.
+- Under a run, `gate_answer` and `gate_reconcile` with no `scope` default
+  the scope to the one whose `extra.gate-source.<scope>` names the gate,
+  else the row's `kind`. Without a run the scope is unused.
+- `gate_answer` refuses an empty or whitespace `scope`, like the other gate
+  tools.
+- `checkReadRootPath` takes an optional extension (default `.md`).
+  Existing callers are unchanged; `gate_open` and `gate_record` read
+  `.json`, checked on the realpath.
+- With no `runDb`, `gate_ask` and `gate_answer` send the daemon the same
+  payload as today for in-cap input and make no run call.
+
 ## Left to the builder
 
 - Internal names and file splits inside `lib/gates/`.
