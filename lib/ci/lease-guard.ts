@@ -30,7 +30,7 @@ export interface GuardOpts {
   keepalive?: LeaseKeepalive;
 }
 
-const NO_SESSION = "CLAUDE_CODE_SESSION_ID is not set; the lease is owned by a Claude Code session";
+export const NO_SESSION = "CLAUDE_CODE_SESSION_ID is not set; the lease is owned by a Claude Code session";
 
 export function ensureLease(mrUrl: string, env: NodeJS.ProcessEnv, opts: GuardOpts = {}): GuardResult {
   if (!isHttpsMrUrl(mrUrl)) return { ok: false, error: `not an https MR or PR URL: ${mrUrl}` };

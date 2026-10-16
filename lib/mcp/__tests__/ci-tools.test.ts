@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ciLeaseFileName } from "../../../packages/rt-client/src/index.ts";
+import { boardDoctorOwner, ciLeaseFileName, claimCiLease, readCiLease, releaseCiLease } from "../../../packages/rt-client/src/index.ts";
+import { LeaseKeepalive } from "../../ci/lease-keepalive.ts";
+import { watchStatePath } from "../../ci/watch-state.ts";
 import { abortableSleep, ciToolDefs } from "../ci-tools.ts";
 
 const MR = "https://gitlab.example.com/grp/proj/-/merge_requests/42";
@@ -307,6 +309,156 @@ describe("ci_watch", () => {
     const running = { id: "gitlab:pipeline:10", status: "running", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] };
     const r = await watchTool({ sleep: async () => { ac.abort(); } }, running).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A, ac.signal);
     expect(r).toMatchObject({ ok: true, body: { state: "aborted" } });
+  });
+});
+
+describe("ci_watch attend", () => {
+  const SHA = "a".repeat(40);
+  const NEXT = "d".repeat(40);
+  const MIN = 60_000;
+  const pipeline = (over: Record<string, unknown> = {}) => ({ id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [], ...over });
+  const target = { repoName: "remote:x", iid: 42 };
+
+  function attendDefs(world: { sha: string | null; webUrl?: string; pipeline: Record<string, unknown> | null; failed?: unknown[] }, over: Record<string, unknown> = {}) {
+    const keepalive = new LeaseKeepalive({ setInterval: () => ({}), clearInterval: () => {}, leaseOpts: () => ({ dir }) });
+    const defs = ciToolDefs({
+      leaseOpts: () => ({ dir }),
+      label: () => undefined,
+      watch: {
+        resolve: async () => ({ ok: true, identity: "remote:x", iid: 42 }),
+        command: (async (name: string) => {
+          if (name === "mr:get") return { ok: true, data: { mr: { iid: 42, sha: world.sha, webUrl: world.webUrl ?? MR, sourceBranch: "feat", pipeline: world.pipeline }, fetchedAt: 0 } };
+          if (name === "mr:pipeline-failed-jobs") return { ok: true, data: world.failed ?? [] };
+          if (name === "mr:fetch-job-trace") return { ok: true, data: "boom" };
+          return { ok: true, data: [] };
+        }) as any,
+        now: () => 0,
+        sleep: async () => {},
+        budgetMinutes: () => 75,
+        keepalive,
+        stateOpts: () => ({ dir }),
+        ...over,
+      },
+    });
+    const get = (name: string) => defs.find((x) => x.name === name)!;
+    return { watch: get("ci_watch"), release: get("ci_lease_release"), keepalive };
+  }
+  const state = () => JSON.parse(readFileSync(watchStatePath(MR, { dir }), "utf8"));
+
+  test("the first attend call claims the lease with the source branch, persists held, and counts no re-claim", async () => {
+    const { watch, keepalive } = attendDefs({ sha: SHA, pipeline: pipeline() });
+    const r = await watch.handler({ ...target, sha: SHA, attend: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "success", lease: { owner: "session:aaa" } } });
+    expect(readCiLease(MR, { dir }).lease).toMatchObject({ owner: "session:aaa", holder: "watch-ci", branch: "feat" });
+    expect(state()).toMatchObject({ sha: SHA, held: true, reclaims: 0, pipelineId: 10, pipelineStatus: "success", lastResult: "success" });
+    expect(keepalive.size()).toBe(1);
+  });
+  test("holder doctor claims as doctor", async () => {
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() });
+    await watch.handler({ ...target, sha: SHA, attend: true, holder: "doctor" }, A);
+    expect(readCiLease(MR, { dir }).lease).toMatchObject({ owner: "session:aaa", holder: "doctor" });
+  });
+  test("a vanished lease is re-claimed twice, then the watch ends lease_unavailable", async () => {
+    let clock = 0;
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline({ status: "running" }) }, {
+      now: () => clock,
+      sleep: async (ms: number) => { clock += ms; releaseCiLease(MR, "session:aaa", { dir }); },
+    });
+    const r = await watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 300 }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "lease_unavailable", polls: 4, lease: null } });
+    expect(typeof (r as any).body.error).toBe("string");
+    expect(state()).toMatchObject({ held: true, reclaims: 2, lastResult: null });
+  });
+  test("a fresh foreign lease is stood_down with its holder, and nothing is written", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, B);
+    const { watch, keepalive } = attendDefs({ sha: SHA, pipeline: pipeline() });
+    const r = await watch.handler({ ...target, sha: SHA, attend: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "stood_down", holder: { owner: "session:bbb" }, lease: null } });
+    expect(readCiLease(MR, { dir }).lease).toMatchObject({ owner: "session:bbb" });
+    expect(existsSync(watchStatePath(MR, { dir }))).toBe(false);
+    expect(keepalive.size()).toBe(0);
+  });
+  test("underBoardLease with attend and no board lease is stood_down and claims nothing", async () => {
+    const { watch, keepalive } = attendDefs({ sha: SHA, pipeline: pipeline() });
+    const r = await watch.handler({ ...target, sha: SHA, attend: true, underBoardLease: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "stood_down", holder: null } });
+    expect(readCiLease(MR, { dir })).toEqual({ lease: null, stale: null });
+    expect(existsSync(watchStatePath(MR, { dir }))).toBe(false);
+    expect(keepalive.size()).toBe(0);
+  });
+  test("underBoardLease with attend under a fresh board doctor lease writes the state and never touches the lease or keepalive", async () => {
+    const claimed = claimCiLease({ mrUrl: MR, owner: boardDoctorOwner(MR), holder: "doctor" }, { dir });
+    const { watch, keepalive } = attendDefs({ sha: SHA, pipeline: pipeline() });
+    const r = await watch.handler({ ...target, sha: SHA, attend: true, underBoardLease: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "success" } });
+    expect(readCiLease(MR, { dir }).lease?.heartbeatAt).toBe(claimed.claimed ? claimed.lease.heartbeatAt : -1);
+    expect(state()).toMatchObject({ held: false, lastResult: "success" });
+    expect(keepalive.size()).toBe(0);
+  });
+  test("a second call with no budgetMinutes reuses the persisted extension", async () => {
+    const world = { sha: SHA, pipeline: pipeline({ status: "running", createdAt: new Date(-200 * MIN).toISOString() }) };
+    const { watch } = attendDefs(world);
+    const r1 = await watch.handler({ ...target, sha: SHA, attend: true, extendMinutes: 30, maxWaitSeconds: 0 }, A);
+    expect(r1).toMatchObject({ ok: true, body: { state: "running", budget: { minutes: 230, spent: false } } });
+    const r2 = await watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 0 }, A);
+    expect(r2).toMatchObject({ ok: true, body: { state: "running", budget: { minutes: 230, spent: false } } });
+  });
+  test("a pipeline that last failed and runs again with no failed job reopens the window", async () => {
+    const job = { id: "gitlab:job:7", name: "unit", stage: "test", status: "failed", allowFailure: false, webUrl: null };
+    const world = { sha: SHA, pipeline: pipeline({ status: "running", createdAt: new Date(-200 * MIN).toISOString() }), failed: [job] as unknown[] };
+    const { watch } = attendDefs(world);
+    expect(await watch.handler({ ...target, sha: SHA, attend: true }, A)).toMatchObject({ body: { state: "failed" } });
+    world.failed = [];
+    const r = await watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 0 }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "running", budget: { minutes: 275, spent: false } } });
+  });
+  test("the no_pipeline clock persists across calls", async () => {
+    let clock = 0;
+    const { watch } = attendDefs({ sha: SHA, pipeline: null }, { now: () => clock });
+    expect(await watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 0 }, A)).toMatchObject({ body: { state: "waiting" } });
+    expect(state()).toMatchObject({ waitingSince: 0 });
+    clock = 10 * MIN;
+    expect(await watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 0 }, A)).toMatchObject({ body: { state: "no_pipeline", pushed: true, remoteSha: SHA } });
+  });
+  test("a new sha carries the old commit's pipeline id as its priorPipelineId", async () => {
+    const world: { sha: string; pipeline: Record<string, unknown> } = { sha: SHA, pipeline: pipeline() };
+    const { watch } = attendDefs(world);
+    await watch.handler({ ...target, sha: SHA, attend: true }, A);
+    world.sha = NEXT;
+    world.pipeline = pipeline({ id: "gitlab:pipeline:12", sha: "m".repeat(40), mergeRequestEventType: "merge_train" });
+    const r = await watch.handler({ ...target, sha: NEXT, attend: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "success", pipeline: { id: "gitlab:pipeline:12" } } });
+    expect(state()).toMatchObject({ sha: NEXT, priorPipelineId: 10, pipelineId: 12 });
+  });
+  test("a GitHub PR with attend is unsupported_forge, not an error", async () => {
+    const { watch } = attendDefs({ sha: SHA, webUrl: "https://github.com/acme/proj/pull/42", pipeline: pipeline() });
+    const r = await watch.handler({ ...target, sha: SHA, attend: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
+    expect(typeof (r as any).body.next).toBe("string");
+  });
+  test("holder without attend is an error", async () => {
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() });
+    const r = await watch.handler({ ...target, sha: SHA, holder: "doctor" }, A);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("attend");
+  });
+  test("an unknown holder is an error", async () => {
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() });
+    expect((await watch.handler({ ...target, sha: SHA, attend: true, holder: "x" }, A)).ok).toBe(false);
+  });
+  test("ci_lease_release drops this session's keepalive entry", async () => {
+    const { watch, release, keepalive } = attendDefs({ sha: SHA, pipeline: pipeline() });
+    await watch.handler({ ...target, sha: SHA, attend: true }, A);
+    expect(keepalive.size()).toBe(1);
+    expect(await release.handler({ mrUrl: MR }, A)).toMatchObject({ ok: true, body: { released: true } });
+    expect(keepalive.size()).toBe(0);
+  });
+  test("a call without attend writes no state file and touches no keepalive", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const { watch, keepalive } = attendDefs({ sha: SHA, pipeline: pipeline() });
+    expect(await watch.handler({ ...target, sha: SHA }, A)).toMatchObject({ ok: true, body: { state: "success" } });
+    expect(existsSync(watchStatePath(MR, { dir }))).toBe(false);
+    expect(keepalive.size()).toBe(0);
   });
 });
 

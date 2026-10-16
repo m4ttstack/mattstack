@@ -11,10 +11,12 @@ import {
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
 import { gitlabTriageForge } from "../ci/gitlab-forge.ts";
-import { isHttpsMrUrl, ownerFromEnv } from "../ci/lease-guard.ts";
+import { isHttpsMrUrl, NO_SESSION, ownerFromEnv } from "../ci/lease-guard.ts";
+import { keepalive as processKeepalive, type LeaseKeepalive } from "../ci/lease-keepalive.ts";
 import { mergeConfig, settingsConfig, type InlineConfig } from "../ci/triage-config.ts";
 import { runTriage } from "../ci/triage.ts";
-import { watchPipeline, type WatchDeps, type WatchPipeline } from "../ci/watch.ts";
+import { readWatchState, writeWatchState, type PersistedWatch } from "../ci/watch-state.ts";
+import { watchPipeline, type LeaseCheck, type WatchDeps, type WatchPipeline } from "../ci/watch.ts";
 import type { Pipeline as GlancePipeline } from "@mattstack/glance";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget } from "./mr-target.ts";
@@ -35,7 +37,8 @@ const INTERVAL_MAX = 120;
 // trace fetches, for a client that sends no progress token.
 const MAX_WAIT = 1500;
 const HOLDERS: CiLeaseHolder[] = ["watch-ci", "doctor"];
-const NO_SESSION = "CLAUDE_CODE_SESSION_ID is not set; the lease is owned by a Claude Code session";
+const NO_PIPELINE_MS = 10 * 60_000;
+const MAX_RECLAIMS = 2;
 const LEASE_NOTE = "One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.";
 
 export { ownerFromEnv, isHttpsMrUrl } from "../ci/lease-guard.ts";
@@ -54,6 +57,8 @@ export interface CiWatchToolDeps {
   now: () => number;
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   budgetMinutes: () => number;
+  keepalive: LeaseKeepalive;
+  stateOpts: () => { dir?: string };
 }
 
 export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -88,7 +93,10 @@ function settingBudget(): number {
   return isMinutes(v, BUDGET_MAX) ? v : BUDGET_DEFAULT;
 }
 
-const realWatchDeps: CiWatchToolDeps = { command: rtCommand, resolve: resolveMrTarget, now: Date.now, sleep: abortableSleep, budgetMinutes: settingBudget };
+const realWatchDeps: CiWatchToolDeps = {
+  command: rtCommand, resolve: resolveMrTarget, now: Date.now, sleep: abortableSleep, budgetMinutes: settingBudget,
+  keepalive: processKeepalive, stateOpts: () => ({}),
+};
 
 const TRACE_TAIL = 40;
 
@@ -170,7 +178,11 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
       inputSchema: { type: "object", properties: { ...MR_URL_PROP }, required: ["mrUrl"], additionalProperties: false },
       shellForms: ["rt ci lease release"],
       async handler(input, env) {
-        return leaseCall(input, env, deps.owner, (mrUrl, owner) => releaseCiLease(mrUrl, owner, deps.leaseOpts()));
+        return leaseCall(input, env, deps.owner, (mrUrl, owner) => {
+          const released = releaseCiLease(mrUrl, owner, deps.leaseOpts());
+          w.keepalive.drop(mrUrl, owner);
+          return released;
+        });
       },
     },
     {
@@ -187,7 +199,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
     },
     {
       name: "ci_watch",
-      description: `GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap ${MAX_WAIT}) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default ${BUDGET_DEFAULT}), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap ${MAX_WAIT}) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default ${BUDGET_DEFAULT}), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. With attend: true the call attends the MR itself: every poll heartbeats this session's lease or, when none is held, claims it (holder, with the MR's source branch); a lease that vanishes is re-claimed at most ${MAX_RECLAIMS} times per commit, and the lease is kept alive between calls until ci_lease_release. The budget window, prior pipeline id and waiting clock persist per MR, so later calls need not pass budgetMinutes or priorPipelineId, and a pipeline that last failed and runs again opens a fresh window by itself. attend adds the states timeout (still running past the budget), no_pipeline (${NO_PIPELINE_MS / 60_000} minutes of waiting with no pipeline for sha; pushed says whether the MR head is at sha, remoteSha is that head), stood_down (another owner attends; carries holder), lease_unavailable (the lease could not be claimed or kept; carries error) and unsupported_forge (a GitHub PR), and never returns lease_lost. With underBoardLease and attend it still only reads the board doctor lease. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -200,6 +212,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           freshWindow: { type: "boolean", description: "true opens a fresh window of the ci.watch.budgetMinutes setting past the pipeline's current age, as extendMinutes does; pass it after a job retry (budgetMinutes is ignored), never with extendMinutes." },
           priorPipelineId: { type: "number", description: "The MR's head pipeline id read before the push: the numeric part of a gitlab:pipeline:N id, as mr_pipeline returns it." },
           underBoardLease: { type: "boolean" },
+          attend: { type: "boolean", description: "true: claim and keep this session's lease and persist the watch window for the MR." },
+          holder: { type: "string", enum: HOLDERS, description: "The role a claim takes, watch-ci (default) or doctor; only with attend." },
         },
         required: ["sha"],
         additionalProperties: false,
@@ -207,7 +221,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
       shellForms: ["rt ci watch"],
       async handler(input, env, signal, progress) {
         const bad = checkRequired(input, [{ name: "sha", type: "string" }])
-          ?? checkOptional(input, [{ name: "maxWaitSeconds", type: "number" }, { name: "intervalSeconds", type: "number" }, { name: "budgetMinutes", type: "number" }, { name: "extendMinutes", type: "number" }, { name: "freshWindow", type: "boolean" }, { name: "priorPipelineId", type: "number" }, { name: "underBoardLease", type: "boolean" }])
+          ?? checkOptional(input, [{ name: "maxWaitSeconds", type: "number" }, { name: "intervalSeconds", type: "number" }, { name: "budgetMinutes", type: "number" }, { name: "extendMinutes", type: "number" }, { name: "freshWindow", type: "boolean" }, { name: "priorPipelineId", type: "number" }, { name: "underBoardLease", type: "boolean" }, { name: "attend", type: "boolean" }, { name: "holder", type: "string" }])
           ?? checkPositiveInts(input, ["priorPipelineId"]);
         if (bad) return err(bad);
         const sha = (input.sha as string).trim();
@@ -220,8 +234,11 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (input.extendMinutes !== undefined && !isMinutes(input.extendMinutes, EXTEND_MAX)) return err(`"extendMinutes" must be an integer from 1 to ${EXTEND_MAX}`);
         const fresh = input.freshWindow === true;
         if (fresh && input.extendMinutes !== undefined) return err('"freshWindow" and "extendMinutes" cannot be combined');
+        const attend = input.attend === true;
+        if (input.holder !== undefined && !attend) return err('"holder" is only valid with "attend": true');
+        const holder = (input.holder as CiLeaseHolder | undefined) ?? "watch-ci";
+        if (!HOLDERS.includes(holder)) return err('"holder" must be watch-ci or doctor');
         const setting = w.budgetMinutes();
-        const budgetMinutes = fresh ? setting : (input.budgetMinutes as number | undefined) ?? setting;
         const extendMinutes = fresh ? setting : (input.extendMinutes as number | undefined);
         const owner = deps.owner(env);
         if (!owner) return err(NO_SESSION);
@@ -229,13 +246,54 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (!target.ok) return err(target.error);
 
         let mrUrl: string | null = null;
+        let sourceBranch: string | undefined;
         const underBoard = input.underBoardLease === true;
         let firstRead: Awaited<ReturnType<WatchDeps["readMr"]>> | null = null;
+        // Only set with attend; the leaseCheck mutates held and reclaims, and observe persists them once a poll proves the lease.
+        let watched: PersistedWatch | null = null;
+        let proved = false;
+        const stateOpts = () => ({ ...w.stateOpts(), now: w.now });
+
+        const attendLease = (url: string, st: PersistedWatch): LeaseCheck => {
+          const opts = deps.leaseOpts();
+          if (underBoard) {
+            const { lease } = readCiLease(url, opts);
+            if (lease && lease.owner === boardDoctorOwner(url)) return { ok: true, lease };
+            return { ok: false, reason: "stood_down", holder: lease };
+          }
+          try {
+            const hb = heartbeatCiLease(url, owner, opts);
+            if (hb.ok) {
+              w.keepalive.touch(url, owner);
+              return { ok: true, lease: hb.lease };
+            }
+            const { lease: current } = readCiLease(url, opts);
+            if (current && leaseOwner(current) !== owner) return { ok: false, reason: "stood_down", holder: current };
+            if (st.held && st.reclaims >= MAX_RECLAIMS) {
+              return { ok: false, reason: "unavailable", error: `the lease vanished again after ${MAX_RECLAIMS} re-claims for this commit` };
+            }
+            const label = deps.label(env);
+            const claim = claimCiLease({
+              mrUrl: url, owner, holder,
+              ...(sourceBranch !== undefined && { branch: sourceBranch }),
+              ...(label !== undefined && { sessionLabel: label }),
+            }, opts);
+            if (!claim.claimed) return { ok: false, reason: "stood_down", holder: claim.holder };
+            if (st.held) st.reclaims++;
+            else st.held = true;
+            w.keepalive.touch(url, owner);
+            return { ok: true, lease: claim.lease };
+          } catch (e) {
+            return { ok: false, reason: "unavailable", error: e instanceof Error ? e.message : String(e) };
+          }
+        };
+
         const watchDeps: WatchDeps = {
           now: w.now,
           sleep: w.sleep,
           leaseCheck: () => {
             if (!mrUrl) return { ok: false, holder: null, reason: "none" };
+            if (watched) return attendLease(mrUrl, watched);
             if (underBoard) {
               const { lease } = readCiLease(mrUrl, deps.leaseOpts());
               if (lease && lease.owner === boardDoctorOwner(mrUrl)) return { ok: true, lease };
@@ -255,6 +313,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             const res = await w.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: 30_000 });
             if (!res.ok || !res.data) return { ok: false, error: explainError(res.error ?? "failed to read the MR") };
             const pr = res.data.mr;
+            if (typeof pr.sourceBranch === "string" && pr.sourceBranch !== "") sourceBranch = pr.sourceBranch;
             return { ok: true, mr: { iid: pr.iid, sha: pr.sha ?? null, webUrl: pr.webUrl ?? null, pipeline: toWatchPipeline(pr.pipeline) } };
           },
           commitParents: async (s) => {
@@ -269,6 +328,18 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             const r = await w.command<Commands["mr:fetch-job-trace"]["data"]>("mr:fetch-job-trace", { repoName: target.identity, iid: target.iid, jobId }, { timeoutMs: 60_000 });
             return r.ok ? tailTrace(r.data ?? "", TRACE_TAIL).trace : null;
           },
+          observe: (o) => {
+            if (!watched) return;
+            if (o.pipelineId !== null) {
+              watched.pipelineId = o.pipelineId;
+              watched.pipelineStatus = o.pipelineStatus;
+            }
+            watched.budgetMinutes = o.budgetMinutes ?? watched.budgetMinutes;
+            watched.priorPipelineId = o.priorPipelineId;
+            watched.waitingSince = o.waitingSince;
+            writeWatchState(watched, stateOpts());
+            proved = true;
+          },
         };
 
         const first = await watchDeps.readMr();
@@ -277,12 +348,28 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         mrUrl = first.mr.webUrl;
         if (!mrUrl) return err(`GitLab returned MR !${target.iid} with no web URL`);
         if (parseMrUrl(mrUrl) === null || (first.mr.pipeline !== null && !first.mr.pipeline.id.startsWith("gitlab:"))) {
-          return err("ci_watch is GitLab only");
+          return attend ? ok({ ...unsupportedGithub("ci_watch"), sha }) : err("ci_watch is GitLab only");
         }
 
         try {
-          const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, budgetMinutes, ...(extendMinutes !== undefined && { extendMinutes }), ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
-          return "state" in r ? ok(r) : err(r.error);
+          if (attend) watched = readWatchState(mrUrl, sha, stateOpts());
+          const budgetMinutes = fresh ? setting : (input.budgetMinutes as number | undefined) ?? watched?.budgetMinutes ?? setting;
+          const priorPipelineId = typeof input.priorPipelineId === "number" ? input.priorPipelineId : watched?.priorPipelineId ?? undefined;
+          const retried = watched && (watched.lastResult === "failed" || watched.lastResult === "canceled") ? watched.pipelineId : null;
+          const r = await watchPipeline({
+            sha, maxWaitSeconds: maxWait, intervalSeconds: interval, budgetMinutes,
+            ...(extendMinutes !== undefined && { extendMinutes }),
+            ...(priorPipelineId !== undefined && { priorPipelineId }),
+            ...(watched && { attend: { waitingSince: watched.waitingSince, noPipelineMs: NO_PIPELINE_MS, lastFailedPipelineId: retried, freshMinutes: setting } }),
+            ...(signal && { signal }),
+          }, watchDeps);
+          if (!("state" in r)) return err(r.error);
+          // Only the MR's current attendant writes: a call that stood down or lost the lease leaves the window to whoever holds it.
+          if (watched && proved && r.state !== "stood_down" && r.state !== "lease_unavailable") {
+            watched.lastResult = r.state;
+            writeWatchState(watched, stateOpts());
+          }
+          return ok(r);
         } catch (e) {
           return err(e instanceof Error ? e.message : String(e));
         }
