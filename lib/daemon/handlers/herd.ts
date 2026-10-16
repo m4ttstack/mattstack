@@ -33,6 +33,7 @@ import { attendPane } from "../attend.ts";
 import type { TrustOutcome } from "../trust-accept.ts";
 import { BG_SESSION } from "../bg-service.ts";
 import { paneStatusSnapshot, paneStatuses } from "../pane-statuses.ts";
+import { injectIntoPane } from "../inject.ts";
 import type { BgService } from "../bg-service.ts";
 import type { BgClaimsStore } from "../bg-claims-store.ts";
 
@@ -48,7 +49,7 @@ export interface HerdDeps {
   store: HerdStore;
   gateStore: Pick<GatesStore, "get" | "markConsumed">;
   gate: Pick<ReturnType<typeof createGateHandlers>, "gate:open" | "gate:list" | "gate:close" | "gate:subscribe" | "gate:subscriptions" | "gate:unsubscribe">;
-  chat: Pick<ReturnType<typeof createChatHandlers>, "chat:sign-in" | "chat:sign-out" | "chat:join" | "chat:post" | "chat:archive" | "chat:rooms">;
+  chat: Pick<ReturnType<typeof createChatHandlers>, "chat:sign-in" | "chat:sign-out" | "chat:join" | "chat:post" | "chat:dm" | "chat:archive" | "chat:rooms">;
   agent: Pick<ReturnType<typeof createAgentHandlers>, "agent:start">;
   worktree: { "worktree:provision": (payload: any) => Promise<any>; "worktree:dispose": (payload: any) => Promise<any> };
   runWorktree: (runId: string) => string | null;
@@ -77,6 +78,8 @@ export interface HerdDeps {
   registry?: { load(repo: string): TreeRecord[]; byPath(path: string): { repoName: string; tree: string } | null };
   /** The visible screen text of a bare pane id on a herdr socket, or null when it cannot be read; defaults to herdr's `pane.read`. */
   paneScreen?: (pane: string, socket: string | null) => Promise<string | null>;
+  /** Types a line into a pane for `herd:nudge`; defaults to lib/daemon/inject.ts. */
+  inject?: typeof injectIntoPane;
   log: Logger;
 }
 
@@ -442,6 +445,25 @@ export function createHerdHandlers(deps: HerdDeps) {
     return settled;
   }
 
+  function isJobGate(gate: Pick<GateRow, "subject">, herdId: string, job: HerdJobRow): boolean {
+    if (gate.subject === herdSubject(herdId, job.name)) return true;
+    return gate.subject.startsWith("run:") && deps.runWorktree(gate.subject.slice("run:".length)) === job.worktree;
+  }
+
+  /** The job's pane reading and its open gates. A pane herdr cannot snapshot
+      is unknown, never gone, so the caller refuses rather than guesses. */
+  async function readJobPane(herd: HerdRow, job: HerdJobRow): Promise<
+    { ok: true; bare: string | null; paneState: ReturnType<typeof readingState> | null; gates: GateRow[] } | { ok: false; error: string }
+  > {
+    const bare = job.pane ? parsePaneRef(job.pane).paneId : null;
+    const [panes, own, runs] = await Promise.all([
+      bare ? paneStatusSnapshot(deps.herdr, herd.herdrSocket) : null, openHerdGates(herd.id), listHerdRunGates(herd.id),
+    ]);
+    if (bare && !panes) return { ok: false, error: `herdr is unreachable on ${herd.herdrSocket ?? "the default socket"}; the pane's state is unknown` };
+    const paneState = bare && panes ? readingState(panes.get(bare)) : null;
+    return { ok: true, bare, paneState, gates: [...own, ...runs].filter((g) => isJobGate(g, herd.id, job)) };
+  }
+
   function uniqueHerdId(name: string): string {
     const base = mintHerdId(name);
     if (!store.get(base)) return base;
@@ -643,16 +665,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       const job = herd ? store.getJob(herdId, name) : null;
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
 
-      const bare = job.pane ? parsePaneRef(job.pane).paneId : null;
-      const [panes, own, runs] = await Promise.all([
-        bare ? paneStatusSnapshot(deps.herdr, herd.herdrSocket) : null, openHerdGates(herdId), listHerdRunGates(herdId),
-      ]);
-      if (bare && !panes) return { ok: false, error: `herdr is unreachable on ${herd.herdrSocket ?? "the default socket"}; the pane's state is unknown` };
-      const paneState = bare && panes ? readingState(panes.get(bare)) : null;
-      const gates = [
-        ...own.filter((g) => g.subject === herdSubject(herdId, name)),
-        ...runs.filter((g) => deps.runWorktree(g.subject.slice("run:".length)) === job.worktree),
-      ];
+      const read = await readJobPane(herd, job);
+      if (!read.ok) return read;
+      const { bare, paneState, gates } = read;
       // The text is classified and dropped here: raw pane text never reaches
       // the caller.
       const screen = bare && paneState === "idle" ? await paneScreen(bare, herd.herdrSocket) : null;
@@ -670,6 +685,51 @@ export function createHerdHandlers(deps: HerdDeps) {
           budgets: jobBudgets(store.budgetRows(herdId, name)),
         },
       };
+    },
+
+    "herd:nudge": async (raw: unknown): Promise<CommandResult<"herd:nudge">> => {
+      const p = raw as Commands["herd:nudge"]["payload"] | undefined;
+      const herdId = str(p?.herd); const name = str(p?.job); const id = str(p?.gate);
+      if (!herdId || !name || !id) return { ok: false, error: "herd, job and gate are required" };
+      const herd = store.get(herdId);
+      const job = herd ? store.getJob(herdId, name) : null;
+      if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
+      const gate = deps.gateStore.get(id);
+      if (!gate) return { ok: false, error: `gate not found: ${id}` };
+      if (!isJobGate(gate, herdId, job)) return { ok: false, error: `gate ${id} is not job "${name}"'s; nudge a gate on its own subject or a run in its worktree` };
+      if (gate.status !== "answered") return { ok: false, error: `gate ${id} is ${gate.status}, not answered; only an answered gate needs a nudge` };
+      if (gate.consumedAt !== null || gate.released) return { ok: false, error: `gate ${id} is already consumed; the worker has read its answer` };
+      if (!gate.nudge?.session) return { ok: false, error: `gate ${id} names no session to nudge` };
+      if (gate.nudge.session !== job.agentSession) return { ok: false, error: `gate ${id} is stale: it was asked by a session job "${name}" no longer runs` };
+
+      const used = store.budgetRows(herdId, name).find((r) => r.counter === "nudges" && r.key === id)?.used ?? 0;
+      if (used === 0) {
+        const dm = await deps.chat["chat:dm"]({ from: herd.shepherdHandle, to: job.handle, body: `call herd_answer for ${id}` });
+        if (!dm.ok) return dm;
+        return { ok: true, data: { gate: id, rung: "dm", delivered: true, needsHuman: false, budget: budgetView(store.tickBudget(herdId, name, "nudges", id), "nudges") } };
+      }
+
+      type Why = NonNullable<Commands["herd:nudge"]["data"]["why"]>;
+      const undelivered = (why: Why): CommandResult<"herd:nudge"> =>
+        ({ ok: true, data: { gate: id, rung: "pane", delivered: false, needsHuman: true, why, budget: budgetView(used, "nudges") } });
+      const read = await readJobPane(herd, job);
+      if (!read.ok) return read;
+      if (read.bare === null || read.paneState === "gone") return undelivered("pane-gone");
+      if (read.paneState === "dead") return undelivered("not-claude");
+      if (read.paneState === "working") return undelivered("pane-busy");
+      // A blocked pane is showing a modal: typing would answer it.
+      if (read.paneState === "modal" || read.gates.some((g) => g.origin?.presentation === "form")) return undelivered("form-open");
+
+      const inject = deps.inject ?? injectIntoPane;
+      const typed = await inject({
+        paneId: read.bare, herdr: deps.herdr, ...(herd.herdrSocket && { sockPath: herd.herdrSocket }),
+        text: `shepherd: gate ${id} is answered; call herd_answer {gate: "${id}"} and act on it.`,
+      });
+      if (!typed.ok || typed.data.delivered !== "accepted") {
+        log.info({ herd: herdId, job: name, gate: id, delivery: typed.ok ? typed.data : typed.error }, "herd nudge: the pane line was not accepted");
+        return undelivered("refused");
+      }
+      return { ok: true, data: { gate: id, rung: "pane", delivered: true, needsHuman: false, budget: budgetView(store.tickBudget(herdId, name, "nudges", id), "nudges") } };
     },
 
     "herd:gates": async (raw: unknown): Promise<CommandResult<"herd:gates">> => {

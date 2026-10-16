@@ -59,6 +59,7 @@ export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { regist
     "chat:join": async (p: any) => { chatCalls.push({ verb: "join", payload: p }); order.push("chat:join"); return { ok: true as const, data: { handle: p.handle, memberCount: 1, unread: 0 } }; },
     "chat:post": async (p: any) => { chatCalls.push({ verb: "post", payload: p }); return { ok: true as const, data: { id: chatCalls.length, recipients: p.mentions ?? [], others: 0 } }; },
     "chat:archive": async (p: any) => { chatCalls.push({ verb: "archive", payload: p }); return { ok: true as const, data: { room: p.room, archivedAt: 1 } }; },
+    "chat:dm": async (p: any) => { chatCalls.push({ verb: "dm", payload: p }); return { ok: true as const, data: { room: "dm-room", id: chatCalls.length, recipients: [p.to], recipientNames: [p.to] } }; },
     // A minted herd id carries the wall clock, so the herd's own room is read
     // back off the store; the decoy row sits first so a handler that took the
     // first room instead of the herd's would read 9, not 3.
@@ -1848,6 +1849,206 @@ describe("herd:diagnose", () => {
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error).toBe(`unknown job "ghost" in herd "${herd}"`);
+  });
+});
+
+describe("herd:nudge", () => {
+  const Q = [{ id: "q", label: "?", multi: false, options: ["a"] }];
+
+  async function nudgeable(over: Partial<HerdDeps> = {}) {
+    const injects: Array<{ paneId: string; text: string; sockPath?: string }> = [];
+    const delivery: { result: Awaited<ReturnType<NonNullable<HerdDeps["inject"]>>> } = { result: { ok: true, data: { paneId: "w9:p1", delivered: "accepted" } } };
+    const hx = harness({
+      inject: async (o) => { injects.push({ paneId: o.paneId, text: o.text, ...(o.sockPath && { sockPath: o.sockPath }) }); return delivery.result; },
+      runWorktree: (id) => (id === "run-1" ? "/w/job-a" : "/elsewhere"),
+      ...over,
+    });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const herd = s.data.herd;
+    hx.store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a.w001", status: "active", pane: "w9:p1", agentSession: "sess-w1" });
+    hx.snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    const gate = hx.gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    hx.gateStore.answer(gate, { q: "a" }, "shepherd");
+    return { ...hx, herd, gate, injects, delivery };
+  }
+
+  const paneLine = (gate: string) => `shepherd: gate ${gate} is answered; call herd_answer {gate: "${gate}"} and act on it.`;
+
+  test("first nudge DMs the job handle from the shepherd and ticks", async () => {
+    const { h, herd, gate, chatCalls, injects, store } = await nudgeable();
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toEqual({ gate, rung: "dm", delivered: true, needsHuman: false, budget: { used: 1, cap: 2, spent: false } });
+    expect(chatCalls.filter((c) => c.verb === "dm").map((c) => c.payload)).toEqual([{ from: "shepherd", to: "job-a.w001", body: `call herd_answer for ${gate}` }]);
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("second nudge types into an idle pane with no form gate", async () => {
+    const { h, herd, gate, injects, chatCalls } = await nudgeable();
+    await h["herd:nudge"]({ herd, job: "job-a", gate });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toEqual({ gate, rung: "pane", delivered: true, needsHuman: false, budget: { used: 2, cap: 2, spent: true } });
+    expect(injects).toEqual([{ paneId: "w9:p1", text: paneLine(gate) }]);
+    expect(chatCalls.filter((c) => c.verb === "dm")).toHaveLength(1);
+  });
+
+  test("a hidden herd's pane nudge goes to the bare pane on its own socket", async () => {
+    const injects: Array<{ paneId: string; sockPath?: string }> = [];
+    const hx = harness({ inject: async (o) => { injects.push({ paneId: o.paneId, sockPath: o.sockPath }); return { ok: true, data: { paneId: o.paneId, delivered: "accepted" } }; } });
+    const s = await hx.h["herd:start"]({ ...START, hidden: true });
+    if (!s.ok) throw new Error(s.error);
+    const herd = s.data.herd;
+    hx.store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a", status: "active", pane: "bg:w9:p1", agentSession: "sess-w1" });
+    hx.snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "idle" }];
+    const gate = hx.gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    hx.gateStore.answer(gate, { q: "a" }, "shepherd");
+    hx.store.tickBudget(herd, "job-a", "nudges", gate);
+    const res = await hx.h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.delivered).toBe(true);
+    expect(injects).toEqual([{ paneId: "w9:p1", sockPath: "/tmp/hidden.sock" }]);
+  });
+
+  test("second nudge with a form-presentation gate open returns form-open and does not tick", async () => {
+    const { h, herd, gate, gateStore, injects, store } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q, origin: { paneId: "w9:p1", presentation: "form" } });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toEqual({ gate, rung: "pane", delivered: false, needsHuman: true, why: "form-open", budget: { used: 1, cap: 2, spent: false } });
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("an open wait-presentation gate does not block the pane nudge", async () => {
+    const { h, herd, gate, gateStore, injects, store } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.delivered).toBe(true);
+    expect(injects).toHaveLength(1);
+  });
+
+  test("second nudge on a working pane returns pane-busy and does not tick", async () => {
+    const { h, herd, gate, injects, store, snapshotPanes } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "working" }];
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ rung: "pane", delivered: false, needsHuman: true, why: "pane-busy", budget: { used: 1 } });
+    expect(injects).toEqual([]);
+  });
+
+  test("a pane rung reports pane-gone, not-claude and a modal without typing", async () => {
+    const { h, herd, gate, injects, store, snapshotPanes } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    snapshotPanes.rows = [];
+    expect((await h["herd:nudge"]({ herd, job: "job-a", gate }) as any).data.why).toBe("pane-gone");
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent_status: "idle" }];
+    expect((await h["herd:nudge"]({ herd, job: "job-a", gate }) as any).data.why).toBe("not-claude");
+    snapshotPanes.rows = [{ pane_id: "w9:p1", agent: "claude", agent_status: "blocked" }];
+    expect((await h["herd:nudge"]({ herd, job: "job-a", gate }) as any).data.why).toBe("form-open");
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("a job with no pane reports pane-gone on the pane rung", async () => {
+    const { h, herd, gate, store, injects } = await nudgeable();
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a.w001", status: "active", pane: null, agentSession: "sess-w1" });
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ delivered: false, needsHuman: true, why: "pane-gone" });
+    expect(injects).toEqual([]);
+  });
+
+  test("an unreachable herdr refuses the pane rung and ticks nothing", async () => {
+    const { h, herd, gate, store, injects } = await nudgeable({
+      herdr: (async () => ({ ok: false, code: "unavailable", message: "no socket" })) as unknown as HerdDeps["herdr"],
+    });
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    expect(res).toEqual({ ok: false, error: "herdr is unreachable on the default socket; the pane's state is unknown" });
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("injector refusal returns refused, needsHuman, no tick", async () => {
+    const { h, herd, gate, store, delivery } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    for (const result of [
+      { ok: true as const, data: { paneId: "w9:p1", delivered: "refused" as const, reason: "draft in composer" } },
+      { ok: true as const, data: { paneId: "w9:p1", delivered: "queued" as const } },
+      { ok: false as const, error: "herdr went away" },
+    ]) {
+      delivery.result = result;
+      const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+      if (!res.ok) throw new Error(res.error);
+      expect(res.data).toMatchObject({ rung: "pane", delivered: false, needsHuman: true, why: "refused", budget: { used: 1 } });
+    }
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
+  test("third nudge still acts and reports spent", async () => {
+    const { h, herd, gate, injects } = await nudgeable();
+    await h["herd:nudge"]({ herd, job: "job-a", gate });
+    await h["herd:nudge"]({ herd, job: "job-a", gate });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toEqual({ gate, rung: "pane", delivered: true, needsHuman: false, budget: { used: 3, cap: 2, spent: true } });
+    expect(injects).toHaveLength(2);
+  });
+
+  test("a DM failure returns its error and ticks nothing", async () => {
+    const { h, herd, gate, store, deps } = await nudgeable();
+    deps.chat["chat:dm"] = async () => ({ ok: false, error: "chat: dm failed (retry budget exhausted)" });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    expect(res).toEqual({ ok: false, error: "chat: dm failed (retry budget exhausted)" });
+    expect(store.budgetRows(herd, "job-a")).toEqual([]);
+  });
+
+  test("refuses a gate that is not this job's, an unanswered gate, a consumed gate, and a gate from a replaced session", async () => {
+    const { h, herd, gate, gateStore, store, chatCalls, injects } = await nudgeable();
+    store.upsertJob({ herd, name: "job-b", worktree: "/w/job-b", handle: "job-b", status: "active", pane: "w9:p2", agentSession: "sess-w2" });
+    const other = gateStore.open({ subject: herdSubject(herd, "job-b"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(other, { q: "a" }, "shepherd");
+    const elsewhere = gateStore.open({ subject: "run:run-2", kind: "clarify", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(elsewhere, { q: "a" }, "shepherd");
+    const unanswered = gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    const consumed = gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(consumed, { q: "a" }, "shepherd");
+    gateStore.markConsumed(consumed);
+    const stale = gateStore.open({ subject: herdSubject(herd, "job-a"), kind: "question", questions: Q, nudge: { session: "sess-old" } }).row.id;
+    gateStore.answer(stale, { q: "a" }, "shepherd");
+
+    const refusal = async (g: string) => {
+      const res = await h["herd:nudge"]({ herd, job: "job-a", gate: g });
+      if (res.ok) throw new Error(`nudged ${g}`);
+      return res.error;
+    };
+    expect(await refusal(other)).toContain("not job \"job-a\"'s");
+    expect(await refusal(elsewhere)).toContain("not job \"job-a\"'s");
+    expect(await refusal("gate-missing")).toBe("gate not found: gate-missing");
+    expect(await refusal(unanswered)).toContain("is open, not answered");
+    expect(await refusal(consumed)).toContain("already consumed");
+    expect(await refusal(stale)).toContain("stale");
+    expect(store.budgetRows(herd, "job-a")).toEqual([]);
+    expect(chatCalls.filter((c) => c.verb === "dm")).toEqual([]);
+    expect(injects).toEqual([]);
+    expect((await h["herd:nudge"]({ herd, job: "job-a", gate })).ok).toBe(true);
+  });
+
+  test("a run gate in the job's worktree can be nudged", async () => {
+    const { h, herd, gateStore } = await nudgeable();
+    const run = gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q, nudge: { session: "sess-w1" } }).row.id;
+    gateStore.answer(run, { q: "a" }, "shepherd");
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate: run });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ gate: run, rung: "dm", delivered: true });
   });
 });
 
