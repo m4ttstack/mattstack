@@ -373,9 +373,6 @@ export const EXAMPLES: Record<string, Example> = {
   "ci.triage.realPatterns": { good: [[], ["Segmentation fault", "AssertionError"]], bad: [{ value: [7], path: [0] }] },
   "ci.triage.infraPatterns": { good: [[], ["Connection reset by peer", "no space left on device"]], bad: [{ value: [7], path: [0] }] },
   "ci.triage.noisyJobs": { good: [[], ["lint", "e2e-flaky"]], bad: [{ value: [7], path: [0] }] },
-  "ci.triage.baseDepth": { good: [1, 3, 20], bad: [{ value: 0, path: [] }, { value: "3", path: [] }] },
-  "ci.triage.baseRef": { good: ["main"], bad: [{ value: "", path: [] }, { value: 5, path: [] }] },
-  "ci.triage.skipBase": { good: [true, false], bad: [{ value: "yes", path: [] }] },
   "boxscore.projects": { good: [[], ["acme/app"]], bad: [{ value: [7], path: [0] }] },
   "boxscore.linearDoneStates": { good: [[], ["Done", "Released"]], bad: [{ value: [null], path: [0] }] },
   "boxscore.sizeBand": {

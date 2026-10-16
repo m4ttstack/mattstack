@@ -934,7 +934,7 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "ci.triage.realPatterns",
     type: "array",
-    scopes: ["org", "team"],
+    scopes: ["team", "org"],
     default: [],
     merge: "add",
     description: "Failure-log patterns that mark a CI failure as a real code defect, as case-sensitive JavaScript regular expressions that extend ci_triage's built-in list. A pattern containing [[: (a POSIX bracket class) is refused. The org holds what every team shares and a team adds its own.",
@@ -942,7 +942,7 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "ci.triage.infraPatterns",
     type: "array",
-    scopes: ["org", "team"],
+    scopes: ["team", "org"],
     default: [],
     merge: "add",
     description: "Failure-log patterns that mark a CI failure as infrastructure trouble rather than the change, as case-sensitive JavaScript regular expressions that extend ci_triage's built-in list. A pattern containing [[: (a POSIX bracket class) is refused. The org holds what every team shares and a team adds its own.",
@@ -950,7 +950,7 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "ci.triage.noisyJobs",
     type: "array",
-    scopes: ["org", "team"],
+    scopes: ["team", "org"],
     default: [],
     merge: "add",
     description: "CI jobs known to fail for unrelated reasons, so ci_triage treats their failures as noise. Each entry matches any job whose name contains it, and only jobs allowed to fail. The org holds what every team shares and a team adds its own.",
@@ -958,7 +958,7 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "ci.triage.baseDepth",
     type: "number",
-    scopes: ["org", "team"],
+    scopes: ["team", "org"],
     default: 3,
     merge: "replace",
     description: "How many pipelines back on the base branch ci_triage looks to tell a failure the branch caused from one the base already had (1 to 20). The org holds what every team shares and a team may set its own.",
@@ -966,7 +966,7 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "ci.triage.baseRef",
     type: "string",
-    scopes: ["org", "team"],
+    scopes: ["team", "org"],
     defaultNote: "Falls back to the MR's target branch.",
     merge: "replace",
     description: "The branch ci_triage compares a failing pipeline against. The org holds what every team shares and a team may set its own.",
@@ -974,7 +974,7 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "ci.triage.skipBase",
     type: "boolean",
-    scopes: ["org", "team"],
+    scopes: ["team", "org"],
     default: false,
     merge: "replace",
     description: "Turns off ci_triage's comparison against the base branch, so every failure is judged on its log alone. The org holds what every team shares and a team may set its own.",
