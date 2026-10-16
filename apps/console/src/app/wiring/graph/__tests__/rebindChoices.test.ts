@@ -145,7 +145,12 @@ describe('rebindChoices per pipeline', () => {
       current: 'mattstack:model-tiering',
       verb: 'work-a11y',
       pipeline: null,
+      rebuilds: ['work', 'work-a11y'],
     });
+  });
+
+  it('rebuilds only the stage it binds', () => {
+    expect(evidence('accessibility').rebuilds).toEqual(['stage-evidence']);
   });
 
   it('binds a stage copy through its engine and its own pipeline', () => {

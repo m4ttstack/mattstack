@@ -3546,7 +3546,8 @@ export async function skillsBind(args: string[]): Promise<void> {
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every
     // orchestrator's SKILL.md stale, so a stage bind recompiles the whole pack.
-    const verbFilter = rosterVerb ? [verbName] : null;
+    // Verbs on one engine share its binding key, so they all read the new fill.
+    const verbFilter = rosterVerb ? resolved.fullRoster.filter((v) => v.engine === rosterVerb.engine).map((v) => v.name) : null;
 
     if (bindFlags.json) {
       // The recompile runs through compilePackAll, not skillsCompile, so its
@@ -3586,7 +3587,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       repo: null,
       json: false,
     };
-    const recompileArgs = verbFilter ? [...compileArgs(surfaceFlags, resolved.packDir), "--verb", verbName] : compileArgs(surfaceFlags, resolved.packDir);
+    const recompileArgs = [...compileArgs(surfaceFlags, resolved.packDir), ...(verbFilter ?? []).flatMap((name) => ["--verb", name])];
     await skillsCompile(recompileArgs);
   });
 }

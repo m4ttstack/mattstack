@@ -22,7 +22,7 @@ import { guardedWrite, useSkillsApply } from '../../useWiring';
 import { ButtonLabel } from '../ButtonLabel';
 import { stepLabel } from '../model/focusModel';
 import classes from './drawer.module.css';
-import { rebindChoices } from './rebind';
+import { listed, rebindChoices } from './rebind';
 
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';
@@ -304,7 +304,7 @@ export function RebindPanel({
           <Text span ff="text" fz={11} lh="normal" c={MUTED} data-parity="n">
             {pipeline
               ? `Writes the ${pipeline} pipeline's own binding in this pack, then rebuilds its ${step} step.`
-              : `Writes the binding in this pack, then rebuilds ${step}.`}{' '}
+              : `Writes the binding in this pack, then rebuilds ${listed(choices.rebuilds.map(stepLabel))}.`}{' '}
             Nothing is shared until you sync.
           </Text>
         </Code>

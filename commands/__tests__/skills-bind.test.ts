@@ -1255,6 +1255,19 @@ describe("skillsBind --pipeline", () => {
     });
   });
 
+  test("binding a work verb's own slot recompiles every verb on its engine", async () => {
+    const { pack, args } = pipelinesFixture(PLAIN_LIST_FRAGMENT);
+    await runExpectingCleanExit(() => skillsCompile(args));
+
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["work-a11y", "tiering", "mattstack:model-tiering", ...args]));
+    expect(errors).toEqual([]);
+    expect(exitCode).toBeUndefined();
+
+    for (const verb of ["work", "work-a11y"]) {
+      expect(readFileSync(join(pack, "skills", verb, "SKILL.md"), "utf8")).toContain("slot:tiering binding=mattstack:model-tiering");
+    }
+  }, 30_000);
+
   test("the usage line names --pipeline", async () => {
     const { exitCode, errors } = await runExpectingCleanExit(() => skillsBind(["stage-evidence"]));
     expect(exitCode).toBe(1);

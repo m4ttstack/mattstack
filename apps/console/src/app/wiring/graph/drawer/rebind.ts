@@ -37,6 +37,9 @@ export type RebindChoices = {
   verb: string;
   /** The pipeline whose override a write sets; null writes the default. */
   pipeline: string | null;
+  /** The skills a write recompiles: every roster verb on the bound verb's
+      engine, since they share its binding key. */
+  rebuilds: string[];
 };
 
 function otherSkills(sites: readonly BindingSite[], ref: string): number {
@@ -74,7 +77,7 @@ function ownOtherSlots(
   return [...new Set(slots)].sort();
 }
 
-function listed(names: string[]): string {
+export function listed(names: string[]): string {
   return names.length < 2
     ? names.join('')
     : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
@@ -129,6 +132,13 @@ export function rebindChoices(
       ? reading
       : null;
 
+  const rosterVerb = composition.verbs.find(v => v.name === verb);
+  const rebuilds = rosterVerb
+    ? composition.verbs
+        .filter(v => v.engine === rosterVerb.engine)
+        .map(v => v.name)
+    : [verb];
+
   const facts = slotFactsOf(composition, skill, ref, reading).get(slot);
   const contract = facts?.contract ?? null;
   const current = facts?.boundTo ?? null;
@@ -182,5 +192,6 @@ export function rebindChoices(
     })),
     verb,
     pipeline,
+    rebuilds,
   };
 }

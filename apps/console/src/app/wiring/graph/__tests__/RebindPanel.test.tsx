@@ -415,7 +415,7 @@ describe('RebindPanel', () => {
     const command = within(root).getByTestId('rebind-command');
     expect(command).toHaveTextContent(
       'rt skills bind work-a11y tiering acme:tiering-lite --pack acme' +
-        'Writes the binding in this pack, then rebuilds work-a11y. Nothing is shared until you sync.'
+        'Writes the binding in this pack, then rebuilds work and work-a11y. Nothing is shared until you sync.'
     );
     expect(command.textContent).not.toContain('--pipeline');
   });
