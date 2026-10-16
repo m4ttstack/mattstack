@@ -138,7 +138,7 @@ export function copyIntoRun(
 ): { ok: true; copied: CopyResult[]; mapped: Map<string, string> } | { ok: false; error: string } {
   const roots = o.allowedRoots.filter((r) => typeof r === "string" && r.length > 0 && isAbsolute(r));
   const planned = new Map<string, string>();
-  const copied: CopyResult[] = [];
+  const writes: CopyResult[] = [];
   const mapped = new Map<string, string>();
 
   for (const req of requests) {
@@ -186,16 +186,32 @@ export function copyIntoRun(
       const to = join(dir, m.name);
       if (!planned.has(to)) {
         planned.set(to, m.real);
-        copied.push({ from: m.real, to });
+        writes.push({ from: m.real, to });
       }
     }
     mapped.set(mapKey(req.src, req.destDir), join(dir, basename(real)));
   }
 
-  for (const c of copied) {
-    if (safeRealpath(c.to) !== null) continue;
-    mkdirSync(dirname(c.to), { recursive: true });
-    copyFileSync(c.from, c.to, fsConstants.COPYFILE_EXCL);
+  const copied: CopyResult[] = [];
+  const landed = (error: string) => ({
+    ok: false as const,
+    error: `${error}${copied.length ? ` (copied before it: ${copied.map((c) => c.to).join(", ")})` : ""}`,
+  });
+  for (const w of writes) {
+    // planning saw these destinations; another process may have written one since
+    if (safeRealpath(w.to) !== null || isSymlink(w.to)) {
+      if (!sameBytes(w.from, w.to)) return landed(`${w.to}: landed under this call with other bytes`);
+      continue;
+    }
+    mkdirSync(dirname(w.to), { recursive: true });
+    try {
+      copyFileSync(w.from, w.to, fsConstants.COPYFILE_EXCL);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return landed(`${w.to}: ${(e as Error).message}`);
+      if (!sameBytes(w.from, w.to)) return landed(`${w.to}: landed under this call with other bytes`);
+      continue;
+    }
+    copied.push(w);
   }
   return { ok: true, copied, mapped };
 }

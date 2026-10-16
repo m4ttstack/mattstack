@@ -135,6 +135,40 @@ describe("copyIntoRun", () => {
     expect(again.ok && again.mapped.get(mapKey(a, dest))).toBe(to);
   });
 
+  test("copied lists only the files this call wrote", () => {
+    const a = put("a.png", "one");
+    put("a.spec.json", "spec");
+    const first = copyIntoRun([{ src: a, destDir: dest }], opts());
+    expect(first.ok && first.copied.map((c) => basename(c.to)).sort()).toEqual(["a.png", "a.spec.json"]);
+    const again = copyIntoRun([{ src: a, destDir: dest }], opts());
+    expect(again.ok && again.copied).toEqual([]);
+    writeFileSync(join(src, "a.spec.json"), "spec v2");
+    const moved = copyIntoRun([{ src: a, destDir: dest }], opts());
+    expect(moved.ok && moved.copied.map((c) => basename(c.to)).sort()).toEqual(["a.png", "a.spec.json"]);
+  });
+
+  test("a symlinked content folder, or a symlinked file inside one, is refused and nothing lands where it points", () => {
+    const a = put("a.png", "one");
+    mkdirSync(dest, { recursive: true });
+    writeFileSync(join(dest, "a.png"), "other");
+    const probe = copyIntoRun([{ src: a, destDir: dest }], opts());
+    if (!probe.ok) throw new Error(probe.error);
+    const folder = dirname(probe.mapped.get(mapKey(a, dest))!);
+    rmSync(folder, { recursive: true });
+    const elsewhere = join(base, "elsewhere");
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, folder);
+    expect(copyIntoRun([{ src: a, destDir: dest }], opts())).toEqual({ ok: false, error: `${folder}: destination directory is a symlink` });
+    expect(readdirSync(elsewhere)).toEqual([]);
+    rmSync(folder);
+    mkdirSync(folder);
+    const victim = join(base, "victim.png");
+    writeFileSync(victim, "v");
+    symlinkSync(victim, join(folder, "a.png"));
+    expect(copyIntoRun([{ src: a, destDir: dest }], opts())).toEqual({ ok: false, error: `${join(folder, "a.png")}: destination is a symlink` });
+    expect(readFileSync(victim, "utf8")).toBe("v");
+  });
+
   test("a source already in a content folder of destDir maps to itself", () => {
     const a = put("a.png", "one");
     mkdirSync(dest, { recursive: true });

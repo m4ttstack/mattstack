@@ -258,9 +258,13 @@ ends ingestion's `upload_root` question.
     re-render lands the new redaction record and crops beside their board
     in its content folder (m4-premerge's ordering trap).
   - A transcript follows the same rule in `evidence/`.
-- Copying happens before validation, and returns `copied: [{from, to}]`
-  even when nothing is written. The next call can then name the copied
-  paths.
+- Copying happens before validation, and returns `copied: [{from, to}]`,
+  the files this call wrote, even when the record is not written. `value`
+  carries every path the record would store, so the next call can name
+  them.
+- At write time each destination is checked again: a file another process
+  put there since planning is accepted only with the same bytes, otherwise
+  the call is refused, naming the files it already copied.
 
 **Write.**
 - **Coverage first.** An image with neither `annotated` (plus `caption`)
@@ -271,6 +275,13 @@ ends ingestion's `upload_root` question.
 - Otherwise the serialized value is written as a string via `run_field_set
   {key: "evidence", value, stage}`. `fieldSet` runs `validateEvidence`, and
   any other refusal comes back as the error verbatim.
+- **One writer at a time.** `evidence_record` and `evidence_attach` calls
+  on one run take turns inside the MCP server, since it runs tool calls
+  concurrently and `run_field_set` has no compare-and-set. Just before the
+  write, `evidence` is read again; if it changed since the call's first
+  read (another process), nothing is written and the call is refused with
+  "the evidence field changed during this call; call again", naming the
+  files it copied.
 - **Encodings with no cases:**
   - `transcript` (plus `url`) becomes `{"plan":"text","transcript":...}`;
   - `url` alone becomes `{"plan":"ticket","url":...}`;
@@ -364,7 +375,9 @@ description. The skill calls it only after the attach gate's proceed.
      `composed-evidence-m4` at `b402be333`
      (`lib/daemon/redaction-record-check.ts:66-90`) until it merges.
 5. **Remember.** New uploads merge into the `evidence-uploads` run field
-   (below) via `run_field_set` under `stage`.
+   (below) via `run_field_set` under `stage`. The field is read again just
+   before the write and the new entries merge onto that value, so uploads
+   another process remembered meanwhile are kept.
    - Under `linkRefused: true`, each refused or twice-timed-out file is
      also recorded there as `{linked: true}`, so a resumed run sees the
      Take.
