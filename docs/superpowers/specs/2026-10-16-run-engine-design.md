@@ -410,7 +410,7 @@ and bump the patch version in `plugins/mattstack/.claude-plugin/plugin.json`.
   root, including `lib/mcp/__tests__/run-tools.test.ts` and
   `lib/mcp/__tests__/tools.test.ts`.
 - `bun run check` and `bun run purity`.
-- The field-contract check run read-only over the compiled claimview,
+- The field-contract check run read-only over the compiled sibling team,
   ingestion-platform and mattstack packs on this machine: the only error is
   ingestion-platform's `extra.plan-verdict` read. Any other error is a
   finding to raise before shipping, since it would also break that pack's
