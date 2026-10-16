@@ -1,4 +1,4 @@
-import { tailTrace } from "../mcp/mr-read-tools.ts";
+import { sliceTrace } from "../mcp/trace-slice.ts";
 import { classifyTrace, isNoisy, stripAnsi, type Verdict } from "./triage-classify.ts";
 import { compilePatterns, type CompiledPatterns, type TriageConfig } from "./triage-config.ts";
 
@@ -124,6 +124,11 @@ async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Prom
   return out;
 }
 
+// Classification reads SGR-stripped lines to stay faithful to the shell; a hit shown to a caller drops every escape.
+function displayHit(hit: string): string {
+  return sliceTrace(hit, { kind: "head", lines: 1 }).trace;
+}
+
 async function judgeJob(
   forge: TriageForge,
   job: ForgeJob,
@@ -151,10 +156,10 @@ async function judgeJob(
   return {
     ...common,
     verdict,
-    realHits,
-    infraHits,
+    realHits: realHits.map(displayHit),
+    infraHits: infraHits.map(displayHit),
     traceAvailable: true,
-    traceTail: tailTrace(stripAnsi(trace.text), TAIL_LINES).trace,
+    traceTail: sliceTrace(stripAnsi(trace.text), { kind: "tail", lines: TAIL_LINES }).trace,
   };
 }
 

@@ -103,6 +103,15 @@ describe("runTriage", () => {
     expect(calls).toBe(3);
   });
 
+  test("hits carry no escape bytes, while classification still reads them SGR-stripped", async () => {
+    const text = "\x1b[0K\x1b[31msrc/a.ts error TS1234: bad\x1b[0m\x1b[0K\n\x1b[0Knpm ERR ECONNRESET\x1b[0K\n";
+    const r = await run(memoryForge({ jobs: [job(10, "a")], traces: { 10: text } }));
+    const [a] = r.blocking;
+    expect(a?.verdict).toBe("REAL");
+    expect(a?.realHits).toEqual(["src/a.ts error TS1234: bad"]);
+    expect(a?.infraHits).toEqual(["npm ERR ECONNRESET"]);
+  });
+
   test("the trace tail keeps the last 40 lines", async () => {
     const text = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
     const r = await run(memoryForge({ jobs: [job(10, "a")], traces: { 10: text } }));
