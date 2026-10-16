@@ -50,6 +50,8 @@ import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { FLOOR_REL, readFloor } from "../lib/engine-floor.ts";
 import { validateChain } from "../lib/skills/chain.ts";
+import { fieldContractErrors, type CompiledDoc } from "../lib/skills/field-contract.ts";
+import { pipelinesWrite } from "../lib/skills/pipeline-manifest.ts";
 import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan } from "../lib/skills/base-attachments.ts";
 import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
@@ -966,6 +968,21 @@ function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): B
   return plan;
 }
 
+/** Paths stay pack-relative: they are what a field-contract error prints. */
+function compiledDocsOf(outcomes: { target: CompileTarget; outcome: CompileOutcome }[]): CompiledDoc[] {
+  const docs: CompiledDoc[] = [];
+  for (const { target, outcome } of outcomes) {
+    if (!outcome.ok) continue;
+    const side: Side = target.isPublic ? "skills" : "attachments";
+    for (const file of outcome.result.files) {
+      if (!file.path.endsWith(".md")) continue;
+      const text = "content" in file ? file.content : readFileSync(file.copyFrom, "utf8");
+      docs.push({ path: `${side}/${target.verb.name}/${file.path}`, text });
+    }
+  }
+  return docs;
+}
+
 function readIfPresent(path: string): string | null {
   try {
     return readFileSync(path, "utf8");
@@ -1028,6 +1045,9 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     (target) => ({ target, outcome: tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned) }),
   );
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
+  if (verbFilter === null && failures.length === 0) {
+    failures.push(...fieldContractErrors(compiledDocsOf(outcomes), resolved.stageEntries));
+  }
 
   const writing = write && failures.length === 0;
   const writes: CompileWrites = { written: [], removed: [] };
@@ -1049,6 +1069,11 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     const floor = floorWrite(resolved, readIfPresent, true);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
+    if (verbFilter === null) {
+      const manifest = pipelinesWrite(resolved, readIfPresent, true);
+      writes.written.push(...manifest.written);
+      writes.removed.push(...manifest.removed);
+    }
   }
 
   const misplaced: string[] = [];
@@ -1394,6 +1419,9 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const plan = basePlanFor(resolved, verbSides);
   const planned = plannedAttachmentsOf(plan);
 
+  const compiled: { target: CompileTarget; outcome: CompileOutcome }[] = [];
+  let neverCompiled = false;
+  let compileFailed = false;
   for (const target of targets) {
     const { verb, isPublic } = target;
     const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
@@ -1401,6 +1429,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
 
     if (!existsSync(outDir)) {
       anyStale = true;
+      neverCompiled = true;
       rows.push({ name: verb.name, status: "never-compiled", staleFiles: [], orphanFiles: [], side });
       continue;
     }
@@ -1408,9 +1437,11 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned);
     if (!outcome.ok) {
       anyStale = true;
+      compileFailed = true;
       compileErrors.push(outcome.message);
       continue;
     }
+    compiled.push({ target, outcome });
     const { result } = outcome;
     const staleFiles: string[] = [];
     const orphanFiles: string[] = [];
@@ -1460,6 +1491,12 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     }
   }
 
+  if (flags.verbs === null && !neverCompiled && !compileFailed) {
+    const contractErrors = fieldContractErrors(compiledDocsOf(compiled), resolved.stageEntries);
+    if (contractErrors.length > 0) anyStale = true;
+    compileErrors.push(...contractErrors);
+  }
+
   // The settings/marketplace walk in discoverPacks() is skipped when no plugin
   // is actually installed (fixture mode's list is always empty): there is
   // nothing to compare against, so it would only cost a real filesystem scan
@@ -1472,6 +1509,10 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
 
   if (flags.verbs === null && floorWrite(resolved, readIfPresent, false).stale) {
     compileErrors.push("pack/requires.json is out of date with the engine's floor");
+    anyStale = true;
+  }
+  if (flags.verbs === null && pipelinesWrite(resolved, readIfPresent, false).stale) {
+    compileErrors.push("pack/pipelines.json is out of date with the pack's pipelines");
     anyStale = true;
   }
 
