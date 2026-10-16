@@ -389,6 +389,31 @@ describe("mr_map", () => {
     expect(res.body.rows.map((r: any) => r.dirty)).toEqual([null, null, null]);
   });
 
+  test("status runs once per worktree path, at most 8 at a time", async () => {
+    const mrs = Array.from({ length: 20 }, (_, i) => summary(i + 1, `feat-${i}`));
+    const trees = Array.from({ length: 20 }, (_, i) => tree(`t${i}`, `feat-${i}`));
+    trees.push({ ...tree("t0", "feat-dup"), path: "/trees/t0" });
+    mrs.push(summary(21, "feat-dup"));
+    const seen: string[] = [];
+    let inFlight = 0;
+    let max = 0;
+    const status = async (path: string) => {
+      seen.push(path);
+      inFlight++;
+      max = Math.max(max, inFlight);
+      await new Promise((r) => setTimeout(r, 2));
+      inFlight--;
+      return "";
+    };
+    const { deps } = withDeps({ "mr:list-live": { mrs, truncated: false }, "worktree:list": { trees } }, { status });
+    const res = (await call(deps, { repoName: ID })) as any;
+    expect(res.body.rows).toHaveLength(21);
+    expect(max).toBeGreaterThan(1);
+    expect(max).toBeLessThanOrEqual(8);
+    expect(seen.length).toBe(new Set(seen).size);
+    expect(seen.filter((p) => p === "/trees/t0")).toHaveLength(1);
+  });
+
   test("the cache read is bounded by the read timeout", async () => {
     const args: unknown[][] = [];
     const readMrCache = (async (...a: unknown[]) => { args.push(a); return { ok: false, error: "x" }; }) as any;

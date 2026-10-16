@@ -216,6 +216,22 @@ async function isDirty(deps: MrCompositeDeps, path: string | null): Promise<bool
   }
 }
 
+const STATUS_CONCURRENCY = 8;
+
+async function dirtyPerWorktree(deps: MrCompositeDeps, paths: (string | null)[]): Promise<Map<string, boolean | null>> {
+  const unique = [...new Set(paths.filter((p): p is string => p !== null))];
+  const result = new Map<string, boolean | null>();
+  let next = 0;
+  const worker = async () => {
+    while (next < unique.length) {
+      const path = unique[next++]!;
+      result.set(path, await isDirty(deps, path));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(STATUS_CONCURRENCY, unique.length) }, worker));
+  return result;
+}
+
 export const REBASE_POLL_MS = 5_000;
 export const REBASE_DEFAULT_WAIT_S = 90;
 export const REBASE_MAX_WAIT_S = 600;
@@ -1053,10 +1069,11 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
           (trees.data.trees ?? []).map((t) => ({ path: t.path, branch: t.branch })),
           { defaultBranch, ciStatus: (iid) => ci.get(iid) ?? null },
         );
-        const rows = await Promise.all(joined.map(async (row): Promise<MrMapRow> => {
+        const dirtyByPath = await dirtyPerWorktree(deps, joined.map((row) => row.worktree));
+        const rows = joined.map((row): MrMapRow => {
           const { mrState, ciStatus, ...head } = row;
-          return { ...head, dirty: await isDirty(deps, row.worktree), mrState, ciStatus };
-        }));
+          return { ...head, dirty: row.worktree === null ? null : (dirtyByPath.get(row.worktree) ?? null), mrState, ciStatus };
+        });
         return ok({ rows, complete: !list.data.truncated });
       },
     },
