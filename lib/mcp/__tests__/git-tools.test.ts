@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { branchSyncPreflight, gitChildEnv, gitPull, gitPush, gitRebase, gitToolDefs, realGitRunner, syncChildEnv, type GitRunner } from "../git-tools.ts";
+import { branchSyncPreflight, gitChildEnv, gitPull, gitPush, gitRebase, gitToolDefs, realGitRunner, syncChildEnv, type GitRunner, type GitToolDeps } from "../git-tools.ts";
 import type { TreeGuardDeps } from "../tree-guard.ts";
 
 const GIT_PATHS = "rev-parse --git-path rebase-merge --git-path rebase-apply";
@@ -437,10 +437,22 @@ describe("branchSyncPreflight", () => {
     ...on("feat/x"),
     "symbolic-ref --quiet refs/remotes/origin/HEAD": { stdout: "refs/remotes/origin/develop\n" },
     "config --get-all remote.origin.push": { code: 1 },
+    "status --porcelain": {},
     "config --get push.default": { code: 1 },
     "fetch origin": {},
     "rev-parse --verify --quiet refs/remotes/origin/feat/x": {},
   };
+  test("a tree with uncommitted or untracked changes is refused before the fetch, naming the paths", async () => {
+    const calls: string[] = [];
+    const r = await branchSyncPreflight("/t", fakeGit({ ...base, "status --porcelain": { stdout: " M a.ts\nR  old.ts -> new.ts\n?? b.md\n" } }, calls));
+    expect(r).toMatchObject({ ok: false, dirty: ["a.ts", "new.ts", "b.md"] });
+    expect(calls).not.toContain("fetch origin");
+  });
+  test("a status that cannot be read refuses rather than passing as clean", async () => {
+    const r = await branchSyncPreflight("/t", fakeGit({ ...base, "status --porcelain": { code: 128, stderr: "fatal: index file corrupt" } }));
+    expect(r.ok).toBe(false);
+    expect(r).not.toHaveProperty("dirty");
+  });
   test("not diverged passes", async () => {
     const r = await branchSyncPreflight("/t", fakeGit({ ...base, "rev-list --left-right --count refs/remotes/origin/feat/x...HEAD": { stdout: "0\t2\n" } }));
     expect(r).toEqual({ ok: true, diverged: false });
@@ -713,33 +725,55 @@ describe("branchSyncPreflight", () => {
 
 describe("branch_sync tool", () => {
   const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false };
+  const BRANCH_HEAD = "rev-parse --verify --quiet refs/heads/feat/x";
+  const ORIGIN_HEAD = "rev-parse --verify --quiet refs/remotes/origin/feat/x";
   const clean: Script = {
     [GIT_PATHS]: { stdout: "/t/.git/rebase-merge\n/t/.git/rebase-apply\n" },
     ...on("feat/x"), "symbolic-ref --quiet refs/remotes/origin/HEAD": { stdout: "refs/remotes/origin/develop\n" },
+    "status --porcelain": {},
     "config --get-all remote.origin.push": { code: 1 }, "config --get push.default": { code: 1 },
-    "fetch origin": {}, "rev-parse --verify --quiet refs/remotes/origin/feat/x": {},
+    "fetch origin": {}, [ORIGIN_HEAD]: {},
     "rev-list --left-right --count refs/remotes/origin/feat/x...HEAD": { stdout: "0\t1\n" },
   };
-  test("exit 0 with empty stdout is synced, reporting whether the preflight saw a divergence", async () => {
-    const tool = gitToolDefs({ git: fakeGit(clean), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }) }).find((t) => t.name === "branch_sync")!;
-    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
-    expect(r).toEqual({ ok: true, body: { status: "synced", divergedFromOrigin: false, tree: "/t" } });
-  });
-  const runSync = async (code: number, stdout: string) => {
-    const tool = gitToolDefs({ git: fakeGit(clean), guard, sync: async () => ({ code, stdout, stderr: "" }) }).find((t) => t.name === "branch_sync")!;
+  /** A repo whose branch and origin refs move when rt sync runs, the way a real sync moves them. */
+  function repo(script: Script, refs: { head: string; origin: string }, calls: string[] = []): GitRunner {
+    const inner = fakeGit(script, calls);
+    return async (args, cwd) => {
+      const key = args.join(" ");
+      if (key === BRANCH_HEAD) { calls.push(key); return { code: 0, stdout: `${refs.head}\n`, stderr: "" }; }
+      if (key === ORIGIN_HEAD && !(key in script)) { calls.push(key); return { code: 0, stdout: `${refs.origin}\n`, stderr: "" }; }
+      return inner(args, cwd);
+    };
+  }
+  const branchSync = (git: GitRunner, sync: GitToolDeps["sync"]) => gitToolDefs({ git, guard, sync }).find((t) => t.name === "branch_sync")!;
+  const runSync = async (code: number, stdout: string, stderr = "", moves?: { head?: string; origin?: string }) => {
+    const refs = { head: "aaa", origin: "aaa" };
+    const { [ORIGIN_HEAD]: _answeredByRefs, ...script } = clean;
+    const tool = branchSync(repo(script, refs), async () => {
+      Object.assign(refs, moves ?? {});
+      return { code, stdout, stderr };
+    });
     return tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
   };
-  test("exit 3 is a conflict carrying rt sync's bundle", async () => {
-    const bundle = { kind: "rebase-conflict", state: "mid-rebase", branch: "feat/x", target: "origin/develop", commitsBehind: 2, unresolvedFiles: ["a.ts"], autoResolvedFiles: [], backupBranch: null, branchCommits: [], targetCommits: [], hint: "resolve and continue" };
-    const r = await runSync(3, JSON.stringify(bundle, null, 2));
-    expect(r.ok).toBe(true);
-    expect(r.body).toMatchObject({ status: "conflict", unresolvedFiles: ["a.ts"], state: "mid-rebase" });
+
+  test("a sync that moved and pushed the branch is synced, with both heads", async () => {
+    const r = await runSync(0, "", "", { head: "bbb", origin: "bbb" });
+    expect(r).toEqual({ ok: true, body: { kind: "synced", branch: "feat/x", oldHead: "aaa", newHead: "bbb", pushed: true, refusal: null, divergedFromOrigin: false, status: "synced", tree: "/t" } });
   });
-  test("exit 4 is a refusal whose error carries the stack refusal's hint", async () => {
-    const refusal = { kind: "stack-refusal", branch: "feat/x", source: "gitq", stack: null, mrs: null, tool: "/gitq:sync", hint: "feat/x is a member of stack s; sync the stack instead" };
-    const r = await runSync(4, JSON.stringify(refusal, null, 2));
-    expect(r.ok).toBe(false);
-    expect(r.error).toBe("rt sync refused (exit 4): feat/x is a member of stack s; sync the stack instead. Run: /gitq:sync");
+  test("a sync that moved nothing is up-to-date and pushed nothing", async () => {
+    const r = await runSync(0, "");
+    expect(r).toEqual({ ok: true, body: { kind: "up-to-date", branch: "feat/x", oldHead: "aaa", newHead: "aaa", pushed: false, refusal: null, divergedFromOrigin: false, status: "synced", tree: "/t" } });
+  });
+  test("a dirty tree is dirty-tree, naming the paths, and never fetches or runs rt sync", async () => {
+    let ran = false;
+    const calls: string[] = [];
+    const tool = branchSync(repo({ ...clean, "status --porcelain": { stdout: " M a.ts\n?? notes/b.md\n" } }, { head: "aaa", origin: "aaa" }, calls), async () => { ran = true; return { code: 0, stdout: "", stderr: "" }; });
+    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
+    expect(r.ok).toBe(true);
+    expect(r.body).toMatchObject({ kind: "dirty-tree", branch: "feat/x", oldHead: "aaa", newHead: "aaa", pushed: false, paths: ["a.ts", "notes/b.md"] });
+    expect((r.body as { refusal: string }).refusal).toContain("uncommitted changes");
+    expect(ran).toBe(false);
+    expect(calls).not.toContain("fetch origin");
   });
   // commands/__tests__/sync-output.test.ts pins that rt sync --json writes
   // exactly this text for the same guard; change one and the other must follow.
@@ -747,43 +781,59 @@ describe("branch_sync tool", () => {
     "[refused] You have uncommitted changes\n" +
     "  why: Syncing rewrites the branch, and a conflict would lose them.\n" +
     "  next: Commit them, or set them aside with rt git stash push\n";
-  const REFUSED_ERROR =
-    "rt sync refused (exit 1): [refused] You have uncommitted changes   why: Syncing rewrites the branch, and a conflict would lose them.   next: Commit them, or set them aside with rt git stash push";
-
-  test("exit 1 with no envelope reads what rt sync left on stderr, whole", async () => {
-    const tool = gitToolDefs({ git: fakeGit(clean), guard, sync: async () => ({ code: 1, stdout: "", stderr: REFUSED_STDERR }) }).find((t) => t.name === "branch_sync")!;
-    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
-    expect(r.ok).toBe(false);
-    expect(r.error).toBe(REFUSED_ERROR);
+  test("rt sync's own uncommitted-changes refusal is dirty-tree too, never an error", async () => {
+    const r = await runSync(1, "", REFUSED_STDERR);
+    expect(r.body).toMatchObject({ kind: "dirty-tree", pushed: false, refusal: "[refused] You have uncommitted changes   why: Syncing rewrites the branch, and a conflict would lose them.   next: Commit them, or set them aside with rt git stash push" });
   });
-
-  test("a warning printed before a three-line ending stays out of the error", async () => {
+  test("a warning printed before rt sync's three-line ending stays out of the refusal", async () => {
     const warning = "[warning] Your repo folders setting could not be read  rt is looking in its usual places only\n  next: rt settings check\n";
-    const tool = gitToolDefs({ git: fakeGit(clean), guard, sync: async () => ({ code: 1, stdout: "", stderr: warning + REFUSED_STDERR }) }).find((t) => t.name === "branch_sync")!;
-    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
-    expect(r.error).toBe(REFUSED_ERROR);
+    const r = await runSync(1, "", warning + REFUSED_STDERR);
+    expect((r.body as { refusal: string }).refusal).toStartWith("[refused] You have uncommitted changes");
+  });
+  test("a conflict carries rt sync's bundle, the branch unmoved, nothing pushed", async () => {
+    const bundle = { kind: "rebase-conflict", state: "mid-rebase", branch: "feat/x", target: "origin/develop", commitsBehind: 2, unresolvedFiles: ["a.ts"], autoResolvedFiles: [], backupBranch: null, branchCommits: [], targetCommits: [], hint: "resolve and continue" };
+    const r = await runSync(3, JSON.stringify(bundle, null, 2));
+    expect(r.ok).toBe(true);
+    expect(r.body).toMatchObject({ kind: "conflict", status: "conflict", oldHead: "aaa", newHead: "aaa", pushed: false, unresolvedFiles: ["a.ts"], state: "mid-rebase" });
+  });
+  test("a stack refusal is stacked-refused, with the refusal text and the stack check", async () => {
+    const refusal = { kind: "stack-refusal", branch: "feat/x", source: "gitq", stack: null, mrs: null, tool: "/gitq:sync", hint: "feat/x is a member of stack s; sync the stack instead" };
+    const r = await runSync(4, JSON.stringify(refusal, null, 2));
+    expect(r.ok).toBe(true);
+    expect(r.body).toMatchObject({ kind: "stacked-refused", pushed: false, refusal: "feat/x is a member of stack s; sync the stack instead. Run: /gitq:sync", stackCheck: refusal });
+  });
+  test("a rejected push is push-refused: the branch moved locally, origin did not", async () => {
+    const r = await runSync(1, "", "Could not push feat/x  ! [rejected] feat/x -> feat/x (stale info)\n", { head: "bbb" });
+    expect(r.body).toMatchObject({ kind: "push-refused", oldHead: "aaa", newHead: "bbb", pushed: false, refusal: "Could not push feat/x  ! [rejected] feat/x -> feat/x (stale info)" });
+  });
+  test("any other rt sync failure is error, carrying what rt sync said", async () => {
+    const r = await runSync(1, "", "Could not fetch from origin  fatal: unable to access\n");
+    expect(r.body).toMatchObject({ kind: "error", pushed: false, refusal: "rt sync refused (exit 1): Could not fetch from origin  fatal: unable to access" });
   });
   test("rt sync that could not be started says so, and a timeout stays a timeout", async () => {
-    const failed = await runSync(-1, "");
-    expect(failed).toEqual({ ok: false, body: undefined, error: "could not start rt sync" });
-    const tool = gitToolDefs({ git: fakeGit(clean), guard, sync: async () => ({ code: 124, stdout: "", stderr: "" }) }).find((t) => t.name === "branch_sync")!;
-    const timedOut = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
-    expect(timedOut.error).toBe("rt sync timed out after 300s");
+    expect((await runSync(-1, "")).body).toMatchObject({ kind: "error", refusal: "could not start rt sync" });
+    expect((await runSync(124, "")).body).toMatchObject({ kind: "error", refusal: "rt sync timed out after 300s" });
   });
-  test("a failed preflight never runs rt sync", async () => {
+  test("a failed preflight is error, carrying its reason, and never runs rt sync", async () => {
     let ran = false;
-    const tool = gitToolDefs({ git: fakeGit({ ...clean, "rev-list --left-right --count refs/remotes/origin/feat/x...HEAD": { stdout: "1\t1\n" }, "rev-list --cherry-pick --right-only --no-merges refs/remotes/origin/feat/x...HEAD ^refs/remotes/origin/develop": { stdout: "9999\n" } }), guard, sync: async () => { ran = true; return { code: 0, stdout: "{}", stderr: "" }; } }).find((t) => t.name === "branch_sync")!;
+    const tool = branchSync(repo({ ...clean, "rev-list --left-right --count refs/remotes/origin/feat/x...HEAD": { stdout: "1\t1\n" }, "rev-list --cherry-pick --right-only --no-merges refs/remotes/origin/feat/x...HEAD ^refs/remotes/origin/develop": { stdout: "9999\n" } }, { head: "aaa", origin: "aaa" }), async () => { ran = true; return { code: 0, stdout: "{}", stderr: "" }; });
     const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
-    expect(r.ok).toBe(false);
+    expect(r.body).toMatchObject({ kind: "error", oldHead: "aaa", newHead: "aaa", pushed: false });
+    expect((r.body as { refusal: string }).refusal).toContain("9999");
     expect(ran).toBe(false);
+  });
+  test("a detached HEAD is error with no branch and no heads", async () => {
+    const tool = branchSync(fakeGit({ ...clean, [FULL_HEAD]: { code: 1 } }), async () => ({ code: 0, stdout: "", stderr: "" }));
+    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
+    expect(r.body).toMatchObject({ kind: "error", branch: null, oldHead: null, newHead: null, pushed: false });
   });
   test("a branch name carrying shell or a git option never reaches rt sync", async () => {
     for (const branch of ["x$(touch${IFS}PWNED)", "--mirror", "--all", "-f"]) {
       let ran = false;
       const calls: string[] = [];
-      const tool = gitToolDefs({ git: fakeGit({ ...clean, ...on(branch) }, calls), guard, sync: async () => { ran = true; return { code: 0, stdout: "", stderr: "" }; } }).find((t) => t.name === "branch_sync")!;
+      const tool = branchSync(fakeGit({ ...clean, ...on(branch) }, calls), async () => { ran = true; return { code: 0, stdout: "", stderr: "" }; });
       const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
-      expect(r.ok, branch).toBe(false);
+      expect((r.body as { kind: string }).kind, branch).toBe("error");
       expect(ran, branch).toBe(false);
       expect(calls, branch).not.toContain("fetch origin");
     }
@@ -791,18 +841,17 @@ describe("branch_sync tool", () => {
   test("a branch name ambiguous with a tag never reaches rt sync", async () => {
     let ran = false;
     const calls: string[] = [];
-    const tool = gitToolDefs({ git: fakeGit({ ...clean, ...onTagAmbiguous }, calls), guard, sync: async () => { ran = true; return { code: 0, stdout: "", stderr: "" }; } }).find((t) => t.name === "branch_sync")!;
+    const tool = branchSync(fakeGit({ ...clean, ...onTagAmbiguous }, calls), async () => { ran = true; return { code: 0, stdout: "", stderr: "" }; });
     const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
-    expect(r.ok).toBe(false);
-    expect(r.error).toContain("ambiguous");
+    expect((r.body as { kind: string; refusal: string }).refusal).toContain("ambiguous");
     expect(ran).toBe(false);
     expect(calls).not.toContain("fetch origin");
   });
   test("a push redirect never runs rt sync", async () => {
     let ran = false;
-    const tool = gitToolDefs({ git: fakeGit({ ...clean, "config --get-all remote.origin.push": { stdout: "+refs/heads/*:refs/heads/*\n" } }), guard, sync: async () => { ran = true; return { code: 0, stdout: "{}", stderr: "" }; } }).find((t) => t.name === "branch_sync")!;
+    const tool = branchSync(fakeGit({ ...clean, "config --get-all remote.origin.push": { stdout: "+refs/heads/*:refs/heads/*\n" } }), async () => { ran = true; return { code: 0, stdout: "{}", stderr: "" }; });
     const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
-    expect(r.ok).toBe(false);
+    expect((r.body as { kind: string }).kind).toBe("error");
     expect(ran).toBe(false);
   });
 });

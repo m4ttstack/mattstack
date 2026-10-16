@@ -215,7 +215,12 @@ async function rebaseInProgress(cwd: string, git: GitRunner, exists: (p: string)
   return { inProgress: paths.some((p) => exists(resolve(cwd, p))) };
 }
 
-export async function branchSyncPreflight(cwd: string, git: GitRunner, exists: (p: string) => boolean = existsSync): Promise<{ ok: true; diverged: boolean } | { ok: false; error: string }> {
+// Porcelain v1 is `XY path`, or `XY orig -> path` for a rename.
+function porcelainPaths(stdout: string): string[] {
+  return stdout.split("\n").filter((l) => l.length > 3).map((l) => l.slice(3).split(" -> ").at(-1)!);
+}
+
+export async function branchSyncPreflight(cwd: string, git: GitRunner, exists: (p: string) => boolean = existsSync): Promise<{ ok: true; diverged: boolean } | { ok: false; error: string; dirty?: string[] }> {
   const rebasing = await rebaseInProgress(cwd, git, exists);
   if ("error" in rebasing) return { ok: false, error: rebasing.error };
   if (rebasing.inProgress) return { ok: false, error: "a rebase is in progress; finish it with git rebase --continue or git_rebase {abort: true}" };
@@ -234,6 +239,13 @@ export async function branchSyncPreflight(cwd: string, git: GitRunner, exists: (
   if (!SHELL_SAFE_BRANCH.test(branch)) {
     return { ok: false, error: `refusing to sync ${JSON.stringify(branch)}: the branch name has characters rt sync cannot pass safely (only letters, digits, ".", "_", "/" and "-")` };
   }
+
+  // rt sync refuses the same tree (untracked files count there too), but only
+  // after its own checks, and its refusal reads as a failure.
+  const status = await git(["status", "--porcelain"], cwd);
+  if (status.code !== 0) return { ok: false, error: `git status --porcelain failed: ${detail(status)}` };
+  const dirty = porcelainPaths(status.stdout);
+  if (dirty.length > 0) return { ok: false, dirty, error: `refusing to sync ${branch}: the tree has uncommitted changes, which the rebase could lose: ${dirty.join(", ")}` };
 
   const redirect = await pushDestinationRedirected(cwd, git, branch);
   if (!redirect.ok) return { ok: false, error: redirect.error };
@@ -326,6 +338,69 @@ export const realSyncRunner = async (cwd: string): Promise<{ code: number; stdou
   return { code: r.timedOut ? 124 : r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
 
+export type BranchSyncKind = "synced" | "up-to-date" | "dirty-tree" | "conflict" | "stacked-refused" | "push-refused" | "error";
+
+export interface BranchSyncResult {
+  kind: BranchSyncKind;
+  branch: string | null;
+  /** The branch ref, never HEAD: a paused rebase detaches HEAD but leaves the branch where it was. */
+  oldHead: string | null;
+  newHead: string | null;
+  pushed: boolean;
+  refusal: string | null;
+  [extra: string]: unknown;
+}
+
+async function refSha(cwd: string, git: GitRunner, ref: string): Promise<string | null> {
+  const r = await git(["rev-parse", "--verify", "--quiet", ref], cwd);
+  return r.code === 0 ? r.stdout.trim() || null : null;
+}
+
+function parseJson(stdout: string): Record<string, unknown> {
+  try {
+    const body = JSON.parse(stdout) as unknown;
+    return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+// rt sync --json ends a failure with its title first (commands/sync.ts
+// compactFailure), after any warning lines; these are the titles of its own
+// uncommitted-changes refusal and of a push that failed after the rebase.
+const UNCOMMITTED_TITLE = /^\[refused\] You have uncommitted changes/m;
+const PUSH_FAILED_TITLE = /^(\[failed\] )?Could not push /m;
+
+export async function branchSync(cwd: string, deps: Pick<GitToolDeps, "git" | "sync">): Promise<BranchSyncResult> {
+  const branch = await currentBranch(cwd, deps.git);
+  const head = () => (branch === null ? Promise.resolve(null) : refSha(cwd, deps.git, `refs/heads/${branch}`));
+  const oldHead = await head();
+  const ended = async (kind: BranchSyncKind, refusal: string | null, extra: Record<string, unknown> = {}): Promise<BranchSyncResult> =>
+    ({ ...extra, kind, branch, oldHead, newHead: await head(), pushed: false, refusal });
+
+  const pre = await branchSyncPreflight(cwd, deps.git);
+  if (!pre.ok) return pre.dirty ? ended("dirty-tree", pre.error, { paths: pre.dirty }) : ended("error", pre.error);
+  const r = await deps.sync(cwd);
+  const body = parseJson(r.stdout);
+  if (r.code === 0) {
+    const newHead = await head();
+    const moved = newHead !== oldHead;
+    const pushed = moved && newHead !== null && (await refSha(cwd, deps.git, `refs/remotes/origin/${branch}`)) === newHead;
+    return { kind: moved ? "synced" : "up-to-date", branch, oldHead, newHead, pushed, refusal: null, divergedFromOrigin: pre.diverged, status: "synced" };
+  }
+  if (r.code === 3) return ended("conflict", null, { ...body, status: "conflict" });
+  if (r.code === 4 && typeof body.hint === "string") {
+    const text = typeof body.tool === "string" && body.tool !== "" ? `${body.hint}. Run: ${body.tool}` : body.hint;
+    return ended("stacked-refused", text, { stackCheck: body });
+  }
+  if (r.code === 124) return ended("error", `rt sync timed out after ${SYNC_TIMEOUT_MS / 1000}s`);
+  if (r.code === -1 && r.stderr.trim() === "") return ended("error", "could not start rt sync");
+  const said = typeof body.error === "string" ? body.error : detail(r);
+  if (r.code === 1 && UNCOMMITTED_TITLE.test(said)) return ended("dirty-tree", said);
+  if (r.code === 1 && PUSH_FAILED_TITLE.test(said)) return ended("push-refused", said);
+  return ended("error", `rt sync refused (exit ${r.code}): ${said}`);
+}
+
 export interface GitToolDeps {
   git: GitRunner;
   guard: TreeGuardDeps;
@@ -376,24 +451,10 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
     },
     {
       name: "branch_sync",
-      description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. A rebase conflict returns status conflict with rt sync's bundle and leaves the rebase paused.",
+      description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. Returns {kind, branch, oldHead, newHead, pushed, refusal}, oldHead and newHead being the branch ref before and after. kind is synced (the branch moved; pushed says origin now has it), up-to-date (nothing moved or was pushed), dirty-tree (uncommitted or untracked changes, listed in paths; nothing ran), conflict (rt sync's bundle, the rebase left paused and the branch ref not yet moved), stacked-refused (stackCheck carries the stack refusal, and refusal names the tool to run), push-refused (the rebase landed locally but the push failed) or error (any other refusal or failure, its reason in refusal).",
       inputSchema: { type: "object", properties: { ...TREE_PROP }, required: ["tree"], additionalProperties: false },
       shellForms: ["rt sync"],
-      handler: guarded(async (path) => {
-        const pre = await branchSyncPreflight(path, deps.git);
-        if (!pre.ok) return err(pre.error);
-        const r = await deps.sync(path);
-        let body: unknown = null;
-        try { body = JSON.parse(r.stdout); } catch { body = null; }
-        const obj = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-        if (r.code === 0) return ok({ status: "synced", divergedFromOrigin: pre.diverged, ...obj });
-        if (r.code === 3) return ok({ status: "conflict", ...obj });
-        if (r.code === 124) return err(`rt sync timed out after ${SYNC_TIMEOUT_MS / 1000}s`);
-        if (r.code === -1 && r.stderr.trim() === "") return err("could not start rt sync");
-        const hint = typeof obj.hint === "string" ? (typeof obj.tool === "string" && obj.tool !== "" ? `${obj.hint}. Run: ${obj.tool}` : obj.hint) : null;
-        const message = typeof obj.error === "string" ? obj.error : hint ?? detail(r);
-        return err(`rt sync refused (exit ${r.code}): ${message}`);
-      }),
+      handler: guarded(async (path) => ok(await branchSync(path, deps))),
     },
   ];
 }
