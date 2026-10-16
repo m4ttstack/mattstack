@@ -231,8 +231,7 @@ export function createHerdHandlers(deps: HerdDeps) {
     includeParked ? { status: ["open", "parked"] } : { open: true };
 
   async function readOpenHerdGates(herdId: string, includeParked = false): Promise<GateListing> {
-    const res = await deps.gate["gate:list"]({ ...liveGateFilter(includeParked), subjectPrefix: herdPrefix(herdId) });
-    return res.ok ? { ok: true, data: res.data.gates } : { ok: false, error: res.error };
+    return readEveryGate({ ...liveGateFilter(includeParked), subjectPrefix: herdPrefix(herdId) });
   }
 
   async function openHerdGates(herdId: string): Promise<GateRow[]> {
@@ -241,12 +240,12 @@ export function createHerdHandlers(deps: HerdDeps) {
   }
 
   async function readHerdRunGates(herdId: string, includeParked = false): Promise<GateListing> {
-    const runs = await deps.gate["gate:list"]({ ...liveGateFilter(includeParked), subjectPrefix: "run:" });
-    if (!runs.ok) return { ok: false, error: runs.error };
+    const runs = await readEveryGate({ ...liveGateFilter(includeParked), subjectPrefix: "run:" });
+    if (!runs.ok) return runs;
     const trees = new Set(store.jobs(herdId).map((j) => j.worktree));
     return {
       ok: true,
-      data: runs.data.gates.filter((g) => {
+      data: runs.data.filter((g) => {
         const wt = deps.runWorktree(g.subject.slice("run:".length));
         return wt !== null && trees.has(wt);
       }),
@@ -391,7 +390,12 @@ export function createHerdHandlers(deps: HerdDeps) {
       // in-spawn retry gave it 15s before parking stuck-at-modal.
       trustWaitMs: TRUST_BUDGET_MS,
     });
-    if (!started.ok) return started;
+    if (!started.ok) {
+      // The replaced session's gates settle by that session id on the next
+      // successful launch, so the row keeps naming it until one exists.
+      store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", agentSession: prior?.agentSession ?? null, agentId: prior?.agentId ?? null });
+      return started;
+    }
     const rec = started.data;
     store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", pane: rec.paneId ?? null, agentSession: rec.sessionId, agentId: rec.id });
 
@@ -430,15 +434,21 @@ export function createHerdHandlers(deps: HerdDeps) {
       linger until retention, so one page can miss the newest rows. The store
       returns the table head as the cursor once a page is short, so the loop
       ends on the first empty page. */
-  async function listEveryGate(filter: Omit<Commands["gate:list"]["payload"], "cursor">): Promise<GateRow[]> {
+  async function readEveryGate(filter: Omit<Commands["gate:list"]["payload"], "cursor">): Promise<GateListing> {
     const all: GateRow[] = [];
     let cursor: number | undefined;
     for (;;) {
       const res = await deps.gate["gate:list"]({ ...filter, ...(cursor !== undefined && { cursor }) });
-      if (!res.ok || res.data.gates.length === 0) return all;
+      if (!res.ok) return { ok: false, error: res.error };
+      if (res.data.gates.length === 0) return { ok: true, data: all };
       all.push(...res.data.gates);
       cursor = res.data.cursor;
     }
+  }
+
+  async function listEveryGate(filter: Omit<Commands["gate:list"]["payload"], "cursor">): Promise<GateRow[]> {
+    const res = await readEveryGate(filter);
+    return res.ok ? res.data : [];
   }
 
   /** `herd:answer` consumes a gate only for the session it nudges, so the
