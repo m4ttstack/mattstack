@@ -2519,7 +2519,7 @@ Run branch_sync, one branch at a time, on every branch of yours with an open MR 
 ### worktree_provision
 
 <!-- mcp-lint: allow -->
-Claim a worktree for a ticket or branch (from the on-deck pool, or freshly created) and get back its path; then enter it with EnterWorktree in path mode. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+Claim a worktree for a ticket or branch (from the on-deck pool, or freshly created) and get back its path; then enter it with EnterWorktree in path mode. A success says what happened in "kind": "provisioned" (a tree was claimed or created), "reused" (an existing tree was returned) or "precheck" (nothing was created; see precheck). A refusal comes back as an error, "refused" in the JSON form. Options, all off by default. A call that uses none of them gets plain-text refusals, as always. Using any of codes, precheck, reuse, runDb or budget makes every refusal JSON text with a code (stage alone does not). codes: refusals as JSON with a code. The codes are branch-attached, branch-duplicated, branch-unresolved, busy, repo-unknown, create-failed, checkout-failed, claim-write-failed, handoff-write-failed, unsafe-ref, daemon-unreachable, daemon-outdated and error. precheck: report the branch a provision would use and the trees already on it, and create nothing. reuse: hand back the tree already on the branch when it is claimed or not managed by rt, instead of provisioning. In ticket mode a local branch that survives its tree is checked out again. Provisions as usual when there is nothing to reuse. runDb and stage: write the tree's branch and worktree path to that run (stage defaults to "provision"). The result says recorded, or recordError when a write failed. Precheck and refusals write nothing. budget {key, limit}, with runDb: each refusal is counted through run_budget, and the result's budget shows what is spent and left. The stage must already be started on the run (run_stage start), or budget holds an error instead of a count; it also holds an error when run_budget is missing. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
 {
@@ -2547,6 +2547,44 @@ Claim a worktree for a ticket or branch (from the on-deck pool, or freshly creat
     },
     "owner": {
       "type": "string"
+    },
+    "codes": {
+      "type": "boolean",
+      "description": "Refusals come back as JSON text with a machine-readable code instead of prose."
+    },
+    "precheck": {
+      "type": "boolean",
+      "description": "Only report the branch a provision would use and the trees already on it; nothing is created. Not with reuse."
+    },
+    "reuse": {
+      "type": "boolean",
+      "description": "Return the tree already on the branch (an unmanaged or claimed one) instead of provisioning; provisions only when none is. Not with precheck."
+    },
+    "runDb": {
+      "type": "string",
+      "description": "Absolute path of a run's state.db; the tree's branch and worktree path are written to that run."
+    },
+    "stage": {
+      "type": "string",
+      "description": "The run stage those writes and the budget belong to. Default \"provision\"."
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "key",
+        "limit"
+      ],
+      "additionalProperties": false,
+      "description": "Count each refusal against this limit through run_budget. Needs runDb."
     }
   },
   "required": [
