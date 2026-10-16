@@ -130,8 +130,8 @@ describe("worktree tools", () => {
   });
   describe("precheck and reuse", () => {
     const OUTDATED = 'daemon at version 2.1.0 does not know "worktree:provision-check"; restart or upgrade rt (rt daemon restart)';
-    const ref = (o: Record<string, unknown> = {}) => ({ tree: "frodo", path: "/trees/frodo", branch: "cv-1-fix", treeKind: "ephemeral", state: "claimed", owner: "o", disposal: "job", ...o });
-    const checkData = (o: Record<string, unknown> = {}) => ({ branch: "cv-1-fix", base: "cv-1-fix", localBranch: false, attached: [], sameTicket: [], sameSlug: [], ...o });
+    const ref = (o: Record<string, unknown> = {}) => ({ tree: "frodo", path: "/trees/frodo", branch: "acme-1-fix", treeKind: "ephemeral", state: "claimed", owner: "o", disposal: "job", ...o });
+    const checkData = (o: Record<string, unknown> = {}) => ({ branch: "acme-1-fix", base: "acme-1-fix", localBranch: false, attached: [], sameTicket: [], sameSlug: [], ...o });
     function routed(replies: Record<string, { ok: boolean; data?: unknown; error?: string }>) {
       const calls: Array<{ name: string; payload: any; opts: any }> = [];
       const command = (async (name: string, payload: unknown, o: unknown) => { calls.push({ name, payload, opts: o }); return replies[name] ?? { ok: false, error: "no reply for " + name }; }) as any;
@@ -143,11 +143,11 @@ describe("worktree tools", () => {
     test("precheck returns the check data and makes only the check call", async () => {
       const data = checkData({ attached: [ref()] });
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data } });
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", ticketTitle: "Fix", precheck: true }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", ticketTitle: "Fix", precheck: true }, ENV);
       expect(r.ok).toBe(true);
       expect(r.body).toEqual({ kind: "precheck", ...data });
       expect(calls.map((c) => c.name)).toEqual(["worktree:provision-check"]);
-      expect(calls[0]!.payload).toEqual({ repoName: ID, ticket: "CV-1", ticketTitle: "Fix" });
+      expect(calls[0]!.payload).toEqual({ repoName: ID, ticket: "ACME-1", ticketTitle: "Fix" });
       expect(calls[0]!.opts.timeoutMs).toBe(30_000);
     });
     test("precheck still needs a ticket or a branch", async () => {
@@ -159,7 +159,7 @@ describe("worktree tools", () => {
     test("a failed check is a daemon-outdated refusal and never provisions", async () => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: false, error: OUTDATED } });
       for (const extra of [{ precheck: true }, { reuse: true }]) {
-        const r = await tool.handler({ repoName: ID, ticket: "CV-1", ...extra }, ENV);
+        const r = await tool.handler({ repoName: ID, ticket: "ACME-1", ...extra }, ENV);
         expect(r.ok).toBe(false);
         expect(JSON.parse(r.error!).code).toBe("daemon-outdated");
       }
@@ -167,14 +167,14 @@ describe("worktree tools", () => {
     });
     test("reuse of one claimed ephemeral tree returns it with no provision call", async () => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref()] }) } });
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", reuse: true }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true }, ENV);
       expect(r.ok).toBe(true);
-      expect(r.body).toEqual({ kind: "reused", tree: "frodo", path: "/trees/frodo", branch: "cv-1-fix", treeKind: "ephemeral", state: "claimed", owner: "o", disposal: "job" });
+      expect(r.body).toEqual({ kind: "reused", tree: "frodo", path: "/trees/frodo", branch: "acme-1-fix", treeKind: "ephemeral", state: "claimed", owner: "o", disposal: "job" });
       expect(calls.map((c) => c.name)).toEqual(["worktree:provision-check"]);
     });
     test("reuse of one unmanaged tree is reused", async () => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref({ treeKind: "unmanaged", state: undefined, owner: undefined, disposal: undefined })] }) } });
-      const r = await tool.handler({ repoName: ID, branch: "cv-1-fix", reuse: true }, ENV);
+      const r = await tool.handler({ repoName: ID, branch: "acme-1-fix", reuse: true }, ENV);
       expect(r.ok).toBe(true);
       expect((r.body as any).kind).toBe("reused");
       expect(calls.map((c) => c.name)).toEqual(["worktree:provision-check"]);
@@ -186,46 +186,46 @@ describe("worktree tools", () => {
       [{ treeKind: "golden", state: undefined }, "golden"],
     ])("reuse of an unreusable tree %j refuses branch-attached (%s)", async (over, reason) => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref(over)] }) } });
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", reuse: true }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true }, ENV);
       expect(r.ok).toBe(false);
       expect(JSON.parse(r.error!)).toEqual({ kind: "refused", code: "branch-attached", tree: "frodo", reason, error: explainError("branch-attached:frodo") });
       expect(calls.map((c) => c.name)).toEqual(["worktree:provision-check"]);
     });
     test("reuse with two trees on the branch refuses branch-duplicated", async () => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref(), ref({ tree: "sam", path: "/trees/sam" })] }) } });
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", reuse: true }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true }, ENV);
       expect(r.ok).toBe(false);
       expect(JSON.parse(r.error!)).toEqual({ kind: "refused", code: "branch-duplicated", trees: ["frodo", "sam"], error: explainError("branch-duplicated") });
       expect(calls.map((c) => c.name)).toEqual(["worktree:provision-check"]);
     });
     test("reuse in ticket mode with a surviving local branch provisions on that branch", async () => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData({ localBranch: true }) }, "worktree:provision": PROVISIONED });
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", ticketTitle: "Fix", owner: "o", disposal: "job", reuse: true }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", ticketTitle: "Fix", owner: "o", disposal: "job", reuse: true }, ENV);
       expect(r.ok).toBe(true);
-      expect(calls[1]).toMatchObject({ name: "worktree:provision", payload: { repoName: ID, branch: "cv-1-fix", owner: "o", disposal: "job" } });
+      expect(calls[1]).toMatchObject({ name: "worktree:provision", payload: { repoName: ID, branch: "acme-1-fix", owner: "o", disposal: "job" } });
       expect(calls[1]!.payload.ticket).toBeUndefined();
       expect(calls[1]!.payload.ticketTitle).toBeUndefined();
     });
     test("reuse with no local branch provisions the ordinary payload", async () => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData() }, "worktree:provision": PROVISIONED });
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", ticketTitle: "Fix", reuse: true }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", ticketTitle: "Fix", reuse: true }, ENV);
       expect(r.ok).toBe(true);
       expect(r.body).toEqual({ kind: "provisioned", tree: "new", path: "/trees/new" });
-      expect(calls[1]!.payload).toEqual({ repoName: ID, ticket: "CV-1", ticketTitle: "Fix" });
+      expect(calls[1]!.payload).toEqual({ repoName: ID, ticket: "ACME-1", ticketTitle: "Fix" });
     });
     test("reuse in branch mode never swaps in base even with a local branch", async () => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData({ localBranch: true }) }, "worktree:provision": PROVISIONED });
-      await tool.handler({ repoName: ID, ticket: "CV-1", branch: "cv-1-fix", reuse: true }, ENV);
-      expect(calls[1]!.payload).toEqual({ repoName: ID, ticket: "CV-1", branch: "cv-1-fix" });
+      await tool.handler({ repoName: ID, ticket: "ACME-1", branch: "acme-1-fix", reuse: true }, ENV);
+      expect(calls[1]!.payload).toEqual({ repoName: ID, ticket: "ACME-1", branch: "acme-1-fix" });
     });
     test("a provision refusal after reuse is JSON", async () => {
       const { tool } = routed({ "worktree:provision-check": { ok: true, data: checkData() }, "worktree:provision": { ok: false, error: "busy" } });
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", reuse: true }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true }, ENV);
       expect(JSON.parse(r.error!).code).toBe("busy");
     });
     test("precheck with reuse is an input error before any call", async () => {
       const { tool, calls } = routed({});
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", precheck: true, reuse: true }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", precheck: true, reuse: true }, ENV);
       expect(r.ok).toBe(false);
       expect(r.error).toBe("precheck and reuse are separate calls");
       expect(calls).toEqual([]);
@@ -238,10 +238,10 @@ describe("worktree tools", () => {
   });
   describe("run recording and the retry budget", () => {
     const RUN_DB = "/runs/x/state.db";
-    const DATA = { tree: "new", path: "/trees/new", branch: "cv-1-fix" };
+    const DATA = { tree: "new", path: "/trees/new", branch: "acme-1-fix" };
     const PROVISIONED = { ok: true, data: DATA };
-    const ref = { tree: "frodo", path: "/trees/frodo", branch: "cv-1-fix", treeKind: "ephemeral", state: "claimed" };
-    const checkData = (o: Record<string, unknown> = {}) => ({ branch: "cv-1-fix", base: "cv-1-fix", localBranch: false, attached: [], sameTicket: [], sameSlug: [], ...o });
+    const ref = { tree: "frodo", path: "/trees/frodo", branch: "acme-1-fix", treeKind: "ephemeral", state: "claimed" };
+    const checkData = (o: Record<string, unknown> = {}) => ({ branch: "acme-1-fix", base: "acme-1-fix", localBranch: false, attached: [], sameTicket: [], sameSlug: [], ...o });
     function rig(replies: Record<string, { ok: boolean; data?: unknown; error?: string }>, opts: { fieldSet?: (input: any) => { ok: boolean; body?: unknown; error?: string }; budget?: ((input: any) => { ok: boolean; body?: unknown; error?: string }) | null; noFieldSet?: boolean } = {}) {
       const calls: Array<{ name: string; payload: any }> = [];
       const fieldWrites: any[] = [];
@@ -257,41 +257,41 @@ describe("worktree tools", () => {
     test("a provisioned tree is recorded as branch then worktree", async () => {
       const { tool, fieldWrites, envs } = rig({ "worktree:provision": PROVISIONED });
       const env = { X: "1" } as NodeJS.ProcessEnv;
-      const r = await tool.handler({ repoName: ID, branch: "cv-1-fix", runDb: RUN_DB }, env);
+      const r = await tool.handler({ repoName: ID, branch: "acme-1-fix", runDb: RUN_DB }, env);
       expect(r.ok).toBe(true);
       expect(r.body).toEqual({ kind: "provisioned", ...DATA, recorded: true });
       expect(fieldWrites).toEqual([
-        { runDb: RUN_DB, key: "branch", value: "cv-1-fix", stage: "provision" },
+        { runDb: RUN_DB, key: "branch", value: "acme-1-fix", stage: "provision" },
         { runDb: RUN_DB, key: "worktree", value: "/trees/new", stage: "provision" },
       ]);
       expect(envs).toEqual([env, env]);
     });
     test("a reused tree is recorded under the given stage", async () => {
       const { tool, fieldWrites } = rig({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref] }) } });
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", reuse: true, runDb: RUN_DB, stage: "checkout" }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true, runDb: RUN_DB, stage: "checkout" }, ENV);
       expect((r.body as any).kind).toBe("reused");
       expect((r.body as any).recorded).toBe(true);
       expect(fieldWrites).toEqual([
-        { runDb: RUN_DB, key: "branch", value: "cv-1-fix", stage: "checkout" },
+        { runDb: RUN_DB, key: "branch", value: "acme-1-fix", stage: "checkout" },
         { runDb: RUN_DB, key: "worktree", value: "/trees/frodo", stage: "checkout" },
       ]);
     });
     test("a failed branch write stops the recording and keeps the tree", async () => {
       const { tool, fieldWrites } = rig({ "worktree:provision": PROVISIONED }, { fieldSet: () => ({ ok: false, error: "stage provision has no row in this run" }) });
-      const r = await tool.handler({ repoName: ID, branch: "cv-1-fix", runDb: RUN_DB }, ENV);
+      const r = await tool.handler({ repoName: ID, branch: "acme-1-fix", runDb: RUN_DB }, ENV);
       expect(r.ok).toBe(true);
       expect(r.body).toEqual({ kind: "provisioned", ...DATA, recordError: "stage provision has no row in this run" });
       expect(fieldWrites.map((w) => w.key)).toEqual(["branch"]);
     });
     test("a missing run_field_set tool is a recordError", async () => {
       const { tool } = rig({ "worktree:provision": PROVISIONED }, { noFieldSet: true });
-      const r = await tool.handler({ repoName: ID, branch: "cv-1-fix", runDb: RUN_DB }, ENV);
+      const r = await tool.handler({ repoName: ID, branch: "acme-1-fix", runDb: RUN_DB }, ENV);
       expect(r.ok).toBe(true);
       expect((r.body as any).recordError).toBe("run_field_set is not available");
     });
     test("precheck and a refusal record nothing", async () => {
       const a = rig({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref] }) } });
-      await a.tool.handler({ repoName: ID, ticket: "CV-1", precheck: true, runDb: RUN_DB }, ENV);
+      await a.tool.handler({ repoName: ID, ticket: "ACME-1", precheck: true, runDb: RUN_DB }, ENV);
       expect(a.fieldWrites).toEqual([]);
       const b = rig({ "worktree:provision": { ok: false, error: "busy" } });
       const r = await b.tool.handler({ repoName: ID, branch: "b", runDb: RUN_DB }, ENV);
@@ -319,7 +319,7 @@ describe("worktree tools", () => {
     });
     test("a reuse refusal charges the budget under the given stage", async () => {
       const { tool, budgetCalls } = rig({ "worktree:provision-check": { ok: true, data: checkData({ attached: [{ ...ref, state: "disposable" }] }) } });
-      const r = await tool.handler({ repoName: ID, ticket: "CV-1", reuse: true, runDb: RUN_DB, stage: "checkout", budget: { key: "k", limit: 3 } }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true, runDb: RUN_DB, stage: "checkout", budget: { key: "k", limit: 3 } }, ENV);
       expect(JSON.parse(r.error!).code).toBe("branch-attached");
       expect(budgetCalls).toEqual([{ runDb: RUN_DB, key: "k", limit: 3, stage: "checkout" }]);
     });

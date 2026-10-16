@@ -232,8 +232,8 @@ the way provision does today, and the skill's gate decides.
 
 Without `reuse`, behavior is unchanged: branch mode refuses
 `branch-attached`, ticket mode disambiguates. In ticket mode `reuse` matches
-`base`, so a tree on `cv-12-fix-login` is reused instead of a new
-`cv-12-fix-login-2` being cut. The check and the provision are two calls;
+`base`, so a tree on `acme-12-fix-login` is reused instead of a new
+`acme-12-fix-login-2` being cut. The check and the provision are two calls;
 a tree that lands between them makes provision refuse or disambiguate as it
 does today, which is safe.
 
@@ -327,7 +327,7 @@ ref type sit beside `WorktreeProvisionData`. `dist/` is rebuilt
 ## Testing
 
 - Pure helpers: ticket head for the default and custom formats, the token
-  fallback, lowercase matching, `cv-1` not matching `cv-12-...`.
+  fallback, lowercase matching, `acme-1` not matching `acme-12-...`.
 - Daemon: provision-check returns `branch`, `base`, `attached`,
   `sameTicket`, `sameSlug` against a temp registry and repo; it writes
   nothing to the registry and takes no lock; provision's step 1 behavior is

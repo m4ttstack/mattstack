@@ -23,8 +23,8 @@
 ## Review Focus
 
 - An rt daemon older than this change gets `precheck: true`: it must answer `daemon-outdated` and never provision (Task 4 test).
-- A hand-made branch in another case (`CV-12-Fix`) still counts for ticket `cv-12` (Task 1 and Task 2 tests).
-- Ticket `cv-1` must not claim `cv-12-...` or `cv-10` (Task 1 test).
+- A hand-made branch in another case (`ACME-12-Fix`) still counts for ticket `acme-12` (Task 1 and Task 2 tests).
+- Ticket `acme-1` must not claim `acme-12-...` or `acme-10` (Task 1 test).
 - A run write that fails after a tree was claimed still returns the tree (Task 5 test).
 - A default call's refusal text, including the multi-line `create-failed`, is exactly `explainError(raw)` (Task 3 test).
 
@@ -42,13 +42,13 @@
 Rule (spec, "Precheck"): `head` = `format` up to the first `<slug>` (whole format when absent) with every `<ticket>` replaced by the sanitized ticket (lowercase, non-alphanumerics to `-`, trimmed, the same `sanitize` `slugifyTicketTitle` uses). When `head` contains the sanitized ticket, `stem` = `head` with trailing non-alphanumerics removed, and a branch belongs when `branch.toLowerCase()` equals `stem` or starts with `stem` followed by a non-alphanumeric character. Otherwise (no `<ticket>` before `<slug>`) a branch belongs when the sanitized ticket appears in the lowercased branch bounded by the string's ends or non-alphanumerics (escape it for the regex).
 
 - [ ] **Step 1: Write the failing tests** in a new `describe("belongsToTicket")`:
-  - `belongsToTicket("cv-12-fix-login", "CV-12", "<ticket>-<slug>")` → true
-  - `belongsToTicket("CV-12-Fix", "cv-12", "<ticket>-<slug>")` → true
-  - `belongsToTicket("cv-12", "cv-12", "<ticket>-<slug>")` → true
-  - `belongsToTicket("cv-12-fix-2", "cv-12", "<ticket>-<slug>")` → true
-  - `belongsToTicket("cv-123-x", "cv-12", "<ticket>-<slug>")` → false; `belongsToTicket("cv-10", "cv-1", "<ticket>-<slug>")` → false
-  - `belongsToTicket("feature/cv-12/fix", "cv-12", "feature/<ticket>/<slug>")` → true; `("cv-12-fix", "cv-12", "feature/<ticket>/<slug>")` → false
-  - slug-first format `"<slug>-<ticket>"`: `("fix-login-cv-12", "cv-12", …)` → true, `("fix-cv-123", "cv-12", …)` → false
+  - `belongsToTicket("acme-12-fix-login", "ACME-12", "<ticket>-<slug>")` → true
+  - `belongsToTicket("ACME-12-Fix", "acme-12", "<ticket>-<slug>")` → true
+  - `belongsToTicket("acme-12", "acme-12", "<ticket>-<slug>")` → true
+  - `belongsToTicket("acme-12-fix-2", "acme-12", "<ticket>-<slug>")` → true
+  - `belongsToTicket("acme-123-x", "acme-12", "<ticket>-<slug>")` → false; `belongsToTicket("acme-10", "acme-1", "<ticket>-<slug>")` → false
+  - `belongsToTicket("feature/acme-12/fix", "acme-12", "feature/<ticket>/<slug>")` → true; `("acme-12-fix", "acme-12", "feature/<ticket>/<slug>")` → false
+  - slug-first format `"<slug>-<ticket>"`: `("fix-login-acme-12", "acme-12", …)` → true, `("fix-acme-123", "acme-12", …)` → false
 - [ ] **Step 2:** `bun test lib/worktree/__tests__/names.test.ts` → FAIL (`belongsToTicket` is not exported).
 - [ ] **Step 3:** Implement `belongsToTicket` in `lib/worktree/branch-name.ts`.
 - [ ] **Step 4:** Same command → PASS.
@@ -158,7 +158,7 @@ Rule (spec, "Precheck"): `head` = `format` up to the first `<slug>` (whole forma
   - reuse with one unmanaged ref → reused.
   - reuse with a main ref → JSON `code: "branch-attached"`, `reason: "main-checkout"`; with a disposable ephemeral ref → `reason: "disposable"`; neither calls provision.
   - reuse with two refs → `code: "branch-duplicated"`, `trees` both names.
-  - reuse, ticket mode, no refs, `localBranch: true`, `base: "cv-1-fix"` → the provision payload is `{repoName, branch: "cv-1-fix", owner: "o", disposal: "job"}` with no `ticket`.
+  - reuse, ticket mode, no refs, `localBranch: true`, `base: "acme-1-fix"` → the provision payload is `{repoName, branch: "acme-1-fix", owner: "o", disposal: "job"}` with no `ticket`.
   - reuse, no refs, `localBranch: false` → the provision payload carries `ticket` and `ticketTitle`; the result is `kind: "provisioned"`.
   - reuse with `branch` and `ticket` both given and `localBranch: true` → ordinary payload (branch mode).
   - `precheck: true, reuse: true` → input error, no calls.
