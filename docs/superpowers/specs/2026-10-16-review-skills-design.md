@@ -388,7 +388,7 @@ The graph draws both handed entries ("a `{post}` alone" included) from
      (`postedFromDecisions` in `lib/runs/outcome.ts`) and the console read the
      latest `post` decision's `disposition` as what posted.
 2. Target resolution: kept node for node.
-   - `Review clarify rounds = 2?` reads `run_budget {key: target-clarify, limit:
+   - `target-clarify spent?` reads `run_budget {key: target-clarify, limit:
      2}`.
    - The clarify gate is `gate_ask` with `runDb`/`stage`, through the protocol,
      which records the answers map `{target, next}`. The site's own
@@ -398,7 +398,7 @@ The graph draws both handed entries ("a `{post}` alone" included) from
    `worktree_provision`, so an existing tree on the branch comes back as
    `kind: "reused"`. That replaces the `branch-attached:<tree>` refusal-parsing
    rule; the head check still decides whether the tree is usable.
-4. Verify loop: `Review verify rounds = 2?` reads `run_budget {key:
+4. Verify loop: `verify-rounds:<depth> spent?` reads `run_budget {key:
    verify-rounds:<depth>, limit: 2}`. A depth change starts a fresh key, which
    is today's "verify rounds reset".
 5. **The posting gate.**
@@ -416,8 +416,9 @@ The graph draws both handed entries ("a `{post}` alone" included) from
    - At the hand-back, write the `review-run: <run id>` line into the handed
      `--report`.
    - `Both review scripts exit 0?` becomes `gate_open result?`.
-     `Fixed a field a review script named once already?` reads `run_budget
-     {key: post-open-fix, limit: 1}`.
+     `post-open-fix spent?` reads `run_budget {key: post-open-fix, limit:
+     2}`, charged on each field refusal: the first charge fixes the field,
+     the second opens the off-script gate.
    - **Legacy gate** (no report json): `gate_ask {questions: tiers, outcome,
      next; kind: review-post; scope: post; runDb; stage}`, then the protocol.
    - **Recording.** The submit is built from the answers the protocol
@@ -441,7 +442,8 @@ The graph draws both handed entries ("a `{post}` alone" included) from
      submit.
    - A first pass answers no without a read, as today.
 7. Posting: kept (`mr_review_submit`, its result branches, bad anchors with
-   `run_budget {key: bad-anchors, limit: 1}`, `mr_approve`, and the gh boxes).
+   `run_budget {key: bad-anchors, limit: 2}` charged on each bad-anchors
+   result, read by `bad-anchors spent?`, `mr_approve`, and the gh boxes).
    Every posted edge, the gh ones included, ends at the `gate_record` post
    node.
 8. Close: `run_close {workType: review, stage: review, outcome: done}`; a hand

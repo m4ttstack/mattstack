@@ -244,7 +244,7 @@ Other sections and rules:
 | `mr_list matches for the branch?` (diamond node + section) | kept; its hold edges go to `run_hold` | review 2; B2 |
 | `mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}` (plaintext node + section) | kept | review 2 |
 | `mr_list matches for the ticket?` (diamond node + section) | kept | review 2 |
-| `Review clarify rounds = 2?` (diamond node) | kept; reads `run_budget {runDb, key: target-clarify, limit: 2, stage}` | review 2; B4 |
+| `Review clarify rounds = 2?` (diamond node) | kept as `target-clarify spent?` (trim pass); reads `run_budget {runDb, key: target-clarify, limit: 2, stage}` | review 2; B4 |
 | `STOP: GitLab ticket searches go through the read tools or gitlab_get` (octagon node) | kept | review 2 |
 | `STOP: GitLab reads go through the read tools or gitlab_get` (octagon node) | kept | review 2 |
 | `STOP: GitLab branch lookups go through the read tools or gitlab_get` (octagon node) | kept | review 2 |
@@ -261,8 +261,8 @@ Other sections and rules:
 | `git fetch origin +pull/<n>/head:refs/remotes/origin/pr-<n>` (plaintext node) | kept | review 3 |
 | `git fetch origin <targetBranch> +refs/merge-requests/<iid>/head:refs/remotes/origin/mr-<iid>` (plaintext node) | kept | review 3 |
 | `git diff origin/<targetBranch>...origin/mr-<iid>` (plaintext node) | kept | review 3 |
-| `MR-head checkout in hand for the review checks?` (diamond node + section) | kept | review 3 |
-| `worktree_provision {repoName, branch: <source branch>} for the review head` (plaintext node) | kept, adding `reuse: true` | review 3; B15 |
+| `MR-head checkout in hand for the review checks?` (diamond node + section) | kept as `MR-head checkout in hand?` (trim pass) | review 3 |
+| `worktree_provision {repoName, branch: <source branch>} for the review head` (plaintext node) | kept, adding `reuse: true`; the trim pass drops the ` for the review head` suffix | review 3; B15 |
 | `Review head worktree_provision returned a path?` (diamond node + section) | kept; a `kind: "reused"` result is a path; section: the `branch-attached:<tree>` refusal-parsing rule goes (`reuse: true` returns `reused`) | review 3; B15 |
 | `Provisioned review tree at the fetched head?` (diamond node + section) | kept | review 3 |
 | `STOP: create a review checkout only with worktree_provision` (octagon node) | kept | review 3 |
@@ -271,18 +271,18 @@ Other sections and rules:
 | `Assemble the review draft` (box node + section) | kept | Non-goals |
 | `Verify each blocking finding against the MR head` (box node + section) | kept; "a round counts each time this step runs" becomes the `run_budget` key; section: the anchor, quote and command checks stay; the round-count sentence becomes the budget key | review 4 |
 | `Every blocking finding verified?` (diamond node) | kept | review 4 |
-| `Review verify rounds = 2?` (diamond node) | kept; reads `run_budget {runDb, key: verify-rounds:<depth>, limit: 2, stage}` | review 4; B4 |
+| `Review verify rounds = 2?` (diamond node) | kept as `verify-rounds:<depth> spent?` (trim pass); reads `run_budget {runDb, key: verify-rounds:<depth>, limit: 2, stage}` | review 4; B4 |
 | `Re-dispatch a fresh reviewer on the unverified findings` (box node + section) | kept; section: "the counter is verify rounds in this run" becomes the budget key | review 4 |
 | `Demote each unverified finding to Minor, marked unverified` (box node + section) | kept | review 4 |
 | `Review report path given?` (diamond node) | kept | review 4 |
 | `Write the review report and its json sibling` (box node + section) | kept verbatim (board-named) | Board wrapper contract |
-| `Decided selection handed in by the review caller?` (diamond node) | kept | review 5 |
+| `Decided selection handed in by the review caller?` (diamond node) | kept as `Caller handed a decided selection?` (trim pass) | review 5 |
 | `Review report json in hand?` (diamond node) | kept | review 5 |
 | `Write review-post.extras.json` (box node + section) | kept with its field table; its scratch dir is a new dir in the session scratchpad, and a report json outside the temp root is copied there first on the direct path; section: `mktemp -d` goes (B18); the json shape and field table stay; "Then the two scripts, exactly" and the exit-code paragraph go on the direct path (the `review-source.sh` recipe description stays for the hand-back) | review 5; B18; B21 |
 | `sh "${CLAUDE_SKILL_DIR}/scripts/review-source.sh" <report json> <dir>/review-post.extras.json > <dir>/review-post.source.json` (plaintext node) | kept on the caller-owns-the-gates path only (the board's prose step reads the source file); the direct path is `gate_open {kind: review-post, review: {findingsPath, extras}, runDb, stage, scope: post}` | review 5; Constraints (scripts stay vendored) |
 | `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" fit < <dir>/review-post.source.json > <dir>/review-post.open.json` (plaintext node) | replaced by: `gate_open {kind: review-post, sourcePath, handBack: true, outPath: <dir>/review-post.open.json, runDb, stage, scope: post}` (hand-back) or the direct `gate_open {review}` | review 5; Board wrapper contract (open file shape) |
 | `Both review scripts exit 0?` (diamond node) | replaced by: `gate_open result?` | review 5 |
-| `Fixed a field a review script named once already?` (diamond node) | kept; reads `run_budget {runDb, key: post-open-fix, limit: 1, stage}` | review 5; B4 |
+| `Fixed a field a review script named once already?` (diamond node) | kept as `post-open-fix spent?` (trim pass), reading one `run_budget {runDb, key: post-open-fix, limit: 2, stage}` on the refusal | review 5; B4 |
 | `Fix the field the review script names` (box node + section) | kept as the fix for the field a `gate_open` refusal names (one problem per line); section: "Exit 1 from either script" becomes "the field the refusal names"; fix exactly that, once | Shared: review gate sites 2 |
 | `Open the review off-script gate: a review script refused` (box node + section) | kept, its origin now a `gate_open` refusal past the budget; the proposed move is still the legacy gate; section: exit 1 and exit 2 become a `gate_open` refusal and the spent `post-open-fix` budget | review 5; Off-script gates |
 | `Review script off-script answer?` (diamond node) | kept (take, iterate, hold to `run_hold`, hand back) | Off-script gates |
@@ -304,9 +304,9 @@ Other sections and rules:
 | `Compose the submitted review: comments, summary, outcome` (box node + section) | kept, trimmed to placement, the 100-item cap, `replies` from the `thread-<n>` answers, and restored findings; section: the comment and summary placement, the 100 cap, the `replies` build from `thread-<n>` answers and the restored-finding rules stay | review 5 |
 | `mr_review_submit {mrUrl, outcome, summary, comments, replies}` (plaintext node) | kept | review 7 |
 | `mr_review_submit result?` (diamond node) | kept; the posted edge ends at the `gate_record` post node | review 7 |
-| `Bad anchors moved into the summary once already?` (diamond node) | kept; reads `run_budget {runDb, key: bad-anchors, limit: 1, stage}` | review 7; B4 |
+| `Bad anchors moved into the summary once already?` (diamond node) | kept as `bad-anchors spent?` (trim pass), reading one `run_budget {runDb, key: bad-anchors, limit: 2, stage}` on the result | review 7; B4 |
 | `Move the bad-anchor findings into the summary` (box node + section) | kept | review 7 |
-| `STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate` (octagon node) | kept | review 7 |
+| `STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate` (octagon node) | kept as `STOP: post a review only as one mr_review_submit` (trim pass; its tempted edge still names the piecewise tools and the GitLab CLI, and it still leads to the off-script gate) | review 7 |
 | `Open the review off-script gate: mr_review_submit refused` (box node + section) | kept | review 7; Off-script gates |
 | `Open the review off-script gate: pending comments on the MR` (box node + section) | kept | review 7; Off-script gates |
 | `Review submit off-script answer?` (diamond node) | kept | Off-script gates |
@@ -321,9 +321,9 @@ Other sections and rules:
 | `run_stage {action: done, stage: review}` (plaintext node) | replaced by: `run_close {runDb, workType: review, stage: review, outcome: done}` | review 8; B3 |
 | `run_status {status: done} for review` (plaintext node) | replaced by: the same `run_close` call | review 8; B3 |
 | `End with the review target's forge link` (box node + section) | kept | Kept |
-| `run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review` (plaintext node) | replaced by: `run_hold {runDb, stage, reason, decidedBy} for review` | Shared: the run; B2 |
+| `run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review` (plaintext node) | replaced by: `run_hold {runDb, stage, reason, decidedBy}` (the trim pass drops the ` for review` suffix) | Shared: the run; B2 |
 | `run_field_set {key: hold, value: <their words>, stage: <review stage>}` (plaintext node) | gone: `run_hold` writes the hold | Shared: the run; B2 |
-| `Own review run: close it as abandoned?` (diamond node) | kept | review 8 |
+| `Own review run: close it as abandoned?` (diamond node) | kept as `Own review run: abandon it?` (trim pass) | review 8 |
 | `run_stage {action: fail, stage: review, reason: <why; what already posted>}` (plaintext node) | replaced by: `run_close {runDb, workType: review, stage: review, outcome: abandoned, reason}` | review 8; B3 |
 | `run_status {status: abandoned} for review` (plaintext node) | replaced by: the same `run_close` call | review 8; B3 |
 | `run_stage {action: fail, stage: <run.current_stage>, reason: <why; what already posted>}` (plaintext node) | kept: an inherited run's hand back fails the stage | review 8 |
