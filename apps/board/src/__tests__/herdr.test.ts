@@ -1,4 +1,5 @@
 // src/__tests__/herdr.test.ts
+import { homedir } from 'os';
 import { describe, expect, test } from 'bun:test';
 
 import type { AgentIo } from '../agent-launch.ts';
@@ -8,7 +9,9 @@ import {
   dispatchPrompt,
   doctorPrompt,
   draftBinPath,
+  ensureHerdr,
   findWorkspaceIdByLabel,
+  herdrBin,
   launchDoctor,
   launchLegacyResume,
   launchRespond,
@@ -25,6 +28,11 @@ import {
   statusBinPath,
   type HerdrRunner,
 } from '../herdr.ts';
+
+const runningStart = async () => ({
+  ok: true,
+  data: { state: 'running' },
+});
 
 const WS_LIST = JSON.stringify({
   result: {
@@ -679,7 +687,8 @@ describe('launchLegacyResume (pre-rt-agent sessionId resume, over HerdrRunner)',
         sessionId: 'sess-1',
         workspaceKind: 'review',
       },
-      runner
+      runner,
+      runningStart
     );
     expect(res).toEqual({ tabId: 'w40:t3', workspaceId: 'w40' });
     expect(calls.some(c => c[0] === 'workspace' && c[1] === 'create')).toBe(
@@ -719,7 +728,8 @@ describe('launchLegacyResume (pre-rt-agent sessionId resume, over HerdrRunner)',
         workspaceKind: 'review',
         pack: 'widgets',
       },
-      runner
+      runner,
+      runningStart
     );
     const runCall = calls.find(c => c[0] === 'pane' && c[1] === 'run');
     expect(runCall?.[3]).toBe(
@@ -748,7 +758,8 @@ describe('launchLegacyResume (pre-rt-agent sessionId resume, over HerdrRunner)',
         prompt: 're-review please',
         tabPrefix: 'RE',
       },
-      runner
+      runner,
+      runningStart
     );
     const runCall = calls.find(c => c[0] === 'pane' && c[1] === 'run');
     expect(runCall?.[3]).toBe(
@@ -785,7 +796,8 @@ describe('launchLegacyResume (pre-rt-agent sessionId resume, over HerdrRunner)',
         workspaceKind: 'review',
         claudeCommand: 'cswap run 2 --',
       },
-      runner
+      runner,
+      runningStart
     );
     const runCall = calls.find(c => c[0] === 'pane' && c[1] === 'run');
     expect(runCall?.[3]).toBe("cd '/repo' && cswap run 2 -- --resume 'sess-1'");
@@ -811,7 +823,8 @@ describe('launchLegacyResume (pre-rt-agent sessionId resume, over HerdrRunner)',
         workspaceKind: 'review',
         author: 'Grace Hopper',
       },
-      runner
+      runner,
+      runningStart
     );
     expect(calls).toContainEqual([
       'tab',
@@ -844,7 +857,8 @@ describe('launchLegacyResume (pre-rt-agent sessionId resume, over HerdrRunner)',
         workspaceKind: 'review',
         author: 'Grace Hopper',
       },
-      runner
+      runner,
+      runningStart
     );
     // Returns the existing tab, does not create a new one.
     expect(res).toEqual({ tabId: 'w40:t9', workspaceId: 'w40' });
@@ -874,7 +888,8 @@ describe('launchLegacyResume (pre-rt-agent sessionId resume, over HerdrRunner)',
         sessionId: 'sess-2',
         workspaceKind: 'review',
       },
-      runner
+      runner,
+      runningStart
     );
     // Returns the workspace's initial tab/pane, not a second one.
     expect(res).toEqual({ tabId: 'w41:t1', workspaceId: 'w41' });
@@ -892,6 +907,97 @@ describe('launchLegacyResume (pre-rt-agent sessionId resume, over HerdrRunner)',
     const runCall = calls.find(c => c[0] === 'pane' && c[1] === 'run');
     expect(runCall?.[2]).toBe('w41:p1');
     expect(runCall?.[3]).toBe("cd '/repo' && claude --resume 'sess-2'");
+  });
+
+  test('a herdr that is not installed throws before any herdr command runs', async () => {
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      return '';
+    };
+    await expect(
+      launchLegacyResume(
+        {
+          mrUrl: 'https://x/mr/3',
+          iid: 7,
+          cwd: '/repo',
+          repo: 'acme/webapp',
+          workspaceLabel: 'reviews',
+          statePath: '/s/3.json',
+          sessionId: 'sess-3',
+          workspaceKind: 'review',
+        },
+        runner,
+        async () => ({ ok: true, data: { state: 'not-installed' } })
+      )
+    ).rejects.toThrow(
+      "herdr isn't installed. Open mattstack Setup to install it"
+    );
+    expect(calls).toEqual([]);
+  });
+
+  test('an unreachable daemon does not stop the launch', async () => {
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      return JSON.stringify({ result: { workspaces: [], type: 'ok' } });
+    };
+    await launchLegacyResume(
+      {
+        mrUrl: 'https://x/mr/3',
+        iid: 7,
+        cwd: '/repo',
+        repo: 'acme/webapp',
+        workspaceLabel: 'reviews',
+        statePath: '/s/3.json',
+        sessionId: 'sess-3',
+        workspaceKind: 'review',
+      },
+      runner,
+      async () => ({ ok: false })
+    ).catch(() => undefined);
+    expect(calls[0]).toEqual(['workspace', 'list']);
+  });
+});
+
+describe('herdrBin', () => {
+  const home = homedir();
+  test('HERDR_BIN wins over any installed herdr', () => {
+    expect(herdrBin({ HERDR_BIN: '/custom/herdr' }, () => true)).toBe(
+      '/custom/herdr'
+    );
+  });
+  test('finds a Homebrew herdr when it is the only one', () => {
+    expect(herdrBin({}, p => p === '/opt/homebrew/bin/herdr')).toBe(
+      '/opt/homebrew/bin/herdr'
+    );
+  });
+  test('prefers ~/.local/bin, then /opt/homebrew, then /usr/local', () => {
+    expect(herdrBin({}, () => true)).toBe(`${home}/.local/bin/herdr`);
+    expect(herdrBin({}, p => p !== `${home}/.local/bin/herdr`)).toBe(
+      '/opt/homebrew/bin/herdr'
+    );
+    expect(herdrBin({}, p => p === '/usr/local/bin/herdr')).toBe(
+      '/usr/local/bin/herdr'
+    );
+  });
+  test('falls back to ~/.local/bin when none exists', () => {
+    expect(herdrBin({}, () => false)).toBe(`${home}/.local/bin/herdr`);
+  });
+});
+
+describe('ensureHerdr', () => {
+  test('failed surfaces the daemon detail', async () => {
+    await expect(
+      ensureHerdr(async () => ({
+        ok: true,
+        data: { state: 'failed', detail: 'socket never appeared' },
+      }))
+    ).rejects.toThrow('socket never appeared');
+  });
+  test('running and started pass', async () => {
+    await ensureHerdr(runningStart);
+    await ensureHerdr(async () => ({ ok: true, data: { state: 'started' } }));
   });
 });
 
