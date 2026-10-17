@@ -266,9 +266,11 @@ function validates(root: Schema, schema: Schema, value: unknown): boolean {
     for (const [key, v] of Object.entries(obj)) {
       if (schema.propertyNames && !validates(root, schema.propertyNames, key)) return false;
       const own = schema.properties?.[key];
-      if (own) {
-        if (!validates(root, own, v)) return false;
-      } else if (schema.additionalProperties === false) {
+      const patterns = Object.entries(schema.patternProperties ?? {}).filter(([p]) => new RegExp(p).test(key));
+      if (own && !validates(root, own, v)) return false;
+      if (patterns.some(([, s]) => !validates(root, s as Schema, v))) return false;
+      if (own || patterns.length) continue;
+      if (schema.additionalProperties === false) {
         return false;
       } else if (schema.additionalProperties && !validates(root, schema.additionalProperties, v)) {
         return false;
@@ -285,6 +287,12 @@ describe("skills-manifest.schema.json", () => {
   test("schema accepts empty pipeline binding", () => {
     expect(accepts({ pipelines: { a: { stages: ["mattstack:stage-plan"], bindings: { "mattstack:stage-plan": { x: "acme:y" } } } } })).toBe(true);
     expect(accepts({ pipelines: { a: { stages: ["mattstack:stage-plan"], bindings: { "mattstack:stage-plan": { x: "" } } } } })).toBe(true);
+  });
+
+  test("a pipeline name with -- takes only the plain list form", () => {
+    expect(accepts({ pipelines: { "a--b": { stages: ["mattstack:stage-plan"] } } })).toBe(false);
+    expect(accepts({ pipelines: { "a--b": ["mattstack:stage-plan"] } })).toBe(true);
+    expect(accepts({ pipelines: { accessibility: { stages: ["mattstack:stage-plan"] } } })).toBe(true);
   });
 
   test("an empty top-level binding still fails the schema", () => {
