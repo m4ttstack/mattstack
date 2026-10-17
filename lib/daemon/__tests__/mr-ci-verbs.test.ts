@@ -115,7 +115,7 @@ describe("mr:by-target", () => {
     const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
     expect(r).toEqual({ ok: true, data: { mrs: [{
       iid: 7, title: "t7", state: "opened", draft: true, sourceBranch: "child-7", targetBranch: "feat",
-      author: "bob", webUrl: "https://gitlab.com/grp/proj/-/merge_requests/7", detailedMergeStatus: "mergeable",
+      author: "bob", webUrl: "https://gitlab.com/grp/proj/-/merge_requests/7", detailedMergeStatus: "mergeable", mergedAt: null,
     }] } });
   });
 

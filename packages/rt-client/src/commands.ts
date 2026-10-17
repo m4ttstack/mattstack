@@ -84,6 +84,7 @@ export interface MrTargetSummary {
   author: string | null;
   webUrl: string | null;
   detailedMergeStatus: string | null;
+  mergedAt: string | null;
 }
 
 /** Read live from GitLab across every author, never from the open-MR cache. */
