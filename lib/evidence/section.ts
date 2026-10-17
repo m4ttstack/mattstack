@@ -68,11 +68,14 @@ function withoutLocalPaths(line: string): string {
     GITLAB_RELATIVE.test(path) ? whole : `${pre}${basename(path)} (attached separately)`);
 }
 
+/** A home path continues into a longer user's name only through a name character, or a `.`/`_` with one after it; anything else ends it. */
+const NAME_CONTINUES = "[A-Za-z0-9-]|[._][A-Za-z0-9-]";
+
 /** The last guard before a section leaves the machine: the home directory (or its realpath) appearing anywhere, captions and waivers included, which the per-field renders cannot see. */
 export function namesHome(text: string, homes: string[]): boolean {
   return homes
     .filter((h) => h.length > 1)
-    .some((h) => new RegExp(`${h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[/\\s)\\]"'\`,;:])`).test(text));
+    .some((h) => new RegExp(`${h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!${NAME_CONTINUES})`).test(text));
 }
 
 function linksOf(line: string): string[] {

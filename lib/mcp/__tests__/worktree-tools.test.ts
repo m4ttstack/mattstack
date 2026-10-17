@@ -179,10 +179,44 @@ describe("worktree tools", () => {
     });
     test("reuse of one claimed ephemeral tree returns it with no provision call", async () => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref()] }) } });
-      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true }, ENV);
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", owner: "o", reuse: true }, ENV);
       expect(r.ok).toBe(true);
       expect(r.body).toEqual({ kind: "reused", tree: "frodo", path: "/trees/frodo", branch: "acme-1-fix", treeKind: "ephemeral", state: "claimed", owner: "o", disposal: "job" });
       expect(calls.map((c) => c.name)).toEqual(["worktree:provision-check"]);
+    });
+    test("reuse refuses tree-held when another owner holds the claimed tree", async () => {
+      const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref({ owner: "herd:other", claimedAt: "2026-10-16T09:00:00.000Z" })] }) } });
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true }, { HERD_ID: "mine" } as NodeJS.ProcessEnv);
+      expect(r.ok).toBe(false);
+      const refusal = JSON.parse(r.error!);
+      expect(refusal).toMatchObject({ kind: "refused", code: "tree-held", tree: "frodo", owner: "herd:other", claimedAt: "2026-10-16T09:00:00.000Z" });
+      expect(refusal.error).toContain("takeOver");
+      expect(calls.map((c) => c.name)).toEqual(["worktree:provision-check"]);
+    });
+    test("reuse of a tree this herd holds needs no override", async () => {
+      const { tool } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref({ owner: "herd:mine" })] }) } });
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true }, { HERD_ID: "mine" } as NodeJS.ProcessEnv);
+      expect((r.body as any).kind).toBe("reused");
+    });
+    test("takeOver reuses a tree another owner holds", async () => {
+      const { tool } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref({ owner: "claude" })] }) } });
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true, takeOver: true }, ENV);
+      expect((r.body as any).kind).toBe("reused");
+    });
+    test("a claimed tree with no owner is reused", async () => {
+      const { tool } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref({ owner: undefined })] }) } });
+      const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true }, ENV);
+      expect((r.body as any).kind).toBe("reused");
+    });
+    test("the description says owner is asserted by the caller", () => {
+      const { tool } = routed({});
+      expect(tool.description).toContain("owner is asserted by the caller");
+    });
+    test("takeOver is only for reuse and must be a boolean", async () => {
+      const { tool, calls } = routed({});
+      expect((await tool.handler({ repoName: ID, ticket: "t", takeOver: true }, ENV)).error).toBe("takeOver only goes with reuse");
+      expect((await tool.handler({ repoName: ID, ticket: "t", reuse: true, takeOver: 1 }, ENV)).error).toContain("takeOver");
+      expect(calls).toEqual([]);
     });
     test("reuse of one unmanaged tree is reused", async () => {
       const { tool, calls } = routed({ "worktree:provision-check": { ok: true, data: checkData({ attached: [ref({ treeKind: "unmanaged", state: undefined, owner: undefined, disposal: undefined })] }) } });

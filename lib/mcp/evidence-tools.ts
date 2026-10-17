@@ -446,7 +446,7 @@ function attachRecord(value: string | undefined): EvidenceRecord {
 const HOME_IN_SECTION = "the section names a path in your home directory (a caption, label, waiver, ticket or appendix carries it), so the description was not written; take the path out of the evidence record and call again";
 
 function homesOf(deps: EvidenceToolDeps): string[] {
-  const home = deps.home();
+  const home = deps.home().replace(/(.)\/+$/, "$1");
   return [...new Set([home, realOr(home)])];
 }
 

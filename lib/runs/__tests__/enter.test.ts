@@ -299,6 +299,27 @@ describe("resume", () => {
     ro(odd.runDb, (d) => expect(readManifest(d)).toEqual([]));
   });
 
+  test("a resume backfill writes pipeline-stages when the run has none, and keeps one it has", () => {
+    const root = tmp("rt-enter-runs-");
+    const packRoot = pack();
+    const bare = runStart(root, { repo: "demo", workType: "feature", pipeline: "work", env: {}, now: 10 });
+    if (!bare.ok) throw new Error(bare.error);
+    let db = openRunDb(bare.runDb);
+    stageStart(db, "build", {}, 11);
+    db.close();
+    enter(input(root, packRoot, { resume: bare.runId }));
+    ro(bare.runDb, (d) => expect(d.query("SELECT value, produced_by FROM fields WHERE key = 'pipeline-stages'").get()).toEqual({ value: "plan build ship", produced_by: "plan" }));
+
+    const kept = runStart(root, { repo: "demo", workType: "feature", pipeline: "work", env: {}, now: 20 });
+    if (!kept.ok) throw new Error(kept.error);
+    db = openRunDb(kept.runDb);
+    stageStart(db, "plan", {}, 21);
+    fieldSet(db, "pipeline-stages", "plan build", "plan", 22);
+    db.close();
+    enter(input(root, packRoot, { resume: kept.runId }));
+    ro(kept.runDb, (d) => expect(d.query("SELECT value FROM fields WHERE key = 'pipeline-stages'").get()).toEqual({ value: "plan build" }));
+  });
+
   test("resume of a run with no current stage starts the first manifest stage", () => {
     const root = tmp("rt-enter-runs-");
     const packRoot = pack();

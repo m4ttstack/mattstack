@@ -1,0 +1,57 @@
+# Trace for scenario B22 (ship stage)
+
+I stop at step 12 with `run_stage fail`, because the push never landed on the remote.
+
+## Entry
+
+1. `run_field_get {"key":"mr"}` returns an error, so the field is unset.
+2. There are no domain steps. I read the inputs with `run_field_get {"key":"commits"}` and `run_field_get {"key":"ticket"}`.
+3. I run the git reads:
+   - `git rev-parse --show-toplevel` prints `/work/acme-app`.
+   - `git status --porcelain` prints nothing, so the tree is clean.
+   - `git log --oneline @{upstream}..` exits 128 with no upstream, so I fall back to `git log --oneline -5`.
+4. `branch_stack {"tree":"/work/acme-app"}` returns `member: false`, so no stack parent was read. The target is the default branch, from `git symbolic-ref --short refs/remotes/origin/HEAD`, which prints `origin/main`. The resolved target is `main`.
+5. `run_field_get {"key":"shipTarget"}` returns an error, so the ship gate opens.
+
+## Ship gate
+
+6. `gate_ask {"kind":"ship","runDb":"/home/dev/.mattstack/runs/app/r-work-0003/state.db","stage":"ship", ...}`:
+   - The context sentence says: branch `feat/widget`, commit `3f9c2a7 add widget`, clean tree, target `main`.
+   - The questions are `open_as` (draft, the recommended option, or ready) and `next` (Proceed, Iterate here, Go back, Hold).
+   - There is no `dirty` question because the tree is clean.
+7. The human answers draft and Proceed. I call `gate_answer {id:"g-1", answers:{open_as:"draft", next:"proceed"}, runDb, stage:"ship"}`.
+8. `run_field_set {"key":"shipTarget","value":"main","stage":"ship"}`.
+
+## Push
+
+9. The tree is clean, there are no domain checks, and the domain has no rebase, so no force-with-lease is needed. `mr` is unset, so there is no `leaseMrUrl`. I call `git_push {"tree":"/work/acme-app","setUpstream":true}`. It returns an ssh timeout error, which is a refusal other than `lease_held`, so I hit "STOP: push only with git_push".
+
+## Off-script gate 1
+
+10. `gate_ask {"kind":"off-script:ship:1","runDb":...,"stage":"ship"}`:
+    - The context quotes the push error.
+    - The `action` options are "Take the proposed move" and "Hand back".
+    - The `next` options are Proceed (Recommended), Iterate here and Hold.
+    - The human answers Take and Proceed, so I call `gate_answer`.
+11. I make the recorded move once. It is the human's own push, and I never push from here. I compare `git rev-parse HEAD` (prints `A`) with the remote branch, using `git ls-remote origin refs/heads/feat/widget` (empty, exit 2), then `git fetch origin` and `git rev-parse origin/feat/widget` (fails). The remote branch doesn't exist, so the push did not land.
+12. `run_budget {"key":"ship:landing-checks","limit":1,"stage":"ship"}` returns `spent: 1`. That is not above the limit, so I reopen the push gate.
+
+## Off-script gate 2
+
+13. `gate_ask {"kind":"off-script:ship:2", ...}`, with the context quoting the comparison: HEAD is `A` and the remote branch is absent.
+14. The human answers Take and Proceed ("I pushed feat/widget again"). I call `gate_answer`.
+15. I repeat the comparison: `git rev-parse HEAD`, `git ls-remote origin refs/heads/feat/widget`, and `git fetch origin` plus `git rev-parse origin/feat/widget`. The result is the same, so the push did not land.
+16. `run_budget {"key":"ship:landing-checks","limit":1,"stage":"ship"}` returns `spent: 2`. That is above the limit, so it is spent and this is a failure. The graph goes straight to the failure exit, so no third gate opens and the "Hand back" answer in step 9 of the scenario is never used. There is no rebase in progress to abort.
+
+## Failure
+
+17. `run_stage {"action":"fail","stage":"ship","runDb":"/home/dev/.mattstack/runs/app/r-work-0003/state.db","reason":"..."}`. The reason quotes the original `git_push` error ("ssh: connect to host gitlab.example.com port 22: Operation timed out"). It also says that twice the human reported pushing `feat/widget` themselves, but `git ls-remote origin refs/heads/feat/widget` returned nothing and `origin/feat/widget` does not exist, while HEAD is `3f9c2a7e1b4d8c6f0a5e9b2d7c1f4a8e6b3d9c05`.
+
+## Not made
+
+- No `pushed` or `mr` field writes.
+- No `mr_create` and no `gh` calls.
+- No evidence steps.
+- No `mr_update`.
+
+The stage ends as "Stage failed".

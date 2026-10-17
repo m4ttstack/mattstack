@@ -127,10 +127,10 @@ entry would wave through a forced push and `Bash(git rebase *)` a `--exec` of
 any command; the read-only git forms need no rule in any mode and the
 classifier approves routine commits and pushes, so no `Bash(git ...)` entry
 belongs in the list (a test pins this). And what skills still run in a shell
-is `rt gate` (`rt gate wait`, which blocks past any tool timeout, and the
-shepherd's `rt gate answer --by shepherd`, which `herd_gate_answer` covers
-once the shepherdr skill moves to it) and `rt events wait`
+is `rt gate wait`, which blocks past any tool timeout, and `rt events wait`
 under `Monitor`, covered by `Bash(rt gate *)` and `Bash(rt events wait *)`.
+The shepherdr skill answers and parks gates through `herd_gate_answer` and
+`herd_gate_park`; `rt gate answer --by shepherd` is left for a person.
 Everything else a skill runs routinely is a tool on the mattstack server.
 Do not widen the list to make a skill work; add a tool or an agent-safe
 verb.

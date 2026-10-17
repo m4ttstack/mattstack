@@ -87,6 +87,8 @@ r="$(run "$STOP")"
 case "$r" in exit=2*20260901-000002-bbbb-2*) echo "ok   running run exits 2 naming the run";; *) echo "FAIL running run exits 2 naming the run"; echo "       got : $r"; fails=$((fails+1));; esac
 case "$r" in *"stage \`ship\`"*) echo "ok   message names the stage";; *) echo "FAIL message names the stage"; fails=$((fails+1));; esac
 case "$r" in *"Five exits"*) echo "ok   message lists the exits";; *) echo "FAIL message lists the exits"; fails=$((fails+1));; esac
+case "$r" in *"gate_ask"*"run_hold"*"run_close"*) echo "ok   message names the gate and run tools";; *) echo "FAIL message names the gate and run tools"; fails=$((fails+1));; esac
+case "$r" in *"field set"*) echo "FAIL message never has the agent hand-write a run field"; fails=$((fails+1));; *) echo "ok   message never has the agent hand-write a run field";; esac
 case "$r" in *"out=") echo "ok   no stdout on block";; *) echo "FAIL no stdout on block"; fails=$((fails+1));; esac
 
 # stop_hook_active does not open a side door.
