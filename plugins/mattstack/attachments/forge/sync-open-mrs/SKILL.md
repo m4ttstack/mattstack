@@ -28,22 +28,16 @@ digraph sync_open_mrs {
     rankdir=TB;
 
     "Trigger: every open MR should come current" [shape=ellipse];
-    "Caller handed a runDb?" [shape=diamond];
-    "run_snapshot {runDb}" [shape=plaintext];
-    "run.status = running?" [shape=diamond];
+    "run_enter {flags, skillDir, stage: sync-open-mrs, runDb?, spawnedBy?}" [shape=plaintext];
+    "sync-open-mrs run_enter mode?" [shape=diamond];
     "Inherit the run" [shape=box];
-    "Spawned by a surface?" [shape=diamond];
-    "run_list {repo}" [shape=plaintext];
-    "Running sync-open-mrs runs?" [shape=diamond];
     "Gate clarify: resume or start fresh" [shape=box];
     "clarify answer?" [shape=diamond];
-    "run_stage {runDb: <resumed>, action: start, stage: sync-open-mrs}" [shape=plaintext];
-    "run_field_set {runDb: <resumed>, key: hold, value: -, stage: sync-open-mrs}" [shape=plaintext];
+    "run_enter {flags, skillDir, stage: sync-open-mrs, resume: <picked runId>}" [shape=plaintext];
+    "run_enter {flags, skillDir, stage: sync-open-mrs, fresh: true, spawnedBy?}" [shape=plaintext];
+    "The refused run_enter carried resume?" [shape=diamond];
     "run_snapshot {runDb: <resumed>}" [shape=plaintext];
     "Keep the recorded answers" [shape=box];
-    "run_start {flags, skillDir, spawnedBy?}" [shape=plaintext];
-    "run_start ok with a runDb?" [shape=diamond];
-    "run_stage {action: start, stage: sync-open-mrs}" [shape=plaintext];
     "git -C <checkout> remote get-url origin" [shape=plaintext];
     "Forge?" [shape=diamond];
     "mr_map {repoName, author: me}" [shape=plaintext];
@@ -92,41 +86,34 @@ digraph sync_open_mrs {
     "Watch CI asked?" [shape=diamond];
     "Follow watch-ci per pushed branch" [shape=box];
     "Report every branch in one bucket" [shape=box];
-    "Started this run here?" [shape=diamond];
-    "run_stage {action: done, stage: sync-open-mrs}" [shape=plaintext];
+    "Started or resumed this run here?" [shape=diamond];
     "Sweep abandoned?" [shape=diamond];
-    "run_status {status: done}" [shape=plaintext];
-    "run_status {status: abandoned}" [shape=plaintext];
+    "run_close {runDb, workType: sync-open-mrs, stage: sync-open-mrs, outcome: done}" [shape=plaintext];
+    "run_close {runDb, workType: sync-open-mrs, stage: sync-open-mrs, outcome: abandoned, reason}" [shape=plaintext];
     "Inherited sweep abandoned?" [shape=diamond];
     "rt too old: told the user to update" [shape=doublecircle];
     "Held: end the turn naming the gate" [shape=doublecircle];
     "Sweep abandoned" [shape=doublecircle];
     "Sweep reported" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: every open MR should come current" -> "Caller handed a runDb?";
-    "Caller handed a runDb?" -> "run_snapshot {runDb}" [label="yes"];
-    "Caller handed a runDb?" -> "Spawned by a surface?" [label="no"];
-    "run_snapshot {runDb}" -> "run.status = running?";
-    "run.status = running?" -> "Inherit the run" [label="yes"];
-    "run.status = running?" -> "Spawned by a surface?" [label="no"];
+    "Trigger: every open MR should come current" -> "run_enter {flags, skillDir, stage: sync-open-mrs, runDb?, spawnedBy?}";
+    "run_enter {flags, skillDir, stage: sync-open-mrs, runDb?, spawnedBy?}" -> "sync-open-mrs run_enter mode?";
+    "run_enter {flags, skillDir, stage: sync-open-mrs, resume: <picked runId>}" -> "sync-open-mrs run_enter mode?";
+    "run_enter {flags, skillDir, stage: sync-open-mrs, fresh: true, spawnedBy?}" -> "sync-open-mrs run_enter mode?";
+    "sync-open-mrs run_enter mode?" -> "git -C <checkout> remote get-url origin" [label="started"];
+    "sync-open-mrs run_enter mode?" -> "Inherit the run" [label="inherited"];
+    "sync-open-mrs run_enter mode?" -> "run_snapshot {runDb: <resumed>}" [label="resumed"];
+    "sync-open-mrs run_enter mode?" -> "Gate clarify: resume or start fresh" [label="candidates"];
+    "sync-open-mrs run_enter mode?" -> "The refused run_enter carried resume?" [label="refused, or the tool is missing"];
+    "The refused run_enter carried resume?" -> "run_enter {flags, skillDir, stage: sync-open-mrs, fresh: true, spawnedBy?}" [label="yes: say so, start fresh"];
+    "The refused run_enter carried resume?" -> "rt too old: told the user to update" [label="no: quote the refusal"];
     "Inherit the run" -> "git -C <checkout> remote get-url origin";
-    "Spawned by a surface?" -> "run_start {flags, skillDir, spawnedBy?}" [label="yes: start fresh"];
-    "Spawned by a surface?" -> "run_list {repo}" [label="no: launched by hand"];
-    "run_list {repo}" -> "Running sync-open-mrs runs?";
-    "Running sync-open-mrs runs?" -> "Gate clarify: resume or start fresh" [label="yes"];
-    "Running sync-open-mrs runs?" -> "run_start {flags, skillDir, spawnedBy?}" [label="no"];
     "Gate clarify: resume or start fresh" -> "clarify answer?";
-    "clarify answer?" -> "run_stage {runDb: <resumed>, action: start, stage: sync-open-mrs}" [label="resume a candidate"];
-    "clarify answer?" -> "run_start {flags, skillDir, spawnedBy?}" [label="start fresh"];
+    "clarify answer?" -> "run_enter {flags, skillDir, stage: sync-open-mrs, resume: <picked runId>}" [label="resume a candidate"];
+    "clarify answer?" -> "run_enter {flags, skillDir, stage: sync-open-mrs, fresh: true, spawnedBy?}" [label="start fresh"];
     "clarify answer?" -> "Held: end the turn naming the gate" [label="hold"];
-    "run_stage {runDb: <resumed>, action: start, stage: sync-open-mrs}" -> "run_field_set {runDb: <resumed>, key: hold, value: -, stage: sync-open-mrs}";
-    "run_field_set {runDb: <resumed>, key: hold, value: -, stage: sync-open-mrs}" -> "run_snapshot {runDb: <resumed>}";
     "run_snapshot {runDb: <resumed>}" -> "Keep the recorded answers";
     "Keep the recorded answers" -> "git -C <checkout> remote get-url origin";
-    "run_start {flags, skillDir, spawnedBy?}" -> "run_start ok with a runDb?";
-    "run_start ok with a runDb?" -> "run_stage {action: start, stage: sync-open-mrs}" [label="yes"];
-    "run_start ok with a runDb?" -> "rt too old: told the user to update" [label="no"];
-    "run_stage {action: start, stage: sync-open-mrs}" -> "git -C <checkout> remote get-url origin";
     "git -C <checkout> remote get-url origin" -> "Forge?";
     "Forge?" -> "mr_map {repoName, author: me}" [label="GitLab"];
     "Forge?" -> "Follow map-open-mrs for the table" [label="GitHub"];
@@ -142,7 +129,7 @@ digraph sync_open_mrs {
     "sweep answer?" -> "Say nothing was selected" [label="proceed with none selected"];
     "sweep answer?" -> "Plan the sweep" [label="iterate"];
     "sweep answer?" -> "Held: end the turn naming the gate" [label="hold"];
-    "Say nothing was selected" -> "Started this run here?";
+    "Say nothing was selected" -> "Started or resumed this run here?";
     "Every listed branch selected?" -> "branch_sync_sweep {repoName}" [label="yes: all four conditions hold"];
     "Every listed branch selected?" -> "Selected branches left?" [label="no: per branch, in the answer's order"];
     "branch_sync_sweep {repoName}" -> "branch_sync_sweep result?";
@@ -201,14 +188,13 @@ digraph sync_open_mrs {
     "Watch CI asked?" -> "Follow watch-ci per pushed branch" [label="yes"];
     "Watch CI asked?" -> "Report every branch in one bucket" [label="no"];
     "Follow watch-ci per pushed branch" -> "Report every branch in one bucket";
-    "Report every branch in one bucket" -> "Started this run here?";
-    "Started this run here?" -> "run_stage {action: done, stage: sync-open-mrs}" [label="yes"];
-    "Started this run here?" -> "Inherited sweep abandoned?" [label="no: close nothing"];
-    "run_stage {action: done, stage: sync-open-mrs}" -> "Sweep abandoned?";
-    "Sweep abandoned?" -> "run_status {status: done}" [label="no"];
-    "Sweep abandoned?" -> "run_status {status: abandoned}" [label="yes"];
-    "run_status {status: done}" -> "Sweep reported";
-    "run_status {status: abandoned}" -> "Sweep abandoned";
+    "Report every branch in one bucket" -> "Started or resumed this run here?";
+    "Started or resumed this run here?" -> "Sweep abandoned?" [label="yes"];
+    "Started or resumed this run here?" -> "Inherited sweep abandoned?" [label="no: inherited, close nothing"];
+    "Sweep abandoned?" -> "run_close {runDb, workType: sync-open-mrs, stage: sync-open-mrs, outcome: done}" [label="no"];
+    "Sweep abandoned?" -> "run_close {runDb, workType: sync-open-mrs, stage: sync-open-mrs, outcome: abandoned, reason}" [label="yes"];
+    "run_close {runDb, workType: sync-open-mrs, stage: sync-open-mrs, outcome: done}" -> "Sweep reported";
+    "run_close {runDb, workType: sync-open-mrs, stage: sync-open-mrs, outcome: abandoned, reason}" -> "Sweep abandoned";
     "Inherited sweep abandoned?" -> "Sweep reported" [label="no"];
     "Inherited sweep abandoned?" -> "Sweep abandoned" [label="yes"];
 }
@@ -216,26 +202,36 @@ digraph sync_open_mrs {
 
 ### Inherit the run
 
-The caller handed a `runDb` and the `run_snapshot` tool with that `runDb`
-shows `run.status` = `running`: you were invoked from inside that run and
-inherit it. `run.current_stage` is your stage, and you close nothing at the
-end.
+`run_enter` returned `mode: inherited`: a caller handed a `runDb` whose run
+is still running, and you were invoked from inside it. The result's
+`at.stage` is your stage, and you close nothing at the end. A handed
+`runDb` whose run is no longer running is not inherited: the result says
+`handedRunDb: "not-running"` and the run starts or lists as if none was
+handed.
 
 ### Gate clarify: resume or start fresh
 
-The candidates are the `run_list` rows (`repo` = the `--repo` value in the
-flag text under **Starting the run**) whose `status` is `running` and
-`work_type` is `sync-open-mrs`; never read the run dbs by hand.
+The candidates are `run_enter`'s `candidates` (running sync-open-mrs runs
+in this repo); never list, read or build run dbs by hand. A surface-launched
+pane never reaches this gate: with `spawnedBy` and no `resume`, `run_enter`
+starts fresh.
 
-Scope `clarify`. One sentence naming each candidate's `spawned_by`,
-`started_at`, and `current_stage`, then one **Resume** option per candidate
-(recommended for a run this session started earlier; a run another live
-pane owns is not yours) / **Start fresh**; **Hold**.
+Scope `clarify`. One sentence naming each candidate's `spawnedBy`,
+`startedAt`, and `currentStage`, then one **Resume** option per candidate
+(recommended for `ownSession: true`; a run another live pane owns is not
+yours) / **Start fresh**; **Hold**.
 
-Resume: the candidate's `runDb` is `~/.mattstack/runs/<repo>/<id>/state.db`
-built from the row's `repo` and `id`, with `~` expanded to the home
-directory. Keep it for every `run_*` call; the `run_stage` start that
-follows is a new attempt, which re-records this session.
+Resume passes the picked candidate's `runId` as `resume`; the result's
+`runDb` is the one to keep. `run_enter` adopts the running attempt,
+re-records this session and clears a `hold`, so nothing else is written.
+Start fresh passes `fresh: true`.
+
+### The refused run_enter carried resume?
+
+A refused resume means the run is gone or no longer running: say so in one
+line, then start fresh, keeping the first call's `spawnedBy`. Any other
+refusal ends the verb: quote it verbatim. Only when there is no `run_enter`
+tool at all, say rt predates the run tools; update rt.
 
 ### Keep the recorded answers
 
@@ -489,15 +485,17 @@ GitLab error quoted.
 
 ### Starting the run
 
-The `run_start` node: `flags` is the compiled flag text below, verbatim;
-`skillDir` is this skill's own directory; add `spawnedBy` when a board or
+The `run_enter` nodes: `flags` is the compiled flag text below, verbatim;
+`skillDir` is this skill's own directory; `stage` is `sync-open-mrs`;
+`runDb` only when a caller handed one; add `spawnedBy` when a board or
 another surface launched this pane.
 
 {{run-start.flags:sync-open-mrs}}
 
-The result must carry `ok: true` and a `runDb`. Anything else means this rt
-predates the run tools: tell the user to update rt. Keep `runDb` and pass
-it to every `run_*` call; nothing is exported.
+Keep the result's `runDb` and pass it to every `run_*` call; nothing is
+exported. The close is `run_close` only on a run this verb started or
+resumed; `reason` on an abandoned close is the why, quoted when it is an
+error.
 
 ## Gates
 
