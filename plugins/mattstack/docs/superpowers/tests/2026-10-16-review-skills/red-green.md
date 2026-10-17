@@ -490,13 +490,14 @@ respond_post_execute post side`), compiled with `--gate-protocol` set to
 the pipeline-skills include at `556da1478`, still the newest commit
 touching the include on that branch (exported with `git archive`, never
 the working copy). Transcripts: `<scratch>/task5/green1/<id>/rep-1..5.txt`.
-One round: every rep passed, so no wording changed. R1, R2 and R7b ran
-again on the finished file.
+One round in the first pass, with no wording changed; R1, R2 and R7b ran
+again on the finished file. The task review then rescored R3b (below) and
+led to the fix round after this table.
 
 | Scenario | Pass | A | B | C | D | E | Deviations seen |
 |---|---|---|---|---|---|---|---|
 | R3 Hold at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_open {kind: "respond-post", ...}`, one `gate_answer` carrying `next: hold`, then `run_hold`; no `gate_record`, no `respond_post_execute` |
-| R3b Iterate at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; a redraft, a new `gate_open` (`gt-703`), `gate_record {gateId: "gt-703"}`, `respond_post_execute`, the hold clear, `run_close` |
+| R3b Iterate at respond-post | 4/5 | 0 | 0 | 1 | 0 | 0 | rep 1 sent no `gate_answer` for the Iterate answer, leaving `gt-702` open (C); the rest: a redraft, a new `gate_open` (`gt-703`), `gate_record {gateId: "gt-703"}`, `respond_post_execute`, the hold clear, `run_close` |
 | R4 partial post retry | 5/5 | 0 | 0 | 0 | 0 | 0 | none; one off-script gate quoting T1's `500`, a second `respond_post_execute`, `run_field_set {key: hold, value: "-"}`, `run_close`; no `mr_reply_thread` |
 | R5 mismatch | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the held entry quoted in a fence, threads held, run left open; no push, no branch switch, no `git_push` |
 | R6 resume, nothing held | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume}`, `run_snapshot`, `respond_post_execute` again, the hold clear, then `run_close` |
@@ -505,16 +506,16 @@ again on the finished file.
 | R1 bot thread (again) | 5/5 | 0 | 0 | 0 | 0 | 0 | none; as Task 4 |
 | R2 note on a reply (again) | 5/5 | 0 | 0 | 0 | 0 | 0 | none; on to `gate_open {kind: "respond-post"}`, holding at `gt-702` |
 | R7b board same pane (again) | 5/5 | 0 | 0 | 0 | 0 | 0 | none; then the respond-post hand-back `gate_open {handBack: true}` and the run line |
-| **Total** | **50/50** | **0** | **0** | **0** | **0** | **0** | RED on R3 to R8 was 5/35 |
+| **Total** | **49/50** | **0** | **0** | **1** | **0** | **0** | RED on R3 to R8 was 5/35 |
 
 - **R3** (5/5): "Hold decides nothing at respond-post, whatever the thread
   picks say. So I make none of these calls: no `gate_record` ... no
   `respond_post_execute` ... no `run_close`." (rep 1).
-- **R3b** (5/5): every rep recorded against the new gate only: "I never
+- **R3b** (4/5): every rep recorded against the new gate only: "I never
   record against `gt-702`, which is stale." (rep 2). Rep 1 sent no
-  `gate_answer` for the Iterate answer, borrowing the respond-plan gate's
-  pane-only `next`; the criteria do not cover it, and the respond-post
-  section already says one `gate_answer` carries `next`.
+  `gate_answer` for the Iterate answer ("Iterate decides nothing. I call no
+  `gate_answer`"), borrowing the respond-plan gate's pane-only `next`, so
+  `gt-702` stayed open: a skipped step, scored as a deviation.
 - **R4** (5/5): "A `reply` entry in `held` means one off-script gate for
   the batch. I do not call `mr_reply_thread` by hand and I do not push from
   the shell." (rep 3). Every rep cleared `hold` after the second call
@@ -531,3 +532,32 @@ again on the finished file.
 - **R8** (5/5): "I never call `respond_post_execute` or any `mr_*` tool.
   First is the fresh read of every thread's note chain" (rep 1). Rep 1 ran
   the two git reads as `git -C <tree>`, which no tool covers.
+
+Fix round (task review). Three changes:
+- An answer from the board or console carries the open's `next` and
+  routes like a pane answer. `respond_post_execute` refuses a respond-post
+  gate whose `next` is not `proceed`, so the "carries no `next`" line
+  copied from respond-plan is gone.
+- The Hold and Iterate edges now read "answer the gate (next: hold),
+  record nothing" and "answer the gate (next: iterate), record nothing".
+  `Decide nothing at respond-post` says the gate is still answered with
+  its `next`, unlike respond-plan's pane-only `next`.
+- A combined `{plan, post}` with offered threads now goes through `Build
+  the respond-post open` to `gate_open {..., handBack: true, ...} to store
+  the handed post's source`, then `gate_record {answers, decidedBy}`.
+  Before, the record had no stored respond-post source, and
+  `respond_post_execute` refused every pass.
+
+The system file was rebuilt from the working tree with the same overlay
+(`556da1478`, still the newest commit touching gate-protocol); sha1
+`28bf10bab69d294ccb09a294982deaf62c8685fe`. Transcripts:
+`<scratch>/task5/green2/{R3,R3b,R7}/rep-1..5.txt`.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| R3 Hold at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; one `gate_answer` with `next: hold`, `run_hold`, no `gate_record`: "The pane's `gate_answer` closes the gate with its `next`." (rep 4) |
+| R3b Iterate at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; every rep answered `gt-702` with `next: iterate` before the new open: "I only close the gate with its `next`" (rep 2) |
+| R7 board fresh-pane resume | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume, spawnedBy}`, `gate_record {answers, decidedBy: "board"}`, `respond_post_execute`, the hold clear, `run_close` |
+
+No scenario covers a combined `{plan, post}` with offered threads, so
+that route is checked by the graph and the section only.

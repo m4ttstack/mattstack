@@ -112,6 +112,8 @@ digraph receive_review {
     "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, runDb, stage, scope: respond-post}" [shape=plaintext];
     "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json, runDb, stage, scope: respond-post}" [shape=plaintext];
     "respond-post gate_open result?" [shape=diamond];
+    "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json, runDb, stage, scope: respond-post} to store the handed post's source" [shape=plaintext];
+    "Handed post: respond-post gate_open result?" [shape=diamond];
     "STOP: fit the respond-post open only with gate_open" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "run_budget {runDb, key: respond-post-open, limit: 3, stage}" [shape=plaintext];
     "respond-post open attempts = 3?" [shape=diamond];
@@ -297,11 +299,12 @@ digraph receive_review {
 
     "Any thread offered (a finalized fix or an override)?" -> "Forge for the post side?" [label="no: no respond-post gate and no record; the gate-1: reply rows post"];
     "Any thread offered (a finalized fix or an override)?" -> "Threads offered: caller handed the respond-post answers?" [label="yes"];
-    "Threads offered: caller handed the respond-post answers?" -> "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy}" [label="yes: answers + decidedBy, ask nothing"];
-    "Threads offered: caller handed the respond-post answers?" -> "Build the respond-post open" [label="no"];
+    "Threads offered: caller handed the respond-post answers?" -> "Build the respond-post open" [label="yes: a combined {plan, post}; build and store the source first, ask nothing"];
+    "Threads offered: caller handed the respond-post answers?" -> "Build the respond-post open" [label="no: ask it, or hand it back"];
     "Build the respond-post open" -> "Caller owns the receive-review gates at respond-post?";
     "Caller owns the receive-review gates at respond-post?" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json, runDb, stage, scope: respond-post}" [label="yes: a board wrapper said so"];
     "Caller owns the receive-review gates at respond-post?" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, runDb, stage, scope: respond-post}" [label="no: a direct run"];
+    "Caller owns the receive-review gates at respond-post?" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json, runDb, stage, scope: respond-post} to store the handed post's source" [label="the caller already handed the post answers (a combined {plan, post})"];
     "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, runDb, stage, scope: respond-post}" -> "respond-post gate_open result?";
     "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json, runDb, stage, scope: respond-post}" -> "respond-post gate_open result?";
     "respond-post gate_open result?" -> "Gate respond-post: carry the opened gate through gate-protocol" [label="opened: the direct run"];
@@ -309,6 +312,11 @@ digraph receive_review {
     "respond-post gate_open result?" -> "run_budget {runDb, key: respond-post-open, limit: 3, stage}" [label="refused: a line names a source field to fix"];
     "respond-post gate_open result?" -> "Off-script gate: the respond-post open will not fit" [label="refused: nothing a source fix can mend"];
     "respond-post gate_open result?" -> "STOP: fit the respond-post open only with gate_open" [label="tempted to edit the open by hand, shorten a reply, or fit it with a script"];
+    "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json, runDb, stage, scope: respond-post} to store the handed post's source" -> "Handed post: respond-post gate_open result?";
+    "Handed post: respond-post gate_open result?" -> "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy}" [label="handed back: the source is stored; record the handed answers"];
+    "Handed post: respond-post gate_open result?" -> "run_budget {runDb, key: respond-post-open, limit: 3, stage}" [label="refused: a line names a source field to fix"];
+    "Handed post: respond-post gate_open result?" -> "Off-script gate: the respond-post open will not fit" [label="refused: nothing a source fix can mend"];
+    "Handed post: respond-post gate_open result?" -> "STOP: fit the respond-post open only with gate_open" [label="tempted to edit the open by hand, shorten a reply, or fit it with a script"];
     "STOP: fit the respond-post open only with gate_open" -> "Off-script gate: the respond-post open will not fit";
     "run_budget {runDb, key: respond-post-open, limit: 3, stage}" -> "respond-post open attempts = 3?";
     "respond-post open attempts = 3?" -> "Fix the respond-post source the gate_open refusal names" [label="no: not exhausted"];
@@ -323,9 +331,9 @@ digraph receive_review {
     "Write the receive-review-run line into the handed --report before the respond-post hand-back" -> "Hand back the offered replies and the respond-post open's path";
     "Hand back the offered replies and the respond-post open's path" -> "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy}" [label="caller hands {post} back: answers + decidedBy"];
     "Gate respond-post: carry the opened gate through gate-protocol" -> "respond-post next answer?";
-    "respond-post next answer?" -> "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy}" [label="proceed, or answered off the pane: gateId"];
-    "respond-post next answer?" -> "Decide nothing at respond-post: no push, post, resolve or record" [label="hold: record nothing"];
-    "respond-post next answer?" -> "Apply the respond-post note" [label="iterate: record nothing"];
+    "respond-post next answer?" -> "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy}" [label="proceed, in the pane or off it: gateId"];
+    "respond-post next answer?" -> "Decide nothing at respond-post: no push, post, resolve or record" [label="hold: answer the gate (next: hold), record nothing"];
+    "respond-post next answer?" -> "Apply the respond-post note" [label="iterate: answer the gate (next: iterate), record nothing"];
     "Decide nothing at respond-post: no push, post, resolve or record" -> "run_hold {runDb, stage, reason, decidedBy}";
     "Apply the respond-post note" -> "Build the respond-post open" [label="a new gate"];
     "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy}" -> "Forge for the post side?";
@@ -1047,8 +1055,12 @@ nothing.
 
 <HARD-GATE>
 Decision intake: when the caller's `{plan, post}` object already carries
-`post`, record it (`gate_record` with `answers` and `decidedBy`) and ask
-nothing here. Otherwise build the open, then hand it back or run the gate.
+`post`, ask nothing here, but still build the open and store it: the
+hand-back `gate_open` (`handBack: true`) keeps the source on the run as
+`extra.gate-source.respond-post`, which `respond_post_execute` checks the
+decision against, and hands nothing back. Then record the `post` with
+`gate_record` (`answers` and `decidedBy`). Otherwise build the open, then
+hand it back or run the gate.
 
 **Build the open** in the scratch directory Build the open made (a pane
 that made none, a resumed one, makes a new directory inside this session's
@@ -1101,6 +1113,20 @@ the open is at `outPath`; a refused open opened nothing. The way past a
 refusal is the source fix or the off-script gate: only `gate_open` fits
 the open. A hand-edited open, a shortened reply or a fit with the vendored
 script is the STOP on this diamond.
+
+### Handed post: respond-post gate_open result?
+
+A combined `{plan, post}` still stores its respond-post source before the
+record: without `extra.gate-source.respond-post` on the run,
+`respond_post_execute` refuses every pass. This `gate_open` hands nothing
+back to the caller (it already answered); handed back means the source is
+stored, with `gate: null`, and the record follows: `gate_record {...,
+scope: respond-post, shape: respond-post, answers: <the post>, decidedBy:
+<the decider the caller names>}`. A refusal takes the same
+`respond-post-open` budget and off-script gate as any respond-post open,
+and the fix comes back through `Caller owns the receive-review gates at
+respond-post?` to this same call. Never record the handed answers without
+the stored source.
 
 ### Fix the respond-post source the gate_open refusal names
 
@@ -1164,13 +1190,14 @@ answered from the shell.
 - **wait:** `rt gate wait <id> as a background Bash task`, then `End the
   turn: holding at gate <id>`; the re-entry is `gate_reconcile {id,
   runDb?, stage?}` with this run's `runDb` and `stage`. An answer from the
-  board or console carries no `next`: it is the `answered off the pane`
-  edge.
+  board or console carries the open's `next` like a pane answer, and
+  routes the same way: proceed records, hold and iterate record nothing.
 
 A paragraph that lists the replies and waits is not this gate. On this
 review gate neither `gate_answer` nor `gate_reconcile` records anything:
-the record is `gate_record {..., gateId: <id>}`, and only `proceed` (or an
-answer off the pane) reaches it.
+the record is `gate_record {..., gateId: <id>}`, and only a `next` of
+`proceed` reaches it (`respond_post_execute` refuses a gate whose `next`
+is anything else).
 
 ### Decide nothing at respond-post: no push, post, resolve or record
 
@@ -1178,8 +1205,10 @@ A `hold` or `iterate` answer decides nothing, whatever its thread picks
 say: nothing pushes, no reply posts, no thread resolves, and no
 respond-post decision is recorded (no `gate_record`, no
 `respond_post_execute`), so every offered thread stays pending and the
-`gate-1: reply` rows keep waiting. A `hold` ends the turn through
-`run_hold` (Run); that is not a respond-post decision.
+`gate-1: reply` rows keep waiting. The gate is still answered with its
+`next` (one `gate_answer` in the pane, unlike respond-plan's pane-only
+`next`), so it closes rather than staying open. A `hold` ends the turn
+through `run_hold` (Run); that is not a respond-post decision.
 
 ### Apply the respond-post note
 
