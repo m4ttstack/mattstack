@@ -128,7 +128,11 @@ whenever the tracked list is known. For a joiner that is after `team.join`.
    the row; the row stays finish-gated until the repo is in the index.
    That retry clones only answered repos: an unanswered deferred repo stays
    deferred. A deferred row offers "Clone here" to accept the shown
-   location in one click. Any answer given after Install carries the same
+   location in one click, and "Retry" with the reason after a failed
+   clone. After Install, switching the segment only flips the view; a
+   clone starts only from an explicit pick or button, so a set-up Mac
+   never starts a large clone from one segment click. rt sets which
+   buttons show; Swift only renders them. Any answer given after Install carries the same
    follow-up, so a re-located checkout is indexed right away.
 4. No placement, no clone, any other run (a member who saw the rows, a
    terminal `rt setup apply`, a `--non-interactive` run, CI): clone to the
