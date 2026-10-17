@@ -324,3 +324,43 @@ scenario).
 
 Filled by Tasks 2 to 5 (same scenarios, branch tree plus the
 `--gate-protocol` overlay).
+
+### self-review (Task 2)
+
+System files: the branch tree at `a2e3edcec`, compiled with
+`--gate-protocol` set to the pipeline-skills include at `63aee5a9d`
+(exported with `git archive`, never the working copy). One round, no wording
+fixes. Reps run on the pre-amend object `126e8b814` were discarded unscored.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| S13 stuck finding | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `fix:F2:1` x3, reopen read then charge, `kind: "self-review-retry:F2"`, `fix:F2:2` x3, reopen read exhausted, left open, `run_close done` |
+| S14 compacted mid-loop | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `fix:F2:1` read with `increment: 0` (spent 2), one attempt, charge to 3, then the reopened gate |
+| S15 clarify Hold | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_ask {kind: "clarify", runDb, stage}`, `gate_answer`, `run_hold {reason, decidedBy: "pane"}` |
+| S16 inherited abandon | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {runDb}` inherited, stage `check` on every call, `run_stage {action: "fail", stage: "check"}`, no `run_close` |
+| **Total** | **20/20** | **0** | **0** | **0** | **0** | **0** | RED was 10/20 |
+
+- **S13** (5/5): every rep charged each failure right after it: "After
+  each failure I call `run_budget {runDb: RUNDB, key: "fix:F2:2", limit: 3,
+  stage: "self-review"}`" (rep 1). Every rep opened the reopened gate with
+  `kind: "self-review-retry:F2"`, values `retry:F2`/`leave:F2`, and stopped at
+  six attempts: "The reopen budget is spent, so there is no second gate."
+  (rep 1). No rep used `run_list`, `run_start`, `run_decision` or a hold
+  field.
+- **S14** (5/5): every rep read first, then made one attempt: "I don't charge
+  again, because that could count one failure twice." (rep 1). The reopened
+  gate went to its own scope, and `leave:F2` led to left open and `run_close
+  done`. No `run_snapshot` was needed: the summary carried the runDb.
+- **S15** (5/5): `gate_ask` carried `runDb` and `stage: "self-review"` in
+  every rep, and the hold was `run_hold` alone: "I make no `run_close`,
+  because a hold is not a close." (rep 2). Four reps sent the typed words as
+  the Hold's note, and rep 2 sent them as a `source` write-in beside `next:
+  hold`. Both follow the include's deliberate-pick rule, so neither is a
+  deviation.
+- **S16** (5/5): every rep took `at.stage` (`check`) for every gate and run
+  call and failed the stage: "`run_close` would be refused on an inherited
+  run" (rep 1). None recorded branch or ticket on the inherited run.
+
+Observation: S13 to S15 reps note that the scripted `gate_ask` results
+carry no `formChunks`, and they ask the questions as one form. That comes
+from the fixture, not the skill.
