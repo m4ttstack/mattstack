@@ -62,7 +62,7 @@ expect prefix-shell-ok "" 'digraph g { '"$SHORT"' gh_pr_view [label="gh pr view 
 expect prefix-escaped-ok "" 'digraph g { '"$SHORT"' rt_verb_skills_check [label="rt_verb {args: [\"skills\", \"check\"]}" shape=plaintext]; start -> rt_verb_skills_check; rt_verb_skills_check -> done; }'
 expect stop-prefix "starts with stop_" 'digraph g { '"$SHORT"' halt [label="STOP: halt" shape=octagon]; start -> halt; start -> done; }'
 expect label-rules "phrased as a question" 'digraph g { '"$SHORT"' ask [label="Ready" shape=diamond]; start -> ask; ask -> done [label="yes"]; ask -> done [label="no"]; }'
-expect newline-short-id "\[multi_line\]" 'digraph g { '"$SHORT"' multi_line [label="git_push {tree}
+expect newline-short-id "\[multi_line\]: a plaintext node is one short command" 'digraph g { '"$SHORT"' multi_line [label="git_push {tree}
 more" shape=plaintext]; start -> multi_line; multi_line -> done; }'
 printf 'digraph g { node [label="a"]; node [label="b"]; "S" [shape=ellipse]; "A" [shape=doublecircle style=filled]; "S" -> "A"; }' > "$tmp/defaults.dot"
 out="$(python3 "$here/check-dot.py" "$tmp/defaults.dot" 2>&1)"
