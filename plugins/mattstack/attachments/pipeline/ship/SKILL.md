@@ -69,10 +69,10 @@ The flags, rendered by the compiler:
 value, never its key), `skillDir` = `${CLAUDE_SKILL_DIR}` as an absolute
 path, `stage: ship`, `runDb` only when a caller handed one, and `spawnedBy`
 only when a board or another surface launched this pane. It opens the stage
-itself. Pass the returned `runDb` to every `run_*` call. A handed `runDb`
-that comes back `handedRunDb: "not-running"` counts as not handed. Every
-gate write and `stage` argument is `"ship"` in an own run and
-`run.current_stage` in an inherited one.
+itself. Pass the returned `runDb` to every `run_*` call; nothing is
+exported. A handed `runDb` that comes back `handedRunDb: "not-running"`
+counts as not handed. Every gate write and `stage` argument is `"ship"` in
+an own run and `run.current_stage` in an inherited one.
 
 ### ship gate clarify: the Resume offer
 
@@ -362,8 +362,8 @@ digraph ship {
     "run_budget {key: ship:validator-refusals, limit: 1, stage}" -> "validator-refusals spent (ship)?";
     "validator-refusals spent (ship)?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no"];
     "validator-refusals spent (ship)?" -> "Which exit (ship)?" [label="yes: a failure"];
-    "Files to attach (ship)?" -> "mr_upload {mrUrl, path, runId} per uploadable file" [label="yes, GitLab"];
-    "Files to attach (ship)?" -> "Domain owns the title or description (ship)?" [label="no, or GitHub: link the paths"];
+    "Files to attach (ship)?" -> "mr_upload {mrUrl, path, runId} per uploadable file" [label="yes, GitLab: a repeat upload is harmless"];
+    "Files to attach (ship)?" -> "Domain owns the title or description (ship)?" [label="no, or GitHub"];
     "mr_upload {mrUrl, path, runId} per uploadable file" -> "mr_upload result (ship)?";
     "mr_upload result (ship)?" -> "Domain owns the title or description (ship)?" [label="ok: every file uploaded"];
     "mr_upload result (ship)?" -> "mr_upload {mrUrl, path, runId} per uploadable file" [label="ok: files still to upload"];
@@ -468,7 +468,7 @@ says so, and Abort aborts that rebase first.
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
 Scope `ship`. Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|hold","note":"<their words or null>"}`.
-Abort and Hold push nothing. Iterate and Hold clear `shipTarget` first, so
+Iterate and Hold clear `shipTarget` first, so
 a resume re-asks. With the stack store unreadable, Proceed records
 `<default branch> (stack store unreadable)`, telling consent to the
 fallback from a real read; the rebase and `mr_create` use the plain name.
@@ -533,8 +533,8 @@ watched sha with no prior pipeline id.
 
 ### ship off-script gate: mr_upload refused
 
-The push gate's shape, sharing its `n`, `context` quoting the refusal
-and the path. Take links the refused files' local paths in the
+The gate protocol's Off-script gate, sharing the push gate's `n`,
+`context` quoting the refusal and the path. Take links the refused files' local paths in the
 description, uploaded files keeping their markdown; Iterate means the
 human moved the file, widened `rt.mcp.uploadRoots`, recaptured, or checked
 the daemon. Copying a file under an allowed root is only ever the human's
@@ -618,8 +618,8 @@ Each `run_budget` counts one as its loop is entered, so budgets survive
 compaction and resume within the stage attempt. The `spent` diamond after
 it reads `spent` against `limit` (`spent > limit`); ignore `exhausted` and
 `remaining` (`exhausted` is `spent >= limit` and would stop one round
-early). A spent budget's failure quotes what the loop last saw (the note,
-the comparison, the origin URL and answer, the refusal) as its reason.
+early). A failure quotes what it last saw (the error, the note, the
+comparison, the origin URL and answer, the refusal) as its reason.
 
 ## Domain rules
 
