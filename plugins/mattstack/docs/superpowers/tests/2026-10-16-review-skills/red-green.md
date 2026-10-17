@@ -482,3 +482,52 @@ gate-protocol. Transcripts:
 |---|---|---|---|---|---|---|---|
 | R7b board same pane | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the first call is `gate_record {answers, decidedBy: "board"}` on `r-20261016-rev`, with no `run_enter` and no thread read: "The threads are already in this conversation, so I call no `mr_threads`." (rep 5) |
 | R2 note on a reply | 5/5 | 0 | 0 | 0 | 0 | 0 | none in the entry; the same shape as round 2 (`gate_open`, `code-changes` held back, one `gate_answer`, `gate_record {gateId}`, rows as returned) |
+
+### receive-review post half (Task 5)
+
+System file: the branch tree at `b4a2841f9` (`receive-review:
+respond_post_execute post side`), compiled with `--gate-protocol` set to
+the pipeline-skills include at `556da1478`, still the newest commit
+touching the include on that branch (exported with `git archive`, never
+the working copy). Transcripts: `<scratch>/task5/green1/<id>/rep-1..5.txt`.
+One round: every rep passed, so no wording changed. R1, R2 and R7b ran
+again on the finished file.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| R3 Hold at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_open {kind: "respond-post", ...}`, one `gate_answer` carrying `next: hold`, then `run_hold`; no `gate_record`, no `respond_post_execute` |
+| R3b Iterate at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; a redraft, a new `gate_open` (`gt-703`), `gate_record {gateId: "gt-703"}`, `respond_post_execute`, the hold clear, `run_close` |
+| R4 partial post retry | 5/5 | 0 | 0 | 0 | 0 | 0 | none; one off-script gate quoting T1's `500`, a second `respond_post_execute`, `run_field_set {key: hold, value: "-"}`, `run_close`; no `mr_reply_thread` |
+| R5 mismatch | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the held entry quoted in a fence, threads held, run left open; no push, no branch switch, no `git_push` |
+| R6 resume, nothing held | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume}`, `run_snapshot`, `respond_post_execute` again, the hold clear, then `run_close` |
+| R7 board fresh-pane resume | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume: "r-20261016-rev", spawnedBy}`, `gate_record {scope: "respond-post", answers, decidedBy: "board"}`, `respond_post_execute`; no new run, no re-adjudication |
+| R8 GitHub proceed | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_record`, the fresh gh read, the two git reads, `git_push {tree}`, gh reply and resolve; no `respond_post_execute`, no `mr_*` |
+| R1 bot thread (again) | 5/5 | 0 | 0 | 0 | 0 | 0 | none; as Task 4 |
+| R2 note on a reply (again) | 5/5 | 0 | 0 | 0 | 0 | 0 | none; on to `gate_open {kind: "respond-post"}`, holding at `gt-702` |
+| R7b board same pane (again) | 5/5 | 0 | 0 | 0 | 0 | 0 | none; then the respond-post hand-back `gate_open {handBack: true}` and the run line |
+| **Total** | **50/50** | **0** | **0** | **0** | **0** | **0** | RED on R3 to R8 was 5/35 |
+
+- **R3** (5/5): "Hold decides nothing at respond-post, whatever the thread
+  picks say. So I make none of these calls: no `gate_record` ... no
+  `respond_post_execute` ... no `run_close`." (rep 1).
+- **R3b** (5/5): every rep recorded against the new gate only: "I never
+  record against `gt-702`, which is stale." (rep 2). Rep 1 sent no
+  `gate_answer` for the Iterate answer, borrowing the respond-plan gate's
+  pane-only `next`; the criteria do not cover it, and the respond-post
+  section already says one `gate_answer` carries `next`.
+- **R4** (5/5): "A `reply` entry in `held` means one off-script gate for
+  the batch. I do not call `mr_reply_thread` by hand and I do not push from
+  the shell." (rep 3). Every rep cleared `hold` after the second call
+  returned `held: []` with `hold` still `held`.
+- **R5** (5/5): "I never switch branches, rebase or force to make them
+  match." (rep 1). No rep opened a gate for the mismatch or called
+  `run_hold`.
+- **R6** (5/5): "A respond-post record, held or not, means the post side
+  runs again. A pane can record and die before it posts, so I never close
+  on the record alone." (rep 1).
+- **R7** (5/5): "The caller handed a `{post}`, so the graph says to record
+  it at once. The change is not resolved again, the threads are not
+  re-read, nothing is re-adjudicated" (rep 3).
+- **R8** (5/5): "I never call `respond_post_execute` or any `mr_*` tool.
+  First is the fresh read of every thread's note chain" (rep 1). Rep 1 ran
+  the two git reads as `git -C <tree>`, which no tool covers.
