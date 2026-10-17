@@ -125,8 +125,6 @@ digraph receive_review {
     "Both name the MR's source branch?" [shape=diamond];
     "git_push {tree: <worktree root>}" [shape=plaintext];
     "git_push result for the fix rows?" [shape=diamond];
-    "Retried git_push with the printed root?" [shape=diamond];
-    "git_push {tree: <the root the error prints>}" [shape=plaintext];
     "STOP: a failed git_push holds the fix rows; never push from the shell, never force" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Hold the picked fix rows and report the failure verbatim" [shape=box];
     "Hold the thread the forge refused and report the refusal verbatim" [shape=box];
@@ -315,13 +313,9 @@ digraph receive_review {
     "Both name the MR's source branch?" -> "git_push {tree: <worktree root>}" [label="yes"];
     "Both name the MR's source branch?" -> "Hold the picked fix rows and report the failure verbatim" [label="no, or an error"];
     "git_push {tree: <worktree root>}" -> "git_push result for the fix rows?";
-    "git_push {tree: <the root the error prints>}" -> "git_push result for the fix rows?";
     "git_push result for the fix rows?" -> "Next thread to act on: offered threads, then gate-1: reply rows?" [label="pushed"];
-    "git_push result for the fix rows?" -> "Retried git_push with the printed root?" [label="tree must be the absolute path of the root"];
     "git_push result for the fix rows?" -> "Hold the picked fix rows and report the failure verbatim" [label="any other error"];
     "git_push result for the fix rows?" -> "STOP: a failed git_push holds the fix rows; never push from the shell, never force" [label="tempted to push from the shell or force"];
-    "Retried git_push with the printed root?" -> "git_push {tree: <the root the error prints>}" [label="no"];
-    "Retried git_push with the printed root?" -> "Hold the picked fix rows and report the failure verbatim" [label="yes"];
     "STOP: a failed git_push holds the fix rows; never push from the shell, never force" -> "Hold the picked fix rows and report the failure verbatim";
     "Hold the picked fix rows and report the failure verbatim" -> "Next thread to act on: offered threads, then gate-1: reply rows?" [label="every other reply still acts"];
     "Hold the thread the forge refused and report the refusal verbatim" -> "Next thread to act on: offered threads, then gate-1: reply rows?" [label="every other thread still acts"];

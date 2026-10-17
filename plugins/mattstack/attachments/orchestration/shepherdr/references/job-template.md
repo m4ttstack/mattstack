@@ -52,8 +52,6 @@ digraph herd_job {
     "STOP: push only with git_push" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "git_push {tree: <root>, setUpstream: true}" [shape=plaintext];
     "git_push result?" [shape=diamond];
-    "Push attempts = 2?" [shape=diamond];
-    "git_push {tree: <the root the error prints>, setUpstream: true}" [shape=plaintext];
     "herd_ask {questions, context}: the push was refused" [shape=plaintext];
     "Forge?" [shape=diamond];
     "mr_create {repoName, sourceBranch, targetBranch, title, description}" [shape=plaintext];
@@ -90,11 +88,8 @@ digraph herd_job {
     "What does the Method need next?" -> "Write the report draft" [label="the work is done"];
     "run_start {flags, skillDir: <the verb's skill dir>, spawnedBy: herd:<HERD_ID>}" -> "Work the Method";
     "git_push {tree: <root>, setUpstream: true}" -> "git_push result?";
-    "git_push {tree: <the root the error prints>, setUpstream: true}" -> "git_push result?";
     "git_push result?" -> "Forge?" [label="ok"];
-    "git_push result?" -> "Push attempts = 2?" [label="refused"];
-    "Push attempts = 2?" -> "git_push {tree: <the root the error prints>, setUpstream: true}" [label="no"];
-    "Push attempts = 2?" -> "herd_ask {questions, context}: the push was refused" [label="yes: budget spent"];
+    "git_push result?" -> "herd_ask {questions, context}: the push was refused" [label="refused"];
     "Forge?" -> "mr_create {repoName, sourceBranch, targetBranch, title, description}" [label="GitLab"];
     "Forge?" -> "gh pr create" [label="GitHub"];
     "mr_create {repoName, sourceBranch, targetBranch, title, description}" -> "Work the Method";

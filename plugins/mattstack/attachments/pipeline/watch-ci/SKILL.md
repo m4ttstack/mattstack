@@ -239,8 +239,6 @@ digraph watch_ci {
     "Re-claim result (before git_push)?" [shape=diamond];
     "git_push {tree: <root>}" [shape=plaintext];
     "git_push result (watch-ci)?" [shape=diamond];
-    "Retried with the printed root (watch-ci)?" [shape=diamond];
-    "git_push {tree: <the root the error prints>}" [shape=plaintext];
     "STOP: push only with git_push (watch-ci)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "watch-ci off-script gate: git_push refused" [shape=box];
     "watch-ci off-script answer (git_push)?" [shape=diamond];
@@ -466,12 +464,8 @@ digraph watch_ci {
     "Re-claim result (before git_push)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="claimed: false"];
     "Re-claim result (before git_push)?" -> "watch-ci off-script gate: re-claim refused before git_push" [label="tool error"];
     "git_push {tree: <root>}" -> "git_push result (watch-ci)?";
-    "git_push {tree: <the root the error prints>}" -> "git_push result (watch-ci)?";
     "git_push result (watch-ci)?" -> "git rev-parse HEAD (the pushed sha, watch-ci)" [label="ok"];
-    "git_push result (watch-ci)?" -> "Retried with the printed root (watch-ci)?" [label="tree must be the absolute path of the root"];
     "git_push result (watch-ci)?" -> "STOP: push only with git_push (watch-ci)" [label="any other error"];
-    "Retried with the printed root (watch-ci)?" -> "git_push {tree: <the root the error prints>}" [label="no"];
-    "Retried with the printed root (watch-ci)?" -> "STOP: push only with git_push (watch-ci)" [label="yes"];
     "STOP: push only with git_push (watch-ci)" -> "watch-ci off-script gate: git_push refused";
     "watch-ci off-script gate: git_push refused" -> "watch-ci off-script answer (git_push)?";
     "watch-ci off-script answer (git_push)?" -> "Confirm the human's push landed (watch-ci)" [label="take: the human pushed"];

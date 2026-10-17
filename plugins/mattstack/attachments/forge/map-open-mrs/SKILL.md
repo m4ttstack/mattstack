@@ -15,19 +15,23 @@ Pair each open MR/PR with the local worktree holding its source branch,
 so a downstream sweep knows what it's touching before it acts. Discovery
 only -- this skill never creates, rebases, or removes anything.
 
-## 1. List the open items
+## 1. GitLab: one `mr_map` call
 
-GitLab: the `mr_list` tool with `repoName` = the current checkout's
-absolute path, `author` `me` and `state` `opened`. It asks GitLab for the
-signed-in user's open MRs. When the result says `truncated: true`, call
-again with a larger `limit` (up to 200) and say so if it is still cut.
+The `mr_map` tool with `repoName` = the current checkout's absolute path
+and `author` `me` returns the signed-in user's open MRs as `rows`, each
+already joined to its worktree. Map each row to the table: `ref`,
+`title`, `author`, `sourceBranch`, and `worktree` (a null `worktree` is a
+`NONE` row). When the result says `complete: false`, say plainly that the
+list was cut at 200 open MRs. Then go to step 4. A GitLab error is the
+whole result, quoted, with no table.
 
-GitHub: `gh pr list --author @me`.
+## 2. GitHub: list the open PRs
 
-Capture each item's ref (`!iid` or `#number`), title, author, and source
-branch.
+`gh pr list --author @me --limit 200`. Capture each item's ref
+(`#number`), title, author, and source branch. Exactly 200 rows means the
+list was cut: say plainly that it was cut at 200 open PRs.
 
-## 2. List local worktrees
+## 3. GitHub: list local worktrees and join
 
 The `rt_verb` tool with `args` `["worktree", "list"]` gives the fuller
 inventory; prefer it over parsing `git worktree list` by hand. It lists
@@ -35,14 +39,14 @@ every repo rt knows: keep only the `trees` rows whose `repoName` matches
 the row whose `path` is the current checkout. `git worktree list` from
 the main checkout covers plain git trees when `rt_verb` errors.
 
-## 3. Join and emit
-
-Pair each MR's source branch to a worktree's branch by exact string
+Pair each PR's source branch to a worktree's branch by exact string
 equality only -- a prefix or substring match wrongly pairs `foo-1` with
-`foo-10`. An MR with no matching worktree is not an error; it's a `NONE`
-row, expected for MRs never checked out locally or already cleaned up.
+`foo-10`. A PR with no matching worktree is not an error; it's a `NONE`
+row, expected for PRs never checked out locally or already cleaned up.
 
-Emit one table, one row per open MR from step 1, five columns:
+## 4. Emit
+
+Emit one table, one row per open MR or PR, five columns:
 
 | MR ref | title | author | source branch | worktree path or NONE |
 |--------|-------|--------|----------------|------------------------|
