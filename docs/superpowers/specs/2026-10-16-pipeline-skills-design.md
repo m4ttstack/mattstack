@@ -44,14 +44,14 @@ every gate and every judgment step keeps its own section.
   by a site that opens a structured gate.
 - stage-provision uses `worktree_provision`'s `precheck`, `reuse`,
   `codes`, `runDb` and `budget`, and branches on refusal codes, not prose.
-- Assured fills keep attaching: every host node text a fill attaches to is
+- Team-pack fills keep attaching: every host node text a fill attaches to is
   kept verbatim.
 
 ## Non-goals
 
 - No edits to ship, stage-ship, watch-ci, stage-watch-ci (the
   ship-ci-skills lane), stage-evidence, the review, forge or shepherdr
-  skills, or any assured pack. Those keep their own run and gate lines
+  skills, or any team pack. Those keep their own run and gate lines
   until their lanes move them.
 - No rt code changes. `run_stage start`'s supersede stays on: ship,
   watch-ci, sync-open-mrs, review, self-review, receive-review and the
