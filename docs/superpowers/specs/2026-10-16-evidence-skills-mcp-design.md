@@ -364,26 +364,33 @@ finish.
 
 ## Results
 
-GREEN passed every scenario on the first run, with no fix rounds, both
-before and after the final-review fixes (the per-rep tables are in the
-plugin's RED/GREEN test record).
+GREEN passed every scenario on the first run, with no fix rounds, before
+the final-review fixes, after them, and after the PR-review fixes (the
+per-rep tables are in the plugin's RED/GREEN test record). The PR review
+rescored the after-final-review E1: rep 1's second `evidence_record` sent
+`"annotated": true`, which the tool refuses, so E1 there is 4/5, still
+over the bar. E6 was added at the PR review; its RED ran from `efdd89f09`.
 
-| Scenario | RED | GREEN | GREEN after final review | Anti-goal reps, RED to GREEN to final |
-|---|---|---|---|---|
-| E1 happy path, GitLab | 0/5 | 5/5 | 5/5 | 0 to 0 to 0 |
-| E2 recapture | 2/5 | 5/5 | 5/5 | 0 to 0 to 0 |
-| E3 refused upload | 0/5 | 5/5 | 5/5 | 3 to 0 to 0 |
-| E4 GitHub PR | 1/5 | 5/5 | 5/5 | 0 to 0 to 0 |
-| E5 dev servers | 5/5 | 5/5 | 5/5 | 0 to 0 to 0 |
+| Scenario | RED | GREEN | GREEN after final review (rescored) | GREEN after PR review | Anti-goal reps, RED to GREEN to final to PR review |
+|---|---|---|---|---|---|
+| E1 happy path, GitLab | 0/5 | 5/5 | 4/5 | 5/5 | 0 to 0 to 0 to 0 |
+| E2 recapture | 2/5 | 5/5 | 5/5 | 5/5 | 0 to 0 to 0 to 0 |
+| E3 refused upload | 0/5 | 5/5 | 5/5 | 5/5 | 3 to 0 to 0 to 0 |
+| E4 GitHub PR | 1/5 | 5/5 | 5/5 | 5/5 | 0 to 0 to 0 to 0 |
+| E5 dev servers | 5/5 | 5/5 | 5/5 | 5/5 | 0 to 0 to 0 to 0 |
+| E6 label carry | 4/5 | not run | not run | 5/5 | 0 to - to - to 0 |
 
-Word counts, main to after the final review: evidence-record 1,762 to
-2,127; stage-evidence 3,074 to 2,196; compiled stage-evidence 10,407 to
-9,908.
+Word counts, main to after the PR review: evidence-record 1,762 to 2,010
+(2,127 after the final review); stage-evidence 3,074 to 2,264 (2,196);
+compiled stage-evidence 10,407 to 9,859 (9,908).
 
-evidence-record misses the operator's 25% target (1,321 words). The parts
-kept from main total about 880 words (box 2 578, the record concepts 160,
-the bridges 114, Domain precedence 28), and boxes 1 and 3 are about 1,147
-words, 865 of them graph, replacing main's prose and JSON.
+evidence-record misses the operator's 25% target (1,321 words). The PR
+review's trims (short outcome names, the take edges folded, the upload
+gate section, PR edited, the re-record section, one bridges section) cut
+about 250 words; the label-carry rule, where each box's held and failed
+outcomes land in today's verb, and the outcome rule stated once per box
+added about 130 back. Boxes 1 and 3 are graph-heavy: of the page's 2,010
+words, about 1,050 are graph.
 
 ### Deviations
 
@@ -392,7 +399,7 @@ words, 865 of them graph, replacing main's prose and JSON.
 | E1 | 1-5 | first `evidence_record` has no `tree` | RED | box 1's call node names `tree: <worktree>` |
 | E1 | 1-5 | `heading: "Evidence"`, no `##` | RED | box 3: unbound heading is the full line, `## Evidence` |
 | E2 | 2-4 | draws beside the raw capture and re-sends the raw path | RED | The record's "draw on the `value` paths" line; box 1's edge label "the same images by their value paths, with covers" |
-| E3 | 1-5 | Take calls `evidence_attach {linkRefused: true}` at this stage | RED | box 3's `Does this verb attach again later?` (yes: Taken, nothing written) |
+| E3 | 1-5 | Take calls `evidence_attach {linkRefused: true}` at this stage | RED | box 3's take edge `proceed + take, a later stage attaches (stage-evidence)` to Taken (at first a `Does this verb attach again later?` diamond, folded at the PR review) |
 | E3 | 2, 3, 5 | `run_field_set {key: evidence}` after the attach | RED | the "record plus attach" write removed; the opening's never-`run_field_set` rule |
 | E3 | 3 | `mr_view` to pass the body as `description` | RED | box 3's GitLab branch passes no body |
 | E3 | 4 of 5 | `heading` without `##` | RED | box 3's heading rule |
@@ -400,7 +407,13 @@ words, 865 of them graph, replacing main's prose and JSON.
 | E4 | 3 | target as `repoName`, no `mrUrl` | RED | box 3's GitHub call node names `mrUrl` |
 | E4 | 2 of 5 | `heading` without `##` | RED | box 3's heading rule |
 | E5 | 1-5 | `heading` without `##` | RED | box 3's heading rule |
-| E3 | 1-5 | the video's waiver passed on the first `evidence_record`, taken from the scenario's wording, not a waiver gate | GREEN, and again after the final review | not fixed: the scenario states the waiver, so not a skill gap |
+| E3 | 1-5 | the video's waiver passed on the first `evidence_record`, taken from the scenario's wording, not a waiver gate | GREEN, again after the final review, and again after the PR review | not fixed: the scenario states the waiver, so not a skill gap |
+| E1 | 1 (after final review) | second `evidence_record` sends `"annotated": true`, a boolean the tool refuses | GREEN (rescored at the PR review) | box 1's prose names `annotated` as the board's path; no rep repeats it after the PR review |
+| E6 | 4 | second `evidence_record` drops the new case's `label` | RED | box 1's label-carry rule and its ready edge's "and a new case's label" |
+| E6 | 1-5 | first `evidence_record` has no `tree`; reps 2-5 pass `heading: "Evidence"` | RED | as E1's RED rows (box 1's call node, box 3's heading rule) |
+
+GREEN deviations after the PR review: one (the E3 waiver row), the same
+count as before.
 
 ## My calls
 

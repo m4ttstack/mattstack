@@ -246,18 +246,21 @@ System file: `build-system-file.sh <worktree root> <scratch>/final-fix/green2`
 (this branch after the final-review fixes; 9,908 words). Same scenarios,
 recipe and scoring rules as GREEN. Rep outputs:
 `<scratch>/final-fix/green2/<scenario>/rep-<i>.txt`, not committed. No fix
-rounds.
+rounds. Rescored at the PR review: E1 rep 1's second `evidence_record`
+sends `"annotated": true`, a boolean the tool refuses (it takes the board's
+path), so that rep misses the covers item; E1 stays over the bar at 4/5.
 
-| Scenario | RED | GREEN | GREEN (after final review) | Anti-goal reps (after final review) |
+| Scenario | RED | GREEN | GREEN (after final review, rescored) | Anti-goal reps (after final review) |
 |---|---|---|---|---|
-| E1 happy GitLab | 0/5 | 5/5 | 5/5 | 0 |
+| E1 happy GitLab | 0/5 | 5/5 | 4/5 | 0 |
 | E2 recapture | 2/5 | 5/5 | 5/5 | 0 |
 | E3 refused upload | 0/5 | 5/5 | 5/5 | 0 |
 | E4 GitHub PR | 1/5 | 5/5 | 5/5 | 0 |
 | E5 dev servers | 5/5 | 5/5 | 5/5 | 0 |
 
 - E1, E5: every rep passes `tree`, draws beside the `value` copies, re-sends
-  those paths with covers, and attaches with `heading: "## Evidence"` and
+  those paths with covers (E1 rep 1's `annotated` is `true`, not the
+  board's path: a miss), and attaches with `heading: "## Evidence"` and
   `mrUrl`; E5 makes one `dev_endpoints {tree, roles}` and no `rt_verb` or
   port probe.
 - E2: every rep draws beside `.../retry-badge/3f2a9c1b7d04/retry-badge-before.png`
@@ -275,3 +278,70 @@ rounds.
 The `run_field_set {key: gate}` each rep writes is the gate protocol's
 bracket, not an evidence write. No scenario reaches box 3's new Iterate
 path, so the re-record route is covered by the static checks only.
+
+## GREEN (after PR review)
+
+System file: `build-system-file.sh <worktree root> <scratch>/pr-review/green`
+(this branch after the PR-review fixes; 9,859 words). Same scenarios,
+recipe and scoring rules as GREEN, with a rep's cover counted only when
+`annotated` is the board's path. Rep outputs:
+`<scratch>/pr-review/green/<scenario>/rep-<i>.txt`, not committed. No fix
+rounds.
+
+E6 is new at the PR review (`scenarios/E6-label-carry.md`): built like E1
+with one new case, the first `evidence_record` returning `written: false`
+with that case's image uncovered. The scenario names no label rule and
+shows no second-call shape. Pass item: the second `evidence_record`
+carries the new case's `label` (on the image or in `cases`) with the
+cover, by the `value` path.
+
+### E6 RED
+
+System file: `build-system-file.sh efdd89f09 <scratch>/pr-review/red`
+(10,407 words, the same text as RED above).
+
+| Pass item | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| second `evidence_record` carries the new case's `label` with the cover, by the `value` path | yes (`cases`) | yes (both) | yes (`cases`) | no (no label) | yes (image) |
+| anti-goal call | none | none | none | none | none |
+| **rep passes** | yes | yes | yes | no | yes |
+
+Main's text built the record by hand with every label in it, so most reps
+carry the label without a rule; rep 4 drops it, which the tool refuses.
+Every RED rep also omits `tree`, and reps 2-5 pass `heading: "Evidence"`
+(RED failure classes 1 and 6, not E6 pass items).
+
+### Results
+
+| Scenario | RED | GREEN | GREEN (after final review, rescored) | GREEN (after PR review) | Anti-goal reps (after PR review) |
+|---|---|---|---|---|---|
+| E1 happy GitLab | 0/5 | 5/5 | 4/5 | 5/5 | 0 |
+| E2 recapture | 2/5 | 5/5 | 5/5 | 5/5 | 0 |
+| E3 refused upload | 0/5 | 5/5 | 5/5 | 5/5 | 0 |
+| E4 GitHub PR | 1/5 | 5/5 | 5/5 | 5/5 | 0 |
+| E5 dev servers | 5/5 | 5/5 | 5/5 | 5/5 | 0 |
+| E6 label carry | 4/5 | not run | not run | 5/5 | 0 |
+
+- E1, E5: every rep passes `tree` with the raw paths, draws beside the
+  `value` copies, re-sends those paths with `annotated` as the board's path
+  and a caption, carries each case's label on the second call, and
+  attaches with `heading: "## Evidence"` and `mrUrl`. E5 makes one
+  `dev_endpoints {tree, roles: ["web", "api"]}` and no `rt_verb` or port
+  probe.
+- E2: every rep draws beside `.../retry-badge/3f2a9c1b7d04/retry-badge-before.png`
+  and re-sends that `value` path with its cover.
+- E3: every rep opens `off-script:evidence:1` quoting the size refusal and,
+  on Take, ends Taken through the `proceed + take, a later stage attaches
+  (stage-evidence)` edge, with no `linkRefused` call. Every rep again
+  carries the video's waiver from the scenario's wording (the one GREEN
+  deviation, unchanged).
+- E4: every rep reads `--json number,url,state`, reads the body before the
+  attach, passes it as `description`, and edits with `--body-file`.
+- E6: every rep carries `label: "Retry badge"` on the image (rep 4 also in
+  `cases`) on the second call, with the `value` path, `annotated` as the
+  board's path and a caption.
+
+The `run_field_set {key: gate}` each rep writes is the gate protocol's
+bracket, not an evidence write. No scenario reaches box 3's Iterate path or
+the new `gate-iterates` budget, so those are covered by the static checks
+only.
