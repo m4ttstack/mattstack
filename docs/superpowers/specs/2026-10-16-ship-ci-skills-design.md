@@ -297,7 +297,7 @@ says "the stage has no prior pipeline id".
    run-wide) → "Fix the REAL failure, commit" → "MR found (before
    git_push)?" → `git_push {tree: <root>, leaseMrUrl: <mr>}` (or without the
    guard when there is no MR) → result: ok → own run new attempt
-   (`run_stage start`, kept) → watch with the result's `sha` and
+   (`run_resolve {next: iterate}`, B24) → watch with the result's `sha` and
    `priorPipelineId`; `refused: lease_held` → stand-down STOP; error → push
    STOP → "watch-ci off-script gate: git_push refused" (kept: take → confirm
    the human's push landed; iterate → `git_push` again, B19). retry →

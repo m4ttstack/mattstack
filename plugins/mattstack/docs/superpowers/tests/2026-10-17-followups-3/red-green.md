@@ -36,3 +36,5 @@ field `at` against the revise decision's `decided_at`.
 | R10 fresh pane, nothing handed, round 2 stored after the revise (pending) | 0/5 | 5/5 | RED: 5/5 rebuild rows from the revise record, re-read threads and dispatch a third adjudication, then open a new respond-plan gate built from it; GREEN: 5/5 `run_field_get` the stored source, write it unchanged to `<dir>/respond-plan.source.json`, `gate_open` it in the pane; no dispatch, no record |
 | R11 fresh pane, nothing handed, source stored before the revise (never acted on) | 5/5 | 5/5 | regression guard for the kept path: fresh dispatch carrying the revise's note ("T1 is a real flake, fix it"), both sides |
 | R12 the pane that handed round 2 back gets the board's round 2 plan | 5/5 | 5/5 | regression guard: one `gate_record` of the handed plan from the hand-back box, no snapshot, no dispatch, rows walked to the respond-post hand-back |
+
+Review round (gate-protocol now lists sync-open-mrs with the verbs that draw neither): S1 rerun 5/5, `gate_ask`, form, `gate_answer`, nothing hand-written.
