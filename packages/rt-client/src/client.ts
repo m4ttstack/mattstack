@@ -811,9 +811,9 @@ export function bgStop(o: RtClientOptions = {}): Promise<RtResponse<Commands["bg
   return rtCommand<Commands["bg:stop"]["data"]>("bg:stop", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
 }
 
-/** A cold start polls herdr's socket for up to 10s, past the default budget. */
+/** A cold start probes the login shell for up to 15s, then polls herdr's socket for up to 10s. */
 export function herdrStart(o: RtClientOptions = {}): Promise<RtResponse<Commands["herdr:start"]["data"]>> {
-  return rtCommand<Commands["herdr:start"]["data"]>("herdr:start", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 15_000 });
+  return rtCommand<Commands["herdr:start"]["data"]>("herdr:start", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
 }
 
 export function bgRelease(
