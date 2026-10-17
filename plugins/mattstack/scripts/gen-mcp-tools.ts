@@ -8,7 +8,7 @@ const out: string[] = [
   "",
   "Every tool below is on the mattstack MCP server, which is allowed whole in every mattstack install. Before a skill tells an agent to run a shell command, check whether a tool here covers it.",
   "",
-  "Kept on Bash on purpose: `rt gate answer <id> --answers <json> --by shepherd`, `rt gate wait <id>`, `rt events wait`, `git commit`, `git add`, `git fetch`, `git merge-base`, `git rebase --continue` and `--skip`, and project tooling.",
+  "Kept on Bash on purpose: `rt gate wait <id>`, `rt events wait`, `git commit`, `git add`, `git fetch`, `git merge-base`, `git rebase --continue` and `--skip`, and project tooling. A shepherd answers and parks a lane's gates with herd_gate_answer and herd_gate_park.",
   "",
 ];
 for (const t of input.tools) {
