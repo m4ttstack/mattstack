@@ -31,10 +31,13 @@ sides. Only the id form differs.
 - **Reps**: 5 RED and 5 GREEN.
 - **Blinding**: `blind.sh` copied the 10 transcripts to random names. Every
   transcript was scored in `blind.sh`'s shuffled order, and the mapping was
-  read only afterwards. The only slug ids GREEN reps quoted are ids that are
-  also tool names (`ci_watch`, `mr_retry`, `run_enter`, and so on), and RED
-  reps quote those just as often. No GREEN-only id (for example
-  `stop_lease_holder_owns`) appeared, so in practice the blind held.
+  read only afterwards. The blind was only partial. Most slug ids that GREEN
+  reps quote are also tool names (`ci_watch`, `mr_retry`, `run_enter`), and
+  RED reps quote those just as often. But "shell push" never appears in RED
+  reps and appears 5 times across 3 GREEN reps. It is GREEN's
+  `stop_shell_push` slug written as prose, so it gave the side away. It did
+  not help GREEN. The first scoring pass marked two of those T4 cells "no"
+  for paraphrasing, and fix round 1 rescored them as naming the id.
 - **Scoring**: each scenario of each rep is scored against its
   `../2026-10-16-ship-ci-skills/expected.md` entry, on the lane's eight
   columns plus "stop named". A move counts as a deviation only when
@@ -42,10 +45,14 @@ sides. Only the id form differs.
   differences never count.
 - **Stop named** is yes when the rep's stop names the node it stops at, by
   its text or its id. That node is a STOP octagon, the stand-down, or the
-  closing `run_close` / done exit. Close paraphrases count ("the lease
-  holder owns every repair", "stand down and report the holder"). A bare
-  "Stop." does not count, and neither does a STOP named only by its effect
-  ("no shell push") or by "the STOP edge" alone.
+  closing `run_close` / done exit.
+  - **Text**: close paraphrases of the label count ("the lease holder owns
+    every repair", "stand down and report the holder").
+  - **Id**: GREEN's slug counts when written as prose. "No shell push" names
+    `stop_shell_push` and counts. RED has no ids, so only its text can
+    count.
+  - **Not counted**: a bare "Stop.", or a reference that matches neither the
+    text nor the id ("the STOP edge", or only the off-script gate's name).
 - **Pass bar**: GREEN's total deviations are at most RED's, for the skill as
   a whole and for every scenario.
 
@@ -145,10 +152,10 @@ sides. Only the id form differs.
 | T3b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
 | T3b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
 | T3b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
-| T4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no | stop paraphrased as no shell push |
+| T4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no shell push names the id stop_shell_push (rescored in fix round 1) |
 | T4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
 | T4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
-| T4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no | stop paraphrased as no shell push |
+| T4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no shell push names the id stop_shell_push (rescored in fix round 1) |
 | T4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
 | T5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
 | T5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
@@ -199,7 +206,7 @@ sides. Only the id form differs.
 | T2 | 0 | 0 | 5/5 | 5/5 | yes |
 | T3 | 0 | 0 | 5/5 | 5/5 | yes |
 | T3b | 0 | 0 | 5/5 | 5/5 | yes |
-| T4 | 0 | 0 | 3/5 | 3/5 | yes |
+| T4 | 0 | 0 | 3/5 | 5/5 | yes |
 | T5 | 0 | 0 | 3/5 | 5/5 | yes |
 | T6 | 0 | 0 | 5/5 | 5/5 | yes |
 | W1 | 0 | 0 | 5/5 | 5/5 | yes |
@@ -208,7 +215,7 @@ sides. Only the id form differs.
 | T9 | 0 | 0 | 5/5 | 5/5 | yes |
 | T10 | 0 | 0 | 5/5 | 5/5 | yes |
 | S6 | 0 | 0 | 5/5 | 5/5 | yes |
-| total | 0 | 0 | 61/65 | 63/65 | yes |
+| total | 0 | 0 | 61/65 | 65/65 | yes |
 
 ### Totals per column
 
@@ -222,22 +229,24 @@ sides. Only the id form differs.
 | runaway loops | 0 | 0 |
 | refusal missed its gate or stand-down | 0 | 0 |
 | release on a stand-down | 0 | 0 |
+
 ## Verdict
 
 **Pass.** Both sides scored 0 deviations, so GREEN is at most RED in total
-and in 13 of 13 scenarios. No fix round was needed, and the slug map and
-SKILL.md are unchanged.
+and in 13 of 13 scenarios. No fix round was needed on the skill, and the slug
+map and SKILL.md are unchanged.
 
-**Stop named**: GREEN 63/65, RED 61/65. Every miss is on one of the two
-non-lease STOP stops:
+**Stop named**: GREEN 65/65, RED 61/65. RED's four misses are at the two
+push-time stops:
 
-- **T4**: two reps per side paraphrased `STOP: push only with git_push` as
-  "no shell push" or "the STOP edge".
-- **T5**: two RED reps wrote a bare "Stop." at the lease-held refusal.
+- **T4**: rep 2 wrote "the STOP edge" and rep 3 named only the off-script
+  gate.
+- **T5**: reps 3 and 5 wrote a bare "Stop.".
 
-That 2-rep gap in T5 is noise: it is the same paraphrase habit, not a
-difference in which node the reps reached. Every rep on both sides reached
-the right node.
+GREEN's lead comes from those wording habits plus the id rule: two GREEN T4
+reps wrote "no shell push", which names `stop_shell_push`. That is a
+difference in how reps label the stop, not in where they stop. Every rep on
+both sides reached the right node.
 
 As expected, the RED here (today's skill) behaves like the ship-ci lane's
 GREEN round 3. At this sample size the measurement can show that short ids

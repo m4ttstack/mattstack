@@ -7,7 +7,8 @@
 # file goes in through --append-system-prompt-file and the prompt file is the
 # user turn. Each rep runs tool-less from its own fresh empty directory under
 # <out>'s parent and writes its stdout to <out>/rep-<n>.txt. At most 5 reps
-# run at once. <out> must lie outside the repo. The prompt follows `--`
+# run at once and each logs its exit code; a non-zero exit or empty stdout
+# logs FAILED. <out> must lie outside the repo. The prompt follows `--`
 # because a skill file opens with `---`, which the CLI reads as an option.
 set -euo pipefail
 
@@ -51,19 +52,19 @@ parent="$(dirname "$out")"
 tag="$(basename "$out")"
 
 run_one() {
-  local n="$1" dir
+  local n="$1" dir rc
   dir="$(mktemp -d "$parent/rep-$tag-$n.XXXXXX")"
   local sys_args=()
   [ -z "$system" ] || sys_args=(--append-system-prompt-file "$system")
   (cd "$dir" && claude --model sonnet --tools "" --strict-mcp-config --setting-sources local \
     --settings '{"disableAllHooks":true}' --disable-slash-commands --no-session-persistence \
-    ${sys_args[@]+"${sys_args[@]}"} -p -- "$(cat "$prompt")") > "$out/rep-$n.txt" 2> "$out/rep-$n.err" || true
+    ${sys_args[@]+"${sys_args[@]}"} -p -- "$(cat "$prompt")") > "$out/rep-$n.txt" 2> "$out/rep-$n.err" && rc=0 || rc=$?
   local bytes
   bytes="$(wc -c < "$out/rep-$n.txt" | tr -d ' ')"
-  if [ "$bytes" -eq 0 ]; then
-    echo "rep $n: EMPTY, stderr: $(head -c 200 "$out/rep-$n.err" | tr '\n' ' ')"
+  if [ "$rc" -ne 0 ] || [ "$bytes" -eq 0 ]; then
+    echo "rep $n: FAILED exit $rc, $bytes bytes, stderr: $(head -c 200 "$out/rep-$n.err" | tr '\n' ' ')"
   else
-    echo "rep $n: $bytes bytes, dir $dir"
+    echo "rep $n: ok exit 0, $bytes bytes, dir $dir"
   fi
 }
 
