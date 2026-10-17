@@ -37,7 +37,9 @@ Every node is a short id and its text:
 - **The id is the handle edges use**: lowercase words joined by underscores
   that name the step (`push_refused`, `fix_remote`). A `plaintext` id starts
   with its call's first word in that form (`git_push`, `enter_worktree` for
-  `EnterWorktree`); a STOP's id starts with `stop_`.
+  `EnterWorktree`), skipping a leading `NAME=value`: an id for
+  `CLAUDE_CONFIG_DIR=<dir> claude plugin update x` starts `claude_`. A
+  STOP's id starts with `stop_` (`stop_shell_push`).
 - **Declare each node once, in the order the process meets it**, every one
   with a label, then write the edges with ids only.
 
@@ -163,15 +165,16 @@ One graph, one section per judgment step, and the tool calls are the nodes.
    block:
    - `bash render.sh <SKILL.md>` renders every block and fails on a parse
      error, any Graphviz warning, an indented fence, or no block at all.
-   - `python3 check-dot.py <SKILL.md>` fails on an unlabelled decision edge, a
-     one-way decision, a dead end, a loop with no decision to leave it, an
+   - `python3 check-dot.py <SKILL.md>` fails on an unlabelled decision edge,
+     a one-way decision, a dead end, a loop with no decision to leave it, an
      unreachable node, a STOP that is not named `STOP:`, a missing success
      outcome, or an id that breaks the Node vocabulary: not lowercase words
      joined by underscores, a `plaintext` id that does not start with its
      call, a STOP id without `stop_`, a graph that labels some nodes and not
-     others, two nodes with the same text, or one id declared twice. It also fails two warnings (two calls in one
-     plaintext node, a tempted edge that leaves a step instead of a
-     decision); --warn-only prints them without failing.
+     others, two nodes with the same text, or one id declared twice. It
+     also fails two warnings (two calls in one plaintext node, a tempted
+     edge that leaves a step instead of a decision); --warn-only prints
+     them without failing.
 5. Test behavior with superpowers:writing-skills: fresh agents, describe-only,
    5 runs per scenario, prose version against graph version, and a deviation
    table (shell calls a tool covers, skipped steps, runaway loops, stops that
