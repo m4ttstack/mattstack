@@ -466,3 +466,42 @@ Per rep:
   gone, S7's reps give Go back the value `go-back` (S4's scripted chunks
   use `redirect`). stage-plan routes Go back itself and hands back `to`,
   not `next`, so nothing reads that value.
+
+## Word counts
+
+Source is `wc -w` of each `SKILL.md`; compiled is `wc -w` of the
+`build-system-files.sh` output (`rt skills compile --preview`). "Before" is
+`main` at 8bfe1bd2f (plugin 0.31.17); "After" is the working tree (plugin
+0.31.18).
+
+| Skill | Source before | Source after | Compiled before | Compiled after |
+|---|---|---|---|---|
+| gate-protocol | 5337 | 2498 | n/a (inlined) | n/a (inlined) |
+| work | 2083 | 1645 | 7779 | 4529 |
+| stage-provision | 1228 | 1917 | 6834 | 4711 |
+| stage-plan | 980 | 1045 | 7285 | 4538 |
+| stage-implement | 614 | 616 | n/a | n/a |
+| stage-self-review | 462 | 525 | 460 | 523 |
+| stage-gates | 383 | 380 | n/a | n/a |
+
+Targets as re-ruled: gate-protocol under 2500 (met at 2498); `work` about
+1600 rather than the plan's under 1200 (the mandated node texts make 1200
+unreachable; 1645 reached); stage-provision grew for the same reason (the
+precheck, reuse, refusal-code and budget nodes). The structured-context
+reference (805 words) is no longer inlined in any compile.
+
+## Compiled-output checks
+
+A real (non-preview) compile of `work` and of `stage-provision` from the
+working tree, in a scratch copy under an isolated HOME and mattstack dir:
+
+- No unsubstituted placeholder in either compiled `SKILL.md`.
+- `# Gate protocol` appears once in each.
+- Neither inlines the structured-context body: no `# Structured context`
+  heading, and `gate-ctx@1` appears only in the pointer line.
+- Each vendors the sidecar at `parts/include-gate-protocol/structured-context.md`
+  (805-word body) beside its `SKILL.md`.
+- The pointer reads `${CLAUDE_SKILL_DIR}/../../attachments/<verb>/parts/include-gate-protocol/structured-context.md`,
+  rewritten to that verb's own folder (`work`, `stage-provision`). The
+  remaining `${CLAUDE_SKILL_DIR}` uses in `work` are its stage-file table,
+  resolved at run time.

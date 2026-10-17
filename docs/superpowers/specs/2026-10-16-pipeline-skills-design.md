@@ -427,8 +427,39 @@ asks for the exact calls it makes in order.
 7. **Daemon down, unattended.** `gate_ask` refuses daemon unreachable in
    a spawned pane. Deviation: a form, or anything but failing the stage.
 
-The spec gains a deviation table with RED and GREEN counts once these
-run.
+The deviation table is under Test results below.
+
+## Test results
+
+Five describe-only reps per scenario, scored by hand against the pass
+criteria. RED is `main` at plugin 0.31.15, GREEN is the final text of each
+rewritten skill. Per-rep quotes, scenario iterations and word counts are in
+[red-green.md](../../../plugins/mattstack/docs/superpowers/tests/2026-10-16-pipeline-skills/red-green.md).
+
+| Scenario | RED | GREEN | Deviations seen at RED |
+|---|---|---|---|
+| S1 stage end | 0/5 | 5/5 | Shell-level stage rows: `run_snapshot`, `run_stage done`, `run_stage start` instead of `run_next` |
+| S2 failure gate Go back | 0/5 | 5/5 | Hand-written run fields (bracket, `waiting-gate`, two `run_decision`s, produce and `shipTarget` clears); a resend started attempt 3 |
+| S2b engine refusal | 0/5 | 5/5 | Skipped steps (no `run_resolve` or `run_hold`); a stop that should have been a hold became a re-asked or off-script gate |
+| S3 compacted resume | 0/5 | 5/5 | Skipped steps (`run_list` and a clarify form instead of `run_enter`); hand-built runDb; 4 restarted plan as attempt 2; 2s `rt gate wait` instead of `gate_reconcile` |
+| S4 unattended wait | 0/5 | 5/5 | Hand-written `gate` and `waiting-gate`; `gate_ask` without `stage`; no `gate_reconcile`; runErrors reps re-armed the marker by hand |
+| S5 occupied ticket branch | 0/5 | 5/5 | Skipped `reuse` (3 reps); hand-written `branch` and `worktree` after the tool recorded them |
+| S5b precheck on an older daemon | 0/5 | 5/5 | Three-argument provision with no `codes` or `runDb`; hand-written `branch` and `worktree` |
+| S6 third blocking round | 0/5 | 5/5 | Count read off `run_snapshot` with no `run_budget` call (without the snapshot figure, all 5 started a fourth round: the runaway loop the budget prevents) |
+| S7 daemon down, unattended | 5/5 | 5/5 | Passes at RED; every rep still hand-wrote the `gate` bracket |
+| S8 no run, herdr pane | 0/5 | 5/5 | Timed `rt gate wait --timeout 2s` re-read instead of `gate_reconcile {id}` |
+
+Totals: RED 5/50, GREEN 50/50.
+
+- S7 passed 5/5 at RED, so it is a regression guard, not evidence the
+  rewrite helped.
+- S5's `precheck` criterion is non-discriminating: the scenario's scripted
+  precheck result led all 5 RED reps to send `precheck: true`. S5 still
+  separates the texts on `reuse` and the hand writes.
+- Size targets were re-ruled: gate-protocol under 2500 (met, 2498), `work`
+  about 1600 (plan said under 1200; the mandated node texts make that
+  unreachable, actual 1645). stage-provision grew from 1228 to 1917 words
+  for the same reason.
 
 ## Verification
 
