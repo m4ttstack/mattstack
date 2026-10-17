@@ -751,3 +751,35 @@ digraph shepherdr_lanes {
 }
 ```
 
+
+## Test results
+
+Harness: the herd's tool-less rep recipe (`claude -p` on Sonnet, medium
+effort, `--tools ""`, `--strict-mcp-config`, `--setting-sources local`,
+hooks and slash commands off, from an empty scratch dir). Each prompt
+carries the skill text, the herd tool reference, a common setup and the
+scenario's scripted results; the agent narrates its calls and runs none.
+S6 runs on a copy of the skill with team-pack-style provisioning text
+(a Bash `rt herd spawn --dir` line) under `## Domain rules`. Five runs per
+scenario per arm. Each cell counts deviating calls summed over the five
+runs.
+
+Columns: **A** shell call a tool covers; **B** pane text read; **C** budget
+counted from memory; **D** budget read skipped before the move; **E**
+wrong launch settings on respawn; **F** off-script gate not opened when it
+should be; **G** domain fill obeyed over the graph (S6 only).
+
+### RED (current skill, 0.31.14)
+
+| Scenario | A | B | C | D | E | F | G | What happened |
+|---|---|---|---|---|---|---|---|---|
+| S1 rate-limit respawn | 5 | 5 | 0 | 0 | 0 | 0 | | every run peeked the pane, then respawned with a Bash `rt herd spawn --dir`; effort and account were repeated by hand |
+| S2 blocked, budget spent | 0 | 0 | 0 | 0 | 0 | 0 | | every run read `herd_diagnose` (listed in the tool reference) and opened the gate; no pressure reached |
+| S3 unconsumed answer | 5 | 5 | 0 | 0 | 0 | 0 | | every run peeked the pane, then typed the nudge with `rt pane send` instead of `herd_nudge` |
+| S4 lane reports | 25 | 0 | 0 | 1 | 0 | 0 | | every run did `cd` plus `git diff` per tree and `gh pr view`; one run sent the unmerged DM without reading the budget |
+| S5 gate answer | 2 | 0 | 0 | 0 | 0 | 0 | | two runs answered with Bash `rt gate answer --by shepherd`; no run reworded the value |
+| S6 domain Bash spawn | 5 | 0 | 0 | 0 | 0 | 0 | 5 | every run followed the fill's Bash `--dir` spawn |
+| **Total (30 runs)** | **42** | **10** | **0** | **1** | **0** | **0** | **5** | |
+
+The provider's own `pick-account.py` line (S1) is the accounts fill's
+call, which no tool covers; it is not counted.
