@@ -178,8 +178,10 @@ Attach the evidence (ellipse)
              STOP: a refused file moves only by the human's hand
              -> Off-script gate: upload refused (gate-protocol, scope off-script:<stage>:<n>)
              -> upload off-script answer?
-                proceed + take       -> evidence_attach {..., linkRefused: true} -> take result?
-                                        descriptionWritten -> Attached; writeErrors -> Failed, quoted
+                proceed + take       -> Does this verb attach again later?
+                                        yes (stage-evidence: ship attaches) -> Taken: nothing written
+                                        no (ship)  -> evidence_attach {..., linkRefused: true} -> take result?
+                                                      descriptionWritten -> Attached; writeErrors -> Failed, quoted
                 proceed + hand back  -> Failed, the refusal quoted
                 iterate              -> run_budget {key: evidence:upload-off-script, limit: 1, stage}
                                         -> past its limit? no -> evidence_attach (again); yes -> Failed, quoted
@@ -195,7 +197,8 @@ not the one box 1 wrote (the field changed, or box 1 never wrote). The
 re-record sends box 1 the same images the verb last recorded, by their
 `value` paths with their covers, once; the next refusal goes to the gate.
 
-Outcomes: **Attached**, **Held**, **Failed** (reason). Box 1's Held and
+Outcomes: **Attached**, **Taken** (refused files left for a later attach),
+**Held**, **Failed** (reason). Box 1's Held and
 Failed reached from here are box 3's Held and Failed.
 
 The off-script gate node lives in the include, so each verb that inlines
@@ -272,7 +275,7 @@ Changed:
 | C2 | Upload and the description splice go through `evidence_attach`: earlier uploads are reused by sha256, and `evidence` is no longer rewritten with "the record plus attach" after the description write. | Approved in wave 2 (tools B2, B5). |
 | C3 | A `missing` refusal (path not found, not absolute) goes to the off-script gate instead of a corrected-path retry. Paths now come from the record, so there is nothing for the agent to correct. | My call. |
 | C4 | A file that times out twice is reported with the rest still uploaded, instead of stopping at the first. | Tools B6. |
-| C5 | Take at stage-evidence writes the description now, with the refused files' local paths, instead of only recording them for ship. Ship's attach sends the linked files again. | My call: the human asked to attach now; the tool's Take path does exactly that. |
+| C5 | (dropped) Take at stage-evidence stays as today: nothing is written, and ship's attach sends the refused files again. | Shepherd's condition on gate `269aef04`: `linkRefused` prints bare absolute local paths into an employer-visible description. Ship's Take (phase 2, ship-ci-skills) keeps today's local-path link, a pre-existing leak; a tool follow-up (a neutral "<file name> (attached separately)" link for linked files, `lib/evidence/section.ts`) is flagged to the shepherd (DM #6040). |
 | C6 | On GitHub, stage-evidence finds the PR with `gh pr view` and writes the section through `gh pr edit`. Today it calls `mr_for_branch`, which is GitLab-only and fails. | Bug fix. |
 | C7 | Dev-server ports come from one bounded `dev_endpoints` call instead of the domain's `rt endpoint lookup` reads and curl probe. | Tools ruling (C3 in recon). |
 | C8 | Loop counters persist on the run through `run_budget`, so they survive compaction and resume; holds use `run_hold` (same decision and field). | My call, matching ship-ci-skills. |
@@ -298,7 +301,7 @@ the tools available and the results they return. 5 runs per scenario.
 |---|---|
 | E1 happy path, GitLab, attach now | `evidence_record` with the raw paths and `tree`; marks drawn beside the returned copies; a second `evidence_record` with covers; `evidence_attach` with `heading` and `mrUrl`; no `run_field_set {key: evidence}`, `mr_upload` or `mr_update` |
 | E2 recapture | a new BEFORE for an existing case goes in as `images` for that slot; the annotation is drawn beside the content-folder path the tool returned; no hand merge |
-| E3 refused upload | `refused.roots` opens the off-script gate scoped `off-script:evidence:<n>` quoting the refusal; on Take, `evidence_attach {..., linkRefused: true}`; no copy, no `mr_upload` |
+| E3 refused upload | `refused.roots` opens the off-script gate scoped `off-script:evidence:<n>` quoting the refusal; on Take, the stage ends with nothing written (no `linkRefused` call at this stage); no copy, no `mr_upload` |
 | E4 GitHub PR | no `mr_for_branch` or `mr_upload`; `gh pr view`, `evidence_attach` with `description`, `gh pr edit --body-file` |
 | E5 dev servers | one `dev_endpoints {tree, roles}`; no `rt_verb` endpoint lookup, no curl loop |
 
