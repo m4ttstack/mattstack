@@ -2509,7 +2509,7 @@ Bring the tree's branch current in one call through rt sync: fetch origin; if th
 ### branch_sync_sweep
 
 <!-- mcp-lint: allow -->
-Run branch_sync, one branch at a time, on every branch of yours with an open MR in the repo that has a local worktree. A conflict on one branch leaves that rebase paused for you and the sweep moves on to the next. Your open MRs are read from GitLab (author: me) or GitHub (gh pr list --author @me). Returns {repoName, results, noTree, complete}: results holds one branch_sync result per branch (kind, branch, oldHead, newHead, pushed, refusal), each with its tree and mr {iid, url}; noTree lists your open-MR branches that have no worktree, which the sweep skips; complete is false when the forge may have cut the MR list short. Opens no gate and pushes only what branch_sync itself pushes. repoName is the repo's serialized identity, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo.
+Run branch_sync, one branch at a time, on every branch of yours with an open MR in the repo that has a local worktree, or with branches, only on those of them named there. A conflict on one branch leaves that rebase paused for you and the sweep moves on to the next. Your open MRs are read from GitLab (author: me) or GitHub (gh pr list --author @me). Returns {repoName, results, noTree, complete}: results holds one branch_sync result per branch (kind, branch, oldHead, newHead, pushed, refusal), each with its tree and mr {iid, url}; noTree lists your open-MR branches that have no worktree, which the sweep skips; complete is false when the forge may have cut the MR list short. With branches, the result also has notOpen: the named branches with no open MR of yours, which the sweep skips. Opens no gate and pushes only what branch_sync itself pushes. repoName is the repo's serialized identity, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo.
 
 ```json
 {
@@ -2518,6 +2518,13 @@ Run branch_sync, one branch at a time, on every branch of yours with an open MR 
     "repoName": {
       "type": "string",
       "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "branches": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Sync only these of your open-MR branches, so an MR opened after you chose stays untouched. Omit to sweep every one."
     }
   },
   "required": [
