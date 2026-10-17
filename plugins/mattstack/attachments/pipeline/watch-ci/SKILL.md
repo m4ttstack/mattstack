@@ -2,9 +2,6 @@
 name: watch-ci
 disable-model-invocation: true
 description: "Use when the user wants CI watched or triaged outside a pipeline run -- 'watch CI', 'is the pipeline green', 'babysit this MR', or after a push when they want the red/green verdict and failures classified."
-allowed-tools:
-  - Bash(${CLAUDE_SKILL_DIR}/scripts/ci-triage.sh:*)
-  - Bash(*/scripts/ci-forge.sh:*)
 type: pipeline-step
 slots:
   domain: { contract: watch-ci-domain@1, required: false }
@@ -26,23 +23,14 @@ digraph watch_ci_run {
     rankdir=TB;
 
     "Trigger: watch-ci invoked" [shape=ellipse];
-    "Handed a runDb (watch-ci)?" [shape=diamond];
-    "run_snapshot {runDb: <handed>}" [shape=plaintext];
-    "Handed run is running (watch-ci)?" [shape=diamond];
-    "A surface launched this pane (watch-ci)?" [shape=diamond];
-    "run_list {repo}" [shape=plaintext];
-    "Running watch-ci runs found?" [shape=diamond];
+    "run_enter {flags, skillDir, stage: watch-ci, runDb?, spawnedBy?}" [shape=plaintext];
+    "run_enter mode (watch-ci)?" [shape=diamond];
     "watch-ci gate clarify: the Resume offer" [shape=box];
     "Resume offer answer (watch-ci)?" [shape=diamond];
-    "Build runDb from the candidate's id (watch-ci)" [shape=box];
-    "run_stage {action: start, stage: watch-ci, runDb: <resumed>}" [shape=plaintext];
-    "Resume start refused (watch-ci)?" [shape=diamond];
-    "Switched runs roots once already (watch-ci)?" [shape=diamond];
-    "Use the runs root the error names (watch-ci)" [shape=box];
-    "run_field_set {key: hold, value: -, stage: watch-ci}" [shape=plaintext];
-    "run_start {flags, skillDir, spawnedBy?}" [shape=plaintext];
-    "run_start result (watch-ci)?" [shape=diamond];
-    "run_stage {action: start, stage: watch-ci}" [shape=plaintext];
+    "run_enter {flags, skillDir, stage: watch-ci, resume: <runId>}" [shape=plaintext];
+    "run_enter {flags, skillDir, stage: watch-ci, fresh: true}" [shape=plaintext];
+    "Second run_enter result (watch-ci)?" [shape=diamond];
+    "run_snapshot {runDb} (resumed watch-ci run)" [shape=plaintext];
     "Inherited run: the stage is run.current_stage, close nothing (watch-ci)" [shape=doublecircle];
     "Held at the watch-ci Resume offer" [shape=doublecircle];
     "Resumed watch-ci run: re-enter at run_snapshot's decisions" [shape=doublecircle];
@@ -51,87 +39,72 @@ digraph watch_ci_run {
     "rt too old: tell the user to update rt (watch-ci)" [shape=doublecircle];
     "Own watch-ci run open: go to the flow" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: watch-ci invoked" -> "Handed a runDb (watch-ci)?";
-    "Handed a runDb (watch-ci)?" -> "run_snapshot {runDb: <handed>}" [label="yes"];
-    "Handed a runDb (watch-ci)?" -> "A surface launched this pane (watch-ci)?" [label="no"];
-    "run_snapshot {runDb: <handed>}" -> "Handed run is running (watch-ci)?";
-    "Handed run is running (watch-ci)?" -> "Inherited run: the stage is run.current_stage, close nothing (watch-ci)" [label="yes"];
-    "Handed run is running (watch-ci)?" -> "A surface launched this pane (watch-ci)?" [label="no"];
-    "A surface launched this pane (watch-ci)?" -> "run_start {flags, skillDir, spawnedBy?}" [label="yes: start fresh"];
-    "A surface launched this pane (watch-ci)?" -> "run_list {repo}" [label="no: launched by hand"];
-    "run_list {repo}" -> "Running watch-ci runs found?";
-    "Running watch-ci runs found?" -> "run_start {flags, skillDir, spawnedBy?}" [label="no"];
-    "Running watch-ci runs found?" -> "watch-ci gate clarify: the Resume offer" [label="yes"];
+    "Trigger: watch-ci invoked" -> "run_enter {flags, skillDir, stage: watch-ci, runDb?, spawnedBy?}";
+    "run_enter {flags, skillDir, stage: watch-ci, runDb?, spawnedBy?}" -> "run_enter mode (watch-ci)?";
+    "run_enter mode (watch-ci)?" -> "Inherited run: the stage is run.current_stage, close nothing (watch-ci)" [label="inherited"];
+    "run_enter mode (watch-ci)?" -> "Own watch-ci run open: go to the flow" [label="started"];
+    "run_enter mode (watch-ci)?" -> "run_snapshot {runDb} (resumed watch-ci run)" [label="resumed"];
+    "run_enter mode (watch-ci)?" -> "watch-ci gate clarify: the Resume offer" [label="candidates"];
+    "run_enter mode (watch-ci)?" -> "watch-ci run not started: report the error" [label="tool error"];
+    "run_enter mode (watch-ci)?" -> "rt too old: tell the user to update rt (watch-ci)" [label="no run_enter tool at all"];
     "watch-ci gate clarify: the Resume offer" -> "Resume offer answer (watch-ci)?";
-    "Resume offer answer (watch-ci)?" -> "Build runDb from the candidate's id (watch-ci)" [label="resume"];
-    "Resume offer answer (watch-ci)?" -> "run_start {flags, skillDir, spawnedBy?}" [label="start fresh"];
+    "Resume offer answer (watch-ci)?" -> "run_enter {flags, skillDir, stage: watch-ci, resume: <runId>}" [label="resume"];
+    "Resume offer answer (watch-ci)?" -> "run_enter {flags, skillDir, stage: watch-ci, fresh: true}" [label="start fresh"];
     "Resume offer answer (watch-ci)?" -> "Held at the watch-ci Resume offer" [label="hold"];
-    "Build runDb from the candidate's id (watch-ci)" -> "run_stage {action: start, stage: watch-ci, runDb: <resumed>}";
-    "run_stage {action: start, stage: watch-ci, runDb: <resumed>}" -> "Resume start refused (watch-ci)?";
-    "Resume start refused (watch-ci)?" -> "run_field_set {key: hold, value: -, stage: watch-ci}" [label="no"];
-    "Resume start refused (watch-ci)?" -> "Switched runs roots once already (watch-ci)?" [label="yes, naming another runs root"];
-    "Resume start refused (watch-ci)?" -> "watch-ci run not resumed: report the refusal" [label="yes, any other reason"];
-    "Switched runs roots once already (watch-ci)?" -> "Use the runs root the error names (watch-ci)" [label="no"];
-    "Switched runs roots once already (watch-ci)?" -> "watch-ci run not resumed: report the refusal" [label="yes"];
-    "Use the runs root the error names (watch-ci)" -> "run_stage {action: start, stage: watch-ci, runDb: <resumed>}";
-    "run_field_set {key: hold, value: -, stage: watch-ci}" -> "Resumed watch-ci run: re-enter at run_snapshot's decisions";
-    "run_start {flags, skillDir, spawnedBy?}" -> "run_start result (watch-ci)?";
-    "run_start result (watch-ci)?" -> "run_stage {action: start, stage: watch-ci}" [label="ok: keep runDb"];
-    "run_start result (watch-ci)?" -> "watch-ci run not started: report the error" [label="tool error"];
-    "run_start result (watch-ci)?" -> "rt too old: tell the user to update rt (watch-ci)" [label="no run_start tool at all"];
-    "run_stage {action: start, stage: watch-ci}" -> "Own watch-ci run open: go to the flow";
+    "run_enter {flags, skillDir, stage: watch-ci, resume: <runId>}" -> "Second run_enter result (watch-ci)?";
+    "run_enter {flags, skillDir, stage: watch-ci, fresh: true}" -> "Second run_enter result (watch-ci)?";
+    "Second run_enter result (watch-ci)?" -> "run_snapshot {runDb} (resumed watch-ci run)" [label="resumed"];
+    "Second run_enter result (watch-ci)?" -> "Own watch-ci run open: go to the flow" [label="started"];
+    "Second run_enter result (watch-ci)?" -> "watch-ci run not resumed: report the refusal" [label="tool error on the resume"];
+    "Second run_enter result (watch-ci)?" -> "watch-ci run not started: report the error" [label="tool error on the fresh start"];
+    "run_snapshot {runDb} (resumed watch-ci run)" -> "Resumed watch-ci run: re-enter at run_snapshot's decisions";
 }
 ```
 
 An own run is a fresh or resumed one: it records identity, fires every gate
 below and closes at the end. An inherited run fires no gate beyond `ci`,
 records nothing about identity, and hands control back with the verdict.
+Its caller hands `mr` (the MR's or PR's URL), `sha` and, optionally,
+`priorPipelineId` (a number); it gets back one of: the verdict green, red
+after the `ci` gate, an off-script answer, a failure, a stand-down naming
+the `holder`, or a hold.
 
 The flags for this verb, rendered by the compiler:
 
 {{run-start.flags:watch-ci}}
 
-`run_start` takes `flags` = the `watch-ci` flag string from the block above,
+`run_enter` takes `flags` = the `watch-ci` flag string from the block above,
 verbatim (the value, never its key), `skillDir` = this skill's own
-directory, `${CLAUDE_SKILL_DIR}`, as an absolute path, and `spawnedBy` only
-when a board or another surface launched this pane. Keep the returned
-`runDb` and pass it to every `run_*` call in this verb; nothing is exported.
-Every gate below writes its `gate` field and its decision with
-`stage: "watch-ci"` in an own run, `stage: run.current_stage` in an
+directory, `${CLAUDE_SKILL_DIR}`, as an absolute path, `stage: watch-ci`,
+`runDb` only when a caller handed one, and `spawnedBy` only when a board or
+another surface launched this pane. It starts, resumes or inherits the run
+and opens the stage itself. Keep the returned `runDb` and pass it to every
+`run_*` call in this verb; nothing is exported. A handed `runDb` whose run
+is not running comes back with `handedRunDb: "not-running"` and is treated
+as not handed. Every gate below writes its `gate` field and its decision
+with `stage: "watch-ci"` in an own run, `stage: run.current_stage` in an
 inherited one.
 
 ### watch-ci gate clarify: the Resume offer
 
-`run_list` filtered to `status` = `running` and `work_type` = `watch-ci`;
-never read the run dbs by hand. Gate `clarify`: one sentence naming each
-candidate's `spawned_by`, `started_at` and `current_stage`, then one
-**Resume** option per candidate (labelled `Resume (Recommended)` for a run this session started
-earlier; a run another live pane owns is not yours) / **Start fresh**, and
-**Hold** in `next`.
-
-### Build runDb from the candidate's id (watch-ci)
-
-`runDb` = `<absolute home>/.mattstack/runs/<repo>/<the candidate row's id>/state.db`.
-The run tools refuse `~` and relative paths. The `run_stage` start is a new
-attempt that re-records this session.
-
-### Use the runs root the error names (watch-ci)
-
-Rebuild `runDb` under the runs root the refusal names; everything after the
-root stays the same.
+`run_enter` returned `candidates`: running watch-ci runs in this repo. Never
+read the run dbs by hand. Gate `clarify`: one sentence naming each
+candidate's `spawnedBy`, `startedAt` and `currentStage`, then one
+**Resume** option per candidate (labelled `Resume (Recommended)` when
+`ownSession` is true; a run another live pane owns is not yours) / **Start
+fresh**, and **Hold** in `next`. Resume passes that candidate's `runId`.
 
 {{include:run-identity}}
 
 ## Flow
 
-`<scripts>` is `${CLAUDE_SKILL_DIR}/scripts/` and `<forge>` is
-`${CLAUDE_SKILL_DIR}/parts/forge/scripts/ci-forge.sh`: the triage script is
-vendored inside this compiled skill's own directory, the forge adapter
-beside it. Nothing is derived from a plugin install. `<root>` is the
-worktree root, the absolute path `git rev-parse --show-toplevel` prints.
-Every GitLab MR tool call and `ci_watch` target the MR with `repoName` =
-`<root>` and `iid` = the MR's iid; the lease tools take `mrUrl` = the MR's
-or PR's https URL.
+`<root>` is the worktree root, the absolute path `git rev-parse
+--show-toplevel` prints, and `<mr>` is the MR's or PR's https URL. Every CI
+tool (`ci_watch`, `ci_triage`, `mr_job_trace`, `mr_retry`, the `ci_lease_*`
+tools) takes `mrUrl: <mr>`; `mr_view` and `mr_ready` target the MR with
+`repoName` = `<root>` and `iid`. `<N>` is the number in `ci_watch`'s
+`pipeline.id` (`gitlab:pipeline:N`). `config` on `ci_triage` comes only
+from a domain rule (see Domain rules).
 
 ```dot
 digraph watch_ci {
@@ -147,70 +120,74 @@ digraph watch_ci {
     "Own run (watch-ci identity)?" [shape=diamond];
     "run_field_set {key: branch, then mr when found, stage: watch-ci}" [shape=plaintext];
     "MR found (watch-ci lease)?" [shape=diamond];
-    "ci_lease_claim {mrUrl, branch}" [shape=plaintext];
-    "ci_lease_claim result (watch-ci)?" [shape=diamond];
-    "STOP: claim the lease only with ci_lease_claim (watch-ci)" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Fixed the claim call once already (watch-ci)?" [shape=diamond];
-    "Fix what the claim error names" [shape=box];
-    "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Stand down: report it and stop" [shape=doublecircle];
-    "watch-ci off-script gate: ci_lease_claim refused" [shape=box];
-    "watch-ci off-script answer (ci_lease_claim)?" [shape=diamond];
-    "Off-script rounds = 2 (ci_lease_claim)?" [shape=diamond];
-    "watch-ci off-script gate: re-claim refused before the fix" [shape=box];
-    "watch-ci off-script answer (re-claim before the fix)?" [shape=diamond];
-    "Off-script rounds = 2 (re-claim before the fix)?" [shape=diamond];
-    "watch-ci off-script gate: re-claim refused before git_push" [shape=box];
-    "watch-ci off-script answer (re-claim before git_push)?" [shape=diamond];
-    "Off-script rounds = 2 (re-claim before git_push)?" [shape=diamond];
-    "watch-ci off-script gate: re-claim refused before the retry" [shape=box];
-    "watch-ci off-script answer (re-claim before the retry)?" [shape=diamond];
-    "Off-script rounds = 2 (re-claim before the retry)?" [shape=diamond];
-    "Fix committed (watch-ci)?" [shape=diamond];
-    "Fix heartbeats = 12 (watch-ci)?" [shape=diamond];
-    "ci_lease_heartbeat {mrUrl} (during the fix)" [shape=plaintext];
-    "Heartbeat result (during the fix)?" [shape=diamond];
     "Watched sha known (watch-ci)?" [shape=diamond];
     "git ls-remote origin refs/heads/<branch> (the watched sha)" [shape=plaintext];
-    "Which forge watches (watch-ci)?" [shape=diamond];
 
-    "ci_watch {repoName: <root>, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [shape=plaintext];
+    "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [shape=plaintext];
     "ci_watch state (watch-ci)?" [shape=diamond];
     "End the turn: ci_watch runs in the background (task <id>, watch-ci)" [shape=box];
     "Trigger: the ci_watch task notification re-invoked this verb (watch-ci)" [shape=ellipse];
     "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "budget.spent (watch-ci)?" [shape=diamond];
-    "Waiting results in a row = 2 (watch-ci)?" [shape=diamond];
-    "Re-claims after a lost lease = 2 (watch-ci)?" [shape=diamond];
-    "Verify the branch was pushed" [shape=box];
-    "Fixed the ci_watch call once already (watch-ci)?" [shape=diamond];
+    "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Stand down: report it and stop" [shape=doublecircle];
+    "watch-ci off-script gate: ci_watch could not hold the lease" [shape=box];
+    "watch-ci off-script answer (lease_unavailable)?" [shape=diamond];
+    "run_budget {key: watch-ci:lease-rounds:<sha12>, limit: 2, stage}" [shape=plaintext];
+    "lease-rounds past its limit (watch-ci)?" [shape=diamond];
+    "run_budget {key: watch-ci:ci-watch-errors:<sha12>, limit: 1, stage}" [shape=plaintext];
+    "ci-watch-errors past its limit (watch-ci)?" [shape=diamond];
     "Fix what the ci_watch error names" [shape=box];
     "watch-ci off-script gate: ci_watch refused" [shape=box];
     "watch-ci off-script answer (ci_watch)?" [shape=diamond];
     "Verdict the human reported (watch-ci)?" [shape=diamond];
-    "Off-script rounds = 2 (ci_watch)?" [shape=diamond];
+    "run_budget {key: watch-ci:ci-watch-off-script, limit: 2, stage}" [shape=plaintext];
+    "ci-watch-off-script past its limit (watch-ci)?" [shape=diamond];
 
+    "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)" [shape=plaintext];
+    "ci_lease_claim result (GitHub)?" [shape=diamond];
+    "STOP: claim the lease only with ci_lease_claim (watch-ci)" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "run_budget {key: watch-ci:github-claim-errors, limit: 1, stage}" [shape=plaintext];
+    "github-claim-errors past its limit (watch-ci)?" [shape=diamond];
+    "Fix what the claim error names (GitHub)" [shape=box];
+    "watch-ci off-script gate: ci_lease_claim refused (GitHub)" [shape=box];
+    "watch-ci off-script answer (ci_lease_claim, GitHub)?" [shape=diamond];
+    "run_budget {key: watch-ci:github-claim-off-script, limit: 2, stage}" [shape=plaintext];
+    "github-claim-off-script past its limit (watch-ci)?" [shape=diamond];
     "gh pr checks <mr> (poll)" [shape=plaintext];
     "gh pr checks exit (GitHub poll)?" [shape=diamond];
-    "Polled 45 minutes (GitHub poll)?" [shape=diamond];
+    "run_budget {key: watch-ci:github-polls:<sha12>, limit: 45, stage}" [shape=plaintext];
+    "github-polls past its limit (watch-ci)?" [shape=diamond];
     "ci_lease_heartbeat {mrUrl} (GitHub poll)" [shape=plaintext];
     "Heartbeat result (GitHub poll)?" [shape=diamond];
     "sleep 60 as a background Bash task (GitHub poll)" [shape=plaintext];
     "gh pr view <mr> --json headRefOid (sha guard, GitHub poll)" [shape=plaintext];
     "Checks are for the watched sha (GitHub poll)?" [shape=diamond];
-    "Sha waits = 5 (GitHub poll)?" [shape=diamond];
+    "run_budget {key: watch-ci:github-sha-waits:<sha12>, limit: 5, stage}" [shape=plaintext];
+    "github-sha-waits past its limit (watch-ci)?" [shape=diamond];
     "sleep 60 as a background Bash task (sha wait, GitHub poll)" [shape=plaintext];
     "Checks passed or failed (GitHub poll)?" [shape=diamond];
-
-    "Triage with what (watch-ci)?" [shape=diamond];
-    "Triage with the domain's rules" [shape=box];
-    "<scripts>/ci-triage.sh --forge <forge> --pipeline <N>" [shape=plaintext];
-    "Read the triage report" [shape=box];
-    "Trace tails enough to classify (GitLab)?" [shape=diamond];
-    "mr_job_trace {repoName, iid, jobId, tailLines?, headLines?, grep?} per failed job" [shape=plaintext];
-    "Classify each failure REAL or INFRA (GitLab)" [shape=box];
     "Classify each failing check REAL or INFRA (GitHub)" [shape=box];
-    "Only INFRA blocking failures, none retried yet (watch-ci)?" [shape=diamond];
+
+    "ci_triage {mrUrl: <mr>, pipelineId: <N>, config?}" [shape=plaintext];
+    "ci_triage result (watch-ci)?" [shape=diamond];
+    "UNCLEAR jobs in the report (watch-ci)?" [shape=diamond];
+    "mr_job_trace {mrUrl: <mr>, jobId, tailLines?, headLines?, grep?} per UNCLEAR job" [shape=plaintext];
+    "Classify the triage report (watch-ci)" [shape=box];
+    "Classify each failure REAL or INFRA from failedJobs (watch-ci)" [shape=box];
+    "Only INFRA blocking failures, none INHERITED (watch-ci)?" [shape=diamond];
+    "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage}" [shape=plaintext];
+    "infra-retries past its limit (watch-ci)?" [shape=diamond];
+
+    "Retry on which forge (watch-ci)?" [shape=diamond];
+    "mr_retry {mrUrl: <mr>, jobId, leaseMrUrl: <mr>} per INFRA job" [shape=plaintext];
+    "mr_retry result (watch-ci)?" [shape=diamond];
+    "watch-ci off-script gate: mr_retry refused" [shape=box];
+    "watch-ci off-script answer (mr_retry)?" [shape=diamond];
+    "run_budget {key: watch-ci:retry-off-script, limit: 2, stage}" [shape=plaintext];
+    "retry-off-script past its limit (watch-ci)?" [shape=diamond];
+    "ci_lease_claim {mrUrl: <mr>, branch} (before the GitHub retry)" [shape=plaintext];
+    "Re-claim result (before the GitHub retry)?" [shape=diamond];
+    "gh run rerun <run-id> --failed" [shape=plaintext];
 
     "Own run (watch-ci green)?" [shape=diamond];
     "MR found (watch-ci green)?" [shape=diamond];
@@ -220,52 +197,43 @@ digraph watch_ci {
     "MR still a draft (watch-ci)?" [shape=diamond];
     "watch-ci gate mark-ready" [shape=box];
     "mark-ready answer (watch-ci)?" [shape=diamond];
-    "mark-ready iterations = 2 (watch-ci)?" [shape=diamond];
+    "run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}" [shape=plaintext];
+    "mark-ready-iterations past its limit (watch-ci)?" [shape=diamond];
     "Forge host (watch-ci mark-ready)?" [shape=diamond];
     "mr_ready {repoName, iid}" [shape=plaintext];
     "gh pr ready <number>" [shape=plaintext];
 
     "watch-ci gate ci" [shape=box];
     "ci answer (watch-ci)?" [shape=diamond];
-    "ci gate iterations = 3 (watch-ci)?" [shape=diamond];
-    "Fix rounds = 3 (watch-ci)?" [shape=diamond];
-    "MR found (before the fix)?" [shape=diamond];
-    "ci_lease_claim {mrUrl, branch} (before the fix)" [shape=plaintext];
-    "Re-claim result (before the fix)?" [shape=diamond];
+    "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [shape=plaintext];
+    "ci-gate-iterations past its limit (watch-ci)?" [shape=diamond];
+    "run_budget {key: watch-ci:fix-rounds, limit: 3}" [shape=plaintext];
+    "fix-rounds past its limit (watch-ci)?" [shape=diamond];
     "Fix the REAL failure, commit" [shape=box];
-    "Which MR (before git_push)?" [shape=diamond];
-    "mr_pipeline {repoName, iid} (the prior pipeline id)" [shape=plaintext];
-    "ci_lease_claim {mrUrl, branch} (before git_push)" [shape=plaintext];
-    "Re-claim result (before git_push)?" [shape=diamond];
+    "MR found (before git_push)?" [shape=diamond];
+    "git_push {tree: <root>, leaseMrUrl: <mr>}" [shape=plaintext];
     "git_push {tree: <root>}" [shape=plaintext];
     "git_push result (watch-ci)?" [shape=diamond];
     "STOP: push only with git_push (watch-ci)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "watch-ci off-script gate: git_push refused" [shape=box];
     "watch-ci off-script answer (git_push)?" [shape=diamond];
-    "Off-script rounds = 2 (git_push)?" [shape=diamond];
+    "run_budget {key: watch-ci:push-off-script, limit: 2, stage}" [shape=plaintext];
+    "push-off-script past its limit (watch-ci)?" [shape=diamond];
     "Confirm the human's push landed (watch-ci)" [shape=box];
     "Push landed (watch-ci)?" [shape=diamond];
-    "git rev-parse HEAD (the pushed sha, watch-ci)" [shape=plaintext];
     "Own run (watch-ci new attempt)?" [shape=diamond];
     "run_stage {action: start, stage: watch-ci} (a new attempt)" [shape=plaintext];
-
-    "Retried the failed job once already (ci gate)?" [shape=diamond];
     "MR found (before the retry)?" [shape=diamond];
-    "ci_lease_claim {mrUrl, branch} (before the retry)" [shape=plaintext];
-    "Re-claim result (before the retry)?" [shape=diamond];
-    "Retry on which forge (watch-ci)?" [shape=diamond];
-    "mr_retry {repoName, iid, jobId} per INFRA job" [shape=plaintext];
-    "gh run rerun <run-id> --failed" [shape=plaintext];
+    "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage} (ci gate retry)" [shape=plaintext];
+    "infra-retries past its limit (ci gate retry, watch-ci)?" [shape=diamond];
 
-    "Was a lease claimed (watch-ci exit)?" [shape=diamond];
-    "ci_lease_release {mrUrl}" [shape=plaintext];
+    "MR known (watch-ci exit)?" [shape=diamond];
+    "ci_lease_release {mrUrl: <mr>}" [shape=plaintext];
     "Which exit is this (watch-ci)?" [shape=diamond];
-    "run_stage {action: done, stage: watch-ci}" [shape=plaintext];
-    "run_status {status: done}" [shape=plaintext];
-    "run_stage {action: done, stage: watch-ci} (abandon)" [shape=plaintext];
-    "run_status {status: abandoned}" [shape=plaintext];
-    "run_stage {action: fail, stage: watch-ci, reason}" [shape=plaintext];
-    "run_status {status: failed}" [shape=plaintext];
+    "run_close {workType: watch-ci, stage: watch-ci, outcome: done}" [shape=plaintext];
+    "run_close {workType: watch-ci, stage: watch-ci, outcome: abandoned}" [shape=plaintext];
+    "run_close {workType: watch-ci, stage: watch-ci, outcome: failed, reason}" [shape=plaintext];
+    "run_hold {stage, reason, decidedBy}" [shape=plaintext];
     "Hand the verdict back to the caller (watch-ci)" [shape=doublecircle];
     "Hand the off-script answer back to the caller (watch-ci)" [shape=doublecircle];
     "Hand the failure back to the caller (watch-ci)" [shape=doublecircle];
@@ -281,7 +249,7 @@ digraph watch_ci {
     "Forge host (watch-ci target)?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="GitLab, MR not named"];
     "Forge host (watch-ci target)?" -> "gh pr list --head <branch> --json number,url" [label="GitHub, PR not named"];
     "Forge host (watch-ci target)?" -> "Own run (watch-ci identity)?" [label="GitLab or GitHub, the user named the MR"];
-    "Forge host (watch-ci target)?" -> "Own run (watch-ci identity)?" [label="inherited: the forge and MR the caller handed"];
+    "Forge host (watch-ci target)?" -> "Own run (watch-ci identity)?" [label="inherited: the MR the caller handed"];
     "Forge host (watch-ci target)?" -> "watch-ci gate clarify: which forge?" [label="anything else, nothing handed"];
     "watch-ci gate clarify: which forge?" -> "Forge host (watch-ci target)?" [label="answered: the named forge"];
     "mr_for_branch {repoName: <root>, branches: [<branch>]}" -> "Own run (watch-ci identity)?" [label="a result, a null entry included"];
@@ -290,280 +258,206 @@ digraph watch_ci {
     "Own run (watch-ci identity)?" -> "run_field_set {key: branch, then mr when found, stage: watch-ci}" [label="yes"];
     "Own run (watch-ci identity)?" -> "MR found (watch-ci lease)?" [label="no: inherited"];
     "run_field_set {key: branch, then mr when found, stage: watch-ci}" -> "MR found (watch-ci lease)?";
-    "MR found (watch-ci lease)?" -> "ci_lease_claim {mrUrl, branch}" [label="yes"];
+    "MR found (watch-ci lease)?" -> "Watched sha known (watch-ci)?" [label="yes"];
     "MR found (watch-ci lease)?" -> "watch-ci gate ci" [label="no: no MR to watch, ship first"];
-    "ci_lease_claim {mrUrl, branch}" -> "ci_lease_claim result (watch-ci)?";
-    "ci_lease_claim result (watch-ci)?" -> "Watched sha known (watch-ci)?" [label="claimed: true, the MR is yours"];
-    "ci_lease_claim result (watch-ci)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="claimed: false, holder named"];
-    "ci_lease_claim result (watch-ci)?" -> "Fixed the claim call once already (watch-ci)?" [label="tool error"];
-    "ci_lease_claim result (watch-ci)?" -> "STOP: claim the lease only with ci_lease_claim (watch-ci)" [label="tempted to write the lease by hand or with a script"];
-    "STOP: claim the lease only with ci_lease_claim (watch-ci)" -> "ci_lease_claim {mrUrl, branch}";
-    "Fixed the claim call once already (watch-ci)?" -> "Fix what the claim error names" [label="no"];
-    "Fixed the claim call once already (watch-ci)?" -> "watch-ci off-script gate: ci_lease_claim refused" [label="yes"];
-    "Fix what the claim error names" -> "ci_lease_claim {mrUrl, branch}";
-    "STOP: while another attendant holds the lease, every commit, push and retry is theirs" -> "Stand down: report it and stop";
-    "Watched sha known (watch-ci)?" -> "Which forge watches (watch-ci)?" [label="yes: handed by ship, or read at this run's push"];
+    "Watched sha known (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="yes: handed by the caller, or this run's push"];
     "Watched sha known (watch-ci)?" -> "git ls-remote origin refs/heads/<branch> (the watched sha)" [label="no: nothing pushed in this run"];
-    "git ls-remote origin refs/heads/<branch> (the watched sha)" -> "Which forge watches (watch-ci)?";
-    "Which forge watches (watch-ci)?" -> "ci_watch {repoName: <root>, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="GitLab"];
-    "Which forge watches (watch-ci)?" -> "gh pr checks <mr> (poll)" [label="GitHub"];
+    "git ls-remote origin refs/heads/<branch> (the watched sha)" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}";
 
-    "ci_watch {repoName: <root>, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" -> "ci_watch state (watch-ci)?";
-    "ci_watch state (watch-ci)?" -> "budget.spent (watch-ci)?" [label="running"];
+    "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" -> "ci_watch state (watch-ci)?";
+    "ci_watch state (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="running or waiting: call again"];
     "ci_watch state (watch-ci)?" -> "End the turn: ci_watch runs in the background (task <id>, watch-ci)" [label="backgrounded: moved to the background as task <id>"];
     "End the turn: ci_watch runs in the background (task <id>, watch-ci)" -> "Trigger: the ci_watch task notification re-invoked this verb (watch-ci)" [style=dashed];
     "Trigger: the ci_watch task notification re-invoked this verb (watch-ci)" -> "ci_watch state (watch-ci)?";
-    "ci_watch state (watch-ci)?" -> "Waiting results in a row = 2 (watch-ci)?" [label="waiting"];
     "ci_watch state (watch-ci)?" -> "Own run (watch-ci green)?" [label="success or success_with_warnings"];
-    "ci_watch state (watch-ci)?" -> "Triage with what (watch-ci)?" [label="failed"];
-    "ci_watch state (watch-ci)?" -> "watch-ci gate ci" [label="canceled, skipped, manual, superseded or aborted"];
-    "ci_watch state (watch-ci)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="lease_lost, holder named"];
-    "ci_watch state (watch-ci)?" -> "Re-claims after a lost lease = 2 (watch-ci)?" [label="lease_lost, no holder: no lease held"];
-    "Re-claims after a lost lease = 2 (watch-ci)?" -> "ci_lease_claim {mrUrl, branch}" [label="no: claim it again"];
-    "Re-claims after a lost lease = 2 (watch-ci)?" -> "watch-ci gate ci" [label="yes: the lease keeps vanishing"];
-    "ci_watch state (watch-ci)?" -> "Fixed the ci_watch call once already (watch-ci)?" [label="tool error"];
+    "ci_watch state (watch-ci)?" -> "ci_triage {mrUrl: <mr>, pipelineId: <N>, config?}" [label="failed"];
+    "ci_watch state (watch-ci)?" -> "watch-ci gate ci" [label="timeout, no_pipeline, canceled, skipped, manual, superseded or aborted"];
+    "ci_watch state (watch-ci)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="stood_down, holder named"];
+    "ci_watch state (watch-ci)?" -> "watch-ci off-script gate: ci_watch could not hold the lease" [label="lease_unavailable"];
+    "ci_watch state (watch-ci)?" -> "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)" [label="unsupported_forge: a GitHub PR"];
+    "ci_watch state (watch-ci)?" -> "run_budget {key: watch-ci:ci-watch-errors:<sha12>, limit: 1, stage}" [label="tool error"];
     "ci_watch state (watch-ci)?" -> "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" [label="tempted to watch with a script or the GitLab CLI"];
-    "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" -> "ci_watch {repoName: <root>, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}";
-    "budget.spent (watch-ci)?" -> "ci_watch {repoName: <root>, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="false: call again"];
-    "budget.spent (watch-ci)?" -> "watch-ci gate ci" [label="true: timeout"];
-    "Waiting results in a row = 2 (watch-ci)?" -> "ci_watch {repoName: <root>, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="no: call again"];
-    "Waiting results in a row = 2 (watch-ci)?" -> "Verify the branch was pushed" [label="yes: no pipeline for the sha"];
-    "Verify the branch was pushed" -> "watch-ci gate ci";
-    "Fixed the ci_watch call once already (watch-ci)?" -> "Fix what the ci_watch error names" [label="no"];
-    "Fixed the ci_watch call once already (watch-ci)?" -> "watch-ci off-script gate: ci_watch refused" [label="yes"];
-    "Fix what the ci_watch error names" -> "ci_watch {repoName: <root>, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}";
+    "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}";
+    "STOP: while another attendant holds the lease, every commit, push and retry is theirs" -> "Stand down: report it and stop";
+
+    "watch-ci off-script gate: ci_watch could not hold the lease" -> "watch-ci off-script answer (lease_unavailable)?";
+    "watch-ci off-script answer (lease_unavailable)?" -> "MR known (watch-ci exit)?" [label="take: the human attends the MR / hold / hand back"];
+    "watch-ci off-script answer (lease_unavailable)?" -> "run_budget {key: watch-ci:lease-rounds:<sha12>, limit: 2, stage}" [label="iterate: the human fixed it"];
+    "run_budget {key: watch-ci:lease-rounds:<sha12>, limit: 2, stage}" -> "lease-rounds past its limit (watch-ci)?";
+    "lease-rounds past its limit (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="no: watch again"];
+    "lease-rounds past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
+
+    "run_budget {key: watch-ci:ci-watch-errors:<sha12>, limit: 1, stage}" -> "ci-watch-errors past its limit (watch-ci)?";
+    "ci-watch-errors past its limit (watch-ci)?" -> "Fix what the ci_watch error names" [label="no"];
+    "ci-watch-errors past its limit (watch-ci)?" -> "watch-ci off-script gate: ci_watch refused" [label="yes"];
+    "Fix what the ci_watch error names" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}";
     "watch-ci off-script gate: ci_watch refused" -> "watch-ci off-script answer (ci_watch)?";
     "watch-ci off-script answer (ci_watch)?" -> "Verdict the human reported (watch-ci)?" [label="take: the human read the pipeline"];
-    "watch-ci off-script answer (ci_watch)?" -> "Off-script rounds = 2 (ci_watch)?" [label="iterate: the human fixed it"];
-    "watch-ci off-script answer (ci_watch)?" -> "Was a lease claimed (watch-ci exit)?" [label="hold"];
-    "watch-ci off-script answer (ci_watch)?" -> "Was a lease claimed (watch-ci exit)?" [label="hand back"];
+    "watch-ci off-script answer (ci_watch)?" -> "run_budget {key: watch-ci:ci-watch-off-script, limit: 2, stage}" [label="iterate: the human fixed it"];
+    "watch-ci off-script answer (ci_watch)?" -> "MR known (watch-ci exit)?" [label="hold / hand back"];
     "Verdict the human reported (watch-ci)?" -> "Own run (watch-ci green)?" [label="green for the watched sha"];
     "Verdict the human reported (watch-ci)?" -> "watch-ci gate ci" [label="red, or not for the watched sha"];
-    "Off-script rounds = 2 (ci_watch)?" -> "ci_watch {repoName: <root>, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="no: watch again"];
-    "Off-script rounds = 2 (ci_watch)?" -> "Was a lease claimed (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
+    "run_budget {key: watch-ci:ci-watch-off-script, limit: 2, stage}" -> "ci-watch-off-script past its limit (watch-ci)?";
+    "ci-watch-off-script past its limit (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="no: watch again"];
+    "ci-watch-off-script past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
+
+    "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)" -> "ci_lease_claim result (GitHub)?";
+    "ci_lease_claim result (GitHub)?" -> "gh pr checks <mr> (poll)" [label="claimed: true, the PR is yours"];
+    "ci_lease_claim result (GitHub)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="claimed: false, holder named"];
+    "ci_lease_claim result (GitHub)?" -> "run_budget {key: watch-ci:github-claim-errors, limit: 1, stage}" [label="tool error"];
+    "ci_lease_claim result (GitHub)?" -> "STOP: claim the lease only with ci_lease_claim (watch-ci)" [label="tempted to write the lease by hand or with a script"];
+    "STOP: claim the lease only with ci_lease_claim (watch-ci)" -> "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)";
+    "run_budget {key: watch-ci:github-claim-errors, limit: 1, stage}" -> "github-claim-errors past its limit (watch-ci)?";
+    "github-claim-errors past its limit (watch-ci)?" -> "Fix what the claim error names (GitHub)" [label="no"];
+    "github-claim-errors past its limit (watch-ci)?" -> "watch-ci off-script gate: ci_lease_claim refused (GitHub)" [label="yes"];
+    "Fix what the claim error names (GitHub)" -> "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)";
+    "watch-ci off-script gate: ci_lease_claim refused (GitHub)" -> "watch-ci off-script answer (ci_lease_claim, GitHub)?";
+    "watch-ci off-script answer (ci_lease_claim, GitHub)?" -> "MR known (watch-ci exit)?" [label="take: the human attends the PR / hold / hand back"];
+    "watch-ci off-script answer (ci_lease_claim, GitHub)?" -> "run_budget {key: watch-ci:github-claim-off-script, limit: 2, stage}" [label="iterate: the human fixed it"];
+    "run_budget {key: watch-ci:github-claim-off-script, limit: 2, stage}" -> "github-claim-off-script past its limit (watch-ci)?";
+    "github-claim-off-script past its limit (watch-ci)?" -> "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)" [label="no: claim again"];
+    "github-claim-off-script past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
 
     "gh pr checks <mr> (poll)" -> "gh pr checks exit (GitHub poll)?";
     "gh pr checks exit (GitHub poll)?" -> "gh pr view <mr> --json headRefOid (sha guard, GitHub poll)" [label="0, or any other exit with checks reported: passed or failed"];
-    "gh pr checks exit (GitHub poll)?" -> "Polled 45 minutes (GitHub poll)?" [label="8, or no checks reported: pending"];
-    "Polled 45 minutes (GitHub poll)?" -> "ci_lease_heartbeat {mrUrl} (GitHub poll)" [label="no"];
-    "Polled 45 minutes (GitHub poll)?" -> "watch-ci gate ci" [label="yes: timeout"];
+    "gh pr checks exit (GitHub poll)?" -> "run_budget {key: watch-ci:github-polls:<sha12>, limit: 45, stage}" [label="8, or no checks reported: pending"];
+    "run_budget {key: watch-ci:github-polls:<sha12>, limit: 45, stage}" -> "github-polls past its limit (watch-ci)?";
+    "github-polls past its limit (watch-ci)?" -> "ci_lease_heartbeat {mrUrl} (GitHub poll)" [label="no"];
+    "github-polls past its limit (watch-ci)?" -> "watch-ci gate ci" [label="yes: timeout"];
     "ci_lease_heartbeat {mrUrl} (GitHub poll)" -> "Heartbeat result (GitHub poll)?";
     "Heartbeat result (GitHub poll)?" -> "sleep 60 as a background Bash task (GitHub poll)" [label="ok: true"];
     "Heartbeat result (GitHub poll)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="lost"];
-    "Heartbeat result (GitHub poll)?" -> "ci_lease_claim {mrUrl, branch}" [label="none: claim it again"];
+    "Heartbeat result (GitHub poll)?" -> "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)" [label="none: claim it again"];
     "Heartbeat result (GitHub poll)?" -> "watch-ci gate ci" [label="tool error"];
     "sleep 60 as a background Bash task (GitHub poll)" -> "gh pr checks <mr> (poll)";
     "gh pr view <mr> --json headRefOid (sha guard, GitHub poll)" -> "Checks are for the watched sha (GitHub poll)?";
     "Checks are for the watched sha (GitHub poll)?" -> "Checks passed or failed (GitHub poll)?" [label="yes"];
-    "Checks are for the watched sha (GitHub poll)?" -> "Sha waits = 5 (GitHub poll)?" [label="no"];
-    "Sha waits = 5 (GitHub poll)?" -> "sleep 60 as a background Bash task (sha wait, GitHub poll)" [label="no"];
-    "Sha waits = 5 (GitHub poll)?" -> "watch-ci gate ci" [label="yes: no checks for the watched sha"];
+    "Checks are for the watched sha (GitHub poll)?" -> "run_budget {key: watch-ci:github-sha-waits:<sha12>, limit: 5, stage}" [label="no"];
+    "run_budget {key: watch-ci:github-sha-waits:<sha12>, limit: 5, stage}" -> "github-sha-waits past its limit (watch-ci)?";
+    "github-sha-waits past its limit (watch-ci)?" -> "sleep 60 as a background Bash task (sha wait, GitHub poll)" [label="no"];
+    "github-sha-waits past its limit (watch-ci)?" -> "watch-ci gate ci" [label="yes: no checks for the watched sha"];
     "sleep 60 as a background Bash task (sha wait, GitHub poll)" -> "gh pr checks <mr> (poll)";
     "Checks passed or failed (GitHub poll)?" -> "Own run (watch-ci green)?" [label="passed"];
-    "Checks passed or failed (GitHub poll)?" -> "Triage with what (watch-ci)?" [label="failed"];
+    "Checks passed or failed (GitHub poll)?" -> "Classify each failing check REAL or INFRA (GitHub)" [label="failed"];
+    "Classify each failing check REAL or INFRA (GitHub)" -> "Only INFRA blocking failures, none INHERITED (watch-ci)?";
 
-    "Triage with what (watch-ci)?" -> "Triage with the domain's rules" [label="domain rules inlined"];
-    "Triage with what (watch-ci)?" -> "<scripts>/ci-triage.sh --forge <forge> --pipeline <N>" [label="forge bound, no domain"];
-    "Triage with what (watch-ci)?" -> "Trace tails enough to classify (GitLab)?" [label="neither, GitLab"];
-    "Triage with what (watch-ci)?" -> "Classify each failing check REAL or INFRA (GitHub)" [label="neither, GitHub"];
-    "Triage with the domain's rules" -> "Only INFRA blocking failures, none retried yet (watch-ci)?";
-    "<scripts>/ci-triage.sh --forge <forge> --pipeline <N>" -> "Read the triage report";
-    "Read the triage report" -> "Only INFRA blocking failures, none retried yet (watch-ci)?";
-    "Trace tails enough to classify (GitLab)?" -> "Classify each failure REAL or INFRA (GitLab)" [label="yes"];
-    "Trace tails enough to classify (GitLab)?" -> "mr_job_trace {repoName, iid, jobId, tailLines?, headLines?, grep?} per failed job" [label="no: missing, short or teardown-only tail"];
-    "mr_job_trace {repoName, iid, jobId, tailLines?, headLines?, grep?} per failed job" -> "Classify each failure REAL or INFRA (GitLab)";
-    "Classify each failure REAL or INFRA (GitLab)" -> "Only INFRA blocking failures, none retried yet (watch-ci)?";
-    "Classify each failing check REAL or INFRA (GitHub)" -> "Only INFRA blocking failures, none retried yet (watch-ci)?";
-    "Only INFRA blocking failures, none retried yet (watch-ci)?" -> "MR found (before the retry)?" [label="yes"];
-    "Only INFRA blocking failures, none retried yet (watch-ci)?" -> "watch-ci gate ci" [label="no: a REAL or still-unclear failure, or retried already"];
+    "ci_triage {mrUrl: <mr>, pipelineId: <N>, config?}" -> "ci_triage result (watch-ci)?";
+    "ci_triage result (watch-ci)?" -> "UNCLEAR jobs in the report (watch-ci)?" [label="triaged"];
+    "ci_triage result (watch-ci)?" -> "Classify each failure REAL or INFRA from failedJobs (watch-ci)" [label="tool error: quote it"];
+    "UNCLEAR jobs in the report (watch-ci)?" -> "mr_job_trace {mrUrl: <mr>, jobId, tailLines?, headLines?, grep?} per UNCLEAR job" [label="yes"];
+    "UNCLEAR jobs in the report (watch-ci)?" -> "Classify the triage report (watch-ci)" [label="no"];
+    "mr_job_trace {mrUrl: <mr>, jobId, tailLines?, headLines?, grep?} per UNCLEAR job" -> "Classify the triage report (watch-ci)";
+    "Classify the triage report (watch-ci)" -> "Only INFRA blocking failures, none INHERITED (watch-ci)?";
+    "Classify each failure REAL or INFRA from failedJobs (watch-ci)" -> "Only INFRA blocking failures, none INHERITED (watch-ci)?";
+    "Only INFRA blocking failures, none INHERITED (watch-ci)?" -> "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage}" [label="yes"];
+    "Only INFRA blocking failures, none INHERITED (watch-ci)?" -> "watch-ci gate ci" [label="no: a REAL, UNCLEAR or INHERITED failure"];
+    "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage}" -> "infra-retries past its limit (watch-ci)?";
+    "infra-retries past its limit (watch-ci)?" -> "Retry on which forge (watch-ci)?" [label="no: retry once"];
+    "infra-retries past its limit (watch-ci)?" -> "watch-ci gate ci" [label="yes: retried already"];
+
+    "Retry on which forge (watch-ci)?" -> "mr_retry {mrUrl: <mr>, jobId, leaseMrUrl: <mr>} per INFRA job" [label="GitLab"];
+    "Retry on which forge (watch-ci)?" -> "ci_lease_claim {mrUrl: <mr>, branch} (before the GitHub retry)" [label="GitHub"];
+    "mr_retry {mrUrl: <mr>, jobId, leaseMrUrl: <mr>} per INFRA job" -> "mr_retry result (watch-ci)?";
+    "mr_retry result (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="retried: watch again"];
+    "mr_retry result (watch-ci)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="refused: lease_held, holder named"];
+    "mr_retry result (watch-ci)?" -> "watch-ci off-script gate: mr_retry refused" [label="tool error"];
+    "watch-ci off-script gate: mr_retry refused" -> "watch-ci off-script answer (mr_retry)?";
+    "watch-ci off-script answer (mr_retry)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="take: the human retried the job"];
+    "watch-ci off-script answer (mr_retry)?" -> "run_budget {key: watch-ci:retry-off-script, limit: 2, stage}" [label="iterate: the human fixed it"];
+    "watch-ci off-script answer (mr_retry)?" -> "MR known (watch-ci exit)?" [label="hold / hand back"];
+    "run_budget {key: watch-ci:retry-off-script, limit: 2, stage}" -> "retry-off-script past its limit (watch-ci)?";
+    "retry-off-script past its limit (watch-ci)?" -> "mr_retry {mrUrl: <mr>, jobId, leaseMrUrl: <mr>} per INFRA job" [label="no: retry again"];
+    "retry-off-script past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
+    "ci_lease_claim {mrUrl: <mr>, branch} (before the GitHub retry)" -> "Re-claim result (before the GitHub retry)?";
+    "Re-claim result (before the GitHub retry)?" -> "gh run rerun <run-id> --failed" [label="claimed: true"];
+    "Re-claim result (before the GitHub retry)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="claimed: false, holder named"];
+    "Re-claim result (before the GitHub retry)?" -> "watch-ci gate ci" [label="tool error: the gate quotes it"];
+    "gh run rerun <run-id> --failed" -> "gh pr checks <mr> (poll)";
 
     "Own run (watch-ci green)?" -> "MR found (watch-ci green)?" [label="yes"];
-    "Own run (watch-ci green)?" -> "Was a lease claimed (watch-ci exit)?" [label="no: the verdict goes back to the caller"];
+    "Own run (watch-ci green)?" -> "MR known (watch-ci exit)?" [label="no: the verdict goes back to the caller"];
     "MR found (watch-ci green)?" -> "Forge host (watch-ci draft check)?" [label="yes"];
-    "MR found (watch-ci green)?" -> "Was a lease claimed (watch-ci exit)?" [label="no: nothing to mark ready"];
+    "MR found (watch-ci green)?" -> "MR known (watch-ci exit)?" [label="no: nothing to mark ready"];
     "Forge host (watch-ci draft check)?" -> "mr_view {repoName, iid} (draft check)" [label="GitLab"];
     "Forge host (watch-ci draft check)?" -> "gh pr view <mr> --json isDraft (draft check)" [label="GitHub"];
     "mr_view {repoName, iid} (draft check)" -> "MR still a draft (watch-ci)?";
     "gh pr view <mr> --json isDraft (draft check)" -> "MR still a draft (watch-ci)?";
     "MR still a draft (watch-ci)?" -> "watch-ci gate mark-ready" [label="yes"];
-    "MR still a draft (watch-ci)?" -> "Was a lease claimed (watch-ci exit)?" [label="no"];
+    "MR still a draft (watch-ci)?" -> "MR known (watch-ci exit)?" [label="no"];
     "watch-ci gate mark-ready" -> "mark-ready answer (watch-ci)?";
     "mark-ready answer (watch-ci)?" -> "Forge host (watch-ci mark-ready)?" [label="mark ready now"];
-    "mark-ready answer (watch-ci)?" -> "Was a lease claimed (watch-ci exit)?" [label="keep it draft"];
-    "mark-ready answer (watch-ci)?" -> "Was a lease claimed (watch-ci exit)?" [label="go back"];
-    "mark-ready answer (watch-ci)?" -> "Was a lease claimed (watch-ci exit)?" [label="hold"];
-    "mark-ready answer (watch-ci)?" -> "mark-ready iterations = 2 (watch-ci)?" [label="iterate"];
-    "mark-ready iterations = 2 (watch-ci)?" -> "watch-ci gate mark-ready" [label="no: a new gate with their note"];
-    "mark-ready iterations = 2 (watch-ci)?" -> "Was a lease claimed (watch-ci exit)?" [label="yes: keep it draft"];
+    "mark-ready answer (watch-ci)?" -> "MR known (watch-ci exit)?" [label="keep it draft / go back / hold"];
+    "mark-ready answer (watch-ci)?" -> "run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}" [label="iterate"];
+    "run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}" -> "mark-ready-iterations past its limit (watch-ci)?";
+    "mark-ready-iterations past its limit (watch-ci)?" -> "watch-ci gate mark-ready" [label="no: a new gate with their note"];
+    "mark-ready-iterations past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: keep it draft"];
     "Forge host (watch-ci mark-ready)?" -> "mr_ready {repoName, iid}" [label="GitLab"];
     "Forge host (watch-ci mark-ready)?" -> "gh pr ready <number>" [label="GitHub"];
-    "mr_ready {repoName, iid}" -> "Was a lease claimed (watch-ci exit)?";
-    "gh pr ready <number>" -> "Was a lease claimed (watch-ci exit)?";
+    "mr_ready {repoName, iid}" -> "MR known (watch-ci exit)?";
+    "gh pr ready <number>" -> "MR known (watch-ci exit)?";
 
     "watch-ci gate ci" -> "ci answer (watch-ci)?";
-    "ci answer (watch-ci)?" -> "Fix rounds = 3 (watch-ci)?" [label="fix and re-push"];
-    "ci answer (watch-ci)?" -> "Retried the failed job once already (ci gate)?" [label="retry the job"];
-    "ci answer (watch-ci)?" -> "Was a lease claimed (watch-ci exit)?" [label="hand back"];
-    "ci answer (watch-ci)?" -> "Was a lease claimed (watch-ci exit)?" [label="abandon (own run only)"];
-    "ci answer (watch-ci)?" -> "Was a lease claimed (watch-ci exit)?" [label="hold"];
-    "ci answer (watch-ci)?" -> "ci gate iterations = 3 (watch-ci)?" [label="iterate"];
-    "ci gate iterations = 3 (watch-ci)?" -> "watch-ci gate ci" [label="no: re-triage with their note, a new gate"];
-    "ci gate iterations = 3 (watch-ci)?" -> "Was a lease claimed (watch-ci exit)?" [label="yes: hand back"];
-    "Fix rounds = 3 (watch-ci)?" -> "MR found (before the fix)?" [label="no"];
-    "Fix rounds = 3 (watch-ci)?" -> "ci gate iterations = 3 (watch-ci)?" [label="yes: reopen with Hand back recommended"];
-    "MR found (before the fix)?" -> "ci_lease_claim {mrUrl, branch} (before the fix)" [label="yes"];
-    "MR found (before the fix)?" -> "Fix the REAL failure, commit" [label="no: no lease"];
-    "ci_lease_claim {mrUrl, branch} (before the fix)" -> "Re-claim result (before the fix)?";
-    "Re-claim result (before the fix)?" -> "Fix the REAL failure, commit" [label="claimed: true"];
-    "Re-claim result (before the fix)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="claimed: false"];
-    "Re-claim result (before the fix)?" -> "watch-ci off-script gate: re-claim refused before the fix" [label="tool error"];
-    "Fix the REAL failure, commit" -> "Fix committed (watch-ci)?";
-    "Fix committed (watch-ci)?" -> "Which MR (before git_push)?" [label="yes"];
-    "Fix committed (watch-ci)?" -> "Fix heartbeats = 12 (watch-ci)?" [label="not yet: five minutes since the lease was refreshed"];
-    "Fix heartbeats = 12 (watch-ci)?" -> "ci_lease_heartbeat {mrUrl} (during the fix)" [label="no"];
-    "Fix heartbeats = 12 (watch-ci)?" -> "watch-ci gate ci" [label="yes: an hour on this fix"];
-    "ci_lease_heartbeat {mrUrl} (during the fix)" -> "Heartbeat result (during the fix)?";
-    "Heartbeat result (during the fix)?" -> "Fix the REAL failure, commit" [label="ok: true"];
-    "Heartbeat result (during the fix)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="lost"];
-    "Heartbeat result (during the fix)?" -> "ci_lease_claim {mrUrl, branch} (before the fix)" [label="none: claim it again"];
-    "Heartbeat result (during the fix)?" -> "watch-ci gate ci" [label="tool error"];
-    "watch-ci off-script gate: ci_lease_claim refused" -> "watch-ci off-script answer (ci_lease_claim)?";
-    "watch-ci off-script answer (ci_lease_claim)?" -> "Was a lease claimed (watch-ci exit)?" [label="take: the human attends the MR"];
-    "watch-ci off-script answer (ci_lease_claim)?" -> "Off-script rounds = 2 (ci_lease_claim)?" [label="iterate: the human fixed it"];
-    "watch-ci off-script answer (ci_lease_claim)?" -> "Was a lease claimed (watch-ci exit)?" [label="hold"];
-    "watch-ci off-script answer (ci_lease_claim)?" -> "Was a lease claimed (watch-ci exit)?" [label="hand back"];
-    "Off-script rounds = 2 (ci_lease_claim)?" -> "ci_lease_claim {mrUrl, branch}" [label="no: claim again"];
-    "Off-script rounds = 2 (ci_lease_claim)?" -> "Was a lease claimed (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
-    "watch-ci off-script gate: re-claim refused before the fix" -> "watch-ci off-script answer (re-claim before the fix)?";
-    "watch-ci off-script answer (re-claim before the fix)?" -> "Was a lease claimed (watch-ci exit)?" [label="take: the human attends the MR"];
-    "watch-ci off-script answer (re-claim before the fix)?" -> "Off-script rounds = 2 (re-claim before the fix)?" [label="iterate: the human fixed it"];
-    "watch-ci off-script answer (re-claim before the fix)?" -> "Was a lease claimed (watch-ci exit)?" [label="hold"];
-    "watch-ci off-script answer (re-claim before the fix)?" -> "Was a lease claimed (watch-ci exit)?" [label="hand back"];
-    "Off-script rounds = 2 (re-claim before the fix)?" -> "ci_lease_claim {mrUrl, branch} (before the fix)" [label="no: claim again"];
-    "Off-script rounds = 2 (re-claim before the fix)?" -> "Was a lease claimed (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
-    "watch-ci off-script gate: re-claim refused before git_push" -> "watch-ci off-script answer (re-claim before git_push)?";
-    "watch-ci off-script answer (re-claim before git_push)?" -> "Was a lease claimed (watch-ci exit)?" [label="take: the human attends the MR"];
-    "watch-ci off-script answer (re-claim before git_push)?" -> "Off-script rounds = 2 (re-claim before git_push)?" [label="iterate: the human fixed it"];
-    "watch-ci off-script answer (re-claim before git_push)?" -> "Was a lease claimed (watch-ci exit)?" [label="hold"];
-    "watch-ci off-script answer (re-claim before git_push)?" -> "Was a lease claimed (watch-ci exit)?" [label="hand back"];
-    "Off-script rounds = 2 (re-claim before git_push)?" -> "ci_lease_claim {mrUrl, branch} (before git_push)" [label="no: claim again"];
-    "Off-script rounds = 2 (re-claim before git_push)?" -> "Was a lease claimed (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
-    "watch-ci off-script gate: re-claim refused before the retry" -> "watch-ci off-script answer (re-claim before the retry)?";
-    "watch-ci off-script answer (re-claim before the retry)?" -> "Was a lease claimed (watch-ci exit)?" [label="take: the human attends the MR"];
-    "watch-ci off-script answer (re-claim before the retry)?" -> "Off-script rounds = 2 (re-claim before the retry)?" [label="iterate: the human fixed it"];
-    "watch-ci off-script answer (re-claim before the retry)?" -> "Was a lease claimed (watch-ci exit)?" [label="hold"];
-    "watch-ci off-script answer (re-claim before the retry)?" -> "Was a lease claimed (watch-ci exit)?" [label="hand back"];
-    "Off-script rounds = 2 (re-claim before the retry)?" -> "ci_lease_claim {mrUrl, branch} (before the retry)" [label="no: claim again"];
-    "Off-script rounds = 2 (re-claim before the retry)?" -> "Was a lease claimed (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
-    "Which MR (before git_push)?" -> "mr_pipeline {repoName, iid} (the prior pipeline id)" [label="GitLab MR"];
-    "Which MR (before git_push)?" -> "ci_lease_claim {mrUrl, branch} (before git_push)" [label="GitHub PR"];
-    "Which MR (before git_push)?" -> "git_push {tree: <root>}" [label="no MR: no lease"];
-    "mr_pipeline {repoName, iid} (the prior pipeline id)" -> "ci_lease_claim {mrUrl, branch} (before git_push)";
-    "ci_lease_claim {mrUrl, branch} (before git_push)" -> "Re-claim result (before git_push)?";
-    "Re-claim result (before git_push)?" -> "git_push {tree: <root>}" [label="claimed: true"];
-    "Re-claim result (before git_push)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="claimed: false"];
-    "Re-claim result (before git_push)?" -> "watch-ci off-script gate: re-claim refused before git_push" [label="tool error"];
+    "ci answer (watch-ci)?" -> "run_budget {key: watch-ci:fix-rounds, limit: 3}" [label="fix and re-push"];
+    "ci answer (watch-ci)?" -> "MR found (before the retry)?" [label="retry the job"];
+    "ci answer (watch-ci)?" -> "MR known (watch-ci exit)?" [label="hand back / abandon (own run only) / hold"];
+    "ci answer (watch-ci)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [label="iterate"];
+    "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" -> "ci-gate-iterations past its limit (watch-ci)?";
+    "ci-gate-iterations past its limit (watch-ci)?" -> "watch-ci gate ci" [label="no: re-triage with their note, a new gate"];
+    "ci-gate-iterations past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: hand back"];
+    "run_budget {key: watch-ci:fix-rounds, limit: 3}" -> "fix-rounds past its limit (watch-ci)?";
+    "fix-rounds past its limit (watch-ci)?" -> "Fix the REAL failure, commit" [label="no"];
+    "fix-rounds past its limit (watch-ci)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [label="yes: reopen with Hand back recommended"];
+    "Fix the REAL failure, commit" -> "MR found (before git_push)?";
+    "MR found (before git_push)?" -> "git_push {tree: <root>, leaseMrUrl: <mr>}" [label="yes: an MR or PR"];
+    "MR found (before git_push)?" -> "git_push {tree: <root>}" [label="no MR: no lease"];
+    "git_push {tree: <root>, leaseMrUrl: <mr>}" -> "git_push result (watch-ci)?";
     "git_push {tree: <root>}" -> "git_push result (watch-ci)?";
-    "git_push result (watch-ci)?" -> "git rev-parse HEAD (the pushed sha, watch-ci)" [label="ok"];
-    "git_push result (watch-ci)?" -> "STOP: push only with git_push (watch-ci)" [label="any other error"];
+    "git_push result (watch-ci)?" -> "Own run (watch-ci new attempt)?" [label="ok: keep sha, mr and priorPipelineId"];
+    "git_push result (watch-ci)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="refused: lease_held, holder named"];
+    "git_push result (watch-ci)?" -> "STOP: push only with git_push (watch-ci)" [label="any other error or refusal"];
     "STOP: push only with git_push (watch-ci)" -> "watch-ci off-script gate: git_push refused";
     "watch-ci off-script gate: git_push refused" -> "watch-ci off-script answer (git_push)?";
     "watch-ci off-script answer (git_push)?" -> "Confirm the human's push landed (watch-ci)" [label="take: the human pushed"];
-    "watch-ci off-script answer (git_push)?" -> "Off-script rounds = 2 (git_push)?" [label="iterate: registration fixed, retry"];
-    "watch-ci off-script answer (git_push)?" -> "Was a lease claimed (watch-ci exit)?" [label="hand back"];
-    "watch-ci off-script answer (git_push)?" -> "Was a lease claimed (watch-ci exit)?" [label="hold"];
-    "Off-script rounds = 2 (git_push)?" -> "Which MR (before git_push)?" [label="no: re-claim and push again"];
-    "Off-script rounds = 2 (git_push)?" -> "Was a lease claimed (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
+    "watch-ci off-script answer (git_push)?" -> "run_budget {key: watch-ci:push-off-script, limit: 2, stage}" [label="iterate: registration fixed, retry"];
+    "watch-ci off-script answer (git_push)?" -> "MR known (watch-ci exit)?" [label="hand back / hold"];
+    "run_budget {key: watch-ci:push-off-script, limit: 2, stage}" -> "push-off-script past its limit (watch-ci)?";
+    "push-off-script past its limit (watch-ci)?" -> "MR found (before git_push)?" [label="no: push again"];
+    "push-off-script past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
     "Confirm the human's push landed (watch-ci)" -> "Push landed (watch-ci)?";
-    "Push landed (watch-ci)?" -> "git rev-parse HEAD (the pushed sha, watch-ci)" [label="yes: the remote branch carries HEAD"];
-    "Push landed (watch-ci)?" -> "Off-script rounds = 2 (git_push)?" [label="no: say what the comparison showed"];
-    "git rev-parse HEAD (the pushed sha, watch-ci)" -> "Own run (watch-ci new attempt)?";
+    "Push landed (watch-ci)?" -> "Own run (watch-ci new attempt)?" [label="yes: the remote branch carries HEAD"];
+    "Push landed (watch-ci)?" -> "run_budget {key: watch-ci:push-off-script, limit: 2, stage}" [label="no: say what the comparison showed"];
     "Own run (watch-ci new attempt)?" -> "run_stage {action: start, stage: watch-ci} (a new attempt)" [label="yes"];
-    "Own run (watch-ci new attempt)?" -> "MR found (watch-ci lease)?" [label="no: re-enter at the claim"];
+    "Own run (watch-ci new attempt)?" -> "MR found (watch-ci lease)?" [label="no: inherited, watch the pushed sha"];
     "run_stage {action: start, stage: watch-ci} (a new attempt)" -> "MR found (watch-ci lease)?";
 
-    "Retried the failed job once already (ci gate)?" -> "MR found (before the retry)?" [label="no"];
-    "Retried the failed job once already (ci gate)?" -> "ci gate iterations = 3 (watch-ci)?" [label="yes: reopen, the retry is spent"];
-    "MR found (before the retry)?" -> "ci_lease_claim {mrUrl, branch} (before the retry)" [label="yes"];
-    "MR found (before the retry)?" -> "ci gate iterations = 3 (watch-ci)?" [label="no: nothing to retry"];
-    "ci_lease_claim {mrUrl, branch} (before the retry)" -> "Re-claim result (before the retry)?";
-    "Re-claim result (before the retry)?" -> "Retry on which forge (watch-ci)?" [label="claimed: true"];
-    "Re-claim result (before the retry)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs" [label="claimed: false"];
-    "Re-claim result (before the retry)?" -> "watch-ci off-script gate: re-claim refused before the retry" [label="tool error"];
-    "Retry on which forge (watch-ci)?" -> "mr_retry {repoName, iid, jobId} per INFRA job" [label="GitLab"];
-    "Retry on which forge (watch-ci)?" -> "gh run rerun <run-id> --failed" [label="GitHub"];
-    "mr_retry {repoName, iid, jobId} per INFRA job" -> "Which forge watches (watch-ci)?";
-    "gh run rerun <run-id> --failed" -> "Which forge watches (watch-ci)?";
+    "MR found (before the retry)?" -> "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage} (ci gate retry)" [label="yes"];
+    "MR found (before the retry)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [label="no: nothing to retry"];
+    "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage} (ci gate retry)" -> "infra-retries past its limit (ci gate retry, watch-ci)?";
+    "infra-retries past its limit (ci gate retry, watch-ci)?" -> "Retry on which forge (watch-ci)?" [label="no"];
+    "infra-retries past its limit (ci gate retry, watch-ci)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [label="yes: reopen, the retry is spent"];
 
-    "Was a lease claimed (watch-ci exit)?" -> "ci_lease_release {mrUrl}" [label="yes"];
-    "Was a lease claimed (watch-ci exit)?" -> "Which exit is this (watch-ci)?" [label="no"];
-    "ci_lease_release {mrUrl}" -> "Which exit is this (watch-ci)?";
-    "Which exit is this (watch-ci)?" -> "run_stage {action: done, stage: watch-ci}" [label="own run: green, ready or kept draft, a ci Hand back, or a lease gate take"];
-    "Which exit is this (watch-ci)?" -> "run_stage {action: done, stage: watch-ci} (abandon)" [label="own run: abandon"];
-    "Which exit is this (watch-ci)?" -> "run_stage {action: fail, stage: watch-ci, reason}" [label="own run: a failure or an off-script hand back"];
+    "MR known (watch-ci exit)?" -> "ci_lease_release {mrUrl: <mr>}" [label="yes"];
+    "MR known (watch-ci exit)?" -> "Which exit is this (watch-ci)?" [label="no"];
+    "ci_lease_release {mrUrl: <mr>}" -> "Which exit is this (watch-ci)?";
+    "Which exit is this (watch-ci)?" -> "run_close {workType: watch-ci, stage: watch-ci, outcome: done}" [label="own run: green, ready or kept draft, a ci Hand back, or a lease gate take"];
+    "Which exit is this (watch-ci)?" -> "run_close {workType: watch-ci, stage: watch-ci, outcome: abandoned}" [label="own run: abandon"];
+    "Which exit is this (watch-ci)?" -> "run_close {workType: watch-ci, stage: watch-ci, outcome: failed, reason}" [label="own run: a failure or an off-script hand back"];
     "Which exit is this (watch-ci)?" -> "Hand the verdict back to the caller (watch-ci)" [label="inherited run: green, or red after a ci Hand back"];
     "Which exit is this (watch-ci)?" -> "Hand the off-script answer back to the caller (watch-ci)" [label="inherited run: an off-script take or hand back"];
     "Which exit is this (watch-ci)?" -> "Hand the failure back to the caller (watch-ci)" [label="inherited run: a failure"];
     "Which exit is this (watch-ci)?" -> "Hand the Go back answer back (watch-ci)" [label="own run: go back"];
-    "Which exit is this (watch-ci)?" -> "Held in watch-ci: the run stays open" [label="hold"];
-    "run_stage {action: done, stage: watch-ci}" -> "run_status {status: done}";
-    "run_status {status: done}" -> "watch-ci done";
-    "run_stage {action: done, stage: watch-ci} (abandon)" -> "run_status {status: abandoned}";
-    "run_status {status: abandoned}" -> "watch-ci run abandoned";
-    "run_stage {action: fail, stage: watch-ci, reason}" -> "run_status {status: failed}";
-    "run_status {status: failed}" -> "watch-ci failed";
+    "Which exit is this (watch-ci)?" -> "run_hold {stage, reason, decidedBy}" [label="hold"];
+    "run_close {workType: watch-ci, stage: watch-ci, outcome: done}" -> "watch-ci done";
+    "run_close {workType: watch-ci, stage: watch-ci, outcome: abandoned}" -> "watch-ci run abandoned";
+    "run_close {workType: watch-ci, stage: watch-ci, outcome: failed, reason}" -> "watch-ci failed";
+    "run_hold {stage, reason, decidedBy}" -> "Held in watch-ci: the run stays open";
 }
-
 ```
 
 ### watch-ci gate clarify: which forge?
 
 The origin host is neither GitLab nor GitHub. Ask which forge it is, quoting
 the `git remote get-url origin` line as the context.
-
-### Fix what the claim error names
-
-`ci_lease_claim` refused its input. Correct what the error names (`mrUrl`
-must be the MR's or PR's https URL, `.../-/merge_requests/<iid>` or
-`.../pull/<n>`; `branch` the MR's source branch) and claim again, once.
-An error that names none of these inputs (no session id, for example) has
-nothing to correct: claim again unchanged, once, and the off-script gate
-follows.
-
-### watch-ci off-script gate: ci_lease_claim refused
-
-Scope `off-script:<stage>:<n>` (`n` counts from 1 within the stage
-attempt), `context` quoting both errors.
-
-| Question | Options |
-|---|---|
-| `action` | **Take** (the human attends this MR themselves) / **Iterate** (the human fixed it: claim again) / **Hand back** |
-| `next` | **Proceed** (Recommended) / **Hold** |
-
-Take closes an own run `done` with the report saying the human has the MR,
-and an inherited run hands the answer back. Iterate passes `Off-script
-rounds = 2 (ci_lease_claim)` before claiming again.
-
-### watch-ci off-script gate: re-claim refused before the fix
-
-The re-claim before a fix failed with a tool error. Same scope, table and
-answers as `watch-ci off-script gate: ci_lease_claim refused`; Iterate
-re-claims before the fix.
-
-### watch-ci off-script gate: re-claim refused before git_push
-
-As above; Iterate re-claims before `git_push`.
-
-### watch-ci off-script gate: re-claim refused before the retry
-
-As above; Iterate re-claims before the retry.
-
-### Verify the branch was pushed
-
-Two `ci_watch` calls in a row returned `waiting`: no pipeline exists for
-the watched sha. Compare the
-watched sha with the remote branch. Unpushed: the `ci` gate says so ("ship
-first"). Pushed: the `ci` gate says no pipeline ran for that sha.
 
 ### End the turn: ci_watch runs in the background (task <id>, watch-ci)
 
@@ -576,15 +470,33 @@ user message that arrives meanwhile reaches you at once. A foreground wait
 (a `sleep`, a polling script, a second `ci_watch`) is the thing this node
 replaces: it delays the result and every message by the length of the wait.
 
+### watch-ci off-script gate: ci_watch could not hold the lease
+
+`ci_watch` returned `lease_unavailable`: it could not claim or keep this
+session's lease, and its `error` says why. No one else holds the MR (that
+is `stood_down`), so this is not a stand-down. Scope
+`off-script:<stage>:<n>` (`n` counts from 1 within the stage attempt),
+`context` quoting `error`.
+
+| Question | Options |
+|---|---|
+| `action` | **Take** (the human attends this MR themselves) / **Iterate** (the human fixed it: watch again) / **Hand back** |
+| `next` | **Proceed** (Recommended) / **Hold** |
+
+Take closes an own run `done` with the report saying the human has the MR,
+and an inherited run hands the answer back. Iterate counts one
+`lease-rounds` round for this commit; past two, the run fails with the
+refusals as the reason.
+
 ### Fix what the ci_watch error names
 
-`ci_watch` refused its input. Correct what the error names (`repoName` the
-absolute root, `iid` a number, `sha` 7 to 40 hex characters,
-`priorPipelineId` the number `N` of a `gitlab:pipeline:N` id) and call
-again, once. An error is never a reason to watch with a script or the
-GitLab CLI. An error that names none of these inputs (the repo is not
-registered with rt, for example) has nothing to correct: call again
-unchanged, once, and the off-script gate follows.
+`ci_watch` refused its input. Correct what the error names (`mrUrl` the
+MR's https URL, `sha` 7 to 40 hex characters, `priorPipelineId` the number
+`N` of a `gitlab:pipeline:N` id) and call again, once. An error is never a
+reason to watch with a script or the GitLab CLI. An error that names none
+of these inputs (the repo is not registered with rt, for example) has
+nothing to correct: call again unchanged, once, and the off-script gate
+follows. `ci-watch-errors` counts each error for this commit.
 
 ### watch-ci off-script gate: ci_watch refused
 
@@ -595,40 +507,69 @@ Scope `off-script:<stage>:<n>`, `context` quoting both errors.
 | `action` | **Take** (the human reads the pipeline and reports green or red for the watched sha) / **Iterate** (the human fixed it, for example registered the repo with rt: watch again) / **Hand back** |
 | `next` | **Proceed** (Recommended) / **Hold** |
 
-Iterate passes `Off-script rounds = 2 (ci_watch)` before watching again.
+Iterate counts one `ci-watch-off-script` round before watching again.
 
-### Triage with the domain's rules
+### Fix what the claim error names (GitHub)
 
-The domain rules below say how to read this red: REAL or INFRA, whether the
-failure is this branch's or inherited, which jobs block. Where they run
-`ci-triage.sh`, pass `--pipeline <N>`, the number `N` in `ci_watch`'s
-`pipeline.id` (`gitlab:pipeline:N`), never `--ref` (the newest pipeline for
-the ref, not the watched sha). The box classifies and nothing else: no
-claim, no watch, no retry, no push inside it.
+`ci_lease_claim` refused its input. Correct what the error names (`mrUrl`
+must be the PR's https URL, `.../pull/<n>`; `branch` the PR's source
+branch) and claim again, once. An error that names none of these inputs
+(no session id, for example) has nothing to correct: claim again
+unchanged, once, and the off-script gate follows.
 
-### Read the triage report
+### watch-ci off-script gate: ci_lease_claim refused (GitHub)
 
-`ci-triage.sh --pipeline <N>` prints one verdict per blocking failure (REAL
-or INFRA) with its job id. `<N>` is the number in `ci_watch`'s
-`pipeline.id` on GitLab, and the run id from the failing check's link on
-GitHub. A script that fails instead of reporting: quote its output and
-classify from `failedJobs` as the unbound flow does. INFRA job ids go to
-`mr_retry` (GitLab) or `gh run rerun` (GitHub); the adapter's printed
-retry command is not run.
+Scope `off-script:<stage>:<n>`, `context` quoting both errors.
 
-### Classify each failure REAL or INFRA (GitLab)
+| Question | Options |
+|---|---|
+| `action` | **Take** (the human attends this PR themselves) / **Iterate** (the human fixed it: claim again) / **Hand back** |
+| `next` | **Proceed** (Recommended) / **Hold** |
 
-Read each failed job's `traceTail` in `ci_watch`'s `failedJobs`. A job
-with no `traceTail` (past the first five blocking), or a tail too short to
-classify, is read with `mr_job_trace`: the tail first, then `grep` for the
-failure text or `headLines` when the failure sits far above the end. A
+Take closes an own run `done` with the report saying the human has the PR,
+and an inherited run hands the answer back. Iterate counts one
+`github-claim-off-script` round before claiming again.
+
+### Classify the triage report (watch-ci)
+
+`ci_triage` sorts each failed job into REAL, INFRA or UNCLEAR by its log and
+marks each blocking one `yours`, INHERITED (also failing on the target
+branch) or UNKNOWN (no base pipelines to compare). The `blocking` list
+decides the verdict; `nonBlocking` jobs never do. Each UNCLEAR job's log is
+read with `mr_job_trace` before this step: the tail first, then `grep` for
+the failure text, or `headLines` when the failure sits far above the end. A
 tail of only teardown lines (cleanup, artifact upload, runner exit) says
-nothing about the cause, so read more of the log the same way before
-classifying; that tail is not enough, so the read goes through `mr_job_trace`.
-No failure is classified until its log has been read. When `ci_watch`
-reports `failed` and `failedJobs` is empty, the red is likely in a
-cross-project downstream pipeline (same-project downstream jobs are
-already in `failedJobs`): read `gitlab_get` on
+nothing about the cause, so read more before classifying. A `crossProject`
+entry is read as in `Classify each failure REAL or INFRA from failedJobs
+(watch-ci)`.
+
+Then classify each blocking failure:
+
+- REAL: the change broke it (a test, type or lint failure in touched code).
+- INFRA: unrelated to the change (a runner, network or dependency outage, a
+  known flake).
+- Still unclear after the read: it stays UNCLEAR and goes to the gate.
+
+Never classify a failure INFRA without its log read; an unreadable trace is
+UNCLEAR, never INFRA. The domain rules below judge the report: which jobs
+block, which patterns are noise, whose failure it is. They may move a job
+between REAL and INFRA; they never retry, watch, claim or push. An
+INHERITED failure is neither retried nor fixed here: it goes to the gate,
+named as inherited. UNKNOWN ownership still gets its one INFRA retry. The
+box classifies and nothing else: INFRA job ids go to `mr_retry`, and a
+retry command any report prints is not run.
+
+### Classify each failure REAL or INFRA from failedJobs (watch-ci)
+
+`ci_triage` returned an error: quote it, then classify `ci_watch`'s
+`failedJobs` as `Classify the triage report (watch-ci)` says, ownership
+unknown. Read each job's `traceTail`; a job with none (past the first five
+blocking), or a tail too short or teardown-only, is read with
+`mr_job_trace` as part of this step.
+
+When `ci_watch` reports `failed` and `failedJobs` is empty, the red is
+likely in a cross-project downstream pipeline (same-project downstream jobs
+are already in `failedJobs`): read `gitlab_get` on
 `projects/:id/pipelines/<pipelineId>/bridges` for the bridge job's id and
 its downstream pipeline, then the downstream pipeline's jobs with
 `gitlab_get`, before classifying. The downstream job's log is read with
@@ -638,14 +579,11 @@ at most the first 256 KiB of a trace, so a long downstream log's end may be
 out of reach: classify such a failure as still unclear (it goes to the
 gate), never INFRA. Never classify a failed pipeline with no job read as
 INFRA.
-REAL: the change broke it (a test, type or lint failure in touched code).
-INFRA: unrelated to the change (a runner, network or dependency outage, a
-known flake). One retry per INFRA job; a REAL failure goes to the gate.
 
 A pipeline fact `ci_watch` and `mr_pipeline` do not return (an earlier
 pipeline on the branch, a pipeline with no MR) is read with
-`pipeline_list`; anything else is read as in "Reading a GitLab fact no
-read tool returns".
+`pipeline_list`; the jobs of a pipeline with `pipeline_jobs`; anything else
+as in "Reading a GitLab fact no read tool returns".
 
 ### Reading a GitLab fact no read tool returns
 
@@ -660,7 +598,21 @@ is final.
 ### Classify each failing check REAL or INFRA (GitHub)
 
 Read the failing checks' logs from the links `gh pr checks <mr>` prints,
-then classify as for GitLab: REAL goes to the gate, INFRA gets one retry.
+then classify as `Classify the triage report (watch-ci)` says: REAL goes to
+the gate, INFRA gets one retry. Ownership is unknown on GitHub.
+
+### watch-ci off-script gate: mr_retry refused
+
+`mr_retry` returned an error (a `lease_held` refusal is the stand-down, not
+this gate). Scope `off-script:<stage>:<n>`, `context` quoting the error and
+the job ids.
+
+| Question | Options |
+|---|---|
+| `action` | **Take** (the human retried the job: watch again) / **Iterate** (the human fixed it: retry again) / **Hand back** |
+| `next` | **Proceed** (Recommended) / **Hold** |
+
+Iterate counts one `retry-off-script` round before retrying again.
 
 ### watch-ci gate mark-ready
 
@@ -674,16 +626,22 @@ is green for the MR's head.
 | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4; with exactly one candidate it labels **Go back to `<stage>`** in `next` instead | Go back answered and `run_snapshot` shows more than one earlier stage row |
 
 Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
-An iterate passes `mark-ready iterations = 2 (watch-ci)`; at two, the MR
-stays draft.
+An iterate counts one `mark-ready-iterations` round; past two, the MR stays
+draft.
 
 ### watch-ci gate ci
 
-Red, timeout, no pipeline, or no pipeline for the pushed HEAD. Scope
+Reached on red (a REAL, UNCLEAR or INHERITED failure, or an INFRA retry
+already spent), `timeout` (still running past the watch budget),
+`no_pipeline`, a `canceled`, `skipped`, `manual`, `superseded` or `aborted`
+pipeline, no MR, a GitHub poll or sha-wait budget past its limit, and an
+`mr_for_branch` error or a GitHub heartbeat or re-claim error, quoted in
+the sentence above the form. `no_pipeline` means ten minutes passed with no
+pipeline for the watched sha: when its `pushed` is false the MR head is its
+`remoteSha`, not the watched sha, so the sentence says to ship first; when
+`pushed` is true, it says no pipeline ran for that sha. Scope
 `ci:<stage>:<attempt>`. One sentence above the form: the verdict and a
-one-line triage per blocking failure. A `ci_lease_heartbeat` tool error
-or an `mr_for_branch` error also reaches it, quoted in the sentence above
-the form.
+one-line triage per blocking failure.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
@@ -693,18 +651,16 @@ the form.
 Selection: `{"next":"fix|retry|handback|abandon|iterate|hold","note":"<their words or null>"}`.
 An `action` write-in adds `"action": {"writeIn": "<their words>"}`, and
 `next` records `iterate`, or the Hold that won.
-An iterate passes `ci gate iterations = 3 (watch-ci)`; at three, the run
-hands back. Hand back leaves the MR red for the human: an own run closes
-`done`, an inherited one hands the verdict back.
+An iterate counts one `ci-gate-iterations` round; past three, the run hands
+back. Hand back leaves the MR red for the human: an own run closes `done`,
+an inherited one hands the verdict back.
 
 ### Fix the REAL failure, commit
 
 Fix what the triage names as REAL, test-first where a test can catch it,
-and commit the named files. The counter is fix rounds within this run.
-While the fix runs, every five minutes without a commit leaves through
-`Fix committed (watch-ci)?` to `ci_lease_heartbeat {mrUrl} (during the
-fix)`, so a long fix keeps the lease; twelve of those is an hour, and the
-`ci` gate decides what happens next. With no MR there is no lease to keep.
+and commit the named files. `fix-rounds` counts each fix in this run. The
+lease needs nothing during the fix: the keepalive holds it, and the push
+carries the guard.
 
 ### watch-ci off-script gate: git_push refused
 
@@ -713,76 +669,111 @@ attempt), `context` quoting the refusal.
 
 | Question | Options |
 |---|---|
-| `action` | **Take the proposed move** (the value spells the move in full, such as the human pushing) / **Iterate** (registration fixed: re-claim and push again) / **Hand back** |
+| `action` | **Take the proposed move** (the value spells the move in full, such as the human pushing) / **Iterate** (registration fixed: push again) / **Hand back** |
 | `next` | **Proceed** (Recommended) / **Hold** |
 
 Selection: `{"move":"<the move>","why":"<the refusal>","action":"take|iterate|handback","next":"proceed|hold","note":"<their words or null>"}`.
-Iterate, and a human push that did not land, each pass `Off-script rounds =
-2 (git_push)`.
+Iterate, and a human push that did not land, each count one
+`push-off-script` round.
 
 ### Confirm the human's push landed (watch-ci)
 
 The human pushed outside this verb. Compare `git rev-parse HEAD` with the
 remote branch and say what it shows; never push from here. The push landed
-when the remote branch carries HEAD; otherwise the off-script gate reopens
-with the comparison as its context.
+when the remote branch carries HEAD; that HEAD is the watched sha, with no
+prior pipeline id. Otherwise the off-script gate reopens with the
+comparison as its context.
 
 ## What the graph cannot show
 
-- **The watched sha.** Ship hands it over (`git rev-parse HEAD` after its
-  push), or this run's push sets it (`git rev-parse HEAD (the pushed sha,
-  watch-ci)`). A run that pushed nothing watches the remote branch's sha
-  (`git ls-remote origin refs/heads/<branch>`): unpushed commits have no
-  pipeline.
-- **The prior pipeline id.** Ship hands over the MR's head pipeline id read
-  before its push when the push moved the branch; this verb reads it again
-  before its own push (`mr_pipeline ... (the prior pipeline id)`).
-  `ci_watch` takes the number `N` of that `gitlab:pipeline:N` as
-  `priorPipelineId`, so a new pipeline is told from the old one. Pass only
-  that handed or read id, or a `priorPipelineId` field a `ci_watch` result
-  itself returns; the watched pipeline's own `pipeline.id` is never a prior
-  id.
+- **The watched sha.** The caller hands it (ship passes its `git_push`
+  result's `sha`), or this run's `git_push` returns it, or after a human
+  push it is the HEAD `Confirm the human's push landed (watch-ci)`
+  compared. A run that pushed nothing watches the remote branch's sha (`git
+  ls-remote origin refs/heads/<branch>`): unpushed commits have no
+  pipeline. `<sha12>` in a budget key is its first 12 characters.
+- **The prior pipeline id.** The caller's `priorPipelineId`, or this run's
+  `git_push` result's `priorPipelineId` (the fix commit moved the branch,
+  so that pipeline is the old one). A human push has none. Pass it on the
+  first `ci_watch` call for a sha; the tool keeps it per MR, and a
+  `priorPipelineId` a result carries is passed on the next call. The
+  watched pipeline's own `pipeline.id` is never a prior id. When this run
+  had no MR, a non-null `mr` in the `git_push` result is the MR to watch.
+- **The tool owns the watch budget.** `ci_watch {attend: true}` measures
+  the pipeline's age against the `ci.watch.budgetMinutes` setting, keeps
+  the window across calls, reopens it after a retry, and returns `timeout`
+  once spent; with no pipeline for the sha after 10 minutes it returns
+  `no_pipeline`. Pass no budget arguments and count no `running` or
+  `waiting` results: the `call again` loop ends when the tool says so.
 - **The sha guard.** On GitLab it is inside `ci_watch`: only a pipeline for
   `sha` counts, a head that moved past it returns `superseded`, and green or
   red is never read off an older pipeline. On GitHub, `headRefOid` from `gh
   pr view` must equal the watched sha, and "no checks reported" is pending,
   not red.
-- **The watch budget.** `budget.spent (watch-ci)?` reads the `budget`
-  field of a `running` result: `ci_watch` measures it from the pipeline's
-  own start against the `ci.watch.budgetMinutes` setting, so there are no
-  calls to count. A job retry keeps the pipeline's start, so after one pass
-  `freshWindow: true` alone until a result carries a non-null `budget`, then
-  that result's `budget.minutes` as `budgetMinutes` on every later call
-  for the sha. `Waiting results in a row = 2 (watch-ci)?` counts
-  consecutive `waiting` results (their `budget` is null); any other state
-  resets it, and so does a new watched sha or a job retry.
 - **Retry on GitHub.** The run id for `gh run rerun` comes from the failed
   check's link in `gh pr checks <mr>`.
+- **Closing the run.** `run_close` closes an own run only (it refuses an
+  inherited one); `run_hold` takes the stage as every gate write does, the
+  gate's name as `reason`, and `decidedBy` as the gate's answer recorded it.
 
 ## The attendant lease
 
 Exactly one actor attends an MR's CI at a time: this verb, the pipeline's
-watch-ci stage, or the board's doctor. The `ci_lease_*` tools own the
-lease; the owner is this session, so any other fresh lease (a doctor or
-another watch-ci session) refuses the claim. `ci_watch` heartbeats on every
-poll and returns `lease_lost` the moment someone else holds the MR; the
-GitHub poll and a long fix heartbeat with `ci_lease_heartbeat`. A
-`lease_lost` with no `holder` means no lease is held at all (its `next`
-says to claim first): claim again, twice at most, never a stand-down. A
-lease with no heartbeat goes stale after 10 minutes and may then be taken
-over, so re-claim before every repair (the fix itself, a push, a retry). A
-crashed session needs no cleanup. Every exit that leaves the MR unattended
-releases it with `ci_lease_release`; the stand-down never touches it,
-because that lease is someone else's.
+watch-ci stage, or the board's doctor. On GitLab, `ci_watch {attend: true}`
+is the only claimer: it claims this session's lease, heartbeats it every
+poll, re-claims a vanished lease up to twice per commit, and a keepalive
+holds it between calls until `ci_lease_release`, another owner, or 60
+minutes with no attending CI call on the MR. Another owner's fresh lease
+(the doctor's included) returns `stood_down` with `holder`. This verb never
+passes `underBoardLease`.
+
+The repairs carry their own guard: `git_push` and `mr_retry` with
+`leaseMrUrl: <mr>` take a lapsed lease back and refuse with `refused:
+"lease_held"` and `holder` while another owner holds it, so a long fix
+needs no heartbeat. On GitHub, `ci_watch` returns `unsupported_forge`
+before claiming: this verb claims with `ci_lease_claim`, heartbeats once
+per poll and re-claims before `gh run rerun`; the push guard works the
+same.
+
+While a gate waits, the keepalive keeps the lease held, so the doctor
+cannot take the MR over while the human decides. Every exit that knows the
+MR releases it with `ci_lease_release`, which refuses another owner's lease
+harmlessly; the stand-down never calls it, because that lease is someone
+else's. A crashed session needs no cleanup.
 
 | Thought | Reality |
 |---|---|
 | "The doctor's on it, but I can fix it faster" | Two actors pushing to one branch race each other's work. Stand down and stop. |
 | "I'll just retry the flaky job while the doctor works" | A retry is a repair action. The lease holder does it, not you. |
-| "I claimed it at the start, so the push is mine" | The lease may have lapsed or moved. Re-claim before the push. |
-| "The claim tool errored, so I'll run the attendant script" | The script is retired. Fix the input once, then the off-script gate. |
+| "I attended it at the start, so the push is mine" | The push carries `leaseMrUrl`; a `lease_held` refusal means stand down. |
+| "This fix is long, so I'll heartbeat or claim by hand" | The keepalive and the push guard cover it. On GitLab, `ci_watch` is the only claimer. |
+| "ci_watch returned lease_unavailable, so I'll claim it myself or run the attendant script" | The off-script gate. The script is retired. |
 | "ci_watch errored, so I'll poll with the GitLab CLI or a watch script" | Fix the input once, then the off-script gate. The STOP on `ci_watch state (watch-ci)?` names it. |
 | "The pipeline says success, that's green" | Only for the watched sha. `ci_watch` checks it; on GitHub, check `headRefOid`. |
+
+## Budgets in this verb
+
+Every loop counts through `run_budget`, so a budget survives compaction and
+resume. Each call increments by one as the loop is entered, and the diamond
+after it reads `spent > limit`. `stage` is `watch-ci` in an own run and
+`run.current_stage` in an inherited one; a run-wide key passes no `stage`,
+because a fix push starts a new attempt mid-loop.
+
+| Key | Limit | Scope | Counts |
+|---|---|---|---|
+| `watch-ci:ci-watch-errors:<sha12>` | 1 | stage, per commit | each `ci_watch` tool error |
+| `watch-ci:ci-watch-off-script` | 2 | stage | each Iterate at the `ci_watch refused` gate |
+| `watch-ci:lease-rounds:<sha12>` | 2 | stage, per commit | each Iterate at the lease gate |
+| `watch-ci:infra-retries:<sha12>` | 1 | stage, per commit | each INFRA retry decision, automatic or from the `ci` gate |
+| `watch-ci:retry-off-script` | 2 | stage | each Iterate at the `mr_retry refused` gate |
+| `watch-ci:ci-gate-iterations` | 3 | run-wide | each `ci` gate reopening |
+| `watch-ci:fix-rounds` | 3 | run-wide | each Fix and re-push |
+| `watch-ci:push-off-script` | 2 | stage | each Iterate, or human push that did not land, at the `git_push refused` gate |
+| `watch-ci:mark-ready-iterations` | 2 | stage | each mark-ready Iterate |
+| `watch-ci:github-claim-errors` | 1 | stage | each GitHub `ci_lease_claim` tool error |
+| `watch-ci:github-claim-off-script` | 2 | stage | each Iterate at the GitHub claim gate |
+| `watch-ci:github-polls:<sha12>` | 45 | stage, per commit | each pending `gh pr checks` poll |
+| `watch-ci:github-sha-waits:<sha12>` | 5 | stage, per commit | each poll whose checks are for another sha |
 
 ## Domain rules
 
@@ -791,12 +782,15 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 The domain supplies triage: how to read a red, REAL or INFRA, ownership,
 noise. It never watches, claims, releases or pushes; the graph does.
 
-The slot contract stays `watch-ci-domain@1`. A fill written for the
-script-based engine still compiles: its text may name `ci-attendant.sh` and
-`ci-watch.sh`, which this skill no longer vendors, and may triage with
-`--ref`. The STOPs on `ci_lease_claim result (watch-ci)?` and `ci_watch
-state (watch-ci)?` redirect those moves to `ci_lease_claim` and `ci_watch`;
-triage with `--pipeline <N>`.
+The slot contract stays `watch-ci-domain@1`, and its judgment applies at
+`Classify the triage report (watch-ci)`. This skill runs neither vendored
+script, so a rule written for the script engine is redirected: a rule that
+runs `<scripts>/ci-triage.sh` goes to `ci_triage`, with `pipelineId: <N>`
+(never the ref's newest pipeline) and the keys of its `--config` file as
+`config` (that file sits in the fill's own directory, vendored under
+`parts/domain/`, never in this skill's `scripts/`); a rule that runs
+`<forge> jobs` goes to `pipeline_jobs`; a rule that names `ci-attendant.sh`
+or `ci-watch.sh` goes to `ci_watch`.
 
 {{slot:domain}}
 
@@ -805,6 +799,10 @@ When nothing is inlined above, the graph's other flows apply.
 ## Forge
 
 If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
+
+`<scripts>` is `${CLAUDE_SKILL_DIR}/scripts/` and `<forge>` is
+`${CLAUDE_SKILL_DIR}/parts/forge/scripts/ci-forge.sh`, vendored for the
+fills that name them; this skill calls neither.
 
 {{slot:forge}}
 
