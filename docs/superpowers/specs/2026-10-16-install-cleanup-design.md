@@ -33,9 +33,13 @@ segmented control:
 A row is always in one of the two states; there is no unanswered state. rt
 picks the starting state before the page shows:
 
-- rt finds an existing clone of the repo (the repo index, then direct
-  children of the configured repo roots, the same search `repos.clone` runs
-  today in `findExistingClone`): **Current checkout**, path filled in.
+- rt finds an existing clone of the repo: **Current checkout**, path filled
+  in. The search is `findExistingClone`'s (the repo index, then direct
+  children of the configured repo roots), widened to the direct children of
+  `CANDIDATE_ROOT_NAMES` under home (`Documents/GitHub`, `GitHub`, `code`,
+  `src`) and the repo index's inferred roots. On a new Mac there are no
+  configured roots and the index is empty, so without the widening a member
+  who already has `~/code/widgets` would be shown New checkout.
 - Otherwise: **New checkout**, destination next to the member's other
   checkouts (the common parent of the rows already on Current checkout);
   with nothing to go by, `detectCandidate()`'s folder joined with the repo's
@@ -72,15 +76,23 @@ clones acme-api.").
 - **Current checkout**: rt records the path in the repo index
   (`rt repos register` semantics) and never clones.
 - **New checkout**: `repos.clone` clones into exactly that path.
-- `rt.repoRoots` is no longer asked for. rt derives it from the parent
-  folders of the placed repos (deduplicated), so `rt cd`, `rt repos locate`
-  and the clone step's existing-clone scan keep working. A root the member
-  set by hand is kept.
-- The single "Repo folder" row (`repos.root`) and `rt setup repo-root set`
-  are retired in favour of the new rows and a per-repo verb (name left to
-  the builder, e.g. `rt setup repo place <repo> --checkout <path>` /
-  `--clone-to <path>`). The app answers a row through that verb, like every
-  other row; no decision lives in Swift.
+- `rt.repoRoots` is no longer asked for in the app. When `repos.clone`
+  places a repo (found, located or cloned), it appends that repo's parent
+  folder to the machine store's `rt.repoRoots` if absent. Append-only: it
+  never removes or reorders an entry, so a root set by hand (or by an
+  earlier setup) stays first. `rt cd`, `rt repos locate` and the
+  existing-clone scan keep working.
+- The single "Repo folder" row (`repos.root`) is retired in favour of the
+  new rows and a per-repo verb (name left to the builder, e.g.
+  `rt setup repo place <identity> --checkout <path>` / `--clone-to <path>`).
+  The app answers rows through that verb, like every other row; no decision
+  lives in Swift. `rt setup repo-root set <folder>` stays as a CLI verb:
+  `rt dev setup` clones into `rt.repoRoots[0]` and its `dev-no-repo-root`
+  error names that verb, and a Mac whose team tracks no repos has no other
+  way to set a root.
+- A row's answer is its placement. When the member clicks Continue on the
+  page, the app records every row's shown state through the verb, touched
+  or not, so a default the member looked at counts as answered.
 - Answers given before Install are staged the way the repo root is today
   (`~/.mattstack/rt/repo-root.json`): the machine store lives inside the
   home repo, which does not exist until `home.init` clones it. The clone
@@ -96,16 +108,29 @@ Today's `repos.root` row covers this by asking for a folder up front.
 
 Design call (made without the operator; flagged in the PR): the rows render
 whenever the tracked list is known. For a joiner that is after `team.join`.
-In an interactive run, `repos.clone` clones nothing for a repo the member
-has not answered and has no existing clone of; it reports `needs-you`
-("Choose where your repos go"), the rest of Install carries on, and the
-"Your repos" rows show on the post-Install summary, finish-gated, with the
-same controls. Answering a row and retrying runs `repos.clone` again. A
-repo rt finds an existing clone of is placed without asking. A
-non-interactive run uses the defaults and never stops. The builder confirms
-the engine lets the steps after a `needs-you` outcome run (`intercepts.install`
-and `board.keys` read the repo index `repos.clone` fills) and adjusts the
-ordering note in `lib/setup/steps/index.ts` if it does not.
+
+`repos.clone`, per tracked repo:
+
+1. A recorded placement: honour it.
+2. No placement, but an existing clone found (the widened search above):
+   use it.
+3. No placement, no clone, and the run streams to the app (`--json`, the
+   app's NDJSON channel): clone nothing for that repo and report
+   `needs-you` ("Choose where your repos go"). The rest of Install carries
+   on; the "Your repos" rows show on the post-Install summary, finish-gated,
+   with the same controls. Answering and retrying runs `repos.clone` again.
+4. No placement, no clone, any other run (a terminal `rt setup apply`, a
+   `--non-interactive` run, CI): clone to the default destination. A
+   terminal run never stops on this.
+
+The engine already lets steps after a `needs-you` run (only `failed` stops
+a run). `repos.clone` has `feedsIntercepts`, so a retry re-queues
+`intercepts.install`; `board.keys` is update-safe and writes on the next
+launch.
+
+`ctx.need` (asking the app mid-Install) was considered and not used: it
+would need a new need type and a new mid-Install screen, while the summary
+already renders setup rows.
 
 ### Clone progress
 
@@ -139,18 +164,32 @@ launched the agent without it.
 
 ### Fix
 
-- Setup turns on the active team's own pack for a member when it installs
-  it, through the same single enable site trusted plugins use
-  (`enableTrusted`).
+This reverses, for one plugin, the earlier rule that a joined team does
+not get to grant itself execution (`2026-09-07-pack-cache-sync-design.md`,
+the org-and-teams design's "installed, never auto-enabled"). The operator
+ruled it on 2026-10-16: joining a team is the consent. Both earlier docs
+get a one-line note pointing here.
+
+Scope is the **active team's own marketplace pack** only. Org- or
+team-listed `claude.plugins` entries stay as today (installed, off). The
+previous team's pack, which `rt team use` turns off, stays off.
+
+- Setup turns the active team's pack on when it installs it, through the
+  same single enable site trusted plugins use. `enableTrusted` is a closure
+  inside `pluginsInstallRun` today; it moves out to a module function so
+  the migration and the daemon path can share it.
+- The daemon's pack sync (`convergePackCache`, called from
+  `lib/daemon/team-snapshots.ts`) does the same for the active team's pack
+  it newly installs, so a pack first served after the member joined lands
+  on too.
 - `rt setup update` (the unattended run at app launch) keeps today's rule:
   a pack the member turned off themselves stays off.
-- A dated `MigrationDef` turns on, once per Mac, every team pack rt itself
-  installed (it is in setup-state's `plugins` record) that is currently
-  turned off. Without it, every member who joined before this change stays
-  off forever, because the update run reads rt's own disable as the
-  member's choice.
+- A dated `MigrationDef` turns on, once per Mac, the active team's pack
+  when it is installed and off. It is the one-time correction for members
+  who joined before this change, whose pack rt itself left off; the update
+  run would otherwise read that as the member's choice forever.
 - The "awaiting your approval to enable" log line and step-detail note go
-  away.
+  away for that pack.
 
 ## 4. The dev-login sheet
 
@@ -170,6 +209,12 @@ Fields, top to bottom:
 - **Confirm password**
 
 "Type <host> to confirm" is removed, with `DevLoginConfirm`'s host check.
+The operator ruled this on 2026-10-16. `2026-09-28-dev-logins-design.md`
+listed the typed host as the defence against a crafted `mattstack://` link
+or a lookalike page getting a site approved in one click; the remaining
+defences are the site shown as the sheet's heading, the lookalike-name and
+plain-http warnings, and typing the password twice (no one-click save).
+That doc's threat model gets a note pointing here.
 Save is enabled when the site is valid, the email is not blank and the two
 passwords match. While they differ (and the confirm field is not empty), a
 line under it reads "Passwords don't match". Confirm password is asked on
@@ -209,13 +254,18 @@ A shared routine in `lib/herdr/` and a hidden verb, `rt herdr start`
 3. Starts `herdr server` the way herdr's own client does:
    - fully detached in its own session (setsid), stdin/stdout/stderr on
      `/dev/null`, cwd = home;
-   - environment = the member's login-shell environment (rt's existing
-     login-shell PATH probe), with `RT_BATCH`, `HERDR_SOCKET_PATH` and
-     `HERDR_PANE_ID` removed and `HERDR_MACOS_SERVER_CONTEXT=user` set.
-     Any other `HERDR_*` the member set stays. That env becomes every pane
-     shell's env, which is why the PATH and `RT_BATCH` matter. Without the
-     `user` context, a server started from an app or daemon is killed when
-     that process goes away.
+   - environment, built from scratch, never the caller's whole env (the
+     callers are the daemon under launchd, the app, and a terminal, and
+     whatever the server gets becomes every pane shell's env):
+     - the keys `bg-service.ts`'s `seededEnv()` takes from a login shell
+       (PATH, HOME, SHELL, TMPDIR, LANG), plus USER and LOGNAME;
+     - every `HERDR_*` in the caller's env except `HERDR_SOCKET_PATH` and
+       `HERDR_PANE_ID`;
+     - `HERDR_MACOS_SERVER_CONTEXT=user`, set last.
+
+     `RT_BATCH` and every other rt, daemon or app variable are left out by
+     construction. Without the `user` context, a server started from an app
+     or daemon is killed when that process goes away.
 4. Polls the ping until a reply, up to about 10 seconds.
 
 Concurrency: one start in flight per process (callers share it), plus a
@@ -264,6 +314,21 @@ reporting "not running" as they do today.
   `nohup` without the `user` server context, so it can die with its parent.
   It moves onto the shared launcher (keeping its own `bg` socket and
   session), keeping its spawn cooldown, in-flight dedupe and ready poll.
+
+## Calls made without the operator
+
+The operator handed this over to run unattended. These were settled from
+the builder check and are listed in the PR for review:
+
+- A joiner's unanswered repos: `needs-you` plus summary rows in app runs,
+  defaults in terminal runs (section 1).
+- Untouched rows count as answered when the member clicks Continue.
+- The existing-clone search widens to the candidate root folders.
+- `rt.repoRoots` is appended to, never rewritten; `rt setup repo-root set`
+  stays as a CLI verb.
+- Turning the pack on covers only the active team's marketplace pack, the
+  daemon's pack sync included; the migration targets only that pack.
+- herdr's environment is built from scratch, not inherited.
 
 ## Dropped
 
