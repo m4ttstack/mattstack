@@ -413,3 +413,56 @@ commit touching the include on that branch). One round, no wording fixes.
   inherited, so `Own review run: close it as abandoned?` is no and the
   caller decides." (rep 2). Reps 4 and 5 quoted the fixture's
   `review-source.sh` result in the gate context without running it.
+
+### receive-review entry (Task 4)
+
+System files: the branch tree at `e0bf02b85` plus the round-2 wording fix
+(committed with these rows), compiled with `--gate-protocol` set to the
+pipeline-skills include at `556da1478`, the newest commit touching the
+include on that branch when GREEN started (exported with `git archive`,
+never the working copy). The post half, from `Any thread offered (a
+finalized fix or an override)?` on, is still the old text until Task 5, so
+these rows score the entry and the row walk only; the respond-post calls
+the reps made (`gate-ctx.sh fit`, `gate_ask`) are that old text, not
+deviations. R7 needs the post half and is scored in Task 5.
+
+Two rounds. Round 1 (`e0bf02b85`): R1 5/5, R2 5/5, R7b 2/5. Reps 1 to 3 of
+R7b called `run_enter {resume: "r-20261016-rev", spawnedBy}` in the same
+pane before recording, reading the run line as a fresh-pane resume. That is
+a shape miss, so round 2 adds a positive recipe: `Hand back the verdict
+table and the respond-plan open's path` says the caller's `{plan}` comes
+back to this pane and the re-entry's first call is the record, and `## Run`
+says `run_enter` is the first call of a pane with no run in hand. Round 2
+reran all three scenarios.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| R1 bot thread | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter` started, `run_field_set` mr and branch, `mr_threads {mrUrl, filter: "unresolved-human"}`, one dispatch over T1 and T2, `gate_open {kind: "respond-plan", sourcePath, runDb, stage, scope: "respond-plan"}`, the background wait, holding at `gt-701` |
+| R2 note on a reply | 5/5 | 0 | 0 | 0 | 0 | 0 | none in the entry; `gate_open`, chunk with `code-changes` held back, a last call with `code-changes` and `next`, one `gate_answer`, `gate_record {shape: "respond-plan", gateId: "gt-701"}`, rows from `rows`, T1 redrafted and offered at respond-post |
+| R7b board same pane | 5/5 | 0 | 0 | 0 | 0 | 0 | none; first call `gate_record {scope: "respond-plan", shape: "respond-plan", answers, decidedBy: "board"}` on `r-20261016-rev`, no `run_enter`, no thread read |
+| **Total** | **15/15** | **0** | **0** | **0** | **0** | **0** | RED was 5/15 |
+
+- **R1** (5/5): every rep read with the filter and kept its result as
+  given: "It returns T1 and T2, already filtered. I don't filter again and
+  don't add T3 or T4 back." (round 2, rep 5). None used `run_list`,
+  `run_start`, `mktemp -d`, `gate-ctx.sh` or `gate_ask`: "`gate_open` fits
+  the open itself, so I do not run `gate-ctx.sh fit` here." (round 1, rep
+  5). Reps 2 and 3 of round 1 read the requirements with `mr_view`, a read
+  the step allows.
+- **R2** (5/5): every rep held `code-changes` back from the chunk, asked it
+  with `next` in a last call because T2 answered `fix:`, sent one
+  `gate_answer` carrying `{"value": "reply:T1", "note": "softer"}`, then
+  recorded with the gate's id and wrote the rows as returned: "I write the
+  report rows exactly as the two `rows` entries come back" (round 2, rep 5).
+  No rep computed the override itself or called `run_decision` for
+  respond-plan.
+- **R7b** (5/5 in round 2): "Nothing here calls `run_enter`: the pane
+  already holds `r-20261016-rev`, so a re-entry continues at the box that
+  handed back." (rep 5). Every rep recorded the handed plan first, with no
+  `contextDropped` (the open said false), wrote the rows into `--report`
+  keeping the `receive-review-run:` line, and read no threads.
+
+Observation: R1 and R2 reps counted both threads `blocking` (neither ask
+carries a softener), while the R2 fixture's `formContext` says 1 blocking.
+Several reps noticed and left the gate's text as returned. That comes from
+the fixture, not the skill.

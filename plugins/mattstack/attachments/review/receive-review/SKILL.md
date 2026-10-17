@@ -425,7 +425,9 @@ between. Never list, read or build run dbs by hand.
 {{run-start.flags:receive-review}}
 
 Keep the `runDb` it returns and pass it to every `run_*` and gate call;
-nothing is exported. `<stage>` below is `receive-review` on a run you
+nothing is exported. `run_enter` is the first call of a pane with no run in
+hand: a caller re-entering this pane after its hand-back continues at the
+box that handed back, on the run the pane already holds. `<stage>` below is `receive-review` on a run you
 started or resumed. On a run you inherited (`mode: inherited`, a running
 run a caller handed you), it is the result's `at.stage`, and the caller
 closes the run. A handed `runDb` whose run is no longer running is not
@@ -829,12 +831,16 @@ as `respond-plan.source.json`); the caller opens its gate from that file's
 `contextDropped` or lists `droppedContexts`, say so in the hand-back: the
 caller writes `gate-1-context: dropped` into its own report.
 
-Record that `{plan}` before rewriting the rows: `gate_record {runDb,
+The caller's `{plan}` comes back to this pane, after this hand-back in the
+same conversation. The re-entry goes on from this box with the `runDb`
+already in hand, and its first call is this record: `gate_record {runDb,
 stage, scope: respond-plan, shape: respond-plan, answers: <the plan>,
 decidedBy: <the decider the caller names>}`, plus `contextDropped: true`
 when the open's result said so or the saved report carries the line
-`gate-1-context: dropped`. This verb records the respond-plan decision
-whoever asked the gate.
+`gate-1-context: dropped`. Then the rows. This verb records the
+respond-plan decision whoever asked the gate. A fresh pane, one with no
+hand-back in its conversation, is the other case: it starts at the trigger
+and resumes through the run line.
 
 ### Gate respond-plan: carry the opened gate through gate-protocol
 
