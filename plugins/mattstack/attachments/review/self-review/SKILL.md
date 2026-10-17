@@ -96,6 +96,8 @@ digraph self_review {
     requirements_answer [label="Requirements source answer?" shape=diamond];
     print_depth_block [label="Print the self-review depth block" shape=box];
     run_depth_checks [label="Run the checks the self-review depth names" shape=box];
+    repro_browser [label="Self-review repro takes a browser screenshot?" shape=diamond];
+    capture_repro [label="Capture the self-review repro with the browser (browser-evidence)" shape=box];
     who_judges [label="Who forms the self-review judgment?" shape=diamond];
     stop_no_inline_judging [label="STOP: never judge your own diff inline; dispatch the fresh reviewer" shape=octagon style=filled fillcolor=red fontcolor=white];
     dispatch_reviewer [label="Dispatch the fresh reviewer on your own diff" shape=box];
@@ -157,7 +159,10 @@ digraph self_review {
     requirements_answer -> print_depth_block [label="a source picked"];
     requirements_answer -> run_hold [label="hold"];
     print_depth_block -> run_depth_checks;
-    run_depth_checks -> who_judges;
+    run_depth_checks -> repro_browser;
+    repro_browser -> capture_repro [label="yes"];
+    repro_browser -> who_judges [label="no: read or verify depth, or the domain's own method"];
+    capture_repro -> who_judges [label="Board ready or Not drawn"];
     who_judges -> dispatch_reviewer [label="a fresh reviewer, always"];
     who_judges -> stop_no_inline_judging [label="tempted to give your own read"];
     stop_no_inline_judging -> dispatch_reviewer;
@@ -262,6 +267,26 @@ the worktree, so `verify` and `repro` need no provisioning.
 
 The review flow's Set up for the depth, in this worktree. Each command and
 its result travel to the reviewer as setup observations.
+
+### Self-review repro takes a browser screenshot?
+
+Yes at `repro` depth when EVIDENCE CHECK is `screenshot` and the Criteria
+point at a browser target (a `## Browser target` section, in the criteria
+or in the file they point at for it) whose What proves a change names a
+view for this change, or that has no What proves a change block. Bound
+criteria with no browser target answer no: the repro keeps the domain's
+own method. With nothing bound, yes when the repro's evidence is a
+screenshot of a web page. `read` and `verify` depth answer no.
+
+### Capture the self-review repro with the browser (browser-evidence)
+
+The review flow's A browser screenshot at repro, in this worktree:
+browser-evidence's `Draw the boards` (Browser evidence below), one brief
+per view built from the browser target, `<mr iid>` the branch's MR iid
+when one is in hand, else this run's id (`run_enter`'s `runId`). The board
+stays in `~/.fast-browser/screenshots/` and is cited by path, never
+recorded or uploaded. A board ready, or Not drawn with its reason, goes
+into the setup observations and on to the judgment step.
 
 ### Dispatch the fresh reviewer on your own diff
 
@@ -414,6 +439,10 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 {{include:review-dispatch-body-after}}
 
 {{include:review-core-body-tail}}
+
+## Browser evidence
+
+{{include:browser-evidence}}
 
 ## Gate protocol
 

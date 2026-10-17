@@ -50,6 +50,14 @@ describe("bundleMembers", () => {
   test("a dotfile has no bundle", () => {
     expect(bundleMembers(src, ".x.png", () => [".x.png"])).toEqual([]);
   });
+  test("a pair board's bundle carries the before captures its spec names", () => {
+    const names = ["a.png", "a.c1.png", "a.c1.capture.json", "a.spec.json", "b.c1.png", "b.c1.capture.json", "b.png", "b.spec.json"];
+    const spec = JSON.stringify({ panels: [{ capture: "b.c1.capture.json" }, { capture: "a.c1.capture.json" }, { capture: "../x.capture.json" }] });
+    const read = (p: string) => (p === join(src, "a.spec.json") ? spec : null);
+    expect(bundleMembers(src, "a.png", () => names, read)).toEqual(
+      ["a.c1.capture.json", "a.c1.png", "a.png", "a.spec.json", "b.c1.capture.json", "b.c1.png"].sort(),
+    );
+  });
 });
 
 describe("copyIntoRun", () => {

@@ -21,6 +21,15 @@ digraph ship_run {
     rankdir=TB;
 
     ship_invoked [label="Trigger: ship invoked" shape=ellipse];
+    revise_asked [label="Asked to revise a board on a run that already shipped?" shape=diamond];
+    find_shipped_run [label="Find the shipped run (ship)" shape=box];
+    run_snapshot_shipped [label="run_snapshot {runDb: <the shipped run>}" shape=plaintext];
+    revise_board [label="Revise a board (browser-evidence)" shape=box];
+    revise_outcome [label="Revise outcome (ship)?" shape=diamond];
+    board_revised [label="Board revised: report the new upload" shape=doublecircle];
+    revision_held [label="Revision held: end the turn naming the run, the board and the gate" shape=doublecircle];
+    not_revised_no_spec [label="Not revised: the board has no bundle; offer a new capture" shape=doublecircle];
+    not_revised_failed [label="Not revised: report the failure" shape=doublecircle];
     run_enter [label="run_enter {flags, skillDir, stage: ship, runDb?, spawnedBy?}" shape=plaintext];
     run_enter_mode [label="run_enter mode (ship)?" shape=diamond];
     gate_resume_offer [label="ship gate clarify: the Resume offer" shape=box];
@@ -36,7 +45,16 @@ digraph ship_run {
     rt_too_old [label="rt too old: tell the user to update rt (ship)" shape=doublecircle];
     own_run_open [label="Own ship run open: go to the flow" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    ship_invoked -> run_enter;
+    ship_invoked -> revise_asked;
+    revise_asked -> find_shipped_run [label="yes"];
+    revise_asked -> run_enter [label="no"];
+    find_shipped_run -> run_snapshot_shipped;
+    run_snapshot_shipped -> revise_board;
+    revise_board -> revise_outcome;
+    revise_outcome -> board_revised [label="revised: Recorded, then Attached"];
+    revise_outcome -> revision_held [label="held: at evidence-redaction, Record held or Attach held"];
+    revise_outcome -> not_revised_no_spec [label="no spec beside the board"];
+    revise_outcome -> not_revised_failed [label="a failure: quote it"];
     run_enter -> run_enter_mode;
     run_enter_mode -> inherited_run [label="inherited"];
     run_enter_mode -> own_run_open [label="started"];
@@ -82,6 +100,37 @@ and `currentStage`, then one **Resume** option per candidate (`Resume
 (Recommended)` when `ownSession` is true; a run another live pane owns is
 not yours) / **Start fresh**, and **Hold** in `next`. Resume passes that
 candidate's `runId`.
+
+### Find the shipped run (ship)
+
+The operator asks to change a board on a run that already shipped
+(reword a label, widen a redaction). A `runDb` a caller handed is the
+shipped run. Otherwise it is the run the operator names: `run_list
+{repo}`, the row with that run id, or the newest row whose `branch`
+matches when they name only the branch. Its `runDb` is
+`<runs root>/<the row's repo>/<its id>/state.db`, the runs root
+`~/.mattstack/runs` unless `RT_RUNS_ROOT` sets it.
+
+### Revise a board (browser-evidence)
+
+Take `evidence` and `mr` from the shipped run's `run_snapshot` fields,
+find the case's board in the record (the image's `annotated` path in `value`), and run
+browser-evidence's Revise a board steps 1 to 7, with `stage: ship` on
+every write and `mrUrl` = `mr`. Step 6 is `Record the evidence
+(evidence-record)` and step 7 is `Attach the evidence (evidence-record)`;
+the operator's ask is the attach consent. The first `evidence_attach`
+carries no `linkRefused`; this is the last attach, so only a Take at its
+upload off-script gate resends with `linkRefused: true`.
+
+`Revise outcome (ship)?`: revised is Recorded, then Attached. Held is a
+Hold at Gate evidence-redaction (step 5, nothing recorded), Record held
+or Attach held; the run is already closed, so no `run_hold`. A board with
+no spec beside it is the no-spec exit. A compose error, a re-render that
+still reads wrong after its two tries, a refused confirm, a recapture that
+is not drawn, Record failed or Attach failed is a failure, quoted.
+
+This path starts no run and closes none: no `run_enter`, no `run_stage`,
+no `run_close`. A shipped run stays `done`.
 
 ### Resumed ship run: re-enter at run_snapshot's decisions
 
@@ -173,6 +222,8 @@ digraph ship {
     run_field_set_mr [label="run_field_set {key: mr, value: <url>, stage: ship}" shape=plaintext];
 
     run_field_get_evidence [label="run_field_get {key: evidence} (ship)" shape=plaintext];
+    browser_case [label="Browser screenshot for this case (ship)?" shape=diamond];
+    capture_after_browser [label="Capture the AFTER with the browser (ship, browser-evidence)" shape=box];
     capture_after_case [label="Capture the AFTER for the next case the domain names (ship)" shape=box];
     after_result [label="AFTER result (ship)?" shape=diamond];
     run_budget_after_attempts [label="run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" shape=plaintext];
@@ -321,21 +372,27 @@ digraph ship {
     own_run_mr -> run_field_get_evidence [label="no: inherited"];
     run_field_set_mr -> run_field_get_evidence;
 
-    run_field_get_evidence -> capture_after_case;
+    run_field_get_evidence -> browser_case;
+    browser_case -> capture_after_browser [label="yes"];
+    browser_case -> capture_after_case [label="no: the domain's own method, or no case named"];
+    capture_after_browser -> after_result;
     capture_after_case -> after_result;
-    after_result -> every_case_tried [label="captured"];
+    after_result -> every_case_tried [label="captured, or Board ready"];
     after_result -> after_captured [label="none named"];
-    after_result -> run_budget_after_attempts [label="the capture failed"];
+    after_result -> every_case_tried [label="skipped: unbound, not a browser case"];
+    after_result -> run_budget_after_attempts [label="the capture failed, or Not drawn: a failed brief or spent re-renders"];
+    after_result -> every_case_tried [label="Not drawn for a reason no retry fixes: go on without it"];
+    after_result -> which_exit [label="Held at evidence-redaction: hold"];
     run_budget_after_attempts -> after_attempts_spent;
-    after_attempts_spent -> capture_after_case [label="no"];
+    after_attempts_spent -> browser_case [label="no: another attempt, same case"];
     after_attempts_spent -> every_case_tried [label="yes: go on without it"];
-    every_case_tried -> capture_after_case [label="no"];
+    every_case_tried -> browser_case [label="no"];
     every_case_tried -> after_captured [label="yes"];
     after_captured -> record_evidence [label="yes"];
     after_captured -> run_has_evidence [label="no"];
     record_evidence -> record_outcome;
     record_outcome -> attach_evidence [label="Recorded"];
-    record_outcome -> which_exit [label="Record held at evidence-waiver: hold"];
+    record_outcome -> which_exit [label="Record held at evidence-waiver or evidence-redaction: hold"];
     record_outcome -> which_exit [label="Record failed: a failure naming the images or quoting the error"];
     run_has_evidence -> attach_evidence [label="yes"];
     run_has_evidence -> domain_owns_title [label="no: the field is unset"];
@@ -483,6 +540,46 @@ Compare `git rev-parse HEAD` with the remote branch and report it; never
 push from here. It landed when the remote carries HEAD, which becomes the
 watched sha with no prior pipeline id.
 
+### Capture the AFTER with the browser (ship, browser-evidence)
+
+`Browser screenshot for this case (ship)?` is yes when the domain has a
+`## Browser target` section (in its rules, or in the file they point at
+for it) and either its What proves a change names a view for this case's
+kind of change, or it has no What proves a change block and the plan's
+evidence for the case is a screenshot of a web page. A bound domain with
+no browser target always answers no. Unbound, it is yes when the case's
+BEFORE in the record is a browser board (a `<stem>.spec.json` beside it)
+or the plan's evidence for the case is a screenshot of a web page.
+
+A case already in the record keeps its `id`; a new case gets its `id` and
+`label` first, since the brief's stem needs the id. Write the case's after
+brief (browser-evidence's `Write one brief per board`), stem
+`<run id>-<case id>-after[-<theme>]`:
+
+- The case's BEFORE has a bundle (a `<stem>.spec.json` beside its board):
+  a pair, `state: BEFORE → AFTER`, with `before:` that spec's absolute
+  path. The pair board covers the BEFORE image too.
+- Otherwise (a different screen, a ticket link or text, a new case): its
+  own `AFTER` board, with no `before:`.
+
+`page:` comes from Reach the view, on the sha just pushed; `show` and
+`point at` from What proves a change, the wording from Captions and
+`hide` from Personal data. Unbound, every block takes its default. Then
+walk browser-evidence's `Draw the boards` (Browser evidence below).
+
+Its terminals answer `AFTER result (ship)?`. Board ready is captured; the
+board is recorded with the rest in `Record the evidence (evidence-record)`.
+Held at evidence-redaction is the verb's hold. Not drawn splits by its
+reason: the developer left it uncaptured, the doctor stayed red, no
+compose on PATH, sign-in asks spent, no driver to spawn, redaction rounds
+or openings spent, or confirm refused twice goes on without the AFTER,
+and the description names the gap. A failed brief or spent re-renders is
+a failed capture, counted against `ship:after-attempts:<case id>`.
+
+A yes case follows browser-evidence alone: the domain's own capture
+steps (its AFTER capture, any preview, any draw or annotate step) apply
+only to its other evidence kinds.
+
 ### Capture the AFTER for the next case the domain names (ship)
 
 For each case in the record, the same view as its BEFORE, on the sha just
@@ -490,18 +587,24 @@ pushed; a v1 record's BEFORE is the case `case`. Any other capture the
 domain names is a new case with its own `id` and `label`, as is each AFTER
 when the record has no BEFORE. A case whose third capture fails goes on
 without its AFTER, and the description says what was tried. The record is
-this run's (own or inherited `runDb`). Unbound, there is no AFTER.
+this run's (own or inherited `runDb`). Unbound, a case that is not a
+browser case (above) has no AFTER: it is skipped, so a later browser case
+still runs.
 
 ### Record the evidence (evidence-record)
 
 `images` are the AFTERs just captured (`slot: after`, a new case's
-`label`), `tree` is `<root>`. Recorded goes straight to the attach: this
-verb writes no `evidence` of its own.
+`label`), `tree` is `<root>`. A browser board's images carry it as
+`annotated` (`~/.fast-browser/screenshots/<stem>.png`) with the brief's
+claim as `caption`, as browser-evidence's Record the board says; a pair
+board also covers the case's BEFORE, named by its `value` path. Recorded
+goes straight to the attach: this verb writes no `evidence` of its own.
 
 ### Attach the evidence (evidence-record)
 
 The ship gate's Proceed is the attach consent. This is the last attach, so
-Take sends `linkRefused: true`; the off-script gate shares the push gate's
+a Take at the upload off-script gate (never the first call) sends
+`linkRefused: true`; the off-script gate shares the push gate's
 `n`.
 
 ### Write the title and description (ship)
@@ -568,6 +671,12 @@ verb done, the MR a draft, the note quoted in the report.
 - **Hold** at any gate records `run_hold`: the gate-write stage, the gate
   as `reason`, `decidedBy` as the answer recorded it. The turn ends naming
   the run and the gate.
+- **A board revision asked at a gate** (a note at the ship gate, say) runs
+  browser-evidence's Revise a board steps 1 to 5; the record and the
+  attach (its steps 6 and 7) follow this graph's own `Record the evidence
+  (evidence-record)` and `Attach the evidence (evidence-record)` boxes. On
+  a run that already shipped, the run graph's revise entry runs every
+  step.
 
 ## Budgets in this verb
 
@@ -582,12 +691,20 @@ comparison, the origin URL and answer, the refusal) as its reason.
 
 If a rule below asks for a move this graph marks STOP, take the off-script
 edge instead. A rule that keeps a capture out of the record, or keeps a
-base with no waiver, yields to the evidence record.
+base with no waiver, yields to the evidence record. A browser target the
+domain points at supplies facts, never steps: on a browser case,
+browser-evidence below does the capture, the board, the gates and the
+bundle.
 
 {{slot:domain}}
 
 When nothing is inlined above, the graph alone is the flow: no steps before
-the gate, no fast checks, no rebase, no AFTER, no CI watch.
+the gate, no fast checks, no rebase, no AFTER beyond a browser case's, no
+CI watch.
+
+## Browser evidence
+
+{{include:browser-evidence}}
 
 ## Evidence record
 

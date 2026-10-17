@@ -487,6 +487,26 @@ describe("evidence_record", () => {
     expect(res.error).toBe(`${refusal} (the files were copied: ${join(evidenceDir("a"), "a.png")})`);
   });
 
+  test("source: a ticket image keeps its mark in the record; another source is refused; a waiver on it is refused at the write", async () => {
+    const shot = put("t.png");
+    const bad = await tool(makeDeps().deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", path: shot, source: "web" }] }, env);
+    expect(bad).toMatchObject({ ok: false, error: 'images[0]: "source" must be "ticket"' });
+    const { deps } = makeDeps();
+    const first = (await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", path: shot, source: "ticket" }] }, env)).body as { written: boolean; uncovered: Array<{ path: string }> };
+    expect(first.written).toBe(false);
+    const started = runStart(runsRoot, { repo: "web", workType: "fix", pipeline: "default", env: { RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv });
+    if (!started.ok) throw new Error(started.error);
+    const realEnv = { ...process.env, RT_RUNS_ROOT: runsRoot, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+    const real = { ...makeDeps().deps, runTool: realEvidenceToolDeps.runTool };
+    const waived = await tool(real, "evidence_record").handler({ runDb: started.runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", path: shot, source: "ticket", waiver: "nothing to mark" }] }, realEnv);
+    expect(waived.ok).toBe(false);
+    expect(waived.error).toContain("is a ticket image and cannot be waived");
+    const board = put("t-board.png");
+    const covered = await tool(real, "evidence_record").handler({ runDb: started.runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", path: shot, source: "ticket", annotated: board, caption: "c" }] }, realEnv);
+    expect(covered.ok).toBe(true);
+    expect(JSON.parse((covered.body as { value: string }).value).cases[0].before.source).toBe("ticket");
+  });
+
   test("against a real run db through the run tools' handlers", async () => {
     const started = runStart(runsRoot, { repo: "web", workType: "fix", pipeline: "default", env: { RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv });
     if (!started.ok) throw new Error(started.error);
@@ -727,6 +747,34 @@ describe("evidence_attach", () => {
     expect((await run()).ups).toBe(0);
     put("badge.redactions.json", "{}", evidenceDir("retry-badge"));
     expect((await run()).ups).toBe(1);
+  });
+
+  test("reuse: a board the redaction check would refuse is sent to the daemon, never reused", async () => {
+    const { board, evidence } = boardRecord();
+    const dir = evidenceDir("retry-badge");
+    put("badge.spec.json", JSON.stringify({ panels: [{ capture: "badge.c1.capture.json", marks: [{ redact: {} }] }] }), dir);
+    put("badge.c1.capture.json", JSON.stringify({ source: "import" }), dir);
+    const prior = serializeUploads({ [realpathSync(board)]: { sha256: sha256Of(board), project: IDENT, url: "https://gitlab.com/acme/web/uploads/old/badge.png", markdown: "![badge](/uploads/old/badge.png)", at: 1 } });
+    const { deps, calls } = makeDeps({ fields: { evidence, "evidence-uploads": prior } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(uploads(calls).map((c) => c.payload.path)).toEqual([board]);
+    expect(body.uploaded.every((u) => !u.reused)).toBe(true);
+  });
+
+  test("reuse: a byte copy of a ticket image is never reused; it goes to the daemon", async () => {
+    const dir = evidenceDir("t");
+    const ticket = put("ticket.png", "ticket-bytes", dir);
+    const board = put("board.png", "board", dir);
+    const copy = put("copy.png", "ticket-bytes", evidenceDir("u"));
+    const evidence = v2([
+      { id: "t", label: "T", before: { path: ticket, source: "ticket", annotated: board, caption: "c" } },
+      { id: "u", label: "U", after: { path: copy, waiver: "w" } },
+    ]);
+    const prior = serializeUploads({ [realpathSync(copy)]: { sha256: sha256Of(copy), project: IDENT, url: "u", markdown: "![c](u)", at: 1 } });
+    const { deps, calls } = makeDeps({ fields: { evidence, "evidence-uploads": prior } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(uploads(calls).map((c) => c.payload.path)).toContain(copy);
+    expect(body.uploaded.find((u) => u.path === copy)?.reused ?? false).toBe(false);
   });
 
   test("a FIFO or an oversize file in the record is never read: it goes to the daemon unhashed and is not remembered", async () => {

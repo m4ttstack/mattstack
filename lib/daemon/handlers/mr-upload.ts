@@ -8,17 +8,24 @@
  * uid, and rt.mcp.uploadRoots read through the resolver at call time. The
  * guard adds its own built-in roots (rt's evidence folder, a run's evidence
  * folder) on top of these. With a runId, the file must also be in that run's
- * evidence record (../evidence-record-check.ts).
+ * evidence record (../evidence-record-check.ts); a file under a run's own
+ * evidence folder is held to that run's record even without one. A composed board whose
+ * ticket-image redactions are unconfirmed is refused too
+ * (../redaction-record-check.ts).
  */
-import { isAbsolute } from "path";
+import { existsSync, readdirSync, realpathSync } from "fs";
+import { isAbsolute, join, relative, sep } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
 import { getRepoContext, providerRequestHook } from "../freshness.ts";
 import { loadSecrets } from "../../linear.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { findRun } from "../../runs/store.ts";
+import { findRun, listRunRepoDirs } from "../../runs/store.ts";
+import { runsRoot } from "../../runs/paths.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
-import { evidenceUploadRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
-import { checkUploadPath, claudeTempRoots } from "../upload-guard.ts";
+import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
+import { evidenceUploadRefusal, ticketCopyRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
+import { redactionUploadRefusal } from "../redaction-record-check.ts";
+import { checkUploadPath, claudeTempRoots, workRoot } from "../upload-guard.ts";
 import type { CommandResult, HandlerContext, HandlerMap } from "./types.ts";
 
 /** Inside the client's 120s so the daemon, not the socket, reports a stalled GitLab. */
@@ -33,6 +40,61 @@ export interface MrUploadSeams {
   fetchFn?: typeof fetch;
   requestHook?: () => ReturnType<typeof providerRequestHook>;
   runEvidence?: (runId: string) => RunEvidenceLookup;
+  workRoot?: () => string;
+}
+
+/**
+ * With no run in scope a file can still be a run's saved ticket image (its
+ * original in the session temp root, say): every run with an evidence folder
+ * is checked, by size first, so an ordinary upload hashes nothing.
+ */
+function ticketCopyAnyRun(
+  real: string,
+  filename: string,
+  bytes: Uint8Array,
+  root: string,
+  runEvidence: (runId: string) => RunEvidenceLookup,
+  warn: (message: string, context: { err: unknown; path: string }) => void,
+): string | null {
+  let ids: string[];
+  try {
+    ids = readdirSync(root);
+  } catch {
+    return null;
+  }
+  for (const id of ids) {
+    if (!existsSync(join(root, id, "evidence"))) continue;
+    const run = runEvidence(id);
+    // Skipping a run that exists but cannot be read keeps one bad db from blocking every upload; the warn records the skip.
+    if (!run.found) {
+      if (listRunRepoDirs().some((repo) => existsSync(join(runsRoot(), repo, id, "state.db")))) {
+        warn("ticket copy check: run has an evidence folder but its db could not be read; skipped", { err: null, path: join(root, id) });
+      }
+      continue;
+    }
+    const record = readEvidence(run.evidence);
+    if (record.version !== 2) {
+      if (run.evidence) warn("ticket copy check: run's evidence field is not a v2 record; skipped", { err: null, path: join(root, id) });
+      continue;
+    }
+    const refusal = ticketCopyRefusal({ record, realpath: real, filename, bytes, warn });
+    if (refusal) return refusal;
+  }
+  return null;
+}
+
+/** A file under a run's evidence folder belongs to that run, so its record governs it with or without a runId. */
+function runIdOfPath(real: string, root: string): string | null {
+  let rootReal: string;
+  try {
+    rootReal = realpathSync(root);
+  } catch {
+    return null;
+  }
+  const rel = relative(rootReal, real);
+  if (rel.startsWith("..") || isAbsolute(rel)) return null;
+  const [id, folder, ...rest] = rel.split(sep);
+  return id && folder === "evidence" && rest.length > 0 ? id : null;
 }
 
 export function createMrUploadHandlers(
@@ -44,6 +106,7 @@ export function createMrUploadHandlers(
   const worktreePathsFn = seams.worktreePaths ?? ((repoName: string) => loadRegistry(repoName).map((t) => t.path));
   const tempRootsFn = seams.tempRoots ?? (() => claudeTempRoots(typeof process.getuid === "function" ? process.getuid() : null));
   const fetchFn = seams.fetchFn ?? fetch;
+  const workRootFn = seams.workRoot ?? workRoot;
   const hookFn = seams.requestHook ?? providerRequestHook;
   const runEvidenceFn = seams.runEvidence ?? ((runId: string): RunEvidenceLookup => {
     const detail = findRun(runId);
@@ -80,11 +143,23 @@ export function createMrUploadHandlers(
       const roots = [repoPath, ...worktreePathsFn(repoName), ...tempRootsFn(), ...uploadRootsFn()];
       const checked = checkUploadPath(path.trim(), roots);
       if (!checked.ok) return { ok: false, error: checked.error };
-      if (p?.runId !== undefined) {
-        if (typeof p.runId !== "string" || !p.runId.trim()) return { ok: false, error: "runId must be a non-empty string" };
-        const runId = p.runId.trim();
-        const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId) });
-        if (refusal) return { ok: false, error: refusal };
+      const unconfirmed = redactionUploadRefusal({ realpath: checked.realpath, filename: checked.filename, bytes: checked.bytes, warn: (message, context) => ctx.log.warn(context, message) });
+      if (unconfirmed) return { ok: false, error: unconfirmed };
+      if (p?.runId !== undefined && (typeof p.runId !== "string" || !p.runId.trim())) return { ok: false, error: "runId must be a non-empty string" };
+      const runIds = new Set<string>();
+      if (typeof p?.runId === "string") runIds.add(p.runId.trim());
+      const owner = runIdOfPath(checked.realpath, workRootFn());
+      if (owner) runIds.add(owner);
+      const warn = (message: string, context: { err: unknown; path: string }) => ctx.log.warn(context, message);
+      for (const runId of runIds) {
+        const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId), bytes: checked.bytes, warn });
+        if (!refusal) continue;
+        const byLocation = runId === owner && runId !== (typeof p?.runId === "string" ? p.runId.trim() : undefined) && !refusal.includes("ticket image");
+        return { ok: false, error: byLocation ? `${checked.filename} is in run ${runId}'s evidence folder and not in run ${runId}'s evidence record; record it with evidence_record first` : refusal };
+      }
+      if (runIds.size === 0) {
+        const ticket = ticketCopyAnyRun(checked.realpath, checked.filename, checked.bytes, workRootFn(), runEvidenceFn, warn);
+        if (ticket) return { ok: false, error: ticket };
       }
 
       try {
