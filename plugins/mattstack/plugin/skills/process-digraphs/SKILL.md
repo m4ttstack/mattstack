@@ -29,8 +29,19 @@ short linear procedure with no branches (a numbered list reads better).
 
 ## Node vocabulary
 
-The shape carries the meaning. The node's text is its identity: write the
-sentence as the quoted node id, never an opaque id with a separate `label`.
+Every node is a short id and its text:
+`push_refused [label="git_push refused the tree?" shape=diamond];`
+
+- **The label is the text**, phrased as the table says. Sections and prose
+  name a node by its text.
+- **The id is the handle edges use**: lowercase words joined by underscores
+  that name the step (`push_refused`, `fix_remote`). A `plaintext` id starts
+  with its call's first word in that form (`git_push`, `enter_worktree` for
+  `EnterWorktree`); a STOP's id starts with `stop_`.
+- **Declare each node once, in the order the process meets it**, every one
+  with a label, then write the edges with ids only.
+
+The shape carries the meaning:
 
 | Shape | Means | Phrase it as |
 | --- | --- | --- |
@@ -48,8 +59,9 @@ tests") is a `box`.
 ## The rules
 
 1. **Map plus sections.** Keep node text short. Every judgment `box` has its
-   own `### <exact node text>` section with the guidance (what to look for,
-   domain rules, examples). Never pack guidance into a node label.
+   own `### <exact node text>` section, the text being its label, with the
+   guidance (what to look for, domain rules, examples). Never pack guidance
+   into a node label.
 2. **Coarse is fine.** "Review the MR" can be one box pointing at its
    section. Split a node only where agents actually drift; never turn
    judgment into a checklist of diamonds ("naming ok? tests ok?").
@@ -98,35 +110,35 @@ tests") is a `box`.
 ````markdown
 ```dot
 digraph hotfix_push {
-    "Trigger: fast tests green" [shape=ellipse];
-    "git_push {tree, setUpstream: true}" [shape=plaintext];
-    "git_push refused the tree?" [shape=diamond];
-    "Push attempt = 2?" [shape=diamond];
-    "Use the repo root git_push printed" [shape=box];
-    "STOP: push only with git_push" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Open the off-script gate: push refused" [shape=box];
-    "Off-script rounds = 2?" [shape=diamond];
-    "mr_create {repoName, sourceBranch, targetBranch, title, description}" [shape=plaintext];
-    "Held: the turn ends naming the gate" [shape=doublecircle];
-    "Push refused: reported" [shape=doublecircle];
-    "MR open" [shape=doublecircle style=filled fillcolor=lightgreen];
+    trigger [label="Trigger: fast tests green" shape=ellipse];
+    git_push [label="git_push {tree, setUpstream: true}" shape=plaintext];
+    push_refused [label="git_push refused the tree?" shape=diamond];
+    push_attempt [label="Push attempt = 2?" shape=diamond];
+    use_repo_root [label="Use the repo root git_push printed" shape=box];
+    stop_shell_push [label="STOP: push only with git_push" shape=octagon style=filled fillcolor=red fontcolor=white];
+    offscript_gate [label="Open the off-script gate: push refused" shape=box];
+    offscript_rounds [label="Off-script rounds = 2?" shape=diamond];
+    mr_create [label="mr_create {repoName, sourceBranch, targetBranch, title, description}" shape=plaintext];
+    held [label="Held: the turn ends naming the gate" shape=doublecircle];
+    push_reported [label="Push refused: reported" shape=doublecircle];
+    mr_open [label="MR open" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: fast tests green" -> "git_push {tree, setUpstream: true}";
-    "git_push {tree, setUpstream: true}" -> "git_push refused the tree?";
-    "git_push refused the tree?" -> "mr_create {repoName, sourceBranch, targetBranch, title, description}" [label="no: pushed"];
-    "git_push refused the tree?" -> "Push attempt = 2?" [label="yes"];
-    "git_push refused the tree?" -> "STOP: push only with git_push" [label="tempted to push from the shell"];
-    "Push attempt = 2?" -> "Use the repo root git_push printed" [label="no: retry once"];
-    "Use the repo root git_push printed" -> "git_push {tree, setUpstream: true}";
-    "Push attempt = 2?" -> "Open the off-script gate: push refused" [label="yes: budget spent"];
-    "STOP: push only with git_push" -> "Open the off-script gate: push refused";
-    "Open the off-script gate: push refused" -> "mr_create {repoName, sourceBranch, targetBranch, title, description}" [label="take: the human pushed"];
-    "Open the off-script gate: push refused" -> "Off-script rounds = 2?" [label="iterate: the human fixed it"];
-    "Open the off-script gate: push refused" -> "Held: the turn ends naming the gate" [label="hold"];
-    "Open the off-script gate: push refused" -> "Push refused: reported" [label="hand back"];
-    "Off-script rounds = 2?" -> "git_push {tree, setUpstream: true}" [label="no: retry"];
-    "Off-script rounds = 2?" -> "Push refused: reported" [label="yes"];
-    "mr_create {repoName, sourceBranch, targetBranch, title, description}" -> "MR open";
+    trigger -> git_push;
+    git_push -> push_refused;
+    push_refused -> mr_create [label="no: pushed"];
+    push_refused -> push_attempt [label="yes"];
+    push_refused -> stop_shell_push [label="tempted to push from the shell"];
+    push_attempt -> use_repo_root [label="no: retry once"];
+    use_repo_root -> git_push;
+    push_attempt -> offscript_gate [label="yes: budget spent"];
+    stop_shell_push -> offscript_gate;
+    offscript_gate -> mr_create [label="take: the human pushed"];
+    offscript_gate -> offscript_rounds [label="iterate: the human fixed it"];
+    offscript_gate -> held [label="hold"];
+    offscript_gate -> push_reported [label="hand back"];
+    offscript_rounds -> git_push [label="no: retry"];
+    offscript_rounds -> push_reported [label="yes"];
+    mr_create -> mr_open;
 }
 ```
 
@@ -153,8 +165,11 @@ One graph, one section per judgment step, and the tool calls are the nodes.
      error, any Graphviz warning, an indented fence, or no block at all.
    - `python3 check-dot.py <SKILL.md>` fails on an unlabelled decision edge, a
      one-way decision, a dead end, a loop with no decision to leave it, an
-     unreachable node, a STOP that is not named `STOP:`, an opaque id, or a
-     missing success outcome. It also fails two warnings (two calls in one
+     unreachable node, a STOP that is not named `STOP:`, a missing success
+     outcome, or an id that breaks the Node vocabulary: not lowercase words
+     joined by underscores, a `plaintext` id that does not start with its
+     call, a STOP id without `stop_`, a graph that labels some nodes and not
+     others, two nodes with the same text, or one id declared twice. It also fails two warnings (two calls in one
      plaintext node, a tempted edge that leaves a step instead of a
      decision); --warn-only prints them without failing.
 5. Test behavior with superpowers:writing-skills: fresh agents, describe-only,
@@ -182,8 +197,9 @@ line; each one caught a real graph in review.
    ("tag, then push the tag" drawn as one push), is dropped.
 4. **One exact call per `plaintext` node.** "X, or Y on GitHub" is two nodes
    behind a `Forge?` diamond.
-5. **Distinct text for every step**, specific to this skill: identical text
-   merges two steps into one node.
+5. **Distinct text and a distinct id for every step**, specific to this
+   skill: identical text fails the check, and an identical id merges two
+   steps into one node.
 6. **Guard STOPs sit on `tempted to ...` edges out of a decision** and
    leave by a rule 5 exit.
 7. **Give the spec's test plan a RED scenario that reaches each tempting move**: a
