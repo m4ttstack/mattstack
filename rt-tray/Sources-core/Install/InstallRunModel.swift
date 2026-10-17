@@ -3,15 +3,24 @@ import Combine
 
 public typealias ApplyStreamFactory = @Sendable (_ from: String?) -> AsyncThrowingStream<String, Error>
 
+/// A running step's latest progress report (git's clone phases).
+public struct StepProgress: Equatable, Sendable {
+    public var label: String
+    public var percent: Int
+    public var note: String?
+    public init(label: String, percent: Int, note: String?) { self.label = label; self.percent = percent; self.note = note }
+}
+
 public struct InstallStep: Equatable, Identifiable, Sendable {
     public var info: StepInfo
     public var state: StepState
     public var detail: String?
     public var remedy: String?
     public var waitingOnYou: Bool
+    public var progress: StepProgress?
     public var id: String { info.id }
-    public init(info: StepInfo, state: StepState = .pending, detail: String? = nil, remedy: String? = nil, waitingOnYou: Bool = false) {
-        self.info = info; self.state = state; self.detail = detail; self.remedy = remedy; self.waitingOnYou = waitingOnYou
+    public init(info: StepInfo, state: StepState = .pending, detail: String? = nil, remedy: String? = nil, waitingOnYou: Bool = false, progress: StepProgress? = nil) {
+        self.info = info; self.state = state; self.detail = detail; self.remedy = remedy; self.waitingOnYou = waitingOnYou; self.progress = progress
     }
 }
 
@@ -167,7 +176,7 @@ public final class InstallRunModel: ObservableObject {
             }
         case .unknown(let name):
             noteStreamIssue("unknown event: \(name)", gen: gen)
-        case .plan, .step:
+        case .plan, .step, .progress:
             break
         }
     }
@@ -212,6 +221,7 @@ public final class InstallRunModel: ObservableObject {
                     steps[i].remedy = nil
                     steps[i].detail = nil
                     steps[i].waitingOnYou = false
+                    steps[i].progress = nil
                 } else {
                     steps.append(InstallStep(info: info))
                 }
@@ -221,7 +231,10 @@ public final class InstallRunModel: ObservableObject {
             steps[i].state = state
             if let detail { steps[i].detail = detail }
             if let remedy { steps[i].remedy = remedy }
-            if state != .running { steps[i].waitingOnYou = false }
+            if state != .running { steps[i].waitingOnYou = false; steps[i].progress = nil }
+        case .progress(let id, let label, let percent, let note):
+            guard let i = steps.firstIndex(where: { $0.id == id }), steps[i].state == .running else { return }
+            steps[i].progress = StepProgress(label: label, percent: percent, note: note)
         case .need(let id, _):
             if let i = steps.firstIndex(where: { $0.id == id }) { steps[i].waitingOnYou = true }
         case .log, .done, .unknown:

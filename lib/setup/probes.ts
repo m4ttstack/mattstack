@@ -21,9 +21,19 @@ export interface ExecResult {
   signal?: string;
 }
 
+export interface ExecOpts {
+  cwd?: string;
+  timeoutMs?: number;
+  env?: Record<string, string>;
+  input?: string;
+  inherit?: boolean;
+}
+
 export interface Probes {
   /** Never throws: a missing binary yields code 127 with stderr "ENOENT: <argv0>"; timeout yields 124. `inherit` hands the child the TTY (interactive logins) — stdout/stderr then come back empty. */
-  exec(argv: string[], opts?: { cwd?: string; timeoutMs?: number; env?: Record<string, string>; input?: string; inherit?: boolean }): Promise<ExecResult>;
+  exec(argv: string[], opts?: ExecOpts): Promise<ExecResult>;
+  /** `exec`, handing stderr to `onStderr` as it arrives; the result still carries all of it. */
+  execStreaming(argv: string[], opts: Omit<ExecOpts, "inherit"> & { onStderr: (chunk: string) => void }): Promise<ExecResult>;
   exists(path: string): boolean;
   /** isDirectory + writable-by-current-user, following symlinks; null when the path cannot be stat'd at all (missing, or unreadable). A path that cannot be stat'd is indistinguishable from one that is not there, and both mean "choose another". */
   statPath(path: string): { isDirectory: boolean; writable: boolean } | null;
@@ -75,7 +85,20 @@ const DEFAULT_FETCH_TIMEOUT_MS = 5000;
 /** Grace between SIGTERM and SIGKILL once timeoutMs elapses — long enough for a well-behaved child to exit on TERM, short enough to keep the 124 path bounded. */
 const KILL_GRACE_MS = 200;
 
-export async function execWithTimeout(argv: string[], opts?: { cwd?: string; timeoutMs?: number; env?: Record<string, string>; input?: string; inherit?: boolean }): Promise<ExecResult> {
+async function readStreaming(stream: ReadableStream<Uint8Array>, onChunk: (chunk: string) => void): Promise<string> {
+  const decoder = new TextDecoder();
+  let all = "";
+  for await (const bytes of stream) {
+    const chunk = decoder.decode(bytes, { stream: true });
+    all += chunk;
+    if (chunk) onChunk(chunk);
+  }
+  const tail = decoder.decode();
+  if (tail) onChunk(tail);
+  return all + tail;
+}
+
+export async function execWithTimeout(argv: string[], opts?: ExecOpts & { onStderr?: (chunk: string) => void }): Promise<ExecResult> {
   const hasInput = opts?.input !== undefined && !opts?.inherit;
 
   // A local no-arg closure (rather than `Bun.spawn(argv, {...})` inline
@@ -124,7 +147,11 @@ export async function execWithTimeout(argv: string[], opts?: { cwd?: string; tim
     }
 
     const stdoutP = opts?.inherit ? Promise.resolve("") : new Response(proc.stdout as ReadableStream).text();
-    const stderrP = opts?.inherit ? Promise.resolve("") : new Response(proc.stderr as ReadableStream).text();
+    const stderrP = opts?.inherit
+      ? Promise.resolve("")
+      : opts?.onStderr
+        ? readStreaming(proc.stderr as ReadableStream<Uint8Array>, opts.onStderr)
+        : new Response(proc.stderr as ReadableStream).text();
     const collected = Promise.all([stdoutP, stderrP, proc.exited]);
 
     const withSignal = (r: ExecResult): ExecResult => (proc.signalCode ? { ...r, signal: proc.signalCode } : r);
@@ -199,14 +226,17 @@ export function withLocalBinOnPath(env: Record<string, string>, home: string): R
   return { ...env, PATH: current ? `${local}:${current}` : local };
 }
 
+function realExec(argv: string[], opts?: ExecOpts & { onStderr?: (chunk: string) => void }): Promise<ExecResult> {
+  const home = process.env.HOME ?? homedir();
+  const resolved = withWellKnownBinFallback(argv, { home, pathDirs: (process.env.PATH ?? "").split(":"), exists: existsSync });
+  const env = withLocalBinOnPath({ ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...opts?.env }, home);
+  return execWithTimeout(resolved, { ...opts, env });
+}
+
 export function createRealProbes(): Probes {
   return {
-    exec(argv, opts) {
-      const home = process.env.HOME ?? homedir();
-      const resolved = withWellKnownBinFallback(argv, { home, pathDirs: (process.env.PATH ?? "").split(":"), exists: existsSync });
-      const env = withLocalBinOnPath({ ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...opts?.env }, home);
-      return execWithTimeout(resolved, { ...opts, env });
-    },
+    exec: realExec,
+    execStreaming: realExec,
 
     exists(path) {
       return existsSync(path);

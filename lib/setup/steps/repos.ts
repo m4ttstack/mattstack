@@ -16,6 +16,7 @@ import { gitWithToken } from "../../team/git-credential.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
+import { PROGRESS_SHAPE, parseGitProgress, splitProgressLines } from "../git-progress.ts";
 import type { ExecResult } from "../probes.ts";
 import { expandHome, promoteStagedRepoRoot } from "../repo-root.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
@@ -77,9 +78,33 @@ function isCloneOf(p: ApplyContext["p"], dest: string, identity: string): boolea
   return false;
 }
 
+/** Each whole line git writes goes to `ctx.progress` when it reads as progress; a line split across chunks waits for its end. */
+function progressReader(ctx: ApplyContext): (chunk: string) => void {
+  let pending = "";
+  return (chunk) => {
+    const text = pending + chunk;
+    const cut = Math.max(text.lastIndexOf("\r"), text.lastIndexOf("\n")) + 1;
+    pending = text.slice(cut);
+    for (const line of splitProgressLines(text.slice(0, cut))) {
+      const report = parseGitProgress(line);
+      if (report) ctx.progress?.("repos.clone", report);
+    }
+  };
+}
+
+function cloningDetail(base: string, n: number, total: number, found: string[]): string {
+  const head = `Cloning ${base} (${n} of ${total})`;
+  if (found.length === 0) return head;
+  const names = found.length === 1 ? found[0]! : `${found.slice(0, -1).join(", ")} and ${found.at(-1)!}`;
+  return `${head} · ${names} ${found.length === 1 ? "was" : "were"} already on this Mac`;
+}
+
 /** Never empty: git killed without a word still says how it ended. */
 function cloneFailureReason(result: ExecResult): string {
-  const output = withoutUrls(`${result.stdout}\n${result.stderr}`.trim());
+  const stderr = splitProgressLines(result.stderr)
+    .filter((line) => !PROGRESS_SHAPE.test(line))
+    .join("\n");
+  const output = withoutUrls(`${result.stdout}\n${stderr}`.trim());
   if (result.code === TIMED_OUT && !output) return `timed out after ${CLONE_TIMEOUT_MS / 60_000} minutes`;
   if (result.signal) return `${output ? `${output} ` : ""}git was killed by ${result.signal} (exit ${result.code})`.trim();
   return output ? `${output} (git exited ${result.code})` : `git exited ${result.code} with no output`;
@@ -141,13 +166,13 @@ async function cloneInto(ctx: ApplyContext, identity: string, dest: string): Pro
   const host = identity.slice(0, slash);
   const sshRemote = `git@${host}:${identity.slice(slash + 1)}.git`;
   if (slash > 0 && (await sshReaches(p, sshRemote))) {
-    return p.exec(["git", ...CLONE_STALL_ARGS, "clone", sshRemote, dest], { env: SSH_CLONE_ENV, timeoutMs: CLONE_TIMEOUT_MS });
+    return p.execStreaming(["git", ...CLONE_STALL_ARGS, "clone", "--progress", sshRemote, dest], { env: SSH_CLONE_ENV, timeoutMs: CLONE_TIMEOUT_MS, onStderr: progressReader(ctx) });
   }
 
   const remote = `https://${identity}.git`;
   const token = await trustedForgeTokenFor(ctx, remote);
-  const git = gitWithToken([...CLONE_STALL_ARGS, "clone", remote, dest], token, CLONE_ENV, { remote });
-  const result = await p.exec(git.argv, { env: git.env, timeoutMs: CLONE_TIMEOUT_MS });
+  const git = gitWithToken([...CLONE_STALL_ARGS, "clone", "--progress", remote, dest], token, CLONE_ENV, { remote });
+  const result = await p.execStreaming(git.argv, { env: git.env, timeoutMs: CLONE_TIMEOUT_MS, onStderr: progressReader(ctx) });
   const rt = linkPath(p.home, "rt");
   if (result.code === 0 && token && p.exists(rt)) {
     // The empty entry clears every helper before it for this host, so git's
@@ -210,10 +235,10 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   const rootPaths = (getSetting<string[]>("rt.repoRoots").value ?? []).map((r) => expandHome(p, r));
 
   let cloned = 0;
-  let present = 0;
+  const found: string[] = [];
   const failed: string[] = [];
 
-  for (const identity of identities) {
+  for (const [i, identity] of identities.entries()) {
     const base = repoBasename(identity);
     const dest = join(rootPath, base);
 
@@ -223,7 +248,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
         ctx.log("repos.clone", `${base}: ${dest} exists but isn't a clone of ${identity} (basename collision or unrelated folder); resolve it by hand`);
         continue;
       }
-      if (await indexDest(ctx, identity, base, dest)) present++;
+      if (await indexDest(ctx, identity, base, dest)) found.push(base);
       else failed.push(base);
       continue;
     }
@@ -231,7 +256,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
     const existing = await findExistingClone(p, identity, dest, rootPaths);
     if (existing) {
       ctx.log("repos.clone", `${base}: using the existing clone at ${existing.path}`);
-      if (existing.indexed || (await indexDest(ctx, identity, base, existing.path))) present++;
+      if (existing.indexed || (await indexDest(ctx, identity, base, existing.path))) found.push(base);
       else failed.push(base);
       continue;
     }
@@ -244,6 +269,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
       continue;
     }
 
+    ctx.emit({ event: "step", id: "repos.clone", state: "running", detail: cloningDetail(base, i + 1, identities.length, found) });
     const result = await cloneInto(ctx, identity, dest);
     if (result.code !== 0) {
       failed.push(base);
@@ -256,7 +282,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
     else failed.push(base);
   }
 
-  const tally = `cloned ${cloned}, present ${present}, failed ${failed.length}`;
+  const tally = `cloned ${cloned}, present ${found.length}, failed ${failed.length}`;
   if (failed.length === 0) return { state: "done", detail: tally };
   return {
     state: "partial",

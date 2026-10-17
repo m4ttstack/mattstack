@@ -178,6 +178,7 @@ export type ApplyEvent =
   | { event: "plan"; steps: { id: EventId; title: string; kind: StepKind }[] }
   | { event: "step"; id: EventId; state: StepState; detail?: string; remedy?: string }
   | { event: "log"; id: EventId; line: string }
+  | { event: "progress"; id: EventId; label: string; percent: number; note?: string }
   | { event: "need"; id: EventId; request: NeedRequest }
   | { event: "done"; ok: boolean; failedStep?: EventId; failedSteps?: EventId[]; skipped?: "not-set-up" | "current" | "running" };
 

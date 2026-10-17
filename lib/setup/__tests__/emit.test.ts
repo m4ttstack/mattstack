@@ -278,3 +278,56 @@ test("at a terminal a log line with a newline is one sub per row and the log rec
   ]);
   expect(logged).toEqual([["repos.clone", hostile]]);
 });
+
+test("at a terminal git's progress is one sub-line updated in place, once per whole percent or phase", async () => {
+  process.env.RT_UI_BIN = FAKE;
+  process.env.RT_UI_FAKE = JSON.stringify({ record });
+  await drive(emitter(true), [
+    plan,
+    { event: "step", id: "repos.clone", state: "running" },
+    { event: "step", id: "repos.clone", state: "running", detail: "Cloning acme-api (1 of 1)" },
+    { event: "progress", id: "repos.clone", label: "Receiving objects", percent: 42, note: "1.21 GiB · 18.40 MiB/s" },
+    { event: "progress", id: "repos.clone", label: "Receiving objects", percent: 42, note: "1.22 GiB · 18.10 MiB/s" },
+    { event: "progress", id: "repos.clone", label: "Receiving objects", percent: 43, note: "1.25 GiB · 18.20 MiB/s" },
+    { event: "progress", id: "repos.clone", label: "Resolving deltas", percent: 43 },
+    { event: "step", id: "repos.clone", state: "done", detail: "cloned 1, present 0, failed 0" },
+    { event: "done", ok: true },
+  ]);
+  expect(sent().filter((m) => m.t === "start" || m.t === "sub")).toEqual([
+    { t: "start", title: "Clone your repos" },
+    { t: "sub", text: "Cloning acme-api (1 of 1)" },
+    { t: "sub", text: "Receiving objects 42% · 1.21 GiB · 18.40 MiB/s" },
+    { t: "sub", text: "Receiving objects 43% · 1.25 GiB · 18.20 MiB/s", replace: true },
+    { t: "sub", text: "Resolving deltas 43%", replace: true },
+  ]);
+  expect(logged).toEqual([["repos.clone", "Cloning acme-api (1 of 1)"]]);
+});
+
+test("progress after a log line starts a new sub-line rather than overwriting the log", async () => {
+  process.env.RT_UI_BIN = FAKE;
+  process.env.RT_UI_FAKE = JSON.stringify({ record });
+  await drive(emitter(true), [
+    plan,
+    { event: "step", id: "repos.clone", state: "running" },
+    { event: "progress", id: "repos.clone", label: "Receiving objects", percent: 10 },
+    { event: "log", id: "repos.clone", line: "widgets: using the existing clone" },
+    { event: "progress", id: "repos.clone", label: "Receiving objects", percent: 20 },
+    { event: "step", id: "repos.clone", state: "done" },
+  ]);
+  expect(sent().filter((m) => m.t === "sub")).toEqual([
+    { t: "sub", text: "Receiving objects 10%" },
+    { t: "sub", text: "widgets: using the existing clone" },
+    { t: "sub", text: "Receiving objects 20%" },
+  ]);
+});
+
+test("off a TTY progress prints nothing", async () => {
+  await drive(emitter(false), [
+    plan,
+    { event: "step", id: "repos.clone", state: "running" },
+    { event: "progress", id: "repos.clone", label: "Receiving objects", percent: 42 },
+    { event: "step", id: "repos.clone", state: "done" },
+    { event: "done", ok: true },
+  ]);
+  expect(stdout.join("")).toBe("[ok] Clone your repos\n[ok] Setup is done  1 done\n");
+});

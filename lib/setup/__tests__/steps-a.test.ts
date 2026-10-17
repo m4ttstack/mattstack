@@ -25,6 +25,7 @@ import { readTeamSecret, teamSopsYamlPath } from "../../secrets/team-store.ts";
 import { readTeamLocal, teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
+import type { ApplyEvent } from "../contract.ts";
 import { runApplyWith } from "../apply.ts";
 import { renderInterceptShim, shimPath } from "../../endpoint/shim.ts";
 import { AUTH_FAILURE_PATTERN } from "../../team/publish.ts";
@@ -1170,7 +1171,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
     expect(p.calls.exec).toEqual([
       ["git", "ls-remote", "--exit-code", "git@gitlab.com:acme/acme-dev.git", "HEAD"],
-      ["git", ...CLONE_STALL_ARGS, "clone", "https://gitlab.com/acme/acme-dev.git", dest],
+      ["git", ...CLONE_STALL_ARGS, "clone", "--progress", "https://gitlab.com/acme/acme-dev.git", dest],
     ]);
   });
 
@@ -1193,12 +1194,82 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
     expect(seen.map((c) => c.argv)).toEqual([
       ["git", "ls-remote", "--exit-code", "git@gitlab.com:acme/acme-dev.git", "HEAD"],
-      ["git", ...CLONE_STALL_ARGS, "clone", "git@gitlab.com:acme/acme-dev.git", dest],
+      ["git", ...CLONE_STALL_ARGS, "clone", "--progress", "git@gitlab.com:acme/acme-dev.git", dest],
     ]);
     for (const call of seen) {
       expect(call.env?.GIT_SSH_COMMAND).toContain("BatchMode=yes");
       expect(call.env?.RT_GIT_TOKEN).toBeUndefined();
     }
+  });
+
+  const ACME_API = { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-api"], marketplaces: [], plugins: [], remote: null };
+
+  /** A context whose emitted events and progress reports land in one list, in order. */
+  function recordingCtx(p: Probes, snapshot: ApplyContext["snapshot"]): { ctx: ApplyContext; events: ApplyEvent[] } {
+    const events: ApplyEvent[] = [];
+    const { ctx } = makeCtx(p, {
+      snapshot,
+      emit: (ev) => events.push(ev),
+      progress: (id, report) => events.push({ event: "progress", id, ...report }),
+    });
+    return { ctx, events };
+  }
+
+  test("repos.clone: git's progress streams as progress events under a running detail naming the repo", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const p = fakeProbes({
+      home,
+      exec: async (argv) => (argv.includes("clone") ? { code: 0, stdout: "", stderr: "Cloning into 'acme-api'...\nReceiving objects:  10% (1/10)\rReceiving objects:  50% (5/10)\r" } : sshRefused(argv)),
+    });
+    const { ctx, events } = recordingCtx(p, ACME_API);
+
+    const outcome = await reposCloneStep.run(ctx);
+    expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
+    expect(events).toEqual([
+      { event: "step", id: "repos.clone", state: "running", detail: "Cloning acme-api (1 of 1)" },
+      { event: "progress", id: "repos.clone", label: "Receiving objects", percent: 10 },
+      { event: "progress", id: "repos.clone", label: "Receiving objects", percent: 50 },
+    ]);
+    expect(p.calls.exec.find((argv) => argv.includes("clone"))).toContain("--progress");
+  });
+
+  test("repos.clone: a clone whose output carries no progress rt can read still ends done", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const p = fakeProbes({
+      home,
+      exec: async (argv) => (argv.includes("clone") ? { code: 0, stdout: "", stderr: "Klone nach 'acme-api' ...\nEmpfange Objekte: 42% (4200/10000)\r" } : sshRefused(argv)),
+    });
+    const { ctx, events } = recordingCtx(p, ACME_API);
+
+    expect(await reposCloneStep.run(ctx)).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
+    expect(events.filter((ev) => ev.event === "progress")).toEqual([]);
+  });
+
+  test("repos.clone: the running detail names the repos that were already on this Mac", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const widgets = join(home, "code", "widgets");
+    const p = fakeProbes({
+      home,
+      dirs: { [widgets]: [".git"] },
+      files: { [join(widgets, ".git", "config")]: '[remote "origin"]\n\turl = https://gitlab.com/acme/widgets.git\n' },
+      exec: async (argv) => sshRefused(argv),
+    });
+    const { ctx, events } = recordingCtx(p, { ...ACME_API, trackingIdentities: ["gitlab.com/acme/widgets", "gitlab.com/acme/acme-api"] });
+
+    await reposCloneStep.run(ctx);
+    expect(events).toEqual([{ event: "step", id: "repos.clone", state: "running", detail: "Cloning acme-api (2 of 2) · widgets was already on this Mac" }]);
+  });
+
+  test("repos.clone: a failed clone's reason leaves the progress lines out", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const p = fakeProbes({
+      home,
+      exec: async (argv) => (argv.includes("clone") ? { code: 128, stdout: "", stderr: "Receiving objects:  10% (1/10)\rremote: Counting objects:  50% (5/10)\rfatal: early EOF\n" } : sshRefused(argv)),
+    });
+    const { ctx, logs } = makeCtx(p, { snapshot: ACME_API });
+
+    await reposCloneStep.run(ctx);
+    expect(logs.map((l) => l.line)).toContain("acme-api: clone failed: fatal: early EOF (git exited 128)");
   });
 
   test("repos.clone: an https clone made with rt's token names rt as that host's credential helper, so the user's own pulls work", async () => {
@@ -1495,7 +1566,8 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
 
   function realFsProbes(): Probes & { clones: string[][] } {
     const clones: string[][] = [];
-    return { ...createRealProbes(), home, clones, exec: async (argv) => (argv.includes("clone") && clones.push(argv), ok()) };
+    const exec = async (argv: string[]) => (argv.includes("clone") && clones.push(argv), ok());
+    return { ...createRealProbes(), home, clones, exec, execStreaming: exec };
   }
 
   test("repos.clone: an existing clone under another repo root is registered in place of a second clone", async () => {

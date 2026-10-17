@@ -89,6 +89,13 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
       return { code: 0, stdout: "", stderr: "" };
     },
 
+    /** The same `exec` script, its stderr replayed through `onStderr` before the result returns. */
+    async execStreaming(argv, { onStderr, ...execOpts }) {
+      const result = await probes.exec(argv, execOpts);
+      if (result.stderr) onStderr(result.stderr);
+      return result;
+    },
+
     exists(path) {
       return resolveThroughLinks(path) !== null;
     },

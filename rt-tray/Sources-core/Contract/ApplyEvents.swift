@@ -39,6 +39,7 @@ public enum ApplyEvent: Equatable, Sendable {
     case plan([StepInfo])
     case step(id: String, state: StepState, detail: String?, remedy: String?)
     case log(id: String, line: String)
+    case progress(id: String, label: String, percent: Int, note: String?)
     case need(id: String, request: NeedRequest)
     case done(ok: Bool, failedStep: String?)
     case unknown(String)
@@ -51,6 +52,9 @@ public enum ApplyEvent: Equatable, Sendable {
         let detail: String?
         let remedy: String?
         let line: String?
+        let label: String?
+        let percent: Int?
+        let note: String?
         let request: NeedRequest?
         let ok: Bool?
         let failedStep: String?
@@ -62,6 +66,7 @@ public enum ApplyEvent: Equatable, Sendable {
         case "plan": return .plan(r.steps ?? [])
         case "step": return .step(id: r.id ?? "", state: r.state ?? .pending, detail: r.detail, remedy: r.remedy)
         case "log": return .log(id: r.id ?? "", line: r.line ?? "")
+        case "progress": return .progress(id: r.id ?? "", label: r.label ?? "", percent: min(max(r.percent ?? 0, 0), 100), note: r.note)
         case "need": return .need(id: r.id ?? "", request: r.request ?? NeedRequest(type: "", plists: nil, op: nil))
         case "done": return .done(ok: r.ok ?? false, failedStep: r.failedStep)
         default: return .unknown(r.event)

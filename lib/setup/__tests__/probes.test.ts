@@ -118,6 +118,32 @@ describe("createRealProbes().exec", () => {
   }, 3000);
 });
 
+describe("createRealProbes().execStreaming", () => {
+  test("stderr reaches onStderr while the child still runs, and the result keeps all of it", async () => {
+    const probes = createRealProbes();
+    const seen: string[] = [];
+    let seenBeforeExit = "";
+    const result = await probes.execStreaming(["sh", "-c", "printf 'Receiving objects:  10%%\\r' >&2; sleep 0.3; printf 'done\\n' >&2; echo out"], {
+      timeoutMs: 5000,
+      onStderr: (chunk) => {
+        seen.push(chunk);
+        if (seen.length === 1) seenBeforeExit = seen.join("");
+      },
+    });
+    expect(seenBeforeExit).toBe("Receiving objects:  10%\r");
+    expect(seen.join("")).toBe("Receiving objects:  10%\rdone\n");
+    expect(result).toEqual({ code: 0, stdout: "out\n", stderr: "Receiving objects:  10%\rdone\n" });
+  });
+
+  test.each([
+    [["/nonexistent/bin"], {}, 127],
+    [["sh", "-c", "printf x >&2; sleep 5"], { timeoutMs: 100 }, 124],
+  ] as [string[], { timeoutMs?: number }, number][])("ends with the same codes as exec (%p)", async (argv, opts, code) => {
+    const result = await createRealProbes().execStreaming(argv, { ...opts, onStderr: () => {} });
+    expect(result.code).toBe(code);
+  }, 2000);
+});
+
 describe("createRealProbes().fetch", () => {
   test("a connection failure resolves status 0 instead of throwing", async () => {
     const probes = createRealProbes();

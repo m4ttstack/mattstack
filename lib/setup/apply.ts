@@ -45,6 +45,8 @@ export interface ApplyContext {
   log(id: EventId, line: string): void;
   /** A settings tip raised while a step ran. Absent, the tip is a `log` line. A tip bypasses the redactor that wraps `emit`: it is rt's own copy, never a child's output. */
   tip?: (id: EventId, line: string) => void;
+  /** A long step's progress (git's clone phases): a `progress` event through the redacting emit. */
+  progress?: (id: EventId, report: { label: string; percent: number; note?: string }) => void;
   intent: SetupIntent | null;
   team: OrgRef;
   snapshot: TeamSnapshot | null;
@@ -499,6 +501,8 @@ function createRedactor(): { redact(value: string): void; wrap(emit: Emit): Emit
           emit({ ...ev, line: apply(ev.line) });
         } else if (ev.event === "step") {
           emit({ ...ev, ...(ev.detail !== undefined ? { detail: apply(ev.detail) } : {}), ...(ev.remedy !== undefined ? { remedy: apply(ev.remedy) } : {}) });
+        } else if (ev.event === "progress") {
+          emit({ ...ev, label: apply(ev.label), ...(ev.note !== undefined ? { note: apply(ev.note) } : {}) });
         } else {
           emit(ev);
         }
@@ -529,6 +533,9 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     emit,
     log(id, line) {
       emit({ event: "log", id, line });
+    },
+    progress(id, { label, percent, note }) {
+      emit({ event: "progress", id, label, percent, ...(note !== undefined ? { note } : {}) });
     },
     ...(deps.tip ? { tip: deps.tip } : {}),
     intent,
