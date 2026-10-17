@@ -126,10 +126,8 @@ digraph provision {
 
 The domain's own acquisition: finding or creating the ticket, choosing the
 branch name, provisioning its way. Each question it raises goes to the
-`provision` gate rather than being asked on its own; when the pane is
-already sitting on the ticket's branch in a worktree, the domain confirms
-that instead of calling `worktree_provision` again and the graph records
-that tree and branch directly.
+`provision` gate, never asked on its own. A pane already on the ticket's
+branch in a worktree is confirmed, not provisioned again.
 
 ### Precheck result?
 
@@ -146,32 +144,26 @@ All of them go in the gate's one `resume_in` question, the first 3 in that
 order plus **Fresh tree**; provisioning adds no other gate or question.
 Two or more `attached` trees with nothing else to offer still go to the
 gate, offering **Fresh tree** alone. **Nothing in the way** means no
-`attached` tree and none of the other offers. A refused precheck routes
-on its `code`: `daemon-outdated` (an older daemon) provisions without the
-precheck, as before, and never retries it.
+`attached` tree and no other offer. A refused precheck routes on its
+`code`; `daemon-outdated` never retries the precheck.
 
 ### worktree_provision result?
 
-Route on the refusal's `code`, never its prose. `branch-attached` (branch
-mode only: ticket mode quietly cuts `<branch>-2`) offers its `tree` on the
-gate. `busy` retries while `budget.exhausted` is false; a `budget.error`
-reads as exhausted. The budget counts every refusal this attempt, so
-`busy` is retried only if no other refusal came first. Any other code
-fails the stage quoting `error`.
+Route on the refusal's `code`, never its prose. `branch-attached` offers
+its `tree` on the gate. `budget.exhausted` decides a `busy` retry; a
+`budget.error` reads as exhausted. The budget counts every refusal this
+attempt, so `busy` is retried only if no other refusal came first. A
+failed stage quotes `error`.
 
 ### Fresh trees this attempt = 2?
 
-Read `run_budget`'s `exhausted`; an error reads as exhausted. Ticket mode
-passes the ticket as usual (the daemon cuts `<branch>-2`). Branch mode
-lists the local branches first and passes `branch: <slug>-<n>`, the lowest
-`n` from 2 that the list lacks (every tree sits on a local branch, so the
-list covers them).
+Read `run_budget`'s `exhausted`; an error reads as exhausted. Branch mode
+takes the lowest `n` from 2 that the branch list lacks.
 
 ### Reuse result?
 
-`reuse` refuses the main checkout, a `disposable` tree, two trees on one
-branch, and an older daemon (`daemon-outdated`): the stage fails quoting
-`error`, and the human can pick Fresh tree on a retry.
+A refusal fails the stage quoting `error`; the human can pick Fresh tree
+on a retry.
 
 ### Recorded on the run?
 
@@ -187,9 +179,8 @@ by hand.
   of the task description instead. A cold create can take minutes; say
   that it is provisioning.
 - The plain branch fallback derives the branch from the ticket id and a
-  kebab slug of its title (or of the task description). It refuses a dirty
-  checkout and passes the repo's default branch as the start point. Never
-  commit to the default branch.
+  kebab slug of its title (or of the task description). Never commit to
+  the default branch.
 - `worktree` is always an absolute path: the checkout itself when no
   separate worktree is used.
 - `ticket` is not a declared produce: a ticketless run is a finished run.
