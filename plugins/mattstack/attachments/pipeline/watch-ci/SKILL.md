@@ -224,9 +224,9 @@ digraph watch_ci {
     "Trigger: a watch-ci run is open (own or inherited)" -> "git branch --show-current, unless the user named a branch";
     "git branch --show-current, unless the user named a branch" -> "git remote get-url origin (watch-ci target)";
     "git remote get-url origin (watch-ci target)" -> "Forge host (watch-ci target)?";
-    "Forge host (watch-ci target)?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="GitLab, MR not named"];
-    "Forge host (watch-ci target)?" -> "gh pr list --head <branch> --json number,url" [label="GitHub, PR not named"];
-    "Forge host (watch-ci target)?" -> "Own run (watch-ci identity)?" [label="MR named or handed"];
+    "Forge host (watch-ci target)?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="GitLab, no MR known"];
+    "Forge host (watch-ci target)?" -> "gh pr list --head <branch> --json number,url" [label="GitHub, no PR known"];
+    "Forge host (watch-ci target)?" -> "Own run (watch-ci identity)?" [label="MR named, handed, or recorded (a resumed run's `mr`)"];
     "Forge host (watch-ci target)?" -> "watch-ci gate clarify: which forge?" [label="anything else, nothing handed"];
     "watch-ci gate clarify: which forge?" -> "Forge host (watch-ci target)?" [label="answered: the named forge"];
     "mr_for_branch {repoName: <root>, branches: [<branch>]}" -> "Own run (watch-ci identity)?" [label="a result, null included"];

@@ -194,7 +194,7 @@ digraph ship {
     "Gate clarify: which forge?" -> "Which exit?" [label="hand back"];
     "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?, ifExists: return}" -> "mr_create result?";
     "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage}" [label="created"];
-    "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage}" [label="existing: keep its url; no squash or labels, the title and description are still written below"];
+    "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage}" [label="existing: keep its url; no squash or labels"];
     "mr_create result?" -> "mr_update {mrUrl, squash: true}" [label="squashApplied: false"];
     "mr_create result?" -> "run_budget {key: ship:mr-create-recalls, limit: 1, stage}" [label="url: null"];
     "mr_create result?" -> "Which exit?" [label="error: a failure"];
@@ -363,7 +363,9 @@ Title from the ticket or the first commit subject; the body links the
 ticket. The update replaces the whole body, so start from the read-back
 and keep everything else: a teammate's edits, and the evidence section
 `Attach the evidence` wrote, byte for byte, never a second evidence block.
-The domain's title, template and voice rules win.
+This stage always writes them, an existing MR's included; the domain's
+title, template and voice rules decide what they say, never whether the
+write happens.
 
 ## What the graph cannot show
 
