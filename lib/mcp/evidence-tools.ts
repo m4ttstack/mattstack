@@ -741,7 +741,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
               properties: {
                 case: CASE, label: { type: "string", description: "Names a new case." }, slot: SLOT, theme: THEME,
                 path: { type: "string", description: "Absolute path of the capture; a new path recaptures the slot." },
-                source: { type: "string", enum: ["ticket"], description: "ticket marks a saved ticket image: it is never waived and its own path never uploads, only its board. Kept on later calls for the same path; a new path clears it." },
+                source: { type: "string", enum: ["ticket"], description: "ticket marks a saved ticket image: it is never waived and its own path never uploads, only its board. rt records the copied file's size and sha256 beside it (never pass them), so a copy is refused even after the file is deleted. Kept on later calls for the same path; a new path clears it." },
                 annotated: { type: "string", description: "Absolute path of the annotated board; needs caption." },
                 caption: { type: "string" },
                 waiver: { type: "string", description: "Why this image has no annotated board." },
