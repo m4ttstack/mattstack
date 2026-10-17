@@ -401,6 +401,24 @@ describe("watchPipeline", () => {
     await watchPipeline(base, deps);
     expect(sleeps).toEqual([30_000, 30_000, 30_000]);
   });
+  test("a slow failing read shortens the backoff so the next heartbeat lands inside half the lease ttl", async () => {
+    let n = 0;
+    const sleeps: number[] = [];
+    let t = 0;
+    const lease = { ...LEASE, ttlSeconds: 60 };
+    const { deps } = fake([], {
+      now: () => t,
+      sleep: async (ms) => { sleeps.push(ms); t += ms; },
+      leaseCheck: () => ({ ok: true, lease }),
+      readMr: async () => {
+        if (++n === 1) return { ok: true as const, mr: mr(SHA, pipe({ status: "running" })) };
+        t += 20_000;
+        return { ok: false as const, error: "rt daemon request timed out" };
+      },
+    });
+    await watchPipeline(base, deps);
+    expect(sleeps).toEqual([30_000, 10_000, 10_000]);
+  });
   test("a read that recovers inside the backoff keeps watching", async () => {
     let n = 0;
     const { deps } = fake([], {

@@ -234,8 +234,10 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     return result("lease_lost", mr, standDown(lc), { holder: lc.holder, lease: null });
   }
 
-  // Half the lease's ttl bounds the interval so the heartbeat each poll gives never lets the lease go stale.
-  const pollInterval = (scale = 1) => Math.min(input.intervalSeconds * 1_000 * scale, lease ? (lease.ttlSeconds * 1_000) / 2 : Infinity);
+  // Half the lease's ttl, counted from the last heartbeat, bounds the interval so a slow read never lets the lease go stale.
+  let beatAt = start;
+  const pollInterval = (scale = 1) =>
+    Math.min(input.intervalSeconds * 1_000 * scale, lease ? Math.max(0, (lease.ttlSeconds * 1_000) / 2 - (deps.now() - beatAt)) : Infinity);
   let readFailures = 0;
 
   const again = (hint: string) => (provenPrior === undefined ? `${hint}; call again` : `${hint}; call again with priorPipelineId ${provenPrior}`);
@@ -246,6 +248,7 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     polls++;
     if (!lc.ok) return leaseEnd(lc, last.mr);
     lease = lc.lease;
+    beatAt = deps.now();
 
     const read = await deps.readMr();
     if (!read.ok) {
