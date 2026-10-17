@@ -15,11 +15,9 @@ metadata:
 
 {{stage.fields}}
 
-Run state: the orchestrator opens and closes this stage, so never write
-`run_stage` `start` or `done` here. Read consumes with `run_field_get`,
-write each produce with `run_field_set` (`stage: "plan"`) the moment it
-exists, and on failure write `run_stage {action: fail, stage: "plan",
-reason}` naming what failed.
+The orchestrator owns this stage's rows: read consumes with
+`run_field_get`, write produces with `run_field_set {stage: "plan"}`, and
+end a failure with `run_stage {action: fail, stage: "plan", reason}`.
 
 ```dot
 digraph plan {
@@ -35,10 +33,10 @@ digraph plan {
     "Gate plan (table below)" [shape=box];
     "plan answer?" [shape=diamond];
     "run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}" [shape=plaintext];
-    "run_field_set {key: approach}; run_field_set {key: evidence-plan}" [shape=plaintext];
+    "run_field_set {key: approach, value: <the recorded tier>, stage: plan}" [shape=plaintext];
+    "run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}" [shape=plaintext];
     "Hand the Go back answer to the orchestrator" [shape=doublecircle];
-    "run_decision {contract: gate@1, scope: hold:plan:<attempt>, selection: {reason}, decidedBy}" [shape=plaintext];
-    "run_field_set {key: hold, value: <their words, or held>, stage: plan}" [shape=plaintext];
+    "run_hold {runDb, stage: plan, reason, decidedBy}" [shape=plaintext];
     "Held: end the turn naming run and stage" [shape=doublecircle];
     "Plan done: return to the orchestrator" [shape=doublecircle style=filled fillcolor=lightgreen];
 
@@ -54,11 +52,11 @@ digraph plan {
     "plan answer?" -> "run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}" [label="proceed"];
     "plan answer?" -> "Read the ticket" [label="iterate: re-read with their note"];
     "plan answer?" -> "Hand the Go back answer to the orchestrator" [label="go back"];
-    "plan answer?" -> "run_decision {contract: gate@1, scope: hold:plan:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
-    "run_decision {contract: gate@1, scope: hold:plan:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage: plan}";
-    "run_field_set {key: hold, value: <their words, or held>, stage: plan}" -> "Held: end the turn naming run and stage";
-    "run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}" -> "run_field_set {key: approach}; run_field_set {key: evidence-plan}";
-    "run_field_set {key: approach}; run_field_set {key: evidence-plan}" -> "Plan done: return to the orchestrator";
+    "plan answer?" -> "run_hold {runDb, stage: plan, reason, decidedBy}" [label="hold"];
+    "run_hold {runDb, stage: plan, reason, decidedBy}" -> "Held: end the turn naming run and stage";
+    "run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}" -> "run_field_set {key: approach, value: <the recorded tier>, stage: plan}";
+    "run_field_set {key: approach, value: <the recorded tier>, stage: plan}" -> "run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}";
+    "run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}" -> "Plan done: return to the orchestrator";
 }
 ```
 
@@ -112,7 +110,9 @@ proposal, and the gate records the decision.
 
 ## Gate `plan`
 
-One sentence above the form: the printed tier and why.
+Walk gate-protocol's Runs integration with kind `plan`, `runDb` and
+`stage: "plan"`; the gate tools record the answers. One sentence above the
+form: the printed tier and why.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
@@ -122,9 +122,18 @@ One sentence above the form: the printed tier and why.
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |
 
-Selection: `{"tier":"<picked>","failing_test":"<as confirmed or null>","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
 Write `approach` = the tier the gate recorded and `evidence-plan` = the
-EVIDENCE value.
+EVIDENCE value, after the `execution-strategy@1` record: the gate tools
+record the gate's answers, not that contract.
+Hold passes their words (or `held`) as `reason` and the gate result's
+`decidedBy`.
+
+### Hand the Go back answer to the orchestrator
+
+End the stage handing back `{to, note, decidedBy}`: `to` is the gate's
+`to` answer (the one earlier stage when `to` was not shown), `note` their
+words, `decidedBy` the gate result's `decidedBy`. Write nothing else: the
+orchestrator applies it with `run_resolve`.
 
 ## Domain rules
 

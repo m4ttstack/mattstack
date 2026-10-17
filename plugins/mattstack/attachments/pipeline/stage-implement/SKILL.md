@@ -13,18 +13,19 @@ metadata:
 
 {{stage.fields}}
 
-Run state: the orchestrator opens and closes this stage, so never write
-`run_stage` `start` or `done` here. Read consumes with `run_field_get`,
-write `commits` with `run_field_set` (`stage: "implement"`), and on
-failure write `run_stage {action: fail, stage: "implement", reason}`
-naming what failed.
+The orchestrator owns this stage's rows: read consumes with
+`run_field_get`, write produces with `run_field_set {stage: "implement"}`,
+and end a failure with `run_stage {action: fail, stage: "implement",
+reason}`.
 
 ```dot
 digraph implement {
     rankdir=TB;
 
     "Implement stage entered" [shape=ellipse];
-    "run_field_get {key: approach}; {key: branch}; {key: worktree}" [shape=plaintext];
+    "run_field_get {key: approach}" [shape=plaintext];
+    "run_field_get {key: branch}" [shape=plaintext];
+    "run_field_get {key: worktree}" [shape=plaintext];
     "approach?" [shape=diamond];
     "Make the trivial change" [shape=box];
     "Found yourself writing a test?" [shape=diamond];
@@ -40,8 +41,10 @@ digraph implement {
     "Tell the orchestrator the triage was wrong: Go back to plan" [shape=doublecircle];
     "Implement done: return to the orchestrator" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Implement stage entered" -> "run_field_get {key: approach}; {key: branch}; {key: worktree}";
-    "run_field_get {key: approach}; {key: branch}; {key: worktree}" -> "approach?";
+    "Implement stage entered" -> "run_field_get {key: approach}";
+    "run_field_get {key: approach}" -> "run_field_get {key: branch}";
+    "run_field_get {key: branch}" -> "run_field_get {key: worktree}";
+    "run_field_get {key: worktree}" -> "approach?";
     "approach?" -> "Make the trivial change" [label="trivial"];
     "approach?" -> "Run RED, GREEN, REFACTOR from the named failing test" [label="direct-tdd"];
     "approach?" -> "Run the superpowers chain" [label="superpowers"];
@@ -86,6 +89,7 @@ it announced one.
   open) ends the stage with `run_stage {action: fail, stage: "implement",
   reason}` naming it. Switching approach inside this stage is not a way
   past it.
-- **Go back to plan** is a Redirect, not a failure: hand it to the
-  orchestrator with `to: plan`, `decidedBy: "pane"`, and the triage
-  mismatch (what made the trivial change need a test) as the reason.
+- **Go back to plan** is a Redirect, not a failure: end the stage handing
+  back `{to: plan, note: <the triage mismatch: what made the trivial
+  change need a test>, decidedBy: pane}`. Write nothing else: the
+  orchestrator applies it with `run_resolve`.
