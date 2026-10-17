@@ -160,13 +160,28 @@ digraph extend_pack {
 }
 ```
 
+## Where the edits go
+
+Every edit this skill makes (`pack/skills.jsonc`, `pack/stubs.jsonc`,
+`pack/surface.jsonc`, a fill, the context skill) goes in the org clone
+itself, at the pack dir `rt skills packs` prints (for the widgets team in
+the acme org, `~/.mattstack/orgs/acme/mattstack/teams/widgets/plugin`), on
+the branch the clone has checked out. Never in a git worktree or another
+copy of the org repo: `rt skills materialize` (which every bind runs)
+reads the fragment only from the org clone, so a pipeline or binding written in a
+copy never reaches the bindings file, and publish syncs the org clone.
+
+The worktree RED and GREEN run in is a worktree of the author's code repo,
+where `/<pack>:work` runs on a real task; its `claude --plugin-dir <pack
+dir>` points at the pack dir in the org clone.
+
 ## Calling the skills verbs
 
 Skills verbs go through `rt_verb {args: [...]}`: `--pack <pack>` sits in
-`args`, and the call never carries a `cwd`. `--pack-dir <dir>` rides in
-`args` for `check` only; compiling a checkout's or worktree's sources is
-the bare Bash `rt skills compile --pack <pack> --pack-dir <dir>`, because <!-- mcp-lint: allow -->
-`rt_verb` refuses that flag on compile. `rt skills composition` and
+`args`, resolves to the pack dir in the org clone (unless your cwd is
+inside another copy of that pack, which then wins), and the call never
+carries a `cwd`. `--pack-dir <dir>` rides in `args` for `check` only, and
+this skill never needs it. `rt skills composition` and
 `rt skills packs` refuse `rt_verb` (not agent-safe); run them as plain
 Bash, and only as a one-time lookup, not a per-round call.
 
@@ -322,7 +337,8 @@ The verb is already on the surface.
 
 ### RED: run the stage or verb without the rule
 
-In the author's repo, in a worktree: run the stage or verb without the rule
+In a worktree of the author's code repo (the pack edits stay in the org
+clone, see Where the edits go): run the stage or verb without the rule
 on a small real task (`/<pack>:work` for a stage, `/<pack>:ship` for a
 door) and record verbatim where it missed the rule.
 
@@ -452,7 +468,8 @@ counts the fixes made this round.
 ### Re-run the same stage on the same task
 
 The running session still loads the pack from the installed cache, so GREEN
-runs in a fresh `claude --plugin-dir <pack dir>` session in the worktree,
+runs in a fresh `claude --plugin-dir <pack dir>` session in the code-repo
+worktree,
 where the pack's verbs come from its source, after the fill is bound or
 compiled again. In it, re-run the same stage or verb on the same task with
 the same stop point, and record that the miss is gone. For an override
