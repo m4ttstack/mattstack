@@ -86,3 +86,12 @@ change there is an admin's `rt settings set` or a layout change, see the
 runs once per machine and is recorded when `done` or `skipped`. The tray
 only spawns the verb and routes the `setup_update` notification click to the
 Setup status window; put no decision in Swift.
+
+## Your repos
+
+The "Your repos" group is one `repos.place:<identity>` row per tracked repo,
+from `lib/setup/validators/repos.ts`. The rows and `rt setup repo place`
+resolve placements and clashes through `lib/setup/repo-placement.ts`, so they
+never disagree; change a rule there, not in either caller. `rt setup repo-root
+set` stays as a CLI verb for the folder new clones go in, but no row asks for
+it.
