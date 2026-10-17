@@ -14,7 +14,7 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "respond"
   slot-respond: "required mr-respond@2 -- owns processing review feedback on one MR: fetching threads, adjudicating, drafting, implementing decided fixes, and executing posting once handed the decisions. Never presents decision gates or decides what posts. When gate 2 offers nothing, posts the reply-only threads on {plan}."
-  compiled: "mattstack:gate-protocol@0.31.23"
+  compiled: "mattstack:gate-protocol@0.31.27"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
@@ -548,7 +548,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.23 path=attachments/gate-protocol/SKILL.md lines=7-307 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.27 path=attachments/gate-protocol/SKILL.md lines=7-307 -->
 # Gate protocol
 
 The daemon's gate registry is the single arbiter; under a run the gate
