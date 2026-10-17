@@ -783,3 +783,18 @@ should be; **G** domain fill obeyed over the graph (S6 only).
 
 The provider's own `pick-account.py` line (S1) is the accounts fill's
 call, which no tool covers; it is not counted.
+
+### GREEN (new skill, 0.31.16 compiled)
+
+| Scenario | A | B | C | D | E | F | G | What happened |
+|---|---|---|---|---|---|---|---|---|
+| S1 rate-limit respawn | 0 | 0 | 0 | 0 | 0 | 0 | | every run: `herd_diagnose`, the accounts pick, then `herd_respawn {account: 3}`; effort and model kept from the job row |
+| S2 blocked, budget spent | 0 | 0 | 0 | 0 | 0 | 0 | | every run read `blockedNotices` spent and opened the off-script gate; no peek, no key |
+| S3 unconsumed answer | 0 | 0 | 0 | 0 | 0 | 0 | | every run: `herd_diagnose`, nudge budget 1 of 2, `herd_nudge`, end the turn |
+| S4 lane reports | 0 | 0 | 0 | 0 | 0 | 0 | | every run: one `herd_lanes`, flagged the collision, read the unmerged budget, sent the measured state |
+| S5 gate answer | 0 | 0 | 0 | 0 | 0 | 0 | | every run relayed the options verbatim and answered with `herd_gate_answer` |
+| S6 domain Bash spawn | 0 | 0 | 0 | 0 | 0 | 0 | 0 | four runs took the guard's redirect to `herd_spawn {tree}`; one opened the off-script gate proposing that spawn (conservative, not a deviation) |
+| **Total (30 runs)** | **0** | **0** | **0** | **0** | **0** | **0** | **0** | |
+
+GREEN passes at 0 deviations in every column on the first round; no craft
+round was needed. The engine source went from 9,647 to 8,445 words.
