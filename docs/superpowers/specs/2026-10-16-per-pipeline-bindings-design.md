@@ -150,11 +150,12 @@ carrying the stages and that pipeline's binding overrides:
     bindings do.
 - A layer may set a pipeline's `bindings` without restating its `stages`.
   The merged result must end with a stage list for every pipeline.
-- When a higher layer replaces a pipeline's stage list and drops
-  a stage that a lower layer's override names, check warns and the
-  override is ignored, since layering cannot delete the lower key. An
-  override naming a stage missing from the same layer's own list fails
-  materialize.
+- An override naming a stage that the layer setting the pipeline's
+  stages does not list fails materialize. A lower layer's override for
+  a stage a higher layer still lists is kept. When a higher layer
+  replaces the stage list and drops a stage that a lower layer's
+  override names, materialize warns and the override is ignored, since
+  layering cannot delete the lower key.
 - A pipeline that carries overrides and whose name does not match
   `^[a-z][a-z0-9-]*$` (the schema's rule, and the `{{verb.path}}` rule a
   copy's name must pass) fails materialize, naming the pipeline. A

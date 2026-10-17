@@ -5,6 +5,12 @@ Check reports these as errors:
 - A pipeline a work verb runs must start with `stage-provision`, end with `stage-watch-ci`, and include `stage-implement` and `stage-ship`. Other pipelines take any order the consumes/produces chain check accepts.
 - A work verb names a pipeline the manifest does not declare.
 - A pipeline override names a stage that pipeline does not list.
+- A work verb names no pipeline and the manifest declares several with none named `feature`: `verb "<v>" names no pipeline and the manifest declares several with none named feature`.
+- A pipeline has bindings but no layer gives it stages: `pipeline "<p>" has bindings but no layer gives it stages`.
+- A pipeline a work verb names, or one that carries overrides, has `--` in its name: `pipeline "<name>" must not contain "--"`. A stage copy is named `<stage>--<pipeline>`, so the separator stays unambiguous. Plain stage lists are not checked.
 - A stage copy no pipeline needs any more is still on disk: `stale stage copy stage-evidence--accessibility: run rt skills compile`. Compile removes it.
 
-An override that a higher layer dropped by replacing the pipeline's stage list is a warning, not an error: check prints `Override <key> from <layer> is ignored`, and the generated manifest's header carries a `// dropped: <key> <- <layer>` line.
+An override that a layer cannot apply is a warning, not an error. Materialize prints it, and the generated manifest's header carries a `// dropped: <key> <- <layer>` line:
+
+- `<key> from <layer> is ignored: the pipeline does not list that stage` when no layer's stage list ever named the stage.
+- `<key> from <layer> is ignored: the pipeline no longer lists that stage` when a higher layer replaced the stage list and removed a stage a lower layer's override names.
