@@ -73,10 +73,10 @@ The flags, rendered by the compiler:
 value, never its key), `skillDir` = `${CLAUDE_SKILL_DIR}` as an absolute
 path, `stage: watch-ci`, `runDb` only when a caller handed one, and
 `spawnedBy` only when a board or another surface launched this pane. It
-opens the stage itself. Pass the returned `runDb` to every `run_*` call. A
-handed `runDb` that comes back `handedRunDb: "not-running"` counts as not
-handed. Every gate write and `stage` argument is `"watch-ci"` in an own run
-and `run.current_stage` in an inherited one.
+opens the stage itself. Pass the returned `runDb` to every `run_*` call;
+nothing is exported. A handed `runDb` that comes back `handedRunDb:
+"not-running"` counts as not handed. Every gate write and `stage` argument
+is `"watch-ci"` in an own run and `run.current_stage` in an inherited one.
 
 ### watch-ci gate clarify: the Resume offer
 
@@ -332,7 +332,7 @@ digraph watch_ci {
     "mr_retry result (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="retried: watch again"];
     "mr_retry result (watch-ci)?" -> "STOP: the lease holder owns every commit, push and retry (watch-ci)" [label="refused: lease_held, holder named"];
     "mr_retry result (watch-ci)?" -> "watch-ci off-script gate: mr_retry refused" [label="tool error"];
-    "watch-ci off-script gate: mr_retry refused" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="take: the human retried the job"];
+    "watch-ci off-script gate: mr_retry refused" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="take: human retried"];
     "watch-ci off-script gate: mr_retry refused" -> "run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" [label="iterate"];
     "watch-ci off-script gate: mr_retry refused" -> "MR known (watch-ci exit)?" [label="hold or hand back"];
     "run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" -> "retry-off-script spent (watch-ci)?";
@@ -342,7 +342,7 @@ digraph watch_ci {
     "Re-claim result (GitHub retry)?" -> "gh run rerun <run-id> --failed" [label="claimed: true"];
     "Re-claim result (GitHub retry)?" -> "STOP: the lease holder owns every commit, push and retry (watch-ci)" [label="claimed: false, holder named"];
     "Re-claim result (GitHub retry)?" -> "watch-ci off-script gate: GitHub retry claim refused" [label="tool error"];
-    "watch-ci off-script gate: GitHub retry claim refused" -> "gh pr checks <mr> (poll)" [label="take: the human reran the job"];
+    "watch-ci off-script gate: GitHub retry claim refused" -> "gh pr checks <mr> (poll)" [label="take: human reran"];
     "watch-ci off-script gate: GitHub retry claim refused" -> "run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" [label="iterate"];
     "watch-ci off-script gate: GitHub retry claim refused" -> "MR known (watch-ci exit)?" [label="hold or hand back"];
     "gh run rerun <run-id> --failed" -> "gh pr checks <mr> (poll)";
@@ -371,7 +371,7 @@ digraph watch_ci {
     "watch-ci gate ci" -> "MR known (watch-ci exit)?" [label="hand back, abandon or hold"];
     "watch-ci gate ci" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 2}" [label="iterate"];
     "run_budget {key: watch-ci:ci-gate-iterations, limit: 2}" -> "ci-gate-iterations spent (watch-ci)?";
-    "ci-gate-iterations spent (watch-ci)?" -> "watch-ci gate ci" [label="no: reopen with their note"];
+    "ci-gate-iterations spent (watch-ci)?" -> "watch-ci gate ci" [label="no: re-triage with their note"];
     "ci-gate-iterations spent (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: hand back"];
     "run_budget {key: watch-ci:fix-rounds, limit: 3}" -> "fix-rounds spent (watch-ci)?";
     "fix-rounds spent (watch-ci)?" -> "Fix the REAL failure, commit" [label="no"];
@@ -438,14 +438,15 @@ both.
 
 Each gate below is the gate protocol's Off-script gate (scope
 `off-script:<stage>:<n>`, `context` quoting the refusal), with `action`
-**Take** (the move its section names) / **Iterate** (the human fixed it:
-try again) / **Hand back**, and `next` **Proceed** (Recommended) /
-**Hold**.
+**Take** (the move its section names) / **Hand back**, and `next`
+**Proceed** (Recommended) / **Iterate here** (the human fixed it) /
+**Hold**. A spent Iterate budget fails the same way, the refusals as the
+reason.
 
 The `lease_unavailable` and `git_push` gates have no budget: their tool
-bounds the retry, and a refusal reopens the gate.
-A Take that means the human attends the MR closes an own run `done`, the
-report saying so; an inherited run hands the answer back.
+bounds the retry, and a refusal reopens the gate. An attending Take
+closes an own run `done`, the report saying so; an inherited run hands the
+answer back.
 
 ### watch-ci off-script gate: lease_unavailable
 
@@ -573,7 +574,7 @@ commit the named files.
 
 Take: the value spells the move in full, such as the human pushing.
 Iterate: registration fixed, push again. Selection:
-`{"move":"<the move>","why":"<the refusal>","action":"take|iterate|handback","next":"proceed|hold","note":"<their words or null>"}`.
+`{"move":"<the move>","why":"<the refusal>","action":"take|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
 
 ### Confirm the human's push landed (watch-ci)
 
@@ -623,11 +624,12 @@ lease); the stand-down never does, because that lease is someone else's.
 
 ## Budgets in this verb
 
-Each `run_budget` counts one as its loop is entered, so budgets survive
-compaction and resume. The `spent` diamond after it reads `spent` against
-`limit` (`spent > limit`); ignore `exhausted` and `remaining` (`exhausted`
-is `spent >= limit` and would stop one round early). A key ending `<sha12>` counts per watched commit; one with no `stage`
-counts run-wide, since a fix push starts a new attempt mid-loop.
+Each `run_budget` counts one as its loop is entered. The `spent` diamond
+after it reads `spent` against `limit` (`spent > limit`); ignore
+`exhausted` and `remaining` (`exhausted` is `spent >= limit` and would stop
+one round early). A key ending `<sha12>` counts per watched commit; one
+with no `stage` counts run-wide, since a fix push starts a new attempt
+mid-loop.
 
 ## Domain rules
 
@@ -636,13 +638,12 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 The domain supplies triage (how to read a red, REAL or INFRA, which jobs
 block, noise, ownership), judged at `Classify the triage report
 (watch-ci)`; it never retries, watches, claims, releases or pushes. This
-skill runs no vendored script: a rule that runs
-`<scripts>/ci-triage.sh` is the move `STOP: GitLab triage goes through
-ci_triage (watch-ci)` redirects, so call `ci_triage` with `pipelineId: <N>`
-(never the ref's newest pipeline) and its `--config` file's keys as
-`config` (the file sits in the fill's own directory, under
-`parts/domain/`); `<forge> jobs` goes to `pipeline_jobs`;
-`ci-attendant.sh` or `ci-watch.sh` goes to `ci_watch`.
+skill runs no vendored script: a rule that runs `<scripts>/ci-triage.sh`
+is the move `STOP: GitLab triage goes through ci_triage (watch-ci)`
+redirects, so call `ci_triage` with `pipelineId: <N>` (never the ref's
+newest pipeline) and its `--config` file's keys as `config`, its only
+source (the file sits under `parts/domain/`); `<forge> jobs` goes to
+`pipeline_jobs`; `ci-attendant.sh` or `ci-watch.sh` goes to `ci_watch`.
 
 {{slot:domain}}
 

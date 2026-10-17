@@ -25,7 +25,7 @@ triage report.
 `<mr>` is `mr`'s https URL. Every CI tool takes `mrUrl: <mr>`; `mr_view`
 and `mr_ready` take `repoName` = this worktree's absolute path and the iid
 in `mr`. `<N>` is the number in `ci_watch`'s `pipeline.id`
-(`gitlab:pipeline:N`); `config` comes only from a domain rule.
+(`gitlab:pipeline:N`).
 
 ```dot
 digraph watch_ci {
@@ -154,7 +154,7 @@ digraph watch_ci {
     "STOP: GitLab CI goes through ci_watch, the read tools, gitlab_get and mr_retry" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}";
     "STOP: the lease holder owns every commit, push and retry" -> "Stand down: report the holder and stop";
 
-    "Off-script gate: lease_unavailable" -> "run_field_set {key: ci, value: red: <triage>, stage}" [label="take: the human attends the MR"];
+    "Off-script gate: lease_unavailable" -> "run_field_set {key: ci, value: red: <triage>, stage}" [label="take: human attends"];
     "Off-script gate: lease_unavailable" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="iterate: watch again"];
     "Off-script gate: lease_unavailable" -> "MR known (exit)?" [label="hold or hand back"];
 
@@ -180,7 +180,7 @@ digraph watch_ci {
     "github-claim-errors spent?" -> "Fix what the claim error names (GitHub)" [label="no"];
     "github-claim-errors spent?" -> "Off-script gate: ci_lease_claim refused (GitHub)" [label="yes"];
     "Fix what the claim error names (GitHub)" -> "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)";
-    "Off-script gate: ci_lease_claim refused (GitHub)" -> "run_field_set {key: ci, value: red: <triage>, stage}" [label="take: the human attends the PR"];
+    "Off-script gate: ci_lease_claim refused (GitHub)" -> "run_field_set {key: ci, value: red: <triage>, stage}" [label="take: human attends"];
     "Off-script gate: ci_lease_claim refused (GitHub)" -> "run_budget {key: watch-ci:github-claim-off-script, limit: 1, stage}" [label="iterate"];
     "Off-script gate: ci_lease_claim refused (GitHub)" -> "MR known (exit)?" [label="hold or hand back"];
     "run_budget {key: watch-ci:github-claim-off-script, limit: 1, stage}" -> "github-claim-off-script spent?";
@@ -231,7 +231,7 @@ digraph watch_ci {
     "mr_retry result?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="retried: watch again"];
     "mr_retry result?" -> "STOP: the lease holder owns every commit, push and retry" [label="refused: lease_held, holder named"];
     "mr_retry result?" -> "Off-script gate: mr_retry refused" [label="tool error"];
-    "Off-script gate: mr_retry refused" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="take: the human retried the job"];
+    "Off-script gate: mr_retry refused" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="take: human retried"];
     "Off-script gate: mr_retry refused" -> "run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" [label="iterate"];
     "Off-script gate: mr_retry refused" -> "MR known (exit)?" [label="hold or hand back"];
     "run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" -> "retry-off-script spent?";
@@ -241,7 +241,7 @@ digraph watch_ci {
     "Re-claim result (GitHub retry)?" -> "gh run rerun <run-id> --failed" [label="claimed: true"];
     "Re-claim result (GitHub retry)?" -> "STOP: the lease holder owns every commit, push and retry" [label="claimed: false, holder named"];
     "Re-claim result (GitHub retry)?" -> "Off-script gate: GitHub retry claim refused" [label="tool error"];
-    "Off-script gate: GitHub retry claim refused" -> "gh pr checks <mr>" [label="take: the human reran the job"];
+    "Off-script gate: GitHub retry claim refused" -> "gh pr checks <mr>" [label="take: human reran"];
     "Off-script gate: GitHub retry claim refused" -> "run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" [label="iterate"];
     "Off-script gate: GitHub retry claim refused" -> "MR known (exit)?" [label="hold or hand back"];
     "gh run rerun <run-id> --failed" -> "gh pr checks <mr>";
@@ -252,7 +252,7 @@ digraph watch_ci {
     "Gate ci" -> "MR known (exit)?" [label="abandon, go back or hold"];
     "Gate ci" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 2, stage}" [label="iterate"];
     "run_budget {key: watch-ci:ci-gate-iterations, limit: 2, stage}" -> "ci-gate-iterations spent?";
-    "ci-gate-iterations spent?" -> "Gate ci" [label="no: reopen with their note"];
+    "ci-gate-iterations spent?" -> "Gate ci" [label="no: re-triage with their note"];
     "ci-gate-iterations spent?" -> "run_field_set {key: ci, value: red: <triage>, stage}" [label="yes: hand back"];
     "MR known (before the retry)?" -> "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage} (ci gate retry)" [label="yes"];
     "MR known (before the retry)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 2, stage}" [label="no: nothing to retry"];
@@ -298,25 +298,27 @@ digraph watch_ci {
 ### End the turn: ci_watch runs in the background
 
 A `ci_watch` still running after 120 s moves to the background, and its
-`<task-notification>` `<result>` is the next `ci_watch state`. End the turn in one line: `watching CI in the background
-(task <id>)`. The pipeline gate stop hook lets a turn end while a
-background task is pending, and a chat or user message that arrives
-meanwhile reaches you at once; a foreground wait (a `sleep`, a polling
-script, a second `ci_watch`) delays both.
+`<task-notification>` `<result>` is the next `ci_watch state`. End the
+turn in one line: `watching CI in the background (task <id>)`. The
+pipeline gate stop hook lets a turn end while a background task is
+pending, and a chat or user message that arrives meanwhile reaches you at
+once; a foreground wait (a `sleep`, a polling script, a second `ci_watch`)
+delays the result and every message.
 
 ### The off-script gates
 
 Each is the gate protocol's Off-script gate (scope
 `off-script:watch-ci:<n>`, `context` quoting the refusal): `action`
-**Take** (the move its section names) / **Iterate** (the human fixed it) /
-**Hand back** (a failure, the refusal is the reason); `next` **Proceed**
-(Recommended) / **Hold**. A Take where the human attends the MR writes `ci`
-red, the refusal as its triage line.
+**Take** (the move its section names) / **Hand back** (a failure, the
+refusal is the reason); `next` **Proceed** (Recommended) / **Iterate
+here** (the human fixed it) / **Hold**. A spent Iterate budget fails the
+same way, the refusals as the reason. An attending Take writes `ci` red,
+the refusal as its triage line.
 
 ### Off-script gate: lease_unavailable
 
 `ci_watch` could not claim or keep the lease after its own re-claims
-(`error` says why); no one else holds it, so this is no stand-down. Take:
+(`error` says why); no one else holds it: no stand-down. Take:
 the human attends the MR. No budget: another `lease_unavailable` reopens
 this gate.
 
@@ -392,7 +394,8 @@ The re-claim before `gh run rerun` errored. Take: the human reran the job.
 
 Read it with `gitlab_get {repoName, path}` (`repoName` this worktree,
 `path` from the API root, `:id` for this project:
-`projects/:id/jobs/<jobId>`) as part of the step, not an off-script move. Quote a GitLab error as written; a refused credential path is final.
+`projects/:id/jobs/<jobId>`) as part of the step, not an off-script move.
+Quote a GitLab error as written; a refused credential path is final.
 
 ### Gate ci
 
@@ -477,11 +480,11 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 The domain supplies triage (reading a red, REAL or INFRA, which jobs block,
 noise, ownership), judged at `Classify the triage report`, where it may
 move a job between REAL and INFRA; it never watches, claims, releases,
-retries or pushes. A rule that runs
-`<scripts>/ci-triage.sh` is the move `STOP: GitLab triage goes through
-ci_triage` redirects: call `ci_triage` with `pipelineId: <N>` (never the
-ref's newest pipeline) and the `--config` file's keys as `config` (the file
-sits under `parts/domain/`). `<forge> jobs` goes to `pipeline_jobs`;
+retries or pushes. A rule that runs `<scripts>/ci-triage.sh` is the move
+`STOP: GitLab triage goes through ci_triage` redirects: call `ci_triage`
+with `pipelineId: <N>` (never the ref's newest pipeline) and the rule's
+`--config` file's keys as `config`, its only source (the file sits under
+`parts/domain/`). `<forge> jobs` goes to `pipeline_jobs`;
 `ci-attendant.sh` or `ci-watch.sh` to `ci_watch`.
 
 {{slot:domain}}
