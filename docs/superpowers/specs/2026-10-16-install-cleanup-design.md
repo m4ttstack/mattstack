@@ -126,6 +126,10 @@ whenever the tracked list is known. For a joiner that is after `team.join`.
    deferred row records the placement and then the app runs the row's
    follow-up verb (`rt setup apply --only repos.clone`), which rt names in
    the row; the row stays finish-gated until the repo is in the index.
+   That retry clones only answered repos: an unanswered deferred repo stays
+   deferred. A deferred row offers "Clone here" to accept the shown
+   location in one click. Any answer given after Install carries the same
+   follow-up, so a re-located checkout is indexed right away.
 4. No placement, no clone, any other run (a member who saw the rows, a
    terminal `rt setup apply`, a `--non-interactive` run, CI): clone to the
    default destination. A terminal run never stops on this.
