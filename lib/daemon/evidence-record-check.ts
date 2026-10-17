@@ -10,6 +10,9 @@ import { readFileSync, realpathSync, statSync } from "fs";
 import { basename } from "path";
 import { evidenceShots, readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
 
+/** The one remedy for a file a run's record does not hold: the tool that copies and records it, never a raw field write. */
+export const RECORD_REMEDY = "record it with evidence_record first";
+
 export type RunEvidenceLookup = { found: false } | { found: true; evidence: string | null };
 
 type Warn = (message: string, context: { err: unknown; path: string }) => void;
@@ -97,7 +100,7 @@ export function evidenceUploadRefusal(o: {
 }): string | null {
   if (!o.run.found) return `run ${o.runId} not found`;
   const record = readEvidence(o.run.evidence);
-  if (record.version !== 2) return `run ${o.runId} has no evidence record; write evidence before uploading with runId`;
+  if (record.version !== 2) return `run ${o.runId} has no evidence record; ${RECORD_REMEDY}`;
   const resolve = o.resolve ?? safeRealpath;
   const same = (p: string) => resolve(p) === o.realpath;
   const ticket = ticketCopyRefusal({ record, realpath: o.realpath, filename: o.filename, bytes: o.bytes, resolve, warn: o.warn });
@@ -108,5 +111,5 @@ export function evidenceUploadRefusal(o: {
     const theme = raw.shot.theme ? ` (${raw.shot.theme})` : "";
     return `${o.filename} is the raw capture for case "${raw.caseId}" ${raw.slot}${theme}; upload its annotated image ${basename(raw.shot.annotated!)} instead`;
   }
-  return `${o.filename} is not in run ${o.runId}'s evidence record as an annotated image or a waived capture; record it with evidence_record first`;
+  return `${o.filename} is not in run ${o.runId}'s evidence record as an annotated image or a waived capture; ${RECORD_REMEDY}`;
 }

@@ -13,6 +13,7 @@
  * ticket-image redactions are unconfirmed is refused too
  * (../redaction-record-check.ts).
  */
+import { Database } from "bun:sqlite";
 import { existsSync, readdirSync, realpathSync } from "fs";
 import { isAbsolute, join, relative, sep } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
@@ -23,7 +24,7 @@ import { findRun, listRunRepoDirs } from "../../runs/store.ts";
 import { runsRoot } from "../../runs/paths.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
 import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
-import { evidenceUploadRefusal, ticketCopyRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
+import { evidenceUploadRefusal, RECORD_REMEDY, ticketCopyRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
 import { redactionUploadRefusal } from "../redaction-record-check.ts";
 import { checkUploadPath, claudeTempRoots, workRoot } from "../upload-guard.ts";
 import type { CommandResult, HandlerContext, HandlerMap } from "./types.ts";
@@ -40,43 +41,65 @@ export interface MrUploadSeams {
   fetchFn?: typeof fetch;
   requestHook?: () => ReturnType<typeof providerRequestHook>;
   runEvidence?: (runId: string) => RunEvidenceLookup;
+  runRecords?: () => RunRecordScan[];
   workRoot?: () => string;
+}
+
+export type RunRecordScan = { runId: string; evidence: string | null } | { runId: string; unreadable: string };
+
+/**
+ * Every run's evidence field, read straight from each state.db under the runs
+ * root: the scan below opens every run, so it skips findRun's full read.
+ */
+function scanRunRecords(): RunRecordScan[] {
+  const out: RunRecordScan[] = [];
+  for (const repo of listRunRepoDirs()) {
+    let ids: string[];
+    try {
+      ids = readdirSync(join(runsRoot(), repo));
+    } catch {
+      continue;
+    }
+    for (const runId of ids) {
+      const path = join(runsRoot(), repo, runId, "state.db");
+      if (!existsSync(path)) continue;
+      let db: Database | null = null;
+      try {
+        db = new Database(path, { readonly: true });
+        const row = db.query("SELECT value FROM fields WHERE key = 'evidence'").get() as { value: string } | null;
+        out.push({ runId, evidence: row?.value ?? null });
+      } catch {
+        out.push({ runId, unreadable: path });
+      } finally {
+        db?.close();
+      }
+    }
+  }
+  return out;
 }
 
 /**
  * With no run in scope a file can still be a run's saved ticket image (its
- * original in the session temp root, say): every run with an evidence folder
- * is checked, by size first, so an ordinary upload hashes nothing.
+ * original in the session temp root, say): every run's record is checked,
+ * whether or not its work folder survives. A record without a ticket image
+ * is skipped unparsed, and a recorded size gates any hashing.
  */
 function ticketCopyAnyRun(
   real: string,
   filename: string,
   bytes: Uint8Array,
-  root: string,
-  runEvidence: (runId: string) => RunEvidenceLookup,
+  records: RunRecordScan[],
   warn: (message: string, context: { err: unknown; path: string }) => void,
 ): string | null {
-  let ids: string[];
-  try {
-    ids = readdirSync(root);
-  } catch {
-    return null;
-  }
-  for (const id of ids) {
-    if (!existsSync(join(root, id, "evidence"))) continue;
-    const run = runEvidence(id);
-    // Skipping a run that exists but cannot be read keeps one bad db from blocking every upload; the warn records the skip.
-    if (!run.found) {
-      if (listRunRepoDirs().some((repo) => existsSync(join(runsRoot(), repo, id, "state.db")))) {
-        warn("ticket copy check: run has an evidence folder but its db could not be read; skipped", { err: null, path: join(root, id) });
-      }
+  for (const run of records) {
+    // Skipping a run whose db cannot be read keeps one bad db from blocking every upload; the warn records the skip.
+    if ("unreadable" in run) {
+      warn(`ticket copy check: run ${run.runId}'s db could not be read; skipped`, { err: null, path: run.unreadable });
       continue;
     }
+    if (!run.evidence?.includes('"ticket"')) continue;
     const record = readEvidence(run.evidence);
-    if (record.version !== 2) {
-      if (run.evidence) warn("ticket copy check: run's evidence field is not a v2 record; skipped", { err: null, path: join(root, id) });
-      continue;
-    }
+    if (record.version !== 2) continue;
     const refusal = ticketCopyRefusal({ record, realpath: real, filename, bytes, warn });
     if (refusal) return refusal;
   }
@@ -112,6 +135,7 @@ export function createMrUploadHandlers(
     const detail = findRun(runId);
     return detail ? { found: true, evidence: detail.fields.find((f) => f.key === "evidence")?.value ?? null } : { found: false };
   });
+  const runRecordsFn = seams.runRecords ?? scanRunRecords;
   const uploadRootsFn = seams.uploadRoots ?? (() => {
     let entries: unknown;
     try {
@@ -146,19 +170,20 @@ export function createMrUploadHandlers(
       const unconfirmed = redactionUploadRefusal({ realpath: checked.realpath, filename: checked.filename, bytes: checked.bytes, warn: (message, context) => ctx.log.warn(context, message) });
       if (unconfirmed) return { ok: false, error: unconfirmed };
       if (p?.runId !== undefined && (typeof p.runId !== "string" || !p.runId.trim())) return { ok: false, error: "runId must be a non-empty string" };
+      const asked = typeof p?.runId === "string" ? p.runId.trim() : undefined;
       const runIds = new Set<string>();
-      if (typeof p?.runId === "string") runIds.add(p.runId.trim());
+      if (asked) runIds.add(asked);
       const owner = runIdOfPath(checked.realpath, workRootFn());
       if (owner) runIds.add(owner);
       const warn = (message: string, context: { err: unknown; path: string }) => ctx.log.warn(context, message);
       for (const runId of runIds) {
         const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId), bytes: checked.bytes, warn });
         if (!refusal) continue;
-        const byLocation = runId === owner && runId !== (typeof p?.runId === "string" ? p.runId.trim() : undefined) && !refusal.includes("ticket image");
-        return { ok: false, error: byLocation ? `${checked.filename} is in run ${runId}'s evidence folder and not in run ${runId}'s evidence record; record it with evidence_record first` : refusal };
+        const byLocation = runId === owner && runId !== asked && !refusal.includes("ticket image");
+        return { ok: false, error: byLocation ? `${checked.filename} is in run ${runId}'s evidence folder and not in run ${runId}'s evidence record; ${RECORD_REMEDY}` : refusal };
       }
       if (runIds.size === 0) {
-        const ticket = ticketCopyAnyRun(checked.realpath, checked.filename, checked.bytes, workRootFn(), runEvidenceFn, warn);
+        const ticket = ticketCopyAnyRun(checked.realpath, checked.filename, checked.bytes, runRecordsFn(), warn);
         if (ticket) return { ok: false, error: ticket };
       }
 

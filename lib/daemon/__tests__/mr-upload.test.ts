@@ -10,6 +10,8 @@ import { spawnSync } from "child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { runStart } from "../../runs/start.ts";
+import { fieldSet, openRunDb } from "../../runs/write.ts";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
@@ -199,6 +201,9 @@ describe("mr:upload", () => {
     function record(value: object | string | null) {
       return { runEvidence: (id: string) => (id === "run-1" ? { found: true as const, evidence: value === null || typeof value === "string" ? value : JSON.stringify(value) } : { found: false as const }) };
     }
+    function scanned(value: object) {
+      return { runRecords: () => [{ runId: "run-1", evidence: JSON.stringify(value) }] };
+    }
     function v2(dir: string) {
       return {
         v: 2,
@@ -249,9 +254,9 @@ describe("mr:upload", () => {
       expect(await harness({ repoPath, ...record(null) }).handlers["mr:upload"]({ repoName: REPO, path: file, runId: "run-2" }))
         .toEqual({ ok: false, error: "run run-2 not found" });
       expect(await harness({ repoPath, ...record(null) }).handlers["mr:upload"]({ repoName: REPO, path: file, runId: "run-1" }))
-        .toEqual({ ok: false, error: "run run-1 has no evidence record; write evidence before uploading with runId" });
+        .toEqual({ ok: false, error: "run run-1 has no evidence record; record it with evidence_record first" });
       expect(await harness({ repoPath, ...record("see /tmp/x.png") }).handlers["mr:upload"]({ repoName: REPO, path: file, runId: "run-1" }))
-        .toEqual({ ok: false, error: "run run-1 has no evidence record; write evidence before uploading with runId" });
+        .toEqual({ ok: false, error: "run run-1 has no evidence record; record it with evidence_record first" });
       expect(await harness({ repoPath, ...record(null) }).handlers["mr:upload"]({ repoName: REPO, path: file, runId: 7 }))
         .toEqual({ ok: false, error: "runId must be a non-empty string" });
     });
@@ -382,15 +387,70 @@ describe("mr:upload", () => {
       const copy = pngWith(dir, "r-t-ticket.png", "ticket-bytes");
       const value = { v: 2, cases: [{ id: "t", label: "T", before: { path: copy, source: "ticket", annotated: join(dir, "board.png"), caption: "c" } }] };
       const original = pngWith(elsewhere, "r-t-ticket.png", "ticket-bytes");
-      const h = harness({ repoPath, tempRoots: () => [elsewhere], ...record(value) });
+      const h = harness({ repoPath, tempRoots: () => [elsewhere], ...scanned(value) });
       expect(await h.handlers["mr:upload"]({ repoName: REPO, path: original }))
         .toEqual({ ok: false, error: "r-t-ticket.png is the unredacted original of an imported ticket image; upload the composed board instead" });
       expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "notes.png", "ordinary") })).ok).toBe(true);
       expect(h.calls.length).toBe(1);
     });
 
-    test("with no run in scope, a run whose db cannot be read is skipped with a warning", async () => {
-      mkdirSync(join(home, ".mattstack", "work", "r-bad", "evidence"), { recursive: true });
+    describe("a ticket image with a recorded size and sha256", () => {
+      const TICKET_BYTES = Buffer.concat([Buffer.from(PNG), Buffer.from("ticket-bytes")]);
+      const hashedValue = (path: string) => ({ v: 2, cases: [{ id: "t", label: "T", before: {
+        path, source: "ticket", size: TICKET_BYTES.length, sha256: createHash("sha256").update(TICKET_BYTES).digest("hex"), annotated: join(path, "..", "board.png"), caption: "c",
+      } }] });
+      const REFUSED = { ok: false, error: "r-t-ticket.png is the unredacted original of an imported ticket image; upload the composed board instead" };
+
+      test("with no runId, its original is refused after the run-folder copy is deleted", async () => {
+        const dir = join(home, ".mattstack", "work", "run-1", "evidence", "t");
+        mkdirSync(dir, { recursive: true });
+        const copy = pngWith(dir, "r-t-ticket.png", "ticket-bytes");
+        rmSync(copy);
+        const h = harness({ repoPath, tempRoots: () => [elsewhere], ...scanned(hashedValue(copy)) });
+        expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "r-t-ticket.png", "ticket-bytes") })).toEqual(REFUSED);
+        expect(h.calls.length).toBe(0);
+      });
+
+      test("with no runId, its original is refused after the run's whole work folder is deleted, while the run's record remains", async () => {
+        const gone = join(home, ".mattstack", "work", "run-1", "evidence", "t", "r-t-ticket.png");
+        const h = harness({ repoPath, tempRoots: () => [elsewhere], ...scanned(hashedValue(gone)) });
+        expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "r-t-ticket.png", "ticket-bytes") })).toEqual(REFUSED);
+      });
+
+      test("with the run's record gone too, nothing remembers the image: the stated limit", async () => {
+        const h = harness({ repoPath, tempRoots: () => [elsewhere], runRecords: () => [] });
+        expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "r-t-ticket.png", "ticket-bytes") })).ok).toBe(true);
+      });
+
+      test("with a runId, a copy is refused though the ticket file is gone", async () => {
+        const gone = join(repoPath, "deleted-ticket.png");
+        const h = harness({ repoPath, ...record({ ...hashedValue(gone), cases: [...hashedValue(gone).cases, { id: "u", label: "U", after: { path: join(repoPath, "r-t-ticket.png"), waiver: "w" } }] }) });
+        expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "r-t-ticket.png", "ticket-bytes"), runId: "run-1" })).toEqual(REFUSED);
+      });
+
+      test("the default scan reads each run's record from the runs root", async () => {
+        const runs = join(home, ".mattstack", "runs");
+        const started = runStart(runs, { repo: "app", workType: "fix", pipeline: "default", env: { RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv });
+        if (!started.ok) throw new Error(started.error);
+        const db = openRunDb(started.runDb);
+        try {
+          expect(fieldSet(db, "evidence", JSON.stringify(hashedValue(join(home, ".mattstack", "work", started.runId, "evidence", "t", "r-t-ticket.png"))), "verify").ok).toBe(true);
+        } finally {
+          db.close();
+        }
+        const savedRuns = process.env.RT_RUNS_ROOT;
+        process.env.RT_RUNS_ROOT = runs;
+        try {
+          const h = harness({ repoPath, tempRoots: () => [elsewhere], runEvidence: () => { throw new Error("looked up by id"); } });
+          expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "r-t-ticket.png", "ticket-bytes") })).toEqual(REFUSED);
+          expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "notes.png", "ordinary") })).ok).toBe(true);
+        } finally {
+          if (savedRuns === undefined) delete process.env.RT_RUNS_ROOT; else process.env.RT_RUNS_ROOT = savedRuns;
+        }
+      });
+    });
+
+    test("with no run in scope, a run whose db cannot be read is skipped with a warning naming the run", async () => {
       mkdirSync(join(home, ".mattstack", "runs", "app", "r-bad"), { recursive: true });
       writeFileSync(join(home, ".mattstack", "runs", "app", "r-bad", "state.db"), "not a db");
       const warns: unknown[] = [];
@@ -399,15 +459,17 @@ describe("mr:upload", () => {
       try {
         const h = harness({ repoPath, warns, runEvidence: () => ({ found: false as const }) });
         expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) })).ok).toBe(true);
-        expect(JSON.stringify(warns)).toContain("its db could not be read; skipped");
+        expect(JSON.stringify(warns)).toContain("ticket copy check: run r-bad's db could not be read; skipped");
       } finally {
         if (savedRuns === undefined) delete process.env.RT_RUNS_ROOT; else process.env.RT_RUNS_ROOT = savedRuns;
       }
     });
 
-    test("without runId and with no run evidence folder under the work root, the record is never read", async () => {
-      const h = harness({ repoPath, runEvidence: () => { throw new Error("read"); } });
+    test("without runId, no run is looked up by id: an ordinary file passes the all-runs scan, a ticket copy it lists does not", async () => {
+      const value = { v: 2, cases: [{ id: "t", label: "T", before: { path: pngWith(elsewhere, "kept-ticket.png", "kept"), source: "ticket", annotated: join(elsewhere, "b.png"), caption: "c" } }] };
+      const h = harness({ repoPath, runEvidence: () => { throw new Error("read"); }, ...scanned(value) });
       expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) })).ok).toBe(true);
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "again.png", "kept") })).ok).toBe(false);
     });
   });
 });
