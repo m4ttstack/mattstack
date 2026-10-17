@@ -6,8 +6,8 @@ import {
 } from '../../outline';
 import {
   focusUnder,
-  type FocusGroups,
   workTypeOf,
+  type FocusGroups,
   type FocusItem,
 } from '../model/focusModel';
 
