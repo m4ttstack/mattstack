@@ -122,6 +122,7 @@ describe("bg service", () => {
       log, home: "/h", readyTimeoutMs: 50,
       available: async () => false,
       spawn: (argv) => { spawned.push(argv); },
+      loginEnv: quietLogin,
       run: async () => ({ exitCode: 0, stdout: "" }),
     });
     await expect(s.ensure()).rejects.toThrow(/did not come up/);
@@ -159,11 +160,12 @@ describe("bg service", () => {
     expect(env.PATH).not.toBe(process.env.PATH);
   });
 
-  test("an empty login-shell env falls back to the daemon's own PATH, without failing ensure", async () => {
+  test("an empty login-shell env falls back to the daemon's own PATH and warns, without failing ensure", async () => {
+    const warns: unknown[][] = [];
     let calls = 0;
     const spawned: Array<{ env: Record<string, string> }> = [];
     const s = createBgService({
-      log, home: "/h", readyTimeoutMs: 500,
+      log: silent(warns), home: "/h", readyTimeoutMs: 500,
       available: async () => ++calls > 2,
       spawn: (argv, env) => { spawned.push({ env }); },
       loginEnv: async () => ({}),
@@ -172,6 +174,7 @@ describe("bg service", () => {
     const result = await s.ensure();
     expect(result.started).toBe(true);
     expect(spawned[0]!.env.PATH).toBe(process.env.PATH);
+    expect(warns.some((a) => String(a[0]).includes("login-shell env unavailable"))).toBe(true);
   });
 
   test("a fresh start runs a parity probe and records drift when a binary resolves differently", async () => {

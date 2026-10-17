@@ -137,7 +137,9 @@ export function createBgService(opts: {
       throw new Error(`bg server was spawned ${Math.round(sinceSpawn / 1000)}s ago and has not bound yet; see ${serverLog}`);
     }
     lastSpawnAt = Date.now();
-    const env = herdrServerEnv(process.env, await loginEnv(), { HERDR_SESSION: BG_SESSION });
+    const login = await loginEnv();
+    if (!login.PATH) opts.log.warn("bg: login-shell env unavailable; starting with the daemon's own PATH");
+    const env = herdrServerEnv(process.env, login, { HERDR_SESSION: BG_SESSION });
     spawn([resolveHerdrBin(), "server"], env, home);
     const deadline = Date.now() + readyTimeoutMs;
     while (Date.now() < deadline) {
