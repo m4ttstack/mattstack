@@ -18,3 +18,10 @@ behavior once `onRunning` flips back to refuse).
 | W1 own run, fix pushed with `git_push` | 0/5 | 5/5 | RED: 5/5 call `run_stage {action: start, stage: watch-ci}`, get the refusal and carry on in attempt 1 ("I treat the new attempt as already in place"); GREEN: 5/5 `run_resolve {stage: watch-ci, next: iterate, attempt: 1, note: "fix pushed: 9d8e7f6a5b4c", decidedBy: pane}`, then `ci_watch` with `priorPipelineId: 9001` |
 | W2 own run, the human pushed (off-script Take) | 0/5 | 5/5 | RED: 5/5 `run_stage start` after confirming the push; GREEN: 5/5 the same `run_resolve` after the `git ls-remote` comparison |
 | W3 inherited run, fix pushed | 5/5 | 5/5 | regression guard: no `run_stage`, `run_resolve` or `run_field_set` on ship's run, both sides |
+
+## C3: sync-open-mrs gate steps on the gate tools
+
+| scenario | RED pass | GREEN pass | notes |
+|---|---|---|---|
+| S1 own run, sweep gate answered in the pane | 0/5 | 5/5 | RED: 5/5 `run_field_set {key: gate, value: sweep}` before `gate_ask`, then `run_decision {contract: gate@1, scope: sweep}` after `gate_answer` had already recorded it (a second record moves `decided_at`); GREEN: 5/5 `gate_ask` and `gate_answer` with `runDb` and `stage: sync-open-mrs`, no `run_field_set` on `gate`, no `run_decision` |
+| S2 resumed run already holds the sweep decision | 5/5 | 5/5 | regression guard: takes the recorded proceed answer, opens no gate and records nothing, both sides |
