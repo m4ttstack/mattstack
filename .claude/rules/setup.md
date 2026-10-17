@@ -47,9 +47,10 @@ an Install nobody can reach (RT-260). A connect action may prefill a field
 through `ConnectField.value`; the tray renders it as the field's initial
 text. It may also carry `create`, a link the sheet opens in the browser
 without closing: for the forges that is the new-token page with rt's scopes
-pre-checked, and `lib/setup/token-create.ts` is the one list those scopes,
-the field hint and the post-paste check all read, so a scope rt newly needs
-is added there and nowhere else. Add a row by following an existing validator in `lib/setup/validators/`
+pre-checked, and `lib/setup/token-create.ts` holds the required list (the
+field hint and the post-paste check read it) and the link's extra pre-checked
+scopes (the link alone reads them), still the only place either lives, so a
+scope rt newly needs is added there and nowhere else. Add a row by following an existing validator in `lib/setup/validators/`
 and its `steps-*.test.ts` twin; the tray's `PlanModels.swift` decodes the
 same contract, so a new field needs the Swift side too.
 

@@ -72,7 +72,7 @@ describe("orgRows", () => {
       expect(row!.action).toMatchObject({ type: "connect", integration: "gitlab", fields: [{ name: "token", hint: "api" }] });
       const action = row!.action;
       if (action?.type !== "connect") throw new Error("expected connect");
-      if (confirmed === "gitlab.example.com") expect(action.create?.url).toBe("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api");
+      if (confirmed === "gitlab.example.com") expect(action.create?.url).toBe("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features");
       else expect(action.create).toBeUndefined();
       expect(p.calls.fetch).toEqual([]);
       expect(p.calls.exec).toEqual([]);
