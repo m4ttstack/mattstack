@@ -31,3 +31,24 @@ Bind refuses `--pipeline` when:
 - the pipeline's name does not match `[a-z][a-z0-9-]*`,
 - the pipeline's stage list does not carry the stage,
 - the verb is a compiled stage copy (`stage-evidence--accessibility`): name the stage and pass `--pipeline` instead.
+
+## Remove a pipeline's override
+
+`--unset` removes the override this pack's fragment sets for one pipeline, so the slot reads the default fill again. Name the pipeline with `--pipeline` and pass no fill:
+
+```bash
+rt skills bind stage-evidence domain --pipeline accessibility --unset --pack acme
+```
+
+Bind then recompiles the pack. Once the stage's fills for that pipeline match the default again, the recompile removes the `stage-evidence--accessibility` copy. This holds even when the pipeline keeps overrides on other stages. A pipeline left with no overrides goes back to a plain stage list in the fragment; one that keeps others keeps its object form.
+
+The result reads `to` as the fill the slot has afterwards, and `--json` adds `"unset": true`. If a lower layer, such as a base pack the pack extends, still overrides the slot, the output says that layer's override still applies. `--dry-run` shows the default fill as `to` even then, because it cannot see the layer underneath.
+
+Bind refuses `--unset` when:
+
+- `--pipeline` is missing (`--unset removes a pipeline override; name the pipeline with --pipeline`),
+- a fill is given (`--unset takes no fill`),
+- the pipeline has no override for that slot (`<pipeline> has no override for <verb>.<slot>`),
+- the override comes from another layer, such as a user override (`<pipeline>'s override for <verb>.<slot> comes from <layer>; remove it there`).
+
+An unset removes the override. Writing `""` under `pipelines.<name>.bindings` by hand does something different: it keeps the override and leaves the slot unbound for that pipeline.

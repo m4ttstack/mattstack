@@ -1,6 +1,6 @@
 ---
 name: extending-a-pack
-description: Use when a team pack already exists and it should know something new -- "add a rule to our pack", "the pipeline should X on our repo", "make ship run lint first", "add a ship/review/watch-ci verb", "add an accessibility pipeline", "a bug fix pipeline with its own fills", "add a work-<kind> verb", "reword the work description" -- or right after a generic stage missed a team rule. Not for creating the pack (see creating-a-pack) or publishing it (see editing-skills).
+description: Use when a team pack already exists and it should know something new -- "add a rule to our pack", "the pipeline should X on our repo", "make ship run lint first", "add a ship/review/watch-ci verb", "add an accessibility pipeline", "a bug fix pipeline with its own fills", "undo a pipeline override", "add a work-<kind> verb", "reword the work description" -- or right after a generic stage missed a team rule. Not for creating the pack (see creating-a-pack) or publishing it (see editing-skills).
 ---
 
 # Extending a pack
@@ -176,6 +176,15 @@ A specialized pipeline takes two rounds or more, in this order:
    `/<pack>:work-<kind>`, write the fill, then bind it with `--pipeline
    <name>` (the `One pipeline's fill only?` yes edge). Stages it does not
    override run the pack's default fills.
+
+To take a pipeline's override back off, run `rt_verb {args: ["skills",
+"bind", "<stage>", "<slot>", "--pipeline", "<name>", "--unset", "--pack",
+"<pack>"]}`. It takes no fill; it rewrites the fragment, recompiles, and
+sweeps the stage copy once that stage's fills match the default again.
+For example, `rt skills bind stage-evidence domain --pipeline accessibility --unset` <!-- mcp-lint: allow -->
+puts the accessibility pipeline's evidence domain back on the default fill;
+send it as `rt_verb {args: ["skills", "bind", "stage-evidence", "domain",
+"--pipeline", "accessibility", "--unset", "--pack", "<pack>"]}`.
 
 Compile, check and bind read the pack's bindings file for the repo
 (`~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`), never the fragment,

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { rebindChoices } from '../drawer/rebind';
+import { pipelineChoices, rebindChoices } from '../drawer/rebind';
 import { designFixture } from './designFixtures';
 
 const where = (composition = designFixture('composition')) =>
@@ -174,6 +174,220 @@ describe('rebindChoices per pipeline', () => {
     ]);
   });
 });
+
+describe('pipelineChoices', () => {
+  const composition = designFixture('composition');
+  const evidence = (
+    workType: string | null,
+    skill = 'stage-evidence',
+    of = composition
+  ) =>
+    pipelineChoices(of, skill, 'mattstack:stage-evidence', 'domain', workType);
+  const DEFAULT = { pipeline: null, label: 'Default' };
+
+  it("offers Default and the specialized pipeline, preselecting the view's", () => {
+    expect(evidence('accessibility')).toEqual({
+      choices: [DEFAULT, { pipeline: 'accessibility', label: 'accessibility' }],
+      preselected: 'accessibility',
+    });
+  });
+
+  it('preselects Default on the default pipeline, which it does not offer', () => {
+    const { choices, preselected } = evidence('feature');
+    expect(preselected).toBeNull();
+    expect(choices.map(choice => choice.pipeline)).toEqual([
+      null,
+      'accessibility',
+    ]);
+  });
+
+  it('offers and preselects the default pipeline once it overrides the slot', () => {
+    const overridden = designFixture('composition');
+    overridden.binders = overridden.binders.map(binder =>
+      binder.ref === 'mattstack:stage-evidence'
+        ? {
+            ...binder,
+            slots: binder.slots.map(slot => ({
+              ...slot,
+              overrides: [
+                ...(slot.overrides ?? []),
+                {
+                  pipeline: 'feature',
+                  boundTo: 'acme:evidence-a11y',
+                  layer: 'pack',
+                },
+              ],
+            })),
+          }
+        : binder
+    );
+    const { choices, preselected } = evidence(
+      'feature',
+      'stage-evidence',
+      overridden
+    );
+    expect(preselected).toBe('feature');
+    expect(choices).toContainEqual({ pipeline: 'feature', label: 'feature' });
+  });
+
+  it("gives no choice on a work verb's own slot", () => {
+    expect(
+      pipelineChoices(
+        composition,
+        'work-a11y',
+        'mattstack:work',
+        'tiering',
+        'accessibility'
+      ).choices
+    ).toEqual([]);
+  });
+
+  it("offers a stage copy its stage's choices, preselecting its own pipeline", () => {
+    expect(evidence('accessibility', 'stage-evidence--accessibility')).toEqual({
+      choices: [DEFAULT, { pipeline: 'accessibility', label: 'accessibility' }],
+      preselected: 'accessibility',
+    });
+  });
+});
+
+describe('rebindChoices for a chosen pipeline', () => {
+  const composition = designFixture('composition');
+  const evidence = (chosen: string | null, skill = 'stage-evidence') =>
+    rebindChoices(
+      composition,
+      skill,
+      'mattstack:stage-evidence',
+      'domain',
+      'accessibility',
+      chosen
+    );
+
+  it('reads and writes the default when Default is chosen', () => {
+    expect(evidence(null)).toMatchObject({
+      pipeline: null,
+      current: 'acme:evidence-policy',
+      overridden: false,
+    });
+  });
+
+  it("reads the chosen pipeline's override and the default it falls back to", () => {
+    expect(evidence('accessibility')).toMatchObject({
+      pipeline: 'accessibility',
+      current: 'acme:evidence-a11y',
+      overridden: true,
+      fallback: 'acme:evidence-policy',
+    });
+  });
+
+  it('reads and writes the default on a copy when Default is chosen', () => {
+    expect(evidence(null, 'stage-evidence--accessibility')).toMatchObject({
+      verb: 'stage-evidence',
+      pipeline: null,
+      current: 'acme:evidence-policy',
+      overridden: false,
+    });
+  });
+
+  it('keeps a copy on its own pipeline when that is chosen', () => {
+    expect(
+      evidence('accessibility', 'stage-evidence--accessibility')
+    ).toMatchObject({
+      verb: 'stage-evidence',
+      pipeline: 'accessibility',
+      current: 'acme:evidence-a11y',
+      overridden: true,
+    });
+  });
+
+  it("lets this pack's override be removed", () => {
+    expect(evidence('accessibility')).toMatchObject({
+      removable: true,
+      overrideSetBy: null,
+    });
+  });
+
+  it("keeps another layer's override, naming the layer", () => {
+    expect(
+      rebindChoices(
+        overrideLayered('base:acme-base'),
+        'stage-evidence',
+        'mattstack:stage-evidence',
+        'domain',
+        'accessibility',
+        'accessibility'
+      )
+    ).toMatchObject({
+      overridden: true,
+      removable: false,
+      overrideSetBy: 'base: acme-base',
+    });
+  });
+
+  it('lets an override with no layer be removed, as rt does', () => {
+    expect(
+      rebindChoices(
+        overrideLayered(null),
+        'stage-evidence',
+        'mattstack:stage-evidence',
+        'domain',
+        'accessibility',
+        'accessibility'
+      )
+    ).toMatchObject({ removable: true, overrideSetBy: null });
+  });
+
+  it('names the view pipeline that keeps its override when Default is chosen', () => {
+    expect(evidence(null)).toMatchObject({ keptOverride: 'accessibility' });
+    expect(evidence('accessibility')).toMatchObject({ keptOverride: null });
+    expect(
+      rebindChoices(
+        composition,
+        'stage-evidence',
+        'mattstack:stage-evidence',
+        'domain',
+        'feature',
+        null
+      )
+    ).toMatchObject({ keptOverride: null });
+  });
+
+  it('use default on a copy targets its engine and pipeline', () => {
+    expect(
+      rebindChoices(
+        composition,
+        'stage-evidence--accessibility',
+        'mattstack:stage-evidence',
+        'domain',
+        null
+      )
+    ).toMatchObject({
+      verb: 'stage-evidence',
+      pipeline: 'accessibility',
+      overridden: true,
+      fallback: 'acme:evidence-policy',
+    });
+  });
+});
+
+/** The design fixture with its accessibility evidence override set by `layer`. */
+function overrideLayered(layer: string | null) {
+  const composition = designFixture('composition');
+  composition.binders = composition.binders.map(binder =>
+    binder.ref === 'mattstack:stage-evidence'
+      ? {
+          ...binder,
+          slots: binder.slots.map(slot => ({
+            ...slot,
+            overrides: slot.overrides?.map(override => ({
+              ...override,
+              layer,
+            })),
+          })),
+        }
+      : binder
+  );
+  return composition;
+}
 
 /** stage-plan with extra slots of its own, each bound to the given fill. */
 function withOwnSlots(slots: Record<string, string>) {

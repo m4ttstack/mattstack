@@ -350,12 +350,7 @@ describe('RebindPanel', () => {
       within(root)
         .getAllByTestId('rebind-fact')
         .map(fact => fact.textContent)
-    ).toEqual([
-      'contractevidence-domain@1',
-      'set bythis pack',
-      'requiredno',
-      'pipelineaccessibility',
-    ]);
+    ).toEqual(['contractevidence-domain@1', 'set bythis pack', 'requiredno']);
     expect(within(root).getByTestId('rebind-current')).toHaveTextContent(
       'evidence-a11ynow'
     );
@@ -418,6 +413,7 @@ describe('RebindPanel', () => {
         'Writes the binding in this pack, then rebuilds work and work-a11y. Nothing is shared until you sync.'
     );
     expect(command.textContent).not.toContain('--pipeline');
+    expect(within(root).queryByRole('radiogroup')).toBeNull();
   });
 
   it('writes nothing when the confirm is cancelled', async () => {
@@ -589,6 +585,198 @@ describe('RebindPanel', () => {
     fireEvent.keyDown(picker(root), { key: 'Escape', code: 'Escape' });
 
     expect(params().get('select')).toBe('row:136');
+    expect(params().get('rebind')).toBe('1');
+  });
+});
+
+const A11Y_EVIDENCE =
+  '?tab=graph&focus=stage-evidence@accessibility&select=row:299&rebind=1';
+const pipelines = (root: HTMLElement) =>
+  within(root).getByRole('radiogroup', { name: 'Pick the pipeline to change' });
+
+/** The design composition with its accessibility evidence override set by `layer`. */
+function evidenceOverrideFrom(layer: string) {
+  const composition = designFixture('composition');
+  composition.binders = composition.binders.map(binder =>
+    binder.ref === 'mattstack:stage-evidence'
+      ? {
+          ...binder,
+          slots: binder.slots.map(slot => ({
+            ...slot,
+            overrides: slot.overrides?.map(override => ({
+              ...override,
+              layer,
+            })),
+          })),
+        }
+      : binder
+  );
+  return composition;
+}
+
+describe('the pipeline choice', () => {
+  it("preselects the accessibility view's own pipeline on its evidence step", async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+    const group = pipelines(root);
+
+    expect(
+      within(group).getByRole('radio', { name: 'accessibility' })
+    ).toBeChecked();
+    expect(
+      within(group).getByRole('radio', { name: 'Default' })
+    ).not.toBeChecked();
+
+    await userEvent.click(picker(root));
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^evidence-policy/ })
+    );
+    expect(within(root).getByTestId('rebind-command')).toHaveTextContent(
+      'rt skills bind stage-evidence domain acme:evidence-policy --pipeline accessibility --pack acme'
+    );
+  });
+
+  it('reads and writes the default fill once Default is chosen', async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+    await userEvent.click(
+      within(pipelines(root)).getByRole('radio', { name: 'Default' })
+    );
+
+    expect(within(root).getByTestId('rebind-current')).toHaveTextContent(
+      'evidence-policynow'
+    );
+    expect(
+      within(root).queryByRole('button', { name: 'Use default' })
+    ).toBeNull();
+
+    await userEvent.click(picker(root));
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^evidence-a11y/ })
+    );
+    const command = within(root).getByTestId('rebind-command');
+    expect(command).toHaveTextContent(
+      'rt skills bind stage-evidence domain acme:evidence-a11y --pack acme' +
+        'Writes the binding in this pack'
+    );
+    expect(command.textContent).not.toContain('--pipeline');
+
+    await confirmApply(root);
+    await waitFor(() =>
+      expect(bindPost).toHaveBeenCalledWith({
+        json: {
+          pack: 'acme',
+          verb: 'stage-evidence',
+          slot: 'domain',
+          fill: 'acme:evidence-a11y',
+        },
+      })
+    );
+  });
+
+  it("clears the pipeline's override after a confirm naming its fill and the default", async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+    await userEvent.click(
+      within(root).getByRole('button', { name: 'Use default' })
+    );
+
+    const confirm = await dialog();
+    expect(confirm).toHaveTextContent('Use the default for the domain slot?');
+    expect(confirm).toHaveTextContent(
+      "Removes this pack's accessibility override, evidence-a11y. The evidence step then uses the default fill, evidence-policy, if no other layer overrides it. Nothing is shared until you sync."
+    );
+    expect(bindPost).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      within(confirm).getByRole('button', { name: 'Use default' })
+    );
+    await waitFor(() =>
+      expect(bindPost).toHaveBeenCalledWith({
+        json: {
+          pack: 'acme',
+          verb: 'stage-evidence',
+          slot: 'domain',
+          pipeline: 'accessibility',
+          unset: true,
+        },
+      })
+    );
+    expect(
+      await screen.findByText('Removed the accessibility override on domain')
+    ).toBeInTheDocument();
+    await waitFor(() => expect(params().get('rebind')).toBeNull());
+  });
+
+  it('says the view pipeline keeps its override when Default is rebound', async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+    await userEvent.click(
+      within(pipelines(root)).getByRole('radio', { name: 'Default' })
+    );
+    await userEvent.click(picker(root));
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^evidence-a11y/ })
+    );
+    await userEvent.click(within(root).getByRole('button', { name: 'Apply' }));
+
+    expect(await dialog()).toHaveTextContent(
+      'evidence will use evidence-a11y instead of evidence-policy by default. The accessibility pipeline keeps its own override. Nothing is shared until you sync.'
+    );
+  });
+
+  it("offers no Use default on another layer's override, naming that layer", async () => {
+    compositionGet.mockImplementation(() =>
+      Promise.resolve(ok(evidenceOverrideFrom('base:acme-base')))
+    );
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+
+    expect(
+      within(root).queryByRole('button', { name: 'Use default' })
+    ).toBeNull();
+    expect(within(root).getByTestId('rebind-override-layer')).toHaveTextContent(
+      'This override comes from base: acme-base; remove it there.'
+    );
+  });
+
+  it("offers Use default on this pack's override, with no layer line", async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+
+    expect(
+      within(root).getByRole('button', { name: 'Use default' })
+    ).toBeInTheDocument();
+    expect(within(root).queryByTestId('rebind-override-layer')).toBeNull();
+  });
+
+  it('drops the picked fill when the pipeline changes', async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+    await userEvent.click(picker(root));
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^evidence-policy/ })
+    );
+    await userEvent.click(
+      within(pipelines(root)).getByRole('radio', { name: 'Default' })
+    );
+
+    expect(picker(root)).toHaveTextContent('Pick a file');
+    expect(within(root).queryByTestId('rebind-command')).toBeNull();
+  });
+
+  it('writes nothing when the Use default confirm is cancelled', async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+    await userEvent.click(
+      within(root).getByRole('button', { name: 'Use default' })
+    );
+    await userEvent.click(
+      within(await dialog()).getByRole('button', { name: 'Cancel' })
+    );
+
+    await waitFor(noConfirm);
+    expect(bindPost).not.toHaveBeenCalled();
     expect(params().get('rebind')).toBe('1');
   });
 });

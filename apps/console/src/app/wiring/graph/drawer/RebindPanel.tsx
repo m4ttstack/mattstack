@@ -8,6 +8,7 @@ import {
   Input,
   InputBase,
   Paper,
+  SegmentedControl,
   Stack,
   Text,
   useCombobox,
@@ -22,7 +23,7 @@ import { guardedWrite, useSkillsApply } from '../../useWiring';
 import { ButtonLabel } from '../ButtonLabel';
 import { stepLabel } from '../model/focusModel';
 import classes from './drawer.module.css';
-import { listed, rebindChoices } from './rebind';
+import { listed, pipelineChoices, rebindChoices } from './rebind';
 
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';
@@ -74,9 +75,23 @@ export function RebindPanel({
       mounted.current = false;
     };
   }, []);
-  const choices = useMemo(
-    () => rebindChoices(composition, skill, skillRef, slot, workType),
+  const targets = useMemo(
+    () => pipelineChoices(composition, skill, skillRef, slot, workType),
     [composition, skill, skillRef, slot, workType]
+  );
+  const [chosen, setChosen] = useState<string | null>(targets.preselected);
+  const choosing = targets.choices.length > 0;
+  const choices = useMemo(
+    () =>
+      rebindChoices(
+        composition,
+        skill,
+        skillRef,
+        slot,
+        workType,
+        choosing ? chosen : undefined
+      ),
+    [composition, skill, skillRef, slot, workType, choosing, chosen]
   );
   const [picked, setPicked] = useState<string | null>(null);
   const combobox = useCombobox();
@@ -87,6 +102,8 @@ export function RebindPanel({
   const changed = picked !== null && picked !== choices.current;
   const command = `rt skills bind ${verb} ${slot} ${picked}${pipeline ? ` --pipeline ${pipeline}` : ''} --pack ${pack}`;
   const inPipeline = pipeline ? ` in the ${pipeline} pipeline` : '';
+  const unsetting =
+    bind.isPending && bind.variables !== undefined && 'unset' in bind.variables;
 
   const pick = (binding: string) => {
     setPicked(binding);
@@ -101,9 +118,12 @@ export function RebindPanel({
     const was = choices.current
       ? `instead of ${suffixOf(choices.current)}`
       : `in its ${slot} slot`;
+    const kept = choices.keptOverride
+      ? ` by default. The ${choices.keptOverride} pipeline keeps its own override`
+      : '';
     modals.confirm({
       title: `Rebind the ${slot} slot?`,
-      message: `${step} will use ${suffixOf(fill)} ${was}${inPipeline}. Nothing is shared until you sync.`,
+      message: `${step} will use ${suffixOf(fill)} ${was}${inPipeline}${kept}. Nothing is shared until you sync.`,
       labels: { confirm: 'Apply' },
       onConfirm: () =>
         guardedWrite(queryClient, pack, () => {
@@ -120,6 +140,35 @@ export function RebindPanel({
                 return;
               }
               notifications.success(`Rebound ${slot} to ${suffixOf(fill)}`);
+              if (mounted.current) onDone();
+            })
+            .catch((error: Error) => notifications.error(error.message));
+        }),
+    });
+  };
+
+  const clearOverride = () => {
+    if (!pipeline || !choices.removable || writing) return;
+    const override = choices.current ? suffixOf(choices.current) : 'unbound';
+    const then = choices.fallback
+      ? `uses the default fill, ${suffixOf(choices.fallback)},`
+      : 'has nothing bound';
+    modals.confirm({
+      title: `Use the default for the ${slot} slot?`,
+      message: `Removes this pack's ${pipeline} override, ${override}. The ${step} step then ${then} if no other layer overrides it. Nothing is shared until you sync.`,
+      labels: { confirm: 'Use default' },
+      onConfirm: () =>
+        guardedWrite(queryClient, pack, () => {
+          bind
+            .mutateAsync({ verb, slot, pipeline, unset: true })
+            .then(result => {
+              if (!result.ok) {
+                notifications.error(result.error ?? 'rt skills bind failed');
+                return;
+              }
+              notifications.success(
+                `Removed the ${pipeline} override on ${slot}`
+              );
               if (mounted.current) onDone();
             })
             .catch((error: Error) => notifications.error(error.message));
@@ -151,7 +200,36 @@ export function RebindPanel({
         <Fact label="contract" value={choices.contract ?? 'unknown'} />
         <Fact label="set by" value={choices.setBy} />
         <Fact label="required" value={choices.required} />
-        {pipeline && <Fact label="pipeline" value={pipeline} />}
+        {choosing ? (
+          <Stack gap={2}>
+            <Text fz={10} lh="normal" c={MUTED}>
+              pipeline
+            </Text>
+            <SegmentedControl
+              variant="quiet"
+              radius={7}
+              aria-label="Pick the pipeline to change"
+              value={String(
+                targets.choices.findIndex(choice => choice.pipeline === chosen)
+              )}
+              onChange={index => {
+                setChosen(targets.choices[Number(index)]?.pipeline ?? null);
+                setPicked(null);
+              }}
+              data={targets.choices.map((choice, index) => ({
+                value: String(index),
+                label: choice.label,
+              }))}
+              classNames={{
+                root: classes.segmented,
+                control: classes.segment,
+                label: classes.segmentLabel,
+              }}
+            />
+          </Stack>
+        ) : (
+          pipeline && <Fact label="pipeline" value={pipeline} />
+        )}
       </Group>
       <Combobox store={combobox} onOptionSubmit={pick}>
         <div className={classes.fromTo}>
@@ -310,6 +388,32 @@ export function RebindPanel({
         </Code>
       )}
       <Group gap={8} justify="flex-end">
+        {pipeline && choices.overrideSetBy && (
+          <Text
+            fz={11}
+            lh="normal"
+            c={MUTED}
+            className={classes.useDefault}
+            data-testid="rebind-override-layer"
+          >
+            This override comes from {choices.overrideSetBy}; remove it there.
+          </Text>
+        )}
+        {pipeline && choices.removable && (
+          <Button
+            variant="card-outline"
+            size="xs"
+            radius={6}
+            classNames={{
+              root: `${classes.panelButton} ${classes.useDefault}`,
+            }}
+            disabled={writing}
+            loading={unsetting}
+            onClick={clearOverride}
+          >
+            <ButtonLabel>Use default</ButtonLabel>
+          </Button>
+        )}
         <Button
           variant="card-outline"
           size="xs"
@@ -327,7 +431,7 @@ export function RebindPanel({
           radius={6}
           classNames={BUTTON}
           disabled={!changed || writing}
-          loading={bind.isPending}
+          loading={bind.isPending && !unsetting}
           onClick={apply}
           data-parity="button · Apply"
         >
