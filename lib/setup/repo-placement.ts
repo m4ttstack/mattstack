@@ -4,7 +4,7 @@
  * own runtime file, so they can be given before and after Install alike.
  */
 import { realpathSync } from "fs";
-import { dirname, join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { loadRepoIndex, resolveIndexPathForIdentity } from "../repo-index.ts";
 import { deriveRepoIdentity, normalizeRemote, serializeIdentity } from "../settings/identity.ts";
 import { getSetting } from "../settings/resolve.ts";
@@ -125,14 +125,28 @@ export function clearCloneFailure(p: Probes, identity: string): void {
   });
 }
 
-/** A linked worktree's `.git` is a file naming its own git dir, whose `commondir` leads to the config the main checkout shares. */
-function gitConfigPath(p: Pick<Probes, "readFile">, dest: string): string {
-  const dotGit = join(dest, ".git");
-  const pointer = p.readFile(dotGit)?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
-  if (!pointer) return join(dotGit, "config");
+/** A linked worktree's `.git` is a file naming its own git dir, whose `commondir` leads to the git dir the main checkout shares. Null for a main checkout. */
+function linkedGitDirs(p: Pick<Probes, "readFile">, dest: string): { gitDir: string; commonDir: string } | null {
+  const pointer = p.readFile(join(dest, ".git"))?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
+  if (!pointer) return null;
   const gitDir = resolve(dest, pointer);
   const common = p.readFile(join(gitDir, "commondir"))?.trim();
-  return join(common ? resolve(gitDir, common) : gitDir, "config");
+  return { gitDir, commonDir: common ? resolve(gitDir, common) : gitDir };
+}
+
+function gitConfigPath(p: Pick<Probes, "readFile">, dest: string): string {
+  return join(linkedGitDirs(p, dest)?.commonDir ?? join(dest, ".git"), "config");
+}
+
+/**
+ * The main checkout a linked worktree belongs to, or null when `dest` is not
+ * a linked worktree. `rt worktree` and the repo index treat the placed folder
+ * as the canonical checkout, so a linked worktree can never be one.
+ */
+export function linkedWorktreeMain(p: Pick<Probes, "readFile">, dest: string): { main: string | null } | null {
+  const dirs = linkedGitDirs(p, dest);
+  if (!dirs) return null;
+  return { main: basename(dirs.commonDir) === ".git" ? dirname(dirs.commonDir) : null };
 }
 
 /** A real clone of `identity`, not just any directory that happens to share its basename — two tracked identities can collide on basename (`gitlab.com/a/api`, `github.com/b/api`), and an unrelated folder can already occupy the path. */
@@ -152,7 +166,7 @@ export function isCloneOf(p: Pick<Probes, "readFile">, dest: string, identity: s
  * submodule, would pass. The repo's own derived identity (origin) decides.
  */
 export async function isReusableCloneOf(p: Pick<Probes, "readFile">, path: string, identity: string): Promise<boolean> {
-  if (!isCloneOf(p, path, identity)) return false;
+  if (linkedWorktreeMain(p, path) || !isCloneOf(p, path, identity)) return false;
   try {
     return serializeIdentity(await deriveRepoIdentity(path)) === serializeIdentity({ kind: "remote", id: identity });
   } catch {
@@ -287,6 +301,12 @@ export async function checkCheckout(p: Pick<Probes, "home" | "readFile" | "readD
   if (p.exists(join(real, ".git"))) {
     try {
       const other = await deriveRepoIdentity(real);
+      const linked = linkedWorktreeMain(p, real);
+      if (linked && other.kind === "remote" && other.id === identity) {
+        return linked.main
+          ? { ok: false, detail: `${shown} is a worktree of ${base}. Choose your main checkout at ${tildify(p.home, linked.main)}.` }
+          : { ok: false, detail: `${shown} is a worktree of ${base}. Choose your main checkout.` };
+      }
       if (other.kind === "remote" && other.id !== identity) {
         return tracked.includes(other.id)
           ? { ok: false, detail: `${shown} is your ${repoBasename(other.id)} checkout, not ${base}.` }

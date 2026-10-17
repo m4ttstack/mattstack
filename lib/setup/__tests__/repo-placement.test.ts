@@ -26,6 +26,13 @@ import { fakeProbes, gitRepo, realFsProbes } from "./fakes.ts";
 const WIDGETS = "gitlab.com/acme/widgets";
 const ACME_API = "gitlab.com/acme/acme-api";
 
+function linkedWorktree(main: string, linked: string): { main: string; linked: string } {
+  gitRepo(main, { origin: "https://gitlab.com/acme/widgets.git" });
+  execSync(`git -C ${JSON.stringify(main)} -c user.name=dev1 -c user.email=dev1@example.com commit -q --allow-empty -m init`);
+  execSync(`git -C ${JSON.stringify(main)} worktree add -q -b feature ${JSON.stringify(linked)}`);
+  return { main, linked };
+}
+
 let home: string;
 beforeEach(() => {
   home = realpathSync(mkdtempSync(join(tmpdir(), "rt-placement-")));
@@ -39,13 +46,12 @@ describe("checkCheckout", () => {
     expect(await checkCheckout(realFsProbes(home), WIDGETS, path, { tracked: [] })).toEqual({ ok: true, path });
   });
 
-  test("a linked worktree of the repo is accepted", async () => {
-    const main = join(home, "code", "widgets");
-    gitRepo(main, { origin: "https://gitlab.com/acme/widgets.git" });
-    execSync(`git -C ${JSON.stringify(main)} -c user.name=dev1 -c user.email=dev1@example.com commit -q --allow-empty -m init`);
-    const linked = join(home, "trees", "widgets-feature");
-    execSync(`git -C ${JSON.stringify(main)} worktree add -q -b feature ${JSON.stringify(linked)}`);
-    expect(await checkCheckout(realFsProbes(home), WIDGETS, linked, { tracked: [] })).toEqual({ ok: true, path: linked });
+  test("a linked worktree of the repo is refused, naming the main checkout", async () => {
+    const { linked } = linkedWorktree(join(home, "code", "widgets"), join(home, "trees", "widgets-feature"));
+    expect(await checkCheckout(realFsProbes(home), WIDGETS, linked, { tracked: [] })).toEqual({
+      ok: false,
+      detail: "~/trees/widgets-feature is a worktree of widgets. Choose your main checkout at ~/code/widgets.",
+    });
   });
 
   test("a trailing slash and ~ are normalised", async () => {
@@ -149,6 +155,19 @@ describe("findCheckout and defaultPlacement", () => {
     gitRepo(join(home, "code", "widgets"), { origin: "https://gitlab.com/acme/widgets.git" });
     setKvValue("repo-index", serializeIdentity({ kind: "remote", id: WIDGETS }), indexed);
     expect(await findCheckout(realFsProbes(home), WIDGETS, { rootPaths: [join(home, "code")] })).toBe(indexed);
+  });
+
+  test("a linked worktree is never found; its main checkout is", async () => {
+    const { main } = linkedWorktree(join(home, "elsewhere", "widgets"), join(home, "code", "widgets"));
+    const p = realFsProbes(home);
+    expect(await findCheckout(p, WIDGETS, { rootPaths: [] })).toBeNull();
+    expect(await findCheckout(p, WIDGETS, { rootPaths: [join(home, "elsewhere")] })).toBe(main);
+  });
+
+  test("an index row pointing at a linked worktree is skipped", async () => {
+    const { linked } = linkedWorktree(join(home, "elsewhere", "widgets"), join(home, "trees", "w"));
+    setKvValue("repo-index", serializeIdentity({ kind: "remote", id: WIDGETS }), linked);
+    expect(await findCheckout(realFsProbes(home), WIDGETS, { rootPaths: [] })).toBeNull();
   });
 
   test("a found checkout is the default", async () => {
