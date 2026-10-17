@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { herdrServerEnv, loginShellEnv } from "../login-env.ts";
+import { herdrServerEnv, LOGIN_ENV_MARKER, loginShellEnv } from "../login-env.ts";
 
 test("loginShellEnv reads PATH, HOME, SHELL, TMPDIR and LANG from the login shell probe", async () => {
   const seen: string[][] = [];
   const env = await loginShellEnv(async (argv) => {
     seen.push(argv);
-    return { exitCode: 0, stdout: "/opt/acme/bin:/usr/bin\n/Users/dev1\n/bin/zsh\n/var/tmp/dev1/\nen_US.UTF-8\n" };
+    return { exitCode: 0, stdout: `${LOGIN_ENV_MARKER}\n/opt/acme/bin:/usr/bin\n/Users/dev1\n/bin/zsh\n/var/tmp/dev1/\nen_US.UTF-8\n` };
   });
   expect(seen[0]?.slice(0, 2)).toEqual(["zsh", "-lc"]);
   expect(env).toEqual({
@@ -18,8 +18,26 @@ test("loginShellEnv reads PATH, HOME, SHELL, TMPDIR and LANG from the login shel
 });
 
 test("loginShellEnv leaves out a key the login shell left empty", async () => {
-  const env = await loginShellEnv(async () => ({ exitCode: 0, stdout: "/usr/bin\n/Users/dev1\n/bin/zsh\n\n\n" }));
+  const env = await loginShellEnv(async () => ({ exitCode: 0, stdout: `${LOGIN_ENV_MARKER}\n/usr/bin\n/Users/dev1\n/bin/zsh\n\n\n` }));
   expect(env).toEqual({ PATH: "/usr/bin", HOME: "/Users/dev1", SHELL: "/bin/zsh" });
+});
+
+test("loginShellEnv reads only the lines after the marker, past anything the profile printed", async () => {
+  const env = await loginShellEnv(async () => ({
+    exitCode: 0,
+    stdout: `Welcome to acme\nnvm: using node 20\n${LOGIN_ENV_MARKER}\n/opt/acme/bin:/usr/bin\n/Users/dev1\n/bin/zsh\n/var/tmp/dev1/\nen_US.UTF-8\n`,
+  }));
+  expect(env).toEqual({
+    PATH: "/opt/acme/bin:/usr/bin",
+    HOME: "/Users/dev1",
+    SHELL: "/bin/zsh",
+    TMPDIR: "/var/tmp/dev1/",
+    LANG: "en_US.UTF-8",
+  });
+});
+
+test("loginShellEnv is empty when the marker never printed", async () => {
+  expect(await loginShellEnv(async () => ({ exitCode: 0, stdout: "/usr/bin\n/Users/dev1\n/bin/zsh\n\n\n" }))).toEqual({});
 });
 
 test("loginShellEnv is empty when the probe exits non-zero", async () => {

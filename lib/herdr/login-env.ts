@@ -5,6 +5,8 @@ export type LoginProbe = (argv: string[]) => Promise<{ exitCode: number; stdout:
 const LOGIN_KEYS = ["PATH", "HOME", "SHELL", "TMPDIR", "LANG"] as const;
 const IDENTITY_KEYS = ["USER", "LOGNAME"] as const;
 const DROPPED_HERDR_KEYS = new Set(["HERDR_SOCKET_PATH", "HERDR_PANE_ID"]);
+/** Login files can print before the values; only the lines after this one are the values. */
+export const LOGIN_ENV_MARKER = "__rt_login_env__";
 
 const defaultProbe: LoginProbe = async (argv) => {
   const env: Record<string, string> = {};
@@ -18,12 +20,15 @@ const defaultProbe: LoginProbe = async (argv) => {
 export async function loginShellEnv(probe: LoginProbe = defaultProbe): Promise<Record<string, string>> {
   let r: { exitCode: number; stdout: string };
   try {
-    r = await probe(["zsh", "-lc", 'printf "%s\\n" "$PATH" "$HOME" "$SHELL" "$TMPDIR" "$LANG"']);
+    r = await probe(["zsh", "-lc", `printf "%s\\n" ${LOGIN_ENV_MARKER} "$PATH" "$HOME" "$SHELL" "$TMPDIR" "$LANG"`]);
   } catch {
     return {};
   }
   if (r.exitCode !== 0) return {};
-  const lines = r.stdout.split("\n");
+  const all = r.stdout.split("\n");
+  const start = all.lastIndexOf(LOGIN_ENV_MARKER);
+  if (start < 0) return {};
+  const lines = all.slice(start + 1);
   const env: Record<string, string> = {};
   LOGIN_KEYS.forEach((key, i) => {
     const v = lines[i];
