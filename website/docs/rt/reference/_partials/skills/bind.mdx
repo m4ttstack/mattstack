@@ -40,7 +40,7 @@ Bind refuses `--pipeline` when:
 rt skills bind stage-evidence domain --pipeline accessibility --unset --pack acme
 ```
 
-When the last override of a pipeline goes, the pipeline goes back to a plain stage list in the fragment, and the next compile removes the `stage-evidence--accessibility` copy. A pipeline that keeps other overrides keeps its object form.
+Bind then recompiles the pack. Once the stage's fills for that pipeline match the default again, the recompile removes the `stage-evidence--accessibility` copy. This holds even when the pipeline keeps overrides on other stages. A pipeline left with no overrides goes back to a plain stage list in the fragment; one that keeps others keeps its object form.
 
 The result reads `to` as the fill the slot has afterwards, and `--json` adds `"unset": true`. If a lower layer, such as a base pack the pack extends, still overrides the slot, the output says that layer's override still applies. `--dry-run` shows the default fill as `to` even then, because it cannot see the layer underneath.
 
