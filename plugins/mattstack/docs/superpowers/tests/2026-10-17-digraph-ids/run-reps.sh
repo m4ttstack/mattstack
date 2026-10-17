@@ -8,7 +8,7 @@
 # user turn. Each rep runs tool-less from its own fresh empty directory under
 # <out>'s parent and writes its stdout to <out>/rep-<n>.txt. At most 5 reps
 # run at once and each logs its exit code; a non-zero exit or empty stdout
-# logs FAILED. <out> must lie outside the repo. The prompt follows `--`
+# logs FAILED and the batch exits 1 once every rep has finished. <out> must lie outside the repo. The prompt follows `--`
 # because a skill file opens with `---`, which the CLI reads as an option.
 set -euo pipefail
 
@@ -63,18 +63,21 @@ run_one() {
   bytes="$(wc -c < "$out/rep-$n.txt" | tr -d ' ')"
   if [ "$rc" -ne 0 ] || [ "$bytes" -eq 0 ]; then
     echo "rep $n: FAILED exit $rc, $bytes bytes, stderr: $(head -c 200 "$out/rep-$n.err" | tr '\n' ' ')"
+    return 1
   else
     echo "rep $n: ok exit 0, $bytes bytes, dir $dir"
   fi
 }
 
+failed=0
 pids=()
 for n in $(seq 1 "$reps"); do
   run_one "$n" &
   pids+=("$!")
   if [ "${#pids[@]}" -ge 5 ]; then
-    wait "${pids[0]}"
+    wait "${pids[0]}" || failed=1
     pids=("${pids[@]:1}")
   fi
 done
-for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
+for p in ${pids[@]+"${pids[@]}"}; do wait "$p" || failed=1; done
+exit "$failed"

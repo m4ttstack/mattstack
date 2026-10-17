@@ -177,7 +177,7 @@ One graph, one section per judgment step, and the tool calls are the nodes.
      outcome, or an id that breaks the Node vocabulary: not lowercase words
      joined by underscores, a `plaintext` id that does not start with its
      call, a STOP id without `stop_`, a graph that labels some nodes and not
-     others, two nodes with the same text, or one id declared twice. It
+     others, two nodes with the same text, or one id declared in more than one node statement. It
      also fails two warnings (two calls in one plaintext node, a tempted
      edge that leaves a step instead of a decision); --warn-only prints
      them without failing.

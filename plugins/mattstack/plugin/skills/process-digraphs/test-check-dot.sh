@@ -61,7 +61,8 @@ expect sentence-lowercase-ok "" 'digraph g { "S" [shape=ellipse]; "done" [shape=
 expect mixed "label every node or none" 'digraph g { '"$SHORT"' "Stray" [shape=box]; start -> "Stray"; "Stray" -> done; }'
 expect phantom-edge "label every node or none" 'digraph g { '"$SHORT"' git_push [label="git_push {tree}" shape=plaintext]; start -> "git_push {tree}"; "git_push {tree}" -> done; git_push -> done; }'
 expect dup-text "two nodes share the text" 'digraph g { '"$SHORT"' do_a [label="Do it" shape=box]; do_b [label="Do it" shape=box]; start -> do_a; start -> do_b; do_a -> done; do_b -> done; }'
-expect double-decl "declared with a label twice" 'digraph g { '"$SHORT"' git_push [label="git_push {tree}" shape=plaintext]; git_push [label="git_push {tree: <root>}"]; start -> git_push; git_push -> done; }'
+expect double-decl "declared twice" 'digraph g { '"$SHORT"' git_push [label="git_push {tree}" shape=plaintext]; git_push [label="git_push {tree: <root>}"]; start -> git_push; git_push -> done; }'
+expect double-decl-unlabelled "declared twice" 'digraph g { '"$SHORT"' work [label="Do the work" shape=box]; start [color=red]; start -> work; work -> done; }' --short-ids
 expect prefix-bad "starts with its call" 'digraph g { '"$SHORT"' push [label="git_push {tree}" shape=plaintext]; start -> push; push -> done; }'
 expect prefix-camel-ok "" 'digraph g { '"$SHORT"' enter_worktree [label="EnterWorktree {name}" shape=plaintext]; start -> enter_worktree; enter_worktree -> done; }'
 expect prefix-env-ok "" 'digraph g { '"$SHORT"' claude_update [label="CLAUDE_CONFIG_DIR=<dir> claude plugin update x" shape=plaintext]; start -> claude_update; claude_update -> done; }'
@@ -77,9 +78,7 @@ expect stop-prefix "starts with stop_" 'digraph g { '"$SHORT"' halt [label="STOP
 expect label-rules "phrased as a question" 'digraph g { '"$SHORT"' ask [label="Ready" shape=diamond]; start -> ask; ask -> done [label="yes"]; ask -> done [label="no"]; }'
 expect newline-short-id "\[multi_line\]: a plaintext node is one short command" 'digraph g { '"$SHORT"' multi_line [label="git_push {tree}
 more" shape=plaintext]; start -> multi_line; multi_line -> done; }'
-printf 'digraph g { node [label="a"]; node [label="b"]; "S" [shape=ellipse]; "A" [shape=doublecircle style=filled]; "S" -> "A"; }' > "$tmp/defaults.dot"
-out="$(python3 "$here/check-dot.py" "$tmp/defaults.dot" 2>&1)"
-if printf '%s' "$out" | grep -q "declared with a label twice"; then echo "FAIL default-labels-ok"; echo "$out"; fails=$((fails+1)); else echo "ok   default-labels-ok"; fi
+expect default-labels-ok "" 'digraph g { node [label="a"]; node [label="b"]; start [label="Trigger: go" shape=ellipse]; work [label="Do the work" shape=box]; done [label="Done" shape=doublecircle style=filled]; start -> work; work -> done; }' --short-ids
 expect unreachable "unreachable" 'digraph g { "S" [shape=ellipse]; "A" [shape=doublecircle style=filled]; "Orphan loop" [shape=box]; "Orphan q?" [shape=diamond]; "S" -> "A"; "Orphan loop" -> "Orphan q?"; "Orphan q?" -> "Orphan loop" [label="again"]; "Orphan q?" -> "A" [label="done"]; }'
 expect stop-branches "at most one way out" 'digraph g { "S" [shape=ellipse]; "STOP: halt" [shape=octagon]; "Go on" [shape=box]; "Or this" [shape=box]; "A" [shape=doublecircle style=filled]; "S" -> "STOP: halt"; "STOP: halt" -> "Go on"; "STOP: halt" -> "Or this"; "Go on" -> "A"; "Or this" -> "A"; }'
 expect stop-redirect "" 'digraph g { "S" [shape=ellipse]; "Need a read?" [shape=diamond]; "STOP: reads go through rt_verb" [shape=octagon]; "rt_verb {args}" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "Need a read?"; "Need a read?" -> "rt_verb {args}" [label="yes"]; "Need a read?" -> "STOP: reads go through rt_verb" [label="tempted to use the shell"]; "STOP: reads go through rt_verb" -> "rt_verb {args}"; "Need a read?" -> "A" [label="no"]; "rt_verb {args}" -> "A"; }'

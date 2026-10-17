@@ -110,7 +110,7 @@ def call_prefix(text):
 
 def double_declared(src):
     seen = {}
-    for m in re.finditer(r"(?m)(?:^|[{;])\s*([a-z][a-z_]*)\s*\[[^\]]*\blabel\s*=", src):
+    for m in re.finditer(r"(?m)(?:^|[{;])\s*([a-z][a-z_]*)\s*\[", src):
         seen[m.group(1)] = seen.get(m.group(1), 0) + 1
     return [n for n, c in seen.items() if c > 1 and n not in ("node", "edge", "graph")]
 
@@ -273,7 +273,7 @@ def main(argv):
                 failed = True
                 continue
             problems, warnings = check(graph, short_ids)
-            problems += [f'"{n}": declared with a label twice; dot keeps one label and merges the steps' for n in double_declared(src)]
+            problems += [f'"{n}": declared twice; declare each node once (dot merges the statements into one step)' for n in double_declared(src)]
             for p in problems:
                 print(f"{path}:{line}: {p}")
                 failed = True
