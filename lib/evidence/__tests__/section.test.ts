@@ -205,6 +205,19 @@ describe("namesHome", () => {
     expect(namesHome("Waived: /private/var/someone/x", homes)).toBe(true);
     expect(namesHome("Caption: /api/foo and /Users/other/x", homes)).toBe(false);
   });
+  test("a bare home path ends at any character that cannot continue a path name", () => {
+    const homes = ["/Users/someone"];
+    for (const tail of [".", ">", "|", "*", "_", ". Next", "_ text"]) {
+      expect(namesHome(`see /Users/someone${tail}`, homes)).toBe(true);
+    }
+  });
+  test("a longer name that starts with the home is another user", () => {
+    const homes = ["/Users/someone"];
+    expect(namesHome("see /Users/someoneelse/x", homes)).toBe(false);
+    expect(namesHome("see /Users/someone-old/x", homes)).toBe(false);
+    expect(namesHome("see /Users/someone.old/x", homes)).toBe(false);
+    expect(namesHome("see /Users/someone_old/x", homes)).toBe(false);
+  });
   test("an empty home names nothing", () => {
     expect(namesHome("anything", ["", "/"])).toBe(false);
   });

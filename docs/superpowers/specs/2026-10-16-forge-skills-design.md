@@ -117,6 +117,7 @@ flag.
 | C11 | `editing-skills` ("Retried with the printed root?") and the shepherdr job template ("Push attempts = 2?") retry git_push once on any refusal, with a root the error never prints | A refused push goes straight to the existing off-script gate / `herd_ask` | the brief drops that edge; a transient failure that a blind second push might have cleared now reaches a human |
 | C12 | The sweep rebased branches in the order the sweep answer gave | Unchanged on the per-branch path; the sweep tool runs only when the answer kept the listed order (below) | none: drawn as a condition |
 | C13 | map-open-mrs listed GitHub PRs with `gh pr list --author @me` (30 rows, no truncation signal) | `--limit 200`, and exactly 200 rows counts as cut, so a cut map never feeds the sweep | none: up to 200 PRs mapped instead of 30; added after the final review |
+| C14 | sync-open-mrs opened its run with `run_snapshot`, `run_list` and `run_start`; a resume built the runDb by hand, started a new attempt with `run_stage start` (superseding the running one) and cleared `hold`; the close was `run_stage done` plus `run_status` | `run_enter` starts, inherits, resumes (adopting the running attempt and clearing `hold`) or lists candidates; the close is `run_close` on a run this verb started or resumed | followups-2 (B7) |
 
 Kept as today: the dirty-tree gate and its retry budget, the stack-member
 refusal naming its tool, the pull-once loop, the conflict gate and its iterate
@@ -528,6 +529,15 @@ sync-open-mrs:
 | 10 GitLab map (phase 2) | n/a (new path) | 0: one remote read, one `mr_map`, no porcelain reads; dirty c skipped up front, so per-branch for a and b (5/5) | |
 | 11 checkout, no tree (phase 2) | n/a (new path) | 0: one `mr_resolve_branch`, provision on `sourceBranch` (5/5) | |
 | 12 checkout, merged, tree exists (phase 2) | n/a (new path) | 0: points at the tree, report names "merged" (5/5) | |
+
+Followups-2 rows (B7, scenario files and build script in
+`plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/b7/`; RED is the text before the change, GREEN after):
+
+| scenario | RED | GREEN | notes |
+|---|---|---|---|
+| Y1 hand launch, one running candidate, Resume | 0/5: `run_list`, hand-built runDb, `run_stage start` on the resumed run, hand-cleared `hold` (5/5) | 5/5: `run_enter`, in-pane clarify from `candidates`, `run_enter {resume}`, `run_snapshot` for the recorded sweep answer | |
+| Y3 a resume refused for a locked run db (CodeRabbit round) | 1/5: 4 reps started a second run while the picked one stayed running | 5/5: quote the refusal, start nothing |
+| Y2 close a run this verb started | 0/5: `run_stage done` then `run_status done` (5/5) | 5/5: one `run_close {outcome: done}` | |
 
 RED: 102 deviations over 45 agent-scenarios (10 sonnet/low agents, describe-only); no suffix parsing seen, since agents mapped `kind` by meaning.
 

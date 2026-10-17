@@ -1,0 +1,43 @@
+I made no tool calls in this walkthrough; every call below is only planned, with the scenario's results applied.
+
+## Calls in order
+
+1. `run_field_get {key: "mr"}` returns the error "not set", so there is no lease URL and no `leaseMrUrl` on pushes.
+2. There are no domain steps, because the domain slot is empty.
+3. `git status --porcelain` prints nothing, so the tree is clean.
+4. `git log --oneline @{upstream}..` fails with exit 128. Then `git log --oneline -5` prints `3f9c2a7 add widget` and `9b8a7c6 Merge branch 'release' into main`.
+5. `git rev-parse --show-toplevel` prints `/work/acme-app`. `git branch --show-current` prints `feat/widget`. `git symbolic-ref --short refs/remotes/origin/HEAD` prints `origin/main`.
+6. `branch_stack {"tree":"/work/acme-app"}` returns `member: false`, so the target is the default branch `main`.
+7. `run_field_get {"key":"shipTarget"}` returns the error "not set", so the ship gate opens.
+8. `gate_ask` for the ship gate:
+   - It carries `kind: "ship"`, `runDb: "/home/dev/.mattstack/runs/app/r-work-0003/state.db"` and `stage: "ship"`.
+   - Above the form is one sentence: branch `feat/widget`, commit `3f9c2a7 add widget`, clean tree, target `main`.
+   - The questions are `open_as` and `next`. `dirty` is not shown because the tree is clean, and `to` is not shown either.
+   - The human answers draft and Proceed. I present the form and call `gate_answer {id: "g-1", answers: {"open_as":"draft","next":"proceed"}, runDb, stage: "ship"}`.
+9. `run_field_set {key: "shipTarget", value: "main", stage: "ship"}`.
+10. The tree is clean, so I skip commit and stash. There are no fast checks, so the checks pass. The domain doesn't rebase, so there is no rebase. No rebase finished this pass, so there is no force push.
+11. `git_push {"tree":"/work/acme-app","setUpstream":true}` fails with `ssh: connect to host gitlab.example.com port 22: Operation timed out`. This is the STOP: push only with `git_push`. I never push any other way.
+12. `gate_ask` for off-script gate 1:
+    - It carries `kind: "off-script:ship:1"`, `runDb` and `stage: "ship"`.
+    - `context` quotes the `git_push` refusal.
+    - The questions are `action` (Take the proposed move / Hand back) and `next` (Proceed / Iterate here / Hold).
+    - The human answers Take plus Proceed, noting the push went through their VPN.
+    - I call `gate_answer {id: "g-2", answers: {"action": <the Take option's value>, "next": "proceed"}, runDb, stage: "ship"}`.
+13. "Make the recorded move once" is a comparison only, and I never push from here.
+    - `git rev-parse HEAD` prints `A`.
+    - `git ls-remote origin refs/heads/feat/widget` prints nothing and exits 2.
+    - `git fetch origin` prints nothing, and `git rev-parse origin/feat/widget` fails. The remote branch does not carry HEAD, so the push did not land.
+14. `run_budget {key: "ship:landing-checks", limit: 1, stage: "ship"}` returns `spent: 1`. That is not above the limit, so the check is not spent and the push gate reopens with the comparison.
+15. `gate_ask` for off-script gate 2:
+    - It carries `kind: "off-script:ship:2"`, with a `context` quoting the comparison (HEAD `A`, remote branch missing).
+    - The human answers Take plus Proceed again, saying the VPN dropped.
+    - I call `gate_answer` with that answer.
+16. I compare again with `git rev-parse HEAD` and `git ls-remote origin refs/heads/feat/widget`, and the remote branch is still missing. I do not push.
+17. `run_budget {key: "ship:landing-checks", limit: 1, stage: "ship"}` returns `spent: 2`. That is above the limit, so it is spent and the path goes to "Which exit?" as a failure. No third gate opens.
+18. `run_stage {"action":"fail","stage":"ship","reason":"..."}`. The reason quotes the `git_push` error (`ssh: connect to host gitlab.example.com port 22: Operation timed out`). It also says the human twice reported pushing `feat/widget` manually, but `git ls-remote origin refs/heads/feat/widget` printed nothing, `origin/feat/widget` doesn't exist after `git fetch origin`, and local HEAD is `3f9c2a7e1b4d8c6f0a5e9b2d7c1f4a8e6b3d9c05`.
+
+## Where I stop and why
+
+I stop at the stage failure. The branch never reached the remote, so `pushed` is never written. There is also no MR creation, no evidence, no title or description write and no `run_field_set` for `mr`.
+
+The human's claim of a manual push does not substitute for the remote showing HEAD. The one landing check allowed by the budget was used up across the two gates. No rebase was in progress, so there is nothing to abort.

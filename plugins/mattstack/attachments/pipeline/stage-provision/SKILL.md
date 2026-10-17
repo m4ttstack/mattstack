@@ -36,9 +36,12 @@ digraph provision {
     "Precheck result?" [shape=diamond];
     "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [shape=plaintext];
     "worktree_provision result?" [shape=diamond];
+    "whoami {}" [shape=plaintext];
     "Gate provision (table below)" [shape=box];
     "provision answer?" [shape=diamond];
+    "Picked tree read held?" [shape=diamond];
     "worktree_provision {repoName, branch: <the picked branch>, reuse: true, runDb, stage: provision}" [shape=plaintext];
+    "worktree_provision {repoName, branch: <the picked branch>, reuse: true, takeOver: true, runDb, stage: provision}" [shape=plaintext];
     "Reuse result?" [shape=diamond];
     "run_budget {key: fresh-tree, limit: 2, stage: provision}" [shape=plaintext];
     "Fresh trees this attempt = 2?" [shape=diamond];
@@ -74,14 +77,15 @@ digraph provision {
     "Domain flow result?" -> "Gate provision (table below)" [label="it raises a question"];
     "Domain flow result?" -> "run_field_set {key: branch, value: <branch>, stage: provision}" [label="already provisioned: this tree and its branch"];
     "worktree_provision {repoName, ticket | branch, ticketTitle?, precheck: true}" -> "Precheck result?";
-    "Precheck result?" -> "Gate provision (table below)" [label="trees to resume"];
+    "Precheck result?" -> "whoami {}" [label="trees to resume"];
+    "whoami {}" -> "Gate provision (table below)";
     "Precheck result?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="nothing in the way"];
     "Precheck result?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="refused daemon-outdated"];
     "Precheck result?" -> "git -C <repo> rev-parse --git-dir" [label="refused daemon-unreachable or repo-unknown"];
     "Precheck result?" -> "run_stage {action: fail, stage: provision, reason}" [label="refused otherwise"];
     "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" -> "worktree_provision result?";
     "worktree_provision result?" -> "EnterWorktree {path}" [label="provisioned: the result's path"];
-    "worktree_provision result?" -> "Gate provision (table below)" [label="refused branch-attached"];
+    "worktree_provision result?" -> "whoami {}" [label="refused branch-attached"];
     "worktree_provision result?" -> "git -C <repo> rev-parse --git-dir" [label="refused daemon-unreachable or repo-unknown"];
     "worktree_provision result?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="refused busy, budget not exhausted"];
     "worktree_provision result?" -> "run_stage {action: fail, stage: provision, reason}" [label="any other refusal, or busy with the budget exhausted"];
@@ -93,7 +97,9 @@ digraph provision {
     "Checkout clean?" -> "run_stage {action: fail, stage: provision, reason}" [label="no: quote the dirty paths as the reason"];
     "git -C <repo> switch -c <branch> <default>" -> "run_field_set {key: branch, value: <branch>, stage: provision}" [label="worktree = the checkout"];
     "Gate provision (table below)" -> "provision answer?";
-    "provision answer?" -> "worktree_provision {repoName, branch: <the picked branch>, reuse: true, runDb, stage: provision}" [label="resume in <tree or branch>"];
+    "provision answer?" -> "Picked tree read held?" [label="resume in <tree or branch>"];
+    "Picked tree read held?" -> "worktree_provision {repoName, branch: <the picked branch>, reuse: true, runDb, stage: provision}" [label="no"];
+    "Picked tree read held?" -> "worktree_provision {repoName, branch: <the picked branch>, reuse: true, takeOver: true, runDb, stage: provision}" [label="yes: the human picked it anyway"];
     "provision answer?" -> "run_budget {key: fresh-tree, limit: 2, stage: provision}" [label="fresh tree"];
     "provision answer?" -> "Follow the domain's provision flow" [label="ticket: create one"];
     "provision answer?" -> "Follow the domain's provision flow" [label="ticket: recheck the id"];
@@ -103,6 +109,7 @@ digraph provision {
     "provision answer?" -> "run_hold {runDb, stage: provision, reason, decidedBy}" [label="hold"];
     "run_hold {runDb, stage: provision, reason, decidedBy}" -> "Held: end the turn naming run and stage";
     "worktree_provision {repoName, branch: <the picked branch>, reuse: true, runDb, stage: provision}" -> "Reuse result?";
+    "worktree_provision {repoName, branch: <the picked branch>, reuse: true, takeOver: true, runDb, stage: provision}" -> "Reuse result?";
     "Reuse result?" -> "EnterWorktree {path}" [label="reused or provisioned: the result's path"];
     "Reuse result?" -> "run_stage {action: fail, stage: provision, reason}" [label="refused: quote it"];
     "run_budget {key: fresh-tree, limit: 2, stage: provision}" -> "Fresh trees this attempt = 2?";
@@ -142,10 +149,13 @@ branch in a worktree is confirmed, not provisioned again.
 
 All of them go in the gate's one `resume_in` question, the first 3 in that
 order plus **Fresh tree**; provisioning adds no other gate or question.
-A tree whose `owner` is set and is not this session is held by another
-session: its option reads **Resume in `<tree>` (held by `<owner>` since
-`<claimedAt>`)** and is never the recommended one; when every offered tree
-is held, **Fresh tree** is recommended.
+A claimed tree whose `owner` is set is held by someone else unless that
+owner is `herd:<id>`, where `<id>` is `herd.id` from `whoami` (this pane's
+own herd). A tree the EnterWorktree hook claimed has owner `claude`, which
+names no session, so it reads as held. A held tree's option reads **Resume
+in `<tree>` (held by `<owner>` since `<claimedAt>`)** and is never the
+recommended one; when every offered tree is held, **Fresh tree** is
+recommended.
 Two or more `attached` trees with nothing else to offer still go to the
 gate, offering **Fresh tree** alone. **Nothing in the way** means no
 `attached` tree and no other offer. A refused precheck routes on its
@@ -164,10 +174,17 @@ failed stage quotes `error`.
 Read `run_budget`'s `exhausted`; an error reads as exhausted. Branch mode
 takes the lowest `n` from 2 that the branch list lacks.
 
+### Picked tree read held?
+
+Yes when the option the human picked read **(held by ...)** on the gate.
+Picking it is the human's consent to take the tree over, so that call
+passes `takeOver: true`; without it the tool refuses `tree-held`.
+
 ### Reuse result?
 
-A refusal fails the stage quoting `error`; the human can pick Fresh tree
-on a retry.
+A refusal fails the stage quoting `error`, `tree-held` included (another
+owner claimed the tree after the gate); the human can pick Fresh tree on a
+retry.
 
 ### Recorded on the run?
 

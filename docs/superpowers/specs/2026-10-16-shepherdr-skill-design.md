@@ -257,6 +257,8 @@ is a worker's same-session loop; and `run_start` does not yet default
 | 13 | Nudge rung choice | shepherd judged the pane by eye | the daemon picks; an unsafe pane rung returns `needsHuman` |
 | 14 | Effort on spawns | optional on every spawn node; the integration spawn omitted it | required on every `herd_spawn`, so a spawn never falls back to the default effort |
 | 15 | A parked gate the user returns to | no drawn route; after a compaction the id was lost | `What arrived?` edge to `herd_gate_answer`; the id is the job's `herd_status` `lastGate` with `lastGateStatus: parked` |
+| 16 | Attend on a visible herd (followups-2) | `herd_attend` called, refused "herd is not hidden"; no edge, so the shepherd improvised or opened the off-script gate | `Job's pane a bg: ref ...?` diamonds before each attend; a visible pane goes to `Point the user at the job's tab` |
+| 17 | Job template, a pipeline verb (followups-2) | the brief said to call `run_start` first, which opened a second run beside the verb's own `run_enter` (or skipped the verb's entry) | the verb's own `run_enter` is the one start; the brief adds `spawnedBy: herd:<HERD_ID>` to it |
 
 Rows 3 and 4 follow from the daemon's tick order and the spec's caps; the
 caps are wave 2's constants and this wave does not tune them.
@@ -484,6 +486,10 @@ digraph shepherdr_start {
 
 
 ## Appendix B: watch graph draft
+
+The draft as approved, before the followups-2 rows (16 and 17): the
+shipped skill also puts a `Job's pane a bg: ref ...?` diamond before each
+`herd_attend`, sending a visible pane to `Point the user at the job's tab`.
 
 ```dot
 digraph shepherdr_watch {
@@ -819,3 +825,14 @@ column for S1 to S6.
 
 GREEN passes at 0 deviations after one craft round (S4). The engine
 source went from 9,647 to 8,444 words.
+
+### Followups-2 rows
+
+Same recipe; scenario files in
+`plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/b4/` and `b7j/`. RED is the text before the change.
+
+| Scenario | RED | GREEN | What happened |
+|---|---|---|---|
+| H1 visible herd, needs-human | 0/5 | 5/5 | RED: every run called `herd_attend`, took the "not hidden" refusal, then 3 opened the off-script gate and 2 improvised a message; GREEN: no attend, one message naming job, pane and tab |
+| H2 hidden herd, needs-human (guard) | not run | 5/5 | every run still calls `herd_attend` on the `bg:` pane |
+| J1 brief runs `work` (job template) | 4/5 | 5/5 | RED: 1 run followed the brief's `run_start` and skipped `work`'s `run_enter`; the 4 passing runs overrode the brief by judgment; GREEN: one `run_enter {fresh, spawnedBy: herd:hd-7}` |

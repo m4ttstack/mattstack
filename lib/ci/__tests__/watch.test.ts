@@ -364,9 +364,88 @@ describe("watchPipeline", () => {
     });
     const r = await watchPipeline({ ...base, priorPipelineId: 9 }, deps);
     if ("error" in r) throw new Error(r.error);
-    expect(r).toMatchObject({ state: "running", pipeline: { id: "gitlab:pipeline:10" }, polls: 2 });
+    expect(r).toMatchObject({ state: "running", pipeline: { id: "gitlab:pipeline:10" }, polls: 4 });
     expect(r.next).toContain("GitLab returned 502 Bad Gateway");
     expect(r.next).toContain("call again");
+  });
+  test("a failing read backs off, doubling the interval, before it returns the last state", async () => {
+    let n = 0;
+    const sleeps: number[] = [];
+    let t = 0;
+    const { deps } = fake([], {
+      now: () => t,
+      sleep: async (ms) => { sleeps.push(ms); t += ms; },
+      readMr: async () => (++n === 1
+        ? { ok: true as const, mr: mr(SHA, pipe({ status: "running" })) }
+        : { ok: false as const, error: "GitLab returned 502 Bad Gateway: x" }),
+    });
+    const r = await watchPipeline(base, deps);
+    if ("error" in r) throw new Error(r.error);
+    expect(r.state).toBe("running");
+    expect(sleeps).toEqual([30_000, 30_000, 60_000]);
+    expect(r.waitedSeconds).toBe(120);
+  });
+  test("the read backoff never sleeps past half the lease ttl", async () => {
+    let n = 0;
+    const sleeps: number[] = [];
+    let t = 0;
+    const lease = { ...LEASE, ttlSeconds: 60 };
+    const { deps } = fake([], {
+      now: () => t,
+      sleep: async (ms) => { sleeps.push(ms); t += ms; },
+      leaseCheck: () => ({ ok: true, lease }),
+      readMr: async () => (++n === 1
+        ? { ok: true as const, mr: mr(SHA, pipe({ status: "running" })) }
+        : { ok: false as const, error: "GitLab returned 502 Bad Gateway: x" }),
+    });
+    await watchPipeline(base, deps);
+    expect(sleeps).toEqual([30_000, 30_000, 30_000]);
+  });
+  test("a slow failing read shortens the backoff so the next heartbeat lands inside half the lease ttl", async () => {
+    let n = 0;
+    const sleeps: number[] = [];
+    let t = 0;
+    const lease = { ...LEASE, ttlSeconds: 60 };
+    const { deps } = fake([], {
+      now: () => t,
+      sleep: async (ms) => { sleeps.push(ms); t += ms; },
+      leaseCheck: () => ({ ok: true, lease }),
+      readMr: async () => {
+        if (++n === 1) return { ok: true as const, mr: mr(SHA, pipe({ status: "running" })) };
+        t += 20_000;
+        return { ok: false as const, error: "rt daemon request timed out" };
+      },
+    });
+    await watchPipeline(base, deps);
+    expect(sleeps).toEqual([30_000, 10_000, 10_000]);
+  });
+  test("a read that recovers inside the backoff keeps watching", async () => {
+    let n = 0;
+    const { deps } = fake([], {
+      readMr: async () => {
+        n++;
+        if (n === 2) return { ok: false as const, error: "GitLab returned 502 Bad Gateway: x" };
+        return { ok: true as const, mr: mr(SHA, pipe({ status: n >= 3 ? "success" : "running" })) };
+      },
+    });
+    expect(await watchPipeline(base, deps)).toMatchObject({ state: "success", polls: 3 });
+  });
+  test("the read backoff never sleeps past maxWait", async () => {
+    let n = 0;
+    const sleeps: number[] = [];
+    let t = 0;
+    const { deps } = fake([], {
+      now: () => t,
+      sleep: async (ms) => { sleeps.push(ms); t += ms; },
+      readMr: async () => (++n === 1
+        ? { ok: true as const, mr: mr(SHA, pipe({ status: "running" })) }
+        : { ok: false as const, error: "GitLab returned 502 Bad Gateway: x" }),
+    });
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 45 }, deps);
+    if ("error" in r) throw new Error(r.error);
+    expect(r.state).toBe("running");
+    expect(t).toBe(45_000);
+    expect(sleeps).toEqual([30_000, 15_000]);
   });
   test("every failed job is listed; only the first five blocking ones carry a trace tail", async () => {
     const jobs = Array.from({ length: 8 }, (_, i) => ({ id: `gitlab:job:${i + 1}`, name: `j${i + 1}`, stage: "test", status: "failed", allowFailure: false, webUrl: null }));

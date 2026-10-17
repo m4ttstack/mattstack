@@ -1,0 +1,36 @@
+I stop at the push. Another session's doctor holds MR 42's CI lease, so the stage stands down without failing, holding, or writing `pushed`. Nothing was executed; this is the call sequence I would make.
+
+**Calls in order**
+
+1. `run_field_get {key: "mr"}` returns `<MR>`, so the push will carry `leaseMrUrl`.
+2. `run_field_get {key: "commits"}` and `run_field_get {key: "ticket"}` (E1/E2), to consume the stage inputs.
+3. There are no domain steps before the gate (unbound).
+4. `git rev-parse --show-toplevel` prints `/work/acme-app`.
+5. `git status --porcelain` prints nothing, so the tree is clean.
+6. `git log --oneline @{upstream}..` prints `8d2e4f6 fix widget count off by one`.
+7. `git symbolic-ref --short refs/remotes/origin/HEAD` prints `origin/main`.
+8. `branch_stack {"tree": "/work/acme-app"}` returns `member: false, stackStore: "read"`, so the target is the default branch, `main`.
+9. `run_field_get {"key": "shipTarget"}` errors because the field is unset, so the ship gate opens.
+10. `gate_ask {"kind": "ship", "runDb": "/home/dev/.mattstack/runs/app/r-work-0003/state.db", "stage": "ship", "context": ..., "questions": [...]}`:
+    - **Context:** "Branch feat/widget, one commit going out (8d2e4f6 fix widget count off by one), tree clean, target main (default branch; the branch is not a stack member). Proceed consents to pushing to main as the target."
+    - **Questions:** `open_as` (write-in; options **Push and open as draft (Recommended)** / **Push and open ready**) and `next` (**Proceed** / **Iterate here** / **Go back** / **Hold**). `dirty` is omitted because the tree is clean, and `to` is omitted because Go back wasn't answered.
+    - It returns `g-1` with `paneAction: form`.
+11. I present the form in the pane. The human answers draft and Proceed.
+12. `gate_answer {"id": "g-1", "answers": {"open_as": "draft", "next": "proceed"}, "runDb": "...state.db", "stage": "ship"}` records the answer. There is no write-in to act on.
+13. `run_field_set {"key": "shipTarget", "value": "main", "runDb": "...state.db", "stage": "ship"}`.
+14. The tree is clean, so there is no commit or stash. There are no domain fast checks (unbound). There is no domain rebase, so no force-with-lease is needed.
+15. `git_push {"tree": "/work/acme-app", "setUpstream": true, "leaseMrUrl": "https://gitlab.example.com/acme/app/-/merge_requests/42"}` returns `{pushed: false, refused: "lease_held", holder: {owner: "session:other", holder: "doctor", ...}}`.
+
+**Where I stop**
+
+The `lease_held` refusal is a STOP: the lease holder owns every commit, push and retry. I report the holder and end the stage:
+
+> Push refused: MR 42's CI lease is held by `session:other` (holder `doctor`, branch `feat/widget`, TTL 600s). Fix commit 8d2e4f6 stays unpushed. I released nothing and will retry nothing.
+
+I deliberately do not make these calls:
+- No retry of `git_push`, and no push outside `git_push`.
+- No off-script gate, because `lease_held` is not the generic push refusal, so the Hand back answer in scenario step 6 never comes into play.
+- No `ci_lease_read` or `ci_lease_release`, since the lease is someone else's.
+- No `run_field_set {key: pushed}`, because no push landed.
+- No `mr_create`, `mr_update` or evidence steps.
+- No `run_stage {action: fail}` and no `run_hold`.

@@ -173,6 +173,6 @@ PY
 fi
 
 cat >&2 <<EOF
-Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Five exits: continue the stage; open the decision (\`rt runs field set gate <scope> --stage $STAGE\`, one sentence, then run gate-protocol's Runs integration with kind \`<scope>\`, stop); park it (\`rt runs field set hold "<why>" --stage $STAGE\`); close it (the close gate, then \`rt runs run-status --status done|failed|abandoned\`); or arm a gate wait (\`rt runs field set waiting-gate <gateId> --stage $STAGE\`, fire the background wait per gate-protocol, end the turn). If the user asked you something mid-run, the answer is the sentence before the gate.
+Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Five exits: continue the stage; open the decision with gate_ask or gate_open, passing runDb and stage \`$STAGE\` (the tool writes the run's gate field, and waiting-gate when its paneAction is wait), then act on that paneAction per gate-protocol; park it with run_hold; close it (the close gate, then run_close with done, failed or abandoned); or, at a gate already open whose paneAction was wait, fire the background rt gate wait per gate-protocol and end the turn. If the user asked you something mid-run, the answer is the sentence before the gate.
 EOF
 exit 2

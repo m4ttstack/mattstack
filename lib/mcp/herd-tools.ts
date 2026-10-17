@@ -141,7 +141,7 @@ const ANSWER_VALUE_SCHEMA = {
 };
 
 const NO_CLI_TWIN = "no CLI twin; the daemon verb is reached only through this tool";
-const GATE_NO_CLI_TWIN = "no CLI twin; the shepherd's rt gate answer --by shepherd and rt gate park lines stay on Bash until the skill moves";
+const GATE_NO_CLI_TWIN = "no CLI twin; the shepherdr skill answers and parks its herd's gates through this tool, and rt gate answer --by shepherd and rt gate park are left for a person";
 
 async function herdFor(input: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<{ herd: string } | { error: string }> {
   if (typeof input.herd === "string") return { herd: input.herd };
