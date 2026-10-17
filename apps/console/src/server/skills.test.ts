@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -2204,6 +2206,86 @@ describe('skills bind route', () => {
 
       expect(res.status).toBe(400);
       expect(rt.run).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removing a pipeline override', () => {
+    const designComposition = readFileSync(
+      fileURLToPath(
+        new URL('./fixtures/design/composition.json', import.meta.url)
+      ),
+      'utf8'
+    );
+    const rtWith = () =>
+      fakeRtHandler(argv =>
+        isComposition(argv)
+          ? { code: 0, stdout: designComposition, stderr: '' }
+          : { code: 0, stdout: '', stderr: '' }
+      );
+    const unset = (extra: Record<string, unknown>) => ({
+      pack: 'acme',
+      verb: 'stage-evidence',
+      slot: 'domain',
+      unset: true,
+      ...extra,
+    });
+
+    it('runs rt with --unset and no fill', async () => {
+      const rt = rtWith();
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await postBind(app, unset({ pipeline: 'accessibility' }));
+
+      expect(res.status).toBe(200);
+      expect(rt.calls.find(isBind)).toEqual([
+        'skills',
+        'bind',
+        'stage-evidence',
+        'domain',
+        '--pipeline',
+        'accessibility',
+        '--unset',
+        '--pack',
+        'acme',
+      ]);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        pipeline: 'accessibility',
+        unset: true,
+      });
+    });
+
+    it('needs a pipeline, refused before touching rt', async () => {
+      const rt = rtWith();
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await postBind(app, unset({}));
+
+      expect(res.status).toBe(400);
+      expect(rt.run).not.toHaveBeenCalled();
+    });
+
+    it('takes no fill, refused before touching rt', async () => {
+      const rt = rtWith();
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await postBind(
+        app,
+        unset({ pipeline: 'accessibility', fill: 'acme:evidence-policy' })
+      );
+
+      expect(res.status).toBe(400);
+      expect(rt.run).not.toHaveBeenCalled();
+    });
+
+    it('rejects a pipeline the pack does not declare before any bind spawn', async () => {
+      const rt = rtWith();
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await postBind(app, unset({ pipeline: 'nope' }));
+
+      expect(res.status).toBe(400);
+      expect(rt.calls.some(isBind)).toBe(false);
     });
   });
 

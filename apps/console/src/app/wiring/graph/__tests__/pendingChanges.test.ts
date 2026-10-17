@@ -237,6 +237,37 @@ describe('pendingChangesOf: a pipeline override', () => {
     ]);
   });
 
+  it('reads a removed override as falling back to the default fill', () => {
+    const removed = {
+      ...evidence('accessibility'),
+      from: 'acme:evidence-a11y',
+      to: null,
+    };
+    expect(
+      pendingChangesOf(changesWith([removed]), composition)[0]?.detail
+    ).toBe('domain · accessibility: evidence-a11y → evidence-policy (default)');
+  });
+
+  it('reads a removed override with no default bound as unbound', () => {
+    const unbound = designFixture('composition');
+    unbound.binders = unbound.binders.map(binder =>
+      binder.ref === 'mattstack:stage-evidence'
+        ? {
+            ...binder,
+            slots: binder.slots.map(slot => ({ ...slot, boundTo: '' })),
+          }
+        : binder
+    );
+    const removed = {
+      ...evidence('accessibility'),
+      from: 'acme:evidence-a11y',
+      to: null,
+    };
+    expect(pendingChangesOf(changesWith([removed]), unbound)[0]?.detail).toBe(
+      'domain · accessibility: evidence-a11y → default (unbound)'
+    );
+  });
+
   it("hides the copy's rebuilt output, which the override explains", () => {
     expect(
       names(

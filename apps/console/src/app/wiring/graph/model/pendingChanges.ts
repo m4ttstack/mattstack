@@ -26,6 +26,20 @@ const FILE_STATUS: Record<string, string> = {
 const fillName = (binding: string | null) =>
   binding === null ? 'nothing' : suffixOf(binding);
 
+/** rt reports a removed pipeline override as `to: null`; the slot then
+    reads its default fill, which only the composition names. */
+function bindingTarget(
+  change: SkillsChanges['bindings'][number],
+  composition: SkillsComposition | undefined
+): string {
+  if (change.to !== null || !change.pipeline) return fillName(change.to);
+  if (!composition) return 'default';
+  const fallback = composition.binders
+    ?.find(binder => binder.ref === change.engineRef)
+    ?.slots.find(slot => slot.name === change.slot)?.boundTo;
+  return fallback ? `${suffixOf(fallback)} (default)` : 'default (unbound)';
+}
+
 const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
 
 /**
@@ -111,7 +125,7 @@ export function pendingChangesOf(
     ...changes.bindings.map(change => ({
       key: `binding:${change.pipeline ?? ''}:${change.engineRef}:${change.slot}`,
       name: stepLabel(suffixOf(change.engineRef)),
-      detail: `${change.pipeline ? `${change.slot} · ${change.pipeline}` : `${change.slot} slot`}: ${fillName(change.from)} → ${fillName(change.to)}`,
+      detail: `${change.pipeline ? `${change.slot} · ${change.pipeline}` : `${change.slot} slot`}: ${fillName(change.from)} → ${bindingTarget(change, composition)}`,
     })),
     ...changes.surface.map(change => ({
       key: `surface:${change.skill}`,

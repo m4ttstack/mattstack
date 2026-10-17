@@ -262,9 +262,11 @@ interface SkillsBindResponse {
   pack: string;
   verb: string;
   slot: string;
-  fill: string;
+  /** Absent when the write removed `pipeline`'s override. */
+  fill?: string;
   /** Set when the write was that pipeline's override. */
   pipeline?: string;
+  unset?: true;
   ok: boolean;
   error?: string;
 }
@@ -638,6 +640,7 @@ const bindBody = validator(
     slot?: string;
     fill?: string;
     pipeline?: string;
+    unset?: boolean;
   } => {
     const v = value as {
       pack?: unknown;
@@ -645,15 +648,19 @@ const bindBody = validator(
       slot?: unknown;
       fill?: unknown;
       pipeline?: unknown;
+      unset?: unknown;
     };
     return {
       pack: typeof v?.pack === 'string' ? v.pack : undefined,
       verb: typeof v?.verb === 'string' ? v.verb : undefined,
       slot: typeof v?.slot === 'string' ? v.slot : undefined,
-      fill: typeof v?.fill === 'string' ? v.fill : undefined,
+      // A non-string reads as "", so an unset that sends one is still
+      // refused for carrying a fill.
+      fill: expectOf(v?.fill),
       // A non-string reads as "", which no pack declares, so it is refused
       // rather than read as a default write.
       pipeline: expectOf(v?.pipeline),
+      unset: v?.unset === true,
     };
   }
 );
@@ -1197,11 +1204,23 @@ export function mountSkills(
       }
     })
     .post('/api/skills/bind', bindBody, async c => {
-      const { pack, verb, slot, fill, pipeline } = c.req.valid('json');
+      const { pack, verb, slot, fill, pipeline, unset } = c.req.valid('json');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
       if (!verb) return c.json({ error: 'verb is required' }, 400);
       if (!slot) return c.json({ error: 'slot is required' }, 400);
-      if (!fill) return c.json({ error: 'fill is required' }, 400);
+      if (unset) {
+        if (pipeline === undefined) {
+          return c.json(
+            { error: 'unset removes a pipeline override; name the pipeline' },
+            400
+          );
+        }
+        if (fill !== undefined) {
+          return c.json({ error: 'unset takes no fill' }, 400);
+        }
+      } else if (!fill) {
+        return c.json({ error: 'fill is required' }, 400);
+      }
       if (pipeline === '') {
         return c.json({ error: 'pipeline must be a pipeline name' }, 400);
       }
@@ -1248,20 +1267,22 @@ export function mountSkills(
         if (!slotEntry) {
           return c.json({ error: `"${slot}" is not a slot on "${verb}"` }, 400);
         }
-        const fillEntry = composition.fills.find(f => f.binding === fill);
-        if (!fillEntry) {
-          return c.json(
-            { error: `"${fill}" is not a known fill in ${pack}` },
-            400
-          );
-        }
-        if (fillEntry.provides !== slotEntry.contract) {
-          return c.json(
-            {
-              error: `"${fill}" provides "${fillEntry.provides}", not "${slotEntry.contract}" required by ${verb}'s "${slot}" slot`,
-            },
-            400
-          );
+        if (!unset) {
+          const fillEntry = composition.fills.find(f => f.binding === fill);
+          if (!fillEntry) {
+            return c.json(
+              { error: `"${fill}" is not a known fill in ${pack}` },
+              400
+            );
+          }
+          if (fillEntry.provides !== slotEntry.contract) {
+            return c.json(
+              {
+                error: `"${fill}" provides "${fillEntry.provides}", not "${slotEntry.contract}" required by ${verb}'s "${slot}" slot`,
+              },
+              400
+            );
+          }
         }
         if (
           pipeline !== undefined &&
@@ -1283,8 +1304,9 @@ export function mountSkills(
             'bind',
             verb,
             slot,
-            fill,
+            ...(unset || fill === undefined ? [] : [fill]),
             ...(pipeline !== undefined ? ['--pipeline', pipeline] : []),
+            ...(unset ? ['--unset'] : []),
             '--pack',
             pack,
           ],
@@ -1296,7 +1318,7 @@ export function mountSkills(
           pack,
           verb,
           slot,
-          fill,
+          ...(unset ? { unset: true as const } : { fill }),
           ...(pipeline !== undefined ? { pipeline } : {}),
           ok,
           error: ok ? undefined : run.stderr.trim() || 'rt exited nonzero',
