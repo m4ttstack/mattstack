@@ -17,7 +17,6 @@ export const HEALTH_THRESHOLDS = {
   diskHardFloorBytes: 100 * 1024 * 1024,
   restartsPerHourUnhealthy: 5,
   recoveredErrorRate: 10,
-  loopLagDegradedMs: 500,
 } as const;
 
 export interface HealthMetrics {
@@ -111,7 +110,8 @@ export function computeHealth(i: HealthInputs): HealthSnapshot {
   ) {
     degraded.push(`memory: rss grew >${T.rssGrowthPct}% in the last hour`);
   }
-  if (i.eventLoop.maxLagMs > T.loopLagDegradedMs) degraded.push(`event-loop: lag ${i.eventLoop.maxLagMs}ms`);
+  // Lag alone is not a verdict: on a loaded Mac it measures the machine, not
+  // the daemon. maxLagMs still rides in eventLoop for the surfaces to show.
   if (i.recoveredErrorRateLastWindow > T.recoveredErrorRate) {
     degraded.push(`errors: ${i.recoveredErrorRateLastWindow} recovered in 5min`);
   }
