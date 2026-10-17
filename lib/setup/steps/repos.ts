@@ -26,6 +26,7 @@ import {
   checkCloneTarget,
   clearCloneFailure,
   clearDeferred,
+  clearJoining,
   clearPlacement,
   configuredRepoRoots,
   isReusableCloneOf,
@@ -72,15 +73,15 @@ export function skippedIdentities(env: Record<string, string | undefined>): Set<
  * Index `dest` under the tracked identity, reporting a refused move rather
  * than counting the repo present/cloned: the row would still name the path
  * the repo moved away from, so the tally would claim a repo rt cannot reach.
+ * Null when indexed, else why not.
  */
-async function indexDest(ctx: ApplyContext, identity: string, base: string, dest: string): Promise<boolean> {
+async function indexDest(identity: string, dest: string): Promise<string | null> {
   // The index keys on the serialized identity; `identity` here is already the
   // raw host/path the tracked-repos setting carries.
   const indexed = await updateRepoIndexAsync(serializeIdentity({ kind: "remote", id: identity }), dest);
-  if (indexed.ok) return true;
+  if (indexed.ok) return null;
   const run = indexed.next ? `Run ${indexed.next}, then rt repos locate ${dest}` : `Run rt repos locate ${dest}`;
-  ctx.log("repos.clone", `${base}: ${dest} is in place, but ${identity} is indexed at a path that no longer exists and could not be moved (${indexed.error}). ${run}`);
-  return false;
+  return `${dest} is in place, but ${identity} is indexed at a path that no longer exists and could not be moved (${indexed.error}). ${run}`;
 }
 
 /** Each whole line git writes goes to `ctx.progress` when it reads as progress; a line split across chunks waits for its end. */
@@ -217,18 +218,37 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   });
 
   if (identities.length === 0) {
+    clearJoining(p);
     return { state: "skipped", detail: "No repos to clone" };
   }
 
   // The rows resolve over the whole tracked list too, so both agree on which of two same-named repos keeps the default.
   const resolved = await resolvePlacements(p, tracked, configuredRepoRoots(p));
-  const { deferred } = readPlacements(p);
-  const waitsForRows = (identity: string) => ctx.appDriven === true && !ctx.nonInteractive && (ctx.intent?.mode === "join" || deferred.includes(identity));
+  const { deferred, joining } = readPlacements(p);
+  const joiner = ctx.intent?.mode === "join" || joining === true;
+  const waitsForRows = (identity: string) => ctx.appDriven === true && !ctx.nonInteractive && !ctx.ci && (joiner || deferred.includes(identity));
 
   let cloned = 0;
   const found: string[] = [];
   const failed: string[] = [];
   const waiting: string[] = [];
+
+  /** The reason is kept for the repo's row, which shows it with a Retry. */
+  const fail = (identity: string, reason: string, line = reason): void => {
+    const base = repoBasename(identity);
+    failed.push(base);
+    ctx.log("repos.clone", `${base}: ${line}`);
+    recordCloneFailure(p, identity, reason);
+  };
+  const place = async (identity: string, path: string): Promise<boolean> => {
+    const refused = await indexDest(identity, path);
+    if (refused !== null) {
+      fail(identity, refused);
+      return false;
+    }
+    landed(ctx, identity, path);
+    return true;
+  };
 
   for (const [i, identity] of identities.entries()) {
     const base = repoBasename(identity);
@@ -238,17 +258,13 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
       if (placement.source === "recorded") {
         const check = await checkCheckout(p, identity, placement.path, { tracked });
         if (!check.ok) {
-          failed.push(base);
-          ctx.log("repos.clone", `${base}: ${check.detail}`);
+          fail(identity, check.detail);
           continue;
         }
       } else {
         ctx.log("repos.clone", `${base}: using the existing clone at ${placement.path}`);
       }
-      if (await indexDest(ctx, identity, base, placement.path)) {
-        found.push(base);
-        landed(ctx, identity, placement.path);
-      } else failed.push(base);
+      if (await place(identity, placement.path)) found.push(base);
       continue;
     }
 
@@ -260,17 +276,13 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
 
     // A run that cloned but could not index leaves its placement behind; the clone is there, so index it.
     if (await isReusableCloneOf(p, placement.path, identity)) {
-      if (await indexDest(ctx, identity, base, placement.path)) {
-        found.push(base);
-        landed(ctx, identity, placement.path);
-      } else failed.push(base);
+      if (await place(identity, placement.path)) found.push(base);
       continue;
     }
 
     const target = checkCloneTarget(p, placement.path, takenFor(resolved, tracked, identity));
     if (!target.ok) {
-      failed.push(base);
-      ctx.log("repos.clone", `${base}: ${target.detail}`);
+      fail(identity, target.detail);
       continue;
     }
     const dest = target.path;
@@ -280,8 +292,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
     if (!chosenEmpty) {
       p.mkdirp(dirname(dest));
       if (!p.mkdirExclusive(dest)) {
-        failed.push(base);
-        ctx.log("repos.clone", `${base}: ${dest} appeared while this step was running; left alone, rerun the step to check it`);
+        fail(identity, `${dest} appeared while this step was running; left alone, rerun the step to check it`);
         continue;
       }
     }
@@ -289,19 +300,17 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
     ctx.emit({ event: "step", id: "repos.clone", state: "running", detail: cloningDetail(base, i + 1, identities.length, found) });
     const result = await cloneInto(ctx, identity, dest);
     if (result.code !== 0) {
-      failed.push(base);
       const reason = cloneFailureReason(result);
-      ctx.log("repos.clone", `${base}: clone failed: ${reason}`);
-      recordCloneFailure(p, identity, reason);
+      fail(identity, reason, `clone failed: ${reason}`);
       if (!chosenEmpty) p.removeDir(dest);
       continue;
     }
 
-    if (await indexDest(ctx, identity, base, dest)) {
-      cloned++;
-      landed(ctx, identity, dest);
-    } else failed.push(base);
+    if (await place(identity, dest)) cloned++;
   }
+
+  // From here the deferred list carries which repos still wait on an answer.
+  clearJoining(p);
 
   const failures = failed.length > 0 ? `. Failed: ${failed.join(", ")}` : "";
   if (waiting.length > 0) {

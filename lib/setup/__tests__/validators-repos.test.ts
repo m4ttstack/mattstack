@@ -47,6 +47,8 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     expect(rows.map((r) => r.id)).toEqual([`repos.place:${WIDGETS}`, `repos.place:${ACME_API}`]);
     expect(byId(rows, WIDGETS)).toMatchObject({ kind: "tool", title: "widgets", why: "gitlab.com/acme", required: false, recheck: "on-activate", status: "ready", detail: "Found your widgets checkout" });
     expect(action(byId(rows, WIDGETS))).toMatchObject({ type: "place-repo", label: "Locate…", identity: WIDGETS, repo: "widgets", mode: "checkout", checkoutPath: widgets, problem: null, then: null, oneClick: null, segmentRecords: true });
+    // The other segment never offers the checkout's own folder as a clone location.
+    expect(action(byId(rows, WIDGETS)).clonePath).toBe(join(home, "Documents", "GitHub", "widgets"));
 
     expect(byId(rows, ACME_API)).toMatchObject({ title: "acme-api", status: "ready", detail: "rt clones it here when you click Install" });
     expect(action(byId(rows, ACME_API))).toEqual({
@@ -114,6 +116,29 @@ describe("repoPlacementRows: a repo Install left for you", () => {
 
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, waivable: false, detail: "Choose where your repos go" });
     expect(action(r)).toMatchObject({ then: THEN, note: "Choose where your repos go", oneClick: { label: "Clone here", mode: "clone", path: join(home, "code", "acme-api") } });
+  });
+
+  test("unanswered, but the shown location is another repo's: the problem, and no Clone here", async () => {
+    installed();
+    mkdirSync(join(home, "code"), { recursive: true });
+    const p = realFsProbes(home);
+    markDeferred(p, "github.com/b/api");
+    const r = byId(await repoPlacementRows(p, TEAM, snapshot(["gitlab.com/a/api", "github.com/b/api"])), "github.com/b/api");
+
+    expect(r).toMatchObject({ status: "needs-you", finishGated: true, detail: "~/code/api is where api goes. Choose another folder." });
+    expect(action(r)).toMatchObject({ note: "Choose where your repos go", problem: "~/code/api is where api goes. Choose another folder.", oneClick: null });
+  });
+
+  test("a recorded answer wins over the index, as it does for repos.clone", async () => {
+    const p = realFsProbes(home);
+    const widgets = join(home, "elsewhere", "widgets");
+    gitRepo(widgets, { origin: "https://gitlab.com/acme/widgets.git" });
+    setKvValue("repo-index", serializeIdentity({ kind: "remote", id: WIDGETS }), widgets);
+    writePlacement(p, WIDGETS, { mode: "clone", path: join(home, "work", "widgets") });
+    const r = byId(await repoPlacementRows(p, TEAM, snapshot([WIDGETS])), WIDGETS);
+
+    expect(r).toMatchObject({ status: "ready", detail: "rt clones it here when you click Install" });
+    expect(action(r)).toMatchObject({ mode: "clone", clonePath: join(home, "work", "widgets"), checkoutPath: null });
   });
 
   test("answered: still gated until the repo lands, and says where it goes next", async () => {

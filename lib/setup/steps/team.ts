@@ -19,6 +19,7 @@ import type { StepId } from "../contract.ts";
 import { logCliEvent } from "../../cli-logger.ts";
 import { logFailureDetail, UserActionableError } from "../../errors.ts";
 import { readIntent } from "../intent.ts";
+import { markJoining } from "../repo-placement.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
 
@@ -162,7 +163,10 @@ async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
   };
 
   try {
-    return outcomeFromJoin(await joinRedeem(ctx.p, ctx.relay, ctx.teamSecrets, {}, seams));
+    const outcome = outcomeFromJoin(await joinRedeem(ctx.p, ctx.relay, ctx.teamSecrets, {}, seams));
+    // joinRedeem deletes the intent on success, so repos.clone in a resumed Install reads the join from here.
+    if (outcome.state === "done" || outcome.state === "partial") markJoining(ctx.p);
+    return outcome;
   } catch (err) {
     return outcomeFromJoinError(err);
   }

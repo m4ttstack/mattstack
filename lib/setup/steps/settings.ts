@@ -13,8 +13,8 @@
  * `lib/setup/repo-root.ts`.
  *
  * Never seeds a key with an empty placeholder value: an empty list claims
- * nothing and hides the setup row that asks for the real one. Every write
- * here carries a real, non-empty value or doesn't happen.
+ * nothing. Every write here carries a real, non-empty value or doesn't
+ * happen.
  */
 
 import { getSetting } from "../../settings/resolve.ts";

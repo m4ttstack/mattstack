@@ -1,11 +1,11 @@
-import type { PlacementMode } from "./repo-placement.ts";
-
 export const CONTRACT_VERSION = 1 as const;
 
 export type RowStatus = "ready" | "missing" | "invalid" | "needs-you" | "checking" | "skipped" | "error";
 export type RowKind = "permission" | "tool" | "account" | "access" | "info";
 export type Recheck = "on-activate" | "on-change" | "manual";
 export type GroupId = "mac" | "accounts" | "access" | "tools" | "agents" | "browser" | "repos" | "rt" | "team";
+/** Where a tracked repo goes: an existing checkout, or a new clone. */
+export type PlacementMode = "checkout" | "clone";
 export type Integration = "github" | "gitlab" | "linear" | "slack" | "sdm" | "doppler" | "ldcli";
 
 export interface ConnectField {
@@ -41,8 +41,9 @@ export type Action =
   | { type: "form"; label: string; verb: string[]; fields: ConnectField[]; alternatives?: { id: string; label: string }[] }
   // startAt is where the panel opens, never a value rt writes.
   | { type: "choose-folder"; label: string; startAt: string | null }
-  // The app answers through `rt setup repo place`, then runs `then` when set. `segmentRecords`: whether
-  // switching the segment alone records the shown path; `oneClick` records `path` under `mode` in one press.
+  // The app answers through `rt setup repo place`, then runs `then` when set, the way it runs a `run`
+  // action's verb (appending --json). `segmentRecords`: whether switching the segment alone records the
+  // shown path; `oneClick` records `path` under `mode` in one press.
   | {
       type: "place-repo";
       label: string;

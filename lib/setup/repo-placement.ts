@@ -10,6 +10,7 @@ import { deriveRepoIdentity, normalizeRemote, serializeIdentity } from "../setti
 import { getSetting } from "../settings/resolve.ts";
 import { listOrgs } from "../settings/stores.ts";
 import { orgRefFromIntent, readIntent } from "./intent.ts";
+import type { PlacementMode } from "./contract.ts";
 import type { Probes } from "./probes.ts";
 import { readTeamSnapshot } from "./team-settings.ts";
 import { CANDIDATE_ROOT_NAMES, detectCandidate, expandHome } from "./repo-root.ts";
@@ -19,7 +20,6 @@ export function repoBasename(identity: string): string {
   return identity.split("/").pop() || identity;
 }
 
-export type PlacementMode = "checkout" | "clone";
 export interface Placement {
   mode: PlacementMode;
   path: string;
@@ -28,6 +28,8 @@ export interface PlacementsFile {
   placements: Record<string, Placement>;
   deferred: string[];
   failed: Record<string, string>;
+  /** Set when team.join lands: the setup intent that marks a joiner is gone by the time a resumed Install reaches `repos.clone`. */
+  joining?: true;
 }
 
 export function placementsPath(home: string): string {
@@ -51,8 +53,9 @@ export function readPlacements(p: Pick<Probes, "home" | "readFile">): Placements
     return empty;
   }
   if (typeof parsed !== "object" || parsed === null) return empty;
-  const { placements, deferred, failed } = parsed as Record<string, unknown>;
+  const { placements, deferred, failed, joining } = parsed as Record<string, unknown>;
   return {
+    ...(joining === true ? { joining: true as const } : {}),
     placements: Object.fromEntries(Object.entries(typeof placements === "object" && placements !== null ? placements : {}).filter(([, v]) => isPlacement(v))) as Record<string, Placement>,
     deferred: Array.isArray(deferred) ? deferred.filter((d): d is string => typeof d === "string") : [],
     failed: Object.fromEntries(Object.entries(typeof failed === "object" && failed !== null ? failed : {}).filter(([, v]) => typeof v === "string")) as Record<string, string>,
@@ -90,6 +93,19 @@ export function markDeferred(p: Probes, identity: string): void {
 export function clearDeferred(p: Probes, identity: string): void {
   updatePlacements(p, (f) => {
     f.deferred = f.deferred.filter((d) => d !== identity);
+  });
+}
+
+export function markJoining(p: Probes): void {
+  updatePlacements(p, (f) => {
+    f.joining = true;
+  });
+}
+
+export function clearJoining(p: Probes): void {
+  if (!readPlacements(p).joining) return;
+  updatePlacements(p, (f) => {
+    delete f.joining;
   });
 }
 

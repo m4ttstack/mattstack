@@ -32,7 +32,7 @@ import { AUTH_FAILURE_PATTERN } from "../../team/publish.ts";
 import { intentPath, type SetupIntent } from "../intent.ts";
 import { stageSecret, stagingDir } from "../staging.ts";
 import { readStagedRepoRoot, stageRepoRoot } from "../repo-root.ts";
-import { markDeferred, readPlacements, writePlacement } from "../repo-placement.ts";
+import { markDeferred, markJoining, readPlacements, writePlacement } from "../repo-placement.ts";
 import { fakeProbes, gitRepo, realFsProbes } from "./fakes.ts";
 
 import { INIT_STEP_FAILED } from "../../home/init-exec.ts";
@@ -636,6 +636,8 @@ describe("team.join", () => {
     const outcome = await teamJoinStep.run(ctx);
     expect(outcome.state).toBe("done");
     expect((outcome as { detail?: string }).detail).toContain("Joined Acme");
+    // The intent is gone after a join, so a resumed Install's repos.clone reads the join from here.
+    expect(readPlacements(p).joining).toBe(true);
   });
 
   test("idempotent re-run: already cloned + relay says 'already' resumes cleanly instead of throwing invite-unknown", async () => {
@@ -1700,6 +1702,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
   test.each([
     ["from a terminal", { appDriven: false, nonInteractive: false }],
     ["with --non-interactive", { appDriven: true, nonInteractive: true }],
+    ["in CI", { appDriven: true, nonInteractive: false, ci: true }],
   ])("repos.clone: a joiner's Install %s clones to the defaults", async (_label, flags) => {
     setSetting("rt.repoRoots", [join(home, "code")], "machine");
     const p = realFsProbes(home);
@@ -1732,6 +1735,51 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
 
     expect(await reposCloneStep.run(ctx)).toEqual({ state: "done", detail: "cloned 1, present 1, failed 0" });
     expect(getSetting<string[]>("rt.repoRoots").value).toEqual(["~/code", join(home, "work")]);
+  });
+
+  test("repos.clone: with no home repo yet, rt.repoRoots is left alone", async () => {
+    const p = realFsProbes(home);
+    writePlacement(p, "gitlab.com/acme/acme-api", { mode: "clone", path: join(home, "work", "acme-api") });
+    const { ctx } = makeCtx(p, { snapshot: ACME_API });
+
+    expect(await reposCloneStep.run(ctx)).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
+    expect(getSetting<string[]>("rt.repoRoots").value).toEqual([]);
+  });
+
+  test("repos.clone: a resumed Install still defers a joiner's repos after the intent is gone, then hands over to the deferred list", async () => {
+    const p = realFsProbes(home);
+    markJoining(p);
+    const { ctx } = makeCtx(p, { snapshot: WIDGETS_AND_API, intent: null, appDriven: true });
+
+    expect(await reposCloneStep.run(ctx)).toMatchObject({ state: "needs-you", detail: "cloned 0, present 0, 2 waiting for you" });
+    expect(p.clones).toEqual([]);
+    expect(readPlacements(p)).toEqual({ placements: {}, deferred: ["gitlab.com/acme/widgets", "gitlab.com/acme/acme-api"], failed: {} });
+  });
+
+  test("repos.clone: a failed clone into the member's own empty folder leaves the folder", async () => {
+    const dest = join(home, "work", "acme-api");
+    mkdirSync(dest, { recursive: true });
+    const p = { ...realFsProbes(home), execStreaming: async () => ({ code: 128, stdout: "", stderr: "fatal: repository not found\n" }) };
+    writePlacement(p, "gitlab.com/acme/acme-api", { mode: "clone", path: dest });
+    const { ctx } = makeCtx(p, { snapshot: ACME_API });
+
+    expect((await reposCloneStep.run(ctx)).state).toBe("partial");
+    expect(existsSync(dest)).toBe(true);
+  });
+
+  test.each([
+    ["a recorded checkout that moved", "checkout", () => mkdirSync(join(home, "old", "acme-api"), { recursive: true }), join("old", "acme-api"), "~/old/acme-api isn't a git checkout."],
+    ["a recorded clone location that filled up", "clone", () => writeFileSync(join(home, "busy", "acme-api", "notes.txt"), "x"), join("busy", "acme-api"), "~/busy/acme-api already exists. Choose an empty or new folder."],
+  ] as const)("repos.clone: %s records why, for the row's Retry", async (_label, mode, arrange, rel, reason) => {
+    mkdirSync(join(home, rel), { recursive: true });
+    arrange();
+    const p = realFsProbes(home);
+    writePlacement(p, "gitlab.com/acme/acme-api", { mode, path: join(home, rel) });
+    const { ctx } = makeCtx(p, { snapshot: ACME_API });
+
+    expect((await reposCloneStep.run(ctx)).state).toBe("partial");
+    expect(p.clones).toEqual([]);
+    expect(readPlacements(p).failed).toEqual({ "gitlab.com/acme/acme-api": reason });
   });
 
   test("intercepts.install: logs what rt left alone", async () => {

@@ -165,7 +165,8 @@ public struct RowAction: Codable, Equatable, Sendable {
     public var clonePath: String?
     public var note: String?
     public var problem: String?
-    /// The verb the app runs after the place verb succeeds; nil before Install.
+    /// The verb the app runs after the place verb succeeds, the way it runs a
+    /// `run` action's verb (with `--json` appended); nil before Install.
     public var then: [String]?
     public var oneClick: PlaceRepoOneClick?
     /// Whether switching the segment alone records the shown path.

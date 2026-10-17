@@ -5,10 +5,10 @@
  * sees no rows before Install (no tracked list yet); a repo Install left for
  * them comes back here finish-gated.
  */
-import { dirname } from "path";
+import { dirname, join } from "path";
 import { resolveIndexPathForIdentity } from "../../repo-index.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
-import { REPO_PLACE_ROW_PREFIX, row, type Action, type OrgRef, type Row, type RowStatus } from "../contract.ts";
+import { REPO_PLACE_ROW_PREFIX, row, type Action, type OrgRef, type PlacementMode, type Row, type RowStatus } from "../contract.ts";
 import type { Probes } from "../probes.ts";
 import {
   checkCheckout,
@@ -21,9 +21,9 @@ import {
   resolvePlacements,
   takenFor,
   tildify,
-  type PlacementMode,
   type ResolvedPlacement,
 } from "../repo-placement.ts";
+import { detectCandidate } from "../repo-root.ts";
 import { homeGitDir } from "../steps/home.ts";
 import { skippedIdentities } from "../steps/repos.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
@@ -60,32 +60,49 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
   const placedParents = [...new Set(Object.values(resolved).filter((pl) => pl.mode === "checkout").map((pl) => dirname(pl.path)))];
   const installed = p.exists(homeGitDir(p.home));
   const then = installed ? ["setup", "apply", "--only", "repos.clone"] : null;
+  const taken = (identity: string) => takenFor(resolved, tracked, identity);
+
+  /** A checkout row's other segment: the first folder rt would clone into that is free and is not the checkout itself, else the default (which the verb then refuses). */
+  function cloneAlternative(identity: string, checkoutPath: string): string {
+    const parents = [...placedParents, ...rootPaths, detectCandidate(p), join(p.home, "Documents/GitHub")].filter((parent): parent is string => parent !== null);
+    for (const parent of new Set(parents)) {
+      const path = join(parent, repoBasename(identity));
+      if (path !== checkoutPath && checkCloneTarget(p, path, taken(identity)).ok) return path;
+    }
+    return defaultClonePath(p, identity, { rootPaths, placedParents });
+  }
 
   async function stateOf(identity: string, placement: ResolvedPlacement): Promise<RowState> {
     const base = repoBasename(identity);
-    const clonePath = placement.mode === "clone" ? placement.path : defaultClonePath(p, identity, { rootPaths, placedParents });
+    const clonePath = placement.mode === "clone" ? placement.path : cloneAlternative(identity, placement.path);
     const checkoutPath = placement.mode === "checkout" ? placement.path : null;
     const shape = { mode: placement.mode, checkoutPath, clonePath, problem: null, oneClick: null, gated: false };
     const indexed = await indexedCheckout(p, identity);
+    const found = `Found your ${base} checkout`;
 
     if (deferred.includes(identity) && !indexed) {
       const gated = { ...shape, status: "needs-you" as const, gated: true };
       const recorded = placements[identity];
-      if (!recorded) return { ...gated, note: "Choose where your repos go", oneClick: { label: "Clone here", mode: "clone", path: clonePath } };
+      if (!recorded) {
+        const note = "Choose where your repos go";
+        const target = checkCloneTarget(p, clonePath, taken(identity));
+        if (!target.ok) return { ...gated, note, problem: target.detail };
+        return { ...gated, note, oneClick: { label: "Clone here", mode: "clone", path: clonePath } };
+      }
       const reason = failed[identity];
       if (reason !== undefined) return { ...gated, note: `The last clone failed: ${reason}`, oneClick: { label: "Retry", mode: recorded.mode, path: recorded.path } };
       const where = tildify(p.home, recorded.path);
       return { ...gated, note: recorded.mode === "clone" ? `rt clones it to ${where} next` : `rt uses your checkout at ${where} next` };
     }
 
-    const found = `Found your ${base} checkout`;
-    if (indexed) return { ...shape, status: "ready", mode: "checkout", checkoutPath: indexed, note: found };
+    // A recorded answer comes before the index, the order `repos.clone` follows.
+    if (placement.source !== "recorded" && indexed) return { ...shape, status: "ready", mode: "checkout", checkoutPath: indexed, clonePath: cloneAlternative(identity, indexed), note: found };
     if (placement.mode === "checkout") {
       const check = await checkCheckout(p, identity, placement.path, { tracked });
       if (check.ok) return { ...shape, status: "ready", note: found };
       return { ...shape, status: "needs-you", note: check.detail, problem: check.detail };
     }
-    const target = checkCloneTarget(p, placement.path, takenFor(resolved, tracked, identity));
+    const target = checkCloneTarget(p, placement.path, taken(identity));
     if (!target.ok) return { ...shape, status: "needs-you", note: target.detail, problem: target.detail };
     return { ...shape, status: "ready", note: CLONES_AT_INSTALL };
   }
@@ -117,7 +134,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
         required: false,
         recheck: "on-activate",
         status: s.status,
-        detail: s.note,
+        detail: s.problem ?? s.note,
         action,
         ...(s.gated ? { finishGated: true, waivable: false } : {}),
       });
