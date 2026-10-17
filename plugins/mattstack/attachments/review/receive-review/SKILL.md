@@ -62,6 +62,9 @@ digraph receive_review {
     run_field_get_handed [label="run_field_get {runDb, key: extra.gate-source.respond-plan} for the handed plan" shape=plaintext];
     run_stores_source [label="The run stores a respond-plan source for the handed plan?" shape=diamond];
     run_field_get_pending [label="run_field_get {runDb, key: extra.gate-source.respond-plan} for the pending round" shape=plaintext];
+    pending_gate_id [label="The pending round's stored gate id?" shape=diamond];
+    gate_reconcile_pending [label="gate_reconcile {id: <the stored gate>, runDb, stage}" shape=plaintext];
+    pending_reconcile_status [label="Pending round's gate_reconcile status?" shape=diamond];
     write_pending_source [label="Write the pending round's source for gate_open" shape=box];
     thread_read_forge [label="Forge for the thread read?" shape=diamond];
     mr_threads_unresolved [label="mr_threads {mrUrl, filter: \"unresolved-human\"}" shape=plaintext];
@@ -192,7 +195,12 @@ digraph receive_review {
     snapshot_records -> gate_record_post [label="respond-plan recorded only, a {post} handed"];
     snapshot_records -> post_forge [label="respond-post recorded, held or not"];
     run_field_get_respond_plan -> rewrite_report_rows [label="the stored cards, or an unset-key error"];
-    run_field_get_pending -> write_pending_source;
+    run_field_get_pending -> pending_gate_id;
+    pending_gate_id -> write_pending_source [label="null: a hand-back stored it"];
+    pending_gate_id -> gate_reconcile_pending [label="an id"];
+    gate_reconcile_pending -> pending_reconcile_status;
+    pending_reconcile_status -> gate_record_plan [label="answered: record it with gateId"];
+    pending_reconcile_status -> write_pending_source [label="open, closed or not found"];
     write_pending_source -> caller_owns_plan_gates;
     caller_handed -> resolve_change [label="nothing, or a {plan} (alone or in {plan, post})"];
     caller_handed -> gate_record_post [label="a {post} alone"];
@@ -578,11 +586,18 @@ revise built.
 
 ### Write the pending round's source for gate_open
 
-The `run_field_get` value is `{"gate": <id or null>, "source": {...}}`.
-Write its `source`, unchanged, to `<dir>/respond-plan.source.json` (`<dir>`
+The `run_field_get` value is `{"gate": <id or null>, "source": {...}}`. A
+non-null `gate` is the in-pane gate the earlier pane opened, and a human
+may have answered it on another surface after that pane went away:
+`gate_reconcile` reads it first, and an `answered` status goes straight to
+`gate_record {..., gateId: <that id>}` and the rows, never a second ask.
+Otherwise write its `source`, unchanged, to `<dir>/respond-plan.source.json` (`<dir>`
 as `Build the open` makes it), then open or hand back exactly as a freshly
 built round would. The threads, verdicts and replies are the pending
-round's; never re-read threads, re-adjudicate or redraft for it.
+round's; never re-read threads, re-adjudicate or redraft for it. A
+caller that owns the gates gets the verdict table from the stored cards:
+one row per thread question, its `label`, `context.verdict.call` and
+`context.reply.text`.
 
 ### Read the handed plan's threads on GitHub with gh
 

@@ -606,8 +606,10 @@ never push from here. It landed when the remote carries HEAD.
   `gh run rerun` takes the run id in the failed check's link.
 - **The new attempt.** A fix push in an own run starts the next attempt of
   `watch-ci` with `run_resolve` (`next: iterate`, `to` left out), never
-  `run_stage` start: `attempt` is the `<n>` in the `ci` gate's scope,
-  `decidedBy` is the answer that sent you to push (the `ci` gate's
+  `run_stage` start: `attempt` is the attempt now running (`run_enter`'s
+  `at.attempt`, or the last `run_resolve`'s `next.attempt`), which the `ci`
+  gate's scope carries (an off-script gate's `<n>` counts its rounds, not
+  attempts); `decidedBy` is the answer that sent you to push (the `ci` gate's
   **Fix and re-push**, or the `git_push` off-script gate's Take), and
   `note` is `fix pushed: <sha12>`. The next `ci` gate's scope carries the
   new attempt. An inherited run writes nothing: the caller's stage is not

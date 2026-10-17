@@ -46,6 +46,7 @@ Scripted results (any call not listed returns `{"ok": true}`):
   are deterministic.") and `thread-2` (T2, `src/retry.ts:31`, verdict
   `valid`, recommended `fix:T2`, reply direction "Capped the delay at
   30s."), plus `code-changes`.
+- `gate_reconcile {id: "g-plan-2", ...}`: `{"status": "open"}` (nobody has answered round 2)
 - `mr_threads` (any arguments): T1 (`src/retry.ts:18`, "the jitter makes
   these tests flaky") and T2 (`src/retry.ts:31`, "cap the delay"), both
   unresolved, each with only the reviewer's opening note.

@@ -296,6 +296,7 @@ jobs:
           sh tests/test-gate-stop-hook.sh
           bash hooks/tests/test-agent-effort-guard.sh
           bash hooks/tests/test-agent-effort-note.sh
+          bash tests/test-mcp-tools-reference.sh
       - name: Every plugin digraph passes check-dot (warnings fail)
         working-directory: plugins/mattstack
         run: |

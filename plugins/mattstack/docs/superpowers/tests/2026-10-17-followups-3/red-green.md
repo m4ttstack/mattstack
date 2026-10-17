@@ -38,3 +38,13 @@ field `at` against the revise decision's `decided_at`.
 | R12 the pane that handed round 2 back gets the board's round 2 plan | 5/5 | 5/5 | regression guard: one `gate_record` of the handed plan from the hand-back box, no snapshot, no dispatch, rows walked to the respond-post hand-back |
 
 Review round (gate-protocol now lists sync-open-mrs with the verbs that draw neither): S1 rerun 5/5, `gate_ask`, form, `gate_answer`, nothing hand-written.
+
+## Fable review nits (RED = the branch at `7dea03656`, GREEN = the nit edits)
+
+| scenario | RED pass | GREEN pass | notes |
+|---|---|---|---|
+| W4 own run, second fix push, the human pushed (off-script round 1, attempt 2) | 5/5 | 5/5 | guard for the attempt wording: `run_resolve {attempt: 2}`, never the off-script `<n>` |
+| R13 fresh pane, pending round 2 already answered in the console | 0/5 on the graph | 5/5 | RED: 2 reps opened a new round 2 gate over the recorded answer, 3 reached `gate_reconcile` only by stepping off the graph; GREEN: `gate_reconcile {id: g-plan-2}` answered, `gate_record {gateId: g-plan-2}`, rows walked |
+| R14 board pane, nothing decided handed, pending round stored by a hand-back (`gate: null`) | 5/5 | 5/5 | guard for the table sentence: hand-back from the stored source, table from the stored cards, no thread read or dispatch |
+| W1, W2, W3, R11, R12 reruns | | 5/5 each | regression |
+| R10 rerun | | 5/5 | scenario now scripts `gate_reconcile` as `open` (the stored gate is non-null, so the new diamond calls it): reconcile, then the stored source reopened |

@@ -552,6 +552,7 @@ as it will be once `onRunning` flips back:
 | watch-ci W1 own run, fix pushed with `git_push` | 0/5: `run_stage start` refused, carried on in attempt 1 | 5/5: `run_resolve {next: iterate, attempt: 1}` | |
 | watch-ci W2 own run, the human pushed (off-script Take) | 0/5: `run_stage start` after the landing check | 5/5: the same `run_resolve` | |
 | watch-ci W3 inherited run, fix pushed | 5/5 | 5/5 | regression guard: no run write on ship's run |
+| watch-ci W4 second fix push after an off-script round (review nit) | 5/5 | 5/5 | guard: `attempt` is the running attempt (2), never the off-script `<n>` |
 
 ## Left to the builder
 
