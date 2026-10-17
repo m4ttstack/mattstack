@@ -374,3 +374,42 @@ All four scenarios ran again.
 | S2 failure gate Go back | 5/5 | Same path as before: `gate_ask` with `runDb` and `stage: "ship"`, one background wait, `gate_reconcile`, `run_resolve {..., attempt: 2, decidedBy: "board"}`, implement Read; Part 3 follows `repeated: true` with no `run_stage start` |
 | S2b engine refusal | 5/5 | Every rep: `gate_reconcile`, `run_resolve` (refused), then `run_hold` with the refusal verbatim and `decidedBy: "pane"`, ending held |
 | S3 compacted resume | 5/5 | Every rep: `run_enter {resume: "r-20261016-abc"}`, `run_field_get waiting-gate`, `gate_reconcile`, then the new diamond: "`plan` is not a failure or close gate, so I re-enter the stage at its gate site and do not call `run_resolve`" (rep 1); no re-ask, no `run_stage start` |
+
+### Task 4: stage-provision on worktree_provision's options
+
+stage-provision prechecks before every provision but a Fresh tree one,
+offers trees to resume in the gate's one `resume_in` question, resumes
+through `reuse`, provisions with `codes`, `runDb` and a `busy` budget,
+routes on refusal codes, keeps the Fresh tree count in `run_budget`, holds
+with `run_hold` and writes `branch` and `worktree` only when the tool did
+not record them. Both scenarios ran twice: first on the rewrite, then on
+the final text, which adds one line to the gate table (the branch to
+resume after a `branch-attached` refusal). Both runs scored 10/10, and the
+quotes below come from both. No rep hit an API error, and no refactor
+round was needed.
+
+| Scenario | RED | GREEN | Notes |
+|---|---|---|---|
+| S5 occupied ticket branch | 0/5 | 5/5 | Every rep: `worktree_provision {..., precheck: true}` before any provision, `gate_ask {kind: "provision", runDb, stage: "provision"}` with one `resume_in` question (the tree once, plus Fresh tree) and `next`, `gate_answer` with `runDb` and `stage`, then `worktree_provision {repoName: "/home/dev/src/queue", branch: "acme-12-fix-login", reuse: true, runDb, stage: "provision"}` and `EnterWorktree`. No `run_field_set` for `branch` or `worktree` after `recorded: true`, no `run_decision`, no `Selection` record |
+| S5b precheck on an older daemon | 0/5 | 5/5 | Every rep: the precheck refused `daemon-outdated`, then one `worktree_provision {..., codes: true, runDb, stage: "provision", budget: {key: "provision-refusals", limit: 2}}`, `EnterWorktree`, and a return to the orchestrator. No precheck retry, no gate, no `run_stage fail`, no hand-written `branch` or `worktree` |
+
+Per rep:
+
+- S5 reps 1-5: "No `run_field_set` for `branch` or `worktree`. The reuse
+  result says `recorded: true`, so the tool already wrote both" (first run,
+  rep 1); "`sameTicket` and `sameSlug` name that same tree, which counts
+  once. `localBranch` is true, but the tree is attached, so no extra base
+  option is offered" (final run, rep 4).
+- S5 reps 4 (first run) and 3 and 5 (final run) also pass `runDb` and
+  `stage` on the precheck, which the tool accepts and ignores. Not a
+  criterion.
+- Not a criterion, noted for gate-protocol: first-run rep 2 sent both form
+  chunks in one AskUserQuestion ("They fit one call"), against the
+  one-call-per-chunk rule; every other rep made one call per chunk.
+  Final-run rep 2 said "`sameTicket` is ignored because no domain rules are
+  inlined", the reverse of the precheck rule; the scene's lone tree is in
+  `attached` too, so the offer came out the same.
+- S5b reps 1-5: "That code means provision without the precheck, and never
+  retry the precheck" (final run, rep 3); "No gate: the precheck was
+  refused, so there are no trees to resume and nothing to ask" (final run,
+  rep 2).
