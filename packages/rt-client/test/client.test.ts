@@ -1,6 +1,8 @@
 import { describe, expect, test, afterEach, spyOn } from "bun:test";
 import { readProjectMRs, readDiscussions, readMrsByBranch, listRuns, abandonRun, readBranchCache, chatInvite, paneDirectories, paneList, panePeek, paneSpawn, chatArchive, chatDmOpen, chatRooms, herdAnswer } from "../src/client.ts";
 import { fakeDaemon } from "./fake-daemon.ts";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const stops: Array<() => void> = [];
 afterEach(() => { for (const stop of stops) stop(); stops.length = 0; });
@@ -34,6 +36,16 @@ describe("readProjectMRs", () => {
     stops.push(stop);
     await readProjectMRs("x", undefined, { sockPath: sock });
     expect(seen).toEqual([{ cmd: "project-mrs:read", payload: { repoName: "x" } }]);
+  });
+
+  test("a caller's timeoutMs bounds the wait on a daemon that never answers", async () => {
+    const sock = join(tmpdir(), `rt-client-slow-${process.pid}.sock`);
+    const server = Bun.serve({ unix: sock, fetch: () => new Promise<Response>(() => {}) });
+    stops.push(() => server.stop(true));
+    const started = Date.now();
+    const res = await readProjectMRs("x", undefined, { sockPath: sock, timeoutMs: 200 });
+    expect(res.ok).toBe(false);
+    expect(Date.now() - started).toBeLessThan(2_000);
   });
 });
 

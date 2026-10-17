@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { collisions, measureLane, parseNumstat, readGithubMerge, type GithubGet, type LaneDeps } from "../herd-lanes.ts";
+import { collisions, gitlabMerge, measureLane, parseNumstat, readGithubMerge, type GithubGet, type LaneDeps } from "../herd-lanes.ts";
 
 describe("herd lanes", () => {
   test("parseNumstat totals insertions and deletions and keeps binary paths", () => {
@@ -49,6 +49,17 @@ describe("herd lanes", () => {
     };
     const lane = await measureLane(deps, "/w/a");
     expect(lane.ok).toBe(false);
+  });
+});
+
+describe("gitlabMerge", () => {
+  const mr = { iid: 7, title: "t", state: "merged", draft: false, sourceBranch: "feat/x", targetBranch: "main", author: "a", webUrl: "https://gitlab.com/g/p/-/merge_requests/7", detailedMergeStatus: null, mergedAt: "2026-10-16T12:00:00Z" };
+  test("a merged MR carries its mergedAt", () => {
+    expect(gitlabMerge(mr)).toEqual({ forge: "gitlab", state: "merged", url: mr.webUrl, number: 7, mergedAt: "2026-10-16T12:00:00Z" });
+  });
+  test("an open MR has no mergedAt, and no MR reads none", () => {
+    expect(gitlabMerge({ ...mr, state: "opened", mergedAt: null })).toMatchObject({ state: "open", mergedAt: null });
+    expect(gitlabMerge(undefined)).toEqual({ forge: "gitlab", state: "none", url: null, number: null, mergedAt: null });
   });
 });
 

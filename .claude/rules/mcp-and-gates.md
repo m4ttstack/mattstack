@@ -40,15 +40,17 @@ text (an MR under review). `mcpTools()` in `lib/mcp/tools.ts` is the roster
 (`rt mcp tools --json` prints it). `tools.ts` itself holds `gate_ask`,
 `gate_answer` and `gate_list` (`gate-tools.ts` is the home of the gate
 tool handlers and defines `gate_open`, `gate_record` and `gate_reconcile`
-over `lib/gates/`), the `mr_*` writes and `mr_map`, `rt_verb`, the herd worker tools
+over `lib/gates/`), the `mr_*` writes, `rt_verb`, the herd worker tools
 (`herd_gates`, `herd_ask`, `herd_answer`, `herd_report`) and five chat tools
 (`chat_post`, `chat_dm`, `chat_ack`, `chat_claim`, `chat_release`), and
-spreads in the rest: run tracking (`run-tools.ts`, in-process over
+spreads in the rest: the GitLab composites (`mr-composite-tools.ts`:
+`mr_map`, `mr_posted_since`, `mr_resolve_branch`, `respond_post_execute`),
+run tracking (`run-tools.ts`, in-process over
 `runWriteVerb`, a caller's `runDb` confined to the runs root), GitLab reads
 (`mr-read-tools.ts`, `forge-read-tools.ts`: every one asks GitLab through
 the daemon on each call and none reads the open-MR cache, so an agent can
-read any MR its token can; `mr_map` in `tools.ts` is the exception and
-reads the daemon's synced MR list; `gitlab_get` is a GET-only passthrough whose
+read any MR its token can; `mr_map` also lists the MRs live and reads the
+daemon's synced MR list only for each row's `ciStatus`; `gitlab_get` is a GET-only passthrough whose
 daemon guard in `lib/daemon/forge-reads.ts` refuses the paths that return
 credentials (`REFUSED_SEGMENTS`, also with a format suffix, and a path
 percent-encoded more than once) and the query keys that carry credentials
@@ -71,9 +73,10 @@ one explicit refspec to the branch's same-named upstream, forces only with
 master and the remote's default branch (and a remote whose default cannot be
 read); `git_pull` is `--ff-only`; `branch_sync` runs `rt sync` only after a
 preflight that refuses to reset over unpushed commits or force-push over
-commits only origin has. `herd_spawn`, `herd_close`, `herd_follow_up`,
-`herd_attend` and `herd_wrap_up` run only from the session the daemon records as the herd's
-shepherd, never from a worker pane, and every caller-named path a herd tool
+commits only origin has. `herd_spawn`, `herd_respawn`, `herd_gate_answer`,
+`herd_gate_park`, `herd_diagnose`, `herd_nudge`, `herd_lanes`, `herd_close`,
+`herd_follow_up`, `herd_attend` and `herd_wrap_up` run only from the session
+the daemon records as the herd's shepherd, never from a worker pane, and every caller-named path a herd tool
 or `rt_verb` takes (a brief, a template, an out file) is confined by
 `temp-root-guard.ts` to the Claude Code temp root or an installed plugin or
 pack root (the read-root check admits `.md`, and `.json` for `gate_open`
@@ -125,7 +128,8 @@ any command; the read-only git forms need no rule in any mode and the
 classifier approves routine commits and pushes, so no `Bash(git ...)` entry
 belongs in the list (a test pins this). And what skills still run in a shell
 is `rt gate` (`rt gate wait`, which blocks past any tool timeout, and the
-shepherd's CLI-only `rt gate answer --by shepherd`) and `rt events wait`
+shepherd's `rt gate answer --by shepherd`, which `herd_gate_answer` covers
+once the shepherdr skill moves to it) and `rt events wait`
 under `Monitor`, covered by `Bash(rt gate *)` and `Bash(rt events wait *)`.
 Everything else a skill runs routinely is a tool on the mattstack server.
 Do not widen the list to make a skill work; add a tool or an agent-safe

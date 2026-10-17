@@ -9,7 +9,7 @@
  *   rt runs stage-done  --stage NAME
  *   rt runs stage-fail  --stage NAME [--reason TEXT] [--detail-path PATH]
  *   rt runs stage-redirect --stage FROM --to TO [--reason TEXT]
- *   rt runs field set   KEY VALUE --stage NAME
+ *   rt runs field set   KEY VALUE --stage NAME [--if-sha256 HEX]
  *   rt runs field get   KEY
  *   rt runs decision record --contract C --scope S --selection JSON --decided-by W
  *   rt runs snapshot
@@ -100,6 +100,8 @@ function startOpts(args: string[], env: NodeJS.ProcessEnv): RunStartOpts {
   };
 }
 
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
 async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv, cwd: string): Promise<CliResult> {
   switch (verb) {
     case "run-start": {
@@ -158,8 +160,10 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
       if (sub === "set") {
         if (!key || value === undefined) throw new Usage("field set needs KEY VALUE");
         const stage = required(args, "--stage");
+        const ifSha256 = flagValue(args, "--if-sha256");
+        if (ifSha256 !== undefined && !SHA256_HEX.test(ifSha256)) throw new Usage("--if-sha256 must be 64 lowercase hex digits");
         return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
-          const r = fieldSet(db, key, value, stage);
+          const r = fieldSet(db, key, value, stage, undefined, ifSha256 === undefined ? {} : { ifSha256 });
           if (!r.ok) return fail(r);
           await emitted(env, runIdentity(db), stage, "field-set");
           return ok(resolved);

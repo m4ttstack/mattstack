@@ -3,7 +3,7 @@
  * file collisions, and the merge state of a job's branch on its forge.
  */
 import { GitHubProvider } from "@mattstack/glance";
-import type { HerdLaneRow } from "../../packages/rt-client/src/commands.ts";
+import type { HerdLaneRow, MrTargetSummary } from "../../packages/rt-client/src/commands.ts";
 import { forgeTokenFor, isGitHubRemote, isGitLabRemote, parseRemoteUrl } from "../enrich.ts";
 import { loadSecrets } from "../linear.ts";
 import { identityFromRemote, serializeIdentity } from "../settings/identity.ts";
@@ -78,6 +78,11 @@ function mergeState(state: string): Merge["state"] {
   return "unknown";
 }
 
+export function gitlabMerge(mr: MrTargetSummary | undefined): Merge {
+  if (!mr) return { forge: "gitlab", state: "none", url: null, number: null, mergedAt: null };
+  return { forge: "gitlab", state: mergeState(mr.state), url: mr.webUrl, number: mr.iid, mergedAt: mr.mergedAt };
+}
+
 /** A REST GET against api.github.com that answers every HTTP status as a
     Response; glance's fetchPullRequestByBranch reads a 401 or a 5xx as "no PR". */
 export type GithubGet = (path: string) => Promise<Response>;
@@ -118,9 +123,7 @@ async function readMerge(worktree: string, branch: string): Promise<Merge> {
     const ctx = await getRepoContext(serializeIdentity(identity), worktree);
     const listed = await listMrsLive(ctx.provider, ctx.projectPath, { sourceBranch: branch, state: "all", limit: 1 });
     if (!listed.ok) return unknownMerge(forge, listed.error);
-    const mr = listed.mrs[0];
-    if (!mr) return { forge, state: "none", url: null, number: null, mergedAt: null };
-    return { forge, state: mergeState(mr.state), url: mr.webUrl, number: mr.iid, mergedAt: null };
+    return gitlabMerge(listed.mrs[0]);
   } catch (err) {
     return unknownMerge(forge, err);
   }

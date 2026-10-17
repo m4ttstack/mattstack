@@ -16,7 +16,7 @@ import { waitForAnswers } from "../endpoint/readiness.ts";
 import { allowedSourceRoots, bundleStem, copyIntoRun, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
-import { appendixProblem, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
+import { appendixProblem, namesHome, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
 import { parseUploads, serializeUploads, sha256Of, type UploadEntry } from "../evidence/uploads-field.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
@@ -24,6 +24,7 @@ import { getSetting } from "../settings/resolve.ts";
 import { loadRegistry } from "../worktree/registry.ts";
 import { githubRefusal, refuseGithubTarget } from "./mr-composite-tools.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
+import { isFieldChanged, valueSha256 } from "../runs/write.ts";
 import { runToolDefs } from "./run-tools.ts";
 import { checkOptional, checkRequired, err, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
@@ -272,9 +273,11 @@ function isRunRepo(identity: string, runDb: string): { ok: true } | { ok: false;
   return names.includes(runRepo.toLowerCase()) ? { ok: true } : { ok: false, runRepo };
 }
 
+const EVIDENCE_CHANGED = "the evidence field changed during this call; call again";
+
 const runQueues = new Map<string, Promise<void>>();
 
-/** The MCP server runs tool calls concurrently and run_field_set has no compare-and-set, so calls on one run take turns. */
+/** The MCP server runs tool calls concurrently, so calls on one run take turns rather than refusing each other through run_field_set's ifSha256. */
 function onRun<T>(runDb: unknown, task: () => Promise<T>): Promise<T> {
   if (typeof runDb !== "string") return task();
   let key = runDb;
@@ -311,9 +314,10 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const write = async (value: string): Promise<ToolResult | null> => {
     const now = await readField(deps, runDb, "evidence", env);
     if (!now.ok) return err(now.error);
-    if (now.value !== read.value) return err("the evidence field changed during this call; call again");
-    const res = await deps.runTool("run_field_set", { runDb, key: "evidence", value, stage }, env);
-    return res.ok ? null : err(res.error ?? "run_field_set failed");
+    if (now.value !== read.value) return err(EVIDENCE_CHANGED);
+    const res = await deps.runTool("run_field_set", { runDb, key: "evidence", value, stage, ifSha256: valueSha256(read.value ?? "") }, env);
+    if (res.ok) return null;
+    return err(isFieldChanged(res.error ?? "") ? EVIDENCE_CHANGED : res.error ?? "run_field_set failed");
   };
 
   if (parsed.plan) {
@@ -354,7 +358,7 @@ type Target =
 
 const ghMove = (n: number | null) => {
   const pr = n === null ? "<number>" : String(n);
-  return `GitHub has no upload API, so the section links local paths; read the body with gh pr view ${pr} --json body, then write it with gh pr edit ${pr} --body-file <file>`;
+  return `GitHub has no upload API, so the section names each file as attached separately; read the body with gh pr view ${pr} --json body, then write it with gh pr edit ${pr} --body-file <file>`;
 };
 
 function prNumber(url: unknown, iid: unknown): number | null {
@@ -409,7 +413,7 @@ async function resolveAttachTarget(deps: EvidenceToolDeps, input: Obj, mrField: 
   return { forge: "gitlab", identity: target.identity, iid: target.iid, mr };
 }
 
-/** Refused files leave the section unless the Take links them, so no local path prints by accident. */
+/** Refused files leave the section unless the Take names them as attached separately. */
 function withoutFiles(record: EvidenceRecord, drop: Set<string>): EvidenceRecord {
   if (record.version !== 2 || drop.size === 0) return record;
   const keep = (s: { path: string; annotated?: string; waiver?: string }) => {
@@ -437,6 +441,13 @@ function attachRecord(value: string | undefined): EvidenceRecord {
     return record;
   }
   return readEvidence(value ?? null);
+}
+
+const HOME_IN_SECTION = "the section names a path in your home directory (a caption, label, waiver, ticket or appendix carries it), so the description was not written; take the path out of the evidence record and call again";
+
+function homesOf(deps: EvidenceToolDeps): string[] {
+  const home = deps.home();
+  return [...new Set([home, realOr(home)])];
 }
 
 function realOr(path: string): string {
@@ -522,6 +533,9 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
 
   if (target.forge === "github") {
     const section = isEmptyRecord(record) ? "" : renderSection(record, (path) => ({ local: path }), { appendix });
+    if (namesHome(section, homesOf(deps))) {
+      return ok({ forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, linked, section, descriptionWritten: false, notWritten: "github", writeErrors: [HOME_IN_SECTION] });
+    }
     return ok({
       forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, linked, section,
       ...(description !== undefined && { description: section ? splice(description, section) : description }),
@@ -572,10 +586,15 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
 
   let merged = { ...uploadsMap, ...fresh };
   if (Object.keys(fresh).length) {
-    // another process may have remembered uploads meanwhile: merge onto its value rather than over it
-    const latest = await readField(deps, runDb, "evidence-uploads", env);
-    if (latest.ok) merged = { ...uploadsMap, ...parseUploads(latest.value), ...fresh };
-    const res = await deps.runTool("run_field_set", { runDb, key: "evidence-uploads", value: serializeUploads(merged), stage }, env);
+    // another process may have remembered uploads meanwhile: merge onto its value rather than over it, once more if it lands between the read and the write
+    let res: ToolResult = err("run_field_set failed");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const latest = await readField(deps, runDb, "evidence-uploads", env);
+      merged = latest.ok ? { ...uploadsMap, ...parseUploads(latest.value), ...fresh } : { ...uploadsMap, ...fresh };
+      const cas = latest.ok ? { ifSha256: valueSha256(latest.value ?? "") } : {};
+      res = await deps.runTool("run_field_set", { runDb, key: "evidence-uploads", value: serializeUploads(merged), stage, ...cas }, env);
+      if (res.ok || !isFieldChanged(res.error ?? "")) break;
+    }
     if (!res.ok) writeErrors.push(`remembering the uploads in evidence-uploads failed: ${res.error ?? "run_field_set failed"}`);
   }
 
@@ -601,6 +620,9 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
     descriptionOut = description;
   } else if (blocked) {
     notWritten = "refused";
+  } else if (namesHome(section, homesOf(deps))) {
+    notWritten = "refused";
+    writeErrors.push(HOME_IN_SECTION);
   } else if (target.iid === undefined) {
     notWritten = "no-mr";
     if (description !== undefined) descriptionOut = splice(description, section);
@@ -730,7 +752,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as \"<file name> (attached separately)\" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section names each file as attached separately and next names the gh move. A section that names a path in your home directory (a caption, label, waiver, ticket or appendix carrying one) is never written, nor next given, and writeErrors says so. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -741,7 +763,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
           appendix: { type: "string", description: "Markdown printed inside the section after the generated content. A heading at or above heading's level, or a code fence left open, is refused." },
           ...MR_TARGET_PROPS,
           description: { type: "string", description: "A description to splice the section into when there is no MR to write, or on GitHub." },
-          linkRefused: { type: "boolean", description: "The off-script gate's Take: link refused files by local path and write anyway." },
+          linkRefused: { type: "boolean", description: "The off-script gate's Take: name refused files as attached separately (no path) and write anyway." },
         },
         required: ["runDb", "stage", "heading"],
         additionalProperties: false,

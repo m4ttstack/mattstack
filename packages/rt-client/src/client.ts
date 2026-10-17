@@ -48,7 +48,7 @@ export function readProjectMRs(
   const payload: Record<string, unknown> = { repoName };
   if (maxAgeMs !== undefined) payload.maxAgeMs = maxAgeMs;
   if (demand !== undefined) payload.demand = demand;
-  return rtCommand<ProjectMRsData>("project-mrs:read", payload, { sockPath: opts.sockPath, timeoutMs: 90_000 });
+  return rtCommand<ProjectMRsData>("project-mrs:read", payload, { sockPath: opts.sockPath, timeoutMs: opts.timeoutMs ?? 90_000 });
 }
 
 export function readDiscussions(

@@ -60,10 +60,38 @@ describe("classifyScreen", () => {
   });
 
   test("a limit or login line scrolled above the last 15 non-blank transcript lines does not classify", () => {
-    const newer = Array.from({ length: 15 }, (_, i) => `⏺ Newer line ${i + 1}`);
+    const newer = Array.from({ length: 15 }, (_, i) => `     output line ${i + 1}`);
     expect(classifyScreen(screen(["You've hit your session limit · resets 5pm", "", ...newer]))).toBeNull();
     expect(classifyScreen(screen(["Login expired · Please run /login", ...newer]))).toBeNull();
     expect(classifyScreen(screen(["You've hit your session limit · resets 5pm", ...newer.slice(1)]))).toBe("rate-limited");
+  });
+
+  test("a limit that has since reset, with an assistant turn after it, does not classify", () => {
+    const resumed = [
+      "> fix the flaky test",
+      "  ⎿  You've hit your session limit · resets 5pm",
+      "",
+      "> continue",
+      "",
+      "⏺ Picking up where I left off.",
+      "",
+      "⏺ Bash(bun test lib/foo.test.ts)",
+      "  ⎿  12 pass",
+    ];
+    expect(classifyScreen(screen(resumed))).toBeNull();
+  });
+
+  test("a limit with only a new prompt after it, and no assistant turn yet, still classifies", () => {
+    expect(classifyScreen(screen(["  ⎿  You've hit your session limit · resets 5pm", "", "> continue"]))).toBe("rate-limited");
+  });
+
+  test("a second limit after the assistant resumed classifies again", () => {
+    const relimited = [
+      "  ⎿  You've hit your session limit · resets 5pm",
+      "⏺ Picking up where I left off.",
+      "  ⎿  You've hit your weekly limit · resets Mon 9am",
+    ];
+    expect(classifyScreen(screen(relimited))).toBe("rate-limited");
   });
 
   test("a plain idle screen classifies as nothing", () => {

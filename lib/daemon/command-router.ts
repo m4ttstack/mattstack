@@ -20,6 +20,7 @@ import { createSystemProcessHandlers } from "./handlers/system-processes.ts";
 import { createSdmHandlers } from "./handlers/sdm.ts";
 import { createRunsHandlers } from "./handlers/runs.ts";
 import { findTreeByPath } from "../worktree/registry.ts";
+import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
 import { createSecretsHandlers } from "./handlers/secrets.ts";
 import { createLoginsHandlers } from "./handlers/logins.ts";
 import { createProjectMRsHandlers } from "./handlers/project-mrs.ts";
@@ -262,8 +263,7 @@ export function buildRoutedHandlers(opts: {
     ...createSystemProcessHandlers(systemProcessScanner, { portCacheRef: ctx.portCacheRef, cache: ctx.cache }),
     ...createSdmHandlers({ log: ctx.log }),
     ...createRunsHandlers({ log: ctx.log }, emitEvent, {
-      isRunTree: (path, runRepo) =>
-        findTreeByPath(path)?.repoName === runRepo || ctx.repoIndex()[runRepo] === path,
+      isRunTree: (path, runRepo) => isRunTree(path, runRepo, { findTreeByPath, repoIndex: ctx.repoIndex }),
     }),
     ...createSecretsHandlers({ log: ctx.log }),
     ...createLoginsHandlers({ log: ctx.log }),
@@ -302,4 +302,22 @@ export function buildRoutedHandlers(opts: {
   // A tray/CLI/console read of any scan-backed command means "someone is
   // watching", which un-gates the background scans (see pollers.ts, S058/S093).
   return wrapWithDemand(handlers, ["ports", "system-processes", "tray:status"]);
+}
+
+/** A run's repo key is the pack manifest's repo dir (`repoIdentitySlug` of the raw id), the serialized wire, or a pre-cutover bare name; a path matches when any key rt registered it under names that repo. */
+export function isRunTree(
+  path: string,
+  runRepo: string,
+  deps: { findTreeByPath: (path: string) => { repoName: string } | null; repoIndex: () => Record<string, string> },
+): boolean {
+  const tree = deps.findTreeByPath(path)?.repoName;
+  const keys = [
+    ...(tree === undefined ? [] : [tree]),
+    ...Object.entries(deps.repoIndex()).filter(([, checkout]) => checkout === path).map(([key]) => key),
+  ];
+  return keys.some((key) => {
+    if (key === runRepo) return true;
+    const parsed = parseIdentity(key);
+    return parsed?.kind === "remote" && repoIdentitySlug(parsed.id) === runRepo;
+  });
 }

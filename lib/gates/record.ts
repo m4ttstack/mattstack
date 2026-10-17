@@ -85,7 +85,7 @@ function valuesOf(a: AnswerWire | undefined): string[] {
   return (Array.isArray(v) ? v : [v]).filter((x): x is string => typeof x === "string");
 }
 
-function extraOf(a: AnswerWire | undefined, key: "text" | "note"): string | undefined {
+export function extraOf(a: AnswerWire | undefined, key: "text" | "note"): string | undefined {
   if (!isObj(a) || isWriteIn(a as AnswerWire)) return undefined;
   const v = (a as Obj)[key];
   return nonEmpty(v) ? v : undefined;
@@ -103,7 +103,7 @@ function optionsOf(q: AnyQuestion | undefined): unknown[] {
   return Array.isArray(q?.options) ? q.options : [];
 }
 
-function optionValueOf(o: unknown): string | undefined {
+export function optionValueOf(o: unknown): string | undefined {
   if (typeof o === "string") return o;
   return isObj(o) && typeof o.value === "string" ? o.value : undefined;
 }

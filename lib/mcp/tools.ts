@@ -167,7 +167,7 @@ export function mcpTools(): McpToolDef[] {
         id: "rt gate answer",
         pattern: /(?<![\w-])rt\s+gate\s+answer(?![\w-])/,
         example: "rt gate answer abc --answers {}",
-        note: "answers as this pane; the shepherd's --by shepherd answer stays on Bash",
+        note: "answers as this pane; a herd's shepherd answers with herd_gate_answer",
       }],
       async handler(input, env) {
         return answerGate(input, env, realGateToolDeps);

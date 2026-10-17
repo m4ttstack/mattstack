@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { createRunDb, KNOWN_SCHEMA_VERSION, migrate, openRunDb, runStatus, stageStart, stageEnd, fieldSet, fieldGet, decisionRecord, snapshot } from "../write.ts";
+import { createRunDb, KNOWN_SCHEMA_VERSION, migrate, openRunDb, runStatus, stageStart, stageEnd, fieldSet, fieldGet, decisionRecord, snapshot, valueSha256, isFieldChanged } from "../write.ts";
 import { runStart } from "../start.ts";
 import { seedRun } from "./fixtures.ts";
 
@@ -295,6 +295,32 @@ describe("fields", () => {
     expect(fieldGet(db, "mr-url")).toEqual({ ok: true, value: "https://x/1?a='b'" });
     expect(db.query("SELECT produced_by, at FROM fields WHERE key='mr-url'").get()).toEqual({ produced_by: "ship", at: 10 });
     expect(fieldGet(db, "nope")).toMatchObject({ ok: false, code: 3 });
+    db.close();
+  });
+
+  test("field set with ifSha256 writes when the current value still hashes to it", () => {
+    const db = started();
+    fieldSet(db, "branch", "a", "provision", 10);
+    expect(fieldSet(db, "branch", "b", "provision", 20, { ifSha256: valueSha256("a") })).toEqual({ ok: true });
+    expect(fieldGet(db, "branch")).toEqual({ ok: true, value: "b" });
+    db.close();
+  });
+
+  test("an unset field hashes as the empty string", () => {
+    const db = started();
+    expect(fieldSet(db, "branch", "a", "provision", 10, { ifSha256: valueSha256("") })).toEqual({ ok: true });
+    expect(fieldGet(db, "branch")).toEqual({ ok: true, value: "a" });
+    db.close();
+  });
+
+  test("field set with a stale ifSha256 refuses with code 4 and keeps the value another writer left", () => {
+    const db = started();
+    fieldSet(db, "branch", "peer", "provision", 10);
+    const r = fieldSet(db, "branch", "mine", "provision", 20, { ifSha256: valueSha256("") });
+    expect(r).toMatchObject({ ok: false, code: 4 });
+    expect(isFieldChanged((r as { error: string }).error)).toBe(true);
+    expect((r as { error: string }).error).toContain("branch");
+    expect(fieldGet(db, "branch")).toEqual({ ok: true, value: "peer" });
     db.close();
   });
 

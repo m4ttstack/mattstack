@@ -283,6 +283,13 @@ describe("registry cross-check", () => {
     expect(refusal(s)).toMatch(/T1.*text/);
   });
 
+  test("an empty answer text matches a decision with no text, as gate_record records it", () => {
+    const s = happy();
+    s.gates.post = row("g-post", POST_T1, { "thread-1": { value: ["post:T1"], text: "" }, next: "proceed" }, POST_OPENED);
+    setDecision(s, "respond-post", { threads: { T1: { post: true, resolve: false } } }, POST_DECIDED);
+    expect(accepted(s).actions[0]).toMatchObject({ threadId: "T1", post: true, resolve: false });
+  });
+
   test("a plan answer of reply:T2 against a decision of skip refuses", () => {
     const s = happy();
     setDecision(s, "respond-plan", { threads: { T1: "fix", T2: "skip" }, "code-changes": "approve" }, PLAN_DECIDED);

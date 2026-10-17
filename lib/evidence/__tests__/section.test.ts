@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
-import { appendixProblem, type FileLink, renderSection, spliceSection } from "../section.ts";
+import { appendixProblem, type FileLink, namesHome, renderSection, spliceSection } from "../section.ts";
 
 const up = (p: string): FileLink => {
   const name = p.split("/").pop()!.replace(/\.[a-z]+$/, "");
@@ -40,9 +40,11 @@ describe("renderSection", () => {
     expect(out).not.toContain("  Waived:");
   });
 
-  test("a local link prints the bare path", () => {
-    const r = rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", annotated: "/abs/b.png" } }] });
-    expect(renderSection(r, (p) => ({ local: p }), {})).toContain("- Before: /abs/b.png");
+  test("a local link prints the file name as attached separately, never its path", () => {
+    const r = rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", annotated: "/Users/someone/.mattstack/work/r1/evidence/c/b.png" } }] });
+    const out = renderSection(r, (p) => ({ local: p }), {});
+    expect(out).toContain("- Before: b.png (attached separately)");
+    expect(out).not.toContain("/Users/someone");
   });
 
   test("trailing lines come in order and covered attach lines drop", () => {
@@ -54,9 +56,24 @@ describe("renderSection", () => {
     });
     const out = renderSection(r, up, { coveredUrls: new Set(["/uploads/h/b-annotated.png"]), appendix: "<details>\nA\n</details>" });
     const tail = out.slice(out.indexOf("Transcript:"));
-    expect(tail).toBe("Transcript: /t.txt\n\nTicket: https://t\n\n![y](/uploads/h/other.png)\n\n<details>\nA\n</details>");
+    expect(tail).toBe("Transcript: t.txt (kept locally)\n\nTicket: https://t\n\n![y](/uploads/h/other.png)\n\n<details>\nA\n</details>");
     expect(out).not.toContain("![x]");
     expect(out).not.toContain("![z]");
+  });
+
+  test("an attach line names a local file without its path and keeps GitLab upload links", () => {
+    const attach = "see /Users/someone/.mattstack/work/r1/evidence/c/log.txt for the run\n![y](/uploads/h/other.png)\n![w](/-/project/9/uploads/h/w.png)";
+    const out = renderSection(rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", waiver: "w" } }], attach }), up, {});
+    expect(out).toContain("see log.txt (attached separately) for the run");
+    expect(out).toContain("![y](/uploads/h/other.png)");
+    expect(out).toContain("![w](/-/project/9/uploads/h/w.png)");
+    expect(out).not.toContain("/Users/someone");
+  });
+
+  test("the transcript line names its file as kept locally, never its path", () => {
+    const out = renderSection(rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", waiver: "w" } }], transcript: "/Users/someone/.mattstack/work/r1/evidence/transcript.md" }), up, {});
+    expect(out).toContain("Transcript: transcript.md (kept locally)");
+    expect(out).not.toContain("/Users/someone");
   });
 
   test("multi-line captions, waivers and labels stay on one line", () => {
@@ -71,7 +88,7 @@ describe("renderSection", () => {
 
   test("legacy links form a tight list", () => {
     const out = renderSection(readEvidence("see /a.png and https://x.example/y"), (p) => ({ local: p }), {});
-    expect(out).toBe("- /a.png\n- https://x.example/y");
+    expect(out).toBe("- a.png (attached separately)\n- https://x.example/y");
   });
 
   test("an empty record renders nothing", () => {
@@ -178,6 +195,18 @@ describe("spliceSection", () => {
     }
     const section = renderSection(rec({ v: 2, cases: [{ id: "a", label: "A", before: { path: "/a.png", waiver: "w" } }], attach: "## Old" }), (p) => ({ local: p }), {});
     expect(section).toContain("\\## Old");
+  });
+});
+
+describe("namesHome", () => {
+  test("finds the home directory or its realpath anywhere in the text", () => {
+    const homes = ["/Users/someone", "/private/var/someone"];
+    expect(namesHome("Caption: see /Users/someone/shot.png", homes)).toBe(true);
+    expect(namesHome("Waived: /private/var/someone/x", homes)).toBe(true);
+    expect(namesHome("Caption: /api/foo and /Users/other/x", homes)).toBe(false);
+  });
+  test("an empty home names nothing", () => {
+    expect(namesHome("anything", ["", "/"])).toBe(false);
   });
 });
 

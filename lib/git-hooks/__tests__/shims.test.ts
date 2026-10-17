@@ -4,6 +4,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { generateShims } from "../shims.ts";
 
+/** Each test spawns git and two bash processes, which a loaded CI runner stretches past bun's 5s default; a hung rt is still caught, since the shim's own watchdog ends it at timeoutSecs. */
+const SPAWN_TIMEOUT_MS = 20_000;
+
 describe("git hook shims", () => {
   let dir: string;
   let dataDir: string;
@@ -38,44 +41,44 @@ describe("git hook shims", () => {
     expect(res.code).toBe(0);
     expect(res.stderr).toContain("rt: pre-push skipped (turned off with rt hooks)");
     expect(existsSync(marker)).toBe(false);
-  });
+  }, SPAWN_TIMEOUT_MS);
 
   test("rt answers on: the real hook runs and gets the hook's stdin", () => {
     generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("cat >/dev/null; echo on")] });
     expect(runShim("pre-push", "refs/heads/main abc\n").code).toBe(0);
     expect(readFileSync(marker, "utf8")).toBe("refs/heads/main abc\n");
-  });
+  }, SPAWN_TIMEOUT_MS);
 
   test("rt fails: the real hook runs", () => {
     generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("echo off >&2; exit 2")] });
     runShim("pre-push");
     expect(existsSync(marker)).toBe(true);
-  });
+  }, SPAWN_TIMEOUT_MS);
 
   test("rt is missing: the real hook runs", () => {
     generateShims(dataDir, ["pre-push"], { rtArgv: [join(dir, "no-such-rt")] });
     runShim("pre-push");
     expect(existsSync(marker)).toBe(true);
-  });
+  }, SPAWN_TIMEOUT_MS);
 
   test("rt is too slow: the real hook runs once the timeout passes", () => {
     generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("sleep 5; echo off")], timeoutSecs: 1 });
     const res = runShim("pre-push");
     expect(existsSync(marker)).toBe(true);
     expect(res.ms).toBeLessThan(4000);
-  });
+  }, SPAWN_TIMEOUT_MS);
 
   test("a child rt leaves holding stdout does not keep the shim waiting", () => {
     generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("sleep 8 & echo off")], timeoutSecs: 10 });
     const res = runShim("pre-push");
     expect(res.stderr).toContain("skipped");
     expect(res.ms).toBeLessThan(4000);
-  }, 20000);
+  }, SPAWN_TIMEOUT_MS);
 
   test("an rt path with spaces and a quote still reaches rt", () => {
     generateShims(dataDir, ["pre-push"], { rtArgv: [fakeRt("echo off", join(dir, "it's here", "rt"))] });
     expect(runShim("pre-push").stderr).toContain("skipped");
-  });
+  }, SPAWN_TIMEOUT_MS);
 
   test("a shim reads no file of rt's, and pre-commit keeps the on-deck guard", () => {
     generateShims(dataDir, [], { rtArgv: ["/x/rt"] });

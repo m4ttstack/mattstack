@@ -44,6 +44,7 @@ export interface RestMrRow {
   author?: { username?: string } | null;
   web_url?: string | null;
   detailed_merge_status?: string | null;
+  merged_at?: string | null;
 }
 
 export function targetSummary(row: RestMrRow): MrTargetSummary {
@@ -57,6 +58,7 @@ export function targetSummary(row: RestMrRow): MrTargetSummary {
     author: row.author?.username ?? null,
     webUrl: row.web_url ?? null,
     detailedMergeStatus: row.detailed_merge_status ?? null,
+    mergedAt: row.merged_at ?? null,
   };
 }
 

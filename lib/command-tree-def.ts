@@ -526,7 +526,7 @@ const runsSubcommands: Record<string, CommandNode> = {
     ],
   },
   field: {
-    description: "Pipeline: field set KEY VALUE --stage NAME | field get KEY (reads RT_RUN_DB)",
+    description: "Pipeline: field set KEY VALUE --stage NAME [--if-sha256 HEX] | field get KEY (reads RT_RUN_DB)",
     module: "./commands/runs-write.ts",
     fn: "runsField",
     omitBehavior: { exempt: "agent-facing; the work engine names the verb and key explicitly and RT_RUN_DB is its context" },
