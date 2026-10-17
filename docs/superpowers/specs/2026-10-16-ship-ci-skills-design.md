@@ -216,6 +216,7 @@ says "the stage has no prior pipeline id".
 | B21 | ship and stage-ship run the upload loop when the record has files, and (through the evidence-record bridge) the attach at every `Files to attach?` | the attach runs after `Record the evidence` or when the evidence read returned a record, and is skipped when the field is unset; in ship, evidence alone no longer sends the flow to `Write the title and description (ship)`, so an existing MR left as found gets only the evidence section the include writes | `evidence_attach` has nothing to render without a record; the include owns the section (phase 2) |
 | B22 | stage-ship goes on after a human push without checking it landed | "Make the recorded move once" compares HEAD with the remote branch; a miss reopens the push gate once, quoting the comparison (`ship:landing-checks`, 1, as ship), then fails the stage | a stale head never gets a description or a watch (new behavior, shepherd #6140) |
 | B23 | stage-ship's pushes carry no lease guard | the stage reads `mr` at entry; when it is set (a repair push after a red CI), both pushes pass `leaseMrUrl: <mr>`, and `refused: "lease_held"` goes to the stand-down STOP naming the holder: no release, the stage ends | a repair push never races the doctor (new behavior, shepherd #6140) |
+| B24 | watch-ci started the next attempt after a fix push (its own `git_push`, or a confirmed human push) with `run_stage {action: start}`, which only works while `run_stage` start supersedes a running attempt | `run_resolve {stage: watch-ci, next: iterate, attempt: <n>, note: "fix pushed: <sha12>", decidedBy}`: the same redirected end and attempt n+1 in one transaction, and a refusal fails the run quoting it; an inherited run still writes nothing | followups-3 (C1); unblocks flipping `onRunning` back to refuse |
 
 ## Design
 
@@ -540,6 +541,17 @@ here at the end of execution:
 | stage-ship EV2 | 12 (evidence write 1, mr_upload 4, hand link 2, old gate 5) | 0 (r3) | refusal at the old mr_upload gate 5/5; Take sends linkRefused 5/5 in GREEN |
 | stage-ship B22 | not run (GREEN only) | 1 (4/5 in order) | landing compared after each Take, never pushed; budget spent 1 then 2; one reopened gate quoting the comparison, then `run_stage fail`. Rep 1 charges `ship:landing-checks` before the comparison instead of after the miss, a deviation: on a push that did land it would spend the allowance. Same counts and outcome here, since the scene never lands |
 | stage-ship B23 | not run (GREEN only) | 0 (5/5) | `mr` read at entry; push with `leaseMrUrl`; stood down naming the doctor; no release, gate or `run_stage` |
+
+Followups-3 rows (C1, B24; scenarios, harness and per-rep notes in
+`plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-3/`, RED the text at `351aa4cd8`, GREEN the working tree, 5 reps
+each). The scenes script `run_stage` start as refused on a running stage,
+as it will be once `onRunning` flips back:
+
+| scenario | RED | GREEN | notes |
+|---|---|---|---|
+| watch-ci W1 own run, fix pushed with `git_push` | 0/5: `run_stage start` refused, carried on in attempt 1 | 5/5: `run_resolve {next: iterate, attempt: 1}` | |
+| watch-ci W2 own run, the human pushed (off-script Take) | 0/5: `run_stage start` after the landing check | 5/5: the same `run_resolve` | |
+| watch-ci W3 inherited run, fix pushed | 5/5 | 5/5 | regression guard: no run write on ship's run |
 
 ## Left to the builder
 
