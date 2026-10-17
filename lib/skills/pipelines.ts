@@ -5,6 +5,13 @@ export type PipelineValue = string[] | { stages?: string[]; bindings?: BindingsM
 /** A pipeline's name becomes a copy directory and a `{{verb.path}}` segment, so it carries the skill-name rule. */
 export const PIPELINE_NAME_RE = /^[a-z][a-z0-9-]*$/;
 
+/** A copy is named `<stage>--<pipeline>`, so a `--` in the pipeline name could make two copies' names collide. */
+export function pipelineNameError(name: string): string | null {
+  if (!PIPELINE_NAME_RE.test(name)) return `pipeline "${name}" must match [a-z][a-z0-9-]*`;
+  if (name.includes("--")) return `pipeline "${name}" must not contain "--"`;
+  return null;
+}
+
 // Manifest keys are untrusted: a "__proto__" key read off a plain object would return Object.prototype.
 function own<T>(map: Record<string, T> | undefined, key: string): T | undefined {
   return map && Object.hasOwn(map, key) ? map[key] : undefined;

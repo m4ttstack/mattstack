@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { FragmentError, mergeLayers, parseFragment, readManifestDropped, readManifestProvenance, readManifestZone, renderManifest } from "../manifest-merge.ts";
 
 const defaults = { label: "default", fragment: { bindings: { "mattstack:stage-gates": { domain: "mattstack:generic-gates" } }, pipelines: { feature: ["stage-plan", "stage-gates"] } } };
@@ -97,8 +99,16 @@ describe("mergeLayers", () => {
       { label: "pack", fragment: { pipelines: { a: { stages: ["s2"] } } } },
     ]);
     expect(merged.pipelineBindings.a?.["mattstack:stage-gates"]).toBeUndefined();
-    expect(merged.dropped).toEqual([{ key: "a/mattstack:stage-gates slot", layer: "base:acme-base" }]);
+    expect(merged.dropped).toEqual([{ key: "a/mattstack:stage-gates slot", layer: "base:acme-base", reason: "removed" }]);
     expect(merged.provenance["a/mattstack:stage-gates slot"]).toBeUndefined();
+  });
+
+  test("override for a stage no layer's list for that pipeline ever had", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { pipelines: { a: { stages: ["s2"] }, b: { stages: ["mattstack:stage-gates"] } } } },
+      { label: "pack", fragment: { pipelines: { a: { bindings: { "mattstack:stage-gtaes": { slot: "acme:x" } } } } } },
+    ]);
+    expect(merged.dropped).toEqual([{ key: "a/mattstack:stage-gtaes slot", layer: "pack", reason: "unlisted" }]);
   });
 
   test("override for a stage missing from its own layer's list", () => {
@@ -152,6 +162,14 @@ describe("parseFragment", () => {
     const text = '{"pipelines":{"Access_ibility":{"stages":["s"],"bindings":{"s":{"x":"acme:y"}}}}}';
     expect(() => parseFragment(text, "/f.jsonc")).toThrow(FragmentError);
     expect(() => parseFragment(text, "/f.jsonc")).toThrow('fragment pipeline "Access_ibility" must match [a-z][a-z0-9-]*: /f.jsonc');
+  });
+  test("-- in an override-carrying pipeline is refused", () => {
+    const text = '{"pipelines":{"a--b":{"stages":["s"],"bindings":{"s":{"x":"acme:y"}}}}}';
+    expect(() => parseFragment(text, "/f.jsonc")).toThrow(FragmentError);
+    expect(() => parseFragment(text, "/f.jsonc")).toThrow('fragment pipeline "a--b" must not contain "--": /f.jsonc');
+  });
+  test("plain-list pipeline with -- still parses", () => {
+    expect(parseFragment('{"pipelines":{"a--b":["s"]}}', "/f.jsonc").pipelines).toEqual({ "a--b": ["s"] });
   });
   test("a plain-list pipeline is never name-checked", () => {
     expect(parseFragment('{"pipelines":{"Feature":["s"]}}', "/f.jsonc").pipelines).toEqual({ Feature: ["s"] });
@@ -222,5 +240,55 @@ describe("renderManifest with pipeline overrides", () => {
   test("readManifestDropped is empty without dropped lines and never reads past the header", () => {
     expect(readManifestDropped(PINNED_PLAIN_RENDER)).toEqual([]);
     expect(readManifestDropped('{ "note": "x" }\n// dropped: a/r s <- pack\n')).toEqual([]);
+  });
+});
+
+type Schema = Record<string, any>;
+
+/** Just enough draft-07 to check a manifest against skills-manifest.schema.json; the repo carries no JSON Schema validator. */
+function validates(root: Schema, schema: Schema, value: unknown): boolean {
+  if (schema.$ref) return validates(root, root.definitions[schema.$ref.replace("#/definitions/", "")], value);
+  if (schema.const !== undefined && value !== schema.const) return false;
+  if (schema.anyOf && !schema.anyOf.some((s: Schema) => validates(root, s, value))) return false;
+  if (schema.oneOf && schema.oneOf.filter((s: Schema) => validates(root, s, value)).length !== 1) return false;
+  if (schema.type === "string" && typeof value !== "string") return false;
+  if (schema.type === "boolean" && typeof value !== "boolean") return false;
+  if (schema.pattern && !(typeof value === "string" && new RegExp(schema.pattern).test(value))) return false;
+  if (schema.type === "array") {
+    if (!Array.isArray(value)) return false;
+    if (schema.minItems !== undefined && value.length < schema.minItems) return false;
+    if (schema.items && !value.every((v) => validates(root, schema.items, v))) return false;
+  }
+  if (schema.type === "object") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const obj = value as Record<string, unknown>;
+    if ((schema.required ?? []).some((k: string) => !(k in obj))) return false;
+    for (const [key, v] of Object.entries(obj)) {
+      if (schema.propertyNames && !validates(root, schema.propertyNames, key)) return false;
+      const own = schema.properties?.[key];
+      if (own) {
+        if (!validates(root, own, v)) return false;
+      } else if (schema.additionalProperties === false) {
+        return false;
+      } else if (schema.additionalProperties && !validates(root, schema.additionalProperties, v)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+describe("skills-manifest.schema.json", () => {
+  const schema = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "..", "plugins", "mattstack", "plugin", "schemas", "skills-manifest.schema.json"), "utf8"));
+  const accepts = (doc: object) => validates(schema, schema, { version: 1, ...doc });
+
+  test("schema accepts empty pipeline binding", () => {
+    expect(accepts({ pipelines: { a: { stages: ["mattstack:stage-plan"], bindings: { "mattstack:stage-plan": { x: "acme:y" } } } } })).toBe(true);
+    expect(accepts({ pipelines: { a: { stages: ["mattstack:stage-plan"], bindings: { "mattstack:stage-plan": { x: "" } } } } })).toBe(true);
+  });
+
+  test("an empty top-level binding still fails the schema", () => {
+    expect(accepts({ bindings: { "mattstack:stage-plan": { x: "acme:y" } } })).toBe(true);
+    expect(accepts({ bindings: { "mattstack:stage-plan": { x: "" } } })).toBe(false);
   });
 });

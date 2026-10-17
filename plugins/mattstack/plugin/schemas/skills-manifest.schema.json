@@ -51,7 +51,7 @@
                 "items": { "$ref": "#/definitions/skillName" },
                 "minItems": 1
               },
-              "bindings": { "$ref": "#/definitions/bindings" }
+              "bindings": { "$ref": "#/definitions/pipelineBindings" }
             }
           }
         ]
@@ -71,6 +71,19 @@
         "description": "Slot name -> inner skill name, for one wrapper skill."
       },
       "description": "Wrapper skill name -> slot bindings. The only section resolve-args.sh reads."
+    },
+    "pipelineBindings": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$" },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+        "additionalProperties": {
+          "anyOf": [{ "$ref": "#/definitions/skillName" }, { "const": "" }]
+        },
+        "description": "Slot name -> inner skill name, or \"\" to unbind a slot the top-level bindings fill, for this pipeline only."
+      },
+      "description": "Stage skill name -> slot overrides for one pipeline; each slot replaces the top-level binding for that pipeline."
     },
     "skillName": {
       "type": "string",

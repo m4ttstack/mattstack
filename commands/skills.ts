@@ -68,7 +68,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
-import { defaultPipeline, effectiveSlotBindings, PIPELINE_NAME_RE, pipelineBindingKey, type BindingsMap } from "../lib/skills/pipelines.ts";
+import { defaultPipeline, effectiveSlotBindings, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -944,7 +944,8 @@ type VerbPipeline = { pipeline: string; error: null } | { pipeline: null; error:
 
 function verbPipeline(verb: VerbDef, pipelines: Record<string, string[]>): VerbPipeline {
   if (verb.pipeline !== undefined) {
-    if (!PIPELINE_NAME_RE.test(verb.pipeline)) return { pipeline: null, error: `pipeline "${verb.pipeline}" must match [a-z][a-z0-9-]*` };
+    const nameError = pipelineNameError(verb.pipeline);
+    if (nameError) return { pipeline: null, error: nameError };
     if (!Object.hasOwn(pipelines, verb.pipeline)) {
       return { pipeline: null, error: `verb "${verb.name}" runs pipeline "${verb.pipeline}", which the manifest does not declare` };
     }
@@ -3524,9 +3525,8 @@ export async function skillsBind(args: string[]): Promise<void> {
     if (pipeline !== null && !Object.hasOwn(resolved.pipelines, pipeline)) {
       throw new SkillsUsageError(`pipeline "${pipeline}" is not declared in this pack's manifest`);
     }
-    if (pipeline !== null && !PIPELINE_NAME_RE.test(pipeline)) {
-      throw new SkillsUsageError(`pipeline "${pipeline}" must match [a-z][a-z0-9-]*`);
-    }
+    const pipelineProblem = pipeline === null ? null : pipelineNameError(pipeline);
+    if (pipelineProblem) throw new SkillsUsageError(pipelineProblem);
 
     // Roster verb wins on a name collision -- resolve() lets compileTargets reject
     // that collision pack-wide, so bind's own tie-break only ever matters for --dry-run.

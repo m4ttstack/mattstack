@@ -1,4 +1,4 @@
-import { normalizePipelines, PIPELINE_NAME_RE, pipelineBindingKey, type BindingsMap, type PipelineValue } from "./pipelines.ts";
+import { normalizePipelines, pipelineBindingKey, pipelineNameError, type BindingsMap, type PipelineValue } from "./pipelines.ts";
 import { stripJsonc } from "./sources.ts";
 
 export type Fragment = {
@@ -15,14 +15,17 @@ export type Layer = { label: string; fragment: Fragment };
 
 export type DroppedOverride = { key: string; layer: string };
 
+/** "removed": some layer's list for that pipeline had the stage and a higher one took it out. "unlisted": no layer's list ever had it. */
+export type MergedDroppedOverride = DroppedOverride & { reason: "removed" | "unlisted" };
+
 export type MergedManifest = {
   enabled: string[];
   pipelines: Record<string, string[]>;
   bindings: BindingsMap;
   /** Per-pipeline slot overrides, keyed pipeline -> engine ref -> slot; only pipelines that carry any appear. */
   pipelineBindings: Record<string, BindingsMap>;
-  /** Overrides a higher layer's stage list left without a stage to apply to. */
-  dropped: DroppedOverride[];
+  /** Overrides the final stage list leaves without a stage to apply to. */
+  dropped: MergedDroppedOverride[];
   provenance: Record<string, string>;
 };
 
@@ -57,7 +60,7 @@ function pipelineShapeError(type: string, value: unknown): string | null {
   if (value.bindings === undefined) return null;
   const problem = bindingsShapeError(value.bindings, `pipelines.${type}.bindings`);
   if (problem) return problem;
-  return PIPELINE_NAME_RE.test(type) ? null : `pipeline "${type}" must match [a-z][a-z0-9-]*`;
+  return pipelineNameError(type);
 }
 
 function shapeError(doc: Record<string, unknown>): string | null {
@@ -98,6 +101,7 @@ export function mergeLayers(layers: Layer[]): MergedManifest {
   const out: MergedManifest = { enabled: [], pipelines: Object.create(null), bindings: Object.create(null), pipelineBindings: Object.create(null), dropped: [], provenance: Object.create(null) };
   // The engine refs the layer that last set a pipeline's stages also overrode in that same fragment.
   const stagesLayerRefs: Record<string, Set<string>> = Object.create(null);
+  const everListed: Record<string, Set<string>> = Object.create(null);
   for (const { label, fragment } of layers) {
     for (const name of fragment.skills?.enabled ?? []) {
       if (!out.enabled.includes(name)) out.enabled.push(name);
@@ -107,6 +111,8 @@ export function mergeLayers(layers: Layer[]): MergedManifest {
       out.pipelines[type] = list;
       out.provenance[`pipeline ${type}`] = label;
       stagesLayerRefs[type] = new Set(Object.keys(bindings[type] ?? {}));
+      const listed = (everListed[type] ??= new Set());
+      for (const stage of list) listed.add(stage);
     }
     for (const [type, refs] of Object.entries(bindings)) {
       for (const [engineRef, slots] of Object.entries(refs)) {
@@ -124,11 +130,11 @@ export function mergeLayers(layers: Layer[]): MergedManifest {
       }
     }
   }
-  settlePipelineBindings(out, stagesLayerRefs);
+  settlePipelineBindings(out, stagesLayerRefs, everListed);
   return out;
 }
 
-function settlePipelineBindings(out: MergedManifest, stagesLayerRefs: Record<string, Set<string>>): void {
+function settlePipelineBindings(out: MergedManifest, stagesLayerRefs: Record<string, Set<string>>, everListed: Record<string, Set<string>>): void {
   for (const type of Object.keys(out.pipelineBindings)) {
     const stages = out.pipelines[type];
     if (!stages) throw new FragmentError(`pipeline "${type}" has bindings but no layer gives it stages`);
@@ -136,9 +142,10 @@ function settlePipelineBindings(out: MergedManifest, stagesLayerRefs: Record<str
     for (const engineRef of Object.keys(refs)) {
       if (stages.includes(engineRef)) continue;
       if (stagesLayerRefs[type]!.has(engineRef)) throw new FragmentError(`pipeline "${type}" binds ${engineRef} but does not list it`);
+      const reason = everListed[type]!.has(engineRef) ? "removed" : "unlisted";
       for (const slot of Object.keys(refs[engineRef]!)) {
         const key = pipelineBindingKey(type, engineRef, slot);
-        out.dropped.push({ key, layer: out.provenance[key]! });
+        out.dropped.push({ key, layer: out.provenance[key]!, reason });
         delete out.provenance[key];
       }
       delete refs[engineRef];
