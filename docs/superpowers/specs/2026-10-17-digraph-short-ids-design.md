@@ -461,7 +461,7 @@ plugin's CI), while team packs keep both forms legal.
 
 **Verdict.** Every converted skill tested scored 0 behavior deviations on
 both sides, in all six lanes. Source words fall 19.0% across the 25
-measured files and compiled tokens fall 13.4% across the five tested verbs,
+measured files and compiled tokens fall 13.5% across the five tested verbs,
 and every check is green. One secondary signal: agents on short ids name a
 STOP node a little less often, but not significantly (pooled p 0.25).
 
@@ -481,8 +481,11 @@ Stop-named cells read RED, GREEN.
 
 Strict STOP named is n/a where the lane did not score it: watch-ci and
 stage-provision used the prototype's single stop column, and no
-receive-review expected path passes a STOP node. Deviations for shepherdr
-are on the final-call reading; the retracted call is covered below.
+receive-review or gate-protocol expected path passes a STOP node (the
+gate-protocol paths end at `plan_done` or `end_turn_holding`). Deviations for shepherdr
+are on the final-call reading; the retracted call is covered below. Under a
+strict reading of gate-protocol S3's "records the tier" (`run_decision`),
+both sides miss it in every rep, so the result is 5 vs 5, still equal.
 
 #### STOP naming
 
@@ -496,8 +499,8 @@ temptations no rep takes, so nothing prompts a rep to name them.
 
 What reps wrote at the STOP instead, across the 60 scored slots of
 `stop-naming.md` (30 per side). Ten rows there record only "none"; I read
-those sections in the blind transcripts (Task 9b scratch,
-`m/t9b/blind/`) to place them.
+those sections in the blind transcripts (session scratch, not
+committed) to place them.
 
 | What the rep wrote | RED | GREEN |
 |---|---|---|
@@ -573,7 +576,7 @@ less the empty baseline; RED is 8dd1f8efa, GREEN this branch):
 | ship | 30,396 | 26,076 | 4,320 (14.2%) |
 | stage-provision | 13,729 | 12,003 | 1,726 (12.5%) |
 | watch-ci | 29,016 | 23,938 | 5,078 (17.5%) |
-| **Total** | **121,648** | **105,260** | **16,388 (13.4%)** |
+| **Total** | **121,648** | **105,260** | **16,388 (13.5%)** |
 
 The token saving is smaller than the word saving because each compiled
 file also carries engine text that has no graph.
@@ -620,7 +623,7 @@ exited 0.
 
 #### Rulings made during the migration
 
-From the migration ledger (`.superpowers/sdd/2026-10-17-digraph-short-ids-migration/progress.md`):
+From the migration ledger (session scratch, not committed):
 
 - Files that concurrent PRs edited were converted after those PRs merged,
   by rebasing onto main and reconverting each from its slug map (#862,
