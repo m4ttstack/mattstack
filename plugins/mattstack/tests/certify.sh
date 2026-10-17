@@ -148,11 +148,16 @@ fi
 # structure check (conventions: plugin/skills/process-digraphs/SKILL.md).
 if grep -qE '^[[:space:]]*```dot[[:space:]]*$' "$DIR/SKILL.md"; then
   DG="$HERE/../plugin/skills/process-digraphs"
+  # Plugin graphs require short ids; a team pack's may use either form.
+  PLUGIN_ROOT=$(CDPATH= cd -- "$HERE/.." && pwd -P)
+  SKILL_DIR=$(CDPATH= cd -- "$DIR" && pwd -P)
+  SHORT_IDS=
+  case "$SKILL_DIR/" in "$PLUGIN_ROOT"/*) SHORT_IDS=--short-ids ;; esac
   if ! command -v dot >/dev/null 2>&1; then
     fail digraphs "graphviz dot is not installed (brew install graphviz)"
   elif ! OUT=$(bash "$DG/render.sh" "$DIR/SKILL.md" 2>&1); then
     fail digraph-render "$(printf '%s' "$OUT" | grep -E 'FAIL|Warning|Error' | head -5)"
-  elif ! OUT=$(python3 "$DG/check-dot.py" "$DIR/SKILL.md" 2>&1); then
+  elif ! OUT=$(python3 "$DG/check-dot.py" $SHORT_IDS "$DIR/SKILL.md" 2>&1); then
     fail digraph-structure "$(printf '%s' "$OUT" | grep -v 'graph(s) checked' | head -8)"
   else ok digraphs
   fi

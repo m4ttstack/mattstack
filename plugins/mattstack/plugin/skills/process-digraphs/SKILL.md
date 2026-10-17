@@ -43,6 +43,11 @@ Every node is a short id and its text:
   STOP's id starts with `stop_` (`stop_shell_push`).
 - **Declare each node once, in the order the process meets it**, every one
   with a label, then write the edges with ids only.
+- **Plugin graphs use short ids.** Certify and plugin CI run
+  `check-dot.py --short-ids` on every graph in the mattstack plugin, and a
+  graph without them fails with `graph uses sentence ids; give every node a
+  short id with its sentence as label`. A team pack's graphs may use either
+  form, one form per graph.
 
 The shape carries the meaning:
 

@@ -292,6 +292,7 @@ RED/GREEN with the approved tool-less recipe (`claude --model sonnet --tools
    above; B keeps short questions in edges for 1-2 points less saving.
 2. Whether the plugin should eventually require short ids (migration step 5),
    or keep both forms allowed indefinitely.
+   Decided: migrate all plugin graphs, then require (gate 0cf47cb8).
 
 ## My calls (a builder could settle these)
 

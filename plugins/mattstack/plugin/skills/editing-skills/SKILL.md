@@ -233,7 +233,9 @@ Follow superpowers:writing-skills (TDD for docs: baseline a fresh agent
 before writing, verify after). For a process skill (a trigger, steps, an
 end) also follow mattstack:process-digraphs: the skill carries a digraph map
 with one section per judgment step, and certify renders and structure-checks
-it. For parameterized wrapper skills also read
+it. A mattstack plugin skill's graph uses short ids, which certify requires;
+a team pack's may use either form (mattstack:process-digraphs, Node
+vocabulary). For parameterized wrapper skills also read
 `${CLAUDE_SKILL_DIR}/../../../attachments/parameterized-skills/SKILL.md`.
 
 ### Edit or create SKILL.md in the source path
