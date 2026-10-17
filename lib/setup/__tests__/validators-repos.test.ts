@@ -68,6 +68,14 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     expect(rows.every((r) => !r.finishGated)).toBe(true);
   });
 
+  test("a checkout in the only repo folder still gets a clone location of its own", async () => {
+    const widgets = join(home, "Documents", "GitHub", "widgets");
+    gitRepo(widgets, { origin: "https://gitlab.com/acme/widgets.git" });
+    const r = byId(await repoPlacementRows(realFsProbes(home), TEAM, snapshot([WIDGETS])), WIDGETS);
+
+    expect(action(r)).toMatchObject({ mode: "checkout", checkoutPath: widgets, clonePath: join(home, "Documents", "GitHub", "widgets-2") });
+  });
+
   test("a recorded checkout that moved since shows the problem and offers Locate again", async () => {
     const p = realFsProbes(home);
     mkdirSync(join(home, "old", "widgets"), { recursive: true });
@@ -157,7 +165,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     const p = realFsProbes(home);
     markDeferred(p, ACME_API);
     writePlacement(p, ACME_API, { mode: "clone", path: join(home, "work", "acme-api") });
-    recordCloneFailure(p, ACME_API, "fatal: repository not found (git exited 128)");
+    recordCloneFailure(p, ACME_API, "The last clone failed: fatal: repository not found (git exited 128)");
     const r = byId(await repoPlacementRows(p, TEAM, snapshot([ACME_API])), ACME_API);
 
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, detail: "The last clone failed: fatal: repository not found (git exited 128)" });

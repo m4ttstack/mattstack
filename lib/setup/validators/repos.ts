@@ -62,14 +62,18 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
   const then = installed ? ["setup", "apply", "--only", "repos.clone"] : null;
   const taken = (identity: string) => takenFor(resolved, tracked, identity);
 
-  /** A checkout row's other segment: the first folder rt would clone into that is free and is not the checkout itself, else the default (which the verb then refuses). */
+  /** A checkout row's other segment: the first folder rt would clone into that is free and is not the checkout itself, else the default's name with the first free `-<n>` suffix. */
   function cloneAlternative(identity: string, checkoutPath: string): string {
+    const free = (path: string) => path !== checkoutPath && checkCloneTarget(p, path, taken(identity)).ok;
     const parents = [...placedParents, ...rootPaths, detectCandidate(p), join(p.home, "Documents/GitHub")].filter((parent): parent is string => parent !== null);
     for (const parent of new Set(parents)) {
       const path = join(parent, repoBasename(identity));
-      if (path !== checkoutPath && checkCloneTarget(p, path, taken(identity)).ok) return path;
+      if (free(path)) return path;
     }
-    return defaultClonePath(p, identity, { rootPaths, placedParents });
+    const fallback = defaultClonePath(p, identity, { rootPaths, placedParents });
+    for (let n = 2; ; n++) {
+      if (free(`${fallback}-${n}`)) return `${fallback}-${n}`;
+    }
   }
 
   async function stateOf(identity: string, placement: ResolvedPlacement): Promise<RowState> {
@@ -89,8 +93,8 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
         if (!target.ok) return { ...gated, note, problem: target.detail };
         return { ...gated, note, oneClick: { label: "Clone here", mode: "clone", path: clonePath } };
       }
-      const reason = failed[identity];
-      if (reason !== undefined) return { ...gated, note: `The last clone failed: ${reason}`, oneClick: { label: "Retry", mode: recorded.mode, path: recorded.path } };
+      const lastFailure = failed[identity];
+      if (lastFailure !== undefined) return { ...gated, note: lastFailure, oneClick: { label: "Retry", mode: recorded.mode, path: recorded.path } };
       const where = tildify(p.home, recorded.path);
       return { ...gated, note: recorded.mode === "clone" ? `rt clones it to ${where} next` : `rt uses your checkout at ${where} next` };
     }

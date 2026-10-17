@@ -1453,6 +1453,8 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1. Failed: acme-dev" });
     expect(logs.some((l) => l.line.includes("could not be moved"))).toBe(true);
+    // The row shows a plain sentence; the command to run stays in the log.
+    expect(readPlacements(p).failed).toEqual({ "gitlab.com/acme/acme-dev": "rt couldn't use that location: ~/code/acme-dev is in place, but rt could not record it there." });
   });
 
   test("repos.clone: a move the daemon did not answer logs the command that checks on it before the locate", async () => {
@@ -1617,6 +1619,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(p.calls.removed).toEqual([]);
     expect(p.readFile(join(dest, "theirs.txt"))).toBe("someone else's");
     expect(logs.some((l) => l.line.includes("appeared"))).toBe(true);
+    expect(readPlacements(p).failed).toEqual({ "gitlab.com/acme/acme-dev": "rt couldn't use that location: ~/code/acme-dev appeared while rt was setting it up, so rt left it alone." });
   });
 
   test("repos.clone: zero identities to clone -> skipped, never a hard failure", async () => {
@@ -1686,7 +1689,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx } = makeCtx(p, { snapshot: ACME_API });
 
     expect((await reposCloneStep.run(ctx)).state).toBe("partial");
-    expect(readPlacements(p).failed).toEqual({ "gitlab.com/acme/acme-api": "fatal: repository not found (git exited 128)" });
+    expect(readPlacements(p).failed).toEqual({ "gitlab.com/acme/acme-api": "The last clone failed: fatal: repository not found (git exited 128)" });
     expect(readPlacements(p).placements["gitlab.com/acme/acme-api"]).toEqual({ mode: "clone", path: dest });
   });
 
@@ -1768,8 +1771,8 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
   });
 
   test.each([
-    ["a recorded checkout that moved", "checkout", () => mkdirSync(join(home, "old", "acme-api"), { recursive: true }), join("old", "acme-api"), "~/old/acme-api isn't a git checkout."],
-    ["a recorded clone location that filled up", "clone", () => writeFileSync(join(home, "busy", "acme-api", "notes.txt"), "x"), join("busy", "acme-api"), "~/busy/acme-api already exists. Choose an empty or new folder."],
+    ["a recorded checkout that moved", "checkout", () => mkdirSync(join(home, "old", "acme-api"), { recursive: true }), join("old", "acme-api"), "rt couldn't use that location: ~/old/acme-api isn't a git checkout."],
+    ["a recorded clone location that filled up", "clone", () => writeFileSync(join(home, "busy", "acme-api", "notes.txt"), "x"), join("busy", "acme-api"), "rt couldn't use that location: ~/busy/acme-api already exists. Choose an empty or new folder."],
   ] as const)("repos.clone: %s records why, for the row's Retry", async (_label, mode, arrange, rel, reason) => {
     mkdirSync(join(home, rel), { recursive: true });
     arrange();

@@ -233,17 +233,19 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   const failed: string[] = [];
   const waiting: string[] = [];
 
-  /** The reason is kept for the repo's row, which shows it with a Retry. */
-  const fail = (identity: string, reason: string, line = reason): void => {
+  const shown = (text: string) => text.split(`${p.home}/`).join("~/");
+  /** `note` is the whole sentence the repo's row shows beside its Retry, so it names no command; the log keeps the full line. */
+  const fail = (identity: string, note: string, line: string): void => {
     const base = repoBasename(identity);
     failed.push(base);
     ctx.log("repos.clone", `${base}: ${line}`);
-    recordCloneFailure(p, identity, reason);
+    recordCloneFailure(p, identity, shown(note));
   };
+  const unusable = (identity: string, detail: string, line = detail) => fail(identity, `rt couldn't use that location: ${detail}`, line);
   const place = async (identity: string, path: string): Promise<boolean> => {
     const refused = await indexDest(identity, path);
     if (refused !== null) {
-      fail(identity, refused);
+      unusable(identity, `${path} is in place, but rt could not record it there.`, refused);
       return false;
     }
     landed(ctx, identity, path);
@@ -258,7 +260,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
       if (placement.source === "recorded") {
         const check = await checkCheckout(p, identity, placement.path, { tracked });
         if (!check.ok) {
-          fail(identity, check.detail);
+          unusable(identity, check.detail);
           continue;
         }
       } else {
@@ -282,7 +284,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
 
     const target = checkCloneTarget(p, placement.path, takenFor(resolved, tracked, identity));
     if (!target.ok) {
-      fail(identity, target.detail);
+      unusable(identity, target.detail);
       continue;
     }
     const dest = target.path;
@@ -292,7 +294,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
     if (!chosenEmpty) {
       p.mkdirp(dirname(dest));
       if (!p.mkdirExclusive(dest)) {
-        fail(identity, `${dest} appeared while this step was running; left alone, rerun the step to check it`);
+        unusable(identity, `${dest} appeared while rt was setting it up, so rt left it alone.`, `${dest} appeared while this step was running; left alone, rerun the step to check it`);
         continue;
       }
     }
@@ -301,7 +303,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
     const result = await cloneInto(ctx, identity, dest);
     if (result.code !== 0) {
       const reason = cloneFailureReason(result);
-      fail(identity, reason, `clone failed: ${reason}`);
+      fail(identity, `The last clone failed: ${reason}`, `clone failed: ${reason}`);
       if (!chosenEmpty) p.removeDir(dest);
       continue;
     }

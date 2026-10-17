@@ -27,6 +27,7 @@ export interface Placement {
 export interface PlacementsFile {
   placements: Record<string, Placement>;
   deferred: string[];
+  /** The sentence a deferred repo's row shows for its last failed placement. */
   failed: Record<string, string>;
   /** Set when team.join lands: the setup intent that marks a joiner is gone by the time a resumed Install reaches `repos.clone`. */
   joining?: true;
