@@ -20,7 +20,7 @@ import {
   takenFor,
   writePlacement,
 } from "../repo-placement.ts";
-import { gitRepo, realFsProbes } from "./fakes.ts";
+import { fakeProbes, gitRepo, realFsProbes } from "./fakes.ts";
 
 const WIDGETS = "gitlab.com/acme/widgets";
 const ACME_API = "gitlab.com/acme/acme-api";
@@ -221,6 +221,20 @@ describe("the placements file", () => {
     clearDeferred(p, WIDGETS);
     clearCloneFailure(p, ACME_API);
     expect(readPlacements(p)).toEqual({ placements: {}, deferred: [], failed: {} });
+  });
+
+  test("each write lands whole through a rename, and a looser existing file comes out private", () => {
+    const target = placementsPath("/Users/dev1");
+    const p = fakeProbes({ home: "/Users/dev1", files: { [target]: JSON.stringify({ placements: {}, deferred: [ACME_API], failed: {} }) }, modes: { [target]: 0o644 } });
+    markDeferred(p, WIDGETS);
+
+    expect(p.calls.renames).toHaveLength(1);
+    const [from, to] = p.calls.renames[0]!;
+    expect(to).toBe(target);
+    expect(from).not.toBe(target);
+    expect(p.readFile(from)).toBeNull();
+    expect(p.fileMode(target)).toBe(0o600);
+    expect(readPlacements(p).deferred).toEqual([ACME_API, WIDGETS]);
   });
 
   test("a garbled file reads as empty", () => {

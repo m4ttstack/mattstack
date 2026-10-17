@@ -68,8 +68,11 @@ function updatePlacements(p: Probes, change: (file: PlacementsFile) => void): vo
   change(file);
   const target = placementsPath(p.home);
   p.mkdirp(dirname(target));
-  p.writeFile(target, JSON.stringify(file), 0o600);
-  p.chmod(target, 0o600);
+  // A torn read parses as empty, and the next write from it would erase every deferral.
+  const tmp = `${target}.${process.pid}.tmp`;
+  p.writeFile(tmp, JSON.stringify(file), 0o600);
+  p.chmod(tmp, 0o600);
+  p.rename(tmp, target);
 }
 
 /** Leaves `deferred` alone: only `repos.clone` clears a deferral, once the repo lands. */
