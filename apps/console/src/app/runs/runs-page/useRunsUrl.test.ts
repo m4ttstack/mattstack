@@ -13,17 +13,22 @@ describe('runs url', () => {
     expect(parseRunsUrl('')).toEqual({
       filter: 'all',
       repo: null,
+      pipeline: null,
       view: 'lanes',
       day: null,
     });
     expect(parseRunsUrl('?filter=nope&view=grid').filter).toBe('all');
     expect(parseRunsUrl('?day=2026-02-30').day).toBeNull();
+    expect(parseRunsUrl('?pipeline=accessibility').pipeline).toBe(
+      'accessibility'
+    );
   });
 
-  it('round-trips a filter, a repo, the timeline view and its day', () => {
+  it('round-trips a filter, a repo, a pipeline, the timeline view and its day', () => {
     const url = {
       filter: 'waiting',
       repo: 'remote:acme%2Fweb',
+      pipeline: 'accessibility',
       view: 'timeline',
       day: '2026-10-07',
     } as const;
@@ -35,6 +40,7 @@ describe('runs url', () => {
       formatRunsUrl('?x=1&filter=live', {
         filter: 'all',
         repo: null,
+        pipeline: null,
         view: 'lanes',
         day: null,
       })

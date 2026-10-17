@@ -6,7 +6,7 @@ import type { StageEntry } from "../types";
 import { PIPELINES_REL, parsePipelinesManifest, pipelinesWrite, renderPipelinesManifest } from "../pipeline-manifest";
 
 const entry = (name: string, side: string, stage = "plan"): StageEntry => ({
-  name, stage, dir: `\${CLAUDE_SKILL_DIR}/../../${side}/${name}`, consumes: ["ticket"], produces: ["plan"],
+  name, engine: name, stage, dir: `\${CLAUDE_SKILL_DIR}/../../${side}/${name}`, consumes: ["ticket"], produces: ["plan"],
 });
 
 describe("renderPipelinesManifest", () => {

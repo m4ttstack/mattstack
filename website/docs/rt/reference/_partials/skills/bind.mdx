@@ -1,0 +1,33 @@
+Without `--pipeline`, the fill becomes the default for every pipeline, under the fragment's top-level `bindings`:
+
+```bash
+rt skills bind stage-evidence domain acme:capture-evidence --pack acme
+```
+
+With `--pipeline`, the fill overrides that slot for one pipeline only. Every other slot, and every other pipeline, keeps the default:
+
+```bash
+rt skills bind stage-evidence domain acme:capture-a11y-evidence --pipeline accessibility --pack acme
+```
+
+The override lands in the fragment under `pipelines.accessibility.bindings`. When the pipeline is still a plain stage list, bind turns it into the object form first:
+
+```jsonc
+"pipelines": {
+  "accessibility": {
+    "stages": ["mattstack:stage-provision", "...", "mattstack:stage-watch-ci"],
+    "bindings": {
+      "mattstack:stage-evidence": { "domain": "acme:capture-a11y-evidence" }
+    }
+  }
+}
+```
+
+A slot set to `""` under `pipelines.<name>.bindings` in the fragment unbinds that slot for that pipeline only. Bind itself refuses an empty fill, so write that value in the fragment by hand.
+
+Bind refuses `--pipeline` when:
+
+- the pack's bindings file does not declare the pipeline (`pipeline "<name>" is not declared in this pack's manifest`): declare it in `pack/skills.jsonc`, then run `rt skills materialize`,
+- the pipeline's name does not match `[a-z][a-z0-9-]*`,
+- the pipeline's stage list does not carry the stage,
+- the verb is a compiled stage copy (`stage-evidence--accessibility`): name the stage and pass `--pipeline` instead.

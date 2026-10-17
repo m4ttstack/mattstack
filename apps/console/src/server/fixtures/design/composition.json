@@ -28,6 +28,31 @@
       "includes": ["gate-protocol", "wrap-up-form"]
     },
     {
+      "name": "work-a11y",
+      "engine": "work",
+      "engineRef": "mattstack:work",
+      "plugin": "mattstack",
+      "description": "Runs accessibility work end to end, from provisioning through ship and CI.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/attachments/pipeline/work/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/work-a11y",
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false,
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack",
+          "fillSourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+          "fillVersion": "0.30.4",
+          "registered": false,
+          "inlined": true
+        }
+      ],
+      "includes": ["gate-protocol", "wrap-up-form"],
+      "pipeline": "accessibility"
+    },
+    {
       "name": "shepherdr",
       "engine": "shepherdr",
       "engineRef": "mattstack:shepherdr",
@@ -279,6 +304,18 @@
       "provides": "model-tiering@1",
       "sourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
       "registered": false
+    },
+    {
+      "binding": "acme:evidence-policy",
+      "provides": "evidence-domain@1",
+      "sourcePath": "/fixture/packs/acme/attachments/evidence-policy/SKILL.md",
+      "registered": false
+    },
+    {
+      "binding": "acme:evidence-a11y",
+      "provides": "evidence-domain@1",
+      "sourcePath": "/fixture/packs/acme/attachments/evidence-a11y/SKILL.md",
+      "registered": false
     }
   ],
   "binders": [
@@ -418,10 +455,39 @@
           "layer": "pack"
         }
       ]
+    },
+    {
+      "ref": "mattstack:stage-evidence",
+      "verb": null,
+      "kind": "stage",
+      "slots": [
+        {
+          "name": "domain",
+          "boundTo": "acme:evidence-policy",
+          "layer": "pack",
+          "overrides": [
+            {
+              "pipeline": "accessibility",
+              "boundTo": "acme:evidence-a11y",
+              "layer": "pack"
+            }
+          ]
+        }
+      ]
     }
   ],
   "pipelines": {
     "feature": [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci"
+    ],
+    "accessibility": [
       "mattstack:stage-provision",
       "mattstack:stage-plan",
       "mattstack:stage-gates",
@@ -483,6 +549,83 @@
         {
           "kind": "run-start.flags",
           "arg": "work",
+          "line": 40
+        },
+        {
+          "kind": "slot",
+          "arg": "tiering",
+          "line": 242
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 246
+        },
+        {
+          "kind": "include",
+          "arg": "wrap-up-form",
+          "line": 250
+        }
+      ],
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "work-a11y",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/work-a11y/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/work/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "verb.path",
+          "arg": "stage-provision",
+          "line": 29
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-plan",
+          "line": 30
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-gates",
+          "line": 31
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-evidence--accessibility",
+          "line": 32
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-implement",
+          "line": 33
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-self-review",
+          "line": 34
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-ship",
+          "line": 35
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-watch-ci",
+          "line": 36
+        },
+        {
+          "kind": "run-start.flags",
+          "arg": "work-a11y",
           "line": 40
         },
         {
@@ -852,9 +995,20 @@
           "kind": "include",
           "arg": "gate-protocol",
           "line": 268
+        },
+        {
+          "kind": "slot",
+          "arg": "domain",
+          "line": 299
         }
       ],
-      "slots": [],
+      "slots": [
+        {
+          "name": "domain",
+          "contract": "evidence-domain@1",
+          "required": false
+        }
+      ],
       "engineError": null
     },
     {
@@ -930,6 +1084,40 @@
       ],
       "slots": [],
       "engineError": null
+    },
+    {
+      "name": "stage-evidence--accessibility",
+      "kind": "stage",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/stage-evidence--accessibility/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-evidence/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "stage.fields",
+          "arg": null,
+          "line": 14
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 268
+        },
+        {
+          "kind": "slot",
+          "arg": "domain",
+          "line": 299
+        }
+      ],
+      "slots": [
+        {
+          "name": "domain",
+          "contract": "evidence-domain@1",
+          "required": false
+        }
+      ],
+      "engineError": null,
+      "engine": "stage-evidence",
+      "pipeline": "accessibility"
     }
   ]
 }

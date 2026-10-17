@@ -538,6 +538,7 @@ export function compileSkill(
     verbSides?: Record<string, Side>;
     side?: Side;
     plannedAttachments?: PlannedAttachments;
+    pipeline?: string | null;
     trace?: (entry: TraceEntry) => void;
   } = {},
 ): CompileResult {
@@ -574,6 +575,7 @@ export function compileSkill(
     side: opts.side ?? "skills",
     packRoot: opts.packRoot ?? null,
     plannedAttachments: opts.plannedAttachments,
+    pipeline: opts.pipeline ?? null,
   };
 
   const allowedTools = buildAllowedTools(step, boundSlots, opts.stageAllowedTools ?? [], ctx);

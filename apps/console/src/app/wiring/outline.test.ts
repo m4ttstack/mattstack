@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { designFixture } from './graph/__tests__/designFixtures';
 import {
   buildSpine,
   invertBindings,
@@ -702,5 +703,111 @@ describe('buildSpine: a base fill and its compiled team copy', () => {
     );
 
     expect(spine.orphans.map(o => o.fill)).toEqual(['other:board-review']);
+  });
+});
+
+describe('per-pipeline fills', () => {
+  const composition = designFixture('composition');
+  const evidenceSlots = (workType: string) =>
+    buildSpine(composition, EMPTY_CHECK, workType).stages.find(
+      stage => stage.ref === 'mattstack:stage-evidence'
+    )!.slots;
+
+  it('lists a fill only an override binds under its pipeline', () => {
+    const sites = invertBindings(composition);
+
+    expect(sites['acme:evidence-a11y']).toEqual([
+      {
+        ref: 'mattstack:stage-evidence',
+        verb: null,
+        kind: 'stage',
+        slot: 'domain',
+        pipeline: 'accessibility',
+      },
+    ]);
+    expect(sites['acme:evidence-policy']).toEqual([
+      {
+        ref: 'mattstack:stage-evidence',
+        verb: null,
+        kind: 'stage',
+        slot: 'domain',
+      },
+    ]);
+  });
+
+  it('never reads a fill only an override binds as orphaned', () => {
+    const spine = buildSpine(composition, EMPTY_CHECK, 'feature');
+
+    expect(spine.orphans.map(o => o.fill)).not.toContain('acme:evidence-a11y');
+  });
+
+  it('keeps an empty default out of the sites, so no fill is keyed by ""', () => {
+    const overrideOnly = {
+      ...composition,
+      binders: composition.binders.map(binder =>
+        binder.ref === 'mattstack:stage-evidence'
+          ? {
+              ...binder,
+              slots: binder.slots.map(slot => ({
+                ...slot,
+                boundTo: '',
+                layer: null,
+              })),
+            }
+          : binder
+      ),
+    };
+
+    expect(Object.keys(invertBindings(overrideOnly))).not.toContain('');
+  });
+
+  it('shows the override under its pipeline and the default under the other', () => {
+    expect(evidenceSlots('accessibility')).toMatchObject([
+      {
+        name: 'domain',
+        boundTo: 'acme:evidence-a11y',
+        fill: { binding: 'acme:evidence-a11y' },
+      },
+    ]);
+    expect(evidenceSlots('feature')).toMatchObject([
+      {
+        name: 'domain',
+        boundTo: 'acme:evidence-policy',
+        fill: { binding: 'acme:evidence-policy' },
+      },
+    ]);
+  });
+
+  it('leads each pipeline with the verb that runs it, and keeps the other lead wired', () => {
+    const a11y = buildSpine(composition, EMPTY_CHECK, 'accessibility');
+    const feature = buildSpine(composition, EMPTY_CHECK, 'feature');
+
+    expect(a11y.orchestrator).toMatchObject({
+      verb: 'work-a11y',
+      label: 'work-a11y',
+    });
+    expect(feature.orchestrator).toMatchObject({ verb: 'work', label: 'work' });
+    expect(a11y.outside.find(e => e.verb === 'work')?.unwired).toBe(false);
+    expect(feature.outside.find(e => e.verb === 'work-a11y')?.unwired).toBe(
+      false
+    );
+  });
+
+  it('draws a stage copy as its engine stage, never as an extra stage', () => {
+    const spine = buildSpine(composition, EMPTY_CHECK, 'accessibility');
+
+    expect(spine.stages).toHaveLength(8);
+    expect(spine.stages[3]).toMatchObject({
+      ref: 'mattstack:stage-evidence',
+      label: 'stage-evidence',
+      step: 4,
+      copy: 'stage-evidence--accessibility',
+    });
+    expect(
+      spineRows(spine).some(row => row.label.includes('--accessibility'))
+    ).toBe(false);
+    expect(
+      buildSpine(composition, EMPTY_CHECK, 'feature').stages[3]!.copy
+    ).toBeUndefined();
   });
 });

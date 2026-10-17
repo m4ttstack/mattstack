@@ -23,7 +23,7 @@ afterEach(() => {
 
 const PREFIX = "${CLAUDE_SKILL_DIR}/../../";
 const entry = (stage: string, consumes: string[], produces: string[]) => ({
-  name: stage.toUpperCase(), stage, dir: `${PREFIX}skills/${stage}`, consumes, produces,
+  name: stage.toUpperCase(), engine: stage.toUpperCase(), stage, dir: `${PREFIX}skills/${stage}`, consumes, produces,
 });
 const FEATURE = [entry("plan", [], ["spec"]), entry("build", ["spec"], ["diff"]), entry("ship", ["diff"], [])];
 

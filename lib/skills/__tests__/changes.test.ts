@@ -95,6 +95,45 @@ describe("bindingChanges", () => {
   });
 });
 
+describe("bindingChanges per pipeline", () => {
+  const stages = ["mattstack:stage-plan", "mattstack:stage-evidence"];
+  const doc = (domain: string, defaults = "acme:d") => ({
+    bindings: { "mattstack:stage-evidence": { domain: defaults } },
+    pipelines: { feature: stages, accessibility: { stages, bindings: { "mattstack:stage-evidence": { domain } } } },
+  });
+
+  test("pipeline override changes carry their pipeline", () => {
+    expect(bindingChanges(doc("acme:a"), doc("acme:b"))).toEqual([
+      { engineRef: "mattstack:stage-evidence", slot: "domain", from: "acme:a", to: "acme:b", pipeline: "accessibility" },
+    ]);
+  });
+
+  test("a default-only change has no pipeline key", () => {
+    const [change] = bindingChanges(doc("acme:a", "acme:d"), doc("acme:a", "acme:e"));
+    expect(change).toEqual({ engineRef: "mattstack:stage-evidence", slot: "domain", from: "acme:d", to: "acme:e" });
+    expect("pipeline" in change!).toBe(false);
+  });
+
+  test("a pipeline's override listed after the defaults, and a plain list reads as none", () => {
+    const before = { pipelines: { feature: stages } };
+    const after = { bindings: { "mattstack:stage-plan": { domain: "acme:p" } }, pipelines: { feature: { stages, bindings: { "mattstack:stage-evidence": { domain: "acme:f" } } } } };
+    expect(bindingChanges(before, after)).toEqual([
+      { engineRef: "mattstack:stage-plan", slot: "domain", from: null, to: "acme:p" },
+      { engineRef: "mattstack:stage-evidence", slot: "domain", from: null, to: "acme:f", pipeline: "feature" },
+    ]);
+  });
+
+  test("a malformed pipelines value reads as no overrides", () => {
+    expect(bindingChanges({ pipelines: { feature: null, bugfix: { bindings: ["x"] } } }, { pipelines: "x" })).toEqual([]);
+  });
+
+  test("the signature tells a pipeline's change from the default's", () => {
+    const change = { engineRef: "mattstack:stage-evidence", slot: "domain", from: "acme:a", to: "acme:b" };
+    const sig = (b: typeof change & { pipeline?: string }) => pendingSignature({ files: [], bindings: [b], surface: [] });
+    expect(sig({ ...change, pipeline: "accessibility" })).not.toBe(sig(change));
+  });
+});
+
 describe("bindingChanges malformed shapes", () => {
   test("keeps only string slot values under object engine entries", () => {
     const before = { bindings: { "mattstack:a": ["acme:x"], "mattstack:b": { domain: 3, forge: "acme:forge" }, "mattstack:c": "acme:y" } };

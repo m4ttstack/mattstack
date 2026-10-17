@@ -34,6 +34,10 @@ const BOARD_ROUTES: Array<[string, Partial<WiringUrl>]> = [
   ['tab=graph&focus=pipeline:feature', { focus: 'pipeline:feature' }],
   ['tab=graph&focus=stage-plan', { focus: 'stage-plan' }],
   [
+    'tab=graph&focus=stage-evidence@accessibility',
+    { focus: 'stage-evidence@accessibility' },
+  ],
+  [
     'tab=graph&focus=pipeline:feature&select=row:1',
     { focus: 'pipeline:feature', select: 'row:1' },
   ],

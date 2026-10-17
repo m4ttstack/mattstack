@@ -31,14 +31,16 @@ export type AttachmentSource = {
   registered: boolean; // true = top-level skill under skills/, referenced not inlined; false = internal attachment under attachments/, inlined
 };
 
-export type VerbDef = { name: string; engine: string; description: string };
+/** `pipeline` is the pipeline a work verb runs, or the one a stage copy compiles for. */
+export type VerbDef = { name: string; engine: string; description: string; pipeline?: string };
 
 export type CompiledFile = { path: string; content: string } | { path: string; copyFrom: string };
 
 export type CompileResult = { files: CompiledFile[]; warnings: string[]; errors: string[] };
 
+/** `name` is the compiled target, a stage copy's own name for a copy; `engine` is the stage it compiles. */
 export type StageEntry = {
-  name: string; stage: string; dir: string; consumes: string[]; produces: string[];
+  name: string; engine: string; stage: string; dir: string; consumes: string[]; produces: string[];
 };
 
 export type PlannedAttachments = ReadonlyMap<string, ReadonlySet<string>>;
@@ -60,4 +62,6 @@ export type PlaceholderContext = {
   side: Side;
   packRoot: string | null;
   plannedAttachments?: PlannedAttachments;
+  /** The pipeline a work verb that renders `{{pipeline.table}}` runs; null for every other target. */
+  pipeline: string | null;
 };

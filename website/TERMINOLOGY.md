@@ -17,3 +17,5 @@ Add a row when a page introduces a concept.
 | flock's three window modes | view (Workspaces, Overview, Arrange) | mode, screen, page |
 | A mattstack app deck runs from source, reloading as you edit | live, go live | dev mode, hot mode, watch mode |
 | The repo access and data branch push rights the org's roles give each person on the forge | forge access | forge grants, repo permissions, membership sync |
+| A pipeline a team adds for one kind of work, run by its own `work-<kind>` verb | specialized pipeline | variant, flavor, work type |
+| The compiled `<stage>--<pipeline>` copy of a stage whose fills a pipeline overrides | stage copy | override stage, stage variant |

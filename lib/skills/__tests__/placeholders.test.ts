@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { assertNoPlaceholders, findPlaceholders, substitute, substituteAttachmentPlaceholders, type TraceEntry } from "../placeholders.ts";
-import type { AttachmentSource, PlaceholderContext } from "../types.ts";
+import type { AttachmentSource, PlaceholderContext, StageEntry } from "../types.ts";
 
 describe("findPlaceholders", () => {
   test("finds kind, arg, and 1-indexed line", () => {
@@ -46,14 +46,15 @@ function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
     fills: { domain: fill }, slotMode: { domain: "inline" }, partsPrefix: "${CLAUDE_SKILL_DIR}/parts",
     includes: { "review-core-body": inc },
     pipelines: { feature: [
-      { name: "stage-provision", stage: "provision", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-provision", consumes: ["ticket", "repo"], produces: ["branch", "worktree"] },
-      { name: "stage-plan", stage: "plan", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan", consumes: ["ticket"], produces: ["approach"] },
+      { name: "stage-provision", engine: "stage-provision", stage: "provision", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-provision", consumes: ["ticket", "repo"], produces: ["branch", "worktree"] },
+      { name: "stage-plan", engine: "stage-plan", stage: "plan", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan", consumes: ["ticket"], produces: ["approach"] },
     ] },
     repoKey: "my-repo", mattstackSha: "abc1234", mattstackDirty: 0, packSha: "acme=abc1234",
     stageDir: null, stageMeta: null, compiledFrom: "mattstack@1.0.0 + acme:plan-policy@0.4.0",
     verbSides: { work: "skills", checkout: "skills", "stage-plan": "attachments", "receive-review": "attachments" },
     side: "skills",
     packRoot: null,
+    pipeline: null,
     ...over,
   };
 }
@@ -219,6 +220,106 @@ describe("substitute", () => {
     const bad = { ...fill, body: "x\n{{slot:tiering}}" };
     expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: bad } }), "stage-plan"))
       .toThrow("acme:plan-policy: {{slot:tiering}} -- a fill may carry {{include}}, {{verb.path}} or {{pack.path}} only (line 2)");
+  });
+});
+
+const WORK_STAGES: [string, string[], string[]][] = [
+  ["provision", ["ticket", "repo"], ["branch", "worktree"]],
+  ["plan", ["ticket"], ["approach", "evidence-plan"]],
+  ["gates", ["approach", "worktree"], []],
+  ["evidence", ["evidence-plan", "worktree"], ["evidence"]],
+  ["implement", ["approach", "branch", "worktree"], ["commits"]],
+  ["self-review", ["commits"], ["review"]],
+  ["ship", ["commits", "ticket"], ["mr"]],
+  ["watch-ci", ["mr", "branch"], ["ci"]],
+];
+
+function workEntries(copies: string[] = [], pipeline = "feature"): StageEntry[] {
+  return WORK_STAGES.map(([stage, consumes, produces]) => {
+    const name = copies.includes(stage) ? `stage-${stage}--${pipeline}` : `stage-${stage}`;
+    return { name, engine: `stage-${stage}`, stage, dir: `\${CLAUDE_SKILL_DIR}/../../attachments/${name}`, consumes, produces };
+  });
+}
+
+function workCtx(pipeline: string | null): PlaceholderContext {
+  const pipelines = { feature: workEntries(), accessibility: workEntries(["evidence"], "accessibility") };
+  const verbSides: Record<string, "skills" | "attachments"> = { work: "skills", "work-a11y": "skills" };
+  for (const e of [...pipelines.feature, ...pipelines.accessibility]) verbSides[e.name] = "attachments";
+  return ctx({ pipelines, verbSides, pipeline });
+}
+
+/** The hand-written table work/SKILL.md carried before {{pipeline.table}}, with each {{verb.path}} rendered. */
+const TODAYS_TABLE = [
+  "| Stage | Read | Consumes | Produces |",
+  "|---|---|---|---|",
+  "| `provision` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-provision/SKILL.md` | `ticket` `repo` | `branch` `worktree` |",
+  "| `plan` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md` | `ticket` | `approach` `evidence-plan` |",
+  "| `gates` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-gates/SKILL.md` | `approach` `worktree` | nothing |",
+  "| `evidence` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-evidence/SKILL.md` | `evidence-plan` `worktree` | `evidence` |",
+  "| `implement` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-implement/SKILL.md` | `approach` `branch` `worktree` | `commits` |",
+  "| `self-review` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-self-review/SKILL.md` | `commits` | `review` |",
+  "| `ship` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-ship/SKILL.md` | `commits` `ticket` | `mr` |",
+  "| `watch-ci` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/SKILL.md` | `mr` `branch` | `ci` |",
+].join("\n");
+
+describe("pipeline.table", () => {
+  test("the eight default stages render today's hand-written table", () => {
+    expect(substitute("{{pipeline.table}}", workCtx("feature"), "work").body).toBe(TODAYS_TABLE);
+  });
+
+  test("a pipeline with a stage copy reads the copy on that row", () => {
+    const body = substitute("{{pipeline.table}}", workCtx("accessibility"), "work-a11y").body;
+    expect(body).toContain("| `evidence` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-evidence--accessibility/SKILL.md` | `evidence-plan` `worktree` | `evidence` |");
+    expect(body).toContain("| `plan` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md` |");
+  });
+
+  test("the trace for the table line carries one verb.path per row, each on its own rendered line", () => {
+    const entries: TraceEntry[] = [];
+    substitute("intro\n{{pipeline.table}}\nafter", workCtx("accessibility"), "work-a11y", (e) => entries.push(e));
+    const table = entries[1]!;
+    expect(table.outStart).toBe(1);
+    expect(table.outCount).toBe(10);
+    expect(table.placeholders).toHaveLength(8);
+    expect(table.placeholders.every((p) => p.kind === "verb.path")).toBe(true);
+    expect(table.placeholders[3]).toEqual({ kind: "verb.path", arg: "stage-evidence--accessibility", line: 5 });
+    expect(table.placeholders.map((p) => p.line)).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  test("a verb with no pipeline cannot render it", () => {
+    expect(() => substitute("{{pipeline.table}}", workCtx(null), "work")).toThrow("work: {{pipeline.table}} used by a verb with no pipeline");
+  });
+
+  test("it must be alone on its line", () => {
+    expect(() => substitute("see {{pipeline.table}}", workCtx("feature"), "work")).toThrow("work: {{pipeline.table}} must be alone on its line (line 1)");
+  });
+});
+
+describe("a work verb's pipeline", () => {
+  test("run-start.flags:<verb> records the verb's pipeline", () => {
+    const body = substitute("{{run-start.flags:work}}", workCtx("accessibility"), "work-a11y").body;
+    const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
+    expect(json.work).toBe("--repo my-repo --work-type work --pipeline accessibility --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234");
+  });
+
+  test("run-start.flags:<verb> with no pipeline is unchanged", () => {
+    const body = substitute("{{run-start.flags:work}}", workCtx(null), "work").body;
+    const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
+    expect(json.work).toBe("--repo my-repo --work-type work --pipeline work --mattstack-sha abc1234 --mattstack-dirty 0 --pack-sha acme=abc1234");
+  });
+
+  test("run-list.pipelines adds the old work pipeline only for the default pipeline", () => {
+    expect(substitute("{{run-list.pipelines}}", workCtx("feature"), "work").body).toBe("`feature`, `work`");
+    expect(substitute("{{run-list.pipelines}}", workCtx("accessibility"), "work-a11y").body).toBe("`accessibility`");
+  });
+
+  test("run-list.pipelines needs a pipeline", () => {
+    expect(() => substitute("{{run-list.pipelines}}", workCtx(null), "work")).toThrow("work: {{run-list.pipelines}} used by a verb with no pipeline");
+  });
+
+  test("work-type, pipeline.stages and the bare run-start.flags ignore the verb's pipeline", () => {
+    for (const body of ["{{work-type}}", "{{pipeline.stages}}", "{{run-start.flags}}"]) {
+      expect(substitute(body, workCtx("accessibility"), "work-a11y").body).toBe(substitute(body, workCtx(null), "work").body);
+    }
   });
 });
 

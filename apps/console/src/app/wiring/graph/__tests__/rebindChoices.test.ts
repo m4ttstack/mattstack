@@ -9,7 +9,8 @@ const where = (composition = designFixture('composition')) =>
     composition,
     'stage-plan',
     'mattstack:stage-plan',
-    'domain'
+    'domain',
+    null
   ).options.map(option => [option.name, option.where]);
 
 describe('rebindChoices', () => {
@@ -62,7 +63,13 @@ describe('rebindChoices owners', () => {
     return composition;
   };
   const choices = (composition = fromBase()) =>
-    rebindChoices(composition, 'stage-plan', 'mattstack:stage-plan', 'domain');
+    rebindChoices(
+      composition,
+      'stage-plan',
+      'mattstack:stage-plan',
+      'domain',
+      null
+    );
 
   it('names a base fill as the org base and a pack fill as the pack', () => {
     const { options } = choices();
@@ -94,6 +101,77 @@ describe('rebindChoices owners', () => {
       name: 'acme-base',
       version: '0.1.0',
     });
+  });
+});
+
+describe('rebindChoices per pipeline', () => {
+  const composition = designFixture('composition');
+  const evidence = (workType: string | null, skill = 'stage-evidence') =>
+    rebindChoices(
+      composition,
+      skill,
+      'mattstack:stage-evidence',
+      'domain',
+      workType
+    );
+
+  it('reads the override under its pipeline and the default under the other', () => {
+    expect(evidence('accessibility').current).toBe('acme:evidence-a11y');
+    expect(evidence('feature').current).toBe('acme:evidence-policy');
+    expect(evidence(null).current).toBe('acme:evidence-policy');
+  });
+
+  it("writes the pipeline's override under it, and the default under the default pipeline", () => {
+    expect(evidence('accessibility')).toMatchObject({
+      verb: 'stage-evidence',
+      pipeline: 'accessibility',
+    });
+    expect(evidence('feature')).toMatchObject({
+      verb: 'stage-evidence',
+      pipeline: null,
+    });
+  });
+
+  it("writes the default for the lead's own slot, which no pipeline overrides", () => {
+    expect(
+      rebindChoices(
+        composition,
+        'work-a11y',
+        'mattstack:work',
+        'tiering',
+        'accessibility'
+      )
+    ).toMatchObject({
+      current: 'mattstack:model-tiering',
+      verb: 'work-a11y',
+      pipeline: null,
+      rebuilds: ['work', 'work-a11y'],
+    });
+  });
+
+  it('rebuilds only the stage it binds', () => {
+    expect(evidence('accessibility').rebuilds).toEqual(['stage-evidence']);
+  });
+
+  it('binds a stage copy through its engine and its own pipeline', () => {
+    expect(evidence(null, 'stage-evidence--accessibility')).toMatchObject({
+      current: 'acme:evidence-a11y',
+      verb: 'stage-evidence',
+      pipeline: 'accessibility',
+    });
+  });
+
+  it('says where the same slot is bound in the other pipelines', () => {
+    const where = (workType: string) =>
+      evidence(workType).options.map(option => [option.name, option.where]);
+    expect(where('accessibility')).toEqual([
+      ['evidence-a11y', 'bound here now'],
+      ['evidence-policy', 'bound here by default'],
+    ]);
+    expect(where('feature')).toEqual([
+      ['evidence-policy', 'bound here now'],
+      ['evidence-a11y', 'bound here in accessibility'],
+    ]);
   });
 });
 

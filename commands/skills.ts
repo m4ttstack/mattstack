@@ -27,7 +27,7 @@
 
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
-import { applyEdits, modify } from "jsonc-parser";
+import { applyEdits, findNodeAtLocation, getNodeValue, modify, parseTree } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
@@ -58,7 +58,7 @@ import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
-import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
+import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
@@ -67,6 +67,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
+import { defaultPipeline, effectiveSlotBindings, PIPELINE_NAME_RE, pipelineBindingKey, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -79,6 +80,7 @@ import {
   orgOfPackDir,
   parseStageQualifiedName,
   readManifestBindings,
+  readManifestPipelineBindings,
   readManifestPipelines,
   readSurface,
   readVerbRoster,
@@ -565,6 +567,7 @@ type Resolved = {
   base: boolean;
   provenance: Record<string, string>;
   pipelines: Record<string, string[]>;
+  pipelineBindings: Record<string, BindingsMap>;
   stages: VerbDef[];
   stageEntries: Record<string, StageEntry[]>;
   repoKey: string;
@@ -611,7 +614,12 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const mattstackRoot = flags.mattstackDir ?? mattstackHome();
   const { team, packDir } = await resolvePack(flags);
 
-  const fullRoster = readVerbRoster(packDir);
+  let fullRoster: VerbDef[];
+  try {
+    fullRoster = readVerbRoster(packDir);
+  } catch (err) {
+    throw new SkillsUsageError((err as Error).message);
+  }
   // A pack with no verb roster needs no manifest: bindings only feed compile targets.
   const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir, flags.repo, flags.bind === true));
   const base = flags.bind === true && flags.manifest === null && isBasePack(realInitFs, packDir);
@@ -651,9 +659,10 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const internalRoster = computeInternalRoster(team, packDir, surface, fullRoster);
 
   const pipelines = manifestPath ? readManifestPipelines(manifestPath) : {};
+  const pipelineBindings = manifestPath ? readManifestPipelineBindings(manifestPath) : {};
   let stages: VerbDef[];
   try {
-    stages = stageRoster(pipelines);
+    stages = stageRoster(pipelines, pipelineBindings, bindings);
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
@@ -662,19 +671,21 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const packSha = computePackSha(pipelines, self, packDir);
   let stageEntries: Record<string, StageEntry[]>;
   try {
-    stageEntries = buildStageEntries({ pipelines, pluginRoots, publicSet: surface ? new Set(surface.public) : null });
+    const copies = new Set(stages.filter((s) => s.pipeline !== undefined).map((s) => s.name));
+    stageEntries = buildStageEntries({ pipelines, pluginRoots, publicSet: surface ? new Set(surface.public) : null, copies });
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
 
   return {
     packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, base, provenance,
-    pipelines, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha,
+    pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha,
   };
 }
 
-function loadFillsFor(step: StepSource, resolved: Resolved, where: string): Record<string, AttachmentSource | null> {
-  const slotBindings = resolved.bindings[`${step.plugin}:${step.name}`] ?? {};
+function loadFillsFor(step: StepSource, resolved: Resolved, where: string, pipeline?: string): Record<string, AttachmentSource | null> {
+  const overrides = pipeline !== undefined && Object.hasOwn(resolved.pipelineBindings, pipeline) ? resolved.pipelineBindings[pipeline] : undefined;
+  const slotBindings = effectiveSlotBindings(resolved.bindings, overrides, `${step.plugin}:${step.name}`);
   const fills: Record<string, AttachmentSource | null> = {};
   for (const slotName of Object.keys(step.slots)) {
     const bindingName = slotBindings[slotName];
@@ -732,13 +743,13 @@ function loadIncludesFor(
 function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageEntry[]>): string[] {
   const rules: string[] = [];
   const seen = new Set<string>();
-  for (const list of Object.values(entries)) {
+  for (const [type, list] of Object.entries(entries)) {
     for (const entry of list) {
       if (seen.has(entry.name)) continue;
       seen.add(entry.name);
-      const step = loadStepSource(entry.name, resolved.pluginRoots);
+      const step = loadStepSource(entry.engine, resolved.pluginRoots);
       rules.push(...step.allowedTools);
-      for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`))) {
+      for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`, type))) {
         if (fill) rules.push(...fill.allowedTools);
       }
     }
@@ -773,20 +784,22 @@ function compileVerb(
   if (isStage) verb = { ...verb, description: step.description };
 
   const entries = resolved.stageEntries;
-  const allStageDirs = Object.values(entries).flat().map((e) => e.dir);
+  const allEntries = Object.values(entries).flat();
+  const allStageDirs = allEntries.map((e) => e.dir);
   const stageNames = new Set(resolved.stages.map((s) => s.name));
   // Only a public roster verb is ever invoked by name, so only its ${CLAUDE_SKILL_DIR}
   // is its own directory; every other target is read as a file from a public skill.
   const stageDir = isStage
-    ? allStageDirs.find((d) => d.endsWith(`/${verb.name}`)) ?? null
+    ? hostDir(verb.name, isPublic ? "skills" : "attachments")
     : isPublic ? null : hostDir(verb.name, "attachments");
   const internalVerbDirs = Object.entries(verbSides)
     .filter(([name, side]) => side === "attachments" && !stageNames.has(name))
     .map(([name]) => hostDir(name, "attachments"));
   const isOrchestrator = findPlaceholders(step.body).some((p) => p.kind === "pipeline.stages");
+  const pipeline = !isStage && rendersTable(step) ? verbPipeline(verb, resolved.pipelines).pipeline : null;
 
   try {
-    const fills = loadFillsFor(step, resolved, where);
+    const fills = loadFillsFor(step, resolved, where, isStage ? verb.pipeline : undefined);
     const includes = loadIncludesFor(step, fills, resolved, where);
     const result = compileSkill(verb, step, fills, resolved.invocable, {
       internalRoster: resolved.internalRoster,
@@ -806,6 +819,7 @@ function compileVerb(
       verbSides,
       side: isPublic ? "skills" : "attachments",
       plannedAttachments: planned,
+      pipeline,
       trace,
     });
     if (!trace) return result;
@@ -908,6 +922,73 @@ function pipelineChainErrors(resolved: Resolved): string[] {
   return Object.entries(resolved.stageEntries).flatMap(([type, list]) =>
     validateChain(type, list, PIPELINE_SEED),
   );
+}
+
+function rendersTable(step: StepSource): boolean {
+  return findPlaceholders(step.body).some((p) => p.kind === "pipeline.table");
+}
+
+/** Roster verbs whose engine renders `{{pipeline.table}}`; an engine that cannot load is compile's error to report, not this one's. */
+function tableVerbs(resolved: Resolved): VerbDef[] {
+  return resolved.fullRoster.filter((verb) => {
+    try {
+      return rendersTable(loadStepSource(verb.engine, resolved.pluginRoots));
+    } catch {
+      return false;
+    }
+  });
+}
+
+type VerbPipeline = { pipeline: string; error: null } | { pipeline: null; error: string };
+
+function verbPipeline(verb: VerbDef, pipelines: Record<string, string[]>): VerbPipeline {
+  if (verb.pipeline !== undefined) {
+    if (!PIPELINE_NAME_RE.test(verb.pipeline)) return { pipeline: null, error: `pipeline "${verb.pipeline}" must match [a-z][a-z0-9-]*` };
+    if (!Object.hasOwn(pipelines, verb.pipeline)) {
+      return { pipeline: null, error: `verb "${verb.name}" runs pipeline "${verb.pipeline}", which the manifest does not declare` };
+    }
+    return { pipeline: verb.pipeline, error: null };
+  }
+  const fallback = defaultPipeline(pipelines);
+  if (fallback !== null) return { pipeline: fallback, error: null };
+  return Object.keys(pipelines).length === 0
+    ? { pipeline: null, error: `verb "${verb.name}" names no pipeline and the manifest declares none` }
+    : { pipeline: null, error: `verb "${verb.name}" names no pipeline and the manifest declares several with none named feature` };
+}
+
+/** The work digraph walks back to implement, holds against watch-ci, and needs `mr` and `ci`, so a pipeline it runs needs these stages. */
+function runsAsWork(entries: StageEntry[]): boolean {
+  const engines = entries.map((e) => e.engine);
+  return engines[0] === "stage-provision" && engines.at(-1) === "stage-watch-ci" && engines.includes("stage-implement") && engines.includes("stage-ship");
+}
+
+/** Every pack-level pipeline error compile refuses on and check reports, so a placeholder never has to throw one. */
+function pipelineErrors(resolved: Resolved): string[] {
+  const errors = pipelineChainErrors(resolved);
+  for (const [type, refs] of Object.entries(resolved.pipelineBindings)) {
+    const stages = Object.hasOwn(resolved.pipelines, type) ? resolved.pipelines[type]! : null;
+    if (!stages) {
+      errors.push(`pipeline "${type}" has bindings but no layer gives it stages`);
+      continue;
+    }
+    for (const ref of Object.keys(refs)) {
+      if (!stages.includes(ref)) errors.push(`pipeline "${type}" binds ${ref} but does not list it`);
+    }
+  }
+  const shaped = new Set<string>();
+  for (const verb of tableVerbs(resolved)) {
+    const run = verbPipeline(verb, resolved.pipelines);
+    if (run.error !== null) {
+      errors.push(run.error);
+      continue;
+    }
+    if (shaped.has(run.pipeline)) continue;
+    shaped.add(run.pipeline);
+    if (!runsAsWork(resolved.stageEntries[run.pipeline] ?? [])) {
+      errors.push(`pipeline "${run.pipeline}" must start with stage-provision, end with stage-watch-ci, and include stage-implement and stage-ship`);
+    }
+  }
+  return errors;
 }
 
 type CompileTarget = { verb: VerbDef; isPublic: boolean; isStage: boolean };
@@ -1016,6 +1097,27 @@ export function floorWrite(
   return { written: [FLOOR_REL], removed: [], stale: false };
 }
 
+const STAGE_COPY_DIR_RE = /^stage-[a-z0-9-]+--[a-z][a-z0-9-]*$/;
+
+/**
+ * Compiled stage copies no target claims any more. `verbSides` must be the
+ * full target set from compileTargets: a --verb-scoped set would leave live
+ * copies unclaimed, and the caller deletes what this returns.
+ */
+function staleStageCopies(packDir: string, verbSides: Record<string, Side>): { name: string; dir: string }[] {
+  const stale: { name: string; dir: string }[] = [];
+  for (const side of ["attachments", "skills"] as const) {
+    const sideDir = join(packDir, side);
+    if (!existsSync(sideDir)) continue;
+    for (const entry of readdirSync(sideDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !STAGE_COPY_DIR_RE.test(entry.name) || Object.hasOwn(verbSides, entry.name)) continue;
+      const dir = join(sideDir, entry.name);
+      if (hasCompiledHeader(dir)) stale.push({ name: entry.name, dir });
+    }
+  }
+  return stale;
+}
+
 /**
  * The real-write path shared by skillsCompile and compilePackAll: compiles
  * every target, writes on success (sweeping a stale other-side dir first),
@@ -1031,6 +1133,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   misplaced: string[];
   writes: CompileWrites;
   emitted: EmittedRow[];
+  staleCopies: string[];
   fieldContract: string[];
 } {
   if (write) refuseUnlessPackOwned(resolved.packDir);
@@ -1056,6 +1159,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
 
   const writing = write && failures.length === 0;
   const writes: CompileWrites = { written: [], removed: [] };
+  const staleCopies = failures.length === 0 ? staleStageCopies(resolved.packDir, verbSides) : [];
   if (writing) {
     // Stale folders go before any verb writes: an internal verb may now own a freed attachments/<name>.
     for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
@@ -1071,6 +1175,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       if (existsSync(stale) && !isHandWrittenDir(stale)) removeCompiledDir(resolved.packDir, stale, writes);
       writeCompiledVerb(resolved.packDir, outDirFor(resolved.packDir, verb.name, isPublic), outcome.result, writes);
     }
+    for (const copy of staleCopies) removeCompiledDir(resolved.packDir, copy.dir, writes);
     const floor = floorWrite(resolved, readIfPresent, true);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
@@ -1111,7 +1216,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     ...plan.stale.map((s) => ({ name: s.name, removed: true as const, why: s.why })),
   ];
 
-  return { outcomes, failures, misplaced, writes, emitted, fieldContract };
+  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleCopies.map((c) => c.name), fieldContract };
 }
 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
@@ -1154,6 +1259,11 @@ export function compileBlocks(rows: CompiledRow[], writing: boolean, emitted: Em
   ]), ...fieldContractBlocks(fieldContract, "advisory; the compile is not blocked")];
 }
 
+export function staleCopyBlocks(names: string[], writing: boolean): Block[] {
+  const why = "no pipeline overrides its fills any more";
+  return names.map((name) => writing ? out.line("done", `Removed ${name}`, why) : out.line("pending", name, `would remove; ${why}`));
+}
+
 export function compileFailure(failures: string[]): out.FailureInput {
   return { title: `${countOf(failures.length, "verb", "verbs")} did not compile`, details: failures.join("\n") };
 }
@@ -1188,7 +1298,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
     const resolved = await resolve(flags);
     const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
 
-    const chainErrors = pipelineChainErrors(resolved);
+    const chainErrors = pipelineErrors(resolved);
     if (chainErrors.length > 0) throw new SkillsUsageError(chainErrors.join("\n"));
 
     const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
@@ -1231,7 +1341,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written: false, verbs: targets.map(target => ({ name: target.verb.name, status: "errored", files: [], warnings: [], errors: [err.message], side: target.isPublic ? "skills" : "attachments" })), misplaced: [] });
       process.exit(2);
     }
-    const { outcomes, failures, misplaced, emitted, fieldContract } = compiledResult;
+    const { outcomes, failures, misplaced, emitted, staleCopies, fieldContract } = compiledResult;
     if (failures.length > 0 && !flags.json) {
       out.fail(compileFailure(failures));
       process.exit(1);
@@ -1258,7 +1368,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
     const compiled: CompiledRow[] = outcomes.flatMap(({ target, outcome }) =>
       outcome.ok ? [{ name: target.verb.name, side: target.isPublic ? ("skills" as const) : ("attachments" as const), files: outcome.result.files.length, warnings: outcome.result.warnings }] : [],
     );
-    out.print(...compileBlocks(compiled, writing, emitted, fieldContract));
+    out.print(...compileBlocks(compiled, writing, emitted, fieldContract), ...staleCopyBlocks(staleCopies, writing));
 
     if (misplaced.length > 0) {
       out.fail(misplacedFailure(misplaced));
@@ -1285,7 +1395,7 @@ export async function compilePackAll(opts: { pack?: string; packDir?: string; ma
   if (opts.repo) args.push("--repo", opts.repo);
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
   const resolved = await resolve(parseFlags(args));
-  const chainErrors = pipelineChainErrors(resolved);
+  const chainErrors = pipelineErrors(resolved);
   if (chainErrors.length > 0) return { ok: false, errors: chainErrors, written: [], removed: [] };
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
   const plan = basePlanFor(resolved, compileTargets(resolved, publicSet, opts.verbs ?? null).verbSides);
@@ -1360,6 +1470,10 @@ export type CheckPayload = {
   compileErrors: string[];
   /** Field-contract lines that only warn: they neither mark drift nor change the exit code. */
   fieldContract: string[];
+  /** Compiled stage copies no pipeline needs any more; compile removes them. In check --json only when non-empty. */
+  staleCopies: string[];
+  /** Pipeline overrides materialize dropped because a later layer's stage list no longer has their stage. A warning only; in check --json only when non-empty. */
+  droppedOverrides?: DroppedOverride[];
   /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
   extendsBase: boolean;
 };
@@ -1423,7 +1537,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // longer folds, so recompiling would refuse. No row can express that, so
   // --json carries it alongside them instead of leaving the exit code alone
   // to say a payload of current rows is a failure.
-  const chainErrors = pipelineChainErrors(resolved);
+  const chainErrors = pipelineErrors(resolved);
   if (chainErrors.length > 0) anyStale = true;
 
   const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
@@ -1432,6 +1546,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const emittedTargetDirs = knownTargetDirs;
   const plan = basePlanFor(resolved, verbSides);
   const planned = plannedAttachmentsOf(plan);
+  // chainErrors already names why these cannot run a pipeline; compiling them would only repeat it as a placeholder error.
+  const noPipeline = new Set(tableVerbs(resolved).filter((verb) => verbPipeline(verb, resolved.pipelines).error !== null).map((verb) => verb.name));
 
   const compiled: { target: CompileTarget; outcome: CompileOutcome }[] = [];
   let neverCompiled = false;
@@ -1447,6 +1563,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       rows.push({ name: verb.name, status: "never-compiled", staleFiles: [], orphanFiles: [], side });
       continue;
     }
+    if (!target.isStage && noPipeline.has(verb.name)) continue;
 
     const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned);
     if (!outcome.ok) {
@@ -1534,8 +1651,11 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const baseErrors = plan.errors;
   const attachments = flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : [];
   if (baseErrors.length > 0 || attachments.some((row) => row.status !== "in-sync")) anyStale = true;
+  const staleCopies = staleStageCopies(resolved.packDir, verbSides).map((c) => c.name);
+  if (staleCopies.length > 0) anyStale = true;
+  const droppedOverrides = resolved.manifestPath ? readManifestDropped(readFileSync(resolved.manifestPath, "utf8")) : [];
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, extendsBase: plan.base !== null };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1561,6 +1681,9 @@ export function installedCacheBlocks(installed: InstalledInfo): Block[] {
 
 export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[] {
   const blocks: Block[] = payload.chainErrors.map((chainError) => out.line("failed", chainError));
+  for (const { key, layer } of payload.droppedOverrides ?? []) {
+    blocks.push(out.line("warn", `Override ${key} from ${layer} is ignored`, "a later layer's stage list no longer has that stage"));
+  }
   let stale = false;
   for (const row of payload.verbs) {
     if (row.status === "never-compiled") {
@@ -1589,6 +1712,10 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
       const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
       blocks.push(out.line("stale", row.name, `changed since the last compile: ${files}`));
     }
+  }
+  for (const name of payload.staleCopies) {
+    stale = true;
+    blocks.push(out.line("stale", `stale stage copy ${name}: run rt skills compile`));
   }
   blocks.push(...payload.baseErrors.map((baseError) => out.line("failed", baseError)));
   blocks.push(...payload.compileErrors.map((compileError) => out.line("failed", compileError)));
@@ -1624,8 +1751,13 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract } = payload;
-      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract });
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [] } = payload;
+      // Only when present: the envelope's existing keys are frozen, and a clean pack keeps its exact bytes.
+      out.json({
+        pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract,
+        ...(staleCopies.length > 0 ? { staleCopies } : {}),
+        ...(droppedOverrides.length > 0 ? { droppedOverrides } : {}),
+      });
       return;
     }
     out.print(...checkBlocks(payload, flags.strict));
@@ -1696,15 +1828,22 @@ type CompositionVerb = {
   slots: CompositionSlot[];
   includes: string[];
   engineError?: string;
+  /** The pipeline a work verb runs, when its stub names one. */
+  pipeline?: string;
 };
 
 type CompositionBinderKind = "verb" | "stage" | "skill" | "external";
+type CompositionBinderOverride = { pipeline: string; boundTo: string; layer: string | null };
 type CompositionBinder = {
   ref: string;
   verb: string | null;
   kind: CompositionBinderKind;
-  /** `layer` names the bindings layer that set the slot, as a verb slot's does. */
-  slots: ({ name: string; boundTo: string; layer: string | null } & OriginFields)[];
+  /**
+   * `layer` names the bindings layer that set the slot, as a verb slot's does.
+   * `boundTo` is "" when only pipeline overrides bind the slot; `overrides` is
+   * present only when a pipeline overrides it.
+   */
+  slots: ({ name: string; boundTo: string; layer: string | null; overrides?: CompositionBinderOverride[] } & OriginFields)[];
 };
 
 type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean } & OriginFields;
@@ -1720,6 +1859,9 @@ type CompositionTarget = {
   /** The slots the template declares, so a stage's slots are known without a roster entry. */
   slots: { name: string; contract: string; required: boolean }[];
   engineError: string | null;
+  /** A stage copy's own stage and the pipeline it was compiled for; absent on every other target. */
+  engine?: string;
+  pipeline?: string;
 };
 
 export type CompositionPayload = {
@@ -1762,6 +1904,7 @@ export type CompositionPayload = {
 function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<string> | null): CompositionVerb {
   const isPublic = !publicSet || publicSet.has(verb.name);
   const artifactPath = outDirFor(resolved.packDir, verb.name, isPublic);
+  const pipelineField = verb.pipeline === undefined ? {} : { pipeline: verb.pipeline };
 
   let step;
   try {
@@ -1779,6 +1922,7 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
       slots: [],
       includes: [],
       engineError: (err as Error).message,
+      ...pipelineField,
     };
   }
 
@@ -1845,6 +1989,7 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
     artifactPath,
     slots,
     includes: includeNames([step.body, ...fillBodies]),
+    ...pipelineField,
   };
 }
 
@@ -1854,7 +1999,8 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
  * binding keys intersect on a minority -- the rest are pipeline stages,
  * cross-plugin keys (e.g. board:review), and mattstack skills that bind
  * fills without being a roster verb or a pipeline stage. binders[] inverts
- * every key in Resolved.bindings instead, so an inverse index built from it
+ * every key in Resolved.bindings and every pipeline override's key instead,
+ * so an inverse index built from it
  * (rather than from verbs[]) doesn't render genuinely-bound fills as
  * orphaned.
  *
@@ -1873,7 +2019,11 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
   const verbByEngineRef = new Map<string, string>();
   for (const verb of resolved.fullRoster) verbByEngineRef.set(`mattstack:${verb.engine}`, verb.name);
 
-  return Object.entries(resolved.bindings).map(([ref, slotBindings]) => {
+  const overridesByPipeline = Object.entries(resolved.pipelineBindings);
+  const refs = new Set(Object.keys(resolved.bindings));
+  for (const [, overrides] of overridesByPipeline) for (const ref of Object.keys(overrides)) refs.add(ref);
+
+  return [...refs].map((ref) => {
     const verbName = verbByEngineRef.get(ref) ?? null;
     const kind: CompositionBinderKind = verbName
       ? "verb"
@@ -1882,16 +2032,28 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
         : ref.startsWith("mattstack:")
           ? "skill"
           : "external";
+    const defaults = Object.hasOwn(resolved.bindings, ref) ? resolved.bindings[ref]! : {};
+    const slotOverrides = (name: string): CompositionBinderOverride[] =>
+      overridesByPipeline.flatMap(([pipeline, overrides]) => {
+        const slots = Object.hasOwn(overrides, ref) ? overrides[ref]! : {};
+        if (!Object.hasOwn(slots, name)) return [];
+        return [{ pipeline, boundTo: slots[name]!, layer: resolved.provenance[pipelineBindingKey(pipeline, ref, name)] ?? null }];
+      });
+    const slotNames = new Set(Object.keys(defaults));
+    for (const [, overrides] of overridesByPipeline) {
+      if (Object.hasOwn(overrides, ref)) for (const name of Object.keys(overrides[ref]!)) slotNames.add(name);
+    }
     return {
       ref,
       verb: verbName,
       kind,
-      slots: Object.entries(slotBindings).map(([name, boundTo]) => ({
-        name,
-        boundTo,
-        layer: resolved.provenance[`${ref} ${name}`] ?? null,
-        ...bindingOrigin(resolved.pluginRoots, boundTo),
-      })),
+      slots: [...slotNames].map((name) => {
+        const overrides = slotOverrides(name);
+        const base = Object.hasOwn(defaults, name)
+          ? { name, boundTo: defaults[name]!, layer: resolved.provenance[`${ref} ${name}`] ?? null, ...bindingOrigin(resolved.pluginRoots, defaults[name]!) }
+          : { name, boundTo: "", layer: null };
+        return overrides.length > 0 ? { ...base, overrides } : base;
+      }),
     };
   });
 }
@@ -1904,6 +2066,18 @@ function bindingOrigin(roots: PluginRoots, boundTo: string): Partial<Origin> {
   } catch {
     return originOf(roots, plugin);
   }
+}
+
+/** A `{{pipeline.table}}` expands to a `verb.path` per row, so a stage flipping public or internal still lists the work verb for rebuild. */
+function compositionPlaceholders(step: StepSource, target: CompileTarget, resolved: Resolved): CompositionTarget["placeholders"] {
+  return findPlaceholders(step.body).flatMap((p) => {
+    const line = step.bodyStartLine + p.line - 1;
+    if (p.kind !== "pipeline.table" || target.isStage) return [{ kind: p.kind, arg: p.arg, line }];
+    const { pipeline } = verbPipeline(target.verb, resolved.pipelines);
+    const entries = pipeline === null ? undefined : resolved.stageEntries[pipeline];
+    if (!entries) return [{ kind: p.kind, arg: p.arg, line }];
+    return entries.map((e) => ({ kind: "verb.path", arg: e.name, line }));
+  });
 }
 
 function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): CompositionTarget[] {
@@ -1921,13 +2095,12 @@ function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): Composi
       public: t.isPublic,
       artifactPath: join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md"),
       templatePath: step ? join(step.dir, "SKILL.md") : null,
-      placeholders: step
-        ? findPlaceholders(step.body).map((p) => ({ kind: p.kind, arg: p.arg, line: step.bodyStartLine + p.line - 1 }))
-        : [],
+      placeholders: step ? compositionPlaceholders(step, t, resolved) : [],
       slots: step
         ? Object.entries(step.slots).map(([name, spec]) => ({ name, contract: spec.contract, required: spec.required ?? false }))
         : [],
       engineError,
+      ...(t.isStage && t.verb.pipeline !== undefined ? { engine: t.verb.engine, pipeline: t.verb.pipeline } : {}),
     };
   });
 }
@@ -2230,7 +2403,7 @@ export async function skillsChanges(args: string[]): Promise<void> {
       out.table([...fileRows("Pack files", payload.files), ...fileRows("Other files", outsideScope)], ["Status", "Path"]),
     ];
     if (payload.bindings.length > 0) {
-      blocks.push(out.table(payload.bindings.map((b) => [`${b.engineRef} ${b.slot}`, b.from ?? "(none)", b.to ?? "(none)"]), ["Binding", "Was", "Now"]));
+      blocks.push(out.table(payload.bindings.map((b) => [b.pipeline === undefined ? `${b.engineRef} ${b.slot}` : `${b.pipeline}: ${b.engineRef} ${b.slot}`, b.from ?? "(none)", b.to ?? "(none)"]), ["Binding", "Was", "Now"]));
     }
     if (payload.surface.length > 0) {
       blocks.push(out.table(payload.surface.map((c) => [c.skill, c.from, c.to]), ["Skill", "Was", "Now"]));
@@ -2519,7 +2692,7 @@ function stageNamesFor(flags: SurfaceFlags, packDir: string): Set<string> {
     }
   }
   try {
-    return new Set(stageRoster(readManifestPipelines(manifest)).map((v) => v.name));
+    return new Set(stageRoster(readManifestPipelines(manifest), readManifestPipelineBindings(manifest), readManifestBindings(manifest)).map((v) => v.name));
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
@@ -3000,6 +3173,7 @@ type BindFlags = {
   packDir: string | null;
   mattstackDir: string | null;
   json: boolean;
+  pipeline: string | null;
 };
 
 function parseBindFlags(args: string[]): BindFlags {
@@ -3010,6 +3184,7 @@ function parseBindFlags(args: string[]): BindFlags {
   let packDir: string | null = null;
   let mattstackDir: string | null = null;
   let json = false;
+  let pipeline: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -3022,12 +3197,13 @@ function parseBindFlags(args: string[]): BindFlags {
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;
       case "--json": json = true; break;
+      case "--pipeline": pipeline = requireFlagValue("--pipeline", args[++i]); break;
       default:
         throw new SkillsUsageError(`unrecognized argument "${a}"`);
     }
   }
 
-  return { team, manifest, repo, dryRun, packDir, mattstackDir, json };
+  return { team, manifest, repo, dryRun, packDir, mattstackDir, json, pipeline };
 }
 
 type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: string[] };
@@ -3039,9 +3215,9 @@ type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: 
  * skillsBind falls through to its existing error -- the non-TTY / --json paths
  * never call this and stay byte-for-byte unchanged.
  */
-/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
+/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir/--pipeline). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
 function separateBindArgs(args: string[]): { positionals: string[]; flagArgs: string[] } {
-  const valued = new Set(["--pack", "--team", "--manifest", "--repo", "--pack-dir", "--mattstack-dir"]);
+  const valued = new Set(["--pack", "--team", "--manifest", "--repo", "--pack-dir", "--mattstack-dir", "--pipeline"]);
   const positionals: string[] = [];
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -3087,7 +3263,7 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
       options.push({ value: v.name, label: v.name, hint: `verb  -> ${v.engine}` });
     }
     for (const s of resolved.stages) {
-      if (seen.has(s.name)) continue;
+      if (seen.has(s.name) || s.pipeline !== undefined) continue;
       options.push({ value: s.name, label: s.name, hint: `stage  -> ${s.engine}` });
     }
     if (options.length === 0) return null;
@@ -3159,13 +3335,24 @@ export async function applyBind(opts: {
   engineRef: string;
   slotName: string;
   fill: string;
+  pipeline: string | null;
   fixtureMode: boolean;
   materialize: () => Promise<RegenerateOutcome>;
 }): Promise<BindOutcome> {
-  const edit = (text: string) =>
-    applyEdits(text, modify(text, ["bindings", opts.engineRef, opts.slotName], opts.fill, {
-      formattingOptions: { insertSpaces: true, tabSize: 2 },
-    }));
+  const formattingOptions = { insertSpaces: true, tabSize: 2 };
+  const edit = (text: string) => {
+    if (opts.pipeline === null) {
+      return applyEdits(text, modify(text, ["bindings", opts.engineRef, opts.slotName], opts.fill, { formattingOptions }));
+    }
+    const pipelinePath = ["pipelines", opts.pipeline];
+    const root = parseTree(text);
+    const current = root ? findNodeAtLocation(root, pipelinePath) : undefined;
+    // A plain-list pipeline has no key for bindings; it becomes the object form first.
+    const objectForm = current?.type === "array"
+      ? applyEdits(text, modify(text, pipelinePath, { stages: getNodeValue(current) }, { formattingOptions }))
+      : text;
+    return applyEdits(objectForm, modify(objectForm, [...pipelinePath, "bindings", opts.engineRef, opts.slotName], opts.fill, { formattingOptions }));
+  };
   const writeManifestOnly = (): { fragmentUpdated: null; shadowedBy: null } => {
     writeFileSync(opts.manifestPath, edit(readFileSync(opts.manifestPath, "utf8")));
     return { fragmentUpdated: null, shadowedBy: null };
@@ -3198,11 +3385,15 @@ export async function applyBind(opts: {
     return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: false, regenerateDetail: regen.detail };
   }
 
-  if (readManifestBindings(opts.manifestPath)[opts.engineRef]?.[opts.slotName] === opts.fill) {
+  const landed = opts.pipeline === null
+    ? readManifestBindings(opts.manifestPath)[opts.engineRef]?.[opts.slotName]
+    : readManifestPipelineBindings(opts.manifestPath)[opts.pipeline]?.[opts.engineRef]?.[opts.slotName];
+  if (landed === opts.fill) {
     return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: true };
   }
   const provenance = readManifestProvenance(readFileSync(opts.manifestPath, "utf8"));
-  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[`${opts.engineRef} ${opts.slotName}`] ?? "another layer", regenerated: true };
+  const key = opts.pipeline === null ? `${opts.engineRef} ${opts.slotName}` : pipelineBindingKey(opts.pipeline, opts.engineRef, opts.slotName);
+  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[key] ?? "another layer", regenerated: true };
 }
 
 function samePath(a: string, b: string): boolean {
@@ -3264,7 +3455,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       }
     }
     if (!verbName || !slotName || !fill) {
-      throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>", usageFailure("Bind which verb, slot and fill?", "rt skills bind <verb> <slot> <fill>"));
+      throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>", usageFailure("Bind which verb, slot and fill?", "rt skills bind <verb> <slot> <fill> [--pipeline <name>]"));
     }
 
     const bindFlags = parseBindFlags(rest);
@@ -3281,11 +3472,21 @@ export async function skillsBind(args: string[]): Promise<void> {
       strict: false,
       bind: true,
     });
+    const pipeline = bindFlags.pipeline;
+    if (pipeline !== null && !Object.hasOwn(resolved.pipelines, pipeline)) {
+      throw new SkillsUsageError(`pipeline "${pipeline}" is not declared in this pack's manifest`);
+    }
+    if (pipeline !== null && !PIPELINE_NAME_RE.test(pipeline)) {
+      throw new SkillsUsageError(`pipeline "${pipeline}" must match [a-z][a-z0-9-]*`);
+    }
 
     // Roster verb wins on a name collision -- resolve() lets compileTargets reject
     // that collision pack-wide, so bind's own tie-break only ever matters for --dry-run.
     const rosterVerb = resolved.fullRoster.find((v) => v.name === verbName);
     const verb = rosterVerb ?? resolved.stages.find((v) => v.name === verbName);
+    if (!rosterVerb && verb?.pipeline !== undefined) {
+      throw new SkillsUsageError(`${verbName} is a compiled copy; bind ${verb.engine} --pipeline ${verb.pipeline} instead`);
+    }
     if (!verb && resolved.base && resolved.fullRoster.length === 0) {
       const fragment = join(resolved.packDir, "pack", "skills.jsonc");
       throw new SkillsUsageError(
@@ -3310,6 +3511,11 @@ export async function skillsBind(args: string[]): Promise<void> {
       step = loadStepSource(verb.engine, resolved.pluginRoots);
     } catch (err) {
       throw new SkillsUsageError(`verb "${verbName}": ${(err as Error).message}`);
+    }
+
+    const engineRef = `${step.plugin}:${verb.engine}`;
+    if (pipeline !== null && !resolved.pipelines[pipeline]!.includes(engineRef)) {
+      throw new SkillsUsageError(`${verbName} is not a stage of pipeline "${pipeline}"`);
     }
 
     const slotSpec = step.slots[slotName];
@@ -3340,21 +3546,24 @@ export async function skillsBind(args: string[]): Promise<void> {
       throw new SkillsUsageError(`pack "${resolved.team}" has no manifest to bind into`);
     }
 
-    const engineRef = `${step.plugin}:${verb.engine}`;
-    const oldValue = resolved.bindings[engineRef]?.[slotName] ?? "(unbound)";
+    const oldValue = pipeline === null
+      ? resolved.bindings[engineRef]?.[slotName] ?? "(unbound)"
+      : effectiveSlotBindings(resolved.bindings, resolved.pipelineBindings[pipeline], engineRef)[slotName] || "(unbound)";
+    const pipelineField = pipeline === null ? {} : { pipeline };
+    const label = pipeline === null ? verbName : `${pipeline}: ${verbName}`;
     if (!bindFlags.dryRun) {
       try {
         refuseUnlessPackOwned(resolved.packDir);
       } catch (err) {
         if (!(err instanceof SkillsRefusal) || !bindFlags.json) throw err;
-        out.json({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated: null, shadowedBy: null, compileErrors: [err.message] });
+        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill, fragmentUpdated: null, shadowedBy: null, compileErrors: [err.message] });
         process.exit(2);
       }
     }
-    const bound = { verb: verbName, slot: slotName, from: oldValue, to: fill, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null };
+    const bound = { verb: label, slot: slotName, from: oldValue, to: fill, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null };
 
     if (bindFlags.dryRun) {
-      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, slot: slotName, from: oldValue, to: fill });
+      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill });
       else out.print(...bindBlocks(bound));
       return;
     }
@@ -3366,12 +3575,13 @@ export async function skillsBind(args: string[]): Promise<void> {
       engineRef,
       slotName,
       fill,
+      pipeline,
       fixtureMode: bindFlags.mattstackDir !== null,
       materialize: () => regeneratePackFile(manifestPath),
     });
     if (resolved.base) {
       if (bindFlags.json) {
-        out.json({ ok: true, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true });
+        out.json({ ok: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true });
         return;
       }
       out.print(...bindBlocks({ ...bound, basePack: resolved.team }));
@@ -3381,19 +3591,20 @@ export async function skillsBind(args: string[]): Promise<void> {
     if (regenerated === false) {
       process.exitCode = 1;
       if (bindFlags.json) {
-        out.json({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
+        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
         return;
       }
       out.print(...bindBlocks({ ...bound, fragmentUpdated }));
       out.fail({ title: "The bindings file was not rebuilt, so nothing was recompiled", ...(regenerateDetail ? { why: regenerateDetail } : {}), next: out.cmd("rt skills materialize") });
       return;
     }
-    if (shadowedBy) out.note(...shadowWarning(verbName, slotName, shadowedBy, manifestPath));
+    if (shadowedBy) out.note(...shadowWarning(label, slotName, shadowedBy, manifestPath));
 
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every
     // orchestrator's SKILL.md stale, so a stage bind recompiles the whole pack.
-    const verbFilter = rosterVerb ? [verbName] : null;
+    // Verbs on one engine share its binding key, so they all read the new fill.
+    const verbFilter = rosterVerb ? resolved.fullRoster.filter((v) => v.engine === rosterVerb.engine).map((v) => v.name) : null;
 
     if (bindFlags.json) {
       // The recompile runs through compilePackAll, not skillsCompile, so its
@@ -3411,6 +3622,7 @@ export async function skillsBind(args: string[]): Promise<void> {
         ok: compileResult.ok,
         verb: verbName,
         slot: slotName,
+        ...pipelineField,
         from: oldValue,
         to: fill,
         fragmentUpdated,
@@ -3432,7 +3644,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       repo: null,
       json: false,
     };
-    const recompileArgs = verbFilter ? [...compileArgs(surfaceFlags, resolved.packDir), "--verb", verbName] : compileArgs(surfaceFlags, resolved.packDir);
+    const recompileArgs = [...compileArgs(surfaceFlags, resolved.packDir), ...(verbFilter ?? []).flatMap((name) => ["--verb", name])];
     await skillsCompile(recompileArgs);
   });
 }

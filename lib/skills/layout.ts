@@ -1,4 +1,5 @@
 import { join } from "path";
+import { stageCopyName } from "./pipelines.ts";
 import { loadStepSource, parseStageQualifiedName, type PluginRoots } from "./sources.ts";
 import type { Side, StageEntry, StepSource, VerbDef } from "./types.ts";
 
@@ -23,10 +24,11 @@ export function hostDir(name: string, side: Side): string {
  * here is always a sibling path relative to the orchestrator's own
  * ${CLAUDE_SKILL_DIR}, never packDir-relative, and it names the side the
  * stage is emitted to: skills/ when the surface lists it public, else
- * attachments/.
+ * attachments/. A pipeline whose copy of a stage is in `copies` gets the
+ * copy's name and dir; `engine` stays the stage the copy compiles.
  */
 export function buildStageEntries(
-  input: Pick<Resolved, "pipelines" | "pluginRoots"> & { publicSet: Set<string> | null },
+  input: Pick<Resolved, "pipelines" | "pluginRoots"> & { publicSet: Set<string> | null; copies: Set<string> },
 ): Record<string, StageEntry[]> {
   const out: Record<string, StageEntry[]> = {};
   for (const [type, names] of Object.entries(input.pipelines)) {
@@ -46,10 +48,13 @@ export function buildStageEntries(
       if (!step.stageMeta) {
         throw new Error(`pipeline "${type}": "${name}" has no metadata.stage; it cannot appear in a pipeline`);
       }
+      const copy = stageCopyName(name, type);
+      const target = input.copies.has(copy) ? copy : name;
       return {
-        name,
+        name: target,
+        engine: name,
         stage: step.stageMeta.stage,
-        dir: hostDir(name, input.publicSet?.has(name) ? "skills" : "attachments"),
+        dir: hostDir(target, input.publicSet?.has(target) ? "skills" : "attachments"),
         consumes: step.stageMeta.consumes,
         produces: step.stageMeta.produces,
       };

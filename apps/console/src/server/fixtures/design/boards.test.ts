@@ -176,11 +176,19 @@ describe('fixture payloads match the input-card board', () => {
     ].map(m => [m[1], Number(/L(\d+)/.exec(m[2]!)![1])] as const);
     expect(rows).toHaveLength(14);
 
+    // The board predates the accessibility pipeline, so it draws neither
+    // the verb that runs it nor its stage copy.
+    const specialized = new Set(
+      composition.verbs.filter(v => 'pipeline' in v).map(v => v.name)
+    );
     const pasting = composition.targets
-      .filter(t =>
-        t.placeholders.some(
-          p => p.kind === 'include' && p.arg === 'gate-protocol'
-        )
+      .filter(
+        t =>
+          !('engine' in t) &&
+          !specialized.has(t.name) &&
+          t.placeholders.some(
+            p => p.kind === 'include' && p.arg === 'gate-protocol'
+          )
       )
       .map(t => t.name);
     expect(new Set(pasting)).toEqual(new Set(rows.map(([name]) => name)));

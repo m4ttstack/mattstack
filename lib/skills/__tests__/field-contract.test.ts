@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { FIELD_CONTRACT_SEVERITY, fieldContractErrors, routeFieldContract, scanFieldUses, setFieldContractSeverityForTest, sourceOf } from "../field-contract.ts";
 import type { StageEntry } from "../types.ts";
 
-const entry = (produces: string[]): StageEntry => ({ name: "s", stage: "s", dir: "d", consumes: [], produces });
+const entry = (produces: string[]): StageEntry => ({ name: "s", engine: "s", stage: "s", dir: "d", consumes: [], produces });
 
 describe("scanFieldUses", () => {
   test("scans a dot-label read", () => {

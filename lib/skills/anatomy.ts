@@ -73,8 +73,12 @@ export function buildParts(input: BuildPartsInput): AnatomyPart[] {
       continue;
     }
     flush();
-    const rendered: [number, number] | null = e.outCount === 0 ? null : [input.bodyOffset + e.outStart + 1, input.bodyOffset + e.outStart + e.outCount];
-    for (const p of e.placeholders) parts.push(placeholderPart(p.kind, p.arg, input.bodyStartLine + e.templateIndex, rendered, input));
+    const start = input.bodyOffset + e.outStart;
+    const rendered: [number, number] | null = e.outCount === 0 ? null : [start + 1, start + e.outCount];
+    for (const p of e.placeholders) {
+      const own: [number, number] | null = p.line === undefined ? rendered : [start + p.line + 1, start + p.line + 1];
+      parts.push(placeholderPart(p.kind, p.arg, input.bodyStartLine + e.templateIndex, own, input));
+    }
   }
   flush();
   return parts;

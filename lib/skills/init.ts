@@ -269,13 +269,16 @@ export function renderPackFiles(opts: { pack: string; workDescription: string })
     "pack/stubs.jsonc":
       "// Verb roster: rt skills compile renders one skill per entry from the named\n" +
       "// mattstack engine. Each description here is a placeholder seeded from the\n" +
-      "// engine; rewrite it in your team's words.\n" +
+      "// engine; rewrite it in your team's words. A work-<kind> verb runs a\n" +
+      "// specialized pipeline it names with \"pipeline\": see mattstack:extending-a-pack.\n" +
       JSON.stringify(stubs, null, 2) + "\n",
     "pack/skills.jsonc":
       `// ${pack} bindings fragment. rt skills materialize layers it under mattstack's\n` +
       "// defaults and over any base pack into the per-pack file at\n" +
       `// ~/.mattstack/repos/<repo>/packs/${pack}/skills.jsonc. Every domain slot is\n` +
       "// optional; bind one with rt skills bind (see mattstack:extending-a-pack).\n" +
+      "// The seed declares one pipeline, feature. To give a kind of work its own\n" +
+      "// stages or fills, add a specialized pipeline with mattstack:extending-a-pack.\n" +
       JSON.stringify(manifest, null, 2) + "\n",
   };
 }

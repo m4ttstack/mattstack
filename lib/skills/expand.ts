@@ -69,6 +69,7 @@ function includeOnlyContext(includes: Record<string, AttachmentSource>): Placeho
     verbSides: {},
     side: "skills",
     packRoot: null,
+    pipeline: null,
   };
 }
 

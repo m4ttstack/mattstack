@@ -107,6 +107,21 @@ describe("setupPackFlow", () => {
     });
   });
 
+  test("an object-form pipeline counts its stages and checks them with its own overrides", async () => {
+    registerRepo(home);
+    const stages = ["stage-a", "stage-b", "stage-c", "stage-d", "stage-e", "stage-f", "stage-g", "stage-x"];
+    const feature = (override: string) => ({ stages, bindings: { "stage-x": { domain: override } } });
+    const ready = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "stage-x": { domain: "acme:x" } }, { feature: feature("acme:y") }) }) });
+    expect(await setupPackFlow(makeCtx(ready, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `8 stages resolved for feature work` });
+
+    const unbound = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "stage-x": { domain: "acme:x" } }, { feature: feature("") }) }) });
+    expect(await setupPackFlow(makeCtx(unbound, { reqs: widgets("feature") }))).toEqual({
+      ok: false,
+      stage: "stage-x",
+      detail: `The stage-x stage has no skill bound to it`,
+    });
+  });
+
   test("no pack file for the requirements' pack -> NO_MANIFEST_DETAIL", async () => {
     registerRepo(home);
     const p = fakeProbes({ home, ...materializeWorld(home) });

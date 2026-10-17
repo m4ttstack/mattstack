@@ -36,12 +36,31 @@
       "type": "object",
       "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
       "additionalProperties": {
-        "type": "array",
-        "items": { "$ref": "#/definitions/skillName" },
-        "minItems": 1
+        "oneOf": [
+          {
+            "type": "array",
+            "items": { "$ref": "#/definitions/skillName" },
+            "minItems": 1
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "stages": {
+                "type": "array",
+                "items": { "$ref": "#/definitions/skillName" },
+                "minItems": 1
+              },
+              "bindings": { "$ref": "#/definitions/bindings" }
+            }
+          }
+        ]
       },
-      "description": "Stage roster for compile (work type -> stage skills). The work orchestrator's order is fixed; a pack lists all eight stage-* engines."
+      "description": "Stage roster for compile (pipeline name -> stage skills). A pipeline a work verb runs starts with stage-provision, ends with stage-watch-ci, and includes stage-implement and stage-ship; any other pipeline takes any order the chain check accepts. A pipeline is a plain list of stages, or an object with its stages and its own bindings, which override the top-level bindings per slot for that pipeline only."
     },
+    "bindings": { "$ref": "#/definitions/bindings" }
+  },
+  "definitions": {
     "bindings": {
       "type": "object",
       "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$" },
@@ -52,9 +71,7 @@
         "description": "Slot name -> inner skill name, for one wrapper skill."
       },
       "description": "Wrapper skill name -> slot bindings. The only section resolve-args.sh reads."
-    }
-  },
-  "definitions": {
+    },
     "skillName": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$",

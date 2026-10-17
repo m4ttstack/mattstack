@@ -13,9 +13,9 @@ slots:
 
 # work -- the pipeline orchestrator
 
-You run one unit of work through eight stages. The graph below is the run:
-follow its edges, and treat a move it does not show as a question for a
-gate, never as a judgment call. Reads through the read tools and
+You run one unit of work through the stages below. The graph below is the
+run: follow its edges, and treat a move it does not show as a question for
+a gate, never as a judgment call. Reads through the read tools and
 `gitlab_get` are part of the step that needs them, not moves. Every `run_*`
 call passes `runDb`.
 
@@ -24,16 +24,7 @@ call passes `runDb`.
 Walk them in this order. Each file sits beside this one; read it when its
 stage starts, and follow it.
 
-| Stage | Read | Consumes | Produces |
-|---|---|---|---|
-| `provision` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-provision}}` | `ticket` `repo` | `branch` `worktree` |
-| `plan` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-plan}}` | `ticket` | `approach` `evidence-plan` |
-| `gates` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-gates}}` | `approach` `worktree` | nothing |
-| `evidence` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-evidence}}` | `evidence-plan` `worktree` | `evidence` |
-| `implement` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-implement}}` | `approach` `branch` `worktree` | `commits` |
-| `self-review` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-self-review}}` | `commits` | `review` |
-| `ship` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-ship}}` | `commits` `ticket` | `mr` |
-| `watch-ci` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-watch-ci}}` | `mr` `branch` | `ci` |
+{{pipeline.table}}
 
 `run_start` takes these flags verbatim:
 
@@ -45,7 +36,7 @@ digraph work {
 
     "Request: run this unit of work" [shape=ellipse];
     "Existing work, and no runDb in context?" [shape=diamond];
-    "run_list {repo}" [shape=plaintext];
+    "run_list {repo, pipelines}" [shape=plaintext];
     "Newest running run in this repo?" [shape=diamond];
     "Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold" [shape=box];
     "clarify answer?" [shape=diamond];
@@ -99,9 +90,9 @@ digraph work {
     "Run done" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Request: run this unit of work" -> "Existing work, and no runDb in context?";
-    "Existing work, and no runDb in context?" -> "run_list {repo}" [label="yes"];
+    "Existing work, and no runDb in context?" -> "run_list {repo, pipelines}" [label="yes"];
     "Existing work, and no runDb in context?" -> "run_start {flags, skillDir, ticket?, spawnedBy?}" [label="no: new work"];
-    "run_list {repo}" -> "Newest running run in this repo?";
+    "run_list {repo, pipelines}" -> "Newest running run in this repo?";
     "Newest running run in this repo?" -> "Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold" [label="found"];
     "Newest running run in this repo?" -> "run_start {flags, skillDir, ticket?, spawnedBy?}" [label="none"];
     "Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold" -> "clarify answer?";
@@ -172,10 +163,9 @@ digraph work {
 - **Tracker.** For Linear: `save_issue` with state In Progress and
   assignee `me`. Never fabricate a ticket.
 - **pipeline-stages** is the Stage column of the table above, in order,
-  joined by single spaces (`provision plan gates evidence implement
-  self-review ship watch-ci`). It is
-  written once per new run, right after `run_start`, so the console shows
-  stages that have not started. A resumed run already holds it.
+  joined by single spaces. It is written once per new run, right after
+  `run_start`, so the console shows stages that have not started. A
+  resumed run already holds it.
 - **skillDir** is this skill's own directory, `${CLAUDE_SKILL_DIR}`, as an
   absolute path, passed to `run_start`.
 - **Resume path.** `runDb` is `<absolute home>/.mattstack/runs/<repo>/<id>/state.db`,
@@ -183,6 +173,7 @@ digraph work {
   `run_list` row's `id`; the run tools refuse `~` and relative paths. An
   error naming a different runs root wins. Decided questions stay decided.
   Starting fresh leaves the found run's own status untouched.
+- **Resume filter.** `run_list`'s `pipelines` is {{run-list.pipelines}}; only those runs are offered to resume.
 - **State lives in the DB.** `run_field_set` and `run_snapshot` state
   survives context compaction; carrying it forward in prose instead does
   not.

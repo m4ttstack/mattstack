@@ -78,4 +78,40 @@ describe('EarlierList', () => {
     expect(row).not.toHaveTextContent(/evidence/);
     expect(row).not.toHaveTextContent('—');
   });
+
+  it("names each row's pipeline, falling back to the work type when rt recorded none", () => {
+    const runs = [
+      storyRun({
+        id: 'a11y',
+        ticket: 'WEB-404',
+        work_type: 'work',
+        pipeline: 'accessibility',
+        status: 'done',
+        started_at: at(9, 0),
+        ended_at: at(10, 0),
+      }),
+      storyRun({
+        id: 'legacy',
+        ticket: 'WEB-405',
+        work_type: 'work',
+        pipeline: '',
+        status: 'done',
+        started_at: at(11, 0),
+        ended_at: at(12, 0),
+      }),
+    ];
+    renderWithProviders(
+      <EarlierList
+        groups={dayGroups(runs, STORY_NOW)}
+        info={info}
+        now={STORY_NOW}
+      />
+    );
+    expect(screen.getByTestId('run-row-a11y')).toHaveTextContent(
+      'accessibility pipeline'
+    );
+    expect(
+      screen.getByTestId('run-row-legacy').querySelector('[data-parity="sub"]')
+    ).toHaveTextContent(/^work pipeline$/);
+  });
 });

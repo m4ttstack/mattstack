@@ -1,0 +1,24 @@
+### Work verbs and their pipelines
+
+Each work verb in `pack/stubs.jsonc` runs one pipeline from the manifest. A `work-<kind>` verb names its pipeline; plain `work` runs the pack's only pipeline when there is one, else `feature`:
+
+```jsonc
+{
+  "verbs": {
+    "work": { "engine": "work", "description": "Use when running a unit of work end to end" },
+    "work-a11y": {
+      "engine": "work",
+      "pipeline": "accessibility",
+      "description": "Use when running accessibility work end to end"
+    }
+  }
+}
+```
+
+Compile builds each work verb's stage table from its own pipeline, and the verb starts its runs with `--pipeline <name>`. A verb resumes only runs of its own pipeline.
+
+### Stage copies
+
+A stage compiles once, with the default fills. Where a pipeline's overrides give a stage different fills, compile also writes a copy named `<stage>--<pipeline>` (`attachments/stage-evidence--accessibility/`), and that pipeline's work verb points at the copy. Two pipelines never share a copy.
+
+Copies are compiled output: never edit one. Change it through its fill or `rt skills bind --pipeline`. When a pipeline's fills match the default again, compile removes the copy.

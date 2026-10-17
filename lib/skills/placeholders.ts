@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "fs";
 import { join, posix } from "path";
+import { defaultPipeline } from "./pipelines.ts";
 import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
 export type Placeholder = { kind: string; arg: string | null; line: number; raw: string };
@@ -126,6 +127,11 @@ export function substituteAttachmentPlaceholders(body: string, opts: AttachmentR
   });
 }
 
+/** `engine` stays out so a pack with no stage copies compiles the same bytes it always has. */
+function stageTableJson(pipelines: Record<string, StageEntry[]>): Record<string, Omit<StageEntry, "engine">[]> {
+  return Object.fromEntries(Object.entries(pipelines).map(([type, list]) => [type, list.map(({ engine: _engine, ...entry }) => entry)]));
+}
+
 function workTypeText(pipelines: Record<string, StageEntry[]>, where: string): string {
   const types = Object.keys(pipelines);
   if (types.length === 0) throw new Error(`${where}: {{work-type}} cannot be filled -- the manifest declares no pipelines`);
@@ -144,13 +150,39 @@ function runStartFlags(ctx: PlaceholderContext, arg: string | undefined, raw: st
   const tail = `${sha} --mattstack-dirty ${ctx.mattstackDirty}${pack}`;
   if (arg !== undefined) {
     if (!VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- verb must match [a-z][a-z0-9-]*`);
-    return fenced({ [arg]: `--repo ${ctx.repoKey} --work-type ${arg} --pipeline ${arg}${tail}` });
+    return fenced({ [arg]: `--repo ${ctx.repoKey} --work-type ${arg} --pipeline ${ctx.pipeline ?? arg}${tail}` });
   }
   const out: Record<string, string> = {};
   for (const t of Object.keys(ctx.pipelines)) {
     out[t] = `--repo ${ctx.repoKey} --work-type ${t} --pipeline ${t}${tail}`;
   }
   return fenced(out);
+}
+
+const TABLE_HEADER = ["| Stage | Read | Consumes | Produces |", "|---|---|---|---|"];
+
+function tableEntries(ctx: PlaceholderContext, where: string): StageEntry[] {
+  if (ctx.pipeline === null) throw new Error(`${where}: {{pipeline.table}} used by a verb with no pipeline`);
+  const list = Object.hasOwn(ctx.pipelines, ctx.pipeline) ? ctx.pipelines[ctx.pipeline] : undefined;
+  if (!list) throw new Error(`${where}: {{pipeline.table}} runs pipeline "${ctx.pipeline}", which the manifest does not declare`);
+  return list;
+}
+
+function pipelineTable(ctx: PlaceholderContext, where: string): string {
+  const names = (xs: string[]) => (xs.length > 0 ? xs.map((x) => `\`${x}\``).join(" ") : "nothing");
+  const rows = tableEntries(ctx, where).map((e) => {
+    const read = `${SKILL_DIR_TOKEN}/${verbPath(ctx, e.name, `{{verb.path:${e.name}}}`, where)}`;
+    return `| \`${e.stage}\` | \`${read}\` | ${names(e.consumes)} | ${names(e.produces)} |`;
+  });
+  return [...TABLE_HEADER, ...rows].join("\n");
+}
+
+/** Runs recorded before work verbs named a pipeline stored `work`, and those belong to the default pipeline. */
+function runListPipelines(ctx: PlaceholderContext, where: string): string {
+  if (ctx.pipeline === null) throw new Error(`${where}: {{run-list.pipelines}} used by a verb with no pipeline`);
+  const names = new Set([ctx.pipeline]);
+  if (ctx.pipeline === defaultPipeline(ctx.pipelines)) names.add("work");
+  return [...names].map((n) => `\`${n}\``).join(", ");
 }
 
 /** A reading path from the current output file to a sibling target's SKILL.md: relative to this file, never a shell path. */
@@ -228,15 +260,21 @@ function stageFields(meta: NonNullable<PlaceholderContext["stageMeta"]>): string
 
 export type Used = { slots: string[]; includes: string[]; packPaths: string[] };
 
+/** `line`, when set, is the one rendered row the placeholder owns, counted from the entry's `outStart`. */
+export type TracePlaceholder = { kind: string; arg: string | null; line?: number };
+
 export type TraceEntry = {
   templateIndex: number;
   outStart: number;
   outCount: number;
-  placeholders: { kind: string; arg: string | null }[];
+  placeholders: TracePlaceholder[];
 };
 
-function placeholdersIn(line: string): { kind: string; arg: string | null }[] {
-  return [...line.matchAll(PLACEHOLDER_RE)].map((m) => ({ kind: m[1]!, arg: m[2] ?? null }));
+/** A `{{pipeline.table}}` line traces as one `verb.path` per row, so the console keeps a stage link per row. */
+function placeholdersIn(line: string, ctx: PlaceholderContext, where: string): TracePlaceholder[] {
+  return [...line.matchAll(PLACEHOLDER_RE)].flatMap((m): TracePlaceholder[] => m[1] === "pipeline.table"
+    ? tableEntries(ctx, where).map((e, row) => ({ kind: "verb.path", arg: e.name, line: TABLE_HEADER.length + row }))
+    : [{ kind: m[1]!, arg: m[2] ?? null }]);
 }
 
 const HEADING_RE = /^#{1,6}\s/;
@@ -278,7 +316,14 @@ function substituteLine(line: string, i: number, ctx: PlaceholderContext, where:
         used.includes.push(arg);
         return includeText(arg, inc, ctx);
       }
-      case "pipeline.stages": return fenced(ctx.pipelines);
+      case "pipeline.stages": return fenced(stageTableJson(ctx.pipelines));
+      case "pipeline.table":
+        if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
+        if (arg !== undefined) throw new Error(`${where}: ${raw} takes no argument`);
+        return pipelineTable(ctx, where);
+      case "run-list.pipelines":
+        if (arg !== undefined) throw new Error(`${where}: ${raw} takes no argument`);
+        return runListPipelines(ctx, where);
       case "work-type": return workTypeText(ctx.pipelines, where);
       case "run-start.flags": return runStartFlags(ctx, arg, raw, where);
       case "verb.path": return verbPath(ctx, arg, raw, where);
@@ -328,7 +373,7 @@ export function substitute(
     }
     const rendered = substituteLine(line, i, ctx, where, used);
     const outCount = rendered.split("\n").length;
-    trace?.({ templateIndex: i, outStart: outLines, outCount, placeholders: placeholdersIn(line) });
+    trace?.({ templateIndex: i, outStart: outLines, outCount, placeholders: placeholdersIn(line, ctx, where) });
     outLines += outCount;
     out.push(rendered);
   }

@@ -74,10 +74,11 @@ export function parseWiringUrl(search: string): WiringUrl {
   };
 }
 
-/** `:` stays literal: refs read as `pipeline:feature` in a shared link, and a
-    colon is legal in a query string. */
+/** `:` and `@` stay literal: refs read as `pipeline:feature` and steps as
+    `stage-plan@accessibility` in a shared link, and both are legal in a
+    query string. */
 function encodeValue(value: string): string {
-  return encodeURIComponent(value).replace(/%3A/g, ':');
+  return encodeURIComponent(value).replace(/%3A/g, ':').replace(/%40/g, '@');
 }
 
 /**

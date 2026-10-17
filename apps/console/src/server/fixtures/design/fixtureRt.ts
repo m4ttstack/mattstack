@@ -38,7 +38,13 @@ export interface FixtureRt {
 const FIXTURE_PACK = 'acme';
 const FIXTURE_ROOT = '/fixture';
 const PACK_DIR = `${FIXTURE_ROOT}/packs/${FIXTURE_PACK}`;
-const SKILLS_WITH_ANATOMY = new Set(['work', 'stage-plan']);
+const SKILLS_WITH_ANATOMY = new Set([
+  'work',
+  'work-a11y',
+  'stage-plan',
+  'stage-evidence',
+  'stage-evidence--accessibility',
+]);
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const FILES = join(HERE, 'files');
@@ -174,6 +180,8 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
     if (flagValue(argv, '--pack') !== FIXTURE_PACK) return refuse(argv);
 
     if (verb === 'bind' && argv.length === 7) return answer('');
+    if (verb === 'bind' && argv.length === 9 && flagValue(argv, '--pipeline'))
+      return answer('');
     if (!argv.includes('--json')) return refuse(argv);
     switch (verb) {
       case 'composition':

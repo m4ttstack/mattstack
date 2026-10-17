@@ -36,7 +36,11 @@ import {
   type DrawerTab,
   type DrawerTarget,
 } from '../model/drawerContent';
-import type { FocusGroups, FocusItem } from '../model/focusModel';
+import {
+  workTypeOf,
+  type FocusGroups,
+  type FocusItem,
+} from '../model/focusModel';
 import type { TemplateView } from '../model/templateModel';
 import { StatusDot } from '../StatusDot';
 import type { WiringUrl, WiringView } from '../useWiringUrl';
@@ -477,6 +481,7 @@ export function SkillDrawer({
           skill={anatomy.skill}
           skillRef={anatomy.template.ref}
           slot={slot.name}
+          workType={pipeline ? workTypeOf(pipeline.key) : null}
           composition={composition}
           onDone={() => setUrl({ rebind: false })}
         />

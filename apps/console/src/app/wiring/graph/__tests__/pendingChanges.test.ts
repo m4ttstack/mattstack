@@ -196,6 +196,70 @@ describe('pendingChangesOf', () => {
   });
 });
 
+describe('pendingChangesOf: a pipeline override', () => {
+  const evidence = (pipeline?: string) => ({
+    engineRef: 'mattstack:stage-evidence',
+    slot: 'domain',
+    from: 'acme:evidence-policy',
+    to: 'acme:evidence-a11y',
+    ...(pipeline ? { pipeline } : {}),
+  });
+  const changesWith = (
+    bindings: SkillsChanges['bindings'],
+    files: SkillsChanges['files'] = []
+  ): SkillsChanges => ({
+    ...designFixture('changes.clean'),
+    dirty: true,
+    bindings,
+    files: [{ path: 'pack/skills.jsonc', status: 'M', hash: HASH }, ...files],
+  });
+
+  it('labels the row with its slot and pipeline', () => {
+    expect(
+      pendingChangesOf(changesWith([evidence('accessibility')]), composition)
+    ).toEqual([
+      {
+        key: 'binding:accessibility:mattstack:stage-evidence:domain',
+        name: 'evidence',
+        detail: 'domain · accessibility: evidence-policy → evidence-a11y',
+      },
+    ]);
+  });
+
+  it('keeps a default change and an override change on one slot as two rows', () => {
+    const rows = pendingChangesOf(
+      changesWith([evidence(), evidence('accessibility')]),
+      composition
+    );
+    expect(rows.map(row => row.key)).toEqual([
+      'binding::mattstack:stage-evidence:domain',
+      'binding:accessibility:mattstack:stage-evidence:domain',
+    ]);
+  });
+
+  it("hides the copy's rebuilt output, which the override explains", () => {
+    expect(
+      names(
+        changesWith(
+          [evidence('accessibility')],
+          [
+            {
+              path: 'attachments/stage-evidence--accessibility/SKILL.md',
+              status: 'M',
+              hash: HASH,
+            },
+            {
+              path: 'attachments/stage-evidence/SKILL.md',
+              status: 'M',
+              hash: HASH,
+            },
+          ]
+        )
+      )
+    ).toEqual(['evidence', 'attachments/stage-evidence/SKILL.md']);
+  });
+});
+
 describe('sameChanges', () => {
   const base = rebind([
     { path: 'attachments/notes.md', status: '??', hash: HASH },
@@ -238,6 +302,10 @@ describe('sameChanges', () => {
     [
       'a surface change',
       { surface: [{ skill: 'review', from: 'public', to: 'internal' }] },
+    ],
+    [
+      "a binding's pipeline",
+      { bindings: [{ ...base.bindings[0]!, pipeline: 'accessibility' }] },
     ],
     [
       "a file's content, which only rt's signature carries",

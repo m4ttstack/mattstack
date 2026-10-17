@@ -284,6 +284,12 @@ The `work` verb's description in `pack/stubs.jsonc` is a placeholder seeded
 from the engine. Rewording it in the team's words is the first, smallest
 edit; `mattstack:extending-a-pack` covers it.
 
+The seed declares one pipeline, `feature`, and plain `work` runs it. A kind
+of work that needs its own stages or fills (accessibility, a bug fix) gets
+a specialized pipeline and its own `work-<kind>` verb later, through the
+recipe Add a specialized pipeline in `mattstack:extending-a-pack`, once
+this first `feature` run has reported back.
+
 ### Ask the author to type /reload-plugins, then paste tryNext
 
 `/reload-plugins` loads the new pack in the author's session in place.

@@ -712,4 +712,47 @@ describe('stage-doc route', () => {
     // The format check runs before the run is even looked up.
     expect(vi.mocked(rt.getRun).mock.calls.length).toBe(getRunCallsBefore);
   });
+
+  it("serves the run's own pipeline copy of a stage doc", async () => {
+    vi.mocked(rt.getRun).mockResolvedValue({
+      ok: true,
+      data: baseDetail({
+        run: baseRun({
+          pipeline: 'accessibility',
+          pack_commits: 'acme=59b90cd',
+        }),
+      }),
+    });
+    const tree = [
+      'attachments/stage-evidence/SKILL.md',
+      'attachments/stage-evidence--accessibility/SKILL.md',
+    ];
+    const git = fakeRun(argv => {
+      if (argv.includes('rev-parse'))
+        return { code: 0, stdout: '/packs/acme\n', stderr: '' };
+      if (argv.includes('cat-file'))
+        return { code: 0, stdout: 'commit\n', stderr: '' };
+      if (argv.includes('ls-tree'))
+        return { code: 0, stdout: tree.join('\n'), stderr: '' };
+      const path = argv.at(-1)!.split(':')[1];
+      return { code: 0, stdout: `TEXT OF ${path}`, stderr: '' };
+    });
+    const app = mountEffectiveInputs(
+      new Hono(),
+      fakeRt({
+        code: 0,
+        stdout: packsStdout([{ name: 'acme', dir: '/packs/acme' }]),
+        stderr: '',
+      }).run,
+      git.run
+    );
+
+    const res = await app.request(
+      '/api/runs/repo-tools/run-1/stage-doc?stage=evidence'
+    );
+
+    await expect(res.json()).resolves.toMatchObject({
+      text: 'TEXT OF attachments/stage-evidence--accessibility/SKILL.md',
+    });
+  });
 });

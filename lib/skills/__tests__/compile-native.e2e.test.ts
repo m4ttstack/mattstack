@@ -1,11 +1,25 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { skillsCompile, skillsCheck } from "../../../commands/skills.ts";
+import { checkPack, skillsBind, skillsCompile, skillsCheck } from "../../../commands/skills.ts";
+import { childEnv } from "../../subprocess.ts";
 import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "compile-native");
+const PIPELINES_FIX = join(import.meta.dir, "fixtures", "compile-pipelines");
+const REAL_ATTACHMENTS = join(import.meta.dir, "..", "..", "..", "plugins", "mattstack", "attachments");
+
+function treeOf(dir: string, prefix = ""): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const name of readdirSync(dir).sort()) {
+    const path = join(dir, name);
+    const rel = prefix ? `${prefix}/${name}` : name;
+    if (statSync(path).isDirectory()) Object.assign(files, treeOf(path, rel));
+    else files[rel] = readFileSync(path, "utf8");
+  }
+  return files;
+}
 
 async function build() {
   const root = mkdtempSync(join(tmpdir(), "rt-e2e-"));
@@ -59,6 +73,11 @@ describe("compile-native end to end", () => {
     expect(plan).toContain(
       "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh",
     );
+  });
+
+  test("no overrides is byte-identical", async () => {
+    const { pack } = await build();
+    expect(treeOf(pack)).toMatchSnapshot();
   });
 
   test("a surface-public stage is referenced at skills/, where it is emitted", async () => {
@@ -309,4 +328,197 @@ describe("pack.path end to end", () => {
     expect(logs.some((l) => l.startsWith("[ok] Compiled stage-plan  "))).toBe(true);
     expect(logs.some((l) => l.startsWith("[ok] Compiled checkout  "))).toBe(true);
   });
+});
+
+/** The real mattstack attachments under a fixture pack with a `feature` pipeline and an `accessibility` one that overrides stage-evidence's fill. */
+function buildPipelines(): { pack: string; ms: string; manifest: string; args: string[] } {
+  const root = mkdtempSync(join(tmpdir(), "rt-e2e-"));
+  cpSync(PIPELINES_FIX, root, { recursive: true });
+  const pack = join(root, "pack");
+  const ms = join(root, "mattstack-home");
+  cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
+  const manifest = join(ms, "repos", "my-repo", "skills.jsonc");
+  return { pack, ms, manifest, args: ["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest] };
+}
+
+const COPY = "stage-evidence--accessibility";
+const CHECK_DOT = join(import.meta.dir, "..", "..", "..", "plugins", "mattstack", "plugin", "skills", "process-digraphs", "check-dot.py");
+
+/** The stage table work/SKILL.md carried by hand before {{pipeline.table}}, rendered. */
+const EIGHT_ROWS = [
+  "| Stage | Read | Consumes | Produces |",
+  "|---|---|---|---|",
+  "| `provision` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-provision/SKILL.md` | `ticket` `repo` | `branch` `worktree` |",
+  "| `plan` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md` | `ticket` | `approach` `evidence-plan` |",
+  "| `gates` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-gates/SKILL.md` | `approach` `worktree` | nothing |",
+  "| `evidence` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-evidence/SKILL.md` | `evidence-plan` `worktree` | `evidence` |",
+  "| `implement` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-implement/SKILL.md` | `approach` `branch` `worktree` | `commits` |",
+  "| `self-review` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-self-review/SKILL.md` | `commits` | `review` |",
+  "| `ship` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-ship/SKILL.md` | `commits` `ticket` | `mr` |",
+  "| `watch-ci` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/SKILL.md` | `mr` `branch` | `ci` |",
+].join("\n");
+
+describe("compile-pipelines", () => {
+  afterEach(() => {
+    process.exitCode = 0;
+  });
+
+  test("per-pipeline fill compiles a copy", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const { errors, exitCode } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+    expect(exitCode).toBeUndefined();
+
+    const stage = readFileSync(join(pack, "attachments", "stage-evidence", "SKILL.md"), "utf8");
+    const copy = readFileSync(join(pack, "attachments", COPY, "SKILL.md"), "utf8");
+    expect(stage).toContain("evidence-a body");
+    expect(stage).not.toContain("evidence-b body");
+    expect(copy).toContain("evidence-b body");
+    expect(copy).not.toContain("evidence-a body");
+  }, 30_000);
+
+  test("pack/pipelines.json points each pipeline at its own stage copy", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const { errors } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+
+    const { pipelines } = JSON.parse(readFileSync(join(pack, "pack", "pipelines.json"), "utf8"));
+    expect(Object.keys(pipelines).sort()).toEqual(["accessibility", "feature"]);
+    const evidence = (pipeline: string) => pipelines[pipeline].find((s: { stage: string }) => s.stage === "evidence");
+    expect(evidence("feature")).toMatchObject({ name: "stage-evidence", file: "attachments/stage-evidence/SKILL.md" });
+    expect(evidence("accessibility")).toMatchObject({ name: COPY, file: `attachments/${COPY}/SKILL.md` });
+    for (const stages of Object.values(pipelines) as { file: string }[][]) {
+      for (const { file } of stages) expect(existsSync(join(pack, file))).toBe(true);
+    }
+    const payload = await checkPack({ packDir: pack, mattstackDir: ms, manifest });
+    expect(payload.compileErrors).toEqual([]);
+    expect(payload.drift).toBe(false);
+  }, 30_000);
+
+  test("work-a11y compiles against its pipeline", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const { errors } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+
+    const a11y = readFileSync(join(pack, "skills", "work-a11y", "SKILL.md"), "utf8");
+    expect(a11y).toContain(EIGHT_ROWS.replace("attachments/stage-evidence/", `attachments/${COPY}/`));
+    expect(a11y).toContain("--work-type work --pipeline accessibility");
+    expect(a11y).toContain("`run_list`'s `pipelines` is `accessibility`; only those runs are offered to resume.");
+  }, 30_000);
+
+  test("plain work runs feature with today's eight rows and digraphs that pass check-dot", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const { errors } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+
+    const workDir = join(pack, "skills", "work");
+    const work = readFileSync(join(workDir, "SKILL.md"), "utf8");
+    expect(work).toContain(EIGHT_ROWS);
+    expect(work).toContain("--work-type work --pipeline feature");
+    expect(work).toContain("`run_list`'s `pipelines` is `feature`, `work`; only those runs are offered to resume.");
+    expect(work).not.toContain("{{");
+
+    if (!Bun.which("dot")) return;
+    const mds = Object.keys(treeOf(workDir)).filter((rel) => rel.endsWith(".md")).map((rel) => join(workDir, rel));
+    const run = Bun.spawnSync(["python3", CHECK_DOT, ...mds], { env: childEnv() });
+    expect(run.stdout.toString() + run.stderr.toString()).toMatch(/graph\(s\) checked, ok, 0 warning\(s\)\n$/);
+    expect(run.exitCode).toBe(0);
+  }, 30_000);
+
+  test("a dropped override removes its copy", async () => {
+    const { pack, ms, manifest, args } = buildPipelines();
+    await compileCapturingLogs(pack, ms, manifest);
+    expect(existsSync(join(pack, "attachments", COPY))).toBe(true);
+
+    writeFileSync(manifest, readFileSync(manifest, "utf8").replace(
+      ',\n      "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-b" } }',
+      "",
+    ));
+
+    const payload = await checkPack({ packDir: pack, mattstackDir: ms, manifest });
+    expect(payload.staleCopies).toEqual([COPY]);
+    expect(payload.drift).toBe(true);
+
+    const json = captureSkills();
+    try {
+      await skillsCheck([...args, "--json"]);
+    } finally {
+      json.restore();
+    }
+    expect(JSON.parse(json.stdout()).staleCopies).toEqual([COPY]);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+
+    const io = captureSkills();
+    try {
+      await skillsCheck(args);
+    } finally {
+      io.restore();
+    }
+    expect(io.lines()).toContain(`[out of date] stale stage copy ${COPY}: run rt skills compile`);
+    expect(process.exitCode).toBe(1);
+
+    process.exitCode = 0;
+    const { errors } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+    expect(existsSync(join(pack, "attachments", COPY))).toBe(false);
+    expect(existsSync(join(pack, "attachments", "stage-evidence", "SKILL.md"))).toBe(true);
+    expect((await checkPack({ packDir: pack, mattstackDir: ms, manifest })).staleCopies).toEqual([]);
+  }, 30_000);
+
+  test("a stage every pipeline overrides still compiles its default", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const stages = [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci",
+    ];
+    const forge = { "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" } };
+    writeFileSync(manifest, JSON.stringify({
+      pipelines: {
+        feature: { stages, bindings: forge },
+        accessibility: { stages, bindings: { ...forge, "mattstack:stage-evidence": { domain: "acme:evidence-b" } } },
+      },
+      bindings: { "mattstack:stage-evidence": { domain: "acme:evidence-a" } },
+    }, null, 2));
+
+    const { errors, exitCode } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors).toEqual([]);
+    expect(exitCode).toBeUndefined();
+
+    const stage = readFileSync(join(pack, "attachments", "stage-watch-ci", "SKILL.md"), "utf8");
+    expect(stage).toContain("${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/scripts/");
+    expect(stage).not.toContain("{{");
+    for (const pipeline of ["feature", "accessibility"]) {
+      const copy = readFileSync(join(pack, "attachments", `stage-watch-ci--${pipeline}`, "SKILL.md"), "utf8");
+      expect(copy).toContain("slot:forge binding=mattstack:ci-forge-gitlab");
+      expect(copy).toContain(`\${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci--${pipeline}/parts/forge/scripts/ci-forge.sh`);
+    }
+  }, 30_000);
+
+  test("a scoped compile leaves copies", async () => {
+    const { pack, ms, manifest, args } = buildPipelines();
+    await compileCapturingLogs(pack, ms, manifest);
+    expect(existsSync(join(pack, "attachments", COPY))).toBe(true);
+
+    const scoped = await compileCapturingLogs(pack, ms, manifest, ["--verb", "work"]);
+    expect(scoped.errors).toEqual([]);
+    expect(existsSync(join(pack, "attachments", COPY, "SKILL.md"))).toBe(true);
+
+    const io = captureSkills();
+    try {
+      const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["work", "tiering", "mattstack:model-tiering", ...args]));
+      expect(errors).toEqual([]);
+      expect(exitCode).toBeUndefined();
+    } finally {
+      io.restore();
+    }
+    expect(readFileSync(manifest, "utf8")).toContain("mattstack:model-tiering");
+    expect(existsSync(join(pack, "attachments", COPY, "SKILL.md"))).toBe(true);
+  }, 30_000);
 });

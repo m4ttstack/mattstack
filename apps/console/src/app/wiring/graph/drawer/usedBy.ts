@@ -1,5 +1,6 @@
 import {
   invertBindings,
+  stageCopyOf,
   suffixOf,
   type SkillsComposition,
 } from '../../outline';
@@ -31,6 +32,8 @@ export type UsedBySite = {
       focus list does not show, which nothing can focus. */
   focus: string | null;
   label: string;
+  /** The pipeline whose override binds the fill here; null otherwise. */
+  pipeline: string | null;
 };
 
 type Place = { group: UsedByGroup; focus: string; rank: number };
@@ -59,23 +62,42 @@ type Site = {
   slot: string | null;
   line: number | null;
   ref: string | null;
+  pipeline: string | null;
 };
 
 function includeSites(composition: SkillsComposition, name: string): Site[] {
   if (!composition.targets)
     return composition.verbs
       .filter(verb => verb.includes?.includes(name))
-      .map(verb => ({ skill: verb.name, slot: null, line: null, ref: null }));
+      .map(verb => ({
+        skill: verb.name,
+        slot: null,
+        line: null,
+        ref: null,
+        pipeline: null,
+      }));
+  // A stage copy pastes what its engine pastes; the engine's site stands
+  // for both.
   return composition.targets.flatMap(target => {
     const at = target.placeholders.find(
       p => p.kind === 'include' && p.arg === name
     );
-    return at
-      ? [{ skill: target.name, slot: null, line: at.line, ref: null }]
+    return at && target.engine === undefined
+      ? [
+          {
+            skill: target.name,
+            slot: null,
+            line: at.line,
+            ref: null,
+            pipeline: null,
+          },
+        ]
       : [];
   });
 }
 
+/** An override binds a fill into its pipeline's copy of the stage, the skill
+    that copy compiles to; with no copy, into the stage itself. */
 function fillSites(composition: SkillsComposition, binding: string): Site[] {
   const lineOf = (skill: string, slot: string) =>
     composition.targets
@@ -84,12 +106,15 @@ function fillSites(composition: SkillsComposition, binding: string): Site[] {
     null;
   return (invertBindings(composition)[binding] ?? []).map(site => {
     const external = site.kind === 'external';
-    const skill = external ? site.ref : (site.verb ?? suffixOf(site.ref));
+    const own = external ? site.ref : (site.verb ?? suffixOf(site.ref));
+    const skill =
+      stageCopyOf(composition.targets, own, site.pipeline ?? null)?.name ?? own;
     return {
       skill,
       slot: site.slot,
       line: external ? null : lineOf(skill, site.slot),
       ref: site.ref,
+      pipeline: site.pipeline ?? null,
     };
   });
 }
@@ -127,6 +152,7 @@ export function usedBySites(
           line: site.line,
           focus: place?.focus ?? null,
           label: labelOf(site, place),
+          pipeline: site.pipeline,
         } satisfies UsedBySite,
         rank: place?.rank ?? places.size + order,
       };

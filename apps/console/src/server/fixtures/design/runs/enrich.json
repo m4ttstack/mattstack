@@ -69,6 +69,19 @@
         "pipeline": { "status": "success" }
       }
     },
+    "web-406-orders-table-focus-rings": {
+      "ticket": {
+        "identifier": "WEB-406",
+        "title": "Focus rings on the orders table",
+        "url": "https://linear.app/acme/issue/WEB-406"
+      },
+      "mr": {
+        "iid": 406,
+        "webUrl": "https://gitlab.com/acme/web/-/merge_requests/406",
+        "state": "merged",
+        "pipeline": { "status": "success" }
+      }
+    },
     "web-388-dedupe-contacts": {
       "ticket": {
         "identifier": "WEB-388",

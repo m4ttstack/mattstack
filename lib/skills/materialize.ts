@@ -1,5 +1,6 @@
 import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
+import { warn } from "../ui/warn.ts";
 import { isPackDir, parseRemote, readZonesFrom, zonePackDir, zoneTeamConfigReads, type InitFs, type RepoRef, type ZoneInfo } from "./init.ts";
 import { FragmentError, mergeLayers, parseFragment, readManifestZone, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
 import { legacyManifestPath, packManifestPath } from "./manifest-paths.ts";
@@ -86,6 +87,10 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
     if (override) layers.push(override);
 
     const merged = mergeLayers(layers);
+    for (const { key, layer } of merged.dropped) {
+      const title = `${key} from ${layer} is ignored: the pipeline no longer lists that stage`;
+      warn("skills", title, { context: { pack, key, layer }, show: { title } });
+    }
     const base = layers.find((l) => l.label.startsWith("base:"));
     if (base) {
       const baseName = base.label.slice("base:".length);

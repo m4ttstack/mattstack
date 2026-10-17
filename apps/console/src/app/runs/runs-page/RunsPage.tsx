@@ -23,6 +23,7 @@ import {
   dayGroups,
   filterView,
   laneFacts,
+  pipelineOf,
   runsStats,
   statCards,
   type RunsFilter,
@@ -56,6 +57,7 @@ const FILTERS: { value: RunsFilter; label: string }[] = [
 ];
 
 const ALL_REPOS = '';
+const ALL_PIPELINES = '';
 const NO_GATES: GateRow[] = [];
 
 function EmptyCard({ title, sub }: { title: string; sub: string }) {
@@ -161,15 +163,27 @@ export function RunsPage() {
   const repos = useMemo(() => choices.map(c => c.repo), [choices]);
   const labelOf = (repo: string) =>
     choices.find(c => c.repo === repo)?.label ?? repoPath(repo);
-  const runs = useMemo(
+  const repoRuns = useMemo(
     () => (url.repo ? allRuns.filter(r => r.repo === url.repo) : allRuns),
     [allRuns, url.repo]
   );
+  const pipelines = useMemo(
+    () => [...new Set(repoRuns.map(pipelineOf))].sort(),
+    [repoRuns]
+  );
+  const runs = useMemo(
+    () =>
+      url.pipeline
+        ? repoRuns.filter(r => pipelineOf(r) === url.pipeline)
+        : repoRuns,
+    [repoRuns, url.pipeline]
+  );
+  const scoped = url.repo !== null || url.pipeline !== null;
   const gates = useMemo(() => {
-    if (!url.repo) return linked.all;
+    if (!scoped) return linked.all;
     const ids = new Set(runs.map(r => r.id));
     return linked.all.filter(g => ids.has(runIdOfGate(g) ?? ''));
-  }, [linked.all, runs, url.repo]);
+  }, [linked.all, runs, scoped]);
 
   const view = useMemo(
     () => filterView({ filter: url.filter, runs, gates, now }),
@@ -295,6 +309,23 @@ export function RunsPage() {
                       ]}
                       onChange={v => setUrl({ repo: v ? v : null })}
                     />
+                    {pipelines.length > 1 || url.pipeline ? (
+                      <Select
+                        aria-label="pipeline"
+                        w={180}
+                        size="xs"
+                        leftSection={<Icon name="workflow" size={14} />}
+                        value={url.pipeline ?? ALL_PIPELINES}
+                        data={[
+                          { value: ALL_PIPELINES, label: 'all pipelines' },
+                          ...pipelines.map(p => ({ value: p, label: p })),
+                          ...(url.pipeline && !pipelines.includes(url.pipeline)
+                            ? [{ value: url.pipeline, label: url.pipeline }]
+                            : []),
+                        ]}
+                        onChange={v => setUrl({ pipeline: v ? v : null })}
+                      />
+                    ) : null}
                   </MattstackShell.AppBar>
                   <Group gap={8} wrap="nowrap">
                     <SegmentedControl

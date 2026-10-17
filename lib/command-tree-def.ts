@@ -2498,6 +2498,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree" },
           { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
+          { name: "Pipeline", flag: "--pipeline", type: "text", placeholder: "accessibility", hint: "Bind the fill for this pipeline only; omit to bind the default every pipeline uses" },
           { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print what would change without writing" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the result as JSON instead of a plain summary line" },
         ],

@@ -23,8 +23,11 @@ const flagged = (items: FocusItem[]) =>
 describe('buildFocusGroups on the design pack', () => {
   const groups = buildFocusGroups(composition, check);
 
-  it('gives one pipeline led by the orchestrator', () => {
-    expect(groups.pipelines).toHaveLength(1);
+  it('gives one item per pipeline, feature led by the orchestrator', () => {
+    expect(groups.pipelines.map(pipeline => pipeline.key)).toEqual([
+      'pipeline:feature',
+      'pipeline:accessibility',
+    ]);
     expect(groups.pipelines[0]).toMatchObject({
       key: 'pipeline:feature',
       label: 'work · feature',
@@ -113,11 +116,12 @@ describe('buildFocusGroups on other packs', () => {
     const groups = buildFocusGroups(twoPipelines, check);
     expect(labels(groups.pipelines)).toEqual([
       'work · feature',
+      'work-a11y · accessibility',
       'work · bugfix',
     ]);
-    expect(groups.pipelines[1]!.key).toBe('pipeline:bugfix');
+    expect(groups.pipelines[2]!.key).toBe('pipeline:bugfix');
     expect(
-      groups.pipelines[1]!.children.map(step => [step.step, step.label])
+      groups.pipelines[2]!.children.map(step => [step.step, step.label])
     ).toEqual([
       [1, 'provision'],
       [2, 'implement'],
@@ -176,7 +180,14 @@ describe('onlyAttention', () => {
   const filtered = onlyAttention(buildFocusGroups(composition, check));
 
   it('keeps work with only its stale steps', () => {
-    expect(labels(filtered.pipelines)).toEqual(['work · feature']);
+    expect(labels(filtered.pipelines)).toEqual([
+      'work · feature',
+      'work-a11y · accessibility',
+    ]);
+    expect(labels(filtered.pipelines[1]!.children)).toEqual([
+      'ship',
+      'watch-ci',
+    ]);
     expect(labels(filtered.pipelines[0]!.children)).toEqual([
       'evidence',
       'ship',
@@ -255,6 +266,44 @@ describe('pipelineOf', () => {
 
   it('answers null for a verb outside the pipeline', () => {
     expect(pipelineOf(groups, findFocus(groups, 'shepherdr')!)).toBeNull();
+  });
+});
+
+describe('a specialized pipeline', () => {
+  const groups = buildFocusGroups(composition, check);
+  const a11y = groups.pipelines.find(
+    pipeline => pipeline.key === 'pipeline:accessibility'
+  )!;
+
+  it('is led by the verb that runs it', () => {
+    expect(a11y).toMatchObject({
+      label: 'work-a11y · accessibility',
+      skill: 'work-a11y',
+    });
+  });
+
+  it("groups a stage copy under its engine's step, keyed apart from the default's", () => {
+    expect(a11y.children).toHaveLength(8);
+    expect(a11y.children[3]).toMatchObject({
+      key: 'stage-evidence@accessibility',
+      label: 'evidence',
+      skill: 'stage-evidence--accessibility',
+      step: 4,
+    });
+    expect(pipelineOf(groups, a11y.children[3]!)?.key).toBe(
+      'pipeline:accessibility'
+    );
+    expect(findFocus(groups, 'stage-evidence--accessibility')?.key).toBe(
+      'stage-evidence@accessibility'
+    );
+  });
+
+  it('never lists a pipeline lead as standalone or unwired', () => {
+    const elsewhere = [...groups.standalone, ...groups.unwired.items].map(
+      item => item.skill
+    );
+    expect(elsewhere).not.toContain('work');
+    expect(elsewhere).not.toContain('work-a11y');
   });
 });
 

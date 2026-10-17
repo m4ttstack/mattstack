@@ -3,10 +3,11 @@ import { describe, expect, it } from 'vitest';
 
 import { designFixture } from '../../__tests__/designFixtures';
 import type { SkillsCheck, SkillsComposition } from '../../../outline';
-import type { SkillsAnatomy } from '../../../useWiring';
+import type { SkillsAnatomy, SkillsChanges } from '../../../useWiring';
 import {
   buildTemplateView,
   selectedPartId,
+  textNounOf,
   type TemplateRow,
 } from '../templateModel';
 
@@ -239,9 +240,25 @@ describe('the plan step template', () => {
       ['variable:stage.fields', 0],
       ['include:execution-strategy', 1],
       ['slot:domain', 1],
-      ['include:gate-protocol', 14],
-      ['include:wrap-up-form', 2],
+      ['include:gate-protocol', 15],
+      ['include:wrap-up-form', 3],
     ]);
+  });
+
+  it("counts a stage copy's pastes under its engine, not again", () => {
+    const withoutCopy = buildTemplateView({
+      anatomy: anatomyPlan,
+      composition: {
+        ...composition,
+        targets: composition.targets!.filter(t => t.engine === undefined),
+      },
+      check,
+      changes: changesClean,
+      step: 2,
+    });
+    expect(withoutCopy.inputs.map(card => card.usedBy)).toEqual(
+      view.inputs.map(card => card.usedBy)
+    );
   });
 
   it('carries the slot contract on its row', () => {
@@ -856,6 +873,98 @@ describe('link cards follow the focused pipeline', () => {
       title: 'review/SKILL.md',
       subtitle: 'stale: its template changed · 900 lines',
     });
+  });
+});
+
+describe('a specialized pipeline', () => {
+  const anatomyA11y = designFixture('anatomy.work-a11y');
+  const anatomyCopy = designFixture('anatomy.stage-evidence--accessibility');
+  const anatomyEvidence = designFixture('anatomy.stage-evidence');
+  const domainRow = (view: ReturnType<typeof buildTemplateView>) =>
+    view.rows.find(
+      row => row.kind === 'placeholder' && row.name === 'domain'
+    ) as Extract<TemplateRow, { kind: 'placeholder' }>;
+  const overrideChange = (pipeline?: string): SkillsChanges => ({
+    ...changesClean,
+    dirty: true,
+    bindings: [
+      {
+        engineRef: 'mattstack:stage-evidence',
+        slot: 'domain',
+        from: 'acme:evidence-a11y',
+        to: 'acme:evidence-policy',
+        ...(pipeline ? { pipeline } : {}),
+      },
+    ],
+  });
+
+  it('reads a verb that runs a pipeline as an orchestrator, even with no step links', () => {
+    const bare = {
+      ...anatomyA11y,
+      parts: anatomyA11y.parts.filter(part => part.kind !== 'verb.path'),
+    };
+    expect(textNounOf(bare, composition)).toBe('orchestrator');
+    expect(textNounOf({ ...bare, skill: 'standup' }, composition)).toBe('verb');
+  });
+
+  it("numbers a stage copy's link by its engine's place", () => {
+    const view = buildTemplateView({
+      anatomy: anatomyA11y,
+      composition,
+      check,
+      changes: undefined,
+      step: null,
+      workType: 'accessibility',
+    });
+    expect(view.links[3]).toMatchObject({
+      skill: 'stage-evidence--accessibility',
+      subtitle: expect.stringMatching(/^step 4 · /),
+    });
+  });
+
+  it('fills the copy from the override and the default stage from the default', () => {
+    const copyView = buildTemplateView({
+      anatomy: anatomyCopy,
+      composition,
+      check,
+      changes: undefined,
+      step: 4,
+      workType: 'accessibility',
+    });
+    const defaultView = buildTemplateView({
+      anatomy: anatomyEvidence,
+      composition,
+      check,
+      changes: undefined,
+      step: 4,
+      workType: 'feature',
+    });
+    expect(domainRow(copyView).boundTo).toBe('acme:evidence-a11y');
+    expect(domainRow(defaultView).boundTo).toBe('acme:evidence-policy');
+  });
+
+  it("marks a pending override on the copy's slot and a pending default on the default's", () => {
+    const view = (anatomy: SkillsAnatomy, changes: SkillsChanges) =>
+      buildTemplateView({
+        anatomy,
+        composition,
+        check,
+        changes,
+        step: 4,
+        workType: null,
+      });
+    expect(
+      domainRow(view(anatomyCopy, overrideChange('accessibility'))).state
+    ).toBe('unsynced');
+    expect(
+      domainRow(view(anatomyEvidence, overrideChange('accessibility'))).state
+    ).not.toBe('unsynced');
+    expect(domainRow(view(anatomyEvidence, overrideChange())).state).toBe(
+      'unsynced'
+    );
+    expect(domainRow(view(anatomyCopy, overrideChange())).state).not.toBe(
+      'unsynced'
+    );
   });
 });
 

@@ -144,7 +144,7 @@ export function UsedByTab({
             </TabHeading>
             {list.map(site => (
               <SiteRow
-                key={`${site.skill}:${site.slot ?? ''}`}
+                key={`${site.skill}:${site.slot ?? ''}:${site.pipeline ?? ''}`}
                 site={site}
                 kind={usedBy.kind}
                 here={isHere(site)}

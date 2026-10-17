@@ -37,7 +37,7 @@ The full list, with every tool's description and input schema, is the [MCP tools
 
 ### Run tracking
 
-Pipeline runs record their stages, fields and decisions through these tools. `run_start` returns a `runDb`; pass it to every run-targeted tool (all of them except `run_start` and `run_list`, which takes only an optional `repo`). Those tools also accept an absolute `cwd` in its place, which resolves to this session's run, else the newest running run whose worktree holds `cwd`, but passing `runDb` is the reliable form. A `runDb` outside rt's runs root is refused.
+Pipeline runs record their stages, fields and decisions through these tools. `run_start` returns a `runDb`; pass it to every run-targeted tool (all of them except `run_start` and `run_list`, which takes only an optional `repo` and `pipelines`). Those tools also accept an absolute `cwd` in its place, which resolves to this session's run, else the newest running run whose worktree holds `cwd`, but passing `runDb` is the reliable form. A `runDb` outside rt's runs root is refused.
 
 | Tool | What it does |
 | --- | --- |
@@ -48,7 +48,7 @@ Pipeline runs record their stages, fields and decisions through these tools. `ru
 | `run_decision` | Record a decision; `selection` is a JSON object. |
 | `run_status` | Set the run's terminal status: `done`, `failed` or `abandoned`. |
 | `run_snapshot` | The run's stages, fields and decisions. |
-| `run_list` | Runs the daemon knows, newest first, optionally for one repo. |
+| `run_list` | Runs the daemon knows, newest first, optionally for one repo and for some pipelines. A run recorded without a pipeline counts as `work`. |
 
 ### MR writes
 

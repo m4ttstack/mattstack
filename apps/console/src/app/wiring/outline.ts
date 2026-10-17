@@ -14,7 +14,66 @@ export type SkillsCheck = InferResponseType<
 type CompositionVerb = SkillsComposition['verbs'][number];
 type CompositionFill = SkillsComposition['fills'][number];
 type CompositionBinder = NonNullable<SkillsComposition['binders']>[number];
+type CompositionBinderSlot = CompositionBinder['slots'][number];
+type CompositionTarget = NonNullable<SkillsComposition['targets']>[number];
 type CheckVerb = SkillsCheck['verbs'][number];
+
+/** The fill a binder slot takes in `workType`: that pipeline's override when
+    it has one, else the default. "" is bound to nothing. */
+export function effectiveBoundTo(
+  slot: Pick<CompositionBinderSlot, 'boundTo' | 'overrides'>,
+  workType: string | null
+): string {
+  return overrideOf(slot, workType)?.boundTo ?? slot.boundTo;
+}
+
+export function overrideOf(
+  slot: Pick<CompositionBinderSlot, 'overrides'>,
+  workType: string | null
+) {
+  if (workType === null) return undefined;
+  return slot.overrides?.find(override => override.pipeline === workType);
+}
+
+/** The pipeline the plain `work` verb runs, the way rt picks it: the only
+    one, else `feature`. */
+export function defaultPipelineOf(
+  pipelines: Record<string, string[]> | undefined
+): string | null {
+  const names = Object.keys(pipelines ?? {});
+  if (names.length === 1) return names[0]!;
+  return names.includes('feature') ? 'feature' : null;
+}
+
+/** The verb that runs `workType`: the one whose stub names it, else `work`. */
+export function leadVerbOf<
+  V extends Pick<CompositionVerb, 'name' | 'pipeline'>,
+>(verbs: readonly V[], workType: string | null): V | undefined {
+  return (
+    (workType !== null
+      ? verbs.find(verb => verb.pipeline === workType)
+      : undefined) ?? verbs.find(verb => verb.name === ORCHESTRATOR_VERB)
+  );
+}
+
+/** Whether `verb` runs a pipeline, which makes it an orchestrator. */
+export function leadsAPipeline(
+  verb: Pick<CompositionVerb, 'name' | 'pipeline'>
+): boolean {
+  return verb.name === ORCHESTRATOR_VERB || verb.pipeline !== undefined;
+}
+
+/** The copy rt compiles of `stage` for `workType`, when its fills differ. */
+export function stageCopyOf(
+  targets: readonly CompositionTarget[] | undefined,
+  stage: string,
+  workType: string | null
+): CompositionTarget | undefined {
+  if (workType === null) return undefined;
+  return targets?.find(
+    target => target.engine === stage && target.pipeline === workType
+  );
+}
 
 /** Compile copies a base's board-only fills into the pack, and materialize
     binds the copy, so the base original is never bound by name. */
@@ -43,6 +102,7 @@ export interface SpineComposition {
   fills: CompositionFill[];
   binders?: CompositionBinder[];
   pipelines?: Record<string, string[]>;
+  targets?: CompositionTarget[];
 }
 export interface OutlineCheck {
   verbs: CheckVerb[];
@@ -102,6 +162,8 @@ export interface BindingSite {
   verb: string | null;
   kind: BindingSiteKind;
   slot: string;
+  /** The pipeline whose override binds here; absent for the default. */
+  pipeline?: string;
 }
 
 /** Kinds ahead of names, so the drawer reads in the order its own sentence
@@ -127,6 +189,8 @@ export interface SpineEntry {
   verb: string | null;
   /** 1..N for a stage; null everywhere else. Never replaced by health. */
   step: number | null;
+  /** The stage copy rt compiles for this work type, when it has one. */
+  copy?: string;
   /** A roster verb with a public artifact -- the only thing rt checks. */
   invocable: boolean;
   /** A binder belonging to another plugin's roster, not this pack's. */
@@ -226,14 +290,15 @@ export function invertBindings(
   for (const fill of composition.fills) sites[fill.binding] = [];
 
   for (const binder of composition.binders ?? []) {
+    const site = { ref: binder.ref, verb: binder.verb, kind: binder.kind };
     for (const slot of binder.slots) {
-      if (slot.boundTo == null) continue;
-      (sites[slot.boundTo] ??= []).push({
-        ref: binder.ref,
-        verb: binder.verb,
-        kind: binder.kind,
-        slot: slot.name,
-      });
+      if (slot.boundTo) {
+        (sites[slot.boundTo] ??= []).push({ ...site, slot: slot.name });
+      }
+      for (const { pipeline, boundTo } of slot.overrides ?? []) {
+        if (!boundTo) continue;
+        (sites[boundTo] ??= []).push({ ...site, slot: slot.name, pipeline });
+      }
     }
   }
 
@@ -242,7 +307,8 @@ export function invertBindings(
       (a, b) =>
         SITE_KIND_RANK[a.kind] - SITE_KIND_RANK[b.kind] ||
         (a.verb ?? a.ref).localeCompare(b.verb ?? b.ref) ||
-        a.slot.localeCompare(b.slot)
+        a.slot.localeCompare(b.slot) ||
+        (a.pipeline ?? '').localeCompare(b.pipeline ?? '')
     );
   }
   return sites;
@@ -331,8 +397,8 @@ export function buildSpine(
       if (slot.boundTo) boundBindings.add(slot.boundTo);
     }
   }
-  for (const binder of binders) {
-    for (const slot of binder.slots) boundBindings.add(slot.boundTo);
+  for (const [binding, sites] of Object.entries(invertBindings(composition))) {
+    if (sites.length > 0) boundBindings.add(binding);
   }
 
   const workTypes = Object.keys(composition.pipelines ?? {});
@@ -352,28 +418,46 @@ export function buildSpine(
     verb: CompositionVerb | undefined,
     binder: CompositionBinder | undefined
   ): SlotOutlineNode[] {
-    const slots: SlotOutlineNode[] = (verb?.slots ?? []).map(slot => ({
-      name: slot.name,
-      contract: slot.contract,
-      required: slot.required,
-      boundTo: slot.boundTo,
-      resolveError: slot.resolveError,
-      fillSourcePath: slot.fillSourcePath,
-      fill: slot.boundTo ? (fillsByBinding.get(slot.boundTo) ?? null) : null,
-      layer: slot.layer ?? null,
-      ...(slot.origin === 'base' ? { origin: slot.origin } : {}),
-      ...(slot.base !== undefined ? { base: slot.base } : {}),
-    }));
+    const bound = new Map(binder?.slots.map(slot => [slot.name, slot]));
+    const slots: SlotOutlineNode[] = (verb?.slots ?? []).map(slot => {
+      const override = overrideOf(bound.get(slot.name) ?? {}, workType);
+      if (override) {
+        const fill = fillsByBinding.get(override.boundTo) ?? null;
+        return {
+          name: slot.name,
+          contract: slot.contract,
+          required: slot.required,
+          boundTo: override.boundTo || null,
+          fillSourcePath: fill?.sourcePath ?? null,
+          fill,
+          layer: override.layer,
+        };
+      }
+      return {
+        name: slot.name,
+        contract: slot.contract,
+        required: slot.required,
+        boundTo: slot.boundTo,
+        resolveError: slot.resolveError,
+        fillSourcePath: slot.fillSourcePath,
+        fill: slot.boundTo ? (fillsByBinding.get(slot.boundTo) ?? null) : null,
+        layer: slot.layer ?? null,
+        ...(slot.origin === 'base' ? { origin: slot.origin } : {}),
+        ...(slot.base !== undefined ? { base: slot.base } : {}),
+      };
+    });
     const declared = new Set(slots.map(s => s.name));
 
     for (const slot of binder?.slots ?? []) {
       if (declared.has(slot.name)) continue;
-      const fill = fillsByBinding.get(slot.boundTo) ?? null;
+      const boundTo = effectiveBoundTo(slot, workType);
+      if (!boundTo) continue;
+      const fill = fillsByBinding.get(boundTo) ?? null;
       slots.push({
         name: slot.name,
         contract: fill?.provides ?? null,
         required: null,
-        boundTo: slot.boundTo,
+        boundTo,
         fillSourcePath: null,
         fill,
         layer: null,
@@ -385,10 +469,11 @@ export function buildSpine(
   function entryFor(
     kind: SpineEntryKind,
     ref: string,
-    step: number | null
+    step: number | null,
+    lead?: CompositionVerb
   ): SpineEntry {
     const binder = bindersByRef.get(ref);
-    const verb = verbsByEngineRef.get(ref);
+    const verb = lead ?? verbsByEngineRef.get(ref);
     const checkRow = verb ? checkByName.get(verb.name) : undefined;
     const slots = slotsFor(verb, binder);
 
@@ -412,19 +497,23 @@ export function buildSpine(
     };
   }
 
-  const orchestratorVerb = composition.verbs.find(
-    v => v.name === ORCHESTRATOR_VERB
-  );
+  // Every work verb shares the `work` engine, so its engine ref names no one
+  // verb: the lead is found by the pipeline its stub names.
+  const orchestratorVerb = leadVerbOf(composition.verbs, workType);
   const orchestratorRef = orchestratorVerb?.engineRef ?? null;
   const orchestrator = orchestratorRef
-    ? entryFor('orchestrator', orchestratorRef, null)
+    ? entryFor('orchestrator', orchestratorRef, null, orchestratorVerb)
     : null;
 
   // A ref the manifest names as a stage always gets a row, whether or not
   // anything in the payload covers it: rt omits a binder for a stage that
   // binds nothing, so "not in binders[]" means "takes nothing from the
   // pack", never "missing".
-  const stages = stageRefs.map((ref, i) => entryFor('stage', ref, i + 1));
+  const stages = stageRefs.map((ref, i) => {
+    const entry = entryFor('stage', ref, i + 1);
+    const copy = stageCopyOf(composition.targets, suffixOf(ref), workType);
+    return copy ? { ...entry, copy: copy.name } : entry;
+  });
 
   const spineRefs = new Set(stageRefs);
   if (orchestratorRef) spineRefs.add(orchestratorRef);
@@ -497,14 +586,20 @@ export function buildSpine(
 
     outside.push({
       kind: 'outside',
-      key: rosterVerb.engineRef ?? `verb:${rosterVerb.name}`,
+      // Work verbs share an engine ref, so one keys by its name.
+      key:
+        leadsAPipeline(rosterVerb) || rosterVerb.engineRef === null
+          ? `verb:${rosterVerb.name}`
+          : rosterVerb.engineRef,
       label: rosterVerb.name,
       ref: rosterVerb.engineRef,
       verb: rosterVerb.name,
       step: null,
       invocable: rosterVerb.public,
       external: false,
-      unwired: true,
+      // A work verb leads its own pipeline, so it is wired even where
+      // another verb leads this one.
+      unwired: !leadsAPipeline(rosterVerb),
       sourcePath: rosterVerb.sourcePath,
       artifactPath: rosterVerb.artifactPath,
       health: healthFromStatus(checkRow?.status),

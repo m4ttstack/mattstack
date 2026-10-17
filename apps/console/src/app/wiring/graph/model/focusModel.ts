@@ -94,11 +94,20 @@ export function buildFocusGroups(
       workType === first.workType
         ? first
         : buildSpine(composition, outlineCheck, workType);
-    const children = spine.stages.map(stage => ({
-      ...itemFor(stage),
-      label: stepLabel(skillOf(stage)),
-      step: stage.step,
-    }));
+    // A step another pipeline also runs is keyed by its work type too, so
+    // focusing it keeps this pipeline. A copy's own name keeps it apart.
+    const children = spine.stages.map(stage => {
+      const engine = skillOf(stage);
+      const skill = stage.copy ?? engine;
+      return {
+        ...itemFor(stage),
+        key: workType === first.workType ? skill : `${engine}@${workType}`,
+        label: stepLabel(engine),
+        skill,
+        attention: attentionOf(stage, skill),
+        step: stage.step,
+      };
+    });
     const lead = spine.orchestrator;
     const skill = lead ? skillOf(lead) : ORCHESTRATOR_VERB;
     return {
@@ -114,12 +123,14 @@ export function buildFocusGroups(
     } satisfies FocusItem;
   });
 
+  const leads = new Set(pipelines.map(pipeline => pipeline.skill));
   const standalone = first.outside
     .filter(
       entry =>
         !entry.external &&
         !looseEnd(entry) &&
-        !(entry.ref !== null && stageRefs.has(entry.ref))
+        !(entry.ref !== null && stageRefs.has(entry.ref)) &&
+        !(entry.verb !== null && leads.has(entry.verb))
     )
     .map(itemFor);
   if (pipelines.length === 0 && first.orchestrator)
