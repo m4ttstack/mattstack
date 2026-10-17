@@ -15,9 +15,14 @@ let repoPlacementStateChecks: [Check] = [
         c.expectEqual(RepoPlacementState.buttonLabel(mode: "clone", lastError: "~/code/acme-api already exists."), "Choose another location…")
     },
     Check("RepoPlacementState.noteStyle: a problem or a refused pick is red, a ready checkout green, a clone secondary") { c in
-        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout", problem: "~/foo isn't a git checkout."), lastError: nil), .problem)
-        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout"), lastError: "~/foo isn't a git checkout."), .problem)
-        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout"), lastError: nil), .ok)
-        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "clone"), lastError: nil), .secondary)
+        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout", problem: "~/foo isn't a git checkout."), shown: "checkout", lastError: nil), .problem)
+        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout"), shown: "checkout", lastError: "~/foo isn't a git checkout."), .problem)
+        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout"), shown: "checkout", lastError: nil), .ok)
+        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "clone"), shown: "clone", lastError: nil), .secondary)
+    },
+    Check("RepoPlacementState.noteStyle: off rt's recorded segment, its problem and its green do not apply") { c in
+        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout", problem: "~/foo isn't a git checkout."), shown: "clone", lastError: nil), .secondary)
+        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout"), shown: "clone", lastError: nil), .secondary)
+        c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "clone"), shown: "checkout", lastError: "~/foo isn't a git checkout."), .problem)
     },
 ]

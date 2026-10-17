@@ -14,8 +14,12 @@ public enum RepoPlacementState {
         return again ? "Locate again…" : "Locate…"
     }
 
-    public static func noteStyle(action: RowAction, lastError: String?) -> NoteStyle {
-        if lastError != nil || action.problem != nil { return .problem }
+    /// `shown` is the segment on screen; rt's `problem` and `mode` describe its recorded segment only.
+    /// `lastError` is a failed pick made on the shown segment.
+    public static func noteStyle(action: RowAction, shown: String, lastError: String?) -> NoteStyle {
+        if lastError != nil { return .problem }
+        guard shown == action.mode else { return .secondary }
+        if action.problem != nil { return .problem }
         return action.mode == checkout ? .ok : .secondary
     }
 

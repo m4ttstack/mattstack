@@ -94,7 +94,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
         return { ...gated, note, oneClick: { label: "Clone here", mode: "clone", path: clonePath } };
       }
       const lastFailure = failed[identity];
-      if (lastFailure !== undefined) return { ...gated, note: lastFailure, oneClick: { label: "Retry", mode: recorded.mode, path: recorded.path } };
+      if (lastFailure !== undefined) return { ...gated, note: lastFailure, problem: lastFailure, oneClick: { label: "Retry", mode: recorded.mode, path: recorded.path } };
       const where = tildify(p.home, recorded.path);
       return { ...gated, note: recorded.mode === "clone" ? `rt clones it to ${where} next` : `rt uses your checkout at ${where} next` };
     }

@@ -172,6 +172,7 @@ enum ChecklistRowSnapshot {
     private static let failed = repoRow("widgets", status: .needsYou, gated: true,
         place("widgets", mode: "clone", clone: "~/Documents/GitHub/widgets",
               note: "The last clone failed: fatal: could not read from remote repository.",
+              problem: "The last clone failed: fatal: could not read from remote repository.",
               oneClick: PlaceRepoOneClick(label: "Retry", mode: "clone", path: "~/Documents/GitHub/widgets"), records: false))
 
     /// Before Install as the "R · Your repos" board draws it, then a refused Locate…, then the summary's deferred rows.

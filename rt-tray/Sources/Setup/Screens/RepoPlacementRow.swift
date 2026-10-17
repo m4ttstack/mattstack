@@ -25,6 +25,7 @@ enum RepoPlacementPanel {
             let panel = NSSavePanel()
             panel.nameFieldStringValue = action.repo ?? ""
             panel.canCreateDirectories = true
+            panel.prompt = "Clone here"
             if let parent = parent(of: action.clonePath) { panel.directoryURL = parent }
             guard panel.runModal() == .OK, let url = panel.url else { return nil }
             return url.path
@@ -60,23 +61,24 @@ struct RepoPlacementRow: View {
     @Environment(\.repoPlacementAnswer) private var answer
     /// The segment on screen. A refused pick keeps it where the member put it, away from rt's `mode`.
     @State private var shown: String
+    /// The segment the last answer was given on: its failure belongs to that segment alone.
+    @State private var answeredMode: String?
 
     init(row: PlanRow, action: RowAction, badge: NeedBadge? = nil, context: String? = nil, isChecking: Bool, error: String?,
          ids: RowIDs, shown: String? = nil) {
         self.row = row; self.action = action; self.badge = badge; self.context = context
         self.isChecking = isChecking; self.error = error; self.ids = ids
-        _shown = State(initialValue: shown ?? action.mode ?? RepoPlacementState.clone)
+        let start = shown ?? action.mode ?? RepoPlacementState.clone
+        _shown = State(initialValue: start)
+        _answeredMode = State(initialValue: shown)
     }
 
     private var onRecordedMode: Bool { shown == action.mode }
+    private var shownError: String? { shown == (answeredMode ?? action.mode) ? error : nil }
     /// rt's `problem` describes the recorded mode only; on the other segment it is not this path's problem.
-    private var lastError: String? { error ?? (onRecordedMode ? action.problem : nil) }
-    private var note: String? { error ?? (onRecordedMode ? (action.problem ?? action.note) : nil) }
-    private var style: RepoPlacementState.NoteStyle {
-        if error != nil { return .problem }
-        if !onRecordedMode { return .secondary }
-        return RepoPlacementState.noteStyle(action: action, lastError: nil)
-    }
+    private var lastError: String? { shownError ?? (onRecordedMode ? action.problem : nil) }
+    private var note: String? { shownError ?? (onRecordedMode ? (action.problem ?? action.note) : nil) }
+    private var style: RepoPlacementState.NoteStyle { RepoPlacementState.noteStyle(action: action, shown: shown, lastError: shownError) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -108,7 +110,7 @@ struct RepoPlacementRow: View {
                     .disabled(isChecking)
                     .accessibilityIdentifier(ids.action(row.id))
                 if let oneClick = action.oneClick {
-                    Button(oneClick.label) { answer?(row, oneClick.mode, oneClick.path) }
+                    Button(oneClick.label) { record(oneClick.mode, oneClick.path) }
                         .buttonStyle(.borderedProminent)
                         .disabled(isChecking)
                         .accessibilityIdentifier(ids.oneClick(row.id))
@@ -116,7 +118,7 @@ struct RepoPlacementRow: View {
             }
             if let note, !note.isEmpty {
                 Text(note).font(.caption).foregroundStyle(noteColor).fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier(error != nil ? AXID.checklistRowError(row.id) : ids.row(row.id) + ".note")
+                    .accessibilityIdentifier(shownError != nil ? AXID.checklistRowError(row.id) : ids.row(row.id) + ".note")
             }
             RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id))
         }
@@ -164,9 +166,9 @@ struct RepoPlacementRow: View {
             shown = picked
             guard action.segmentRecords == true, picked != action.mode else { return }
             if picked == RepoPlacementState.clone, let path = action.clonePath {
-                answer?(row, picked, path)
+                record(picked, path)
             } else if picked == RepoPlacementState.checkout, let path = action.checkoutPath {
-                answer?(row, picked, path)
+                record(picked, path)
             } else if picked == RepoPlacementState.checkout {
                 // No checkout to fall back on: a cancelled Locate leaves the row where rt has it.
                 if !pick(picked) { shown = action.mode ?? RepoPlacementState.clone }
@@ -177,7 +179,13 @@ struct RepoPlacementRow: View {
     @discardableResult
     private func pick(_ mode: String) -> Bool {
         guard let path = RepoPlacementPanel.pick(mode: mode, action: action) else { return false }
-        answer?(row, mode, path)
+        record(mode, path)
         return true
+    }
+
+    private func record(_ mode: String, _ path: String) {
+        shown = mode
+        answeredMode = mode
+        answer?(row, mode, path)
     }
 }

@@ -170,6 +170,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
 
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, detail: "The last clone failed: fatal: repository not found (git exited 128)" });
     expect(action(r).oneClick).toEqual({ label: "Retry", mode: "clone", path: join(home, "work", "acme-api") });
+    expect(action(r).problem).toBe("The last clone failed: fatal: repository not found (git exited 128)");
   });
 
   test("once the repo is in the index it reads ready", async () => {
