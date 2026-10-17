@@ -59,6 +59,11 @@ digraph receive_review {
     "The run already records branch?" [shape=diamond];
     "run_field_set {runDb, key: branch, value: <source branch>, stage}" [shape=plaintext];
     "Executing a caller-handed {plan}?" [shape=diamond];
+    "The handed plan's threads already in this conversation?" [shape=diamond];
+    "Forge for the handed plan's thread read?" [shape=diamond];
+    "mr_threads {mrUrl} for the handed plan's threads" [shape=plaintext];
+    "Read the handed plan's threads on GitHub with gh" [shape=box];
+    "Keep exactly the threads the handed plan names" [shape=box];
     "Forge for the thread read?" [shape=diamond];
     "mr_threads {mrUrl, filter: \"unresolved-human\"}" [shape=plaintext];
     "Read the PR's review threads with gh" [shape=box];
@@ -72,7 +77,7 @@ digraph receive_review {
     "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, runDb, stage, scope: respond-plan}" [shape=plaintext];
     "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json, runDb, stage, scope: respond-plan}" [shape=plaintext];
     "respond-plan gate_open result?" [shape=diamond];
-    "STOP: never hand-edit or hand-fit the respond-plan open; open its off-script gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: fit the respond-plan open only with gate_open" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "run_budget {runDb, key: respond-plan-open, limit: 3, stage}" [shape=plaintext];
     "respond-plan open attempts = 3?" [shape=diamond];
     "Fix the respond-plan source the gate_open refusal names" [shape=box];
@@ -217,7 +222,15 @@ digraph receive_review {
     "The run already records branch?" -> "run_field_set {runDb, key: branch, value: <source branch>, stage}" [label="no: write it, own or inherited run"];
     "The run already records branch?" -> "Executing a caller-handed {plan}?" [label="yes: keep it"];
     "run_field_set {runDb, key: branch, value: <source branch>, stage}" -> "Executing a caller-handed {plan}?";
-    "Executing a caller-handed {plan}?" -> "gate_record {runDb, stage, scope: respond-plan, shape: respond-plan, gateId | answers + decidedBy, contextDropped?}" [label="yes, not yet spent: record it, read no threads, never re-adjudicate"];
+    "Executing a caller-handed {plan}?" -> "The handed plan's threads already in this conversation?" [label="yes, not yet spent: never re-adjudicate"];
+    "The handed plan's threads already in this conversation?" -> "gate_record {runDb, stage, scope: respond-plan, shape: respond-plan, gateId | answers + decidedBy, contextDropped?}" [label="yes: read nothing, record it"];
+    "The handed plan's threads already in this conversation?" -> "Forge for the handed plan's thread read?" [label="no"];
+    "Forge for the handed plan's thread read?" -> "mr_threads {mrUrl} for the handed plan's threads" [label="GitLab"];
+    "Forge for the handed plan's thread read?" -> "Read the handed plan's threads on GitHub with gh" [label="GitHub"];
+    "mr_threads {mrUrl} for the handed plan's threads" -> "Keep exactly the threads the handed plan names" [label="threads returned, resolved ones included"];
+    "mr_threads {mrUrl} for the handed plan's threads" -> "Own receive-review run: close it as failed?" [label="an error: a failure, quoting its text (never read as none)"];
+    "Read the handed plan's threads on GitHub with gh" -> "Keep exactly the threads the handed plan names";
+    "Keep exactly the threads the handed plan names" -> "gate_record {runDb, stage, scope: respond-plan, shape: respond-plan, gateId | answers + decidedBy, contextDropped?}" [label="record it"];
     "Executing a caller-handed {plan}?" -> "Forge for the thread read?" [label="no, or the handed plan is spent by a revise"];
     "Executing a caller-handed {plan}?" -> "run_field_get {runDb, key: extra.gate-source.respond-plan}" [label="spent: the run already records it, not a revise"];
     "Forge for the thread read?" -> "mr_threads {mrUrl, filter: \"unresolved-human\"}" [label="GitLab"];
@@ -240,8 +253,8 @@ digraph receive_review {
     "respond-plan gate_open result?" -> "Write the receive-review-run line into the handed --report" [label="handed back: the open is at outPath"];
     "respond-plan gate_open result?" -> "run_budget {runDb, key: respond-plan-open, limit: 3, stage}" [label="refused: a line names a source field to fix"];
     "respond-plan gate_open result?" -> "Off-script gate: the respond-plan open will not fit" [label="refused: nothing a source fix can mend"];
-    "respond-plan gate_open result?" -> "STOP: never hand-edit or hand-fit the respond-plan open; open its off-script gate" [label="tempted to edit the open by hand, shorten a reply, or fit it with a script"];
-    "STOP: never hand-edit or hand-fit the respond-plan open; open its off-script gate" -> "Off-script gate: the respond-plan open will not fit";
+    "respond-plan gate_open result?" -> "STOP: fit the respond-plan open only with gate_open" [label="tempted to edit the open by hand, shorten a reply, or fit it with a script"];
+    "STOP: fit the respond-plan open only with gate_open" -> "Off-script gate: the respond-plan open will not fit";
     "run_budget {runDb, key: respond-plan-open, limit: 3, stage}" -> "respond-plan open attempts = 3?";
     "respond-plan open attempts = 3?" -> "Fix the respond-plan source the gate_open refusal names" [label="no: not exhausted"];
     "respond-plan open attempts = 3?" -> "Off-script gate: the respond-plan open will not fit" [label="yes: exhausted"];
@@ -600,20 +613,21 @@ own run closes `failed`, an inherited run fails its stage.
 
 ### Executing a caller-handed {plan}?
 
-A caller-handed `{plan}` not yet spent records at once, before any thread
-read: `gate_record {runDb, stage, scope: respond-plan, shape:
-respond-plan, answers: <the plan>, decidedBy: <the decider the caller
-names>}`, plus `contextDropped: true` when the handed `--report` carries
-the line `gate-1-context: dropped`. Never dispatch the adjudicator or draft
-a new verdict table for it: a plan answers an adjudication the human
-already saw, so a fresh one would change the drafts it approved.
+A caller-handed `{plan}` not yet spent is recorded, never re-adjudicated:
+never dispatch the adjudicator or draft a new verdict table for it. A plan
+answers an adjudication the human already saw, so a fresh one would change
+the drafts it approved. The record is `gate_record {runDb, stage, scope:
+respond-plan, shape: respond-plan, answers: <the plan>, decidedBy: <the
+decider the caller names>}`, plus `contextDropped: true` when the handed
+`--report` carries the line `gate-1-context: dropped`.
 
-It reads no threads either. Its rows come from the record and the cards the
-open stored on the run (`extra.gate-source.respond-plan`), so every thread
-the plan names gets its row, resolved on the forge or not, and a thread it
-does not name gets none. A card carries what the row walk needs: the
-thread's `file:line`, the reviewer's claim and points, the verdict, the
-drafted reply and the planned change.
+Before the record, the steps after it need each named thread's id,
+`file:line` and full note chain: fix rows to implement, override rows to
+redraft. When those threads are already in this conversation, read nothing.
+Otherwise read them first (Keep exactly the threads the handed plan
+names). The rows still come from the record: `gate_record`'s `rows`, or on
+a resume the decision joined to the stored cards. The read supplies the
+bodies.
 
 On a run with no stored cards (no `receive-review-run:` line in the handed
 `--report`, or a refused resume), the plan still records: with no card to
@@ -622,6 +636,28 @@ override.
 
 The plan is spent once the run records it. Spent, not a revise: go to the
 rows from that record, never record it again. A revise: adjudicate afresh.
+
+### mr_threads {mrUrl} for the handed plan's threads
+
+The handed plan's read takes no `filter`: the plan decides each thread it
+names, resolved or not, so the read returns every thread and Keep exactly
+the threads the handed plan names picks them out. It is a different read
+from `mr_threads {mrUrl, filter: "unresolved-human"}`, which only a fresh
+adjudication makes.
+
+### Read the handed plan's threads on GitHub with gh
+
+On GitHub, fetch every thread with `gh`, as Read the PR's review threads
+with gh does, resolved ones included: no human-thread filter applies to a
+handed plan.
+
+### Keep exactly the threads the handed plan names
+
+Keep every thread the plan names, resolved or not: the plan decides its
+row, not the resolved state. Capture each one's id, its `file:line`, and
+its full note chain. A named thread the forge no longer returns is held
+and reported. Unresolved threads the plan does not name get no row; the
+outcome report names them for the next run.
 
 ### mr_threads {mrUrl, filter: "unresolved-human"}
 
@@ -783,9 +819,9 @@ still cannot fit is dropped loudly (`contextDropped`), never by hand.
   source fix can mend (a file it cannot read or parse, a path outside the
   read roots) goes straight to the off-script gate.
 
-The way past a refusal is the source fix or the off-script gate. A
-hand-edited open, a shortened reply or a fit with the vendored script is
-the STOP on this diamond.
+The way past a refusal is the source fix or the off-script gate: only
+`gate_open` fits the open. A hand-edited open, a shortened reply or a fit
+with the vendored script is the STOP on this diamond.
 
 ### Fix the respond-plan source the gate_open refusal names
 
@@ -1445,7 +1481,7 @@ entry's relations.
 | "The snapshot has no respond-post record, so nothing has posted yet" | A pane can post and die before it records. On a resume, read each thread on the forge before its reply posts or a re-asked gate offers it: one carrying this run's reply (the same text, or a note by this run's account since `started_at`) is posted, counted as posted, never posted or offered again. |
 | "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation follows `respond-plan`'s `code-changes: approve`, not a line in the draft. |
 | "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
-| "The pane is fresh, so I'll adjudicate again before applying the handed plan" | A handed plan answers an adjudication the human already saw. Record it and execute it; a fresh adjudication would change the drafts it approved. Its rows come from the record and the stored cards, so it reads no threads. |
+| "The pane is fresh, so I'll adjudicate again before applying the handed plan" | A handed plan answers an adjudication the human already saw. Record it and execute it; a fresh adjudication would change the drafts it approved. Read the threads only for what execution needs. |
 | "The caller asked the respond-plan gate, so it records the decision" | This verb records it: a handed `{plan}` goes through `gate_record {..., answers, decidedBy}`, the same record a pane answer gets with `gateId`. A resume reads that record. |
 | "I'll present the table and ask about fixes and posting in the same breath" | `respond-plan` and `respond-post` are two gates, in order. Prose that asks both at once is neither. |
 

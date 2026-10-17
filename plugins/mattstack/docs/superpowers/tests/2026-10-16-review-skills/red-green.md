@@ -466,3 +466,19 @@ Observation: R1 and R2 reps counted both threads `blocking` (neither ask
 carries a softener), while the R2 fixture's `formContext` says 1 blocking.
 Several reps noticed and left the gate's text as returned. That comes from
 the fixture, not the skill.
+
+Fix round (task review). Revised ruling 1: a handed `{plan}` keeps main's
+thread read whenever its threads are not already in the conversation. That
+read is `mr_threads {mrUrl} for the handed plan's threads` with no filter
+(GitHub uses `Read the handed plan's threads on GitHub with gh`), then
+`Keep exactly the threads the handed plan names`, which holds main's two
+rules. Also, the respond-plan guard STOP now names its tool: `STOP: fit
+the respond-plan open only with gate_open`. The system file was rebuilt
+with the same overlay, `556da1478`, still the newest commit touching
+gate-protocol. Transcripts:
+`<scratch>/task4/green3/{R7b,R2}/rep-1..5.txt`.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| R7b board same pane | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the first call is `gate_record {answers, decidedBy: "board"}` on `r-20261016-rev`, with no `run_enter` and no thread read: "The threads are already in this conversation, so I call no `mr_threads`." (rep 5) |
+| R2 note on a reply | 5/5 | 0 | 0 | 0 | 0 | 0 | none in the entry; the same shape as round 2 (`gate_open`, `code-changes` held back, one `gate_answer`, `gate_record {gateId}`, rows as returned) |

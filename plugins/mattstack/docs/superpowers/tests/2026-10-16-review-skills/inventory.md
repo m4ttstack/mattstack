@@ -49,7 +49,7 @@ today's node texts.
 | `Report that no open MR has this branch as its source` (box node + section) | kept; section: kept; the error-quoting rule stays | receive-review 2 |
 | `mr_threads {mrUrl}` (plaintext node) | replaced by: `mr_threads {mrUrl, filter: "unresolved-human"}` | receive-review 3; B10 |
 | `Read the PR's review threads with gh` (box node + section) | kept | receive-review 3 |
-| `Keep only unresolved human threads` (box node + section) | replaced by: `Keep only unresolved human threads (GitHub)`, applying the username bot rule by hand; on GitLab the `mr_threads` filter decides; section: GitLab filtering moves to `mr_threads {filter}`; the handed-plan paragraphs: record the plan through `gate_record`, never re-adjudicate (kept), spent-plan rule (kept); "keep every thread the plan names, resolved or not" is kept by construction: a handed plan reads no threads, its rows come from the recorded decision plus the stored `extra.gate-source.respond-plan` cards, so the filter never applies to it (Open rows 1, resolved) | receive-review 3; B10 |
+| `Keep only unresolved human threads` (box node + section) | replaced by: `Keep only unresolved human threads (GitHub)`, applying the username bot rule by hand; on GitLab the `mr_threads` filter decides; section: GitLab filtering moves to `mr_threads {filter}`; the handed-plan paragraphs: record the plan through `gate_record`, never re-adjudicate (kept), spent-plan rule (kept); the handed plan's read moves to its own nodes: when its threads are not already in the conversation, `mr_threads {mrUrl} for the handed plan's threads` (no filter) on GitLab or `Read the handed plan's threads on GitHub with gh`, then `Keep exactly the threads the handed plan names`, whose section keeps "keep every thread the plan names, resolved or not", "a named thread the forge no longer returns is held and reported" and "unresolved threads the plan does not name get no row; the outcome report names them for the next run"; rows still come from `gate_record`'s `rows` (or the decision plus the stored cards on a resume), and the read supplies the bodies (Open rows 1, resolved) | receive-review 3; B10 |
 | `Executing a caller-handed {plan}?` (diamond node) | kept; the yes edge goes to `gate_record {scope: respond-plan, shape: respond-plan, answers, decidedBy}`; the spent edge reads the rows from the recorded decision | receive-review 4, 7; B6 |
 | `Any unresolved human threads?` (diamond node) | kept | receive-review 4 |
 | `Dispatch one fresh-context adjudicator over all the review threads` (box node + section) | kept (HARD-GATE) | receive-review 5; Non-goals |
@@ -447,10 +447,16 @@ The spec left these three open; the controller ruled on each, and the rows
 above carry the ruling.
 
 1. **A handed plan that names a resolved thread** (receive-review, `Keep
-   only unresolved human threads` section). Ruling: a handed `{plan}` reads
-   no threads. Its rows come from the recorded decision plus the stored
-   `extra.gate-source.respond-plan` cards, so every thread the plan names
-   is kept by construction and the `mr_threads` filter never applies to it.
+   only unresolved human threads` section). Ruling (revised): a handed
+   `{plan}` is recorded through `gate_record` and never re-adjudicated, and
+   it keeps main's thread read whenever its threads are not already in the
+   conversation: GitLab `mr_threads {mrUrl}` with no filter (its own node),
+   GitHub the gh read. It keeps exactly the threads the plan names,
+   resolved or not; a named thread the forge no longer returns is held and
+   reported, and unresolved threads it does not name get no row. With the
+   threads already in context (the same-pane path) it reads nothing. Rows
+   come from `gate_record`'s `rows`, or the decision plus the stored cards
+   on a resume; the read supplies the bodies.
 2. **The code-changes hide rule** (receive-review, `Gate respond-plan
    through gate-protocol` section): submit `code-changes: skip` unasked
    when no thread answered `fix:`. Ruling: kept, in the respond-plan gate
