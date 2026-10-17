@@ -197,8 +197,6 @@ digraph ship {
     "git_push {tree: <root>, setUpstream: true}" [shape=plaintext];
     "git_push {tree: <root>, forceWithLease: true}" [shape=plaintext];
     "git_push result (ship)?" [shape=diamond];
-    "Retried with the printed root (ship)?" [shape=diamond];
-    "git_push {tree: <the root the error prints>, setUpstream: true}" [shape=plaintext];
     "STOP: push only with git_push (ship)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "ship off-script gate: git_push refused" [shape=box];
     "ship off-script answer (git_push)?" [shape=diamond];
@@ -362,12 +360,8 @@ digraph ship {
     "Push needs force-with-lease (ship)?" -> "git_push {tree: <root>, forceWithLease: true}" [label="yes: the rebase rewrote pushed commits"];
     "git_push {tree: <root>, setUpstream: true}" -> "git_push result (ship)?";
     "git_push {tree: <root>, forceWithLease: true}" -> "git_push result (ship)?";
-    "git_push {tree: <the root the error prints>, setUpstream: true}" -> "git_push result (ship)?";
     "git_push result (ship)?" -> "Forge host (ship, open the MR)?" [label="ok"];
-    "git_push result (ship)?" -> "Retried with the printed root (ship)?" [label="tree must be the absolute path of the root"];
     "git_push result (ship)?" -> "STOP: push only with git_push (ship)" [label="any other error"];
-    "Retried with the printed root (ship)?" -> "git_push {tree: <the root the error prints>, setUpstream: true}" [label="no"];
-    "Retried with the printed root (ship)?" -> "STOP: push only with git_push (ship)" [label="yes"];
     "STOP: push only with git_push (ship)" -> "ship off-script gate: git_push refused";
     "ship off-script gate: git_push refused" -> "ship off-script answer (git_push)?";
     "ship off-script answer (git_push)?" -> "Confirm the human's push landed (ship)" [label="take: the human pushed"];

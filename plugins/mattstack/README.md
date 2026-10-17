@@ -235,11 +235,14 @@ binding or a pack's compile, never directly.
 - **checkout-and-open** -- the same checkout, plus opening it in an editor
   in one step.
 - **map-open-mrs** -- pair every one of the user's open MRs/PRs with the
-  local worktree holding its branch; the discovery step of `sync-open-mrs`.
+  local worktree holding its branch; the discovery step of `sync-open-mrs`
+  on GitHub.
 - **rebase-worktree** -- rebase one worktree's feature branch onto a moved
   default branch.
-- **sync-open-mrs** -- rebase every open MR/PR in one sweep, built on
-  `map-open-mrs` and `rebase-worktree`.
+- **sync-open-mrs** -- rebase every open MR/PR in one sweep: it maps with
+  `mr_map` on GitLab and follows `map-open-mrs` on GitHub, then syncs with
+  `branch_sync_sweep` when every listed branch is selected, and one
+  `branch_sync` per branch otherwise.
 
 ### Browser
 
