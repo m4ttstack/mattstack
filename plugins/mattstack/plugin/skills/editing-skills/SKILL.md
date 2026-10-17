@@ -68,7 +68,7 @@ digraph publish_skill {
     "Gate: craft rounds spent" [shape=box];
     "What changed?" [shape=diamond];
     "Add its root to the manifest skills array" [shape=box];
-    "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir>" [shape=plaintext];
+    "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>" [shape=plaintext];
     "Certify passes?" [shape=diamond];
     "Certify rounds = 3?" [shape=diamond];
     "Fix what certify names" [shape=box];
@@ -124,7 +124,7 @@ digraph publish_skill {
     "Trigger: a skill change to make, or a change that is not live" -> "Is there an edit to make?";
     "Is there an edit to make?" -> "Baseline a fresh agent (RED)" [label="yes"];
     "Is there an edit to make?" -> "List the packs to bring current" [label="no: not live, or the cache lags"];
-    "Is there an edit to make?" -> "What changed?" [label="made and GREEN in an extending-a-pack round"];
+    "Is there an edit to make?" -> "What changed?" [label="made in an extending-a-pack round: GREEN, or an undo that needs none"];
     "Baseline a fresh agent (RED)" -> "Edit or create SKILL.md in the source path";
     "Edit or create SKILL.md in the source path" -> "The edit compiles into a pack verb?";
     "The edit compiles into a pack verb?" -> "Compile the checkout's sources on Bash" [label="yes: engine, include or fill"];
@@ -139,15 +139,16 @@ digraph publish_skill {
     "Gate: craft rounds spent" -> "Revise the skill against the GREEN transcript" [label="retry with their note"];
     "Gate: craft rounds spent" -> "Handed to the human" [label="human takes over"];
     "What changed?" -> "Add its root to the manifest skills array" [label="a new mattstack skill under a new root"];
-    "What changed?" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir>" [label="anything else"];
-    "Add its root to the manifest skills array" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir>";
-    "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir>" -> "Certify passes?";
+    "What changed?" -> "Bump version in the manifest" [label="no skill folder written: a bind, an unset or a roster edit"];
+    "What changed?" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>" [label="a skill folder written or revised"];
+    "Add its root to the manifest skills array" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>";
+    "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>" -> "Certify passes?";
     "Certify passes?" -> "Bump version in the manifest" [label="yes"];
     "Certify passes?" -> "Certify rounds = 3?" [label="no"];
     "Certify rounds = 3?" -> "Fix what certify names" [label="no"];
     "Certify rounds = 3?" -> "Gate: certify rounds spent" [label="yes"];
-    "Fix what certify names" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir>";
-    "Gate: certify rounds spent" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir>" [label="retry: human fixed it"];
+    "Fix what certify names" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>";
+    "Gate: certify rounds spent" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>" [label="retry: human fixed it"];
     "Gate: certify rounds spent" -> "Handed to the human" [label="human takes over"];
     "Bump version in the manifest" -> "git add <files>; git commit";
     "git add <files>; git commit" -> "On the default branch?";
@@ -290,6 +291,16 @@ silently never loads until you add it. An engine, include, or fill goes
 under `attachments/<category>/<name>/` and is never listed there: it reaches
 a session only when a pack compiles it in -- the mattstack pack's own
 roster included.
+
+### What changed?
+
+Certify takes one skill folder, the one this change wrote or revised:
+`plugin/skills/<name>/` or `attachments/<category>/<name>/` for mattstack,
+`skills/<name>/` or `attachments/<fill>/` for a team pack. It never takes a
+pack folder or compiled output. A change that wrote no skill folder (a
+bind, an `--unset`, a pack/stubs.jsonc or pack/skills.jsonc edit) has
+nothing to certify and goes straight to the bump. When a change wrote
+several folders, certify each.
 
 ### Fix what certify names
 
@@ -493,12 +504,13 @@ starting again at zero. Takes over: the human chases the cache.
   `claude --plugin-dir <pack dir>` for a team pack.
 - A change handed from `mattstack:extending-a-pack` or
   `mattstack:creating-a-pack` already passed its RED and GREEN, so it enters
-  at `What changed?`.
+  at `What changed?`. An `--unset` undo from extending-a-pack enters there
+  too with no RED baseline: it writes no rule.
 - Skills verbs go through `rt_verb`: `--pack <pack>` sits in `args`, and
   the call never carries a `cwd`. `--pack-dir <dir>` rides in `args` for
   `check` only.
 - A team pack's own skill certifies with `--domain`
-  (`sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir> --domain`): the purity greps skip, every
+  (`sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder> --domain`): the purity greps skip, every
   structural check still runs.
 - The cswap sessions sync warns about are those whose `plugins` is not a
   symlink resolving to `<config>/plugins`.

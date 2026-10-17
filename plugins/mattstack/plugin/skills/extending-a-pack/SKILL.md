@@ -229,7 +229,8 @@ fragment, rebuilds the bindings file and recompiles the pack:
 Then run `rt_verb {args: ["skills", "check", "--pack", "<pack>"]}`: it
 passes with every verb and stage current and no stage copy left over. The
 undo writes no rule, so there is no certify, RED or GREEN. Hand to
-editing-skills to publish.
+editing-skills to publish: it enters at `What changed?` with no RED
+baseline and takes the `no skill folder written` edge (see Publish).
 
 ### Declare the pipeline in pack/skills.jsonc
 
@@ -264,13 +265,22 @@ check accepts. Keep the `feature` pipeline: plain `work` runs it.
 ### Add the work-<kind> verb in pack/stubs.jsonc
 
 One roster entry on the `work` engine, naming the pipeline it runs, with a
-trigger-only description in the team's words:
+trigger-only description in the team's words. It goes inside the `verbs`
+object, next to `work`; rt reads no entry outside `verbs`:
 
 ```jsonc
-"work-a11y": {
-  "engine": "work",
-  "pipeline": "accessibility",
-  "description": "Use when running accessibility work end to end"
+{
+  "verbs": {
+    "work": {
+      "engine": "work",
+      "description": "..."
+    },
+    "work-a11y": {
+      "engine": "work",
+      "pipeline": "accessibility",
+      "description": "Use when running accessibility work end to end"
+    }
+  }
 }
 ```
 
@@ -556,8 +566,16 @@ and compile each team pack.
 
 Hand to `mattstack:editing-skills`: bump, commit, push, check and sync each
 pack (`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), then
-`/reload-plugins`. The round already passed RED and GREEN, so it enters
-editing-skills at `What changed?`. The daemon's team snapshot leaves pack
+`/reload-plugins`. Every hand-off enters editing-skills at `What changed?`,
+with no RED baseline there:
+
+- A round that wrote or revised a skill or fill already passed its RED and
+  GREEN here, and certifies that folder.
+- A round that wrote no skill folder (a new pipeline, a door, a reworded
+  verb, a bind of an existing fill, or an `--unset` undo) needs no RED, and
+  takes the `no skill folder written` edge past certify.
+
+The daemon's team snapshot leaves pack
 edits to this publish; it is how the edit reaches the team.
 
 A published change does not reach a member whose app is below the pack's
