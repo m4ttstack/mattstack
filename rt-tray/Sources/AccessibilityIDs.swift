@@ -130,7 +130,7 @@ enum AXID {
     static let devLoginSheetOrigin = "devLogin.sheet.origin"
     static let devLoginSheetEmail = "devLogin.sheet.email"
     static let devLoginSheetPassword = "devLogin.sheet.password"
-    static let devLoginSheetConfirmHost = "devLogin.sheet.confirmHost"
+    static let devLoginSheetConfirmPassword = "devLogin.sheet.confirmPassword"
     static let devLoginSheetSave = "devLogin.sheet.save"
     static let devLoginSheetCancel = "devLogin.sheet.cancel"
     static let devLoginSheetWarning = "devLogin.sheet.warning"

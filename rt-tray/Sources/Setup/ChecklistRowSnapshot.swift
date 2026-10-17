@@ -4,7 +4,8 @@ import MattstackCore
 
 /// `rt-tray --render-checklist-row-snapshots <out-dir>` renders the checklist's
 /// three sections and the row states the row actions produce (waiting on the
-/// admin dialog, the per-step buttons), light and dark, then exits before any
+/// admin dialog, the per-step buttons) and the dev-login Add sheet's states,
+/// light and dark, then exits before any
 /// window, status item, socket or daemon work exists. DEBUG builds only.
 enum ChecklistRowSnapshot {
     @MainActor
@@ -22,7 +23,18 @@ enum ChecklistRowSnapshot {
         for scheme in ["light", "dark"] {
             SnapshotRenderer.render(Rows(), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("checklist-rows-\(scheme).png"))
         }
-        print("wrote 2 snapshots to \(out.path)")
+        let sheets: [(String, DevLoginSheet)] = [
+            ("blank", sheet()),
+            ("empty", sheet(origin: "https://login.example.com")),
+            ("mismatch", sheet(origin: "https://login.example.com", email: "dev@example.com", password: "hunter22", confirm: "hunter")),
+            ("matching", sheet(origin: "https://login.example.com", email: "dev@example.com", password: "hunter22", confirm: "hunter22")),
+        ]
+        for (name, view) in sheets {
+            for scheme in ["light", "dark"] {
+                SnapshotRenderer.render(view.background(Color(nsColor: .windowBackgroundColor)), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("devlogin-sheet-\(name)-\(scheme).png"))
+            }
+        }
+        print("wrote \(2 + sheets.count * 2) snapshots to \(out.path)")
         return true
         #else
         return false
@@ -30,6 +42,11 @@ enum ChecklistRowSnapshot {
     }
 
     #if DEBUG
+    private static func sheet(origin: String = "", email: String = "", password: String = "", confirm: String = "") -> DevLoginSheet {
+        DevLoginSheet(fixedOrigin: nil, email: email, originText: origin, password: password, confirmPassword: confirm,
+                      isSaved: { _ in false }, onSave: { _, _, _ in nil })
+    }
+
     private static func step(_ label: String, _ id: String) -> RowAction {
         RowAction(type: .run, label: label, verb: ["setup", "apply", "--only", id])
     }
