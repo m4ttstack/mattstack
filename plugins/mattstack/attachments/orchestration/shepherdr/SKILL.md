@@ -538,7 +538,8 @@ Submit each `value` verbatim; free text rides the `note`.
 the answer is literally in the brief you wrote. A human answer fitting no
 option goes as `{"writeIn": "<their words>"}` if the question was opened
 with `writeIn`, else ask them to pick. When the user parks a gate,
-`herd_gate_park` takes it off the open list until it is reopened.
+`herd_gate_park` takes it off the open list; it stays answerable with
+`herd_gate_answer` until it is answered or closed.
 
 ### Say which answer won, in one line
 
@@ -749,11 +750,11 @@ with the PR or MR link, its state and its CI, then **Merge** / **Not yet** /
 
 ### Flip the lane's ticket, when it has one
 
-Flip it just before `herd_close`; an integration report that merges
-several lanes closes each here. Only you close a done job's pane. The
-watchdog nags past `herd.watchdog.nagMins` (default 30): for a merged lane
-this step was skipped; for a lane waiting on the integration job or a merge
-gate it is normal, and you end the turn.
+Flip it just before `herd_close`, for each lane an integration report
+merges. Only you close a done job's pane. The watchdog nags past
+`herd.watchdog.nagMins` (default 30): for a merged lane this step was
+skipped; for a lane awaiting the integration job or a merge gate it is
+normal, so end the turn.
 
 ### Show the status table
 
