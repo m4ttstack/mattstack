@@ -124,7 +124,7 @@ digraph publish_skill {
     "Trigger: a skill change to make, or a change that is not live" -> "Is there an edit to make?";
     "Is there an edit to make?" -> "Baseline a fresh agent (RED)" [label="yes"];
     "Is there an edit to make?" -> "List the packs to bring current" [label="no: not live, or the cache lags"];
-    "Is there an edit to make?" -> "What changed?" [label="made in an extending-a-pack round: GREEN, or an undo that needs none"];
+    "Is there an edit to make?" -> "What changed?" [label="handed from an extending-a-pack round"];
     "Baseline a fresh agent (RED)" -> "Edit or create SKILL.md in the source path";
     "Edit or create SKILL.md in the source path" -> "The edit compiles into a pack verb?";
     "The edit compiles into a pack verb?" -> "Compile the checkout's sources on Bash" [label="yes: engine, include or fill"];
@@ -139,7 +139,7 @@ digraph publish_skill {
     "Gate: craft rounds spent" -> "Revise the skill against the GREEN transcript" [label="retry with their note"];
     "Gate: craft rounds spent" -> "Handed to the human" [label="human takes over"];
     "What changed?" -> "Add its root to the manifest skills array" [label="a new mattstack skill under a new root"];
-    "What changed?" -> "Bump version in the manifest" [label="no skill folder written: a bind, an unset or a roster edit"];
+    "What changed?" -> "Bump version in the manifest" [label="no skill folder written: a bind, an unset, a roster edit or a pack/skills.jsonc edit"];
     "What changed?" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>" [label="a skill folder written or revised"];
     "Add its root to the manifest skills array" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>";
     "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>" -> "Certify passes?";
@@ -502,10 +502,12 @@ starting again at zero. Takes over: the human chases the cache.
 - To try an uncommitted edit for one session without touching the cache:
   `claude --plugin-dir <monorepo checkout>/plugins/mattstack`, or
   `claude --plugin-dir <pack dir>` for a team pack.
-- A change handed from `mattstack:extending-a-pack` or
-  `mattstack:creating-a-pack` already passed its RED and GREEN, so it enters
-  at `What changed?`. An `--unset` undo from extending-a-pack enters there
-  too with no RED baseline: it writes no rule.
+- Every hand-off from `mattstack:extending-a-pack` or
+  `mattstack:creating-a-pack` enters at `What changed?` with no RED
+  baseline here. A round that wrote or revised a skill folder already passed
+  its RED and GREEN there, and certifies that folder. A round that wrote no
+  folder (a new pipeline, a door, a reworded verb, a bind of an existing
+  fill, an `--unset` undo) takes the `no skill folder written` edge.
 - Skills verbs go through `rt_verb`: `--pack <pack>` sits in `args`, and
   the call never carries a `cwd`. `--pack-dir <dir>` rides in `args` for
   `check` only.
