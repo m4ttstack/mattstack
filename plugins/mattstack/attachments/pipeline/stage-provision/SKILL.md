@@ -15,11 +15,10 @@ metadata:
 
 {{stage.fields}}
 
-Run state: the orchestrator opens and closes this stage, so never write
-`run_stage` `start` or `done` here. Read consumes with `run_field_get`,
-write each produce with `run_field_set` (`stage: "provision"`) the moment
-it exists, and on failure write `run_stage {action: fail, stage:
-"provision", reason}` naming what failed.
+The orchestrator owns this stage's rows: read consumes with
+`run_field_get`, write produces with `run_field_set {stage: "provision"}`,
+and end a failure with `run_stage {action: fail, stage: "provision",
+reason}`.
 
 ```dot
 digraph provision {
@@ -33,22 +32,30 @@ digraph provision {
     "Domain rules inlined?" [shape=diamond];
     "Follow the domain's provision flow" [shape=box];
     "Domain flow result?" [shape=diamond];
-    "worktree_provision {repoName, ticket, ticketTitle?} or {repoName, branch: <slug>}" [shape=plaintext];
+    "worktree_provision {repoName, ticket | branch, ticketTitle?, precheck: true}" [shape=plaintext];
+    "Precheck result?" [shape=diamond];
+    "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [shape=plaintext];
     "worktree_provision result?" [shape=diamond];
-    "EnterWorktree {path}" [shape=plaintext];
     "Gate provision (table below)" [shape=box];
     "provision answer?" [shape=diamond];
-    "Provisioned fresh once already?" [shape=diamond];
-    "git -C <repo> rev-parse --git-dir; git -C <repo> status --porcelain" [shape=plaintext];
+    "worktree_provision {repoName, branch: <the picked branch>, reuse: true, runDb, stage: provision}" [shape=plaintext];
+    "Reuse result?" [shape=diamond];
+    "run_budget {key: fresh-tree, limit: 2, stage: provision}" [shape=plaintext];
+    "Fresh trees this attempt = 2?" [shape=diamond];
+    "git -C <repo> branch --list <slug>-*" [shape=plaintext];
+    "EnterWorktree {path}" [shape=plaintext];
+    "Recorded on the run?" [shape=diamond];
+    "git -C <repo> rev-parse --git-dir" [shape=plaintext];
+    "git -C <repo> status --porcelain" [shape=plaintext];
     "Checkout clean?" [shape=diamond];
     "git -C <repo> switch -c <branch> <default>" [shape=plaintext];
     "STOP: never hand-roll a worktree; worktree_provision or the plain branch fallback" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "run_field_set {key: branch}; run_field_set {key: worktree}" [shape=plaintext];
+    "run_field_set {key: branch, value: <branch>, stage: provision}" [shape=plaintext];
+    "run_field_set {key: worktree, value: <absolute path>, stage: provision}" [shape=plaintext];
     "This stage found or created the ticket?" [shape=diamond];
     "run_field_set {key: ticket, value: <id>, stage: provision}" [shape=plaintext];
     "run_stage {action: fail, stage: provision, reason}" [shape=plaintext];
-    "run_decision {contract: gate@1, scope: hold:provision:<attempt>, selection: {reason}, decidedBy}" [shape=plaintext];
-    "run_field_set {key: hold, value: <their words, or held>, stage: provision}" [shape=plaintext];
+    "run_hold {runDb, stage: provision, reason, decidedBy}" [shape=plaintext];
     "Held: end the turn naming run and stage" [shape=doublecircle];
     "Stage failed" [shape=doublecircle];
     "Provision done: return to the orchestrator" [shape=doublecircle style=filled fillcolor=lightgreen];
@@ -58,40 +65,56 @@ digraph provision {
     "mode is worker?" -> "git status in $PWD" [label="worker"];
     "mode is worker?" -> "Domain rules inlined?" [label="interactive, or the key is not set"];
     "git status in $PWD" -> "Clean run?";
-    "Clean run?" -> "run_field_set {key: branch}; run_field_set {key: worktree}" [label="yes: $PWD and its branch"];
+    "Clean run?" -> "run_field_set {key: branch, value: <branch>, stage: provision}" [label="yes: $PWD and its branch"];
     "Clean run?" -> "run_stage {action: fail, stage: provision, reason}" [label="no"];
     "Domain rules inlined?" -> "Follow the domain's provision flow" [label="yes"];
-    "Domain rules inlined?" -> "worktree_provision {repoName, ticket, ticketTitle?} or {repoName, branch: <slug>}" [label="no"];
+    "Domain rules inlined?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, precheck: true}" [label="no"];
     "Follow the domain's provision flow" -> "Domain flow result?";
-    "Domain flow result?" -> "worktree_provision {repoName, ticket, ticketTitle?} or {repoName, branch: <slug>}" [label="it provisions a tree"];
+    "Domain flow result?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, precheck: true}" [label="it provisions a tree"];
     "Domain flow result?" -> "Gate provision (table below)" [label="it raises a question"];
-    "Domain flow result?" -> "run_field_set {key: branch}; run_field_set {key: worktree}" [label="already provisioned: this tree and its branch"];
-    "worktree_provision {repoName, ticket, ticketTitle?} or {repoName, branch: <slug>}" -> "worktree_provision result?";
-    "worktree_provision result?" -> "EnterWorktree {path}" [label="ok: the result's path"];
-    "worktree_provision result?" -> "Gate provision (table below)" [label="branch is already checked out in worktree"];
-    "worktree_provision result?" -> "git -C <repo> rev-parse --git-dir; git -C <repo> status --porcelain" [label="daemon unreachable, or repo not registered"];
-    "worktree_provision result?" -> "run_stage {action: fail, stage: provision, reason}" [label="any other error"];
+    "Domain flow result?" -> "run_field_set {key: branch, value: <branch>, stage: provision}" [label="already provisioned: this tree and its branch"];
+    "worktree_provision {repoName, ticket | branch, ticketTitle?, precheck: true}" -> "Precheck result?";
+    "Precheck result?" -> "Gate provision (table below)" [label="trees to resume"];
+    "Precheck result?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="nothing in the way"];
+    "Precheck result?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="refused daemon-outdated"];
+    "Precheck result?" -> "git -C <repo> rev-parse --git-dir" [label="refused daemon-unreachable or repo-unknown"];
+    "Precheck result?" -> "run_stage {action: fail, stage: provision, reason}" [label="refused otherwise"];
+    "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" -> "worktree_provision result?";
+    "worktree_provision result?" -> "EnterWorktree {path}" [label="provisioned: the result's path"];
+    "worktree_provision result?" -> "Gate provision (table below)" [label="refused branch-attached"];
+    "worktree_provision result?" -> "git -C <repo> rev-parse --git-dir" [label="refused daemon-unreachable or repo-unknown"];
+    "worktree_provision result?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="refused busy, budget not exhausted"];
+    "worktree_provision result?" -> "run_stage {action: fail, stage: provision, reason}" [label="any other refusal, or busy with the budget exhausted"];
     "worktree_provision result?" -> "STOP: never hand-roll a worktree; worktree_provision or the plain branch fallback" [label="tempted to hand-roll one"];
     "STOP: never hand-roll a worktree; worktree_provision or the plain branch fallback" -> "run_stage {action: fail, stage: provision, reason}";
-    "git -C <repo> rev-parse --git-dir; git -C <repo> status --porcelain" -> "Checkout clean?";
+    "git -C <repo> rev-parse --git-dir" -> "git -C <repo> status --porcelain";
+    "git -C <repo> status --porcelain" -> "Checkout clean?";
     "Checkout clean?" -> "git -C <repo> switch -c <branch> <default>" [label="yes"];
     "Checkout clean?" -> "run_stage {action: fail, stage: provision, reason}" [label="no: quote the dirty paths as the reason"];
-    "git -C <repo> switch -c <branch> <default>" -> "run_field_set {key: branch}; run_field_set {key: worktree}" [label="worktree = the checkout"];
-    "EnterWorktree {path}" -> "run_field_set {key: branch}; run_field_set {key: worktree}";
+    "git -C <repo> switch -c <branch> <default>" -> "run_field_set {key: branch, value: <branch>, stage: provision}" [label="worktree = the checkout"];
     "Gate provision (table below)" -> "provision answer?";
-    "provision answer?" -> "EnterWorktree {path}" [label="resume in <tree>"];
-    "provision answer?" -> "Provisioned fresh once already?" [label="fresh tree"];
+    "provision answer?" -> "worktree_provision {repoName, branch: <the picked branch>, reuse: true, runDb, stage: provision}" [label="resume in <tree or branch>"];
+    "provision answer?" -> "run_budget {key: fresh-tree, limit: 2, stage: provision}" [label="fresh tree"];
     "provision answer?" -> "Follow the domain's provision flow" [label="ticket: create one"];
     "provision answer?" -> "Follow the domain's provision flow" [label="ticket: recheck the id"];
     "provision answer?" -> "Follow the domain's provision flow" [label="slug: their typed text"];
     "provision answer?" -> "Follow the domain's provision flow" [label="a domain answer"];
     "provision answer?" -> "Follow the domain's provision flow" [label="iterate: redo with their note"];
-    "provision answer?" -> "run_decision {contract: gate@1, scope: hold:provision:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
-    "run_decision {contract: gate@1, scope: hold:provision:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage: provision}";
-    "run_field_set {key: hold, value: <their words, or held>, stage: provision}" -> "Held: end the turn naming run and stage";
-    "Provisioned fresh once already?" -> "worktree_provision {repoName, ticket, ticketTitle?} or {repoName, branch: <slug>}" [label="no: under a new title"];
-    "Provisioned fresh once already?" -> "run_stage {action: fail, stage: provision, reason}" [label="yes"];
-    "run_field_set {key: branch}; run_field_set {key: worktree}" -> "This stage found or created the ticket?";
+    "provision answer?" -> "run_hold {runDb, stage: provision, reason, decidedBy}" [label="hold"];
+    "run_hold {runDb, stage: provision, reason, decidedBy}" -> "Held: end the turn naming run and stage";
+    "worktree_provision {repoName, branch: <the picked branch>, reuse: true, runDb, stage: provision}" -> "Reuse result?";
+    "Reuse result?" -> "EnterWorktree {path}" [label="reused or provisioned: the result's path"];
+    "Reuse result?" -> "run_stage {action: fail, stage: provision, reason}" [label="refused: quote it"];
+    "run_budget {key: fresh-tree, limit: 2, stage: provision}" -> "Fresh trees this attempt = 2?";
+    "Fresh trees this attempt = 2?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="no, ticket mode: provision fresh, no precheck"];
+    "Fresh trees this attempt = 2?" -> "git -C <repo> branch --list <slug>-*" [label="no, branch mode"];
+    "git -C <repo> branch --list <slug>-*" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="branch = <slug>-<n>"];
+    "Fresh trees this attempt = 2?" -> "run_stage {action: fail, stage: provision, reason}" [label="yes: exhausted"];
+    "EnterWorktree {path}" -> "Recorded on the run?";
+    "Recorded on the run?" -> "This stage found or created the ticket?" [label="yes: recorded true"];
+    "Recorded on the run?" -> "run_field_set {key: branch, value: <branch>, stage: provision}" [label="no: recordError"];
+    "run_field_set {key: branch, value: <branch>, stage: provision}" -> "run_field_set {key: worktree, value: <absolute path>, stage: provision}";
+    "run_field_set {key: worktree, value: <absolute path>, stage: provision}" -> "This stage found or created the ticket?";
     "This stage found or created the ticket?" -> "run_field_set {key: ticket, value: <id>, stage: provision}" [label="yes"];
     "This stage found or created the ticket?" -> "Provision done: return to the orchestrator" [label="no, or it came in known"];
     "run_field_set {key: ticket, value: <id>, stage: provision}" -> "Provision done: return to the orchestrator";
@@ -103,10 +126,54 @@ digraph provision {
 
 The domain's own acquisition: finding or creating the ticket, choosing the
 branch name, provisioning its way. Each question it raises goes to the
-`provision` gate rather than being asked on its own; when the pane is
-already sitting on the ticket's branch in a worktree, the domain confirms
-that instead of calling `worktree_provision` again and the graph records
-that tree and branch directly.
+`provision` gate, never asked on its own. A pane already on the ticket's
+branch in a worktree is confirmed, not provisioned again.
+
+### Precheck result?
+
+**Trees to resume** are, each tree once and in this order:
+
+1. the `attached` tree, only when exactly one is listed (two or more make
+   `reuse` refuse `branch-duplicated`, so offer none of them);
+2. the surviving local branch (`localBranch: true` with no `attached`
+   tree), offered as resume on `base`;
+3. every `sameTicket` tree, but only when no domain rules are inlined (a
+   domain flow asks its own slug question for those).
+
+All of them go in the gate's one `resume_in` question, the first 3 in that
+order plus **Fresh tree**; provisioning adds no other gate or question.
+A tree whose `owner` is set and is not this session is held by another
+session: its option reads **Resume in `<tree>` (held by `<owner>` since
+`<claimedAt>`)** and is never the recommended one; when every offered tree
+is held, **Fresh tree** is recommended.
+Two or more `attached` trees with nothing else to offer still go to the
+gate, offering **Fresh tree** alone. **Nothing in the way** means no
+`attached` tree and no other offer. A refused precheck routes on its
+`code`; `daemon-outdated` never retries the precheck.
+
+### worktree_provision result?
+
+Route on the refusal's `code`, never its prose. `branch-attached` offers
+its `tree` on the gate. `budget.exhausted` decides a `busy` retry; a
+`budget.error` reads as exhausted. The budget counts every refusal this
+attempt, so `busy` is retried only if no other refusal came first. A
+failed stage quotes `error`.
+
+### Fresh trees this attempt = 2?
+
+Read `run_budget`'s `exhausted`; an error reads as exhausted. Branch mode
+takes the lowest `n` from 2 that the branch list lacks.
+
+### Reuse result?
+
+A refusal fails the stage quoting `error`; the human can pick Fresh tree
+on a retry.
+
+### Recorded on the run?
+
+`recorded: true` means the tool wrote `branch` and `worktree`: write
+neither. `recordError` keeps the tree: quote it in one line and write both
+by hand.
 
 ## What the graph cannot show
 
@@ -116,9 +183,8 @@ that tree and branch directly.
   of the task description instead. A cold create can take minutes; say
   that it is provisioning.
 - The plain branch fallback derives the branch from the ticket id and a
-  kebab slug of its title (or of the task description). It refuses a dirty
-  checkout and passes the repo's default branch as the start point. Never
-  commit to the default branch.
+  kebab slug of its title (or of the task description). Never commit to
+  the default branch.
 - `worktree` is always an absolute path: the checkout itself when no
   separate worktree is used.
 - `ticket` is not a declared produce: a ticketless run is a finished run.
@@ -126,18 +192,21 @@ that tree and branch directly.
 
 ## Gate `provision`
 
-One sentence above the form: what was found (the tree, the missing
-ticket, the title).
+Walk gate-protocol's Runs integration with kind `provision`, `runDb` and
+`stage: "provision"`; the gate tools record the answers. One sentence
+above the form: what was found (the tree, the missing ticket, the title).
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `resume_in` (write-in) | **Resume in `<tree>` (Recommended)** / **Fresh tree** | the branch is already checked out |
+| `resume_in` (write-in) | **Resume in `<tree>` (Recommended)**, one per tree to resume, at most 3; a tree another session holds reads **(held by `<owner>` since `<claimedAt>`)** instead / **Fresh tree** | the precheck lists trees to resume, or provision refused `branch-attached` |
 | `ticket` (write-in) | **Create one (Recommended)** / **I will recheck the id** | a ticket was not found |
 | `slug` | the slug as their text (a typed slug arrives as the note, or as `text`) | the title is too generic for a slug |
 | the domain's own | as the domain words them | the domain declares them |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
-Selection: `{"resume_in":"<tree or null>","ticket":"create|recheck|null","slug":"<text or null>","domain":{<answers>},"next":"proceed|iterate|hold","note":"<their words or null>"}`.
+The picked branch for a resume is that tree's `branch`, `base` for a
+surviving local branch, or after a `branch-attached` refusal the branch
+the provision passed.
 
 ## Domain rules
 

@@ -15,9 +15,9 @@ metadata:
 
 {{stage.fields}}
 
-Run state: the orchestrator opens and closes this stage, so never write
-`run_stage` `start` or `done` here. Read consumes with `run_field_get`; on
-failure write `run_stage {action: fail, stage: "gates", reason}` naming
+The orchestrator owns this stage's rows: read consumes with
+`run_field_get`, write fields with `run_field_set {stage: "gates"}`, and end
+a failure with `run_stage {action: fail, stage: "gates", reason}` naming
 which gate failed and what it found.
 
 ```dot
