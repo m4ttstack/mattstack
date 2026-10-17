@@ -11,7 +11,7 @@ import {
 } from '../../outline';
 import { ownerOf, type Owner } from '../../owner';
 import type { SkillsAnatomy, SkillsChanges } from '../../useWiring';
-import { copyLabelOf, stepLabel } from './focusModel';
+import { copyLabelOf, copyLinkLabelOf, stepLabel } from './focusModel';
 
 export type RowState =
   | 'ok'
@@ -507,7 +507,7 @@ export function buildTemplateView(input: {
           id,
           stepOf(skill),
           checkRows.get(skill),
-          copyLabelOf(composition, skill)
+          copyLinkLabelOf(composition, skill)
         )
       );
       continue;

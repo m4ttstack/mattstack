@@ -688,7 +688,7 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
               <HealthGroupCard
                 title="Pipelines"
                 intent="warn"
-                caption="stage copies compile removes, and overrides a pipeline ignores"
+                caption="stale stage copies, and overrides a pipeline ignores"
                 entries={pipelineRows}
                 getKey={row => row.key}
                 renderRow={row => (

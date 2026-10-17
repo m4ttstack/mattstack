@@ -932,7 +932,7 @@ describe('a specialized pipeline', () => {
       workType: 'accessibility',
     });
     expect(view.links[3]).toMatchObject({
-      title: 'evidence · accessibility',
+      title: 'stage-evidence · accessibility',
       file: 'stage-evidence--accessibility/SKILL.md',
     });
     expect(view.links[2]).toMatchObject({

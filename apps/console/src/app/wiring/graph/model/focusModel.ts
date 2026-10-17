@@ -64,6 +64,17 @@ export function copyLabelOf(
     : null;
 }
 
+/** A stage copy as `stage-evidence · accessibility`; null for any other skill. */
+export function copyLinkLabelOf(
+  composition: Pick<SkillsComposition, 'targets'>,
+  skill: string
+): string | null {
+  const target = composition.targets?.find(t => t.name === skill);
+  return target?.engine && target.pipeline
+    ? `${target.engine} · ${target.pipeline}`
+    : null;
+}
+
 export function buildFocusGroups(
   composition: SkillsComposition,
   check: SkillsCheck | undefined

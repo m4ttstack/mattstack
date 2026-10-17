@@ -272,10 +272,10 @@ describe('TemplateCanvas: a pipeline that links its steps', () => {
       .getAllByTestId('link-card')
       .map(card => within(card).getByTestId('card-title'));
     expect(titles.map(title => title.textContent)).toContain(
-      'evidence · accessibility'
+      'stage-evidence · accessibility'
     );
     const copy = titles.find(
-      title => title.textContent === 'evidence · accessibility'
+      title => title.textContent === 'stage-evidence · accessibility'
     )!;
     // React Flow turns pointer events off on a node it cannot select, and the
     // node's CSS module that turns them back on is not loaded here.

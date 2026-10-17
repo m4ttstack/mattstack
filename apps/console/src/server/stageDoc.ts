@@ -46,7 +46,7 @@ export function parsePackTokens(s: string | null): PackToken[] {
 const docPath = (stage: string) =>
   new RegExp(`(^|/)attachments/(pipeline/)?stage-${stage}/SKILL\\.md$`);
 
-/** Mirrors rt's pipeline-name rule, so a name never leaves the stage dir. */
+/** Guards the path with rt's pipeline-name pattern, so a name never leaves the stage dir. */
 const PIPELINE_NAME = /^[a-z][a-z0-9-]*$/;
 
 /** The stage dirs to try, the run's pipeline copy first. */

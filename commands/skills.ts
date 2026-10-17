@@ -1997,6 +1997,20 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
   };
 }
 
+/** A shared engine's binder names the verb that runs the default pipeline; with no default, the verb naming no pipeline, else the first listed. */
+function binderVerbs(roster: VerbDef[], pipelines: Record<string, string[]>): Map<string, string> {
+  const fallback = defaultPipeline(pipelines);
+  const rank = (verb: VerbDef): number =>
+    fallback !== null ? ((verb.pipeline ?? fallback) === fallback ? 0 : 1) : verb.pipeline === undefined ? 0 : 1;
+  const chosen = new Map<string, VerbDef>();
+  for (const verb of roster) {
+    const ref = `mattstack:${verb.engine}`;
+    const held = chosen.get(ref);
+    if (!held || rank(verb) < rank(held)) chosen.set(ref, verb);
+  }
+  return new Map([...chosen].map(([ref, verb]) => [ref, verb.name]));
+}
+
 /**
  * verbs[] is roster-shaped and therefore an incomplete binding universe:
  * measured against a live pack, stubs.jsonc's verbs and the manifest's
@@ -2018,20 +2032,6 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
  * "skill" (a plugin skill binding fills without being either); anything
  * else is cross-plugin, "external".
  */
-/** A shared engine's binder names the verb that runs the default pipeline; with no default, the verb naming no pipeline, else the first listed. */
-function binderVerbs(roster: VerbDef[], pipelines: Record<string, string[]>): Map<string, string> {
-  const fallback = defaultPipeline(pipelines);
-  const rank = (verb: VerbDef): number =>
-    fallback !== null ? ((verb.pipeline ?? fallback) === fallback ? 0 : 1) : verb.pipeline === undefined ? 0 : 1;
-  const chosen = new Map<string, VerbDef>();
-  for (const verb of roster) {
-    const ref = `mattstack:${verb.engine}`;
-    const held = chosen.get(ref);
-    if (!held || rank(verb) < rank(held)) chosen.set(ref, verb);
-  }
-  return new Map([...chosen].map(([ref, verb]) => [ref, verb.name]));
-}
-
 function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): CompositionBinder[] {
   const stageRefs = new Set(Object.values(pipelines).flat());
   const verbByEngineRef = binderVerbs(resolved.fullRoster, pipelines);

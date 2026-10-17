@@ -569,8 +569,8 @@ describe("compile-pipelines", () => {
     writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"feature": [', '"general": ['));
     writeFileSync(join(pack, "pack", "stubs.jsonc"), JSON.stringify({
       verbs: {
-        "work-a11y": { engine: "work", pipeline: "accessibility", description: "Run accessibility work end to end" },
         work: { engine: "work", description: "Run a unit of work" },
+        "work-a11y": { engine: "work", pipeline: "accessibility", description: "Run accessibility work end to end" },
       },
     }, null, 2));
     expect(await workBinderVerb(args)).toBe("work");
