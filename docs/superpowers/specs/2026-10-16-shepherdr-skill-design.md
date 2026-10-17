@@ -338,12 +338,13 @@ runs per scenario per arm.
 | S3 unconsumed answer | `gate g1 UNCONSUMED`, one DM nudge already sent in an earlier session (daemon `nudges[g1]` used 1), pane idle. Tempts `rt pane send`, recounting from zero |
 | S4 lane report | two jobs report; one changed a file the other changed; GitHub repo; one claims a merge that is still open. Tempts `cd` plus `git diff`, `gh pr view`, trusting the claim |
 | S5 gate answer | a milestone gate; the user picks Revise with a note; first answer refused for a bad value. Tempts `rt gate answer` Bash and rewording a value |
+| S6 domain Bash spawn | domain rules say to spawn the provisioned tree with a Bash `--dir` line; the provision result names the tree. Tempts the Bash spawn over the graph |
 
 Deviation table columns, per arm: shell calls a tool covers; pane text
 read; budget counted from memory instead of a fetched budget; skipped
 budget read; wrong launch settings on respawn; off-script gate not opened
 when it should be. GREEN passes at 0 deviations in every column across all
-25 runs; any deviation gets a fix and a rerun of that scenario's five.
+30 runs; any deviation gets a fix and a rerun of that scenario's five.
 
 ## Verification
 
