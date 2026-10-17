@@ -418,6 +418,9 @@ design.
 - watch-ci fed the raw `SKILL.md`, so its includes were unexpanded on both
   sides.
 - Stop named is judgement scoring, not a pass criterion.
+- Two GREEN T4 stop-named cells were rescored after unblinding, under a rule
+  adopted then (a slug written as prose counts). That moved GREEN from 63/65
+  to 65/65, and the column is not a pass criterion.
 - The reps were scored by the same agent that ran them. A task reviewer
   independently re-scored a sample (4 watch-ci reps across 5 scenarios, 4
   stage-provision transcripts) and agreed on every deviation cell.
@@ -433,7 +436,8 @@ design.
 - Authoring added scenario A3, because A1 could not separate learning the
   rule from copying the example.
 - `check-dot.py` leaves two edge cases as is: a sentence node with a
-  redundant label equal to its id fails the short-id regex, and a
+  redundant label equal to its id fails as a mixed graph ("labels some nodes
+  and not others"), and a
   `node [label=...]` default reads as labelling every node. No skill writes
   either.
 

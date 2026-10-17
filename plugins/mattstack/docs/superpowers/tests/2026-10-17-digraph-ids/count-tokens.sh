@@ -13,8 +13,19 @@ set -euo pipefail
 
 [ "$#" -ge 2 ] || { echo "usage: count-tokens.sh <system-dir> <out-dir> [scheme ...]" >&2; exit 64; }
 sys_dir="$(cd "$1" && pwd -P)"
-mkdir -p "$2"
-out="$(cd "$2" && pwd -P)"
+repo_root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+repo_real="$(cd "$repo_root" && pwd -P)"
+probe="$2"
+rest=""
+while [ ! -d "$probe" ]; do
+  rest="/$(basename "$probe")$rest"
+  probe="$(dirname "$probe")"
+done
+out="$(cd "$probe" && pwd -P)$rest"
+case "$out/" in
+  "$repo_real"/*) echo "refusing: <out-dir> $out is inside the repo $repo_real" >&2; exit 65 ;;
+esac
+mkdir -p "$out"
 shift 2
 schemes=("$@")
 [ "${#schemes[@]}" -gt 0 ] || schemes=(all plaintext calls+boxes over:3)
