@@ -125,17 +125,22 @@ export function clearCloneFailure(p: Probes, identity: string): void {
   });
 }
 
-/** A linked worktree's `.git` is a file naming its own git dir, whose `commondir` leads to the git dir the main checkout shares. Null for a main checkout. */
-function linkedGitDirs(p: Pick<Probes, "readFile">, dest: string): { gitDir: string; commonDir: string } | null {
+/**
+ * A `.git` file names the tree's git dir (a submodule and a
+ * `--separate-git-dir` clone have one too); only a linked worktree's git dir
+ * has a `commondir`, leading to the git dir the main checkout shares.
+ */
+function pointedGitDirs(p: Pick<Probes, "readFile">, dest: string): { gitDir: string; commonDir: string | null } | null {
   const pointer = p.readFile(join(dest, ".git"))?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
   if (!pointer) return null;
   const gitDir = resolve(dest, pointer);
   const common = p.readFile(join(gitDir, "commondir"))?.trim();
-  return { gitDir, commonDir: common ? resolve(gitDir, common) : gitDir };
+  return { gitDir, commonDir: common ? resolve(gitDir, common) : null };
 }
 
 function gitConfigPath(p: Pick<Probes, "readFile">, dest: string): string {
-  return join(linkedGitDirs(p, dest)?.commonDir ?? join(dest, ".git"), "config");
+  const dirs = pointedGitDirs(p, dest);
+  return join(dirs ? (dirs.commonDir ?? dirs.gitDir) : join(dest, ".git"), "config");
 }
 
 /**
@@ -144,9 +149,9 @@ function gitConfigPath(p: Pick<Probes, "readFile">, dest: string): string {
  * as the canonical checkout, so a linked worktree can never be one.
  */
 export function linkedWorktreeMain(p: Pick<Probes, "readFile">, dest: string): { main: string | null } | null {
-  const dirs = linkedGitDirs(p, dest);
-  if (!dirs) return null;
-  return { main: basename(dirs.commonDir) === ".git" ? dirname(dirs.commonDir) : null };
+  const commonDir = pointedGitDirs(p, dest)?.commonDir;
+  if (!commonDir) return null;
+  return { main: basename(commonDir) === ".git" ? dirname(commonDir) : null };
 }
 
 /** A real clone of `identity`, not just any directory that happens to share its basename — two tracked identities can collide on basename (`gitlab.com/a/api`, `github.com/b/api`), and an unrelated folder can already occupy the path. */
@@ -305,7 +310,7 @@ export async function checkCheckout(p: Pick<Probes, "home" | "readFile" | "readD
       if (linked && other.kind === "remote" && other.id === identity) {
         return linked.main
           ? { ok: false, detail: `${shown} is a worktree of ${base}. Choose your main checkout at ${tildify(p.home, linked.main)}.` }
-          : { ok: false, detail: `${shown} is a worktree of ${base}. Choose your main checkout.` };
+          : { ok: false, detail: `${shown} is a worktree of ${base}. Choose a regular clone of it.` };
       }
       if (other.kind === "remote" && other.id !== identity) {
         return tracked.includes(other.id)

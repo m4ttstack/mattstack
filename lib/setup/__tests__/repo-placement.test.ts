@@ -54,6 +54,29 @@ describe("checkCheckout", () => {
     });
   });
 
+  test("a linked worktree with relative gitdir paths is refused the same way", async () => {
+    const main = join(home, "code", "widgets");
+    gitRepo(main, { origin: "https://gitlab.com/acme/widgets.git" });
+    execSync(`git -C ${JSON.stringify(main)} -c user.name=dev1 -c user.email=dev1@example.com commit -q --allow-empty -m init`);
+    const linked = join(home, "trees", "w");
+    execSync(`git -C ${JSON.stringify(main)} -c worktree.useRelativePaths=true worktree add -q -b feature ${JSON.stringify(linked)}`);
+    expect(await checkCheckout(realFsProbes(home), WIDGETS, linked, { tracked: [] })).toEqual({
+      ok: false,
+      detail: "~/trees/w is a worktree of widgets. Choose your main checkout at ~/code/widgets.",
+    });
+  });
+
+  test("a clone whose git dir lives elsewhere is a main checkout", async () => {
+    const path = join(home, "code", "widgets");
+    gitRepo(path, { origin: "https://gitlab.com/acme/widgets.git" });
+    const gitDir = join(home, "gitdirs", "widgets.git");
+    mkdirSync(join(home, "gitdirs"), { recursive: true });
+    execSync(`mv ${JSON.stringify(join(path, ".git"))} ${JSON.stringify(gitDir)}`);
+    writeFileSync(join(path, ".git"), `gitdir: ${gitDir}\n`);
+    execSync(`git --git-dir=${JSON.stringify(gitDir)} config core.worktree ${JSON.stringify(path)}`);
+    expect(await checkCheckout(realFsProbes(home), WIDGETS, path, { tracked: [] })).toEqual({ ok: true, path });
+  });
+
   test("a trailing slash and ~ are normalised", async () => {
     const path = join(home, "code", "widgets");
     gitRepo(path, { origin: "git@gitlab.com:acme/widgets.git" });
