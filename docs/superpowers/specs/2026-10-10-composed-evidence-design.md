@@ -1109,7 +1109,10 @@ own part.
 mattstack never teaches drawing: the driver follows Fast Browser's
 composing-evidence skill. The mattstack layer is one shared text, written
 once and included by stage-evidence, stage-ship and ship. It runs only when
-the pack's fill picks a browser screenshot for a case. A pack that never
+the pack's fill picks a browser screenshot for a case. review and
+self-review include it too, for one path only: a `repro`-depth review whose
+evidence check is a screenshot composes a local board, cited by path and
+never recorded or uploaded. A pack that never
 takes browser screenshots does not change. Evidence that is not a browser
 screenshot (backend data, script output) stays the pack's own method.
 

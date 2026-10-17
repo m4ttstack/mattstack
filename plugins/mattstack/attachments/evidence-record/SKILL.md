@@ -138,7 +138,9 @@ which marks to draw (`evidence-attach`, a domain form) decides the brief's
 board is `<stem>.png` in `~/.fast-browser/screenshots/`, never a
 `-annotated` copy, and it goes on the image as `annotated`. An image the
 domain says goes up as shot takes the yes edge to the waiver question,
-with the domain's reason as the recommended reason.
+with the domain's reason as the recommended reason. A ticket image never
+does: it is likely a production screenshot with personal data on it, so
+it always gets an `import:` board that hides what Personal data names.
 
 `Not drawn` is a draw failure, whatever its reason; `Held at
 evidence-redaction` is Redaction held.
@@ -152,7 +154,8 @@ other caption is written.
 
 Scope `evidence-waiver:<stage>:<n>`, `<n>` counting this stage pass's
 waiver gates from 1. One sentence above the form: which images need a
-waiver and why. A reason rides on the image as `waiver`, or on the case
+waiver and why; a ticket image is named as one, with **Annotate it after
+all** recommended, since a waived image uploads as shot. A reason rides on the image as `waiver`, or on the case
 in `cases`; free text is the reason, word for word.
 
 | Question | Options (recommended first) | Shown when |
@@ -253,7 +256,9 @@ human moves or copies a file.
 A `redaction` refusal names a board whose redaction record is missing,
 unconfirmed, stale or malformed, or whose crop changed: its redaction gate
 was skipped, or the board changed after it. Walk browser-evidence's Revise
-a board steps 1 to 6 on that board with no wording change: they re-render
+a board steps 1 to 6 on that board with no wording change (step 3's
+`revisions` entry: `asked` is the refusal quoted, `changed` is
+"re-rendered and re-confirmed"): they re-render
 it, pass Gate evidence-redaction, confirm after a yes and record the new
 bundle. Recorded is Repaired; a Hold at the gate, or Record held, is
 Held at evidence-redaction, with nothing uploaded; no spec beside the

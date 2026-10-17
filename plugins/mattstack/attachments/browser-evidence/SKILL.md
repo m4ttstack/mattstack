@@ -240,7 +240,7 @@ agent type is missing, every board is not drawn, never drawn by hand.
 
 ## Ask the developer to sign in
 
-A clarify question through gate-protocol, site `clarify:browser-login:<n>`.
+A clarify question through gate-protocol, scope `clarify:browser-login:<n>`.
 The question says the saved login could not sign in, and offers exactly two
 options, each with one sentence and no free text and no Hold:
 
