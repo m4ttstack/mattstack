@@ -177,6 +177,11 @@ A specialized pipeline takes two rounds or more, in this order:
    <name>` (the `One pipeline's fill only?` yes edge). Stages it does not
    override run the pack's default fills.
 
+To take a pipeline's override back off, run `rt_verb {args: ["skills",
+"bind", "<stage>", "<slot>", "--pipeline", "<name>", "--unset", "--pack",
+"<pack>"]}`. It takes no fill; it rewrites the fragment, recompiles, and
+sweeps the stage copy the override made.
+
 Compile, check and bind read the pack's bindings file for the repo
 (`~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`), never the fragment,
 and only materialize writes that file from the fragment. Until it runs,
