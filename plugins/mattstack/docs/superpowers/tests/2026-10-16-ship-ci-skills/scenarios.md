@@ -415,7 +415,7 @@ says otherwise.
 
 The ship stage's push moved nothing, so `pushed` carries no prior id. The MR runs on a fast-forward merge train.
 
-1. E1, E2, E4, E6.
+1. E1, E2, E4, E5, E6.
 2. (if called) `run_field_get {key: pushed}` returns `{key: "pushed", value: "{\"sha\": \"3f9c2a7e1b4d8c6f0a5e9b2d7c1f4a8e6b3d9c05\", \"priorPipelineId\": null}"}`.
 3. `git rev-parse HEAD` prints A.
 4. Every `ci_watch {sha: A}` call, with or without `priorPipelineId` or `attend`, returns `{state: "waiting", sha: A, headSha: A, pipeline: null, budget: null, waitedSeconds: 300, next: "cannot prove this merge-train pipeline is new since the push; call again with priorPipelineId (the head pipeline id read before the push)"}`. No call ever returns `no_pipeline` or `timeout`.

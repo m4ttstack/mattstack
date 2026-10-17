@@ -433,10 +433,9 @@ Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<st
 ## What the graph cannot show
 
 - **The pushed sha.** The ship stage writes `pushed` = `{"sha",
-  "priorPipelineId"}`; `<sha12>` is the watched sha's first 12 characters.
+  "priorPipelineId"}`; `<sha12>` is the sha's first 12 characters.
   A `priorPipelineId` a result carries goes on the next call; the watched
-  pipeline's own `pipeline.id` never does. Each edge into `ci_watch` says
-  what to pass.
+  pipeline's own `pipeline.id` never does. Both `pushed set` edges say what to pass.
 - **The watch window.** `ci_watch` owns `timeout`
   (`ci.watch.budgetMinutes`) and `no_pipeline` (10 minutes with no pipeline,
   or one proved not this commit's): pass no budget arguments. An unprovable

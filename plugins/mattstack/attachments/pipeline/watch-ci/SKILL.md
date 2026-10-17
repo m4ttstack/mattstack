@@ -494,8 +494,8 @@ dependency outage, a known flake) or, still UNCLEAR after the read, the
 gate's.
 
 No failure is classified before its log is read; an unreadable trace is
-UNCLEAR, never INFRA. The domain rules judge the report and may move a job
-between REAL and INFRA. INHERITED goes to the gate, named,
+UNCLEAR, never INFRA. Domain rules judge the report and may move a job
+between REAL and INFRA. INHERITED goes to the gate named as INHERITED,
 never retried or fixed here; UNKNOWN still gets its one INFRA retry. This
 box only classifies: INFRA job ids go to `mr_retry`; never run a retry
 command a report prints.

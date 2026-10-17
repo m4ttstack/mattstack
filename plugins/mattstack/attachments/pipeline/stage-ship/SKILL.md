@@ -388,7 +388,7 @@ write happens.
   moved nothing relies on the sha's own pipeline matching by sha; on a
   fast-forward merge train that pipeline is unprovable, and the watch's
   waiting budget ends the watch.
-- **The lease.** `<mr>` is the `mr` field read at entry: when it is set
+- **The lease.** The pushes' `<mr>` is the `mr` field read at entry: when it is set
   (a repair push after a red CI), both pushes pass `leaseMrUrl: <mr>`.
   `refused: "lease_held"` means another attendant holds the MR's CI lease:
   report the `holder` and stop, releasing nothing; that lease is someone
