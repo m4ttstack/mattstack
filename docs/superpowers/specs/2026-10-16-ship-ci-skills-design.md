@@ -470,18 +470,18 @@ here at the end of execution:
 
 | scenario | RED deviations | GREEN deviations | notes |
 |---|---|---|---|
-| watch-ci T1 | 15 (lease 5, skipped 10) | 0 | hand claim; old run opening and close |
-| watch-ci T2 | 10 (lease 5, skipped 5) | 0 | stood down on a refused claim, no attend; no release |
-| watch-ci T3 | 30 (lease 10, counters 5, skipped 15) | 0 | claim before retry; retry count by hand; no ci_triage |
-| watch-ci T3b | 30 (lease 10, counters 5, skipped 15) | 0 | never reached the ci_triage error path |
-| watch-ci T4 | 40 (lease 15, counters 5, re-derived 5, skipped 15) | 0 | 3 claims; mr_pipeline; off-script gate reached |
-| watch-ci T5 | 35 (lease 15, counters 5, re-derived 5, skipped 10) | 0 | stood down on a refused claim; no release |
-| watch-ci T6 | 31 (lease 5, counters 5, re-derived 11, skipped 10) | 0 | waiting count by hand; push checked with ls-remote/rev-parse |
-| watch-ci T7 | 20 (lease 5, skipped 15) | 0 | gated as unclear, INHERITED never seen |
-| watch-ci T8 | 20 (counters 10, skipped 10) | 0 | poll ceiling and retry count by hand |
-| watch-ci T9 | 35 (shell 5, lease 10, counters 5, skipped 15) | 0 | ran ci-triage.sh 5/5 |
-| watch-ci T10 | 20 (lease 5, re-derived 5, skipped 10) | 4 (re-derived 4: mr_for_branch after resume, 4/5) | run_list, hand-built runDb, run_stage start, hold clear |
-| watch-ci S6 | 10 (lease 5, skipped 5) | 0 | stood down on a refused claim; no release, no close |
+| watch-ci T1 | 15 (lease 5, skipped 10) | 0 (r2) | hand claim; old run opening and close |
+| watch-ci T2 | 10 (lease 5, skipped 5) | 0 (r2) | stood down on a refused claim, no attend; no release |
+| watch-ci T3 | 30 (lease 10, counters 5, skipped 15) | 0 (r2) | claim before retry; retry count by hand; no ci_triage |
+| watch-ci T3b | 30 (lease 10, counters 5, skipped 15) | 0 (r2) | never reached the ci_triage error path |
+| watch-ci T4 | 40 (lease 15, counters 5, re-derived 5, skipped 15) | 0 (r2) | 3 claims; mr_pipeline; off-script gate reached |
+| watch-ci T5 | 35 (lease 15, counters 5, re-derived 5, skipped 10) | 0 (r2) | stood down on a refused claim; no release |
+| watch-ci T6 | 31 (lease 5, counters 5, re-derived 11, skipped 10) | 0 (r2) | waiting count by hand; push checked with ls-remote/rev-parse |
+| watch-ci T7 | 20 (lease 5, skipped 15) | 0 (r2) | gated as unclear, INHERITED never seen |
+| watch-ci T8 | 20 (counters 10, skipped 10) | 0 (r2) | poll ceiling and retry count by hand |
+| watch-ci T9 | 35 (shell 5, lease 10, counters 5, skipped 15) | 0 (r2) | ran ci-triage.sh 5/5 |
+| watch-ci T10 | 20 (lease 5, re-derived 5, skipped 10) | 0 (r2; r1: 4 re-derived, mr_for_branch after resume) | run_list, hand-built runDb, run_stage start, hold clear |
+| watch-ci S6 | 10 (lease 5, skipped 5) | 0 (r2) | stood down on a refused claim; no release, no close |
 | stage-watch-ci T1 | 10 (lease 5, skipped 5) | 0 | pushed unread; prior id only when the result returned it |
 | stage-watch-ci T2 | 10 (lease 5, skipped 5) | 0 | stood down on a refused claim; no release |
 | stage-watch-ci T3 | 25 (lease 10, counters 5, skipped 10) | 0 | claim before retry; retry count by hand; no ci_triage |
@@ -490,20 +490,24 @@ here at the end of execution:
 | stage-watch-ci T7 | 15 (lease 5, skipped 10) | 0 | gated as unclear, INHERITED never seen |
 | stage-watch-ci T9 | 30 (shell 5, lease 10, counters 5, skipped 10) | 0 | ran ci-triage.sh 5/5 |
 | stage-watch-ci P1 | 10 (lease 5, skipped 5) | 0 | git rev-parse alone, no prior id 4415 |
-| ship S1 | 20 (re-derived 10, skipped 10) | 0 | mr_for_branch before and after the push |
-| ship S2 | 35 (re-derived 20, skipped 15) | 0 | mr_create skipped; url from mr_for_branch |
-| ship S3 | 20 (re-derived 10, skipped 10) | 0 | off-script gate reached 5/5 |
-| ship S4 | 40 (lease 5, re-derived 20, skipped 15) | 0 | forceWithLease first 5/5; mr_pipeline |
-| ship S5 | 40 (lease 5, re-derived 20, skipped 15) | 0 | rev-parse HEAD and mr_pipeline for the handoff |
-| ship S5b | 35 (lease 5, re-derived 15, skipped 15) | 0 | no prior id handed (right) |
-| ship S6 | 40 (lease 5, re-derived 20, skipped 15) | 0 | stood down on a refused claim; no release |
-| ship T10 | 20 (re-derived 10, skipped 10) | 0 | run_list, hand-built runDb, run_stage start, hold clear |
-| stage-ship S1 | 10 (re-derived 5, skipped 5) | 0 | pushed not written |
-| stage-ship S2 | 15 (re-derived 5, skipped 10) | 0 | mr_create skipped; pushed not written |
-| stage-ship S3 | 14 (re-derived 5, skipped 9) | 0 | off-script gate reached; landing unconfirmed 4/5 |
-| stage-ship S4 | 15 (re-derived 5, skipped 10) | 0 | forceWithLease first 5/5; no mr_update per the fill |
-| stage-ship S5 | 15 (re-derived 5, skipped 10) | 0 | pushed not written |
-| stage-ship S5b | 15 (re-derived 5, skipped 10) | 0 | pushed not written |
+| ship S1 | 20 (re-derived 10, skipped 10) | 0 (r2) | mr_for_branch before and after the push |
+| ship S2 | 35 (re-derived 20, skipped 15) | 0 (r2) | mr_create skipped; url from mr_for_branch |
+| ship S3 | 20 (re-derived 10, skipped 10) | 0 (r2) | off-script gate reached 5/5 |
+| ship S4 | 40 (lease 5, re-derived 20, skipped 15) | 0 (r2) | forceWithLease first 5/5; mr_pipeline |
+| ship S5 | 40 (lease 5, re-derived 20, skipped 15) | 0 (r2) | rev-parse HEAD and mr_pipeline for the handoff |
+| ship S5b | 35 (lease 5, re-derived 15, skipped 15) | 0 (r2) | no prior id handed (right) |
+| ship S6 | 40 (lease 5, re-derived 20, skipped 15) | 0 (r2) | stood down on a refused claim; no release |
+| ship T10 | 20 (re-derived 10, skipped 10) | 0 (r2) | run_list, hand-built runDb, run_stage start, hold clear |
+| stage-ship S1 | 10 (re-derived 5, skipped 5) | 0 (r2) | pushed not written |
+| stage-ship S2 | 15 (re-derived 5, skipped 10) | 0 (r2) | mr_create skipped; pushed not written |
+| stage-ship S3 | 14 (re-derived 5, skipped 9) | 0 (r2) | off-script gate reached; landing unconfirmed 4/5 |
+| stage-ship S4 | 15 (re-derived 5, skipped 10) | 0 (r2) | forceWithLease first 5/5; no mr_update per the fill |
+| stage-ship S5 | 15 (re-derived 5, skipped 10) | 0 (r2) | pushed not written |
+| stage-ship S5b | 15 (re-derived 5, skipped 10) | 0 (r2) | pushed not written |
+| ship EV1 | 9 (mr_upload 4, hand section 2, re-derived 3) | 0 (r2) | old graph's per-file mr_upload; read-back after the attach |
+| ship EV2 | 14 (mr_upload 4, hand link 2, old gate 5, re-derived 3) | 0 (r2) | refusal at the old mr_upload gate 5/5; Take sends linkRefused 5/5 in GREEN |
+| stage-ship EV1 | 9 (evidence write 1, mr_upload 4, hand section 4) | 0 (r2) | run_field_set evidence 1/5; section rebuilt by hand |
+| stage-ship EV2 | 12 (evidence write 1, mr_upload 4, hand link 2, old gate 5) | 0 (r2) | refusal at the old mr_upload gate 5/5; Take sends linkRefused 5/5 in GREEN |
 
 ## Left to the builder
 

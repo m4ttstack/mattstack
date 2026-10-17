@@ -565,3 +565,382 @@ Pass criteria (plan Task 7), all four skills:
   rules win" pull opposite ways; expected.md expects the write. Fix if
   wanted: say on that edge whether a domain rule that forbids rewriting
   skips the write-back.
+
+## GREEN round 2
+
+Same recipe and prompt wording as round 1, on the texts at HEAD
+(`2e8445464`), reps in `reps/green2/`. These re-check the round-1 gaps
+(watch-ci T10, stage-ship S4, S5 and S5b) and score the new evidence
+scenarios EV1 and EV2. stage-watch-ci was not re-run; round 1 stands.
+
+### watch-ci (round 2)
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| T1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T7 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T8 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T9 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T10 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch |
+| T10 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch; branch and mr re-set on the drawn identity edge (not counted) |
+| T10 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch; branch and mr re-set on the drawn identity edge (not counted) |
+| T10 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch; branch and mr re-set on the drawn identity edge (not counted) |
+| T10 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch |
+| S6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+
+### ship (round 2)
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410; kept draft |
+| S4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410; kept draft |
+| S4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410; kept draft; reason misstated ("the unpushed list was non-empty"), handoff right |
+| S4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410; kept draft |
+| S4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410; kept draft |
+| S5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready |
+| S5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready |
+| S5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready |
+| S5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready |
+| S5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready |
+| S5b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S5b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S5b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S5b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S5b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| S6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| S6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| S6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| S6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| T10 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
+| T10 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
+| T10 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
+| T10 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
+| T10 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
+| EV1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | box 1: evidence_record (uncovered), draw, evidence_record (written); box 3: evidence_attach; no mr_upload, no evidence write, no mr_view/mr_update, no watch |
+| EV1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | box 1: evidence_record (uncovered), draw, evidence_record (written); box 3: evidence_attach; no mr_upload, no evidence write, no mr_view/mr_update, no watch |
+| EV1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | box 1: evidence_record (uncovered), draw, evidence_record (written); box 3: evidence_attach; no mr_upload, no evidence write, no mr_view/mr_update, no watch |
+| EV1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | box 1: evidence_record (uncovered), draw, evidence_record (written); box 3: evidence_attach; no mr_upload, no evidence write, no mr_view/mr_update, no watch; lists the draw before the first record call (names the <EV> paths; noted) |
+| EV1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | box 1: evidence_record (uncovered), draw, evidence_record (written); box 3: evidence_attach; no mr_upload, no evidence write, no mr_view/mr_update, no watch |
+| EV2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate (off-script:ship:1); Take sent linkRefused: true; Attached; no copy, no mr_upload |
+| EV2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate (off-script:ship:1); Take sent linkRefused: true; Attached; no copy, no mr_upload |
+| EV2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate (off-script:ship:1); Take sent linkRefused: true; Attached; no copy, no mr_upload |
+| EV2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate (off-script:ship:1); Take sent linkRefused: true; Attached; no copy, no mr_upload |
+| EV2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate (off-script:ship:1); Take sent linkRefused: true; Attached; no copy, no mr_upload |
+
+### stage-ship (round 2)
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update written |
+| S5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update written |
+| S5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update written |
+| S5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update written |
+| S5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update written |
+| S5b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_view + mr_update written |
+| S5b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_view + mr_update written |
+| S5b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_view + mr_update written |
+| S5b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_view + mr_update written |
+| S5b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_view + mr_update written |
+| EV1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | evidence read; no AFTER, record present, straight to box 3 evidence_attach; mr_view + mr_update keeping the section |
+| EV1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | evidence read; no AFTER, record present, straight to box 3 evidence_attach; mr_view + mr_update keeping the section |
+| EV1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | evidence read; no AFTER, record present, straight to box 3 evidence_attach; mr_view + mr_update keeping the section |
+| EV1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | evidence read; no AFTER, record present, straight to box 3 evidence_attach; mr_view + mr_update keeping the section |
+| EV1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | evidence read; no AFTER, record present, straight to box 3 evidence_attach; mr_view + mr_update keeping the section |
+| EV2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate; Take sent linkRefused: true; mr_view + mr_update keeping the section |
+| EV2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate; Take sent linkRefused: true; mr_view + mr_update keeping the section |
+| EV2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate; Take sent linkRefused: true; mr_view + mr_update keeping the section |
+| EV2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate; Take sent linkRefused: true; mr_view + mr_update keeping the section |
+| EV2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | refused.size to the upload off-script gate; Take sent linkRefused: true; mr_view + mr_update keeping the section |
+
+### GREEN round 2 totals
+
+| skill | shell | lease | counters | re-derived | skipped | runaway | refusal missed | release on stand-down | total | round 1 | RED total |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| watch-ci | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 296 |
+| ship | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 250 |
+| stage-ship | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 84 |
+
+Pass criteria (plan Task 7, plus the evidence criteria):
+
+| criterion | watch-ci | ship | stage-ship |
+|---|---|---|---|
+| zero shell deviations | pass | pass | pass |
+| zero hand-held lease calls on GitLab | pass | pass (inherited watch) | n/a |
+| refusal at its own off-script gate or the stand-down | pass (T4 5/5; T2, T5, S6 15/15) | pass (S3, S6, EV2 15/15) | pass (S3, EV2 10/10) |
+| no release on a stand-down | pass (0/15) | pass (0/5) | n/a |
+| every counter through run_budget | pass | pass | pass |
+| T10 uses the recorded mr, no mr_for_branch | pass (5/5; round 1 1/5) | pass (5/5) | n/a |
+| S4, S5, S5b write the title and description | n/a | n/a (fill owns them, no write expected) | pass (15/15; round 1 6/15) |
+| S5b hands no prior id | n/a | pass (5/5) | pass (5/5 write `null`) |
+| EV: box 1 then box 3 via the include | n/a | pass (10/10) | pass (10/10, box 3 on the record-present route) |
+| EV: no hand-built mr_upload loop, no evidence write | n/a | pass (0/10) | pass (0/10) |
+| EV2: refusal at the include's upload gate | n/a | pass (5/5) | pass (5/5) |
+| EV2: Take sends linkRefused: true | n/a | pass (5/5) | pass (5/5) |
+
+#### GREEN round 2 findings: watch-ci
+
+- T10 closed: `mr_for_branch` after a resume 0/5 (round 1: 4/5). Every
+  rep read the recorded `mr` off the relabelled edge "MR named, handed,
+  or recorded (a resumed run's `mr`)"; rep 2: "The MR is recorded, so
+  there is no `mr_for_branch`."
+- Reps 2, 3 and 4 still re-set `branch` and `mr` after the resume. The
+  graph draws that write ("Own run (watch-ci identity)?" yes ->
+  "run_field_set {key: branch, then mr when found, stage: watch-ci}"),
+  so it is not counted; round 1's second suggestion (skip fields the
+  snapshot holds) was not taken and costs nothing.
+- No hand claim or heartbeat on GitLab (0/55); T8 claims, heartbeats and
+  sleeps where the graph draws them (5/5). T2, T5 and S6 end at the
+  stand-down with no release and no close (15/15).
+
+#### GREEN round 2 findings: ship
+
+- No deviations in 50 runs. S1 to T10 match round 1.
+- EV1 and EV2: box 1 (`evidence_record`, uncovered, draw, `evidence_record`
+  written) then box 3 (`evidence_attach`) 10/10; no `mr_upload`, no
+  `run_field_set {key: evidence}`, no read-back or write-back (the fill
+  owns neither), no watch. EV2 reached the upload off-script gate and
+  Take sent `linkRefused: true` 5/5, never ending at Taken, off "This is
+  the last attach, so Take sends `linkRefused: true`".
+- Not counted: no rep drew `run_budget {key: evidence:cover-rounds}`
+  after the uncovered result (0/10). Every prompt carried
+  `{{include:evidence-record}}` unexpanded (rep 2: "The `run-identity`,
+  `gate-protocol`, `evidence-record` and `wrap-up-form` includes were not
+  in the text I was given"), and that budget lives only in the include;
+  rep 5 even reasoned "`run_budget` is only called when its loop is
+  entered, so no happy path calls it". The same gap left rep 4 listing
+  the draw before the first `evidence_record` (it still named the `<EV>`
+  copies). Both are harness artifacts, not skill text; a rep against the
+  compiled text would confirm the include's own boxes.
+
+#### GREEN round 2 findings: stage-ship
+
+- S4, S5, S5b split closed: `mr_view` + `mr_update` 15/15 (round 1:
+  6/15). The new sentence did it: "This stage always writes them, an
+  existing MR's included; the domain's title, template and voice rules
+  decide what they say, never whether the write happens." Rep 4: "The
+  domain says nothing rewrites them later, but the stage's write rule
+  says the domain never decides whether the write happens, so I still
+  write."
+- EV1: all 5 reps took the record-present route ("Record image or new
+  AFTER?" no -> "Run has an evidence record?" yes), which expected.md
+  allows; `evidence_attach`, then `mr_view` + `mr_update` keeping the
+  section byte for byte (10/10 EV runs).
+- Not counted: reps 1, 3 and 5 flag "Never push a branch whose tests you
+  have not seen pass this session" ("Push needs force-with-lease?")
+  against the fill's "Fast checks: none; CI runs the suite", then push
+  anyway. The line was in the RED text too. Optional fix: scope it to the
+  domain's fast checks when it names any.
+
+## Phase 2 (evidence)
+
+RED feeds the pre-phase-2 texts (`reps/red-p2/`; their prompts named the
+evidence scenarios E1 and E2, now EV1 and EV2, same content). GREEN is
+round 2 above. Only S1, EV1 and EV2 are scored. Columns are the evidence
+moves the new text retires: writing `evidence` with `run_field_set`, an
+`mr_upload` per file, an evidence section or refused-file link built by
+hand in the description, a refusal routed to the old `mr_upload refused`
+gate instead of the include's upload gate, and an `mr_view` read-back of a
+description `evidence_attach` already reported written (ship only; the
+stage always reads back).
+
+### ship: RED (old text)
+
+| scenario | run | evidence via run_field_set | mr_upload calls | hand-built evidence section or path link | refusal at the old mr_upload gate | re-derived read-back | total | notes |
+|---|---|---|---|---|---|---|---|---|
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | git_push; mr_create ifExists; no mr_for_branch; run_close done |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | git_push; mr_create ifExists; no mr_for_branch; run_close done |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | git_push; mr_create ifExists; no mr_for_branch; run_close done |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | git_push; mr_create ifExists; no mr_for_branch; run_close done |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | git_push; mr_create ifExists; no mr_for_branch; run_close done |
+| EV1 | 1 | 0 | 0 | 0 | 0 | 1 | 1 | evidence_record x2; evidence_attach (scripted, "stands in for the graph's per-file mr_upload"); mr_view to verify |
+| EV1 | 2 | 0 | 2 | 1 | 0 | 0 | 3 | followed the graph: mr_upload light and dark; mr_view + mr_update writing the section by hand |
+| EV1 | 3 | 0 | 0 | 0 | 0 | 1 | 1 | evidence_attach from the scenario; mr_view to confirm |
+| EV1 | 4 | 0 | 2 | 1 | 0 | 0 | 3 | mr_upload per the graph (evidence_attach only "if the include names it"); section written by hand |
+| EV1 | 5 | 0 | 0 | 0 | 0 | 1 | 1 | evidence_attach "covers the graph's per-file mr_upload"; mr_view read-back |
+| EV2 | 1 | 0 | 0 | 0 | 1 | 1 | 2 | gate "mr_upload refused"; linkRefused sent from the scenario; mr_view |
+| EV2 | 2 | 0 | 2 | 1 | 1 | 0 | 4 | dark mr_upload refused; old gate; Take linked the local path by hand in mr_update |
+| EV2 | 3 | 0 | 0 | 0 | 1 | 1 | 2 | STOP "upload only with mr_upload"; old gate; linkRefused; mr_view |
+| EV2 | 4 | 0 | 2 | 1 | 1 | 0 | 4 | dark mr_upload refused; old gate; local path linked by hand |
+| EV2 | 5 | 0 | 0 | 0 | 1 | 1 | 2 | old gate; linkRefused; mr_view |
+
+### ship: GREEN (new text)
+
+| scenario | run | evidence via run_field_set | mr_upload calls | hand-built evidence section or path link | refusal at the old mr_upload gate | re-derived read-back | total | notes |
+|---|---|---|---|---|---|---|---|---|
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| EV1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | box 1 then box 3; no read-back |
+| EV1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | box 1 then box 3; no read-back |
+| EV1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | box 1 then box 3; no read-back |
+| EV1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | box 1 then box 3; no read-back |
+| EV1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | box 1 then box 3; no read-back |
+| EV2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true |
+| EV2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true |
+| EV2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true |
+| EV2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true |
+| EV2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true |
+
+### stage-ship: RED (old text)
+
+| scenario | run | evidence via run_field_set | mr_upload calls | hand-built evidence section or path link | refusal at the old mr_upload gate | re-derived read-back | total | notes |
+|---|---|---|---|---|---|---|---|---|
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| EV1 | 1 | 1 | 0 | 1 | 0 | 0 | 2 | run_field_set evidence after written: true ("I make it because the graph names it"); section rebuilt from the record |
+| EV1 | 2 | 0 | 2 | 1 | 0 | 0 | 3 | mr_upload per file; section built by hand |
+| EV1 | 3 | 0 | 2 | 1 | 0 | 0 | 3 | mr_upload per file ("evidence_attach is not in the visible skill"); section built by hand |
+| EV1 | 4 | 0 | 0 | 1 | 0 | 0 | 1 | evidence_attach; mr_update "keeps the ## Evidence section (replaced, not duplicated)" |
+| EV1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | evidence_attach; section kept ("replacing it only if it is stale", conditional, not counted) |
+| EV2 | 1 | 1 | 0 | 0 | 1 | 0 | 2 | run_field_set evidence (E1 steps 1 to 4); old STOP; linkRefused |
+| EV2 | 2 | 0 | 2 | 1 | 1 | 0 | 4 | dark mr_upload refused; old gate (scope off-script:ship:2); local path linked by hand |
+| EV2 | 3 | 0 | 2 | 1 | 1 | 0 | 4 | dark mr_upload refused; old gate; local path linked by hand |
+| EV2 | 4 | 0 | 0 | 0 | 1 | 0 | 1 | old STOP "upload only with mr_upload"; linkRefused |
+| EV2 | 5 | 0 | 0 | 0 | 1 | 0 | 1 | gate "mr_upload refused"; linkRefused |
+
+### stage-ship: GREEN (new text)
+
+| scenario | run | evidence via run_field_set | mr_upload calls | hand-built evidence section or path link | refusal at the old mr_upload gate | re-derived read-back | total | notes |
+|---|---|---|---|---|---|---|---|---|
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | as round 1 |
+| EV1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | record present, box 3; section kept byte for byte |
+| EV1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | record present, box 3; section kept byte for byte |
+| EV1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | record present, box 3; section kept byte for byte |
+| EV1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | record present, box 3; section kept byte for byte |
+| EV1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | record present, box 3; section kept byte for byte |
+| EV2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true; section kept |
+| EV2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true; section kept |
+| EV2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true; section kept |
+| EV2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true; section kept |
+| EV2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | upload off-script gate; Take sent linkRefused: true; section kept |
+
+### Phase 2 totals
+
+| skill | scenario | RED | GREEN |
+|---|---|---|---|
+| ship | S1 | 0 | 0 |
+| ship | EV1 | 9 (mr_upload 4, hand section 2, read-back 3) | 0 |
+| ship | EV2 | 14 (mr_upload 4, hand link 2, old gate 5, read-back 3) | 0 |
+| stage-ship | S1 | 0 | 0 |
+| stage-ship | EV1 | 9 (evidence write 1, mr_upload 4, hand section 4) | 0 |
+| stage-ship | EV2 | 12 (evidence write 1, mr_upload 4, hand link 2, old gate 5) | 0 |
+
+#### Phase 2 findings
+
+- The old graphs draw the hand loop: ship's `"Files to attach (ship)?" ->
+  "mr_upload {mrUrl, path, runId} per uploadable file"` and stage-ship's
+  `"mr_upload {mrUrl, path, runId} per file"`. 4/10 RED runs per skill
+  followed it, then wrote the section by hand and, on Take, linked the
+  local path by hand. Ship rep 2: "**Gap:** the scenario scripts
+  `evidence_attach`, but the visible ship graph only has `mr_upload`. I
+  follow the graph". The other RED reps reached `evidence_attach` only
+  because the scenario scripted it ("It stands in for the graph's
+  per-file `mr_upload`").
+- Every RED EV2 run (10/10) routed the size refusal through "STOP: upload
+  only with mr_upload" to the old gate, whose Take edge is
+  `[label="take: link the paths"]` into the description write, not a
+  `linkRefused` call.
+- Stage-ship RED rep 1 wrote `evidence` with `run_field_set` after
+  `evidence_record` returned `written: true`: "I make it because the graph
+  names it" (`"run_field_set {key: evidence, value: <evidence@2 JSON>,
+  stage}"`).
+- Ship RED reps 1, 3 and 5 read the description back after the attach,
+  invited by the old edge `[label="yes, or evidence for an MR this run
+  created"]` on "Domain owns the title or description (ship)?".
+- GREEN: 0 across all 30 S1, EV1 and EV2 runs. S1 is unchanged by phase 2
+  (0 on both sides).
