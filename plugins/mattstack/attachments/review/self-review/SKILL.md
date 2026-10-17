@@ -15,58 +15,58 @@ slots:
 
 # Self-review (your own branch)
 
-Reviewing the change you just made, at any checkpoint between tasks or right
-before shipping. This is the self-facing caller of the review flow inlined
-below: point the engine at the current branch, then act on the draft it
-returns. The graph below is the run: follow its edges, and treat a move it
-does not show as a question for a gate, never as a judgment call.
+Review the change you just made, between tasks or right before shipping:
+point the review flow below at the current branch, then act on the draft it
+returns. Follow the graph's edges; a move it does not show is a question
+for a gate, never a judgment call.
 
 ## Run
 
 Outside a pipeline this verb is its own run, so the console shows it and
-the Stop hook covers its pane. A caller that hands you a `runDb` whose
-`run_snapshot` shows `run.status` = `running` owns the run: you inherit
-it, `run.current_stage` is your stage, and you pass that handed `runDb`
-on every `run_*` call. Otherwise the graph starts or resumes a run of your
-own, and your stage is `self-review`.
-
-`run_list` takes `repo`, the `--repo` value in the flags block below, and
-you keep the rows whose `status` is `running` and `work_type` is
-`self-review`. Never read the run dbs by hand. `run_start` takes `flags`
-(this verb's value in the block below, verbatim), `skillDir` (this skill's
-own directory) and `spawnedBy` when a board or another surface launched
-this pane.
+the Stop hook covers its pane. `run_enter` starts, resumes or inherits the
+run, or returns the running candidates; never list, read or build run dbs
+by hand. It takes `flags` (the block below, verbatim), `skillDir` (this
+skill's directory) and `stage: self-review`, plus `runDb` only when a
+caller handed you one, `resume` only when a caller handed you a
+self-review run id, and `spawnedBy` only when a board or another surface
+launched this pane.
 
 {{run-start.flags:self-review}}
 
-Keep `runDb` and pass it to every `run_*` call; nothing is exported. Every
-gate in this verb writes its `gate` field with `stage: <stage>` and its
-decision.
+Pass the returned `runDb` to every `run_*` and gate call. Your stage is
+`self-review`, except on an inherited run (`mode: inherited`): there it is
+the result's `at.stage`, written `<run.current_stage>` in the graph, and
+the caller closes the run. A handed `runDb` whose run is not running is
+not inherited: `run_enter` goes on as if none was handed
+(`handedRunDb: "not-running"`).
 
-Whoever wrote the code re-derives the same assumptions while reading it back
-and nods at them; a bug on the page reads as the intent that produced it. The
-judgment does not happen here -- it happens in the fresh context that
-the review flow dispatches.
+Every gate runs through gate-protocol with `runDb` and `stage`: the gate
+tools write the gate fields and record the answers map keyed by question
+id, the whole of this verb's gate record.
+
+Each loop counter is one `run_budget {runDb, key, limit, stage}` call on
+the counted event, and its `<key> spent?` diamond reads `exhausted`:
+
+| Key | Limit | Charged when |
+|---|---|---|
+| `fix:<finding id>:<round>` | 3 | a fix attempt fails; `<round>` is 1, then 2 after the finding's reopened gate |
+| `reopen:<finding id>` | 2 | the finding's fix budget is spent: the first charge opens the reopened gate, the second leaves the finding open |
 
 <HARD-GATE>
-Do not form the code-quality judgment yourself -- not even a careful first
-pass meant to be backed up by a fresh review later. The fresh-context
-reviewer is the PRIMARY reviewer, not an optional escalation, and this skill
-owns dispatching it (via the review flow below) rather than suggesting the
-developer get a review elsewhere. Objective checks (tests, type checks,
-linters) are fine and expected -- authorship does not bias a compiler.
-Reading the diff and deciding whether it is "solid" is not; that is the
-reviewer's job.
+Do not form the code-quality judgment yourself, not even a careful first
+pass for a fresh review to back up later: whoever wrote the code
+re-derives the assumptions behind a bug and nods at them. The
+fresh-context reviewer is the PRIMARY reviewer, and this skill dispatches
+it through the review flow below rather than suggesting a review
+elsewhere. Objective checks (tests, type checks, linters) are expected;
+authorship does not bias a compiler. Reading the diff and deciding it is
+"solid" is the reviewer's job.
 
-A request to skip the dispatch -- "don't burn tokens on subagents," a late
-hour, a partner who just wants a gut check -- does not waive this gate; the
-gate outranks it. The fresh review is one dispatch, not a proliferation of
-subagents; skipping it does not save the partner's time, it moves the cost
-downstream to production. Diligence performed inside the biased context is
-still the biased context, so checking carefully before the inline verdict
-does not launder it into independence. And a plausible issue turned up
-inline is evidence of what surfaced, not of what a fresh, unbiased read would
-catch that this one missed.
+A request to skip the dispatch ("don't burn tokens on subagents", a late
+hour, a partner who wants a gut check) does not waive this gate. It is one
+dispatch; skipping it moves the cost downstream to production. Diligence
+inside the biased context is still the biased context, and a plausible
+issue found inline says nothing about what a fresh read would catch.
 </HARD-GATE>
 
 {{include:run-identity}}
@@ -78,21 +78,15 @@ digraph self_review {
     rankdir=TB;
 
     "Trigger: self-review the current branch" [shape=ellipse];
-    "runDb handed in by a caller of self-review?" [shape=diamond];
-    "run_snapshot {runDb: <handed to self-review>}" [shape=plaintext];
-    "Handed self-review run is running?" [shape=diamond];
-    "A surface launched this self-review pane?" [shape=diamond];
-    "run_list {repo}, keep running self-review runs" [shape=plaintext];
-    "Running self-review runs in this repo?" [shape=diamond];
+    "run_enter {flags, skillDir, stage: self-review, runDb?, resume?, spawnedBy?}" [shape=plaintext];
+    "self-review run_enter mode?" [shape=diamond];
     "Gate self-review clarify: Resume / Start fresh / Hold" [shape=box];
     "Self-review resume answer?" [shape=diamond];
-    "run_stage {action: start, stage: self-review} on the resumed runDb" [shape=plaintext];
-    "run_field_set {key: hold, value: -, stage: self-review}" [shape=plaintext];
+    "run_enter {flags, skillDir, stage: self-review, resume: <picked runId>}" [shape=plaintext];
+    "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" [shape=plaintext];
+    "The refused self-review run_enter carried resume?" [shape=diamond];
+    "STOP: no self-review run without run_enter; report why to the user" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "run_snapshot {runDb: <resumed self-review>}" [shape=plaintext];
-    "run_start {flags, skillDir, spawnedBy?} for self-review" [shape=plaintext];
-    "self-review run_start ok: true with a runDb?" [shape=diamond];
-    "STOP: rt predates the run tools; tell the user to update rt before a self-review" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "run_stage {action: start, stage: self-review}" [shape=plaintext];
 
     "Find the self-review merge-base" [shape=box];
     "Own self-review run: record the branch?" [shape=diamond];
@@ -120,46 +114,38 @@ digraph self_review {
     "Record the finding as not reproduced; no fix" [shape=box];
     "Fix the finding and run the tests" [shape=box];
     "Tests green after the fix?" [shape=diamond];
-    "Fix attempts on this finding = 3?" [shape=diamond];
-    "Reopened gates on this finding = 1?" [shape=diamond];
+    "run_budget {runDb, key: fix:<finding id>:<round>, limit: 3, stage}" [shape=plaintext];
+    "fix:<finding id>:<round> spent?" [shape=diamond];
+    "run_budget {runDb, key: reopen:<finding id>, limit: 2, stage}" [shape=plaintext];
+    "reopen:<finding id> spent?" [shape=diamond];
     "Self-review stuck finding answer?" [shape=diamond];
     "Record the finding as left open" [shape=box];
     "Hand back with the Minor findings listed" [shape=box];
     "Own self-review run: close it?" [shape=diamond];
-    "run_stage {action: done, stage: self-review}" [shape=plaintext];
-    "run_status {status: done} for self-review" [shape=plaintext];
     "Own self-review run: close it as abandoned?" [shape=diamond];
-    "run_stage {action: fail, stage: self-review, reason: <their words>}" [shape=plaintext];
-    "run_status {status: abandoned} for self-review" [shape=plaintext];
+    "run_close {runDb, workType: self-review, stage: self-review, outcome}" [shape=plaintext];
+    "Self-review closed as?" [shape=diamond];
     "run_stage {action: fail, stage: <run.current_stage>, reason: <their words>} for self-review" [shape=plaintext];
-    "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for self-review" [shape=plaintext];
-    "run_field_set {key: hold, value: <their words>, stage: <self-review stage>}" [shape=plaintext];
+    "run_hold {runDb, stage, reason, decidedBy} for self-review" [shape=plaintext];
     "Self-review held: end the turn" [shape=doublecircle];
     "Self-review abandoned" [shape=doublecircle];
     "Self-review done: the calling flow continues" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: self-review the current branch" -> "runDb handed in by a caller of self-review?";
-    "runDb handed in by a caller of self-review?" -> "run_snapshot {runDb: <handed to self-review>}" [label="yes"];
-    "runDb handed in by a caller of self-review?" -> "A surface launched this self-review pane?" [label="no"];
-    "run_snapshot {runDb: <handed to self-review>}" -> "Handed self-review run is running?";
-    "Handed self-review run is running?" -> "Find the self-review merge-base" [label="yes: inherit it, stage is run.current_stage"];
-    "Handed self-review run is running?" -> "A surface launched this self-review pane?" [label="no"];
-    "A surface launched this self-review pane?" -> "run_start {flags, skillDir, spawnedBy?} for self-review" [label="yes: start fresh"];
-    "A surface launched this self-review pane?" -> "run_list {repo}, keep running self-review runs" [label="no: typed by hand"];
-    "run_list {repo}, keep running self-review runs" -> "Running self-review runs in this repo?";
-    "Running self-review runs in this repo?" -> "run_start {flags, skillDir, spawnedBy?} for self-review" [label="none"];
-    "Running self-review runs in this repo?" -> "Gate self-review clarify: Resume / Start fresh / Hold" [label="found"];
+    "Trigger: self-review the current branch" -> "run_enter {flags, skillDir, stage: self-review, runDb?, resume?, spawnedBy?}";
+    "run_enter {flags, skillDir, stage: self-review, runDb?, resume?, spawnedBy?}" -> "self-review run_enter mode?";
+    "run_enter {flags, skillDir, stage: self-review, resume: <picked runId>}" -> "self-review run_enter mode?";
+    "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" -> "self-review run_enter mode?";
+    "self-review run_enter mode?" -> "Find the self-review merge-base" [label="started, or inherited: stage is at.stage"];
+    "self-review run_enter mode?" -> "run_snapshot {runDb: <resumed self-review>}" [label="resumed"];
+    "self-review run_enter mode?" -> "Gate self-review clarify: Resume / Start fresh / Hold" [label="candidates"];
+    "self-review run_enter mode?" -> "The refused self-review run_enter carried resume?" [label="refused, or the tool is missing"];
+    "The refused self-review run_enter carried resume?" -> "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" [label="yes: say the resume was refused, start fresh"];
+    "The refused self-review run_enter carried resume?" -> "STOP: no self-review run without run_enter; report why to the user" [label="no: another refusal, or no run_enter tool"];
     "Gate self-review clarify: Resume / Start fresh / Hold" -> "Self-review resume answer?";
-    "Self-review resume answer?" -> "run_stage {action: start, stage: self-review} on the resumed runDb" [label="resume"];
-    "Self-review resume answer?" -> "run_start {flags, skillDir, spawnedBy?} for self-review" [label="start fresh"];
+    "Self-review resume answer?" -> "run_enter {flags, skillDir, stage: self-review, resume: <picked runId>}" [label="resume"];
+    "Self-review resume answer?" -> "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" [label="start fresh"];
     "Self-review resume answer?" -> "Self-review held: end the turn" [label="hold: no run yet, record nothing"];
-    "run_stage {action: start, stage: self-review} on the resumed runDb" -> "run_field_set {key: hold, value: -, stage: self-review}";
-    "run_field_set {key: hold, value: -, stage: self-review}" -> "run_snapshot {runDb: <resumed self-review>}";
     "run_snapshot {runDb: <resumed self-review>}" -> "Find the self-review merge-base" [label="re-enter, reuse every recorded answer"];
-    "run_start {flags, skillDir, spawnedBy?} for self-review" -> "self-review run_start ok: true with a runDb?";
-    "self-review run_start ok: true with a runDb?" -> "run_stage {action: start, stage: self-review}" [label="yes: keep runDb"];
-    "self-review run_start ok: true with a runDb?" -> "STOP: rt predates the run tools; tell the user to update rt before a self-review" [label="no"];
-    "run_stage {action: start, stage: self-review}" -> "Find the self-review merge-base";
 
     "Find the self-review merge-base" -> "Own self-review run: record the branch?";
     "Own self-review run: record the branch?" -> "Record the self-review branch and any ticket" [label="yes"];
@@ -169,7 +155,7 @@ digraph self_review {
     "Requirements known: a ticket or the task text?" -> "Gate self-review clarify: which requirements source?" [label="no"];
     "Gate self-review clarify: which requirements source?" -> "Requirements source answer?";
     "Requirements source answer?" -> "Print the self-review depth block" [label="a source picked"];
-    "Requirements source answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for self-review" [label="hold"];
+    "Requirements source answer?" -> "run_hold {runDb, stage, reason, decidedBy} for self-review" [label="hold"];
     "Print the self-review depth block" -> "Run the checks the self-review depth names";
     "Run the checks the self-review depth names" -> "Who forms the self-review judgment?";
     "Who forms the self-review judgment?" -> "Dispatch the fresh reviewer on your own diff" [label="a fresh reviewer, always"];
@@ -179,193 +165,177 @@ digraph self_review {
     "Open the self-review off-script gate: a fill asks for a move this graph forbids" -> "Self-review off-script answer?";
     "Self-review off-script answer?" -> "Make the recorded self-review move once" [label="take"];
     "Self-review off-script answer?" -> "Who forms the self-review judgment?" [label="iterate here: decide again with their note"];
-    "Self-review off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for self-review" [label="hold"];
+    "Self-review off-script answer?" -> "run_hold {runDb, stage, reason, decidedBy} for self-review" [label="hold"];
     "Self-review off-script answer?" -> "Own self-review run: close it as abandoned?" [label="hand back"];
     "Make the recorded self-review move once" -> "Assemble the self-review draft";
     "Dispatch the fresh reviewer on your own diff" -> "Assemble the self-review draft";
     "Assemble the self-review draft" -> "Gate self-review: fix and next, after the draft";
     "Gate self-review: fix and next, after the draft" -> "Self-review next answer?";
-    "Gate self-review again: quote the failing output" -> "Self-review stuck finding answer?";
-    "Self-review stuck finding answer?" -> "Fix the finding and run the tests" [label="try again: its attempt count resets"];
-    "Self-review stuck finding answer?" -> "Record the finding as left open" [label="leave it open"];
-    "Self-review stuck finding answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for self-review" [label="hold"];
-    "Self-review stuck finding answer?" -> "Own self-review run: close it as abandoned?" [label="abandon"];
     "Self-review next answer?" -> "Self-review fix answer?" [label="proceed"];
     "Self-review next answer?" -> "Print the self-review depth block" [label="iterate here: redo from the depth block with their note"];
-    "Self-review next answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for self-review" [label="hold"];
+    "Self-review next answer?" -> "run_hold {runDb, stage, reason, decidedBy} for self-review" [label="hold"];
     "Self-review next answer?" -> "Own self-review run: close it as abandoned?" [label="abandon"];
-    "Self-review fix answer?" -> "Next selected finding to fix?" [label="fix the blocking findings, or the minors too"];
-    "Self-review fix answer?" -> "Hand back with the Minor findings listed" [label="ship as is"];
+    "Self-review fix answer?" -> "Next selected finding to fix?" [label="blocking or all"];
+    "Self-review fix answer?" -> "Hand back with the Minor findings listed" [label="none: ship as is"];
     "Next selected finding to fix?" -> "Is the finding testable?" [label="yes"];
+    "Next selected finding to fix?" -> "Own self-review run: close it?" [label="none left"];
     "Is the finding testable?" -> "Write a failing test for the finding" [label="yes: it has behavior"];
     "Is the finding testable?" -> "Fix the finding and run the tests" [label="no: naming, docs, structure"];
-    "Next selected finding to fix?" -> "Own self-review run: close it?" [label="none left"];
     "Write a failing test for the finding" -> "Does the new test fail on the current code?";
     "Does the new test fail on the current code?" -> "Fix the finding and run the tests" [label="yes: reproduced"];
     "Does the new test fail on the current code?" -> "Record the finding as not reproduced; no fix" [label="no: it passes before any fix"];
     "Record the finding as not reproduced; no fix" -> "Next selected finding to fix?";
     "Fix the finding and run the tests" -> "Tests green after the fix?";
     "Tests green after the fix?" -> "Next selected finding to fix?" [label="yes"];
-    "Tests green after the fix?" -> "Fix attempts on this finding = 3?" [label="no"];
-    "Fix attempts on this finding = 3?" -> "Fix the finding and run the tests" [label="no"];
-    "Fix attempts on this finding = 3?" -> "Reopened gates on this finding = 1?" [label="yes"];
-    "Reopened gates on this finding = 1?" -> "Gate self-review again: quote the failing output" [label="no: reopen as a new gate"];
-    "Reopened gates on this finding = 1?" -> "Record the finding as left open" [label="yes: budget spent"];
+    "Tests green after the fix?" -> "run_budget {runDb, key: fix:<finding id>:<round>, limit: 3, stage}" [label="no: charge the failed attempt"];
+    "run_budget {runDb, key: fix:<finding id>:<round>, limit: 3, stage}" -> "fix:<finding id>:<round> spent?";
+    "fix:<finding id>:<round> spent?" -> "Fix the finding and run the tests" [label="no"];
+    "fix:<finding id>:<round> spent?" -> "run_budget {runDb, key: reopen:<finding id>, limit: 2, stage}" [label="yes: charge the stuck point"];
+    "run_budget {runDb, key: reopen:<finding id>, limit: 2, stage}" -> "reopen:<finding id> spent?";
+    "reopen:<finding id> spent?" -> "Gate self-review again: quote the failing output" [label="no: first time stuck"];
+    "reopen:<finding id> spent?" -> "Record the finding as left open" [label="yes: stuck after its reopened gate"];
+    "Gate self-review again: quote the failing output" -> "Self-review stuck finding answer?";
+    "Self-review stuck finding answer?" -> "Fix the finding and run the tests" [label="retry:<finding id>: round 2"];
+    "Self-review stuck finding answer?" -> "Record the finding as left open" [label="leave:<finding id>"];
+    "Self-review stuck finding answer?" -> "run_hold {runDb, stage, reason, decidedBy} for self-review" [label="hold"];
+    "Self-review stuck finding answer?" -> "Own self-review run: close it as abandoned?" [label="abandon"];
     "Record the finding as left open" -> "Next selected finding to fix?";
     "Hand back with the Minor findings listed" -> "Own self-review run: close it?";
-    "Own self-review run: close it?" -> "run_stage {action: done, stage: self-review}" [label="yes: own run, started or resumed"];
+    "Own self-review run: close it?" -> "run_close {runDb, workType: self-review, stage: self-review, outcome}" [label="yes: own run, outcome done"];
     "Own self-review run: close it?" -> "Self-review done: the calling flow continues" [label="no: inherited"];
-    "run_stage {action: done, stage: self-review}" -> "run_status {status: done} for self-review";
-    "run_status {status: done} for self-review" -> "Self-review done: the calling flow continues";
-    "Own self-review run: close it as abandoned?" -> "run_stage {action: fail, stage: self-review, reason: <their words>}" [label="yes: own run, started or resumed"];
+    "Own self-review run: close it as abandoned?" -> "run_close {runDb, workType: self-review, stage: self-review, outcome}" [label="yes: own run, outcome abandoned with their words"];
     "Own self-review run: close it as abandoned?" -> "run_stage {action: fail, stage: <run.current_stage>, reason: <their words>} for self-review" [label="no: inherited, the caller decides"];
-    "run_stage {action: fail, stage: self-review, reason: <their words>}" -> "run_status {status: abandoned} for self-review";
+    "run_close {runDb, workType: self-review, stage: self-review, outcome}" -> "Self-review closed as?";
+    "Self-review closed as?" -> "Self-review done: the calling flow continues" [label="done"];
+    "Self-review closed as?" -> "Self-review abandoned" [label="abandoned"];
     "run_stage {action: fail, stage: <run.current_stage>, reason: <their words>} for self-review" -> "Self-review abandoned";
-    "run_status {status: abandoned} for self-review" -> "Self-review abandoned";
-    "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for self-review" -> "run_field_set {key: hold, value: <their words>, stage: <self-review stage>}";
-    "run_field_set {key: hold, value: <their words>, stage: <self-review stage>}" -> "Self-review held: end the turn";
+    "run_hold {runDb, stage, reason, decidedBy} for self-review" -> "Self-review held: end the turn";
 }
 ```
 
 ### Gate self-review clarify: Resume / Start fresh / Hold
 
-No run of yours exists yet, so this gate is the structured-question tool
-in the pane. One sentence naming each candidate's `spawned_by`,
-`started_at` and `current_stage`, then one **Resume** option per candidate
-this pane may take, a run this session started earlier (recommended) or
-one no live pane owns; a run another live pane owns gets no Resume
-option, named unavailable, then **Start fresh**, **Hold**. A
-surface-launched pane never reaches this gate: another pane's live run is
-not yours to resume.
-Resume: your `runDb` is `<home>/.mattstack/runs/<repo>/<its id>/state.db`
-(the candidate row's `id`, the home directory written out, never `~`). Hold
-here records nothing (no run has started or been resumed to record it
-against) and ends the turn.
+No run is yours yet, so this gate is the in-pane structured-question tool.
+One sentence naming each `run_enter` candidate's `spawnedBy`, `startedAt`
+and `currentStage`, then one **Resume** option per candidate this pane may
+take (one this session started, `ownSession: true`, recommended; or one no
+live pane owns), a candidate another live pane owns named unavailable,
+then **Start fresh** and **Hold**. A surface-launched pane never reaches
+this gate: given `spawnedBy`, `run_enter` starts fresh. Hold records
+nothing and ends the turn.
+
+### The refused self-review run_enter carried resume?
+
+A refused resume means the run is gone or no longer running: say so in one
+line, then start fresh with the first call's `spawnedBy`. Any other
+refusal ends the self-review: quote it to the user verbatim and whole,
+never a paraphrase or a guessed cause. Only when there is no `run_enter`
+tool, say rt predates the run tools; update rt.
 
 ### Find the self-review merge-base
 
-Run `git merge-base origin/HEAD HEAD`; when `origin/HEAD` is unset, use the
-default branch by name instead. The diff runs from that base through the
-working tree, uncommitted changes included.
+`git merge-base origin/HEAD HEAD`, or the default branch by name when
+`origin/HEAD` is unset. The diff runs from that base through the working
+tree, uncommitted changes included.
 
 ### Record the self-review branch and any ticket
 
 `run_field_set {key: branch, value: <branch>, stage: self-review}`, and
-`run_field_set {key: ticket, value: <ticket>, stage: self-review}` only when
-the branch names one; never guess a ticket.
+`key: ticket` only when the branch names one.
 
 ### Gate self-review clarify: which requirements source?
 
-The branch carries no ticket and the session holds no task text: never
-review against nothing. Bracket with `run_field_set {key: gate, value:
-clarify, stage: <stage>}`, say in one sentence what is missing, then run
-gate-protocol's Runs integration with kind `clarify` and two questions:
-`source`, the candidate sources (the task as stated, a linked doc, or
-their text), and `next`: **Proceed** (recommended) / **Hold**. Record
-`run_decision {contract: gate@1, scope: clarify, selection: {"source":
-"<picked>"}, decidedBy: <the answer's by>}`.
+Never review against nothing. Say in one sentence what is missing, then
+run gate-protocol's Runs integration with `gate_ask {questions, kind:
+clarify, context, runDb, stage}` and two questions: `source` (the task as
+stated, a linked doc, or their text) and `next`: **Proceed** (recommended)
+/ **Hold**. The answers map is `{source, next}`. `next: hold` is the hold
+whatever `source` says, its reason the developer's words.
 
 ### Print the self-review depth block
 
-The review flow's "Commit to a review depth" below is this step: the
-REVIEW DEPTH and EVIDENCE CHECK block, plus the provider triage lines when
-Criteria is bound, printed before any check runs. You are already in the
-worktree, so `verify` and `repro` need no provisioning.
+The review flow's Commit to a review depth: the block, plus the triage
+lines when Criteria is bound, printed before any check runs. You are in
+the worktree, so `verify` and `repro` need no provisioning.
 
 ### Run the checks the self-review depth names
 
-The review flow's "Set up for the depth": the tests, type checks and
-linters the depth names, in this worktree. Record each command and its
-result; they travel to the reviewer as setup observations.
+The review flow's Set up for the depth, in this worktree. Each command and
+its result travel to the reviewer as setup observations.
 
 ### Dispatch the fresh reviewer on your own diff
 
-Review the work as it stands now, on the diff the merge-base step found.
-Hand the review flow's "Dispatch the review" the diff, the requirements,
-and a label (the branch or task name). One dispatch, never skipped,
-however small the change.
+The review flow's Dispatch the review, on the merge-base diff as it stands
+now, with the requirements and a label (the branch or task name). One
+dispatch, never skipped, however small the change.
 
 ### Open the self-review off-script gate: a fill asks for a move this graph forbids
 
-A rule under Criteria or Reviewer below asks for a move the graph marks
-STOP (an inline verdict in place of the dispatch, say). Open a gate per the
-gate protocol, scope `off-script:self-review:<n>` (`n` counts from 1 in
-this run), `context` quoting the rule. Questions: `action` (**Take the
-proposed move**, the value spelling the move in full / **Hand back**) and
-`next` (**Proceed** (recommended) / **Iterate here** / **Hold**).
-Selection: `{"move": "<the move>", "why": "<the rule>", "action":
-"take|handback", "next": "proceed|iterate|hold", "note": "<their words or
-null>"}`. `action: handback` is hand back whatever `next` says; otherwise
-`next: iterate` is iterate here, `next: hold` is hold, and `next: proceed`
-is take.
+A rule under Criteria or Reviewer asks for a move the graph marks STOP (an
+inline verdict in place of the dispatch, say). Open gate-protocol's
+`## Off-script gate` at site `self-review` (scope
+`off-script:self-review:<n>`), `context` quoting the rule, under the run.
+Route: `action: handback` is hand back whatever `next` says; otherwise
+`next: iterate` is iterate here, `hold` is hold, `proceed` is take.
 
 ### Make the recorded self-review move once
 
-Exactly the move the gate recorded, once; its result stands in for the
-fresh reviewer's draft.
+Exactly the recorded move, once; its result stands in for the fresh
+reviewer's draft.
 
 ### Assemble the self-review draft
 
-Strengths / Issues (Critical / Important / Minor) / Assessment, per the
-review flow's "Assemble the draft". Present it; the draft is the sentence
-and the gate that follows is the close.
+Per the review flow's Assemble the draft. Present it; the draft is the
+sentence and the gate that follows is the close.
 
 ### Gate self-review: fix and next, after the draft
 
-Bracket with `run_field_set {key: gate, value: self-review, stage:
-<stage>}`, then run gate-protocol's Runs integration with kind
-`self-review` and these questions, each its own question (never fold one
-list into another: a question over 4 options sends the whole gate to the
-wait queue):
+Run gate-protocol's Runs integration with `gate_ask {questions, kind:
+self-review, context, runDb, stage}`, `context` quoting the draft's
+Issues, and two questions, each its own:
 
-- `fix` (write-in): **Fix the blocking findings now** (recommended when any Critical
-  or Important exists) / **Fix the minors too** / **Ship as is**
-- `next`: **Proceed** (recommended) / **Iterate here** / **Hold** /
-  **Abandon**
+- `fix` (write-in): **Fix the blocking findings now** (`blocking`: Critical
+  and Important; recommended when any exists) / **Fix the minors too**
+  (`all`) / **Ship as is** (`none`)
+- `next`: **Proceed** (`proceed`, recommended) / **Iterate here**
+  (`iterate`) / **Hold** (`hold`) / **Abandon** (`abandon`)
 
-Record `run_decision {contract: gate@1, scope: self-review, selection:
-{"fix": "blocking|all|none", "note": "<their words or null>"}, decidedBy:
-<the answer's by>}`. Blocking means Critical and Important; the minors
-answer fixes every finding. A `fix` write-in records `"fix": {"writeIn":
-"<their words>"}`.
-
-A resumed run whose snapshot records the latest `self-review` decision
-with `fix` set to an option value (`blocking`, `all` or `none`) reuses
-that answer, treats `next` as proceed, and asks nothing here. One whose
-latest decision's `fix` is a write-in (`{"writeIn": ...}`) instead
-resumes at gate-protocol's
-Act on a write-in: finish the work the write-in asks for, then open a NEW
-self-review gate.
+The answers map is `{fix, next}` at scope `self-review`. On a resume, a
+recorded `self-review` decision whose `fix` is `blocking`, `all` or `none`
+is reused with `next` as proceed, asking nothing. A `fix` write-in
+(`{"writeIn": ...}`) resumes at gate-protocol's Act on a write-in: do what
+it asks, then open a NEW self-review gate.
 
 ### Gate self-review again: quote the failing output
 
-A new gate, never the old one reopened: the same bracket and kind
-`self-review`, with `context` quoting the failing test output and naming
-the finding. Questions, each its own: `finding` (write-in): **Try this finding
-again** / **Leave it open and move on**; `next`: **Proceed** (recommended)
-/ **Hold** / **Abandon**. `next: hold` is hold and `next: abandon` is
-abandon whatever `finding` says, a `finding` write-in riding as that
-move's note (gate-protocol's deliberate-pick rule); otherwise the
-`finding` answer decides, and a `finding` write-in goes through
-gate-protocol's Act on a write-in.
-Record `run_decision {contract: gate@1, scope: self-review, selection:
-{"finding": "<its id or file:line>", "retry": true|false, "note": "<their
-words or null>"}, decidedBy: <the answer's by>}`. A `finding` write-in
-records in `retry`, the slot that holds that question's answer: `"retry":
-{"writeIn": "<their words>"}`, with the finding's id left in `finding`. Try again resets that
-finding's attempt count to 0; each finding gets one reopened gate, after
-which it is left open.
+A new gate on its own scope, so the fix gate's decision stays: run
+gate-protocol's Runs integration with `gate_ask {questions, kind:
+self-review-retry:<finding id>, context, runDb, stage}`. The kind is the
+scope, so the answers map `{finding, next}` records there. `context`
+quotes the failing test output and names the finding. Questions, each its
+own:
+
+- `finding` (write-in): **Try this finding again** (`retry:<finding id>`)
+  / **Leave it open and move on** (`leave:<finding id>`)
+- `next`: **Proceed** (`proceed`, recommended) / **Hold** (`hold`) /
+  **Abandon** (`abandon`)
+
+`next: hold` or `abandon` wins whatever `finding` says, a write-in riding
+as its note; otherwise `finding` decides, and a write-in goes through Act
+on a write-in. `retry:<finding id>` starts round 2: later failures charge
+`fix:<finding id>:2`. On a resume, a `retry:<finding id>` decision at this
+scope means round 2.
 
 ### Next selected finding to fix?
 
-One finding at a time, in draft order: the next finding the fix answer
-selected that is not yet fixed, recorded not reproduced, or left open.
+One at a time, in draft order: the next finding the fix answer selected
+that is not yet fixed, not reproduced or left open.
 
 ### Is the finding testable?
 
-A finding with behavior (a wrong value, a crash, a missing case) is
-testable. Naming, docs and structure findings are not: fix them directly,
-and the suite plus a re-read of the finding is their check.
+Behavior (a wrong value, a crash, a missing case) is testable. Naming,
+docs and structure are not: fix them directly, and the suite plus a
+re-read of the finding is their check.
 
 ### Write a failing test for the finding
 
@@ -374,56 +344,54 @@ fix.
 
 ### Record the finding as not reproduced; no fix
 
-A test that passes before any fix means the claim did not hold on this
-code. Make no fix; list the finding as not reproduced, with the test that
-showed it, in what you hand back.
+The claim did not hold on this code. Make no fix; list the finding as not
+reproduced, with the test that showed it, in what you hand back.
 
 ### Fix the finding and run the tests
 
-Before the first attempt on a finding, save a patch of every file the
-attempts will touch: a copy in a scratch directory outside the repo, so
-its own attempts can be undone. The smallest fix, then the finding's test
-and the checks the depth ran. The counter is attempts on this finding
-within this pass.
+Before the first attempt on a finding, save a patch of every file its
+attempts will touch, in a new directory inside this session's scratchpad
+(outside the repo), so they can be undone. Make the smallest fix, then run
+the finding's test and the depth's checks.
+
+Charge `fix:<finding id>:<round>` once, right after a failed attempt. Back
+in this loop after a compaction or resume with no fresh failure in hand,
+read the stored count with `increment: 0` and go on from it. Never charge
+a failure twice or restart a count by hand.
 
 ### Record the finding as left open
 
-No more attempts on it in this run; keep its last failing output. It is
-listed as left open, with that output, in the final message and any
-hand-back. Undo only this finding's own fix attempts, from the patch
-saved before the first attempt; never restore a file from HEAD or the
-index, since the diff under review includes uncommitted work. Mark the
-finding's failing test skipped, the finding id in its name or reason (or
-remove it), so the suite is green before the next finding.
+No more attempts this run; keep its last failing output for the final
+message and any hand-back. Undo only this finding's attempts, from its
+saved patch; never restore a file from HEAD or the index, since the diff
+under review includes uncommitted work. Mark its failing test skipped,
+the finding id in its name or reason (or remove it), so the suite is green
+before the next finding.
 
 ### Hand back with the Minor findings listed
 
-Ship as is: hand back to the flow that called this verb with the Minor
-findings listed for the record, plus any finding left open or not
-reproduced. Every unfixed Critical or Important finding counts as left
-open.
+Ship as is: hand back to the calling flow with the Minor findings listed
+for the record, plus every finding left open or not reproduced; an
+unfixed Critical or Important counts as left open.
 
 ## What the graph cannot show
 
 - Where the domain defines ship-time gates, this self-review complements
   them and never checks their box.
-- A hold records `run_decision {contract: gate@1, scope:
-  hold:<stage>:<attempt>, selection: {"reason": "<their words>"},
-  decidedBy: <the answer's by>}` and `run_field_set {key: hold, value:
-  "<their words>", stage: <stage>}`, then ends the turn.
-- After fixes, the flow that called this verb continues (ship, or the
-  next task); the close runs only after the fixes the gate selected are
-  verified.
+- A hold is the one `run_hold` call: your stage, the developer's words as
+  `reason` (a write-in riding on the hold included), the answer's by as
+  `decidedBy`. Then the turn ends.
+- `run_close` takes `outcome: done` once the selected fixes are verified,
+  and then the calling flow continues (ship, or the next task); or
+  `outcome: abandoned` with `reason: <their words>` on an abandon or a
+  hand back.
 - Before the close, the final message lists every selected finding as
-  fixed, not reproduced (with the test that showed it), or left open. On
-  ship as is that list includes every Critical and Important finding,
-  which stay open.
+  fixed, not reproduced (with its test), or left open.
 
 ## The review flow
 
 The boxes from **Print the self-review depth block** through **Assemble the
-self-review draft** follow this flow, with the diff, the requirements and
-the label above.
+self-review draft** follow this flow.
 
 {{include:review-core-body}}
 
