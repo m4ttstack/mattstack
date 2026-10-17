@@ -114,7 +114,8 @@ says "the stage has no prior pipeline id".
      mid-loop: watch-ci's `fix-rounds` and `ci-gate-iterations`;
    - per watched commit (the key ends in the sha's first 12 characters),
      because an inherited watch-ci never starts an attempt and these reset
-     per commit today: `infra-retries`, `ci-watch-errors`, `lease-rounds`.
+     per commit today: `infra-retries`, `ci-watch-errors` (`lease-rounds`
+     went in the trim pass, B18).
 2. **The heartbeat-every-five-minutes rule is dropped everywhere**, GitHub
    included. On GitLab the keepalive heartbeats the lease every minute until
    release, another owner, or 60 minutes after the last attending CI call
@@ -205,6 +206,9 @@ says "the stage has no prior pipeline id".
 | B15 | The host triages with `ci-triage.sh` and the forge adapter, pre-allowed in `allowed-tools` | both stay vendored but uncalled; fill script calls redirect to `ci_triage` (with the `--config` file's keys) and `pipeline_jobs`; the `allowed-tools` entries go | nothing in the host calls them; packs still bind and call them until the replay |
 | B16 | A watch parked at a gate lets the lease go stale after 10 minutes | the keepalive holds it up to 60 minutes past the last CI call | one attendant while the human decides (Decision 14) |
 | B17 | An existing MR found on the branch: the unbound flow claims "the create call wrote them" and skips the write | the same skip, stated as "left as found" (Decision 15) | the old edge label was false |
+| B18 | watch-ci counts re-claims after a lost lease (2), then its off-script gate's Iterate counts off-script rounds | `ci_watch {attend}` re-claims twice per commit itself; `lease_unavailable` opens the gate, whose Iterate calls `ci_watch` again with no count, and a second `lease_unavailable` reopens the gate (`watch-ci:lease-rounds:<sha12>` dropped) | the tool bounds the re-claims; the human paces each Iterate (trim pass, shepherd #6050) |
+| B19 | watch-ci's `git_push` off-script gate counts its Iterate (off-script rounds = 2) | Iterate calls `git_push` again with no count; a refusal, or a human push that did not land, reopens the gate (`watch-ci:push-off-script` dropped) | `git_push` bounds its own retries; the human paces each Iterate (trim pass, shepherd #6050) |
+| B20 | One "Off-script rounds" count per stage, shared by every off-script gate | each gate's Iterate counts on its own key (`ci-watch-off-script`, `github-claim-off-script`, `retry-off-script`, ...), so a run refused at several gates gets one Iterate at each; the `lease_unavailable` and `git_push` gates count none (B18, B19) | one gate per origin needs its own budget to return to the right place |
 
 ## Design
 
@@ -251,9 +255,9 @@ says "the stage has no prior pipeline id".
    - `timeout`, `no_pipeline`, `canceled`, `skipped`, `manual`,
      `superseded`, `aborted` → `watch-ci gate ci`.
    - `stood_down` → the stand-down STOP → "Stand down: report it and stop".
-   - `lease_unavailable` → "watch-ci off-script gate: ci_watch could not
-     hold the lease" (one origin; take/iterate/hold/hand back; iterate
-     through `lease-rounds`).
+   - `lease_unavailable` → "watch-ci off-script gate: lease_unavailable"
+     (one origin; take/iterate/hold/hand back; iterate calls `ci_watch`
+     again with no count, B18).
    - `unsupported_forge` → GitHub path.
    - tool error → `ci-watch-errors` budget (1) → "Fix what the ci_watch error
      names" or "watch-ci off-script gate: ci_watch refused".
@@ -284,7 +288,7 @@ says "the stage has no prior pipeline id".
    (`run_stage start`, kept) → watch with the result's `sha` and
    `priorPipelineId`; `refused: lease_held` → stand-down STOP; error → push
    STOP → "watch-ci off-script gate: git_push refused" (kept: take → confirm
-   the human's push landed; iterate → `push-rounds`). retry →
+   the human's push landed; iterate → `git_push` again, B19). retry →
    `infra-retries` spent? → retry, or reopen through `ci-gate-iterations`.
 8. Green path (kept): own run? MR found? draft read by forge, mark-ready
    gate with `mark-ready-iterations`, `mr_ready` / `gh pr ready`.
