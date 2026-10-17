@@ -24,6 +24,7 @@ import { getSetting } from "../settings/resolve.ts";
 import { loadRegistry } from "../worktree/registry.ts";
 import { githubRefusal, refuseGithubTarget } from "./mr-composite-tools.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
+import { isFieldChanged, valueSha256 } from "../runs/write.ts";
 import { runToolDefs } from "./run-tools.ts";
 import { checkOptional, checkRequired, err, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
@@ -272,9 +273,11 @@ function isRunRepo(identity: string, runDb: string): { ok: true } | { ok: false;
   return names.includes(runRepo.toLowerCase()) ? { ok: true } : { ok: false, runRepo };
 }
 
+const EVIDENCE_CHANGED = "the evidence field changed during this call; call again";
+
 const runQueues = new Map<string, Promise<void>>();
 
-/** The MCP server runs tool calls concurrently and run_field_set has no compare-and-set, so calls on one run take turns. */
+/** The MCP server runs tool calls concurrently, so calls on one run take turns rather than refusing each other through run_field_set's ifSha256. */
 function onRun<T>(runDb: unknown, task: () => Promise<T>): Promise<T> {
   if (typeof runDb !== "string") return task();
   let key = runDb;
@@ -311,9 +314,10 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const write = async (value: string): Promise<ToolResult | null> => {
     const now = await readField(deps, runDb, "evidence", env);
     if (!now.ok) return err(now.error);
-    if (now.value !== read.value) return err("the evidence field changed during this call; call again");
-    const res = await deps.runTool("run_field_set", { runDb, key: "evidence", value, stage }, env);
-    return res.ok ? null : err(res.error ?? "run_field_set failed");
+    if (now.value !== read.value) return err(EVIDENCE_CHANGED);
+    const res = await deps.runTool("run_field_set", { runDb, key: "evidence", value, stage, ifSha256: valueSha256(read.value ?? "") }, env);
+    if (res.ok) return null;
+    return err(isFieldChanged(res.error ?? "") ? EVIDENCE_CHANGED : res.error ?? "run_field_set failed");
   };
 
   if (parsed.plan) {
@@ -572,10 +576,15 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
 
   let merged = { ...uploadsMap, ...fresh };
   if (Object.keys(fresh).length) {
-    // another process may have remembered uploads meanwhile: merge onto its value rather than over it
-    const latest = await readField(deps, runDb, "evidence-uploads", env);
-    if (latest.ok) merged = { ...uploadsMap, ...parseUploads(latest.value), ...fresh };
-    const res = await deps.runTool("run_field_set", { runDb, key: "evidence-uploads", value: serializeUploads(merged), stage }, env);
+    // another process may have remembered uploads meanwhile: merge onto its value rather than over it, once more if it lands between the read and the write
+    let res: ToolResult = err("run_field_set failed");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const latest = await readField(deps, runDb, "evidence-uploads", env);
+      merged = latest.ok ? { ...uploadsMap, ...parseUploads(latest.value), ...fresh } : { ...uploadsMap, ...fresh };
+      const cas = latest.ok ? { ifSha256: valueSha256(latest.value ?? "") } : {};
+      res = await deps.runTool("run_field_set", { runDb, key: "evidence-uploads", value: serializeUploads(merged), stage, ...cas }, env);
+      if (res.ok || !isFieldChanged(res.error ?? "")) break;
+    }
     if (!res.ok) writeErrors.push(`remembering the uploads in evidence-uploads failed: ${res.error ?? "run_field_set failed"}`);
   }
 

@@ -6,6 +6,7 @@ import { basename, join } from "path";
 import type { RtResponse } from "../../../packages/rt-client/src/index.ts";
 import { UPLOAD_MAX_BYTES } from "../../daemon/upload-guard.ts";
 import { runStart } from "../../runs/start.ts";
+import { valueSha256 } from "../../runs/write.ts";
 import { spliceSection } from "../../evidence/section.ts";
 import { parseUploads, serializeUploads, sha256Of } from "../../evidence/uploads-field.ts";
 import { evidenceToolDefs, MR_UPLOAD_TIMEOUT_MS, realEvidenceToolDeps, uploadEach, type EvidenceToolDeps } from "../evidence-tools.ts";
@@ -102,6 +103,9 @@ function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fie
       }
       if (name === "run_field_set") {
         if (o.fieldSetError && input.key === "evidence") return err(o.fieldSetError);
+        if (typeof input.ifSha256 === "string" && input.ifSha256 !== valueSha256(fields.get(String(input.key)) ?? "")) {
+          return err(`field ${String(input.key)} changed since it was read: ifSha256 does not match`);
+        }
         fields.set(String(input.key), String(input.value));
         return ok({ ok: true });
       }
@@ -363,6 +367,22 @@ describe("evidence_record", () => {
     expect(readFileSync(first.annotated, "utf8")).toBe("board v1");
   });
 
+  test("passes the sha256 of the value it read, so a write from another process in between is refused", async () => {
+    const { deps, fields, runCalls } = makeDeps();
+    const peer = v2([{ id: "peer", label: "Peer", before: { path: "/p.png", waiver: "w" } }]);
+    const runTool = deps.runTool;
+    deps.runTool = async (name, input, e) => {
+      if (name === "run_field_set" && input.key === "evidence") fields.set("evidence", peer);
+      return runTool(name, input, e);
+    };
+    const shot = put("one.png");
+    const res = await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "one", label: "One", slot: "before", path: shot, waiver: "no ui" }] }, env);
+    expect(runCalls.find((c) => c.name === "run_field_set")!.input.ifSha256).toBe(valueSha256(""));
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("the evidence field changed during this call; call again");
+    expect(fields.get("evidence")).toBe(peer);
+  });
+
   test("two concurrent calls on one run both land their cases", async () => {
     const { deps, fields } = makeDeps();
     const one = put("one.png");
@@ -613,6 +633,42 @@ describe("evidence_attach", () => {
     const remembered = parseUploads(fields.get("evidence-uploads")!);
     expect(remembered["/elsewhere/x.png"]).toEqual(peerEntry);
     expect(remembered[realpathSync(one)]).toMatchObject({ sha256: sha256Of(one), project: IDENT });
+  });
+
+  test("uploads another process remembers between the re-read and the write are merged in on one retry", async () => {
+    const { one, evidence } = twoWaived();
+    const peerEntry = { sha256: "f".repeat(64), project: IDENT, url: "https://gitlab.com/acme/web/uploads/peer/x.png", markdown: "![x](/uploads/peer/x.png)", at: 5 };
+    const { deps, fields, runCalls } = makeDeps({ fields: { evidence } });
+    const runTool = deps.runTool;
+    let raced = false;
+    deps.runTool = async (name, input, e) => {
+      if (name === "run_field_set" && input.key === "evidence-uploads" && !raced) {
+        raced = true;
+        fields.set("evidence-uploads", serializeUploads({ "/elsewhere/x.png": peerEntry }));
+      }
+      return runTool(name, input, e);
+    };
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env);
+    expect(runCalls.filter((c) => c.name === "run_field_set" && c.input.key === "evidence-uploads")).toHaveLength(2);
+    const remembered = parseUploads(fields.get("evidence-uploads")!);
+    expect(remembered["/elsewhere/x.png"]).toEqual(peerEntry);
+    expect(remembered[realpathSync(one)]).toMatchObject({ sha256: sha256Of(one), project: IDENT });
+    expect(JSON.stringify(res.body)).not.toContain("remembering the uploads");
+  });
+
+  test("a second miss on the evidence-uploads write is reported, never forced", async () => {
+    const { evidence } = twoWaived();
+    const { deps, fields, runCalls } = makeDeps({ fields: { evidence } });
+    const runTool = deps.runTool;
+    let n = 0;
+    deps.runTool = async (name, input, e) => {
+      if (name === "run_field_set" && input.key === "evidence-uploads") fields.set("evidence-uploads", serializeUploads({ [`/peer/${++n}.png`]: { linked: true, at: n } }));
+      return runTool(name, input, e);
+    };
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env);
+    expect(runCalls.filter((c) => c.name === "run_field_set" && c.input.key === "evidence-uploads")).toHaveLength(2);
+    expect(JSON.stringify(res)).toContain("remembering the uploads in evidence-uploads failed");
+    expect(Object.keys(parseUploads(fields.get("evidence-uploads")!))).toEqual(["/peer/2.png"]);
   });
 
   test("a remembered linked file that times out twice on the resend lands in timedOutTwice and blocks", async () => {
