@@ -284,7 +284,7 @@ describe('RebindPanel', () => {
     expect(within(root).queryByRole('option')).toBeNull();
     expect(within(root).getByTestId('rebind-command')).toHaveTextContent(
       'rt skills bind stage-plan domain acme:plan-policy-strict --pack acme' +
-        'Writes the binding in this pack, then rebuilds plan. Nothing is shared until you sync.'
+        'Writes the binding in this pack, then rebuilds every skill in the pack. Nothing is shared until you sync.'
     );
 
     await userEvent.click(picker(root));
@@ -737,6 +737,18 @@ describe('the pipeline choice', () => {
     ).toBeNull();
     expect(within(root).getByTestId('rebind-override-layer')).toHaveTextContent(
       'This override comes from base: acme-base; remove it there.'
+    );
+  });
+
+  it('names the override layer as a layer', async () => {
+    compositionGet.mockImplementation(() =>
+      Promise.resolve(ok(evidenceOverrideFrom('override')))
+    );
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+
+    expect(within(root).getByTestId('rebind-override-layer')).toHaveTextContent(
+      'This override comes from the override layer; remove it there.'
     );
   });
 

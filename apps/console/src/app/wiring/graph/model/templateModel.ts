@@ -406,17 +406,29 @@ export function buildTemplateView(input: {
   const checkRows = new Map<string, CheckRow>(
     (check?.verbs ?? []).map(row => [row.name, row] as const)
   );
-  // A stage copy compiles from its pipeline's override, and every other
-  // skill from the default, so only that change rebuilds what is shown.
+  // A default change rebuilds the shown skill only where its pipeline does
+  // not override the slot.
   const shownPipeline =
     composition.targets?.find(target => target.name === anatomy.skill)
-      ?.pipeline ?? null;
+      ?.pipeline ??
+    input.workType ??
+    null;
+  const binderSlots = composition.binders.find(
+    binder => binder.ref === anatomy.template.ref
+  )?.slots;
+  const overriddenHere = (slot: string) =>
+    overrideOf(
+      binderSlots?.find(candidate => candidate.name === slot) ?? {},
+      shownPipeline
+    ) !== undefined;
   const pendingSlots = new Set(
     (changes?.bindings ?? [])
       .filter(
         change =>
           change.engineRef === anatomy.template.ref &&
-          (change.pipeline ?? null) === shownPipeline
+          (change.pipeline
+            ? change.pipeline === shownPipeline
+            : !overriddenHere(change.slot))
       )
       .map(change => change.slot)
   );

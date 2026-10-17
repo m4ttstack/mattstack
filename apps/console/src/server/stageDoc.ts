@@ -102,13 +102,16 @@ async function fromSha(
     );
     const rel = d.dir.startsWith(root) ? d.dir.slice(root.length + 1) : '';
     // An org commit holds every team's packs, so another team's copy must
-    // never beat this pack's own default.
+    // never beat this pack's own default, and a dir that is not the run's
+    // pack never lends its own path. A legacy `plugin=` token names no pack.
+    const named = token.pack !== 'plugin';
+    const ownDir = !named || d.name === token.pack;
     const ownPick = (hits: string[]) =>
-      hits.find(p => rel && p.startsWith(rel + '/')) ??
-      hits.find(p => p.includes(`/${token.pack}/`));
+      (named ? hits.find(p => p.includes(`/${token.pack}/`)) : undefined) ??
+      (ownDir && rel ? hits.find(p => p.startsWith(rel + '/')) : undefined);
     const pick =
       byStage.map(ownPick).find(p => p !== undefined) ??
-      byStage.find(h => h.length > 0)?.[0];
+      (ownDir ? byStage.find(h => h.length > 0)?.[0] : undefined);
     if (pick === undefined) continue;
     const text = await git(deps, ['-C', root, 'show', `${token.ref}:${pick}`]);
     if (text != null) {

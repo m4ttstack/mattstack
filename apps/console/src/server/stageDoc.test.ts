@@ -69,6 +69,12 @@ const org = {
       'mattstack/teams/globex/plugin/attachments/stage-evidence--accessibility/SKILL.md':
         'GLOBEX ACCESSIBILITY EVIDENCE',
     },
+    fff6666: {
+      'mattstack/teams/globex/plugin/attachments/stage-evidence/SKILL.md':
+        'GLOBEX EVIDENCE',
+      'mattstack/teams/globex/plugin/attachments/stage-evidence--accessibility/SKILL.md':
+        'GLOBEX ACCESSIBILITY EVIDENCE',
+    },
   },
 };
 
@@ -199,6 +205,34 @@ describe('resolveStageDoc', () => {
         pipeline: 'accessibility',
       })
     ).toMatchObject({ text: 'ACME EVIDENCE', pack: 'acme' });
+  });
+
+  describe('for a pack with no dir on this machine', () => {
+    const onlyGlobex = deps({
+      packDirs: async () => [
+        { name: 'globex', dir: '/org/mattstack/teams/globex/plugin' },
+      ],
+    });
+
+    it("reads its own default over another pack's copy", async () => {
+      expect(
+        await resolveStageDoc(onlyGlobex, {
+          packCommits: 'acme=eee5555',
+          stage: 'evidence',
+          pipeline: 'accessibility',
+        })
+      ).toMatchObject({ text: 'ACME EVIDENCE', pack: 'acme' });
+    });
+
+    it("reads nothing when the commit holds only another pack's docs", async () => {
+      expect(
+        await resolveStageDoc(onlyGlobex, {
+          packCommits: 'acme=fff6666',
+          stage: 'evidence',
+          pipeline: 'accessibility',
+        })
+      ).toBeNull();
+    });
   });
 
   it('reads a version-recorded pipeline copy from the plugin cache', async () => {

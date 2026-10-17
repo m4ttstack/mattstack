@@ -231,6 +231,19 @@ export function pipelineOf(
   );
 }
 
+/** The key that opens `skill` as a step of `pipeline` when that pipeline
+    runs it; otherwise `fallback`, by default the skill itself, which
+    focuses the first pipeline's step. */
+export function focusUnder(
+  pipeline: FocusItem | null,
+  skill: string,
+  fallback: string = skill
+): string {
+  return (
+    pipeline?.children.find(child => child.skill === skill)?.key ?? fallback
+  );
+}
+
 /** `feature` for `pipeline:feature`; null for any other key. */
 export function workTypeOf(key: string): string | null {
   return key.startsWith(PIPELINE_PREFIX)

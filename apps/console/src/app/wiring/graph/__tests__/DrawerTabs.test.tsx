@@ -290,6 +290,20 @@ describe('usedBySites', () => {
     });
   });
 
+  it("focuses a shared step under the canvas's pipeline", () => {
+    const groups = groupsOfDesign();
+    const at = (workType: string) =>
+      usedBySites(
+        designFixture('composition'),
+        groups,
+        { kind: 'include', name: 'gate-protocol' },
+        groups.pipelines.find(item => item.key === `pipeline:${workType}`)!
+      ).find(site => site.skill === 'stage-plan')?.focus;
+
+    expect(at('accessibility')).toBe('stage-plan@accessibility');
+    expect(at('feature')).toBe('stage-plan');
+  });
+
   it("places an override's fill at its pipeline's copy of the stage", () => {
     const sites = usedBySites(designFixture('composition'), groupsOfDesign(), {
       kind: 'fill',

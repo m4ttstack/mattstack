@@ -4,7 +4,11 @@ import {
   suffixOf,
   type SkillsComposition,
 } from '../../outline';
-import type { FocusGroups, FocusItem } from '../model/focusModel';
+import {
+  focusUnder,
+  type FocusGroups,
+  type FocusItem,
+} from '../model/focusModel';
 
 export type UsedByGroup =
   'PIPELINE STEPS' | 'STANDALONE' | 'BOARD' | 'NOT WIRED INTO ANYTHING';
@@ -129,12 +133,14 @@ function labelOf(site: Site, place: Place | undefined): string {
 /**
  * Every skill in the pack that pastes a partial in or binds a fill, grouped
  * and ordered as the focus list shows them. A skill the focus list does not
- * show is wired into nothing, so it closes the list.
+ * show is wired into nothing, so it closes the list. A step `pipeline` runs
+ * opens as that pipeline's step.
  */
 export function usedBySites(
   composition: SkillsComposition,
   groups: FocusGroups,
-  ref: UsedByRef
+  ref: UsedByRef,
+  pipeline: FocusItem | null = null
 ): UsedBySite[] {
   const places = placesOf(groups);
   const sites =
@@ -150,7 +156,7 @@ export function usedBySites(
           skill: site.skill,
           slot: site.slot,
           line: site.line,
-          focus: place?.focus ?? null,
+          focus: place ? focusUnder(pipeline, site.skill, place.focus) : null,
           label: labelOf(site, place),
           pipeline: site.pipeline,
         } satisfies UsedBySite,

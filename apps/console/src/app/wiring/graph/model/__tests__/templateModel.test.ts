@@ -966,6 +966,65 @@ describe('a specialized pipeline', () => {
       'unsynced'
     );
   });
+
+  describe('marks a pending change by the canvas pipeline', () => {
+    const shown = (
+      anatomy: SkillsAnatomy,
+      workType: string,
+      changes: SkillsChanges
+    ) =>
+      domainRow(
+        buildTemplateView({
+          anatomy,
+          composition,
+          check,
+          changes,
+          step: null,
+          workType,
+        })
+      ).state;
+    const planChange = (pipeline?: string): SkillsChanges => ({
+      ...changesClean,
+      dirty: true,
+      bindings: [
+        {
+          engineRef: 'mattstack:stage-plan',
+          slot: 'domain',
+          from: 'acme:plan-policy',
+          to: 'acme:plan-policy-strict',
+          ...(pipeline ? { pipeline } : {}),
+        },
+      ],
+    });
+
+    it('default change stays unsynced on the default canvas', () => {
+      expect(shown(anatomyEvidence, 'feature', overrideChange())).toBe(
+        'unsynced'
+      );
+      expect(shown(anatomyPlan, 'feature', planChange())).toBe('unsynced');
+    });
+
+    it("marks the pipeline's own change on a step it shows without a copy", () => {
+      expect(
+        shown(anatomyPlan, 'accessibility', planChange('accessibility'))
+      ).toBe('unsynced');
+      expect(
+        shown(anatomyPlan, 'feature', planChange('accessibility'))
+      ).not.toBe('unsynced');
+    });
+
+    it('marks a default change on a slot the pipeline does not override', () => {
+      expect(shown(anatomyPlan, 'accessibility', planChange())).toBe(
+        'unsynced'
+      );
+    });
+
+    it('leaves a default change unmarked on a slot the pipeline overrides', () => {
+      expect(shown(anatomyCopy, 'accessibility', overrideChange())).not.toBe(
+        'unsynced'
+      );
+    });
+  });
 });
 
 describe('when check has not measured a skill', () => {

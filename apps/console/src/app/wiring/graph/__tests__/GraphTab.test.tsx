@@ -55,6 +55,7 @@ function notFound() {
 
 const ANATOMY: Record<string, unknown> = {
   work: designFixture('anatomy.work'),
+  'work-a11y': designFixture('anatomy.work-a11y'),
   'stage-plan': designFixture('anatomy.stage-plan'),
 };
 
@@ -668,6 +669,21 @@ describe('Graph tab: the canvas', () => {
         'output-node'
       )
     ).toBeInTheDocument();
+  });
+
+  it("opens a linked step under a specialized pipeline's canvas", async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=pipeline:accessibility');
+
+    const canvas = await screen.findByTestId('template-canvas');
+    const plan = within(canvas)
+      .getAllByTestId('link-card')
+      .find(card => card.textContent?.includes('stage-plan/SKILL.md'));
+    fireEvent.click(plan!);
+
+    await waitFor(() =>
+      expect(params().get('focus')).toBe('stage-plan@accessibility')
+    );
   });
 });
 
