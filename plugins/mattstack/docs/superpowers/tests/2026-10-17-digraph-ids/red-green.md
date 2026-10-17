@@ -415,8 +415,10 @@ shapes and edges are the same on both sides. Only the id form differs.
   - Not counted, as in the lane's round 2: no rep drew `run_budget {key:
     evidence:cover-rounds}` in EV1. That budget lives only in the
     `{{include:evidence-record}}` text, which is unexpanded on both sides.
-- **Stop named** is yes when the rep's stop names the node it ends at, by
-  text or id. Every ship scenario ends at `run_close_done` → `shipped`
+- **Stop named** is scored two ways. The strict reading is in "Strict stop
+  named at STOP nodes" below. The **lenient** reading, used in the per-rep
+  tables, is yes when the rep's stop names the node it ends at, by text or
+  id. Every ship scenario ends at `run_close_done` → `shipped`
   ("Shipped"), so "Stop: Shipped", "run_close ... done", or a close defined
   once as `run_close {..., outcome: done}` and named per scenario all count.
   In S6 the watch first reaches `stop_lease_holder_owns` ("STOP: the lease
@@ -429,7 +431,7 @@ shapes and edges are the same on both sides. Only the id form differs.
 
 ### RED
 
-| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | stop named | notes |
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | stop named (lenient) | notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
 | S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
@@ -484,7 +486,7 @@ shapes and edges are the same on both sides. Only the id form differs.
 
 ### GREEN
 
-| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | stop named | notes |
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | stop named (lenient) | notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
 | S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
@@ -539,7 +541,7 @@ shapes and edges are the same on both sides. Only the id form differs.
 
 ### Totals per scenario
 
-| scenario | RED deviations | GREEN deviations | RED stop named | GREEN stop named | GREEN <= RED |
+| scenario | RED deviations | GREEN deviations | RED stop named (lenient) | GREEN stop named (lenient) | GREEN <= RED |
 |---|---|---|---|---|---|
 | S1 | 0 | 0 | 5/5 | 5/5 | yes |
 | S2 | 0 | 0 | 5/5 | 5/5 | yes |
@@ -566,10 +568,83 @@ shapes and edges are the same on both sides. Only the id form differs.
 | refusal missed its gate or stand-down | 0 | 0 |
 | release on a stand-down | 0 | 0 |
 
+### Strict stop named at STOP nodes
+
+Added in review fix round 1. The lenient column credits the terminal
+`run_close done` / "Shipped" exit, which every rep names. That hides how
+often a rep names a STOP node its path passes through. This table scores
+only those nodes, for every ship scenario whose expected.md path passes a
+STOP:
+
+- **S3**: `stop_shell_push`, "STOP: push only with git_push (ship)".
+- **S6**: watch-ci's `stop_lease_holder_owns`, "STOP: the lease holder owns
+  every commit, push and retry (watch-ci)".
+- **EV2**: STOP "only the human moves a refused file". This node lives in
+  the `{{include:evidence-record}}` text, which is unexpanded in both
+  prompts (0 hits for the phrase in either prompt file). No rep could see it.
+
+Rule, the same on both sides:
+
+- **Yes** when the rep names that STOP by its text, or by a close
+  paraphrase that keeps "STOP" and the node's content. The id or the slug as
+  prose also counts.
+- **No** when the rep only describes the behavior ("I do not push from
+  Bash"), writes a bare stop ("I stop here"), or writes "the STOP edge" with
+  none of the node's content. The last follows this branch's watch-ci
+  scoring, where "the STOP edge" scored no at T4.
+
+#### S3: `stop_shell_push`
+
+| side | rep | strict | deciding phrase |
+|---|---|---|---|
+| RED | 1 | no | "Following the STOP edge, I open the off-script gate" (no node content; would be yes if "the STOP edge" counted) |
+| RED | 2 | yes | "I do not retry it and do not use plain `git push`, which is the STOP edge" |
+| RED | 3 | yes | "That is the STOP \"push only with git_push\"" |
+| RED | 4 | yes | "That triggers STOP: push only with `git_push`" |
+| RED | 5 | yes | "STOP: push only with `git_push`" |
+| GREEN | 1 | no | "I do not retry it and do not push from Bash" |
+| GREEN | 2 | yes | "STOP on shell pushes" (the slug as prose) |
+| GREEN | 3 | no | "I stop here and do not retry `git_push` or push from Bash" |
+| GREEN | 4 | no | "I do not retry it, and I do not push from a shell" |
+| GREEN | 5 | yes | "This hits the STOP: I never push from the shell" |
+
+#### S6: `stop_lease_holder_owns`
+
+| side | rep | strict | deciding phrase |
+|---|---|---|---|
+| RED | 1 | yes | "That is the STOP edge: the lease holder owns every commit, push and retry" |
+| RED | 2 | yes | "That hits the STOP edge: the lease holder owns every commit, push and retry" |
+| RED | 3 | yes | "That hits the STOP \"the lease holder owns every commit, push and retry\"" |
+| RED | 4 | yes | "That hits STOP: the lease holder owns every commit, push and retry" |
+| RED | 5 | yes | "STOP: the lease holder owns every commit, push and retry" |
+| GREEN | 1 | yes | "STOP, lease holder owns it" |
+| GREEN | 2 | yes | "STOP. The lease holder owns every commit, push and retry" |
+| GREEN | 3 | no | "That lease is not mine, so I do not call `ci_lease_release`" |
+| GREEN | 4 | no | "I stand down and hand the stand-down back to ship" |
+| GREEN | 5 | yes | "This hits STOP: the lease holder owns every commit, push and retry" |
+
+#### EV2: "only the human moves a refused file"
+
+| side | reps | strict | note |
+|---|---|---|---|
+| RED | 1 to 5 | no x5 | every rep goes straight from the refusal to the off-script gate |
+| GREEN | 1 to 5 | no x5 | every rep goes straight from the refusal to the off-script gate |
+
+#### Strict totals
+
+| scenario | RED | GREEN |
+|---|---|---|
+| S3 | 4/5 (5/5 if "the STOP edge" counts) | 2/5 |
+| S6 | 5/5 | 3/5 |
+| EV2 | 0/5 | 0/5 |
+| total | 9/15 (10/15) | 5/15 |
+
+Lenient totals, for comparison: RED 50/50, GREEN 50/50.
+
 ### Verdict
 
-**Pass.** Both sides scored 0 deviations, so GREEN is at most RED in total
-and in 10 of 10 scenarios. No fix round was needed, and `slugs/ship.json`
+**Pass on deviations.** Both sides scored 0 deviations, so GREEN is at most
+RED in total and in 10 of 10 scenarios. No fix round was needed, and `slugs/ship.json`
 and the ship SKILL.md are unchanged.
 
 Every rep on both sides took the same path:
@@ -588,8 +663,32 @@ Every rep on both sides took the same path:
 - EV1 and EV2 ran `evidence_record` twice, then `evidence_attach`, and EV2
   sent `linkRefused: true` on Take.
 
-**Stop named**: 50/50 on both sides. Ship's stops are mostly the done
-close, which every rep names, so this column has no headroom here.
+**Stop named, lenient**: 50/50 on both sides. Ship's stops are mostly the
+done close, which every rep names, so this column has no headroom here.
+
+**Stop named, strict at STOP nodes: GREEN names the STOP less often.**
+
+- **S3**: GREEN names the push STOP in 2/5 reps and RED in 4/5 (5/5 on the
+  looser reading).
+- **S6**: GREEN names the lease-holder STOP in 3/5 reps and RED in 5/5.
+- **Total**: GREEN 5/15, RED 9/15. Neither side could name EV2's STOP,
+  because its text was not in the prompt.
+- **Behavior**: every GREEN rep that skipped the name still behaved
+  correctly. It made no shell push and no retry, reached the gate, and in
+  S6 made no release. The gap is in what reps call the node, not in where
+  they go.
+
+**Counterpoint**: at the same push STOP in this branch's watch-ci run
+(T4), the split went the other way. RED named it 3/5 and GREEN 5/5.
+
+**What the sample shows**: at 5 reps per side, a 2/5 against 4/5 split, or
+3/5 against 5/5, is within what chance gives. The watch-ci result reversed
+at the same node. So the sample cannot show that short ids make agents name
+STOP nodes less often, and it cannot rule that out. It does show that ship
+GREEN reps named the STOP less often in this run. The label text is still on
+every node, so a GREEN rep sees the same words. The sample cannot say
+whether the gap comes from that or from the short id taking the eye.
+Telling those apart would need more reps at these nodes.
 
 **Limits**:
 
@@ -599,4 +698,11 @@ close, which every rep names, so this column has no headroom here.
   It cannot show that they help.
 - **Partial blinding.** See Method: the slug written as prose, and the byte
   counts in the run log.
-- **Self-scoring.** I ran and scored my own reps, with no second scorer.
+- **Strict stop named.** At the STOP nodes, GREEN named the STOP in 5/15
+  reps against RED's 9/15: S3 2/5 against 4/5, S6 3/5 against 5/5. The
+  lenient 50/50 hides this gap. It is recorded here, not resolved. At 5
+  reps it is within chance, and watch-ci's T4 went the other way (RED 3/5,
+  GREEN 5/5). The strict table was added after review, so it was scored
+  unblinded, with the phrases quoted for checking.
+- **Self-scoring.** I ran and scored my own reps. A review re-score of 3
+  reps agreed on every deviation cell.
