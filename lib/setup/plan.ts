@@ -28,9 +28,9 @@ import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { adminSecretsRowSafe } from "./validators/admin-secrets.ts";
 import { boardTeamFieldsRowFor } from "./validators/board-team-fields.ts";
 import { macRows } from "./validators/mac.ts";
-import { repoRootRow } from "./validators/repo-root.ts";
 import { orgRows } from "./validators/org.ts";
 import { forgeAccessRow } from "./validators/org-forge-access.ts";
+import { repoPlacementRows } from "./validators/repos.ts";
 import { readTeamSnapshotStatus, rtHealthRows } from "./validators/rt-health.ts";
 import { INSTALLED_BY_INSTALL_NOTE, toolRows } from "./validators/tools.ts";
 
@@ -193,9 +193,9 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
       const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs) });
-      const repoRoot = repoRootRow(i.p, team, snapshot);
+      const repos = await repoPlacementRows(i.p, team, snapshot);
       const boardFields = boardTeamFieldsRowFor(i.p, { solo, teamFor: () => (i.orgs.includes(team.slug) ? activeTeamFor(i.p, team.slug).team : null) });
-      return [...tools, ...(repoRoot ? [repoRoot] : []), ...healthRows, ...(boardFields ? [boardFields] : [])];
+      return [...tools, ...repos, ...healthRows, ...(boardFields ? [boardFields] : [])];
     }),
   ]);
 

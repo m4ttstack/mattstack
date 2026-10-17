@@ -269,9 +269,8 @@ t "screens.sh asserts the join note before Continue" bash -c '
   note=$(grep -n "ax_wait_join_note" run/guest/screens.sh | head -1 | cut -d: -f1)
   cont=$(grep -n "ax_click setup.team.continue" run/guest/screens.sh | head -1 | cut -d: -f1)
   [ -n "$note" ] && [ -n "$cont" ] && [ "$note" -lt "$cont" ]'
-t "screens.sh answers repos.root before Continue" bash -c 'grep -q "setup repo-root set" run/guest/screens.sh'
-t "screens.sh rechecks after setting the root"    bash -c 'grep -q "setup.checklist.recheck" run/guest/screens.sh'
-t "assert-installed.sh handles repos.root absent"     bash -c 'grep -q "repos.root" run/guest/assert-installed.sh'
+t "screens.sh no longer answers a repo folder before Continue" bash -c '! grep -q "setup repo-root set" run/guest/screens.sh'
+t "assert-installed.sh checks the repos.place rows, absent included" bash -c 'grep -q "repos.place" run/guest/assert-installed.sh'
 t "assert-installed.sh checks every .mattstack route, not the first" bash -c \
   '! grep -qE "endswith\(\"\.mattstack\"\)\).*head -1" run/guest/assert-installed.sh \
    && grep -q "assert_mattstack_routes untrusted proxy" run/guest/assert-installed.sh \

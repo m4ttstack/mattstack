@@ -1196,6 +1196,10 @@ export interface Commands {
   /** Rejects (`ok:false`) naming every live claim owner while any claim is held. */
   "bg:stop": { payload: Record<string, never>; data: { stopped: boolean } };
   "bg:release": { payload: { claim: string }; data: { released: boolean } };
+
+  // ─── herdr (the visible server agents launch into) ───────────────────────
+  /** Starts herdr when it is not running; a failure is a state in `data`, never `ok:false`. */
+  "herdr:start": { payload: Record<string, never>; data: { state: "running" | "started" | "not-installed" | "failed"; bin: string; detail?: string } };
 }
 
 export type CommandName = keyof Commands;
@@ -1352,4 +1356,6 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "bg:status",
   "bg:stop",
   "bg:release",
+
+  "herdr:start",
 ];

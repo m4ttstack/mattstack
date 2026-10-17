@@ -4,6 +4,7 @@ import { join } from "path";
 import { runAgentFallback, HEADLESS_NEEDS_DAEMON, BG_NEEDS_DAEMON } from "../agent-fallback.ts";
 import { openStateDb, insertAgent, newAgentId } from "../../lib/state/index.ts";
 import type { HerdrRunner } from "../../lib/agent-herdr.ts";
+import { HERDR_NOT_INSTALLED } from "../../lib/herdr/start.ts";
 
 let n = 0;
 const REPO = "remote:example.com%2Fa%2Fb";
@@ -12,6 +13,8 @@ const tmp = () => join(tmpdir(), `agent-fb-${process.pid}-${n++}.db`);
 /** No pane behind this launch, so the folder-trust driver has nothing to read:
     answer it honestly rather than letting it reach for a real herdr socket. */
 const noPane = (async () => ({ ok: false, code: "unreachable", message: "no server" })) as never;
+
+const running = async () => ({ state: "running" as const, bin: "/opt/acme/herdr" });
 
 const okRunner = (calls: string[][]): HerdrRunner => async (args) => {
   calls.push(args);
@@ -25,12 +28,22 @@ test("herdr start records and journals herdr argv", async () => {
   const db = openStateDb(tmp());
   const calls: string[][] = [];
   const res = await runAgentFallback("agent:start",
-    { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" }, { db, herdrRunner: okRunner(calls), herdr: noPane });
+    { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" }, { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: running });
   expect(res.ok).toBe(true);
   expect(calls.some((c) => c[0] === "pane" && c[1] === "run")).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   const got = await runAgentFallback("agent:get", { id: (res.data as { id: string }).id }, { db });
   expect(got.ok).toBe(true);
+});
+
+test("a herdr start with herdr not installed refuses before touching herdr", async () => {
+  const db = openStateDb(tmp());
+  const calls: string[][] = [];
+  const res = await runAgentFallback("agent:start",
+    { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" },
+    { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: async () => ({ state: "not-installed", bin: "/opt/acme/herdr" }) });
+  expect(res).toEqual({ ok: false, error: HERDR_NOT_INSTALLED });
+  expect(calls).toEqual([]);
 });
 
 test("refuses headless start before spawning", async () => {
@@ -75,7 +88,7 @@ test("a codex herdr start schedules no session-id poll: the CLI would exit befor
   const calls: string[][] = [];
   const res = await runAgentFallback("agent:start",
     { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", provider: "codex" },
-    { db, herdrRunner: okRunner(calls), herdr: noPane });
+    { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: running });
   expect(res.ok).toBe(true);
   // Give a mis-scheduled poll a chance to make its first call before asserting.
   await new Promise((r) => setTimeout(r, 50));
@@ -85,7 +98,7 @@ test("a codex herdr start schedules no session-id poll: the CLI would exit befor
 test("list returns records", async () => {
   const db = openStateDb(tmp());
   const calls: string[][] = [];
-  await runAgentFallback("agent:start", { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" }, { db, herdrRunner: okRunner(calls), herdr: noPane });
+  await runAgentFallback("agent:start", { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" }, { db, herdrRunner: okRunner(calls), herdr: noPane, startHerdr: running });
   const res = await runAgentFallback("agent:list", { repo: REPO }, { db });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");

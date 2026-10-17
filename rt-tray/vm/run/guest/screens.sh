@@ -203,18 +203,6 @@ screen_row_tool() {  # <herdr|claude>
   fi
 }
 
-# repos.root is required and its only GUI affordance is a native folder panel,
-# which an unattended run cannot answer. The harness is playing the user here,
-# not working around a defect. The recheck is not optional: the app's plan is
-# composed before this write, so Continue stays disabled without it.
-# The row renders only for join mode or a repo-tracking team.
-screen_row_repo_root() {
-  mkdir -p "$HOME/code"
-  rt setup repo-root set "$HOME/code" --json
-  ax_click setup.checklist.recheck
-  ax_wait_status repos.root ready 30 || ax_fail "repos.root never reached ready after the verb answered it"
-}
-
 # One wizard page at a time, in the wizard's own order: a page's Continue
 # stays off until its required rows are ready, so a row on a later page
 # cannot be reached before them. Each page gets the rows the walkthrough
@@ -246,7 +234,6 @@ screen_readiness() {
     if screen_row_due "$ids" tool.proxy; then
       screen_proxy_row
     fi
-    if screen_row_due "$ids" repos.root; then screen_row_repo_root; fi
     # Every row's status on the page, before its button: the one record that
     # explains a page that does not advance.
     ax_log "checklist page ${page:-?}: $(ax_row_statuses | tr '\n' ' ')"
@@ -395,6 +382,24 @@ screen_done() {
     ax_shot 05-writing-style-chosen
     echo "writing-style=$style" >> "$GUEST_RUN/logs/finish-gate.txt"
   fi
+
+  # A joiner's Install leaves each unfound tracked repo waiting on the summary,
+  # finish-gated and not skippable: accept the shown location with its one-click
+  # button, then wait out the clone that rt's follow-up verb starts.
+  local repo_buttons button row
+  repo_buttons=$(ax_dump_ids | grep -E '^setup\.done\.beforeYouFinish\.repos\.place:.*\.oneClick$' || true)
+  for button in $repo_buttons; do
+    row="${button#setup.done.beforeYouFinish.}"; row="${row%.oneClick}"
+    ax_click "$button"
+    local n=600
+    while [ "$n" -gt 0 ] && ax_find "setup.done.beforeYouFinish.$row.status" >/dev/null 2>&1; do
+      ax_find "setup.checklist.row.$row.error" >/dev/null 2>&1 && ax_fail "placing $row failed: $(ax_value "setup.checklist.row.$row.error" || true)"
+      sleep 1; n=$((n-1))
+    done
+    ax_find "setup.done.beforeYouFinish.$row.status" >/dev/null 2>&1 && ax_fail "the $row row is still under Needs you after its one-click button"
+    echo "$row=placed" >> "$GUEST_RUN/logs/finish-gate.txt"
+  done
+  [ -n "$repo_buttons" ] && ax_shot 05-repos-placed
 
   ax_wait_enabled setup.done.continue 30 || ax_fail "Finish did not enable after resolving the Needs you rows"
   ax_find setup.done.refreshError >/dev/null 2>&1 && ax_fail "the summary fell open on a failed re-check: $(ax_value setup.done.refreshError || true)"

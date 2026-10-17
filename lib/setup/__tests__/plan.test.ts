@@ -3,6 +3,7 @@ import { describe, test, expect } from "bun:test";
 import { applyInstallSatisfiedFlip, composePlan, pendingJoinTeam } from "../plan.ts";
 import { FINISH_GATED_ROW_IDS, finalizePlan, row, type Group, type Row } from "../contract.ts";
 import { WAIVED_NOTE, applyFinishGate } from "../finish-gate.ts";
+import { markDeferred } from "../repo-placement.ts";
 import { setSetting } from "../../settings/write.ts";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -489,6 +490,36 @@ describe("finish gate", () => {
       const fromStore = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
       expect(extension(fromStore).waived).toBe(true);
     } finally {
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("a tracked repo Install left for you sits under Your repos and blocks Finish, never Install", async () => {
+    const prevHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "rt-plan-repos-"));
+    closeStateDb();
+    process.env.HOME = home;
+    try {
+      const teamPath = sharedStorePath("acme");
+      mkdirSync(dirname(teamPath), { recursive: true });
+      writeFileSync(teamPath, JSON.stringify({ "mattstack.tracking": { repos: { "gitlab.com/acme/widgets": {}, "gitlab.com/acme/acme-api": {} } } }));
+      const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+      markDeferred(p, "gitlab.com/acme/acme-api");
+
+      for (const mode of ["plan", "status"] as const) {
+        const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode, orgs: ["acme"], waived: [] });
+        const repos = plan.groups.find((g) => g.id === "repos")!;
+        expect(repos.title).toBe("Your repos");
+        expect(repos.rows.map((r) => [r.id, r.finishGated ?? false])).toEqual([
+          ["repos.place:gitlab.com/acme/widgets", false],
+          ["repos.place:gitlab.com/acme/acme-api", true],
+        ]);
+        expect(plan.finishBlockedBy).toContain("repos.place:gitlab.com/acme/acme-api");
+        expect(plan.requiredMissing.some((id) => id.startsWith("repos."))).toBe(false);
+      }
+    } finally {
+      closeStateDb();
       process.env.HOME = prevHome;
       rmSync(home, { recursive: true, force: true });
     }

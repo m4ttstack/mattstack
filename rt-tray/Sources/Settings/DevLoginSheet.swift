@@ -7,21 +7,25 @@ struct DevLoginSheet: View {
     let fixedOrigin: String?
     let isSaved: (String) -> Bool
     let onSave: (String, String, String) async -> String?
-    @State private var originText = ""
+    @State private var originText: String
     @State private var email: String
-    @State private var password = ""
-    @State private var typedHost = ""
+    @State private var password: String
+    @State private var confirmPassword: String
     @State private var error: String?
     @State private var saving = false
     @State private var lastOutcome: DevLoginSaveOutcome?
     @Environment(\.dismiss) private var dismiss
 
-    init(fixedOrigin: String?, email: String = "", isSaved: @escaping (String) -> Bool,
-         onSave: @escaping (String, String, String) async -> String?) {
+    /// The typed-value seeds exist so the snapshot renderer can draw a filled-in Add sheet.
+    init(fixedOrigin: String?, email: String = "", originText: String = "", password: String = "", confirmPassword: String = "",
+         isSaved: @escaping (String) -> Bool, onSave: @escaping (String, String, String) async -> String?) {
         self.fixedOrigin = fixedOrigin
         self.isSaved = isSaved
         self.onSave = onSave
         _email = State(initialValue: email)
+        _originText = State(initialValue: originText)
+        _password = State(initialValue: password)
+        _confirmPassword = State(initialValue: confirmPassword)
     }
 
     private var validated: DevLoginOrigin.Result { DevLoginOrigin.validate(fixedOrigin ?? originText) }
@@ -60,7 +64,7 @@ struct DevLoginSheet: View {
                 }
                 if replacing { replaceCaption }
             }
-            if case .valid(let origin, let host) = validated {
+            if case .valid(let origin, _) = validated {
                 ForEach(DevLoginConfirm.warnings(origin: origin), id: \.self) { w in
                     Label(w, systemImage: "exclamationmark.triangle.fill")
                         .font(.callout)
@@ -75,20 +79,23 @@ struct DevLoginSheet: View {
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier(AXID.devLoginSheetEmail)
                 }
-                SetupField(label: "Password", note: "Use a password that only this dev site uses.") {
+                SetupField(label: "Password", note: "Use a password that only this dev site uses. Browser runs fill it only on this exact site.") {
                     SecureField("", text: $password)
                         .labelsHidden()
                         .accessibilityLabel("Password")
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier(AXID.devLoginSheetPassword)
                 }
-                if !isSaved(origin) {
-                    SetupField(label: "Type \(host) to confirm", note: "Browser runs will fill this login only on this exact site.") {
-                        TextField("", text: $typedHost)
+                VStack(alignment: .leading, spacing: 4) {
+                    SetupField(label: "Confirm password") {
+                        SecureField("", text: $confirmPassword)
                             .labelsHidden()
-                            .accessibilityLabel("Type \(host) to confirm")
+                            .accessibilityLabel("Confirm password")
                             .textFieldStyle(.roundedBorder)
-                            .accessibilityIdentifier(AXID.devLoginSheetConfirmHost)
+                            .accessibilityIdentifier(AXID.devLoginSheetConfirmPassword)
+                    }
+                    if DevLoginConfirm.mismatch(password: password, confirm: confirmPassword) {
+                        Text(DevLoginSheetCopy.mismatch).font(.caption).foregroundStyle(.red)
                     }
                 }
             }
@@ -124,8 +131,8 @@ struct DevLoginSheet: View {
     private var saveEnabled: Bool { DevLoginSaveRace.saveEnabled(canSave: canSave, saving: saving, last: lastOutcome) }
 
     private var canSave: Bool {
-        guard case .valid(let origin, let host) = validated else { return false }
-        return DevLoginConfirm.canSave(host: host, typedHost: typedHost, isFirstTime: !isSaved(origin), email: email, password: password)
+        guard validOrigin != nil else { return false }
+        return DevLoginConfirm.canSave(email: email, password: password, confirm: confirmPassword)
     }
 
     private func save() {
@@ -138,7 +145,7 @@ struct DevLoginSheet: View {
             saving = false
             lastOutcome = outcome
             switch outcome {
-            case .saved: self.password = ""; dismiss()
+            case .saved: self.password = ""; self.confirmPassword = ""; dismiss()
             case .failed(let message): error = message
             case .timedOut: error = DevLoginSaveRace.timeoutMessage
             }

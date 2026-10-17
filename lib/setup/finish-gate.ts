@@ -7,7 +7,7 @@
 
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
-import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, type Group } from "./contract.ts";
+import { FINISH_GATED_ROW_IDS, isFinishGatedRowId, WAIVABLE_ROW_IDS, type Group } from "./contract.ts";
 import { logCliEvent } from "../cli-logger.ts";
 import { UserActionableError } from "../errors.ts";
 import type { SettingsReader } from "./team-settings.ts";
@@ -63,7 +63,7 @@ export function realWaiverStore(): WaiverStore {
 }
 
 function assertFinishGated(id: string): void {
-  if (FINISH_GATED_ROW_IDS.includes(id)) return;
+  if (isFinishGatedRowId(id)) return;
   throw new UserActionableError("not-finish-gated", `${id} is not a row that blocks Finish. Rows that do: ${FINISH_GATED_ROW_IDS.join(", ")}`);
 }
 

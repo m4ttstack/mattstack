@@ -34,6 +34,7 @@ import { cswapAccountNumbers } from "../../cswap.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
 import { defaultHerdrRunner, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
+import { HERDR_NOT_INSTALLED, type HerdrStartResult } from "../../herdr/start.ts";
 import { acceptTrustOnPane, cwdPath, type TrustOutcome } from "../trust-accept.ts";
 import { repoLabel } from "../../repo-label.ts";
 import { getSetting } from "../../settings/resolve.ts";
@@ -387,6 +388,9 @@ export function createAgentHandlers(opts: {
       no equivalent gate: that fallback refuses the headless surface outright,
       before any handler is constructed. */
   skipSessionCapture?: boolean;
+  /** Absent, a launch onto the visible server starts nothing: only the
+      daemon and the in-process fallback pass the real starter. */
+  startHerdr?: () => Promise<HerdrStartResult>;
 }):
   // Direct `unknown`-payload members, not `Pick<TypedHandlers, ...>`: a wider
   // `unknown` param still satisfies TypedHandlers' narrower one at the
@@ -440,6 +444,11 @@ export function createAgentHandlers(opts: {
     };
 
     if (rec.surface === "herdr") {
+      if (!extra.herdrSocket && opts.startHerdr) {
+        const started = await opts.startHerdr();
+        if (started.state === "not-installed") return { ok: false, error: HERDR_NOT_INSTALLED };
+        if (started.state === "failed") return { ok: false, error: started.detail };
+      }
       const runner = extra.herdrSocket
         ? (opts.herdrRunnerForSocket ?? ((socket: string) => defaultHerdrRunner({ ...process.env, HERDR_SOCKET_PATH: socket })))(extra.herdrSocket)
         : (opts.herdrRunner ?? defaultHerdrRunner());

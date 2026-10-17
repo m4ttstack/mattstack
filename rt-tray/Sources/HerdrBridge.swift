@@ -77,8 +77,8 @@ class HerdrBridge {
     /// Read from both the main thread (context menus) and detached tasks
     /// (focus/read-output), so the cache is guarded by a lock.
     var isAvailable: Bool {
-        // Cache for 30 seconds so hovering the context menu doesn't stat
-        // the socket (or shell out) on every render.
+        // Cache for 30 seconds so hovering the context menu doesn't connect
+        // to the socket (or shell out) on every render.
         cacheLock.lock()
         if let cached = _isAvailable,
            let last = lastCheck,
@@ -100,12 +100,9 @@ class HerdrBridge {
         if ProcessInfo.processInfo.environment["HERDR_ENV"] == "1" {
             return true
         }
-        if let sockPath = ProcessInfo.processInfo.environment["HERDR_SOCKET_PATH"],
-           FileManager.default.fileExists(atPath: sockPath) {
-            return true
-        }
-        let sock = "\(AppHome.current)/.config/herdr/herdr.sock"
-        return FileManager.default.fileExists(atPath: sock)
+        let sock = ProcessInfo.processInfo.environment["HERDR_SOCKET_PATH"]
+            ?? "\(AppHome.current)/.config/herdr/herdr.sock"
+        return HerdrSocketProbe.isListening(sock)
     }
 
     private func herdrPath() -> String {

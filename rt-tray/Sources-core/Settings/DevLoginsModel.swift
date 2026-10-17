@@ -59,11 +59,13 @@ public final class DevLoginsModel: ObservableObject {
 }
 
 public enum DevLoginConfirm {
-    /// `host` is the lowercased `encodedHost` from `DevLoginOrigin.validate`, so an
-    /// internationalised name must be typed in its xn-- form.
-    public static func canSave(host: String, typedHost: String, isFirstTime: Bool, email: String, password: String) -> Bool {
-        guard !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !password.isEmpty else { return false }
-        return !isFirstTime || typedHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == host.lowercased()
+    public static func canSave(email: String, password: String, confirm: String) -> Bool {
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty && password == confirm
+    }
+
+    /// An empty confirm field is unfinished, not wrong.
+    public static func mismatch(password: String, confirm: String) -> Bool {
+        !confirm.isEmpty && password != confirm
     }
 
     public static func warnings(origin: String) -> [String] {
@@ -82,6 +84,7 @@ public enum DevLoginConfirm {
 
 public enum DevLoginSheetCopy {
     public static let replaceCaption = "Saving replaces the email and password saved for this site."
+    public static let mismatch = "Passwords don't match"
 
     /// A typed Add of a saved site replaces it too, so this keys on the
     /// validated origin alone, never on how the sheet was opened.

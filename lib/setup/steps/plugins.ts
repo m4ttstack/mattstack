@@ -26,7 +26,19 @@ import type { StepDef, StepOutcome } from "../apply.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
-import { childOutput, isAlready, isNotFound, parsePluginList, readServedPacks, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
+import {
+  childOutput,
+  claudeMessage,
+  enablePack,
+  isAlready,
+  isNotFound,
+  isUnknownSubcommand,
+  parsePluginList,
+  readServedPacks,
+  settlePack,
+  PACK_EXEC_TIMEOUT_MS,
+  type ClaudeRunner,
+} from "../pack-cache.ts";
 import { admit, updateArgs, type Admitted } from "../plugin-calls.ts";
 import { heldCopy, runnableEngine, type Floor } from "../../engine-floor.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
@@ -94,27 +106,11 @@ export function marketplaceSourceKey(source: string): string {
   return s;
 }
 
-/** Claude's own first line of output, so a failed row says what claude said rather than just its exit code. */
-export function claudeMessage(res: ExecResult, fallback: string): string {
-  const line = `${res.stderr}\n${res.stdout}`
-    .split("\n")
-    .map((l) => l.replace(/^[\s✘✖×]+/, "").trim())
-    .find((l) => l.length > 0);
-  return line ?? fallback;
-}
+export { claudeMessage };
 
 /** A repeat add exits 0 and says so on stdout; a same-name clash from a different source fails with "already added" on stderr. */
 function addFoundExisting(res: ExecResult): boolean {
   return isAlready(res) || /already on disk/i.test(res.stdout);
-}
-
-/** Enabling a plugin that is already on exits 1 with "is already enabled" on stderr (claude 2.1.284). */
-function isAlreadyEnabled(res: ExecResult): boolean {
-  return /already enabled/i.test(res.stderr);
-}
-
-function isUnknownSubcommand(res: { stdout: string; stderr: string }): boolean {
-  return /unknown (sub)?command/i.test(`${res.stdout}\n${res.stderr}`);
 }
 
 /** `claude.marketplaces`/`claude.plugins` are `user`+`team` scope, so a team's hand-written settings.team.jsonc can carry anything the registry's `type: "array"` doesn't constrain — the same guard `team-settings.ts` already applies to these two keys. A non-string element is dropped (and logged) rather than spliced into argv, where it would stringify to `[object Object]` and fail with a misleading remedy. */
@@ -187,6 +183,8 @@ interface ComputedPlugins {
   trusted: string[];
   /** Listed only by the org or a team, or the active team's entry in the org's marketplace.json. */
   teamAuthored: string[];
+  /** The active team's entry in the org's marketplace.json: joining the team is the consent to turn it on. */
+  activeTeamPack: string | null;
 }
 
 export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): ComputedPlugins {
@@ -208,7 +206,13 @@ export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketpla
 
   const trusted = dedupe([...own, ...BASE_PLUGINS]);
   const teamAuthored = dedupe([...shared, ...teamPlugins]).filter((p) => !trusted.includes(p));
-  return { trusted, teamAuthored };
+  return { trusted, teamAuthored, activeTeamPack: teamPlugins[0] ?? null };
+}
+
+/** The active team's own pack id, or null on a Mac with no team or no such marketplace entry. */
+export function activeTeamPackId(ctx: ApplyContext): string | null {
+  if (!ctx.team.slug) return null;
+  return computePlugins(ctx, readTeamMarketplace(ctx, ctx.team.slug)).activeTeamPack;
 }
 
 async function runMaterializeAfterInstall(ctx: ApplyContext): Promise<string> {
@@ -239,7 +243,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   const teamMarketplace = ctx.team.slug ? readTeamMarketplace(ctx, ctx.team.slug) : null;
   const marketplaces = computeMarketplaces(ctx, teamMarketplace);
   const mattstackSource = mattstackMarketplaceSource(ctx.p.env);
-  const { trusted: trustedPlugins, teamAuthored: teamAuthoredPlugins } = computePlugins(ctx, teamMarketplace);
+  const { trusted: trustedPlugins, teamAuthored: teamAuthoredPlugins, activeTeamPack } = computePlugins(ctx, teamMarketplace);
   const allPlugins = dedupe([...trustedPlugins, ...teamAuthoredPlugins]);
   const configDirs = claudeConfigDirs(ctx.p, []);
   // Setup-state holds only what rt itself added, so under an update run a
@@ -248,12 +252,10 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   const update = ctx.update === true;
   const recorded = update ? readSetupState(ctx.p) : null;
 
-  /** The single site every trusted enable goes through. Best-effort, and logged: an older claude without the subcommand must never fail an otherwise-good install, but a silent failure would leave a disabled baseline plugin with no signal anywhere. */
-  async function enableTrusted(runner: ClaudeRunner, plugin: string, dir: string): Promise<void> {
-    const enable = await runner.run(["plugin", "enable", plugin], PACK_EXEC_TIMEOUT_MS);
-    if (enable.code !== 0 && !isAlready(enable) && !isAlreadyEnabled(enable) && !isUnknownSubcommand(enable)) {
-      ctx.log("plugins.install", `claude plugin enable ${plugin} (${dir}): ${claudeMessage(enable, `exited ${enable.code}`)} ... ignored`);
-    }
+  /** The single site every enable goes through, trusted plugins and the active team's pack alike. Logged: a silent failure would leave a disabled plugin with no signal anywhere. */
+  async function enableLogged(runner: ClaudeRunner, plugin: string, dir: string): Promise<void> {
+    const enable = await enablePack(runner, plugin, PACK_EXEC_TIMEOUT_MS);
+    if (!enable.ok) ctx.log("plugins.install", `claude plugin enable ${plugin} (${dir}): ${enable.detail} ... ignored`);
   }
 
   const engine = ctx.engine ? ctx.engine() : runnableEngine();
@@ -267,8 +269,8 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   // removing it could orphan every plugin that marketplace serves.
   const addedMarketplaces: string[] = [];
   const installedPlugins: string[] = [];
-  // A team pack rt lands is left disabled; one already enabled wherever it
-  // settled needs nothing more from the member.
+  // A team pack rt lands, other than the active team's own, is left disabled;
+  // one already enabled wherever it settled needs nothing more from the member.
   const awaitingEnable = new Set<string>();
 
   for (const dir of configDirs) {
@@ -328,7 +330,10 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     for (const listed of allPlugins) {
       const teamAuthored = teamAuthoredPlugins.includes(listed);
       const plugin = teamAuthored ? listed : resolveBasePlugin(listed, (id) => byId.has(id));
-      const needsEnable = teamAuthored && !byId.get(plugin)?.enabled;
+      // The active team's pack keeps every other team-authored rule but is
+      // turned on like a trusted plugin: joining the team is the consent.
+      const enables = !teamAuthored || plugin === activeTeamPack;
+      const needsEnable = !enables && !byId.get(plugin)?.enabled;
 
       if (update && !byId.has(plugin)) {
         if (recorded!.plugins.includes(plugin)) {
@@ -358,12 +363,12 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         const disabled = !byId.get(plugin)!.enabled;
         const updated = await runner.run(updateArgs(admitted, plugin, ["-y"]), PACK_EXEC_TIMEOUT_MS);
         if (updated.code === 0) {
-          // Trusted plugins keep the best-effort re-enable they get today. The
+          // Trusted plugins and the active team's pack get a best-effort re-enable. The
           // `tool.plugins` needs-you row's action is `rt setup pack`, which
           // lands here: without this, the one command offered for an
           // installed-but-disabled baseline plugin does nothing. An update run
           // is unattended, so a disabled plugin stays the member's choice.
-          if (!teamAuthored && disabled && !update) await enableTrusted(runner, plugin, dir);
+          if (enables && disabled && !update) await enableLogged(runner, plugin, dir);
           settled.push(plugin);
           if (needsEnable) awaitingEnable.add(plugin);
           continue;
@@ -386,16 +391,16 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
 
       // `settled` accumulates across config dirs, so an id can repeat; the
       // dedupe below is what makes that harmless.
-      const outcome = await settlePack(runner, plugin, admitted, { teamAuthored, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+      const outcome = await settlePack(runner, plugin, admitted, { teamAuthored, keepEnabled: enables, timeoutMs: PACK_EXEC_TIMEOUT_MS });
 
-      // Every trusted enable goes through here, both the fresh install
+      // Every enable goes through here, both the fresh install
       // (`installed`) and the pack that turned out to be already present
       // (`current`, reachable when a plugin installed at another scope is absent
       // from this scope's listing while install still reports it installed).
       // settlePack deliberately does not enable, so this is the only site and
       // the only place the result gets logged.
-      if (!teamAuthored && (outcome.kind === "installed" || outcome.kind === "current")) {
-        await enableTrusted(runner, plugin, dir);
+      if (enables && (outcome.kind === "installed" || outcome.kind === "current")) {
+        await enableLogged(runner, plugin, dir);
       }
       if (outcome.kind === "failed") {
         ctx.log("plugins.install", `${plugin}: plugin ${outcome.stage === "install" ? "install" : "uninstall"} exited ${outcome.code}: ${outcome.output || "no output"}`);

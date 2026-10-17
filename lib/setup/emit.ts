@@ -41,6 +41,7 @@ export interface StepEmitter {
 type FinalState = Exclude<StepState, "pending" | "running">;
 type StepEvent = Extract<ApplyEvent, { event: "step" }>;
 type DoneEvent = Extract<ApplyEvent, { event: "done" }>;
+type ProgressEvent = Extract<ApplyEvent, { event: "progress" }>;
 
 interface Running {
   id: EventId;
@@ -48,6 +49,8 @@ interface Running {
   handle: StepHandle | null;
   subs: string[];
   tips: string[];
+  /** The phase and whole percent last drawn, while the last sub-line is that progress line. */
+  progress: string | null;
 }
 
 const FINAL_STATUS: Record<Exclude<FinalState, "failed">, Exclude<RenderStatus, "failed">> = {
@@ -115,7 +118,7 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
 
   function start(id: EventId): void {
     const title = titleOf(id);
-    current = { id, title, handle: human ? tryOpenStep(title) : null, subs: [], tips: [] };
+    current = { id, title, handle: human ? tryOpenStep(title) : null, subs: [], tips: [], progress: null };
   }
 
   function stream(line: string): void {
@@ -128,6 +131,22 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
       if (current.subs.length > SUB_LINES_KEPT) current.subs.shift();
       if (row !== "") current.handle?.sub(row);
     }
+    current.progress = null;
+  }
+
+  function showProgress(ev: ProgressEvent): void {
+    if (!current || current.id !== ev.id) return;
+    const key = `${ev.label} ${ev.percent}%`;
+    if (current.progress === key) return;
+    const row = ev.note ? `${key} · ${ev.note}` : key;
+    const replace = current.progress !== null;
+    if (replace) current.subs[current.subs.length - 1] = row;
+    else {
+      current.subs.push(row);
+      if (current.subs.length > SUB_LINES_KEPT) current.subs.shift();
+    }
+    current.handle?.sub(row, { replace });
+    current.progress = key;
   }
 
   function count(state: FinalState): void {
@@ -180,16 +199,22 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
       case "step": {
         if (ev.state === "pending") return;
         if (ev.state === "running") {
+          // A step that is already running sends running again to say what it is on now: a sub-line, never a second step.
+          const detail = ev.detail;
+          if (detail !== undefined) opts.log(ev.id, detail);
           chain(async () => {
-            if (human) await settleBackground();
-            start(ev.id);
+            if (current?.id !== ev.id) {
+              if (human) await settleBackground();
+              start(ev.id);
+            }
+            if (detail !== undefined) stream(detail);
           });
           return;
         }
         const final = ev as StepEvent & { state: FinalState };
         count(final.state);
         chain(async () => {
-          const running = current ?? { id: final.id, title: titleOf(final.id), handle: null, subs: [], tips: [] };
+          const running = current ?? { id: final.id, title: titleOf(final.id), handle: null, subs: [], tips: [], progress: null };
           current = null;
           await finish(final, running);
         });
@@ -198,6 +223,9 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
       case "log":
         opts.log(ev.id, ev.line);
         chain(() => stream(ev.line));
+        return;
+      case "progress":
+        chain(() => showProgress(ev));
         return;
       case "need":
         opts.log(ev.id, WAITING_FOR_APP);

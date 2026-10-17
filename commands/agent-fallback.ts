@@ -10,6 +10,7 @@ import { createAgentHandlers, type HeadlessChild } from "../lib/daemon/handlers/
 import { openStateDbGuarded, getAgent, stateDbPath } from "../lib/state/index.ts";
 import type { HerdrRunner } from "../lib/agent-herdr.ts";
 import type { herdrRequest } from "../lib/herdr/client.ts";
+import { startHerdr, type HerdrStartResult } from "../lib/herdr/start.ts";
 import type { AgentSurface, RtResponse } from "../packages/rt-client/src/index.ts";
 
 export const HEADLESS_NEEDS_DAEMON =
@@ -23,7 +24,10 @@ type FallbackCommand = "agent:start" | "agent:resume" | "agent:get" | "agent:lis
 export async function runAgentFallback<T>(
   command: FallbackCommand,
   payload: Record<string, unknown>,
-  deps: { db?: Database; herdrRunner?: HerdrRunner; herdr?: typeof herdrRequest; spawnHeadless?: (argv: string[], cwd: string) => HeadlessChild } = {},
+  deps: {
+    db?: Database; herdrRunner?: HerdrRunner; herdr?: typeof herdrRequest; spawnHeadless?: (argv: string[], cwd: string) => HeadlessChild;
+    startHerdr?: () => Promise<HerdrStartResult>;
+  } = {},
 ): Promise<RtResponse<T>> {
   const db = deps.db ?? openStateDbGuarded(stateDbPath());
 
@@ -50,6 +54,7 @@ export async function runAgentFallback<T>(
     // outlive it by minutes. Either it holds the CLI open for the whole
     // timeout or it dies mid-flight; neither is a capture.
     skipSessionCapture: true,
+    startHerdr: deps.startHerdr ?? startHerdr,
     ...(deps.herdrRunner !== undefined && { herdrRunner: deps.herdrRunner }),
     // The folder-trust check runs here too: the daemon being down is no reason
     // to leave a pane sitting on the dialog. The JSON caller is injectable for

@@ -150,6 +150,31 @@ export function isAlready(res: ExecResult): boolean {
   return /already (installed|added|exists)/i.test(res.stderr);
 }
 
+/** Enabling a plugin that is already on exits 1 with "is already enabled" on stderr (claude 2.1.284). */
+function isAlreadyEnabled(res: ExecResult): boolean {
+  return /already enabled/i.test(res.stderr);
+}
+
+export function isUnknownSubcommand(res: { stdout: string; stderr: string }): boolean {
+  return /unknown (sub)?command/i.test(`${res.stdout}\n${res.stderr}`);
+}
+
+/** Claude's own first line of output, so a failed row says what claude said rather than just its exit code. */
+export function claudeMessage(res: ExecResult, fallback: string): string {
+  const line = `${res.stderr}\n${res.stdout}`
+    .split("\n")
+    .map((l) => l.replace(/^[\s✘✖×]+/, "").trim())
+    .find((l) => l.length > 0);
+  return line ?? fallback;
+}
+
+/** Best-effort: an older claude without the subcommand counts as ok, since it must never fail an otherwise-good install. */
+export async function enablePack(runner: ClaudeRunner, id: string, timeoutMs: number): Promise<{ ok: boolean; detail: string | null }> {
+  const res = await runner.run(["plugin", "enable", id], timeoutMs);
+  if (res.code === 0 || isAlready(res) || isAlreadyEnabled(res) || isUnknownSubcommand(res)) return { ok: true, detail: null };
+  return { ok: false, detail: claudeMessage(res, `exited ${res.code}`) };
+}
+
 function isAlreadyDisabled(res: ExecResult): boolean {
   return /already disabled/i.test(res.stderr);
 }
@@ -161,12 +186,18 @@ function isAlreadyGone(res: ExecResult): boolean {
 
 /**
  * Installs a pack and, for a team-authored one, settles its enable state by
- * undoing the install rather than leaving the pack enabled. A trusted pack is
- * installed and handed straight back; its enable belongs to the caller. The
- * invariant every branch preserves: on return the pack is installed-and-settled
- * or not installed, never installed-and-enabled for a team-authored pack.
+ * undoing the install rather than leaving the pack enabled. A trusted pack, or
+ * the active team's own pack (`keepEnabled`), is installed and handed straight
+ * back; its enable belongs to the caller. The invariant every branch preserves:
+ * on return the pack is installed-and-settled or not installed, never
+ * installed-and-enabled for any other team-authored pack.
  */
-export async function settlePack(runner: ClaudeRunner, id: string, admitted: Admitted, opts: { teamAuthored: boolean; timeoutMs?: number }): Promise<SettleOutcome> {
+export async function settlePack(
+  runner: ClaudeRunner,
+  id: string,
+  admitted: Admitted,
+  opts: { teamAuthored: boolean; keepEnabled?: boolean; timeoutMs?: number },
+): Promise<SettleOutcome> {
   // SETTLE_EXEC_TIMEOUT_MS is the converge budget's arithmetic, not a property
   // of the sequence: a caller with no budget of its own passes its own timeout.
   const timeoutMs = opts.timeoutMs ?? SETTLE_EXEC_TIMEOUT_MS;
@@ -188,10 +219,11 @@ export async function settlePack(runner: ClaudeRunner, id: string, admitted: Adm
     return { kind: "failed", id, detail: install.stderr.trim() || `install exited ${install.code}`, stage: "install", code: install.code, output: childOutput(install) };
   }
 
-  // A trusted plugin is installed and handed back. Enabling it is the caller's
-  // job, so every trusted-only rule (and its logging) lives in one place; this
-  // function is "install a pack and make sure it is not left enabled".
-  if (!opts.teamAuthored) return { kind: "installed", id };
+  // A trusted plugin or the active team's pack is installed and handed back.
+  // Enabling it is the caller's job, so every enable rule (and its logging)
+  // lives in one place; for any other team pack this function is "install a
+  // pack and make sure it is not left enabled".
+  if (!opts.teamAuthored || opts.keepEnabled) return { kind: "installed", id };
 
   const disable = await runner.run(["plugin", "disable", id], timeoutMs);
   if (disable.code === 0 || isAlreadyDisabled(disable)) return { kind: "installed", id };
@@ -227,7 +259,8 @@ export function isNotFound(res: ExecResult): boolean {
  * Never installs a pack whose served version it cannot read: that version is
  * the only evidence the pack is a local directory copy, which is what the
  * settlement's timeouts were measured against. Only the active team's pack is
- * converged; a Mac on no team converges none.
+ * converged, and one it newly installs is turned on; a Mac on no team
+ * converges none.
  */
 export async function convergePackCache(
   p: Probes,
@@ -327,8 +360,12 @@ export async function convergePackCache(
         continue;
       }
 
-      const outcome = await settlePack(runner, pack.id, admission, { teamAuthored: true });
-      if (outcome.kind === "installed") result.installed.push(outcome.id);
+      const outcome = await settlePack(runner, pack.id, admission, { teamAuthored: true, keepEnabled: true });
+      if (outcome.kind === "installed") {
+        result.installed.push(outcome.id);
+        const enabled = await enablePack(runner, outcome.id, SETTLE_EXEC_TIMEOUT_MS);
+        if (!enabled.ok) log.warn({ slug, id: outcome.id, configDir: dir, detail: enabled.detail }, "pack enable failed");
+      }
       else if (outcome.kind === "current") result.current.push(outcome.id);
       else if (outcome.kind === "rolledBack") result.rolledBack.push({ id: outcome.id, detail: outcome.detail });
       else result.failed.push({ id: outcome.id, detail: outcome.detail });

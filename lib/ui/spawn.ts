@@ -98,8 +98,8 @@ export async function runPrompt(spec: PromptSpec): Promise<PromptResult> {
 
 export interface StepHandle {
   log(level: StepLevel, text: string): void;
-  /** A transient line under the running step: erased when it ends done, kept when it fails. */
-  sub(text: string): void;
+  /** A transient line under the running step: erased when it ends done, kept when it fails. `replace` overwrites the last one instead (a helper that predates the flag adds a line). */
+  sub(text: string, opts?: { replace?: boolean }): void;
   /** Resolves true when rt-ui painted the final line; false when it was dead (caller prints the line itself). A status ends the step in that state in place of done; a failing ending is `fail`. */
   done(title?: string, hint?: string, status?: Exclude<RenderStatus, "failed">): Promise<boolean>;
   fail(title?: string, hint?: string): Promise<boolean>;
@@ -140,8 +140,8 @@ export function openStep(title: string): StepHandle {
 
   return {
     log: (level, text) => send({ t: "log", level, text }),
-    sub: (text) => {
-      send({ t: "sub", text });
+    sub: (text, opts) => {
+      send({ t: "sub", text, ...(opts?.replace ? { replace: true } : {}) });
     },
     done: (t, h, s) => finish("done", t, h, s),
     fail: (t, h) => finish("fail", t, h),

@@ -69,8 +69,28 @@ struct InstallScreen: View {
         }
     }
 
-    @ViewBuilder
     private func stepRow(_ step: InstallStep) -> some View {
+        InstallStepRow(step: step,
+                       hasLog: !model.logLines(for: step.id).isEmpty,
+                       isFailedStep: model.failedStepId == step.id,
+                       isRunning: model.isRunning,
+                       showLog: { logFor = step },
+                       retryFromFailure: { model.retryFromFailure() },
+                       retryFrom: { model.retry(from: step.id) })
+    }
+}
+
+/// One step of the Install list, its own view so the row snapshot renders what Install shows.
+struct InstallStepRow: View {
+    let step: InstallStep
+    let hasLog: Bool
+    let isFailedStep: Bool
+    let isRunning: Bool
+    let showLog: () -> Void
+    let retryFromFailure: () -> Void
+    let retryFrom: () -> Void
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 StatusBadge(status: badge(step), id: AXID.installStepStatus(step.id))
@@ -84,21 +104,27 @@ struct InstallScreen: View {
                     }
                 }
                 Spacer()
-                if !model.logLines(for: step.id).isEmpty {
+                if hasLog {
                     if step.state == .failed || step.state == .partial {
-                        Button("Show log") { logFor = step }.controlSize(.small).accessibilityIdentifier(AXID.installStepLog(step.id))
+                        Button("Show log", action: showLog).controlSize(.small).accessibilityIdentifier(AXID.installStepLog(step.id))
                     } else {
-                        Button { logFor = step } label: { Label("Show log", systemImage: "doc.text").labelStyle(.iconOnly) }
+                        Button(action: showLog) { Label("Show log", systemImage: "doc.text").labelStyle(.iconOnly) }
                             .buttonStyle(.borderless).foregroundStyle(.secondary).help("Show log")
                             .accessibilityIdentifier(AXID.installStepLog(step.id))
                     }
                 }
             }
-            if step.state == .failed, model.failedStepId == step.id {
+            if step.state == .running, let progress = step.progress {
+                InstallStepProgress(progress: progress)
+                    // 20pt badge + 10pt spacing: the bar starts under the step title.
+                    .padding(.leading, 30)
+                    .padding(.top, 2)
+            }
+            if step.state == .failed, isFailedStep {
                 HStack(alignment: .top) {
                     if let r = step.remedy { Text(r).font(.callout).fixedSize(horizontal: false, vertical: true) }
                     Spacer()
-                    Button("Retry from here") { model.retryFromFailure() }
+                    Button("Retry from here", action: retryFromFailure)
                         .keyboardShortcut(.defaultAction)
                         .accessibilityIdentifier(AXID.installRetry)
                 }
@@ -106,11 +132,11 @@ struct InstallScreen: View {
                 .padding(.leading, 30)
                 .padding(.top, 2)
             }
-            if step.state == .partial, !model.isRunning {
+            if step.state == .partial, !isRunning {
                 HStack(alignment: .top) {
                     if let r = step.remedy { Text(r).font(.callout).fixedSize(horizontal: false, vertical: true) }
                     Spacer()
-                    Button("Retry from here") { model.retry(from: step.id) }
+                    Button("Retry from here", action: retryFrom)
                         .controlSize(.small)
                         .accessibilityIdentifier(AXID.installRetryPartial(step.id))
                 }
@@ -145,5 +171,26 @@ struct InstallScreen: View {
         case .needsYou, .partial: return .orange
         default: return .secondary
         }
+    }
+}
+
+/// The clone's progress under its running step: the bar refills for each phase.
+struct InstallStepProgress: View {
+    let progress: StepProgress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ProgressView(value: Double(progress.percent), total: 100)
+                .progressViewStyle(.linear)
+            HStack {
+                Text("\(progress.label) \(progress.percent)%")
+                Spacer()
+                if let note = progress.note { Text(note) }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+        }
+        .accessibilityElement(children: .combine)
     }
 }

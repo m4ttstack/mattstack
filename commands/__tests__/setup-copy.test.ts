@@ -4,16 +4,18 @@
  * a person reads, so a wording change is a deliberate snapshot update.
  */
 import { afterAll, beforeAll, describe, test, expect } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { closeStateDb } from "../../lib/state/index.ts";
 import { createApplyContext, runApplyWith } from "../../lib/setup/apply.ts";
 import { STEPS } from "../../lib/setup/steps/index.ts";
 import type { ApplyEvent } from "../../lib/setup/contract.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
 import type { Plan, Row } from "../../lib/setup/contract.ts";
+import { markDeferred } from "../../lib/setup/repo-placement.ts";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 
@@ -25,7 +27,7 @@ async function plan(mode: "plan" | "status"): Promise<Plan> {
 }
 
 /** The only keys inside an action that a person reads and no program does. Everything else in an action is the app's to act on. */
-const ACTION_COPY_KEYS = new Set(["label", "subtitle", "footnote", "steps", "hint", "detail", "sample"]);
+const ACTION_COPY_KEYS = new Set(["label", "subtitle", "footnote", "steps", "hint", "detail", "sample", "note", "problem"]);
 
 /** Splits an action: the copy keys leave the machine half and land in `copy` by path; every other key and value stays. */
 function splitAction(value: unknown, path: string, copy: Record<string, unknown>): unknown {
@@ -145,4 +147,16 @@ describe("the setup plan's shape and copy", () => {
       expect(copyView(await plan(mode))).toMatchSnapshot();
     });
   }
+
+  test("Your repos: one row per tracked repo, and the one Install left for you", async () => {
+    const teamPath = sharedStorePath("acme");
+    mkdirSync(dirname(teamPath), { recursive: true });
+    writeFileSync(teamPath, JSON.stringify({ "mattstack.tracking": { repos: { "gitlab.com/acme/widgets": {}, "gitlab.com/acme/acme-api": {} } } }));
+    // After Install, where a joiner first sees the rows: the home repo exists.
+    const p = fakeProbes({ exec: readyExec, dirs: { "/fake-home/.mattstack/user/.git": [] } });
+    markDeferred(p, "gitlab.com/acme/acme-api");
+    const { machine, copy } = views(await composePlan({ p, secrets, ci: false, mode: "status", orgs: ["acme"], waived: [] }));
+    expect(machine.groups.find((g) => g.id === "repos")).toMatchSnapshot();
+    expect(Object.fromEntries(Object.entries(copy).filter(([key]) => key.startsWith("repos")))).toMatchSnapshot();
+  });
 });

@@ -1591,6 +1591,21 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
+  herdr: {
+    description: "The herdr server your agents run in",
+    hidden: true,
+    subcommands: {
+      start: {
+        description: "Start herdr if it isn't running",
+        module: "./commands/herdr.ts",
+        fn: "herdrStart",
+        hidden: true,
+        omitBehavior: { exempt: "agent- and app-facing; never prompts" },
+        args: [{ name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the result as JSON" }],
+      },
+    },
+  },
+
   bg: {
     description: "Daemon-owned background herdr server: status, claims, stop",
     subcommands: bgSubcommands,
@@ -2709,7 +2724,7 @@ export const TREE: Record<string, CommandNode> = {
         description: "Where rt clones your team's repos",
         subcommands: {
           set: {
-            description: "Validate and record the repo folder (staged pre-Install, written directly once the home repo exists)",
+            description: "Validate and record the folder new clones go in (staged pre-Install, written directly once the home repo exists)",
             module: "./commands/setup.ts",
             fn: "setupRepoRootSet",
             args: [
@@ -2720,6 +2735,28 @@ export const TREE: Record<string, CommandNode> = {
                 placeholder: "~/code",
                 hint: 'Path to the folder rt should clone repos into; omit to pipe {"root": "<path>"} on stdin',
               },
+              SETUP_JSON_ARG,
+            ],
+          },
+        },
+      },
+      repo: {
+        description: "Where each of your team's repos lives on this Mac",
+        subcommands: {
+          place: {
+            description: "Record an existing checkout of a repo, or the folder a new clone of it goes in",
+            module: "./commands/setup.ts",
+            fn: "setupRepoPlace",
+            args: [
+              {
+                name: "Repo",
+                type: "text",
+                optional: true,
+                placeholder: "gitlab.com/acme/widgets",
+                hint: 'The repo as host/path; omit to pipe {"identity", "mode", "path"} on stdin',
+              },
+              { name: "Checkout", flag: "--checkout", type: "text", optional: true, placeholder: "~/code/widgets", hint: "An existing checkout of the repo" },
+              { name: "Clone to", flag: "--clone-to", type: "text", optional: true, placeholder: "~/code/widgets", hint: "The folder a new clone becomes" },
               SETUP_JSON_ARG,
             ],
           },

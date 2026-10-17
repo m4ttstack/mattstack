@@ -288,7 +288,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let report = await registrar.settleLaunch(probes, latch: spawnHealLatch)
         registrar.recordAfterSettle(LaunchRecording.plan(registration: registration, progress: progress, report: report),
                                     progress: progress, current: version, store: UserDefaults.standard)
-        Task { @MainActor [weak self] in await self?.runSetupUpdateAfterLaunch() }
+        Task { @MainActor [weak self] in
+            await self?.runSetupUpdateAfterLaunch()
+            await self?.runHerdrStartAfterLaunch()
+        }
         if LaunchRecording.restartsServedApps(progress: progress, report: report,
                                               deckLabel: registrar.deckLabel(daemonLabel: lifecycle.label)) {
             // Off the launch Task, which holds the first refreshStatus: the
@@ -668,6 +671,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                           "failedSteps": outcome.failedSteps.joined(separator: ",")])
         } catch {
             TrayLog.warn("setup update failed to start", ["err": (error as? RtClientError)?.copy ?? "rt setup update failed to start."])
+        }
+    }
+
+    /// herdr not installed is not shown here: setup's `tool.herdr` row already
+    /// says so. The verb reports its state; the tray only logs it.
+    @MainActor
+    private func runHerdrStartAfterLaunch() async {
+        guard let rt = rtClient, let coordinator, coordinator.setupIsComplete else { return }
+        do {
+            let r = try await rt.run(["herdr", "start", "--json"], stdin: nil)
+            TrayLog.info("herdr start after launch",
+                         ["exit": Int(r.exitCode), "result": String(decoding: r.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)])
+        } catch {
+            TrayLog.warn("herdr start failed to start", ["err": (error as? RtClientError)?.copy ?? "rt herdr start failed to start."])
         }
     }
 

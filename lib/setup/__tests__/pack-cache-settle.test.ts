@@ -76,6 +76,12 @@ describe("settlePack", () => {
     expect(r.verbs).toEqual(["install"]);
   });
 
+  test("the active team's pack keeps the install's enable: no disable, no rollback", async () => {
+    const r = runner({ install: ok, disable: fail("boom") });
+    expect(await settlePack(r, "acme@acme", ADMIT_UNFLOORED, { teamAuthored: true, keepEnabled: true })).toEqual({ kind: "installed", id: "acme@acme" });
+    expect(r.verbs).toEqual(["install"]);
+  });
+
   test("a trusted (non-team) pack is installed and handed back, never disabled and never enabled here", async () => {
     const r = runner({ install: ok });
     expect(await settlePack(r, "p@m", ADMIT_UNFLOORED, { teamAuthored: false })).toEqual({ kind: "installed", id: "p@m" });

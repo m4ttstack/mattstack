@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { forgeRole, forgeScopes, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField } from "../token-create.ts";
+import { forgeRole, forgeScopes, linkScopes, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField } from "../token-create.ts";
 
 describe("forgeScopes", () => {
   test("gitlab member: api, because the board posts review comments and replies as the member", () => {
@@ -38,12 +38,12 @@ describe("tokenCreateLink", () => {
   test("gitlab: the new-token page on the given host with name and scopes prefilled", () => {
     expect(tokenCreateLink("gitlab", "member", "gitlab.example.com")).toEqual({
       label: "Create a token on GitLab…",
-      url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api",
+      url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features",
     });
   });
 
   test("gitlab with no host: gitlab.com", () => {
-    expect(tokenCreateLink("gitlab", "owner", null).url).toBe("https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api");
+    expect(tokenCreateLink("gitlab", "owner", null).url).toBe("https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features");
   });
 
   test("github: the classic new-token page, host ignored", () => {
@@ -81,5 +81,20 @@ describe("scopeShortfallDetail", () => {
 
   test("scopes with no recorded reason are just named", () => {
     expect(scopeShortfallDetail("github", "member", ["read:org"])).toBe("This token is missing read:org");
+  });
+});
+
+describe("linkScopes", () => {
+  test("gitlab link pre-checks the six scopes, required stays api", () => {
+    expect(linkScopes("gitlab", "member")).toEqual(["api", "read_api", "read_user", "read_repository", "write_repository", "ai_features"]);
+    expect(forgeScopes("gitlab", "member")).toEqual(["api"]);
+    expect(tokenCreateLink("gitlab", "member", null).url).toBe(
+      "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features",
+    );
+    expect(missingScopes("gitlab", "member", ["api"])).toEqual([]);
+  });
+
+  test("github link scopes equal the required scopes", () => {
+    expect(linkScopes("github", "owner")).toEqual(forgeScopes("github", "owner"));
   });
 });

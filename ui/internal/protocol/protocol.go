@@ -162,6 +162,9 @@ type StepEvent struct {
 	// Clear, on done, erases the step and paints no final row. It rides done
 	// so a helper that predates it still ends the step with a done row.
 	Clear bool `json:"clear,omitempty"`
+	// Replace, on sub, overwrites the step's last sub-line, so a progress
+	// line updates in place. A helper that predates it adds a line instead.
+	Replace bool `json:"replace,omitempty"`
 }
 
 func DecodeStep(line []byte) (StepEvent, error) {

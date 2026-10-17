@@ -57,13 +57,15 @@ let devLoginsModelChecks: [Check] = [
         c.expect(err == nil)
         c.expectEqual(rt.calls.map(\.args), [["logins", "remove", "https://login.example.com", "--json"], ["logins", "list", "--json"]])
     },
-    Check("dev logins confirm: first-time origins need the typed host") { c in
-        c.expect(!DevLoginConfirm.canSave(host: "login.example.com", typedHost: "", isFirstTime: true, email: "a", password: "b"))
-        c.expect(!DevLoginConfirm.canSave(host: "login.example.com", typedHost: "login-example.com", isFirstTime: true, email: "a", password: "b"))
-        c.expect(DevLoginConfirm.canSave(host: "login.example.com", typedHost: " Login.Example.com ", isFirstTime: true, email: "a", password: "b"))
-        c.expect(DevLoginConfirm.canSave(host: "login.example.com", typedHost: "", isFirstTime: false, email: "a", password: "b"))
-        c.expect(!DevLoginConfirm.canSave(host: "login.example.com", typedHost: "", isFirstTime: false, email: " ", password: "b"))
-        c.expect(!DevLoginConfirm.canSave(host: "login.example.com", typedHost: "", isFirstTime: false, email: "a", password: ""))
+    Check("dev logins confirm: save needs an email and two matching passwords") { c in
+        c.expect(!DevLoginConfirm.canSave(email: "a", password: "b", confirm: ""))
+        c.expect(!DevLoginConfirm.canSave(email: "a", password: "b", confirm: "c"))
+        c.expect(!DevLoginConfirm.canSave(email: " ", password: "b", confirm: "b"))
+        c.expect(!DevLoginConfirm.canSave(email: "a", password: "", confirm: ""))
+        c.expect(DevLoginConfirm.canSave(email: "a", password: "b", confirm: "b"))
+        c.expect(!DevLoginConfirm.mismatch(password: "b", confirm: ""))
+        c.expect(DevLoginConfirm.mismatch(password: "b", confirm: "c"))
+        c.expectEqual(DevLoginSheetCopy.mismatch, "Passwords don't match")
     },
     Check("dev logins confirm: warnings for punycode and http") { c in
         c.expectEqual(DevLoginConfirm.warnings(origin: "https://login.example.com"), [])

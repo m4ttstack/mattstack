@@ -1083,3 +1083,83 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.vsix.why": "mattstack.app can carry the rt-context editor extension pre-bundled.",
 }
 `;
+
+exports[`the setup plan's shape and copy Your repos: one row per tracked repo, and the one Install left for you 1`] = `
+{
+  "id": "repos",
+  "rows": [
+    {
+      "action": {
+        "checkoutPath": null,
+        "clonePath": "/fake-home/Documents/GitHub/widgets",
+        "identity": "gitlab.com/acme/widgets",
+        "mode": "clone",
+        "oneClick": null,
+        "repo": "widgets",
+        "segmentRecords": false,
+        "then": [
+          "setup",
+          "apply",
+          "--only",
+          "repos.clone",
+        ],
+        "type": "place-repo",
+      },
+      "id": "repos.place:gitlab.com/acme/widgets",
+      "kind": "tool",
+      "recheck": "on-activate",
+      "required": false,
+      "status": "ready",
+    },
+    {
+      "action": {
+        "checkoutPath": null,
+        "clonePath": "/fake-home/Documents/GitHub/acme-api",
+        "identity": "gitlab.com/acme/acme-api",
+        "mode": "clone",
+        "oneClick": {
+          "mode": "clone",
+          "path": "/fake-home/Documents/GitHub/acme-api",
+        },
+        "repo": "acme-api",
+        "segmentRecords": false,
+        "then": [
+          "setup",
+          "apply",
+          "--only",
+          "repos.clone",
+        ],
+        "type": "place-repo",
+      },
+      "finishGated": true,
+      "id": "repos.place:gitlab.com/acme/acme-api",
+      "kind": "tool",
+      "recheck": "on-activate",
+      "required": true,
+      "status": "needs-you",
+      "waivable": false,
+    },
+  ],
+}
+`;
+
+exports[`the setup plan's shape and copy Your repos: one row per tracked repo, and the one Install left for you 2`] = `
+{
+  "repos.place:gitlab.com/acme/acme-api.action.label": "Choose location…",
+  "repos.place:gitlab.com/acme/acme-api.action.note": "Choose where your repos go",
+  "repos.place:gitlab.com/acme/acme-api.action.oneClick.label": "Clone here",
+  "repos.place:gitlab.com/acme/acme-api.action.problem": null,
+  "repos.place:gitlab.com/acme/acme-api.detail": "Choose where your repos go",
+  "repos.place:gitlab.com/acme/acme-api.optionalNote": null,
+  "repos.place:gitlab.com/acme/acme-api.title": "acme-api",
+  "repos.place:gitlab.com/acme/acme-api.why": "gitlab.com/acme",
+  "repos.place:gitlab.com/acme/widgets.action.label": "Choose location…",
+  "repos.place:gitlab.com/acme/widgets.action.note": "rt clones it here when you click Install",
+  "repos.place:gitlab.com/acme/widgets.action.problem": null,
+  "repos.place:gitlab.com/acme/widgets.detail": "rt clones it here when you click Install",
+  "repos.place:gitlab.com/acme/widgets.optionalNote": null,
+  "repos.place:gitlab.com/acme/widgets.title": "widgets",
+  "repos.place:gitlab.com/acme/widgets.why": "gitlab.com/acme",
+  "repos.title": "Your repos",
+}
+`;

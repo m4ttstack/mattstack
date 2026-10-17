@@ -9,6 +9,8 @@ public enum DispatchedAction: Equatable, Sendable {
     case chooseFolder(startAt: String?)
     case collectFields([ActionField], integration: String, alternatives: [ActionAlternative], create: ActionLink?)
     case chooseOption(options: [ChooseOption], other: ChooseOther?)
+    /// The row's own segment, path field and buttons collect the answer.
+    case placeRepo(RowAction)
     case none
 }
 
@@ -62,6 +64,12 @@ public enum RowActionDispatcher {
             guard let verb = action.verb, !verb.isEmpty else { return .none }
             if let id = fieldValues?["id"] { return .rtVerb(args: verb + [id, "--json"], stdin: nil) }
             return .chooseOption(options: action.options ?? [], other: action.other)
+        case .placeRepo:
+            guard let identity = action.identity else { return .none }
+            if let mode = fieldValues?["mode"], let path = fieldValues?["path"] {
+                return .rtVerb(args: ["setup", "repo", "place", "--json"], stdin: json(["identity": identity, "mode": mode, "path": path]))
+            }
+            return .placeRepo(action)
         case .unknown: return .none
         }
     }

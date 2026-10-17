@@ -4,10 +4,12 @@
  * assert on what a step actually did without touching the real machine.
  */
 
+import { execSync } from "child_process";
+import { mkdirSync } from "fs";
 import { basename, dirname } from "path";
 import type { TrayClient } from "../../daemon-client.ts";
 import { MEMBER_PATH_SENTINEL } from "../member-path.ts";
-import type { ExecResult, Probes } from "../probes.ts";
+import { createRealProbes, type ExecResult, type Probes } from "../probes.ts";
 
 export type ExecScript = (argv: string[], opts?: Parameters<Probes["exec"]>[1]) => ExecResult | Promise<ExecResult>;
 
@@ -87,6 +89,13 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
       calls.exec.push(argv);
       if (opts.exec) return opts.exec(argv, execOpts);
       return { code: 0, stdout: "", stderr: "" };
+    },
+
+    /** The same `exec` script, its stderr replayed through `onStderr` before the result returns. */
+    async execStreaming(argv, { onStderr, ...execOpts }) {
+      const result = await probes.exec(argv, execOpts);
+      if (result.stderr) onStderr(result.stderr);
+      return result;
     },
 
     exists(path) {
@@ -344,4 +353,19 @@ export function memberShell(path: string | null, rest: ExecScript = () => ok()):
     if (!argv.some((arg) => arg.includes(MEMBER_PATH_SENTINEL))) return rest(argv, opts);
     return path === null ? ok("") : ok(`Last login: today\n${MEMBER_PATH_SENTINEL}${path}${MEMBER_PATH_SENTINEL}\n`);
   };
+}
+
+/** A real repo on disk, for checks that ask git itself (`isReusableCloneOf`), which the in-memory fake cannot model. */
+export function gitRepo(path: string, remotes: Record<string, string>, extraConfig: [string, string][] = []): void {
+  mkdirSync(path, { recursive: true });
+  execSync(`git init -q ${JSON.stringify(path)}`);
+  for (const [name, url] of Object.entries(remotes)) execSync(`git -C ${JSON.stringify(path)} remote add ${name} ${url}`);
+  for (const [key, value] of extraConfig) execSync(`git -C ${JSON.stringify(path)} config ${key} ${value}`);
+}
+
+/** Real filesystem probes rooted at `home`, with a fake exec that records any clone attempt instead of running it. */
+export function realFsProbes(home: string): Probes & { clones: string[][] } {
+  const clones: string[][] = [];
+  const exec = async (argv: string[]) => (argv.includes("clone") && clones.push(argv), ok());
+  return { ...createRealProbes(), home, clones, exec, execStreaming: exec };
 }

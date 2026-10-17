@@ -88,6 +88,7 @@ export {
   bgStatus,
   bgStop,
   bgRelease,
+  herdrStart,
 } from "./client.ts";
 
 export { COMMAND_NAMES, GATE_BY_PANE, gateOptionValue, gateOptionLabel } from "./commands.ts";

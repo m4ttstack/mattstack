@@ -138,7 +138,8 @@ reads `org` and skips `team`.
   from), so `computePlugins` (`lib/setup/steps/plugins.ts`) keeps its trust
   split: items from `org`, `org.repo`, `team` or `team.repo` are
   team-authored (installed, never auto-enabled), and items from user or
-  machine layers are trusted.
+  machine layers are trusted. (The active team's own marketplace pack is now
+  installed turned on: see `2026-10-16-install-cleanup-design.md` §3.)
 - Objects keep merging key by key, so `board.slack` can carry the Slack app
   ids at the org and the channel at the team.
 - `explainSetting` and the console's settings page name the org layer and

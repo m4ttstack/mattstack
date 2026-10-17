@@ -16,6 +16,7 @@ import type { HerdrRunner } from "../../agent-herdr.ts";
 import { repoLabel } from "../../repo-arg.ts";
 import { herdSubject } from "../herd-store.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
+import { HERDR_NOT_INSTALLED, type HerdrStartResult } from "../../herdr/start.ts";
 
 let n = 0;
 const REPO = "remote:example.com%2Fa%2Fb";
@@ -108,6 +109,7 @@ function fresh(over: {
   bgClaims?: FakeBgClaims | Pick<BgClaimsStore, "claim" | "releaseByPane">;
   lifecycle?: FakeLifecycle;
   locate?: (sessionId: string, preferredAccount: string | undefined) => Promise<import("../../agent-adopt.ts").TranscriptHit | null>;
+  startHerdr?: () => Promise<HerdrStartResult>;
 } = {}) {
   const db = openStateDb(join(tmpdir(), `agent-h-${process.pid}-${n++}.db`));
   // Handlers no longer expose `db` (R028); tests that need to reach the
@@ -125,6 +127,7 @@ function fresh(over: {
     bgClaims: over.bgClaims,
     lifecycle: over.lifecycle,
     locateTranscript: over.locate,
+    startHerdr: over.startHerdr,
   }), { db });
 }
 
@@ -888,6 +891,52 @@ test("agent:start refuses an env key that is not a shell identifier and launches
   const list = await h["agent:list"]({});
   if (!list.ok) throw new Error("unreachable");
   expect(list.data.agents).toHaveLength(0);
+});
+
+describe("agent:start starts herdr first", () => {
+  function starter(result: HerdrStartResult) {
+    const self = { calls: 0, start: async () => { self.calls++; return result; } };
+    return self;
+  }
+
+  test("herdr not installed refuses the launch and never touches herdr", async () => {
+    const calls: string[][] = [];
+    const s = starter({ state: "not-installed", bin: "/opt/acme/herdr" });
+    const h = fresh({ runner: okRunner(calls), startHerdr: s.start });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+    expect(res).toEqual({ ok: false, error: HERDR_NOT_INSTALLED });
+    expect(calls).toEqual([]);
+    const list = await h["agent:list"]({});
+    if (!list.ok) throw new Error("unreachable");
+    expect(list.data.agents).toHaveLength(0);
+  });
+
+  test("a failed start refuses the launch with its detail", async () => {
+    const calls: string[][] = [];
+    const s = starter({ state: "failed", bin: "/opt/acme/herdr", detail: "herdr did not answer" });
+    const h = fresh({ runner: okRunner(calls), startHerdr: s.start });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+    expect(res).toEqual({ ok: false, error: "herdr did not answer" });
+    expect(calls).toEqual([]);
+  });
+
+  test("a running herdr launches as before", async () => {
+    const calls: string[][] = [];
+    const s = starter({ state: "running", bin: "/opt/acme/herdr" });
+    const h = fresh({ runner: okRunner(calls), startHerdr: s.start });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+    expect(res.ok).toBe(true);
+    expect(s.calls).toBe(1);
+    expect(calls.some((c) => c[0] === "pane" && c[1] === "run")).toBe(true);
+  });
+
+  test("a launch on its own socket never starts the visible herdr", async () => {
+    const s = starter({ state: "not-installed", bin: "/opt/acme/herdr" });
+    const h = fresh({ runnerFactory: () => okRunner([]), startHerdr: s.start });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", herdrSocket: "/tmp/hidden.sock" });
+    expect(res.ok).toBe(true);
+    expect(s.calls).toBe(0);
+  });
 });
 
 test("agent:start with herdrSocket builds a runner on that socket", async () => {

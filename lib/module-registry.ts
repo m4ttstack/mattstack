@@ -24,6 +24,7 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/gate.ts": () => import("../commands/gate.ts"),
   "./commands/glitter.ts": () => import("../commands/glitter.ts"),
   "./commands/herd.ts": () => import("../commands/herd.ts"),
+  "./commands/herdr.ts": () => import("../commands/herdr.ts"),
   "./commands/home.ts": () => import("../commands/home.ts"),
   "./commands/hooks.ts": () => import("../commands/hooks.ts"),
   "./commands/logins.ts": () => import("../commands/logins.ts"),
