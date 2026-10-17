@@ -125,17 +125,9 @@ test("stale refresh (older than 2 intervals) is degraded", () => {
   expect(computeHealth(i).level).toBe("degraded");
 });
 
-test("event-loop lag over the named threshold flips degraded", () => {
+test("event-loop lag alone stays ok: a loaded machine is not a daemon fault", () => {
   const i = base();
-  i.eventLoop.maxLagMs = 600;
-  const h = computeHealth(i);
-  expect(h.level).toBe("degraded");
-  expect(h.reasons.some((r) => r.startsWith("event-loop:"))).toBe(true);
-});
-
-test("event-loop lag under the named threshold stays ok", () => {
-  const i = base();
-  i.eventLoop.maxLagMs = 400;
+  i.eventLoop.maxLagMs = 678;
   const h = computeHealth(i);
   expect(h.level).toBe("ok");
   expect(h.reasons).toEqual([]);
