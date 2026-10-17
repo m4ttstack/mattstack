@@ -110,7 +110,7 @@ def double_declared(src):
     seen = {}
     for m in re.finditer(r"(?m)(?:^|[{;])\s*([a-z][a-z_]*)\s*\[[^\]]*\blabel\s*=", src):
         seen[m.group(1)] = seen.get(m.group(1), 0) + 1
-    return [n for n, c in seen.items() if c > 1]
+    return [n for n, c in seen.items() if c > 1 and n not in ("node", "edge", "graph")]
 
 
 def check(graph):
@@ -159,7 +159,7 @@ def check(graph):
         if shape[i] == "octagon" and not name.startswith("STOP"):
             problems.append(f'{shown[i]}: an octagon is a STOP; start its text with "STOP:"')
         if shape[i] == "plaintext" and "\n" in name:
-            problems.append(f'"{name[:40]}...": a plaintext node is one short command or tool call, not a code block')
+            problems.append(f'"{name[:40]}..."{shown[i][len(name) + 2:]}: a plaintext node is one short command or tool call, not a code block')
         if shape[i] == "plaintext" and two_calls(name):
             warnings.append(f'{shown[i]}: two calls in one plaintext node; give each call its own node behind a decision (for example "Forge?")')
         for h, lab in out[i]:

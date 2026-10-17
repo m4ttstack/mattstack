@@ -62,6 +62,11 @@ expect prefix-shell-ok "" 'digraph g { '"$SHORT"' gh_pr_view [label="gh pr view 
 expect prefix-escaped-ok "" 'digraph g { '"$SHORT"' rt_verb_skills_check [label="rt_verb {args: [\"skills\", \"check\"]}" shape=plaintext]; start -> rt_verb_skills_check; rt_verb_skills_check -> done; }'
 expect stop-prefix "starts with stop_" 'digraph g { '"$SHORT"' halt [label="STOP: halt" shape=octagon]; start -> halt; start -> done; }'
 expect label-rules "phrased as a question" 'digraph g { '"$SHORT"' ask [label="Ready" shape=diamond]; start -> ask; ask -> done [label="yes"]; ask -> done [label="no"]; }'
+expect newline-short-id "\[multi_line\]" 'digraph g { '"$SHORT"' multi_line [label="git_push {tree}
+more" shape=plaintext]; start -> multi_line; multi_line -> done; }'
+printf 'digraph g { node [label="a"]; node [label="b"]; "S" [shape=ellipse]; "A" [shape=doublecircle style=filled]; "S" -> "A"; }' > "$tmp/defaults.dot"
+out="$(python3 "$here/check-dot.py" "$tmp/defaults.dot" 2>&1)"
+if printf '%s' "$out" | grep -q "declared with a label twice"; then echo "FAIL default-labels-ok"; echo "$out"; fails=$((fails+1)); else echo "ok   default-labels-ok"; fi
 expect unreachable "unreachable" 'digraph g { "S" [shape=ellipse]; "A" [shape=doublecircle style=filled]; "Orphan loop" [shape=box]; "Orphan q?" [shape=diamond]; "S" -> "A"; "Orphan loop" -> "Orphan q?"; "Orphan q?" -> "Orphan loop" [label="again"]; "Orphan q?" -> "A" [label="done"]; }'
 expect stop-branches "at most one way out" 'digraph g { "S" [shape=ellipse]; "STOP: halt" [shape=octagon]; "Go on" [shape=box]; "Or this" [shape=box]; "A" [shape=doublecircle style=filled]; "S" -> "STOP: halt"; "STOP: halt" -> "Go on"; "STOP: halt" -> "Or this"; "Go on" -> "A"; "Or this" -> "A"; }'
 expect stop-redirect "" 'digraph g { "S" [shape=ellipse]; "Need a read?" [shape=diamond]; "STOP: reads go through rt_verb" [shape=octagon]; "rt_verb {args}" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "Need a read?"; "Need a read?" -> "rt_verb {args}" [label="yes"]; "Need a read?" -> "STOP: reads go through rt_verb" [label="tempted to use the shell"]; "STOP: reads go through rt_verb" -> "rt_verb {args}"; "Need a read?" -> "A" [label="no"]; "rt_verb {args}" -> "A"; }'
