@@ -175,7 +175,12 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 					toTop()
 					fmt.Fprint(term, "\x1b[J")
 				}
-				subs = append(subs, "    "+railGlyph+" "+quiet.Render(ansi.Truncate(render.Clean(ev.Text), subWidth, "…")))
+				row := "    " + railGlyph + " " + quiet.Render(ansi.Truncate(render.Clean(ev.Text), subWidth, "…"))
+				if ev.Replace && len(subs) > 0 {
+					subs[len(subs)-1] = row
+				} else {
+					subs = append(subs, row)
+				}
 				if len(subs) > subCap {
 					subs = subs[len(subs)-subCap:]
 				}

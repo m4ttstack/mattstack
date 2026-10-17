@@ -122,6 +122,20 @@ func TestOnlyTheLastFiveSubLinesShow(t *testing.T) {
 	}
 }
 
+func TestAReplacingSubOverwritesTheLastSubLine(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"cloning…"}`, `{"t":"sub","text":"Cloning acme-api"}`, `{"t":"sub","text":"Receiving objects 10%"}`, `{"t":"sub","text":"Receiving objects 42%","replace":true}`, `{"t":"fail","title":"clone failed"}`}
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	screen := testutil.Screen(tty)
+	if strings.Contains(screen, "10%") {
+		t.Fatalf("the replaced line should be gone: %q", screen)
+	}
+	for _, kept := range []string{"Cloning acme-api", "Receiving objects 42%", "clone failed"} {
+		if !strings.Contains(screen, kept) {
+			t.Fatalf("%s missing: %q", kept, screen)
+		}
+	}
+}
+
 func TestLongSubLineIsTruncatedAndErased(t *testing.T) {
 	long := strings.Repeat("x", 400)
 	lines := []string{hello, `{"t":"start","title":"connecting…"}`, `{"t":"sub","text":"` + long + `"}`, `{"t":"done","title":"connected"}`}

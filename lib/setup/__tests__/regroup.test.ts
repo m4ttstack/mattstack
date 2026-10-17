@@ -20,21 +20,22 @@ describe("regroupTools", () => {
     const out = regroupTools(plan([
       "tool.herdr", "tool.claude", "tool.fast-browser", "tool.fast-browser-extension", "tool.editor", "tool.chrome",
       "tool.chrome-signin", "tool.proxy", "tool.state-backup", "tool.team.doppler", "tool.plugins", "skills.writing-style",
-      "pack.acme", "tool.linear-mcp", "repos.root", "tool.rt", "tool.rt-link", "tool.legacy-dirs", "tool.intercepts",
+      "pack.acme", "tool.linear-mcp", "repos.place:gitlab.com/acme/widgets", "tool.rt", "tool.rt-link", "tool.legacy-dirs", "tool.intercepts",
       "tool.app", "tool.vsix", "tool.extension", "tool.shell", "tool.daemon", "tool.flavor", "home.backup", "team.sync",
       "team.marketplace", "team.one-per-machine", "org.folder", "org.layout", "org.sparse", "org.branch", "board.team-fields",
     ]));
     expect(out.map((g) => [g.id, g.title])).toEqual([
       ["mac", "Your Mac"], ["accounts", "Accounts"], ["access", "Access"],
-      ["agents", "Agents and editors"], ["browser", "Browser"], ["rt", "rt on this Mac"], ["team", "Team and backup"],
+      ["agents", "Agents and editors"], ["browser", "Browser"], ["repos", "Your repos"], ["rt", "rt on this Mac"], ["team", "Team and backup"],
     ]);
     expect(ids(out, "agents")).toEqual([
       "tool.herdr", "tool.claude", "tool.editor", "tool.plugins", "skills.writing-style", "pack.acme", "tool.linear-mcp",
       "tool.vsix", "tool.extension",
     ]);
     expect(ids(out, "browser")).toEqual(["tool.fast-browser", "tool.fast-browser-extension", "tool.chrome", "tool.chrome-signin"]);
+    expect(ids(out, "repos")).toEqual(["repos.place:gitlab.com/acme/widgets"]);
     expect(ids(out, "rt")).toEqual([
-      "tool.proxy", "repos.root", "tool.rt", "tool.rt-link", "tool.legacy-dirs", "tool.intercepts", "tool.app",
+      "tool.proxy", "tool.rt", "tool.rt-link", "tool.legacy-dirs", "tool.intercepts", "tool.app",
       "tool.shell", "tool.daemon", "tool.flavor",
     ]);
     expect(ids(out, "team")).toEqual([

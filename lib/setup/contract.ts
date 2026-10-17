@@ -3,7 +3,9 @@ export const CONTRACT_VERSION = 1 as const;
 export type RowStatus = "ready" | "missing" | "invalid" | "needs-you" | "checking" | "skipped" | "error";
 export type RowKind = "permission" | "tool" | "account" | "access" | "info";
 export type Recheck = "on-activate" | "on-change" | "manual";
-export type GroupId = "mac" | "accounts" | "access" | "tools" | "agents" | "browser" | "rt" | "team";
+export type GroupId = "mac" | "accounts" | "access" | "tools" | "agents" | "browser" | "repos" | "rt" | "team";
+/** Where a tracked repo goes: an existing checkout, or a new clone. */
+export type PlacementMode = "checkout" | "clone";
 export type Integration = "github" | "gitlab" | "linear" | "slack" | "sdm" | "doppler" | "ldcli";
 
 export interface ConnectField {
@@ -39,6 +41,23 @@ export type Action =
   | { type: "form"; label: string; verb: string[]; fields: ConnectField[]; alternatives?: { id: string; label: string }[] }
   // startAt is where the panel opens, never a value rt writes.
   | { type: "choose-folder"; label: string; startAt: string | null }
+  // The app answers through `rt setup repo place`, then runs `then` when set, the way it runs a `run`
+  // action's verb (appending --json). `segmentRecords`: whether switching the segment alone records the
+  // shown path; `oneClick` records `path` under `mode` in one press.
+  | {
+      type: "place-repo";
+      label: string;
+      identity: string;
+      repo: string;
+      mode: PlacementMode;
+      checkoutPath: string | null;
+      clonePath: string;
+      note: string;
+      problem: string | null;
+      then: string[] | null;
+      oneClick: { label: string; mode: PlacementMode; path: string } | null;
+      segmentRecords: boolean;
+    }
   // The app appends the picked id and --json to verb; "other" collects a free-text id for the same verb.
   // other.suggestions is the app's only source of completions for a typed id; it never scans the filesystem.
   | {
@@ -107,6 +126,7 @@ export const GROUP_TITLES: Record<GroupId, string> = {
   tools: "Tools",
   agents: "Agents and editors",
   browser: "Browser",
+  repos: "Your repos",
   rt: "rt on this Mac",
   team: "Team and backup",
 };
@@ -114,10 +134,20 @@ export const GROUP_TITLES: Record<GroupId, string> = {
 /** The rows that gate Finish. Enumerated here so `rt setup waive` can refuse anything else and offer a picker over the set. */
 export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-extension", "skills.writing-style"];
 
+/** One `repos.place:<identity>` row per tracked repo, so those ids cannot be enumerated above. */
+export const REPO_PLACE_ROW_PREFIX = "repos.place:";
+
+export function isFinishGatedRowId(id: string): boolean {
+  return FINISH_GATED_ROW_IDS.includes(id) || id.startsWith(REPO_PLACE_ROW_PREFIX);
+}
+
 /** The finish-gated rows `rt setup waive` may skip; the gate honors a stored waiver only for these. */
 export const WAIVABLE_ROW_IDS: readonly string[] = ["tool.fast-browser-extension"];
 
-/** Action types the app's Done screen can act on; a finish-gated row must only carry these (parity with DoneActions in rt-tray). */
+/**
+ * Action types the app's Done screen can act on; a finish-gated row must only carry these (parity with DoneActions in rt-tray).
+ * A deferred `repos.place:*` row is finish-gated and carries `place-repo`, which the summary runs through the checklist dispatcher, not `DoneActions`.
+ */
 export const DONE_ACTION_TYPES = ["open-url", "steps", "run", "choose"] as const;
 
 export type StepKind = "rt" | "app" | "privileged";
@@ -178,6 +208,7 @@ export type ApplyEvent =
   | { event: "plan"; steps: { id: EventId; title: string; kind: StepKind }[] }
   | { event: "step"; id: EventId; state: StepState; detail?: string; remedy?: string }
   | { event: "log"; id: EventId; line: string }
+  | { event: "progress"; id: EventId; label: string; percent: number; note?: string }
   | { event: "need"; id: EventId; request: NeedRequest }
   | { event: "done"; ok: boolean; failedStep?: EventId; failedSteps?: EventId[]; skipped?: "not-set-up" | "current" | "running" };
 

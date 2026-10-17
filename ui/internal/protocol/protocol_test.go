@@ -134,5 +134,28 @@ func TestStepsThrownClearFixtureDecodes(t *testing.T) {
 	}
 }
 
+func TestStepsReplaceFixtureDecodes(t *testing.T) {
+	var lines []json.RawMessage
+	if err := json.Unmarshal(fixture(t, "steps-stream-replace.json"), &lines); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"hello", "start", "sub", "sub", "done"}
+	if len(lines) != len(want) {
+		t.Fatalf("got %d lines", len(lines))
+	}
+	for i, raw := range lines {
+		ev, err := DecodeStep(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.T != want[i] {
+			t.Fatalf("line %d: t=%q want %q", i, ev.T, want[i])
+		}
+		if ev.Replace != (i == 3) {
+			t.Fatalf("line %d: replace=%v", i, ev.Replace)
+		}
+	}
+}
+
 func strPtr(s string) *string { return &s }
 func boolPtr(b bool) *bool    { return &b }

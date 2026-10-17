@@ -242,7 +242,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(computePlugins(ctx, { name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }).teamAuthored).toEqual(["gadgets@acme"]);
     });
 
-    test("after a switch, the previous team's pack is neither updated, reinstalled, enabled nor named as awaiting approval", async () => {
+    test("after a switch, the previous team's pack is neither updated, reinstalled nor enabled, and the new team's pack lands turned on", async () => {
       const marketplacePath = join(home, ".mattstack", "orgs", "acme", ".claude-plugin", "marketplace.json");
       const execCalls: string[][] = [];
       const p = fakeProbes({
@@ -260,8 +260,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(outcome.state).toBe("done");
       expect(execCalls.filter((a) => a.includes("gadgets@acme"))).toEqual([]);
-      expect(execCalls.filter((a) => a.at(-1) === "widgets@acme").map((a) => a[2])).toEqual(["install", "disable"]);
-      expect(detailOf(outcome)).toContain("awaiting your approval to enable: widgets@acme");
+      expect(execCalls.filter((a) => a.at(-1) === "widgets@acme").map((a) => a[2])).toEqual(["install", "enable"]);
+      expect(detailOf(outcome)).not.toContain("awaiting your approval");
       expect(detailOf(outcome)).not.toContain("gadgets@acme");
     });
 
@@ -508,9 +508,10 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(outcome.state).toBe("done");
       expect(detailOf(outcome)).toContain("4 marketplaces, 5 plugins across 1 Claude config folder");
       expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE); // no mattstack plugin on disk yet in this fake, so materialize honestly skips
-      // acme-skills is team-authored (came from the team's own marketplace.json) — installed, never auto-enabled.
       expect(detailOf(outcome)).toContain(`1 Claude config folder. Skills were not materialized: ${ENGINE_PACK_MISSING_CODE}`);
-      expect(detailOf(outcome)).toContain(". 1 plugin awaiting your approval to enable: acme-skills@acme-market");
+      expect(detailOf(outcome)).not.toContain("awaiting your approval");
+      expect(execCalls.some((c) => c.argv[2] === "enable" && c.argv.at(-1) === "acme-skills@acme-market")).toBe(true);
+      expect(execCalls.some((c) => c.argv[2] === "disable")).toBe(false);
 
       const marketAdds = execCalls.filter((c) => c.argv.includes("marketplace") && c.argv.includes("add"));
       const installs = execCalls.filter((c) => c.argv[1] === "plugin" && c.argv[2] === "install");
@@ -838,7 +839,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(enableLogs[0]!.line).not.toContain("more detail");
     });
 
-    test("a team-authored pack ends DISABLED, asserted on the resulting state rather than the argv", async () => {
+    test("the active team's pack ends ENABLED and an org-listed plugin ends DISABLED, asserted on the resulting state rather than the argv", async () => {
+      seedOrg({ org: "acme", username: "dev1", roster: [{ username: "dev1", teams: ["acme-skills"] }], settings: { "claude.plugins": ["org-tool@acme"] } });
       const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       // Models the real claude: install enables what it installs, disable turns it off.
@@ -870,7 +872,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const outcome = await pluginsInstallStep.run(ctx);
 
       expect(outcome.state).toBe("done");
-      expect(enabled["acme-skills@acme-market"]).toBe(false);
+      expect(enabled["acme-skills@acme-market"]).toBe(true);
+      expect(enabled["org-tool@acme"]).toBe(false);
       for (const base of BASE_PLUGINS) expect(enabled[base]).toBe(true);
     });
 
@@ -923,11 +926,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(execCalls.some((a) => a[2] === "install")).toBe(false);
     });
 
-    test("a team pack the member left disabled is still disabled after apply", async () => {
+    test.each([false, true])("the active team's pack found disabled is turned on unless this is an update run (update: %p); an org-listed one stays off", async (update) => {
+      seedOrg({ org: "acme", username: "dev1", roster: [{ username: "dev1", teams: ["acme-skills"] }], settings: { "claude.plugins": ["org-tool@acme"] } });
       const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
+      const execCalls: string[][] = [];
       const enabled: Record<string, boolean> = {
         "acme-skills@acme-market": false,
+        "org-tool@acme": false,
         "mattstack@mattstack": true,
         "fast-browser@mattstack": true,
         "chat@mattstack": true,
@@ -937,13 +943,10 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         env: { PATH: "/usr/local/bin" },
         files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
         exec: async (argv) => {
+          execCalls.push(argv);
           const [, , verb, id] = argv;
           if (verb === "list") return ok(JSON.stringify(Object.keys(enabled).map((k) => ({ id: k, version: "1.0.0", enabled: enabled[k] }))));
-          if (verb === "install") {
-            enabled[id!] = true;
-            return ok("");
-          }
-          if (verb === "enable") {
+          if (verb === "install" || verb === "enable") {
             enabled[id!] = true;
             return ok("");
           }
@@ -954,11 +957,18 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
+      const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills", ...(update ? { update: true as const } : {}) });
 
-      await pluginsInstallStep.run(ctx);
+      const outcome = await pluginsInstallStep.run(ctx);
 
-      expect(enabled["acme-skills@acme-market"]).toBe(false);
+      expect(outcome.state).toBe("done");
+      expect(enabled["acme-skills@acme-market"]).toBe(!update);
+      expect(execCalls.some((a) => a[2] === "enable" && a[3] === "acme-skills@acme-market")).toBe(!update);
+      expect(enabled["org-tool@acme"]).toBe(false);
+      expect(execCalls.some((a) => a.includes("org-tool@acme") && a[2] !== "update")).toBe(false);
+      expect(detailOf(outcome)).not.toContain("acme-skills@acme-market");
+      expect(detailOf(outcome)).toContain("awaiting your approval to enable: org-tool@acme");
+      expect(logs.some((l) => l.line.includes("installed but NOT enabled") && l.line.includes("acme-skills"))).toBe(false);
     });
 
     test("a listed team pack whose update claims absence never reaches install, so a deliberate enable survives", async () => {
@@ -1001,12 +1011,11 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     test("a rolled-back pack is not recorded in setup-state as installed", async () => {
-      const teamDir = join(home, ".mattstack", "orgs", "acme");
-      const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
+      seedOrg({ org: "acme", username: "dev1", roster: [{ username: "dev1", teams: ["acme-skills"] }], settings: { "claude.plugins": ["org-tool@acme"] } });
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin" },
         exec: async (argv) => {
           const [, , verb] = argv;
           if (verb === "list") return ok("[]");
@@ -1018,16 +1027,15 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       await pluginsInstallStep.run(ctx);
 
-      expect(readSetupState(p).plugins).not.toContain("acme-skills@acme-market");
+      expect(readSetupState(p).plugins).not.toContain("org-tool@acme");
     });
 
     test("a rolled-back pack is in neither the done detail's plugin count nor its pending note", async () => {
-      const teamDir = join(home, ".mattstack", "orgs", "acme");
-      const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
+      seedOrg({ org: "acme", username: "dev1", roster: [{ username: "dev1", teams: ["acme-skills"] }], settings: { "claude.plugins": ["org-tool@acme"] } });
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin" },
         exec: async (argv) => {
           const [, , verb] = argv;
           if (verb === "list") return ok("[]");
@@ -1042,19 +1050,18 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(outcome.state).toBe("done");
       expect(detailOf(outcome)).toContain(`${BASE_PLUGINS.length} plugins`);
       expect(detailOf(outcome)).not.toContain("awaiting your approval");
-      expect(detailOf(outcome)).not.toContain("acme-skills@acme-market");
+      expect(detailOf(outcome)).not.toContain("org-tool@acme");
       expect(logs.some((l) => l.line.includes("installed but NOT enabled"))).toBe(false);
     });
 
     for (const enabled of [true, false]) {
-      test(`a team-authored pack the listing shows ${enabled ? "enabled is not named as awaiting approval" : "disabled is named as awaiting approval"}`, async () => {
-        const teamDir = join(home, ".mattstack", "orgs", "acme");
-        const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
-        const installed = [...BASE_PLUGINS.map((id) => ({ id, version: "1.0.0", enabled: true })), { id: "acme-skills@acme-market", version: "1.0.0", enabled }];
+      test(`an org-listed plugin the listing shows ${enabled ? "enabled is not named as awaiting approval" : "disabled is named as awaiting approval"}`, async () => {
+        seedOrg({ org: "acme", username: "dev1", roster: [{ username: "dev1", teams: ["acme-skills"] }], settings: { "claude.plugins": ["org-tool@acme"] } });
+        const installed = [...BASE_PLUGINS.map((id) => ({ id, version: "1.0.0", enabled: true })), { id: "org-tool@acme", version: "1.0.0", enabled }];
         const p = fakeProbes({
           home,
           env: { PATH: "/usr/local/bin" },
-          files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+          files: { "/usr/local/bin/claude": "bin" },
           exec: async (argv) => (argv[2] === "list" ? ok(JSON.stringify(installed)) : ok("")),
         });
         const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
@@ -1062,12 +1069,12 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const outcome = await pluginsInstallStep.run(ctx);
 
         expect(outcome.state).toBe("done");
-        expect((detailOf(outcome) ?? "").includes("awaiting your approval to enable: acme-skills@acme-market")).toBe(!enabled);
+        expect((detailOf(outcome) ?? "").includes("awaiting your approval to enable: org-tool@acme")).toBe(!enabled);
         expect(logs.some((l) => l.line.includes("installed but NOT enabled"))).toBe(!enabled);
       });
     }
 
-    test("a fresh trusted install is enabled by the step, since the install itself leaves it off", async () => {
+    test("a fresh trusted install and the active team's pack are enabled by the step, since the install itself leaves them off", async () => {
       const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       // `install` deliberately does not touch `enabled`, so only an explicit
@@ -1097,10 +1104,10 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(outcome.state).toBe("done");
       for (const base of BASE_PLUGINS) expect(enabled[base]).toBe(true);
-      expect(enabled["acme-skills@acme-market"]).toBe(false);
+      expect(enabled["acme-skills@acme-market"]).toBe(true);
     });
 
-    test("a trusted plugin missing from the listing whose install reports already-installed still gets its enable", async () => {
+    test("a trusted plugin or the active team's pack missing from the listing whose install reports already-installed still gets its enable", async () => {
       const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       // The `current` route: installed at another scope, so possibly disabled
@@ -1131,7 +1138,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(outcome.state).toBe("done");
       for (const base of BASE_PLUGINS) expect(enabled[base]).toBe(true);
-      expect("acme-skills@acme-market" in enabled).toBe(false);
+      expect(enabled["acme-skills@acme-market"]).toBe(true);
     });
 
     test("the settlement runs at the step's own 60s timeout, not the converge budget's 30s", async () => {

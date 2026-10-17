@@ -1007,8 +1007,8 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
     }
 
     // board.cwds is derived from rt.repoRoots, which settings.seed used to write at
-    // step 8. It is now the user's answer to the required repos.root row, set
-    // before Install starts. A regression here is silent: boardKeysRun logs and
+    // step 8. It is now set by the user or by repos.clone as repos land. A
+    // regression here is silent: boardKeysRun logs and
     // leaves the setting unset rather than failing.
     test("board.keys still seeds board.cwds from a root the user chose before Install", async () => {
       const { repoName, repoDir } = seedTrackedRepo();

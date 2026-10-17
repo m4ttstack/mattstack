@@ -16,414 +16,273 @@ metadata:
 {{stage.fields}}
 
 Run state: the orchestrator opens and closes this stage, so never write
-`run_stage` `start` or `done` here. Read consumes with `run_field_get`,
-write `mr` with `run_field_set` (`stage: "ship"`) the moment it exists,
-and on failure write `run_stage {action: fail, stage: "ship", reason}`
-naming what failed. `<root>` is the worktree root, the absolute path
+`run_stage` `start` or `done` here. Write `mr` the moment it exists and
+`pushed` once the push lands; fail with `run_stage {action: fail}` naming
+what failed. Every `stage` argument is `"ship"`. `<root>` is the absolute worktree root
 `git rev-parse --show-toplevel` prints.
-
-The domain rules below run their own steps in their own order. This graph
-is where every mechanical move in them lands.
 
 ```dot
 digraph ship {
     rankdir=TB;
 
     "Ship stage entered" [shape=ellipse];
+    "run_field_get {key: mr}" [shape=plaintext];
     "Run the domain steps before the gate (none when unbound)" [shape=box];
     "git status --porcelain; git log --oneline @{upstream}.. or -5" [shape=plaintext];
     "branch_stack {tree: <root>}" [shape=plaintext];
-    "Stack store readable?" [shape=diamond];
-    "Stack member?" [shape=diamond];
+    "Stack parent read?" [shape=diamond];
     "run_field_get {key: shipTarget}" [shape=plaintext];
-    "Recorded shipTarget matches a readable fresh target?" [shape=diamond];
-    "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [shape=plaintext];
-    "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" [shape=plaintext];
-    "run_field_set {key: shipTarget, value: -, stage: ship} (hold)" [shape=plaintext];
+    "shipTarget matches the fresh target?" [shape=diamond];
     "Gate ship (table below)" [shape=box];
-    "ship answer?" [shape=diamond];
-    "Ship gate rounds = 2?" [shape=diamond];
-    "Ship gate reopenings = 2?" [shape=diamond];
-    "Rebase in progress (ship gate budget spent)?" [shape=diamond];
-    "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [shape=plaintext];
-    "Forge clarify answer?" [shape=diamond];
-    "Forge clarify rounds = 2?" [shape=diamond];
+    "run_field_set {key: shipTarget, value: <resolved target>, stage}" [shape=plaintext];
+    "run_field_set {key: shipTarget, value: -, stage} (iterate)" [shape=plaintext];
+    "run_field_set {key: shipTarget, value: -, stage} (hold)" [shape=plaintext];
+    "run_budget {key: ship:ship-gate-rounds, limit: 1, stage}" [shape=plaintext];
+    "ship-gate-rounds spent?" [shape=diamond];
+    "run_budget {key: ship:ship-gate-reopenings, limit: 1, stage}" [shape=plaintext];
+    "ship-gate-reopenings spent?" [shape=diamond];
+    "Rebase in progress?" [shape=diamond];
+    "git_rebase {tree: <root>, abort: true}" [shape=plaintext];
+    "Which exit?" [shape=diamond];
     "dirty answer?" [shape=diamond];
     "Commit named files, ticket-prefixed subject" [shape=box];
-    "Stash them; nothing in this stage pops it" [shape=box];
+    "Stash them" [shape=box];
     "Run the domain's fast checks (none when unbound)" [shape=box];
     "Checks pass?" [shape=diamond];
-    "Fix rounds = 3?" [shape=diamond];
+    "run_budget {key: ship:fix-rounds, limit: 3, stage}" [shape=plaintext];
+    "fix-rounds spent?" [shape=diamond];
     "Fix test-first, commit, rerun" [shape=box];
     "Domain rebases, and no rebase finished this pass?" [shape=diamond];
     "git_rebase {tree: <root>, onto: origin/<resolved target>}" [shape=plaintext];
     "Rebase status?" [shape=diamond];
-    "Conflict rounds = 3?" [shape=diamond];
+    "run_budget {key: ship:conflict-rounds, limit: 3, stage}" [shape=plaintext];
+    "conflict-rounds spent?" [shape=diamond];
     "Resolve the files, then git rebase --continue on Bash" [shape=box];
     "Continue result?" [shape=diamond];
-    "Rebase in progress (stage abort)?" [shape=diamond];
-    "git_rebase {tree: <root>, abort: true} (stage abort)" [shape=plaintext];
-    "git_rebase {tree: <root>, abort: true} (after a failed continue)" [shape=plaintext];
-    "Rebase in progress (go back)?" [shape=diamond];
-    "git_rebase {tree: <root>, abort: true} (go back)" [shape=plaintext];
-    "git_push {tree: <root>, setUpstream: true}" [shape=plaintext];
+
+    "Push needs force-with-lease?" [shape=diamond];
+    "git_push {tree: <root>, setUpstream: true, leaseMrUrl?: <mr>}" [shape=plaintext];
+    "git_push {tree: <root>, forceWithLease: true, leaseMrUrl?: <mr>}" [shape=plaintext];
     "git_push result?" [shape=diamond];
-    "STOP: push only with git_push; a shell push is off-script" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Off-script gate (gate-protocol, scope off-script:ship:<n>)" [shape=box];
-    "off-script answer?" [shape=diamond];
-    "Off-script rounds = 2?" [shape=diamond];
+    "run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}" [shape=plaintext];
+    "STOP: push only with git_push" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: the lease holder owns every commit, push and retry" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Stand down: report the holder and stop" [shape=doublecircle];
+    "Off-script gate: git_push refused" [shape=box];
     "Make the recorded move once" [shape=box];
+    "Push landed?" [shape=diamond];
+    "run_budget {key: ship:landing-checks, limit: 1, stage}" [shape=plaintext];
+    "landing-checks spent?" [shape=diamond];
+    "run_field_set {key: pushed, value: <{\"sha\": HEAD, \"priorPipelineId\": null} JSON>, stage}" [shape=plaintext];
+
     "git remote get-url origin" [shape=plaintext];
     "Forge host?" [shape=diamond];
-    "mr_for_branch {repoName: <root>, branches: [<branch>]}" [shape=plaintext];
-    "Open MR on the branch?" [shape=diamond];
-    "Created once already?" [shape=diamond];
-    "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?}" [shape=plaintext];
-    "mr_create result?" [shape=diamond];
-    "mr_update {mrUrl, squash: true}" [shape=plaintext];
-    "STOP: GitLab reads go through the read tools or gitlab_get, writes through the mr_* tools" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "gh pr create --base <resolved target>, draft unless the gate said ready" [shape=plaintext];
-    "gh pr create result?" [shape=diamond];
+    "run_budget {key: ship:forge-clarify-rounds, limit: 1, stage}" [shape=plaintext];
+    "forge-clarify-rounds spent?" [shape=diamond];
     "Gate clarify: which forge?" [shape=box];
-    "run_field_set {key: mr, value: <url>, stage: ship}" [shape=plaintext];
+    "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?, ifExists: return}" [shape=plaintext];
+    "mr_create result?" [shape=diamond];
+    "run_budget {key: ship:mr-create-recalls, limit: 1, stage}" [shape=plaintext];
+    "mr-create-recalls spent?" [shape=diamond];
+    "mr_update {mrUrl, squash: true}" [shape=plaintext];
+    "STOP: GitLab goes through gitlab_get, the read tools and mr_*" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "gh pr create --base <resolved target> [--draft]" [shape=plaintext];
+    "gh pr create result?" [shape=diamond];
+    "run_field_set {key: mr, value: <url>, stage}" [shape=plaintext];
+
     "run_field_get {key: evidence}" [shape=plaintext];
     "Capture the AFTER for the next case the domain names" [shape=box];
-    "AFTER captured, or none left to capture?" [shape=diamond];
-    "AFTER attempts for this case = 3?" [shape=diamond];
+    "AFTER result?" [shape=diamond];
+    "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" [shape=plaintext];
+    "after-attempts spent?" [shape=diamond];
     "Every named case tried?" [shape=diamond];
-    "A v1 or v2 record with an image, or an AFTER was captured?" [shape=diamond];
-    "Merge into the record (evidence-record)" [shape=box];
-    "Annotate or waive each image the record does not yet cover (evidence-record)" [shape=box];
-    "Annotate or waive outcome?" [shape=diamond];
-    "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: ship}" [shape=plaintext];
-    "evidence write result?" [shape=diamond];
-    "Validator refusals = 2?" [shape=diamond];
-    "Record fixed once already?" [shape=diamond];
-    "Files to attach?" [shape=diamond];
-    "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [shape=plaintext];
-    "mr_upload result?" [shape=diamond];
-    "Upload retried with a corrected path?" [shape=diamond];
-    "mr_upload {mrUrl, path: <the corrected absolute path>, runId}" [shape=plaintext];
-    "STOP: upload only with mr_upload; another route is off-script" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" [shape=box];
-    "upload off-script answer?" [shape=diamond];
-    "Upload off-script rounds = 2?" [shape=diamond];
-    "Timed-out upload retried once?" [shape=diamond];
-    "mr_upload {mrUrl, path: <the timed-out file>, runId}" [shape=plaintext];
-    "Forge host (read back the description)?" [shape=diamond];
+    "AFTER captured this pass?" [shape=diamond];
+    "Record the evidence (evidence-record)" [shape=box];
+    "Record outcome?" [shape=diamond];
+    "Run has an evidence record?" [shape=diamond];
+    "Attach the evidence (evidence-record)" [shape=box];
+    "Attach outcome?" [shape=diamond];
+    "Forge host (read back)?" [shape=diamond];
     "mr_view {mrUrl}" [shape=plaintext];
     "gh pr view <mr> --json title,body" [shape=plaintext];
     "Write the title and description" [shape=box];
-    "Forge host (write the description)?" [shape=diamond];
+    "Forge host (write back)?" [shape=diamond];
     "mr_update {mrUrl, title, description}" [shape=plaintext];
     "gh pr edit <mr> --title <title> --body <description>" [shape=plaintext];
-    "run_stage {action: fail, stage: ship, reason}" [shape=plaintext];
-    "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [shape=plaintext];
-    "run_field_set {key: hold, value: <their words, or held>, stage: ship}" [shape=plaintext];
+
+    "run_stage {action: fail, stage, reason}" [shape=plaintext];
+    "run_hold {stage, reason, decidedBy}" [shape=plaintext];
     "Held: end the turn naming run and stage" [shape=doublecircle];
     "Hand the Go back answer to the orchestrator" [shape=doublecircle];
     "Stage failed" [shape=doublecircle];
     "Ship done: return to the orchestrator" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Ship stage entered" -> "Run the domain steps before the gate (none when unbound)";
+    "Ship stage entered" -> "run_field_get {key: mr}";
+    "run_field_get {key: mr}" -> "Run the domain steps before the gate (none when unbound)";
     "Run the domain steps before the gate (none when unbound)" -> "git status --porcelain; git log --oneline @{upstream}.. or -5";
     "git status --porcelain; git log --oneline @{upstream}.. or -5" -> "branch_stack {tree: <root>}";
-    "branch_stack {tree: <root>}" -> "Stack store readable?";
-    "Stack store readable?" -> "Stack member?" [label="yes"];
-    "Stack store readable?" -> "run_field_get {key: shipTarget}" [label="no: stackStore unavailable, or a tool error: the target is the default branch, the stack could not be read"];
-    "Stack member?" -> "run_field_get {key: shipTarget}" [label="yes: the target is the stack parent"];
-    "Stack member?" -> "run_field_get {key: shipTarget}" [label="no: the target is the default branch"];
-    "run_field_get {key: shipTarget}" -> "Recorded shipTarget matches a readable fresh target?";
-    "Recorded shipTarget matches a readable fresh target?" -> "dirty answer?" [label="yes: the earlier Proceed stands, its answers read from the ship gate decision run_snapshot shows"];
-    "Recorded shipTarget matches a readable fresh target?" -> "Gate ship (table below)" [label="no: the key is not set (run_field_get errors) or holds -, it differs, or the store is unreadable now"];
-    "Gate ship (table below)" -> "ship answer?";
-    "ship answer?" -> "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [label="proceed: record the consented target"];
-    "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" -> "dirty answer?";
-    "ship answer?" -> "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" [label="iterate: clear the recorded consent first"];
-    "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" -> "Ship gate rounds = 2?";
-    "Ship gate rounds = 2?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
-    "Ship gate rounds = 2?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, their last note quoted"];
-    "ship answer?" -> "Rebase in progress (go back)?" [label="go back"];
-    "Rebase in progress (go back)?" -> "git_rebase {tree: <root>, abort: true} (go back)" [label="yes"];
-    "Rebase in progress (go back)?" -> "Hand the Go back answer to the orchestrator" [label="no"];
-    "git_rebase {tree: <root>, abort: true} (go back)" -> "Hand the Go back answer to the orchestrator";
-    "ship answer?" -> "run_field_set {key: shipTarget, value: -, stage: ship} (hold)" [label="hold: clear the recorded consent first"];
-    "run_field_set {key: shipTarget, value: -, stage: ship} (hold)" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}";
-    "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage: ship}";
-    "run_field_set {key: hold, value: <their words, or held>, stage: ship}" -> "Held: end the turn naming run and stage";
-    "ship answer?" -> "Rebase in progress (stage abort)?" [label="dirty = abort: reason 'aborted at the ship gate'"];
-    "Rebase in progress (stage abort)?" -> "git_rebase {tree: <root>, abort: true} (stage abort)" [label="yes"];
-    "Rebase in progress (stage abort)?" -> "run_stage {action: fail, stage: ship, reason}" [label="no: reason 'aborted at the ship gate'"];
-    "git_rebase {tree: <root>, abort: true} (stage abort)" -> "run_stage {action: fail, stage: ship, reason}" [label="reason 'aborted at the ship gate'"];
+    "branch_stack {tree: <root>}" -> "Stack parent read?";
+    "Stack parent read?" -> "run_field_get {key: shipTarget}" [label="yes: the stack parent"];
+    "Stack parent read?" -> "run_field_get {key: shipTarget}" [label="no: the default branch (an unreadable store or error says so)"];
+    "run_field_get {key: shipTarget}" -> "shipTarget matches the fresh target?";
+    "shipTarget matches the fresh target?" -> "dirty answer?" [label="yes: the earlier Proceed stands"];
+    "shipTarget matches the fresh target?" -> "Gate ship (table below)" [label="no"];
+    "Gate ship (table below)" -> "run_field_set {key: shipTarget, value: <resolved target>, stage}" [label="proceed"];
+    "Gate ship (table below)" -> "run_field_set {key: shipTarget, value: -, stage} (iterate)" [label="iterate"];
+    "Gate ship (table below)" -> "run_field_set {key: shipTarget, value: -, stage} (hold)" [label="hold"];
+    "Gate ship (table below)" -> "Rebase in progress?" [label="go back, or dirty = abort"];
+    "run_field_set {key: shipTarget, value: <resolved target>, stage}" -> "dirty answer?";
+    "run_field_set {key: shipTarget, value: -, stage} (iterate)" -> "run_budget {key: ship:ship-gate-rounds, limit: 1, stage}";
+    "run_budget {key: ship:ship-gate-rounds, limit: 1, stage}" -> "ship-gate-rounds spent?";
+    "ship-gate-rounds spent?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
+    "ship-gate-rounds spent?" -> "Rebase in progress?" [label="yes: a failure"];
+    "run_field_set {key: shipTarget, value: -, stage} (hold)" -> "run_hold {stage, reason, decidedBy}";
+    "Rebase in progress?" -> "git_rebase {tree: <root>, abort: true}" [label="yes"];
+    "Rebase in progress?" -> "Which exit?" [label="no"];
+    "git_rebase {tree: <root>, abort: true}" -> "Which exit?";
+    "Which exit?" -> "Hand the Go back answer to the orchestrator" [label="go back"];
+    "Which exit?" -> "run_stage {action: fail, stage, reason}" [label="a failure, abort or hand back"];
     "dirty answer?" -> "Commit named files, ticket-prefixed subject" [label="commit"];
-    "dirty answer?" -> "Stash them; nothing in this stage pops it" [label="stash"];
+    "dirty answer?" -> "Stash them" [label="stash"];
     "dirty answer?" -> "Run the domain's fast checks (none when unbound)" [label="clean tree"];
     "Commit named files, ticket-prefixed subject" -> "Run the domain's fast checks (none when unbound)";
-    "Stash them; nothing in this stage pops it" -> "Run the domain's fast checks (none when unbound)";
+    "Stash them" -> "Run the domain's fast checks (none when unbound)";
     "Run the domain's fast checks (none when unbound)" -> "Checks pass?";
     "Checks pass?" -> "Domain rebases, and no rebase finished this pass?" [label="yes"];
-    "Checks pass?" -> "Fix rounds = 3?" [label="no"];
-    "Fix rounds = 3?" -> "Fix test-first, commit, rerun" [label="no"];
-    "Fix rounds = 3?" -> "Ship gate reopenings = 2?" [label="yes: reopen, failing output quoted"];
+    "Checks pass?" -> "run_budget {key: ship:fix-rounds, limit: 3, stage}" [label="no"];
+    "run_budget {key: ship:fix-rounds, limit: 3, stage}" -> "fix-rounds spent?";
+    "fix-rounds spent?" -> "Fix test-first, commit, rerun" [label="no"];
+    "fix-rounds spent?" -> "run_budget {key: ship:ship-gate-reopenings, limit: 1, stage}" [label="yes: reopen"];
     "Fix test-first, commit, rerun" -> "Run the domain's fast checks (none when unbound)";
     "Domain rebases, and no rebase finished this pass?" -> "git_rebase {tree: <root>, onto: origin/<resolved target>}" [label="yes"];
-    "Domain rebases, and no rebase finished this pass?" -> "git_push {tree: <root>, setUpstream: true}" [label="no"];
+    "Domain rebases, and no rebase finished this pass?" -> "Push needs force-with-lease?" [label="no"];
     "git_rebase {tree: <root>, onto: origin/<resolved target>}" -> "Rebase status?";
-    "Rebase status?" -> "Run the domain's fast checks (none when unbound)" [label="clean: the tree changed"];
-    "Rebase status?" -> "Conflict rounds = 3?" [label="conflict"];
-    "Rebase status?" -> "run_stage {action: fail, stage: ship, reason}" [label="any other error: quote it as the reason"];
-    "Conflict rounds = 3?" -> "Resolve the files, then git rebase --continue on Bash" [label="no"];
-    "Conflict rounds = 3?" -> "Ship gate reopenings = 2?" [label="yes: reopen, conflicted files quoted"];
-    "Ship gate reopenings = 2?" -> "Gate ship (table below)" [label="no: reopen with what was quoted"];
-    "Ship gate reopenings = 2?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, the failing output or conflicted files quoted"];
-    "Rebase in progress (ship gate budget spent)?" -> "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [label="yes"];
-    "Rebase in progress (ship gate budget spent)?" -> "run_stage {action: fail, stage: ship, reason}" [label="no: a failure, what was quoted is the reason"];
-    "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" -> "run_stage {action: fail, stage: ship, reason}" [label="a failure, what was quoted is the reason"];
+    "Rebase status?" -> "Run the domain's fast checks (none when unbound)" [label="clean"];
+    "Rebase status?" -> "run_budget {key: ship:conflict-rounds, limit: 3, stage}" [label="conflict"];
+    "Rebase status?" -> "Which exit?" [label="error: a failure"];
+    "run_budget {key: ship:conflict-rounds, limit: 3, stage}" -> "conflict-rounds spent?";
+    "conflict-rounds spent?" -> "Resolve the files, then git rebase --continue on Bash" [label="no"];
+    "conflict-rounds spent?" -> "run_budget {key: ship:ship-gate-reopenings, limit: 1, stage}" [label="yes: reopen"];
+    "run_budget {key: ship:ship-gate-reopenings, limit: 1, stage}" -> "ship-gate-reopenings spent?";
+    "ship-gate-reopenings spent?" -> "Gate ship (table below)" [label="no: reopen with what was quoted"];
+    "ship-gate-reopenings spent?" -> "Rebase in progress?" [label="yes: a failure"];
     "Resolve the files, then git rebase --continue on Bash" -> "Continue result?";
-    "Continue result?" -> "Conflict rounds = 3?" [label="another commit conflicted"];
+    "Continue result?" -> "run_budget {key: ship:conflict-rounds, limit: 3, stage}" [label="another commit conflicted"];
     "Continue result?" -> "Run the domain's fast checks (none when unbound)" [label="rebase finished"];
-    "Continue result?" -> "git_rebase {tree: <root>, abort: true} (after a failed continue)" [label="any other error: a failure, quoted"];
-    "git_rebase {tree: <root>, abort: true} (after a failed continue)" -> "run_stage {action: fail, stage: ship, reason}" [label="a failure, the continue error is the reason"];
-    "git_push {tree: <root>, setUpstream: true}" -> "git_push result?";
-    "git_push result?" -> "git remote get-url origin" [label="ok"];
-    "git_push result?" -> "STOP: push only with git_push; a shell push is off-script" [label="any other error"];
-    "STOP: push only with git_push; a shell push is off-script" -> "Off-script gate (gate-protocol, scope off-script:ship:<n>)";
-    "Off-script gate (gate-protocol, scope off-script:ship:<n>)" -> "off-script answer?";
-    "off-script answer?" -> "Make the recorded move once" [label="proceed + take"];
-    "off-script answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="proceed + hand back"];
-    "off-script answer?" -> "Off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the push"];
-    "off-script answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold: no move made"];
-    "Off-script rounds = 2?" -> "git_push {tree: <root>, setUpstream: true}" [label="no"];
-    "Off-script rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: hand back, the refusal quoted"];
-    "Make the recorded move once" -> "git remote get-url origin";
+    "Continue result?" -> "git_rebase {tree: <root>, abort: true}" [label="error: a failure"];
+
+    "Push needs force-with-lease?" -> "git_push {tree: <root>, setUpstream: true, leaseMrUrl?: <mr>}" [label="no"];
+    "Push needs force-with-lease?" -> "git_push {tree: <root>, forceWithLease: true, leaseMrUrl?: <mr>}" [label="yes"];
+    "git_push {tree: <root>, setUpstream: true, leaseMrUrl?: <mr>}" -> "git_push result?";
+    "git_push {tree: <root>, forceWithLease: true, leaseMrUrl?: <mr>}" -> "git_push result?";
+    "git_push result?" -> "run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}" [label="ok"];
+    "git_push result?" -> "STOP: the lease holder owns every commit, push and retry" [label="refused: lease_held, holder named"];
+    "git_push result?" -> "STOP: push only with git_push" [label="any other error or refusal"];
+    "STOP: the lease holder owns every commit, push and retry" -> "Stand down: report the holder and stop";
+    "run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}" -> "git remote get-url origin";
+    "STOP: push only with git_push" -> "Off-script gate: git_push refused";
+    "Off-script gate: git_push refused" -> "Make the recorded move once" [label="take"];
+    "Off-script gate: git_push refused" -> "Push needs force-with-lease?" [label="iterate: push again"];
+    "Off-script gate: git_push refused" -> "Which exit?" [label="hand back"];
+    "Off-script gate: git_push refused" -> "run_hold {stage, reason, decidedBy}" [label="hold"];
+    "Make the recorded move once" -> "Push landed?";
+    "Push landed?" -> "run_field_set {key: pushed, value: <{\"sha\": HEAD, \"priorPipelineId\": null} JSON>, stage}" [label="yes"];
+    "Push landed?" -> "run_budget {key: ship:landing-checks, limit: 1, stage}" [label="no"];
+    "run_budget {key: ship:landing-checks, limit: 1, stage}" -> "landing-checks spent?";
+    "landing-checks spent?" -> "Off-script gate: git_push refused" [label="no: reopen with the comparison"];
+    "landing-checks spent?" -> "Which exit?" [label="yes: a failure"];
+    "run_field_set {key: pushed, value: <{\"sha\": HEAD, \"priorPipelineId\": null} JSON>, stage}" -> "git remote get-url origin";
+
     "git remote get-url origin" -> "Forge host?";
-    "Forge host?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="GitLab"];
-    "Forge host?" -> "gh pr create --base <resolved target>, draft unless the gate said ready" [label="GitHub"];
-    "Forge host?" -> "Forge clarify rounds = 2?" [label="anything else"];
-    "Forge clarify rounds = 2?" -> "Gate clarify: which forge?" [label="no: ask which forge"];
-    "Forge clarify rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: a failure, the origin URL and their answer quoted"];
-    "Gate clarify: which forge?" -> "Forge clarify answer?";
-    "Forge clarify answer?" -> "Forge host?" [label="answered: GitLab or GitHub, the host from here on"];
-    "Forge clarify answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
-    "Forge clarify answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="hand back: a failure, no forge this stage knows"];
-    "mr_for_branch {repoName: <root>, branches: [<branch>]}" -> "Open MR on the branch?";
-    "Open MR on the branch?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="yes: keep its url"];
-    "Open MR on the branch?" -> "Created once already?" [label="no"];
-    "Created once already?" -> "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?}" [label="no"];
-    "Created once already?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: the mr_create error is the reason"];
-    "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?}" -> "mr_create result?";
-    "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="url, squash applied or not asked"];
+    "Forge host?" -> "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?, ifExists: return}" [label="GitLab"];
+    "Forge host?" -> "gh pr create --base <resolved target> [--draft]" [label="GitHub"];
+    "Forge host?" -> "run_budget {key: ship:forge-clarify-rounds, limit: 1, stage}" [label="anything else"];
+    "run_budget {key: ship:forge-clarify-rounds, limit: 1, stage}" -> "forge-clarify-rounds spent?";
+    "forge-clarify-rounds spent?" -> "Gate clarify: which forge?" [label="no"];
+    "forge-clarify-rounds spent?" -> "Which exit?" [label="yes: a failure"];
+    "Gate clarify: which forge?" -> "Forge host?" [label="GitLab or GitHub"];
+    "Gate clarify: which forge?" -> "run_hold {stage, reason, decidedBy}" [label="hold"];
+    "Gate clarify: which forge?" -> "Which exit?" [label="hand back"];
+    "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?, ifExists: return}" -> "mr_create result?";
+    "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage}" [label="created"];
+    "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage}" [label="existing: keep its url; no squash or labels"];
     "mr_create result?" -> "mr_update {mrUrl, squash: true}" [label="squashApplied: false"];
-    "mr_create result?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="error, or url null: read it back; never create twice"];
-    "mr_create result?" -> "STOP: GitLab reads go through the read tools or gitlab_get, writes through the mr_* tools" [label="tempted by the CLI"];
-    "STOP: GitLab reads go through the read tools or gitlab_get, writes through the mr_* tools" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}";
-    "mr_update {mrUrl, squash: true}" -> "run_field_set {key: mr, value: <url>, stage: ship}";
-    "gh pr create --base <resolved target>, draft unless the gate said ready" -> "gh pr create result?";
-    "gh pr create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="url printed"];
-    "gh pr create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="already exists: keep the url it prints"];
-    "gh pr create result?" -> "run_stage {action: fail, stage: ship, reason}" [label="any other error: quote it as the reason"];
-    "run_field_set {key: mr, value: <url>, stage: ship}" -> "run_field_get {key: evidence}";
+    "mr_create result?" -> "run_budget {key: ship:mr-create-recalls, limit: 1, stage}" [label="url: null"];
+    "mr_create result?" -> "Which exit?" [label="error: a failure"];
+    "mr_create result?" -> "STOP: GitLab goes through gitlab_get, the read tools and mr_*" [label="tempted to use the GitLab CLI"];
+    "STOP: GitLab goes through gitlab_get, the read tools and mr_*" -> "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?, ifExists: return}";
+    "run_budget {key: ship:mr-create-recalls, limit: 1, stage}" -> "mr-create-recalls spent?";
+    "mr-create-recalls spent?" -> "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?, ifExists: return}" [label="no: call again"];
+    "mr-create-recalls spent?" -> "Which exit?" [label="yes: a failure"];
+    "mr_update {mrUrl, squash: true}" -> "run_field_set {key: mr, value: <url>, stage}";
+    "gh pr create --base <resolved target> [--draft]" -> "gh pr create result?";
+    "gh pr create result?" -> "run_field_set {key: mr, value: <url>, stage}" [label="url printed, or already exists"];
+    "gh pr create result?" -> "Which exit?" [label="error: a failure"];
+    "run_field_set {key: mr, value: <url>, stage}" -> "run_field_get {key: evidence}";
+
     "run_field_get {key: evidence}" -> "Capture the AFTER for the next case the domain names";
-    "Capture the AFTER for the next case the domain names" -> "AFTER captured, or none left to capture?";
-    "AFTER captured, or none left to capture?" -> "Every named case tried?" [label="captured"];
-    "AFTER captured, or none left to capture?" -> "A v1 or v2 record with an image, or an AFTER was captured?" [label="none named: there is no AFTER"];
-    "AFTER captured, or none left to capture?" -> "AFTER attempts for this case = 3?" [label="the capture failed"];
-    "AFTER attempts for this case = 3?" -> "Capture the AFTER for the next case the domain names" [label="no: another attempt, same case"];
-    "AFTER attempts for this case = 3?" -> "Every named case tried?" [label="yes: go on without it; the description names the gap"];
+    "Capture the AFTER for the next case the domain names" -> "AFTER result?";
+    "AFTER result?" -> "Every named case tried?" [label="captured"];
+    "AFTER result?" -> "AFTER captured this pass?" [label="none named"];
+    "AFTER result?" -> "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" [label="the capture failed"];
+    "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" -> "after-attempts spent?";
+    "after-attempts spent?" -> "Capture the AFTER for the next case the domain names" [label="no: same case again"];
+    "after-attempts spent?" -> "Every named case tried?" [label="yes: go on without it"];
     "Every named case tried?" -> "Capture the AFTER for the next case the domain names" [label="no"];
-    "Every named case tried?" -> "A v1 or v2 record with an image, or an AFTER was captured?" [label="yes"];
-    "A v1 or v2 record with an image, or an AFTER was captured?" -> "Merge into the record (evidence-record)" [label="yes"];
-    "A v1 or v2 record with an image, or an AFTER was captured?" -> "Files to attach?" [label="no"];
-    "Merge into the record (evidence-record)" -> "Annotate or waive each image the record does not yet cover (evidence-record)";
-    "Annotate or waive each image the record does not yet cover (evidence-record)" -> "Annotate or waive outcome?";
-    "Annotate or waive outcome?" -> "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: ship}" [label="ready"];
-    "Annotate or waive outcome?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="held at evidence-waiver"];
-    "Annotate or waive outcome?" -> "run_stage {action: fail, stage: ship, reason}" [label="waiver openings spent: the images named"];
-    "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: ship}" -> "evidence write result?";
-    "evidence write result?" -> "Files to attach?" [label="ok"];
-    "evidence write result?" -> "Validator refusals = 2?" [label="refused: the validator names an image"];
-    "evidence write result?" -> "run_stage {action: fail, stage: ship, reason}" [label="any other error: quote it as the reason"];
-    "Validator refusals = 2?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no"];
-    "Validator refusals = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: the refusal quoted"];
-    "Files to attach?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="yes, GitLab: every uploadable path in the record (a repeat upload is harmless)"];
-    "Files to attach?" -> "Forge host (read back the description)?" [label="no, or GitHub: link the paths"];
-    "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" -> "mr_upload result?";
-    "mr_upload result?" -> "mr_view {mrUrl}" [label="ok: every file uploaded"];
-    "mr_upload result?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="ok: files still to upload"];
-    "mr_upload result?" -> "Upload retried with a corrected path?" [label="path must be absolute, or file not found"];
-    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="any other refusal: outside the roots, bytes, size"];
-    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="tempted to copy the file into an allowed root, or upload another way"];
-    "mr_upload result?" -> "Record fixed once already?" [label="refused: not in the record, or a raw capture"];
-    "Record fixed once already?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no: the named file"];
-    "Record fixed once already?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
-    "Upload retried with a corrected path?" -> "mr_upload {mrUrl, path: <the corrected absolute path>, runId}" [label="no: this file's one fix"];
-    "Upload retried with a corrected path?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
-    "mr_upload {mrUrl, path: <the corrected absolute path>, runId}" -> "mr_upload result?";
-    "mr_upload result?" -> "Timed-out upload retried once?" [label="timed out"];
-    "Timed-out upload retried once?" -> "mr_upload {mrUrl, path: <the timed-out file>, runId}" [label="no: retry once, a timed-out upload is safe to repeat"];
-    "Timed-out upload retried once?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes: timed out twice"];
-    "mr_upload {mrUrl, path: <the timed-out file>, runId}" -> "mr_upload result?";
-    "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)";
-    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" -> "upload off-script answer?";
-    "upload off-script answer?" -> "Forge host (read back the description)?" [label="proceed + take: link the refused files' local paths"];
-    "upload off-script answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="proceed + hand back"];
-    "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
-    "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
-    "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="no: retry the refused files"];
-    "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: hand back, the refusal quoted"];
-    "Forge host (read back the description)?" -> "mr_view {mrUrl}" [label="GitLab"];
-    "Forge host (read back the description)?" -> "gh pr view <mr> --json title,body" [label="GitHub"];
+    "Every named case tried?" -> "AFTER captured this pass?" [label="yes"];
+    "AFTER captured this pass?" -> "Record the evidence (evidence-record)" [label="yes"];
+    "AFTER captured this pass?" -> "Run has an evidence record?" [label="no"];
+    "Record the evidence (evidence-record)" -> "Record outcome?";
+    "Record outcome?" -> "Attach the evidence (evidence-record)" [label="Recorded"];
+    "Record outcome?" -> "run_hold {stage, reason, decidedBy}" [label="Record held at evidence-waiver"];
+    "Record outcome?" -> "Which exit?" [label="Record failed: a failure naming the images or quoting the error"];
+    "Run has an evidence record?" -> "Attach the evidence (evidence-record)" [label="yes"];
+    "Run has an evidence record?" -> "Forge host (read back)?" [label="no: the field is unset"];
+    "Attach the evidence (evidence-record)" -> "Attach outcome?";
+    "Attach outcome?" -> "Forge host (read back)?" [label="Attached (never Taken: Take links)"];
+    "Attach outcome?" -> "run_hold {stage, reason, decidedBy}" [label="Attach held"];
+    "Attach outcome?" -> "Which exit?" [label="Attach failed: a failure quoting the reason"];
+    "Forge host (read back)?" -> "mr_view {mrUrl}" [label="GitLab"];
+    "Forge host (read back)?" -> "gh pr view <mr> --json title,body" [label="GitHub"];
     "mr_view {mrUrl}" -> "Write the title and description";
     "gh pr view <mr> --json title,body" -> "Write the title and description";
-    "Write the title and description" -> "Forge host (write the description)?";
-    "Forge host (write the description)?" -> "mr_update {mrUrl, title, description}" [label="GitLab"];
-    "Forge host (write the description)?" -> "gh pr edit <mr> --title <title> --body <description>" [label="GitHub"];
+    "Write the title and description" -> "Forge host (write back)?";
+    "Forge host (write back)?" -> "mr_update {mrUrl, title, description}" [label="GitLab"];
+    "Forge host (write back)?" -> "gh pr edit <mr> --title <title> --body <description>" [label="GitHub"];
     "mr_update {mrUrl, title, description}" -> "Ship done: return to the orchestrator";
     "gh pr edit <mr> --title <title> --body <description>" -> "Ship done: return to the orchestrator";
-    "run_stage {action: fail, stage: ship, reason}" -> "Stage failed";
+    "run_stage {action: fail, stage, reason}" -> "Stage failed";
+    "run_hold {stage, reason, decidedBy}" -> "Held: end the turn naming run and stage";
 }
 ```
 
 ### Run the domain steps before the gate (none when unbound)
 
-The domain's gathering steps: sanity of the diff against the ticket, the
-branch and ticket checks, an existing-MR lookup, any mandatory pre-ship
-review. Each one that raises a question adds it to the `ship` gate rather
-than asking on its own. A GitLab fact these steps need that no read tool
-returns is read as in "Reading a GitLab fact no read tool returns".
+The domain's gathering steps (the diff against the ticket, the branch and
+ticket checks, an existing-MR lookup, a mandatory pre-ship review); their
+questions go on the `ship` gate.
 
 ### Reading a GitLab fact no read tool returns
 
-At any step of this stage, a GitLab fact the read tools do not return is
-read with `gitlab_get {repoName, path}`: `repoName` = the checkout or
-tree this stage already targets, `path` relative to the API root with `:id`
-for this project, for example `projects/:id/merge_requests/<iid>/approvals`.
-The read is part of the step that needs it, not an off-script move, so it
-opens no gate. A GitLab error is quoted as GitLab wrote it. Its refusal of
-a credential path is final.
+Read it with `gitlab_get {repoName: <root>, path}` (`path` from the API
+root, `:id` for this project) as part of the step: no gate. Quote a GitLab
+error as written; a refused credential path is final.
 
-### Run the domain's fast checks (none when unbound)
+### shipTarget matches the fresh target?
 
-Only the checks the domain names, on the changed files. Revert generated
-drift the checks leave behind before continuing. A full suite the domain
-rules out stays out: CI runs it.
+Yes when a readable fresh target equals `shipTarget`: the earlier Proceed
+stands, with the answers from the ship gate decision `run_snapshot` shows
+(a tree dirty now with no recorded commit or stash answer is asked at
+"dirty answer?"). Unset (`run_field_get` errors), `-`, a different target
+or an unreadable store opens the gate, naming both targets.
 
-### Fix test-first, commit, rerun
-
-Each fix gets its failing test first, then the fix, then a commit. The
-counter is fix rounds within this pass through the stage.
-
-### Resolve the files, then git rebase --continue on Bash
-
-Resolve each conflicted file `git_rebase` returned, then continue the
-rebase on Bash (no tool continues one). A later commit that conflicts
-counts as another round. Once a rebase finishes, clean or resolved, the
-fast checks run again because the tree changed under them, and then the
-push follows: this pass never starts a second rebase. A continue that
-fails with anything but another conflict aborts the rebase, then fails
-the stage with the error quoted.
-
-### Capture the AFTER for the next case the domain names
-
-For each case in the record, the same view as its BEFORE, on the sha
-you pushed; a v1 record's BEFORE counts as the case `case`, so an AFTER
-of that view belongs to it. Any other capture the domain names is a new
-case with its own `id` and `label`. The counter is attempts per case within this pass;
-after the third failure that case goes on without its AFTER and the
-description says what was tried. Unbound, there is no AFTER. Every
-capture goes into the record through the evidence record's merge and
-annotate steps, and is written before anything uploads; a capture is
-never uploaded on its own.
-
-### Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)
-
-The upload guard refused a file past its one fix; a second timeout on
-the same file reaches this gate too (Iterate retries it once the human
-has checked the daemon), as does a second refusal that the file is not
-in the record or is a raw capture. Scope `off-script:ship:<n>`, sharing
-`n` with the push's off-script gate, `context` quoting the refusal and
-the path. Take writes the description
-with the refused files' local paths linked instead of uploads, while files
-already uploaded keep their upload markdown; Iterate means the human moved
-the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under
-an allowed root is only ever the human's move: the roots are the boundary
-on what leaves the machine.
-
-### Write the title and description
-
-Title from the ticket or the first commit subject; the body links the
-ticket and carries the evidence section the evidence record below
-describes, built from the record just written. The update replaces the
-whole body, so start from the one just read back: the record's evidence
-section replaces any evidence block an earlier stage wrote, and everything
-else already there (a teammate's edits) is kept; change only what this
-stage owns. The
-domain's title, template and voice rules win over this paragraph.
-
-### Gate clarify: which forge?
-
-The origin host is neither GitLab nor GitHub. Ask which forge it is,
-quoting the `git remote get-url origin` line as the context. Options:
-**GitLab** / **GitHub** / **Hand back**, and `next`: **Proceed** /
-**Hold**. `Forge clarify rounds = 2?` counts the times the host reads as
-neither within this pass through the stage, this one included: the first
-asks, and the second fails the stage with the origin URL and the answer
-quoted. The named forge stands for the host from here on: this diamond
-and every later forge diamond read the answer, never the origin URL
-again, so the counter trips only when the answer names no forge this
-stage knows.
-
-## What the graph cannot show
-
-- **Off-script answers.** Read `next` first: Hold ends the turn with no
-  move made; Iterate means the human fixed the cause and ignores
-  `action`; only Proceed applies `action`. Retrying `git_push` or
-  `mr_upload` is Iterate, never Take; rounds count per stage attempt.
-- After a rebase that rewrote already-pushed commits, push with
-  `git_push {tree: <root>, forceWithLease: true}` instead. Never force
-  otherwise, and never push a branch whose tests you have not seen pass in
-  this session.
-- `targetBranch` is the target `branch_stack` resolved before the gate:
-  the stack parent when the branch is a stack member, else the default
-  branch read from git, never guessed. When `branch_stack` reports
-  `stackStore: "unavailable"` or errors, the target is the default branch
-  and the gate's context says the stack could not be read. A GitHub PR
-  takes the same target as `--base`. The domain rebase goes onto
-  `origin/<that target>`, so a stack member never replays its parent's
-  unmerged commits; the gate names the target, the unreadable-store
-  fallback included, before any rebase runs.
-  Keep the `url` `mr_create` returns as `mrUrl` for every later write.
-- **Recorded consent.** Proceed records the target it consented to with
-  `run_field_set {key: shipTarget, value: <resolved target>, stage:
-  "ship"}`; when the stack store was unreadable the value is `<default
-  branch> (stack store unreadable)`, so a later reader can tell consent to
-  the fallback from a real read. The rebase and `mr_create` use the plain
-  branch name. Iterate and Hold clear the field with value `-` before
-  they leave the gate, so the skip below never fires inside one pass and a
-  resume after either re-asks the gate. The work orchestrator clears it on a redirect that reaches ship and
-  on a failure gate Retry of ship.
-- **Re-entry.** A stage entered again reads `shipTarget` after
-  `branch_stack`. An unset key (`run_field_get` errors) or the value `-`
-  is no recorded consent: the gate opens. A readable fresh target equal to
-  the recorded one continues past the gate, the earlier Proceed standing;
-  the `dirty`, `open_as` and domain answers come from the ship gate
-  decision `run_snapshot` shows, and a tree dirty now with no recorded
-  commit or stash answer goes to "dirty answer?" with the fresh state, which
-  asks the dirty question before going on. A fresh target that differs, or a
-  store unreadable now, reopens the gate with a sentence naming the
-  recorded target and the fresh one, even though the gate was answered
-  before; Proceed records the fresh target.
-
-## Gate `ship` (before the push)
+### Gate ship (table below)
 
 One sentence above the form: the branch, the commits about to go, whether
 the tree is dirty, and the resolved target (the stack parent, the default
 branch, or "the stack could not be read, so the default branch"), so
-Proceed is consent to that target. When a re-entered stage reopens the
-gate because the target moved, the sentence names the recorded target and
-the fresh one. When the gate reopens with a rebase in
-progress (the conflict rounds are spent), the context says so, since Abort
-or Go back then aborts that rebase.
+Proceed is consent to that target. A reopening with a rebase in progress
+says so.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
@@ -434,35 +293,140 @@ or Go back then aborts that rebase.
 | `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |
 
 Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
-Abort pushes nothing and aborts a rebase in progress before the stage fails.
-Go back also aborts a rebase in progress first, so the earlier stage never
-receives a tree that is mid-rebase.
-`Ship gate rounds = 2?` counts Iterate answers at this gate within this
-pass through the stage, this one included: the first redoes the steps
-before the gate with the note, and the second fails the stage with the
-note quoted. `Ship gate reopenings = 2?` counts the times the fix or
-conflict rounds run out and reopen this gate within this pass through
-the stage, this one included: the first reopens it with the failing
-output or conflicted files quoted, and the second fails the stage with
-them quoted. The fix and conflict rounds carry over a reopen: the
-reopened gate is the human's turn to fix it, so a Proceed whose checks
-still fail reaches this counter again without new fix rounds. Either
-failure aborts a rebase in progress first.
+Abort's reason is `aborted at the ship gate`. With the store unreadable,
+Proceed records `<default branch> (stack store unreadable)`; the rebase
+and `mr_create` use the plain name.
+Iterate and Hold clear it to `-` first, so a resume re-asks; the work
+orchestrator clears it on a redirect reaching ship and on a failure gate
+Retry of ship. Spent fix or conflict rounds reopen this gate (not an
+Iterate), quoting the failing output or conflicted files; they carry over
+a reopen, so a Proceed whose checks still fail reopens with no new fix
+rounds.
+
+### Stash them
+
+Nothing in this stage pops the stash.
+
+### Run the domain's fast checks (none when unbound)
+
+Only the checks the domain names, on the changed files; revert generated
+drift they leave. A full suite the domain rules out stays out. A finished
+rebase reruns them, then the push follows: a pass never rebases twice.
+
+### Fix test-first, commit, rerun
+
+Each fix gets its failing test first, then the fix, then a commit.
+
+### Resolve the files, then git rebase --continue on Bash
+
+Resolve each conflicted file `git_rebase` returned, then continue on Bash
+(no tool continues a rebase).
+
+### Push needs force-with-lease?
+
+Yes only when a rebase finished this pass and the upstream already held
+the commits it rewrote; never force otherwise. Never push a branch whose
+tests you have not seen pass this session.
+
+### Off-script gate: git_push refused
+
+The gate protocol's Off-script gate (scope `off-script:ship:<n>`, `n`
+shared with the evidence include's upload gate, `context` quoting the
+refusal): `action` Take (the push outside `git_push` the gate recorded) or
+Hand back (a failure, the refusal its reason); `next` Proceed, Iterate
+here (the human fixed the cause) or Hold (no move). Read `next` first:
+only Proceed applies `action`; retrying `git_push` is Iterate, never Take.
+Iterate counts nothing: each retry needs a new answer at this gate.
+
+### Make the recorded move once
+
+Compare `git rev-parse HEAD` with the remote branch; never push from here.
+It landed when the remote branch carries HEAD, which `pushed` records with
+no prior id. A miss reopens the push gate, quoting the comparison.
+
+### Gate clarify: which forge?
+
+Context: the `git remote get-url origin` line. Options: **GitLab** /
+**GitHub** / **Hand back**; `next`: **Proceed** / **Hold**. Later forge
+diamonds read the named forge, never the URL.
+
+### Capture the AFTER for the next case the domain names
+
+Per case in the record, the same view as its BEFORE on the pushed sha (a
+v1 record's BEFORE is the case `case`); any other capture the domain names
+is a new case with its own `id` and `label`. A case with no AFTER after
+three tries goes on, the description saying what was tried. A capture is
+never uploaded outside the record.
+
+### Record the evidence (evidence-record)
+
+`images` are the AFTERs just captured (`slot: after`, a new case's
+`label`), `tree` is `<root>`. Recorded goes straight to the attach: this
+stage writes no `evidence` of its own.
+
+### Attach the evidence (evidence-record)
+
+The ship gate's Proceed is the attach consent. This is the last attach, so
+Take sends `linkRefused: true`.
+
+### Write the title and description
+
+Title from the ticket or the first commit subject; the body links the
+ticket. The update replaces the whole body, so start from the read-back
+and keep everything else: a teammate's edits, and the evidence section
+`Attach the evidence` wrote, byte for byte, never a second evidence block.
+This stage always writes them, an existing MR's included; the domain's
+title, template and voice rules decide what they say, never whether the
+write happens.
+
+## What the graph cannot show
+
+- **`pushed`** hands the watch-ci stage `git_push`'s `sha`, and its
+  `priorPipelineId` only when the push moved the branch (commits listed
+  before the gate, a commit by this stage since, or a forced push); else
+  `null`, or the watch waits for a pipeline that never comes. A push that
+  moved nothing relies on the sha's own pipeline matching by sha; on a
+  fast-forward merge train that pipeline is unprovable, and the watch's
+  waiting budget ends the watch.
+- **The lease.** The pushes' `<mr>` is the `mr` field read at entry: when it is set
+  (a repair push after a red CI), both pushes pass `leaseMrUrl: <mr>`.
+  `refused: "lease_held"` means another attendant holds the MR's CI lease:
+  report the `holder` and stop, releasing nothing; that lease is someone
+  else's.
+- **Hold** records `run_hold`: `reason` their words or the gate,
+  `decidedBy` as the answer recorded it.
+- **`targetBranch`** is what `branch_stack` resolved; a default branch is
+  read from git, never guessed. A GitHub PR takes it as `--base`, with `--draft` unless the gate
+  said ready. The rebase
+  goes onto `origin/<target>`, so a stack member never replays its
+  parent's unmerged commits.
+- **The MR.** `mr_create`'s `url` is `mrUrl` from here on. `existing:
+  true` is an MR already open, nothing passed applied (as the re-call
+  after `url: null` returns the first call's MR). The return names both
+  targets when its `targetBranch` differs from the resolved one, and says
+  squash is unset when asked and never applied.
+
+## Budgets in this stage
+
+Each `run_budget` counts one as its loop is entered and lasts the stage
+attempt, through compaction and resume. Its `spent?` diamond reads `spent` against `limit`
+(`spent > limit`); ignore `exhausted` and `remaining` (`exhausted` is
+`spent >= limit` and would stop one round early). A failure quotes what it last saw (the error, the note, the
+failing output or conflicted files, the origin URL and answer, the images
+named, the refusal) as its reason.
 
 ## Domain rules
 
-The domain rules below supply content, checks and extra gate questions.
-Where a domain step names a move the graph above marks STOP, the STOP
-node's edge wins: a shell push fallback opens the push's off-script gate;
-a GitLab CLI read goes through the read tools or `gitlab_get`, and a
-write through the `mr_*` tools. A domain rule that keeps a capture out
-of the record, or keeps a base with no waiver, yields to the evidence
+The domain rules run their own steps in their own order, every mechanical
+move landing on this graph. If a rule below asks for a move this graph
+marks STOP, take the off-script edge instead. A rule that keeps a capture
+out of the record, or keeps a base with no waiver, yields to the evidence
 record.
 
 {{slot:domain}}
 
-When nothing is inlined above, the graph alone is the flow: no steps
-before the gate, no fast checks, no rebase, no AFTER.
+When nothing is inlined above, the graph alone is the flow: no domain
+steps or checks, no rebase, no AFTER.
 
 ## Evidence record
 

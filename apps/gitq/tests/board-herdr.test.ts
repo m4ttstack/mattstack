@@ -1,8 +1,11 @@
 import { describe, test, expect } from 'bun:test';
+import { homedir } from 'os';
 import {
   actionPrompt,
   buildPaneCommand,
+  ensureHerdr,
   findWorkspaceIdByLabel,
+  herdrBin,
   launchInWorkspace,
   parseTabCreate,
   parseTabList,
@@ -10,6 +13,8 @@ import {
   statusBinPath,
   tabLabel,
 } from '../src/server/herdr.ts';
+
+const running = async () => ({ ok: true, data: { state: 'running' } });
 
 const WS_LIST = JSON.stringify({ result: { workspaces: [{ workspace_id: 'ws1', label: 'gitq' }] } });
 const WS_EMPTY = JSON.stringify({ result: { workspaces: [] } });
@@ -88,7 +93,7 @@ describe('launchInWorkspace', () => {
       { expectArgs: ['tab', 'rename', 'tab0', 'gitq:mystack sync'], out: '{}' },
       { expectArgs: ['pane', 'run', 'pane0', 'CMD'], out: '{}' },
     ]);
-    const res = await launchInWorkspace(OPTS, runner);
+    const res = await launchInWorkspace(OPTS, runner, running);
     expect(res).toEqual({ tabId: 'tab0', workspaceId: 'ws2', focusedExisting: false });
   });
 
@@ -99,7 +104,7 @@ describe('launchInWorkspace', () => {
       { expectArgs: ['tab', 'create', '--workspace', 'ws1', '--label', 'gitq:mystack sync', '--no-focus'], out: TAB_CREATE },
       { expectArgs: ['pane', 'run', 'pane1', 'CMD'], out: '{}' },
     ]);
-    const res = await launchInWorkspace(OPTS, runner);
+    const res = await launchInWorkspace(OPTS, runner, running);
     expect(res).toEqual({ tabId: 'tab1', workspaceId: 'ws1', focusedExisting: false });
   });
 
@@ -109,8 +114,59 @@ describe('launchInWorkspace', () => {
       { expectArgs: ['tab', 'list', '--workspace', 'ws1'], out: TAB_LIST_MATCH },
       { expectArgs: ['tab', 'focus', 'tab9'], out: '{}' },
     ]);
-    const res = await launchInWorkspace(OPTS, runner);
+    const res = await launchInWorkspace(OPTS, runner, running);
     expect(res).toEqual({ tabId: 'tab9', workspaceId: 'ws1', focusedExisting: true });
     expect(seen.some((args) => args[0] === 'pane')).toBe(false);
+  });
+
+  test('a herdr that is not installed throws before the runner runs', async () => {
+    const { runner, seen } = scriptedRunner([]);
+    await expect(
+      launchInWorkspace(OPTS, runner, async () => ({ ok: true, data: { state: 'not-installed' } })),
+    ).rejects.toThrow("herdr isn't installed. Open mattstack Setup to install it");
+    expect(seen).toEqual([]);
+  });
+
+  test('a failed start surfaces the daemon detail', async () => {
+    const { runner, seen } = scriptedRunner([]);
+    await expect(
+      launchInWorkspace(OPTS, runner, async () => ({ ok: true, data: { state: 'failed', detail: 'socket never appeared' } })),
+    ).rejects.toThrow('socket never appeared');
+    expect(seen).toEqual([]);
+  });
+
+  test('an unreachable daemon does not stop the launch', async () => {
+    const { runner, seen } = scriptedRunner([{ expectArgs: ['workspace', 'list'], out: WS_LIST }, { expectArgs: ['tab', 'list', '--workspace', 'ws1'], out: TAB_LIST_MATCH }, { expectArgs: ['tab', 'focus', 'tab9'], out: '{}' }]);
+    await launchInWorkspace(OPTS, runner, async () => ({ ok: false }));
+    expect(seen.length).toBe(3);
+  });
+});
+
+describe('herdrBin', () => {
+  const home = homedir();
+
+  test('HERDR_BIN wins over any installed herdr', () => {
+    expect(herdrBin({ HERDR_BIN: '/custom/herdr' }, () => true)).toBe('/custom/herdr');
+  });
+
+  test('finds a Homebrew herdr when it is the only one', () => {
+    expect(herdrBin({}, (p) => p === '/opt/homebrew/bin/herdr')).toBe('/opt/homebrew/bin/herdr');
+  });
+
+  test('prefers ~/.local/bin, then /opt/homebrew, then /usr/local', () => {
+    expect(herdrBin({}, () => true)).toBe(`${home}/.local/bin/herdr`);
+    expect(herdrBin({}, (p) => p !== `${home}/.local/bin/herdr`)).toBe('/opt/homebrew/bin/herdr');
+    expect(herdrBin({}, (p) => p === '/usr/local/bin/herdr')).toBe('/usr/local/bin/herdr');
+  });
+
+  test('falls back to ~/.local/bin when none exists', () => {
+    expect(herdrBin({}, () => false)).toBe(`${home}/.local/bin/herdr`);
+  });
+});
+
+describe('ensureHerdr', () => {
+  test('running and started pass', async () => {
+    await ensureHerdr(running);
+    await ensureHerdr(async () => ({ ok: true, data: { state: 'started' } }));
   });
 });

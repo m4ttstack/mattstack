@@ -7,14 +7,14 @@
  * saved as bare repo names each repo's folder, on every update, since a repo
  * can reach this Mac after the migration that first tried.
  *
- * The repo root is the user's own choice, made through the `repos.root`
- * checklist row (`rt setup repo-root set`), not something this step detects
- * or creates. By step 8 the home repo exists, so a staged answer can safely
- * be written to the machine store; see `lib/setup/repo-root.ts`.
+ * A staged repo root is the user's own choice (`rt setup repo-root set`),
+ * not something this step detects or creates. By step 8 the home repo
+ * exists, so a staged answer can safely be written to the machine store; see
+ * `lib/setup/repo-root.ts`.
  *
  * Never seeds a key with an empty placeholder value: an empty list claims
- * nothing and hides the setup row that asks for the real one. Every write
- * here carries a real, non-empty value or doesn't happen.
+ * nothing. Every write here carries a real, non-empty value or doesn't
+ * happen.
  */
 
 import { getSetting } from "../../settings/resolve.ts";

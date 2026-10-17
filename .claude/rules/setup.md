@@ -47,9 +47,10 @@ an Install nobody can reach (RT-260). A connect action may prefill a field
 through `ConnectField.value`; the tray renders it as the field's initial
 text. It may also carry `create`, a link the sheet opens in the browser
 without closing: for the forges that is the new-token page with rt's scopes
-pre-checked, and `lib/setup/token-create.ts` is the one list those scopes,
-the field hint and the post-paste check all read, so a scope rt newly needs
-is added there and nowhere else. Add a row by following an existing validator in `lib/setup/validators/`
+pre-checked, and `lib/setup/token-create.ts` holds the required list (the
+field hint and the post-paste check read it) and the link's extra pre-checked
+scopes (the link alone reads them), still the only place either lives, so a
+scope rt newly needs is added there and nowhere else. Add a row by following an existing validator in `lib/setup/validators/`
 and its `steps-*.test.ts` twin; the tray's `PlanModels.swift` decodes the
 same contract, so a new field needs the Swift side too.
 
@@ -85,3 +86,12 @@ change there is an admin's `rt settings set` or a layout change, see the
 runs once per machine and is recorded when `done` or `skipped`. The tray
 only spawns the verb and routes the `setup_update` notification click to the
 Setup status window; put no decision in Swift.
+
+## Your repos
+
+The "Your repos" group is one `repos.place:<identity>` row per tracked repo,
+from `lib/setup/validators/repos.ts`. The rows and `rt setup repo place`
+resolve placements and clashes through `lib/setup/repo-placement.ts`, so they
+never disagree; change a rule there, not in either caller. `rt setup repo-root
+set` stays as a CLI verb for the folder new clones go in, but no row asks for
+it.

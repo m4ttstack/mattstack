@@ -104,6 +104,13 @@ describe("waiveRow / unwaiveRow", () => {
     expect(writes).toEqual([]);
   });
 
+  test("a Your repos row gates Finish but cannot be skipped", () => {
+    const { store, writes } = fakeStore();
+    expect(unwaiveRow("repos.place:gitlab.com/acme/widgets", store)).toEqual({ waived: [], changed: false });
+    expect(() => waiveRow("repos.place:gitlab.com/acme/widgets", store)).toThrow(UserActionableError);
+    expect(writes).toEqual([]);
+  });
+
   test("the real store round-trips through the machine scope", () => {
     const store = realWaiverStore();
     waiveRow("tool.fast-browser-extension", store);

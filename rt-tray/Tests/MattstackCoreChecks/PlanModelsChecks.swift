@@ -174,4 +174,31 @@ let planModelsChecks: [Check] = [
         c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row(#","finishGated":true,"waivable":false"#).utf8)).waivable, false)
         c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row("").utf8)).waivable, false)
     },
+    Check("a place-repo row decodes with every field the Your repos row reads") { c in
+        let json = Data(#"""
+        { "id": "repos.place:gitlab.com/acme/widgets", "kind": "tool", "title": "widgets", "why": "gitlab.com/acme", "required": true,
+          "optionalNote": null, "status": "needs-you", "detail": "Choose where your repos go", "recheck": "on-activate",
+          "finishGated": true, "waivable": false,
+          "action": { "type": "place-repo", "label": "Choose location…", "identity": "gitlab.com/acme/widgets", "repo": "widgets",
+                      "mode": "clone", "checkoutPath": null, "clonePath": "/Users/dev1/code/widgets", "note": "Choose where your repos go",
+                      "problem": null, "then": ["setup", "apply", "--only", "repos.clone"],
+                      "oneClick": { "label": "Clone here", "mode": "clone", "path": "/Users/dev1/code/widgets" }, "segmentRecords": false } }
+        """#.utf8)
+        let row = try JSONDecoder().decode(PlanRow.self, from: json)
+        c.expectEqual(row.finishGated, true)
+        c.expectEqual(row.waivable, false)
+        let a = try c.requireSome(row.action, "the action must decode")
+        c.expectEqual(a.type, .placeRepo)
+        c.expectEqual(a.identity, "gitlab.com/acme/widgets")
+        c.expectEqual(a.repo, "widgets")
+        c.expectEqual(a.mode, "clone")
+        c.expectEqual(a.checkoutPath, nil)
+        c.expectEqual(a.clonePath, "/Users/dev1/code/widgets")
+        c.expectEqual(a.note, "Choose where your repos go")
+        c.expectEqual(a.problem, nil)
+        c.expectEqual(a.then, ["setup", "apply", "--only", "repos.clone"])
+        c.expectEqual(a.oneClick, PlaceRepoOneClick(label: "Clone here", mode: "clone", path: "/Users/dev1/code/widgets"))
+        c.expectEqual(a.segmentRecords, false)
+        c.expectEqual(row.action.flatMap(DoneActions.route), nil)
+    },
 ]
