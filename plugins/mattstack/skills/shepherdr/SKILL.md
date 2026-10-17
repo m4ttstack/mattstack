@@ -9,7 +9,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.31.17 path=attachments/orchestration/shepherdr/SKILL.md lines=15-842 -->
+<!-- part: step source=mattstack:shepherdr version=0.31.17 path=attachments/orchestration/shepherdr/SKILL.md lines=13-840 -->
 
 # shepherdr
 
@@ -302,7 +302,7 @@ When nothing is inlined above, every engine default stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.31.17 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.31.17 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
