@@ -736,7 +736,7 @@ describe('the pipeline choice', () => {
       within(root).queryByRole('button', { name: 'Use default' })
     ).toBeNull();
     expect(within(root).getByTestId('rebind-override-layer')).toHaveTextContent(
-      'set by base: acme-base'
+      'This override comes from base: acme-base; remove it there.'
     );
   });
 

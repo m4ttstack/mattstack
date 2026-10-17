@@ -396,7 +396,7 @@ export function RebindPanel({
             className={classes.useDefault}
             data-testid="rebind-override-layer"
           >
-            set by {choices.overrideSetBy}
+            This override comes from {choices.overrideSetBy}; remove it there.
           </Text>
         )}
         {pipeline && choices.removable && (
