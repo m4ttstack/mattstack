@@ -797,4 +797,4 @@ call, which no tool covers; it is not counted.
 | **Total (30 runs)** | **0** | **0** | **0** | **0** | **0** | **0** | **0** | |
 
 GREEN passes at 0 deviations in every column on the first round; no craft
-round was needed. The engine source went from 9,647 to 8,445 words.
+round was needed. The engine source went from 9,647 to 8,447 words.
