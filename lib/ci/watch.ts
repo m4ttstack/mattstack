@@ -56,6 +56,7 @@ export interface WatchBudget { minutes: number; elapsedMinutes: number; spent: b
 export const HEAD_LAG_GRACE_MS = 120_000;
 export const TERMINAL: ReadonlySet<string> = new Set(["success", "success_with_warnings", "failed", "canceled", "skipped", "manual"]);
 const TRACE_JOBS = 5;
+const READ_TRIES = 3;
 const MINUTE_MS = 60_000;
 const MERGE_REF = /^refs\/merge-requests\/(\d+)\/(merge|train)$/;
 
@@ -233,6 +234,10 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     return result("lease_lost", mr, standDown(lc), { holder: lc.holder, lease: null });
   }
 
+  // Half the lease's ttl bounds the interval so the heartbeat each poll gives never lets the lease go stale.
+  const pollInterval = () => Math.min(input.intervalSeconds * 1_000, lease ? (lease.ttlSeconds * 1_000) / 2 : Infinity);
+  let readFailures = 0;
+
   const again = (hint: string) => (provenPrior === undefined ? `${hint}; call again` : `${hint}; call again with priorPipelineId ${provenPrior}`);
 
   for (;;) {
@@ -245,9 +250,18 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     const read = await deps.readMr();
     if (!read.ok) {
       if (last.mr === null) return { error: read.error };
-      observe();
-      return result(last.state, last.mr, again(`reading the MR failed (${read.error})`));
+      readFailures++;
+      const remaining = deadline - deps.now();
+      if (readFailures >= READ_TRIES || remaining <= 0) {
+        observe();
+        return result(last.state, last.mr, again(`reading the MR failed (${read.error})`));
+      }
+      // Without a sleep here a caller told to call again would poll a down forge back to back.
+      await deps.sleep(Math.min(pollInterval() * 2 ** (readFailures - 1), remaining), input.signal);
+      if (input.signal?.aborted) return result("aborted", last.mr, again("the call was cancelled"));
+      continue;
     }
+    readFailures = 0;
     const mr = read.mr;
     budget = null;
     budgetEndsAt = null;
@@ -344,9 +358,7 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     if (deadline - deps.now() <= 0) return result(last.state, last.mr, last.hint);
     const noPipelineEndsAt = attend && waitingKind && waitingSince !== null ? waitingSince + attend.noPipelineMs : Infinity;
     const remaining = Math.min(deadline, budgetEndsAt ?? Infinity, noPipelineEndsAt) - deps.now();
-    // Half the lease's ttl bounds the interval so the heartbeat each poll gives never lets the lease go stale.
-    const interval = Math.min(input.intervalSeconds * 1_000, lease ? (lease.ttlSeconds * 1_000) / 2 : Infinity);
-    await deps.sleep(Math.min(interval, remaining), input.signal);
+    await deps.sleep(Math.min(pollInterval(), remaining), input.signal);
     if (input.signal?.aborted) return result("aborted", last.mr, again("the call was cancelled"));
   }
 }
