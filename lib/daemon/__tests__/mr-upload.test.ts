@@ -65,6 +65,12 @@ describe("mr:upload", () => {
     for (const d of [home, repoPath, elsewhere]) rmSync(d, { recursive: true, force: true });
   });
 
+  function pngWith(dir: string, name: string, tail: string): string {
+    const p = join(dir, name);
+    writeFileSync(p, Buffer.concat([Buffer.from(PNG), Buffer.from(tail)]));
+    return p;
+  }
+
   function png(dir: string, name = "shot.png"): string {
     const p = join(dir, name);
     writeFileSync(p, PNG);
@@ -284,8 +290,37 @@ describe("mr:upload", () => {
         expect(h.calls.length).toBe(0);
       }
       const h = harness({ repoPath, ...record(ticket({ annotated: join(repoPath, "t-board.png"), caption: "c" })) });
-      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "t-board.png"), runId: "run-1" })).ok).toBe(true);
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "t-board.png", "board"), runId: "run-1" })).ok).toBe(true);
       expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "shot-0412.png"), runId: "run-1" })).ok).toBe(false);
+    });
+
+    test("a byte copy of a ticket image at another path is refused, even recorded as a waived image", async () => {
+      const value = {
+        v: 2,
+        cases: [
+          { id: "t", label: "T", before: { path: join(repoPath, "ticket.png"), source: "ticket", annotated: join(repoPath, "board.png"), caption: "c" } },
+          { id: "u", label: "U", after: { path: join(repoPath, "copy-of-it.png"), waiver: "nothing to mark" } },
+        ],
+      };
+      png(repoPath, "ticket.png");
+      const h = harness({ repoPath, ...record(value) });
+      const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "copy-of-it.png"), runId: "run-1" });
+      expect(res).toEqual({ ok: false, error: "copy-of-it.png is the unredacted original of an imported ticket image; upload the composed board instead" });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "board.png", "board"), runId: "run-1" })).ok).toBe(true);
+      expect(h.calls.length).toBe(1);
+    });
+
+    test("a file in a run's evidence folder is checked against that run's record even without runId", async () => {
+      const dir = join(home, ".mattstack", "work", "run-1", "evidence", "t");
+      mkdirSync(dir, { recursive: true });
+      const value = { v: 2, cases: [{ id: "t", label: "T", before: { path: join(dir, "shot-0412.png"), source: "ticket", annotated: join(dir, "board.png"), caption: "c" } }] };
+      const h = harness({ repoPath, uploadRoots: () => [dir], ...record(value) });
+      expect(await h.handlers["mr:upload"]({ repoName: REPO, path: png(dir, "shot-0412.png") }))
+        .toEqual({ ok: false, error: "shot-0412.png is the unredacted original of an imported ticket image; upload the composed board instead" });
+      expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(dir, "stray.png", "stray") }))
+        .toEqual({ ok: false, error: "stray.png is not in run run-1's evidence record as an annotated image or a waived capture; record it with run_field_set first" });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(dir, "board.png", "board") })).ok).toBe(true);
+      expect(h.calls.length).toBe(1);
     });
 
     test("without runId the record is never read", async () => {

@@ -8,11 +8,13 @@
  * uid, and rt.mcp.uploadRoots read through the resolver at call time. The
  * guard adds its own built-in roots (rt's evidence folder, a run's evidence
  * folder) on top of these. With a runId, the file must also be in that run's
- * evidence record (../evidence-record-check.ts). A composed board whose
+ * evidence record (../evidence-record-check.ts); a file under a run's own
+ * evidence folder is held to that run's record even without one. A composed board whose
  * ticket-image redactions are unconfirmed is refused too
  * (../redaction-record-check.ts).
  */
-import { isAbsolute } from "path";
+import { realpathSync } from "fs";
+import { isAbsolute, relative, sep } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
 import { getRepoContext, providerRequestHook } from "../freshness.ts";
 import { loadSecrets } from "../../linear.ts";
@@ -21,7 +23,7 @@ import { findRun } from "../../runs/store.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
 import { evidenceUploadRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
 import { redactionUploadRefusal } from "../redaction-record-check.ts";
-import { checkUploadPath, claudeTempRoots } from "../upload-guard.ts";
+import { checkUploadPath, claudeTempRoots, workRoot } from "../upload-guard.ts";
 import type { CommandResult, HandlerContext, HandlerMap } from "./types.ts";
 
 /** Inside the client's 120s so the daemon, not the socket, reports a stalled GitLab. */
@@ -36,6 +38,21 @@ export interface MrUploadSeams {
   fetchFn?: typeof fetch;
   requestHook?: () => ReturnType<typeof providerRequestHook>;
   runEvidence?: (runId: string) => RunEvidenceLookup;
+  workRoot?: () => string;
+}
+
+/** A file under a run's evidence folder belongs to that run, so its record governs it with or without a runId. */
+function runIdOfPath(real: string, root: string): string | null {
+  let rootReal: string;
+  try {
+    rootReal = realpathSync(root);
+  } catch {
+    return null;
+  }
+  const rel = relative(rootReal, real);
+  if (rel.startsWith("..") || isAbsolute(rel)) return null;
+  const [id, folder, ...rest] = rel.split(sep);
+  return id && folder === "evidence" && rest.length > 0 ? id : null;
 }
 
 export function createMrUploadHandlers(
@@ -47,6 +64,7 @@ export function createMrUploadHandlers(
   const worktreePathsFn = seams.worktreePaths ?? ((repoName: string) => loadRegistry(repoName).map((t) => t.path));
   const tempRootsFn = seams.tempRoots ?? (() => claudeTempRoots(typeof process.getuid === "function" ? process.getuid() : null));
   const fetchFn = seams.fetchFn ?? fetch;
+  const workRootFn = seams.workRoot ?? workRoot;
   const hookFn = seams.requestHook ?? providerRequestHook;
   const runEvidenceFn = seams.runEvidence ?? ((runId: string): RunEvidenceLookup => {
     const detail = findRun(runId);
@@ -85,10 +103,13 @@ export function createMrUploadHandlers(
       if (!checked.ok) return { ok: false, error: checked.error };
       const unconfirmed = redactionUploadRefusal({ realpath: checked.realpath, filename: checked.filename, bytes: checked.bytes, warn: (message, context) => ctx.log.warn(context, message) });
       if (unconfirmed) return { ok: false, error: unconfirmed };
-      if (p?.runId !== undefined) {
-        if (typeof p.runId !== "string" || !p.runId.trim()) return { ok: false, error: "runId must be a non-empty string" };
-        const runId = p.runId.trim();
-        const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId) });
+      if (p?.runId !== undefined && (typeof p.runId !== "string" || !p.runId.trim())) return { ok: false, error: "runId must be a non-empty string" };
+      const runIds = new Set<string>();
+      if (typeof p?.runId === "string") runIds.add(p.runId.trim());
+      const owner = runIdOfPath(checked.realpath, workRootFn());
+      if (owner) runIds.add(owner);
+      for (const runId of runIds) {
+        const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId), bytes: checked.bytes });
         if (refusal) return { ok: false, error: refusal };
       }
 
