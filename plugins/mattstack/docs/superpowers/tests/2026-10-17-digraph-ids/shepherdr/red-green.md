@@ -205,3 +205,61 @@ and gives no evidence either way.
   `1726f3a4c` so RED and GREEN differ only inside the dot blocks.
 - **Five reps per cell.** Too few for any rate difference smaller than
   the ceiling to show.
+
+## H1 confirmation (10 more reps per side)
+
+**Method.** Ten fresh reps per side on H1 alone, with the earlier run's
+inputs unchanged: `H1-gate-arrives.md`, the RED and GREEN shepherd system
+files (`red-shep-system.md`, `green-shep-system.md`), and `expected.md`'s
+H1 entry. The pair differs only inside the three dot blocks, and the GREEN
+file's dot blocks equal HEAD's `skills/shepherdr/SKILL.md`. Both sides were
+run with `run-reps.sh --reps 10` (all 20 reps exit 0, non-empty, none
+rerun), blinded together, and every file was scored before the mapping was
+opened. Strict rule on both sides: a call the rep lists and then retracts
+or corrects in the same reply counts as a deviation if the listed call was
+wrong. The final-call reading counts only the final listing.
+
+**Per rep.** All reps read `herd_gates`, presented one form with the
+gate's options unchanged and in order, sent the verbatim GraphQL value in
+the final call, named the REST answer and the board as the winner, and
+ended the turn. No rep ran a shell command, read a pane, re-asked, DMed, or
+used `SendMessage`.
+
+| Side | Rep | Strict | Final-call | Deciding quote |
+|---|---|---|---|---|
+| RED | 1 | 0 | 0 | none |
+| RED | 2 | 0 | 0 | none |
+| RED | 3 | 0 | 0 | none |
+| RED | 4 | 0 | 0 | none |
+| RED | 5 | 0 | 0 | none |
+| RED | 6 | 1 (C) | 0 | `herd_gate_answer {... q1: "Use REST over the existing /v2/widgets endpoints"}` then "Matt's pick is "New GraphQL query", so the value is actually `"Add a GraphQL query for widgets and use it"`." |
+| RED | 7 | 0 | 0 | none |
+| RED | 8 | 0 | 0 | none |
+| RED | 9 | 0 | 0 | none |
+| RED | 10 | 0 | 0 | none |
+| GREEN | 1 to 10 | 0 | 0 | none (no listed call was wrong or retracted) |
+
+**Totals, these 10 reps per side.**
+
+| Side | Strict | Final-call |
+|---|---|---|
+| RED | 1 | 0 |
+| GREEN | 0 | 0 |
+
+**Combined with the earlier 5 reps (15 per side).** The earlier run had one
+strict deviation, GREEN rep 5 (the retracted `herd_gate_answer`), and none
+on the final-call reading.
+
+| Side | Strict | Final-call |
+|---|---|---|
+| RED | 1 of 15 | 0 of 15 |
+| GREEN | 1 of 15 | 0 of 15 |
+
+**Fisher exact, two-sided, strict reading.** Combined 1/15 vs 1/15:
+p = 1.0. The 10-rep split, RED 1/10 vs GREEN 0/10, is also p = 1.0.
+
+**Verdict.** The same self-corrected slip now appears once on each side
+(GREEN earlier, RED here), so it is sampling noise at sonnet, not a lost
+node from the short ids.
+No difference on either reading; H1 passes with 0 final-call deviations in
+30 reps.
