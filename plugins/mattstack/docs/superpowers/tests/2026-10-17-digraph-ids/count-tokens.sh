@@ -7,7 +7,8 @@
 # is converted per scheme (convert.py) into <out-dir>, then loaded as the
 # appended system prompt of one tool-less `claude -p "Reply with OK."` call;
 # the input tokens it reports, less an empty-file baseline, are the file's
-# cost. Prints a markdown table.
+# cost. Prints a markdown table. Scheme `none` converts nothing, so only the
+# full-text row prints: it measures files as they stand.
 set -euo pipefail
 
 [ "$#" -ge 2 ] || { echo "usage: count-tokens.sh <system-dir> <out-dir> [scheme ...]" >&2; exit 64; }
@@ -35,6 +36,7 @@ for f in "$sys_dir"/*.md; do
   full=$(( $(tokens "$f") - base ))
   echo "| $name | full text (today) | $full | 0 | 0.0 |"
   for s in "${schemes[@]}"; do
+    [ "$s" = none ] && continue
     conv="$out/$name.${s//[:+]/-}.md"
     python3 "$here/convert.py" --scheme "$s" "$f" "$conv"
     t=$(( $(tokens "$conv") - base ))
