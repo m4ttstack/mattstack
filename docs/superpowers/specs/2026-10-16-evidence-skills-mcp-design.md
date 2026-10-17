@@ -197,6 +197,10 @@ not the one box 1 wrote (the field changed, or box 1 never wrote). The
 re-record sends box 1 the same images the verb last recorded, by their
 `value` paths with their covers, once; the next refusal goes to the gate.
 
+Removed in Task 3b (the operator's trim ruling): the `record-recalls`
+re-record. A `record` or `raw-capture` refusal now goes straight to the
+upload off-script gate like any other refused bucket.
+
 Outcomes: **Attached**, **Taken** (refused files left for a later attach),
 **Held**, **Failed** (reason). Box 1's Held and
 Failed reached from here are box 3's Held and Failed.
@@ -266,6 +270,8 @@ Changed:
 | `At: Gate evidence (table below)` | unchanged | unchanged. The `upload_root` question is obsolete: captures no longer need an upload root. |
 | `At: Gate evidence-attach (table below)` | unchanged | unchanged. Drop the `rt.mcp.uploadRoots` re-read. |
 | the "evidence tree" paragraphs | none | obsolete: captures stay where taken and box 1 files them. |
+| none (no fill anchors here) | `Open PR on the branch?` | `Open MR or PR on the branch?` |
+| none (no fill anchors here) | stage-evidence's data-source off-script gate | `Off-script gate: a new data source` |
 
 ## Behavior changes
 
@@ -312,6 +318,44 @@ pass item. A miss changes the skill text and reruns that scenario's 5, at
 most 3 rounds, then the table goes to the shepherd. The spec gets a
 deviation table (scenario, run, deviation, RED or GREEN) when the runs
 finish.
+
+## Results
+
+GREEN passed every scenario on the first run, with no fix rounds (the
+per-rep tables are in the plugin's RED/GREEN test record).
+
+| Scenario | RED | GREEN | Anti-goal reps, RED to GREEN |
+|---|---|---|---|
+| E1 happy path, GitLab | 0/5 | 5/5 | 0 to 0 |
+| E2 recapture | 2/5 | 5/5 | 0 to 0 |
+| E3 refused upload | 0/5 | 5/5 | 3 to 0 |
+| E4 GitHub PR | 1/5 | 5/5 | 0 to 0 |
+| E5 dev servers | 5/5 | 5/5 | 0 to 0 |
+
+Word counts, before to now: evidence-record 1,762 to 1,938;
+stage-evidence 3,074 to 2,175; compiled stage-evidence 10,407 to 9,698.
+
+evidence-record misses the operator's 25% target: boxes 1 and 3 replaced
+prose and JSON with graphs whose full-sentence node ids repeat on every
+edge, and box 2, the waiver table, the record concepts, the bridges and
+Domain precedence (all kept) already total about main's size.
+
+### Deviations
+
+| Scenario | Run | Deviation | RED or GREEN | Fixed by |
+|---|---|---|---|---|
+| E1 | 1-5 | first `evidence_record` has no `tree` | RED | box 1's call node names `tree: <worktree>` |
+| E1 | 1-5 | `heading: "Evidence"`, no `##` | RED | box 3: unbound heading is the full line, `## Evidence` |
+| E2 | 2-4 | draws beside the raw capture and re-sends the raw path | RED | The record's "draw on the `value` paths" line; box 1's edge label "the same images by their value paths, with covers" |
+| E3 | 1-5 | Take calls `evidence_attach {linkRefused: true}` at this stage | RED | box 3's `Does this verb attach again later?` (yes: Taken, nothing written) |
+| E3 | 2, 3, 5 | `run_field_set {key: evidence}` after the attach | RED | the "record plus attach" write removed; the opening's never-`run_field_set` rule |
+| E3 | 3 | `mr_view` to pass the body as `description` | RED | box 3's GitLab branch passes no body |
+| E3 | 4 of 5 | `heading` without `##` | RED | box 3's heading rule |
+| E4 | 1-3, 5 | `evidence_attach` without the body; body read after | RED | box 3's GitHub branch: `gh pr view` before the attach, `description` on it |
+| E4 | 3 | target as `repoName`, no `mrUrl` | RED | box 3's GitHub call node names `mrUrl` |
+| E4 | 2 of 5 | `heading` without `##` | RED | box 3's heading rule |
+| E5 | 1-5 | `heading` without `##` | RED | box 3's heading rule |
+| E3 | 1-5 | the video's waiver passed on the first `evidence_record`, taken from the scenario's wording, not a waiver gate | GREEN | not fixed: the scenario states the waiver, so not a skill gap |
 
 ## My calls
 

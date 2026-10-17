@@ -143,4 +143,91 @@ Reps 1-3 and 5 call `evidence_attach` without the body, then read it with
 
 ## GREEN
 
-Not run yet.
+System file: `build-system-file.sh <worktree root> <scratch>/evidence-reps/green`
+(this branch's text; 9,698 words against RED's 10,407). Same scenarios,
+same recipe, same scoring rules as RED, including the `kind:
+"off-script:evidence:<n>"` ruling for E3's scope item. Rep outputs:
+`<scratch>/evidence-reps/green/<scenario>/rep-<i>.txt`, not committed. No
+fix rounds: every scenario met the bar on the first run.
+
+### E1 happy path, GitLab, attach now
+
+| Pass item | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| `evidence_record` with the raw paths and `tree` | yes | yes | yes | yes | yes |
+| marks drawn beside the returned copies | yes | yes | yes | yes | yes |
+| a second `evidence_record` with covers (`value` paths) | yes | yes | yes | yes | yes |
+| `evidence_attach` with `heading` and `mrUrl` | yes | yes | yes | yes | yes |
+| anti-goal call | none | none | none | none | none |
+| **rep passes** | yes | yes | yes | yes | yes |
+
+All five pass `heading: "## Evidence"`. The `run_field_set {key: gate}`
+every rep writes is the gate protocol's bracket, not an evidence write.
+
+### E2 recapture
+
+| Pass item | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| the new BEFORE goes in as `images` for that slot | yes | yes | yes | yes | yes |
+| annotation drawn beside the content-folder path returned | yes | yes | yes | yes | yes |
+| no hand merge | yes | yes | yes | yes | yes |
+| anti-goal call | none | none | none | none | none |
+| **rep passes** | yes | yes | yes | yes | yes |
+
+Every rep draws beside `.../retry-badge/3f2a9c1b7d04/retry-badge-before.png`
+and re-sends that `value` path, with its cover, on the second
+`evidence_record`: the cue on the merged call node's edge label reads.
+
+### E3 refused upload
+
+| Pass item | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| `refused.size` opens the off-script gate `off-script:evidence:<n>` quoting the refusal | yes | yes | yes | yes | yes |
+| on Take, the stage ends with nothing written (no `linkRefused` call) | yes | yes | yes | yes | yes |
+| no copy, no `mr_upload` | yes | yes | yes | yes | yes |
+| anti-goal call | none | none | none | none | none |
+| **rep passes** | yes | yes | yes | yes | yes |
+
+Every rep routes Take through `Does this verb attach again later?` (yes)
+to Taken and returns to the orchestrator. Every rep carries the video's
+waiver from the scenario's "which is waived" on its first
+`evidence_record`; rep 5 flags it as an assumption.
+
+### E4 GitHub PR
+
+| Pass item | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| no `mr_for_branch`, no `mr_upload` | yes | yes | yes | yes | yes |
+| `gh pr view` | yes | yes | yes | yes | yes |
+| `evidence_attach` with `description` | yes | yes | yes | yes | yes |
+| `gh pr edit --body-file` | yes | yes | yes | yes | yes |
+| anti-goal call | none | none | none | none | none |
+| **rep passes** | yes | yes | yes | yes | yes |
+
+Every rep reads the body before the attach and passes `mrUrl` as the PR
+url. The grouped edge `{"Linked description written?" "PR edited?"} ->
+Attached` reads: each rep ends Attached after the edit.
+
+### E5 dev servers
+
+| Pass item | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| one `dev_endpoints {tree, roles}` | yes | yes | yes | yes | yes |
+| no `rt_verb` endpoint lookup, no curl loop | yes | yes | yes | yes | yes |
+| anti-goal call | none | none | none | none | none |
+| **rep passes** | yes | yes | yes | yes | yes |
+
+### GREEN summary
+
+| Scenario | RED | GREEN | Anti-goal reps (GREEN) |
+|---|---|---|---|
+| E1 happy GitLab | 0/5 | 5/5 | 0 |
+| E2 recapture | 2/5 | 5/5 | 0 |
+| E3 refused upload | 0/5 | 5/5 | 0 |
+| E4 GitHub PR | 1/5 | 5/5 | 0 |
+| E5 dev servers | 5/5 | 5/5 | 0 |
+
+Every RED failure class is closed: `tree` on every record, draws on the
+returned copy, Take ends Taken at this stage, no hand-written evidence
+field, the GitHub body passed as `description`, and the heading carries
+its `##`.
