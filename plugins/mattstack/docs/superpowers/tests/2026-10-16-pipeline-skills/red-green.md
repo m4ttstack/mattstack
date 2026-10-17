@@ -413,3 +413,18 @@ Per rep:
   retry the precheck" (final run, rep 3); "No gate: the precheck was
   refused, so there are no trees to resume and nothing to ask" (final run,
   rep 2).
+
+#### Task 4 fix round 1
+
+This round changes:
+
+- Fresh tree in branch mode lists the local branches first (`git -C <repo> branch --list <slug>-*`, a new node on a `no, branch mode` edge) and takes the lowest `<slug>-<n>` the list lacks.
+- Only exactly one `attached` tree is offered. Two or more make `reuse` refuse, so the gate offers the other offers and Fresh tree.
+- The offers have a fixed order: attached, then the surviving branch, then `sameTicket`. The `sameTicket` condition now leads with its subject.
+- A line says the `provision-refusals` budget counts every refusal, so `busy` is retried only if no other refusal came first.
+- Prose cuts.
+
+| Scenario | GREEN | Notes |
+|---|---|---|
+| S5 occupied ticket branch | 5/5 | Same path: precheck, one `resume_in` question (the attached tree once, plus Fresh tree), `gate_answer`, `worktree_provision {..., branch: "acme-12-fix-login", reuse: true, runDb, stage: "provision"}`, `EnterWorktree`, no hand writes after `recorded: true`. "The attached tree is listed exactly once, so there is one resume offer" (rep 2); every rep made one AskUserQuestion per chunk |
+| S5b precheck on an older daemon | 5/5 | `daemon-outdated`, then one provision with `codes`, `runDb`, `stage` and the budget; no precheck retry, no gate, no fail, no hand writes |

@@ -42,6 +42,7 @@ digraph provision {
     "Reuse result?" [shape=diamond];
     "run_budget {key: fresh-tree, limit: 2, stage: provision}" [shape=plaintext];
     "Fresh trees this attempt = 2?" [shape=diamond];
+    "git -C <repo> branch --list <slug>-*" [shape=plaintext];
     "EnterWorktree {path}" [shape=plaintext];
     "Recorded on the run?" [shape=diamond];
     "git -C <repo> rev-parse --git-dir" [shape=plaintext];
@@ -105,7 +106,9 @@ digraph provision {
     "Reuse result?" -> "EnterWorktree {path}" [label="reused or provisioned: the result's path"];
     "Reuse result?" -> "run_stage {action: fail, stage: provision, reason}" [label="refused: quote it"];
     "run_budget {key: fresh-tree, limit: 2, stage: provision}" -> "Fresh trees this attempt = 2?";
-    "Fresh trees this attempt = 2?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="no: provision fresh, no precheck"];
+    "Fresh trees this attempt = 2?" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="no, ticket mode: provision fresh, no precheck"];
+    "Fresh trees this attempt = 2?" -> "git -C <repo> branch --list <slug>-*" [label="no, branch mode"];
+    "git -C <repo> branch --list <slug>-*" -> "worktree_provision {repoName, ticket | branch, ticketTitle?, codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}" [label="branch = <slug>-<n>"];
     "Fresh trees this attempt = 2?" -> "run_stage {action: fail, stage: provision, reason}" [label="yes: exhausted"];
     "EnterWorktree {path}" -> "Recorded on the run?";
     "Recorded on the run?" -> "This stage found or created the ticket?" [label="yes: recorded true"];
@@ -130,44 +133,45 @@ that tree and branch directly.
 
 ### Precheck result?
 
-The precheck creates nothing. It runs before every provision except the
-one a Fresh tree answer asked for. **Trees to resume** are, each tree once:
+**Trees to resume** are, each tree once and in this order:
 
-- every `attached` tree (on the exact branch);
-- the surviving local branch (`localBranch: true` with no `attached`
-  tree), offered as resume on `base`;
-- only when no domain rules are inlined, every `sameTicket` tree (a domain
-  flow asks its own slug question for those).
+1. the `attached` tree, only when exactly one is listed (two or more make
+   `reuse` refuse `branch-duplicated`, so offer none of them);
+2. the surviving local branch (`localBranch: true` with no `attached`
+   tree), offered as resume on `base`;
+3. every `sameTicket` tree, but only when no domain rules are inlined (a
+   domain flow asks its own slug question for those).
 
-All of them go in the gate's one `resume_in` question, at most 3 plus
-**Fresh tree**; provisioning adds no other gate or question. **Nothing in
-the way** means none of those. A refused precheck routes on its `code`:
-`daemon-outdated` (an older daemon) provisions without the precheck, as
-before, and never retries it.
+All of them go in the gate's one `resume_in` question, the first 3 in that
+order plus **Fresh tree**; provisioning adds no other gate or question.
+Two or more `attached` trees with nothing else to offer still go to the
+gate, offering **Fresh tree** alone. **Nothing in the way** means no
+`attached` tree and none of the other offers. A refused precheck routes
+on its `code`: `daemon-outdated` (an older daemon) provisions without the
+precheck, as before, and never retries it.
 
 ### worktree_provision result?
 
 Route on the refusal's `code`, never its prose. `branch-attached` (branch
 mode only: ticket mode quietly cuts `<branch>-2`) offers its `tree` on the
 gate. `busy` retries while `budget.exhausted` is false; a `budget.error`
-reads as exhausted. Any other code fails the stage quoting `error`.
+reads as exhausted. The budget counts every refusal this attempt, so
+`busy` is retried only if no other refusal came first. Any other code
+fails the stage quoting `error`.
 
 ### Fresh trees this attempt = 2?
 
-Read `run_budget`'s `exhausted`; an error reads as exhausted. The count
-survives compaction, and a new stage attempt starts at zero. Not
-exhausted: provision with no precheck. Ticket mode passes the ticket as
-usual (the daemon cuts `<branch>-2`). Branch mode passes `branch:
-<slug>-<n>`, the lowest `n` from 2 that no listed tree or local branch
-uses.
+Read `run_budget`'s `exhausted`; an error reads as exhausted. Ticket mode
+passes the ticket as usual (the daemon cuts `<branch>-2`). Branch mode
+lists the local branches first and passes `branch: <slug>-<n>`, the lowest
+`n` from 2 that the list lacks (every tree sits on a local branch, so the
+list covers them).
 
 ### Reuse result?
 
-`reuse` hands back the claimed or unmanaged tree on the picked branch, or
-checks a surviving branch out again in a new tree, and records `branch`
-and `worktree`. It refuses the main checkout, a `disposable` tree, two
-trees on one branch, and an older daemon (`daemon-outdated`): the stage
-fails quoting `error`, and the human can pick Fresh tree on a retry.
+`reuse` refuses the main checkout, a `disposable` tree, two trees on one
+branch, and an older daemon (`daemon-outdated`): the stage fails quoting
+`error`, and the human can pick Fresh tree on a retry.
 
 ### Recorded on the run?
 
