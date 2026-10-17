@@ -357,6 +357,9 @@ struct ChecklistScreen: View {
             connect = (row, fields, alternatives, create)
         case .chooseOption:
             choose = row
+        case .placeRepo:
+            // The Your repos row view answers through its own controls (Task 12); nothing to open from here yet.
+            break
         case .none:
             break
         }

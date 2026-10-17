@@ -88,6 +88,21 @@ let rowActionChecks: [Check] = [
         let decoded = try JSONDecoder().decode([String: String].self, from: stdin ?? Data())
         c.expectEqual(decoded, ["root": "/Users/t/dev"])
     },
+    Check("place-repo: the row's own controls first, then rt setup repo place with the answer on stdin") { c in
+        let a = RowAction(type: .placeRepo, label: "Locate…", identity: "gitlab.com/acme/widgets", repo: "widgets", mode: "checkout",
+                          clonePath: "/Users/dev1/code/widgets", note: "Found your widgets checkout", segmentRecords: true)
+        c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: nil, alternative: nil), .placeRepo(a))
+
+        let d = RowActionDispatcher.dispatch(a, fieldValues: ["mode": "checkout", "path": "/Users/dev1/code/widgets"], alternative: nil)
+        guard case .rtVerb(let args, let stdin) = d else { return c.fail("expected rtVerb, got \(d)") }
+        c.expectEqual(args, ["setup", "repo", "place", "--json"])
+        let decoded = try JSONDecoder().decode([String: String].self, from: stdin ?? Data())
+        c.expectEqual(decoded, ["identity": "gitlab.com/acme/widgets", "mode": "checkout", "path": "/Users/dev1/code/widgets"])
+    },
+    Check("place-repo with no identity does nothing") { c in
+        let a = RowAction(type: .placeRepo, label: "Locate…")
+        c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: ["mode": "checkout", "path": "/x"], alternative: nil), DispatchedAction.none)
+    },
     Check("choose-folder with no startAt still collects") { c in
         let a = RowAction(type: .chooseFolder, label: "Choose folder…", startAt: nil)
         c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: nil, alternative: nil), .chooseFolder(startAt: nil))

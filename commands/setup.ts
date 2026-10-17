@@ -54,8 +54,8 @@ import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
-import { checkCheckout, checkCloneTarget, resolvePlacements, takenFor, trackedIdentities, writePlacement, type CheckoutCheck, type PlacementMode } from "../lib/setup/repo-placement.ts";
-import { checkRepoRoot, expandHome, stageRepoRoot } from "../lib/setup/repo-root.ts";
+import { checkCheckout, checkCloneTarget, configuredRepoRoots, resolvePlacements, takenFor, trackedIdentities, writePlacement, type CheckoutCheck, type PlacementMode } from "../lib/setup/repo-placement.ts";
+import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
 import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
 import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
@@ -284,7 +284,7 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
       secrets: deps.secrets,
       relay: deps.relay,
       secretPresence: deps.secretPresence,
-      flags: applyFlags(args),
+      flags: { ...applyFlags(args), appDriven: json },
       needOpts: deps.needOpts,
       ...(human ? { tip: human.tip } : {}),
     });
@@ -637,8 +637,7 @@ function extractRepoRootArg(input: unknown): string | null {
 }
 
 /**
- * Validates through the same checkRepoRoot the repos.root row uses, so "the
- * row says ready" and "this verb would accept it" can never disagree. Writes
+ * Validates through checkRepoRoot. Writes
  * rt.repoRoots directly once the home repo exists; stages it otherwise,
  * because the machine store lives inside the home repo and creating it
  * before `home.init` clones would make that clone fail on a non-empty
@@ -715,13 +714,7 @@ export function realRepoPlaceDeps(): RepoPlaceDeps {
     isTTY: () => process.stdin.isTTY === true,
     stdin: readSmartStdin,
     tracked: () => trackedIdentities(probes),
-    repoRoots: () => {
-      try {
-        return (getSetting<string[]>("rt.repoRoots").value ?? []).map((r) => expandHome(probes, r));
-      } catch {
-        return [];
-      }
-    },
+    repoRoots: () => configuredRepoRoots(probes),
   };
 }
 

@@ -55,6 +55,7 @@ public enum ActionType: String, Codable, Equatable, Sendable, CaseIterable {
     case linkBundled = "link-bundled"
     case openURL = "open-url"
     case chooseFolder = "choose-folder"
+    case placeRepo = "place-repo"
     case unknown
     public init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
@@ -121,6 +122,15 @@ public struct ActionLink: Codable, Equatable, Sendable {
     public init(label: String, url: String) { self.label = label; self.url = url }
 }
 
+/// The press a `place-repo` row offers to record `path` under `mode` in one
+/// go ("Clone here", "Retry"); rt decides when it shows.
+public struct PlaceRepoOneClick: Codable, Equatable, Sendable {
+    public var label: String
+    public var mode: String
+    public var path: String
+    public init(label: String, mode: String, path: String) { self.label = label; self.mode = mode; self.path = path }
+}
+
 /// One shape for every contract action; which optionals are present is
 /// discriminated by `type`. Kept flat so rt can add a field without a
 /// decoder change here.
@@ -147,17 +157,36 @@ public struct RowAction: Codable, Equatable, Sendable {
     public var footnote: String?
     /// `connect` only: the create-credential page the sheet links to.
     public var create: ActionLink?
+    // `place-repo` only, from here down. `mode` is "checkout" or "clone".
+    public var identity: String?
+    public var repo: String?
+    public var mode: String?
+    public var checkoutPath: String?
+    public var clonePath: String?
+    public var note: String?
+    public var problem: String?
+    /// The verb the app runs after the place verb succeeds; nil before Install.
+    public var then: [String]?
+    public var oneClick: PlaceRepoOneClick?
+    /// Whether switching the segment alone records the shown path.
+    public var segmentRecords: Bool?
     public init(type: ActionType, label: String, target: String? = nil, which: String? = nil,
                 integration: String? = nil, fields: [ActionField]? = nil,
                 alternatives: [ActionAlternative]? = nil, verb: [String]? = nil, tool: String? = nil,
                 via: String? = nil, steps: [String]? = nil, url: String? = nil, startAt: String? = nil,
                 options: [ChooseOption]? = nil, selected: String? = nil, other: ChooseOther? = nil,
-                subtitle: String? = nil, footnote: String? = nil, create: ActionLink? = nil) {
+                subtitle: String? = nil, footnote: String? = nil, create: ActionLink? = nil,
+                identity: String? = nil, repo: String? = nil, mode: String? = nil, checkoutPath: String? = nil,
+                clonePath: String? = nil, note: String? = nil, problem: String? = nil, then: [String]? = nil,
+                oneClick: PlaceRepoOneClick? = nil, segmentRecords: Bool? = nil) {
         self.type = type; self.label = label; self.target = target; self.which = which
         self.integration = integration; self.fields = fields; self.alternatives = alternatives
         self.verb = verb; self.tool = tool; self.via = via; self.steps = steps; self.url = url
         self.startAt = startAt; self.options = options; self.selected = selected; self.other = other
         self.subtitle = subtitle; self.footnote = footnote; self.create = create
+        self.identity = identity; self.repo = repo; self.mode = mode; self.checkoutPath = checkoutPath
+        self.clonePath = clonePath; self.note = note; self.problem = problem; self.then = then
+        self.oneClick = oneClick; self.segmentRecords = segmentRecords
     }
 }
 

@@ -203,18 +203,6 @@ screen_row_tool() {  # <herdr|claude>
   fi
 }
 
-# repos.root is required and its only GUI affordance is a native folder panel,
-# which an unattended run cannot answer. The harness is playing the user here,
-# not working around a defect. The recheck is not optional: the app's plan is
-# composed before this write, so Continue stays disabled without it.
-# The row renders only for join mode or a repo-tracking team.
-screen_row_repo_root() {
-  mkdir -p "$HOME/code"
-  rt setup repo-root set "$HOME/code" --json
-  ax_click setup.checklist.recheck
-  ax_wait_status repos.root ready 30 || ax_fail "repos.root never reached ready after the verb answered it"
-}
-
 # One wizard page at a time, in the wizard's own order: a page's Continue
 # stays off until its required rows are ready, so a row on a later page
 # cannot be reached before them. Each page gets the rows the walkthrough
@@ -246,7 +234,6 @@ screen_readiness() {
     if screen_row_due "$ids" tool.proxy; then
       screen_proxy_row
     fi
-    if screen_row_due "$ids" repos.root; then screen_row_repo_root; fi
     # Every row's status on the page, before its button: the one record that
     # explains a page that does not advance.
     ax_log "checklist page ${page:-?}: $(ax_row_statuses | tr '\n' ' ')"

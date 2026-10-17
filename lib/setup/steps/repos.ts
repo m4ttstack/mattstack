@@ -1,15 +1,18 @@
 /**
- * `repos.clone`: clones every repo the team snapshot declares as tracked
- * (`mattstack.tracking`) into the first configured `rt.repoRoots` entry,
- * unless a clone of it already exists: at the destination, at the path the
- * repo index holds for it (`rt repos register`), or directly under any repo
- * root. Individual failures (auth, network, timeout) are logged with a reason
- * and never stop the run; the step then reports `partial`, naming them.
+ * `repos.clone`: places every repo the team snapshot declares as tracked
+ * (`mattstack.tracking`) where the "Your repos" rows say: a recorded
+ * checkout is indexed, a recorded clone location is cloned into exactly, an
+ * existing clone rt finds is indexed, and anything else clones to the
+ * default the row showed. A joiner's app-driven Install leaves an
+ * unanswered repo for the rows (needs-you). Individual failures (auth,
+ * network, timeout) are logged with a reason and never stop the run; the
+ * step then reports `partial`, naming them.
  */
 
-import { join } from "path";
-import { resolveIndexPathForIdentity, updateRepoIndexAsync } from "../../repo-index.ts";
+import { dirname } from "path";
+import { updateRepoIndexAsync } from "../../repo-index.ts";
 import { getSetting } from "../../settings/resolve.ts";
+import { setSetting } from "../../settings/write.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import { linkPath } from "../../deps/links.ts";
 import { gitWithToken } from "../../team/git-credential.ts";
@@ -18,8 +21,23 @@ import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { PROGRESS_SHAPE, REMOTE_COUNTING, parseGitProgress, splitProgressLines } from "../git-progress.ts";
 import type { ExecResult } from "../probes.ts";
-import { isCloneOf, isReusableCloneOf, repoBasename } from "../repo-placement.ts";
+import {
+  checkCheckout,
+  checkCloneTarget,
+  clearCloneFailure,
+  clearDeferred,
+  clearPlacement,
+  configuredRepoRoots,
+  isReusableCloneOf,
+  markDeferred,
+  readPlacements,
+  recordCloneFailure,
+  repoBasename,
+  resolvePlacements,
+  takenFor,
+} from "../repo-placement.ts";
 import { expandHome, promoteStagedRepoRoot } from "../repo-root.ts";
+import { homeGitDir } from "./home.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
@@ -97,17 +115,29 @@ function cloneFailureReason(result: ExecResult): string {
   return output ? `${output} (git exited ${result.code})` : `git exited ${result.code} with no output`;
 }
 
-/** An existing clone of `identity` somewhere other than `dest`: the index's own row first, then any direct child of a repo root. */
-async function findExistingClone(p: ApplyContext["p"], identity: string, dest: string, rootPaths: string[]): Promise<{ path: string; indexed: boolean } | null> {
-  const indexed = await resolveIndexPathForIdentity(serializeIdentity({ kind: "remote", id: identity }));
-  if (indexed && indexed !== dest && (await isReusableCloneOf(p, indexed, identity))) return { path: indexed, indexed: true };
-  for (const rootPath of rootPaths) {
-    for (const child of p.readDir(rootPath)) {
-      const candidate = join(rootPath, child);
-      if (candidate !== dest && (await isReusableCloneOf(p, candidate, identity))) return { path: candidate, indexed: false };
-    }
+/**
+ * Append-only, so a root set by hand or by an earlier setup stays first. The
+ * machine store lives inside the home repo, so nothing is written before it
+ * exists (the guard `promoteStagedRepoRoot` carries).
+ */
+function rememberRepoRoot(ctx: ApplyContext, parent: string): void {
+  const { p } = ctx;
+  if (!p.exists(homeGitDir(p.home))) return;
+  try {
+    const roots = getSetting<string[]>("rt.repoRoots").value ?? [];
+    if (roots.some((root) => expandHome(p, root) === parent)) return;
+    setSetting("rt.repoRoots", [...roots, parent], "machine");
+  } catch (err) {
+    ctx.log("repos.clone", `${parent} was not added to rt.repoRoots: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return null;
+}
+
+/** A repo in its place is no longer waiting on an answer, and its folder joins the roots rt scans. */
+function landed(ctx: ApplyContext, identity: string, path: string): void {
+  clearPlacement(ctx.p, identity);
+  clearDeferred(ctx.p, identity);
+  clearCloneFailure(ctx.p, identity);
+  rememberRepoRoot(ctx, dirname(path));
 }
 
 /** The value of a `credential.<url>.helper` that asks rt for its forge token; git appends the operation. */
@@ -179,11 +209,9 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   // still promote a pre-Install answer, or it sits in the staging file forever.
   promoteStagedRepoRoot(p);
 
-  // Computed BEFORE the root check: zero identities means there is no work
-  // regardless of whether a root is configured, and `skipped` — the
-  // engine's honest "nothing to do here" — is the truth, not `failed`.
   const skip = skippedIdentities(p.env);
-  const identities = (ctx.snapshot?.trackingIdentities ?? []).filter((identity) => {
+  const tracked = ctx.snapshot?.trackingIdentities ?? [];
+  const identities = tracked.filter((identity) => {
     const base = repoBasename(identity);
     return !skip.has(identity) && !skip.has(base);
   });
@@ -192,69 +220,93 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
     return { state: "skipped", detail: "No repos to clone" };
   }
 
-  // No root is a normal condition, not a terminal one: the repos.root row is
-  // the GUI's gate, but a CLI install can reach this step unanswered, and
-  // `failed` would dead-end Install with a Retry that resumes here and fails
-  // identically. The remedy names the validating verb, never a raw settings
-  // write, which would accept a path that does not exist.
-  const root = getSetting<string[]>("rt.repoRoots").value?.[0];
-  if (!root) {
-    return { state: "skipped", detail: "No repo folder chosen yet. Run rt setup repo-root set <folder>, then rt setup apply again to clone your repos" };
-  }
-  // A hand-authored "~/dev" through rt settings set: the row reads it ready
-  // through the same expansion, so the clone must expand too or the two
-  // disagree about the identical stored string.
-  const rootPath = expandHome(p, root);
-  const rootPaths = (getSetting<string[]>("rt.repoRoots").value ?? []).map((r) => expandHome(p, r));
+  // The rows resolve over the whole tracked list too, so both agree on which of two same-named repos keeps the default.
+  const resolved = await resolvePlacements(p, tracked, configuredRepoRoots(p));
+  const { deferred } = readPlacements(p);
+  const waitsForRows = (identity: string) => ctx.appDriven === true && !ctx.nonInteractive && (ctx.intent?.mode === "join" || deferred.includes(identity));
 
   let cloned = 0;
   const found: string[] = [];
   const failed: string[] = [];
+  const waiting: string[] = [];
 
   for (const [i, identity] of identities.entries()) {
     const base = repoBasename(identity);
-    const dest = join(rootPath, base);
+    const placement = resolved[identity]!;
 
-    if (p.exists(dest)) {
-      if (!isCloneOf(p, dest, identity)) {
+    if (placement.mode === "checkout") {
+      if (placement.source === "recorded") {
+        const check = await checkCheckout(p, identity, placement.path, { tracked });
+        if (!check.ok) {
+          failed.push(base);
+          ctx.log("repos.clone", `${base}: ${check.detail}`);
+          continue;
+        }
+      } else {
+        ctx.log("repos.clone", `${base}: using the existing clone at ${placement.path}`);
+      }
+      if (await indexDest(ctx, identity, base, placement.path)) {
+        found.push(base);
+        landed(ctx, identity, placement.path);
+      } else failed.push(base);
+      continue;
+    }
+
+    if (placement.source === "default" && waitsForRows(identity)) {
+      markDeferred(p, identity);
+      waiting.push(base);
+      continue;
+    }
+
+    // A run that cloned but could not index leaves its placement behind; the clone is there, so index it.
+    if (await isReusableCloneOf(p, placement.path, identity)) {
+      if (await indexDest(ctx, identity, base, placement.path)) {
+        found.push(base);
+        landed(ctx, identity, placement.path);
+      } else failed.push(base);
+      continue;
+    }
+
+    const target = checkCloneTarget(p, placement.path, takenFor(resolved, tracked, identity));
+    if (!target.ok) {
+      failed.push(base);
+      ctx.log("repos.clone", `${base}: ${target.detail}`);
+      continue;
+    }
+    const dest = target.path;
+
+    // An empty folder the member chose is cloned into and never removed. Otherwise claiming `dest` with an exclusive mkdir makes "this run created it" a fact rather than an earlier observation, so the cleanup below can never remove a folder something else made meanwhile.
+    const chosenEmpty = p.statPath(dest) !== null;
+    if (!chosenEmpty) {
+      p.mkdirp(dirname(dest));
+      if (!p.mkdirExclusive(dest)) {
         failed.push(base);
-        ctx.log("repos.clone", `${base}: ${dest} exists but isn't a clone of ${identity} (basename collision or unrelated folder); resolve it by hand`);
+        ctx.log("repos.clone", `${base}: ${dest} appeared while this step was running; left alone, rerun the step to check it`);
         continue;
       }
-      if (await indexDest(ctx, identity, base, dest)) found.push(base);
-      else failed.push(base);
-      continue;
-    }
-
-    const existing = await findExistingClone(p, identity, dest, rootPaths);
-    if (existing) {
-      ctx.log("repos.clone", `${base}: using the existing clone at ${existing.path}`);
-      if (existing.indexed || (await indexDest(ctx, identity, base, existing.path))) found.push(base);
-      else failed.push(base);
-      continue;
-    }
-
-    // Claiming `dest` with an exclusive mkdir makes "this run created it" a fact rather than an earlier observation, so the cleanup below can never remove a folder something else made meanwhile.
-    p.mkdirp(rootPath);
-    if (!p.mkdirExclusive(dest)) {
-      failed.push(base);
-      ctx.log("repos.clone", `${base}: ${dest} appeared while this step was running; left alone, rerun the step to check it`);
-      continue;
     }
 
     ctx.emit({ event: "step", id: "repos.clone", state: "running", detail: cloningDetail(base, i + 1, identities.length, found) });
     const result = await cloneInto(ctx, identity, dest);
     if (result.code !== 0) {
       failed.push(base);
-      ctx.log("repos.clone", `${base}: clone failed: ${cloneFailureReason(result)}`);
-      p.removeDir(dest);
+      const reason = cloneFailureReason(result);
+      ctx.log("repos.clone", `${base}: clone failed: ${reason}`);
+      recordCloneFailure(p, identity, reason);
+      if (!chosenEmpty) p.removeDir(dest);
       continue;
     }
 
-    if (await indexDest(ctx, identity, base, dest)) cloned++;
-    else failed.push(base);
+    if (await indexDest(ctx, identity, base, dest)) {
+      cloned++;
+      landed(ctx, identity, dest);
+    } else failed.push(base);
   }
 
+  const failures = failed.length > 0 ? `. Failed: ${failed.join(", ")}` : "";
+  if (waiting.length > 0) {
+    return { state: "needs-you", detail: `cloned ${cloned}, present ${found.length}, ${waiting.length} waiting for you${failures}`, remedy: "Choose where your repos go in Setup" };
+  }
   const tally = `cloned ${cloned}, present ${found.length}, failed ${failed.length}`;
   if (failed.length === 0) return { state: "done", detail: tally };
   return {

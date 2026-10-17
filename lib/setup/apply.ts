@@ -59,6 +59,8 @@ export interface ApplyContext {
   engine?: () => string | null;
   identity?: { login?: typeof forgeLogin; token?: (ctx: ApplyContext, host: string) => Promise<string | null> };
   nonInteractive: boolean;
+  /** `rt setup apply --json`, the app's NDJSON channel: a joiner's repo with no answer waits for the app's rows rather than cloning to a default. */
+  appDriven?: boolean;
   /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */
   update?: true;
   teamOfOne: boolean;
@@ -469,7 +471,7 @@ export interface CreateApplyContextDeps {
   /** Defaults to `realSecretPresence()` — override for a fully-faked run/test so `verify` (and anything else reading `ctx.secretPresence`) can never reach the real keychain/sops. */
   secretPresence?: SecretPresence;
   /** `tty` defaults to whether stdin is a terminal: an admin prompt is only raised for a person at one. */
-  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean; update?: true };
+  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean; update?: true; appDriven?: boolean };
   /** Threaded straight into `awaitNeed`'s poll loop for the reachable/interactive branch of `need()` — real timers and `Date.now` by default. Tests inject a fake clock/sleep so that branch is driven deterministically instead of pinned to a real 10-minute deadline and 1 s polls. */
   needOpts?: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number };
 }
@@ -549,6 +551,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
       ctx.reqs = readPackRequirements(p, ctx.team.slug);
     },
     nonInteractive: flags.nonInteractive,
+    ...(flags.appDriven ? { appDriven: true } : {}),
     ...(flags.update ? { update: true as const } : {}),
     teamOfOne: flags.teamOfOne,
     appPath,

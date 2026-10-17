@@ -7,6 +7,7 @@ import { realpathSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { loadRepoIndex, resolveIndexPathForIdentity } from "../repo-index.ts";
 import { deriveRepoIdentity, normalizeRemote, serializeIdentity } from "../settings/identity.ts";
+import { getSetting } from "../settings/resolve.ts";
 import { listOrgs } from "../settings/stores.ts";
 import { orgRefFromIntent, readIntent } from "./intent.ts";
 import type { Probes } from "./probes.ts";
@@ -215,12 +216,21 @@ export function trackedIdentities(p: Probes): string[] {
   return ref.slug ? readTeamSnapshot(p, ref.slug).trackingIdentities : [];
 }
 
+/** `rt.repoRoots`, `~` expanded; an unresolvable value (an authored `${repoRoot}`) reads as none rather than throwing. */
+export function configuredRepoRoots(p: Pick<Probes, "home">): string[] {
+  try {
+    return (getSetting<string[]>("rt.repoRoots").value ?? []).map((r) => expandHome(p, r));
+  } catch {
+    return [];
+  }
+}
+
 function normalize(p: Pick<Probes, "home">, raw: string): string {
   const trimmed = raw.trim();
   return trimmed === "" ? "" : resolve(expandHome(p, trimmed));
 }
 
-function tildify(home: string, path: string): string {
+export function tildify(home: string, path: string): string {
   if (path === home) return "~";
   return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }

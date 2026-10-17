@@ -1,6 +1,6 @@
-import { GROUP_TITLES, type Group, type GroupId, type Row } from "./contract.ts";
+import { GROUP_TITLES, REPO_PLACE_ROW_PREFIX, type Group, type GroupId, type Row } from "./contract.ts";
 
-const SPLIT_ORDER: GroupId[] = ["agents", "browser", "rt", "team"];
+const SPLIT_ORDER: GroupId[] = ["agents", "browser", "repos", "rt", "team"];
 
 const HOME: Record<string, GroupId> = {
   "tool.herdr": "agents",
@@ -24,7 +24,6 @@ const HOME: Record<string, GroupId> = {
   "tool.intercepts": "rt",
   "tool.legacy-dirs": "rt",
   "tool.proxy": "rt",
-  "repos.root": "rt",
   "tool.state-backup": "team",
   "home.backup": "team",
   "team.sync": "team",
@@ -41,6 +40,7 @@ const HOME: Record<string, GroupId> = {
 function homeOf(row: Row): GroupId {
   if (row.id.startsWith("pack.")) return "agents";
   if (row.id.startsWith("tool.team.")) return "team";
+  if (row.id.startsWith(REPO_PLACE_ROW_PREFIX)) return "repos";
   return HOME[row.id] ?? "tools";
 }
 

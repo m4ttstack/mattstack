@@ -105,7 +105,7 @@ public enum DoneActions {
         // The only run verb a finish-gated row carries is a re-check.
         case .run: return .recheck
         case .choose: return .choose
-        case .openSettings, .requestPermission, .connect, .form, .oauth, .install, .ownerOnce, .linkBundled, .chooseFolder, .unknown:
+        case .openSettings, .requestPermission, .connect, .form, .oauth, .install, .ownerOnce, .linkBundled, .chooseFolder, .placeRepo, .unknown:
             return nil
         }
     }
