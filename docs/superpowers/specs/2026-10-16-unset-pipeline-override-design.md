@@ -1,6 +1,6 @@
 # Remove a pipeline override, and pick the pipeline when rebinding
 
-Status: draft, 2026-10-16. Ticket: RT-493. Follows RT-491 (per-pipeline bindings, `docs/superpowers/specs/2026-10-16-per-pipeline-bindings-design.md`).
+Status: approved 2026-10-16. Ticket: RT-493. Follows RT-491 (per-pipeline bindings, `docs/superpowers/specs/2026-10-16-per-pipeline-bindings-design.md`).
 
 ## Why
 
