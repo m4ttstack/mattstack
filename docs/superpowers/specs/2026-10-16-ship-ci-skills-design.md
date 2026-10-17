@@ -207,7 +207,7 @@ says "the stage has no prior pipeline id".
 | B16 | A watch parked at a gate lets the lease go stale after 10 minutes | the keepalive holds it up to 60 minutes past the last CI call | one attendant while the human decides (Decision 14) |
 | B17 | An existing MR found on the branch: the unbound flow claims "the create call wrote them" and skips the write | the same skip, stated as "left as found" (Decision 15) | the old edge label was false |
 | B18 | watch-ci and stage-watch-ci count re-claims after a lost lease (2), then open Gate ci | `ci_watch {attend}` re-claims twice per commit itself; `lease_unavailable` opens the gate, whose Iterate calls `ci_watch` again with no count, and a second `lease_unavailable` reopens the gate (`watch-ci:lease-rounds:<sha12>` dropped) | the tool bounds the re-claims; the human paces each Iterate (trim pass, shepherd #6050) |
-| B19 | watch-ci's and ship's `git_push` off-script gates count their Iterate (off-script rounds = 2) | Iterate calls `git_push` again with no count; a refusal, or a human push that did not land, reopens the gate (ship still bounds the landing misses with `landing-checks`) (`watch-ci:push-off-script` and `ship:push-off-script` dropped) | `git_push` bounds its own retries; the human paces each Iterate (trim pass, shepherd #6050) |
+| B19 | watch-ci's, ship's and stage-ship's `git_push` off-script gates count their Iterate (off-script rounds = 2) | Iterate calls `git_push` again with no count; a refusal reopens the gate, and in watch-ci and ship so does a human push that did not land (ship still bounds those misses with `landing-checks`; stage-ship goes on with `pushed` unwritten) (`watch-ci:push-off-script` and `ship:push-off-script` dropped, the latter in both ship and stage-ship) | `git_push` bounds its own retries; the human paces each Iterate (trim pass, shepherd #6050) |
 | B20 | One "Off-script rounds" count per stage, shared by every off-script gate | each gate's Iterate counts on its own key (`ci-watch-off-script`, `github-claim-off-script`, `retry-off-script`, ...), so a run refused at several gates gets one Iterate at each; the two retry gates (`mr_retry` on GitLab, the re-claim before `gh run rerun` on GitHub) share `retry-off-script`, one per forge; the `lease_unavailable` and `git_push` gates count none (B18, B19) | one gate per origin needs its own budget to return to the right place |
 
 ## Design
@@ -354,7 +354,8 @@ differences:
   `git rev-parse HEAD` and `null`.
 - `mr_create {..., ifExists: return}` as in ship; the `mr_for_branch` and
   "Created once already?" nodes go.
-- Hold through `run_hold`; counters through `run_budget`.
+- Hold through `run_hold`; counters through `run_budget` (the push gate's
+  Iterate counts none, B19).
 
 ### Phase 2: evidence_attach (after #851 merges)
 

@@ -55,7 +55,7 @@
 | | `ship:upload-off-script` | 1 | stage (until phase 2) |
 | | `ship:mark-ready-rounds` | 1 | stage (ship only) |
 
-`<sha12>` is the watched sha's first 12 characters. `ship:push-off-script` went in ship's trim pass (spec B19); stage-ship's trim follows and drops it there too.
+`<sha12>` is the watched sha's first 12 characters. `ship:push-off-script` went in the trim pass, from ship and from stage-ship (spec B19).
 
 ## Review Focus
 
