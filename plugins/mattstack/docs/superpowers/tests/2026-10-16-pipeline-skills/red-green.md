@@ -293,3 +293,23 @@ Per rep:
 - S8 reps 1-5: "There is no `runDb` or `stage`, since there is no run"
   (rep 1); "a timed wait would also be a second wait on a gate that
   already has one running" (rep 2).
+
+#### Task 2 fix round 1
+
+This round adds:
+
+- Late signals with no run: a gate this pane already acted on counts as late.
+- Stale gates: a `skipped` naming a stale gate is discarded as late.
+- `formContext`: shown in the pane before the first form chunk.
+- The `run_budget` convention: each counter diamond reads `exhausted`, and a budget error counts as exhausted.
+- A relabelled `gate_answer` success edge.
+- Two kept rules put back: the `Options (recommended first)` marking rule, and a write-in recorded in its own slot.
+- An edge from `gate_reconcile` to the daemon-down branch.
+
+S7 re-ran because the daemon-down branch gained that entry edge.
+
+| Scenario | GREEN | Notes |
+|---|---|---|
+| S4 unattended wait | 5/5 | Same path as before. Rep 3 checks the new rule: "It is not late, since there is no `alreadyReconciled` and no stale skip" |
+| S7 daemon down, unattended | 5/5 | Regression guard only (RED was 5/5); `run_stage` fail with the refusal verbatim, no form |
+| S8 no run, herdr pane | 5/5 | No `runDb`, `stage` or `run_*` anywhere; `gate_reconcile {id}` on the doorbell. Reps 1, 3 and 4 apply the no-run late rule: "it is not late, because this pane has not acted on the gate" (rep 1); the background wait's later completion "is a late signal that I discard" (rep 3) |

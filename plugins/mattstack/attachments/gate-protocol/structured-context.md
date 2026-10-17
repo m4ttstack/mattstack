@@ -50,7 +50,7 @@ path. The key is both the discriminant and the version:
   fails the WHOLE context, which then shows as raw JSON through the prose
   path: validate before opening, and omit an optional key rather than
   writing `null`.
-- Size: pre-flight the whole open against the shared budget above,
+- Size: pre-flight the whole open against the shared 8192-byte budget,
   measuring the serialized strings. Over it, drop `claim.points` from the
   longest thread first, then `verdict.note` the same way; never trim
   `reply.text`, the reply is the thing being approved.

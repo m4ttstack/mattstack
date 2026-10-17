@@ -6,8 +6,8 @@ disable-model-invocation: true
 
 # Gate protocol
 
-The daemon's gate registry is the single arbiter; the site names the scope
-and the questions, and under a run the gate tools record the decision.
+The daemon's gate registry is the single arbiter; under a run the gate
+tools record the decision.
 
 If a site's questions or a rule in the including verb ask for a move this
 graph marks STOP, open the Off-script gate (below) instead.
@@ -86,7 +86,7 @@ digraph gate_protocol {
     "Gate form result?" -> "Trigger: a doorbell push arrives" [label="dismissed" style=dashed];
     "Gate form result?" -> "Holding an open gate: under a run?" [label="cancelled"];
     "Map the gate answer to exact option values" -> "gate_answer {id, answers, runDb?, stage?}" -> "gate_answer result?";
-    "gate_answer result?" -> "A write-in to act on (actOnWriteIn)?" [label="recorded"];
+    "gate_answer result?" -> "A write-in to act on (actOnWriteIn)?" [label="this answer won"];
     "gate_answer result?" -> "Say which surface won" [label="conflict: true"];
     "gate_answer result?" -> "Under a run (answer remap)?" [label="refused: not an option"];
     "gate_answer result?" -> "STOP: never invent an answer or re-ask a closed gate" [label="refused: closed or not found"];
@@ -103,11 +103,12 @@ digraph gate_protocol {
     "Trigger: the gate wait finished" -> "gate_reconcile {id, runDb?, stage?}" -> "gate_reconcile status?";
     "Trigger: the human answers in words" -> "gate_reconcile {id, runDb?, stage?}";
     "Trigger: a doorbell push arrives" -> "gate_reconcile {id, runDb?, stage?}";
-    "gate_reconcile status?" -> "Late gate signal discarded" [label="answered, alreadyReconciled"];
+    "gate_reconcile status?" -> "Late gate signal discarded" [label="late: reconciled, stale, or acted on"];
     "gate_reconcile status?" -> "Say which surface won" [label="answered"];
     "gate_reconcile status?" -> "STOP: never invent an answer or re-ask a closed gate" [label="closed or not found"];
     "gate_reconcile status?" -> "Map the gate answer to exact option values" [label="open, words"];
     "gate_reconcile status?" -> "End the turn: holding at gate <id>" [label="open, no words"];
+    "gate_reconcile status?" -> "Daemon down: is the gated pane unattended?" [label="refused: daemon unreachable"];
     "STOP: never invent an answer or re-ask a closed gate" -> "Path ended per the verb's policy";
     "A write-in to act on (actOnWriteIn)?" -> "Act on a write-in" [label="yes"];
     "A write-in to act on (actOnWriteIn)?" -> "Act on the gate answer at the site" [label="no"];
@@ -117,11 +118,10 @@ digraph gate_protocol {
 
 ### Build the gate's questions and context
 
-Open before anything that depends on the answer: `gate_ask` with
-`questions` (each `{"id", "label", "multi", "options"}`, plus `"writeIn":
-true` where the site marks `(write-in)`), `kind` = the gate's scope,
-optional `context`, and under a run `runDb` and `stage`. The daemon
-resolves the subject; pass `subject` only to open on one not your own.
+Open before anything that depends on the answer. A question is `{"id",
+"label", "multi", "options"}`, plus `"writeIn": true` where the site marks
+`(write-in)`; `kind` is the gate's scope. Pass `subject` only for a subject
+not your own.
 
 - **Context** is a VERBATIM QUOTE of the material under decision (the
   brief's task, the plan section, the failing output), never a fresh
@@ -132,7 +132,9 @@ resolves the subject; pass `subject` only to open on one not your own.
   `description` is its one-line why.
 - **Options** are `{value, label}` objects when values are not
   human-readable; a recommended pick's `label` ends ` (Recommended)`, its
-  `value` bare.
+  `value` bare. In a site table headed `Options (recommended first)`, mark
+  the option the table writes; a row with none, such as the stage-end
+  `next`, marks none.
 - **Write-ins** go only on a decision question whose free text you can act
   on, never on `next` or a review-post, respond, doctor or pane-attention
   question.
@@ -143,41 +145,41 @@ resolves the subject; pass `subject` only to open on one not your own.
 
 ### Trigger: a site opened its gate with gate_open
 
-A site opening a structured gate calls `gate_open` itself and enters here:
-its result carries what `gate_ask`'s does, and under a run it has already
-written `gate` and armed `waiting-gate`.
+A site opening a structured gate calls `gate_open` itself and enters here;
+under a run that call has already written `gate` and, on `wait`, armed
+`waiting-gate`.
 
 ### gate_ask result?
 
-**ok:** keep `id`, `paneAction` and `formChunks`; `labelsTruncated` lists
-labels the tool shortened, so never shorten one yourself. **`runErrors`:**
-the gate is open but a run write failed: quote it in one line and carry on
-at `paneAction?`, never re-asking the gate or writing that field yourself.
-**daemon unreachable** has its own branch; any other refusal names a
-problem with this call.
+**ok:** keep `id`, `paneAction`, `formContext` and `formChunks`;
+`labelsTruncated` lists labels the tool shortened, so never shorten one
+yourself. **`runErrors`:** the gate is open but a run write failed: quote it
+in one line and carry on at `paneAction?`, never re-asking the gate or
+writing that field yourself.
 
 ### Fix what the gate_ask refusal names
 
 Fix exactly what it names (a blank context, several running runs, a bad
-`runDb`) and ask again, once: under a run `run_budget` keeps the count
-across compaction; with no run, count in context. A second refusal fails
-the stage or ends the verb, quoting it verbatim; never off-script, since
-that gate opens through `gate_ask` too.
+`runDb`) and ask again, once. Under a run each counter diamond reads
+`run_budget`'s `exhausted` and a `run_budget` error counts as exhausted;
+with no run, count in context. A second refusal fails the stage or ends the
+verb, quoting it verbatim; never off-script, since that gate opens through
+`gate_ask` too.
 
 ### Present the gate form with no registry
 
-Form-only: ask the questions you built and act on the answer, with no
-other gate call. With no CAS the answer is the decision, `decidedBy`
-`pane`; under a run `gate_record` records it.
+Form-only, with no other gate call: the answer is the decision (no CAS),
+`decidedBy` `pane`, and under a run `gate_record` records it.
 
 ### Present the in-pane gate form
 
 The `paneAction: form` branch (older sites say the
-`presentation: "form"` branch). Ask `formChunks` in order, one
+`presentation: "form"` branch). Show `formContext`, when present, in the
+pane before the first chunk, then ask `formChunks` in order, one
 AskUserQuestion call per chunk, rendering each chunk's `text`, labels and
-descriptions as given; answer once, after the last. Dismissed: another surface answered, and the doorbell
-is your next input. Cancelled: the gate stays open; never re-present it
-yourself.
+descriptions as given; answer once, after the last. Dismissed: another
+surface answered, and the doorbell is your next input. Cancelled: the gate
+stays open; never re-present it yourself.
 
 ### Map the gate answer to exact option values
 
@@ -186,60 +188,59 @@ values (below); a question with no options takes the human's text, and
 words at a held gate map the same way. On a `writeIn` question, "Other"
 text with nothing ticked is `{"writeIn": "<text>"}`, never the nearest
 option; beside ticks on a multi it is `{"value": [<ticks>], "note":
-"<text>"}`. A refused value is remapped once, then left open for another
-surface.
+"<text>"}`. A refused value is remapped once, counted as in Fix what the
+gate_ask refusal names, then left open for another surface.
 
 ### Say which surface won
 
-Another surface decided. Say in one line which answer won and from where
-(`decidedBy`), drop the pane's own answer or words, and go on with the
-result's `answers`.
+Say in one line which answer won and from where (`decidedBy`), drop the
+pane's own answer or words, and go on with the result's `answers`.
 
 ### End the turn: holding at gate <id>
 
-The node before launched the one background `rt gate wait <id>`; never
-launch a second for this gate. End the turn in one line, `holding at gate
-<id>`.
-Under a run a turn ends only with `waiting-gate` set: `gate_ask` arms it on
-`wait`, the `run_field_set` node after a cancelled form or a spent remap.
+Never launch a second wait for this gate. End the turn in one line,
+`holding at gate <id>`. Under a run a turn ends only with `waiting-gate`
+set: `gate_ask` arms it on `wait`, the `run_field_set` node after a
+cancelled form or a spent remap.
 
 ### gate_reconcile status?
 
-The one re-entry call: it re-reads the gate for up to 2 seconds, records
-the answer under a run and clears `waiting-gate`; never a timed `rt gate
-wait` or a hand record. `alreadyReconciled`: another signal settled it.
-`answered` is the decision, and words in hand lose to it. `open` with
-words: map them and let `gate_answer`'s CAS decide; with none, the wait and
-the marker stand, so end the turn again.
+It re-reads the gate (up to 2 seconds), records the answer under a run and
+clears `waiting-gate`; never a timed `rt gate wait` or a hand record. Late
+means `alreadyReconciled`, a `skipped` naming a stale gate, or, with no run
+(which has no `alreadyReconciled`), a gate this pane already acted on.
+Otherwise `answered` is the decision, and words in hand lose to it. `open`
+with words: map them and let `gate_answer`'s CAS decide; with none, end the
+turn again (the wait and marker stand). A daemon-unreachable refusal takes
+the daemon-down branch, quoting it.
 
 ### A write-in to act on (actOnWriteIn)?
 
 Read `actOnWriteIn` off the tool result: it is the deliberate-pick rule. A
 write-in is acted on only when `next` is absent, Proceed or Iterate here;
-any other `next` (Hold, Go back, Abandon) was picked on purpose, since the
-form preselects Proceed, and the site takes it with the write-in as its
-note. With no tool result, apply the rule yourself.
+any other `next` (Hold, Go back, Abandon) was picked on purpose, and the
+site takes it with the write-in as its note. With no tool result, apply the
+rule yourself.
 
 ### Act on a write-in
 
 Handle the gate like Iterate here: skip the site's own branch (a Proceed
-beside it is the form's preselection), do what the write-in asks with the
-whole answer set in view, then open a NEW gate at the same site so the
-human sees the result first. One too unclear to act on goes straight to
-that new gate, which asks about it.
+beside it is the form's preselection), do what the write-in asks, reading
+the whole answer set, then open a NEW gate at the same site so the human
+sees the result first. One too unclear to act on goes straight to that new
+gate, which asks about it.
 
 ## Attendance
 
-Only the daemon-down branch reads it; elsewhere `paneAction` carries it. It
-comes from the invocation context, never from asking: under a run,
-`spawnedBy` set means unattended; with no run, the launch instruction says
-(a pane a surface launched is unattended).
+Attendance comes from the invocation context, never from asking: under a
+run, `spawnedBy` set means unattended; with no run, the launch instruction
+says (a pane a surface launched is unattended).
 
 ## Runs integration
 
 A site that says "run gate-protocol's Runs integration with kind `<k>` and
 these questions" enters at the trigger and walks every branch. Under a run
-every gate tool call passes `runDb` and the site's `stage`: the tools then
+every gate tool call passes `runDb` and the site's `stage`: the tools
 bracket the gate, arm `waiting-gate` on a wait, record the answers map
 (`decidedBy` the CAS winner) and clear the marker. Without them the stop
 hook bounces the turn. With no run, omit both; nothing here calls a `run_*`
@@ -248,20 +249,23 @@ tool.
 - **Sites not yet on the tools** (ship, watch-ci, evidence, review, forge,
   board) still draw a `run_field_set {key: gate}` bracket, run before
   `gate_ask`, and a `run_decision` gate@1 line, run at `Act on the gate
-  answer at the site` (it upserts in the site's shape).
+  answer at the site` (it upserts in the site's shape; a write-in records
+  as `{"writeIn": "<their words>"}` in the slot holding that question's
+  answer, never bare text).
 - **Review shapes.** `gate_answer` and `gate_reconcile` record nothing on a
   review gate (`respond-plan`, `respond-post`, `review-post`, scope `post`)
-  unless passed `record: true`; the site records with `gate_record`.
+  unless passed `record: true`; the site records with `gate_record`, or
+  with its `run_decision` line while not yet on the tools.
 
 ## Off-script gate
 
-A host STOP routes here: open it through the graph with scope
-`off-script:<site>:<n>` (`n` from 1 within the site's attempt) and
-`context` quoting the refusal or the line asking for the move.
+A host STOP opens it through the graph: scope `off-script:<site>:<n>` (`n`
+from 1 within the site's attempt), `context` quoting the refusal or the
+line asking for the move.
 
 | Question | Options |
 |---|---|
-| `action` | **Take the proposed move** (the value spells it in full) / **Hand back** |
+| `action` | **Take the proposed move** (its value spells the whole move) / **Hand back** |
 | `next` | **Proceed** (Recommended) / **Iterate here** / **Hold** |
 
 Take: make exactly that move once, then continue from the node it led to.
@@ -299,5 +303,3 @@ which is `gate_reconcile`. The daemon dismisses an open form first.
 | Thought | Reality |
 |---|---|
 | "The doorbell says what they picked" | Call `gate_reconcile`. |
-| "`runErrors`: I'll write that field myself" | Quote it in one line and carry on. |
-| "`decidedBy` is whoever just submitted" | It is the CAS winner. |
