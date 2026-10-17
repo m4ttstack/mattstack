@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Structure-check every ```dot block in a markdown file (or one .dot file).
 
-Usage: python3 check-dot.py [--warn-only] <SKILL.md | graph.dot> [...]
+Usage: python3 check-dot.py [--warn-only] [--short-ids] <SKILL.md | graph.dot> [...]
 Exit 0 when every graph passes, 1 on any finding, 2 on a usage or parse error.
 
 Graphviz parses the graph (dot -Tjson), so a block that renders is exactly the
 block that is checked.
 Warnings print as "warn:" lines and fail the run like any finding;
 --warn-only prints them without failing. --strict is accepted and does nothing.
+--short-ids also fails a graph whose nodes are all sentence ids.
 """
 import json
 import re
@@ -114,7 +115,7 @@ def double_declared(src):
     return [n for n, c in seen.items() if c > 1 and n not in ("node", "edge", "graph")]
 
 
-def check(graph):
+def check(graph, short_ids=False):
     objects = [o for o in graph.get("objects", []) if "nodes" not in o]
     ids = [o.get("name", "") for o in objects]
     names = [node_text(o) for o in objects]
@@ -137,6 +138,8 @@ def check(graph):
     if any(labelled) and not all(labelled):
         bare = ", ".join(f'"{n}"' for n, l in zip(ids, labelled) if not l)
         problems.append(f"graph labels some nodes and not others ({bare}); label every node or none")
+    if short_ids and not any(labelled):
+        problems.append("graph uses sentence ids; give every node a short id with its sentence as label")
     for text in sorted({t for t in names if names.count(t) > 1}):
         problems.append(f'"{text}": two nodes share the text; give each step distinct text')
     for i, name in enumerate(names):
@@ -248,9 +251,10 @@ def cycles(out):
 
 def main(argv):
     warn_only = "--warn-only" in argv
-    paths = [a for a in argv if a not in ("--strict", "--warn-only")]
+    short_ids = "--short-ids" in argv
+    paths = [a for a in argv if a not in ("--strict", "--warn-only", "--short-ids")]
     if not paths:
-        print("usage: check-dot.py [--warn-only] <SKILL.md | graph.dot> [...]", file=sys.stderr)
+        print("usage: check-dot.py [--warn-only] [--short-ids] <SKILL.md | graph.dot> [...]", file=sys.stderr)
         return 2
     failed, total, warned = False, 0, []
     for path in paths:
@@ -268,7 +272,7 @@ def main(argv):
                 print(f"{path}:{line}: {err}")
                 failed = True
                 continue
-            problems, warnings = check(graph)
+            problems, warnings = check(graph, short_ids)
             problems += [f'"{n}": declared with a label twice; dot keeps one label and merges the steps' for n in double_declared(src)]
             for p in problems:
                 print(f"{path}:{line}: {p}")

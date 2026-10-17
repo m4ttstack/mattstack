@@ -6,9 +6,9 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 
-expect() { # name, expected substring (empty = must pass), dot body
+expect() { # name, expected substring (empty = must pass), dot body, optional extra check-dot.py args
   printf '%s' "$3" > "$tmp/$1.dot"
-  out="$(python3 "$here/check-dot.py" "$tmp/$1.dot" 2>&1)"; rc=$?
+  out="$(python3 "$here/check-dot.py" ${4:-} "$tmp/$1.dot" 2>&1)"; rc=$?
   if [ -z "$2" ]; then
     if [ $rc -eq 0 ] && ! printf '%s' "$out" | grep -q 'warn:'; then echo "ok   $1"; else echo "FAIL $1 (expected a clean pass)"; echo "$out"; fails=$((fails+1)); fi
   else
@@ -50,6 +50,10 @@ expect no-success "no success terminal" 'digraph g { "S" [shape=ellipse]; "End" 
 expect opaque-id "lowercase words joined by underscores" 'digraph g { n1 [label="Start here" shape=ellipse]; "A" [shape=doublecircle style=filled]; n1 -> "A"; }'
 SHORT='start [label="Trigger: go" shape=ellipse]; done [label="Done" shape=doublecircle style=filled];'
 expect short-ok "" 'digraph g { start [label="Trigger: go" shape=ellipse]; git_push [label="git_push {tree}" shape=plaintext]; refused [label="Refused?" shape=diamond]; stop_shell [label="STOP: push only with git_push" shape=octagon]; reported [label="Refused: reported" shape=doublecircle]; done [label="Done" shape=doublecircle style=filled]; start -> refused; refused -> done [label="no"]; refused -> reported [label="yes"]; refused -> stop_shell [label="tempted to push from the shell"]; stop_shell -> git_push; git_push -> done; }'
+SENTENCE_GRAPH='digraph g { "S" [shape=ellipse]; "Done" [shape=doublecircle style=filled]; "S" -> "Done"; }'
+expect short-ids-sentence-fails "graph uses sentence ids; give every node a short id with its sentence as label" "$SENTENCE_GRAPH" --short-ids
+expect short-ids-short-ok "" 'digraph g { start [label="Trigger: go" shape=ellipse]; git_push [label="git_push {tree}" shape=plaintext]; refused [label="Refused?" shape=diamond]; stop_shell [label="STOP: push only with git_push" shape=octagon]; reported [label="Refused: reported" shape=doublecircle]; done [label="Done" shape=doublecircle style=filled]; start -> refused; refused -> done [label="no"]; refused -> reported [label="yes"]; refused -> stop_shell [label="tempted to push from the shell"]; stop_shell -> git_push; git_push -> done; }' --short-ids
+expect sentence-ok-without-flag "" "$SENTENCE_GRAPH"
 expect sentence-lowercase-ok "" 'digraph g { "S" [shape=ellipse]; "done" [shape=doublecircle style=filled]; "S" -> "done"; }'
 expect mixed "label every node or none" 'digraph g { '"$SHORT"' "Stray" [shape=box]; start -> "Stray"; "Stray" -> done; }'
 expect phantom-edge "label every node or none" 'digraph g { '"$SHORT"' git_push [label="git_push {tree}" shape=plaintext]; start -> "git_push {tree}"; "git_push {tree}" -> done; git_push -> done; }'
