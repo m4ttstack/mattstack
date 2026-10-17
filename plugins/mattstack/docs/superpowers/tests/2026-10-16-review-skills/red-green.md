@@ -112,8 +112,9 @@ review:
   `run_decision {scope: post}` does not count, and the "already on the MR?"
   answer must come from the scripted `mr_posted_since` read (B14).
 - **V11 gate_open refused twice.** One fix (`run_budget {key:
-  "post-open-fix", limit: 1}`), then on the second refusal the off-script
-  gate. No hand-edited open, no `gate-ctx.sh`.
+  "post-open-fix", limit: 1}`; from the trim pass, `limit: 2`, charged on
+  each refusal), then on the second refusal the off-script gate. No
+  hand-edited open, no `gate-ctx.sh`.
 - **V11b the same on the hand-back path.** The same budget and gate;
   nothing handed back.
 - **V12 board owns the gates.** `sh <skill>/scripts/review-source.sh
@@ -675,6 +676,68 @@ red-flag row.
   narration, not scored.
 - **S16** (5/5): "I make no `run_decision` call and no `run_field_set
   {key: gate}` call, because this verb is on the gate tools." (rep 5).
+
+### Trim pass: review
+
+System files: the branch tree with the trimmed review (committed as
+`128b631d1`, built from the working tree just before that commit),
+compiled with `--gate-protocol` set to the overlay "169e0667b + sites-list
+edit": rosie's pipeline-skills include at `169e0667b` with its `Sites not
+yet on the tools` bullet edited to drop review, self-review and
+receive-review (the edit this branch makes at its rebase). sha1 of the
+scored review system file: `5bbf22f9e58cdeb6f50f999bbf556725d378bcdc`.
+Transcripts: `<scratch>/trim-review/green1/` (round 1) and
+`<scratch>/trim-review/green2/` (round 2), `<id>/rep-1..5.txt`.
+
+| | Source words | Compiled words |
+|---|---|---|
+| main (`1cb4ba5da`, no overlay) | | 19348 |
+| before the trim (`166165731`, the edited overlay) | 10462 | 17677 |
+| after the trim | 7762 | 14977 (target 14511, -22.6% on main) |
+
+The target is missed by 466 words: the includes (about 7200 words,
+outside the fence) and a graph the spec keeps node for node (target
+resolution, depth and diff, posting) leave about 3750 words for prose,
+and every remaining sentence carries an inventory rule.
+
+Budget convention: the controller's trim ruling supersedes the plan's
+Global Constraints budget lines for this skill. `post-open-fix` and
+`bad-anchors` go from limit 1 to limit 2, one `run_budget` on each
+refusal or bad-anchors result feeding `post-open-fix spent?` and
+`bad-anchors spent?` (first charge: fix or move; second: the off-script
+gate), replacing the `increment: 0` read and the separate charge.
+`target-clarify` and `verify-rounds:<depth>` keep limit 2; their diamonds
+become `target-clarify spent?` and `verify-rounds:<depth> spent?`. The
+V11 criterion's `limit: 1` reads `limit: 2` from this pass. No board
+wrapper or pack names any renamed node.
+
+Round 1 scored 30/30 with zero deviations. Reading it found one rule the
+trim had narrowed (a hold's reason says what is on the MR, at every
+off-script gate, not only the posting ones: V11 rep 3 held with the
+developer's words alone) and, on re-checking the inventory, two more
+(`gitlab_get`'s `repoName` is the checkout path; demotion never edits an
+already-written json). Round 2 restores all three.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| V9 direct post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_open {review: {findingsPath, extras}, scope: "post"}`, one form, `gate_answer`, no `mr_posted_since` on a first pass, submit with D1's reply, then `gate_record {gateId: "gt-901"}`, `run_close done` |
+| V10 resume, no post decision | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume}`, `run_snapshot`, the json copied into the scratch dir, `mr_posted_since` all posted, no submit, `gate_record {gateId: "gt-902"}`, `run_close done` |
+| V11 gate_open refused twice | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `post-open-fix` charge (spent 1), one extras fix, charge (spent 2, exhausted), `off-script:review:1`, `run_hold` naming what is on the MR |
+| V11b hand-back refused twice | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `review-source.sh` then `gate_open {handBack}` each round, the same budget, `run_hold`; no run line, nothing handed back |
+| V12 board owns the gates | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `review-source.sh`, `gate_open {sourcePath, handBack: true, outPath}`, `review-run: r-20261016-rev`, hand-back with the open, source and `gate-ctx.sh` paths and `9c1e2f7` |
+| V13 inherited hand back | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the parse refusal straight to the off-script gate, `run_stage {action: "fail", stage: "peer-review"}`, no `run_close` |
+| **Total** | **30/30** | **0** | **0** | **0** | **0** | **0** | round 2 |
+
+- No rep in either round drew a `run_field_set {key: gate}` bracket or a
+  hand `run_decision`, so the self-review trim's miss against the
+  unedited `169e0667b` line does not recur with the edited overlay.
+- **V11** (5/5): every hold reason now says nothing from the review is on
+  the MR: "Nothing has been posted to !42: no review, comments, replies or
+  approval." (rep 2).
+- Unscored notes: V12 rep 4 left the extras' outcome label as a
+  placeholder, and round 1's V10 rep 4 wrote an unsupplied `reviewer`; both
+  are extras-shape slips outside the A to E classes. V12 rep 3's closing
+  line garbles the order of the future post record, narration only.
 
 ## Summary
 
