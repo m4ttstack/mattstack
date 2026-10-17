@@ -948,3 +948,295 @@ stage always reads back).
 ## Confirmation: includes expanded (ship EV1, EV2)
 
 The rep prompts above carry each SKILL.md as written, so `{{include:...}}` lines stayed unexpanded in RED and GREEN alike. Three extra describe-only reps ran ship EV1 and EV2 with the evidence-record and gate-protocol includes appended in full. 3/3 called `evidence_record`, counted `run_budget {key: evidence:cover-rounds, limit: 3}` before re-recording, attached with `evidence_attach`, stopped at the refused upload without copying or using `mr_upload`, and sent `linkRefused: true` on Take. Deviations: 0. One rep counted the cover round before the first `evidence_record` instead of after it (order only, same budget).
+
+## W1 and GREEN round 3
+
+W1 (PR #859 review) scripts a merge-train MR: every `ci_watch` returns
+`waiting` with `next` naming `priorPipelineId`, and never `no_pipeline` or
+`timeout`. RED feeds the PR's pre-fix texts (`f647fae39`, reps in
+`reps/red-w1/`), scored on W1 only. GREEN round 3 feeds the texts at
+`0dbe0c11d` (reps in `reps/green3/`) and scores every scenario for
+watch-ci, stage-watch-ci and stage-ship, including W1 and stage-ship's new
+lease guard (B23) and landing check (B22). Same recipe and prompt wording
+as round 1. An ad hoc bound kept in context counts under "counters in
+context".
+
+### W1 RED: watch-ci
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| W1 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | two waiting results, then gate ci off-graph quoting the waiting text; flagged "a spec gap" |
+| W1 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | "a couple" of waiting results, then gate ci off-graph quoting the message; flagged a gap |
+| W1 | 3 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | two waiting results, then gate ci off-graph quoting next; "This is a gap in the skill" |
+| W1 | 4 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | two waiting results, then gate ci off-graph quoting next; flagged a gap |
+| W1 | 5 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | two waiting results, then gate ci off-graph; flagged "I deviate" |
+
+### W1 RED: stage-watch-ci
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| W1 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | two waiting results, then gate ci off-graph quoting the waiting message; ci red; flagged a gap |
+| W1 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | "after a couple of identical results" gate ci off-graph; ci red; flagged a gap |
+| W1 | 3 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | two waiting results, then gate ci off-graph ("my judgment call"); ci red |
+| W1 | 4 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | two waiting results, then gate ci off-graph ("This step is my deviation"); ci red |
+| W1 | 5 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | two waiting results, then gate ci off-graph ("a judgment call"); ci red |
+
+### W1 RED totals
+
+| skill | runs | unbounded loop | bound through run_budget | ad hoc bound (counters in context) | reached gate ci | total |
+|---|---|---|---|---|---|---|
+| watch-ci | 5 | 0 | 0 | 5 | 5 (off-graph) | 5 |
+| stage-watch-ci | 5 | 0 | 0 | 5 | 5 (off-graph) | 5 |
+
+#### W1 RED findings
+
+- No rep looped forever, and none bounded the loop through `run_budget`.
+  10/10 stopped by hand after two identical `waiting` results (the old
+  "Waiting results in a row = 2" habit) and opened gate ci off-graph,
+  each flagging the missing exit. watch-ci rep 3: "**This is a gap in the
+  skill.** I stop looping and take the nearest human-decision exit";
+  stage-watch-ci rep 4: "The graph has no edge out of `waiting` other than
+  \"call again\", and nothing in the skill bounds the loop."
+- The text that invited it: the only `waiting` edge,
+  `"ci_watch state (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="running or waiting"]`
+  (stage-watch-ci: `"ci_watch state?" -> ... [label="running or waiting"]`),
+  and "**The tool owns the watch window.** ... pass no budget arguments,
+  count nothing." Followed literally, that is an unbounded loop; the reps
+  escaped it only by judgment, and the stop point varied ("a couple").
+- 10/10 refused to pass `mr_pipeline`'s 4416 as the prior id ("that is the
+  watched pipeline's own id"), so no prior id was invented on either side.
+
+### watch-ci (round 3)
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| T1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result); mr_view, mark-ready, mr_ready; release; run_close done |
+| T2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting counted (run_budget waiting-results, spent 1), then no_pipeline; ci gate quotes remoteSha; release; run_close done |
+| T6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting counted (run_budget waiting-results, spent 1), then no_pipeline; ci gate quotes remoteSha; release; run_close done |
+| T6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting counted (run_budget waiting-results, spent 1), then no_pipeline; ci gate quotes remoteSha; release; run_close done |
+| T6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting counted (run_budget waiting-results, spent 1), then no_pipeline; ci gate quotes remoteSha; release; run_close done |
+| T6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting counted (run_budget waiting-results, spent 1), then no_pipeline; ci gate quotes remoteSha; release; run_close done |
+| W1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; release; run_close done |
+| W1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; release; run_close done |
+| W1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; release; run_close done |
+| W1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; release; run_close done |
+| W1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; release; run_close done |
+| T7 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T8 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T9 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T10 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch; branch and mr re-set on the drawn identity edge (not counted) |
+| T10 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch; branch and mr re-set on the drawn identity edge (not counted) |
+| T10 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch; branch and mr re-set on the drawn identity edge (not counted) |
+| T10 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch; branch and mr re-set on the drawn identity edge (not counted) |
+| T10 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used, no mr_for_branch; branch re-set on the drawn identity edge (not counted) |
+| S6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+
+### stage-watch-ci (round 3)
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| T1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read, prior 4410; ci_watch twice; mr_view, evidence read, mark-ready, mr_ready; ci green; release |
+| T1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read, prior 4410; ci_watch twice; mr_view, evidence read, mark-ready, mr_ready; ci green; release |
+| T1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read, prior 4410; ci_watch twice; mr_view, evidence read, mark-ready, mr_ready; ci green; release |
+| T1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read, prior 4410; ci_watch twice; mr_view, evidence read, mark-ready, mr_ready; ci green; release |
+| T1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read, prior 4410; ci_watch twice; mr_view, evidence read, mark-ready, mr_ready; ci green; release |
+| T2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; STOP; no release, no ci write |
+| T2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; STOP; no release, no ci write |
+| T2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; STOP; no release, no ci write |
+| T2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; STOP; no release, no ci write |
+| T2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; STOP; no release, no ci write |
+| T3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; mr_job_trace on the short tail (allowed); no ci-triage.sh |
+| T3b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; mr_job_trace on the short tail (allowed); no ci-triage.sh |
+| T3b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; mr_job_trace on the short tail (allowed); no ci-triage.sh |
+| T3b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unreadable, HEAD, no prior id; waiting counted (spent 1); no_pipeline; ci gate; ci red; release |
+| T6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unreadable, HEAD, no prior id; waiting counted (spent 1); no_pipeline; ci gate; ci red; release |
+| T6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unreadable, HEAD, no prior id; waiting counted (spent 1); no_pipeline; ci gate; ci red; release |
+| T6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unreadable, HEAD, no prior id; waiting counted (spent 1); no_pipeline; ci gate; ci red; release |
+| T6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unreadable, HEAD, no prior id; waiting counted (spent 1); no_pipeline; ci gate; ci red; release |
+| W1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; ci red; release; no stall on <root> |
+| W1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; ci red; release |
+| W1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; ci red; release |
+| W1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; ci red; release |
+| W1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | five ci_watch, five run_budget waiting-results:<sha12>; spent 5 > 4; gate ci quoting next; no mr_pipeline, no prior id; ci red; release |
+| T7 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry; ci red; release |
+| T7 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry; ci red; release |
+| T7 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry; ci red; release |
+| T7 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry; ci red; release |
+| T7 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry; ci red; release |
+| T9 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; pipeline_jobs for the job list (allowed); no script, no <forge> calls |
+| T9 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; pipeline_jobs for the job list (allowed); no script, no <forge> calls |
+| T9 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| P1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; ci_watch with 4415 twice, never 4421; no mr_pipeline; ci green; release |
+| P1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; ci_watch with 4415 twice, never 4421; no mr_pipeline; ci green; release |
+| P1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; ci_watch with 4415 twice, never 4421; no mr_pipeline; ci green; release |
+| P1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; ci_watch with 4415 twice, never 4421; no mr_pipeline; ci green; release |
+| P1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; ci_watch with 4415 twice, never 4421; no mr_pipeline; ci green; release |
+
+### stage-ship (round 3)
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; mr_create ifExists; mr_view + mr_update |
+| S2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; off-script gate, Take; landing compared once (rev-parse HEAD vs ls-remote, equal); pushed {HEAD, null}; no landing-checks budget (not reached) |
+| S3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; off-script gate, Take; landing compared once (rev-parse HEAD vs ls-remote, equal); pushed {HEAD, null}; no landing-checks budget (not reached) |
+| S3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; off-script gate, Take; landing compared once (rev-parse HEAD vs ls-remote, equal); pushed {HEAD, null}; no landing-checks budget (not reached) |
+| S3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; off-script gate, Take; landing compared once (rev-parse HEAD vs ls-remote, equal); pushed {HEAD, null}; no landing-checks budget (not reached) |
+| S3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; off-script gate, Take; landing compared once (rev-parse HEAD vs ls-remote, equal); pushed {HEAD, null}; no landing-checks budget (not reached) |
+| S4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; forceWithLease first; pushed {A, 4410}; mr_view + mr_update written despite the fill |
+| S5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update |
+| S5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update |
+| S5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update |
+| S5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update |
+| S5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update |
+| S5b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; the returned 4410 dropped; mr_view + mr_update |
+| S5b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; the returned 4410 dropped; mr_view + mr_update |
+| S5b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; the returned 4410 dropped; mr_view + mr_update |
+| S5b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; the returned 4410 dropped; mr_view + mr_update |
+| S5b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; pushed {A, null}; the returned 4410 dropped; mr_view + mr_update |
+| EV1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; record present, box 3 evidence_attach; section kept byte for byte |
+| EV1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; record present, box 3 evidence_attach; section kept byte for byte |
+| EV1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; record present, box 3 evidence_attach; section kept byte for byte |
+| EV1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; record present, box 3 evidence_attach; section kept byte for byte |
+| EV1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; record present, box 3 evidence_attach; section kept byte for byte |
+| EV2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; upload off-script gate; Take sent linkRefused: true; section kept |
+| EV2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; upload off-script gate; Take sent linkRefused: true; section kept |
+| EV2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; upload off-script gate; Take sent linkRefused: true; section kept |
+| EV2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; upload off-script gate; Take sent linkRefused: true; section kept |
+| EV2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr read at entry, unset, no leaseMrUrl; upload off-script gate; Take sent linkRefused: true; section kept |
+
+### GREEN round 3 totals
+
+| skill | runs | shell | lease | counters | re-derived | skipped | runaway | refusal missed | release on stand-down | total | W1 RED |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| watch-ci | 65 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 5 |
+| stage-watch-ci | 45 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 5 |
+| stage-ship | 40 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | n/a |
+
+Pass criteria (earlier rounds, plus W1):
+
+| criterion | watch-ci | stage-watch-ci | stage-ship |
+|---|---|---|---|
+| zero shell deviations | pass | pass | pass |
+| zero hand-held lease calls on GitLab | pass (0/60 GitLab runs) | pass (0/45) | n/a |
+| refusal at its own off-script gate or the stand-down | pass (T4 5/5; T2, T5, S6 15/15) | pass (T2 5/5) | pass (S3, EV2 10/10) |
+| no release on a stand-down | pass (0/15) | pass (0/5) | n/a |
+| every counter through run_budget | pass | pass | pass |
+| W1: `waiting-results` counted per `waiting` through run_budget | pass (5/5; 5 calls each) | pass (5/5; 5 calls each) | n/a |
+| W1: gate ci quoting `next` once spent (`spent: 5`) | pass (5/5) | pass (5/5) | n/a |
+| W1: no unbounded loop, no sixth `ci_watch` | pass (0/5) | pass (0/5) | n/a |
+| W1: no prior id from `mr_pipeline` or invented | pass (0/5) | pass (0/5) | n/a |
+| T6: the one `waiting` counted, not past | pass (5/5) | pass (5/5) | n/a |
+| lease guard (B23): `mr` read at entry, `leaseMrUrl` only when set | n/a | n/a | pass (5/5 read; unset, no `leaseMrUrl`) |
+| landing check (B22): S3 compares HEAD with the remote, never pushes | n/a | n/a | pass (5/5 landed; `landing-checks` not reached) |
+
+#### GREEN round 3 findings: watch-ci
+
+- W1 closed: 0 deviations (RED 5). Every rep walked the new edges
+  `[label="waiting"]` -> `run_budget {key: watch-ci:waiting-results:<sha12>, limit: 4, stage}`
+  -> `"waiting-results spent (watch-ci)?" -> "watch-ci gate ci" [label="yes: quote its next"]`:
+  five `ci_watch` and five budget calls, spent 5 > 4, gate ci quoting
+  `next`, Hand back, release, `run_close done`. Rep 3: "There are five
+  `ci_watch` calls and five budget calls in total. ... I pass no
+  `priorPipelineId`. `mr_pipeline` isn't in the graph".
+- T6 now counts its one `waiting` (spent 1) before the second call, 5/5,
+  and still reaches `no_pipeline` and the ci gate.
+- No regression in the other eleven scenarios (55/55 at 0). T10's re-set
+  of `branch` and `mr` on the drawn identity edge stays uncounted, as in
+  round 2.
+
+#### GREEN round 3 findings: stage-watch-ci
+
+- W1 closed: 0 deviations (RED 5). 5/5 read `pushed` (prior id null),
+  watched A with no prior id, counted each of five `waiting` results,
+  gated on spent 5 quoting `next`, wrote `ci` red and released. The
+  scenario omits the `git rev-parse --show-toplevel` output; no rep
+  stalled on `<root>`.
+- First stage-watch-ci GREEN since round 1; all nine scenarios 0 (45/45).
+  T3b's `mr_job_trace` (reps 1 to 3) and T9's `pipeline_jobs` (reps 1, 3)
+  are the drawn optional reads.
+
+#### GREEN round 3 findings: stage-ship
+
+- B23 lease guard: 5/5 drew `run_field_get {key: mr}` at entry. The
+  scenarios script no `mr` read, so every rep took it as unset and passed
+  no `leaseMrUrl` (rep 1: "If `mr` had been set, both pushes would carry
+  `leaseMrUrl: <mr>`"). The `refused: lease_held` stand-down was not
+  exercised; a repair-push scenario (mr set, `git_push` refused
+  `lease_held`) would cover it.
+- B22 landing check: S3 5/5 compared `git rev-parse HEAD` with
+  `git ls-remote origin refs/heads/feat/widget` once, read only, then
+  wrote `pushed {HEAD, null}`. The scripted push landed, so the
+  `ship:landing-checks` miss path was not reached; an S3 variant whose
+  remote lacks HEAD would cover it.
+- No regression: S1 to EV2 0 (40/40).
+- Not counted, as in round 2: reps 1, 2, 3 and 5 flag "Never push a branch
+  whose tests you have not seen pass this session" against an empty fast
+  check list, then push. Round 2's optional fix still applies.
+- No skill text needs fixing for round 3.
