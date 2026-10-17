@@ -152,7 +152,7 @@ digraph receive_review {
     "Resolve the thread on GitHub with gh" [shape=box];
     "Any GitHub fix row held this pass?" [shape=diamond];
     "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy, held}" [shape=plaintext];
-    "run_field_set {key: hold, value: held, stage: <stage>}" [shape=plaintext];
+    "run_field_set {runDb, key: hold, value: held, stage: <stage>}" [shape=plaintext];
 
     "Report the outcome" [shape=box];
     "This verb started or resumed the run?" [shape=diamond];
@@ -351,7 +351,7 @@ digraph receive_review {
 
     "Posted already on GitHub: read every thread with gh" -> "The GitHub read returned every thread due?";
     "The GitHub read returned every thread due?" -> "Picks post or resolve a gate-1: fix row?" [label="yes"];
-    "The GitHub read returned every thread due?" -> "run_field_set {key: hold, value: held, stage: <stage>}" [label="no, or an error: report it verbatim"];
+    "The GitHub read returned every thread due?" -> "run_field_set {runDb, key: hold, value: held, stage: <stage>}" [label="no, or an error: report it verbatim"];
     "Picks post or resolve a gate-1: fix row?" -> "git branch --show-current" [label="yes"];
     "Picks post or resolve a gate-1: fix row?" -> "Next GitHub thread?" [label="no: push nothing"];
     "git branch --show-current" -> "git rev-parse --abbrev-ref @{push}";
@@ -373,7 +373,7 @@ digraph receive_review {
     "Resolve the thread on GitHub with gh" -> "Next GitHub thread?";
     "Any GitHub fix row held this pass?" -> "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy, held}" [label="yes"];
     "Any GitHub fix row held this pass?" -> "Report the outcome" [label="no"];
-    "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy, held}" -> "run_field_set {key: hold, value: held, stage: <stage>}";
+    "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy, held}" -> "run_field_set {runDb, key: hold, value: held, stage: <stage>}";
     "Report the outcome" -> "This verb started or resumed the run?";
 
     "This verb started or resumed the run?" -> "run_close {runDb, workType: receive-review, stage: receive-review, outcome}" [label="yes: outcome done"];
@@ -385,7 +385,7 @@ digraph receive_review {
     "receive-review closed as?" -> "receive-review stage failed" [label="failed or abandoned"];
     "run_stage {action: fail, stage: <stage>, reason}" -> "receive-review stage failed";
     "run_hold {runDb, stage, reason, decidedBy}" -> "Held: end the turn naming the run and stage";
-    "run_field_set {key: hold, value: held, stage: <stage>}" -> "Threads held: run left open for a resume";
+    "run_field_set {runDb, key: hold, value: held, stage: <stage>}" -> "Threads held: run left open for a resume";
 }
 ```
 

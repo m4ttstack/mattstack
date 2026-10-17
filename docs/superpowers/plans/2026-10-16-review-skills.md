@@ -64,7 +64,7 @@ is the contract.
   - `## Off-script gate` (scope `off-script:<site>:<n>`, questions `action`
     and `next`)
   - `## Structured context (gate-ctx@1)`, with the sidecar
-    `structured-context.md`
+    `structured-context.txt`
 
   Before each task, re-check them against
   `/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/rosie/plugins/mattstack/attachments/gate-protocol/SKILL.md`
@@ -78,15 +78,17 @@ is the contract.
   | receive-review | `respond-plan-open` | 3 |
   | receive-review | `respond-post-open` | 3 |
   | receive-review | `fix:<threadId>` | 3 |
-  | receive-review | `post-execute-fix` | 1 |
+  | receive-review | `post-execute-fix` | 2 |
   | review | `target-clarify` | 2 |
   | review | `verify-rounds:<depth>` | 2 |
-  | review | `post-open-fix` | 1 |
-  | review | `bad-anchors` | 1 |
+  | review | `post-open-fix` | 2 |
+  | review | `bad-anchors` | 2 |
   | self-review | `fix:<findingId>:<round>` | 3 |
-  | self-review | `reopen:<findingId>` | 1 |
+  | self-review | `reopen:<findingId>` | 2 |
 
-  `<round>` starts at 1 and becomes 2 after the one reopened gate.
+  `<round>` starts at 1 and becomes 2 after the one reopened gate. A limit
+  of 2 means one fix, then the gate (one `run_budget` call per failure
+  feeding a `<key> spent?` diamond).
 - **Run line:** at a hand-back, write `receive-review-run: <run id>` or
   `review-run: <run id>` into the handed `--report`.
 - **Scratch files:** a new directory inside the session scratchpad (under
