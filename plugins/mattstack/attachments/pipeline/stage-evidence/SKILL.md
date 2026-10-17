@@ -59,7 +59,7 @@ digraph evidence {
     "git -C <worktree> remote get-url origin" [shape=plaintext];
     "Forge host?" [shape=diamond];
     "mr_for_branch {repoName: <worktree>, branches: [<branch>]}" [shape=plaintext];
-    "gh pr view <branch> --json number,url" [shape=plaintext];
+    "gh pr view <branch> --json number,url,state" [shape=plaintext];
     "Open MR or PR on the branch?" [shape=diamond];
     "Gate evidence-attach (table below)" [shape=box];
     "attach answer?" [shape=diamond];
@@ -77,7 +77,8 @@ digraph evidence {
     "Evidence stage entered" -> "run_field_get {key: evidence-plan}" -> "run_field_get {key: worktree}" -> "evidence-plan starts with none?";
     "evidence-plan starts with none?" -> "evidence_record {runDb, stage: evidence, plan: \"none\"}" [label="yes"];
     "evidence-plan starts with none?" -> "Run the domain steps before the gate (none when unbound)" [label="no"];
-    "evidence_record {runDb, stage: evidence, plan: \"none\"}" -> "Evidence done: return to the orchestrator";
+    "evidence_record {runDb, stage: evidence, plan: \"none\"}" -> "Evidence done: return to the orchestrator" [label="written"];
+    "evidence_record {runDb, stage: evidence, plan: \"none\"}" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="errored"];
     "Run the domain steps before the gate (none when unbound)" -> "Domain needs dev servers or another rt read?";
     "Domain needs dev servers or another rt read?" -> "dev_endpoints {tree: <worktree>, roles: <the domain's roles>}" [label="dev servers"];
     "Domain needs dev servers or another rt read?" -> "rt_verb {args: [<verb>, ...]}" [label="another rt read"];
@@ -96,6 +97,7 @@ digraph evidence {
     "Gate evidence (table below)" -> "evidence answer?";
     "evidence answer?" -> "Ticket already shows the broken state?" [label="proceed: intake and source recorded"];
     "evidence answer?" -> "Gate evidence (table below)" [label="iterate: re-ask with their note"];
+    "evidence answer?" -> "dev_endpoints {tree: <worktree>, roles: <the domain's roles>}" [label="iterate, a role was waiting or unclaimed: re-check"];
     "evidence answer?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="hand back"];
     "Ticket already shows the broken state?" -> "Record the ticket's location as the BEFORE" [label="yes"];
     "Ticket already shows the broken state?" -> "Capture the BEFORE for the next case" [label="no"];
@@ -122,11 +124,11 @@ digraph evidence {
     "Domain attaches evidence to an MR here?" -> "Record the evidence (evidence-record)" [label="no: ship attaches"];
     "run_field_get {key: branch}" -> "git -C <worktree> remote get-url origin" -> "Forge host?";
     "Forge host?" -> "mr_for_branch {repoName: <worktree>, branches: [<branch>]}" [label="GitLab"];
-    "Forge host?" -> "gh pr view <branch> --json number,url" [label="GitHub"];
+    "Forge host?" -> "gh pr view <branch> --json number,url,state" [label="GitHub"];
     "Forge host?" -> "Record the evidence (evidence-record)" [label="another host: ship attaches"];
-    {"mr_for_branch {repoName: <worktree>, branches: [<branch>]}" "gh pr view <branch> --json number,url"} -> "Open MR or PR on the branch?";
-    "Open MR or PR on the branch?" -> "Gate evidence-attach (table below)" [label="yes: keep its url"];
-    "Open MR or PR on the branch?" -> "Record the evidence (evidence-record)" [label="no: ship attaches later"];
+    {"mr_for_branch {repoName: <worktree>, branches: [<branch>]}" "gh pr view <branch> --json number,url,state"} -> "Open MR or PR on the branch?";
+    "Open MR or PR on the branch?" -> "Gate evidence-attach (table below)" [label="yes (a PR's state is OPEN): keep its url"];
+    "Open MR or PR on the branch?" -> "Record the evidence (evidence-record)" [label="no, or a PR not OPEN: ship attaches later"];
     "Gate evidence-attach (table below)" -> "attach answer?";
     "attach answer?" -> "Record the evidence (evidence-record)" [label="attach now, or hand back the markdown"];
     "attach answer?" -> "Gate evidence-attach (table below)" [label="iterate: re-ask with their note"];

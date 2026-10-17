@@ -27,6 +27,8 @@ the evidence section by hand. A `<slug> spent?` diamond is yes when the
 - Captures stay where they were written. `evidence_record` copies each
   into `~/.mattstack/work/<run id>/evidence/`: draw on and name files by
   the paths in its returned `value`, never the source.
+- A file in the run folder is never rewritten: a recapture lands in a
+  content folder beside it.
 
 ## Record the evidence
 
@@ -212,8 +214,8 @@ recaptured; only the human copies a file under an allowed root.
 ### Does this verb attach again later?
 
 Yes when a later stage of this run attaches again (stage-evidence: ship
-sends the refused files). No for ship and stage-ship, so Take links their
-local paths.
+sends the refused files). No for ship and stage-ship, so Take lists them
+as attached separately.
 
 ## Merge into the record
 
@@ -227,13 +229,15 @@ and skip the verb's own annotate-or-waive pass and evidence write.
 
 ## Upload only what the record allows
 
-Run `Attach the evidence` where the verb's own upload loop starts, and
-skip that `mr_upload` loop.
+Run `Attach the evidence` at the verb's `Files to attach` decision,
+whatever it answers (GitHub and no files included), and skip the verb's
+`mr_upload` loop.
 
 ## The evidence section of the description
 
 `Attach the evidence` wrote it: write the title and description around
-it byte for byte as it stands on the MR, never a second evidence block.
+it byte for byte as it stands on the MR (or the `section` the attach
+returned), never a second evidence block.
 
 ## Domain precedence
 
