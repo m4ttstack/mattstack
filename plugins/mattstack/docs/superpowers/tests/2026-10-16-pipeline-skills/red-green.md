@@ -467,6 +467,31 @@ Per rep:
   use `redirect`). stage-plan routes Go back itself and hands back `to`,
   not `next`, so nothing reads that value.
 
+### Final review fix wave
+
+The whole-branch review's fixes, in one pass:
+
+- `work`: a stage that ended failed, held or abandoned goes to `run_next`, and a watch-ci Fix hands back like a Go back (`to: implement`). Only a running run's id this request continues goes to `resume`. A run resumed at the first stage's attempt 1 (a herd's `run_start` run) takes the Ticket and Account steps. A not-found armed gate clears `waiting-gate`. Resume re-enters at the write-in diamond.
+- gate-protocol: the `next` option values are pinned (`proceed`, `iterate`, `go-back`, `hold`, `abandon`, `done`). Ship, watch-ci and evidence are listed as drawing no gate bracket or `run_decision` line. Trims keep it at 2498 words.
+- stage-provision: prose that restated a refusal's `error`, a tool's own behavior or an edge label is cut, 1917 to 1814 words.
+
+S1, S2, S3 (work), S5, S5b (stage-provision), S4 and S8 (gate-protocol) ran again, 5 reps each, on the working tree. No rep hit an API error.
+
+| Scenario | GREEN | Notes |
+|---|---|---|
+| S1 stage end | 5/5 | `run_next {runDb, stage: "plan"}`, then the gates Read; no `run_stage`, `run_snapshot` or `run_field_set` |
+| S2 failure gate Go back | 5/5 | The stage ended failed, and every rep routes it to `run_next` ("The stage file ended failed, so `run_next` routes it", rep 2). Then `gate_ask` with `runDb`, `stage: "ship"` and `to-1`/`to-2`, one background wait, `gate_reconcile`, `run_resolve {..., attempt: 2, decidedBy: "board"}`, the implement Read; Part 3 follows `repeated: true` with no `run_stage start` |
+| S3 compacted resume | 5/5 | `run_enter {resume: "r-20261016-abc"}`, then, resumed at plan, no Ticket or Account step ("That is "resumed elsewhere", so I skip the tracker update", rep 4); `run_field_get waiting-gate`, `gate_reconcile`, the plan Read at the gate's site, the two field writes, `run_next`, the gates Read. No re-ask, no `run_stage start` |
+| S4 unattended wait | 5/5 | `gate_ask {kind: "plan", runDb, stage: "plan"}`, one background wait, `holding at gate gt-5b19`, `gate_reconcile`, `execution-strategy@1`, the two writes. Every rep gives Go back the value `go-back`. The runErrors reps (4-5) quote the error in one line and write no `waiting-gate` |
+| S5 occupied ticket branch | 5/5 | Precheck, one `resume_in` question (the attached tree once, plus Fresh tree) and `next`, `gate_answer` with `runDb` and `stage`, `worktree_provision {..., branch: "acme-12-fix-login", reuse: true, runDb, stage: "provision"}`, `EnterWorktree`; no hand writes after `recorded: true` |
+| S5b precheck on an older daemon | 5/5 | `daemon-outdated`, then one provision with `codes`, `runDb`, `stage` and the budget; no precheck retry, no gate, no fail, no hand writes |
+| S8 no run, herdr pane | 5/5 | No `runDb`, `stage` or `run_*` anywhere; one background wait; `gate_reconcile {id: "gt-77b0"}` on the doorbell |
+
+Not criteria, noted:
+
+- S2 rep 4 gave Go back the value `redirect` rather than the pinned `go-back`; the other four S2 reps and all five S4 reps used `go-back`. The scripted board answer in S2 carries `redirect`, which every rep then mapped to `run_resolve`'s `redirect`.
+- S5 rep 2 wrote "`AskUserQuestion` with the two `formChunks` in order", leaving it unclear whether that is one call or two; the other four reps made one call per chunk.
+
 ## Word counts
 
 Source is `wc -w` of each `SKILL.md`; compiled is `wc -w` of the
@@ -477,17 +502,20 @@ Source is `wc -w` of each `SKILL.md`; compiled is `wc -w` of the
 | Skill | Source before | Source after | Compiled before | Compiled after |
 |---|---|---|---|---|
 | gate-protocol | 5337 | 2498 | n/a (inlined) | n/a (inlined) |
-| work | 2083 | 1645 | 7779 | 4529 |
-| stage-provision | 1228 | 1917 | 6834 | 4711 |
+| work | 2083 | 1710 | 7779 | 4594 |
+| stage-provision | 1228 | 1814 | 6834 | 4608 |
 | stage-plan | 980 | 1045 | 7285 | 4538 |
 | stage-implement | 614 | 616 | n/a | n/a |
 | stage-self-review | 462 | 525 | 460 | 523 |
 | stage-gates | 383 | 380 | n/a | n/a |
 
 Targets as re-ruled: gate-protocol under 2500 (met at 2498); `work` about
-1600 rather than the plan's under 1200 (the mandated node texts make 1200
-unreachable; 1645 reached); stage-provision grew for the same reason (the
-precheck, reuse, refusal-code and budget nodes). The structured-context
+1600 to 1700 rather than the plan's under 1200 (the mandated node texts make
+1200 unreachable; 1710 after the final review's fixes); stage-provision grew
+for the same reason. Its graph is 1045 words against `main`'s 725: the
+precheck, reuse, refusal-code and budget nodes, and the long provision call
+node repeated on every edge into it. Its prose (769 words after the final
+review's trims, from 872) covers the new nodes' sections. The structured-context
 reference (805 words) is no longer inlined in any compile.
 
 ## Compiled-output checks

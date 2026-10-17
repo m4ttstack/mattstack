@@ -458,7 +458,7 @@ Totals: RED 5/50, GREEN 50/50.
   separates the texts on `reuse` and the hand writes.
 - Size targets were re-ruled: gate-protocol under 2500 (met, 2498), `work`
   about 1600 (plan said under 1200; the mandated node texts make that
-  unreachable, actual 1645). stage-provision grew from 1228 to 1917 words
+  unreachable, actual 1710). stage-provision grew from 1228 to 1814 words
   for the same reason.
 
 ## Verification
