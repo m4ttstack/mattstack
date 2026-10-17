@@ -14,3 +14,5 @@ An override that a layer cannot apply is a warning, not an error. Materialize pr
 
 - `<key> from <layer> is ignored: the pipeline does not list that stage` when no layer's stage list ever named the stage.
 - `<key> from <layer> is ignored: the pipeline no longer lists that stage` when a higher layer replaced the stage list and removed a stage a lower layer's override names.
+
+`rt skills check` prints the generic `Override <key> from <layer> is ignored` for each dropped override.
