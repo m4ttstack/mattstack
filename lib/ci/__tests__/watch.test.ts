@@ -385,6 +385,22 @@ describe("watchPipeline", () => {
     expect(sleeps).toEqual([30_000, 30_000, 60_000]);
     expect(r.waitedSeconds).toBe(120);
   });
+  test("the read backoff never sleeps past half the lease ttl", async () => {
+    let n = 0;
+    const sleeps: number[] = [];
+    let t = 0;
+    const lease = { ...LEASE, ttlSeconds: 60 };
+    const { deps } = fake([], {
+      now: () => t,
+      sleep: async (ms) => { sleeps.push(ms); t += ms; },
+      leaseCheck: () => ({ ok: true, lease }),
+      readMr: async () => (++n === 1
+        ? { ok: true as const, mr: mr(SHA, pipe({ status: "running" })) }
+        : { ok: false as const, error: "GitLab returned 502 Bad Gateway: x" }),
+    });
+    await watchPipeline(base, deps);
+    expect(sleeps).toEqual([30_000, 30_000, 30_000]);
+  });
   test("a read that recovers inside the backoff keeps watching", async () => {
     let n = 0;
     const { deps } = fake([], {

@@ -235,7 +235,7 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
   }
 
   // Half the lease's ttl bounds the interval so the heartbeat each poll gives never lets the lease go stale.
-  const pollInterval = () => Math.min(input.intervalSeconds * 1_000, lease ? (lease.ttlSeconds * 1_000) / 2 : Infinity);
+  const pollInterval = (scale = 1) => Math.min(input.intervalSeconds * 1_000 * scale, lease ? (lease.ttlSeconds * 1_000) / 2 : Infinity);
   let readFailures = 0;
 
   const again = (hint: string) => (provenPrior === undefined ? `${hint}; call again` : `${hint}; call again with priorPipelineId ${provenPrior}`);
@@ -257,7 +257,7 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
         return result(last.state, last.mr, again(`reading the MR failed (${read.error})`));
       }
       // Without a sleep here a caller told to call again would poll a down forge back to back.
-      await deps.sleep(Math.min(pollInterval() * 2 ** (readFailures - 1), remaining), input.signal);
+      await deps.sleep(Math.min(pollInterval(2 ** (readFailures - 1)), remaining), input.signal);
       if (input.signal?.aborted) return result("aborted", last.mr, again("the call was cancelled"));
       continue;
     }
