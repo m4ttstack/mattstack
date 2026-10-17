@@ -82,8 +82,6 @@ digraph ship {
     "push-off-script past its limit?" [shape=diamond];
     "Make the recorded move once" [shape=box];
     "Push landed?" [shape=diamond];
-    "run_budget {key: ship:landing-checks, limit: 1, stage: ship}" [shape=plaintext];
-    "landing-checks past its limit?" [shape=diamond];
     "run_field_set {key: pushed, value: <{\"sha\": HEAD, \"priorPipelineId\": null} JSON>, stage: ship} (after the human's push)" [shape=plaintext];
 
     "git remote get-url origin" [shape=plaintext];
@@ -227,10 +225,7 @@ digraph ship {
     "push-off-script past its limit?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: hand back, the refusal quoted"];
     "Make the recorded move once" -> "Push landed?";
     "Push landed?" -> "run_field_set {key: pushed, value: <{\"sha\": HEAD, \"priorPipelineId\": null} JSON>, stage: ship} (after the human's push)" [label="yes: the remote branch carries HEAD"];
-    "Push landed?" -> "run_budget {key: ship:landing-checks, limit: 1, stage: ship}" [label="no"];
-    "run_budget {key: ship:landing-checks, limit: 1, stage: ship}" -> "landing-checks past its limit?";
-    "landing-checks past its limit?" -> "Off-script gate (gate-protocol, scope off-script:ship:<n>)" [label="no: reopen with what the comparison showed"];
-    "landing-checks past its limit?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: a failure, the comparison quoted"];
+    "Push landed?" -> "git remote get-url origin" [label="no: go on, pushed stays unwritten"];
     "run_field_set {key: pushed, value: <{\"sha\": HEAD, \"priorPipelineId\": null} JSON>, stage: ship} (after the human's push)" -> "git remote get-url origin";
 
     "git remote get-url origin" -> "Forge host?";
@@ -246,7 +241,7 @@ digraph ship {
     "Forge clarify answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="hand back: a failure, no forge this stage knows"];
     "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?, ifExists: return}" -> "mr_create result?";
     "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="created, squash applied or not asked: keep its url"];
-    "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="existing: keep its url, leave its settings as found"];
+    "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="existing: keep its url; no squash or labels, the title and description are still written below"];
     "mr_create result?" -> "mr_update {mrUrl, squash: true}" [label="squashApplied: false"];
     "mr_create result?" -> "run_budget {key: ship:mr-create-recalls, limit: 1, stage: ship}" [label="url null: the MR exists, its url was not read back"];
     "mr_create result?" -> "run_stage {action: fail, stage: ship, reason}" [label="error: quote it as the reason"];
@@ -375,11 +370,11 @@ a branch whose tests you have not seen pass in this session.
 
 ### Make the recorded move once
 
-The gate's recorded move (the human's push) happens once, never retried
-here. Then compare `git rev-parse HEAD` with the remote branch: it landed
-when that branch carries HEAD, which `pushed` records with no prior id.
-Each miss counts one `landing-checks` round: the first reopens the
-off-script gate quoting the comparison, the second fails the stage.
+The move the gate recorded (a push outside `git_push`) is made once,
+never retried. Then compare `git rev-parse HEAD` with the remote branch:
+it landed when that branch carries HEAD, which `pushed` records with no
+prior id. When it did not land, the stage goes on with `pushed`
+unwritten.
 
 ### Capture the AFTER for the next case the domain names
 
@@ -402,7 +397,7 @@ twice as not in the record or a raw capture. Scope `off-script:ship:<n>`,
 and the path. Take links the refused files' local paths in the
 description, files already uploaded keeping their upload markdown; Iterate
 means the human moved the file, widened `rt.mcp.uploadRoots` or
-recaptured. Copying a file under an allowed root is only ever the human's
+recaptured. Copying a file under an allowed root is only the human's
 move: the roots are the boundary on what leaves the machine.
 
 ### Write the title and description
@@ -435,11 +430,11 @@ host from here on: later forge diamonds read the answer, never the URL.
 - **Budgets.** Every loop counts through `run_budget` (`stage: ship`),
   surviving compaction and resume within the stage attempt; the diamond
   after each call reads `spent > limit`. `after-attempts` keys end in the
-  case id, upload keys in the file's basename.
+  case id, upload keys in the basename.
 - **`pushed`** hands the watch-ci stage `git_push`'s `sha`, and its
-  `priorPipelineId` only when the push moved the branch (no upstream
-  before it, commits listed before the gate, a commit by this stage since,
-  or a forced push); else `null`, since that pipeline is the sha's own and
+  `priorPipelineId` only when the push moved the branch (commits listed
+  before the gate, a commit by this stage since, or a forced push); else
+  `null`, since that pipeline is the sha's own and
   the watch would wait for one that never comes.
 - **Hold** records `run_hold`: `reason` their words or the gate,
   `decidedBy` as the answer recorded it.
@@ -453,9 +448,10 @@ host from here on: later forge diamonds read the answer, never the URL.
 - Keep the `url` `mr_create` returns as `mrUrl` for every later write.
   `existing: true` is an MR already open on the branch, nothing the call
   passed applied (a re-call after `url: null` returns the first call's
-  MR this way). The return to the orchestrator names both targets when
-  its `targetBranch` differs from the resolved one, and says squash is
-  unset when it was asked and no result applied it.
+  MR this way); no squash or labels follow; the stage still writes
+  its title and description. The return to the orchestrator names both
+  targets when its `targetBranch` differs from the resolved one, and says
+  squash is unset when it was asked and no result applied it.
 - **Recorded consent.** Proceed records the consented target in
   `shipTarget`; with the stack store unreadable the value is `<default
   branch> (stack store unreadable)`, telling consent to the fallback from a
@@ -480,9 +476,9 @@ One sentence above the form: the branch, the commits about to go, whether
 the tree is dirty, and the resolved target (the stack parent, the default
 branch, or "the stack could not be read, so the default branch"), so
 Proceed is consent to that target. A re-entered stage reopening it
-because the target moved names the recorded and fresh targets. When the gate reopens with a rebase in progress (the
-conflict rounds are spent), the context says so, since Abort or Go back
-then aborts that rebase.
+because the target moved names the recorded and fresh targets. When the
+gate reopens with a rebase in progress (the conflict rounds are spent),
+the context says so, since Abort or Go back then aborts that rebase.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
@@ -499,10 +495,10 @@ Each Iterate counts one `ship-gate-rounds` round, and each time the fix
 or conflict rounds run out one `ship-gate-reopenings` round. The first
 redoes the steps before the gate with the note, or reopens this gate
 quoting the failing output or conflicted files; the second fails the
-stage quoting them. The fix and conflict rounds carry over a reopen: the reopened
-gate is the human's turn to fix it, so a Proceed whose checks still fail
-reaches this counter again without new fix rounds. Either failure aborts a
-rebase in progress first.
+stage quoting them. The fix and conflict rounds carry over a reopen:
+the reopened gate is the human's turn to fix it, so a Proceed whose
+checks still fail reaches this counter again without new fix rounds.
+Either failure aborts a rebase in progress first.
 
 ## Domain rules
 
