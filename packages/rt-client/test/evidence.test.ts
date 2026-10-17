@@ -187,6 +187,15 @@ describe("evidence helpers", () => {
   });
 });
 
+describe("ticket source", () => {
+  test("readEvidence keeps an image's source; a record without one reads exactly as before", () => {
+    const withSource = readEvidence(JSON.stringify({ v: 2, cases: [{ id: "c1", label: "C", before: { path: "/t.png", source: "ticket", annotated: "/b.png", caption: "x" } }] }));
+    expect(withSource.version === 2 && withSource.cases[0]!.before![0]).toEqual({ path: "/t.png", source: "ticket", annotated: "/b.png", caption: "x" });
+    const without = readEvidence(JSON.stringify({ v: 2, cases: [{ id: "c1", label: "C", before: { path: "/t.png", annotated: "/b.png", caption: "x" } }] }));
+    expect(without.version === 2 && without.cases[0]!.before![0]).toEqual({ path: "/t.png", annotated: "/b.png", caption: "x" });
+  });
+});
+
 describe("validateEvidence", () => {
   const ok = { ok: true } as const;
   const bad = (value: unknown) => validateEvidence(JSON.stringify(value));
@@ -201,6 +210,21 @@ describe("validateEvidence", () => {
     expect(bad(V2)).toEqual(ok);
     expect(bad(one({ after: { dark: { path: "/d.png", annotated: "/da.png", caption: "x" } } }))).toEqual(ok);
     expect(bad(one({ after: { path: "/a.png" }, waiver: "identical" }))).toEqual(ok);
+  });
+  test("a ticket image cannot be waived: it must carry an annotated board", () => {
+    expect(bad(one({ before: { path: "/t.png", source: "ticket", waiver: "nothing to mark" } }))).toEqual({
+      ok: false,
+      error: 'evidence@2: case "c1" before is a ticket image and cannot be waived; compose an import board that hides its personal data',
+    });
+    expect(bad(one({ before: { path: "/t.png", source: "ticket" }, waiver: "whole case" }))).toEqual({
+      ok: false,
+      error: 'evidence@2: case "c1" before is a ticket image and cannot be waived; compose an import board that hides its personal data',
+    });
+    expect(bad(one({ before: { path: "/t.png", source: "ticket", annotated: "/b.png", caption: "x" } }))).toEqual(ok);
+    expect(bad(one({ before: { path: "/t.png", source: "web" , annotated: "/b.png", caption: "x" } }))).toEqual({
+      ok: false,
+      error: 'evidence@2: case "c1" before source must be "ticket"',
+    });
   });
   test("a raw image with no annotation and no waiver is refused, naming case, slot and theme", () => {
     expect(bad(one({ after: { path: "/a.png" } }))).toEqual({

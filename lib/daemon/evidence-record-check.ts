@@ -2,13 +2,74 @@
  * mr:upload's record check: with a runId, a file goes out only when the run's
  * evidence record lists it as an annotated image or a waived capture. Paths
  * compare realpath to realpath, so a record written through a symlink still
- * matches the file the upload guard resolved.
+ * matches the file the upload guard resolved. A ticket image never goes out,
+ * at its own path or as a byte copy anywhere else: only its composed board does.
  */
-import { realpathSync } from "fs";
+import { createHash } from "crypto";
+import { readFileSync, realpathSync, statSync } from "fs";
 import { basename } from "path";
-import { evidenceShots, readEvidence, uploadablePaths } from "../../packages/rt-client/src/evidence.ts";
+import { evidenceShots, readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
 
 export type RunEvidenceLookup = { found: false } | { found: true; evidence: string | null };
+
+type Warn = (message: string, context: { err: unknown; path: string }) => void;
+type Probe = { kind: "gone" } | { kind: "file"; size: number; read: () => Uint8Array } | { kind: "unreadable"; err: unknown };
+
+/** stat before any read: a FIFO or a device at a record path must never block the daemon. */
+function probe(p: string): Probe {
+  try {
+    const st = statSync(p);
+    if (!st.isFile()) return { kind: "unreadable", err: new Error("not a regular file") };
+    return { kind: "file", size: st.size, read: () => readFileSync(p) };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR" ? { kind: "gone" } : { kind: "unreadable", err };
+  }
+}
+
+const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
+
+/**
+ * Refuses a file that is a run's saved ticket image, at its path or as a byte
+ * copy. A ticket file it cannot read fails closed; a ticket file that is gone
+ * cannot be compared, a known limit (the record holds no hash of it).
+ */
+export function ticketCopyRefusal(o: {
+  record: EvidenceRecord;
+  realpath: string;
+  filename: string;
+  bytes?: Uint8Array;
+  resolve?: (p: string) => string | null;
+  probe?: (p: string) => Probe;
+  warn?: Warn;
+}): string | null {
+  const resolve = o.resolve ?? safeRealpath;
+  const look = o.probe ?? probe;
+  const mine = o.bytes ? sha256(o.bytes) : null;
+  for (const { shot } of evidenceShots(o.record)) {
+    if (shot.source !== "ticket") continue;
+    if (resolve(shot.path) === o.realpath) return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
+    if (!o.bytes || mine === null) continue;
+    const found = look(shot.path);
+    if (found.kind === "gone") continue;
+    let theirs: Uint8Array | null = null;
+    if (found.kind === "file" && found.size === o.bytes.length) {
+      try {
+        theirs = found.read();
+      } catch (err) {
+        o.warn?.("ticket copy check: unreadable ticket image, failing closed", { err, path: shot.path });
+        return `${o.filename}: the run's ticket image ${basename(shot.path)} could not be read to rule out a copy; fix its permissions or recapture it`;
+      }
+    } else if (found.kind === "unreadable") {
+      o.warn?.("ticket copy check: unreadable ticket image, failing closed", { err: found.err, path: shot.path });
+      return `${o.filename}: the run's ticket image ${basename(shot.path)} could not be read to rule out a copy; fix its permissions or recapture it`;
+    }
+    if (theirs !== null && sha256(theirs) === mine) {
+      return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
+    }
+  }
+  return null;
+}
 
 function safeRealpath(p: string): string | null {
   try {
@@ -24,17 +85,21 @@ export function evidenceUploadRefusal(o: {
   filename: string;
   run: RunEvidenceLookup;
   resolve?: (p: string) => string | null;
+  bytes?: Uint8Array;
+  warn?: Warn;
 }): string | null {
   if (!o.run.found) return `run ${o.runId} not found`;
   const record = readEvidence(o.run.evidence);
   if (record.version !== 2) return `run ${o.runId} has no evidence record; write evidence before uploading with runId`;
   const resolve = o.resolve ?? safeRealpath;
   const same = (p: string) => resolve(p) === o.realpath;
+  const ticket = ticketCopyRefusal({ record, realpath: o.realpath, filename: o.filename, bytes: o.bytes, resolve, warn: o.warn });
+  if (ticket) return ticket;
   if (uploadablePaths(record).some(same)) return null;
   const raw = evidenceShots(record).find(({ shot }) => shot.annotated && same(shot.path));
   if (raw) {
     const theme = raw.shot.theme ? ` (${raw.shot.theme})` : "";
     return `${o.filename} is the raw capture for case "${raw.caseId}" ${raw.slot}${theme}; upload its annotated image ${basename(raw.shot.annotated!)} instead`;
   }
-  return `${o.filename} is not in run ${o.runId}'s evidence record as an annotated image or a waived capture; record it with run_field_set first`;
+  return `${o.filename} is not in run ${o.runId}'s evidence record as an annotated image or a waived capture; record it with evidence_record first`;
 }

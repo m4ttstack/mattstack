@@ -7,7 +7,7 @@ export type RawSlot = RawImage | { light?: RawImage; dark?: RawImage };
 export interface RawCase { id: string; label: string; waiver?: string; before?: RawSlot; after?: RawSlot; [k: string]: unknown }
 export interface RawRecord { cases: RawCase[]; transcript?: string; url?: string; attach?: string; extra: Record<string, unknown> }
 /** recapture, when set, is the caller's decision that path replaces the image; unset falls back to comparing paths. */
-export interface ImageInput { case: string; label?: string; slot: Slot; theme?: Theme; path?: string; annotated?: string; caption?: string; waiver?: string; recapture?: boolean }
+export interface ImageInput { case: string; label?: string; slot: Slot; theme?: Theme; path?: string; source?: "ticket"; annotated?: string; caption?: string; waiver?: string; recapture?: boolean }
 export interface MergeInput {
   images?: ImageInput[];
   cases?: Array<{ id: string; label?: string; waiver?: string }>;
@@ -140,13 +140,16 @@ function moveCaseWaiver(c: RawCase): void {
 
 function newImage(e: ImageInput): RawImage {
   const img: RawImage = { path: e.path! };
+  if (e.source !== undefined) img.source = e.source;
   if (e.annotated !== undefined) img.annotated = e.annotated;
   if (e.caption !== undefined) img.caption = e.caption;
   if (e.waiver !== undefined) img.waiver = e.waiver;
   return img;
 }
 
+// A cover never clears source: only a recapture at a new path (newImage) drops the ticket mark.
 function patchCover(img: RawImage, e: ImageInput): void {
+  if (e.source !== undefined) img.source = e.source;
   if (e.annotated !== undefined) {
     img.annotated = e.annotated;
     if (e.caption !== undefined) img.caption = e.caption; else delete img.caption;

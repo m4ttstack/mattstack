@@ -111,6 +111,8 @@ digraph review {
     tree_at_fetched_head [label="Provisioned review tree at the fetched head?" shape=diamond];
     stop_checkout_without_provision [label="STOP: create a review checkout only with worktree_provision" shape=octagon style=filled fillcolor=red fontcolor=white];
     set_up_depth [label="Set up for the review depth" shape=box];
+    repro_browser [label="Review repro takes a browser screenshot?" shape=diamond];
+    capture_repro [label="Capture the review repro with the browser (browser-evidence)" shape=box];
     dispatch_reviewer [label="Dispatch the fresh reviewer; it forms the findings" shape=box];
     assemble_draft [label="Assemble the review draft" shape=box];
     verify_blocking [label="Verify each blocking finding against the MR head" shape=box];
@@ -269,7 +271,10 @@ digraph review {
     provision_returned_path -> dispatch_reviewer [label="no: checks not run"];
     tree_at_fetched_head -> set_up_depth [label="yes"];
     tree_at_fetched_head -> dispatch_reviewer [label="no: checks not run"];
-    set_up_depth -> dispatch_reviewer;
+    set_up_depth -> repro_browser;
+    repro_browser -> capture_repro [label="yes"];
+    repro_browser -> dispatch_reviewer [label="no: read or verify depth, or the domain's own method"];
+    capture_repro -> dispatch_reviewer [label="Board ready or Not drawn"];
     dispatch_reviewer -> assemble_draft;
     assemble_draft -> verify_blocking;
     verify_blocking -> blocking_verified;
@@ -542,6 +547,26 @@ that tree.
 
 The review flow's Set up for the depth, in the MR-head checkout
 (`targetBranch` from `mr_view`). Record every command and its result.
+
+### Review repro takes a browser screenshot?
+
+Yes at `repro` depth when EVIDENCE CHECK is `screenshot` and the Criteria
+point at a browser target (a `## Browser target` section, in the criteria
+or in the file they point at for it) whose What proves a change names a
+view for this change, or that has no What proves a change block. Bound
+criteria with no browser target answer no: the repro keeps the domain's
+own method. With nothing bound, yes when the repro's evidence is a
+screenshot of a web page. `read` and `verify` depth answer no.
+
+### Capture the review repro with the browser (browser-evidence)
+
+The review flow's A browser screenshot at repro, in the MR-head checkout:
+browser-evidence's `Draw the boards` (Browser evidence below), one brief
+per view built from the browser target, `<mr iid>` the MR's iid (on
+GitHub, the PR number). The board stays in `~/.fast-browser/screenshots/`
+and is cited by path, never recorded or uploaded. A board ready, or Not
+drawn with its reason, goes into the setup observations and on to the
+dispatch.
 
 ### Dispatch the fresh reviewer; it forms the findings
 
@@ -891,6 +916,10 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 {{include:review-dispatch-body-after}}
 
 {{include:review-core-body-tail}}
+
+## Browser evidence
+
+{{include:browser-evidence}}
 
 ## Gate protocol
 

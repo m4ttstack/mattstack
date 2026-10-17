@@ -199,6 +199,9 @@ Bash, and only as a one-time lookup, not a per-round call.
 | taking a pipeline's override back off | one `bind --pipeline <name> --unset`, then check (see Undo a pipeline's override) |
 
 `slots.md` beside this file maps asks to slots and contracts.
+An ask for browser screenshot evidence is a `## Browser target` section in
+the `evidence-domain@1` fill, facts only: `browser-target.md` beside this
+file is its shape.
 `rt skills composition --pack <pack>` (Bash, one-time) is the live list; use
 it when the table and the pack disagree.
 

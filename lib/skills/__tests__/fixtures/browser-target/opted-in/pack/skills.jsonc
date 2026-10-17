@@ -1,0 +1,10 @@
+{
+  "bindings": {
+    "mattstack:stage-evidence": { "domain": "acme:acme-evidence" },
+    "mattstack:stage-ship": { "domain": "acme:acme-ship" },
+    "mattstack:ship": { "domain": "acme:acme-ship" },
+    "mattstack:review": { "criteria": "acme:acme-review-criteria" },
+    "mattstack:self-review": { "criteria": "acme:acme-review-criteria" },
+    "mattstack:receive-review": { "criteria": "acme:acme-review-criteria" }
+  }
+}

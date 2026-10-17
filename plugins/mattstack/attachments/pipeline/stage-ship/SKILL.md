@@ -91,6 +91,8 @@ digraph ship {
     run_field_set_mr [label="run_field_set {key: mr, value: <url>, stage}" shape=plaintext];
 
     run_field_get_evidence [label="run_field_get {key: evidence}" shape=plaintext];
+    browser_case [label="Browser screenshot for this case?" shape=diamond];
+    capture_after_browser [label="Capture the AFTER with the browser (browser-evidence)" shape=box];
     capture_after_case [label="Capture the AFTER for the next case the domain names" shape=box];
     after_result [label="AFTER result?" shape=diamond];
     run_budget_after_attempts [label="run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" shape=plaintext];
@@ -220,21 +222,27 @@ digraph ship {
     gh_create_result -> which_exit [label="error: a failure"];
     run_field_set_mr -> run_field_get_evidence;
 
-    run_field_get_evidence -> capture_after_case;
+    run_field_get_evidence -> browser_case;
+    browser_case -> capture_after_browser [label="yes"];
+    browser_case -> capture_after_case [label="no: the domain's own method, or no case named"];
+    capture_after_browser -> after_result;
     capture_after_case -> after_result;
-    after_result -> every_case_tried [label="captured"];
+    after_result -> every_case_tried [label="captured, or Board ready"];
     after_result -> after_captured [label="none named"];
-    after_result -> run_budget_after_attempts [label="the capture failed"];
+    after_result -> every_case_tried [label="skipped: unbound, not a browser case"];
+    after_result -> run_budget_after_attempts [label="the capture failed, or Not drawn: a failed brief or spent re-renders"];
+    after_result -> every_case_tried [label="Not drawn, a reason no retry fixes: go on without it"];
+    after_result -> run_hold [label="Held at evidence-redaction"];
     run_budget_after_attempts -> after_attempts_spent;
-    after_attempts_spent -> capture_after_case [label="no: same case again"];
+    after_attempts_spent -> browser_case [label="no: same case again"];
     after_attempts_spent -> every_case_tried [label="yes: go on without it"];
-    every_case_tried -> capture_after_case [label="no"];
+    every_case_tried -> browser_case [label="no"];
     every_case_tried -> after_captured [label="yes"];
     after_captured -> record_evidence [label="yes"];
     after_captured -> run_has_evidence [label="no"];
     record_evidence -> record_outcome;
     record_outcome -> attach_evidence [label="Recorded"];
-    record_outcome -> run_hold [label="Record held at evidence-waiver"];
+    record_outcome -> run_hold [label="Record held at evidence-waiver or evidence-redaction"];
     record_outcome -> which_exit [label="Record failed: a failure naming the images or quoting the error"];
     run_has_evidence -> attach_evidence [label="yes"];
     run_has_evidence -> read_forge_host [label="no: the field is unset"];
@@ -350,24 +358,69 @@ Context: the `git remote get-url origin` line. Options: **GitLab** /
 **GitHub** / **Hand back**; `next`: **Proceed** / **Hold**. Later forge
 diamonds read the named forge, never the URL.
 
+### Capture the AFTER with the browser (browser-evidence)
+
+`Browser screenshot for this case?` is yes when the domain has a
+`## Browser target` section (in its rules, or in the file they point at
+for it) and either its What proves a change names a view for this case's
+kind of change, or it has no What proves a change block and the plan's
+evidence for the case is a screenshot of a web page. A bound domain with
+no browser target always answers no. Unbound, it is yes when the case's
+BEFORE in the record is a browser board (a `<stem>.spec.json` beside it)
+or the plan's evidence for the case is a screenshot of a web page.
+
+A case already in the record keeps its `id`; a new case gets its `id` and
+`label` first, since the stem needs the id. The after brief's stem is
+`<run id>-<case id>-after[-<theme>]`, the theme only for an image in a
+`{light, dark}` slot:
+
+- The case's before has a bundle (a `<stem>.spec.json` beside its board in
+  the evidence folder): the brief is a pair, `state: BEFORE → AFTER`, with
+  `before:` that spec's absolute path.
+- Otherwise (different screens, a ticket link or text as the before, or a
+  new case) the after is its own `AFTER` board, with no `before:`.
+
+`page:` comes from Reach the view, on the pushed sha; `show` and `point
+at` from What proves a change, the wording from Captions and `hide` from
+Personal data. Unbound, every block takes its default. Then walk
+browser-evidence's `Draw the boards` (Browser evidence below).
+
+Its terminals answer `AFTER result?`. Board ready is captured: the AFTER
+goes into `Record the evidence` with its board. Held at evidence-redaction
+is the stage's hold. Not drawn because the developer left it uncaptured,
+the doctor stayed red, there was no compose on PATH, the sign-in asks were
+spent, there was no driver to spawn, the redaction rounds or openings were
+spent, or the confirm was refused twice: no retry fixes those, so the case
+goes on without its AFTER and the description names the gap. A failed
+brief or spent re-renders count as a failed capture against
+`after-attempts`.
+
+A yes case follows browser-evidence alone: the domain's own capture,
+preview, draw or annotate steps apply only to its other evidence kinds.
+
 ### Capture the AFTER for the next case the domain names
 
 Per case in the record, the same view as its BEFORE on the pushed sha (a
 v1 record's BEFORE is the case `case`); any other capture the domain names
 is a new case with its own `id` and `label`. A case with no AFTER after
-three tries goes on, the description saying what was tried. A capture is
-never uploaded outside the record.
+three tries goes on, the description saying what was tried. Unbound, a
+case that is not a browser case has no AFTER: it is skipped, so a later
+browser case still runs. A capture is never uploaded outside the record.
 
 ### Record the evidence (evidence-record)
 
 `images` are the AFTERs just captured (`slot: after`, a new case's
-`label`), `tree` is `<root>`. Recorded goes straight to the attach: this
-stage writes no `evidence` of its own.
+`label`), `tree` is `<root>`. A browser AFTER carries its board as
+`annotated` and the brief's claim as `caption` (browser-evidence, Record
+the board); a pair board covers the case's before image too, named by its
+`value` path. Recorded goes straight to the attach: this stage writes no
+`evidence` of its own.
 
 ### Attach the evidence (evidence-record)
 
 The ship gate's Proceed is the attach consent. This is the last attach, so
-Take sends `linkRefused: true`.
+a Take at the upload off-script gate (never the first call) sends
+`linkRefused: true`.
 
 ### Write the title and description
 
@@ -405,6 +458,12 @@ write happens.
   after `url: null` returns the first call's MR). The return names both
   targets when its `targetBranch` differs from the resolved one, and says
   squash is unset when asked and never applied.
+- **Revising a board.** A board revision asked at a gate (a note at the
+  ship gate, say) runs browser-evidence's Revise a board steps 1 to 5.
+  Steps 6 and 7 are this graph's own boxes: `Record the evidence
+  (evidence-record)` records the revised board, its outcome read as in the
+  graph, and `Attach the evidence (evidence-record)` uploads it when the
+  flow reaches it, never a separate upload.
 
 ## Budgets in this stage
 
@@ -421,12 +480,18 @@ The domain rules run their own steps in their own order, every mechanical
 move landing on this graph. If a rule below asks for a move this graph
 marks STOP, take the off-script edge instead. A rule that keeps a capture
 out of the record, or keeps a base with no waiver, yields to the evidence
-record.
+record. On a browser case the domain's browser target supplies facts,
+never steps: browser-evidence below does the capture, the board, the gates
+and the bundle.
 
 {{slot:domain}}
 
 When nothing is inlined above, the graph alone is the flow: no domain
-steps or checks, no rebase, no AFTER.
+steps or checks, no rebase, and no AFTER beyond a browser case's.
+
+## Browser evidence
+
+{{include:browser-evidence}}
 
 ## Evidence record
 

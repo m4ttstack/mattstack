@@ -1,0 +1,7 @@
+{
+  "verbs": {
+    "stage-evidence": { "engine": "stage-evidence", "description": "Capture evidence for a run" },
+    "stage-ship": { "engine": "stage-ship", "description": "Publish a run for review" },
+    "ship": { "engine": "ship", "description": "Ship the current branch" }
+  }
+}

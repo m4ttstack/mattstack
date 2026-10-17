@@ -4,15 +4,18 @@
  * Run fields go through the run tools' handlers, never sqlite, so fieldSet's
  * validateEvidence and the runDb confinement apply. Every upload goes
  * through the daemon's mr:upload, so its path guard and record check run on
- * each file sent; the only skip is a reuse whose bytes match a prior upload.
+ * each file sent; the only skip is a reuse whose bytes match a prior upload
+ * and that the redaction check would still pass.
  */
-import { existsSync, realpathSync } from "fs";
+import { existsSync, readFileSync, realpathSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join } from "path";
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
+import { ticketCopyRefusal } from "../daemon/evidence-record-check.ts";
+import { redactionUploadRefusal } from "../daemon/redaction-record-check.ts";
 import { allowedSourceRoots, bundleStem, copyIntoRun, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
@@ -175,6 +178,7 @@ function parseRecordInput(input: Obj): { ok: true; merge: MergeInput; plan: bool
     const problem = caseIdProblem(e.case, where)
       ?? (SLOTS.has(e.slot as string) ? null : `${where}: "slot" must be "before" or "after"`)
       ?? (e.theme === undefined || THEMES.has(e.theme as string) ? null : `${where}: "theme" must be "light" or "dark"`)
+      ?? (e.source === undefined || e.source === "ticket" ? null : `${where}: "source" must be "ticket"`)
       ?? optionalStrings(e, where, ["label", "path", "annotated", "caption", "waiver"])
       ?? checkPaths(e, where, ["path", "annotated"]);
     if (problem) return { ok: false, error: problem };
@@ -458,12 +462,15 @@ function realOr(path: string): string {
   }
 }
 
-function reusable(entry: UploadEntry | undefined, real: string, project: string): Extract<UploadEntry, { url: string }> | null {
+function reusable(entry: UploadEntry | undefined, real: string, project: string, record: EvidenceRecord): Extract<UploadEntry, { url: string }> | null {
   if (!entry || !("url" in entry) || entry.project !== project) return null;
   const stem = bundleStem(basename(real));
   if (stem !== null && existsSync(join(dirname(real), `${stem}.redactions.json`))) return null;
   try {
-    return sha256Of(real) === entry.sha256 ? entry : null;
+    if (sha256Of(real) !== entry.sha256) return null;
+    const bytes = readFileSync(real);
+    if (ticketCopyRefusal({ record, realpath: real, filename: basename(real), bytes }) !== null) return null;
+    return redactionUploadRefusal({ realpath: real, filename: basename(real), bytes }) === null ? entry : null;
   } catch {
     return null;
   }
@@ -551,7 +558,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
     const real = realOr(path);
     const entry = uploadsMap[real];
     if (!linkRefused && entry && "linked" in entry && entry.linked === true) wasLinked.add(path);
-    const reuse = reusable(entry, real, target.identity);
+    const reuse = reusable(entry, real, target.identity, record);
     if (reuse) {
       uploaded.push({ path, url: reuse.url, markdown: reuse.markdown, reused: true });
       continue;
@@ -723,6 +730,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
               properties: {
                 case: CASE, label: { type: "string", description: "Names a new case." }, slot: SLOT, theme: THEME,
                 path: { type: "string", description: "Absolute path of the capture; a new path recaptures the slot." },
+                source: { type: "string", enum: ["ticket"], description: "ticket marks a saved ticket image: it is never waived and its own path never uploads, only its board. Kept on later calls for the same path; a new path clears it." },
                 annotated: { type: "string", description: "Absolute path of the annotated board; needs caption." },
                 caption: { type: "string" },
                 waiver: { type: "string", description: "Why this image has no annotated board." },
