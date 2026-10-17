@@ -103,7 +103,7 @@ digraph self_review {
     "Gate self-review clarify: Resume / Start fresh / Hold" [shape=box];
     "Self-review resume answer?" [shape=diamond];
     "run_enter {flags, skillDir, stage: self-review, resume: <picked runId>}" [shape=plaintext];
-    "run_enter {flags, skillDir, stage: self-review, fresh: true}" [shape=plaintext];
+    "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" [shape=plaintext];
     "The refused self-review run_enter carried resume?" [shape=diamond];
     "STOP: rt predates the run tools; tell the user to update rt before a self-review" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "run_snapshot {runDb: <resumed self-review>}" [shape=plaintext];
@@ -155,16 +155,16 @@ digraph self_review {
     "Trigger: self-review the current branch" -> "run_enter {flags, skillDir, stage: self-review, runDb?, resume?, spawnedBy?}";
     "run_enter {flags, skillDir, stage: self-review, runDb?, resume?, spawnedBy?}" -> "self-review run_enter mode?";
     "run_enter {flags, skillDir, stage: self-review, resume: <picked runId>}" -> "self-review run_enter mode?";
-    "run_enter {flags, skillDir, stage: self-review, fresh: true}" -> "self-review run_enter mode?";
+    "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" -> "self-review run_enter mode?";
     "self-review run_enter mode?" -> "Find the self-review merge-base" [label="started, or inherited: stage is at.stage"];
     "self-review run_enter mode?" -> "run_snapshot {runDb: <resumed self-review>}" [label="resumed"];
     "self-review run_enter mode?" -> "Gate self-review clarify: Resume / Start fresh / Hold" [label="candidates"];
     "self-review run_enter mode?" -> "The refused self-review run_enter carried resume?" [label="refused, or the tool is missing"];
-    "The refused self-review run_enter carried resume?" -> "run_enter {flags, skillDir, stage: self-review, fresh: true}" [label="yes: say the resume was refused, start fresh"];
+    "The refused self-review run_enter carried resume?" -> "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" [label="yes: say the resume was refused, start fresh"];
     "The refused self-review run_enter carried resume?" -> "STOP: rt predates the run tools; tell the user to update rt before a self-review" [label="no"];
     "Gate self-review clarify: Resume / Start fresh / Hold" -> "Self-review resume answer?";
     "Self-review resume answer?" -> "run_enter {flags, skillDir, stage: self-review, resume: <picked runId>}" [label="resume"];
-    "Self-review resume answer?" -> "run_enter {flags, skillDir, stage: self-review, fresh: true}" [label="start fresh"];
+    "Self-review resume answer?" -> "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" [label="start fresh"];
     "Self-review resume answer?" -> "Self-review held: end the turn" [label="hold: no run yet, record nothing"];
     "run_snapshot {runDb: <resumed self-review>}" -> "Find the self-review merge-base" [label="re-enter, reuse every recorded answer"];
 
@@ -256,7 +256,7 @@ the turn.
 ### The refused self-review run_enter carried resume?
 
 A refused resume means the run is gone or no longer running: say so in one
-line, then start fresh. Any other refusal, or no `run_enter` tool at all, is
+line, then start fresh, keeping the first call's `spawnedBy`. Any other refusal, or no `run_enter` tool at all, is
 an rt that predates the run tools.
 
 ### Find the self-review merge-base
