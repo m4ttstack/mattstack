@@ -1,6 +1,6 @@
 # Per-pipeline bindings leftovers
 
-Status: draft, 2026-10-16. Ticket: RT-494. Follows RT-491 (`docs/superpowers/specs/2026-10-16-per-pipeline-bindings-design.md`) and RT-493 (`docs/superpowers/specs/2026-10-16-unset-pipeline-override-design.md`).
+Status: approved 2026-10-16. Ticket: RT-494. Follows RT-491 (`docs/superpowers/specs/2026-10-16-per-pipeline-bindings-design.md`) and RT-493 (`docs/superpowers/specs/2026-10-16-unset-pipeline-override-design.md`).
 
 ## Why
 
