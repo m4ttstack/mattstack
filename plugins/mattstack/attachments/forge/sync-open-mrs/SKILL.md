@@ -515,9 +515,7 @@ digraph gate_steps {
     holds_rundb [label="This conversation holds a runDb?" shape=diamond];
     pane_form_only [label="In-pane form only; nothing recorded" shape=box];
     resumed_holds_decision [label="Resumed run already holds this gate's decision?" shape=diamond];
-    run_field_set_gate [label="run_field_set {runDb, key: gate, value: <scope>, stage: sync-open-mrs}" shape=plaintext];
     publish_answer [label="Publish and answer per the gate protocol" shape=box];
-    run_decision [label="run_decision {runDb, contract: gate@1, scope, selection, decidedBy}" shape=plaintext];
     answer_back [label="Answer back at the gate box" shape=doublecircle style=filled fillcolor=lightgreen];
 
     trigger_gate_box -> holds_rundb;
@@ -525,10 +523,8 @@ digraph gate_steps {
     holds_rundb -> pane_form_only [label="no: the resume question, launched by hand"];
     pane_form_only -> answer_back;
     resumed_holds_decision -> answer_back [label="yes: take the recorded answer"];
-    resumed_holds_decision -> run_field_set_gate [label="no"];
-    run_field_set_gate -> publish_answer;
-    publish_answer -> run_decision;
-    run_decision -> answer_back;
+    resumed_holds_decision -> publish_answer [label="no"];
+    publish_answer -> answer_back;
 }
 ```
 
@@ -539,6 +535,15 @@ no run exists yet. It gets the form in the pane, and no `run_*` call is
 made.
 
 ### Publish and answer per the gate protocol
+
+Under the run, every gate tool call passes `runDb` and `stage:
+sync-open-mrs`, so the tools bracket and record the gate: `gate_ask` writes
+the run's `gate` field, and `gate_answer` or `gate_reconcile` records the
+answers map as the scope's `gate@1` decision (`gate_record` where the
+protocol draws it). Nothing here writes the `gate` field or the decision
+by hand: a second record moves the decision's time. The recorded
+selection is that answers map, keyed by the question ids each gate names,
+`next` included; each `Selection` line names those keys.
 
 If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
 
