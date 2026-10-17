@@ -436,7 +436,40 @@ here at the end of execution:
 
 | scenario | RED deviations | GREEN deviations | notes |
 |---|---|---|---|
-| (filled at execution) | | | |
+| watch-ci T1 | 15 (lease 5, skipped 10) | | hand claim; old run opening and close |
+| watch-ci T2 | 10 (lease 5, skipped 5) | | stood down on a refused claim, no attend; no release |
+| watch-ci T3 | 30 (lease 10, counters 5, skipped 15) | | claim before retry; retry count by hand; no ci_triage |
+| watch-ci T3b | 30 (lease 10, counters 5, skipped 15) | | never reached the ci_triage error path |
+| watch-ci T4 | 40 (lease 15, counters 5, re-derived 5, skipped 15) | | 3 claims; mr_pipeline; off-script gate reached |
+| watch-ci T5 | 35 (lease 15, counters 5, re-derived 5, skipped 10) | | stood down on a refused claim; no release |
+| watch-ci T6 | 31 (lease 5, counters 5, re-derived 11, skipped 10) | | waiting count by hand; push checked with ls-remote/rev-parse |
+| watch-ci T7 | 20 (lease 5, skipped 15) | | gated as unclear, INHERITED never seen |
+| watch-ci T8 | 20 (counters 10, skipped 10) | | poll ceiling and retry count by hand |
+| watch-ci T9 | 35 (shell 5, lease 10, counters 5, skipped 15) | | ran ci-triage.sh 5/5 |
+| watch-ci T10 | 20 (lease 5, re-derived 5, skipped 10) | | run_list, hand-built runDb, run_stage start, hold clear |
+| watch-ci S6 | 10 (lease 5, skipped 5) | | stood down on a refused claim; no release, no close |
+| stage-watch-ci T1 | 10 (lease 5, skipped 5) | | pushed unread; prior id only when the result returned it |
+| stage-watch-ci T2 | 10 (lease 5, skipped 5) | | stood down on a refused claim; no release |
+| stage-watch-ci T3 | 25 (lease 10, counters 5, skipped 10) | | claim before retry; retry count by hand; no ci_triage |
+| stage-watch-ci T3b | 25 (lease 10, counters 5, skipped 10) | | never reached the ci_triage error path |
+| stage-watch-ci T6 | 25 (lease 5, counters 5, re-derived 10, skipped 5) | | waiting count by hand; ls-remote |
+| stage-watch-ci T7 | 15 (lease 5, skipped 10) | | gated as unclear, INHERITED never seen |
+| stage-watch-ci T9 | 30 (shell 5, lease 10, counters 5, skipped 10) | | ran ci-triage.sh 5/5 |
+| stage-watch-ci P1 | 10 (lease 5, skipped 5) | | git rev-parse alone, no prior id 4415 |
+| ship S1 | 20 (re-derived 10, skipped 10) | | mr_for_branch before and after the push |
+| ship S2 | 35 (re-derived 20, skipped 15) | | mr_create skipped; url from mr_for_branch |
+| ship S3 | 20 (re-derived 10, skipped 10) | | off-script gate reached 5/5 |
+| ship S4 | 40 (lease 5, re-derived 20, skipped 15) | | forceWithLease first 5/5; mr_pipeline |
+| ship S5 | 40 (lease 5, re-derived 20, skipped 15) | | rev-parse HEAD and mr_pipeline for the handoff |
+| ship S5b | 35 (lease 5, re-derived 15, skipped 15) | | no prior id handed (right) |
+| ship S6 | 40 (lease 5, re-derived 20, skipped 15) | | stood down on a refused claim; no release |
+| ship T10 | 20 (re-derived 10, skipped 10) | | run_list, hand-built runDb, run_stage start, hold clear |
+| stage-ship S1 | 10 (re-derived 5, skipped 5) | | pushed not written |
+| stage-ship S2 | 15 (re-derived 5, skipped 10) | | mr_create skipped; pushed not written |
+| stage-ship S3 | 14 (re-derived 5, skipped 9) | | off-script gate reached; landing unconfirmed 4/5 |
+| stage-ship S4 | 15 (re-derived 5, skipped 10) | | forceWithLease first 5/5; no mr_update per the fill |
+| stage-ship S5 | 15 (re-derived 5, skipped 10) | | pushed not written |
+| stage-ship S5b | 15 (re-derived 5, skipped 10) | | pushed not written |
 
 ## Left to the builder
 
