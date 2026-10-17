@@ -45,12 +45,14 @@ function bindingTarget(
     ?.find(binder => binder.ref === change.engineRef)
     ?.slots.find(candidate => candidate.name === change.slot);
   if (!slot) return 'default (unbound)';
-  // A composition read before the write still lists the override being
-  // removed; only one that fills differently is a lower layer's.
-  const remaining =
-    overrideOf(slot, change.pipeline)?.boundTo === change.from
-      ? { boundTo: slot.boundTo, overrides: [] }
-      : slot;
+  // An unset removes only this pack's override, which a composition read
+  // before the write still lists; any other layer's override stays.
+  const remaining = {
+    boundTo: slot.boundTo,
+    overrides: slot.overrides?.filter(
+      override => override.layer && override.layer !== 'pack'
+    ),
+  };
   const fallback = effectiveBoundTo(remaining, change.pipeline);
   if (!fallback) return 'default (unbound)';
   return overrideOf(remaining, change.pipeline)
