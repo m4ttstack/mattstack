@@ -42,9 +42,7 @@ not inherited: `run_enter` goes on as if none was handed
 
 Every gate runs through gate-protocol with `runDb` and `stage`: the gate
 tools write the gate fields and record the answers map keyed by question
-id. This verb is on the tools, so gate-protocol's line on sites not yet on
-the tools does not apply here: draw no `run_field_set {key: gate}`
-bracket and no `run_decision` gate line.
+id, the whole of this verb's gate record.
 
 Each loop counter is one `run_budget {runDb, key, limit, stage}` call on
 the counted event, and its `<key> spent?` diamond reads `exhausted`:
@@ -384,8 +382,9 @@ unfixed Critical or Important counts as left open.
   `reason` (a write-in riding on the hold included), the answer's by as
   `decidedBy`. Then the turn ends.
 - `run_close` takes `outcome: done` once the selected fixes are verified,
-  or `outcome: abandoned` with `reason: <their words>` on an abandon or a
-  hand back. Then the calling flow continues (ship, or the next task).
+  and then the calling flow continues (ship, or the next task); or
+  `outcome: abandoned` with `reason: <their words>` on an abandon or a
+  hand back.
 - Before the close, the final message lists every selected finding as
   fixed, not reproduced (with its test), or left open.
 
@@ -433,4 +432,3 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 | "I'll suggest the developer get a review elsewhere" | This skill owns the dispatch; don't outsource it back to whoever is waiting. |
 | "Re-reading my own lines is low-value, I'll just eyeball and ship" | Right that re-reading is low-value -- which is why a fresh context, not this eyeball, does the reading. |
 | "I know what this does, I just wrote it" | That is the bias stated as a qualification. Dispatch the reviewer. |
-| "gate-protocol lists self-review among the sites not yet on the tools, so I add the gate bracket and a `run_decision` line" | Not for this verb: `gate_ask` and `gate_answer` with `runDb` and `stage` record the gate. A hand bracket or `run_decision` writes it twice. |

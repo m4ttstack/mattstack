@@ -240,9 +240,9 @@ Other sections and rules:
 | `mr_for_branch entry for the branch?` (diamond node) | kept; its hold edge goes to `run_hold` | review 2; B2 |
 | `gh pr view <ref>` (plaintext node) | kept | review 2 |
 | `gh pr view found the PR?` (diamond node) | kept; its hold edge goes to `run_hold` | review 2; B2 |
-| `mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}` (plaintext node + section) | kept | review 2 |
+| `mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}` (plaintext node + section) | node kept; its section folded into `Resolve the review target` (trim pass) | review 2 |
 | `mr_list matches for the branch?` (diamond node + section) | kept; its hold edges go to `run_hold` | review 2; B2 |
-| `mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}` (plaintext node + section) | kept | review 2 |
+| `mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}` (plaintext node + section) | node kept; its section folded into `mr_list matches for the ticket?` (trim pass) | review 2 |
 | `mr_list matches for the ticket?` (diamond node + section) | kept | review 2 |
 | `Review clarify rounds = 2?` (diamond node) | kept as `target-clarify spent?` (trim pass); reads `run_budget {runDb, key: target-clarify, limit: 2, stage}` | review 2; B4 |
 | `STOP: GitLab ticket searches go through the read tools or gitlab_get` (octagon node) | kept | review 2 |
@@ -393,8 +393,8 @@ Other sections and rules:
 | `Self-review off-script answer?` (diamond node) | kept (take, iterate, hold to `run_hold`, hand back) | Off-script gates |
 | `Make the recorded self-review move once` (box node + section) | kept | Off-script gates |
 | `Assemble the self-review draft` (box node + section) | kept | self-review 3 |
-| `Gate self-review: fix and next, after the draft` (box node + section) | kept, asked as `gate_ask {..., kind: self-review, runDb, stage}` through the protocol, which records the answers map `{fix, next}` (a write-in as `{writeIn}`); option values stay `blocking`, `all`, `none`; section: the bracket and the hand `run_decision` selection go; the four-option rule, the blocking/minors meaning and the write-in resume rule (read `fix` from the answers map) stay | self-review 4; B16 |
-| `Gate self-review again: quote the failing output` (box node + section) | kept, at its own scope `self-review-retry:<finding id>`, option values `retry:<finding id>` and `leave:<finding id>`, plus `next`; section: the selection schema and "Try again resets that finding's attempt count to 0" go (round 2's key); one reopened gate per finding stays | self-review 5; B17 |
+| `Gate self-review: fix and next, after the draft` (box node + section) | kept, asked as `gate_ask {..., kind: self-review, runDb, stage}` through the protocol, which records the answers map `{fix, next}` (a write-in as `{writeIn}`); option values stay `blocking`, `all`, `none`; section: the bracket and the hand `run_decision` selection go; the blocking/minors meaning and the write-in resume rule (read `fix` from the answers map) stay; the four-option rule moved to gate-protocol (trim pass) | self-review 4; B16 |
+| `Gate self-review again: quote the failing output` (box node + section) | kept, at its own scope `self-review-retry:<finding id>`, option values `retry:<finding id>` and `leave:<finding id>`, plus `next`; section: the selection schema and "Try again resets that finding's attempt count to 0" go (round 2's key); the one-reopen-per-finding rule moved to the Run table (`reopen:<id>`, limit 2) and the graph labels (trim pass) | self-review 5; B17 |
 | `Self-review next answer?` (diamond node) | kept; hold goes to `run_hold`, abandon to the close | self-review 4; B2 |
 | `Self-review fix answer?` (diamond node) | kept | self-review 4 |
 | `Next selected finding to fix?` (diamond node + section) | kept | Non-goals (fixes test-first) |

@@ -132,7 +132,7 @@ digraph review {
     "review-source.sh exit 0?" [shape=diamond];
     "gate_open {kind: review-post, sourcePath: <dir>/review-post.source.json, handBack: true, outPath: <dir>/review-post.open.json, runDb, stage, scope: post}" [shape=plaintext];
     "gate_open result?" [shape=diamond];
-    "STOP: never hand-edit or hand-fit the review-post open" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: only gate_open writes the review-post open; never hand-edit or hand-fit it" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "run_budget {runDb, key: post-open-fix, limit: 2, stage}" [shape=plaintext];
     "post-open-fix spent?" [shape=diamond];
     "Fix the field the review script names" [shape=box];
@@ -199,7 +199,7 @@ digraph review {
     "Review resume answer?" -> "run_enter {flags, skillDir, stage: review, fresh: true, spawnedBy?}" [label="start fresh"];
     "Review resume answer?" -> "Review held: end the turn" [label="hold"];
     "run_snapshot {runDb: <resumed review>}" -> "Resumed review snapshot records?";
-    "Resumed review snapshot records?" -> "Resolve the review target" [label="no post decision: re-enter"];
+    "Resumed review snapshot records?" -> "Resolve the review target" [label="no post decision: re-enter, reuse every recorded answer"];
     "Resumed review snapshot records?" -> "Own review run: close it?" [label="a post decision"];
 
     "Resolve the review target" -> "Review target form?";
@@ -300,8 +300,8 @@ digraph review {
     "gate_open result?" -> "Write the review-run line into the handed --report" [label="handed back"];
     "gate_open result?" -> "run_budget {runDb, key: post-open-fix, limit: 2, stage}" [label="refused: names a field"];
     "gate_open result?" -> "Open the review off-script gate: a review script refused" [label="refused: no field to fix"];
-    "gate_open result?" -> "STOP: never hand-edit or hand-fit the review-post open" [label="tempted to edit or fit the open by hand"];
-    "STOP: never hand-edit or hand-fit the review-post open" -> "Open the review off-script gate: a review script refused";
+    "gate_open result?" -> "STOP: only gate_open writes the review-post open; never hand-edit or hand-fit it" [label="tempted to edit or fit the open by hand"];
+    "STOP: only gate_open writes the review-post open; never hand-edit or hand-fit it" -> "Open the review off-script gate: a review script refused";
     "run_budget {runDb, key: post-open-fix, limit: 2, stage}" -> "post-open-fix spent?";
     "post-open-fix spent?" -> "Fix the field the review script names" [label="no"];
     "post-open-fix spent?" -> "Open the review off-script gate: a review script refused" [label="yes"];
@@ -394,8 +394,7 @@ sentence naming each candidate's `spawnedBy`, `startedAt` and
 (this session's, `ownSession: true`, recommended; or one no live pane
 owns), naming one another live pane owns unavailable; then **Start fresh**
 and **Hold**. A launched pane never gets here: with `spawnedBy` and no
-`resume`, `run_enter` starts fresh. Re-enter with the snapshot's
-decisions, never re-asking an answered question. Hold records nothing.
+`resume`, `run_enter` starts fresh. Hold records nothing.
 
 ### The refused review run_enter carried resume?
 
@@ -437,22 +436,21 @@ Never a guess.
 
 ### Reading a GitLab fact no read tool returns
 
-At any step, a GitLab fact no read tool returns (the MR's commits, a
+A GitLab fact no read tool returns (the MR's commits, a
 referenced issue, another MR's state) is `gitlab_get {repoName, path}`,
 `repoName` the checkout path, `path` relative to the API root, `:id` this
-project
-(`projects/:id/merge_requests/<iid>/commits`). It opens no gate. Quote a
-GitLab error as written; a refused credential path is final.
+project (`projects/:id/merge_requests/<iid>/commits`). It opens no gate.
+Quote a GitLab error as written; a refused credential path is final.
 
 ### Gate review clarify: which target?
 
 One sentence naming the candidates, quoting a failed read's error, or
 saying the list was cut at 200 rows or nothing was found. Then
-gate-protocol's Runs integration: `gate_ask {questions, kind: clarify,
-context, runDb, stage}`, questions `target` (one option per candidate;
+gate-protocol's Runs integration from `Trigger: a site reaches its gate`:
+`gate_ask {questions, kind: clarify, context, runDb, stage}`, questions `target` (one option per candidate;
 none when nothing was found or a read failed: their typed text answers)
-and `next`: **Proceed** (recommended) / **Hold**. The answers map is
-`{target, next}`; `next: hold` holds whatever `target` says. A picked
+and `next`: **Proceed** (recommended) / **Hold**. `next: hold` holds
+whatever `target` says. A picked
 target resolves; typed text charges `target-clarify` and resolves again,
 and a spent budget's hold names what was tried.
 
@@ -559,7 +557,7 @@ A round leaving a blocking finding unverified charges
 ### Re-dispatch a fresh reviewer on the unverified findings
 
 One fresh-context dispatch, same template, naming each failed check
-verbatim ("validate.ts:42 is a blank line on the head") and asking it to
+verbatim and asking it to
 confirm each finding with a corrected anchor or withdraw it.
 
 ### Demote each unverified finding to Minor, marked unverified
@@ -605,8 +603,8 @@ its copy) the `findingsPath`; on the hand-back path the file goes to
 `review-source.sh`. Both build one open whose question ids key the
 answers: `thread-<n>` (options `post:<discussionId>`,
 `resolve:<discussionId>`), `findings-<n>` (finding ids), `skipped-<n>`
-(`restore:<id>`), `outcome`, `next`. Never hand-edit it or shorten a body
-to fit.
+(`restore:<id>`), `outcome`, `next`. A pre-v2 report json opens as
+prose, which is not an error. Never hand-edit it or shorten a body to fit.
 
 ### Copy the report json into the review scratch dir
 
@@ -619,8 +617,8 @@ copy.
 ### review-source.sh exit 0?
 
 The hand-back path only: the board's prose step reads
-`<dir>/review-post.source.json`, so build it with the vendored script
-exactly as in the node. Exit 1 names a field to fix (the extras, or the
+`<dir>/review-post.source.json`, so build it with the vendored script.
+Exit 1 names a field to fix (the extras, or the
 report json where it drifted from the draft); exit 2 is a usage or
 unreadable-input error, nothing to fix.
 
@@ -639,8 +637,8 @@ unreadable-input error, nothing to fix.
 ### Fix the field the review script names
 
 Fix exactly the named field (a `gate_open` line, or `review-source.sh`
-exit 1), in the extras or the report json where it drifted from the draft;
-for a copied `findingsPath`, the caller's original. Then back through
+exit 1), in the extras or the report json where it drifted from the draft.
+Then back through
 `Caller owns the review gates?` to the same open.
 
 ### Write the review-run line into the handed --report
@@ -673,16 +671,16 @@ carry on.
 ### Gate review-post, legacy: tiers, outcome and next
 
 No report json leaves nothing to build from. Gate-protocol's Runs
-integration: `gate_ask {questions, kind: review-post, scope: post,
-context, runDb, stage}`, `context` the severity line verbatim, questions
+integration from `Trigger: a site reaches its gate`: `gate_ask {questions,
+kind: review-post, scope: post, context, runDb, stage}`, `context` the severity line verbatim, questions
 `tiers` (multi-select over the levels present, all pre-selected), then
 `outcome` and `next` as in the extras. It records nothing either; the post
 record reads `tiers` as the legacy selection.
 
 ### Take the human's changes into the review draft
 
-Apply their text to the draft. Asking for another depth (verify instead of
-read, repro instead of verify) goes back to the depth block under a fresh
+Apply their text to the draft. Asking for another depth goes back to the
+depth block under a fresh
 `verify-rounds:<depth>` key, since new setup means a fresh verify.
 Anything else is a draft edit: re-present, and the next gate is a NEW
 gate.

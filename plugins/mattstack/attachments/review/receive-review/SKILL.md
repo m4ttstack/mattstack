@@ -156,7 +156,7 @@ digraph receive_review {
 
     "Report the outcome" [shape=box];
     "This verb started or resumed the run?" [shape=diamond];
-    "Own run: close failed or abandoned?" [shape=diamond];
+    "Failed or abandoned: is the run this verb's own?" [shape=diamond];
     "run_close {runDb, workType: receive-review, stage: receive-review, outcome}" [shape=plaintext];
     "receive-review closed as?" [shape=diamond];
     "run_stage {action: fail, stage: <stage>, reason}" [shape=plaintext];
@@ -199,7 +199,7 @@ digraph receive_review {
     "mr_for_branch {repoName: <root>, branches: [<branch>]}" -> "Open MR with this source branch?";
     "Open MR with this source branch?" -> "The run already records mr?" [label="yes: its iid"];
     "Open MR with this source branch?" -> "Report that no open MR has this branch as its source" [label="null entry"];
-    "Open MR with this source branch?" -> "Own run: close failed or abandoned?" [label="an error: fail, quoting it"];
+    "Open MR with this source branch?" -> "Failed or abandoned: is the run this verb's own?" [label="an error: fail, quoting it"];
     "Report that no open MR has this branch as its source" -> "No open MR: nothing to answer";
     "The run already records mr?" -> "run_field_set {runDb, key: mr, value: <MR or PR url>, stage}" [label="no"];
     "The run already records mr?" -> "The run already records branch?" [label="yes: keep it"];
@@ -211,10 +211,10 @@ digraph receive_review {
     "Executing a caller-handed {plan}?" -> "Forge for the thread read?" [label="no, or spent by a revise"];
     "Executing a caller-handed {plan}?" -> "run_field_get {runDb, key: extra.gate-source.respond-plan}" [label="spent: the run records it"];
     "Where are the handed plan's threads?" -> "run_field_get {runDb, key: extra.gate-source.respond-plan} for the handed plan" [label="in this conversation: read nothing"];
-    "Where are the handed plan's threads?" -> "mr_threads {mrUrl} for the handed plan's threads" [label="GitLab"];
-    "Where are the handed plan's threads?" -> "Read the handed plan's threads on GitHub with gh" [label="GitHub"];
+    "Where are the handed plan's threads?" -> "mr_threads {mrUrl} for the handed plan's threads" [label="not in this conversation: GitLab"];
+    "Where are the handed plan's threads?" -> "Read the handed plan's threads on GitHub with gh" [label="not in this conversation: GitHub"];
     "mr_threads {mrUrl} for the handed plan's threads" -> "Keep exactly the threads the handed plan names" [label="threads, resolved ones included"];
-    "mr_threads {mrUrl} for the handed plan's threads" -> "Own run: close failed or abandoned?" [label="an error: fail, quoting it"];
+    "mr_threads {mrUrl} for the handed plan's threads" -> "Failed or abandoned: is the run this verb's own?" [label="an error: fail, quoting it"];
     "Read the handed plan's threads on GitHub with gh" -> "Keep exactly the threads the handed plan names";
     "Keep exactly the threads the handed plan names" -> "run_field_get {runDb, key: extra.gate-source.respond-plan} for the handed plan";
     "run_field_get {runDb, key: extra.gate-source.respond-plan} for the handed plan" -> "The run stores a respond-plan source for the handed plan?";
@@ -223,7 +223,7 @@ digraph receive_review {
     "Forge for the thread read?" -> "mr_threads {mrUrl, filter: \"unresolved-human\"}" [label="GitLab"];
     "Forge for the thread read?" -> "Read the PR's review threads with gh" [label="GitHub"];
     "mr_threads {mrUrl, filter: \"unresolved-human\"}" -> "Any unresolved human threads?" [label="threads: already filtered"];
-    "mr_threads {mrUrl, filter: \"unresolved-human\"}" -> "Own run: close failed or abandoned?" [label="an error: fail, quoting it"];
+    "mr_threads {mrUrl, filter: \"unresolved-human\"}" -> "Failed or abandoned: is the run this verb's own?" [label="an error: fail, quoting it"];
     "Read the PR's review threads with gh" -> "Keep only unresolved human threads (GitHub)";
     "Keep only unresolved human threads (GitHub)" -> "Any unresolved human threads?";
     "Any unresolved human threads?" -> "Dispatch one fresh-context adjudicator over all the review threads" [label="yes"];
@@ -232,14 +232,14 @@ digraph receive_review {
     "Dispatch one fresh-context adjudicator over all the review threads" -> "Draft the verdict table and one reply per thread";
     "Draft the verdict table and one reply per thread" -> "Build the open";
     "Build the open" -> "Caller owns the receive-review gates at respond-plan?";
-    "Caller owns the receive-review gates at respond-plan?" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json, runDb, stage, scope: respond-plan}" [label="yes, no plan handed yet: a board wrapper said so"];
+    "Caller owns the receive-review gates at respond-plan?" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json, runDb, stage, scope: respond-plan}" [label="yes, no unspent plan handed: a board wrapper said so"];
     "Caller owns the receive-review gates at respond-plan?" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, runDb, stage, scope: respond-plan}" [label="no: a direct run"];
-    "Caller owns the receive-review gates at respond-plan?" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json, runDb, stage, scope: respond-plan}" [label="a plan already handed: store its source"];
+    "Caller owns the receive-review gates at respond-plan?" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json, runDb, stage, scope: respond-plan}" [label="an unspent handed plan: store its source"];
     "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, runDb, stage, scope: respond-plan}" -> "respond-plan gate_open result?";
     "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json, runDb, stage, scope: respond-plan}" -> "respond-plan gate_open result?";
     "respond-plan gate_open result?" -> "Gate respond-plan: carry the opened gate through gate-protocol" [label="opened: the direct run"];
-    "respond-plan gate_open result?" -> "Write the receive-review-run line into the handed --report" [label="handed back, no plan handed yet"];
-    "respond-plan gate_open result?" -> "gate_record {runDb, stage, scope: respond-plan, shape: respond-plan, gateId | answers + decidedBy, contextDropped?}" [label="handed back, a plan already handed: record it"];
+    "respond-plan gate_open result?" -> "Write the receive-review-run line into the handed --report" [label="handed back, no unspent plan"];
+    "respond-plan gate_open result?" -> "gate_record {runDb, stage, scope: respond-plan, shape: respond-plan, gateId | answers + decidedBy, contextDropped?}" [label="handed back, an unspent handed plan: record it"];
     "respond-plan gate_open result?" -> "run_budget {runDb, key: respond-plan-open, limit: 3, stage}" [label="refused: a line names a source field"];
     "respond-plan gate_open result?" -> "Off-script gate: the respond-plan open will not fit" [label="refused: nothing a source fix can mend"];
     "respond-plan gate_open result?" -> "STOP: fit the respond-plan open only with gate_open" [label="tempted to edit the open by hand, shorten a reply, or fit it with a script"];
@@ -252,7 +252,7 @@ digraph receive_review {
     "respond-plan fit answer?" -> "Fix the respond-plan source the gate_open refusal names" [label="take: the proposed change, once"];
     "respond-plan fit answer?" -> "Fix the respond-plan source the gate_open refusal names" [label="iterate: fix again with their note"];
     "respond-plan fit answer?" -> "run_hold {runDb, stage, reason, decidedBy}" [label="hold"];
-    "respond-plan fit answer?" -> "Own run: close failed or abandoned?" [label="hand back"];
+    "respond-plan fit answer?" -> "Failed or abandoned: is the run this verb's own?" [label="hand back"];
     "Write the receive-review-run line into the handed --report" -> "Hand back the verdict table and the respond-plan open's path";
     "Hand back the verdict table and the respond-plan open's path" -> "gate_record {runDb, stage, scope: respond-plan, shape: respond-plan, gateId | answers + decidedBy, contextDropped?}" [label="caller hands {plan} back: answers + decidedBy"];
     "Gate respond-plan: carry the opened gate through gate-protocol" -> "respond-plan pane next answer?";
@@ -281,7 +281,7 @@ digraph receive_review {
     "Unconverged fix answer?" -> "Make the recorded move once for the unconverged fix" [label="take"];
     "Unconverged fix answer?" -> "Implement the thread's fix" [label="iterate: try again with their note"];
     "Unconverged fix answer?" -> "run_hold {runDb, stage, reason, decidedBy}" [label="hold"];
-    "Unconverged fix answer?" -> "Own run: close failed or abandoned?" [label="hand back"];
+    "Unconverged fix answer?" -> "Failed or abandoned: is the run this verb's own?" [label="hand back"];
     "Make the recorded move once for the unconverged fix" -> "Next report row, in verdict-table order?";
     "Commit the fix and finalize its Fixed reply" -> "Next report row, in verdict-table order?";
     "Redraft the override's reply" -> "Next report row, in verdict-table order?";
@@ -309,7 +309,7 @@ digraph receive_review {
     "respond-post fit answer?" -> "Fix the respond-post source the gate_open refusal names" [label="take: the proposed change, once"];
     "respond-post fit answer?" -> "Fix the respond-post source the gate_open refusal names" [label="iterate: fix again with their note"];
     "respond-post fit answer?" -> "run_hold {runDb, stage, reason, decidedBy}" [label="hold"];
-    "respond-post fit answer?" -> "Own run: close failed or abandoned?" [label="hand back"];
+    "respond-post fit answer?" -> "Failed or abandoned: is the run this verb's own?" [label="hand back"];
     "Write the run line before the respond-post hand-back" -> "Hand back the offered replies and the respond-post open's path";
     "Hand back the offered replies and the respond-post open's path" -> "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy}" [label="caller hands {post} back: answers + decidedBy"];
     "Gate respond-post: carry the opened gate through gate-protocol" -> "respond-post next answer?";
@@ -340,12 +340,12 @@ digraph receive_review {
     "respond_post_execute refusal answer?" -> "Fix what the respond_post_execute refusal names" [label="take: the proposed move, once"];
     "respond_post_execute refusal answer?" -> "Fix what the respond_post_execute refusal names" [label="iterate: fix again with their note"];
     "respond_post_execute refusal answer?" -> "run_hold {runDb, stage, reason, decidedBy}" [label="hold"];
-    "respond_post_execute refusal answer?" -> "Own run: close failed or abandoned?" [label="hand back"];
+    "respond_post_execute refusal answer?" -> "Failed or abandoned: is the run this verb's own?" [label="hand back"];
     "Off-script gate: the forge refused a reply or resolve" -> "Forge refusal answer?";
     "Forge refusal answer?" -> "respond_post_execute {runDb, tree, stage}" [label="take: the human posted or resolved by hand"];
     "Forge refusal answer?" -> "respond_post_execute {runDb, tree, stage}" [label="iterate: the cause is fixed"];
     "Forge refusal answer?" -> "Report the held threads verbatim" [label="hold: the tool already set hold"];
-    "Forge refusal answer?" -> "Own run: close failed or abandoned?" [label="hand back"];
+    "Forge refusal answer?" -> "Failed or abandoned: is the run this verb's own?" [label="hand back"];
     "Report the held threads verbatim" -> "Threads held: run left open for a resume";
     "run_field_set {runDb, key: hold, value: -, stage}" -> "Report the outcome";
 
@@ -364,12 +364,12 @@ digraph receive_review {
     "git_push result for the fix rows?" -> "STOP: a failed git_push holds the fix rows; never push from the shell, never force" [label="tempted to push from the shell or force"];
     "STOP: a failed git_push holds the fix rows; never push from the shell, never force" -> "Hold the picked fix rows and report the failure verbatim";
     "Hold the picked fix rows and report the failure verbatim" -> "Next GitHub thread?" [label="every other reply still acts"];
-    "Next GitHub thread?" -> "Post the reply on GitHub with gh" [label="post: picked, and the thread lacks this run's reply"];
-    "Next GitHub thread?" -> "resolve: decided for this thread?" [label="no post due: not picked, or already there"];
+    "Next GitHub thread?" -> "Post the reply on GitHub with gh" [label="post: due (picked, or a gate-1: reply row), not held this pass, and the thread lacks this run's reply"];
+    "Next GitHub thread?" -> "resolve: decided for this thread?" [label="no post due: not picked, held this pass, or already there"];
     "Next GitHub thread?" -> "Any GitHub fix row held this pass?" [label="threads done"];
     "Post the reply on GitHub with gh" -> "resolve: decided for this thread?";
-    "resolve: decided for this thread?" -> "Resolve the thread on GitHub with gh" [label="yes"];
-    "resolve: decided for this thread?" -> "Next GitHub thread?" [label="no"];
+    "resolve: decided for this thread?" -> "Resolve the thread on GitHub with gh" [label="yes, not held this pass"];
+    "resolve: decided for this thread?" -> "Next GitHub thread?" [label="no, or held this pass"];
     "Resolve the thread on GitHub with gh" -> "Next GitHub thread?";
     "Any GitHub fix row held this pass?" -> "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy, held}" [label="yes"];
     "Any GitHub fix row held this pass?" -> "Report the outcome" [label="no"];
@@ -378,8 +378,8 @@ digraph receive_review {
 
     "This verb started or resumed the run?" -> "run_close {runDb, workType: receive-review, stage: receive-review, outcome}" [label="yes: outcome done"];
     "This verb started or resumed the run?" -> "Review feedback answered" [label="no: inherited, the caller closes"];
-    "Own run: close failed or abandoned?" -> "run_close {runDb, workType: receive-review, stage: receive-review, outcome}" [label="yes: failed or abandoned, with the reason"];
-    "Own run: close failed or abandoned?" -> "run_stage {action: fail, stage: <stage>, reason}" [label="no: inherited, the caller decides"];
+    "Failed or abandoned: is the run this verb's own?" -> "run_close {runDb, workType: receive-review, stage: receive-review, outcome}" [label="yes: close it failed or abandoned, with the reason"];
+    "Failed or abandoned: is the run this verb's own?" -> "run_stage {action: fail, stage: <stage>, reason}" [label="no: inherited, the caller decides"];
     "run_close {runDb, workType: receive-review, stage: receive-review, outcome}" -> "receive-review closed as?";
     "receive-review closed as?" -> "Review feedback answered" [label="done"];
     "receive-review closed as?" -> "receive-review stage failed" [label="failed or abandoned"];
@@ -533,15 +533,13 @@ run this verb started, per Run identity.
 
 A null entry from `mr_for_branch`: report that no open MR has that branch
 as its source, and stop. An `mr_for_branch` or `mr_threads` error is never
-"no open MR" or "no threads": quote it unedited (a 404 or 403, or rt's
-own: target not resolved, daemon unreachable, timeout), and the stage
+"no open MR" or "no threads": quote it unedited, and the stage
 fails with it as the reason.
 
 ### Executing a caller-handed {plan}?
 
-A caller-handed `{plan}` not yet spent is recorded, never re-adjudicated:
-it answers an adjudication the human already saw, so a fresh one would
-change the drafts it approved. The record is `gate_record {runDb, stage,
+A caller-handed `{plan}` not yet spent is recorded, never re-adjudicated.
+The record is `gate_record {runDb, stage,
 scope: respond-plan, shape: respond-plan, answers: <the plan>, decidedBy}`,
 plus `contextDropped: true` when the handed `--report` carries
 `gate-1-context: dropped`. The rows come from the record; the thread read
@@ -585,8 +583,7 @@ On GitHub, fetch the threads with `gh`.
 
 ### Keep only unresolved human threads (GitHub)
 
-On GitLab the `mr_threads` filter applies this rule and counts what it
-dropped: its result is the set to adjudicate, never filtered again, no
+On GitLab the `mr_threads` filter applies this rule: its result is the set to adjudicate, never filtered again, no
 dropped thread added back. On GitHub apply it by hand: keep only
 **unresolved** threads a **person** opened, dropping resolved threads,
 system notes and bot authors (a username that starts `project_<n>_bot` or
@@ -648,8 +645,9 @@ style section below names. On top of either branch:
 ### Build the open
 
 The verb adjudicates; it never decides what gets fixed or posted. A
-handed `{plan}` reaches this step only to store its source; every other
-path builds the open from the verdict report.
+handed `{plan}` not yet spent reaches this step only to store its source;
+every other path, a revise after a spent plan included, builds the open
+from the verdict report.
 
 The gate (`respond-plan`, gate 1; `respond-post` is gate 2) carries
 structured context per gate-protocol's
@@ -709,10 +707,10 @@ context it cannot fit is dropped loudly (`contextDropped`).
   `formChunks` and `contextDropped`. The run stores the untrimmed source
   as `extra.gate-source.respond-plan`, the cards `gate_record` and a
   resumed pane read.
-- **Handed back, no plan handed yet:** the open is at `outPath` in
+- **Handed back, no unspent plan:** the open is at `outPath` in
   `gate-ctx.sh fit`'s shape, its source beside it, and the run stores the
   source. Keep `contextDropped` and `droppedContexts`.
-- **Handed back, a plan already handed:** the source is stored (`gate:
+- **Handed back, an unspent handed plan:** the source is stored (`gate:
   null`) and nothing goes to the caller. Record the plan, with
   `contextDropped: true` when this result or the handed `--report` says
   so.
@@ -728,13 +726,14 @@ fit with the vendored script is this diamond's STOP.
 
 Fix exactly the question and field each refusal line names in
 `<dir>/respond-plan.source.json`, never by shortening a reply, then open
-again through `Caller owns the receive-review gates at respond-plan?`.
+again through `Caller owns the receive-review gates at respond-plan?`. A
+take makes the recorded move once, then opens again.
 
 ### Off-script gate: the respond-plan open will not fit
 
 Quote the last refusal's lines as the `context`. Propose, spelled in full,
 one source change for the fields it named, never a shortened reply or a
-hand-edited open. Take makes that change once, then opens again.
+hand-edited open.
 
 ### Write the receive-review-run line into the handed --report
 
@@ -761,7 +760,7 @@ the re-entry goes on from this box with the `runDb` already in hand, and
 its first call is the record, `gate_record {runDb, stage, scope:
 respond-plan, shape: respond-plan, answers: <the plan>, decidedBy}`, with
 `contextDropped: true` when the open's result or the saved report says
-so. This verb records the decision whoever asked the gate. A fresh pane, with no hand-back in its conversation,
+so. A fresh pane, with no hand-back in its conversation,
 starts at the trigger and resumes through the run line.
 
 ### Gate respond-plan: carry the opened gate through gate-protocol
@@ -948,7 +947,8 @@ source is stored (`gate: null`); record the handed `post` (`answers`,
 ### Fix the respond-post source the gate_open refusal names
 
 As for respond-plan, in `<dir>/respond-post.source.json`, then open again
-through `Caller owns the receive-review gates at respond-post?`.
+through `Caller owns the receive-review gates at respond-post?`. A take
+makes the recorded move once, then opens again.
 
 ### Off-script gate: the respond-post open will not fit
 
@@ -957,9 +957,10 @@ change proposed in full, never a shortened reply or a hand-edited open.
 
 ### Write the run line before the respond-post hand-back
 
-The same run line, into the handed `--report`: a fresh pane the board
-later hands the `{post}` to resumes this run, where the plan decision and
-both gate sources sit.
+The same run line, into the handed `--report`, replacing any earlier
+one; with no `--report`, write nothing. A fresh pane the board later hands
+the `{post}` to resumes this run, where the plan decision and both gate
+sources sit.
 
 ### Hand back the offered replies and the respond-post open's path
 
@@ -1038,7 +1039,8 @@ take and an iterate all call it again.
 Fix exactly what the refusal names with a move this graph already draws
 (the registered `tree` for a tree mismatch; a respond-post record for a
 scope the run has not recorded), then call again. Never re-record a scope
-the run already recorded, never edit the run by hand.
+the run already recorded, never edit the run by hand. A take makes the
+recorded move once, then calls again.
 
 ### Off-script gate: respond_post_execute refused
 
@@ -1048,8 +1050,7 @@ respond-post gate when it asks for an override).
 
 ### Off-script gate: the forge refused a reply or resolve
 
-One gate for every reply or resolve the forge refused this pass (the tool
-already retried each). Quote each held entry as the `context`: its
+One gate for every reply or resolve the forge refused this pass. Quote each held entry as the `context`: its
 `threadId`, `kind` and `error`, whole and unedited; any `push`, `mismatch`
 or `read` entries ride in the same context and stay held. Propose: the
 human posts or resolves those threads by hand, then this verb calls

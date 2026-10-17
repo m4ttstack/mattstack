@@ -108,7 +108,7 @@ the skills call them.
   - one `gate_reconcile {id, runDb?, stage?}` re-entry;
   - the include's own off-script gate shape (scope `off-script:<site>:<n>`,
     `action` plus `next`);
-  - the structured-context sidecar `structured-context.md`.
+  - the structured-context sidecar `structured-context.txt`.
 
   Under a run, `gate_answer` and `gate_reconcile` record nothing on a review
   gate, and the site calls `gate_record` itself. **Merge order:** this PR lands
@@ -187,7 +187,7 @@ A review site does three things.
 
 1. **Build the source.** The prose tables that say what goes in each field stay.
    They are judgment, and they tell the agent where to read the gate-ctx@1
-   contract (gate-protocol's `structured-context.md`).
+   contract (gate-protocol's `structured-context.txt`).
 2. **Open it.**
    - Direct run: `gate_open {kind, sourcePath | review, runDb, stage, scope}`,
      then enter gate-protocol at `Trigger: a site opened its gate with
