@@ -1,3 +1,4 @@
+import { basename } from "path";
 import {
   EVIDENCE_SLOTS,
   EVIDENCE_THEMES,
@@ -38,8 +39,9 @@ function entriesOf(c: EvidenceCase): Entry[] {
   return [...byKey.values()];
 }
 
+/** A file that never uploaded is named, not located: an MR description is read beyond this machine, and a local path carries the user's home. */
 function linkText(l: FileLink, alt: string): string {
-  if ("local" in l) return l.local;
+  if ("local" in l) return `${basename(l.local)} (attached separately)`;
   const url = /!\[[^\]]*\]\(([^)]*)\)/.exec(l.markdown)?.[1];
   return url === undefined ? l.markdown : `![${alt}](${url})`;
 }

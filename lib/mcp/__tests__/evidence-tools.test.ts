@@ -593,12 +593,18 @@ describe("evidence_attach", () => {
     expect(body.refused["raw-capture"]).toEqual([{ path: one, error: refusal }]);
   });
 
-  test("linkRefused prints the refused file's local path, writes, and remembers it as linked", async () => {
+  test("linkRefused names the refused file without its path, writes, and remembers it as linked", async () => {
     const { one, evidence } = twoWaived();
     const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes("path is outside the allowed upload roots (...)") : undefined);
-    const { deps, calls, fields } = makeDeps({ fields: { evidence }, respond });
+    const { deps, calls, fields, state } = makeDeps({ fields: { evidence }, respond });
     const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, linkRefused: true }, env)).body as AttachBody;
-    expect(body.section).toContain(`- Before: ${one}`);
+    expect(body.section).toContain("- Before: one.png (attached separately)");
+    for (const text of [body.section, state.live]) {
+      expect(text).not.toContain(home);
+      expect(text).not.toContain(realpathSync(home));
+      expect(text).not.toMatch(/(^|[\s(])\/(Users|home|private|tmp|var)\//m);
+    }
+    expect(fields.get("evidence")).toBe(evidence);
     expect(body.descriptionWritten).toBe(true);
     expect(calls.some((c) => c.cmd === "mr:update")).toBe(true);
     expect(parseUploads(fields.get("evidence-uploads")!)[realpathSync(one)]).toEqual({ linked: true, at: 1_700_000_000_000 });
@@ -615,7 +621,7 @@ describe("evidence_attach", () => {
     expect(uploads(calls.slice(before)).some((c) => c.payload.path === one)).toBe(true);
     expect(Object.values(body.refused).flat()).toEqual([]);
     expect(body.linked).toEqual([{ path: one, error: refusal }]);
-    expect(body.section).toContain(`- Before: ${one}`);
+    expect(body.section).toContain("- Before: one.png (attached separately)");
     expect(body.notWritten).toBe("unchanged");
   });
 
@@ -867,7 +873,7 @@ describe("evidence_attach", () => {
     expect(JSON.stringify(res.body)).toContain("gh pr edit 3");
   });
 
-  test("a github.com target uploads nothing, links local paths and names the gh move", async () => {
+  test("a github.com target uploads nothing, names the local files without their paths and names the gh move", async () => {
     const { board, evidence } = boardRecord();
     const { deps, calls } = makeDeps({ fields: { evidence } });
     const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "https://github.com/acme/web/pull/12" }, env);
@@ -876,7 +882,8 @@ describe("evidence_attach", () => {
     expect(calls.length).toBe(0);
     expect(body.forge).toBe("github");
     expect(body.notWritten).toBe("github");
-    expect(body.section).toContain(`- Before and after: ${board}`);
+    expect(body.section).toContain("- Before and after: badge.png (attached separately)");
+    expect(body.section).not.toContain(board);
     expect(JSON.stringify(res.body)).toContain("gh pr edit 12");
   });
 

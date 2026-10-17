@@ -358,7 +358,7 @@ type Target =
 
 const ghMove = (n: number | null) => {
   const pr = n === null ? "<number>" : String(n);
-  return `GitHub has no upload API, so the section links local paths; read the body with gh pr view ${pr} --json body, then write it with gh pr edit ${pr} --body-file <file>`;
+  return `GitHub has no upload API, so the section names each file as attached separately; read the body with gh pr view ${pr} --json body, then write it with gh pr edit ${pr} --body-file <file>`;
 };
 
 function prNumber(url: unknown, iid: unknown): number | null {
@@ -413,7 +413,7 @@ async function resolveAttachTarget(deps: EvidenceToolDeps, input: Obj, mrField: 
   return { forge: "gitlab", identity: target.identity, iid: target.iid, mr };
 }
 
-/** Refused files leave the section unless the Take links them, so no local path prints by accident. */
+/** Refused files leave the section unless the Take names them as attached separately. */
 function withoutFiles(record: EvidenceRecord, drop: Set<string>): EvidenceRecord {
   if (record.version !== 2 || drop.size === 0) return record;
   const keep = (s: { path: string; annotated?: string; waiver?: string }) => {
@@ -739,7 +739,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which links its local path instead; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section links local paths and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as \"<file name> (attached separately)\" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section names each file as attached separately and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -750,7 +750,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
           appendix: { type: "string", description: "Markdown printed inside the section after the generated content. A heading at or above heading's level, or a code fence left open, is refused." },
           ...MR_TARGET_PROPS,
           description: { type: "string", description: "A description to splice the section into when there is no MR to write, or on GitHub." },
-          linkRefused: { type: "boolean", description: "The off-script gate's Take: link refused files by local path and write anyway." },
+          linkRefused: { type: "boolean", description: "The off-script gate's Take: name refused files as attached separately (no path) and write anyway." },
         },
         required: ["runDb", "stage", "heading"],
         additionalProperties: false,

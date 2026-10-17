@@ -40,9 +40,11 @@ describe("renderSection", () => {
     expect(out).not.toContain("  Waived:");
   });
 
-  test("a local link prints the bare path", () => {
-    const r = rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", annotated: "/abs/b.png" } }] });
-    expect(renderSection(r, (p) => ({ local: p }), {})).toContain("- Before: /abs/b.png");
+  test("a local link prints the file name as attached separately, never its path", () => {
+    const r = rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", annotated: "/Users/someone/.mattstack/work/r1/evidence/c/b.png" } }] });
+    const out = renderSection(r, (p) => ({ local: p }), {});
+    expect(out).toContain("- Before: b.png (attached separately)");
+    expect(out).not.toContain("/Users/someone");
   });
 
   test("trailing lines come in order and covered attach lines drop", () => {
@@ -71,7 +73,7 @@ describe("renderSection", () => {
 
   test("legacy links form a tight list", () => {
     const out = renderSection(readEvidence("see /a.png and https://x.example/y"), (p) => ({ local: p }), {});
-    expect(out).toBe("- /a.png\n- https://x.example/y");
+    expect(out).toBe("- a.png (attached separately)\n- https://x.example/y");
   });
 
   test("an empty record renders nothing", () => {
