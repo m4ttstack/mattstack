@@ -360,3 +360,243 @@ question plus `next`, `gate_answer`, reuse call, `EnterWorktree`, no hand
 writes. S5b: `daemon-outdated`, then one provision with `codes`, `runDb`,
 `stage` and the budget, no retry, no failure. As in watch-ci, the sample
 shows short ids cost nothing here; it cannot show they help.
+
+
+---
+
+## ship
+
+Same question on the ship verb: is its converted graph followed no worse?
+Ship hands off to watch-ci, so both files go in the prompt. Node text,
+shapes and edges are the same on both sides. Only the id form differs.
+
+### Method
+
+- **RED** is ship's and watch-ci's SKILL.md at `3aad678d6`, both in
+  sentence form (0 node lines carry `label=` in either file). **GREEN** is
+  both files at the worktree HEAD (`d7cc81212`): ship converted in
+  `2655a9edd`, watch-ci in `2bc073838` (122 and 130 node lines with
+  `label=`).
+- **Prompt** (`run-reps.sh` input, no `--system`): ship's SKILL.md, then
+  watch-ci's SKILL.md, both uncompiled, then the World, Conventions and
+  Shared shapes sections of `../2026-10-16-ship-ci-skills/scenarios.md`,
+  then its `## ship` section up to the line before `## stage-ship`, then:
+  "Follow this skill exactly. For each scenario, list every tool call or
+  shell command you would make, in order, with its arguments, and where you
+  stop and why. You cannot execute anything." The two `## Ship rules
+  (acme/app)` headings sit inside the domain and evidence fill code fences,
+  so they belong to `## ship` and both are included, as the lane's ship
+  prompt included them. Each rep covers 10 scenarios: S1, S2, S3, S4, S5,
+  S5b, S6, T10, EV1 and EV2. Both prompts end on the same bytes, and
+  neither contains `expected.md`.
+- **Recipe**: `run-reps.sh`, 5 reps per side, RED then GREEN, at most 5 at
+  once. All 10 exited 0 with 10.5 to 14.4 KB of output, and every rep
+  directory stayed empty.
+- **Probe**: one rep was asked to run `echo probe-ok` and `touch probe-file`
+  with Bash. It printed made-up tool blocks as text and ran nothing: its rep
+  directory stayed empty.
+- **Blinding**: `blind.sh` over both out dirs at once. All 10 transcripts
+  were scored in its shuffled order and the scores written down before
+  `mapping.tsv` was opened. The blind was partial in two ways:
+  - One GREEN rep (rep 2) wrote "STOP on shell pushes" in S3. That is
+    `stop_shell_push` as prose, and no RED rep uses the phrase. It did not
+    change a score.
+  - `run-reps.sh` logs each rep's byte count, and the run log was on screen
+    before scoring, so the sizes could have unmasked the sides. I did not
+    match sizes to blind names while scoring.
+- **Scoring**: each scenario of each rep against its
+  `../2026-10-16-ship-ci-skills/expected.md` `## ship` entry, on the lane's
+  eight columns plus "stop named". A move counts as a deviation only when
+  expected.md calls it wrong or names the step as required. Wording never
+  counts.
+  - Not counted, as in the lane's round 2: a `git rev-parse HEAD` read
+    before the push to answer "Push needs force-with-lease (ship)?". No
+    result carries HEAD there, and every watch still used `git_push`'s sha.
+  - Not counted, as in the lane's round 2: no rep drew `run_budget {key:
+    evidence:cover-rounds}` in EV1. That budget lives only in the
+    `{{include:evidence-record}}` text, which is unexpanded on both sides.
+- **Stop named** is yes when the rep's stop names the node it ends at, by
+  text or id. Every ship scenario ends at `run_close_done` → `shipped`
+  ("Shipped"), so "Stop: Shipped", "run_close ... done", or a close defined
+  once as `run_close {..., outcome: done}` and named per scenario all count.
+  In S6 the watch first reaches `stop_lease_holder_owns` ("STOP: the lease
+  holder owns every commit, push and retry") and the stand-down. Either
+  that text or the done close counts. A bare "Stop." would not count. No
+  rep wrote one.
+- **Pass bar**: GREEN deviations at most RED, per scenario and in total.
+
+### Results
+
+### RED
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | stop named | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | says "the STOP edge" before the git_push refused gate; stop is the done close |
+| S3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | quotes "STOP: push only with git_push" |
+| S4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | rev-parse HEAD in the force read before the push; no result carries HEAD there and the watch uses git_push's sha (noted, not counted) |
+| S4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | rev-parse HEAD in the force read before the push; no result carries HEAD there and the watch uses git_push's sha (noted, not counted) |
+| S4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | rev-parse HEAD in the force read before the push; no result carries HEAD there and the watch uses git_push's sha (noted, not counted) |
+| S5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| T10 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| T10 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | reads branch_stack and shipTarget before the branch checks (order only) |
+| T10 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| T10 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| T10 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+
+### GREEN
+
+| scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | stop named | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | writes "STOP on shell pushes": the stop_shell_push id as prose |
+| S3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | rev-parse HEAD in the force read before the push; no result carries HEAD there and the watch uses git_push's sha (noted, not counted) |
+| S4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | rev-parse HEAD in the force read before the push; no result carries HEAD there and the watch uses git_push's sha (noted, not counted) |
+| S4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | rev-parse HEAD in the force read before the push; no result carries HEAD there and the watch uses git_push's sha (noted, not counted) |
+| S4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | rev-parse HEAD in the force read before the push; no result carries HEAD there and the watch uses git_push's sha (noted, not counted) |
+| S4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | rev-parse HEAD in the force read before the push; no result carries HEAD there and the watch uses git_push's sha (noted, not counted) |
+| S5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | rev-parse HEAD in the force read before the push; no result carries HEAD there and the watch uses git_push's sha (noted, not counted) |
+| S5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S5b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | names no STOP text; the stop is run_close done naming the doctor |
+| S6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| S6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| T10 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| T10 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| T10 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| T10 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| T10 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | no evidence:cover-rounds budget (include unexpanded on both sides; not counted) |
+| EV2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+| EV2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | yes | matches expected.md |
+
+### Totals per scenario
+
+| scenario | RED deviations | GREEN deviations | RED stop named | GREEN stop named | GREEN <= RED |
+|---|---|---|---|---|---|
+| S1 | 0 | 0 | 5/5 | 5/5 | yes |
+| S2 | 0 | 0 | 5/5 | 5/5 | yes |
+| S3 | 0 | 0 | 5/5 | 5/5 | yes |
+| S4 | 0 | 0 | 5/5 | 5/5 | yes |
+| S5 | 0 | 0 | 5/5 | 5/5 | yes |
+| S5b | 0 | 0 | 5/5 | 5/5 | yes |
+| S6 | 0 | 0 | 5/5 | 5/5 | yes |
+| T10 | 0 | 0 | 5/5 | 5/5 | yes |
+| EV1 | 0 | 0 | 5/5 | 5/5 | yes |
+| EV2 | 0 | 0 | 5/5 | 5/5 | yes |
+| total | 0 | 0 | 50/50 | 50/50 | yes |
+
+### Totals per column
+
+| column | RED | GREEN |
+|---|---|---|
+| shell calls a tool covers | 0 | 0 |
+| hand-held lease calls | 0 | 0 |
+| counters in context | 0 | 0 |
+| re-derived values | 0 | 0 |
+| skipped steps | 0 | 0 |
+| runaway loops | 0 | 0 |
+| refusal missed its gate or stand-down | 0 | 0 |
+| release on a stand-down | 0 | 0 |
+
+### Verdict
+
+**Pass.** Both sides scored 0 deviations, so GREEN is at most RED in total
+and in 10 of 10 scenarios. No fix round was needed, and `slugs/ship.json`
+and the ship SKILL.md are unchanged.
+
+Every rep on both sides took the same path:
+
+- `run_enter` and no `run_list`, `run_start` or `run_stage`.
+- No `mr_for_branch` or `mr_pipeline`.
+- `mr_create {ifExists: return}` on every create, with `existing: true`
+  left as found.
+- S3 went to the `git_push refused` gate, then checked the landing with no
+  retry.
+- S4 went straight to `forceWithLease` and handed the watch 4410.
+- S5b handed the watch no prior id.
+- S6 stood down with no `ci_lease_release`, and ship closed done naming the
+  doctor.
+- T10 resumed through the candidates gate with no gate reopened.
+- EV1 and EV2 ran `evidence_record` twice, then `evidence_attach`, and EV2
+  sent `linkRefused: true` on Take.
+
+**Stop named**: 50/50 on both sides. Ship's stops are mostly the done
+close, which every rep names, so this column has no headroom here.
+
+**Limits**:
+
+- **Ceiling effect.** Both sides scored 0 deviations, as in the watch-ci
+  and stage-provision runs. RED is the lane's GREEN text, which already
+  passed with 0, so the sample can show that short ids cost nothing here.
+  It cannot show that they help.
+- **Partial blinding.** See Method: the slug written as prose, and the byte
+  counts in the run log.
+- **Self-scoring.** I ran and scored my own reps, with no second scorer.
