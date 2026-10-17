@@ -428,3 +428,41 @@ This round changes:
 |---|---|---|
 | S5 occupied ticket branch | 5/5 | Same path: precheck, one `resume_in` question (the attached tree once, plus Fresh tree), `gate_answer`, `worktree_provision {..., branch: "acme-12-fix-login", reuse: true, runDb, stage: "provision"}`, `EnterWorktree`, no hand writes after `recorded: true`. "The attached tree is listed exactly once, so there is one resume offer" (rep 2); every rep made one AskUserQuestion per chunk |
 | S5b precheck on an older daemon | 5/5 | `daemon-outdated`, then one provision with `codes`, `runDb`, `stage` and the budget; no precheck retry, no gate, no fail, no hand writes |
+
+### Task 5: stage-plan, stage-implement, stage-self-review, stage-gates
+
+The four stage files take the one-sentence run-state line. stage-plan
+holds with `run_hold`, drops its `Selection:` line, keeps the explicit
+`execution-strategy@1` record, writes `approach` and `evidence-plan` in two
+nodes, and says what its Go back hands back (`{to, note, decidedBy}`).
+stage-implement's Go back to plan hands back `{to: plan, note, decidedBy:
+pane}` and reads its three consumes in three nodes. stage-self-review
+charges `run_budget {key: review-rounds, limit: 3, stage: self-review}` on
+every review with blocking findings and reads its `exhausted` at `Review
+rounds = 3?`. stage-gates takes only the run-state line. No rep hit an API
+error, and no refactor round was needed.
+
+| Scenario | RED | GREEN | Notes |
+|---|---|---|---|
+| S6 third blocking round | 0/5 | 5/5 | Every rep: `run_budget {runDb, key: "review-rounds", limit: 3, stage: "self-review"}`, then `run_stage {runDb, action: "fail", stage: "self-review", reason: "blocking findings after 3 rounds"}`. No fix, no commit, no `review` write, no fourth round, and no rep took the count from the snapshot's budgets row |
+| S4 unattended wait | 0/5 | 5/5 | Re-run on the new stage-plan. Every rep: `gate_ask {kind: "plan", runDb, stage: "plan", ...}`, one background `rt gate wait gt-5b19`, `holding at gate gt-5b19`, then `gate_reconcile {id: "gt-5b19", runDb, stage: "plan"}`, `run_decision execution-strategy@1`, and the `approach` and `evidence-plan` writes as two calls. No AskUserQuestion, no hand-written `gate` or `waiting-gate`, no timed re-read. The runErrors reps (4-5) quote `waiting-gate: disk full` in one line and take the same path |
+| S7 daemon down, unattended | 5/5 | 5/5 | Regression guard only: RED already passed, so this row shows no regression, not that the rewrite helped. Every rep: `gate_ask` with `runDb` and `stage`, then `run_stage {action: "fail", stage: "plan", reason: "rt daemon unreachable at /home/dev/.mattstack/rt/rt.sock (connect ENOENT)"}`, no form, no `run_budget` |
+
+Per rep:
+
+- S6 reps 1-5: "I read `exhausted` from this call's result and don't count
+  rounds from the compacted context or from `run_snapshot`" (rep 1); "I
+  don't count rounds from context or from the `run_snapshot` figure of 2
+  spent, because that predates this review" (rep 5); rep 3 adds "A new
+  attempt would start its review-rounds count at zero".
+- S4 reps 1-5: "On `wait`, `gate_ask` has already armed `waiting-gate`, so
+  I make no `run_field_set` call for it" (rep 1). Every rep makes the
+  `execution-strategy@1` record before the two field writes; no rep records
+  a `gate@1` decision by hand.
+- S4 reps 4-5 (runErrors): "I quote the run error in one line ... I do not
+  re-ask the gate and do not write `waiting-gate` myself" (rep 4).
+- S7 reps 1-5: "I make no `run_budget` call, because that is only for
+  "refused: other"" (rep 1). Not a criterion: with the `Selection:` line
+  gone, S7's reps give Go back the value `go-back` (S4's scripted chunks
+  use `redirect`). stage-plan routes Go back itself and hands back `to`,
+  not `next`, so nothing reads that value.
