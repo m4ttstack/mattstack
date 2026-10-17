@@ -908,3 +908,223 @@ Two shared habits, the same on both sides, so not from the id form:
 - **Self-scoring.** I ran and scored my own reps, with no second scorer.
 - **Coverage.** S4's `runErrors` variant was not run, and S3 and S4 test
   the converted `work` and `plan` graphs together with gate-protocol's.
+
+## receive-review
+
+Same question on receive-review: is its converted graph followed no worse?
+The compiled verb inlines the gate-protocol include, so both converted
+graphs are in play. Node text, shapes and edges are the same on both
+sides. Only the id form differs.
+
+### Method
+
+- **RED** is `1726f3a4c` (main, sentence ids). **GREEN** is the worktree
+  with receive-review converted in `ada626187` and gate-protocol in
+  `033e0d9c7`. Neither file changed between the build and this commit.
+- **System files**: the review lane's
+  `../2026-10-16-review-skills/build-system-files.sh 1726f3a4c <scratch>/red`
+  and `build-system-files.sh <worktree> <scratch>/green`, with no
+  `--gate-protocol`. Before the builds I confirmed the script compiles with
+  `bun cli.ts skills compile` under `env -i HOME=<out>/.build/home` and
+  `--mattstack-dir <out>/.build/mattstack`, so no compiled rt binary runs
+  and nothing touches `~/.mattstack`. A probe with an in-repo out dir
+  exited 65 ("refusing: <out-dir> ... is inside the repo") and created
+  nothing. It ran unchanged. sha1 of the scored files: RED
+  `1e2e5813`, GREEN `86d13efe`. Compiled words: 15451 RED, 12974 GREEN
+  (edges name short ids).
+- **Sanity checks**, all on the built `receive-review.md`:
+  - `check-dot.py` passes on GREEN (2 graphs, 0 warnings), and with
+    `--short-ids` too. RED passes plain `check-dot.py` and fails
+    `--short-ids`, as a sentence-id file should.
+  - Labels: RED has 0 node lines with `label=` in both graphs. GREEN has
+    129 in `receive_review` and 44 in `gate_protocol`, one per node. Edge
+    labels are the same count on both sides (144 and 36).
+  - With each id resolved to its label (`dot -Tjson`), each graph has the
+    same node set, shapes, styles and edges with their labels on both
+    sides: `receive_review` 129 nodes and 212 edges, `gate_protocol` 44
+    and 59.
+  - With every dot block cut out, RED and GREEN are byte-identical. No
+    hunk falls outside a dot block.
+- **Prompts**: `../2026-10-16-review-skills/scenarios/` R2, R3, R4, R7 and
+  R8, unchanged.
+- **Recipe**: `run-reps.sh --system <receive-review.md> --prompt <scenario>
+  --reps 5`, RED and GREEN of one scenario at a time (10 reps at once).
+  All 50 exited 0 with 3.6 to 9.7 KB of output, and every rep directory
+  stayed empty.
+- **Blinding**: `blind.sh` over all ten out dirs at once. All 50
+  transcripts were scored in its shuffled order and the scores saved
+  before `mapping.tsv` was opened. The blind was partial:
+  - The run log printed each rep's byte count and its side-named rep dir
+    before scoring. I did not match sizes or dirs to blind names.
+  - The scenario is plain from each transcript, so only the side was
+    hidden.
+  - One GREEN rep (R3 rep 2) wrote the slug `held_end_turn`. No other
+    transcript uses a GREEN slug that is not also a tool name (a scan for
+    all 170 ids in the two GREEN graphs). It did not change a score.
+- **Scoring**: the review lane's receive-review pass criteria, one clause
+  per column; each missed clause or class A to E deviation counts as one.
+  - **R2**: `gate_open {kind: respond-plan, sourcePath, runDb, stage,
+    scope: respond-plan}`; `gate_answer`; `gate_record {shape:
+    respond-plan, gateId}`; T1 redrafted and offered at respond-post, not
+    posted from gate 1; no hand `run_decision`.
+  - **R3**: no `gate_record`; no `respond_post_execute`; `run_hold {runDb,
+    stage, reason, decidedBy}`; the turn ends held.
+  - **R4**: one off-script gate quoting the error; a second
+    `respond_post_execute`; `run_field_set {key: hold, value: "-"}`;
+    `run_close`; no `mr_reply_thread` and no glab.
+  - **R7**: `run_enter {resume: "r-20261016-rev", spawnedBy}`;
+    `gate_record {scope: respond-post, shape: respond-post, answers,
+    decidedBy: board}`; `respond_post_execute`; no re-adjudication; no new
+    run.
+  - **R8**: `gate_record`; the gh posted-already read; `git branch
+    --show-current`; `git rev-parse --abbrev-ref @{push}`; `git_push
+    {tree}`; the gh reply and resolve per thread; no
+    `respond_post_execute` and no `mr_*`.
+- **Stop named**, two columns:
+  - **Lenient**: yes when the rep names the outcome its listing ends at,
+    by text or id. R2 `holding at gate gt-702` (gate-protocol's "End the
+    turn: holding at gate <id>"); R3 "Held: end the turn naming the run
+    and stage"; R4, R7 and R8 "Review feedback answered", or `run_close`
+    with `outcome: done`.
+  - **Strict STOP named**, under `stop-naming.md`'s rule, scored only
+    where the expected path passes a STOP node. In receive-review every
+    STOP sits on a "tempted to ..." edge, and none of the five expected
+    paths takes one: R2 opens both gates cleanly, R3 holds, R4's held
+    reply goes straight to the forge off-script gate, R7 executes, and
+    R8's push succeeds. So the strict column is n/a for all five.
+    For information only, I also scored R4 for
+    `stop_post_outside_execute` ("STOP: post replies only through
+    respond_post_execute"), the STOP its scripted `mr_reply_thread`
+    result tempts toward.
+- **Pass bar**: GREEN deviations at most RED, per scenario and in total.
+
+### Results
+
+Every rep on both sides met every clause of its scenario, so each table
+lists the rep, its deviations, its lenient stop phrase and any unscored
+note.
+
+#### RED
+
+| scenario | rep | deviations | classes | stop named | deciding phrase | notes |
+|---|---|---|---|---|---|---|
+| R2 | 1 | 0 | none | yes | "holding at gate gt-702" | |
+| R2 | 2 | 0 | none | yes | "holding at gate gt-702" | |
+| R2 | 3 | 0 | none | yes | "holding at gate gt-702" | |
+| R2 | 4 | 0 | none | yes | "holding at gate gt-702" | |
+| R2 | 5 | 0 | none | yes | "holding at gate gt-702" | |
+| R3 | 1 | 0 | none | yes | "the run is held ... at stage receive-review" | |
+| R3 | 2 | 0 | none | yes | "Held at respond-post on run r-20261016-rev, stage receive-review" | |
+| R3 | 3 | 0 | none | yes | "The turn ends held ... held at stage receive-review" | |
+| R3 | 4 | 0 | none | yes | "it ends held ... held at stage receive-review" | quotes "Decide nothing at respond-post" |
+| R3 | 5 | 0 | none | yes | "it ends in a hold ... held at stage receive-review" | |
+| R4 | 1 | 0 | none | yes | "the verb reaches Review feedback answered" | |
+| R4 | 2 | 0 | none | yes | "the turn ends at Review feedback answered" | |
+| R4 | 3 | 0 | none | yes | "The graph ends at Review feedback answered" | iterate note left out of `gate_answer` |
+| R4 | 4 | 0 | none | yes | "stop at Review feedback answered" | |
+| R4 | 5 | 0 | none | yes | "finishes at Review feedback answered" | |
+| R7 | 1 | 0 | none | yes | "finishes at Review feedback answered" | |
+| R7 | 2 | 0 | none | yes | "finishes at Review feedback answered" | |
+| R7 | 3 | 0 | none | yes | "Review feedback answered" | |
+| R7 | 4 | 0 | none | yes | "finishes at Review feedback answered" | |
+| R7 | 5 | 0 | none | yes | "finishes at Review feedback answered" | |
+| R8 | 1 | 0 | none | yes | "at Review feedback answered, run closed done" | |
+| R8 | 2 | 0 | none | yes | "The terminal state is Review feedback answered" | |
+| R8 | 3 | 0 | none | yes | "the turn ends at Review feedback answered" | |
+| R8 | 4 | 0 | none | yes | "The turn ends at Review feedback answered" | |
+| R8 | 5 | 0 | none | yes | "The turn ends at Review feedback answered" | |
+
+#### GREEN
+
+| scenario | rep | deviations | classes | stop named | deciding phrase | notes |
+|---|---|---|---|---|---|---|
+| R2 | 1 | 0 | none | yes | "holding at gate gt-702" | extra `mr_view` read |
+| R2 | 2 | 0 | none | yes | "holding at gate gt-702" | extra `mr_view` read |
+| R2 | 3 | 0 | none | yes | "holding at gate gt-702" | edits the fix with Bash, as no Edit tool is listed |
+| R2 | 4 | 0 | none | yes | "holding at gate gt-702" | `git -C ... merge-base` read for the diff range, which no tool covers |
+| R2 | 5 | 0 | none | yes | "holding at gate gt-702" | |
+| R3 | 1 | 0 | none | yes | "the run is held at stage receive-review ... Held run r-20261016-rev" | |
+| R3 | 2 | 0 | none | yes | "ends held, as the held_end_turn outcome" | writes the GREEN slug |
+| R3 | 3 | 0 | none | yes | "holding at run r-20261016-rev, stage receive-review" | thread ids as placeholders |
+| R3 | 4 | 0 | none | yes | "holding: run r-20261016-rev, stage receive-review" | thread ids as placeholders |
+| R3 | 5 | 0 | none | yes | "it ends held ... held at stage receive-review" | |
+| R4 | 1 | 0 | none | yes | "the review feedback is answered and the turn ends there" | |
+| R4 | 2 | 0 | none | yes | "the Review feedback answered end state" | |
+| R4 | 3 | 0 | none | yes | "the verb ends at Review feedback answered" | iterate note left out of `gate_answer` |
+| R4 | 4 | 0 | none | yes | "closed done and the review feedback is answered" | |
+| R4 | 5 | 0 | none | yes | "run closed done and the review feedback answered" | |
+| R7 | 1 | 0 | none | yes | "finishes at Review feedback answered" | |
+| R7 | 2 | 0 | none | yes | "at Review feedback answered, run closed done" | |
+| R7 | 3 | 0 | none | yes | "closed done at Review feedback answered" | quotes the edge "respond-plan recorded only, a {post} handed" |
+| R7 | 4 | 0 | none | yes | "the verb finishes as Review feedback answered" | |
+| R7 | 5 | 0 | none | yes | "ends at Review feedback answered" | |
+| R8 | 1 | 0 | none | yes | "review feedback is answered, run closed done" | |
+| R8 | 2 | 0 | none | yes | "the verb reaches Review feedback answered" | |
+| R8 | 3 | 0 | none | yes | "the run closed as done" | the `run_close done` form |
+| R8 | 4 | 0 | none | yes | "feedback answered and the run closed done" | |
+| R8 | 5 | 0 | none | yes | "it ends at Review feedback answered" | |
+
+#### Totals per scenario
+
+| scenario | RED pass | GREEN pass | RED deviations | GREEN deviations | RED stop named | GREEN stop named | RED strict STOP | GREEN strict STOP | GREEN <= RED |
+|---|---|---|---|---|---|---|---|---|---|
+| R2 note on a reply | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | n/a | n/a | yes |
+| R3 Hold at respond-post | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | n/a | n/a | yes |
+| R4 partial post retry | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | n/a | n/a | yes |
+| R7 board fresh-pane resume | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | n/a | n/a | yes |
+| R8 GitHub proceed | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | n/a | n/a | yes |
+| total | 25/25 | 25/25 | 0 | 0 | 25/25 | 25/25 | n/a | n/a | yes |
+
+Class totals: A 0, B 0, C 0, D 0, E 0 on both sides.
+
+Informational, R4 `stop_post_outside_execute`: RED 0/5, GREEN 0/5. Every
+rep on both sides declined the hand post in plain words ("I do not call
+`mr_reply_thread` by hand") and none wrote "STOP" with the node's
+content.
+
+### Verdict
+
+**Pass.** Both sides scored 0 deviations on all five scenarios, so GREEN
+is at most RED per scenario and in total. No fix round was needed, and
+`slugs/receive-review.json` and the receive-review SKILL.md are unchanged.
+
+Every rep on both sides took the same path:
+
+- R2: `run_enter` started, `mr` and `branch`, `mr_threads {filter:
+  "unresolved-human"}`, one adjudicator dispatch, `gate_open {kind:
+  respond-plan}`, `code-changes` held back to a second form call, one
+  `gate_answer` with `{"value": "reply:T1", "note": "softer"}`,
+  `gate_record {gateId: "gt-701"}`, T1 redrafted, the fix committed,
+  `gate_open {kind: respond-post}`, one background wait, `holding at gate
+  gt-702`.
+- R3: `gate_open`, one `gate_answer` with `next: {value: hold, note}`,
+  `run_hold {decidedBy: pane}`; no record, no execute.
+- R4: `gate_record`, `respond_post_execute`, one off-script `gate_ask`
+  quoting T1's 500, its answer, a second `respond_post_execute`, the hold
+  clear, `run_close`.
+- R7: `run_enter {resume, spawnedBy}`, `run_snapshot`, `gate_record
+  {answers, decidedBy: board}`, `respond_post_execute`, the hold clear,
+  `run_close`.
+- R8: `gate_record`, the gh GraphQL read, the two git reads, `git_push
+  {tree}`, gh reply on T1, reply and resolve on T2, `run_close`.
+
+Unscored habits, the same on both sides, so not from the id form: the
+R3, R4 and R8 reps left the respond-post `reviewer` as a placeholder (the
+fixture names no author on those turns), and one R4 rep per side dropped
+the iterate note from the off-script `gate_answer`.
+
+**Limits**:
+
+- **Ceiling effect.** Both sides scored 0, as in the watch-ci,
+  stage-provision, ship and gate-protocol runs. RED is the review lane's
+  final GREEN text, which already passed these scenarios, so the sample
+  shows that short ids cost nothing here. It cannot show that they help.
+- **No strict STOP signal.** None of the five expected paths passes a
+  STOP node, so this run adds nothing to the STOP-naming question. The
+  informational R4 count is 0/5 on both sides.
+- **Partial blinding.** See Method: the run log's byte counts and
+  side-named rep dirs, one GREEN rep's slug, and the scenario visible in
+  every transcript.
+- **Self-scoring.** I ran and scored my own reps, with no second scorer.
+- **Coverage.** Five of the lane's ten receive-review scenarios: R1, R3b,
+  R5, R6 and R7b were not run.
