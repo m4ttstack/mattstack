@@ -306,8 +306,10 @@ RED/GREEN with the approved tool-less recipe (`claude --model sonnet --tools
 
 ## Results
 
-The checks below are the evidence for this milestone: a milestone to Matt
-carries this section.
+**Verdict.** Both sides scored 0 deviations, so short ids cost nothing on
+these scenarios; the test cannot show they help. As loaded, tokens fall 15.1%
+(watch-ci) and 7.1% (stage-provision), and every check is green. I recommend
+requiring short ids in the plugin once every graph is converted.
 
 ### Behavior
 
@@ -316,23 +318,14 @@ carries this section.
 
 | Scenario | RED deviations | GREEN deviations | RED stop named | GREEN stop named |
 |---|---|---|---|---|
-| T1 | 0 | 0 | 5/5 | 5/5 |
-| T2 | 0 | 0 | 5/5 | 5/5 |
-| T3 | 0 | 0 | 5/5 | 5/5 |
-| T3b | 0 | 0 | 5/5 | 5/5 |
 | T4 | 0 | 0 | 3/5 | 5/5 |
 | T5 | 0 | 0 | 3/5 | 5/5 |
-| T6 | 0 | 0 | 5/5 | 5/5 |
-| W1 | 0 | 0 | 5/5 | 5/5 |
-| T7 | 0 | 0 | 5/5 | 5/5 |
-| T8 | 0 | 0 | 5/5 | 5/5 |
-| T9 | 0 | 0 | 5/5 | 5/5 |
-| T10 | 0 | 0 | 5/5 | 5/5 |
-| S6 | 0 | 0 | 5/5 | 5/5 |
+| The other 11 scenarios | 0 | 0 | 55/55 | 55/55 |
 | **Total** | **0** | **0** | **61/65** | **65/65** |
 
-RED's four stop-named misses are wording ("the STOP edge", a bare "Stop.")
-at the two push-time stops. Every rep on both sides stopped at the right node.
+RED's four stop-named misses are wording ("the STOP edge", a bare "Stop."),
+or naming the gate instead of the stop (one T4 rep named only the off-script
+gate), at the two push-time stops. Every rep on both sides stopped at the right node.
 
 **stage-provision** (5 reps per scenario per side; source: the same file)
 
@@ -392,9 +385,9 @@ both files, which is exactly gate-protocol's own scheme-all saving (2,460 to
 23,951 vs 23,822 (+129), stage-provision 11,660 vs 11,510 (+150), from the
 tool-prefixed and `stop_` ids. GREEN sits 657 tokens above the hand-slug
 file in both, the unconverted gate-protocol graph. (This run's auto-slug
-token counts are 175 and 90 lower than the Measured table's because
-`convert.py`'s auto slugs were made rule-clean in `8ec9bbe65`; words did not
-change.) Scratch outputs: `scratchpad/t8/tokens-red.md`,
+token counts are 175 and 90 lower than the Measured table's, most likely
+because `8ec9bbe65` changed the auto ids, for example `run_enter_2` became
+`run_enter_flags`; words did not change.) Scratch outputs: `scratchpad/t8/tokens-red.md`,
 `tokens-green.md`, `tokens-decomp.md`.
 
 ### Checks
@@ -425,11 +418,18 @@ design.
 - watch-ci fed the raw `SKILL.md`, so its includes were unexpanded on both
   sides.
 - Stop named is judgement scoring, not a pass criterion.
+- The reps were scored by the same agent that ran them. A task reviewer
+  independently re-scored a sample (4 watch-ci reps across 5 scenarios, 4
+  stage-provision transcripts) and agreed on every deviation cell.
 
 ### Rulings made during the run
 
 - The 1-to-4-word slug cap counts the words after a required prefix (the
-  call prefix or `stop_`), so `run_budget_claim_off_script` passes.
+  call prefix or `stop_`), so `run_budget_claim_off_script` passes. The
+  cost of a required prefix: five watch-ci slugs run to 5 words counting it
+  (`run_budget_watch_off_script`, `run_budget_claim_off_script`,
+  `run_budget_retry_off_script`, `gh_pr_view_head_sha`,
+  `run_field_set_branch_mr`).
 - Authoring added scenario A3, because A1 could not separate learning the
   rule from copying the example.
 - `check-dot.py` leaves two edge cases as is: a sentence node with a
