@@ -487,6 +487,26 @@ describe("evidence_record", () => {
     expect(res.error).toBe(`${refusal} (the files were copied: ${join(evidenceDir("a"), "a.png")})`);
   });
 
+  test("source: a ticket image keeps its mark in the record; another source is refused; a waiver on it is refused at the write", async () => {
+    const shot = put("t.png");
+    const bad = await tool(makeDeps().deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", path: shot, source: "web" }] }, env);
+    expect(bad).toMatchObject({ ok: false, error: 'images[0]: "source" must be "ticket"' });
+    const { deps } = makeDeps();
+    const first = (await tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", path: shot, source: "ticket" }] }, env)).body as { written: boolean; uncovered: Array<{ path: string }> };
+    expect(first.written).toBe(false);
+    const started = runStart(runsRoot, { repo: "web", workType: "fix", pipeline: "default", env: { RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv });
+    if (!started.ok) throw new Error(started.error);
+    const realEnv = { ...process.env, RT_RUNS_ROOT: runsRoot, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+    const real = { ...makeDeps().deps, runTool: realEvidenceToolDeps.runTool };
+    const waived = await tool(real, "evidence_record").handler({ runDb: started.runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", path: shot, source: "ticket", waiver: "nothing to mark" }] }, realEnv);
+    expect(waived.ok).toBe(false);
+    expect(waived.error).toContain("is a ticket image and cannot be waived");
+    const board = put("t-board.png");
+    const covered = await tool(real, "evidence_record").handler({ runDb: started.runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", path: shot, source: "ticket", annotated: board, caption: "c" }] }, realEnv);
+    expect(covered.ok).toBe(true);
+    expect(JSON.parse((covered.body as { value: string }).value).cases[0].before.source).toBe("ticket");
+  });
+
   test("against a real run db through the run tools' handlers", async () => {
     const started = runStart(runsRoot, { repo: "web", workType: "fix", pipeline: "default", env: { RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv });
     if (!started.ok) throw new Error(started.error);

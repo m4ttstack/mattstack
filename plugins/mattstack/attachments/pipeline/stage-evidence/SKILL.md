@@ -211,7 +211,10 @@ or it has none, a URL curl refuses, or one that redirects, is one no tool
 can fetch, and it is never fetched another way: the case takes the
 link-only branch.
 
-The saved file is the case's BEFORE `path`. Its board is drawn inside
+The saved file is the case's BEFORE `path`, and the first `evidence_record`
+call that names it carries `source: "ticket"` on that image: the record then
+refuses a waiver on it and the upload refuses its own path, so only its
+board ever leaves the machine. Its board is drawn inside
 `Record the evidence`, at its annotate-or-waive pass, as a browser-evidence
 `import:` brief of its `value` path from the link with `state: FOUND`, so a
 run that also has a live browser case spawns the driver twice by design.

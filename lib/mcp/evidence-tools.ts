@@ -177,6 +177,7 @@ function parseRecordInput(input: Obj): { ok: true; merge: MergeInput; plan: bool
     const problem = caseIdProblem(e.case, where)
       ?? (SLOTS.has(e.slot as string) ? null : `${where}: "slot" must be "before" or "after"`)
       ?? (e.theme === undefined || THEMES.has(e.theme as string) ? null : `${where}: "theme" must be "light" or "dark"`)
+      ?? (e.source === undefined || e.source === "ticket" ? null : `${where}: "source" must be "ticket"`)
       ?? optionalStrings(e, where, ["label", "path", "annotated", "caption", "waiver"])
       ?? checkPaths(e, where, ["path", "annotated"]);
     if (problem) return { ok: false, error: problem };
@@ -726,6 +727,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
               properties: {
                 case: CASE, label: { type: "string", description: "Names a new case." }, slot: SLOT, theme: THEME,
                 path: { type: "string", description: "Absolute path of the capture; a new path recaptures the slot." },
+                source: { type: "string", enum: ["ticket"], description: "ticket marks a saved ticket image: it is never waived and its own path never uploads, only its board. Kept on later calls for the same path; a new path clears it." },
                 annotated: { type: "string", description: "Absolute path of the annotated board; needs caption." },
                 caption: { type: "string" },
                 waiver: { type: "string", description: "Why this image has no annotated board." },

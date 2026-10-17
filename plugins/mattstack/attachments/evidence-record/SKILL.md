@@ -69,7 +69,8 @@ digraph record_evidence {
 ```
 
 The first call names each capture by the `path` it was written to, with
-`case` and `slot` (and `theme`); a recapture is a new `path`. Every later
+`case` and `slot` (and `theme`), and `source: "ticket"` on a saved ticket
+image; a recapture is a new `path`, and only a recapture clears that mark. Every later
 call names the same images by the paths in the last returned `value`,
 each with its cover: `annotated` (the board's path) plus `caption`, or
 `waiver` (a case waiver rides in `cases`). The call that first writes a

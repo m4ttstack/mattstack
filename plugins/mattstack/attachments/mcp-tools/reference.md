@@ -3735,6 +3735,13 @@ Merge images, case labels or waivers, removals, a transcript or a ticket url int
             "type": "string",
             "description": "Absolute path of the capture; a new path recaptures the slot."
           },
+          "source": {
+            "type": "string",
+            "enum": [
+              "ticket"
+            ],
+            "description": "ticket marks a saved ticket image: it is never waived and its own path never uploads, only its board. Kept on later calls for the same path; a new path clears it."
+          },
           "annotated": {
             "type": "string",
             "description": "Absolute path of the annotated board; needs caption."

@@ -159,6 +159,27 @@ describe("mergeRecord", () => {
   });
 });
 
+describe("ticket source", () => {
+  const first = () => {
+    const r = mergeRecord(parseCurrent(null), { images: [{ case: "t", label: "Ticket", slot: "before", path: "/run/t.png", source: "ticket" }] });
+    if (!r.ok) throw new Error(r.error);
+    return r.record;
+  };
+  test("a new image keeps its source", () => {
+    expect(first().cases[0]!.before).toEqual({ path: "/run/t.png", source: "ticket" });
+  });
+  test("a later call on the same path without source keeps the mark", () => {
+    const r = mergeRecord(first(), { images: [{ case: "t", slot: "before", path: "/run/t.png", annotated: "/run/t-board.png", caption: "c" }] });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.record.cases[0]!.before).toEqual({ path: "/run/t.png", source: "ticket", annotated: "/run/t-board.png", caption: "c" });
+  });
+  test("a recapture at a new path clears it", () => {
+    const r = mergeRecord(first(), { images: [{ case: "t", slot: "before", path: "/run/live.png", annotated: "/run/b.png", caption: "c" }] });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.record.cases[0]!.before).toEqual({ path: "/run/live.png", annotated: "/run/b.png", caption: "c" });
+  });
+});
+
 describe("uncoveredImages", () => {
   test("annotated without caption is no-caption", () => {
     const rec = parseCurrent('{"v":2,"cases":[{"id":"a","label":"A","before":{"path":"/b.png","annotated":"/ba.png"}}]}');

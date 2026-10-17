@@ -2,7 +2,8 @@
  * mr:upload's record check: with a runId, a file goes out only when the run's
  * evidence record lists it as an annotated image or a waived capture. Paths
  * compare realpath to realpath, so a record written through a symlink still
- * matches the file the upload guard resolved.
+ * matches the file the upload guard resolved. A ticket image's own path
+ * never goes out, whatever its name: only its composed board does.
  */
 import { realpathSync } from "fs";
 import { basename } from "path";
@@ -30,6 +31,9 @@ export function evidenceUploadRefusal(o: {
   if (record.version !== 2) return `run ${o.runId} has no evidence record; write evidence before uploading with runId`;
   const resolve = o.resolve ?? safeRealpath;
   const same = (p: string) => resolve(p) === o.realpath;
+  if (evidenceShots(record).some(({ shot }) => shot.source === "ticket" && same(shot.path))) {
+    return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
+  }
   if (uploadablePaths(record).some(same)) return null;
   const raw = evidenceShots(record).find(({ shot }) => shot.annotated && same(shot.path));
   if (raw) {

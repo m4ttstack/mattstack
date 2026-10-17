@@ -275,6 +275,19 @@ describe("mr:upload", () => {
       expect(h.calls.length).toBe(1);
     });
 
+    test("a ticket image's own path is refused whatever it is named, waived or not; its board uploads", async () => {
+      const ticket = (extra: object) => ({ v: 2, cases: [{ id: "t", label: "T", before: { path: join(repoPath, "shot-0412.png"), source: "ticket", ...extra } }] });
+      for (const value of [ticket({ waiver: "nothing to mark" }), { ...ticket({}), cases: [{ ...ticket({}).cases[0], waiver: "whole case" }] }]) {
+        const h = harness({ repoPath, ...record(value) });
+        const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "shot-0412.png"), runId: "run-1" });
+        expect(res).toEqual({ ok: false, error: "shot-0412.png is the unredacted original of an imported ticket image; upload the composed board instead" });
+        expect(h.calls.length).toBe(0);
+      }
+      const h = harness({ repoPath, ...record(ticket({ annotated: join(repoPath, "t-board.png"), caption: "c" })) });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "t-board.png"), runId: "run-1" })).ok).toBe(true);
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "shot-0412.png"), runId: "run-1" })).ok).toBe(false);
+    });
+
     test("without runId the record is never read", async () => {
       const h = harness({ repoPath, runEvidence: () => { throw new Error("read"); } });
       expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) })).ok).toBe(true);
