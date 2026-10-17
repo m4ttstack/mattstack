@@ -364,3 +364,52 @@ fixes. Reps run on the pre-amend object `126e8b814` were discarded unscored.
 Observation: S13 to S15 reps note that the scripted `gate_ask` results
 carry no `formChunks`, and they ask the questions as one form. That comes
 from the fixture, not the skill.
+
+### review (Task 3)
+
+System files: the branch tree at `4c9ff3f0a`, compiled with
+`--gate-protocol` set to the pipeline-skills include at `63aee5a9d`
+(exported with `git archive`, never the working copy; still the newest
+commit touching the include on that branch). One round, no wording fixes.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| V9 direct post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_open {kind: "review-post", review: {findingsPath, extras}, runDb, stage: "review", scope: "post"}`, one form, `gate_answer`, no `mr_posted_since` on a first pass, submit with D1's reply, then `gate_record {scope: "post", shape: "post", gateId: "gt-901"}`, then `run_close done` |
+| V10 resume, no post decision | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume}`, `run_snapshot`, the report json copied into the scratch dir, `mr_posted_since {since: started_at, items}` all posted, no submit, `gate_record {gateId: "gt-902"}`, `run_close done` |
+| V11 gate_open refused twice | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `post-open-fix` read, charge, one fix, read exhausted, off-script `gate_ask {kind: "off-script:review:1", runDb, stage}`, `run_hold` |
+| V11b hand-back refused twice | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `review-source.sh` then `gate_open {handBack}` each round, the same budget, the off-script gate in the pane, `run_hold`; no run line, nothing handed back |
+| V12 board owns the gates | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `review-source.sh` into `<dir>/review-post.source.json`, `gate_open {sourcePath, handBack: true, outPath, scope: "post"}`, `review-run: r-20261016-rev` into `--report`, hand-back with the open, source, `gate-ctx.sh` paths and `9c1e2f7` |
+| V13 inherited hand back | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_open` refusal of an unparseable file straight to the off-script gate, stage `peer-review` on every call, `run_stage {action: "fail", stage: "peer-review"}`, no `run_close` |
+| **Total** | **30/30** | **0** | **0** | **0** | **0** | **0** | RED was 5/30 |
+
+- **V9** (5/5): every rep took the direct open with the report json as
+  `findingsPath` (already under the temp root, "so there is no copy
+  step", rep 1) and the extras inline, and recorded only after the
+  submit: "Made only now that the review is up." (rep 4). No rep ran
+  `review-source.sh`, `gate-ctx.sh` or `run_decision`. Three reps made
+  the writing-style lookup the `writing-style-lookup` include asks for.
+- **V10** (5/5): every rep resumed by the typed run id, redid the review
+  as the re-entry edge says, copied the out-of-root report json before
+  `gate_open` (B21), answered the new gate, then read before submitting:
+  "I also do not use `mr_threads` or any hand-read of threads to decide
+  this. A second submit would post every finding twice." (rep 2). Every
+  rep re-wrote the `mr` and `branch` fields on the resumed run, which the
+  graph allows (own run) and which is harmless.
+- **V11** (5/5): every rep read the budget with `increment: 0`, charged it
+  once, fixed only the named field, then on the second refusal read it
+  exhausted and opened the off-script gate: "I don't fix again and take
+  the edge to `Open the review off-script gate: a review script refused`."
+  (rep 5). Take plus Hold was a hold in every rep.
+- **V11b** (5/5): the same shape on the hand-back path, with
+  `review-source.sh` re-run before each `gate_open {handBack}`: "I do not
+  hand-edit the open and I do not run `gate-ctx.sh fit` by hand to force
+  it through." (rep 1). No rep wrote the run line or handed back.
+- **V12** (5/5): every rep wrote the source with the vendored script,
+  opened with `handBack`, read `--report` for an earlier `review-run:`
+  line, then wrote `review-run: r-20261016-rev`, and handed back the four
+  items. None opened a gate or closed the run.
+- **V13** (5/5): every rep read the parse refusal as one no field fix can
+  mend, skipped the budget, and failed the inherited stage: "The run is
+  inherited, so `Own review run: close it as abandoned?` is no and the
+  caller decides." (rep 2). Reps 4 and 5 quoted the fixture's
+  `review-source.sh` result in the gate context without running it.
