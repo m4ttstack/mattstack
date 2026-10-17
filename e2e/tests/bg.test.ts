@@ -3,10 +3,15 @@
  * claim-gated stop, against a real daemon under a test HOME. Follows
  * e2e/tests/herd.test.ts's fake-herdr recipe (a CLI-shim binary that
  * journals every argv), extended with a `server` mode: the same fake
- * binary, invoked by lib/daemon/bg-service.ts's own nohup mechanics, execs
- * a tiny Bun script that opens a REAL unix socket at the bg session's fixed
- * path and answers the herdr JSON-RPC methods the daemon needs (see
+ * binary, started by lib/daemon/bg-service.ts's launcher, execs a tiny Bun
+ * script that opens a REAL unix socket at the bg session's fixed path and
+ * answers the herdr JSON-RPC methods the daemon needs (see
  * docs/superpowers/specs/2026-09-09-background-server-design.md).
+ *
+ * The launcher hands the server only the login env plus `HERDR_*`
+ * (lib/herdr/login-env.ts), so every knob the server side reads is a
+ * `HERDR_FAKE_*` variable, and the socket path is derived from the forwarded
+ * HOME and HERDR_SESSION the way herdr derives it.
  *
  * The claim-gated stop scenario exercises both the CLI output and the
  * rt-client wrappers against the isolated daemon socket.
@@ -20,9 +25,9 @@ import { bgRelease, bgStop, formatPaneRef } from "../../packages/rt-client/src/i
 /**
  * The fake herdr binary: a bash shim, same journal/state convention as
  * herd.test.ts's FAKE_HERDR, extended with `pane get` (attend's terminal-id
- * lookup) and `session stop`, plus a `server` branch bg-service.ts's own
- * nohup mechanics invoke -- it snapshots the spawn's own $PATH (the
- * login-shell probe result, not the daemon's) to FAKE_HERDR_SERVER_ENV_FILE,
+ * lookup) and `session stop`, plus a `server` branch bg-service.ts's
+ * launcher invokes -- it snapshots the spawn's own $PATH (the login-shell
+ * probe result, not the daemon's) to HERDR_FAKE_SERVER_ENV_FILE,
  * then execs into __SERVER_JS__ (a separate Bun script, kept as plain JS so
  * there is no extension-based loader ambiguity) to open the real bg socket.
  * __BUN_BIN__ is substituted with this test process's own `process.execPath`
@@ -33,16 +38,16 @@ import { bgRelease, bgStop, formatPaneRef } from "../../packages/rt-client/src/i
  * seeding logic, not bun's discoverability.
  */
 const FAKE_HERDR_TEMPLATE = `#!/bin/bash
-echo "$@" >> "$FAKE_HERDR_LOG"
+echo "$@" >> "$HERDR_FAKE_LOG"
 
 if [ "$1" = "server" ]; then
-  if [ -n "$FAKE_HERDR_SERVER_ENV_FILE" ]; then
-    printf '%s\\n' "$PATH" > "$FAKE_HERDR_SERVER_ENV_FILE"
+  if [ -n "$HERDR_FAKE_SERVER_ENV_FILE" ]; then
+    printf '%s\\n' "$PATH" > "$HERDR_FAKE_SERVER_ENV_FILE"
   fi
   exec "__BUN_BIN__" "__SERVER_JS__"
 fi
 
-STATE="$FAKE_HERDR_STATE"
+STATE="$HERDR_FAKE_STATE"
 mkdir -p "$STATE"
 
 find_flag() {
@@ -114,18 +119,19 @@ esac
  * The bg session's socket fake: a real unix-socket JSON-RPC server (herdr's
  * wire contract -- one newline-delimited request per connection, the server
  * closes after replying), bound to the FIXED path bg-service.ts computes
- * (passed in via FAKE_HERDR_BG_SOCK, known ahead of time by the test).
+ * (built from the HOME and HERDR_SESSION the launcher forwards, so a
+ * launcher that dropped either never binds and the start times out).
  * Kept as plain JS (no TS syntax) since it is invoked by an absolute-path
  * shebang exec, not `bun run`, so there is no build step to strip types.
  */
 const BG_SERVER_JS = `
 import { mkdirSync, writeFileSync, appendFileSync } from "fs";
-import { dirname } from "path";
+import { dirname, join } from "path";
 
-const sock = process.env.FAKE_HERDR_BG_SOCK;
-const pidFile = process.env.FAKE_HERDR_SERVER_PID_FILE;
-const socketLog = process.env.FAKE_HERDR_SOCKET_LOG;
-const peekText = process.env.FAKE_HERDR_PEEK_TEXT || "bg peek content";
+const sock = join(process.env.HOME, ".config", "herdr", "sessions", process.env.HERDR_SESSION, "herdr.sock");
+const pidFile = process.env.HERDR_FAKE_SERVER_PID_FILE;
+const socketLog = process.env.HERDR_FAKE_SOCKET_LOG;
+const peekText = process.env.HERDR_FAKE_PEEK_TEXT || "bg peek content";
 
 mkdirSync(dirname(sock), { recursive: true });
 if (pidFile) writeFileSync(pidFile, String(process.pid));
@@ -272,18 +278,17 @@ describe("rt background server (e2e)", () => {
 
     await startDaemonForHome(home, {
       HERDR_BIN: herdrBin,
-      FAKE_HERDR_LOG: herdrLog,
-      FAKE_HERDR_STATE: herdrState,
-      FAKE_HERDR_BG_SOCK: join(home, ".config", "herdr", "sessions", "bg", "herdr.sock"),
-      FAKE_HERDR_SERVER_ENV_FILE: serverEnvFile,
-      FAKE_HERDR_SERVER_PID_FILE: serverPidFile,
-      FAKE_HERDR_SOCKET_LOG: socketLog,
-      FAKE_HERDR_PEEK_TEXT: "bg peek marker 7f3a",
+      HERDR_FAKE_LOG: herdrLog,
+      HERDR_FAKE_STATE: herdrState,
+      HERDR_FAKE_SERVER_ENV_FILE: serverEnvFile,
+      HERDR_FAKE_SERVER_PID_FILE: serverPidFile,
+      HERDR_FAKE_SOCKET_LOG: socketLog,
+      HERDR_FAKE_PEEK_TEXT: "bg peek marker 7f3a",
     });
   });
 
   afterEach(async () => {
-    // The bg "server" mode is nohup'd into its own process group by design
+    // The bg "server" mode is detached into its own process group by design
     // (it must survive a daemon restart) -- Bun.spawn's own child handle
     // never reaches it, so killing it back is only possible via the pid it
     // wrote for itself.
