@@ -543,15 +543,17 @@ export async function branchSyncSweep(
   deps: GitToolDeps,
   progress?: () => void,
   syncTree: (tree: string) => Promise<BranchSyncResult> = (tree) => branchSync(tree, deps),
+  branches?: string[],
 ): Promise<ToolResult> {
   const repo = await deps.resolveRepo(repoName);
   if (!repo.ok) return err(repo.error);
   const [mrs, trees] = await Promise.all([deps.authoredOpenMrs(repo.identity), deps.repoTrees(repo.identity)]);
   if (!mrs.ok) return err(`could not list your open merge requests: ${mrs.error}`);
   if (!trees.ok) return err(`could not list the repo's worktrees: ${trees.error}`);
+  const selected = branches === undefined ? mrs.mrs : mrs.mrs.filter((mr) => branches.includes(mr.branch));
   const results: Array<BranchSyncResult & { tree: string; mr: { iid: number; url: string | null } }> = [];
   const noTree: Array<{ branch: string; mr: { iid: number; url: string | null } }> = [];
-  for (const mr of mrs.mrs) {
+  for (const mr of selected) {
     const ref = { iid: mr.iid, url: mr.url };
     const candidates = trees.trees.filter((t) => t.branch === mr.branch);
     if (candidates.length === 0) {
@@ -578,7 +580,17 @@ export async function branchSyncSweep(
     }
     results.push({ ...(await syncTree(chosen)), tree: chosen, mr: ref });
   }
-  return ok({ repoName: repo.identity, results, noTree, complete: mrs.complete });
+  if (branches === undefined) return ok({ repoName: repo.identity, results, noTree, complete: mrs.complete });
+  const notOpen = branches.filter((branch) => !mrs.mrs.some((mr) => mr.branch === branch));
+  return ok({ repoName: repo.identity, results, noTree, notOpen, complete: mrs.complete });
+}
+
+function sweepBranches(raw: unknown): { ok: true; branches: string[] | undefined } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, branches: undefined };
+  if (!Array.isArray(raw) || raw.length === 0 || !raw.every((b) => typeof b === "string" && b.trim() !== "")) {
+    return { ok: false, error: '"branches" must be a non-empty list of branch names' };
+  }
+  return { ok: true, branches: raw as string[] };
 }
 
 export interface GitToolDeps {
@@ -658,10 +670,22 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
     },
     {
       name: "branch_sync_sweep",
-      description: `Run branch_sync, one branch at a time, on every branch of yours with an open MR in the repo that has a local worktree. A conflict on one branch leaves that rebase paused for you and the sweep moves on to the next. Your open MRs are read from GitLab (author: me) or GitHub (gh pr list --author @me). Returns {repoName, results, noTree, complete}: results holds one branch_sync result per branch (kind, branch, oldHead, newHead, pushed, refusal), each with its tree and mr {iid, url}; noTree lists your open-MR branches that have no worktree, which the sweep skips; complete is false when the forge may have cut the MR list short. Opens no gate and pushes only what branch_sync itself pushes. repoName is the repo's serialized identity, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo.`,
-      inputSchema: { type: "object", properties: { repoName: MR_TARGET_PROPS.repoName }, required: ["repoName"], additionalProperties: false },
+      description: `Run branch_sync, one branch at a time, on every branch of yours with an open MR in the repo that has a local worktree, or with branches, only on those of them named there. A conflict on one branch leaves that rebase paused for you and the sweep moves on to the next. Your open MRs are read from GitLab (author: me) or GitHub (gh pr list --author @me). Returns {repoName, results, noTree, complete}: results holds one branch_sync result per branch (kind, branch, oldHead, newHead, pushed, refusal), each with its tree and mr {iid, url}; noTree lists your open-MR branches that have no worktree, which the sweep skips; complete is false when the forge may have cut the MR list short. With branches, the result also has notOpen: the named branches with no open MR of yours, which the sweep skips. Opens no gate and pushes only what branch_sync itself pushes. repoName is the repo's serialized identity, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          repoName: MR_TARGET_PROPS.repoName,
+          branches: { type: "array", items: { type: "string" }, description: "Sync only these of your open-MR branches, so an MR opened after you chose stays untouched. Omit to sweep every one." },
+        },
+        required: ["repoName"],
+        additionalProperties: false,
+      },
       shellForms: { none: "rt sync all syncs every worktree and aborts a conflict; no shell command sweeps only your open-MR branches and leaves a conflict paused" },
-      handler: async (input, _env, _signal, progress) => branchSyncSweep(input.repoName, deps, progress),
+      handler: async (input, _env, _signal, progress) => {
+        const only = sweepBranches(input.branches);
+        if (!only.ok) return err(only.error);
+        return branchSyncSweep(input.repoName, deps, progress, undefined, only.branches);
+      },
     },
   ];
 }
