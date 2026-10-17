@@ -90,9 +90,10 @@ clones acme-api.").
   `rt dev setup` clones into `rt.repoRoots[0]` and its `dev-no-repo-root`
   error names that verb, and a Mac whose team tracks no repos has no other
   way to set a root.
-- A row's answer is its placement. When the member clicks Continue on the
-  page, the app records every row's shown state through the verb, touched
-  or not, so a default the member looked at counts as answered.
+- A row's answer is its placement, recorded only when the member uses the
+  row. An untouched row has no placement, and `repos.clone` computes the
+  same default the row showed (one shared function produces both), so what
+  the member saw is what happens.
 - Answers given before Install are staged the way the repo root is today
   (`~/.mattstack/rt/repo-root.json`): the machine store lives inside the
   home repo, which does not exist until `home.init` clones it. The clone
@@ -114,14 +115,17 @@ whenever the tracked list is known. For a joiner that is after `team.join`.
 1. A recorded placement: honour it.
 2. No placement, but an existing clone found (the widened search above):
    use it.
-3. No placement, no clone, and the run streams to the app (`--json`, the
-   app's NDJSON channel): clone nothing for that repo and report
-   `needs-you` ("Choose where your repos go"). The rest of Install carries
-   on; the "Your repos" rows show on the post-Install summary, finish-gated,
-   with the same controls. Answering and retrying runs `repos.clone` again.
-4. No placement, no clone, any other run (a terminal `rt setup apply`, a
-   `--non-interactive` run, CI): clone to the default destination. A
-   terminal run never stops on this.
+3. No placement, no clone, a joiner's run (the setup intent's mode is
+   `join`, so the rows could not have been shown) that streams to the app
+   (`rt setup apply --json`, the app's NDJSON channel; `setupApply` passes
+   that into the context as a new `appDriven` flag): clone nothing for that
+   repo and report `needs-you` ("Choose where your repos go"). The rest of
+   Install carries on; the "Your repos" rows show on the post-Install
+   summary, finish-gated, with the same controls. Answering and retrying
+   runs `repos.clone` again.
+4. No placement, no clone, any other run (a member who saw the rows, a
+   terminal `rt setup apply`, a `--non-interactive` run, CI): clone to the
+   default destination. A terminal run never stops on this.
 
 The engine already lets steps after a `needs-you` run (only `failed` stops
 a run). `repos.clone` has `feedsIntercepts`, so a retry re-queues
@@ -322,7 +326,8 @@ the builder check and are listed in the PR for review:
 
 - A joiner's unanswered repos: `needs-you` plus summary rows in app runs,
   defaults in terminal runs (section 1).
-- Untouched rows count as answered when the member clicks Continue.
+- An untouched row means "the default it showed"; only a joiner's app run
+  defers an unplaced repo.
 - The existing-clone search widens to the candidate root folders.
 - `rt.repoRoots` is appended to, never rewritten; `rt setup repo-root set`
   stays as a CLI verb.
