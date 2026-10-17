@@ -248,6 +248,36 @@ describe('pendingChangesOf: a pipeline override', () => {
     ).toBe('domain · accessibility: evidence-a11y → evidence-policy (default)');
   });
 
+  it("names a lower layer's override that outlives the removal", () => {
+    const layered = designFixture('composition');
+    layered.binders = layered.binders.map(binder =>
+      binder.ref === 'mattstack:stage-evidence'
+        ? {
+            ...binder,
+            slots: binder.slots.map(slot => ({
+              ...slot,
+              boundTo: 'acme:evidence-policy',
+              overrides: [
+                {
+                  pipeline: 'accessibility',
+                  boundTo: 'acme:evidence-base',
+                  layer: 'base:acme-base',
+                },
+              ],
+            })),
+          }
+        : binder
+    );
+    const removed = {
+      ...evidence('accessibility'),
+      from: 'acme:evidence-a11y',
+      to: null,
+    };
+    expect(pendingChangesOf(changesWith([removed]), layered)[0]?.detail).toBe(
+      'domain · accessibility: evidence-a11y → evidence-base'
+    );
+  });
+
   it('reads a removed override with no default bound as unbound', () => {
     const unbound = designFixture('composition');
     unbound.binders = unbound.binders.map(binder =>

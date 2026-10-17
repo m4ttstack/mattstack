@@ -1,4 +1,10 @@
-import { stageCopyOf, suffixOf, type SkillsComposition } from '../../outline';
+import {
+  effectiveBoundTo,
+  overrideOf,
+  stageCopyOf,
+  suffixOf,
+  type SkillsComposition,
+} from '../../outline';
 import type { SkillsChanges } from '../../useWiring';
 import { stepLabel } from './focusModel';
 
@@ -27,17 +33,29 @@ const fillName = (binding: string | null) =>
   binding === null ? 'nothing' : suffixOf(binding);
 
 /** rt reports a removed pipeline override as `to: null`; the slot then
-    reads its default fill, which only the composition names. */
+    reads what the composition names: an override a lower layer still
+    holds for that pipeline, else the default fill. */
 function bindingTarget(
   change: SkillsChanges['bindings'][number],
   composition: SkillsComposition | undefined
 ): string {
   if (change.to !== null || !change.pipeline) return fillName(change.to);
   if (!composition) return 'default';
-  const fallback = composition.binders
+  const slot = composition.binders
     ?.find(binder => binder.ref === change.engineRef)
-    ?.slots.find(slot => slot.name === change.slot)?.boundTo;
-  return fallback ? `${suffixOf(fallback)} (default)` : 'default (unbound)';
+    ?.slots.find(candidate => candidate.name === change.slot);
+  if (!slot) return 'default (unbound)';
+  // A composition read before the write still lists the override being
+  // removed; only one that fills differently is a lower layer's.
+  const remaining =
+    overrideOf(slot, change.pipeline)?.boundTo === change.from
+      ? { boundTo: slot.boundTo, overrides: [] }
+      : slot;
+  const fallback = effectiveBoundTo(remaining, change.pipeline);
+  if (!fallback) return 'default (unbound)';
+  return overrideOf(remaining, change.pipeline)
+    ? suffixOf(fallback)
+    : `${suffixOf(fallback)} (default)`;
 }
 
 const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
