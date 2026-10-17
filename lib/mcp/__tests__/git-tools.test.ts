@@ -1084,6 +1084,37 @@ describe("branch_sync_sweep", () => {
     await branchSyncSweep("app", deps(), () => { ticks++; }, async () => outcome("up-to-date", "x"));
     expect(ticks).toBe(2);
   });
+  test("with branches, syncs only the selected branches, so an MR opened since the caller listed is left alone", async () => {
+    const synced: string[] = [];
+    const r = await branchSyncSweep("app", deps(), undefined, async (tree) => { synced.push(tree); return outcome("synced", "feat/b"); }, ["feat/b"]);
+    expect(synced).toEqual(["/t/b"]);
+    expect(r.body).toEqual({
+      repoName: "r",
+      results: [{ ...outcome("synced", "feat/b"), tree: "/t/b", mr: { iid: 2, url: "https://forge/mr/2" } }],
+      noTree: [],
+      notOpen: [],
+      complete: true,
+    });
+  });
+  test("a selected branch with no open MR of yours is listed in notOpen and never synced", async () => {
+    const synced: string[] = [];
+    const r = await branchSyncSweep("app", deps(), undefined, async (tree) => { synced.push(tree); return outcome("synced", "feat/a"); }, ["feat/a", "feat/gone"]);
+    expect(synced).toEqual(["/t/a"]);
+    expect(r.body).toMatchObject({ results: [{ branch: "feat/a" }], noTree: [], notOpen: ["feat/gone"] });
+  });
+  test("the tool passes branches through and refuses a branches value that is not a non-empty list of names", async () => {
+    let listed = false;
+    const tool = gitToolDefs(deps({ authoredOpenMrs: async () => { listed = true; return { ok: true, mrs, complete: true }; } })).find((t) => t.name === "branch_sync_sweep")!;
+    expect(tool.inputSchema).toMatchObject({ properties: { branches: { type: "array", items: { type: "string" } } } });
+    for (const branches of [[], "feat/a", [""], [1]]) {
+      const r = await tool.handler({ repoName: "app", branches }, {} as NodeJS.ProcessEnv);
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("branches");
+    }
+    expect(listed).toBe(false);
+    const r = await tool.handler({ repoName: "app", branches: ["feat/c"] }, {} as NodeJS.ProcessEnv);
+    expect(r.body).toMatchObject({ results: [], noTree: [{ branch: "feat/c" }], notOpen: [] });
+  });
   test("the tool takes repoName and runs the sweep", async () => {
     const tool = gitToolDefs(deps()).find((t) => t.name === "branch_sync_sweep")!;
     expect(tool.inputSchema).toMatchObject({ required: ["repoName"] });

@@ -5,6 +5,7 @@
  * printing only.
  */
 import { Database } from "bun:sqlite";
+import { createHash } from "crypto";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
 import { validateEvidence } from "../../packages/rt-client/src/evidence.ts";
@@ -12,7 +13,7 @@ import { recordIdentity } from "./identity.ts";
 
 export const KNOWN_SCHEMA_VERSION = 3;
 
-export type Fail = { ok: false; error: string; code: 1 | 2 | 3 };
+export type Fail = { ok: false; error: string; code: 1 | 2 | 3 | 4 };
 export type Ok<T extends object = {}> = { ok: true } & T;
 
 const SCHEMA_SQL = `
@@ -195,14 +196,33 @@ export function stageEnd(
   }
 }
 
-export function fieldSet(db: Database, key: string, value: string, stage: string, now: number = Date.now()): Ok | Fail {
+const FIELD_CHANGED = "changed since it was read: ifSha256 does not match";
+
+/** The hash `ifSha256` compares against; an unset field hashes as the empty string. */
+export function valueSha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function isFieldChanged(error: string): boolean {
+  return error.includes(FIELD_CHANGED);
+}
+
+/** With `ifSha256`, the compare and the write share one IMMEDIATE transaction, so a writer in another process cannot land between them. */
+export function fieldSet(db: Database, key: string, value: string, stage: string, now: number = Date.now(), opts: { ifSha256?: string } = {}): Ok | Fail {
   if (key === "evidence") {
     const valid = validateEvidence(value);
     if (!valid.ok) return { ok: false, error: valid.error, code: 2 };
   }
-  try {
+  const write = (): Ok | Fail => {
+    if (opts.ifSha256 !== undefined) {
+      const row = db.query("SELECT value FROM fields WHERE key=?").get(key) as { value: string } | undefined;
+      if (valueSha256(row?.value ?? "") !== opts.ifSha256) return { ok: false, error: `field ${key} ${FIELD_CHANGED}`, code: 4 };
+    }
     db.run("INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at) SELECT id, ?, ?, ?, ? FROM runs", [key, value, stage, now]);
     return { ok: true };
+  };
+  try {
+    return db.transaction(write).immediate();
   } catch (err) {
     return { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };
   }
