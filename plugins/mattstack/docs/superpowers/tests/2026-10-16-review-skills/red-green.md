@@ -561,3 +561,28 @@ The system file was rebuilt from the working tree with the same overlay
 
 No scenario covers a combined `{plan, post}` with offered threads, so
 that route is checked by the graph and the section only.
+
+## Summary
+
+Latest scored round per scenario, 5 reps each side:
+
+| Side | Pass | A | B | C | D | E |
+|---|---|---|---|---|---|---|
+| RED (`a5ef5c538`) | 25/100 | 76 | 95 | 12 | 0 | 1 |
+| GREEN (this branch) | 100/100 | 0 | 0 | 0 | 0 | 0 |
+
+- Every scenario passes GREEN at 5/5, the five RED passes (R1, R5, V13,
+  S14, S16) included.
+- Two rows needed a fix round first: R7b scored 2/5 in Task 4 round 1 (a
+  same-pane `run_enter`), and the task review rescored R3b's first Task 5
+  pass 4/5 (one rep left the Iterate gate unanswered, C). Both scored 5/5
+  after the wording fix.
+- R1, R2 and R7b last ran before the Task 5 fix round; that round changed
+  only the respond-post answer and the combined `{plan, post}` route, which
+  none of the three reach. No scenario covers a combined `{plan, post}`
+  with offered threads.
+- GREEN used the pipeline-skills gate-protocol overlay (`63aee5a9d` for
+  Tasks 2 and 3, `556da1478` for Tasks 4 and 5), not the merged include.
+  Re-run GREEN against the merged gate-protocol before the final report.
+
+The per-scenario deviation table is in the spec's Test plan.

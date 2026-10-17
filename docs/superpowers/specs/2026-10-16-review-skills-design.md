@@ -580,11 +580,43 @@ self-review:
 15. The requirements clarify gate answered Hold. Tempting: hand-write the
     `run_decision` and `run_field_set` pair.
 
-**Deviation table** (filled at the end of execution):
+**Deviation table.** Counts and quotes per rep are in
+[red-green.md](../../../plugins/mattstack/docs/superpowers/tests/2026-10-16-review-skills/red-green.md).
+The plan renumbers the scenarios above: 1 to 8 are R1 to R8, 9 to 12 are V9
+to V12, 13 to 15 are S13 to S15; R3b, R7b, V11b, V13 and S16 are added.
+Each scenario ran 5 reps per side. RED is the text at `a5ef5c538`; GREEN
+is the latest scored round on this branch. Classes: **A** a shell call a
+tool covers; **B** hand mechanics a tool covers; **C** a skipped step;
+**D** a runaway loop; **E** a stop that should have been a gate.
 
-| scenario | RED deviations | GREEN deviations | notes |
-|---|---|---|---|
-| 1-15 | | | |
+| scenario | RED pass | GREEN pass | RED classes | GREEN classes | notes |
+|---|---|---|---|---|---|
+| R1 bot thread | 5/5 | 5/5 | A, B | none | RED passes on the filter but keeps the hand prologue, `mktemp -d`, `gate-ctx.sh fit` and `gate_ask` |
+| R2 note on a reply | 0/5 | 5/5 | A, B | none | RED asks with `gate_ask` and computes the override itself; GREEN records with `gate_record {gateId}` and writes the rows as returned |
+| R3 Hold at respond-post | 0/5 | 5/5 | A, B | none | RED holds with `run_decision` plus `run_field_set`; GREEN answers with `next: hold`, then `run_hold`; scored after the Task 5 fix round |
+| R3b Iterate at respond-post | 0/5 | 5/5 | A, B | none | the task review rescored the first GREEN pass 4/5 (C: one rep left the gate unanswered); the fix round answers with `next: iterate` and scored 5/5 |
+| R4 partial post retry | 0/5 | 5/5 | A, B | none | RED posts T1 with `mr_reply_thread` three times; GREEN calls `respond_post_execute` again, clears the hold, then `run_close` |
+| R5 mismatch | 5/5 | 5/5 | A, B | none | RED passes on its own shell git reads; GREEN quotes the tool's held entry |
+| R6 resume, nothing held | 0/5 | 5/5 | A, B, C, E | none | RED's clearest live bug: 2 reps close `done` with nothing posted; GREEN calls `respond_post_execute` before `run_close` |
+| R7 board fresh-pane resume | 0/5 | 5/5 | A, B | none | RED starts a new run; GREEN resumes with `run_enter {resume, spawnedBy}`; scored after the Task 5 fix round |
+| R7b board same pane | 0/5 | 5/5 | A, B | none | GREEN round 1 scored 2/5 (a same-pane `run_enter`); the round 2 wording fix and every later run scored 5/5 |
+| R8 GitHub proceed | 0/5 | 5/5 | A, B, C | none | RED skips the gh posted-already read; GREEN makes it and calls no `respond_post_execute` |
+| V9 direct post | 0/5 | 5/5 | A, B | none | GREEN opens with `gate_open {kind: "review-post"}` and records after the submit |
+| V10 resume, no post decision | 0/5 | 5/5 | A, B | none | RED judges posted from `mr_threads`; GREEN reads `mr_posted_since` and submits nothing |
+| V11 gate_open refused twice | 0/5 | 5/5 | A, B | none | RED counts in context; GREEN charges `post-open-fix` with `run_budget` |
+| V11b hand-back refused twice | 0/5 | 5/5 | A, B | none | the same budget on the hand-back path; nothing handed back |
+| V12 board owns the gates | 0/5 | 5/5 | A, C | none | RED fits with `gate-ctx.sh` and writes no run line; GREEN uses `gate_open {handBack}` and writes `review-run:` |
+| V13 inherited hand back | 5/5 | 5/5 | A, B | none | regression guard: fails the inherited stage, no `run_close` |
+| S13 stuck finding | 0/5 | 5/5 | B | none | RED reopens at scope `self-review` (B17); GREEN uses `fix:F2:<round>` and the `self-review-retry:F2` gate |
+| S14 compacted mid-loop | 5/5 | 5/5 | B | none | regression guard: one attempt from the stored count, then the reopen |
+| S15 clarify Hold | 0/5 | 5/5 | B | none | GREEN sends `gate_ask` with `runDb` and `stage`, then `run_hold` alone |
+| S16 inherited abandon | 5/5 | 5/5 | B | none | regression guard: fails stage `check`, no `run_close` |
+| **Total** | **25/100** | **100/100** | A 76, B 95, C 12, D 0, E 1 reps | 0 in the latest rounds | GREEN deviations before a fix round: R7b 3 reps (shape miss), R3b 1 rep (C) |
+
+GREEN ran against the pipeline-skills lane's gate-protocol overlay, not the
+merged include: `63aee5a9d` for Tasks 2 and 3 (self-review, review) and
+`556da1478` for Tasks 4 and 5 (receive-review). Neither commit is on `main`
+yet. Re-run GREEN against the merged gate-protocol before the final report.
 
 ## Left to the builder
 
