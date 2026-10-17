@@ -313,3 +313,43 @@ S7 re-ran because the daemon-down branch gained that entry edge.
 | S4 unattended wait | 5/5 | Same path as before. Rep 3 checks the new rule: "It is not late, since there is no `alreadyReconciled` and no stale skip" |
 | S7 daemon down, unattended | 5/5 | Regression guard only (RED was 5/5); `run_stage` fail with the refusal verbatim, no form |
 | S8 no run, herdr pane | 5/5 | No `runDb`, `stage` or `run_*` anywhere; `gate_reconcile {id}` on the doorbell. Reps 1, 3 and 4 apply the no-run late rule: "it is not late, because this pane has not acted on the gate" (rep 1); the background wait's later completion "is a late signal that I discard" (rep 3) |
+
+### Task 3: work on the run engine
+
+`work` enters and resumes through `run_enter`, ends each stage with
+`run_next`, applies gate answers and hand-backs with `run_resolve`, and holds
+an engine refusal with `run_hold`. The four scenarios ran twice: first on the
+rewrite, then on the final text, which adds one line to `Re-enter the stage
+at that gate's site` (walk every node the stage draws after its gate). Both
+runs scored 20/20, and the quotes below come from both. No rep hit an API
+error, and no refactor round was needed.
+
+| Scenario | RED | GREEN | Notes |
+|---|---|---|---|
+| S1 stage end | 0/5 | 5/5 | Every rep: `run_next {runDb, stage: "plan"}`, then a Read of `next.file` (stage-gates). No `run_stage`, `run_snapshot` or `run_field_set` |
+| S2 failure gate Go back | 0/5 | 5/5 | Every rep: `run_next` (failed, `ship-failed:2`), `gate_ask` with `runDb`, `stage: "ship"` and `to-1`/`to-2` split from `earlier`, one background wait; then `gate_reconcile` and `run_resolve {stage: "ship", next: "redirect", to: "implement", note: "the fix needs a test", attempt: 2, decidedBy: "board"}` and the implement Read. No produce or `shipTarget` write, no `run_stage`. Part 3 resends the same `run_resolve` and follows `repeated: true` |
+| S2b engine refusal | 0/5 | 5/5 | Every rep tries `run_resolve {..., to: "evidence", attempt: 2, decidedBy: "board"}` first, takes the refusal, then `run_hold {stage: "ship", reason: <the refusal verbatim>, decidedBy: "pane"}` and ends held. No re-asked or off-script gate, no `run_stage start evidence` |
+| S3 compacted resume | 0/5 | 5/5 | Every rep: `run_enter {flags, skillDir, resume: "r-20261016-abc"}` (no `runDb`, no `run_list`, no clarify), `run_field_get waiting-gate`, `gate_reconcile {id: "gt-7c2e", runDb, stage: "plan"}`, then the plan Read at the gate's site, the `approach` and `evidence-plan` writes, `run_next` and the gates Read. No new run, no `run_stage start`, no re-asked gate, no timed `rt gate wait` |
+
+Per rep:
+
+- S1 reps 1-5: "`run_next` owns the stage rows, so it has already closed
+  plan and started gates" (final run, rep 5).
+- S2 reps 1-5: "`next` is `redirect`, so `action: retry` is not applied,
+  because only Proceed applies `action`" (first run, rep 1); Part 3 "I do not
+  call `run_stage start`, because the run tools own stage rows and a second
+  start would supersede the running attempt" (final run).
+- S2b reps 1-5: the resolve is always tried before the hold, which the
+  scripted refusal text could have let a rep skip. "A refused `run_resolve`
+  is never worked around or re-asked, so I hold with the refusal quoted
+  verbatim" (final run); "I don't substitute another stage such as `plan` or
+  `implement`".
+- S3 reps 1-5: "A run id is in context after compaction, so this goes to
+  `resume`, not `runDb`" (first run, rep 3); "Words in hand ('carry on') lose
+  to the recorded answer, so I don't re-ask" (first run, rep 5).
+- Not a criterion, noted for Task 5: in both runs no S3 rep makes a
+  separate tier record after Proceed ("The tier was already recorded by
+  `gate_reconcile`", final run, rep 2). The scenario paraphrases stage-plan
+  as "records the tier" without naming a tool, so this reads the stand-in,
+  not the stage file; three reps in the first run and four in the final one
+  also wrote `evidence-plan` as `none` rather than the full `none -- no policy bound`.
