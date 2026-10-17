@@ -1,0 +1,17 @@
+{
+  "Self-review stage entered": "self_review_entered",
+  "run_field_get {key: commits}": "run_field_get_commits",
+  "Domain rules inlined?": "domain_rules_inlined",
+  "Follow the domain review": "follow_domain_review",
+  "Dispatch one fresh-context reviewer over the diff": "dispatch_reviewer",
+  "Blocking findings?": "blocking_findings",
+  "run_budget {key: review-rounds, limit: 3, stage: self-review}": "run_budget_review_rounds",
+  "Review rounds = 3?": "review_rounds_spent",
+  "Fix each blocking finding test-first, commit": "fix_blocking_findings",
+  "git log --format=%h <branch-point>..HEAD": "git_log_shas",
+  "run_field_set {key: commits, value: <all shas, fixes included>, stage: self-review}": "run_field_set_commits",
+  "run_field_set {key: review, value: <verdict; findings fixed or waived>, stage: self-review}": "run_field_set_review",
+  "run_stage {action: fail, stage: self-review, reason: blocking findings after 3 rounds}": "run_stage_fail",
+  "Stage failed": "stage_failed",
+  "Self-review done: return to the orchestrator": "self_review_done"
+}
