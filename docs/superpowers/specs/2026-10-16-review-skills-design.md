@@ -54,7 +54,7 @@ the skills call them.
 ## Non-goals
 
 - No rt code, tool, gate-protocol, review-core/dispatch/posting include, board
-  skill or assured pack edits. The board skills and the assured packs are read
+  skill or team pack edits. The board skills and the team packs are read
   only.
 - No change to the judgment the skills own:
   - adjudicator and reviewer dispatch (the author-bias HARD-GATEs);
@@ -124,8 +124,8 @@ the skills call them.
 
 | What | Kept as |
 |---|---|
-| Node texts named by `assured-base:board-review` | `Caller owns the review gates?`, `Review caller's answer?`, `Write the review report and its json sibling` |
-| Node texts named by `assured-base:board-respond` | `Build the open`, `code-changes answer?`, `Hand back the verdict table and the respond-plan open's path` |
+| Node texts named by the team pack's `board-review` wrapper | `Caller owns the review gates?`, `Review caller's answer?`, `Write the review report and its json sibling` |
+| Node texts named by the team pack's `board-respond` wrapper | `Build the open`, `code-changes answer?`, `Hand back the verdict table and the respond-plan open's path` |
 | review hand-back | the severity line; absolute paths of `<dir>/review-post.open.json` (its source beside it as `review-post.source.json`) and of the skill's vendored `scripts/gate-ctx.sh`; the MR head sha |
 | receive-review hand-back | the verdict table and the absolute path of `<dir>/respond-plan.open.json` (source beside it); later `<dir>/respond-post.open.json` (source beside it) |
 | Open file shape | `gate-ctx.sh fit` output: `gate_open {handBack: true, outPath}` writes exactly that shape |
