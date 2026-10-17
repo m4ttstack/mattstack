@@ -383,6 +383,24 @@ screen_done() {
     echo "writing-style=$style" >> "$GUEST_RUN/logs/finish-gate.txt"
   fi
 
+  # A joiner's Install leaves each unfound tracked repo waiting on the summary,
+  # finish-gated and not skippable: accept the shown location with its one-click
+  # button, then wait out the clone that rt's follow-up verb starts.
+  local repo_buttons button row
+  repo_buttons=$(ax_dump_ids | grep -E '^setup\.done\.beforeYouFinish\.repos\.place:.*\.oneClick$' || true)
+  for button in $repo_buttons; do
+    row="${button#setup.done.beforeYouFinish.}"; row="${row%.oneClick}"
+    ax_click "$button"
+    local n=600
+    while [ "$n" -gt 0 ] && ax_find "setup.done.beforeYouFinish.$row.status" >/dev/null 2>&1; do
+      ax_find "setup.checklist.row.$row.error" >/dev/null 2>&1 && ax_fail "placing $row failed: $(ax_value "setup.checklist.row.$row.error" || true)"
+      sleep 1; n=$((n-1))
+    done
+    ax_find "setup.done.beforeYouFinish.$row.status" >/dev/null 2>&1 && ax_fail "the $row row is still under Needs you after its one-click button"
+    echo "$row=placed" >> "$GUEST_RUN/logs/finish-gate.txt"
+  done
+  [ -n "$repo_buttons" ] && ax_shot 05-repos-placed
+
   ax_wait_enabled setup.done.continue 30 || ax_fail "Finish did not enable after resolving the Needs you rows"
   ax_find setup.done.refreshError >/dev/null 2>&1 && ax_fail "the summary fell open on a failed re-check: $(ax_value setup.done.refreshError || true)"
   [ -s "$GUEST_RUN/logs/finish-gate.txt" ] || echo open > "$GUEST_RUN/logs/finish-gate.txt"

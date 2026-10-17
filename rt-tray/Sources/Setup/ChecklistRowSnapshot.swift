@@ -6,7 +6,8 @@ import MattstackCore
 /// three sections and the row states the row actions produce (waiting on the
 /// admin dialog, the per-step buttons) and the dev-login Add sheet's states,
 /// light and dark, then exits before any
-/// window, status item, socket or daemon work exists. DEBUG builds only.
+/// window, status item, socket or daemon work exists. Also the "Your repos"
+/// rows: before Install, a refused pick, and the deferred rows after it. DEBUG builds only.
 enum ChecklistRowSnapshot {
     @MainActor
     static func runIfRequested() -> Bool {
@@ -37,7 +38,10 @@ enum ChecklistRowSnapshot {
         for scheme in ["light", "dark"] {
             SnapshotRenderer.render(InstallRows(), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("install-clone-progress-\(scheme).png"))
         }
-        print("wrote \(4 + sheets.count * 2) snapshots to \(out.path)")
+        for scheme in ["light", "dark"] {
+            SnapshotRenderer.render(RepoRows(), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("repo-rows-\(scheme).png"))
+        }
+        print("wrote \(6 + sheets.count * 2) snapshots to \(out.path)")
         return true
         #else
         return false
@@ -140,6 +144,64 @@ enum ChecklistRowSnapshot {
             }
             .formStyle(.grouped)
             .frame(width: SetupWindowController.width, height: 300)
+        }
+    }
+
+    private static func place(_ repo: String, mode: String, checkout: String? = nil, clone: String, note: String,
+                              problem: String? = nil, oneClick: PlaceRepoOneClick? = nil, records: Bool = true) -> RowAction {
+        RowAction(type: .placeRepo, label: mode == "clone" ? "Choose location…" : "Locate…", identity: "gitlab.com/acme/\(repo)",
+                  repo: repo, mode: mode, checkoutPath: checkout, clonePath: clone, note: note, problem: problem,
+                  then: records ? nil : ["setup", "apply", "--only", "repos.clone"], oneClick: oneClick, segmentRecords: records)
+    }
+
+    private static func repoRow(_ repo: String, status: RowStatus, gated: Bool = false, _ action: RowAction) -> PlanRow {
+        PlanRow(id: "repos.place:gitlab.com/acme/\(repo)", kind: .tool, title: repo, why: "gitlab.com/acme", required: false,
+                status: status, detail: action.problem ?? action.note, action: action, recheck: .onChange,
+                finishGated: gated, waivable: gated ? false : nil)
+    }
+
+    private static let found = repoRow("widgets", status: .ready,
+        place("widgets", mode: "checkout", checkout: "~/code/widgets", clone: "~/Documents/GitHub/widgets-2", note: "Found your widgets checkout"))
+    private static let toClone = repoRow("acme-api", status: .ready,
+        place("acme-api", mode: "clone", clone: "~/code/acme-api", note: "rt clones it here when you click Install"))
+    private static let refused = repoRow("dev1", status: .ready,
+        place("dev1", mode: "clone", clone: "~/code/dev1", note: "rt clones it here when you click Install"))
+    private static let deferred = repoRow("acme-api", status: .needsYou, gated: true,
+        place("acme-api", mode: "clone", clone: "~/Documents/GitHub/acme-api", note: "Choose where your repos go",
+              oneClick: PlaceRepoOneClick(label: "Clone here", mode: "clone", path: "~/Documents/GitHub/acme-api"), records: false))
+    private static let failed = repoRow("widgets", status: .needsYou, gated: true,
+        place("widgets", mode: "clone", clone: "~/Documents/GitHub/widgets",
+              note: "The last clone failed: fatal: could not read from remote repository.",
+              oneClick: PlaceRepoOneClick(label: "Retry", mode: "clone", path: "~/Documents/GitHub/widgets"), records: false))
+
+    /// Before Install as the "R · Your repos" board draws it, then a refused Locate…, then the summary's deferred rows.
+    private struct RepoRows: View {
+        var body: some View {
+            let none = RowActivity()
+            return VStack(alignment: .leading, spacing: 20) {
+                ChecklistCard {
+                    ChecklistCardHeader(title: "No action needed · 3")
+                    Divider()
+                    SettledRow(row: found, isChecking: false, error: nil) { _ in }
+                    Divider()
+                    SettledRow(row: toClone, isChecking: false, error: nil) { _ in }
+                    Divider()
+                    RepoPlacementRow(row: refused, action: refused.action!, isChecking: false,
+                                     error: "~/foo isn't a git checkout.", ids: .checklist, shown: "checkout")
+                }
+                ChecklistCard {
+                    ChecklistCardHeader(title: "Needs you", symbol: "exclamationmark.triangle.fill", multicolor: true)
+                    Divider()
+                    SectionRow(row: deferred, badge: .beforeFinish, context: "Your repos", activity: none, ids: .beforeYouFinish,
+                               onSkip: nil) { _ in }
+                    Divider()
+                    SectionRow(row: failed, badge: .beforeFinish, context: "Your repos", activity: none, ids: .beforeYouFinish,
+                               onSkip: nil) { _ in }
+                }
+            }
+            .padding(20)
+            .controlSize(.large)
+            .frame(width: SetupWindowController.width)
         }
     }
 

@@ -48,6 +48,8 @@ enum AXID {
     static func checklistRowStatus(_ id: String) -> String { "setup.checklist.row.\(id).status" }
     static func checklistRowError(_ id: String) -> String { "setup.checklist.row.\(id).error" }
     static func checklistRowWaiting(_ id: String) -> String { "setup.checklist.row.\(id).waiting" }
+    static func checklistRowSegment(_ id: String) -> String { "setup.checklist.row.\(id).segment" }
+    static func checklistRowOneClick(_ id: String) -> String { "setup.checklist.row.\(id).oneClick" }
     static func checklistGroup(_ id: String) -> String { "setup.checklist.group.\(id)" }
     static let checklistSummary = "setup.checklist.summary"
     static let checklistAll = "setup.checklist.all"
@@ -93,6 +95,8 @@ enum AXID {
     static func doneBeforeYouFinishRow(_ id: String) -> String { "setup.done.beforeYouFinish.\(id)" }
     static func doneBeforeYouFinishRowStatus(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).status" }
     static func doneBeforeYouFinishRowAction(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).action" }
+    static func doneBeforeYouFinishRowSegment(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).segment" }
+    static func doneBeforeYouFinishRowOneClick(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).oneClick" }
     static func doneSkipRow(_ id: String) -> String { "setup.done.skip.\(id)" }
     static let doneSkipConfirm = "setup.done.skipConfirm"
     static let doneSkipConfirmSkip = "setup.done.skipConfirm.skip"
