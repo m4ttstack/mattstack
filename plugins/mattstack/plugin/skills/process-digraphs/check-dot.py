@@ -94,9 +94,31 @@ def parse(src):
     return json.loads(run.stdout), None
 
 
+def node_text(obj):
+    label = obj.get("label", "\\N")
+    return obj.get("name", "") if label == "\\N" else label
+
+
+def call_prefix(text):
+    text = re.sub(r"^([A-Za-z_][A-Za-z0-9_]*=\S*\s+)+", "", text)
+    word = re.match(r"[A-Za-z0-9_-]+", text)
+    word = word.group(0) if word else ""
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", word).replace("-", "_").lower()
+
+
+def double_declared(src):
+    seen = {}
+    for m in re.finditer(r"(?m)(?:^|[{;])\s*([a-z][a-z_]*)\s*\[[^\]]*\blabel\s*=", src):
+        seen[m.group(1)] = seen.get(m.group(1), 0) + 1
+    return [n for n, c in seen.items() if c > 1]
+
+
 def check(graph):
     objects = [o for o in graph.get("objects", []) if "nodes" not in o]
-    names = [o.get("name", "") for o in objects]
+    ids = [o.get("name", "") for o in objects]
+    names = [node_text(o) for o in objects]
+    labelled = [o.get("label", "\\N") != "\\N" for o in objects]
+    shown = [f'"{t}"' + (f" [{n}]" if n != t else "") for t, n in zip(names, ids)]
     shape = {i: o.get("shape", "ellipse") for i, o in enumerate(objects)}
     index = {o["_gvid"]: i for i, o in enumerate(objects)}
     out, into = {i: [] for i in index.values()}, {i: 0 for i in index.values()}
@@ -111,45 +133,56 @@ def check(graph):
 
     problems = []
     warnings = []
+    if any(labelled) and not all(labelled):
+        bare = ", ".join(f'"{n}"' for n, l in zip(ids, labelled) if not l)
+        problems.append(f"graph labels some nodes and not others ({bare}); label every node or none")
+    for text in sorted({t for t in names if names.count(t) > 1}):
+        problems.append(f'"{text}": two nodes share the text; give each step distinct text')
     for i, name in enumerate(names):
-        label = objects[i].get("label", "\\N")
-        if label not in ("\\N", name):
-            problems.append(f'"{name}": opaque id with a separate label; make the sentence the node id')
+        if labelled[i]:
+            if not re.fullmatch(r"[a-z]+(_[a-z]+)*", ids[i]):
+                problems.append(f"{shown[i]}: a short id is lowercase words joined by underscores, no digits")
+            if shape[i] == "plaintext":
+                prefix = call_prefix(name)
+                if ids[i] != prefix and not ids[i].startswith(prefix + "_"):
+                    problems.append(f"{shown[i]}: a plaintext short id starts with its call ({prefix})")
+            if shape[i] == "octagon" and not ids[i].startswith("stop_"):
+                problems.append(f"{shown[i]}: a STOP's short id starts with stop_")
         if shape[i] == "diamond":
             if not name.rstrip().endswith("?"):
-                problems.append(f'"{name}": a decision (diamond) is phrased as a question ending in "?"')
+                problems.append(f'{shown[i]}: a decision (diamond) is phrased as a question ending in "?"')
             if len(out[i]) < 2:
-                problems.append(f'"{name}": a decision needs an out-edge for every outcome (found {len(out[i])})')
+                problems.append(f'{shown[i]}: a decision needs an out-edge for every outcome (found {len(out[i])})')
             for h, lab in out[i]:
                 if not lab.strip():
-                    problems.append(f'"{name}" -> "{names[h]}": decision edge has no label')
+                    problems.append(f'{shown[i]} -> {shown[h]}: decision edge has no label')
         if shape[i] == "octagon" and not name.startswith("STOP"):
-            problems.append(f'"{name}": an octagon is a STOP; start its text with "STOP:"')
+            problems.append(f'{shown[i]}: an octagon is a STOP; start its text with "STOP:"')
         if shape[i] == "plaintext" and "\n" in name:
             problems.append(f'"{name[:40]}...": a plaintext node is one short command or tool call, not a code block')
         if shape[i] == "plaintext" and two_calls(name):
-            warnings.append(f'"{name}": two calls in one plaintext node; give each call its own node behind a decision (for example "Forge?")')
+            warnings.append(f'{shown[i]}: two calls in one plaintext node; give each call its own node behind a decision (for example "Forge?")')
         for h, lab in out[i]:
             if not TEMPTED.match(lab):
                 continue
             if shape[h] != "octagon":
-                problems.append(f'"{name}" -> "{names[h]}": a tempted edge leads into a STOP, never a step; the sanctioned move takes its own edge')
+                problems.append(f'{shown[i]} -> {shown[h]}: a tempted edge leads into a STOP, never a step; the sanctioned move takes its own edge')
             if shape[i] != "diamond":
-                warnings.append(f'"{name}" -> "{names[h]}": a tempted edge leaves a step, not a decision; draw the decision the temptation branches from')
+                warnings.append(f'{shown[i]} -> {shown[h]}: a tempted edge leaves a step, not a decision; draw the decision the temptation branches from')
         if not out[i] and shape[i] not in TERMINALS:
-            problems.append(f'"{name}": dead end; only a doublecircle outcome or a STOP octagon may have no way out')
+            problems.append(f'{shown[i]}: dead end; only a doublecircle outcome or a STOP octagon may have no way out')
         if out[i] and shape[i] == "doublecircle":
-            problems.append(f'"{name}": an outcome ends the path; it has {len(out[i])} outgoing edge(s)')
+            problems.append(f'{shown[i]}: an outcome ends the path; it has {len(out[i])} outgoing edge(s)')
         unlabelled = [h for h, lab in out[i] if not lab.strip()]
         if shape[i] not in ("diamond", "octagon") and len(unlabelled) > 1:
-            problems.append(f'"{name}": {len(unlabelled)} unlabelled out-edges; two steps share this text and dot merged them, or a decision is hidden in a step')
+            problems.append(f'{shown[i]}: {len(unlabelled)} unlabelled out-edges; two steps share this text and dot merged them, or a decision is hidden in a step')
         if shape[i] == "octagon" and len(out[i]) > 1:
-            problems.append(f'"{name}": a STOP has at most one way out (found {len(out[i])}); a choice after it is a gate step')
+            problems.append(f'{shown[i]}: a STOP has at most one way out (found {len(out[i])}); a choice after it is a gate step')
         if shape[i] == "octagon" and len(out[i]) == 1:
             h = out[i][0][0]
             guard = bool(into_labels[i]) and all(lab.strip().lower().startswith("tempted") for lab in into_labels[i])
             if not (guard or shape[h] == "doublecircle" or "off-script" in names[h].lower()):
-                problems.append(f'"{name}" -> "{names[h]}": only a guard STOP (every edge in is labelled "tempted to ...") redirects to a step; any other STOP ends, or exits to an outcome or the off-script gate')
+                problems.append(f'{shown[i]} -> {shown[h]}: only a guard STOP (every edge in is labelled "tempted to ...") redirects to a step; any other STOP ends, or exits to an outcome or the off-script gate')
 
     success = [i for i, o in enumerate(objects) if shape[i] == "doublecircle" and o.get("style", "") == "filled"]
     if not success:
@@ -165,14 +198,14 @@ def check(graph):
             if h not in seen:
                 seen.add(h)
                 stack.append(h)
-    for i, name in enumerate(names):
+    for i in range(len(names)):
         if i not in seen:
-            problems.append(f'"{name}": unreachable from any entry')
+            problems.append(f'{shown[i]}: unreachable from any entry')
 
     for comp in cycles(out):
         exits = any(shape[n] == "diamond" and any(h not in comp for h, _ in out[n]) for n in comp)
         if not exits:
-            loop = ", ".join(f'"{names[n]}"' for n in sorted(comp))
+            loop = ", ".join(shown[n] for n in sorted(comp))
             problems.append(f"unbounded loop: no decision edge leaves it: {loop}")
     return problems, warnings
 
@@ -233,6 +266,7 @@ def main(argv):
                 failed = True
                 continue
             problems, warnings = check(graph)
+            problems += [f'"{n}": declared with a label twice; dot keeps one label and merges the steps' for n in double_declared(src)]
             for p in problems:
                 print(f"{path}:{line}: {p}")
                 failed = True
