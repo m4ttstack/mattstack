@@ -1,7 +1,8 @@
 import '../../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { statusOf } from '../FocusHeader';
@@ -19,6 +20,12 @@ import { designFixture } from './designFixtures';
 const FIXTURES = {
   work: { anatomy: 'anatomy.work', step: null, focus: 'pipeline:feature' },
   'stage-plan': { anatomy: 'anatomy.stage-plan', step: 2, focus: 'stage-plan' },
+  'work-a11y': {
+    anatomy: 'anatomy.work-a11y',
+    step: null,
+    focus: 'pipeline:accessibility',
+    workType: 'accessibility',
+  },
 } as const;
 
 function renderCanvas(skill: keyof typeof FIXTURES, select?: string) {
@@ -33,7 +40,7 @@ function renderCanvas(skill: keyof typeof FIXTURES, select?: string) {
     check: designFixture('check'),
     changes: designFixture('changes.clean'),
     step: fixture.step,
-    workType: 'feature',
+    workType: 'workType' in fixture ? fixture.workType : 'feature',
   });
   const onSelect = vi.fn();
   renderWithProviders(
@@ -255,6 +262,28 @@ describe('TemplateCanvas: a pipeline that links its steps', () => {
 
     expect(new URLSearchParams(window.location.search).get('focus')).toBe(
       'stage-plan'
+    );
+  });
+
+  it("labels a stage copy's card by stage and pipeline, its file in a tooltip", async () => {
+    renderCanvas('work-a11y');
+
+    const titles = screen
+      .getAllByTestId('link-card')
+      .map(card => within(card).getByTestId('card-title'));
+    expect(titles.map(title => title.textContent)).toContain(
+      'stage-evidence · accessibility'
+    );
+    const copy = titles.find(
+      title => title.textContent === 'stage-evidence · accessibility'
+    )!;
+    // React Flow turns pointer events off on a node it cannot select, and the
+    // node's CSS module that turns them back on is not loaded here.
+    await userEvent.setup({ pointerEventsCheck: 0 }).hover(copy);
+    await waitFor(() =>
+      expect(copy).toHaveAccessibleDescription(
+        'stage-evidence--accessibility/SKILL.md'
+      )
     );
   });
 

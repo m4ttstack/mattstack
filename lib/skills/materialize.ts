@@ -87,8 +87,8 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
     if (override) layers.push(override);
 
     const merged = mergeLayers(layers);
-    for (const { key, layer } of merged.dropped) {
-      const title = `${key} from ${layer} is ignored: the pipeline no longer lists that stage`;
+    for (const { key, layer, reason } of merged.dropped) {
+      const title = `${key} from ${layer} is ignored: the pipeline ${reason === "removed" ? "no longer lists" : "does not list"} that stage`;
       warn("skills", title, { context: { pack, key, layer }, show: { title } });
     }
     const base = layers.find((l) => l.label.startsWith("base:"));

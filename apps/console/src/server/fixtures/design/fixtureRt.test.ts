@@ -282,6 +282,7 @@ describe('the state scenarios', () => {
           'never-compiled',
           'org-base',
           'org-base-drift',
+          'stale-copy',
         ].includes(scenario)
       ) {
         const report = await runRt(pack('check'));
@@ -473,6 +474,48 @@ describe('the org base scenarios', () => {
       ]);
       expect(result.code).toBe(1);
     }
+  });
+});
+
+describe('the pipeline scenarios', () => {
+  const json = async <T>(scenario: FixtureScenario, argv: string[]) =>
+    JSON.parse((await fixtureRt(scenario).runRt(argv)).stdout) as T;
+
+  it('pipeline-base-override: the accessibility evidence override comes from acme-base', async () => {
+    const c = await json<{
+      extends?: unknown;
+      binders: { ref: string; slots: Record<string, unknown>[] }[];
+    }>('pipeline-base-override', pack('composition'));
+    expect(c.extends).toEqual({ name: 'acme-base', version: '0.1.0' });
+    const slot = c.binders
+      .find(b => b.ref === 'mattstack:stage-evidence')!
+      .slots.find(s => s.name === 'domain')!;
+    expect(slot).toMatchObject({
+      boundTo: 'acme:evidence-policy',
+      layer: 'pack',
+    });
+    expect(slot.overrides).toEqual([
+      {
+        pipeline: 'accessibility',
+        boundTo: 'acme:evidence-a11y',
+        layer: 'base:acme-base',
+      },
+    ]);
+    expect(await json('pipeline-base-override', pack('check'))).toEqual(check);
+  });
+
+  it('stale-copy: check reports a stale stage copy and a dropped override', async () => {
+    const report = await json<typeof check>('stale-copy', pack('check'));
+    expect(report).toEqual({
+      ...check,
+      staleCopies: ['stage-evidence--accessibility'],
+      droppedOverrides: [
+        {
+          key: 'feature/mattstack:stage-gates domain',
+          layer: 'base:acme-base',
+        },
+      ],
+    });
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultPipeline, effectiveSlotBindings, fillsDiffer, normalizePipelines, PIPELINE_NAME_RE, pipelineBindingKey, stageCopyName } from "../pipelines.ts";
+import { defaultPipeline, effectiveSlotBindings, fillsDiffer, normalizePipelines, PIPELINE_NAME_RE, pipelineBindingKey, pipelineNameError, stageCopyName } from "../pipelines.ts";
 
 describe("normalizePipelines", () => {
   test("a plain list gives stages and no bindings", () => {
@@ -48,6 +48,11 @@ describe("naming helpers", () => {
     expect(PIPELINE_NAME_RE.test("a11y-2")).toBe(true);
     expect(PIPELINE_NAME_RE.test("Access_ibility")).toBe(false);
     expect(PIPELINE_NAME_RE.test("1a")).toBe(false);
+  });
+  test("pipelineNameError", () => {
+    expect(pipelineNameError("a11y-2")).toBeNull();
+    expect(pipelineNameError("Access_ibility")).toBe('pipeline "Access_ibility" must match [a-z][a-z0-9-]*');
+    expect(pipelineNameError("a--b")).toBe('pipeline "a--b" must not contain "--"');
   });
 });
 

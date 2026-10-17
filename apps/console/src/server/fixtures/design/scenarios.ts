@@ -18,6 +18,8 @@
  * | `changes-failed`   | the pending-changes poll fails                        |
  * | `org-base`         | the pack extends `acme-base`, which fills plan's domain |
  * | `org-base-drift`   | `org-base`, with a stale base copy and a base error   |
+ * | `pipeline-base-override` | `acme-base` sets the accessibility evidence override |
+ * | `stale-copy`       | check reports a stale stage copy and a dropped override |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -41,6 +43,8 @@ export const SCENARIOS = [
   'changes-failed',
   'org-base',
   'org-base-drift',
+  'pipeline-base-override',
+  'stale-copy',
   'runs',
   'runs-empty',
   'runs-outage',
@@ -77,7 +81,12 @@ interface Composition {
   targets: { name: string; slots: { name: string; required: boolean }[] }[];
   binders: {
     ref: string;
-    slots: { name: string; boundTo: string; layer?: string | null }[];
+    slots: {
+      name: string;
+      boundTo: string;
+      layer?: string | null;
+      overrides?: { pipeline: string; boundTo: string; layer: string }[];
+    }[];
   }[];
 }
 
@@ -85,6 +94,8 @@ interface Check {
   verbs: { name: string; status: string }[];
   attachments?: unknown[];
   baseErrors?: string[];
+  staleCopies?: string[];
+  droppedOverrides?: { key: string; layer: string }[];
 }
 
 interface Surface {
@@ -392,6 +403,32 @@ const orgBase = {
   },
 } satisfies Partial<ScenarioDef>;
 
+const EVIDENCE_BINDER = 'mattstack:stage-evidence';
+
+/** The accessibility evidence override comes from `acme-base`, which this
+    pack cannot remove. */
+function baseOverridesEvidence(composition: Composition): Composition {
+  return {
+    ...composition,
+    extends: { name: BASE, version: '0.1.0' },
+    binders: composition.binders.map(binder =>
+      binder.ref === EVIDENCE_BINDER
+        ? {
+            ...binder,
+            slots: binder.slots.map(slot => ({
+              ...slot,
+              overrides: slot.overrides?.map(override =>
+                override.pipeline === 'accessibility'
+                  ? { ...override, layer: `base:${BASE}` }
+                  : override
+              ),
+            })),
+          }
+        : binder
+    ),
+  };
+}
+
 const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
   runs: { subject: 'stage-plan' },
@@ -476,6 +513,20 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
       ...check,
       attachments: [attachmentRow('stale')],
       baseErrors: [`${BASE} has no attachments/feature-flags`],
+    }),
+  },
+  'pipeline-base-override': {
+    subject: 'stage-evidence--accessibility',
+    composition: baseOverridesEvidence,
+  },
+  'stale-copy': {
+    subject: 'stage-plan',
+    check: check => ({
+      ...check,
+      staleCopies: ['stage-evidence--accessibility'],
+      droppedOverrides: [
+        { key: 'feature/mattstack:stage-gates domain', layer: `base:${BASE}` },
+      ],
     }),
   },
 };

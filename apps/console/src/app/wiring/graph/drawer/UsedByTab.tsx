@@ -4,7 +4,7 @@ import { Icon } from '@mattstack/app-kit/icons';
 
 import type { SkillsComposition } from '../../outline';
 import type { DrawerUsedBy } from '../model/drawerContent';
-import type { FocusGroups } from '../model/focusModel';
+import type { FocusGroups, FocusItem } from '../model/focusModel';
 import classes from './drawer.module.css';
 import { TabHeading } from './TabHeading';
 import { USED_BY_GROUPS, usedBySites, type UsedBySite } from './usedBy';
@@ -109,6 +109,7 @@ export function UsedByTab({
   usedBy,
   composition,
   groups,
+  pipeline,
   onFocus,
 }: {
   /** The skill the drawer was opened from. */
@@ -118,11 +119,13 @@ export function UsedByTab({
   usedBy: DrawerUsedBy;
   composition: SkillsComposition;
   groups: FocusGroups;
+  /** The pipeline the canvas shows; a step it runs opens as its step. */
+  pipeline: FocusItem | null;
   onFocus: (focus: string) => void;
 }) {
   const sites = useMemo(
-    () => usedBySites(composition, groups, usedBy),
-    [composition, groups, usedBy]
+    () => usedBySites(composition, groups, usedBy, pipeline),
+    [composition, groups, usedBy, pipeline]
   );
   const grouped = USED_BY_GROUPS.map(
     group => [group, sites.filter(site => site.group === group)] as const

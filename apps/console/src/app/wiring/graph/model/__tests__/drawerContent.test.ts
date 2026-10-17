@@ -400,6 +400,43 @@ describe('placeholder rows that are not files', () => {
       sentence: 'This line points the agent at stage-plan/SKILL.md.',
     });
   });
+
+  it("names a stage copy's file, not its card label", () => {
+    const anatomy = designFixture('anatomy.work-a11y');
+    const view = buildTemplateView({
+      anatomy,
+      composition,
+      check,
+      changes: undefined,
+      step: null,
+      workType: 'accessibility',
+    });
+    expect(
+      drawerContent(parseTarget('row:32')!, view, anatomy, null)
+    ).toMatchObject({
+      sentence:
+        'This line points the agent at stage-evidence--accessibility/SKILL.md.',
+    });
+  });
+});
+
+describe("a stage copy's output", () => {
+  it('heads the drawer with its full file name', () => {
+    const anatomy = designFixture('anatomy.stage-evidence--accessibility');
+    const view = buildTemplateView({
+      anatomy,
+      composition,
+      check,
+      changes: undefined,
+      step: 4,
+      workType: 'accessibility',
+    });
+    expect(
+      drawerContent({ kind: 'output', part: null }, view, anatomy, null)
+    ).toMatchObject({
+      fileLabel: 'stage-evidence--accessibility/SKILL.md',
+    });
+  });
 });
 
 describe('an input card (drawer-input-card)', () => {

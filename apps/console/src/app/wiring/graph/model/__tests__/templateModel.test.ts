@@ -922,6 +922,46 @@ describe('a specialized pipeline', () => {
     });
   });
 
+  it("titles a stage copy's link card by its stage and pipeline, keeping its file", () => {
+    const view = buildTemplateView({
+      anatomy: anatomyA11y,
+      composition,
+      check,
+      changes: undefined,
+      step: null,
+      workType: 'accessibility',
+    });
+    expect(view.links[3]).toMatchObject({
+      title: 'stage-evidence · accessibility',
+      file: 'stage-evidence--accessibility/SKILL.md',
+    });
+    expect(view.links[2]).toMatchObject({
+      title: 'stage-gates/SKILL.md',
+      file: 'stage-gates/SKILL.md',
+    });
+  });
+
+  it("titles a stage copy's rendered card by its stage and pipeline", () => {
+    const copy = buildTemplateView({
+      anatomy: anatomyCopy,
+      composition,
+      check,
+      changes: undefined,
+      step: 4,
+      workType: 'accessibility',
+    });
+    const stage = buildTemplateView({
+      anatomy: anatomyEvidence,
+      composition,
+      check,
+      changes: undefined,
+      step: 4,
+      workType: 'feature',
+    });
+    expect(copy.output?.title).toBe('evidence · accessibility');
+    expect(stage.output?.title).toBe('evidence');
+  });
+
   it('fills the copy from the override and the default stage from the default', () => {
     const copyView = buildTemplateView({
       anatomy: anatomyCopy,
@@ -965,6 +1005,65 @@ describe('a specialized pipeline', () => {
     expect(domainRow(view(anatomyCopy, overrideChange())).state).not.toBe(
       'unsynced'
     );
+  });
+
+  describe('marks a pending change by the canvas pipeline', () => {
+    const shown = (
+      anatomy: SkillsAnatomy,
+      workType: string,
+      changes: SkillsChanges
+    ) =>
+      domainRow(
+        buildTemplateView({
+          anatomy,
+          composition,
+          check,
+          changes,
+          step: null,
+          workType,
+        })
+      ).state;
+    const planChange = (pipeline?: string): SkillsChanges => ({
+      ...changesClean,
+      dirty: true,
+      bindings: [
+        {
+          engineRef: 'mattstack:stage-plan',
+          slot: 'domain',
+          from: 'acme:plan-policy',
+          to: 'acme:plan-policy-strict',
+          ...(pipeline ? { pipeline } : {}),
+        },
+      ],
+    });
+
+    it('default change stays unsynced on the default canvas', () => {
+      expect(shown(anatomyEvidence, 'feature', overrideChange())).toBe(
+        'unsynced'
+      );
+      expect(shown(anatomyPlan, 'feature', planChange())).toBe('unsynced');
+    });
+
+    it("marks the pipeline's own change on a step it shows without a copy", () => {
+      expect(
+        shown(anatomyPlan, 'accessibility', planChange('accessibility'))
+      ).toBe('unsynced');
+      expect(
+        shown(anatomyPlan, 'feature', planChange('accessibility'))
+      ).not.toBe('unsynced');
+    });
+
+    it('marks a default change on a slot the pipeline does not override', () => {
+      expect(shown(anatomyPlan, 'accessibility', planChange())).toBe(
+        'unsynced'
+      );
+    });
+
+    it('leaves a default change unmarked on a slot the pipeline overrides', () => {
+      expect(shown(anatomyCopy, 'accessibility', overrideChange())).not.toBe(
+        'unsynced'
+      );
+    });
   });
 });
 

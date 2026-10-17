@@ -190,6 +190,15 @@ interface SkillsCheckResponse {
   /** Optional because an rt older than the field answers without it. */
   attachments?: SkillsCheckAttachmentRow[];
   baseErrors?: string[];
+  /** Compiled stage copies no pipeline needs any more. rt sends it only when non-empty. */
+  staleCopies?: string[];
+  /** Pipeline overrides materialize ignored because a later layer's stage list dropped their stage. rt sends it only when non-empty. */
+  droppedOverrides?: SkillsCheckDroppedOverride[];
+}
+interface SkillsCheckDroppedOverride {
+  /** `<pipeline>/<engine ref> <slot>`, as materialize writes it. */
+  key: string;
+  layer: string;
 }
 
 /** `rt skills sync --pack <x> --json`, passed through verbatim. Exit 1 with

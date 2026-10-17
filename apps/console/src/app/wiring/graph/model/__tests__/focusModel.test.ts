@@ -7,6 +7,7 @@ import {
   buildFocusGroups,
   findFocus,
   firstFocus,
+  focusUnder,
   onlyAttention,
   pipelineOf,
   workTypeOf,
@@ -304,6 +305,27 @@ describe('a specialized pipeline', () => {
     );
     expect(elsewhere).not.toContain('work');
     expect(elsewhere).not.toContain('work-a11y');
+  });
+});
+
+describe('focusUnder', () => {
+  const groups = buildFocusGroups(composition, check);
+  const pipeline = (workType: string) =>
+    groups.pipelines.find(item => item.key === `pipeline:${workType}`)!;
+
+  it("opens a step under the canvas's pipeline when that pipeline lists it", () => {
+    expect(focusUnder(pipeline('accessibility'), 'stage-plan')).toBe(
+      'stage-plan@accessibility'
+    );
+    expect(
+      focusUnder(pipeline('accessibility'), 'stage-evidence--accessibility')
+    ).toBe('stage-evidence@accessibility');
+  });
+
+  it("opens the first pipeline's step on its own canvas and off any pipeline", () => {
+    expect(focusUnder(pipeline('feature'), 'stage-plan')).toBe('stage-plan');
+    expect(focusUnder(null, 'stage-plan')).toBe('stage-plan');
+    expect(focusUnder(pipeline('accessibility'), 'review')).toBe('review');
   });
 });
 

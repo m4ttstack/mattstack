@@ -367,7 +367,7 @@ function rowSentence(
         : 'A variable rt fills in for each run.';
     default: {
       const link = view.links.find(l => l.rowId === row.id);
-      return `This line points the agent at ${link?.title ?? `${part.name}/SKILL.md`}.`;
+      return `This line points the agent at ${link?.file ?? `${part.name}/SKILL.md`}.`;
     }
   }
 }

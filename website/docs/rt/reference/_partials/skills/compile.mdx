@@ -22,3 +22,5 @@ Compile builds each work verb's stage table from its own pipeline, and the verb 
 A stage compiles once, with the default fills. Where a pipeline's overrides give a stage different fills, compile also writes a copy named `<stage>--<pipeline>` (`attachments/stage-evidence--accessibility/`), and that pipeline's work verb points at the copy. Two pipelines never share a copy.
 
 Copies are compiled output: never edit one. Change it through its fill or `rt skills bind --pipeline`. When a pipeline's fills match the default again, compile removes the copy.
+
+After a write that removed stage copies, `compile --json` carries `removedCopies`, the removed copy names. The key is absent when nothing was removed, and on `--dry-run` or a failed compile.

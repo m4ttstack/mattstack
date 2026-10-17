@@ -606,6 +606,7 @@ export function dayTimeline({
   key,
   now,
   repoName = null,
+  pipeline = null,
   overnight = false,
 }: {
   runs: RunSummary[];
@@ -615,6 +616,8 @@ export function dayTimeline({
   now: number;
   /** The repo the page is filtered to, named first in the sub line. */
   repoName?: string | null;
+  /** The pipeline the page is filtered to, named after the repo. */
+  pipeline?: string | null;
   /** Show the whole day, not just the working day. */
   overnight?: boolean;
 }): DayTimeline {
@@ -655,6 +658,7 @@ export function dayTimeline({
   const live = rows.filter(r => isLive(r.run) && !r.sub.waiting).length;
   const sub = [
     ...(repoName ? [repoName] : []),
+    ...(pipeline ? [`${pipeline} pipeline`] : []),
     dateLabel(key),
     ...(isToday ? [`${live} live`, `${waiting} waiting on you`] : []),
     `${finished} finished`,
