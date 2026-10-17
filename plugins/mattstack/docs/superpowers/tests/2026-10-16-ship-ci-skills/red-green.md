@@ -295,192 +295,273 @@ The 10 stage reps were re-run with the full scenario data (the first round is in
 
 | scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| T1 | 1 | | | | | | | | | |
-| T1 | 2 | | | | | | | | | |
-| T1 | 3 | | | | | | | | | |
-| T1 | 4 | | | | | | | | | |
-| T1 | 5 | | | | | | | | | |
-| T2 | 1 | | | | | | | | | |
-| T2 | 2 | | | | | | | | | |
-| T2 | 3 | | | | | | | | | |
-| T2 | 4 | | | | | | | | | |
-| T2 | 5 | | | | | | | | | |
-| T3 | 1 | | | | | | | | | |
-| T3 | 2 | | | | | | | | | |
-| T3 | 3 | | | | | | | | | |
-| T3 | 4 | | | | | | | | | |
-| T3 | 5 | | | | | | | | | |
-| T3b | 1 | | | | | | | | | |
-| T3b | 2 | | | | | | | | | |
-| T3b | 3 | | | | | | | | | |
-| T3b | 4 | | | | | | | | | |
-| T3b | 5 | | | | | | | | | |
-| T4 | 1 | | | | | | | | | |
-| T4 | 2 | | | | | | | | | |
-| T4 | 3 | | | | | | | | | |
-| T4 | 4 | | | | | | | | | |
-| T4 | 5 | | | | | | | | | |
-| T5 | 1 | | | | | | | | | |
-| T5 | 2 | | | | | | | | | |
-| T5 | 3 | | | | | | | | | |
-| T5 | 4 | | | | | | | | | |
-| T5 | 5 | | | | | | | | | |
-| T6 | 1 | | | | | | | | | |
-| T6 | 2 | | | | | | | | | |
-| T6 | 3 | | | | | | | | | |
-| T6 | 4 | | | | | | | | | |
-| T6 | 5 | | | | | | | | | |
-| T7 | 1 | | | | | | | | | |
-| T7 | 2 | | | | | | | | | |
-| T7 | 3 | | | | | | | | | |
-| T7 | 4 | | | | | | | | | |
-| T7 | 5 | | | | | | | | | |
-| T8 | 1 | | | | | | | | | |
-| T8 | 2 | | | | | | | | | |
-| T8 | 3 | | | | | | | | | |
-| T8 | 4 | | | | | | | | | |
-| T8 | 5 | | | | | | | | | |
-| T9 | 1 | | | | | | | | | |
-| T9 | 2 | | | | | | | | | |
-| T9 | 3 | | | | | | | | | |
-| T9 | 4 | | | | | | | | | |
-| T9 | 5 | | | | | | | | | |
-| T10 | 1 | | | | | | | | | |
-| T10 | 2 | | | | | | | | | |
-| T10 | 3 | | | | | | | | | |
-| T10 | 4 | | | | | | | | | |
-| T10 | 5 | | | | | | | | | |
-| S6 | 1 | | | | | | | | | |
-| S6 | 2 | | | | | | | | | |
-| S6 | 3 | | | | | | | | | |
-| S6 | 4 | | | | | | | | | |
-| S6 | 5 | | | | | | | | | |
+| T1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result, as the skill says); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result, as the skill says); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result, as the skill says); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result, as the skill says); mr_view, mark-ready, mr_ready; release; run_close done |
+| T1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; ci_watch twice (4410 from the result, as the skill says); mr_view, mark-ready, mr_ready; release; run_close done |
+| T2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down from ci_watch; STOP; no release, no run_close |
+| T3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; release; run_close done |
+| T3b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T3b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage 502 quoted; classified from failedJobs; no ci-triage.sh |
+| T4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci gate Fix; run_budget fix-rounds; git_push refused; off-script gate, Hand back; release; run_close failed |
+| T5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_push lease_held; STOP, stand-down; no release, no unguarded push |
+| T6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | waiting, then no_pipeline; ci gate quotes remoteSha; Hand back; release; run_close done |
+| T7 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T7 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED named at the ci gate; no retry |
+| T8 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T8 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | claim, github-polls budget, heartbeat, background sleep, sha guard, infra budget, re-claim, rerun (all drawn) |
+| T9 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T9 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | read ci-config.json; ci_triage with config; no script, no <forge> calls |
+| T10 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; recorded mr used as named, no mr_for_branch |
+| T10 | 2 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; then mr_for_branch re-run although the run's mr field holds the MR (identity re-set too) |
+| T10 | 3 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; then mr_for_branch re-run although the run's mr field holds the MR (identity re-set too) |
+| T10 | 4 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; then mr_for_branch re-run although the run's mr field holds the MR (identity re-set too) |
+| T10 | 5 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | resume via run_enter; run_snapshot; then mr_for_branch re-run although the run's mr field holds the MR (identity re-set too) |
+| S6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
+| S6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | inherited; stood_down; handed back; no release, no run_close |
 
 ### stage-watch-ci
 
 | scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| T1 | 1 | | | | | | | | | |
-| T1 | 2 | | | | | | | | | |
-| T1 | 3 | | | | | | | | | |
-| T1 | 4 | | | | | | | | | |
-| T1 | 5 | | | | | | | | | |
-| T2 | 1 | | | | | | | | | |
-| T2 | 2 | | | | | | | | | |
-| T2 | 3 | | | | | | | | | |
-| T2 | 4 | | | | | | | | | |
-| T2 | 5 | | | | | | | | | |
-| T3 | 1 | | | | | | | | | |
-| T3 | 2 | | | | | | | | | |
-| T3 | 3 | | | | | | | | | |
-| T3 | 4 | | | | | | | | | |
-| T3 | 5 | | | | | | | | | |
-| T3b | 1 | | | | | | | | | |
-| T3b | 2 | | | | | | | | | |
-| T3b | 3 | | | | | | | | | |
-| T3b | 4 | | | | | | | | | |
-| T3b | 5 | | | | | | | | | |
-| T6 | 1 | | | | | | | | | |
-| T6 | 2 | | | | | | | | | |
-| T6 | 3 | | | | | | | | | |
-| T6 | 4 | | | | | | | | | |
-| T6 | 5 | | | | | | | | | |
-| T7 | 1 | | | | | | | | | |
-| T7 | 2 | | | | | | | | | |
-| T7 | 3 | | | | | | | | | |
-| T7 | 4 | | | | | | | | | |
-| T7 | 5 | | | | | | | | | |
-| T9 | 1 | | | | | | | | | |
-| T9 | 2 | | | | | | | | | |
-| T9 | 3 | | | | | | | | | |
-| T9 | 4 | | | | | | | | | |
-| T9 | 5 | | | | | | | | | |
-| P1 | 1 | | | | | | | | | |
-| P1 | 2 | | | | | | | | | |
-| P1 | 3 | | | | | | | | | |
-| P1 | 4 | | | | | | | | | |
-| P1 | 5 | | | | | | | | | |
+| T1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read; rev-parse HEAD (drawn); prior 4410; mark-ready; ci green; release |
+| T1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read; rev-parse HEAD (drawn); prior 4410; mark-ready; ci green; release |
+| T1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read; rev-parse HEAD (drawn); prior 4410; mark-ready; ci green; release |
+| T1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read; rev-parse HEAD (drawn); prior 4410; mark-ready; ci green; release |
+| T1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed read; rev-parse HEAD (drawn); prior 4410; mark-ready; ci green; release |
+| T2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; no ci write, no release |
+| T2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; no ci write, no release |
+| T2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; no ci write, no release |
+| T2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; no ci write, no release |
+| T2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down; no ci write, no release |
+| T3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage; run_budget infra-retries:<sha12>; mr_retry leaseMrUrl; ci green; release |
+| T3b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 502 quoted; classified from failedJobs; no script |
+| T3b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 502 quoted; classified from failedJobs; no script; mr_job_trace read (allowed) |
+| T3b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 502 quoted; classified from failedJobs; no script |
+| T3b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 502 quoted; classified from failedJobs; no script; mr_job_trace read (allowed) |
+| T3b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 502 quoted; classified from failedJobs; no script |
+| T6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unset, so HEAD and no prior id; ci gate; ci red; release |
+| T6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unset, so HEAD and no prior id; ci gate; ci red; release |
+| T6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unset, so HEAD and no prior id; ci gate; ci red; release |
+| T6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unset, so HEAD and no prior id; ci gate; ci red; release |
+| T6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed unset, so HEAD and no prior id; ci gate; ci red; release |
+| T7 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED at the ci gate; ci red; release |
+| T7 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED at the ci gate; ci red; release |
+| T7 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED at the ci gate; ci red; release |
+| T7 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED at the ci gate; ci red; release |
+| T7 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | INHERITED at the ci gate; ci red; release |
+| T9 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage with config; no script |
+| T9 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage with config; no script |
+| T9 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage with config; no script |
+| T9 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage with config; no script |
+| T9 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | ci_triage with config; no script |
+| P1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} matched HEAD; no mr_pipeline |
+| P1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} matched HEAD; no mr_pipeline |
+| P1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} matched HEAD; no mr_pipeline |
+| P1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} matched HEAD; no mr_pipeline |
+| P1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} matched HEAD; no mr_pipeline |
 
 ### ship
 
 | scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| S1 | 1 | | | | | | | | | |
-| S1 | 2 | | | | | | | | | |
-| S1 | 3 | | | | | | | | | |
-| S1 | 4 | | | | | | | | | |
-| S1 | 5 | | | | | | | | | |
-| S2 | 1 | | | | | | | | | |
-| S2 | 2 | | | | | | | | | |
-| S2 | 3 | | | | | | | | | |
-| S2 | 4 | | | | | | | | | |
-| S2 | 5 | | | | | | | | | |
-| S3 | 1 | | | | | | | | | |
-| S3 | 2 | | | | | | | | | |
-| S3 | 3 | | | | | | | | | |
-| S3 | 4 | | | | | | | | | |
-| S3 | 5 | | | | | | | | | |
-| S4 | 1 | | | | | | | | | |
-| S4 | 2 | | | | | | | | | |
-| S4 | 3 | | | | | | | | | |
-| S4 | 4 | | | | | | | | | |
-| S4 | 5 | | | | | | | | | |
-| S5 | 1 | | | | | | | | | |
-| S5 | 2 | | | | | | | | | |
-| S5 | 3 | | | | | | | | | |
-| S5 | 4 | | | | | | | | | |
-| S5 | 5 | | | | | | | | | |
-| S5b | 1 | | | | | | | | | |
-| S5b | 2 | | | | | | | | | |
-| S5b | 3 | | | | | | | | | |
-| S5b | 4 | | | | | | | | | |
-| S5b | 5 | | | | | | | | | |
-| S6 | 1 | | | | | | | | | |
-| S6 | 2 | | | | | | | | | |
-| S6 | 3 | | | | | | | | | |
-| S6 | 4 | | | | | | | | | |
-| S6 | 5 | | | | | | | | | |
-| T10 | 1 | | | | | | | | | |
-| T10 | 2 | | | | | | | | | |
-| T10 | 3 | | | | | | | | | |
-| T10 | 4 | | | | | | | | | |
-| T10 | 5 | | | | | | | | | |
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | run_enter; git_push; mr_create ifExists (created); no mr_for_branch; run_close done |
+| S2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | mr_create existing: true, left as found; no mr_for_branch, no mr_pipeline |
+| S3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked (rev-parse vs ls-remote, drawn); mr_create; run_close done |
+| S4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force decided from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410 |
+| S4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force decided from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410 |
+| S4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force decided from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410; also git rev-parse HEAD in the force check (no result carried HEAD yet, not counted) |
+| S4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force decided from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410 |
+| S4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | git_rebase; force decided from the scripted log/merge-base reads; forceWithLease first; watch-ci handed A + 4410 |
+| S5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready |
+| S5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready |
+| S5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready; also git rev-parse HEAD in the force check (no result carried HEAD yet, not counted) |
+| S5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready |
+| S5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | plain push; watch-ci handed B + 4415 from the push result; mr_ready |
+| S5b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S5b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S5b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S5b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S5b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no prior id handed; ci_watch {sha: A} green on 4410 |
+| S6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| S6 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| S6 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| S6 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| S6 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | stood_down in the inherited watch; no release; ship closes done naming the doctor |
+| T10 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
+| T10 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
+| T10 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
+| T10 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
+| T10 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | candidates gate; run_enter resume; run_snapshot; branch_stack + shipTarget match; earlier Proceed kept |
 
 ### stage-ship
 
 | scenario | run | shell calls a tool covers | hand-held lease calls | counters in context | re-derived values | skipped steps | runaway loops | refusal missed its gate or stand-down | release on a stand-down | notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| S1 | 1 | | | | | | | | | |
-| S1 | 2 | | | | | | | | | |
-| S1 | 3 | | | | | | | | | |
-| S1 | 4 | | | | | | | | | |
-| S1 | 5 | | | | | | | | | |
-| S2 | 1 | | | | | | | | | |
-| S2 | 2 | | | | | | | | | |
-| S2 | 3 | | | | | | | | | |
-| S2 | 4 | | | | | | | | | |
-| S2 | 5 | | | | | | | | | |
-| S3 | 1 | | | | | | | | | |
-| S3 | 2 | | | | | | | | | |
-| S3 | 3 | | | | | | | | | |
-| S3 | 4 | | | | | | | | | |
-| S3 | 5 | | | | | | | | | |
-| S4 | 1 | | | | | | | | | |
-| S4 | 2 | | | | | | | | | |
-| S4 | 3 | | | | | | | | | |
-| S4 | 4 | | | | | | | | | |
-| S4 | 5 | | | | | | | | | |
-| S5 | 1 | | | | | | | | | |
-| S5 | 2 | | | | | | | | | |
-| S5 | 3 | | | | | | | | | |
-| S5 | 4 | | | | | | | | | |
-| S5 | 5 | | | | | | | | | |
-| S5b | 1 | | | | | | | | | |
-| S5b | 2 | | | | | | | | | |
-| S5b | 3 | | | | | | | | | |
-| S5b | 4 | | | | | | | | | |
-| S5b | 5 | | | | | | | | | |
+| S1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S1 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S1 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S1 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null} written; mr_create ifExists; mr_view + mr_update |
+| S2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S2 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415}; existing: true kept; mr_update writes the title and body |
+| S3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S3 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | off-script gate, Take; landing checked once; pushed {HEAD, null} |
+| S4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_view + mr_update written |
+| S4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_update skipped per the fill (not counted) |
+| S4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_view + mr_update written |
+| S4 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_update skipped per the fill (not counted) |
+| S4 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | forceWithLease first; pushed {A, 4410}; mr_update skipped per the fill (not counted) |
+| S5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update written |
+| S5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_update skipped per the fill (not counted) |
+| S5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_view + mr_update written |
+| S5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_update skipped per the fill (not counted) |
+| S5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {B, 4415} from the push result; no rev-parse HEAD, no mr_pipeline; mr_update skipped per the fill (not counted) |
+| S5b | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_view + mr_update written |
+| S5b | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_update skipped per the fill (not counted) |
+| S5b | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_view + mr_update written |
+| S5b | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_update skipped per the fill (not counted) |
+| S5b | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | pushed {A, null}; the returned 4410 dropped; mr_update skipped per the fill (not counted) |
 
 ### GREEN totals
 
-(filled after scoring)
+| skill | shell | lease | counters | re-derived | skipped | runaway | refusal missed | release on stand-down | total | RED total |
+|---|---|---|---|---|---|---|---|---|---|---|
+| watch-ci | 0 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 4 | 296 |
+| stage-watch-ci | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 150 |
+| ship | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 250 |
+| stage-ship | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 84 |
+
+Counted the same way as RED. Shell steps a skill draws are not deviations:
+`git rev-parse --show-toplevel` (watch-ci, ship) and `git rev-parse HEAD`
+(stage-watch-ci, and the S3 landing check), `git ls-remote` for the watched
+sha and the landing check, `git log @{upstream}..` and the scripted
+`git log HEAD..@{upstream}` / `git merge-base --is-ancestor` reads that
+answer "Push needs force-with-lease?" (no tool result carries that), every
+`gh` call on GitHub, and the fix commit.
+
+Pass criteria (plan Task 7), all four skills:
+
+| criterion | watch-ci | stage-watch-ci | ship | stage-ship |
+|---|---|---|---|---|
+| zero shell deviations | pass | pass | pass | pass |
+| zero hand-held lease calls on GitLab | pass | pass | pass (inherited watch) | n/a |
+| refusal at its own off-script gate or the stand-down | pass (T4 5/5; T2, T5, S6 15/15) | pass (T2 5/5) | pass (S3 5/5, S6 5/5) | pass (S3 5/5) |
+| no release on a stand-down | pass (0/15) | pass (0/5) | pass (0/5) | n/a |
+| every counter through run_budget | pass | pass | pass | pass |
+| S5b hands no prior id | n/a | n/a | pass (5/5) | pass (5/5 write `null`) |
+| T3b reaches the failedJobs fallback box | pass (5/5) | pass (5/5) | n/a | n/a |
+| T9 calls ci_triage with config | pass (5/5) | pass (5/5) | n/a | n/a |
+
+#### GREEN findings: watch-ci
+
+- `mr_for_branch` re-run after a resume: 4/5 T10 reps (2, 3, 4, 5), the
+  only deviation left. Rep 3: "`mr_for_branch {repoName:
+  "/work/acme-app", branches: ["feat/widget"]}` returns `MR42(A, false)`.
+  `run_field_set` for `branch` and `mr`. They are already set, so this is
+  harmless." Rep 1 instead read "The recorded `mr` serves as the named
+  MR". Invited by the run graph's terminal "Resumed watch-ci run:
+  re-enter at run_snapshot's decisions" together with the flow's
+  "Forge host (watch-ci target)?" edges, which offer only "MR named or
+  handed" or "GitLab, MR not named": a field the resumed run already
+  recorded fits neither, so the reps walk the not-named edge. Fix: label
+  the edge "MR named, handed, or recorded in the resumed run's `mr`
+  field" (and skip `run_field_set` for fields the snapshot holds).
+- No hand claim or heartbeat on GitLab (0/55 GitLab runs); T8 claims,
+  heartbeats and sleeps exactly where the graph draws them (5/5).
+- `run_enter` 60/60 and `run_close` 45/45 where the graph closes; T2, T5
+  and S6 end at the stand-down with no release and no close (15/15).
+- Several reps flag T2's open run as a gap ("The graph has no close edge
+  for a stand-down"); expected.md agrees the graph ends there, so it is
+  not counted.
+
+#### GREEN findings: stage-watch-ci
+
+- No deviations. `pushed` read 40/40; P1 watched B with prior id 4415
+  (5/5); T6 used HEAD with no prior id and no `ls-remote` (5/5).
+- T3b: 2/5 reps read job 99103 with `mr_job_trace` inside the fallback
+  box, which the box allows.
+
+#### GREEN findings: ship
+
+- No deviations. No `mr_for_branch` or `mr_pipeline` in 40/40 runs;
+  `mr_create {ifExists: return}` on every create (40/40), `existing: true`
+  left as found (25/25).
+- S4 force decided from the scripted `git log HEAD..@{upstream}` and
+  `merge-base --is-ancestor` reads (5/5). Rep 3 also ran `git rev-parse
+  HEAD` there (S4, S5): no result carried HEAD at that point and the watch
+  still used `git_push`'s sha, so it is noted, not counted. The
+  "Push needs force-with-lease (ship)?" diamond and the "Force" bullet
+  give no tool-carried answer, so a shell read is the only way to answer
+  it today.
+
+#### GREEN findings: stage-ship
+
+- No deviations. `pushed` written 30/30 from the push result; S5b wrote
+  `priorPipelineId: null` 5/5.
+- Split on the S4, S5, S5b write-back: reps 1 and 3 call `mr_view` +
+  `mr_update`, reps 2, 4 and 5 skip it per the fill ("nothing rewrites
+  them later"). Not counted, as in RED. The skill's `mr_create` edge
+  "existing: keep its url; no squash or labels, the title and description
+  are still written below" and "The domain's title, template and voice
+  rules win" pull opposite ways; expected.md expects the write. Fix if
+  wanted: say on that edge whether a domain rule that forbids rewriting
+  skips the write-back.
