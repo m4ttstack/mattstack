@@ -135,9 +135,9 @@ not your own.
   `value` bare. In a site table headed `Options (recommended first)`, mark
   the option the table writes; a row with none, such as the stage-end
   `next`, marks none.
-- **`next` values** are exactly these, since the tools read them:
-  `proceed`, `iterate`, `go-back`, `hold`, and `abandon` or `done` where
-  offered.
+- **`next` values** are exactly `proceed`, `iterate`, `go-back`, `hold`,
+  and `abandon` or `done` where offered; the tools read `proceed` and
+  `iterate`.
 - **Write-ins** go only on a decision question whose free text you can act
   on, never on `next` or a review-post, respond, doctor or pane-attention
   question.
@@ -279,7 +279,7 @@ with no run, end the verb quoting it.
 ## Structured context (gate-ctx@1)
 
 A site that opens a structured gate builds its source per
-`${CLAUDE_SKILL_DIR}/structured-context.md` and opens it with `gate_open`.
+`${CLAUDE_SKILL_DIR}/structured-context.txt` and opens it with `gate_open`.
 
 ## Answers are option values
 

@@ -142,6 +142,10 @@ branch in a worktree is confirmed, not provisioned again.
 
 All of them go in the gate's one `resume_in` question, the first 3 in that
 order plus **Fresh tree**; provisioning adds no other gate or question.
+A tree whose `owner` is set and is not this session is held by another
+session: its option reads **Resume in `<tree>` (held by `<owner>` since
+`<claimedAt>`)** and is never the recommended one; when every offered tree
+is held, **Fresh tree** is recommended.
 Two or more `attached` trees with nothing else to offer still go to the
 gate, offering **Fresh tree** alone. **Nothing in the way** means no
 `attached` tree and no other offer. A refused precheck routes on its
@@ -194,7 +198,7 @@ above the form: what was found (the tree, the missing ticket, the title).
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `resume_in` (write-in) | **Resume in `<tree>` (Recommended)**, one per tree to resume, at most 3 / **Fresh tree** | the precheck lists trees to resume, or provision refused `branch-attached` |
+| `resume_in` (write-in) | **Resume in `<tree>` (Recommended)**, one per tree to resume, at most 3; a tree another session holds reads **(held by `<owner>` since `<claimedAt>`)** instead / **Fresh tree** | the precheck lists trees to resume, or provision refused `branch-attached` |
 | `ticket` (write-in) | **Create one (Recommended)** / **I will recheck the id** | a ticket was not found |
 | `slug` | the slug as their text (a typed slug arrives as the note, or as `text`) | the title is too generic for a slug |
 | the domain's own | as the domain words them | the domain declares them |

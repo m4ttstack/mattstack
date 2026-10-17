@@ -502,8 +502,8 @@ Source is `wc -w` of each `SKILL.md`; compiled is `wc -w` of the
 | Skill | Source before | Source after | Compiled before | Compiled after |
 |---|---|---|---|---|
 | gate-protocol | 5337 | 2498 | n/a (inlined) | n/a (inlined) |
-| work | 2083 | 1710 | 7779 | 4594 |
-| stage-provision | 1228 | 1814 | 6834 | 4608 |
+| work | 2083 | 1732 | 7779 | 4594 |
+| stage-provision | 1228 | 1869 | 6834 | 4608 |
 | stage-plan | 980 | 1045 | 7285 | 4538 |
 | stage-implement | 614 | 616 | n/a | n/a |
 | stage-self-review | 462 | 525 | 460 | 523 |
@@ -511,7 +511,7 @@ Source is `wc -w` of each `SKILL.md`; compiled is `wc -w` of the
 
 Targets as re-ruled: gate-protocol under 2500 (met at 2498); `work` about
 1600 to 1700 rather than the plan's under 1200 (the mandated node texts make
-1200 unreachable; 1710 after the final review's fixes); stage-provision grew
+1200 unreachable; 1732 after the final and PR review fixes); stage-provision grew
 for the same reason. Its graph is 1045 words against `main`'s 725: the
 precheck, reuse, refusal-code and budget nodes, and the long provision call
 node repeated on every edge into it. Its prose (769 words after the final
@@ -533,3 +533,21 @@ working tree, in a scratch copy under an isolated HOME and mattstack dir:
   rewritten to that verb's own folder (`work`, `stage-provision`). The
   remaining `${CLAUDE_SKILL_DIR}` uses in `work` are its stage-file table,
   resolved at run time.
+
+## Sidecar renamed to structured-context.txt
+
+The compile e2e test runs check-dot over every `.md` in a compiled verb, and
+prettier checks every `.md` in the board copies; a sidecar with no graph
+fails both. The sidecar is now `structured-context.txt` (same text); the
+pointer and the vendored path change with it. Earlier rows that name
+`structured-context.md` describe the file before the rename.
+
+## PR review fixes
+
+After the PR review: `work`'s Resumed bullet names `gate_reconcile`'s
+`no gate <id>` error as the not-found edge (1710 to 1732 words);
+gate-protocol says the tools read only `proceed` and `iterate` (2498,
+unchanged); stage-provision's resume offer names a tree another session
+holds, with `owner` and `claimedAt`, and never recommends it (1814 to 1869).
+Compiled columns above predate these edits. No reps were re-run for these
+wording additions.

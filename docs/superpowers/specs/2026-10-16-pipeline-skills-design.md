@@ -366,10 +366,10 @@ Daemon down: unattended -> fail the stage at the gate? (run_stage fail) / verb e
   gate), Answers are option values, Closed gates /
   Hold / Iterate, a one-line Doorbell, Red flags (trimmed to the ones the
   tools do not enforce).
-- **Structured context** moves to `gate-protocol/structured-context.md`
+- **Structured context** moves to `gate-protocol/structured-context.txt`
   (vendored at `parts/include-gate-protocol/`). The protocol keeps a
   two-sentence section of the same name that points at
-  `${CLAUDE_SKILL_DIR}/structured-context.md` and at `gate_open`, so
+  `${CLAUDE_SKILL_DIR}/structured-context.txt` and at `gate_open`, so
   receive-review's "gate-protocol's Structured context" reference still
   lands.
 
@@ -458,7 +458,7 @@ Totals: RED 5/50, GREEN 50/50.
   separates the texts on `reuse` and the hand writes.
 - Size targets were re-ruled: gate-protocol under 2500 (met, 2498), `work`
   about 1600 (plan said under 1200; the mandated node texts make that
-  unreachable, actual 1710). stage-provision grew from 1228 to 1814 words
+  unreachable, actual 1732). stage-provision grew from 1228 to 1869 words
   for the same reason.
 
 ## Verification

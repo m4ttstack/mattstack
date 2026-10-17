@@ -140,9 +140,9 @@ digraph work {
 ### Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold
 
 No run exists yet: no `gate_*` or `run_*` call. Offer the newest
-`run_list` row, whose `pipelines` is {{run-list.pipelines}}; never
-`run_enter`'s candidates, which ignore that filter. Starting fresh leaves
-that run untouched.
+`run_list` row. `run_list`'s `pipelines` is {{run-list.pipelines}}; only those runs are offered to resume.
+Never `run_enter`'s candidates, which ignore that filter. Starting fresh
+leaves that run untouched.
 
 ### Tracker: In Progress, assigned to the operator
 
@@ -177,7 +177,9 @@ stage, `reason` and `detailPath`.
 - **Resumed.** The attempt is adopted, so an armed `waiting-gate` on any
   row is reconciled first, and a late (`alreadyReconciled`) answer is still
   acted on. On a failed or done row `run_next` writes nothing and returns
-  that gate's inputs. Decided questions stay decided.
+  that gate's inputs. Decided questions stay decided. A `gate_reconcile`
+  error reading `no gate <id>` is `not found`; any other error is
+  `refused`.
 - **One owner for stage rows.** The run tools write them; a stage writes
   its fields and its own `run_stage fail`. Never write stage rows, produce
   clears, `shipTarget` or `pipeline-stages` here.
