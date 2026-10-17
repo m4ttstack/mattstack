@@ -1136,6 +1136,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   writes: CompileWrites;
   emitted: EmittedRow[];
   staleCopies: string[];
+  removedCopies: string[];
   fieldContract: string[];
 } {
   if (write) refuseUnlessPackOwned(resolved.packDir);
@@ -1218,7 +1219,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     ...plan.stale.map((s) => ({ name: s.name, removed: true as const, why: s.why })),
   ];
 
-  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleCopies.map((c) => c.name), fieldContract };
+  const staleNames = staleCopies.map((c) => c.name);
+  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleNames, removedCopies: writing ? staleNames : [], fieldContract };
 }
 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
@@ -1343,7 +1345,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written: false, verbs: targets.map(target => ({ name: target.verb.name, status: "errored", files: [], warnings: [], errors: [err.message], side: target.isPublic ? "skills" : "attachments" })), misplaced: [] });
       process.exit(2);
     }
-    const { outcomes, failures, misplaced, emitted, staleCopies, fieldContract } = compiledResult;
+    const { outcomes, failures, misplaced, emitted, staleCopies, removedCopies, fieldContract } = compiledResult;
     if (failures.length > 0 && !flags.json) {
       out.fail(compileFailure(failures));
       process.exit(1);
@@ -1363,7 +1365,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // non-JSON path's exits. `written` stays honest on an empty target set.
       if (failures.length > 0 || misplaced.length > 0) process.exitCode = 1;
       const written = writing && (outcomes.length > 0 || emitted.some((row) => !("kept" in row)));
-      out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced, fieldContract });
+      out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced, fieldContract, ...(removedCopies.length > 0 ? { removedCopies } : {}) });
       return;
     }
 
@@ -2016,10 +2018,23 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
  * "skill" (a plugin skill binding fills without being either); anything
  * else is cross-plugin, "external".
  */
+/** A shared engine's binder names the verb that runs the default pipeline; with no default, the verb naming no pipeline, else the first listed. */
+function binderVerbs(roster: VerbDef[], pipelines: Record<string, string[]>): Map<string, string> {
+  const fallback = defaultPipeline(pipelines);
+  const rank = (verb: VerbDef): number =>
+    fallback !== null ? ((verb.pipeline ?? fallback) === fallback ? 0 : 1) : verb.pipeline === undefined ? 0 : 1;
+  const chosen = new Map<string, VerbDef>();
+  for (const verb of roster) {
+    const ref = `mattstack:${verb.engine}`;
+    const held = chosen.get(ref);
+    if (!held || rank(verb) < rank(held)) chosen.set(ref, verb);
+  }
+  return new Map([...chosen].map(([ref, verb]) => [ref, verb.name]));
+}
+
 function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): CompositionBinder[] {
   const stageRefs = new Set(Object.values(pipelines).flat());
-  const verbByEngineRef = new Map<string, string>();
-  for (const verb of resolved.fullRoster) verbByEngineRef.set(`mattstack:${verb.engine}`, verb.name);
+  const verbByEngineRef = binderVerbs(resolved.fullRoster, pipelines);
 
   const overridesByPipeline = Object.entries(resolved.pipelineBindings);
   const refs = new Set(Object.keys(resolved.bindings));
