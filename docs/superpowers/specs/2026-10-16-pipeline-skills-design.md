@@ -443,9 +443,9 @@ rewritten skill. Per-rep quotes, scenario iterations and word counts are in
 | S2b engine refusal | 0/5 | 5/5 | Skipped steps (no `run_resolve` or `run_hold`); a stop that should have been a hold became a re-asked or off-script gate |
 | S3 compacted resume | 0/5 | 5/5 | Skipped steps (`run_list` and a clarify form instead of `run_enter`); hand-built runDb; 4 restarted plan as attempt 2; 2s `rt gate wait` instead of `gate_reconcile` |
 | S4 unattended wait | 0/5 | 5/5 | Hand-written `gate` and `waiting-gate`; `gate_ask` without `stage`; no `gate_reconcile`; runErrors reps re-armed the marker by hand |
-| S5 occupied ticket branch | 0/5 | 5/5 | Skipped `reuse` (3 reps); hand-written `branch` and `worktree` after the tool recorded them |
+| S5 occupied ticket branch | 0/5 | 5/5 | Skipped `reuse` (3 reps); hand-written `branch` and `worktree` after the tool recorded them (2 reps) |
 | S5b precheck on an older daemon | 0/5 | 5/5 | Three-argument provision with no `codes` or `runDb`; hand-written `branch` and `worktree` |
-| S6 third blocking round | 0/5 | 5/5 | Count read off `run_snapshot` with no `run_budget` call (without the snapshot figure, all 5 started a fourth round: the runaway loop the budget prevents) |
+| S6 third blocking round | 0/5 | 5/5 | No `run_budget` call; count read off the `run_snapshot` budgets row; no fourth round (an uncommitted probe with no budget anywhere in the scene made all 5 reps start a fourth round) |
 | S7 daemon down, unattended | 5/5 | 5/5 | Passes at RED; every rep still hand-wrote the `gate` bracket |
 | S8 no run, herdr pane | 0/5 | 5/5 | Timed `rt gate wait --timeout 2s` re-read instead of `gate_reconcile {id}` |
 
