@@ -281,7 +281,7 @@ for you -- name the strategy and pass it, nothing more. Either way, do not
 compose method prose per job; the bodies carry the worker-boundary rules
 and the report contract.
 
-`accounts` may be unbound -- that is single-account mode, handled below.
+`accounts` may be unbound (single-account mode, handled below).
 
 ## Domain rules
 
@@ -296,7 +296,7 @@ flow through the herd tools and the gate registry.
 
 
 
-When nothing is inlined above, every default in this engine stands as written.
+When nothing is inlined above, every engine default stands as written.
 
 ## Accounts
 
@@ -606,10 +606,10 @@ is no herd DB or script.
 **Resuming.** `herd_resume {herd}` (ids from `herd_list`) re-points the
 gate subscription here, continues the shepherd's chat identity with its DMs
 and unread (a plain sign-in starts an empty one), and returns the open
-gates, unread room lines and every job's state (a pre-identity herd may
+gates, the unread count and every job's state (a pre-identity herd may
 resume on a fresh identity, leaving old DMs behind). There is no other
 resume step; handle each
-unread line as if it just arrived (a report goes to the lanes graph).
+unread line as if new (a report goes to the lanes graph).
 
 **Brief assembly.** Every brief is assembled by `herd_brief`, never
 composed. Its inputs:
@@ -725,7 +725,7 @@ digraph shepherdr_watch {
     "herd_diagnose {herd, job}: the respawn budget" [shape=plaintext];
     "Respawns of this job spent?" [shape=diamond];
     "STOP: a respawn goes through herd_respawn" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "herd_respawn {herd, job, brief?, account?, effort?}" [shape=plaintext];
+    "herd_respawn {herd, job, brief?, model?, effort?, account?}" [shape=plaintext];
     "Respawn result?" [shape=diamond];
     "Shepherd off-script gate: ask the user" [shape=box];
     "Off-script answer?" [shape=diamond];
@@ -815,11 +815,11 @@ digraph shepherdr_watch {
     "herd_close {job, herd}: killed for new scope" -> "herd_brief {job, template, strategy, strategies, fill, out}: the new brief";
     "herd_brief {job, template, strategy, strategies, fill, out}: the new brief" -> "herd_diagnose {herd, job}: the respawn budget";
     "herd_diagnose {herd, job}: the respawn budget" -> "Respawns of this job spent?";
-    "Respawns of this job spent?" -> "herd_respawn {herd, job, brief?, account?, effort?}" [label="no"];
+    "Respawns of this job spent?" -> "herd_respawn {herd, job, brief?, model?, effort?, account?}" [label="no"];
     "Respawns of this job spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
     "Respawns of this job spent?" -> "STOP: a respawn goes through herd_respawn" [label="tempted to respawn with herd_spawn or the shell"];
-    "STOP: a respawn goes through herd_respawn" -> "herd_respawn {herd, job, brief?, account?, effort?}";
-    "herd_respawn {herd, job, brief?, account?, effort?}" -> "Respawn result?";
+    "STOP: a respawn goes through herd_respawn" -> "herd_respawn {herd, job, brief?, model?, effort?, account?}";
+    "herd_respawn {herd, job, brief?, model?, effort?, account?}" -> "Respawn result?";
     "Respawn result?" -> "End the turn until something arrives" [label="ok: announce it"];
     "Respawn result?" -> "Shepherd off-script gate: ask the user" [label="error: quote it"];
     "Shepherd off-script gate: ask the user" -> "Off-script answer?";
@@ -912,10 +912,10 @@ budget, so the diamond is the only guard.
 | `reviewerRounds[artifact]` | `herd_diagnose` on the host job, `budgets.reviewerRounds[<artifact>]` (the milestone line's artifact; absent = unused) | the reviewer `herd_spawn` |
 | `unmergedReports` | `herd_lanes` row's `unmergedReports` | the "measured merge state" DM |
 
-**The respawn.** `herd_respawn {herd, job, brief?, account?, effort?}` never
+**The respawn.** `herd_respawn {herd, job, brief?, model?, effort?, account?}` never
 provisions, closes the old pane, relaunches in the job's tree on the stored
 brief unless `brief` is new, and keeps the job's model, effort and account
-unless passed. The old session's open gates close as abandoned so the new
+unless passed. The old session's open and parked gates close as abandoned so the new
 worker re-asks; answered ones are marked consumed.
 
 ## Lanes and wrap-up

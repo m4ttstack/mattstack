@@ -144,7 +144,7 @@ The full draft is in Appendix B; it passes `render.sh` and `check-dot.py`.
 | `Nudges for this gate?` 0/1/2, `An idle prompt, and no form on screen?`, `chat_dm ... call herd_answer`, `rt pane send` | `Nudges for this gate spent?` → `herd_nudge {herd, job, gate}` → `Nudge delivered?` (delivered: end the turn; refused as already consumed: end the turn, the worker read it; needsHuman or any other refusal → off-script gate, quoting it) |
 | `Ask: attend or close and respawn` → `herd_close: parked, respawning` → respawn | `Ask: attend or respawn` → respawn (`herd_respawn` closes the old pane itself) |
 | `Respawns of this job = 2?` | `Respawns of this job spent?`; the user-asked respawn and the scope kill reach it through `herd_diagnose {herd, job}: the respawn budget` |
-| `STOP: herd_spawn never respawns; it takes no dir` → Bash respawn | `STOP: a respawn goes through herd_respawn` → `herd_respawn {herd, job, brief?, account?, effort?}` |
+| `STOP: herd_spawn never respawns; it takes no dir` → Bash respawn | `STOP: a respawn goes through herd_respawn` → `herd_respawn {herd, job, brief?, model?, effort?, account?}` |
 | Bash respawn → end the turn | `herd_respawn` → `Respawn result?` (ok: announce it; error → off-script gate). Bug fix: a failed respawn had no edge |
 | `STOP: never press keys into a modal or form; answer its gate` | `STOP: herd_diagnose reads the pane; never peek it yourself` (tempted to peek the pane or send a key) → off-script gate |
 
@@ -310,7 +310,7 @@ No pack attaches these by text today; listed so a later fill can.
 | `Blocked notices for this job = 3?`, `herd_gates {herd}: the blocked job`, `Open gate for the blocked job?`, `rt_verb {args: [pane, peek, <pane>]}`, `What does the pane show?` | `herd_diagnose {herd, job}: the blocked job`, `Blocked notices for this job spent?`, `What does the diagnosis say?`, `herd_gates {herd}: the diagnosed job's gate` |
 | `STOP: never press keys into a modal or form; answer its gate` | `STOP: herd_diagnose reads the pane; never peek it yourself` |
 | `Ask: attend or close and respawn`, `herd_close {job, herd}: parked, respawning` | `Ask: attend or respawn` |
-| `Respawns of this job = 2?`, `STOP: herd_spawn never respawns; it takes no dir`, Bash respawn | `Respawns of this job spent?`, `STOP: a respawn goes through herd_respawn`, `herd_respawn {herd, job, brief?, account?, effort?}`, `Respawn result?`, `herd_diagnose {herd, job}: the respawn budget` |
+| `Respawns of this job = 2?`, `STOP: herd_spawn never respawns; it takes no dir`, Bash respawn | `Respawns of this job spent?`, `STOP: a respawn goes through herd_respawn`, `herd_respawn {herd, job, brief?, model?, effort?, account?}`, `Respawn result?`, `herd_diagnose {herd, job}: the respawn budget` |
 | `rt_verb {args: [git, log], cwd: <worktree>}`, `cd <an active job's tree>`, `git diff --stat --merge-base origin/<default branch>`, `More active job trees to diff?` | `herd_lanes {herd}: the report's lanes` |
 | `Unmerged reports for this lane = 2?` | `Unmerged reports for this lane spent?` |
 | (new) | `herd_lanes {herd, job}: after the merge call` |
@@ -528,7 +528,7 @@ digraph shepherdr_watch {
     "herd_diagnose {herd, job}: the respawn budget" [shape=plaintext];
     "Respawns of this job spent?" [shape=diamond];
     "STOP: a respawn goes through herd_respawn" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "herd_respawn {herd, job, brief?, account?, effort?}" [shape=plaintext];
+    "herd_respawn {herd, job, brief?, model?, effort?, account?}" [shape=plaintext];
     "Respawn result?" [shape=diamond];
     "Shepherd off-script gate: ask the user" [shape=box];
     "Off-script answer?" [shape=diamond];
@@ -618,11 +618,11 @@ digraph shepherdr_watch {
     "herd_close {job, herd}: killed for new scope" -> "herd_brief {job, template, strategy, strategies, fill, out}: the new brief";
     "herd_brief {job, template, strategy, strategies, fill, out}: the new brief" -> "herd_diagnose {herd, job}: the respawn budget";
     "herd_diagnose {herd, job}: the respawn budget" -> "Respawns of this job spent?";
-    "Respawns of this job spent?" -> "herd_respawn {herd, job, brief?, account?, effort?}" [label="no"];
+    "Respawns of this job spent?" -> "herd_respawn {herd, job, brief?, model?, effort?, account?}" [label="no"];
     "Respawns of this job spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
     "Respawns of this job spent?" -> "STOP: a respawn goes through herd_respawn" [label="tempted to respawn with herd_spawn or the shell"];
-    "STOP: a respawn goes through herd_respawn" -> "herd_respawn {herd, job, brief?, account?, effort?}";
-    "herd_respawn {herd, job, brief?, account?, effort?}" -> "Respawn result?";
+    "STOP: a respawn goes through herd_respawn" -> "herd_respawn {herd, job, brief?, model?, effort?, account?}";
+    "herd_respawn {herd, job, brief?, model?, effort?, account?}" -> "Respawn result?";
     "Respawn result?" -> "End the turn until something arrives" [label="ok: announce it"];
     "Respawn result?" -> "Shepherd off-script gate: ask the user" [label="error: quote it"];
     "Shepherd off-script gate: ask the user" -> "Off-script answer?";
