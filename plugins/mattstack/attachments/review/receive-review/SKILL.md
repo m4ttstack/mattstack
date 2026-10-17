@@ -61,6 +61,8 @@ digraph receive_review {
     keep_plan_threads [label="Keep exactly the threads the handed plan names" shape=box];
     run_field_get_handed [label="run_field_get {runDb, key: extra.gate-source.respond-plan} for the handed plan" shape=plaintext];
     run_stores_source [label="The run stores a respond-plan source for the handed plan?" shape=diamond];
+    run_field_get_pending [label="run_field_get {runDb, key: extra.gate-source.respond-plan} for the pending round" shape=plaintext];
+    write_pending_source [label="Write the pending round's source for gate_open" shape=box];
     thread_read_forge [label="Forge for the thread read?" shape=diamond];
     mr_threads_unresolved [label="mr_threads {mrUrl, filter: \"unresolved-human\"}" shape=plaintext];
     read_pr_threads_gh [label="Read the PR's review threads with gh" shape=box];
@@ -184,11 +186,14 @@ digraph receive_review {
     resume_answer -> held_end_turn [label="hold: no run yet, record nothing"];
     run_snapshot -> snapshot_records;
     snapshot_records -> caller_handed [label="no respond-plan record"];
-    snapshot_records -> run_field_get_respond_plan [label="respond-plan recorded only, no plan handed after a revise: never record it again"];
+    snapshot_records -> run_field_get_respond_plan [label="respond-plan recorded only, nothing handed, no source stored after a revise: never record it again"];
+    snapshot_records -> run_field_get_pending [label="respond-plan recorded as code-changes: revise, nothing handed, its source stored after the revise: the round is pending"];
     snapshot_records -> caller_handed [label="respond-plan recorded as code-changes: revise, a {plan} handed: the newer plan"];
     snapshot_records -> gate_record_post [label="respond-plan recorded only, a {post} handed"];
     snapshot_records -> post_forge [label="respond-post recorded, held or not"];
     run_field_get_respond_plan -> rewrite_report_rows [label="the stored cards, or an unset-key error"];
+    run_field_get_pending -> write_pending_source;
+    write_pending_source -> caller_owns_plan_gates;
     caller_handed -> resolve_change [label="nothing, or a {plan} (alone or in {plan, post})"];
     caller_handed -> gate_record_post [label="a {post} alone"];
 
@@ -489,6 +494,16 @@ never asked again.
   `decided_at`, which `respond_post_execute` reads for the decision's
   freshness and for which notes by this account count as already posted.
 - **`respond-plan` recorded with `code-changes: revise`, no
+  `respond-post` record, nothing handed, and the snapshot's
+  `extra.gate-source.respond-plan` field `at` later than that decision's
+  `decided_at`:** the revise already re-adjudicated and opened the next
+  round, which nobody has answered. Re-present that pending round from its
+  stored source (`Write the pending round's source for gate_open`): no
+  dispatch, no record, and nothing implemented or posted until a fresh
+  answer to it. With the source stored at or before the revise, the revise
+  never ran: the previous bullet's rows lead to its fresh dispatch, with
+  the revise's `notes` entry for `code-changes` as the note.
+- **`respond-plan` recorded with `code-changes: revise`, no
   `respond-post` record, and the caller handed a `{plan}`:** the revise
   re-adjudicated and stored a new respond-plan source, and the handed plan
   answers that newer open. Take it through `What did the caller hand
@@ -560,6 +575,14 @@ revise adjudicates afresh. A plan handed to a resumed run whose only
 respond-plan record says `code-changes: revise` is not yet spent: that
 record answered the earlier open, and this plan answers the open the
 revise built.
+
+### Write the pending round's source for gate_open
+
+The `run_field_get` value is `{"gate": <id or null>, "source": {...}}`.
+Write its `source`, unchanged, to `<dir>/respond-plan.source.json` (`<dir>`
+as `Build the open` makes it), then open or hand back exactly as a freshly
+built round would. The threads, verdicts and replies are the pending
+round's; never re-read threads, re-adjudicate or redraft for it.
 
 ### Read the handed plan's threads on GitHub with gh
 
