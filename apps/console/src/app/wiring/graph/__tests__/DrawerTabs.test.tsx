@@ -304,6 +304,20 @@ describe('usedBySites', () => {
     expect(at('feature')).toBe('stage-plan');
   });
 
+  it("focuses an engine's include site on the canvas pipeline's copy of it", () => {
+    const groups = groupsOfDesign();
+    const sites = usedBySites(
+      designFixture('composition'),
+      groups,
+      { kind: 'include', name: 'gate-protocol' },
+      groups.pipelines.find(item => item.key === 'pipeline:accessibility')!
+    );
+
+    expect(sites.find(site => site.skill === 'stage-evidence')?.focus).toBe(
+      'stage-evidence@accessibility'
+    );
+  });
+
   it("places an override's fill at its pipeline's copy of the stage", () => {
     const sites = usedBySites(designFixture('composition'), groupsOfDesign(), {
       kind: 'fill',

@@ -7,6 +7,7 @@ import {
 import {
   focusUnder,
   type FocusGroups,
+  workTypeOf,
   type FocusItem,
 } from '../model/focusModel';
 
@@ -143,6 +144,7 @@ export function usedBySites(
   pipeline: FocusItem | null = null
 ): UsedBySite[] {
   const places = placesOf(groups);
+  const workType = pipeline ? workTypeOf(pipeline.key) : null;
   const sites =
     ref.kind === 'include'
       ? includeSites(composition, ref.name)
@@ -156,7 +158,14 @@ export function usedBySites(
           skill: site.skill,
           slot: site.slot,
           line: site.line,
-          focus: place ? focusUnder(pipeline, site.skill, place.focus) : null,
+          focus: place
+            ? focusUnder(
+                pipeline,
+                stageCopyOf(composition.targets, site.skill, workType)?.name ??
+                  site.skill,
+                place.focus
+              )
+            : null,
           label: labelOf(site, place),
           pipeline: site.pipeline,
         } satisfies UsedBySite,
