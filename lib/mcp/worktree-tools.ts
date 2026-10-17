@@ -23,6 +23,8 @@ export interface ProvisionRefusal {
   step?: string;
   detail?: string;
   reason?: string;
+  owner?: string;
+  claimedAt?: string;
   budget?: Record<string, unknown>;
 }
 
@@ -46,6 +48,22 @@ export function parseProvisionError(raw: string): ProvisionRefusal {
 
 function isReusable(t: WorktreeTreeRef): boolean {
   return t.treeKind === "unmanaged" || (t.treeKind === "ephemeral" && t.state === "claimed");
+}
+
+/** The owners a caller answers to: the owner it passed, and its herd's claim (the daemon writes `herd:<id>` on a herd's trees). */
+function callerOwners(input: Record<string, unknown>, env: NodeJS.ProcessEnv): Set<string> {
+  const mine = new Set<string>();
+  if (typeof input.owner === "string" && input.owner) mine.add(input.owner);
+  if (env.HERD_ID) mine.add(`herd:${env.HERD_ID}`);
+  return mine;
+}
+
+function heldRefusal(t: WorktreeTreeRef & { owner: string }): ProvisionRefusal {
+  const since = t.claimedAt ? ` since ${t.claimedAt}` : "";
+  return {
+    kind: "refused", code: "tree-held", tree: t.tree, owner: t.owner, ...(t.claimedAt ? { claimedAt: t.claimedAt } : {}),
+    error: `worktree ${t.tree} is held by ${t.owner}${since}; reuse it only after the human picks it, by calling again with takeOver: true`,
+  };
 }
 
 function attachedReason(t: WorktreeTreeRef): string {
@@ -152,9 +170,10 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
         "Claim a worktree for a ticket or branch (from the on-deck pool, or freshly created) and get back its path; then enter it with EnterWorktree in path mode.",
         'A success says what happened in "kind": "provisioned" (a tree was claimed or created), "reused" (an existing tree was returned) or "precheck" (nothing was created; see precheck). A refusal comes back as an error, "refused" in the JSON form.',
         "Options, all off by default. A call that uses none of them gets plain-text refusals, as always. Using any of codes, precheck, reuse, runDb or budget makes every refusal JSON text with a code (stage alone does not).",
-        "codes: refusals as JSON with a code. The codes are branch-attached, branch-duplicated, branch-unresolved, busy, repo-unknown, create-failed, checkout-failed, claim-write-failed, handoff-write-failed, unsafe-ref, daemon-unreachable, daemon-outdated and error.",
+        "codes: refusals as JSON with a code. The codes are branch-attached, branch-duplicated, branch-unresolved, tree-held, busy, repo-unknown, create-failed, checkout-failed, claim-write-failed, handoff-write-failed, unsafe-ref, daemon-unreachable, daemon-outdated and error.",
         "precheck: report the branch a provision would use and the trees already on it, and create nothing.",
         "reuse: hand back the tree already on the branch when it is claimed or not managed by rt, instead of provisioning. In ticket mode a local branch that survives its tree is checked out again. Provisions as usual when there is nothing to reuse.",
+        'A claimed tree whose owner is neither the owner passed nor this herd ("herd:<HERD_ID>") is held by someone else: reuse refuses it with tree-held, naming the owner and claimedAt. takeOver: true reuses it anyway; pass it only when a human picked that tree.',
         'runDb and stage: write the tree\'s branch and worktree path to that run (stage defaults to "provision"). The result says recorded, or recordError when a write failed. Precheck and refusals write nothing.',
         "budget {key, limit}, with runDb: each refusal is counted through run_budget, and the result's budget shows what is spent and left. The stage must already be started on the run (run_stage start), or budget holds an error instead of a count; it also holds an error when run_budget is missing.",
         REPO_NAME_RULE,
@@ -164,6 +183,7 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
         properties: { ...REPO_PROP, ticket: { type: "string" }, ticketTitle: { type: "string" }, branch: { type: "string" }, disposal: { type: "string", enum: ["merge", "job"] }, owner: { type: "string" }, codes: { type: "boolean", description: "Refusals come back as JSON text with a machine-readable code instead of prose." },
           precheck: { type: "boolean", description: "Only report the branch a provision would use and the trees already on it; nothing is created. Not with reuse." },
           reuse: { type: "boolean", description: "Return the tree already on the branch (an unmanaged or claimed one) instead of provisioning; provisions only when none is. Not with precheck." },
+          takeOver: { type: "boolean", description: "With reuse: reuse a tree another owner holds instead of refusing tree-held. Only after a human picked that tree." },
           runDb: { type: "string", description: "Absolute path of a run's state.db; the tree's branch and worktree path are written to that run." },
           stage: { type: "string", description: 'The run stage those writes and the budget belong to. Default "provision".' },
           budget: { type: "object", properties: { key: { type: "string" }, limit: { type: "integer", minimum: 1 } }, required: ["key", "limit"], additionalProperties: false, description: "Count each refusal against this limit through run_budget. Needs runDb." },
@@ -173,8 +193,9 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
       },
       shellForms: ["rt worktree provision", "git worktree add"],
       async handler(input, env) {
-        const bad = checkOptional(input, [{ name: "ticket", type: "string" }, { name: "ticketTitle", type: "string" }, { name: "branch", type: "string" }, { name: "disposal", type: "string" }, { name: "owner", type: "string" }, { name: "codes", type: "boolean" }, { name: "precheck", type: "boolean" }, { name: "reuse", type: "boolean" }]);
+        const bad = checkOptional(input, [{ name: "ticket", type: "string" }, { name: "ticketTitle", type: "string" }, { name: "branch", type: "string" }, { name: "disposal", type: "string" }, { name: "owner", type: "string" }, { name: "codes", type: "boolean" }, { name: "precheck", type: "boolean" }, { name: "reuse", type: "boolean" }, { name: "takeOver", type: "boolean" }]);
         if (bad) return err(bad);
+        if (input.takeOver !== undefined && input.reuse !== true) return err("takeOver only goes with reuse");
         const ctx = runContext(input, env);
         if ("error" in ctx) return err(ctx.error);
         if (typeof input.ticket !== "string" && typeof input.branch !== "string") return err("pass a ticket (with an optional ticketTitle) or a branch");
@@ -198,6 +219,9 @@ export function worktreeToolDefs(deps: WorktreeToolDeps = { command: rtCommand }
           const only = attached[0];
           if (only) {
             if (!isReusable(only)) return refuse({ kind: "refused", code: "branch-attached", tree: only.tree, reason: attachedReason(only), error: explainError(`branch-attached:${only.tree}`) }, ctx);
+            if (only.state === "claimed" && only.owner && input.takeOver !== true && !callerOwners(input, env).has(only.owner)) {
+              return refuse(heldRefusal({ ...only, owner: only.owner }), ctx);
+            }
             const { tree, path, branch, treeKind, state, owner, disposal } = only;
             return record({ kind: "reused", tree, path, branch, treeKind, ...(state ? { state } : {}), ...(owner ? { owner } : {}), ...(disposal ? { disposal } : {}) }, ctx);
           }
