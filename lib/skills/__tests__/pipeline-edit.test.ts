@@ -30,6 +30,19 @@ describe("removePipelineOverride", () => {
     expect(out).toEqual({ pipelines: { accessibility: ["mattstack:stage-plan"] } });
   });
 
+  test("a pipeline with only bindings loses its key", () => {
+    const text = '{"pipelines":{"accessibility":{"bindings":{"mattstack:stage-plan":{"x":"acme:y"}}}},"bindings":{}}';
+    const out = parse(removePipelineOverride(text, "accessibility", "mattstack:stage-plan", "x"));
+    expect(out).toEqual({ bindings: {} });
+  });
+
+  test("a bindings-only pipeline goes but its siblings stay", () => {
+    const text =
+      '{"pipelines":{"feature":["mattstack:stage-plan"],"accessibility":{"bindings":{"mattstack:stage-plan":{"x":"acme:y"}}}}}';
+    const out = parse(removePipelineOverride(text, "accessibility", "mattstack:stage-plan", "x"));
+    expect(out).toEqual({ pipelines: { feature: ["mattstack:stage-plan"] } });
+  });
+
   test("collapse keeps comments outside the pipeline", () => {
     const text = `// top
 {

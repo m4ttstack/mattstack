@@ -28,6 +28,8 @@ export function removePipelineOverride(
   for (const path of [
     [...base, "bindings", engineRef],
     [...base, "bindings"],
+    base,
+    ["pipelines"],
   ]) {
     if (!isEmptyObject(out, path)) break;
     out = remove(out, path);

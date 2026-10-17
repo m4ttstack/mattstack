@@ -1206,6 +1206,18 @@ describe("skillsBind --pipeline", () => {
     expect(parsed.bindings).toEqual({});
   });
 
+  test("--unset after binding into a fragment without the pipeline restores the fragment", async () => {
+    const original = `// acme fragment\n{\n  "bindings": {}\n}\n`;
+    const { fragmentPath, args } = pipelinesFixture(original);
+    await skillsBind(["stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", ...args]);
+
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "domain", "--pipeline", "accessibility", "--unset", ...args]));
+    expect(errors).toEqual([]);
+    expect(exitCode).toBeUndefined();
+
+    expect(JSON.parse(stripJsonc(readFileSync(fragmentPath, "utf8")))).toEqual(JSON.parse(stripJsonc(original)));
+  }, 30_000);
+
   test("--dry-run --pipeline shows the pipeline's own fill and writes nothing", async () => {
     const { manifest, fragmentPath, args } = pipelinesFixture(PLAIN_LIST_FRAGMENT);
     const before = [readFileSync(manifest, "utf8"), readFileSync(fragmentPath, "utf8")];
