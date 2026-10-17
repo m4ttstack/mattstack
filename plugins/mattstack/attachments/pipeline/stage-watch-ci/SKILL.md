@@ -19,8 +19,7 @@ metadata:
 Run state: the orchestrator opens and closes this stage, so never write
 `run_stage` `start` or `done` here. Read the consumes and `pushed` with
 `run_field_get`; every `stage` argument is `"watch-ci"`. Write `ci` once a
-verdict exists; a failure's `run_stage` also takes `detailPath` = the
-triage report.
+verdict exists; a failure's `detailPath` is the triage report.
 
 `<mr>` is `mr`'s https URL. Every CI tool takes `mrUrl: <mr>`; `mr_view`
 and `mr_ready` take `repoName` = this worktree's absolute path and the iid
@@ -119,7 +118,7 @@ digraph watch_ci {
     "MR known (exit)?" [shape=diamond];
     "ci_lease_release {mrUrl: <mr>}" [shape=plaintext];
     "Which exit is this?" [shape=diamond];
-    "run_stage {action: fail, stage, reason}" [shape=plaintext];
+    "run_stage {action: fail, stage, reason, detailPath?}" [shape=plaintext];
     "run_hold {stage, reason, decidedBy}" [shape=plaintext];
     "Stage failed" [shape=doublecircle];
     "Hand Fix and re-push to the orchestrator: Redirect to implement" [shape=doublecircle];
@@ -289,9 +288,9 @@ digraph watch_ci {
     "Which exit is this?" -> "run_hold {stage, reason, decidedBy}" [label="hold"];
     "Which exit is this?" -> "Hand the Go back answer to the orchestrator" [label="go back"];
     "Which exit is this?" -> "run_status {status: abandoned}" [label="abandon"];
-    "Which exit is this?" -> "run_stage {action: fail, stage, reason}" [label="a failure or off-script hand back"];
+    "Which exit is this?" -> "run_stage {action: fail, stage, reason, detailPath?}" [label="a failure or off-script hand back"];
     "run_hold {stage, reason, decidedBy}" -> "Held: end the turn naming run and stage";
-    "run_stage {action: fail, stage, reason}" -> "Stage failed";
+    "run_stage {action: fail, stage, reason, detailPath?}" -> "Stage failed";
 }
 ```
 
@@ -301,7 +300,7 @@ A `ci_watch` still running after 120 s moves to the background, and its
 `<task-notification>` `<result>` is the next `ci_watch state`. End the
 turn in one line: `watching CI in the background (task <id>)`. The
 pipeline gate stop hook lets a turn end while a background task is
-pending, and a chat or user message that arrives meanwhile reaches you at
+pending, and a chat or user message arriving meanwhile reaches you at
 once; a foreground wait (a `sleep`, a polling script, a second `ci_watch`)
 delays the result and every message.
 
@@ -310,9 +309,9 @@ delays the result and every message.
 Each is the gate protocol's Off-script gate (scope
 `off-script:watch-ci:<n>`, `context` quoting the refusal): `action`
 **Take** (the move its section names) / **Hand back** (a failure, the
-refusal is the reason); `next` **Proceed** (Recommended) / **Iterate
+refusal its reason); `next` **Proceed** (Recommended) / **Iterate
 here** (the human fixed it) / **Hold**. A spent Iterate budget fails the
-same way, the refusals as the reason. An attending Take writes `ci` red,
+same way, quoting the refusals. An attending Take writes `ci` red,
 the refusal as its triage line.
 
 ### Off-script gate: lease_unavailable
@@ -394,7 +393,7 @@ The re-claim before `gh run rerun` errored. Take: the human reran the job.
 
 Read it with `gitlab_get {repoName, path}` (`repoName` this worktree,
 `path` from the API root, `:id` for this project:
-`projects/:id/jobs/<jobId>`) as part of the step, not an off-script move.
+`projects/:id/jobs/<jobId>`) within the step, not as an off-script move.
 Quote a GitLab error as written; a refused credential path is final.
 
 ### Gate ci
@@ -432,7 +431,8 @@ Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<st
 - **The pushed sha.** The ship stage writes `pushed` = `{"sha",
   "priorPipelineId"}`; `<sha12>` is the watched sha's first 12 characters.
   A `priorPipelineId` a result carries goes on the next call; the watched
-  pipeline's own `pipeline.id` never does.
+  pipeline's own `pipeline.id` never does. Both diamond edges call
+  `ci_watch`; each label says what to pass.
 - **The tool owns the watch window.** `timeout` (against
   `ci.watch.budgetMinutes`) and `no_pipeline` (10 minutes without one) are
   `ci_watch`'s own: pass no budget arguments, count nothing.
@@ -455,7 +455,7 @@ with `holder`. Never pass `underBoardLease`. `mr_retry {leaseMrUrl: <mr>}`
 takes a lapsed lease back or refuses with `lease_held` and `holder`.
 
 Every exit that knows the MR releases, except Fix and re-push, which keeps
-the lease for the re-run. The stand-down never releases and writes no
+it for the re-run. The stand-down never releases and writes no
 `ci`: report the `holder` and stop; that lease is someone else's.
 
 | Thought | Reality |

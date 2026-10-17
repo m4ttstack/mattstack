@@ -91,7 +91,7 @@ digraph ship {
     "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" [shape=plaintext];
     "after-attempts spent?" [shape=diamond];
     "Every named case tried?" [shape=diamond];
-    "Record image or new AFTER?" [shape=diamond];
+    "AFTER captured this pass?" [shape=diamond];
     "Record the evidence (evidence-record)" [shape=box];
     "Record outcome?" [shape=diamond];
     "Run has an evidence record?" [shape=diamond];
@@ -212,15 +212,15 @@ digraph ship {
     "run_field_get {key: evidence}" -> "Capture the AFTER for the next case the domain names";
     "Capture the AFTER for the next case the domain names" -> "AFTER result?";
     "AFTER result?" -> "Every named case tried?" [label="captured"];
-    "AFTER result?" -> "Record image or new AFTER?" [label="none named"];
+    "AFTER result?" -> "AFTER captured this pass?" [label="none named"];
     "AFTER result?" -> "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" [label="the capture failed"];
     "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" -> "after-attempts spent?";
     "after-attempts spent?" -> "Capture the AFTER for the next case the domain names" [label="no: same case again"];
     "after-attempts spent?" -> "Every named case tried?" [label="yes: go on without it"];
     "Every named case tried?" -> "Capture the AFTER for the next case the domain names" [label="no"];
-    "Every named case tried?" -> "Record image or new AFTER?" [label="yes"];
-    "Record image or new AFTER?" -> "Record the evidence (evidence-record)" [label="yes"];
-    "Record image or new AFTER?" -> "Run has an evidence record?" [label="no"];
+    "Every named case tried?" -> "AFTER captured this pass?" [label="yes"];
+    "AFTER captured this pass?" -> "Record the evidence (evidence-record)" [label="yes"];
+    "AFTER captured this pass?" -> "Run has an evidence record?" [label="no"];
     "Record the evidence (evidence-record)" -> "Record outcome?";
     "Record outcome?" -> "Attach the evidence (evidence-record)" [label="Recorded"];
     "Record outcome?" -> "run_hold {stage, reason, decidedBy}" [label="Record held at evidence-waiver"];
@@ -325,7 +325,7 @@ refusal): `action` Take (the push outside `git_push` the gate recorded) or
 Hand back (a failure, the refusal its reason); `next` Proceed, Iterate
 here (the human fixed the cause) or Hold (no move). Read `next` first:
 only Proceed applies `action`; retrying `git_push` is Iterate, never Take.
-Iterate counts nothing: `git_push` bounds its own retries.
+Iterate counts nothing: each retry needs a new answer at this gate.
 
 ### Make the recorded move once
 

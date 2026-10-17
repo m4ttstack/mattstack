@@ -178,7 +178,7 @@ digraph ship {
     "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" [shape=plaintext];
     "after-attempts spent (ship)?" [shape=diamond];
     "Every named case tried (ship)?" [shape=diamond];
-    "Record image or new AFTER (ship)?" [shape=diamond];
+    "AFTER captured this pass (ship)?" [shape=diamond];
     "Record the evidence (evidence-record)" [shape=box];
     "Record outcome (ship)?" [shape=diamond];
     "Run has an evidence record (ship)?" [shape=diamond];
@@ -324,15 +324,15 @@ digraph ship {
     "run_field_get {key: evidence} (ship)" -> "Capture the AFTER for the next case the domain names (ship)";
     "Capture the AFTER for the next case the domain names (ship)" -> "AFTER result (ship)?";
     "AFTER result (ship)?" -> "Every named case tried (ship)?" [label="captured"];
-    "AFTER result (ship)?" -> "Record image or new AFTER (ship)?" [label="none named"];
+    "AFTER result (ship)?" -> "AFTER captured this pass (ship)?" [label="none named"];
     "AFTER result (ship)?" -> "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" [label="the capture failed"];
     "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" -> "after-attempts spent (ship)?";
     "after-attempts spent (ship)?" -> "Capture the AFTER for the next case the domain names (ship)" [label="no"];
     "after-attempts spent (ship)?" -> "Every named case tried (ship)?" [label="yes: go on without it"];
     "Every named case tried (ship)?" -> "Capture the AFTER for the next case the domain names (ship)" [label="no"];
-    "Every named case tried (ship)?" -> "Record image or new AFTER (ship)?" [label="yes"];
-    "Record image or new AFTER (ship)?" -> "Record the evidence (evidence-record)" [label="yes"];
-    "Record image or new AFTER (ship)?" -> "Run has an evidence record (ship)?" [label="no"];
+    "Every named case tried (ship)?" -> "AFTER captured this pass (ship)?" [label="yes"];
+    "AFTER captured this pass (ship)?" -> "Record the evidence (evidence-record)" [label="yes"];
+    "AFTER captured this pass (ship)?" -> "Run has an evidence record (ship)?" [label="no"];
     "Record the evidence (evidence-record)" -> "Record outcome (ship)?";
     "Record outcome (ship)?" -> "Attach the evidence (evidence-record)" [label="Recorded"];
     "Record outcome (ship)?" -> "Which exit (ship)?" [label="Record held at evidence-waiver: hold"];
@@ -474,8 +474,8 @@ The gate protocol's Off-script gate, scope `off-script:<stage>:<n>`,
 first: Hold ends the turn with nothing pushed by this verb; Iterate means
 the human fixed the cause (a tree registration, the daemon) and ignores
 `action`; only Proceed applies `action`. Retrying `git_push` is Iterate,
-never Take. Iterate counts nothing (`git_push` bounds its own retries); a
-refused retry reopens this gate with the Iterate note in its context.
+never Take. Iterate counts nothing: each retry needs a new answer at this
+gate; a refused retry reopens this gate with the Iterate note in its context.
 
 ### Confirm the human's push landed (ship)
 
