@@ -192,6 +192,7 @@ const EXPECTED_TOOL_NAMES = [
   "whoami",
   "ci_lease_claim", "ci_lease_heartbeat", "ci_lease_release", "ci_lease_read", "ci_watch", "ci_triage",
   "project_labels", "pipeline_list", "pipeline_jobs", "gitlab_get", "branch_stack",
+  "evidence_record", "evidence_attach", "dev_endpoints",
 ];
 
 describe("rt mcp serve e2e", () => {

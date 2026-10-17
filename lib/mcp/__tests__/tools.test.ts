@@ -10,7 +10,7 @@ import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 
-const NAMES = ["gate_answer","gate_ask","gate_open","gate_reconcile","gate_record","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_update_note","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_enter","run_next","run_resolve","run_hold","run_close","run_budget","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_posted_since","mr_resolve_branch","respond_post_execute","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","branch_sync_sweep","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","herd_respawn","herd_gate_answer","herd_gate_park","herd_diagnose","herd_nudge","herd_lanes","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","ci_triage","pipeline_jobs","project_labels","pipeline_list","gitlab_get","branch_stack"];
+const NAMES = ["gate_answer","gate_ask","gate_open","gate_reconcile","gate_record","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_update_note","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_enter","run_next","run_resolve","run_hold","run_close","run_budget","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_posted_since","mr_resolve_branch","respond_post_execute","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","branch_sync_sweep","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","herd_respawn","herd_gate_answer","herd_gate_park","herd_diagnose","herd_nudge","herd_lanes","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","ci_triage","pipeline_jobs","project_labels","pipeline_list","gitlab_get","branch_stack","evidence_record","evidence_attach","dev_endpoints"];
 
 // Captured before any mock.module call, per the repo's convention (see
 // lib/__tests__/repo-locate-dispatch.test.ts): mock.module mutates the live
@@ -931,6 +931,16 @@ describe("mcpTools", () => {
       return calls;
     }
 
+    test("batch mr_upload refuses a label that resolves to a github.com repo, before the daemon", async () => {
+      setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fghapp", "/repos/ghapp");
+      const calls = fakeDaemon();
+      const tool = mcpTools().find((t) => t.name === "mr_upload")!;
+      const res = await tool.handler({ repoName: "ghapp", paths: ["/tmp/a.png"] }, {} as NodeJS.ProcessEnv);
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("GitLab only: mr_upload does not speak GitHub");
+      expect(calls).toEqual([]);
+    });
+
     test("a repo label resolves to the registered identity before the daemon call", async () => {
       setKvValue(REPO_INDEX_NS, APP, "/repos/app");
       const calls = fakeDaemon();
@@ -1160,11 +1170,11 @@ describe("mcpTools", () => {
       return calls;
     }
 
-    test("schema requires path, offers repoName and mrUrl, has no iid, forbids extras", () => {
+    test("schema requires nothing, offers path, paths, repoName and mrUrl, has no iid, forbids extras", () => {
       const schema = mcpTools().find((t) => t.name === "mr_upload")!.inputSchema as { required?: string[]; additionalProperties?: boolean; properties?: Record<string, unknown> };
-      expect(schema.required).toEqual(["path"]);
+      expect(schema.required ?? []).toEqual([]);
       expect(schema.additionalProperties).toBe(false);
-      expect(Object.keys(schema.properties ?? {}).sort()).toEqual(["mrUrl", "path", "repoName", "runId"]);
+      expect(Object.keys(schema.properties ?? {}).sort()).toEqual(["mrUrl", "path", "paths", "repoName", "runId"]);
     });
 
     test("runId rides the payload only when given, and a non-string runId is refused before the daemon", async () => {
@@ -1193,6 +1203,7 @@ describe("mcpTools", () => {
       const calls = fakeDaemon();
       const tool = mcpTools().find((t) => t.name === "mr_upload")!;
       expect((await tool.handler({ repoName: "remote:x" }, {} as NodeJS.ProcessEnv)).error).toBe('"path" is required');
+      expect((await tool.handler({ repoName: "remote:x", path: null }, {} as NodeJS.ProcessEnv)).error).toBe('"path" is required');
       expect((await tool.handler({ path: "/tmp/shot.png" }, {} as NodeJS.ProcessEnv)).error).toBe('pass "repoName" or "mrUrl"');
       expect(calls).toEqual([]);
     });
@@ -1221,6 +1232,65 @@ describe("mcpTools", () => {
       expect(tool.description).toContain("~/.mattstack/evidence/");
       expect(tool.description).toContain("png");
       expect(tool.description).toContain("50 MB");
+    });
+
+    describe("paths", () => {
+      const env = {} as NodeJS.ProcessEnv;
+      const upload = () => mcpTools().find((t) => t.name === "mr_upload")!;
+
+      test("both path and paths is refused before the daemon", async () => {
+        const calls = fakeDaemon();
+        const res = await upload().handler({ repoName: "remote:x", path: "/tmp/a.png", paths: ["/tmp/b.png"] }, env);
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain("not both");
+        expect(calls).toEqual([]);
+      });
+
+      test("zero and twenty-one paths are refused", async () => {
+        const calls = fakeDaemon();
+        const none = await upload().handler({ repoName: "remote:x", paths: [] }, env);
+        const many = await upload().handler({ repoName: "remote:x", paths: Array.from({ length: 21 }, (_, i) => `/tmp/s${i}.png`) }, env);
+        expect(none.ok).toBe(false);
+        expect(many.ok).toBe(false);
+        expect(calls).toEqual([]);
+      });
+
+      test("a relative entry is refused and named", async () => {
+        const calls = fakeDaemon();
+        const res = await upload().handler({ repoName: "remote:x", paths: ["/tmp/a.png", "rel/b.png"] }, env);
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain("rel/b.png");
+        expect(calls).toEqual([]);
+      });
+
+      test("a github.com target is refused with the shared refusal", async () => {
+        const calls = fakeDaemon();
+        const res = await upload().handler({ repoName: "github.com/acme/web", paths: ["/tmp/a.png"] }, env);
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain("GitLab only: mr_upload does not speak GitHub");
+        expect(calls).toEqual([]);
+      });
+
+      test("uploads in order, reports each item, and a timeout carries the hint without a retry", async () => {
+        let n = 0;
+        const calls = fakeDaemon(() => {
+          n += 1;
+          if (n === 2) return { ok: false, error: "rt daemon unreachable: The operation timed out." };
+          return { ok: true, data: { url: `https://gitlab.example.com/u/${n}.png`, markdown: `![${n}](/u/${n}.png)` } };
+        });
+        const res = await upload().handler({ repoName: "remote:x", paths: ["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"], runId: "run-1" }, env);
+        expect(res.ok).toBe(true);
+        const results = (res.body as { results: Array<Record<string, unknown>> }).results;
+        expect(results.map((r) => r.path)).toEqual(["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"]);
+        expect(results.map((r) => r.ok)).toEqual([true, false, true]);
+        expect(String(results[1]!.error)).toContain("retrying is safe");
+        expect(results[0]).toEqual({ path: "/tmp/a.png", ok: true, url: "https://gitlab.example.com/u/1.png", markdown: "![1](/u/1.png)" });
+        expect(calls.map((c) => c.payload)).toEqual([
+          { repoName: "remote:x", path: "/tmp/a.png", runId: "run-1" },
+          { repoName: "remote:x", path: "/tmp/b.png", runId: "run-1" },
+          { repoName: "remote:x", path: "/tmp/c.png", runId: "run-1" },
+        ]);
+      });
     });
 
     test("a missing file named timeout-error.png does not trigger the retry hint", async () => {
