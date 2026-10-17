@@ -48,12 +48,14 @@ Each page sorts its rows into up to three sections:
 
 **Your Mac** covers macOS, the Command Line Tools, PATH precedence, and three permissions: Full Disk Access, Login Items, and Notifications. Each permission row asks for it or opens the matching pane in System Settings.
 
-**Accounts** has one row for each integration your team or its packs use. That covers the team's GitHub or GitLab, plus Linear, Slack, StrongDM, and others when the team declares them. **Connect** opens a sheet with a **Create a token on GitLab…** (or GitHub) link to the forge's new-token page. The page opens with the scopes your role needs already checked and the token named `mattstack`:
+**Accounts** has one row for each integration your team or its packs use. That covers the team's GitHub or GitLab, plus Linear, Slack, StrongDM, and others when the team declares them. **Connect** opens a sheet with a **Create a token on GitLab…** (or GitHub) link to the forge's new-token page. The page opens with the scopes rt requires already checked and the token named `mattstack`:
 
 | Forge | Joining a team | Owning a team |
 |---|---|---|
 | GitLab | `api` | `api` |
 | GitHub (classic token) | `repo`, `read:org` | `repo`, `read:org` |
+
+On GitLab, rt requires only `api`. The link also pre-checks `read_api`, `read_user`, `read_repository`, `write_repository`, and `ai_features`.
 
 Paste the token and Connect. A pasted token missing a scope is refused, naming the scope it lacks; a token already stored that falls short shows as needing you, with the same Connect sheet. A GitLab member needs `api` because the board posts review comments and replies on merge requests as you. The GitHub row is ready without a token when the `gh` CLI is already signed in. The GitLab link targets GitLab 16 or newer.
 
