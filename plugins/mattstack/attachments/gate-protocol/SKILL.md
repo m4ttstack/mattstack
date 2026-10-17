@@ -1,6 +1,6 @@
 ---
 name: gate-protocol
-description: "Use when a gated pane or wrapper needs to publish a human decision point and carry it to an answer. Not for direct invocation; a gated verb includes this part."
+description: "Use when a gated pane or wrapper publishes a human decision point and carries it to an answer. Not for direct invocation; a gated verb includes this part."
 disable-model-invocation: true
 ---
 
@@ -145,9 +145,9 @@ not your own.
 
 ### Trigger: a site opened its gate with gate_open
 
-A site opening a structured gate calls `gate_open` itself and enters here;
-under a run that call has already written `gate` and, on `wait`, armed
-`waiting-gate`.
+A site opening a structured gate calls `gate_open` itself and enters here.
+Its result carries what `gate_ask`'s does (see gate_ask result?), and under
+a run it has already written `gate` and, on `wait`, armed `waiting-gate`.
 
 ### gate_ask result?
 
@@ -176,10 +176,10 @@ Form-only, with no other gate call: the answer is the decision (no CAS),
 The `paneAction: form` branch (older sites say the
 `presentation: "form"` branch). Show `formContext`, when present, in the
 pane before the first chunk, then ask `formChunks` in order, one
-AskUserQuestion call per chunk, rendering each chunk's `text`, labels and
-descriptions as given; answer once, after the last. Dismissed: another
-surface answered, and the doorbell is your next input. Cancelled: the gate
-stays open; never re-present it yourself.
+AskUserQuestion call per chunk, rendering each chunk as given; answer once,
+after the last. Dismissed: another surface answered, and the doorbell is
+your next input. Cancelled: the gate stays open; never re-present it
+yourself.
 
 ### Map the gate answer to exact option values
 
@@ -207,12 +207,12 @@ cancelled form or a spent remap.
 
 It re-reads the gate (up to 2 seconds), records the answer under a run and
 clears `waiting-gate`; never a timed `rt gate wait` or a hand record. Late
-means `alreadyReconciled`, a `skipped` naming a stale gate, or, with no run
-(which has no `alreadyReconciled`), a gate this pane already acted on.
-Otherwise `answered` is the decision, and words in hand lose to it. `open`
-with words: map them and let `gate_answer`'s CAS decide; with none, end the
-turn again (the wait and marker stand). A daemon-unreachable refusal takes
-the daemon-down branch, quoting it.
+means `alreadyReconciled`, a `skipped` naming a stale gate, or, with no run,
+a gate this pane already acted on. Otherwise `answered` is the decision, and
+words in hand lose to it. `open` with words: map them and let
+`gate_answer`'s CAS decide; with none, end the turn again (the wait and
+marker stand). A daemon-unreachable refusal takes the daemon-down branch,
+quoting it.
 
 ### A write-in to act on (actOnWriteIn)?
 
