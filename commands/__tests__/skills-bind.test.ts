@@ -1256,6 +1256,53 @@ describe("skillsBind --pipeline", () => {
     expect(JSON.parse(stripJsonc(readFileSync(fragmentPath, "utf8")))).toEqual(JSON.parse(stripJsonc(original)));
   }, 30_000);
 
+  describe("a stage named with its plugin prefix", () => {
+    async function bindBoth(argv: (stage: string) => string[], setup?: (f: ReturnType<typeof pipelinesFixture>) => Promise<void>) {
+      const results = [];
+      for (const stage of ["stage-evidence", "mattstack:stage-evidence"]) {
+        const f = pipelinesFixture(PLAIN_LIST_FRAGMENT);
+        await setup?.(f);
+        io.clear();
+        const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind([...argv(stage), ...f.args]));
+        expect(errors).toEqual([]);
+        expect(exitCode).toBeUndefined();
+        const local = (text: string) => text.replaceAll(f.root, "$ROOT");
+        results.push({
+          fragment: readFileSync(f.fragmentPath, "utf8"),
+          manifest: local(readFileSync(f.manifest, "utf8")),
+          copy: existsSync(join(f.pack, "attachments", "stage-evidence--accessibility")),
+          lines: io.lines().map(local),
+        });
+      }
+      expect(results[1]).toEqual(results[0]!);
+      return results[0]!;
+    }
+
+    test("--pipeline writes the same fragment and manifest as the bare name", async () => {
+      const r = await bindBoth((stage) => [stage, "domain", "acme:b", "--pipeline", "accessibility"]);
+      expect(JSON.parse(stripJsonc(r.fragment)).pipelines.accessibility.bindings).toEqual({ "mattstack:stage-evidence": { domain: "acme:b" } });
+      expect(r.copy).toBe(true);
+      expect(r.lines).toContain("[ok] accessibility: stage-evidence.domain  acme:evidence-b -> acme:b");
+    }, 30_000);
+
+    test("without --pipeline writes the same fragment and manifest as the bare name", async () => {
+      const r = await bindBoth((stage) => [stage, "domain", "acme:b"]);
+      expect(JSON.parse(stripJsonc(r.fragment)).bindings).toEqual({ "mattstack:stage-evidence": { domain: "acme:b" } });
+      expect(r.lines).toContain("[ok] stage-evidence.domain  acme:evidence-a -> acme:b");
+    }, 30_000);
+
+    test("--unset removes the override the bare name set", async () => {
+      const r = await bindBoth(
+        (stage) => [stage, "domain", "--pipeline", "accessibility", "--unset"],
+        async (f) => {
+          await runExpectingCleanExit(() => skillsBind(["stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", ...f.args]));
+        },
+      );
+      expect(JSON.parse(stripJsonc(r.fragment)).pipelines.accessibility).toEqual(PIPELINE_STAGES);
+      expect(r.copy).toBe(false);
+    }, 30_000);
+  });
+
   test("--dry-run --pipeline shows the pipeline's own fill and writes nothing", async () => {
     const { manifest, fragmentPath, args } = pipelinesFixture(PLAIN_LIST_FRAGMENT);
     const before = [readFileSync(manifest, "utf8"), readFileSync(fragmentPath, "utf8")];
@@ -1326,6 +1373,21 @@ describe("skillsBind --pipeline", () => {
     test("a copy name as the verb", async () => {
       const errors = await refused((args) => ["stage-evidence--accessibility", "domain", "acme:b", ...args]);
       expect(errors[0]).toContain("stage-evidence--accessibility is a compiled copy; bind stage-evidence --pipeline accessibility instead");
+    });
+
+    test("a copy name with the plugin prefix", async () => {
+      const errors = await refused((args) => ["mattstack:stage-evidence--accessibility", "domain", "acme:b", ...args]);
+      expect(errors[0]).toContain("stage-evidence--accessibility is a compiled copy; bind stage-evidence --pipeline accessibility instead");
+    });
+
+    test("a stage under the wrong plugin prefix", async () => {
+      const errors = await refused((args) => ["acme:stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", ...args]);
+      expect(errors[0]).toContain(`"acme:stage-evidence" names plugin acme, but stage-evidence comes from mattstack; bind stage-evidence or mattstack:stage-evidence`);
+    });
+
+    test("a roster verb with a plugin prefix", async () => {
+      const errors = await refused((args) => ["mattstack:work-a11y", "tiering", "mattstack:model-tiering", ...args]);
+      expect(errors[0]).toContain(`"mattstack:work-a11y": a roster verb takes no plugin prefix; bind work-a11y`);
     });
 
     test("--unset without --pipeline", async () => {
