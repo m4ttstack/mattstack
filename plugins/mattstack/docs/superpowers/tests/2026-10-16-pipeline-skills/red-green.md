@@ -248,3 +248,48 @@ fails on the missing `run_budget` call, not on a fourth round.
 Leak noted, kept: S5's scripted precheck result led all 5 RED reps to send
 `precheck: true` although today's text has no precheck. They still fail on
 `reuse` and the hand writes.
+
+## GREEN
+
+System files come from the working tree, built with `build-system-files.sh
+<checkout> <out-dir>`, using the same rep recipe and 5 reps per scenario,
+each read by hand. Each row names the rewrite it measures.
+
+### Task 2: gate-protocol on the run-aware gate tools
+
+gate-protocol is rewritten and its structured-context reference moves to
+`structured-context.md`. `stage-plan` is still today's text (Task 5 moves
+it), so S4 and S7 test the new protocol under the old stage file. Task 5
+re-runs them. The three scenarios ran twice: first on the rewrite, then on
+the final text, which puts back one mapping rule the first cut had dropped
+(on a multi `writeIn` question, "Other" text beside ticks rides as a note).
+Both runs scored the same, and the quotes below come from both. No rep hit
+an API error, and no refactor round was needed.
+
+| Scenario | RED | GREEN | Notes |
+|---|---|---|---|
+| S4 unattended wait | 0/5 | 5/5 | Every rep: `gate_ask {kind: "plan", runDb, stage: "plan", ...}`, one background `rt gate wait gt-5b19`, `holding at gate gt-5b19`, then `gate_reconcile {id: "gt-5b19", runDb, stage: "plan"}`. No AskUserQuestion, no hand-written `gate` or `waiting-gate`, no timed re-read. The runErrors reps (4-5) quote `waiting-gate: disk full` in one line and take the same path |
+| S7 daemon down, unattended | 5/5 | 5/5 | Regression guard only: RED already passed, so this row shows no regression, not that the rewrite helped. Every rep: `gate_ask` with `runDb` and `stage`, then `run_stage {action: "fail", stage: "plan", reason: "rt daemon unreachable at /home/dev/.mattstack/rt/rt.sock (connect ENOENT)"}`, no form. The hand-written `gate` bracket that every RED rep wrote is gone |
+| S8 no run, herdr pane | 0/5 | 5/5 | Every rep: `gate_ask` with no `runDb`, `stage` or `subject`, one background wait, `holding at gate gt-77b0`, then `gate_reconcile {id: "gt-77b0"}` on the doorbell, and acts on the board's answer. No `run_*` call anywhere, and no timed `rt gate wait` |
+
+Per rep:
+
+- S4 reps 1-3: "`gate_ask` arms `waiting-gate` itself on `wait`, so I make
+  no `run_field_set` for it" (rep 3); "I don't call `rt gate wait --timeout
+  2s`, because `gate_reconcile` is the one re-entry call" (rep 2).
+- S4 rep 4 (runErrors): "I quote the run error in one line ... I don't
+  re-ask the gate or write `waiting-gate` myself."
+- S4 rep 5 (runErrors): same path; "The stop hook may bounce the turn
+  because of the missing marker, but I still don't write the field."
+- Every S4 rep then acts on Proceed with today's stage-plan nodes
+  (`run_decision execution-strategy@1`, then the `approach` and
+  `evidence-plan` writes). No rep records a `gate@1` decision by hand: "I
+  make no gate@1 `run_decision`, because `gate_reconcile` already recorded
+  the plan gate" (second run, rep 3).
+- S7 reps 1-5: the same three calls. Rep 2 mistyped the runDb in its
+  `run_field_get` and `run_stage` as `/home/dev/.mattstack/rt/runs/...`
+  (its `gate_ask` had it right). That is a transcription slip, not a
+  protocol deviation, and the S7 criterion does not cover it.
+- S8 reps 1-5: "There is no `runDb` or `stage`, since there is no run"
+  (rep 1); "a timed wait would also be a second wait on a gate that
+  already has one running" (rep 2).
