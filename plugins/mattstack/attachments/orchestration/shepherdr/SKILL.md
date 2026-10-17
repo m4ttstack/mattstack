@@ -65,9 +65,10 @@ When nothing is inlined above, every default in this engine stands as written.
 When the section above is non-empty, follow it: it owns the pool
 question (asked once per herd, AFTER models are chosen), the per-spawn
 pick, and the exhaustion decision tree. Pass the account it picks as
-`account` on `herd_spawn` (`--account <A>` on a Bash spawn). Empty:
-single-account mode -- no account question, spawns omit the account, and
-workers launch as plain `claude`.
+`account` on `herd_spawn` or `herd_respawn`. The accounts already in use
+this herd are each job's `account` in `herd_status`, so the per-spawn pick
+never relies on memory. Empty: single-account mode -- no account question,
+spawns omit the account, and workers launch as plain `claude`.
 
 ## Start and spawn
 
@@ -105,7 +106,8 @@ digraph shepherdr_start {
     "STOP: fix the refusal; never copy the template or strategies file elsewhere" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Domain provisions the tree?" [shape=diamond];
     "herd_spawn {herd, job, brief, model, effort?, account?}" [shape=plaintext];
-    "rt herd spawn --herd <id> --job <job> --brief <brief> --model <model> --dir <its tree> [--account <A>]" [shape=plaintext]; // <!-- mcp-lint: allow -->
+    "herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}" [shape=plaintext];
+    "STOP: spawn only with herd_spawn" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Spawn result?" [shape=diamond];
     "STOP: never hand-roll a tree, a pane or a launch" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Shepherd off-script gate: ask the user" [shape=box];
@@ -148,9 +150,11 @@ digraph shepherdr_start {
     "Brief retries = 2?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
     "Fix what the refusal names" -> "herd_brief {job, template, strategy, strategies, fill, out}";
     "Domain provisions the tree?" -> "herd_spawn {herd, job, brief, model, effort?, account?}" [label="no: herd_spawn provisions"];
-    "Domain provisions the tree?" -> "rt herd spawn --herd <id> --job <job> --brief <brief> --model <model> --dir <its tree> [--account <A>]" [label="yes: its tree, its Bash line"]; // <!-- mcp-lint: allow -->
+    "Domain provisions the tree?" -> "herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}" [label="yes: its tree, by name"];
+    "Domain provisions the tree?" -> "STOP: spawn only with herd_spawn" [label="tempted to spawn from the shell"];
+    "STOP: spawn only with herd_spawn" -> "herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}";
     "herd_spawn {herd, job, brief, model, effort?, account?}" -> "Spawn result?";
-    "rt herd spawn --herd <id> --job <job> --brief <brief> --model <model> --dir <its tree> [--account <A>]" -> "Spawn result?"; // <!-- mcp-lint: allow -->
+    "herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}" -> "Spawn result?";
     "Spawn result?" -> "More jobs in this batch (cap 6)?" [label="ok"];
     "Spawn result?" -> "Shepherd off-script gate: ask the user" [label="error: quote it"];
     "Spawn result?" -> "STOP: never hand-roll a tree, a pane or a launch" [label="tempted to build the tree or pane yourself"];
@@ -221,8 +225,10 @@ carries both ("superpowers, opus" / "direct-tdd, sonnet").
 **Effort rides with the model, not as a question.** Take the effort from
 the bound tier table's row for the job, or from its escalation rule on a
 respawn; change it otherwise only when the user names a reason. Every spawn carries the chosen model and effort (`model` and
-`effort` on `herd_spawn`, `--model` and `--effort` on a Bash spawn); a spawn
-without them launches on the defaults and silently defeats tiering.
+`effort` on `herd_spawn`); a spawn without them launches on the defaults
+and silently defeats tiering. A respawn inherits model, effort and account
+from the job row; pass one only to change it (the tier table's escalation
+rule, the accounts rules' pick).
 
 **Domain hook -- model floor and strategy pin.** Unbound: both halves are
 open and the tier table's recommendation stands. A bound domain part may
@@ -380,12 +386,11 @@ owners; report the refusal, never work around it.
 
 **The domain-provisioned spawn.** Unbound, `herd_spawn` provisions the tree
 itself (branch `<job>`, disposal `job`). A bound domain part that owns
-provisioning provisions the tree its own way, then spawns in it with this
-Bash line in place of `herd_spawn` (the tool never takes a dir):
-
-```bash
-rt herd spawn --herd <id> --job <job> --brief <path-to-brief.md> --model <model> --dir <its tree> [--effort <effort>] [--account <A>]  # <!-- mcp-lint: allow -->
-```
+provisioning provisions the tree its own way, then passes the tree's
+registered name (the `tree` that `worktree_provision` returns) as `tree` on
+`herd_spawn`. Never a directory. `herd_spawn` admits only an rt ephemeral
+tree in state `claimed`; it refuses any other tree with its kind and state,
+and that refusal goes to the off-script gate.
 
 **Spawn facts.**
 
@@ -394,7 +399,7 @@ rt herd spawn --herd <id> --job <job> --brief <path-to-brief.md> --model <model>
 - `herd_spawn` provisions the tree, launches claude with the brief, signs the worker into the room, accepts the fresh-worktree trust dialog, and records the job.
 - A cold provision, when no on-deck tree is ready, can take minutes; tell the user it is provisioning.
 - **Stagger 4+ spawns**: spawn one, confirm it returned, spawn the next.
-- Agents never work in the user's checkout. Skip isolation only for read-only jobs or when the user explicitly says to work in place. The worker's directory must be a **linked worktree**; `herd_spawn` and a Bash spawn on an rt tree both satisfy this by construction.
+- Agents never work in the user's checkout. Skip isolation only for read-only jobs or when the user explicitly says to work in place. The worker's directory must be a **linked worktree**; `herd_spawn` satisfies this by construction.
 
 ## The watch loop
 
