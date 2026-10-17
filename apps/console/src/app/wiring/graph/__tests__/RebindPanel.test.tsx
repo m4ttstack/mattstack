@@ -594,6 +594,26 @@ const A11Y_EVIDENCE =
 const pipelines = (root: HTMLElement) =>
   within(root).getByRole('radiogroup', { name: 'Pick the pipeline to change' });
 
+/** The design composition with its accessibility evidence override set by `layer`. */
+function evidenceOverrideFrom(layer: string) {
+  const composition = designFixture('composition');
+  composition.binders = composition.binders.map(binder =>
+    binder.ref === 'mattstack:stage-evidence'
+      ? {
+          ...binder,
+          slots: binder.slots.map(slot => ({
+            ...slot,
+            overrides: slot.overrides?.map(override => ({
+              ...override,
+              layer,
+            })),
+          })),
+        }
+      : binder
+  );
+  return composition;
+}
+
 describe('the pipeline choice', () => {
   it("preselects the accessibility view's own pipeline on its evidence step", async () => {
     renderAt(A11Y_EVIDENCE);
@@ -686,6 +706,48 @@ describe('the pipeline choice', () => {
       await screen.findByText('Removed the accessibility override on domain')
     ).toBeInTheDocument();
     await waitFor(() => expect(params().get('rebind')).toBeNull());
+  });
+
+  it('says the view pipeline keeps its override when Default is rebound', async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+    await userEvent.click(
+      within(pipelines(root)).getByRole('radio', { name: 'Default' })
+    );
+    await userEvent.click(picker(root));
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^evidence-a11y/ })
+    );
+    await userEvent.click(within(root).getByRole('button', { name: 'Apply' }));
+
+    expect(await dialog()).toHaveTextContent(
+      'evidence will use evidence-a11y instead of evidence-policy by default. The accessibility pipeline keeps its own override. Nothing is shared until you sync.'
+    );
+  });
+
+  it("offers no Use default on another layer's override, naming that layer", async () => {
+    compositionGet.mockImplementation(() =>
+      Promise.resolve(ok(evidenceOverrideFrom('base:acme-base')))
+    );
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+
+    expect(
+      within(root).queryByRole('button', { name: 'Use default' })
+    ).toBeNull();
+    expect(within(root).getByTestId('rebind-override-layer')).toHaveTextContent(
+      'set by base: acme-base'
+    );
+  });
+
+  it("offers Use default on this pack's override, with no layer line", async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+
+    expect(
+      within(root).getByRole('button', { name: 'Use default' })
+    ).toBeInTheDocument();
+    expect(within(root).queryByTestId('rebind-override-layer')).toBeNull();
   });
 
   it('drops the picked fill when the pipeline changes', async () => {

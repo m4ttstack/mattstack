@@ -37,8 +37,17 @@ export type RebindChoices = {
   verb: string;
   /** The pipeline whose override a write sets; null writes the default. */
   pipeline: string | null;
-  /** Whether `pipeline` overrides this slot, so its override can be removed. */
+  /** Whether `pipeline` overrides this slot, at any layer. */
   overridden: boolean;
+  /** Whether that override is this pack's to remove. An override with no
+      layer counts, as rt lets an unset through on one. */
+  removable: boolean;
+  /** The layer, as a badge reads it, that sets an override this pack cannot
+      remove; null otherwise. */
+  overrideSetBy: string | null;
+  /** The view's pipeline when a write sets the default and that pipeline
+      keeps its own override of the slot; null otherwise. */
+  keptOverride: string | null;
   /** The slot's default fill, which a removed override falls back to; null
       when nothing is bound by default. */
   fallback: string | null;
@@ -205,7 +214,16 @@ export function rebindChoices(
   // pipeline is read through the stage it copies.
   const readAs = chosen !== undefined ? verb : skill;
   const binderSlot = binderSlotOf(composition, ref, slot);
-  const overridden = overrideOf(binderSlot ?? {}, pipeline) !== undefined;
+  const override = overrideOf(binderSlot ?? {}, pipeline);
+  const overrideLayer = override?.layer ?? null;
+  const removable =
+    override !== undefined &&
+    (overrideLayer === null || overrideLayer === 'pack');
+  const viewing = target?.pipeline ?? workType;
+  const keptOverride =
+    pipeline === null && overrideOf(binderSlot ?? {}, viewing) !== undefined
+      ? viewing
+      : null;
 
   const rosterVerb = composition.verbs.find(v => v.name === verb);
   const rebuilds = rosterVerb
@@ -267,7 +285,11 @@ export function rebindChoices(
     })),
     verb,
     pipeline,
-    overridden,
+    overridden: override !== undefined,
+    removable,
+    overrideSetBy:
+      overrideLayer !== null && !removable ? layerLabel(overrideLayer) : null,
+    keptOverride,
     fallback: binderSlot?.boundTo || null,
     rebuilds,
   };

@@ -118,9 +118,12 @@ export function RebindPanel({
     const was = choices.current
       ? `instead of ${suffixOf(choices.current)}`
       : `in its ${slot} slot`;
+    const kept = choices.keptOverride
+      ? ` by default. The ${choices.keptOverride} pipeline keeps its own override`
+      : '';
     modals.confirm({
       title: `Rebind the ${slot} slot?`,
-      message: `${step} will use ${suffixOf(fill)} ${was}${inPipeline}. Nothing is shared until you sync.`,
+      message: `${step} will use ${suffixOf(fill)} ${was}${inPipeline}${kept}. Nothing is shared until you sync.`,
       labels: { confirm: 'Apply' },
       onConfirm: () =>
         guardedWrite(queryClient, pack, () => {
@@ -145,7 +148,7 @@ export function RebindPanel({
   };
 
   const clearOverride = () => {
-    if (!pipeline || !choices.overridden || writing) return;
+    if (!pipeline || !choices.removable || writing) return;
     const override = choices.current ? suffixOf(choices.current) : 'unbound';
     const then = choices.fallback
       ? `uses the default fill, ${suffixOf(choices.fallback)},`
@@ -385,7 +388,18 @@ export function RebindPanel({
         </Code>
       )}
       <Group gap={8} justify="flex-end">
-        {pipeline && choices.overridden && (
+        {pipeline && choices.overrideSetBy && (
+          <Text
+            fz={11}
+            lh="normal"
+            c={MUTED}
+            className={classes.useDefault}
+            data-testid="rebind-override-layer"
+          >
+            set by {choices.overrideSetBy}
+          </Text>
+        )}
+        {pipeline && choices.removable && (
           <Button
             variant="card-outline"
             size="xs"

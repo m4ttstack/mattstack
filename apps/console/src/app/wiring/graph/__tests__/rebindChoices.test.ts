@@ -299,6 +299,58 @@ describe('rebindChoices for a chosen pipeline', () => {
     });
   });
 
+  it("lets this pack's override be removed", () => {
+    expect(evidence('accessibility')).toMatchObject({
+      removable: true,
+      overrideSetBy: null,
+    });
+  });
+
+  it("keeps another layer's override, naming the layer", () => {
+    expect(
+      rebindChoices(
+        overrideLayered('base:acme-base'),
+        'stage-evidence',
+        'mattstack:stage-evidence',
+        'domain',
+        'accessibility',
+        'accessibility'
+      )
+    ).toMatchObject({
+      overridden: true,
+      removable: false,
+      overrideSetBy: 'base: acme-base',
+    });
+  });
+
+  it('lets an override with no layer be removed, as rt does', () => {
+    expect(
+      rebindChoices(
+        overrideLayered(null),
+        'stage-evidence',
+        'mattstack:stage-evidence',
+        'domain',
+        'accessibility',
+        'accessibility'
+      )
+    ).toMatchObject({ removable: true, overrideSetBy: null });
+  });
+
+  it('names the view pipeline that keeps its override when Default is chosen', () => {
+    expect(evidence(null)).toMatchObject({ keptOverride: 'accessibility' });
+    expect(evidence('accessibility')).toMatchObject({ keptOverride: null });
+    expect(
+      rebindChoices(
+        composition,
+        'stage-evidence',
+        'mattstack:stage-evidence',
+        'domain',
+        'feature',
+        null
+      )
+    ).toMatchObject({ keptOverride: null });
+  });
+
   it('use default on a copy targets its engine and pipeline', () => {
     expect(
       rebindChoices(
@@ -316,6 +368,26 @@ describe('rebindChoices for a chosen pipeline', () => {
     });
   });
 });
+
+/** The design fixture with its accessibility evidence override set by `layer`. */
+function overrideLayered(layer: string | null) {
+  const composition = designFixture('composition');
+  composition.binders = composition.binders.map(binder =>
+    binder.ref === 'mattstack:stage-evidence'
+      ? {
+          ...binder,
+          slots: binder.slots.map(slot => ({
+            ...slot,
+            overrides: slot.overrides?.map(override => ({
+              ...override,
+              layer,
+            })),
+          })),
+        }
+      : binder
+  );
+  return composition;
+}
 
 /** stage-plan with extra slots of its own, each bound to the given fill. */
 function withOwnSlots(slots: Record<string, string>) {
