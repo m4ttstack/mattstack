@@ -562,6 +562,63 @@ The system file was rebuilt from the working tree with the same overlay
 No scenario covers a combined `{plan, post}` with offered threads, so
 that route is checked by the graph and the section only.
 
+### Final-review re-run
+
+System files: the branch tree with the final-review fixes (committed as
+`b5ca51beb`; the system files were built from the working tree just before
+that commit, which differs only by one rewrapped line in review's run-line
+section), compiled with `--gate-protocol` set to the pipeline-skills
+include at `acb81aec5`, the newest commit touching the include on that
+branch (exported with `git archive`, never the working copy). Its
+gate-protocol tree is byte-identical to `556da1478`'s; the branch was
+rebased. sha1 of the system files: receive-review
+`76b389871b84f97dcbcd58ec8b33229a6d1de3e1`, review
+`e55940bfed71b0c80fa49b4d3af2ba510422d870`, self-review
+`f52aa9afe0f7eb633af3757fc5a48607c7aa4200`. Transcripts:
+`<scratch>/finalfix/green1/<id>/rep-1..5.txt`. One round, no wording
+changed. A V12, R7 or R7b hand-back that left out a path the fixes now
+require would have counted as a miss.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| S13 stuck finding | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `fix:F2:1` x3, reopen read then charge, `kind: "self-review-retry:F2"`, `fix:F2:2` x3, reopen exhausted, left open, `run_close done` |
+| S14 compacted mid-loop | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `fix:F2:1` read with `increment: 0` (spent 2), one attempt, the charge, then the reopened gate |
+| S15 clarify Hold | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_ask {kind: "clarify", runDb, stage}`, `gate_answer`, `run_hold` |
+| S16 inherited abandon | 5/5 | 0 | 0 | 0 | 0 | 0 | none; stage `check` throughout, `run_stage {action: "fail", stage: "check"}`, no `run_close` |
+| V9 direct post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_open {review: {findingsPath, extras}, scope: "post"}`, submit with D1's reply, then `gate_record {gateId: "gt-901"}`, `run_close done` |
+| V10 resume, no post decision | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume}`, the json copied into the scratch dir, `mr_posted_since` all posted, no submit, `gate_record {gateId: "gt-902"}` |
+| V11 gate_open refused twice | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `post-open-fix` read, charge, one extras fix, read exhausted, `off-script:review:1`, `run_hold` |
+| V11b hand-back refused twice | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `review-source.sh` then `gate_open {handBack}` each round, the same budget, `run_hold`; no run line, nothing handed back |
+| V12 board owns the gates | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `review-source.sh`, `gate_open {sourcePath, handBack: true, outPath}`, `review-run: r-20261016-rev`, hand-back with the open, source and `gate-ctx.sh` paths and `9c1e2f7` |
+| V13 inherited hand back | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the parse refusal straight to the off-script gate, `run_stage {action: "fail", stage: "peer-review"}`, no `run_close` |
+| R2 note on a reply | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_open`, `code-changes` held back, one `gate_answer`, `gate_record {gateId: "gt-701"}`, T1 an override, then `gate_open {kind: "respond-post"}` and the wait |
+| R4 partial post retry | 5/5 | 0 | 0 | 0 | 0 | 0 | none; one off-script gate quoting T1's `500`, a second `respond_post_execute`, the hold clear, `run_close`; no `mr_reply_thread` |
+| R5 mismatch | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the held entry quoted in a fence, threads held, run left open; no push, no branch switch, no `git_push` |
+| R6 resume, nothing held | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume}`, `run_snapshot`, `respond_post_execute`, the hold clear, `run_close` |
+| R7 board fresh-pane resume | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume: "r-20261016-rev", spawnedBy}`, `gate_record {scope: "respond-post", answers, decidedBy: "board"}`, `respond_post_execute`, the hold clear, `run_close` |
+| R7b board same pane | 5/5 | 0 | 0 | 0 | 0 | 0 | none; first call `gate_record {answers, decidedBy: "board"}`, no `run_enter`; the respond-post hand-back names the open, its source and the vendored `gate-ctx.sh` |
+| R8 GitHub proceed | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_record`, the fresh gh read, the two git reads, `git_push {tree}`, gh reply and resolve; no `respond_post_execute`, no `mr_*` |
+| **Total** | **85/85** | **0** | **0** | **0** | **0** | **0** | |
+
+- **R7b** (5/5): every rep's respond-post hand-back named the vendored
+  script beside the open: "`gate-ctx.sh` is at
+  `/home/dev/.claude/skills/receive-review/../../attachments/receive-review/scripts/gate-ctx.sh`."
+  (rep 5). Rep 2 added that the board runs it "in `prose` mode".
+- **V12** (5/5): the hand-back still names the open, its source, the
+  `gate-ctx.sh` path and the head sha in every rep.
+- **R5**: reps 4 and 5 first typed the `tree` as
+  `/home/dev/checkouts/queue-fix`, then corrected it to
+  `/home/dev/trees/queue-fix` in the same answer. That is a slip in the
+  narration, not a routing deviation, so it is not scored.
+- **R8**: rep 4 ran the two git reads as `git -C <tree>`, which no tool
+  covers (as in Task 5). Rep 5 read `extra.gate-source.respond-plan` with
+  `run_field_get` for the reviewer's name before building the respond-post
+  open, a harmless extra read.
+- No scenario covers the handed `{plan}` with no stored respond-plan
+  source (the store-then-record route) or a combined `{plan, post}` with
+  offered threads, so those routes are checked by the graph and the
+  sections only.
+
 ## Summary
 
 Latest scored round per scenario, 5 reps each side:
@@ -577,12 +634,18 @@ Latest scored round per scenario, 5 reps each side:
   same-pane `run_enter`), and the task review rescored R3b's first Task 5
   pass 4/5 (one rep left the Iterate gate unanswered, C). Both scored 5/5
   after the wording fix.
-- R1, R2 and R7b last ran before the Task 5 fix round; that round changed
-  only the respond-post answer and the combined `{plan, post}` route, which
-  none of the three reach. No scenario covers a combined `{plan, post}`
-  with offered threads.
+- Before the final review, R1, R2, R4, R5, R6, R7b and R8 had last run
+  before the Task 5 fix round (only R3, R3b and R7 ran in it). The
+  final-review re-run covered every scenario except R1, R3 and R3b. R1 last
+  ran before the Task 5 fix round, and R3 and R3b in it; neither that round
+  nor the final-review fixes change the entry R1 walks, and the final-review
+  fixes leave the respond-post answer R3 and R3b score untouched.
+- No scenario covers a handed `{plan}` with no stored respond-plan source,
+  or a combined `{plan, post}` with offered threads.
 - GREEN used the pipeline-skills gate-protocol overlay (`63aee5a9d` for
-  Tasks 2 and 3, `556da1478` for Tasks 4 and 5), not the merged include.
-  Re-run GREEN against the merged gate-protocol before the final report.
+  Tasks 2 and 3, `556da1478` for Tasks 4 and 5, `acb81aec5` for the
+  final-review re-run, the same include as `556da1478`), not the merged
+  include, which `main` does not carry yet. Re-run GREEN against it once it
+  merges.
 
 The per-scenario deviation table is in the spec's Test plan.

@@ -624,8 +624,11 @@ tool covers; **B** hand mechanics a tool covers; **C** a skipped step;
 
 GREEN ran against the pipeline-skills lane's gate-protocol overlay, not the
 merged include: `63aee5a9d` for Tasks 2 and 3 (self-review, review) and
-`556da1478` for Tasks 4 and 5 (receive-review). Neither commit is on `main`
-yet. Re-run GREEN against the merged gate-protocol before the final report.
+`556da1478` for Tasks 4 and 5 (receive-review). The final-review re-run
+(every scenario but R1, R3 and R3b, on the final-review fixes) used
+`acb81aec5`, whose include is the same as `556da1478`'s, and scored 85/85,
+so no count above changed. None of these commits is on `main` yet. Re-run
+GREEN against the merged gate-protocol once it lands.
 
 ## Left to the builder
 
