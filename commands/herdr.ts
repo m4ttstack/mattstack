@@ -4,7 +4,7 @@
  */
 import type { CommandContext } from "../lib/command-tree.ts";
 import { UserActionableError } from "../lib/errors.ts";
-import { startHerdr, type HerdrStartResult } from "../lib/herdr/start.ts";
+import { HERDR_NOT_INSTALLED, startHerdr, type HerdrStartResult } from "../lib/herdr/start.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import * as out from "../lib/ui/out.ts";
 
@@ -25,7 +25,7 @@ export async function herdrStart(
   if (result.state === "running") return void out.print(out.line("running", "herdr is running"));
   if (result.state === "started") return void out.print(out.line("done", "Started herdr"));
   if (result.state === "not-installed") {
-    throw new UserActionableError("herdr-not-installed", "herdr isn't installed", {}, { next: "Open mattstack Setup" });
+    throw new UserActionableError("herdr-not-installed", HERDR_NOT_INSTALLED);
   }
   throw new UserActionableError("herdr-start-failed", result.detail);
 }

@@ -37,8 +37,8 @@ describe("rt herdr start", () => {
   test("not installed throws a failure pointing at Setup", async () => {
     const err = await herdrStart([], {}, fake({ state: "not-installed", bin: "/opt/acme/herdr" })).catch((e) => e);
     expect(err).toBeInstanceOf(UserActionableError);
-    expect((err as UserActionableError).message).toBe("herdr isn't installed");
-    expect((err as UserActionableError).next).toBe("Open mattstack Setup");
+    expect((err as UserActionableError).message).toBe("herdr isn't installed. Open mattstack Setup to install it");
+    expect((err as UserActionableError).next).toBeUndefined();
   });
 
   test("a failed start throws its detail", async () => {
