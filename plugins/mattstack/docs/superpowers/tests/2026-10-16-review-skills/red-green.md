@@ -619,6 +619,63 @@ require would have counted as a miss.
   offered threads, so those routes are checked by the graph and the
   sections only.
 
+### Trim pass: self-review
+
+System files: the branch tree with the trimmed self-review (committed as
+`4a9fa8d12`, built from the working tree just before that commit),
+compiled with `--gate-protocol` set to the pipeline-skills include at
+`169e0667b`, the newest commit touching the include on that branch
+(exported with `git archive`, never the working copy). sha1 of the scored
+self-review system file: `12b9d27f142749d39132810160aa37c05fda93b6`.
+Transcripts: `<scratch>/trim-self-review/green1/` (round 1) and
+`<scratch>/trim-self-review/green2/` (round 2), `<id>/rep-1..5.txt`.
+
+| | Source words | Compiled words |
+|---|---|---|
+| main (`1cb4ba5da`, no overlay) | | 12086 |
+| before the trim (`065104940`, overlay `169e0667b`) | 4203 | 9551 |
+| after the trim | 3593 | 8941 (target 9064, -26% on main) |
+
+Budget convention: the controller's trim ruling supersedes the plan's
+Global Constraints budget line for this skill. `reopen:<finding id>` goes
+from limit 1 to limit 2 and is charged on reaching the stuck point (the
+first charge opens the reopened gate, the second leaves the finding open),
+replacing the `increment: 0` read and the separate charge. The diamonds
+are renamed `fix:<finding id>:<round> spent?` and `reopen:<finding id>
+spent?`; no board wrapper or pack names either.
+
+Round 1 scored S13 4/5, S14 5/5, S15 4/5, S16 3/5. Every miss was one B
+deviation: a `run_field_set {key: gate}` bracket and a hand `run_decision`
+gate line, citing gate-protocol's `Sites not yet on the tools` list, which
+names self-review from `169e0667b` on: "Self-review isn't on the gate
+tools yet, so it still draws this bracket." (S13 rep 4). The same
+pre-trim file against `169e0667b` scored 0 such reps in 10 (S15, S16), so
+the trim had weakened the guard. Round 2 adds a prohibition to the Run
+section (this verb is on the tools, so that line does not apply) and a
+red-flag row.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| S13 stuck finding | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `fix:F2:1` x3, `reopen:F2` charge (spent 1), `kind: "self-review-retry:F2"`, `fix:F2:2` x3, `reopen:F2` exhausted, left open, `run_close done` |
+| S14 compacted mid-loop | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `fix:F2:1` read with `increment: 0` (spent 2), one attempt, the charge, `reopen:F2` (spent 1), the reopened gate, left open |
+| S15 clarify Hold | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_ask {kind: "clarify", runDb, stage}`, `gate_answer`, `run_hold`; no bracket, no `run_decision` |
+| S16 inherited abandon | 5/5 | 0 | 0 | 0 | 0 | 0 | none; stage `check` throughout, `run_stage {action: "fail", stage: "check"}`, no `run_close` |
+| **Total** | **20/20** | **0** | **0** | **0** | **0** | **0** | round 2 |
+
+- **S13** (5/5): "I draw no `run_field_set {key: gate}` bracket and no
+  `run_decision` line, because the gate tools record the gate." (rep 5).
+  Every rep charged `reopen:F2` once per stuck point and opened no second
+  gate.
+- **S14** (5/5): every rep read first and charged only the fresh failure:
+  "I don't know whether the pre-compaction failure was already charged,
+  so I only read the count here." (rep 5). Rep 1 also read `run_snapshot`,
+  a harmless extra read.
+- **S15** (5/5): rep 2's closing line says "I print the depth block, run
+  no checks" while listing no depth block among its calls; a slip in the
+  narration, not scored.
+- **S16** (5/5): "I make no `run_decision` call and no `run_field_set
+  {key: gate}` call, because this verb is on the gate tools." (rep 5).
+
 ## Summary
 
 Latest scored round per scenario, 5 reps each side:
