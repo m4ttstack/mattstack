@@ -23,40 +23,40 @@ end a failure with `run_stage {action: fail, stage: "plan", reason}`.
 digraph plan {
     rankdir=TB;
 
-    "Plan stage entered" [shape=ellipse];
-    "run_field_get {key: ticket}" [shape=plaintext];
-    "Read the ticket" [shape=box];
-    "Next move after reading the ticket?" [shape=diamond];
-    "STOP: no code, no file, no implementer dispatch before the printed block" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Pick the tier" [shape=box];
-    "Print the triage block" [shape=box];
-    "Gate plan (table below)" [shape=box];
-    "plan answer?" [shape=diamond];
-    "run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}" [shape=plaintext];
-    "run_field_set {key: approach, value: <the recorded tier>, stage: plan}" [shape=plaintext];
-    "run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}" [shape=plaintext];
-    "Hand the Go back answer to the orchestrator" [shape=doublecircle];
-    "run_hold {runDb, stage: plan, reason, decidedBy}" [shape=plaintext];
-    "Held: end the turn naming run and stage" [shape=doublecircle];
-    "Plan done: return to the orchestrator" [shape=doublecircle style=filled fillcolor=lightgreen];
+    plan_entered [label="Plan stage entered" shape=ellipse];
+    run_field_get_ticket [label="run_field_get {key: ticket}" shape=plaintext];
+    read_ticket [label="Read the ticket" shape=box];
+    next_move_after_ticket [label="Next move after reading the ticket?" shape=diamond];
+    stop_code_before_triage [label="STOP: no code, no file, no implementer dispatch before the printed block" shape=octagon style=filled fillcolor=red fontcolor=white];
+    pick_tier [label="Pick the tier" shape=box];
+    print_triage_block [label="Print the triage block" shape=box];
+    gate_plan [label="Gate plan (table below)" shape=box];
+    plan_answer [label="plan answer?" shape=diamond];
+    run_decision_strategy [label="run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}" shape=plaintext];
+    run_field_set_approach [label="run_field_set {key: approach, value: <the recorded tier>, stage: plan}" shape=plaintext];
+    run_field_set_evidence_plan [label="run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}" shape=plaintext];
+    hand_back_go_back [label="Hand the Go back answer to the orchestrator" shape=doublecircle];
+    run_hold [label="run_hold {runDb, stage: plan, reason, decidedBy}" shape=plaintext];
+    held_end_turn [label="Held: end the turn naming run and stage" shape=doublecircle];
+    plan_done [label="Plan done: return to the orchestrator" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Plan stage entered" -> "run_field_get {key: ticket}";
-    "run_field_get {key: ticket}" -> "Read the ticket";
-    "Read the ticket" -> "Next move after reading the ticket?";
-    "Next move after reading the ticket?" -> "Pick the tier" [label="triage: pick the tier"];
-    "Next move after reading the ticket?" -> "STOP: no code, no file, no implementer dispatch before the printed block" [label="tempted to start on the code"];
-    "STOP: no code, no file, no implementer dispatch before the printed block" -> "Pick the tier";
-    "Pick the tier" -> "Print the triage block";
-    "Print the triage block" -> "Gate plan (table below)";
-    "Gate plan (table below)" -> "plan answer?";
-    "plan answer?" -> "run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}" [label="proceed"];
-    "plan answer?" -> "Read the ticket" [label="iterate: re-read with their note"];
-    "plan answer?" -> "Hand the Go back answer to the orchestrator" [label="go back"];
-    "plan answer?" -> "run_hold {runDb, stage: plan, reason, decidedBy}" [label="hold"];
-    "run_hold {runDb, stage: plan, reason, decidedBy}" -> "Held: end the turn naming run and stage";
-    "run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}" -> "run_field_set {key: approach, value: <the recorded tier>, stage: plan}";
-    "run_field_set {key: approach, value: <the recorded tier>, stage: plan}" -> "run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}";
-    "run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}" -> "Plan done: return to the orchestrator";
+    plan_entered -> run_field_get_ticket;
+    run_field_get_ticket -> read_ticket;
+    read_ticket -> next_move_after_ticket;
+    next_move_after_ticket -> pick_tier [label="triage: pick the tier"];
+    next_move_after_ticket -> stop_code_before_triage [label="tempted to start on the code"];
+    stop_code_before_triage -> pick_tier;
+    pick_tier -> print_triage_block;
+    print_triage_block -> gate_plan;
+    gate_plan -> plan_answer;
+    plan_answer -> run_decision_strategy [label="proceed"];
+    plan_answer -> read_ticket [label="iterate: re-read with their note"];
+    plan_answer -> hand_back_go_back [label="go back"];
+    plan_answer -> run_hold [label="hold"];
+    run_hold -> held_end_turn;
+    run_decision_strategy -> run_field_set_approach;
+    run_field_set_approach -> run_field_set_evidence_plan;
+    run_field_set_evidence_plan -> plan_done;
 }
 ```
 

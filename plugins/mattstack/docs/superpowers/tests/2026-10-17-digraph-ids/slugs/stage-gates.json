@@ -1,0 +1,12 @@
+{
+  "Gates stage entered": "gates_entered",
+  "Domain rules inlined?": "domain_rules_inlined",
+  "Say in one line there are no domain gates": "say_no_gates",
+  "STOP: never invent a gate": "stop_invented_gate",
+  "Apply every triggered pre-implementation gate": "apply_triggered_gates",
+  "run_field_set {key: extra.gates, value: <the gates that fired>, stage: gates}": "run_field_set_gates",
+  "Any gate failed?": "any_gate_failed",
+  "run_stage {action: fail, stage: gates, reason}": "run_stage_fail",
+  "Stage failed": "stage_failed",
+  "Gates done: return to the orchestrator": "gates_done"
+}

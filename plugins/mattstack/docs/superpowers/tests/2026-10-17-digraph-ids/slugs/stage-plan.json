@@ -1,0 +1,18 @@
+{
+  "Plan stage entered": "plan_entered",
+  "run_field_get {key: ticket}": "run_field_get_ticket",
+  "Read the ticket": "read_ticket",
+  "Next move after reading the ticket?": "next_move_after_ticket",
+  "STOP: no code, no file, no implementer dispatch before the printed block": "stop_code_before_triage",
+  "Pick the tier": "pick_tier",
+  "Print the triage block": "print_triage_block",
+  "Gate plan (table below)": "gate_plan",
+  "plan answer?": "plan_answer",
+  "run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}": "run_decision_strategy",
+  "run_field_set {key: approach, value: <the recorded tier>, stage: plan}": "run_field_set_approach",
+  "run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}": "run_field_set_evidence_plan",
+  "Hand the Go back answer to the orchestrator": "hand_back_go_back",
+  "run_hold {runDb, stage: plan, reason, decidedBy}": "run_hold",
+  "Held: end the turn naming run and stage": "held_end_turn",
+  "Plan done: return to the orchestrator": "plan_done"
+}

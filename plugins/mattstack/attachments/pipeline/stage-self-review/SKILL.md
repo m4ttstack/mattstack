@@ -24,38 +24,38 @@ The orchestrator owns this stage's rows: read consumes with
 digraph self_review {
     rankdir=TB;
 
-    "Self-review stage entered" [shape=ellipse];
-    "run_field_get {key: commits}" [shape=plaintext];
-    "Domain rules inlined?" [shape=diamond];
-    "Follow the domain review" [shape=box];
-    "Dispatch one fresh-context reviewer over the diff" [shape=box];
-    "Blocking findings?" [shape=diamond];
-    "run_budget {key: review-rounds, limit: 3, stage: self-review}" [shape=plaintext];
-    "Review rounds = 3?" [shape=diamond];
-    "Fix each blocking finding test-first, commit" [shape=box];
-    "git log --format=%h <branch-point>..HEAD" [shape=plaintext];
-    "run_field_set {key: commits, value: <all shas, fixes included>, stage: self-review}" [shape=plaintext];
-    "run_field_set {key: review, value: <verdict; findings fixed or waived>, stage: self-review}" [shape=plaintext];
-    "run_stage {action: fail, stage: self-review, reason: blocking findings after 3 rounds}" [shape=plaintext];
-    "Stage failed" [shape=doublecircle];
-    "Self-review done: return to the orchestrator" [shape=doublecircle style=filled fillcolor=lightgreen];
+    self_review_entered [label="Self-review stage entered" shape=ellipse];
+    run_field_get_commits [label="run_field_get {key: commits}" shape=plaintext];
+    domain_rules_inlined [label="Domain rules inlined?" shape=diamond];
+    follow_domain_review [label="Follow the domain review" shape=box];
+    dispatch_reviewer [label="Dispatch one fresh-context reviewer over the diff" shape=box];
+    blocking_findings [label="Blocking findings?" shape=diamond];
+    run_budget_review_rounds [label="run_budget {key: review-rounds, limit: 3, stage: self-review}" shape=plaintext];
+    review_rounds_spent [label="Review rounds = 3?" shape=diamond];
+    fix_blocking_findings [label="Fix each blocking finding test-first, commit" shape=box];
+    git_log_shas [label="git log --format=%h <branch-point>..HEAD" shape=plaintext];
+    run_field_set_commits [label="run_field_set {key: commits, value: <all shas, fixes included>, stage: self-review}" shape=plaintext];
+    run_field_set_review [label="run_field_set {key: review, value: <verdict; findings fixed or waived>, stage: self-review}" shape=plaintext];
+    run_stage_fail [label="run_stage {action: fail, stage: self-review, reason: blocking findings after 3 rounds}" shape=plaintext];
+    stage_failed [label="Stage failed" shape=doublecircle];
+    self_review_done [label="Self-review done: return to the orchestrator" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Self-review stage entered" -> "run_field_get {key: commits}";
-    "run_field_get {key: commits}" -> "Domain rules inlined?";
-    "Domain rules inlined?" -> "Follow the domain review" [label="yes"];
-    "Domain rules inlined?" -> "Dispatch one fresh-context reviewer over the diff" [label="no"];
-    "Follow the domain review" -> "Blocking findings?";
-    "Dispatch one fresh-context reviewer over the diff" -> "Blocking findings?";
-    "Blocking findings?" -> "run_field_set {key: review, value: <verdict; findings fixed or waived>, stage: self-review}" [label="no"];
-    "Blocking findings?" -> "run_budget {key: review-rounds, limit: 3, stage: self-review}" [label="yes"];
-    "run_budget {key: review-rounds, limit: 3, stage: self-review}" -> "Review rounds = 3?";
-    "Review rounds = 3?" -> "Fix each blocking finding test-first, commit" [label="no: not exhausted"];
-    "Review rounds = 3?" -> "run_stage {action: fail, stage: self-review, reason: blocking findings after 3 rounds}" [label="yes: exhausted, or a budget error"];
-    "Fix each blocking finding test-first, commit" -> "git log --format=%h <branch-point>..HEAD";
-    "git log --format=%h <branch-point>..HEAD" -> "run_field_set {key: commits, value: <all shas, fixes included>, stage: self-review}";
-    "run_field_set {key: commits, value: <all shas, fixes included>, stage: self-review}" -> "Domain rules inlined?" [label="review again"];
-    "run_field_set {key: review, value: <verdict; findings fixed or waived>, stage: self-review}" -> "Self-review done: return to the orchestrator";
-    "run_stage {action: fail, stage: self-review, reason: blocking findings after 3 rounds}" -> "Stage failed";
+    self_review_entered -> run_field_get_commits;
+    run_field_get_commits -> domain_rules_inlined;
+    domain_rules_inlined -> follow_domain_review [label="yes"];
+    domain_rules_inlined -> dispatch_reviewer [label="no"];
+    follow_domain_review -> blocking_findings;
+    dispatch_reviewer -> blocking_findings;
+    blocking_findings -> run_field_set_review [label="no"];
+    blocking_findings -> run_budget_review_rounds [label="yes"];
+    run_budget_review_rounds -> review_rounds_spent;
+    review_rounds_spent -> fix_blocking_findings [label="no: not exhausted"];
+    review_rounds_spent -> run_stage_fail [label="yes: exhausted, or a budget error"];
+    fix_blocking_findings -> git_log_shas;
+    git_log_shas -> run_field_set_commits;
+    run_field_set_commits -> domain_rules_inlined [label="review again"];
+    run_field_set_review -> self_review_done;
+    run_stage_fail -> stage_failed;
 }
 ```
 
