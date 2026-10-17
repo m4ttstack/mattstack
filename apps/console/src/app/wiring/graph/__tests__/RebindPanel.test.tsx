@@ -50,7 +50,11 @@ vi.mock('../../../api', () => ({
               ok(
                 query.skill === 'work'
                   ? designFixture('anatomy.work')
-                  : designFixture('anatomy.stage-plan')
+                  : query.skill === 'work-a11y'
+                    ? designFixture('anatomy.work-a11y')
+                    : query.skill === 'stage-evidence--accessibility'
+                      ? designFixture('anatomy.stage-evidence--accessibility')
+                      : designFixture('anatomy.stage-plan')
               )
             ),
         },
@@ -334,6 +338,86 @@ describe('RebindPanel', () => {
     await waitFor(() => expect(params().get('rebind')).toBeNull());
     expect(params().get('select')).toBe('row:136');
     expect(screen.queryByTestId('rebind-panel')).toBeNull();
+  });
+
+  it("writes the accessibility pipeline's own binding from its evidence step", async () => {
+    renderAt(
+      '?tab=graph&focus=stage-evidence@accessibility&select=row:299&rebind=1'
+    );
+    const root = await panel();
+
+    expect(
+      within(root)
+        .getAllByTestId('rebind-fact')
+        .map(fact => fact.textContent)
+    ).toEqual([
+      'contractevidence-domain@1',
+      'set bythis pack',
+      'requiredno',
+      'pipelineaccessibility',
+    ]);
+    expect(within(root).getByTestId('rebind-current')).toHaveTextContent(
+      'evidence-a11ynow'
+    );
+
+    await userEvent.click(picker(root));
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^evidence-policy/ })
+    );
+    expect(within(root).getByTestId('rebind-command')).toHaveTextContent(
+      'rt skills bind stage-evidence domain acme:evidence-policy --pipeline accessibility --pack acme' +
+        "Writes the accessibility pipeline's own binding in this pack, then rebuilds its evidence step. Nothing is shared until you sync."
+    );
+
+    await confirmApply(root);
+    await waitFor(() =>
+      expect(bindPost).toHaveBeenCalledWith({
+        json: {
+          pack: 'acme',
+          verb: 'stage-evidence',
+          slot: 'domain',
+          fill: 'acme:evidence-policy',
+          pipeline: 'accessibility',
+        },
+      })
+    );
+  });
+
+  it("writes the default for the accessibility lead's own tiering slot", async () => {
+    const composition = designFixture('composition');
+    composition.fills = [
+      ...composition.fills,
+      {
+        binding: 'acme:tiering-lite',
+        provides: 'model-tiering@1',
+        sourcePath: '/fixture/packs/acme/attachments/tiering-lite/SKILL.md',
+        registered: false,
+      },
+    ];
+    compositionGet.mockImplementation(() => Promise.resolve(ok(composition)));
+    renderAt('?tab=graph&focus=pipeline:accessibility&select=row:242&rebind=1');
+    const root = await panel();
+
+    expect(
+      within(root)
+        .getAllByTestId('rebind-fact')
+        .map(fact => fact.textContent)
+    ).toEqual(['contractmodel-tiering@1', 'set bythis pack', 'requiredno']);
+
+    await userEvent.click(
+      within(root).getByRole('combobox', {
+        name: 'What fills the tiering slot',
+      })
+    );
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^tiering-lite/ })
+    );
+    const command = within(root).getByTestId('rebind-command');
+    expect(command).toHaveTextContent(
+      'rt skills bind work-a11y tiering acme:tiering-lite --pack acme' +
+        'Writes the binding in this pack, then rebuilds work and work-a11y. Nothing is shared until you sync.'
+    );
+    expect(command.textContent).not.toContain('--pipeline');
   });
 
   it('writes nothing when the confirm is cancelled', async () => {

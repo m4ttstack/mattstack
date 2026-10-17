@@ -376,13 +376,21 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
     },
 
     async stageDoc(repo, runId, stage) {
-      if (!STAGE_NAME.test(stage) || !(await getRun(repo, runId))) return null;
-      let text: string;
-      try {
-        text = await readFile(join(RUNS, 'stage-docs', `${stage}.md`), 'utf8');
-      } catch {
-        return null;
+      const detail = STAGE_NAME.test(stage) ? await getRun(repo, runId) : null;
+      if (!detail) return null;
+      const { pipeline } = detail.run;
+      const names = STAGE_NAME.test(pipeline)
+        ? [`${stage}--${pipeline}`, stage]
+        : [stage];
+      let text: string | null = null;
+      for (const name of names) {
+        text = await readFile(
+          join(RUNS, 'stage-docs', `${name}.md`),
+          'utf8'
+        ).catch(() => null);
+        if (text !== null) break;
       }
+      if (text === null) return null;
       const shared = await readRuns<SharedInputs>('effective-inputs.json');
       const [first] = shared.packVersions ?? [];
       return first ? { text, pack: first.pack, sha: first.recordedSha } : null;

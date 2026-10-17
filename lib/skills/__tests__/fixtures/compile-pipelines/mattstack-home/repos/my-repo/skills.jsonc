@@ -1,0 +1,29 @@
+// acme bindings
+{
+  "pipelines": {
+    "feature": [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci"
+    ],
+    "accessibility": {
+      "stages": [
+        "mattstack:stage-provision",
+        "mattstack:stage-plan",
+        "mattstack:stage-gates",
+        "mattstack:stage-evidence",
+        "mattstack:stage-implement",
+        "mattstack:stage-self-review",
+        "mattstack:stage-ship",
+        "mattstack:stage-watch-ci"
+      ],
+      "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-b" } }
+    }
+  },
+  "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" } }
+}

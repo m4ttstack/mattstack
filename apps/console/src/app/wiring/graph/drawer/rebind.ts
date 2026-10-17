@@ -1,6 +1,8 @@
 import { layerLabel } from '../../layerLabel';
 import {
+  defaultPipelineOf,
   invertBindings,
+  overrideOf,
   pluginOf,
   suffixOf,
   type BindingSite,
@@ -30,10 +32,38 @@ export type RebindChoices = {
   currentOwner: Owner | null;
   /** Every fill with the slot's contract, the current one first. */
   options: RebindOption[];
+  /** The skill `rt skills bind` names: a stage copy's engine, since rt
+      binds a copy through it. */
+  verb: string;
+  /** The pipeline whose override a write sets; null writes the default. */
+  pipeline: string | null;
+  /** The skills a write recompiles: every roster verb on the bound verb's
+      engine, since they share its binding key. */
+  rebuilds: string[];
 };
 
 function otherSkills(sites: readonly BindingSite[], ref: string): number {
   return new Set(sites.map(site => site.ref).filter(site => site !== ref)).size;
+}
+
+/** Where the slot itself binds the fill outside the pipeline being written:
+    "here by default", "here in accessibility". */
+function sameSlotElsewhere(
+  sites: readonly BindingSite[],
+  ref: string,
+  slot: string,
+  pipeline: string | null
+): string[] {
+  return sites
+    .filter(
+      site =>
+        site.ref === ref &&
+        site.slot === slot &&
+        (site.pipeline ?? null) !== pipeline
+    )
+    .map(site =>
+      site.pipeline ? `here in ${site.pipeline}` : 'here by default'
+    );
 }
 
 function ownOtherSlots(
@@ -47,15 +77,21 @@ function ownOtherSlots(
   return [...new Set(slots)].sort();
 }
 
-function listed(names: string[]): string {
+export function listed(names: string[]): string {
   return names.length < 2
     ? names.join('')
     : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
 
-function whereBound(here: boolean, ownSlots: string[], others: number): string {
+function whereBound(
+  here: boolean,
+  sameSlot: string[],
+  ownSlots: string[],
+  others: number
+): string {
   const places = [
     here ? 'here now' : null,
+    ...(here ? [] : sameSlot),
     ownSlots.length > 0
       ? `in its ${listed(ownSlots)} slot${ownSlots.length === 1 ? '' : 's'}`
       : null,
@@ -65,16 +101,45 @@ function whereBound(here: boolean, ownSlots: string[], others: number): string {
 }
 
 /**
- * What a slot can be rebound to: the fills that provide its contract, the
- * current one first, then the ones fewest other skills bind.
+ * What a slot can be rebound to in `workType`: the fills that provide its
+ * contract, the current one first, then the ones fewest other skills bind.
+ * A stage copy reads and writes its own pipeline's override. A stage of any
+ * other pipeline but the default writes that pipeline's override too, as
+ * does a stage the pipeline already overrides at the slot.
  */
 export function rebindChoices(
   composition: SkillsComposition,
   skill: string,
   ref: string,
-  slot: string
+  slot: string,
+  workType: string | null
 ): RebindChoices {
-  const facts = slotFactsOf(composition, skill, ref).get(slot);
+  const target = composition.targets?.find(t => t.name === skill);
+  const verb = target?.engine ?? skill;
+  const reading = target?.pipeline ?? workType;
+  const binderSlot = composition.binders
+    .find(binder => binder.ref === ref)
+    ?.slots.find(candidate => candidate.name === slot);
+  const overridden = overrideOf(binderSlot ?? {}, reading) !== undefined;
+  // rt overrides only a stage the pipeline lists; anything else, a work
+  // verb's own slots included, takes the default.
+  const isStageOf =
+    reading !== null &&
+    (composition.pipelines?.[reading]?.includes(ref) ?? false);
+  const pipeline =
+    isStageOf &&
+    (overridden || reading !== defaultPipelineOf(composition.pipelines))
+      ? reading
+      : null;
+
+  const rosterVerb = composition.verbs.find(v => v.name === verb);
+  const rebuilds = rosterVerb
+    ? composition.verbs
+        .filter(v => v.engine === rosterVerb.engine)
+        .map(v => v.name)
+    : [verb];
+
+  const facts = slotFactsOf(composition, skill, ref, reading).get(slot);
   const contract = facts?.contract ?? null;
   const current = facts?.boundTo ?? null;
   const sites = invertBindings(composition);
@@ -84,6 +149,12 @@ export function rebindChoices(
     .map(fill => ({
       fill,
       here: fill.binding === current,
+      sameSlot: sameSlotElsewhere(
+        sites[fill.binding] ?? [],
+        ref,
+        slot,
+        pipeline
+      ),
       ownSlots: ownOtherSlots(sites[fill.binding] ?? [], ref, slot),
       others: otherSkills(sites[fill.binding] ?? [], ref),
     }))
@@ -112,12 +183,15 @@ export function rebindChoices(
             composition.fills.find(fill => fill.binding === current),
             composition.pack
           ),
-    options: ranked.map(({ fill, here, ownSlots, others }) => ({
+    options: ranked.map(({ fill, here, sameSlot, ownSlots, others }) => ({
       binding: fill.binding,
       name: suffixOf(fill.binding),
       plugin: pluginOf(fill.binding),
       owner: ownerOf(fill.binding, fill, composition.pack),
-      where: whereBound(here, ownSlots, others),
+      where: whereBound(here, sameSlot, ownSlots, others),
     })),
+    verb,
+    pipeline,
+    rebuilds,
   };
 }

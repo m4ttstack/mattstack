@@ -56,7 +56,7 @@ describe('the routes under the design fixture', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { runs: { id: string }[]; asOf: number };
     expect(body.asOf).toBe(at('16:23'));
-    expect(body.runs).toHaveLength(9);
+    expect(body.runs).toHaveLength(10);
   });
 
   it('serves a run with its board’s clock, and 404s one it does not have', async () => {

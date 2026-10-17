@@ -209,7 +209,7 @@ describe('usedBySites', () => {
       name: 'gate-protocol',
     });
 
-    expect(sites).toHaveLength(14);
+    expect(sites).toHaveLength(15);
     expect(sites.map(site => [site.group, site.skill, site.line])).toEqual([
       ['PIPELINE STEPS', 'work', 246],
       ['PIPELINE STEPS', 'stage-provision', 154],
@@ -217,6 +217,7 @@ describe('usedBySites', () => {
       ['PIPELINE STEPS', 'stage-evidence', 268],
       ['PIPELINE STEPS', 'stage-ship', 435],
       ['PIPELINE STEPS', 'stage-watch-ci', 499],
+      ['PIPELINE STEPS', 'work-a11y', 246],
       ['STANDALONE', 'review', 786],
       ['STANDALONE', 'self-review', 442],
       ['STANDALONE', 'receive-review', 1376],
@@ -285,7 +286,27 @@ describe('usedBySites', () => {
       line: 154,
       focus: null,
       label: 'stage-provision',
+      pipeline: null,
     });
+  });
+
+  it("places an override's fill at its pipeline's copy of the stage", () => {
+    const sites = usedBySites(designFixture('composition'), groupsOfDesign(), {
+      kind: 'fill',
+      name: 'acme:evidence-a11y',
+    });
+
+    expect(sites).toEqual([
+      {
+        group: 'PIPELINE STEPS',
+        skill: 'stage-evidence--accessibility',
+        slot: 'domain',
+        line: 299,
+        focus: 'stage-evidence@accessibility',
+        label: 'stage-evidence--accessibility/SKILL.md',
+        pipeline: 'accessibility',
+      },
+    ]);
   });
 });
 
@@ -462,7 +483,7 @@ describe('Used by tab', () => {
         .map(group => group.textContent)
     ).toEqual(['PIPELINE STEPS', 'STANDALONE']);
     const rows = within(tab).getAllByTestId('used-by-row');
-    expect(rows).toHaveLength(14);
+    expect(rows).toHaveLength(15);
     expect(rows[0]).toHaveTextContent('work/SKILL.md');
     expect(rows[0]).toHaveTextContent('pastes it at L246');
 
@@ -568,7 +589,7 @@ describe('Used by tab', () => {
     const tab = await screen.findByTestId('drawer-used-by');
 
     const rows = within(tab).getAllByTestId('used-by-row');
-    expect(rows).toHaveLength(9);
+    expect(rows).toHaveLength(10);
     expect(rows[0]).toHaveTextContent('work/SKILL.mdpastes it in');
     expect(rows.every(row => row.textContent?.endsWith('pastes it in'))).toBe(
       true
@@ -597,7 +618,7 @@ describe('Used by tab', () => {
     const tab = await screen.findByTestId('drawer-used-by');
 
     fireEvent.click(
-      within(tab).getAllByTestId('used-by-row')[6]! // review
+      within(tab).getAllByTestId('used-by-row')[7]! // review
     );
 
     await waitFor(() => expect(params().get('focus')).toBe('review'));

@@ -11,6 +11,8 @@ export interface RunsUrl {
   filter: RunsFilter;
   /** A serialized repo identity, or null for every repo. */
   repo: string | null;
+  /** A run's pipeline name, or null for every pipeline. */
+  pipeline: string | null;
   view: RunsViewName;
   /** The timeline's day as `YYYY-MM-DD`; null is today. */
   day: string | null;
@@ -26,6 +28,7 @@ export function parseRunsUrl(search: string): RunsUrl {
   return {
     filter: FILTERS.find(f => f === filter) ?? 'all',
     repo: params.get('repo') || null,
+    pipeline: params.get('pipeline') || null,
     view: params.get('view') === 'timeline' ? 'timeline' : 'lanes',
     day: parseDayKey(params.get('day')),
   };
@@ -39,6 +42,7 @@ export function formatRunsUrl(search: string, next: RunsUrl): string {
     value ? params.set(key, value) : params.delete(key);
   set('filter', next.filter === 'all' ? null : next.filter);
   set('repo', next.repo);
+  set('pipeline', next.pipeline);
   set('view', next.view === 'timeline' ? 'timeline' : null);
   set('day', next.day);
   const qs = params.toString();
@@ -47,7 +51,7 @@ export function formatRunsUrl(search: string, next: RunsUrl): string {
 
 let lastRunsSearch = '';
 
-/** The runs page as it was last seen (its filter, repo, view and day), for
+/** The runs page as it was last seen (its filter, repo, pipeline, view and day), for
     every link that leads back to it. */
 export function runsHomeHref(): string {
   return `/${lastRunsSearch}`;

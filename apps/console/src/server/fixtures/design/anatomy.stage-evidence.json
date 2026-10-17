@@ -1,0 +1,106 @@
+{
+  "pack": "acme",
+  "skill": "stage-evidence",
+  "kind": "stage",
+  "public": false,
+  "description": "Capture the before-state evidence the plan committed to, while the before still exists.",
+  "template": {
+    "ref": "mattstack:stage-evidence",
+    "path": "/fixture/mattstack/attachments/pipeline/stage-evidence/SKILL.md",
+    "version": "0.30.4",
+    "builtVersion": "0.28.10",
+    "lines": 323
+  },
+  "rendered": {
+    "path": "/fixture/packs/acme/attachments/stage-evidence/SKILL.md",
+    "exists": true,
+    "lines": 800
+  },
+  "status": "stale",
+  "staleBecause": ["source"],
+  "parts": [
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [1, 13],
+      "renderedLines": [1, 13],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "variable",
+      "name": "stage.fields",
+      "templateLines": [14, 14],
+      "renderedLines": [14, 22],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [15, 267],
+      "renderedLines": [23, 275],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "include",
+      "name": "gate-protocol",
+      "templateLines": [268, 268],
+      "renderedLines": [276, 725],
+      "mode": null,
+      "source": {
+        "ref": "mattstack:gate-protocol",
+        "path": "/fixture/mattstack/attachments/gate-protocol/SKILL.md",
+        "version": "0.30.4",
+        "builtVersion": "0.30.4",
+        "lines": 450
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [269, 298],
+      "renderedLines": [726, 755],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "slot",
+      "name": "domain",
+      "templateLines": [299, 299],
+      "renderedLines": [756, 776],
+      "mode": "inline",
+      "source": {
+        "ref": "acme:evidence-policy",
+        "path": "/fixture/packs/acme/attachments/evidence-policy/SKILL.md",
+        "version": "0.8.14",
+        "builtVersion": "0.8.14",
+        "lines": 21
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [300, 323],
+      "renderedLines": [777, 800],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    }
+  ],
+  "links": []
+}

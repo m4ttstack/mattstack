@@ -7,7 +7,9 @@
     "enabled": ["mattstack:shepherdr", "mattstack:model-tiering", "mattstack:execution-strategy", "mattstack:cswap-accounts"]
   },
   "pipelines": {
-    // The stage roster: work walks all eight in a fixed order.
+    // The stage roster. Plain /<pack>:work runs feature. A pipeline a work
+    // verb runs starts with stage-provision, ends with stage-watch-ci, and
+    // includes stage-implement and stage-ship.
     "feature": [
       "mattstack:stage-provision",
       "mattstack:stage-plan",
@@ -17,9 +19,28 @@
       "mattstack:stage-self-review",
       "mattstack:stage-ship",
       "mattstack:stage-watch-ci"
-    ]
+    ],
+    // A specialized pipeline, run by a work-a11y verb in pack/stubs.jsonc
+    // ("pipeline": "accessibility"). Its bindings override the top-level
+    // ones per slot for this pipeline only; compile writes the stage copy
+    // stage-evidence--accessibility for it.
+    "accessibility": {
+      "stages": [
+        "mattstack:stage-provision",
+        "mattstack:stage-plan",
+        "mattstack:stage-evidence",
+        "mattstack:stage-implement",
+        "mattstack:stage-ship",
+        "mattstack:stage-watch-ci"
+      ],
+      "bindings": {
+        "mattstack:stage-evidence": { "domain": "acme:capture-a11y-evidence" }
+      }
+    }
   },
   "bindings": {
+    // The default for every pipeline.
+    "mattstack:stage-evidence": { "domain": "acme:capture-evidence" },
     "mattstack:shepherdr": {
       // Slot "tiering" demands contract model-tiering@1.
       "tiering": "mattstack:model-tiering",

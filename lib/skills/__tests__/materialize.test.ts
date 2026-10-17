@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { materializeRepo, type MaterializeFs } from "../materialize.ts";
 import { readManifestProvenance } from "../manifest-merge.ts";
+import { setWarningLog, __test__ as warnTest } from "../../ui/warn.ts";
 
 const realFs: MaterializeFs = {
   exists: existsSync,
@@ -262,6 +263,24 @@ describe("materializeRepo", () => {
       if (!p.ok) expect(p.detail).toContain(join(root, "user", "skills", "overrides.jsonc"));
     }
     expect(existsSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"))).toBe(false);
+  });
+});
+
+describe("materializeRepo dropped overrides", () => {
+  test("a dropped override warns once, naming its key and layer", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: {
+      widgets: { pack: { pipelines: { feature: { bindings: { "mattstack:stage-evidence": { domain: "acme:a" } } } } } },
+    } });
+    const logged: string[] = [];
+    warnTest.reset();
+    setWarningLog((_module, message) => logged.push(message), { quiet: true });
+    try {
+      materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
+    } finally {
+      warnTest.reset();
+    }
+    expect(logged).toEqual(["feature/mattstack:stage-evidence domain from pack is ignored: the pipeline no longer lists that stage"]);
   });
 });
 

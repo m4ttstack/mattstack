@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FragmentError, mergeLayers, parseFragment, readManifestProvenance, readManifestZone, renderManifest } from "../manifest-merge.ts";
+import { FragmentError, mergeLayers, parseFragment, readManifestDropped, readManifestProvenance, readManifestZone, renderManifest } from "../manifest-merge.ts";
 
 const defaults = { label: "default", fragment: { bindings: { "mattstack:stage-gates": { domain: "mattstack:generic-gates" } }, pipelines: { feature: ["stage-plan", "stage-gates"] } } };
 const base = { label: "base:acme-base", fragment: { skills: { enabled: ["acme-base:shared"] }, bindings: { "mattstack:stage-gates": { domain: "acme-base:gates" }, "mattstack:watch-ci": { forge: "mattstack:gitlab-forge" } } } };
@@ -46,6 +46,65 @@ describe("mergeLayers", () => {
     expect(Array.isArray(Object.getPrototypeOf(merged.pipelines))).toBe(false);
     expect(Object.keys(merged.bindings)).toContain("__proto__");
     expect(Object.keys(merged.bindings["mattstack:stage-gates"]!)).toEqual(["__proto__"]);
+    expect(Object.keys(merged.pipelines)).toEqual(["__proto__"]);
+  });
+
+  test("a __proto__ pipeline override ref or slot never reaches Object.prototype", () => {
+    const text = '{ "pipelines": { "a": { "stages": ["r", "__proto__"], "bindings": { "r": { "__proto__": "acme:x" }, "__proto__": { "polluted": "acme:y" } } } } }';
+    const merged = mergeLayers([{ label: "pack", fragment: parseFragment(text, "/p/skills.jsonc") }]);
+    expect(Object.prototype.hasOwnProperty.call(Object.prototype, "polluted")).toBe(false);
+    expect(Object.keys(merged.pipelineBindings.a!.r!)).toEqual(["__proto__"]);
+  });
+
+  test("stages replace whole, pipeline bindings merge per slot", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { pipelines: { a: { stages: ["s1", "s2"], bindings: { r: { x: "f1" } } } } } },
+      { label: "pack", fragment: { pipelines: { a: { bindings: { r: { y: "f2" } } } } } },
+      { label: "override", fragment: { pipelines: { a: { stages: ["r"] } } } },
+    ]);
+    expect(merged.pipelines.a).toEqual(["r"]);
+    expect(merged.pipelineBindings.a!.r).toEqual({ x: "f1", y: "f2" });
+    expect(merged.provenance["pipeline a"]).toBe("override");
+    expect(merged.provenance["a/r x"]).toBe("default");
+    expect(merged.provenance["a/r y"]).toBe("pack");
+    expect(merged.dropped).toEqual([]);
+  });
+
+  test("an empty pipeline fill is kept so it can unbind a default slot", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { pipelines: { a: { stages: ["r"], bindings: { r: { x: "f1" } } } } } },
+      { label: "pack", fragment: { pipelines: { a: { bindings: { r: { x: "" } } } } } },
+    ]);
+    expect(merged.pipelineBindings.a!.r).toEqual({ x: "" });
+  });
+
+  test("a plain-list pipeline has no pipeline bindings", () => {
+    const merged = mergeLayers([defaults]);
+    expect(merged.pipelines.feature).toEqual(["stage-plan", "stage-gates"]);
+    expect(Object.keys(merged.pipelineBindings)).toEqual([]);
+  });
+
+  test("bindings-only pipeline with no stages anywhere", () => {
+    const layers = [{ label: "pack", fragment: { pipelines: { a: { bindings: { r: { x: "f1" } } } } } }];
+    expect(() => mergeLayers(layers)).toThrow(FragmentError);
+    expect(() => mergeLayers(layers)).toThrow('pipeline "a" has bindings but no layer gives it stages');
+  });
+
+  test("override for a stage a higher layer dropped", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { pipelines: { a: { stages: ["mattstack:stage-gates", "s2"] } } } },
+      { label: "base:acme-base", fragment: { pipelines: { a: { bindings: { "mattstack:stage-gates": { slot: "acme:x" } } } } } },
+      { label: "pack", fragment: { pipelines: { a: { stages: ["s2"] } } } },
+    ]);
+    expect(merged.pipelineBindings.a?.["mattstack:stage-gates"]).toBeUndefined();
+    expect(merged.dropped).toEqual([{ key: "a/mattstack:stage-gates slot", layer: "base:acme-base" }]);
+    expect(merged.provenance["a/mattstack:stage-gates slot"]).toBeUndefined();
+  });
+
+  test("override for a stage missing from its own layer's list", () => {
+    const layers = [{ label: "pack", fragment: { pipelines: { a: { stages: ["s1"], bindings: { s2: { x: "f1" } } } } } }];
+    expect(() => mergeLayers(layers)).toThrow(FragmentError);
+    expect(() => mergeLayers(layers)).toThrow('pipeline "a" binds s2 but does not list it');
   });
 });
 
@@ -65,12 +124,37 @@ describe("parseFragment", () => {
     ["a non-string binding fill", '{ "bindings": { "mattstack:stage-gates": { "domain": 1 } } }'],
     ["a string skills.enabled", '{ "skills": { "enabled": "widgets:work" } }'],
     ["a non-array pipeline", '{ "pipelines": { "feature": "stage-plan" } }'],
+    ["a non-array pipeline stages", '{ "pipelines": { "a": { "stages": "x" } } }'],
+    ["a non-object pipeline bindings", '{ "pipelines": { "a": { "bindings": [] } } }'],
+    ["a non-object pipeline engine bindings", '{ "pipelines": { "a": { "bindings": { "r": null } } } }'],
+    ["a non-string pipeline fill", '{ "pipelines": { "a": { "bindings": { "r": { "s": 1 } } } } }'],
     ["a non-string extends", '{ "extends": 1 }'],
     ["a non-boolean base", '{ "base": "yes" }'],
   ])("throws FragmentError naming the path on %s", (_label, text) => {
     const path = "/zone/packs/gadgets/pack/skills.jsonc";
     expect(() => parseFragment(text, path)).toThrow(FragmentError);
     expect(() => parseFragment(text, path)).toThrow(/gadgets\/pack\/skills\.jsonc/);
+  });
+  test("object pipeline parses", () => {
+    const text = '{"pipelines":{"accessibility":{"stages":["mattstack:stage-plan"],"bindings":{"mattstack:stage-plan":{"x":"acme:y"}}}}}';
+    expect(parseFragment(text, "/f.jsonc").pipelines).toEqual({ accessibility: { stages: ["mattstack:stage-plan"], bindings: { "mattstack:stage-plan": { x: "acme:y" } } } });
+  });
+  test("an object pipeline names the bad field in the error", () => {
+    expect(() => parseFragment('{"pipelines":{"a":{"stages":"x"}}}', "/f.jsonc")).toThrow("fragment pipelines.a.stages is not an array of strings: /f.jsonc");
+    expect(() => parseFragment('{"pipelines":{"a":{"bindings":{"r":{"s":1}}}}}', "/f.jsonc")).toThrow("fragment pipelines.a.bindings.r.s is not a string: /f.jsonc");
+  });
+  test("an object pipeline refuses an unknown key", () => {
+    const text = '{"pipelines":{"accessibility":{"stages":["s"],"binding":{"s":{"x":"acme:y"}}}}}';
+    expect(() => parseFragment(text, "/f.jsonc")).toThrow(FragmentError);
+    expect(() => parseFragment(text, "/f.jsonc")).toThrow('fragment pipelines.accessibility.binding is not a known key (stages, bindings): /f.jsonc');
+  });
+  test("bad pipeline name", () => {
+    const text = '{"pipelines":{"Access_ibility":{"stages":["s"],"bindings":{"s":{"x":"acme:y"}}}}}';
+    expect(() => parseFragment(text, "/f.jsonc")).toThrow(FragmentError);
+    expect(() => parseFragment(text, "/f.jsonc")).toThrow('fragment pipeline "Access_ibility" must match [a-z][a-z0-9-]*: /f.jsonc');
+  });
+  test("a plain-list pipeline is never name-checked", () => {
+    expect(parseFragment('{"pipelines":{"Feature":["s"]}}', "/f.jsonc").pipelines).toEqual({ Feature: ["s"] });
   });
   test("an empty binding fill parses, since it unbinds the slot", () => {
     expect(parseFragment('{ "bindings": { "mattstack:stage-gates": { "domain": "" } } }', "/f.jsonc").bindings).toEqual({ "mattstack:stage-gates": { domain: "" } });
@@ -96,5 +180,47 @@ describe("renderManifest + readManifestProvenance", () => {
   test("readManifestZone is null for a file written before the zone line, and never reads past the header", () => {
     expect(readManifestZone("// GENERATED\n// repo: x\n// pack: widgets\n{}")).toBeNull();
     expect(readManifestZone('{ "note": "x" }\n// zone: acme-w\n')).toBeNull();
+  });
+});
+
+const PINNED_PLAIN_RENDER =
+  '// GENERATED by rt skills materialize -- do not hand-edit for keeps;\n// the next pack install or materialize run rewrites this file.\n// repo: gitlab.example.com/acme/widgets\n// pack: widgets\n// zone: acme-w\n// provenance (binding <- layer):\n//   pipeline feature <- default\n//   mattstack:stage-gates domain <- pack\n{\n  "version": 1,\n  "skills": {\n    "enabled": [\n      "widgets:work"\n    ]\n  },\n  "pipelines": {\n    "feature": [\n      "stage-plan",\n      "stage-gates"\n    ]\n  },\n  "bindings": {\n    "mattstack:stage-gates": {\n      "domain": "widgets:gates"\n    }\n  }\n}\n';
+
+describe("renderManifest with pipeline overrides", () => {
+  const opts = { repo: "gitlab.example.com/acme/widgets", pack: "widgets", zone: "acme-w" };
+  const body = (text: string) => JSON.parse(text.split("\n").filter((l) => !l.startsWith("//")).join("\n"));
+
+  test("render: no overrides stays a plain list", () => {
+    expect(renderManifest(mergeLayers([defaults, pack]), opts)).toBe(PINNED_PLAIN_RENDER);
+  });
+
+  test("render: overrides use the object form", () => {
+    const merged = mergeLayers([
+      defaults,
+      { label: "pack", fragment: { pipelines: { a: { stages: ["mattstack:stage-gates"], bindings: { "mattstack:stage-gates": { domain: "acme:a11y" } } } } } },
+    ]);
+    const text = renderManifest(merged, opts);
+    expect(body(text).pipelines).toEqual({
+      feature: ["stage-plan", "stage-gates"],
+      a: { stages: ["mattstack:stage-gates"], bindings: { "mattstack:stage-gates": { domain: "acme:a11y" } } },
+    });
+    expect(readManifestProvenance(text)["a/mattstack:stage-gates domain"]).toBe("pack");
+  });
+
+  test("readManifestDropped round-trips dropped header lines", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { pipelines: { a: { stages: ["r", "s2"] } } } },
+      { label: "base:acme-base", fragment: { pipelines: { a: { bindings: { r: { slot: "acme:x" } } } } } },
+      { label: "pack", fragment: { pipelines: { a: { stages: ["s2"] } } } },
+    ]);
+    const text = renderManifest(merged, opts);
+    expect(text).toContain("// dropped: a/r slot <- base:acme-base\n");
+    expect(readManifestDropped(text)).toEqual([{ key: "a/r slot", layer: "base:acme-base" }]);
+    expect(readManifestProvenance(text)).toEqual(merged.provenance);
+  });
+
+  test("readManifestDropped is empty without dropped lines and never reads past the header", () => {
+    expect(readManifestDropped(PINNED_PLAIN_RENDER)).toEqual([]);
+    expect(readManifestDropped('{ "note": "x" }\n// dropped: a/r s <- pack\n')).toEqual([]);
   });
 });

@@ -321,7 +321,11 @@ export function mountEffectiveInputs(
           readFile,
           pluginCacheDir,
         },
-        { packCommits: res.data.run.pack_commits, stage }
+        {
+          packCommits: res.data.run.pack_commits,
+          stage,
+          pipeline: res.data.run.pipeline,
+        }
       );
       if (!hit) return c.json(NO_DOC, 404);
       return c.json({ text: hit.text, pack: hit.pack, sha: hit.sha }, 200);

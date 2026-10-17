@@ -505,6 +505,21 @@ describe('fixtureRt runRt', () => {
     expect(result.code).toBe(0);
   });
 
+  it('accepts a pipeline bind', async () => {
+    const result = await fixtureRt('clean').runRt([
+      'skills',
+      'bind',
+      'stage-evidence',
+      'domain',
+      'acme:evidence-policy',
+      '--pipeline',
+      'accessibility',
+      '--pack',
+      'acme',
+    ]);
+    expect(result.code).toBe(0);
+  });
+
   it.each([
     [['skills', 'surface', 'list', '--pack', 'acme', '--json']],
     [['skills', 'composition', '--pack', 'globex', '--json']],

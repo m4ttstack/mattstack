@@ -1814,7 +1814,7 @@ Count against a named budget on the run and return spent, remaining and whether 
 ### run_list
 
 <!-- mcp-lint: allow -->
-List runs the daemon knows, newest first, optionally narrowed to one repo directory name.
+List runs the daemon knows, newest first, optionally narrowed to one repo directory name and to runs of the given pipelines.
 
 ```json
 {
@@ -1822,6 +1822,13 @@ List runs the daemon knows, newest first, optionally narrowed to one repo direct
   "properties": {
     "repo": {
       "type": "string"
+    },
+    "pipelines": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Keep only runs of these pipelines; a run recorded without a pipeline counts as work."
     }
   },
   "additionalProperties": false

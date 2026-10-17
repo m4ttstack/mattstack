@@ -444,6 +444,59 @@ describe('RunsPage', () => {
     expect(screen.getByTestId('waiting-banner')).toBeInTheDocument();
   });
 
+  it('narrows the list to one pipeline and keeps it in the url', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: [
+          done({
+            id: 'feat',
+            ticket: 'WEB-401',
+            work_type: 'work',
+            pipeline: 'feature',
+            started_at: at(9),
+            ended_at: at(10),
+          }),
+          done({
+            id: 'a11y',
+            ticket: 'WEB-404',
+            work_type: 'work',
+            pipeline: 'accessibility',
+            started_at: at(11),
+            ended_at: at(12),
+          }),
+        ],
+        asOf: NOW,
+      })
+    );
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+    renderPage();
+    await screen.findByTestId('run-row-feat');
+
+    await userEvent.click(
+      document.querySelector<HTMLInputElement>('input[aria-label="pipeline"]')!
+    );
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'accessibility' })
+    );
+    expect(location.search).toBe('?pipeline=accessibility');
+    await waitFor(() =>
+      expect(screen.queryByTestId('run-row-feat')).toBeNull()
+    );
+    expect(screen.getByTestId('run-row-a11y')).toHaveTextContent(
+      'accessibility pipeline'
+    );
+  });
+
+  it('offers no pipeline choice when every run shares one', async () => {
+    runsGet.mockResolvedValue(
+      ok({ runs: RUNS.filter(r => r.pipeline === 'work'), asOf: NOW })
+    );
+    renderPage();
+    await screen.findByTestId('lane-live');
+    expect(document.querySelector('input[aria-label="repo"]')).not.toBeNull();
+    expect(document.querySelector('input[aria-label="pipeline"]')).toBeNull();
+  });
+
   it('says nothing is running when no run is live', async () => {
     runsGet.mockResolvedValue(
       ok({ runs: RUNS.filter(r => r.status !== 'running'), asOf: NOW })

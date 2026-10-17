@@ -57,7 +57,7 @@ mattstack/teams/widgets/plugin/.claude-plugin/plugin.json          the pack's pl
 mattstack/teams/widgets/plugin/PACK.md                              what this pack is and where to go next
 mattstack/teams/widgets/plugin/pack/surface.jsonc                   which verbs are public (work)
 mattstack/teams/widgets/plugin/pack/stubs.jsonc                     the verb roster: work, compiled from the mattstack engine
-mattstack/teams/widgets/plugin/pack/skills.jsonc                    the bindings fragment: the eight-stage feature pipeline, model tiering, GitLab CI
+mattstack/teams/widgets/plugin/pack/skills.jsonc                    the bindings fragment: one pipeline, feature (all eight stages), model tiering, GitLab CI
 mattstack/teams/widgets/settings.team.jsonc                         the repo added to the team's board.projects
 .claude-plugin/marketplace.json                                     the pack listed as a plugin
 ```
@@ -116,7 +116,7 @@ $ claude
 > our pipeline shipped an MR without running bun run lint; make ship run lint before it opens an MR on this repo
 ```
 
-The skill sorts the ask into one of four places:
+The skill sorts the ask into one of five places:
 
 | the ask is about | where it lands |
 | --- | --- |
@@ -124,6 +124,7 @@ The skill sorts the ask into one of four places:
 | something one stage or verb should do differently | a fill bound to that stage's slot (`slots.md` in the skill lists them) |
 | a new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | a roster entry in `pack/stubs.jsonc` |
 | the wording of an existing verb | its `description` in `pack/stubs.jsonc` |
+| one kind of work (accessibility, a bug fix) that runs its own stages or fills | a specialized pipeline in `pack/skills.jsonc` plus a `work-<kind>` verb (below) |
 
 For the lint example that is a fill on the ship stage's `domain` slot. What
 you will see, in order:
@@ -148,9 +149,48 @@ you will see, in order:
 A rule can be undone the same way: remove the binding and the fill, bump,
 publish.
 
+### A specialized pipeline
+
+The pack starts with one pipeline, `feature`, and `/widgets:work` runs it.
+When one kind of work needs its own stages or its own fills, ask for a
+specialized pipeline:
+
+```
+> add an accessibility pipeline to our pack, with its own evidence rules
+```
+
+`mattstack:extending-a-pack` then:
+
+1. **Declares it** in `pack/skills.jsonc`, as a key under `pipelines`
+   (`accessibility`). A pipeline a work verb runs starts with
+   `stage-provision`, ends with `stage-watch-ci`, and includes
+   `stage-implement` and `stage-ship`; in between, any order the
+   consumes/produces chain check accepts.
+2. **Materializes** with `rt skills materialize`. Compile, check and bind
+   read the pack's bindings file for your repo, not the fragment, so the
+   new pipeline exists for them only after this step.
+3. **Adds its verb** to `pack/stubs.jsonc`, named `work-<kind>` so it groups
+   under `/widgets:work`:
+
+   ```jsonc
+   "work-a11y": { "engine": "work", "pipeline": "accessibility", "description": "Use when running accessibility work end to end" }
+   ```
+
+4. **Binds its fills**, one round each with RED and GREEN on
+   `/widgets:work-a11y`:
+   `rt skills bind stage-evidence domain widgets:a11y-evidence --pipeline accessibility`
+   writes the override under `pipelines.accessibility.bindings`. Stages it
+   does not override run the default fills.
+5. **Compiles and checks.** Where the pipeline's fills differ, compile
+   writes a stage copy, `attachments/stage-evidence--accessibility/`.
+
+`/widgets:work-a11y` runs accessibility work, and its runs record the
+pipeline `accessibility`. Each verb resumes only runs of its own pipeline.
+
 ## What not to do
 
-- Do not edit `skills/work/` or `attachments/stage-*/`: compiled output,
+- Do not edit `skills/work/`, `attachments/stage-*/` or a stage copy
+  (`attachments/stage-evidence--accessibility/`): compiled output,
   overwritten on the next compile.
 - Do not edit the mattstack engine in the plugin cache: every team compiles
   from it, and the next update erases the edit.

@@ -187,8 +187,13 @@ function endingText(run: RunSummary): string | null {
   return null;
 }
 
+/** The run's pipeline; runs from before rt recorded one carry `""`. */
+export function pipelineOf(run: RunSummary): string {
+  return run.pipeline || run.work_type;
+}
+
 export function rowSub(run: RunSummary): string {
-  return [`${run.pipeline} pipeline`, endingText(run), attentionNote(run)]
+  return [`${pipelineOf(run)} pipeline`, endingText(run), attentionNote(run)]
     .filter(Boolean)
     .join(' · ');
 }

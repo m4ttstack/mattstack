@@ -22,7 +22,7 @@ import { guardedWrite, useSkillsApply } from '../../useWiring';
 import { ButtonLabel } from '../ButtonLabel';
 import { stepLabel } from '../model/focusModel';
 import classes from './drawer.module.css';
-import { rebindChoices } from './rebind';
+import { listed, rebindChoices } from './rebind';
 
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';
@@ -51,6 +51,7 @@ export function RebindPanel({
   skill,
   skillRef,
   slot,
+  workType,
   composition,
   onDone,
 }: {
@@ -59,6 +60,8 @@ export function RebindPanel({
   /** The ref the pack's bindings key the skill by. */
   skillRef: string;
   slot: string;
+  /** The pipeline the graph is showing; null for a skill outside one. */
+  workType: string | null;
   composition: SkillsComposition;
   onDone: () => void;
 }) {
@@ -72,16 +75,18 @@ export function RebindPanel({
     };
   }, []);
   const choices = useMemo(
-    () => rebindChoices(composition, skill, skillRef, slot),
-    [composition, skill, skillRef, slot]
+    () => rebindChoices(composition, skill, skillRef, slot, workType),
+    [composition, skill, skillRef, slot, workType]
   );
   const [picked, setPicked] = useState<string | null>(null);
   const combobox = useCombobox();
   const labelId = useId();
 
-  const step = stepLabel(skill);
+  const { verb, pipeline } = choices;
+  const step = stepLabel(verb);
   const changed = picked !== null && picked !== choices.current;
-  const command = `rt skills bind ${skill} ${slot} ${picked} --pack ${pack}`;
+  const command = `rt skills bind ${verb} ${slot} ${picked}${pipeline ? ` --pipeline ${pipeline}` : ''} --pack ${pack}`;
+  const inPipeline = pipeline ? ` in the ${pipeline} pipeline` : '';
 
   const pick = (binding: string) => {
     setPicked(binding);
@@ -98,12 +103,17 @@ export function RebindPanel({
       : `in its ${slot} slot`;
     modals.confirm({
       title: `Rebind the ${slot} slot?`,
-      message: `${step} will use ${suffixOf(fill)} ${was}. Nothing is shared until you sync.`,
+      message: `${step} will use ${suffixOf(fill)} ${was}${inPipeline}. Nothing is shared until you sync.`,
       labels: { confirm: 'Apply' },
       onConfirm: () =>
         guardedWrite(queryClient, pack, () => {
           bind
-            .mutateAsync({ verb: skill, slot, fill })
+            .mutateAsync({
+              verb,
+              slot,
+              fill,
+              ...(pipeline ? { pipeline } : {}),
+            })
             .then(result => {
               if (!result.ok) {
                 notifications.error(result.error ?? 'rt skills bind failed');
@@ -141,6 +151,7 @@ export function RebindPanel({
         <Fact label="contract" value={choices.contract ?? 'unknown'} />
         <Fact label="set by" value={choices.setBy} />
         <Fact label="required" value={choices.required} />
+        {pipeline && <Fact label="pipeline" value={pipeline} />}
       </Group>
       <Combobox store={combobox} onOptionSubmit={pick}>
         <div className={classes.fromTo}>
@@ -291,8 +302,10 @@ export function RebindPanel({
             {command}
           </Text>
           <Text span ff="text" fz={11} lh="normal" c={MUTED} data-parity="n">
-            Writes the binding in this pack, then rebuilds {step}. Nothing is
-            shared until you sync.
+            {pipeline
+              ? `Writes the ${pipeline} pipeline's own binding in this pack, then rebuilds its ${step} step.`
+              : `Writes the binding in this pack, then rebuilds ${listed(choices.rebuilds.map(stepLabel))}.`}{' '}
+            Nothing is shared until you sync.
           </Text>
         </Code>
       )}

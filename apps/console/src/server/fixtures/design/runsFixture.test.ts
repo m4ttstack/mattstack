@@ -24,6 +24,8 @@ import { isMine } from '../../../shared/gate-waiting';
 import { runsFixture } from './runsFixture';
 
 const REPO = 'remote:acme%2Fweb';
+/** Drawn after the runs boards, so no board carries it. */
+const A11Y = '20261008-1215';
 const EXPORTS = fileURLToPath(
   new URL('../../../../../../docs/apps/design/console/parity/', import.meta.url)
 );
@@ -358,7 +360,7 @@ describe('the runs boards draw the fixture', () => {
 
   it('runs-lanes: the waiting gate, the live cards and every earlier row', async () => {
     const texts = boardTexts('runs-lanes');
-    const list = await runs.listRuns();
+    const list = (await runs.listRuns()).filter(r => r.id !== A11Y);
     const branches = list.map(r => r.branch!).filter(Boolean);
     const enrichment = await runs.enrich(branches);
     for (const r of list) {
@@ -449,6 +451,7 @@ describe('runsFixture', () => {
     expect(list.map(r => r.ticket)).toEqual([
       'WEB-418',
       'WEB-412',
+      'WEB-406',
       'WEB-409',
       'WEB-401',
       'WEB-388',
@@ -579,6 +582,15 @@ describe('runsFixture', () => {
       sha: '4c1d9e2b7a',
     });
     expect(await runs.stageDoc(REPO, '20261008-1338', 'gates')).toBeNull();
+    expect(await runs.stageDoc(REPO, A11Y, 'evidence')).toMatchObject({
+      text: expect.stringContaining('# evidence · accessibility'),
+    });
+    expect(await runs.stageDoc(REPO, A11Y, 'plan')).toMatchObject({
+      text: expect.stringContaining('# Plan'),
+    });
+    expect(
+      await runs.stageDoc(REPO, '20261008-1338', 'evidence')
+    ).toMatchObject({ text: expect.not.stringContaining('accessibility') });
     expect(await runs.stageDoc(REPO, '20261008-1338', 'nope')).toBeNull();
     expect(await runs.effectiveInputs(REPO, 'nope')).toBeNull();
   });
