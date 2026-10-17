@@ -140,6 +140,16 @@ printf -- '---\nname: fake:longdesc\ndescription: "%s"\n---\nbody\n' "$LONG" > "
 OUT=$("$CERTIFY" "$WORK/longdesc"); STATUS=$?
 check long_desc 1 'FAIL fm-description'
 
+# sentence-id digraph: legal outside the mattstack plugin, refused inside it
+mkdir -p "$WORK/free/sk" "$WORK/plug/.claude-plugin" "$WORK/plug/attachments/x"
+printf -- '---\nname: fake:graphed\ndescription: "Use when testing digraph ids."\n---\nbody\n\n```dot\ndigraph g { "Trigger: go" [shape=ellipse]; "Done" [shape=doublecircle style=filled]; "Trigger: go" -> "Done"; }\n```\n' > "$WORK/free/sk/SKILL.md"
+cp "$WORK/free/sk/SKILL.md" "$WORK/plug/attachments/x/SKILL.md"
+printf '{"name": "mattstack"}\n' > "$WORK/plug/.claude-plugin/plugin.json"
+OUT=$("$CERTIFY" "$WORK/free/sk"); STATUS=$?
+check digraph_sentence_ids_outside_plugin 0 'ok   digraphs'
+OUT=$("$CERTIFY" "$WORK/plug/attachments/x"); STATUS=$?
+check digraph_sentence_ids_in_plugin 1 'graph uses sentence ids'
+
 # usage: missing arg exits 2
 OUT=$("$CERTIFY" 2>&1); STATUS=$?
 check usage 2 'usage'

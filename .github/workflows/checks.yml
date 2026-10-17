@@ -300,7 +300,15 @@ jobs:
         working-directory: plugins/mattstack
         run: |
           set -o pipefail
-          grep -rl --null -E '^[[:space:]]*```dot[[:space:]]*$' --include='*.md' . | sort -z | xargs -0 python3 plugin/skills/process-digraphs/check-dot.py
+          DOT='^[[:space:]]*```dot[[:space:]]*$'
+          CHECK=plugin/skills/process-digraphs/check-dot.py
+          # Skill graphs require short ids. The rest (docs test records) keep
+          # historical sentence-id graphs. grep exits 1 on no match.
+          { grep -rl --null -E "$DOT" --include='*.md' skills plugin/skills attachments || [ $? -eq 1 ]; } \
+            | sort -z | xargs -0 -r python3 "$CHECK" --short-ids
+          { grep -rl --null -E "$DOT" --include='*.md' . || [ $? -eq 1 ]; } \
+            | { grep -zvE '^(\./)?(skills|plugin/skills|attachments)/' || [ $? -eq 1 ]; } \
+            | sort -z | xargs -0 -r python3 "$CHECK"
       - name: Certify every skill and attachment dir
         working-directory: plugins/mattstack
         run: |

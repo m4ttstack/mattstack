@@ -148,11 +148,24 @@ fi
 # structure check (conventions: plugin/skills/process-digraphs/SKILL.md).
 if grep -qE '^[[:space:]]*```dot[[:space:]]*$' "$DIR/SKILL.md"; then
   DG="$HERE/../plugin/skills/process-digraphs"
+  # Decided by the skill's own ancestry: CLAUDE_PLUGIN_ROOT runs this script
+  # from the installed cache, not from the checkout the skill lives in.
+  SKILL_DIR=$(CDPATH= cd -- "$DIR" && pwd -P)
+  SHORT_IDS=
+  WALK=$SKILL_DIR
+  while :; do
+    if [ -f "$WALK/.claude-plugin/plugin.json" ]; then
+      grep -q '"name"[[:space:]]*:[[:space:]]*"mattstack"' "$WALK/.claude-plugin/plugin.json" && SHORT_IDS=--short-ids
+      break
+    fi
+    [ "$WALK" = / ] && break
+    WALK=$(dirname -- "$WALK")
+  done
   if ! command -v dot >/dev/null 2>&1; then
     fail digraphs "graphviz dot is not installed (brew install graphviz)"
   elif ! OUT=$(bash "$DG/render.sh" "$DIR/SKILL.md" 2>&1); then
     fail digraph-render "$(printf '%s' "$OUT" | grep -E 'FAIL|Warning|Error' | head -5)"
-  elif ! OUT=$(python3 "$DG/check-dot.py" "$DIR/SKILL.md" 2>&1); then
+  elif ! OUT=$(python3 "$DG/check-dot.py" $SHORT_IDS "$DIR/SKILL.md" 2>&1); then
     fail digraph-structure "$(printf '%s' "$OUT" | grep -v 'graph(s) checked' | head -8)"
   else ok digraphs
   fi
