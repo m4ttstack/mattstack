@@ -26,7 +26,8 @@ The system file comes from `build-system-file.sh <git-ref-or-tree-path>
 a path), rosters `stage-evidence` in the copy's `pack/stubs.jsonc` and runs
 `rt skills compile --verb stage-evidence --preview` under an isolated HOME
 and `--mattstack-dir <out>/.build/mattstack`. It refuses an `<out-dir>`
-inside the repo and fails on an empty output.
+inside the repo or one that is not new or empty (deleting nothing), and
+fails on an empty output.
 
 `run-reps.sh <system-file> <scenario-file> <out-dir> <n>` runs n reps in
 parallel, each from its own fresh empty `mktemp -d` directory, prompt =
@@ -49,7 +50,9 @@ file, `rt` or `curl` on Bash for ports.
 ## RED
 
 System file: `build-system-file.sh 98fbf05e0 <scratch>/evidence-reps/red` (the branch
-base; 10,407 words). The old text names none of `evidence_record`,
+base then; 10,407 words). After the rebase the branch base is `efdd89f09`,
+and the skill inputs there are byte-identical to `98fbf05e0`'s, so RED
+stands. The old text names none of `evidence_record`,
 `evidence_attach`, `dev_endpoints` or `run_budget`; every rep reached them
 from the tool list in `common.md` alone.
 
@@ -141,6 +144,11 @@ Reps 1-3 and 5 call `evidence_attach` without the body, then read it with
 - **GitHub body read after the attach** (E4 4/5): the old text has no GitHub branch, so the body is not passed as `description`.
 - **Heading without the `##` level** (E1 5/5, E3 4/5, E4 2/5, E5 5/5): the old text names no default heading.
 
+Two fixture gaps, kept as run: E4's fixture predates the `state` ruling, so
+its `gh pr view` result has no `state` and reps assume `OPEN`; E2's fixture
+has no dead-letter-list case, so reps record the retry badge alone (most
+flag the gap).
+
 ## GREEN
 
 System file: `build-system-file.sh <worktree root> <scratch>/evidence-reps/green`
@@ -231,3 +239,39 @@ Every RED failure class is closed: `tree` on every record, draws on the
 returned copy, Take ends Taken at this stage, no hand-written evidence
 field, the GitHub body passed as `description`, and the heading carries
 its `##`.
+
+## GREEN (after final review)
+
+System file: `build-system-file.sh <worktree root> <scratch>/final-fix/green2`
+(this branch after the final-review fixes; 9,908 words). Same scenarios,
+recipe and scoring rules as GREEN. Rep outputs:
+`<scratch>/final-fix/green2/<scenario>/rep-<i>.txt`, not committed. No fix
+rounds.
+
+| Scenario | RED | GREEN | GREEN (after final review) | Anti-goal reps (after final review) |
+|---|---|---|---|---|
+| E1 happy GitLab | 0/5 | 5/5 | 5/5 | 0 |
+| E2 recapture | 2/5 | 5/5 | 5/5 | 0 |
+| E3 refused upload | 0/5 | 5/5 | 5/5 | 0 |
+| E4 GitHub PR | 1/5 | 5/5 | 5/5 | 0 |
+| E5 dev servers | 5/5 | 5/5 | 5/5 | 0 |
+
+- E1, E5: every rep passes `tree`, draws beside the `value` copies, re-sends
+  those paths with covers, and attaches with `heading: "## Evidence"` and
+  `mrUrl`; E5 makes one `dev_endpoints {tree, roles}` and no `rt_verb` or
+  port probe.
+- E2: every rep draws beside `.../retry-badge/3f2a9c1b7d04/retry-badge-before.png`
+  and re-sends that path; the changed ready edge ("each image `uncovered`
+  lists, by its path there") reads, though the fixture's `uncovered` omits
+  `path`.
+- E3: every rep opens `off-script:evidence:1` quoting the size refusal and,
+  on Take, ends Taken with no `linkRefused` call. Every rep again carries
+  the video's waiver from the scenario's wording (the one GREEN deviation,
+  unchanged).
+- E4: every rep reads `--json number,url,state` (assuming `OPEN`), reads
+  the body before the attach, passes it as `description`, and edits with
+  `--body-file`.
+
+The `run_field_set {key: gate}` each rep writes is the gate protocol's
+bracket, not an evidence write. No scenario reaches box 3's new Iterate
+path, so the re-record route is covered by the static checks only.
