@@ -533,3 +533,13 @@ describe("herd_milestone", () => {
     expect(r.error).toContain("HERD_ID and HERD_JOB are not set");
   });
 });
+
+describe("gate tool shell notes", () => {
+  test("herd_gate_answer and herd_gate_park name no skill as still on Bash", () => {
+    for (const name of ["herd_gate_answer", "herd_gate_park"]) {
+      const note = JSON.stringify(tool0(name).shellForms);
+      expect(note).not.toContain("until the skill moves");
+      expect(note).not.toContain("stay on Bash");
+    }
+  });
+});
