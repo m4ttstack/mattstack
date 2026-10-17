@@ -17,10 +17,9 @@ metadata:
 
 Run state: the orchestrator opens and closes this stage, so never write
 `run_stage` `start` or `done` here. `evidence_record` writes `evidence`;
-never write it with `run_field_set`. A `<slug> spent?` diamond is yes when
-the `run_budget` before it returns `spent` > `limit` (read `spent` against
-`limit`; ignore `exhausted` and `remaining`). `detailPath` on a
-failure is whatever was captured so far.
+never write it with `run_field_set`. A `<slug> spent?` diamond reads its
+`run_budget` as the evidence record below says. `detailPath` on a failure
+is whatever was captured so far.
 
 Capture the BEFORE now, before implementation changes the surface.
 
@@ -55,6 +54,8 @@ digraph evidence {
     "off-script answer?" [shape=diamond];
     "run_budget {runDb, key: evidence:source-off-script, limit: 1, stage: evidence}" [shape=plaintext];
     "source-off-script spent?" [shape=diamond];
+    "run_budget {runDb, key: evidence:gate-iterates, limit: 2, stage: evidence}" [shape=plaintext];
+    "gate-iterates spent?" [shape=diamond];
     "Domain attaches evidence to an MR here?" [shape=diamond];
     "run_field_get {key: branch}" [shape=plaintext];
     "git -C <worktree> remote get-url origin" [shape=plaintext];
@@ -98,7 +99,10 @@ digraph evidence {
     "Gate evidence (table below)" -> "evidence answer?";
     "evidence answer?" -> "Ticket already shows the broken state?" [label="proceed: intake and source recorded"];
     "evidence answer?" -> "Gate evidence (table below)" [label="iterate: re-ask with their note"];
-    "evidence answer?" -> "dev_endpoints {tree: <worktree>, roles: <the domain's roles>}" [label="iterate, a role was waiting or unclaimed: re-check"];
+    "evidence answer?" -> "run_budget {runDb, key: evidence:gate-iterates, limit: 2, stage: evidence}" [label="iterate, a role was waiting or unclaimed"];
+    "run_budget {runDb, key: evidence:gate-iterates, limit: 2, stage: evidence}" -> "gate-iterates spent?";
+    "gate-iterates spent?" -> "dev_endpoints {tree: <worktree>, roles: <the domain's roles>}" [label="no: re-check"];
+    "gate-iterates spent?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="yes: hand back, the roles named"];
     "evidence answer?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="hand back"];
     "Ticket already shows the broken state?" -> "Record the ticket's location as the BEFORE" [label="yes"];
     "Ticket already shows the broken state?" -> "Capture the BEFORE for the next case" [label="no"];
@@ -140,8 +144,8 @@ digraph evidence {
     "Attach now answered?" -> "Evidence done: return to the orchestrator" [label="no"];
     "Attach the evidence (evidence-record)" -> "Attach outcome?";
     "Attach outcome?" -> "Evidence done: return to the orchestrator" [label="Attached, or Taken: ship's attach sends the refused files"];
-    {"Record outcome?" "Attach outcome?"} -> "run_hold {runDb, stage: evidence, reason, decidedBy}" [label="Held"];
-    {"Record outcome?" "Attach outcome?"} -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="Failed: the reason quoted"];
+    {"Record outcome?" "Attach outcome?"} -> "run_hold {runDb, stage: evidence, reason, decidedBy}" [label="Record held, or Attach held"];
+    {"Record outcome?" "Attach outcome?"} -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="Record failed, or Attach failed: the reason quoted"];
     "run_hold {runDb, stage: evidence, reason, decidedBy}" -> "Held: end the turn naming run and stage";
     "run_stage {action: fail, stage: evidence, reason, detailPath}" -> "Stage failed";
 }
@@ -214,7 +218,9 @@ Taken is not a failure: ship's attach sends the refused files later.
 ## Gate `evidence` (before any capture)
 
 One sentence above the form: what the plan asks for and what is unknown,
-naming any dev-server role left waiting or unclaimed.
+naming any dev-server role left waiting or unclaimed. Iterate on such a
+role re-runs `dev_endpoints` twice at most (`gate-iterates`); the third
+fails the stage, naming the roles.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
