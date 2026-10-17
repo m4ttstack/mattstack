@@ -404,8 +404,8 @@ Other sections and rules:
 | `Record the finding as not reproduced; no fix` (box node + section) | kept | Non-goals |
 | `Fix the finding and run the tests` (box node + section) | kept; its counter sentence moves to `run_budget`; section: the scratch patch rule stays (its directory is in the session scratchpad); "the counter is attempts on this finding within this pass" becomes the `run_budget` key | self-review 6 |
 | `Tests green after the fix?` (diamond node) | kept | Non-goals |
-| `Fix attempts on this finding = 3?` (diamond node) | kept; reads `run_budget {runDb, key: fix:<finding id>:<round>, limit: 3, stage}`, `<round>` 1, then 2 after the reopened gate | self-review 6; B4 |
-| `Reopened gates on this finding = 1?` (diamond node) | kept; reads `run_budget {runDb, key: reopen:<finding id>, limit: 1, stage}` | self-review 6; B4 |
+| `Fix attempts on this finding = 3?` (diamond node) | replaced by: `fix:<finding id>:<round> spent?` (trim pass), reading `run_budget {runDb, key: fix:<finding id>:<round>, limit: 3, stage}`, `<round>` 1, then 2 after the reopened gate | self-review 6; B4 |
+| `Reopened gates on this finding = 1?` (diamond node) | replaced by: `reopen:<finding id> spent?` (trim pass), reading `run_budget {runDb, key: reopen:<finding id>, limit: 2, stage}`, charged on reaching the stuck point: the first charge opens the reopened gate, the second leaves the finding open | self-review 6; B4 |
 | `Self-review stuck finding answer?` (diamond node) | kept; `retry:<id>` moves the count to round 2's key (the old "count resets" label), `leave:<id>` leaves it open, hold to `run_hold`, abandon to the close | self-review 5, 6; B17 |
 | `Record the finding as left open` (box node + section) | kept | Non-goals |
 | `Hand back with the Minor findings listed` (box node + section) | kept | self-review 7 |

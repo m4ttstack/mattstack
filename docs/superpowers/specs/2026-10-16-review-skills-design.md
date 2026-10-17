@@ -465,11 +465,12 @@ The graph draws both handed entries ("a `{post}` alone" included) from
      overwrites the fix gate's decision (a bug fix, below);
    - option values `retry:<finding id>` and `leave:<finding id>`, plus `next`.
 6. **Counters:**
-   - `Fix attempts on this finding = 3?` reads `run_budget {key:
+   - `fix:<finding id>:<round> spent?` reads `run_budget {key:
      fix:<id>:<round>, limit: 3}`, where `<round>` is 1, then 2 after the one
      reopened gate;
-   - `Reopened gates on this finding = 1?` reads `run_budget {key:
-     reopen:<id>, limit: 1}`.
+   - `reopen:<finding id> spent?` reads `run_budget {key: reopen:<id>,
+     limit: 2}`, charged on reaching the stuck point: the first charge opens
+     the reopened gate, the second leaves the finding open.
 7. Close: `run_close {workType: self-review, ...}`; holds use `run_hold`.
 
 ### Off-script gates
