@@ -228,7 +228,7 @@ digraph ship {
     "Run has an evidence record?" -> "Attach the evidence (evidence-record)" [label="yes"];
     "Run has an evidence record?" -> "Forge host (read back)?" [label="no: the field is unset"];
     "Attach the evidence (evidence-record)" -> "Attach outcome?";
-    "Attach outcome?" -> "Forge host (read back)?" [label="Attached, or Taken: nothing written"];
+    "Attach outcome?" -> "Forge host (read back)?" [label="Attached (never Taken: Take links)"];
     "Attach outcome?" -> "run_hold {stage, reason, decidedBy}" [label="Attach held"];
     "Attach outcome?" -> "Which exit?" [label="Attach failed: a failure quoting the reason"];
     "Forge host (read back)?" -> "mr_view {mrUrl}" [label="GitLab"];

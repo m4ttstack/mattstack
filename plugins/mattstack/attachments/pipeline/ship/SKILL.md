@@ -340,7 +340,7 @@ digraph ship {
     "Run has an evidence record (ship)?" -> "Attach the evidence (evidence-record)" [label="yes"];
     "Run has an evidence record (ship)?" -> "Domain owns the title or description (ship)?" [label="no: the field is unset"];
     "Attach the evidence (evidence-record)" -> "Attach outcome (ship)?";
-    "Attach outcome (ship)?" -> "Domain owns the title or description (ship)?" [label="Attached, or Taken: nothing written"];
+    "Attach outcome (ship)?" -> "Domain owns the title or description (ship)?" [label="Attached (never Taken: Take links)"];
     "Attach outcome (ship)?" -> "Which exit (ship)?" [label="Attach held: hold"];
     "Attach outcome (ship)?" -> "Which exit (ship)?" [label="Attach failed: a failure quoting the reason"];
     "Domain owns the title or description (ship)?" -> "Forge host (ship, read back)?" [label="yes"];

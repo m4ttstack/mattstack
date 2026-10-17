@@ -183,7 +183,10 @@ says "the stage has no prior pipeline id".
     `existing: true` (`applied: false`), the unbound flow writes nothing to
     it: no squash, labels or description. A domain that wants the
     description updated says so at "Domain owns the title or description?"
-    (the fills' `open_mr` answer already does).
+    (the fills' `open_mr` answer already does). "No description" means the
+    verb writes no title or description of its own: when the run has an
+    evidence record, the evidence-record include still writes its evidence
+    section on the existing MR (B21; evidence-skills C14).
 
 ## Behavior changes
 
@@ -377,8 +380,9 @@ Rebased onto main with #851 and #856 merged. In ship and stage-ship
   own; Record held -> the hold path; Record failed -> the failure exit);
   `Run has an evidence record (ship)?` on the no-AFTER edge (yes -> the
   attach; no: the field is unset -> past it); `Attach the evidence
-  (evidence-record)` -> `Attach outcome (ship)?` (Attached, or Taken ->
-  the title and description; Attach held -> the hold path; Attach failed
+  (evidence-record)` -> `Attach outcome (ship)?` (Attached -> the title
+  and description, never Taken since Take sends `linkRefused: true`;
+  Attach held -> the hold path; Attach failed
   -> the failure exit).
 - The include owns the upload off-script gate; ship and stage-ship are the
   last attach, so its Take sends `linkRefused: true`. The ship gate's
