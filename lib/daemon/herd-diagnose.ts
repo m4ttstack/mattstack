@@ -27,6 +27,9 @@ export const LOGIN_RE = /^(?:API Error: 401|Login expired|OAuth token revoked|No
 
 const GUTTER = /^\s*(?:⎿\s*)?/;
 
+/** Claude Code opens every assistant message and tool call with this mark; one after a limit line means the limit has since reset. */
+const ASSISTANT_TURN = /^\s*⏺/;
+
 export type ScreenClass = "rate-limited" | "login-expired";
 
 /** Only the final transcript block counts: a limit or login line further up is scrollback from a limit that may since have reset. */
@@ -41,6 +44,7 @@ export function classifyScreen(text: string): ScreenClass | null {
   const tail = lines.slice(0, top).filter((l) => l.trim() !== "").slice(-TAIL_LINES);
   let limited = false;
   for (const raw of tail) {
+    if (ASSISTANT_TURN.test(raw)) limited = false;
     const line = raw.replace(GUTTER, "");
     if (LOGIN_RE.test(line)) return "login-expired";
     if (LIMIT_PREFIXES.some((p) => line.startsWith(p)) || LIMIT_CREDITS_RE.test(line)) limited = true;

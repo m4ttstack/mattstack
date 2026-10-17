@@ -912,7 +912,7 @@ GitLab only. Edit an open MR: title, description, addLabels, removeLabels (add a
 ### mr_upload
 
 <!-- mcp-lint: allow -->
-GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Pass runId when the file is a pipeline run's evidence: the daemon then also refuses a file that run's evidence record does not list as an annotated image or a waived capture, and names the file. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+GitLab only. Upload local images or videos (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; pass path for one file or paths (1 to 20, never both) for several, which upload in order, report each file as {path, ok, url, markdown} or {path, ok: false, error} under results, and do not stop at a failure; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. Every path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), rt's evidence folder ~/.mattstack/evidence/ (for screenshots you want to upload), a pipeline run's own evidence folder (~/.mattstack/work/<run id>/evidence/, for a run that exists on this machine), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, a file with other hard links, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Pass runId when the file is a pipeline run's evidence: the daemon then also refuses a file that run's evidence record does not list as an annotated image or a waived capture, and names the file. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
 {
@@ -928,16 +928,20 @@ GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mo
     },
     "path": {
       "type": "string",
-      "description": "Absolute path of the file to upload."
+      "description": "Absolute path of the file to upload. Pass this or paths."
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "1 to 20 absolute paths, uploaded one at a time in order. Pass this or path."
     },
     "runId": {
       "type": "string",
       "description": "A pipeline run's id. With it, the file must be in that run's evidence record as an annotated image or a waived capture."
     }
   },
-  "required": [
-    "path"
-  ],
   "additionalProperties": false
 }
 ```
@@ -1397,7 +1401,7 @@ Record a stage transition on a run: start, done, fail (with reason and detailPat
 ### run_field_set
 
 <!-- mcp-lint: allow -->
-Write one run field (key, value) as produced by a stage.
+Write one run field (key, value) as produced by a stage. With ifSha256, the write lands only if the field's current value still has that sha256 (hex; an unset field hashes as the empty string); otherwise it errors with "changed since it was read" and writes nothing, so a caller that read, merged and writes back cannot overwrite another process's write in between.
 
 ```json
 {
@@ -1419,6 +1423,10 @@ Write one run field (key, value) as produced by a stage.
     },
     "stage": {
       "type": "string"
+    },
+    "ifSha256": {
+      "type": "string",
+      "description": "The lowercase hex sha256 of the value you read; the empty string's when the field was unset."
     }
   },
   "required": [
@@ -1864,7 +1872,7 @@ GitLab only. One MR by iid, in full: opened, merged or closed. Read from GitLab 
 ### mr_list
 
 <!-- mcp-lint: allow -->
-GitLab only. A summary of each matching MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, detailedMergeStatus), most recently updated first. Filters: author (a username, or "me"), sourceBranch, targetBranch, state (default opened, which includes drafts), search (title and description, so a ticket id finds its MR). Returns {mrs, truncated}: at most limit rows (default 50, maximum 200), truncated true when GitLab had more. With targetBranch the body also carries targetBranch and full (true when nothing was cut); use that to prove a branch has no stacked children. Use mr_view for one MR in full. Read from GitLab on every call: any MR the token can see, whoever wrote it. A GitLab refusal comes back as GitLab's own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+GitLab only. A summary of each matching MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, detailedMergeStatus, mergedAt), most recently updated first. Filters: author (a username, or "me"), sourceBranch, targetBranch, state (default opened, which includes drafts), search (title and description, so a ticket id finds its MR). Returns {mrs, truncated}: at most limit rows (default 50, maximum 200), truncated true when GitLab had more. With targetBranch the body also carries targetBranch and full (true when nothing was cut); use that to prove a branch has no stacked children. Use mr_view for one MR in full. Read from GitLab on every call: any MR the token can see, whoever wrote it. A GitLab refusal comes back as GitLab's own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
 {
@@ -2505,7 +2513,7 @@ Bring the tree's branch current in one call through rt sync: fetch origin; if th
 ### branch_sync_sweep
 
 <!-- mcp-lint: allow -->
-Run branch_sync, one branch at a time, on every branch of yours with an open MR in the repo that has a local worktree. A conflict on one branch leaves that rebase paused for you and the sweep moves on to the next. Your open MRs are read from GitLab (author: me) or GitHub (gh pr list --author @me). Returns {repoName, results, noTree, complete}: results holds one branch_sync result per branch (kind, branch, oldHead, newHead, pushed, refusal), each with its tree and mr {iid, url}; noTree lists your open-MR branches that have no worktree, which the sweep skips; complete is false when the forge may have cut the MR list short. Opens no gate and pushes only what branch_sync itself pushes. repoName is the repo's serialized identity, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo.
+Run branch_sync, one branch at a time, on every branch of yours with an open MR in the repo that has a local worktree, or with branches, only on those of them named there. A conflict on one branch leaves that rebase paused for you and the sweep moves on to the next. Your open MRs are read from GitLab (author: me) or GitHub (gh pr list --author @me). Returns {repoName, results, noTree, complete}: results holds one branch_sync result per branch (kind, branch, oldHead, newHead, pushed, refusal), each with its tree and mr {iid, url}; noTree lists your open-MR branches that have no worktree, which the sweep skips; complete is false when the forge may have cut the MR list short. With branches, the result also has notOpen: the named branches with no open MR of yours, which the sweep skips; when complete is false a branch there may only have fallen past the forge's cut, so notOpen is not proof it has no MR. Opens no gate and pushes only what branch_sync itself pushes. repoName is the repo's serialized identity, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo.
 
 ```json
 {
@@ -2514,6 +2522,13 @@ Run branch_sync, one branch at a time, on every branch of yours with an open MR 
     "repoName": {
       "type": "string",
       "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "branches": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Sync only these of your open-MR branches, so an MR opened after you chose stays untouched. Omit to sweep every one."
     }
   },
   "required": [
@@ -3663,6 +3678,254 @@ GitLab only. Sort a pipeline's failed jobs, same-project child pipelines include
       "type": "boolean"
     }
   },
+  "additionalProperties": false
+}
+```
+
+### evidence_record
+
+<!-- mcp-lint: allow -->
+Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A file already there is never rewritten: a bundle that would change one lands whole in a content folder beside it (<case>/<12 hex>/, names unchanged), so a capture the record names keeps its bytes until the record moves. A source must sit under the target repo's checkout or worktrees (pass tree, the run's own worktree root, to name the repo; a tree in another repo is refused), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and writes nothing, so call again with each listed image's cover. plan: "none" writes {"plan":"none"} and takes nothing else. Returns {written, encoding, value, uncovered, copied}.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runDb": {
+      "type": "string",
+      "description": "The runDb run_start returned."
+    },
+    "stage": {
+      "type": "string",
+      "description": "The stage writing the field (run_field_set's stage)."
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case": {
+            "type": "string",
+            "description": "Case id: lowercase letters, digits and dashes."
+          },
+          "label": {
+            "type": "string",
+            "description": "Names a new case."
+          },
+          "slot": {
+            "type": "string",
+            "enum": [
+              "before",
+              "after"
+            ]
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark"
+            ],
+            "description": "Only when the slot is a {light, dark} pair."
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path of the capture; a new path recaptures the slot."
+          },
+          "annotated": {
+            "type": "string",
+            "description": "Absolute path of the annotated board; needs caption."
+          },
+          "caption": {
+            "type": "string"
+          },
+          "waiver": {
+            "type": "string",
+            "description": "Why this image has no annotated board."
+          }
+        },
+        "required": [
+          "case",
+          "slot"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Case id: lowercase letters, digits and dashes."
+          },
+          "label": {
+            "type": "string"
+          },
+          "waiver": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "remove": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case": {
+            "type": "string",
+            "description": "Case id: lowercase letters, digits and dashes."
+          },
+          "slot": {
+            "type": "string",
+            "enum": [
+              "before",
+              "after"
+            ]
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark"
+            ],
+            "description": "Only when the slot is a {light, dark} pair."
+          }
+        },
+        "required": [
+          "case"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "transcript": {
+      "type": "string",
+      "description": "Absolute path of a text transcript (md, txt or log)."
+    },
+    "url": {
+      "type": "string",
+      "description": "The ticket url."
+    },
+    "plan": {
+      "type": "string",
+      "enum": [
+        "none"
+      ]
+    },
+    "tree": {
+      "type": "string",
+      "description": "The run's worktree root; its repo's checkout and worktrees count as copy sources."
+    }
+  },
+  "required": [
+    "runDb",
+    "stage"
+  ],
+  "additionalProperties": false
+}
+```
+
+### evidence_attach
+
+<!-- mcp-lint: allow -->
+Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as "<file name> (attached separately)" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section names each file as attached separately and next names the gh move. A section that names a path in your home directory (a caption, label, waiver, ticket or appendix carrying one) is never written, nor next given, and writeErrors says so. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runDb": {
+      "type": "string",
+      "description": "The runDb run_start returned."
+    },
+    "stage": {
+      "type": "string",
+      "description": "The stage writing the field (run_field_set's stage)."
+    },
+    "heading": {
+      "type": "string",
+      "description": "The section's full heading line, e.g. ## Verification Evidence."
+    },
+    "before": {
+      "type": "string",
+      "description": "A heading line the section is inserted above when heading is absent."
+    },
+    "appendix": {
+      "type": "string",
+      "description": "Markdown printed inside the section after the generated content. A heading at or above heading's level, or a code fence left open, is refused."
+    },
+    "repoName": {
+      "type": "string",
+      "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "iid": {
+      "type": "number",
+      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+    },
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR's https URL; supplies both the repo and iid."
+    },
+    "description": {
+      "type": "string",
+      "description": "A description to splice the section into when there is no MR to write, or on GitHub."
+    },
+    "linkRefused": {
+      "type": "boolean",
+      "description": "The off-script gate's Take: name refused files as attached separately (no path) and write anyway."
+    }
+  },
+  "required": [
+    "runDb",
+    "stage",
+    "heading"
+  ],
+  "additionalProperties": false
+}
+```
+
+### dev_endpoints
+
+<!-- mcp-lint: allow -->
+Look up the dev-server endpoints rt claimed for a worktree and probe them until each answers. Pass tree (the worktree root) and roles (1 to 8 role names). For each role the daemon's claim is reported, and every claimed role gets an HTTP GET of its url plus probePath (default /) with no redirect follow; any HTTP response, a 404 or a 302 included, counts as answered, while a refused connection or a timeout does not. Probes repeat every 2 seconds until every claimed role answers or waitSeconds (default 90, at most 300, 0 probes once) passes. running is reported but is not a readiness signal; answered is. An undeclared role is reported on that role with error and does not fail the call; an unclaimed role is never waited on. Returns {tree, waitedMs, roles: {<role>: {claimed, port, url, running, listener, answered, status, answeredAfterMs, error?}}, waiting}, where waiting lists claimed roles that never answered.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "tree": {
+      "type": "string",
+      "description": "Absolute path of the worktree root."
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 8,
+      "description": "Endpoint role names, e.g. web, api."
+    },
+    "waitSeconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 300,
+      "description": "How long to keep probing; default 90, 0 probes once."
+    },
+    "probePath": {
+      "type": "string",
+      "description": "Path appended to each url; default /."
+    }
+  },
+  "required": [
+    "tree",
+    "roles"
+  ],
   "additionalProperties": false
 }
 ```

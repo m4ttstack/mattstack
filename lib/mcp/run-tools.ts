@@ -243,13 +243,26 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     },
     {
       name: "run_field_set",
-      description: "Write one run field (key, value) as produced by a stage.",
-      inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, key: { type: "string" }, value: { type: "string" }, stage: { type: "string" } }, required: ["key", "value", "stage"], additionalProperties: false },
+      description: "Write one run field (key, value) as produced by a stage. With ifSha256, the write lands only if the field's current value still has that sha256 (hex; an unset field hashes as the empty string); otherwise it errors with \"changed since it was read\" and writes nothing, so a caller that read, merged and writes back cannot overwrite another process's write in between.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...RUN_DB_PROPS,
+          key: { type: "string" },
+          value: { type: "string" },
+          stage: { type: "string" },
+          ifSha256: { type: "string", description: "The lowercase hex sha256 of the value you read; the empty string's when the field was unset." },
+        },
+        required: ["key", "value", "stage"],
+        additionalProperties: false,
+      },
       shellForms: ["rt runs field set"],
       async handler(input, env) {
         const bad = checkRequired(input, [{ name: "key", type: "string" }, { name: "value", type: "string" }, { name: "stage", type: "string" }]);
         if (bad) return err(bad);
-        return write("field", ["set", input.key as string, input.value as string, "--stage", input.stage as string], input, env);
+        if (input.ifSha256 !== undefined && (typeof input.ifSha256 !== "string" || !/^[0-9a-f]{64}$/.test(input.ifSha256))) return err('"ifSha256" must be 64 lowercase hex digits');
+        const cas = typeof input.ifSha256 === "string" ? ["--if-sha256", input.ifSha256] : [];
+        return write("field", ["set", input.key as string, input.value as string, "--stage", input.stage as string, ...cas], input, env);
       },
     },
     {

@@ -76,6 +76,12 @@ describe("listMrsLive", () => {
     });
   });
 
+  test("carries each MR's merged_at as mergedAt, null when GitLab has none", async () => {
+    const { provider } = restFake([page([{ ...row(1), state: "merged", merged_at: "2026-10-16T12:00:00Z" }, row(2)], "")]);
+    const r = await listMrsLive(provider, "grp/proj", {});
+    expect(r.ok && r.mrs.map((mr) => mr.mergedAt)).toEqual(["2026-10-16T12:00:00Z", null]);
+  });
+
   test("author me asks GitLab for the token user's own MRs", async () => {
     const { provider, paths } = restFake([page([], "")]);
     await listMrsLive(provider, "grp/proj", { author: "me" });
