@@ -395,6 +395,7 @@ before includes (from 2.1K).
 | Provision, ticket mode, branch already in a tree | Silently cut `<branch>-2` | Precheck offers to resume that tree |
 | Provision, branch survives its disposed tree | A new `<branch>-2` cut from the default branch | Offered as a resume; `reuse` checks the old branch out |
 | Provision resume into the main checkout or a disposable tree | Allowed via EnterWorktree | Refused by `reuse`; the stage fails quoting it |
+| convention.md stage and gate contract (followups-2) | Told authors to start their own stage, bracket a gate with a hand-written `gate` field and `run_decision`, and close with `run_status` | Names the engine calls (`run_enter`, `run_next`, `run_resolve`, `run_hold`, `run_close`) and the gate tools that write `gate`, `waiting-gate` and the decision |
 | Provision resume into a tree another owner holds (followups-2) | `reuse` returned it; only the gate's option label warned | `reuse` refuses `tree-held` unless `takeOver: true`; the stage passes it only when the human picked an option that read held, and compares the owner against `herd:<whoami herd.id>` |
 | Provision `busy` refusal | Stage failed | Retried once (call's own budget) |
 | Provision Fresh tree, branch mode | Re-provisioned the same branch name | A new `<slug>-<n>` branch |
@@ -469,6 +470,8 @@ the change, GREEN after):
 | S9 held tree, results scripted | 5/5 | 5/5 | none: the scripted `whoami` and `takeOver` results lead RED there, so S9 is a guard |
 | S9b own herd's tree | 5/5 | 5/5 | none: RED reads `herd:hd-7` as its own herd from the scripted `whoami` |
 | S9c held tree, unprimed | 3/5 | 5/5 | 2 reps reuse without `takeOver`, take the `tree-held` refusal, then retry with it, a move the graph does not draw |
+
+| C1 convention.md, an author's gate and run calls (`attachments/parameterized-skills/references/convention.md` as the system file) | 0/5 | 5/5 | every RED rep prescribed `run_start`, a stage `run_stage start`, a hand-written `gate` field plus `run_decision`, and `run_status`; GREEN: `run_enter`, `gate_ask`/`gate_open` with `runDb` and `stage`, `run_hold`, `run_next` from `work`, `run_close` on an own run |
 
 - S5 rerun on the GREEN text: 5/5 on its own criteria (`reuse`, no hand
   writes). Its scripted owner `session:4f1c` now reads as held, and 2 reps
