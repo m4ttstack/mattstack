@@ -252,7 +252,7 @@ says "the stage has no prior pipeline id".
      hold the lease" (one origin; take/iterate/hold/hand back; iterate
      through `lease-rounds`).
    - `unsupported_forge` → GitHub path.
-   - tool error → `ci-watch-errors` budget (2) → "Fix what the ci_watch error
+   - tool error → `ci-watch-errors` budget (1) → "Fix what the ci_watch error
      names" or "watch-ci off-script gate: ci_watch refused".
    - tempted to watch with a script or the GitLab CLI → STOP (kept).
 4. GitHub path (trimmed, kept): `ci_lease_claim {mrUrl, branch} (GitHub)`,
