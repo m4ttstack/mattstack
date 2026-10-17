@@ -36,6 +36,15 @@ the cache copy itself.
 | Marketplace | `name` in the org clone's `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the org clone itself)         | `mattstack` (the local dev marketplace `~/Documents/GitHub/mattstack-marketplace`, whose `mattstack` entry is a git-subdir source: a `file://` URL to the shared monorepo checkout, path `plugins/mattstack`, ref `main`; Claude Code refuses symlinked plugin paths since 2.1.257)                                                                                                            |
 | Update      | `claude plugin update <plugin>@<marketplace>` (derive both, see below)                                                                            | `claude plugin update mattstack@mattstack`                                                                                                                                                                                                                                                                                                                                                     |
 
+**Where a team pack edit goes.** In the org clone itself, at the Source
+row's path, on the branch the clone has checked out: every fill, skill,
+`pack/skills.jsonc`, `pack/stubs.jsonc` and `pack/surface.jsonc` edit, and
+its commit and push. Never in a git worktree or another copy of the org
+repo: materialize reads a pack's fragment only from the org clone, and sync
+publishes the checkout the marketplace names (the org clone) and refuses a
+`.worktrees/` or `.claude/worktrees/` folder under the pack. Only a
+mattstack change is made in a worktree (your own monorepo worktree).
+
 **Deriving `<plugin>@<marketplace>` for the update.** The two names are
 independent: `<plugin>` is the `name` in the pack's `plugin.json`;
 `<marketplace>` is the `name` in the org clone's
@@ -243,8 +252,9 @@ naming the stage, never the copy.
 
 ### Compile the checkout's sources on Bash
 
-`rt_verb` refuses `--pack-dir` on compile, so compiling a checkout's or
-worktree's sources is the bare Bash command, run before GREEN. A team pack
+`rt_verb` refuses `--pack-dir` on compile, so compiling the mattstack
+plugin's sources in your monorepo worktree is the bare Bash command, run
+before GREEN. A team pack
 compile reads mattstack engines, includes and fills from the INSTALLED
 mattstack cache (table below), so compile the pack that reads your edit.
 A mattstack engine, include or fill compiles as mattstack against
@@ -254,13 +264,9 @@ after the mattstack cache updates:
 
 `rt skills compile --pack mattstack --pack-dir <your monorepo worktree>/plugins/mattstack` <!-- mcp-lint: allow -->
 
-A team pack's own fill compiles as that pack against its checkout:
-
-`rt skills compile --pack <pack> --pack-dir <pack checkout>` <!-- mcp-lint: allow -->
-
-For a team pack's canonical checkout,
-`rt_verb {args: ["skills", "compile", "--pack", "<pack>"]}` is enough; the
-bare `--pack-dir` form is for a worktree or another checkout. Never use the
+A team pack's own fill compiles in the org clone, which `--pack` resolves,
+so it takes no `--pack-dir`:
+`rt_verb {args: ["skills", "compile", "--pack", "<pack>"]}`. Never use the
 `--pack` form alone for mattstack: it resolves mattstack to the shared
 monorepo checkout.
 
@@ -330,8 +336,8 @@ Edit the PR body, then push a commit: re-running the job reads the old body.
 
 ### Push the default branch from the checkout
 
-From the checkout directory, a bare push (`git_push` refuses a default
-branch):
+From the checkout directory (for a team pack, the org clone), a bare push
+(`git_push` refuses a default branch):
 
 `git push` <!-- mcp-lint: allow -->
 
@@ -388,11 +394,14 @@ step's reason:
 
 ### Fix the guard it names
 
-Sync refuses before anything mutates unless both checkouts are clean and on
-`main`, there is no `.worktrees/` or `.claude/worktrees/` under the pack,
-`claude` resolves to a binary, and each has a marketplace. Fix the one it
-names. Run sync against the canonical checkouts: from a feature worktree or
-an unmerged branch it refuses by design, so land the work on `main` first.
+Sync refuses before anything mutates unless both checkouts are clean, the
+engine checkout is on `main`, the pack checkout is on `main` or is the org
+clone (which may sit on whatever branch it has checked out), there is no
+`.worktrees/` or `.claude/worktrees/` under the pack, `claude` resolves to
+a binary, and each has a marketplace. Fix the one it names. Sync always
+acts on the checkout the marketplace names, never a worktree: a worktrees
+refusal means one was made under the pack, so carry its edits into the org
+clone (see Where a team pack edit goes) and remove the folder.
 An in-tree plugin (`plugins/mattstack` in the shared monorepo checkout)
 skips these git checks: sync reads its version from that checkout's `main`
 and only warns when the checkout sits on another branch.
