@@ -1,4 +1,10 @@
-import { stageCopyOf, suffixOf, type SkillsComposition } from '../../outline';
+import {
+  effectiveBoundTo,
+  overrideOf,
+  stageCopyOf,
+  suffixOf,
+  type SkillsComposition,
+} from '../../outline';
 import type { SkillsChanges } from '../../useWiring';
 import { stepLabel } from './focusModel';
 
@@ -25,6 +31,34 @@ const FILE_STATUS: Record<string, string> = {
 
 const fillName = (binding: string | null) =>
   binding === null ? 'nothing' : suffixOf(binding);
+
+/** rt reports a removed pipeline override as `to: null`; the slot then
+    reads what the composition names: an override a lower layer still
+    holds for that pipeline, else the default fill. */
+function bindingTarget(
+  change: SkillsChanges['bindings'][number],
+  composition: SkillsComposition | undefined
+): string {
+  if (change.to !== null || !change.pipeline) return fillName(change.to);
+  if (!composition) return 'default';
+  const slot = composition.binders
+    ?.find(binder => binder.ref === change.engineRef)
+    ?.slots.find(candidate => candidate.name === change.slot);
+  if (!slot) return 'default (unbound)';
+  // An unset removes only this pack's override, which a composition read
+  // before the write still lists; any other layer's override stays.
+  const remaining = {
+    boundTo: slot.boundTo,
+    overrides: slot.overrides?.filter(
+      override => override.layer && override.layer !== 'pack'
+    ),
+  };
+  const fallback = effectiveBoundTo(remaining, change.pipeline);
+  if (!fallback) return 'default (unbound)';
+  return overrideOf(remaining, change.pipeline)
+    ? suffixOf(fallback)
+    : `${suffixOf(fallback)} (default)`;
+}
 
 const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
 
@@ -111,7 +145,7 @@ export function pendingChangesOf(
     ...changes.bindings.map(change => ({
       key: `binding:${change.pipeline ?? ''}:${change.engineRef}:${change.slot}`,
       name: stepLabel(suffixOf(change.engineRef)),
-      detail: `${change.pipeline ? `${change.slot} · ${change.pipeline}` : `${change.slot} slot`}: ${fillName(change.from)} → ${fillName(change.to)}`,
+      detail: `${change.pipeline ? `${change.slot} · ${change.pipeline}` : `${change.slot} slot`}: ${fillName(change.from)} → ${bindingTarget(change, composition)}`,
     })),
     ...changes.surface.map(change => ({
       key: `surface:${change.skill}`,

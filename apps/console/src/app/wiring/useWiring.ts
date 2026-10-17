@@ -294,10 +294,18 @@ export interface SkillsBindResponse {
   pack: string;
   verb: string;
   slot: string;
-  fill: string;
+  /** Absent when the write removed `pipeline`'s override. */
+  fill?: string;
+  pipeline?: string;
+  unset?: true;
   ok: boolean;
   error?: string;
 }
+
+/** A fill for a slot, or the removal of a pipeline's override of it. */
+export type SkillsBindWrite =
+  | { verb: string; slot: string; fill: string; pipeline?: string }
+  | { verb: string; slot: string; pipeline: string; unset: true };
 
 type SkillsPostFn = (args: {
   json: Record<string, unknown>;
@@ -406,12 +414,7 @@ export function useSkillsApply(pack: string) {
 
   const bind = useMutation({
     mutationKey,
-    mutationFn: (write: {
-      verb: string;
-      slot: string;
-      fill: string;
-      pipeline?: string;
-    }) => {
+    mutationFn: (write: SkillsBindWrite) => {
       if (!pack) return Promise.reject(new Error('no pack selected'));
       return postSkillsWrite<SkillsBindResponse>(client.api.skills.bind.$post, {
         pack,

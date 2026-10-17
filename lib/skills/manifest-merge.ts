@@ -147,7 +147,7 @@ function settlePipelineBindings(out: MergedManifest, stagesLayerRefs: Record<str
   }
 }
 
-const PROVENANCE_LINE = /^\/\/\s{3}(.+?) <- (\S+)\s*$/;
+export const PROVENANCE_LINE = /^\/\/\s{3}(.+?) <- (\S+)\s*$/;
 
 const DROPPED_LINE = /^\/\/ dropped: (.+?) <- (\S+)\s*$/;
 

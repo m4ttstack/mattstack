@@ -37,6 +37,20 @@ export type RebindChoices = {
   verb: string;
   /** The pipeline whose override a write sets; null writes the default. */
   pipeline: string | null;
+  /** Whether `pipeline` overrides this slot, at any layer. */
+  overridden: boolean;
+  /** Whether that override is this pack's to remove. An override with no
+      layer counts, as rt lets an unset through on one. */
+  removable: boolean;
+  /** The layer, as a badge reads it, that sets an override this pack cannot
+      remove; null otherwise. */
+  overrideSetBy: string | null;
+  /** The view's pipeline when a write sets the default and that pipeline
+      keeps its own override of the slot; null otherwise. */
+  keptOverride: string | null;
+  /** The slot's default fill, which a removed override falls back to; null
+      when nothing is bound by default. */
+  fallback: string | null;
   /** The skills a write recompiles: every roster verb on the bound verb's
       engine, since they share its binding key. */
   rebuilds: string[];
@@ -100,36 +114,115 @@ function whereBound(
   return places.length === 0 ? 'bound nowhere' : `bound ${listed(places)}`;
 }
 
+export type PipelineChoice = { pipeline: string | null; label: string };
+
+function binderSlotOf(
+  composition: SkillsComposition,
+  ref: string,
+  slot: string
+) {
+  return composition.binders
+    .find(binder => binder.ref === ref)
+    ?.slots.find(candidate => candidate.name === slot);
+}
+
+/** The pipeline a write from `workType`'s view sets when nobody picks one.
+    rt overrides only a stage the pipeline lists, so anything else, a work
+    verb's own slots included, takes the default; so does the default
+    pipeline, unless it already overrides the slot. */
+function viewPipeline(
+  composition: SkillsComposition,
+  ref: string,
+  slot: string,
+  workType: string | null
+): string | null {
+  if (workType === null) return null;
+  const isStageOf = composition.pipelines?.[workType]?.includes(ref) ?? false;
+  const overridden =
+    overrideOf(binderSlotOf(composition, ref, slot) ?? {}, workType) !==
+    undefined;
+  return isStageOf &&
+    (overridden || workType !== defaultPipelineOf(composition.pipelines))
+    ? workType
+    : null;
+}
+
+/**
+ * The pipelines a write to a stage slot can target from `workType`'s view:
+ * Default, every other pipeline that lists the stage, and the default
+ * pipeline only once it overrides the slot. A stage copy, which a
+ * specialized view always opens in place of its stage, offers its stage's
+ * choices with its own pipeline preselected. No choice on a slot no
+ * specialized pipeline lists, which always takes the default.
+ */
+export function pipelineChoices(
+  composition: SkillsComposition,
+  skill: string,
+  ref: string,
+  slot: string,
+  workType: string | null
+): { choices: PipelineChoice[]; preselected: string | null } {
+  const copyOf = composition.targets?.find(t => t.name === skill)?.pipeline;
+  const defaultPipeline = defaultPipelineOf(composition.pipelines);
+  const binderSlot = binderSlotOf(composition, ref, slot) ?? {};
+  const listing = Object.entries(composition.pipelines ?? {})
+    .filter(([, stages]) => stages.includes(ref))
+    .map(([name]) => name);
+  const preselected = copyOf ?? viewPipeline(composition, ref, slot, workType);
+  if (!listing.some(name => name !== defaultPipeline))
+    return { choices: [], preselected };
+
+  const offered = listing.filter(
+    name =>
+      name !== defaultPipeline || overrideOf(binderSlot, name) !== undefined
+  );
+  return {
+    choices: [
+      { pipeline: null, label: 'Default' },
+      ...offered.map(name => ({ pipeline: name, label: name })),
+    ],
+    preselected,
+  };
+}
+
 /**
  * What a slot can be rebound to in `workType`: the fills that provide its
  * contract, the current one first, then the ones fewest other skills bind.
  * A stage copy reads and writes its own pipeline's override. A stage of any
  * other pipeline but the default writes that pipeline's override too, as
- * does a stage the pipeline already overrides at the slot.
+ * does a stage the pipeline already overrides at the slot. A `chosen`
+ * pipeline, null for the default, replaces that rule, on a copy too: it is
+ * both the one read and the one written.
  */
 export function rebindChoices(
   composition: SkillsComposition,
   skill: string,
   ref: string,
   slot: string,
-  workType: string | null
+  workType: string | null,
+  chosen?: string | null
 ): RebindChoices {
   const target = composition.targets?.find(t => t.name === skill);
   const verb = target?.engine ?? skill;
-  const reading = target?.pipeline ?? workType;
-  const binderSlot = composition.binders
-    .find(binder => binder.ref === ref)
-    ?.slots.find(candidate => candidate.name === slot);
-  const overridden = overrideOf(binderSlot ?? {}, reading) !== undefined;
-  // rt overrides only a stage the pipeline lists; anything else, a work
-  // verb's own slots included, takes the default.
-  const isStageOf =
-    reading !== null &&
-    (composition.pipelines?.[reading]?.includes(ref) ?? false);
   const pipeline =
-    isStageOf &&
-    (overridden || reading !== defaultPipelineOf(composition.pipelines))
-      ? reading
+    chosen !== undefined
+      ? chosen
+      : (target?.pipeline ?? viewPipeline(composition, ref, slot, workType));
+  const reading =
+    chosen !== undefined ? chosen : (target?.pipeline ?? workType);
+  // A copy's facts read its own pipeline whatever they are asked, so another
+  // pipeline is read through the stage it copies.
+  const readAs = chosen !== undefined ? verb : skill;
+  const binderSlot = binderSlotOf(composition, ref, slot);
+  const override = overrideOf(binderSlot ?? {}, pipeline);
+  const overrideLayer = override?.layer ?? null;
+  const removable =
+    override !== undefined &&
+    (overrideLayer === null || overrideLayer === 'pack');
+  const viewing = target?.pipeline ?? workType;
+  const keptOverride =
+    pipeline === null && overrideOf(binderSlot ?? {}, viewing) !== undefined
+      ? viewing
       : null;
 
   const rosterVerb = composition.verbs.find(v => v.name === verb);
@@ -139,7 +232,7 @@ export function rebindChoices(
         .map(v => v.name)
     : [verb];
 
-  const facts = slotFactsOf(composition, skill, ref, reading).get(slot);
+  const facts = slotFactsOf(composition, readAs, ref, reading).get(slot);
   const contract = facts?.contract ?? null;
   const current = facts?.boundTo ?? null;
   const sites = invertBindings(composition);
@@ -192,6 +285,12 @@ export function rebindChoices(
     })),
     verb,
     pipeline,
+    overridden: override !== undefined,
+    removable,
+    overrideSetBy:
+      overrideLayer !== null && !removable ? layerLabel(overrideLayer) : null,
+    keptOverride,
+    fallback: binderSlot?.boundTo || null,
     rebuilds,
   };
 }
