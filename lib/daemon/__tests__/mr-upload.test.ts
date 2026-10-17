@@ -6,7 +6,8 @@
  */
 import { createHash } from "crypto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { spawnSync } from "child_process";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { setSetting } from "../../settings/write.ts";
@@ -318,8 +319,73 @@ describe("mr:upload", () => {
       expect(await h.handlers["mr:upload"]({ repoName: REPO, path: png(dir, "shot-0412.png") }))
         .toEqual({ ok: false, error: "shot-0412.png is the unredacted original of an imported ticket image; upload the composed board instead" });
       expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(dir, "stray.png", "stray") }))
-        .toEqual({ ok: false, error: "stray.png is not in run run-1's evidence record as an annotated image or a waived capture; record it with run_field_set first" });
+        .toEqual({ ok: false, error: "stray.png is in run run-1's evidence folder and not in run run-1's evidence record; record it with evidence_record first" });
       expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(dir, "board.png", "board") })).ok).toBe(true);
+      expect(h.calls.length).toBe(1);
+    });
+
+    test("a ticket image the check cannot read fails closed; a FIFO is never read; a moved ticket file is a known limit", async () => {
+      const ticketAt = (path: string) => ({ v: 2, cases: [
+        { id: "t", label: "T", before: { path, source: "ticket", annotated: join(repoPath, "board.png"), caption: "c" } },
+        { id: "u", label: "U", after: { path: join(repoPath, "other.png"), waiver: "w" } },
+      ] });
+      const locked = pngWith(repoPath, "locked.png", "lockd");
+      chmodSync(locked, 0o000);
+      const h1 = harness({ repoPath, ...record(ticketAt(locked)) });
+      const r1 = await h1.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "other.png", "other"), runId: "run-1" });
+      chmodSync(locked, 0o600);
+      expect(r1.ok).toBe(false);
+      expect((r1 as { error: string }).error).toContain("could not be read to rule out a copy");
+      const fifo = join(repoPath, "pipe.png");
+      expect(spawnSync("mkfifo", [fifo]).status).toBe(0);
+      const h2 = harness({ repoPath, ...record(ticketAt(fifo)) });
+      const r2 = await h2.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "other.png", "other"), runId: "run-1" });
+      expect((r2 as { error: string }).error).toContain("could not be read to rule out a copy");
+      const h3 = harness({ repoPath, ...record(ticketAt(join(repoPath, "moved-away.png"))) });
+      expect((await h3.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "other.png", "other"), runId: "run-1" })).ok).toBe(true);
+    }, 5000);
+
+    test("a file in run B's folder uploaded with runId A is held to both records", async () => {
+      const dir = join(home, ".mattstack", "work", "run-b", "evidence", "c");
+      mkdirSync(dir, { recursive: true });
+      const file = pngWith(dir, "shot.png", "b");
+      const both = { runEvidence: (id: string) => id === "run-1"
+        ? { found: true as const, evidence: JSON.stringify({ v: 2, cases: [{ id: "c", label: "C", after: { path: file, waiver: "w" } }] }) }
+        : { found: true as const, evidence: JSON.stringify({ v: 2, cases: [{ id: "c", label: "C", after: { path: join(dir, "else.png"), waiver: "w" } }] }) } };
+      const h = harness({ repoPath, uploadRoots: () => [dir], ...both });
+      const res = await h.handlers["mr:upload"]({ repoName: REPO, path: file, runId: "run-1" });
+      expect(res).toEqual({ ok: false, error: "shot.png is in run run-b's evidence folder and not in run run-b's evidence record; record it with evidence_record first" });
+    });
+
+    test("an owner-derived run with no database is refused by location, naming the folder", async () => {
+      const dir = join(home, ".mattstack", "work", "ghost", "evidence", "c");
+      mkdirSync(dir, { recursive: true });
+      const h = harness({ repoPath, uploadRoots: () => [dir], ...record(null) });
+      expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(dir, "shot.png", "g") }))
+        .toEqual({ ok: false, error: "shot.png is in run ghost's evidence folder and not in run ghost's evidence record; record it with evidence_record first" });
+    });
+
+    test("a symlink from a worktree into a run's folder is held to that run's record", async () => {
+      const dir = join(home, ".mattstack", "work", "run-1", "evidence", "t");
+      mkdirSync(dir, { recursive: true });
+      const value = { v: 2, cases: [{ id: "t", label: "T", before: { path: join(dir, "shot-0412.png"), source: "ticket", annotated: join(dir, "board.png"), caption: "c" } }] };
+      png(dir, "shot-0412.png");
+      symlinkSync(join(dir, "shot-0412.png"), join(repoPath, "link.png"));
+      const h = harness({ repoPath, uploadRoots: () => [dir], ...record(value) });
+      expect(await h.handlers["mr:upload"]({ repoName: REPO, path: join(repoPath, "link.png") }))
+        .toEqual({ ok: false, error: "shot-0412.png is the unredacted original of an imported ticket image; upload the composed board instead" });
+    });
+
+    test("with no run in scope, a run's ticket original left in the temp root is refused; an ordinary file is not", async () => {
+      const dir = join(home, ".mattstack", "work", "run-1", "evidence", "t");
+      mkdirSync(dir, { recursive: true });
+      const copy = pngWith(dir, "r-t-ticket.png", "ticket-bytes");
+      const value = { v: 2, cases: [{ id: "t", label: "T", before: { path: copy, source: "ticket", annotated: join(dir, "board.png"), caption: "c" } }] };
+      const original = pngWith(elsewhere, "r-t-ticket.png", "ticket-bytes");
+      const h = harness({ repoPath, tempRoots: () => [elsewhere], ...record(value) });
+      expect(await h.handlers["mr:upload"]({ repoName: REPO, path: original }))
+        .toEqual({ ok: false, error: "r-t-ticket.png is the unredacted original of an imported ticket image; upload the composed board instead" });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "notes.png", "ordinary") })).ok).toBe(true);
       expect(h.calls.length).toBe(1);
     });
 

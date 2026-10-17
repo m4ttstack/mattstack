@@ -13,15 +13,16 @@
  * ticket-image redactions are unconfirmed is refused too
  * (../redaction-record-check.ts).
  */
-import { realpathSync } from "fs";
-import { isAbsolute, relative, sep } from "path";
+import { existsSync, readdirSync, realpathSync } from "fs";
+import { isAbsolute, join, relative, sep } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
 import { getRepoContext, providerRequestHook } from "../freshness.ts";
 import { loadSecrets } from "../../linear.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { findRun } from "../../runs/store.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
-import { evidenceUploadRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
+import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
+import { evidenceUploadRefusal, ticketCopyRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
 import { redactionUploadRefusal } from "../redaction-record-check.ts";
 import { checkUploadPath, claudeTempRoots, workRoot } from "../upload-guard.ts";
 import type { CommandResult, HandlerContext, HandlerMap } from "./types.ts";
@@ -39,6 +40,37 @@ export interface MrUploadSeams {
   requestHook?: () => ReturnType<typeof providerRequestHook>;
   runEvidence?: (runId: string) => RunEvidenceLookup;
   workRoot?: () => string;
+}
+
+/**
+ * With no run in scope a file can still be a run's saved ticket image (its
+ * original in the session temp root, say): every run with an evidence folder
+ * is checked, by size first, so an ordinary upload hashes nothing.
+ */
+function ticketCopyAnyRun(
+  real: string,
+  filename: string,
+  bytes: Uint8Array,
+  root: string,
+  runEvidence: (runId: string) => RunEvidenceLookup,
+  warn: (message: string, context: { err: unknown; path: string }) => void,
+): string | null {
+  let ids: string[];
+  try {
+    ids = readdirSync(root);
+  } catch {
+    return null;
+  }
+  for (const id of ids) {
+    if (!existsSync(join(root, id, "evidence"))) continue;
+    const run = runEvidence(id);
+    if (!run.found) continue;
+    const record = readEvidence(run.evidence);
+    if (record.version !== 2) continue;
+    const refusal = ticketCopyRefusal({ record, realpath: real, filename, bytes, warn });
+    if (refusal) return refusal;
+  }
+  return null;
 }
 
 /** A file under a run's evidence folder belongs to that run, so its record governs it with or without a runId. */
@@ -108,9 +140,16 @@ export function createMrUploadHandlers(
       if (typeof p?.runId === "string") runIds.add(p.runId.trim());
       const owner = runIdOfPath(checked.realpath, workRootFn());
       if (owner) runIds.add(owner);
+      const warn = (message: string, context: { err: unknown; path: string }) => ctx.log.warn(context, message);
       for (const runId of runIds) {
-        const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId), bytes: checked.bytes });
-        if (refusal) return { ok: false, error: refusal };
+        const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId), bytes: checked.bytes, warn });
+        if (!refusal) continue;
+        const byLocation = runId === owner && runId !== p?.runId && !refusal.includes("ticket image");
+        return { ok: false, error: byLocation ? `${checked.filename} is in run ${runId}'s evidence folder and not in run ${runId}'s evidence record; record it with evidence_record first` : refusal };
+      }
+      if (runIds.size === 0) {
+        const ticket = ticketCopyAnyRun(checked.realpath, checked.filename, checked.bytes, workRootFn(), runEvidenceFn, warn);
+        if (ticket) return { ok: false, error: ticket };
       }
 
       try {

@@ -6,18 +6,69 @@
  * at its own path or as a byte copy anywhere else: only its composed board does.
  */
 import { createHash } from "crypto";
-import { readFileSync, realpathSync } from "fs";
+import { readFileSync, realpathSync, statSync } from "fs";
 import { basename } from "path";
-import { evidenceShots, readEvidence, uploadablePaths } from "../../packages/rt-client/src/evidence.ts";
+import { evidenceShots, readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
 
 export type RunEvidenceLookup = { found: false } | { found: true; evidence: string | null };
 
-function safeRead(p: string): Uint8Array | null {
+type Warn = (message: string, context: { err: unknown; path: string }) => void;
+type Probe = { kind: "gone" } | { kind: "file"; size: number; read: () => Uint8Array } | { kind: "unreadable"; err: unknown };
+
+/** stat before any read: a FIFO or a device at a record path must never block the daemon. */
+function probe(p: string): Probe {
   try {
-    return readFileSync(p);
-  } catch {
-    return null;
+    const st = statSync(p);
+    if (!st.isFile()) return { kind: "unreadable", err: new Error("not a regular file") };
+    return { kind: "file", size: st.size, read: () => readFileSync(p) };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR" ? { kind: "gone" } : { kind: "unreadable", err };
   }
+}
+
+const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
+
+/**
+ * Refuses a file that is a run's saved ticket image, at its path or as a byte
+ * copy. A ticket file it cannot read fails closed; a ticket file that is gone
+ * cannot be compared, a known limit (the record holds no hash of it).
+ */
+export function ticketCopyRefusal(o: {
+  record: EvidenceRecord;
+  realpath: string;
+  filename: string;
+  bytes?: Uint8Array;
+  resolve?: (p: string) => string | null;
+  probe?: (p: string) => Probe;
+  warn?: Warn;
+}): string | null {
+  const resolve = o.resolve ?? safeRealpath;
+  const look = o.probe ?? probe;
+  const mine = o.bytes ? sha256(o.bytes) : null;
+  for (const { shot } of evidenceShots(o.record)) {
+    if (shot.source !== "ticket") continue;
+    if (resolve(shot.path) === o.realpath) return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
+    if (!o.bytes || mine === null) continue;
+    const found = look(shot.path);
+    if (found.kind === "gone") continue;
+    let theirs: Uint8Array | null = null;
+    if (found.kind === "file" && found.size === o.bytes.length) {
+      try {
+        theirs = found.read();
+      } catch (err) {
+        o.warn?.("ticket copy check: unreadable ticket image, failing closed", { err, path: shot.path });
+        return `${o.filename}: the run's ticket image ${basename(shot.path)} could not be read to rule out a copy; fix its permissions or recapture it`;
+      }
+    } else if (found.kind === "unreadable") {
+      o.warn?.("ticket copy check: unreadable ticket image, failing closed", { err: found.err, path: shot.path });
+      return `${o.filename}: the run's ticket image ${basename(shot.path)} could not be read to rule out a copy; fix its permissions or recapture it`;
+    }
+    if (theirs !== null && sha256(theirs) === mine) {
+      return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
+    }
+  }
+  return null;
 }
 
 function safeRealpath(p: string): string | null {
@@ -35,25 +86,15 @@ export function evidenceUploadRefusal(o: {
   run: RunEvidenceLookup;
   resolve?: (p: string) => string | null;
   bytes?: Uint8Array;
-  read?: (p: string) => Uint8Array | null;
+  warn?: Warn;
 }): string | null {
   if (!o.run.found) return `run ${o.runId} not found`;
   const record = readEvidence(o.run.evidence);
   if (record.version !== 2) return `run ${o.runId} has no evidence record; write evidence before uploading with runId`;
   const resolve = o.resolve ?? safeRealpath;
   const same = (p: string) => resolve(p) === o.realpath;
-  const tickets = evidenceShots(record).filter(({ shot }) => shot.source === "ticket");
-  const read = o.read ?? safeRead;
-  const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
-  const mine = o.bytes ? sha(o.bytes) : null;
-  const copiesTicket = (path: string) => {
-    if (mine === null) return false;
-    const theirs = read(path);
-    return theirs !== null && sha(theirs) === mine;
-  };
-  if (tickets.some(({ shot }) => same(shot.path) || copiesTicket(shot.path))) {
-    return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
-  }
+  const ticket = ticketCopyRefusal({ record, realpath: o.realpath, filename: o.filename, bytes: o.bytes, resolve, warn: o.warn });
+  if (ticket) return ticket;
   if (uploadablePaths(record).some(same)) return null;
   const raw = evidenceShots(record).find(({ shot }) => shot.annotated && same(shot.path));
   if (raw) {

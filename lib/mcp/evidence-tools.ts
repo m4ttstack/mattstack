@@ -14,6 +14,7 @@ import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
+import { ticketCopyRefusal } from "../daemon/evidence-record-check.ts";
 import { redactionUploadRefusal } from "../daemon/redaction-record-check.ts";
 import { allowedSourceRoots, bundleStem, copyIntoRun, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
@@ -461,13 +462,15 @@ function realOr(path: string): string {
   }
 }
 
-function reusable(entry: UploadEntry | undefined, real: string, project: string): Extract<UploadEntry, { url: string }> | null {
+function reusable(entry: UploadEntry | undefined, real: string, project: string, record: EvidenceRecord): Extract<UploadEntry, { url: string }> | null {
   if (!entry || !("url" in entry) || entry.project !== project) return null;
   const stem = bundleStem(basename(real));
   if (stem !== null && existsSync(join(dirname(real), `${stem}.redactions.json`))) return null;
   try {
     if (sha256Of(real) !== entry.sha256) return null;
-    return redactionUploadRefusal({ realpath: real, filename: basename(real), bytes: readFileSync(real) }) === null ? entry : null;
+    const bytes = readFileSync(real);
+    if (ticketCopyRefusal({ record, realpath: real, filename: basename(real), bytes }) !== null) return null;
+    return redactionUploadRefusal({ realpath: real, filename: basename(real), bytes }) === null ? entry : null;
   } catch {
     return null;
   }
@@ -555,7 +558,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
     const real = realOr(path);
     const entry = uploadsMap[real];
     if (!linkRefused && entry && "linked" in entry && entry.linked === true) wasLinked.add(path);
-    const reuse = reusable(entry, real, target.identity);
+    const reuse = reusable(entry, real, target.identity, record);
     if (reuse) {
       uploaded.push({ path, url: reuse.url, markdown: reuse.markdown, reused: true });
       continue;
