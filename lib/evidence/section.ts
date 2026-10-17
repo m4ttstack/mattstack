@@ -39,7 +39,7 @@ function entriesOf(c: EvidenceCase): Entry[] {
   return [...byKey.values()];
 }
 
-/** A file that never uploaded is named, not located: an MR description is read beyond this machine, and a local path carries the user's home. */
+/** A file that never uploaded is named, not located: an MR description is read beyond this machine, and a local path carries the user's home. The transcript and attach lines follow the same rule. */
 function linkText(l: FileLink, alt: string): string {
   if ("local" in l) return `${basename(l.local)} (attached separately)`;
   const url = /!\[[^\]]*\]\(([^)]*)\)/.exec(l.markdown)?.[1];
@@ -58,6 +58,14 @@ function renderEntry(e: Entry, link: (path: string) => FileLink): string {
 /** A carried-over attach line prints as text, never as a heading or a fence that would move the section's end on the next splice. */
 function inert(line: string): string {
   return line.replace(/^( {0,3})(#{1,6}(?=[ \t]|$)|`{3,}|~{3,})/, "$1\\$2");
+}
+
+/** GitLab's own upload links are host-relative; every other absolute path in an attach line is this machine's. */
+const GITLAB_RELATIVE = /^\/(?:uploads|-)\//;
+
+function withoutLocalPaths(line: string): string {
+  return line.replace(/(^|[\s([])(\/[^\s()[\]]+)/g, (whole, pre: string, path: string) =>
+    GITLAB_RELATIVE.test(path) ? whole : `${pre}${basename(path)} (attached separately)`);
 }
 
 function linksOf(line: string): string[] {
@@ -84,12 +92,12 @@ export function renderSection(
       if (c.waiver) head.push(`Waived: ${oneLine(c.waiver)}`);
       blocks.push(entries.length ? [...head, entries.map((e) => renderEntry(e, link)).join("\n")].join("\n\n") : head.join("\n\n"));
     }
-    if (record.transcript) blocks.push(`Transcript: ${oneLine(record.transcript)}`);
+    if (record.transcript) blocks.push(`Transcript: ${basename(oneLine(record.transcript))} (kept locally)`);
     if (record.url) blocks.push(`Ticket: ${oneLine(record.url)}`);
     for (const line of (record.attach ?? "").split("\n")) {
       const links = linksOf(line);
       if (!line.trim() || (links.length > 0 && links.every((l) => covered.has(l)))) continue;
-      blocks.push(inert(line));
+      blocks.push(inert(withoutLocalPaths(line)));
     }
   } else if (record.version === 0) {
     for (const item of legacyItems(record.links)) {

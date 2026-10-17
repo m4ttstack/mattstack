@@ -594,11 +594,15 @@ describe("evidence_attach", () => {
   });
 
   test("linkRefused names the refused file without its path, writes, and remembers it as linked", async () => {
-    const { one, evidence } = twoWaived();
+    const { one, evidence: base } = twoWaived();
+    const local = join(evidenceDir(), "transcript.md");
+    const evidence = JSON.stringify({ ...JSON.parse(base), transcript: local, attach: `older notes: ${join(evidenceDir(), "notes.txt")}` });
     const respond: Responder = (cmd, p) => (cmd === "mr:upload" && p.path === one ? errRes("path is outside the allowed upload roots (...)") : undefined);
     const { deps, calls, fields, state } = makeDeps({ fields: { evidence }, respond });
     const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL, linkRefused: true }, env)).body as AttachBody;
     expect(body.section).toContain("- Before: one.png (attached separately)");
+    expect(body.section).toContain("Transcript: transcript.md (kept locally)");
+    expect(body.section).toContain("older notes: notes.txt (attached separately)");
     for (const text of [body.section, state.live]) {
       expect(text).not.toContain(home);
       expect(text).not.toContain(realpathSync(home));
@@ -891,7 +895,7 @@ describe("evidence_attach", () => {
     const { deps, calls } = makeDeps({ fields: { evidence: JSON.stringify({ plan: "text", transcript: "/t.txt" }) } });
     const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "web" }, env)).body as AttachBody;
     expect(uploads(calls).length).toBe(0);
-    expect(body.section).toBe("Transcript: /t.txt");
+    expect(body.section).toBe("Transcript: t.txt (kept locally)");
   });
 
   test("an mr:update failure lands in writeErrors and keeps the uploads", async () => {

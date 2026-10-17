@@ -56,9 +56,24 @@ describe("renderSection", () => {
     });
     const out = renderSection(r, up, { coveredUrls: new Set(["/uploads/h/b-annotated.png"]), appendix: "<details>\nA\n</details>" });
     const tail = out.slice(out.indexOf("Transcript:"));
-    expect(tail).toBe("Transcript: /t.txt\n\nTicket: https://t\n\n![y](/uploads/h/other.png)\n\n<details>\nA\n</details>");
+    expect(tail).toBe("Transcript: t.txt (kept locally)\n\nTicket: https://t\n\n![y](/uploads/h/other.png)\n\n<details>\nA\n</details>");
     expect(out).not.toContain("![x]");
     expect(out).not.toContain("![z]");
+  });
+
+  test("an attach line names a local file without its path and keeps GitLab upload links", () => {
+    const attach = "see /Users/someone/.mattstack/work/r1/evidence/c/log.txt for the run\n![y](/uploads/h/other.png)\n![w](/-/project/9/uploads/h/w.png)";
+    const out = renderSection(rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", waiver: "w" } }], attach }), up, {});
+    expect(out).toContain("see log.txt (attached separately) for the run");
+    expect(out).toContain("![y](/uploads/h/other.png)");
+    expect(out).toContain("![w](/-/project/9/uploads/h/w.png)");
+    expect(out).not.toContain("/Users/someone");
+  });
+
+  test("the transcript line names its file as kept locally, never its path", () => {
+    const out = renderSection(rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", waiver: "w" } }], transcript: "/Users/someone/.mattstack/work/r1/evidence/transcript.md" }), up, {});
+    expect(out).toContain("Transcript: transcript.md (kept locally)");
+    expect(out).not.toContain("/Users/someone");
   });
 
   test("multi-line captions, waivers and labels stay on one line", () => {
