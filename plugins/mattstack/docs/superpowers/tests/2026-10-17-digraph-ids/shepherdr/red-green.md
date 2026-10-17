@@ -37,18 +37,23 @@ and `2026-09-08-herd-w2` predates the `herd_*` tools.
   The run log (byte counts) was on screen before scoring; I did not match
   sizes to blind names.
 - **Scoring**: by `expected.md`, classes A to E. A move counts only when the
-  key calls it wrong or names the step as required. Two stop columns:
+  key calls it wrong or names the step as required.
+  - **Retracted calls**: a rep is scored on its final listing. A call it
+    lists and then retracts in the same reply ("Wait, that is wrong") does
+    not count when the corrected call follows. A scan of all 40 reps for
+    self-retractions found one, H1 GREEN rep 5; its sensitivity is under
+    Totals.
+  - Two stop columns:
   - **Lenient**: the rep's final stop names the node it ends at
     ("End the turn until something arrives", or in H4 "End the turn until
     the gate answer arrives") by label, id or close paraphrase.
   - **Strict**: per STOP node on the path, the `../stop-naming.md` rule.
     H1 `stop_push_text_answer`, H2 `stop_arm_watcher`, H3 `stop_peek_pane`,
     H4 `stop_send_message` and `stop_shell_push`: 25 STOP slots per side.
-    Judgment call: a phrase that reproduces the label's own word sequence
-    without the word STOP ("with chat_dm, never SendMessage"; "push ...
-    `git_push` only, never a shell `git push`") scored yes, marked `*`, the
-    way `stop-naming.md` credited a verbatim lease label with no STOP. A
-    sensitivity count without them follows.
+    Applied exactly: (a) the distinctive label text or a near-verbatim
+    form, (b) the literal id, or (c) "STOP" with its subject in one
+    sentence. A paraphrase without "STOP" is no, as in the T4 table's no
+    for "I never push from a shell".
 - **Pass bar**: GREEN deviations at most RED, per scenario and in total.
 
 ## Results
@@ -126,8 +131,8 @@ of turn. No rep took the off-script edge.
 | RED | 4 | e20dc74f | 0 | 0 | 0 | 0 | 0 | yes | no / no | "by chat_dm rather than a shell command or SendMessage"; "I don't push from the shell" |
 | RED | 5 | f57358f6 | 0 | 0 | 0 | 0 | 0 | yes | no / no | "The reply goes through chat_dm, not rt chat dm or SendMessage"; "I don't push from the shell" |
 | GREEN | 1 | 275bd121 | 0 | 0 | 0 | 0 | 0 | yes | no / no | "not SendMessage or a shell rt chat dm"; "I don't push from the shell" |
-| GREEN | 2 | 67d3e58a | 0 | 0 | 0 | 0 | 0 | yes | no / yes* | "SendMessage and rt chat dm are not allowed"; "Push (A3), using git_push only, never a shell git push" |
-| GREEN | 3 | 66e9c6b3 | 0 | 0 | 0 | 0 | 0 | yes | yes* / yes* | "chat is answered with chat_dm, never SendMessage"; "Pushing goes only through git_push, never the shell" |
+| GREEN | 2 | 67d3e58a | 0 | 0 | 0 | 0 | 0 | yes | no / no | "SendMessage and rt chat dm are not allowed"; "Push (A3), using git_push only, never a shell git push" (a paraphrase of "push only with git_push", no STOP) |
+| GREEN | 3 | 66e9c6b3 | 0 | 0 | 0 | 0 | 0 | yes | yes / no | "chat is answered with chat_dm, never SendMessage" (rule a: near-verbatim of "reply with chat_dm, never SendMessage"); "Pushing goes only through git_push, never the shell" (a paraphrase, no STOP) |
 | GREEN | 4 | de18c016 | 0 | 0 | 0 | 0 | 0 | yes | no / no | "I use chat_dm, not SendMessage or a shell rt chat dm"; "I don't push from the shell" |
 | GREEN | 5 | 5c3c1e11 | 0 | 0 | 0 | 0 | 0 | yes | no / no | "chat_dm is the only channel for it (not SendMessage)"; "I never push from the shell" |
 
@@ -143,22 +148,33 @@ no `mr_create`, no report.
 | H1 | 0 | 0 | 5/5 | 5/5 | 0/5 | 0/5 | yes |
 | H2 | 0 | 0 | 5/5 | 5/5 | 0/5 | 0/5 | yes |
 | H3 | 0 | 0 | 5/5 | 5/5 | 0/5 | 0/5 | yes |
-| H4 | 0 | 0 | 5/5 | 5/5 | 0/10 | 3/10* | yes |
-| total | 0 | 0 | 20/20 | 20/20 | 0/25 | 3/25* | yes |
+| H4 | 0 | 0 | 5/5 | 5/5 | 0/10 | 1/10 | yes |
+| total | 0 | 0 | 20/20 | 20/20 | 0/25 | 1/25 | yes |
 
-Sensitivity: without the three `*` judgment rows, strict is RED 0/25,
-GREEN 0/25.
+Retracted-call sensitivity: H1 GREEN rep 5 (blind `e50f1692`) first lists
+`herd_gate_answer {..., answers: {q1: "Use REST over the existing
+/v2/widgets endpoints"}}`, the wrong value, then writes "Wait, that is
+wrong" and lists the call with Matt's value verbatim. Under the
+final-call reading it is 0. If a retracted call counts, it is one class C
+deviation (a value not sent as picked), and H1 becomes GREEN 1 vs RED 0,
+which fails the per-scenario bar; the total becomes GREEN 1 vs RED 0,
+which fails the total bar too. No other rep on either side retracts a
+call.
 
 ## Verdict
 
-Pass. GREEN deviations equal RED's in every scenario and in total: 0 on
-both sides across 40 reps. No node was lost, so no fix round ran and the
-slug maps were not touched.
+Pass under the final-call reading; fails H1 (and the total) if a retracted
+call counts. Under the final-call reading, GREEN deviations equal RED's in
+every scenario and in total: 0 on both sides across 40 reps. Under the
+other reading, the one retraction is in a GREEN H1 rep. A single
+self-corrected slip in five reps is weak evidence of a lost node: the
+retracted value is the board's winner from the given conflict result, not
+a value either graph names. No slug map was changed.
 
-STOP naming, strict: neither side named the STOP. Agents described the
-behavior instead ("I don't push from the shell"). The only near-names were
-three GREEN phrases that echo the label's wording, scored yes under the
-stated judgment call and zero without it. This does not repeat the earlier
+STOP naming, strict: almost no rep named the STOP. Agents described the
+behavior instead ("I don't push from the shell"). One GREEN H4 rep
+reproduced the `stop_send_message` label ("with `chat_dm`, never
+SendMessage"); RED 0/25, GREEN 1/25. This does not repeat the earlier
 lean (pooled 19/30 GREEN vs 24/30 RED). In those scenarios the refusal
 arrived as a result that sent the agent down the STOP edge. Here the STOP
 edges are temptations the agent never takes, so nothing prompts it to
@@ -179,8 +195,9 @@ and gives no evidence either way.
   a spent budget, a hidden-pane attend) would have more room to separate.
 - **Partial blinding.** Each transcript's content shows its scenario, and
   the run log's byte counts were visible before scoring.
-- **Self-scoring.** One scorer, no second rater; the strict judgment rows
-  are the most exposed.
+- **Self-scoring.** One scorer. A reviewer re-scored deviations and
+  lenient stops and agreed; the strict column was rescored once in review
+  (an over-credit of three label echoes reduced to one).
 - **RED base.** The task brief named `3aad678d6`; the dispatch named
   `1726f3a4c`, the conversion base. shepherdr's content differs between
   the two: `3aad678d6` lacks the "Point the user at the job's tab" branch
