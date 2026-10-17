@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { checkPack, skillsBind, skillsCompile, skillsCheck } from "../../../commands/skills.ts";
+import { checkPack, skillsBind, skillsCheck, skillsCompile, skillsComposition } from "../../../commands/skills.ts";
 import { childEnv } from "../../subprocess.ts";
 import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
@@ -521,4 +521,93 @@ describe("compile-pipelines", () => {
     expect(readFileSync(manifest, "utf8")).toContain("mattstack:model-tiering");
     expect(existsSync(join(pack, "attachments", COPY, "SKILL.md"))).toBe(true);
   }, 30_000);
+
+  test("compile --json lists removed copies", async () => {
+    const { pack, ms, manifest, args } = buildPipelines();
+    await compileCapturingLogs(pack, ms, manifest);
+    dropAccessibilityOverride(manifest);
+
+    const payload = await compileJson(args);
+    expect(payload.written).toBe(true);
+    expect(payload.removedCopies).toEqual([COPY]);
+    expect(existsSync(join(pack, "attachments", COPY))).toBe(false);
+
+    expect(await compileJson(args)).not.toHaveProperty("removedCopies");
+  }, 30_000);
+
+  test("dry run leaves removedCopies out", async () => {
+    const { pack, ms, manifest, args } = buildPipelines();
+    await compileCapturingLogs(pack, ms, manifest);
+    dropAccessibilityOverride(manifest);
+
+    const dry = await compileJson([...args, "--dry-run"]);
+    expect(dry.written).toBe(false);
+    expect(dry).not.toHaveProperty("removedCopies");
+    expect(existsSync(join(pack, "attachments", COPY))).toBe(true);
+  }, 30_000);
+
+  test("a stage named like a copy collides", async () => {
+    const { pack, ms, manifest } = buildPipelines();
+    const stubs = join(pack, "pack", "stubs.jsonc");
+    writeFileSync(stubs, readFileSync(stubs, "utf8").replace(
+      '"work-a11y":',
+      `"${COPY}": { "engine": "stage-evidence", "description": "Gather evidence" },\n    "work-a11y":`,
+    ));
+    const { errors } = await compileCapturingLogs(pack, ms, manifest);
+    expect(errors.join("\n")).toContain(`"${COPY}" is both a roster verb and a pipeline stage`);
+  }, 30_000);
+
+  test("binder names the default pipeline's verb", async () => {
+    const { manifest, args } = buildPipelines();
+    bindWorkTiering(manifest);
+    expect(await workBinderVerb(args)).toBe("work");
+  }, 30_000);
+
+  test("with no default pipeline, the binder names the verb with no pipeline", async () => {
+    const { pack, manifest, args } = buildPipelines();
+    bindWorkTiering(manifest);
+    writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"feature": [', '"general": ['));
+    writeFileSync(join(pack, "pack", "stubs.jsonc"), JSON.stringify({
+      verbs: {
+        work: { engine: "work", description: "Run a unit of work" },
+        "work-a11y": { engine: "work", pipeline: "accessibility", description: "Run accessibility work end to end" },
+      },
+    }, null, 2));
+    expect(await workBinderVerb(args)).toBe("work");
+  }, 30_000);
 });
+
+function dropAccessibilityOverride(manifest: string): void {
+  writeFileSync(manifest, readFileSync(manifest, "utf8").replace(
+    ',\n      "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-b" } }',
+    "",
+  ));
+}
+
+function bindWorkTiering(manifest: string): void {
+  writeFileSync(manifest, readFileSync(manifest, "utf8").replace(
+    '"bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" } }',
+    '"bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" }, "mattstack:work": { "tiering": "mattstack:model-tiering" } }',
+  ));
+}
+
+async function compileJson(args: string[]): Promise<Record<string, unknown>> {
+  const io = captureSkills();
+  try {
+    await skillsCompile([...args, "--json"]);
+    return JSON.parse(io.stdout());
+  } finally {
+    io.restore();
+  }
+}
+
+async function workBinderVerb(args: string[]): Promise<string | null> {
+  const io = captureSkills();
+  try {
+    await skillsComposition([...args, "--json"]);
+    const { binders } = JSON.parse(io.stdout()) as { binders: { ref: string; verb: string | null }[] };
+    return binders.find((b) => b.ref === "mattstack:work")?.verb ?? null;
+  } finally {
+    io.restore();
+  }
+}

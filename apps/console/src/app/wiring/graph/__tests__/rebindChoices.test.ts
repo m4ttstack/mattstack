@@ -153,6 +153,19 @@ describe('rebindChoices per pipeline', () => {
     expect(evidence('accessibility').rebuilds).toEqual(['stage-evidence']);
   });
 
+  it('rebuilds the whole pack for a stage bind, as rt recompiles it', () => {
+    expect(evidence('feature').rebuildsPack).toBe(true);
+    expect(
+      rebindChoices(
+        composition,
+        'work-a11y',
+        'mattstack:work',
+        'tiering',
+        'accessibility'
+      ).rebuildsPack
+    ).toBe(false);
+  });
+
   it('binds a stage copy through its engine and its own pipeline', () => {
     expect(evidence(null, 'stage-evidence--accessibility')).toMatchObject({
       current: 'acme:evidence-a11y',
@@ -320,6 +333,22 @@ describe('rebindChoices for a chosen pipeline', () => {
       overridden: true,
       removable: false,
       overrideSetBy: 'base: acme-base',
+    });
+  });
+
+  it('names the override layer in words of its own', () => {
+    expect(
+      rebindChoices(
+        overrideLayered('override'),
+        'stage-evidence',
+        'mattstack:stage-evidence',
+        'domain',
+        'accessibility',
+        'accessibility'
+      )
+    ).toMatchObject({
+      removable: false,
+      overrideSetBy: 'the override layer',
     });
   });
 

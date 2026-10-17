@@ -446,6 +446,59 @@ describe('HealthTab: org base drift', () => {
   });
 });
 
+describe('HealthTab: pipeline copies and overrides', () => {
+  const DROPPED = {
+    key: 'feature/mattstack:stage-gates domain',
+    layer: 'base:acme-base',
+  };
+
+  it('lists a stale stage copy in rt words, as drift, and does not read in sync', async () => {
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, {
+      ...ALL_IN_SYNC_CHECK,
+      staleCopies: ['stage-evidence--accessibility'],
+    });
+
+    const group = await screen.findByTestId('health-group-pipelines');
+    expect(group).toHaveTextContent(
+      'stale stage copy stage-evidence--accessibility: run rt skills compile'
+    );
+    expect(
+      screen.getByTestId('health-group-count-pipelines')
+    ).toHaveTextContent('1');
+    expect(screen.queryByTestId('health-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('All in sync.')).not.toBeInTheDocument();
+    expect(screen.getByTestId('installed-caches-bar')).toBeInTheDocument();
+  });
+
+  it('lists a dropped override by its key and layer, as a warning only', async () => {
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, {
+      ...ALL_IN_SYNC_CHECK,
+      droppedOverrides: [DROPPED],
+    });
+
+    const group = await screen.findByTestId('health-group-pipelines');
+    expect(group).toHaveTextContent(
+      "Override feature/mattstack:stage-gates domain from base:acme-base is ignored: a later layer's stage list no longer has that stage"
+    );
+    expect(screen.queryByTestId('health-empty')).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('installed-caches-bar')
+    ).not.toBeInTheDocument();
+  });
+
+  it('counts both in one group', async () => {
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, {
+      ...ALL_IN_SYNC_CHECK,
+      staleCopies: ['stage-evidence--accessibility'],
+      droppedOverrides: [DROPPED],
+    });
+
+    expect(
+      await screen.findByTestId('health-group-count-pipelines')
+    ).toHaveTextContent('2');
+  });
+});
+
 const LAG_CHECK = {
   ...ALL_IN_SYNC_CHECK,
   installed: {

@@ -501,6 +501,7 @@ export function SkillDrawer({
           usedBy={content.usedBy}
           composition={composition}
           groups={groups}
+          pipeline={pipeline}
           onFocus={focus => setUrl({ focus })}
         />
       )}

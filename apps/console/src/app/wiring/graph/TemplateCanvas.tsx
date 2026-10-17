@@ -205,6 +205,7 @@ export default function TemplateCanvas({
   height,
   cover = 0,
   headerBottom = 0,
+  focusOf = skill => skill,
   onSelect,
 }: {
   layout: LayoutResult;
@@ -214,6 +215,8 @@ export default function TemplateCanvas({
   cover?: number;
   /** The focus header's bottom in stage px. */
   headerBottom?: number;
+  /** The focus key a link card opens its skill under. */
+  focusOf?: (skill: string) => string;
   onSelect: (select: string) => void;
 }) {
   const [url, patch] = useWiringUrl();
@@ -238,10 +241,10 @@ export default function TemplateCanvas({
       view,
       select: url.select,
       onSelect,
-      onOpenSkill: skill => patch({ focus: skill }),
+      onOpenSkill: skill => patch({ focus: focusOf(skill) }),
       onBind: line => patch({ select: `row:${line}`, rebind: true }),
     }),
-    [view, url.select, onSelect, patch]
+    [view, url.select, onSelect, patch, focusOf]
   );
 
   return (

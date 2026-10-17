@@ -29,6 +29,7 @@ Bind refuses `--pipeline` when:
 
 - the pack's bindings file does not declare the pipeline (`pipeline "<name>" is not declared in this pack's manifest`): declare it in `pack/skills.jsonc`, then run `rt skills materialize`,
 - the pipeline's name does not match `[a-z][a-z0-9-]*`,
+- the pipeline's name contains `--` (`pipeline "<name>" must not contain "--"`),
 - the pipeline's stage list does not carry the stage,
 - the verb is a compiled stage copy (`stage-evidence--accessibility`): name the stage and pass `--pipeline` instead.
 

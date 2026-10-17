@@ -20,7 +20,7 @@ import { useDrawerMode } from './drawer/useDrawerMode';
 import { FocusHeader, kindOf, statusOf } from './FocusHeader';
 import classes from './graph.module.css';
 import { layoutTemplate } from './layout/templateLayout';
-import { workTypeOf } from './model/focusModel';
+import { focusUnder, workTypeOf } from './model/focusModel';
 import { appSkillView, buildTemplateView } from './model/templateModel';
 import { useGraphFocus } from './useGraphFocus';
 
@@ -104,6 +104,10 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
   }, [appSkill, anatomy, composition, check, changes, step, workType]);
   const layout = useMemo(() => (view ? layoutTemplate(view) : null), [view]);
   const onSelect = useCallback((select: string) => patch({ select }), [patch]);
+  const focusOf = useCallback(
+    (skill: string) => focusUnder(pipeline, skill),
+    [pipeline]
+  );
   const drawerOpen = useMemo(
     () => selectedContent(url, view, anatomy, check) !== null,
     [url, view, anatomy, check]
@@ -152,6 +156,7 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
             height={height}
             cover={drawerOpen && drawerMode === 'side' ? DRAWER_WIDTH : 0}
             headerBottom={focused ? header.bottom : 0}
+            focusOf={focusOf}
             onSelect={onSelect}
           />
         </Suspense>

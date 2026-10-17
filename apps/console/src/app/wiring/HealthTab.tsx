@@ -531,6 +531,18 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
     })),
   ];
 
+  const pipelineRows = [
+    ...(checkQuery.data?.staleCopies ?? []).map(name => ({
+      key: `stale-copy:${name}`,
+      message: `stale stage copy ${name}: run rt skills compile`,
+    })),
+    ...(checkQuery.data?.droppedOverrides ?? []).map(({ key, layer }) => ({
+      key: `dropped:${layer}:${key}`,
+      message: `Override ${key} from ${layer} is ignored: a later layer's stage list no longer has that stage`,
+    })),
+  ];
+  const staleStageCopies = checkQuery.data?.staleCopies?.length ?? 0;
+
   const staleCount = groups.staleEntries.length + staleCopies.length;
   const neverCompiledCount =
     groups.neverCompiledEntries.length + unbuiltCopies.length;
@@ -539,10 +551,15 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
     staleCount === 0 &&
     neverCompiledCount === 0 &&
     baseRows.length === 0 &&
+    pipelineRows.length === 0 &&
     unwiredRows.length === 0;
 
+  // A dropped override only warns: rt counts it as no drift.
   const hasDrift =
-    staleCount > 0 || neverCompiledCount > 0 || baseRows.length > 0;
+    staleCount > 0 ||
+    neverCompiledCount > 0 ||
+    baseRows.length > 0 ||
+    staleStageCopies > 0;
   // An rt too old to report `installed` must not surface a bar claiming
   // current-ness; drift alone still earns one (sync fixes exactly drift).
   const showCachesBar = hasDrift || checkQuery.data?.installed != null;
@@ -664,6 +681,24 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
                     />
                   )
                 }
+              />
+            )}
+
+            {pipelineRows.length > 0 && (
+              <HealthGroupCard
+                title="Pipelines"
+                intent="warn"
+                caption="stale stage copies, and overrides a pipeline ignores"
+                entries={pipelineRows}
+                getKey={row => row.key}
+                renderRow={row => (
+                  <HealthIssueRow
+                    testId={row.key}
+                    name={row.message}
+                    reference={null}
+                    wrapName
+                  />
+                )}
               />
             )}
 

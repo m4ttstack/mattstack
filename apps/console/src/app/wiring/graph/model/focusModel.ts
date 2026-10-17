@@ -53,6 +53,28 @@ export function stepLabel(skill: string): string {
     : skill;
 }
 
+/** A stage copy as `evidence · accessibility`; null for any other skill. */
+export function copyLabelOf(
+  composition: Pick<SkillsComposition, 'targets'>,
+  skill: string
+): string | null {
+  const target = composition.targets?.find(t => t.name === skill);
+  return target?.engine && target.pipeline
+    ? `${stepLabel(target.engine)} · ${target.pipeline}`
+    : null;
+}
+
+/** A stage copy as `stage-evidence · accessibility`; null for any other skill. */
+export function copyLinkLabelOf(
+  composition: Pick<SkillsComposition, 'targets'>,
+  skill: string
+): string | null {
+  const target = composition.targets?.find(t => t.name === skill);
+  return target?.engine && target.pipeline
+    ? `${target.engine} · ${target.pipeline}`
+    : null;
+}
+
 export function buildFocusGroups(
   composition: SkillsComposition,
   check: SkillsCheck | undefined
@@ -228,6 +250,19 @@ export function pipelineOf(
         pipeline.key === item.key ||
         pipeline.children.some(child => child.key === item.key)
     ) ?? null
+  );
+}
+
+/** The key that opens `skill` as a step of `pipeline` when that pipeline
+    runs it; otherwise `fallback`, by default the skill itself, which
+    focuses the first pipeline's step. */
+export function focusUnder(
+  pipeline: FocusItem | null,
+  skill: string,
+  fallback: string = skill
+): string {
+  return (
+    pipeline?.children.find(child => child.skill === skill)?.key ?? fallback
   );
 }
 

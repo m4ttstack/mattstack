@@ -46,7 +46,7 @@ export function parsePackTokens(s: string | null): PackToken[] {
 const docPath = (stage: string) =>
   new RegExp(`(^|/)attachments/(pipeline/)?stage-${stage}/SKILL\\.md$`);
 
-/** Mirrors rt's pipeline-name rule, so a name never leaves the stage dir. */
+/** Guards the path with rt's pipeline-name pattern, so a name never leaves the stage dir. */
 const PIPELINE_NAME = /^[a-z][a-z0-9-]*$/;
 
 /** The stage dirs to try, the run's pipeline copy first. */
@@ -102,13 +102,21 @@ async function fromSha(
     );
     const rel = d.dir.startsWith(root) ? d.dir.slice(root.length + 1) : '';
     // An org commit holds every team's packs, so another team's copy must
-    // never beat this pack's own default.
+    // never beat this pack's own default, and a dir that is not the run's
+    // pack never lends its own path. A pack dir that is the repo root owns
+    // every path in it. A legacy `plugin=` token names no pack.
+    const named = token.pack !== 'plugin';
+    const ownDir = !named || d.name === token.pack;
     const ownPick = (hits: string[]) =>
-      hits.find(p => rel && p.startsWith(rel + '/')) ??
-      hits.find(p => p.includes(`/${token.pack}/`));
+      (named ? hits.find(p => p.includes(`/${token.pack}/`)) : undefined) ??
+      (ownDir
+        ? hits.find(
+            p => d.dir === root || (rel !== '' && p.startsWith(rel + '/'))
+          )
+        : undefined);
     const pick =
       byStage.map(ownPick).find(p => p !== undefined) ??
-      byStage.find(h => h.length > 0)?.[0];
+      (!named && ownDir ? byStage.find(h => h.length > 0)?.[0] : undefined);
     if (pick === undefined) continue;
     const text = await git(deps, ['-C', root, 'show', `${token.ref}:${pick}`]);
     if (text != null) {

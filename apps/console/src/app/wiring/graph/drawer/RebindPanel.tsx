@@ -381,8 +381,11 @@ export function RebindPanel({
           </Text>
           <Text span ff="text" fz={11} lh="normal" c={MUTED} data-parity="n">
             {pipeline
-              ? `Writes the ${pipeline} pipeline's own binding in this pack, then rebuilds its ${step} step.`
-              : `Writes the binding in this pack, then rebuilds ${listed(choices.rebuilds.map(stepLabel))}.`}{' '}
+              ? `Writes the ${pipeline} pipeline's own binding in this pack`
+              : 'Writes the binding in this pack'}
+            {choices.rebuildsPack
+              ? ', then rebuilds every skill in the pack.'
+              : `, then rebuilds ${listed(choices.rebuilds.map(stepLabel))}.`}{' '}
             Nothing is shared until you sync.
           </Text>
         </Code>

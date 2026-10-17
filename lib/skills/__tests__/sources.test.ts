@@ -647,6 +647,16 @@ describe("stageRoster stage copies", () => {
     expect(() => stageRoster({ ...pipelines, "../x": ["mattstack:stage-evidence"] }, overrides, defaults))
       .toThrow('pipeline "../x" must match [a-z][a-z0-9-]*');
   });
+
+  test("-- in an override-carrying pipeline is refused", () => {
+    const overrides = { "a--b": { "mattstack:stage-evidence": { domain: "acme:b" } } };
+    expect(() => stageRoster({ ...pipelines, "a--b": ["mattstack:stage-evidence"] }, overrides, defaults))
+      .toThrow('pipeline "a--b" must not contain "--"');
+  });
+
+  test("a plain-list pipeline with -- is not name-checked", () => {
+    expect(stageRoster({ ...pipelines, "a--b": ["mattstack:stage-evidence"] }, {}, defaults)).toEqual(base);
+  });
 });
 
 describe("stageRoster path-breakout guard", () => {

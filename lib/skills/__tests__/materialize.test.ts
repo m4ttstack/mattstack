@@ -267,11 +267,7 @@ describe("materializeRepo", () => {
 });
 
 describe("materializeRepo dropped overrides", () => {
-  test("a dropped override warns once, naming its key and layer", () => {
-    const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: {
-      widgets: { pack: { pipelines: { feature: { bindings: { "mattstack:stage-evidence": { domain: "acme:a" } } } } } },
-    } });
+  const warnings = (root: string, engine: string): string[] => {
     const logged: string[] = [];
     warnTest.reset();
     setWarningLog((_module, message) => logged.push(message), { quiet: true });
@@ -280,7 +276,36 @@ describe("materializeRepo dropped overrides", () => {
     } finally {
       warnTest.reset();
     }
-    expect(logged).toEqual(["feature/mattstack:stage-evidence domain from pack is ignored: the pipeline no longer lists that stage"]);
+    return logged;
+  };
+
+  test("a dropped override for a stage a higher layer removed warns once, naming its key and layer", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: {
+      widgets: { pack: { pipelines: { feature: { stages: ["stage-plan", "mattstack:stage-evidence"], bindings: { "mattstack:stage-evidence": { domain: "acme:a" } } } } } },
+    } });
+    write(join(root, "user", "skills", "overrides.jsonc"), JSON.stringify({ pipelines: { feature: ["stage-plan"] } }));
+    expect(warnings(root, engine)).toEqual(["feature/mattstack:stage-evidence domain from pack is ignored: the pipeline no longer lists that stage"]);
+  });
+
+  test("-- in an override-carrying pipeline fails the pack", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: {
+      widgets: { pack: { pipelines: { "a--b": { stages: ["stage-plan"], bindings: { "stage-plan": { domain: "acme:a" } } } } } },
+    } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    const [widgets] = out.packs;
+    expect(widgets!.ok).toBe(false);
+    if (!widgets!.ok) expect(widgets!.detail).toContain('fragment pipeline "a--b" must not contain "--": ');
+  });
+
+  test("unlisted ref warns does not list", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: {
+      widgets: { pack: { pipelines: { feature: { bindings: { "mattstack:stage-evidence": { domain: "acme:a" } } } } } },
+    } });
+    expect(warnings(root, engine)).toEqual(["feature/mattstack:stage-evidence domain from pack is ignored: the pipeline does not list that stage"]);
   });
 });
 

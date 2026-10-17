@@ -4396,6 +4396,14 @@ describe("a work verb's pipeline", () => {
     await expectRefused(pack, 'pipeline "Access_ibility" must match [a-z][a-z0-9-]*');
   });
 
+  test("-- in a pipeline a work verb names is refused", async () => {
+    const pack = makeTablePack(
+      { work: {}, "work-a11y": { pipeline: "a--b" } },
+      JSON.stringify({ pipelines: { feature: WORK_RUN, "a--b": WORK_RUN }, bindings: {} }),
+    );
+    await expectRefused(pack, 'pipeline "a--b" must not contain "--"');
+  });
+
   test("a hand-written override naming a stage its pipeline does not list", async () => {
     const pack = makeTablePack(
       { work: {}, "work-a11y": { pipeline: "accessibility" } },

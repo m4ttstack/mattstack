@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Paper, Text, UnstyledButton } from '@mattstack/app-kit/core';
+import { Paper, Text, Tooltip, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
@@ -41,17 +41,23 @@ function LinkCardNodeComponent({
             data-parity="i"
           />
           <div className={classes.cardText}>
-            <Text
-              ff="monospace"
-              fz={12}
-              lh="normal"
-              c={BODY}
-              truncate
-              data-parity="name"
-              data-testid="card-title"
+            <Tooltip
+              label={card.file}
+              disabled={card.file === card.title}
+              openDelay={300}
             >
-              {card.title}
-            </Text>
+              <Text
+                ff="monospace"
+                fz={12}
+                lh="normal"
+                c={BODY}
+                truncate
+                data-parity="name"
+                data-testid="card-title"
+              >
+                {card.title}
+              </Text>
+            </Tooltip>
             <Text
               fz={10}
               lh="normal"

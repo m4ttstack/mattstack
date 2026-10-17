@@ -9,7 +9,7 @@ import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
 import { findPlaceholders } from "./placeholders.ts";
-import { fillsDiffer, normalizePipelines, PIPELINE_NAME_RE, stageCopyName, type BindingsMap } from "./pipelines.ts";
+import { fillsDiffer, normalizePipelines, pipelineNameError, stageCopyName, type BindingsMap } from "./pipelines.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
 
@@ -597,7 +597,8 @@ export function stageRoster(
   defaults: BindingsMap,
 ): VerbDef[] {
   for (const type of Object.keys(pipelineBindings)) {
-    if (!PIPELINE_NAME_RE.test(type)) throw new Error(`pipeline "${type}" must match [a-z][a-z0-9-]*`);
+    const problem = pipelineNameError(type);
+    if (problem) throw new Error(problem);
   }
   const seen = new Set<string>();
   const out: VerbDef[] = [];

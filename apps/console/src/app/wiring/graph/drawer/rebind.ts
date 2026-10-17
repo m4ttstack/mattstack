@@ -54,6 +54,9 @@ export type RebindChoices = {
   /** The skills a write recompiles: every roster verb on the bound verb's
       engine, since they share its binding key. */
   rebuilds: string[];
+  /** Whether the write rebuilds the whole pack: rt recompiles every skill
+      for a stage bind, with or without a pipeline. */
+  rebuildsPack: boolean;
 };
 
 function otherSkills(sites: readonly BindingSite[], ref: string): number {
@@ -115,6 +118,12 @@ function whereBound(
 }
 
 export type PipelineChoice = { pipeline: string | null; label: string };
+
+/** The badge words for a layer, with the override layer named as one so the
+    sentence it sits in reads as a place to go. */
+function overrideLayerLabel(layer: string): string {
+  return layer === 'override' ? 'the override layer' : layerLabel(layer);
+}
 
 function binderSlotOf(
   composition: SkillsComposition,
@@ -288,9 +297,12 @@ export function rebindChoices(
     overridden: override !== undefined,
     removable,
     overrideSetBy:
-      overrideLayer !== null && !removable ? layerLabel(overrideLayer) : null,
+      overrideLayer !== null && !removable
+        ? overrideLayerLabel(overrideLayer)
+        : null,
     keptOverride,
     fallback: binderSlot?.boundTo || null,
     rebuilds,
+    rebuildsPack: rosterVerb === undefined,
   };
 }
