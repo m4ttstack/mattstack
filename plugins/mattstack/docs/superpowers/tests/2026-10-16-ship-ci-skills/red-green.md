@@ -944,3 +944,7 @@ stage always reads back).
   created"]` on "Domain owns the title or description (ship)?".
 - GREEN: 0 across all 30 S1, EV1 and EV2 runs. S1 is unchanged by phase 2
   (0 on both sides).
+
+## Confirmation: includes expanded (ship EV1, EV2)
+
+The rep prompts above carry each SKILL.md as written, so `{{include:...}}` lines stayed unexpanded in RED and GREEN alike. Three extra describe-only reps ran ship EV1 and EV2 with the evidence-record and gate-protocol includes appended in full. 3/3 called `evidence_record`, counted `run_budget {key: evidence:cover-rounds, limit: 3}` before re-recording, attached with `evidence_attach`, stopped at the refused upload without copying or using `mr_upload`, and sent `linkRefused: true` on Take. Deviations: 0. One rep counted the cover round before the first `evidence_record` instead of after it (order only, same budget).
