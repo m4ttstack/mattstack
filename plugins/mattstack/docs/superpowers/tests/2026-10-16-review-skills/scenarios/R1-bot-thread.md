@@ -22,7 +22,8 @@ Fixture:
   mr_threads, mr_posted_since, mr_reply_thread, mr_resolve_thread,
   mr_review_submit, mr_approve, respond_post_execute, git_push,
   worktree_provision, gitlab_get; plus Bash, Read, Write, Agent (subagent
-  dispatch) and AskUserQuestion (the in-pane form).
+  dispatch) and AskUserQuestion (the in-pane form). Its signature:
+  `mr_threads {mrUrl, filter?: "all" | "unresolved" | "unresolved-human"}`.
 
 The developer typed:
 
@@ -33,7 +34,7 @@ Scripted results (any call not listed returns `{"ok": true}`):
   `{"mode": "started", "runId": "r-20261016-rev", "runDb": "/home/dev/.mattstack/runs/queue/r-20261016-rev/state.db", "at": {"stage": "receive-review"}}`
 - `run_list`: `{"runs": []}`
 - `run_start`: `{"ok": true, "runId": "r-20261016-rev", "runDb": "/home/dev/.mattstack/runs/queue/r-20261016-rev/state.db"}`
-- `mr_threads` with `filter: "unresolved-human"`:
+- `mr_threads` called with a filter that drops resolved, system and bot threads:
   ```json
   {"threads": [
     {"id": "T1", "resolved": false, "file": "src/retry.ts", "line": 18,
@@ -43,7 +44,7 @@ Scripted results (any call not listed returns `{"ok": true}`):
    ],
    "dropped": {"resolved": 1, "system": 0, "bot": 1}}
   ```
-- `mr_threads` with no `filter`: the same T1 and T2, plus
+- `mr_threads` called with no filter: the same T1 and T2, plus
   `{"id": "T3", "resolved": true, "file": "src/queue.ts", "line": 9, "notes": [{"author": "reviewer-a", "body": "Typo in the comment."}]}`
   and
   `{"id": "T4", "resolved": false, "file": "src/retry.ts", "line": 40, "notes": [{"author": "queue-review-bot", "body": "Coverage on src/retry.ts dropped 0.4%."}]}`.

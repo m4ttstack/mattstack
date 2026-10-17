@@ -49,7 +49,7 @@ today's node texts.
 | `Report that no open MR has this branch as its source` (box node + section) | kept; section: kept; the error-quoting rule stays | receive-review 2 |
 | `mr_threads {mrUrl}` (plaintext node) | replaced by: `mr_threads {mrUrl, filter: "unresolved-human"}` | receive-review 3; B10 |
 | `Read the PR's review threads with gh` (box node + section) | kept | receive-review 3 |
-| `Keep only unresolved human threads` (box node + section) | replaced by: `Keep only unresolved human threads (GitHub)`, applying the username bot rule by hand; on GitLab the `mr_threads` filter decides; section: GitLab filtering moves to `mr_threads {filter}`; the handed-plan paragraphs: record the plan through `gate_record`, never re-adjudicate (kept), spent-plan rule (kept); "keep every thread the plan names, resolved or not" is OPEN (see Open rows) | receive-review 3; B10 |
+| `Keep only unresolved human threads` (box node + section) | replaced by: `Keep only unresolved human threads (GitHub)`, applying the username bot rule by hand; on GitLab the `mr_threads` filter decides; section: GitLab filtering moves to `mr_threads {filter}`; the handed-plan paragraphs: record the plan through `gate_record`, never re-adjudicate (kept), spent-plan rule (kept); "keep every thread the plan names, resolved or not" is kept by construction: a handed plan reads no threads, its rows come from the recorded decision plus the stored `extra.gate-source.respond-plan` cards, so the filter never applies to it (Open rows 1, resolved) | receive-review 3; B10 |
 | `Executing a caller-handed {plan}?` (diamond node) | kept; the yes edge goes to `gate_record {scope: respond-plan, shape: respond-plan, answers, decidedBy}`; the spent edge reads the rows from the recorded decision | receive-review 4, 7; B6 |
 | `Any unresolved human threads?` (diamond node) | kept | receive-review 4 |
 | `Dispatch one fresh-context adjudicator over all the review threads` (box node + section) | kept (HARD-GATE) | receive-review 5; Non-goals |
@@ -64,7 +64,7 @@ today's node texts.
 | `Make the recorded move once at the respond-plan fit` (box node + section) | kept; after the move the open is built again with `gate_open`; section: rerun the fit becomes call `gate_open` again; a spent budget returns to the same gate | Off-script gates |
 | `Caller owns the receive-review gates at respond-plan?` (diamond node) | kept | receive-review 6 |
 | `Hand back the verdict table and the respond-plan open's path` (box node + section) | kept verbatim (board-named); the `receive-review-run: <run id>` line goes into a handed `--report` first; the handed `{plan}` records through `gate_record`; section: "Record that {plan} with run_decision ... normalized" becomes `gate_record {answers, decidedBy}`; the absolute path contract stays | receive-review 6; Board wrapper contract; B11 |
-| `Gate respond-plan through gate-protocol` (box node + section) | replaced by: `gate_open {kind: respond-plan, sourcePath, runDb, stage, scope: respond-plan}`, then gate-protocol at `Trigger: a site opened its gate with gate_open` (acts on `paneAction`); section: the gate bracket, the Read of the open file, `gate_ask`, "act on the returned presentation" (B19), the `gate-ctx.sh prose` recipe and the four-per-call chunking go; kept: one question per thread, the thread id in the option value, `gate-1-context: dropped` written into a saved report when `contextDropped`, the pane-only `next` (Continue / Iterate here / Hold) in a last form call, one `gate_answer`, fix implies reply and skip means neither; the code-changes hide rule (submit `skip` unasked when no thread answered `fix:`) is not named by the spec (see Open rows); the `run_decision` selection schema, Edited replies and A dropped context go to `gate_record` | receive-review 6; B5; B19 |
+| `Gate respond-plan through gate-protocol` (box node + section) | replaced by: `gate_open {kind: respond-plan, sourcePath, runDb, stage, scope: respond-plan}`, then gate-protocol at `Trigger: a site opened its gate with gate_open` (acts on `paneAction`); section: the gate bracket, the Read of the open file, `gate_ask`, "act on the returned presentation" (B19), the `gate-ctx.sh prose` recipe and the four-per-call chunking go; kept: one question per thread, the thread id in the option value, `gate-1-context: dropped` written into a saved report when `contextDropped`, the pane-only `next` (Continue / Iterate here / Hold) in a last form call, one `gate_answer`, fix implies reply and skip means neither; the code-changes hide rule (submit `skip` unasked when no thread answered `fix:`) is kept in this section (Open rows 2, resolved); the `run_decision` selection schema, Edited replies and A dropped context go to `gate_record` | receive-review 6; B5; B19 |
 | `respond-plan pane next answer?` (diamond node) | kept: Continue answers once (`gate_answer {id, answers, runDb, stage}`) and records; Hold answers nothing and goes to `run_hold`; Iterate redrafts and builds a new open | receive-review 6 |
 | `Redraft the replies with the respond-plan note` (box node + section) | kept | receive-review 6 |
 | `run_decision {contract: gate@1, scope: respond-plan, selection, decidedBy}` (plaintext node) | replaced by: `gate_record {runDb, stage, scope: respond-plan, shape: respond-plan, gateId \| answers + decidedBy, contextDropped?}` | receive-review 7; B6 |
@@ -120,7 +120,7 @@ today's node texts.
 | `mr_reply_thread {mrUrl, discussionId, body}` (plaintext node) | tool: `respond_post_execute` | receive-review 10; B7 |
 | `mr_reply_thread result?` (diamond node) | tool: `respond_post_execute` (`posted` / `held` kind `reply`) | receive-review 10; B7 |
 | `Retried this mr_reply_thread once?` (diamond node) | tool: `respond_post_execute` retries once and re-reads first | receive-review 10; B9 |
-| `STOP: a refused mr_reply_thread goes to its off-script gate, never the GitLab CLI` (octagon node) | gone: the graph no longer calls `mr_reply_thread`; a forge refusal comes back in `held[]` to `Off-script gate: the forge refused a reply or resolve` (no hand-reply guard STOP is drawn in the spec; see Open rows) | receive-review 10; B9 |
+| `STOP: a refused mr_reply_thread goes to its off-script gate, never the GitLab CLI` (octagon node) | replaced by: `STOP: post replies only through respond_post_execute` on a `tempted to reply or resolve by hand` edge out of `respond_post_execute result?`, exiting to `Off-script gate: the forge refused a reply or resolve`; the graph no longer calls `mr_reply_thread`, and a forge refusal comes back in `held[]` (Open rows 3, resolved) | receive-review 10; B9 |
 | `Off-script gate: the forge refused the reply` (box node + section) | replaced by: `Off-script gate: the forge refused a reply or resolve`, one gate for the batch, each `error` quoted; section: folded into the batch gate (B9): quote each held `error`; take is the human posting by hand then the tool again; iterate is calling again after they fix the cause; the re-test-before-retry rule is the tool's | receive-review 10; B9 |
 | `Answer at the refused-reply off-script gate?` (diamond node) | replaced by: the batch gate's answer diamond (take and iterate re-call `respond_post_execute`; hold ends with threads held; hand back fails the stage) | receive-review 10; B9 |
 | `Make the recorded move once for the refused reply` (box node + section) | replaced by: the batch gate's take (the human posts by hand, then `respond_post_execute` again); section: goes with the batch take | receive-review 10; B9 |
@@ -130,7 +130,7 @@ today's node texts.
 | `mr_resolve_thread {mrUrl, discussionId}` (plaintext node) | tool: `respond_post_execute` | receive-review 10; B7 |
 | `mr_resolve_thread result?` (diamond node) | tool: `respond_post_execute` (`resolved` / `held` kind `resolve`) | receive-review 10; B7 |
 | `Retried this mr_resolve_thread once?` (diamond node) | tool: `respond_post_execute` retries once | receive-review 10; B9 |
-| `STOP: a refused mr_resolve_thread goes to its off-script gate, never the GitLab CLI` (octagon node) | gone: as the refused-reply STOP (see Open rows) | receive-review 10; B9 |
+| `STOP: a refused mr_resolve_thread goes to its off-script gate, never the GitLab CLI` (octagon node) | replaced by: the same `STOP: post replies only through respond_post_execute` guard (Open rows 3, resolved) | receive-review 10; B9 |
 | `Off-script gate: the forge refused the resolve` (box node + section) | replaced by: `Off-script gate: the forge refused a reply or resolve`; section: folded into the batch gate (B9) | receive-review 10; B9 |
 | `Answer at the refused-resolve off-script gate?` (diamond node) | replaced by: the batch gate's answer diamond | receive-review 10; B9 |
 | `Make the recorded move once for the refused resolve` (box node + section) | replaced by: the batch gate's take; section: goes with the batch take | receive-review 10; B9 |
@@ -441,25 +441,22 @@ Other sections and rules:
 | The "If a rule below asks for a move this graph marks STOP" lines | kept | process-digraphs rule 6 |
 | Red flags: all five rows (author bias) | kept | Non-goals |
 
-## Open rows
+## Open rows (resolved)
 
-The spec does not settle these; each is flagged for the task that edits the
-skill, not ruled here.
+The spec left these three open; the controller ruled on each, and the rows
+above carry the ruling.
 
 1. **A handed plan that names a resolved thread** (receive-review, `Keep
-   only unresolved human threads` section). Today the read keeps every
-   thread a handed `{plan}` names, resolved or not. `mr_threads {filter:
-   "unresolved-human"}` drops resolved threads, and the spec names no read
-   for them, so a `fix:` row on a thread resolved since the plan would have
-   no note chain to implement from. Task 4 decides (an unfiltered read for
-   handed-plan threads, or the row held and reported).
+   only unresolved human threads` section). Ruling: a handed `{plan}` reads
+   no threads. Its rows come from the recorded decision plus the stored
+   `extra.gate-source.respond-plan` cards, so every thread the plan names
+   is kept by construction and the `mr_threads` filter never applies to it.
 2. **The code-changes hide rule** (receive-review, `Gate respond-plan
    through gate-protocol` section): submit `code-changes: skip` unasked
-   when no thread answered `fix:`. The spec drops the prose form recipe but
-   does not name this rule; this inventory keeps it as site behavior.
-3. **No guard STOP against hand replies on GitLab** (receive-review, the
-   two refused-reply and refused-resolve STOPs). The spec draws one guard
-   STOP, on `tempted to push from the shell or force`. Scenario R4 tempts
-   `mr_reply_thread` or the GitLab CLI after a held reply; Task 5 may add a
-   guard STOP on that edge out of `respond_post_execute result?` (builder's
-   latitude under "Left to the builder").
+   when no thread answered `fix:`. Ruling: kept, in the respond-plan gate
+   section.
+3. **A guard STOP against hand replies on GitLab** (receive-review, the two
+   refused-reply and refused-resolve STOPs). Ruling: draw `STOP: post
+   replies only through respond_post_execute` on a `tempted to reply or
+   resolve by hand` edge out of `respond_post_execute result?`, exiting to
+   `Off-script gate: the forge refused a reply or resolve`.

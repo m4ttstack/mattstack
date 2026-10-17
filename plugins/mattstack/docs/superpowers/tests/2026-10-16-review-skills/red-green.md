@@ -141,7 +141,7 @@ task report), not in the repo.
 
 | Scenario | Pass | A | B | C | D | E | Deviations seen |
 |---|---|---|---|---|---|---|---|
-| R1 bot thread | 5/5 | 5 | 5 | 0 | 0 | 0 | passes on the criteria; prologue by hand, `mktemp -d`, `gate-ctx.sh fit`, `gate_ask` |
+| R1 bot thread | 5/5 | 5 | 5 | 0 | 0 | 0 | passes on the criteria (re-run with neutral keying); prologue by hand, `mktemp -d`, `gate-ctx.sh fit`, `gate_ask` |
 | R2 note on a reply | 0/5 | 5 | 5 | 0 | 0 | 0 | `gate_ask` not `gate_open`; hand `run_decision` with the override computed by the agent |
 | R3 Hold at respond-post | 0/5 | 5 | 5 | 0 | 0 | 0 | hold as `run_decision hold:` plus `run_field_set hold`, never `run_hold` |
 | R3b Iterate at respond-post | 0/5 | 5 | 5 | 0 | 0 | 0 | new gate by `gate_ask`; hand post side; `run_decision` after acting |
@@ -168,12 +168,23 @@ scenario).
 
 ### Deviations, quoted
 
-- **R1** (pass 5/5): every rep called `mr_threads {mrUrl, filter:
-  "unresolved-human"}` and dispatched one adjudicator over T1 and T2. The
-  prologue stayed by hand: "I use `run_list` and `run_start` because the
-  skill's graph names them. `run_enter` is not in that graph." (rep 1). All
-  five made the scratch dir with `mktemp -d` and fitted with `gate-ctx.sh
-  fit`; rep 3 also ran `printenv HERDR_ENV` and took the form over `wait`.
+- **R1** (pass 5/5, re-run): the first run keyed the scripted result on
+  `filter: "unresolved-human"` itself, so it was discarded. The scenario now
+  gives the tool's signature in the roster (`mr_threads {mrUrl, filter?:
+  "all" | "unresolved" | "unresolved-human"}`) and keys the two results as
+  "called with no filter" and "called with a filter that drops resolved,
+  system and bot threads". On the re-run every rep still called
+  `mr_threads {mrUrl, filter: "unresolved-human"}`, matching the skill's
+  `Keep only unresolved human threads` box to the signature, then said the
+  tool dropped T3 and T4 ("T3 is resolved and T4 is a bot, so both are
+  dropped.", rep 5) with no hand filter, and dispatched one adjudicator over
+  T1 and T2. The
+  prologue stayed by hand: "I do not use `run_enter`, because this verb
+  starts its run with `run_start`." (rep 1). All five made the scratch dir
+  with `mktemp -d`, fitted with `gate-ctx.sh fit` and asked with
+  `gate_ask`: "I don't call `gate_open`, which is the raw primitive." (rep
+  2). Rep 3 ran `printenv HERDR_ENV` and took the form over `wait`; reps
+  1, 4 and 5 checked `HERDR_ENV` and took the wait.
 - **R2** (0/5): all five opened with `gate_ask` from a `gate-ctx.sh fit`
   file and recorded by hand: "I don't call `gate_record`, since the skill
   doesn't use it." (rep 1); "I rewrite the report rows myself and don't
@@ -294,13 +305,14 @@ scenario).
 - **No runaway loops** (D = 0): every counted loop stopped at its budget,
   in context. The budget work is about surviving compaction and resume
   (B4), which describe-only reps cannot stress except through S14.
-- **Five scenarios pass RED and only guard against regression.** R1 and
-  S14 pass because the scripted results name the call (R1's
-  `filter: "unresolved-human"` result, S14's stored count of 2), which a
-  static describe-only prompt cannot avoid: the real tool schema exposes
-  the filter too. R5, V13 and S16 pass because the current skill already
-  handles a mismatch and an inherited hand back correctly. GREEN must keep
-  them at 5/5.
+- **Five scenarios pass RED and only guard against regression.** R1
+  passes with neutral result keying: given the tool's signature, reps map
+  the current skill's "unresolved human threads" wording onto the filter
+  value themselves, as they would from the real schema. S14 passes because
+  its scripted result states the stored count of 2, which a static
+  describe-only prompt cannot avoid. R5, V13 and S16 pass because the
+  current skill already handles a mismatch and an inherited hand back
+  correctly. GREEN must keep them at 5/5.
 - **R6 is the clearest live bug** (B8): two of five closed a run whose
   replies never posted.
 - **The `--repo` value compiles to `pack`.** The roster compile has no repo
