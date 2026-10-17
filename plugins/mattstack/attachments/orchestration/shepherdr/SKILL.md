@@ -422,43 +422,42 @@ digraph shepherdr_watch {
     "Open gates returned?" [shape=diamond];
     "Answer literally in the brief you wrote?" [shape=diamond];
     "Present the open gates" [shape=box];
-    "rt gate park <id>" [shape=plaintext];
-    "rt gate answer <id> --answers <json> --by shepherd" [shape=plaintext];
+    "herd_gate_park {herd, gate}" [shape=plaintext];
+    "herd_gate_answer {herd, gate, answers}" [shape=plaintext];
     "Answer recorded?" [shape=diamond];
     "Say which answer won, in one line" [shape=box];
     "Answer retries = 2?" [shape=diamond];
     "Fix the answers: each value verbatim" [shape=box];
     "Spawn a reviewer chosen?" [shape=diamond];
-    "Reviewer rounds on this milestone = 2?" [shape=diamond];
-    "rt herd spawn --herd <id> --job review-<job> --brief <review brief> --dir <the job's tree> --disposable --model <model> [--account <A>]" [shape=plaintext]; // <!-- mcp-lint: allow -->
-    "rt_verb {args: [pane, peek, <pane>]}: the unconsumed lane" [shape=plaintext];
-    "Is the lane alive?" [shape=diamond];
+    "herd_diagnose {herd, job}: the reviewer budget" [shape=plaintext];
+    "Reviewer rounds on this milestone spent?" [shape=diamond];
+    "herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort?, account?}" [shape=plaintext];
+    "herd_diagnose {herd, job}: the blocked job" [shape=plaintext];
+    "Blocked notices for this job spent?" [shape=diamond];
+    "herd_diagnose {herd, job}: the unconsumed lane" [shape=plaintext];
+    "What does the diagnosis say?" [shape=diamond];
+    "STOP: herd_diagnose reads the pane; never peek it yourself" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "herd_gates {herd}: the diagnosed job's gate" [shape=plaintext];
+    "Nudges for this gate spent?" [shape=diamond];
+    "herd_nudge {herd, job, gate}" [shape=plaintext];
+    "Nudge delivered?" [shape=diamond];
     "Smart-distribute pool in use?" [shape=diamond];
-    "Nudges for this gate?" [shape=diamond];
-    "An idle prompt, and no form on screen?" [shape=diamond];
-    "chat_dm {to: <job handle>, body: call herd_answer for <gate>}" [shape=plaintext];
-    "rt pane send <pane> --text <the same nudge>" [shape=plaintext];
-    "Blocked notices for this job = 3?" [shape=diamond];
-    "herd_gates {herd}: the blocked job" [shape=plaintext];
-    "Open gate for the blocked job?" [shape=diamond];
-    "rt_verb {args: [pane, peek, <pane>]}" [shape=plaintext];
-    "What does the pane show?" [shape=diamond];
-    "STOP: never press keys into a modal or form; answer its gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Accounts section non-empty?" [shape=diamond];
     "Pick the account per the accounts rules" [shape=box];
     "Report the stall to the user" [shape=box];
-    "Ask: attend or close and respawn" [shape=box];
+    "Ask: attend or respawn" [shape=box];
     "herd_attend {job, herd}: the parked dialog" [shape=plaintext];
-    "herd_close {job, herd}: parked, respawning" [shape=plaintext];
     "herd_attend {job, herd}: a human is needed" [shape=plaintext];
     "Report the crash with its job and pane" [shape=box];
     "chat_dm {to: <job handle>, body: the ruling or findings}" [shape=plaintext];
     "Ask: let them finish, kill and respawn, or hold" [shape=box];
     "herd_close {job, herd}: killed for new scope" [shape=plaintext];
     "herd_brief {job, template, strategy, strategies, fill, out}: the new brief" [shape=plaintext];
-    "Respawns of this job = 2?" [shape=diamond];
-    "STOP: herd_spawn never respawns; it takes no dir" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "rt herd spawn --herd <id> --job <job> --dir <its tree> --model <model> [--brief <new brief>] [--effort <e>] [--account <A>]" [shape=plaintext]; // <!-- mcp-lint: allow -->
+    "herd_diagnose {herd, job}: the respawn budget" [shape=plaintext];
+    "Respawns of this job spent?" [shape=diamond];
+    "STOP: a respawn goes through herd_respawn" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "herd_respawn {herd, job, brief?, account?, effort?}" [shape=plaintext];
+    "Respawn result?" [shape=diamond];
     "Shepherd off-script gate: ask the user" [shape=box];
     "Off-script answer?" [shape=diamond];
     "Make the recorded move once" [shape=box];
@@ -477,80 +476,83 @@ digraph shepherdr_watch {
     "STOP: answer from the registry, never from the push text" -> "herd_gates {herd}: the gate push";
     "What arrived?" -> "End the turn until something arrives" [label="a milestone announcement: its gate push wakes you"];
     "What arrived?" -> "herd_resume {herd}: after a relaunch" [label="a relaunch or compaction"];
-    "What arrived?" -> "rt_verb {args: [pane, peek, <pane>]}: the unconsumed lane" [label="gate <id> UNCONSUMED in herd_status, or the watchdog's answered-and-unconsumed line"];
-    "What arrived?" -> "Blocked notices for this job = 3?" [label="<job> blocked"];
+    "What arrived?" -> "herd_diagnose {herd, job}: the unconsumed lane" [label="gate <id> UNCONSUMED in herd_status, or the watchdog's answered-and-unconsumed line"];
+    "What arrived?" -> "herd_diagnose {herd, job}: the blocked job" [label="<job> blocked"];
     "What arrived?" -> "Report the crash with its job and pane" [label="<job> exited"];
     "What arrived?" -> "chat_dm {to: <job handle>, body: the ruling or findings}" [label="a ruling or findings for one worker"];
     "What arrived?" -> "Ask: let them finish, kill and respawn, or hold" [label="the user redirects scope"];
-    "What arrived?" -> "Respawns of this job = 2?" [label="the user asks for a respawn"];
+    "What arrived?" -> "herd_diagnose {herd, job}: the respawn budget" [label="the user asks for a respawn"];
     "What arrived?" -> "Go to lanes and wrap-up" [label="a report line, or a nag about a done job's open pane"];
     "herd_gates {herd}: the gate push" -> "Open gates returned?";
     "herd_resume {herd}: after a relaunch" -> "Open gates returned?";
+    "herd_gates {herd}: the diagnosed job's gate" -> "Open gates returned?";
     "Open gates returned?" -> "Answer literally in the brief you wrote?" [label="yes"];
     "Open gates returned?" -> "End the turn until something arrives" [label="none: a stale id is normal"];
-    "Answer literally in the brief you wrote?" -> "rt gate answer <id> --answers <json> --by shepherd" [label="yes"];
+    "Answer literally in the brief you wrote?" -> "herd_gate_answer {herd, gate, answers}" [label="yes"];
     "Answer literally in the brief you wrote?" -> "Present the open gates" [label="no"];
-    "Present the open gates" -> "rt gate answer <id> --answers <json> --by shepherd" [label="the user answers"];
-    "Present the open gates" -> "rt gate park <id>" [label="the user parks it"];
-    "rt gate park <id>" -> "End the turn until something arrives";
-    "rt gate answer <id> --answers <json> --by shepherd" -> "Answer recorded?";
+    "Present the open gates" -> "herd_gate_answer {herd, gate, answers}" [label="the user answers"];
+    "Present the open gates" -> "herd_gate_park {herd, gate}" [label="the user parks it"];
+    "herd_gate_park {herd, gate}" -> "End the turn until something arrives";
+    "herd_gate_answer {herd, gate, answers}" -> "Answer recorded?";
     "Answer recorded?" -> "Spawn a reviewer chosen?" [label="recorded"];
     "Answer recorded?" -> "Say which answer won, in one line" [label="conflict: another surface answered first"];
-    "Answer recorded?" -> "Answer retries = 2?" [label="refused"];
+    "Answer recorded?" -> "Answer retries = 2?" [label="refused: invalid values"];
+    "Answer recorded?" -> "Shepherd off-script gate: ask the user" [label="error: closed, not this herd's, or gone"];
     "Say which answer won, in one line" -> "End the turn until something arrives";
     "Answer retries = 2?" -> "Fix the answers: each value verbatim" [label="no"];
     "Answer retries = 2?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
-    "Fix the answers: each value verbatim" -> "rt gate answer <id> --answers <json> --by shepherd";
+    "Fix the answers: each value verbatim" -> "herd_gate_answer {herd, gate, answers}";
     "Spawn a reviewer chosen?" -> "End the turn until something arrives" [label="no"];
-    "Spawn a reviewer chosen?" -> "Reviewer rounds on this milestone = 2?" [label="yes"];
-    "Reviewer rounds on this milestone = 2?" -> "rt herd spawn --herd <id> --job review-<job> --brief <review brief> --dir <the job's tree> --disposable --model <model> [--account <A>]" [label="no"]; // <!-- mcp-lint: allow -->
-    "Reviewer rounds on this milestone = 2?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
-    "rt herd spawn --herd <id> --job review-<job> --brief <review brief> --dir <the job's tree> --disposable --model <model> [--account <A>]" -> "End the turn until something arrives"; // <!-- mcp-lint: allow -->
-    "rt_verb {args: [pane, peek, <pane>]}: the unconsumed lane" -> "Is the lane alive?";
-    "Is the lane alive?" -> "Nudges for this gate?" [label="alive"];
-    "Is the lane alive?" -> "Smart-distribute pool in use?" [label="dead: a login expired, or no claude on it"];
+    "Spawn a reviewer chosen?" -> "herd_diagnose {herd, job}: the reviewer budget" [label="yes"];
+    "herd_diagnose {herd, job}: the reviewer budget" -> "Reviewer rounds on this milestone spent?";
+    "Reviewer rounds on this milestone spent?" -> "herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort?, account?}" [label="no"];
+    "Reviewer rounds on this milestone spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
+    "herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort?, account?}" -> "End the turn until something arrives";
+    "herd_diagnose {herd, job}: the blocked job" -> "Blocked notices for this job spent?";
+    "Blocked notices for this job spent?" -> "What does the diagnosis say?" [label="no"];
+    "Blocked notices for this job spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
+    "herd_diagnose {herd, job}: the unconsumed lane" -> "What does the diagnosis say?";
+    "What does the diagnosis say?" -> "herd_gates {herd}: the diagnosed job's gate" [label="at-gate"];
+    "What does the diagnosis say?" -> "Nudges for this gate spent?" [label="idle, and the arrival named an answered gate it has not read"];
+    "What does the diagnosis say?" -> "End the turn until something arrives" [label="working, or idle with nothing waiting"];
+    "What does the diagnosis say?" -> "Accounts section non-empty?" [label="rate-limited"];
+    "What does the diagnosis say?" -> "Smart-distribute pool in use?" [label="dead, gone, no-pane or login-expired"];
+    "What does the diagnosis say?" -> "Ask: attend or respawn" [label="parked-modal"];
+    "What does the diagnosis say?" -> "herd_attend {job, herd}: a human is needed" [label="needs-human"];
+    "What does the diagnosis say?" -> "STOP: herd_diagnose reads the pane; never peek it yourself" [label="tempted to peek the pane or send a key"];
+    "STOP: herd_diagnose reads the pane; never peek it yourself" -> "Shepherd off-script gate: ask the user";
+    "Nudges for this gate spent?" -> "herd_nudge {herd, job, gate}" [label="no"];
+    "Nudges for this gate spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
+    "herd_nudge {herd, job, gate}" -> "Nudge delivered?";
+    "Nudge delivered?" -> "End the turn until something arrives" [label="delivered"];
+    "Nudge delivered?" -> "End the turn until something arrives" [label="refused: already consumed, the worker read it"];
+    "Nudge delivered?" -> "Shepherd off-script gate: ask the user" [label="needsHuman, or another refusal: quote it"];
     "Smart-distribute pool in use?" -> "Pick the account per the accounts rules" [label="yes"];
-    "Smart-distribute pool in use?" -> "Respawns of this job = 2?" [label="no: relaunch on the same account"];
-    "Nudges for this gate?" -> "chat_dm {to: <job handle>, body: call herd_answer for <gate>}" [label="0"];
-    "Nudges for this gate?" -> "An idle prompt, and no form on screen?" [label="1: the DM was lost too"];
-    "An idle prompt, and no form on screen?" -> "rt pane send <pane> --text <the same nudge>" [label="yes"];
-    "An idle prompt, and no form on screen?" -> "Shepherd off-script gate: ask the user" [label="no: a form is up, or the pane is busy"];
-    "Nudges for this gate?" -> "Shepherd off-script gate: ask the user" [label="2: budget spent"];
-    "chat_dm {to: <job handle>, body: call herd_answer for <gate>}" -> "End the turn until something arrives";
-    "rt pane send <pane> --text <the same nudge>" -> "End the turn until something arrives";
-    "Blocked notices for this job = 3?" -> "herd_gates {herd}: the blocked job" [label="no"];
-    "Blocked notices for this job = 3?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
-    "herd_gates {herd}: the blocked job" -> "Open gate for the blocked job?";
-    "Open gate for the blocked job?" -> "Present the open gates" [label="yes"];
-    "Open gate for the blocked job?" -> "rt_verb {args: [pane, peek, <pane>]}" [label="none: the peek is now legitimate"];
-    "rt_verb {args: [pane, peek, <pane>]}" -> "What does the pane show?";
-    "What does the pane show?" -> "Accounts section non-empty?" [label="a rate-limit banner"];
-    "What does the pane show?" -> "Ask: attend or close and respawn" [label="a dialog the watchdog parked"];
-    "What does the pane show?" -> "herd_attend {job, herd}: a human is needed" [label="something only a human can answer"];
-    "What does the pane show?" -> "End the turn until something arrives" [label="working after all"];
-    "What does the pane show?" -> "STOP: never press keys into a modal or form; answer its gate" [label="tempted to send Escape or another key"];
-    "STOP: never press keys into a modal or form; answer its gate" -> "herd_gates {herd}: the blocked job";
+    "Smart-distribute pool in use?" -> "Respawns of this job spent?" [label="no, and not login-expired: relaunch on the same account"];
+    "Smart-distribute pool in use?" -> "Report the stall to the user" [label="no, and login-expired: only a login fixes it"];
     "Accounts section non-empty?" -> "Pick the account per the accounts rules" [label="yes"];
     "Accounts section non-empty?" -> "Report the stall to the user" [label="no: nowhere else to launch"];
-    "Pick the account per the accounts rules" -> "Respawns of this job = 2?" [label="an account picked"];
+    "Pick the account per the accounts rules" -> "Respawns of this job spent?" [label="an account picked"];
     "Pick the account per the accounts rules" -> "End the turn until something arrives" [label="wait or abandon"];
     "Report the stall to the user" -> "End the turn until something arrives";
-    "Ask: attend or close and respawn" -> "herd_attend {job, herd}: the parked dialog" [label="attend"];
-    "Ask: attend or close and respawn" -> "herd_close {job, herd}: parked, respawning" [label="close and respawn"];
+    "Ask: attend or respawn" -> "herd_attend {job, herd}: the parked dialog" [label="attend"];
+    "Ask: attend or respawn" -> "Respawns of this job spent?" [label="respawn"];
     "herd_attend {job, herd}: the parked dialog" -> "End the turn until something arrives";
-    "herd_close {job, herd}: parked, respawning" -> "Respawns of this job = 2?";
     "herd_attend {job, herd}: a human is needed" -> "End the turn until something arrives";
     "Report the crash with its job and pane" -> "End the turn until something arrives";
     "chat_dm {to: <job handle>, body: the ruling or findings}" -> "End the turn until something arrives";
     "Ask: let them finish, kill and respawn, or hold" -> "End the turn until something arrives" [label="let them finish, or hold"];
     "Ask: let them finish, kill and respawn, or hold" -> "herd_close {job, herd}: killed for new scope" [label="kill and respawn"];
     "herd_close {job, herd}: killed for new scope" -> "herd_brief {job, template, strategy, strategies, fill, out}: the new brief";
-    "herd_brief {job, template, strategy, strategies, fill, out}: the new brief" -> "Respawns of this job = 2?";
-    "Respawns of this job = 2?" -> "rt herd spawn --herd <id> --job <job> --dir <its tree> --model <model> [--brief <new brief>] [--effort <e>] [--account <A>]" [label="no"]; // <!-- mcp-lint: allow -->
-    "Respawns of this job = 2?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
-    "Respawns of this job = 2?" -> "STOP: herd_spawn never respawns; it takes no dir" [label="tempted to respawn through herd_spawn"];
-    "STOP: herd_spawn never respawns; it takes no dir" -> "rt herd spawn --herd <id> --job <job> --dir <its tree> --model <model> [--brief <new brief>] [--effort <e>] [--account <A>]"; // <!-- mcp-lint: allow -->
-    "rt herd spawn --herd <id> --job <job> --dir <its tree> --model <model> [--brief <new brief>] [--effort <e>] [--account <A>]" -> "End the turn until something arrives"; // <!-- mcp-lint: allow -->
+    "herd_brief {job, template, strategy, strategies, fill, out}: the new brief" -> "herd_diagnose {herd, job}: the respawn budget";
+    "herd_diagnose {herd, job}: the respawn budget" -> "Respawns of this job spent?";
+    "Respawns of this job spent?" -> "herd_respawn {herd, job, brief?, account?, effort?}" [label="no"];
+    "Respawns of this job spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
+    "Respawns of this job spent?" -> "STOP: a respawn goes through herd_respawn" [label="tempted to respawn with herd_spawn or the shell"];
+    "STOP: a respawn goes through herd_respawn" -> "herd_respawn {herd, job, brief?, account?, effort?}";
+    "herd_respawn {herd, job, brief?, account?, effort?}" -> "Respawn result?";
+    "Respawn result?" -> "End the turn until something arrives" [label="ok: announce it"];
+    "Respawn result?" -> "Shepherd off-script gate: ask the user" [label="error: quote it"];
     "Shepherd off-script gate: ask the user" -> "Off-script answer?";
     "Off-script answer?" -> "Make the recorded move once" [label="take the proposed move"];
     "Off-script answer?" -> "End the turn until something arrives" [label="hand back or hold"];
@@ -576,46 +578,46 @@ Present up to 4 open gates in one AskUserQuestion call:
 - A milestone gate's options are fixed: **Approve** / **Revise** / **Spawn a reviewer**. On Revise, collect the user's feedback in the same form (or "see pane") into the answer's `note`.
 
 Submit each answer's `value` verbatim; free text the user adds rides the
-`note`. `--by shepherd` records which surface decided; the `gate_answer`
-tool records the pane, so it is not your path. Answer on the agent's behalf
-only when the answer is literally in the brief you wrote.
+`note`. `herd_gate_answer` records `by: shepherd`. Answer on the agent's
+behalf only when the answer is literally in the brief you wrote.
 A relayed human answer that fits no option goes as `{"writeIn": "<their
 words>"}` when the question was opened with `writeIn`; otherwise ask them
 to pick.
 
-When the user parks a gate, `rt gate park <id>` pauses it: it leaves the
+When the user parks a gate, `herd_gate_park` pauses it: it leaves the
 open list until reopened.
 
 ### Say which answer won, in one line
 
-A conflict means another surface answered first. Name the winning answer
-and the surface it came from; never re-ask.
+A conflict means another surface answered first. Read `winner.answers` and
+`winner.by`, name the winning answer and the surface it came from; never
+re-ask.
 
 ### Fix the answers: each value verbatim
 
-The refusal names the bad value or shape. Resend with each option's `value`
-string exactly as the gate row gives it.
+The refusal's `invalid[].validValues` lists what the gate accepts. Resend
+with each value from there, verbatim.
 
 ### Pick the account per the accounts rules
 
 The Accounts section decides whether to respawn now or ask the user first.
-Its pick is the `--account` on the shared respawn. Announce the respawn to
-the user afterward. When the user chooses to wait or to abandon the job,
-end the turn. A dead lane with a smart-distribute pool takes the same pick
+Its pick is the `account` on `herd_respawn`. Announce the respawn to the
+user afterward. When the user chooses to wait or to abandon the job, end
+the turn. A dead lane with a smart-distribute pool takes the same pick
 before its respawn.
 
 ### Report the stall to the user
 
-Single-account mode has nowhere else to launch. Name the job, its pane and
-the limit banner.
+Nowhere else to launch: single-account mode, or an expired login with no
+pool (only the user's `/login` fixes that). Name the job, its pane and the
+verdict (`rate-limited` or `login-expired`).
 
-### Ask: attend or close and respawn
+### Ask: attend or respawn
 
 The watchdog accepts trust and relocation dialogs itself and parks a job
 that stays stuck (`stuck-at-modal` in `herd_status`). **Attend** opens the
-pane so the user answers the dialog by hand. **Close and respawn** reuses
-the stored brief. A respawn keeps neither `--effort` nor `--account` from
-the prior spawn; pass them again.
+pane so the user answers the dialog by hand. **Respawn** reuses the stored
+brief and the job's model, effort and account.
 
 ### Report the crash with its job and pane
 
@@ -631,25 +633,35 @@ briefs** / **Hold**. No restated heading, no per-option descriptions.
 ## What the watch loop cannot show
 
 - **The push is transport.** A gate push is one line, `[gate] <id> is now open; re-read the gate registry.`, carrying only an id. Its arrival already proves the daemon, the subscription and the herd; the `herd_gates` read is the verification, made first, before any command of your own choosing. `herd_gates` defaults to `HERD_ID` or the single active herd (name the herd only when more than one is active), and also returns pipeline-run gates whose worktree belongs to one of your jobs. Room lines are pushed the same way: a report is `<job> #<n>: <body>` and a milestone is `<job> #<n>: milestone: <artifact>`. A stale id or an unrelated room line is a normal outcome of that read, never a reason to reach for another command first or to distrust the push.
-- **Blocked diagnosis.** `<job> blocked` means the pane sat on a prompt for 30s. `herd_gates` comes first; its rows carry `presentation` and `owner`. Only "blocked, no open question, no open gate" makes the pane peek legitimate, never a hunch. `bg:` refs work for hidden herds.
-- **Typing versus keys.** Typing a text nudge into a lane's prompt with `rt pane send <pane> --text <nudge>` is allowed when the prompt is idle and no form is on screen. Pressing keys into a modal or form (Escape, Enter, an option number) is forbidden: the daemon injects Escape itself when a form-presentation gate is answered elsewhere, and a keystroke into a pane on a background `rt gate wait` interrupts a worker that was never stuck. A gate row's `presentation` says which you face: `"form"` means answering the gate clears the form; `"wait"` means leave the pane alone.
-- **Unconsumed answers.** The daemon already re-nudges the worker itself; what reaches you is `gate <id> UNCONSUMED` on a job in `herd_status`, or the watchdog's "answered Nm ago and unconsumed" line. Read the lane's pane first: a dead lane (a login expired, no claude on it) is a respawn, not a nudge. Nudge 0 is the DM. Nudge 1 types the same nudge, under the Typing versus keys rule above. After that, the off-script gate.
-- **The disposable reviewer.** Its spawn line is the graph's node, in the job's own tree (`herd_spawn` would land it in a fresh one). Its brief reads the artifact, DMs the findings with `chat_dm` (`to` = the job's `handle` from `herd_status`), and reports a verdict; the daemon closes its pane on that report. The job revises and opens a fresh milestone gate: every round is gate, DM, gate. You never read the artifact. With the Accounts section non-empty, it takes a per-spawn pick like any other spawn.
+- **Diagnosis and nudges.** `<job> blocked` means the pane sat on a prompt for 30s. `herd_diagnose {herd, job}` has the daemon read the pane and returns a verdict and the budgets, never pane text; it checks the job's open gates before any screen. `gate <id> UNCONSUMED` in `herd_status`, or the watchdog's "answered Nm ago and unconsumed" line, is the arrival for a nudge: the nudge edge keys on that arrival, not on `lastGate.consumed`, which reads `null` for gates the daemon does not track. `herd_nudge` picks its rung: a DM first, then a typed line only into an idle pane with no form open; an unsafe pane returns `needsHuman`. No tool presses keys, and neither do you. A hidden (`bg:`) pane reaches the user only through `herd_attend {job, herd}`.
+- **The disposable reviewer.** Its spawn is `herd_spawn {tree}` into the job's own tree. A spawn into a tree another job holds makes the reviewer a guest: the tree stays the host's. The result's `reviewerRound` echoes the ticked budget. Its brief reads the artifact, DMs the findings with `chat_dm` (`to` = the job's `handle` from `herd_status`), and reports a verdict; the daemon closes its pane on that report. The job revises and opens a fresh milestone gate: every round is gate, DM, gate. You never read the artifact. With the Accounts section non-empty, it takes a per-spawn pick like any other spawn.
 - **A bare pane form.** A worker pane showing a structured question with no gate behind it (`herd_gates` returns nothing for it) is the banned bare pane-local form, unreachable from every channel. Flag it to the user; never answer it yourself. Covered panes deny it at source through the launch-injected gate-fork hook, so seeing one means the pane is uncovered or its daemon was unreachable.
 - **Progress.** When the user asks for progress, and after a job's report while other jobs still run, show the view from mattstack:herd-progress.
 
-**The shared respawn.** A rate-limit stall (a limit banner in the peek), a
-parked dialog, a dead lane and a kill all respawn with this one Bash line,
-the graph's node (`--brief` only for a kill and respawn):
+**Budgets.** The daemon counts; you decide. A `... spent?` diamond reads
+`{used, cap, spent}` from a read made in this decision, before the move it
+guards. A user's answer in between does not stale it.
 
-```bash
-rt herd spawn --herd <id> --job <job> --dir <its tree> --model <model> [--brief <new brief>] [--effort <e>] [--account <A>]  # <!-- mcp-lint: allow -->
-```
+| Budget | Read from | Before |
+|---|---|---|
+| `respawns` | `herd_diagnose` `budgets.respawns` | `herd_respawn` |
+| `blockedNotices` | `herd_diagnose` `budgets.blockedNotices` | routing a `<job> blocked` notice |
+| `nudges[gate]` | `herd_diagnose` `budgets.nudges[<gate>]` (absent = unused) | `herd_nudge` |
+| `reviewerRounds[artifact]` | `herd_diagnose` on the host job, `budgets.reviewerRounds[<artifact>]`, the artifact named in its milestone room line (absent = unused) | the reviewer `herd_spawn` |
 
-It is never `herd_spawn`: the tool takes no dir, and the job's tree stays
-attached, closed or not, so a dir-less respawn fails `branch-attached`. The
-daemon closes the old pane, reuses the stored brief unless `--brief` names
-a new one, and relaunches in the same tree.
+`spent` (used >= cap) answers yes. No tool refuses on a spent budget, so the
+diamond is the only guard. `Brief retries = 2?` and `Answer retries = 2?`
+stay counted in your head: they run inside one turn, where no daemon budget
+covers them.
+
+**The respawn.** Every respawn (a rate limit, a parked dialog, a dead lane,
+a kill for new scope, the user's ask) is `herd_respawn {herd, job, brief?,
+account?, effort?}`. It stays in the job's tree and never provisions,
+closes the old pane, reuses the stored brief unless `brief` names a new
+one, and keeps the job's model, effort and account unless one is passed. It
+settles the old session's gates: open ones close as abandoned so the new
+worker re-asks, and answered ones are marked consumed. `herd_spawn` never
+respawns.
 
 ## Lanes and wrap-up
 
