@@ -33,6 +33,7 @@ digraph extend_pack {
     "What did this round change?" [shape=diamond];
     "RED: run the stage or verb without the rule" [shape=box];
     "The miss reproduced?" [shape=diamond];
+    "The named fill exists?" [shape=diamond];
     "Where does the edit land?" [shape=diamond];
     "STOP: edit the pack source, never compiled output or the cache" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Write the rule in the author's words" [shape=box];
@@ -92,7 +93,9 @@ digraph extend_pack {
     "RED: run the stage or verb without the rule" -> "The miss reproduced?";
     "The miss reproduced?" -> "Where does the edit land?" [label="yes: quote it"];
     "The miss reproduced?" -> "No miss: nothing to write" [label="no"];
-    "The miss reproduced?" -> "Round done: hand to editing-skills to publish" [label="no, and this round declared a pipeline"];
+    "The miss reproduced?" -> "The named fill exists?" [label="no, but the ask names a pipeline's fill"];
+    "The named fill exists?" -> "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"<pack>:<fill>\", \"--pipeline\", \"<name>\", \"--pack\", \"<pack>\"]}" [label="yes: the override is the ask"];
+    "The named fill exists?" -> "Where does the edit land?" [label="no: write it first"];
     "Where does the edit land?" -> "Write the rule in the author's words" [label="the pack source"];
     "Where does the edit land?" -> "STOP: edit the pack source, never compiled output or the cache" [label="tempted: compiled output or a cache copy"];
     "STOP: edit the pack source, never compiled output or the cache" -> "Write the rule in the author's words";
@@ -190,6 +193,9 @@ one publish at the end:
    `--pipeline <name>` (the `One pipeline's fill only?` yes edge). Bind
    works straight after the materialize in step 1. Certify the fill's
    folder, check, and run GREEN in a second fresh `--plugin-dir` session.
+   When the ask names the fill ("accessibility runs use
+   `acme:evidence-a11y`"), the override is the ask itself: it binds even
+   when RED shows no miss (see `The named fill exists?`).
 3. Hand to editing-skills to publish, once.
 
 Stages the pipeline does not override run the pack's default fills, and
@@ -301,6 +307,16 @@ pipeline's verb (`/<pack>:work-a11y`), not plain `work`. A verb declared
 this round is not in the installed cache yet, so run that RED in a fresh
 `claude --plugin-dir <pack dir>` session, the same way as GREEN.
 
+### The named fill exists?
+
+You reach this when RED showed no miss but the ask names a fill for one
+pipeline. An explicit override is the requirement, so it binds whether or
+not RED reproduces a miss; only a fill the ask leaves unnamed needs RED to
+justify it. When the fill exists, bind it with `--pipeline` straight away.
+When it does not, write it first: RED and GREEN still apply to the fill's
+own content. Either way GREEN then records that `/<pack>:work-<kind>`
+runs the named fill and plain `/<pack>:work` does not.
+
 ### Write the rule in the author's words
 
 Paths, for the widgets team in the acme org (the pack carries its team's
@@ -400,7 +416,9 @@ The running session still loads the pack from the installed cache, so GREEN
 runs in a fresh `claude --plugin-dir <pack dir>` session in the worktree,
 where the pack's verbs come from its source, after the fill is bound or
 compiled again. In it, re-run the same stage or verb on the same task with
-the same stop point, and record that the miss is gone.
+the same stop point, and record that the miss is gone. For an override
+bound with no RED miss, `The miss is gone?` asks whether the run follows
+the named fill.
 
 ### Revise the rule
 
