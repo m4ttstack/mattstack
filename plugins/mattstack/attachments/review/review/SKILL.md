@@ -18,25 +18,53 @@ tools and `gitlab_get` are part of the step that needs them, not moves.
 ## Run
 
 Outside a pipeline this verb is its own run, so the console shows it and
-the Stop hook covers its pane. A caller that hands you a `runDb` (a
-pipeline invoking this verb carries it in context) whose `run_snapshot`
-shows `run.status` = `running` owns the run: you inherit it,
-`run.current_stage` is your stage, and you pass that handed `runDb` on
-every `run_*` call. Otherwise the graph starts or resumes a run of your
-own, and your stage is `review`.
+the Stop hook covers its pane. The graph's first call, `run_enter`, starts,
+resumes or inherits the run, or returns the running candidates to choose
+between. Never list, read or build run dbs by hand.
 
-`run_list` takes `repo`, the `--repo` value in the flags block below, and
-you keep the rows whose `status` is `running` and `work_type` is `review`.
-Never read the run dbs by hand. `run_start` takes `flags` (this verb's
-value in the block below, verbatim), `skillDir` (this skill's own
-directory) and `spawnedBy` when a board or another surface launched this
-pane.
+`run_enter` takes:
+
+- `flags`: this verb's value in the block below, verbatim;
+- `skillDir`: this skill's own directory;
+- `stage: review`;
+- `runDb`: only when a caller handed you one;
+- `resume`: a review run id to resume, when the caller or the developer
+  names one, or when a handed `--report` carries a `review-run: <run id>`
+  line (that id, even in a pane a surface launched);
+- `spawnedBy`: only when a board or another surface launched this pane.
 
 {{run-start.flags:review}}
 
-Keep `runDb` and pass it to every `run_*` call; nothing is exported. Every
-gate in this verb writes its `gate` field with `stage: <stage>` and its
-decision.
+Keep the `runDb` it returns and pass it to every `run_*` and gate call;
+nothing is exported. Your stage is `review` on a run you started or
+resumed. On a run you inherited (`mode: inherited`, a running run a caller
+handed you), your stage is the result's `at.stage`, written
+`<run.current_stage>` in the graph, and the caller closes the run. A handed
+`runDb` whose run is no longer running is not inherited: `run_enter`
+carries on as if none was handed, and its result says
+`handedRunDb: "not-running"`.
+
+Every gate after `run_enter` runs through gate-protocol with `runDb` and
+`stage`, so the gate tools write the run's gate fields. The clarify and
+off-script gates record their answers map when answered. The posting gate
+is a review gate: its answer records nothing until `gate_record`, after
+posting. This verb writes no `gate` field and no gate decision by hand.
+
+Every loop counter is a `run_budget {runDb, key, limit, stage}` call: each
+counted event charges `increment: 1` (the default), the counter diamond
+reads the result's `exhausted`, and the count survives compaction and
+resume. The keys:
+
+| Key | Limit | Counts |
+|---|---|---|
+| `target-clarify` | 2 | typed answers at the target clarify gate |
+| `verify-rounds:<depth>` | 2 | verify rounds that left a blocking finding unverified, at that depth |
+| `post-open-fix` | 1 | fixes made to a field a posting-gate refusal named |
+| `bad-anchors` | 1 | bad-anchor findings moved into the summary |
+
+A once-only fix (`post-open-fix`, `bad-anchors`) is two calls: a read with
+`increment: 0` before its diamond, then the charge on the diamond's `no`
+edge, right before the fix.
 
 {{include:run-identity}}
 
@@ -47,22 +75,16 @@ digraph review {
     rankdir=TB;
 
     "Trigger: review a teammate's MR or PR" [shape=ellipse];
-    "runDb handed in by a caller of review?" [shape=diamond];
-    "run_snapshot {runDb: <handed>}" [shape=plaintext];
-    "Handed review run is running?" [shape=diamond];
-    "A surface launched this review pane?" [shape=diamond];
-    "run_list {repo}, keep running review runs" [shape=plaintext];
-    "Running review runs in this repo?" [shape=diamond];
+    "run_enter {flags, skillDir, stage: review, runDb?, resume?, spawnedBy?}" [shape=plaintext];
+    "review run_enter mode?" [shape=diamond];
     "Gate review clarify: Resume / Start fresh / Hold" [shape=box];
     "Review resume answer?" [shape=diamond];
-    "run_stage {action: start, stage: review} on the resumed runDb" [shape=plaintext];
-    "run_field_set {key: hold, value: -, stage: review}" [shape=plaintext];
+    "run_enter {flags, skillDir, stage: review, resume: <picked runId>}" [shape=plaintext];
+    "run_enter {flags, skillDir, stage: review, fresh: true, spawnedBy?}" [shape=plaintext];
+    "The refused review run_enter carried resume?" [shape=diamond];
+    "STOP: rt predates the run tools; tell the user to update rt" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "run_snapshot {runDb: <resumed review>}" [shape=plaintext];
     "Resumed review snapshot records?" [shape=diamond];
-    "run_start {flags, skillDir, spawnedBy?} for review" [shape=plaintext];
-    "review run_start ok: true with a runDb?" [shape=diamond];
-    "STOP: rt predates the run tools; tell the user to update rt" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "run_stage {action: start, stage: review}" [shape=plaintext];
 
     "Resolve the review target" [shape=box];
     "Review target form?" [shape=diamond];
@@ -76,6 +98,7 @@ digraph review {
     "mr_list matches for the branch?" [shape=diamond];
     "mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}" [shape=plaintext];
     "mr_list matches for the ticket?" [shape=diamond];
+    "run_budget {runDb, key: target-clarify, limit: 2, stage}" [shape=plaintext];
     "Review clarify rounds = 2?" [shape=diamond];
     "STOP: GitLab ticket searches go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: GitLab reads go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -95,7 +118,7 @@ digraph review {
     "git fetch origin <targetBranch> +refs/merge-requests/<iid>/head:refs/remotes/origin/mr-<iid>" [shape=plaintext];
     "git diff origin/<targetBranch>...origin/mr-<iid>" [shape=plaintext];
     "MR-head checkout in hand for the review checks?" [shape=diamond];
-    "worktree_provision {repoName, branch: <source branch>} for the review head" [shape=plaintext];
+    "worktree_provision {repoName, branch: <source branch>, reuse: true} for the review head" [shape=plaintext];
     "Review head worktree_provision returned a path?" [shape=diamond];
     "Provisioned review tree at the fetched head?" [shape=diamond];
     "STOP: create a review checkout only with worktree_provision" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -104,6 +127,7 @@ digraph review {
     "Assemble the review draft" [shape=box];
     "Verify each blocking finding against the MR head" [shape=box];
     "Every blocking finding verified?" [shape=diamond];
+    "run_budget {runDb, key: verify-rounds:<depth>, limit: 2, stage}" [shape=plaintext];
     "Review verify rounds = 2?" [shape=diamond];
     "Re-dispatch a fresh reviewer on the unverified findings" [shape=box];
     "Demote each unverified finding to Minor, marked unverified" [shape=box];
@@ -113,17 +137,25 @@ digraph review {
     "Decided selection handed in by the review caller?" [shape=diamond];
     "Review report json in hand?" [shape=diamond];
     "Write review-post.extras.json" [shape=box];
+    "Caller owns the review gates?" [shape=diamond];
+    "Review report json under the Claude Code temp root?" [shape=diamond];
+    "Copy the report json into the review scratch dir" [shape=box];
+    "gate_open {kind: review-post, review: {findingsPath, extras}, runDb, stage, scope: post}" [shape=plaintext];
     "sh \"${CLAUDE_SKILL_DIR}/scripts/review-source.sh\" <report json> <dir>/review-post.extras.json > <dir>/review-post.source.json" [shape=plaintext];
-    "sh \"${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh\" fit < <dir>/review-post.source.json > <dir>/review-post.open.json" [shape=plaintext];
-    "Both review scripts exit 0?" [shape=diamond];
+    "review-source.sh exit 0?" [shape=diamond];
+    "gate_open {kind: review-post, sourcePath: <dir>/review-post.source.json, handBack: true, outPath: <dir>/review-post.open.json, runDb, stage, scope: post}" [shape=plaintext];
+    "gate_open result?" [shape=diamond];
+    "STOP: never hand-edit or hand-fit the review-post open; open the review off-script gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "run_budget {runDb, key: post-open-fix, limit: 1, increment: 0, stage}" [shape=plaintext];
     "Fixed a field a review script named once already?" [shape=diamond];
+    "run_budget {runDb, key: post-open-fix, limit: 1, stage}" [shape=plaintext];
     "Fix the field the review script names" [shape=box];
     "Open the review off-script gate: a review script refused" [shape=box];
     "Review script off-script answer?" [shape=diamond];
-    "Caller owns the review gates?" [shape=diamond];
+    "Write the review-run line into the handed --report" [shape=box];
     "Hand back the severity line and the open's paths" [shape=box];
     "Review caller's answer?" [shape=diamond];
-    "Gate review-post: open the posting gate from review-post.open.json" [shape=box];
+    "Gate review-post: carry the opened gate through gate-protocol" [shape=box];
     "Gate review-post, legacy: tiers, outcome and next" [shape=box];
     "Review-post next answer?" [shape=diamond];
     "Take the human's changes into the review draft" [shape=box];
@@ -135,11 +167,15 @@ digraph review {
     "Open the review off-script gate: gh pr review refused" [shape=box];
     "gh pr review off-script answer?" [shape=diamond];
     "gh pr comment <ref> with the summary body" [shape=plaintext];
-    "This review already on the MR?" [shape=diamond];
     "Compose the submitted review: comments, summary, outcome" [shape=box];
+    "Resumed review run: read the MR before the submit?" [shape=diamond];
+    "mr_posted_since {mrUrl, since: <run started_at>, items}" [shape=plaintext];
+    "This review already on the MR?" [shape=diamond];
     "mr_review_submit {mrUrl, outcome, summary, comments, replies}" [shape=plaintext];
     "mr_review_submit result?" [shape=diamond];
+    "run_budget {runDb, key: bad-anchors, limit: 1, increment: 0, stage}" [shape=plaintext];
     "Bad anchors moved into the summary once already?" [shape=diamond];
+    "run_budget {runDb, key: bad-anchors, limit: 1, stage}" [shape=plaintext];
     "Move the bad-anchor findings into the summary" [shape=box];
     "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Open the review off-script gate: mr_review_submit refused" [shape=box];
@@ -151,46 +187,35 @@ digraph review {
     "Open the review off-script gate: mr_approve refused" [shape=box];
     "Approval off-script answer?" [shape=diamond];
     "Make the recorded approval move once" [shape=box];
-    "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [shape=plaintext];
+    "gate_record {runDb, stage, scope: post, shape: post, gateId | answers + decidedBy}" [shape=plaintext];
     "Own review run: close it?" [shape=diamond];
-    "run_stage {action: done, stage: review}" [shape=plaintext];
-    "run_status {status: done} for review" [shape=plaintext];
-    "End with the review target's forge link" [shape=box];
-
-    "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [shape=plaintext];
-    "run_field_set {key: hold, value: <their words>, stage: <review stage>}" [shape=plaintext];
     "Own review run: close it as abandoned?" [shape=diamond];
-    "run_stage {action: fail, stage: review, reason: <why; what already posted>}" [shape=plaintext];
-    "run_status {status: abandoned} for review" [shape=plaintext];
+    "run_close {runDb, workType: review, stage: review, outcome}" [shape=plaintext];
+    "Review closed as?" [shape=diamond];
+    "End with the review target's forge link" [shape=box];
     "run_stage {action: fail, stage: <run.current_stage>, reason: <why; what already posted>}" [shape=plaintext];
+    "run_hold {runDb, stage, reason, decidedBy} for review" [shape=plaintext];
     "Review held: end the turn" [shape=doublecircle];
     "Review handed back: the why and what posted, quoted" [shape=doublecircle];
     "Review posted" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: review a teammate's MR or PR" -> "runDb handed in by a caller of review?";
-    "runDb handed in by a caller of review?" -> "run_snapshot {runDb: <handed>}" [label="yes"];
-    "runDb handed in by a caller of review?" -> "A surface launched this review pane?" [label="no"];
-    "run_snapshot {runDb: <handed>}" -> "Handed review run is running?";
-    "Handed review run is running?" -> "Resolve the review target" [label="yes: inherit it, stage is run.current_stage"];
-    "Handed review run is running?" -> "A surface launched this review pane?" [label="no"];
-    "A surface launched this review pane?" -> "run_start {flags, skillDir, spawnedBy?} for review" [label="yes: start fresh"];
-    "A surface launched this review pane?" -> "run_list {repo}, keep running review runs" [label="no: typed by hand"];
-    "run_list {repo}, keep running review runs" -> "Running review runs in this repo?";
-    "Running review runs in this repo?" -> "run_start {flags, skillDir, spawnedBy?} for review" [label="none"];
-    "Running review runs in this repo?" -> "Gate review clarify: Resume / Start fresh / Hold" [label="found"];
+    "Trigger: review a teammate's MR or PR" -> "run_enter {flags, skillDir, stage: review, runDb?, resume?, spawnedBy?}";
+    "run_enter {flags, skillDir, stage: review, runDb?, resume?, spawnedBy?}" -> "review run_enter mode?";
+    "run_enter {flags, skillDir, stage: review, resume: <picked runId>}" -> "review run_enter mode?";
+    "run_enter {flags, skillDir, stage: review, fresh: true, spawnedBy?}" -> "review run_enter mode?";
+    "review run_enter mode?" -> "Resolve the review target" [label="started, or inherited: stage is at.stage"];
+    "review run_enter mode?" -> "run_snapshot {runDb: <resumed review>}" [label="resumed"];
+    "review run_enter mode?" -> "Gate review clarify: Resume / Start fresh / Hold" [label="candidates"];
+    "review run_enter mode?" -> "The refused review run_enter carried resume?" [label="refused, or the tool is missing"];
+    "The refused review run_enter carried resume?" -> "run_enter {flags, skillDir, stage: review, fresh: true, spawnedBy?}" [label="yes: say the resume was refused, start fresh"];
+    "The refused review run_enter carried resume?" -> "STOP: rt predates the run tools; tell the user to update rt" [label="no"];
     "Gate review clarify: Resume / Start fresh / Hold" -> "Review resume answer?";
-    "Review resume answer?" -> "run_stage {action: start, stage: review} on the resumed runDb" [label="resume"];
-    "Review resume answer?" -> "run_start {flags, skillDir, spawnedBy?} for review" [label="start fresh"];
+    "Review resume answer?" -> "run_enter {flags, skillDir, stage: review, resume: <picked runId>}" [label="resume"];
+    "Review resume answer?" -> "run_enter {flags, skillDir, stage: review, fresh: true, spawnedBy?}" [label="start fresh"];
     "Review resume answer?" -> "Review held: end the turn" [label="hold: no run yet, record nothing"];
-    "run_stage {action: start, stage: review} on the resumed runDb" -> "run_field_set {key: hold, value: -, stage: review}";
-    "run_field_set {key: hold, value: -, stage: review}" -> "run_snapshot {runDb: <resumed review>}";
     "run_snapshot {runDb: <resumed review>}" -> "Resumed review snapshot records?";
     "Resumed review snapshot records?" -> "Resolve the review target" [label="no post decision: re-enter, reuse every recorded answer"];
     "Resumed review snapshot records?" -> "Own review run: close it?" [label="a post decision: posting already ran"];
-    "run_start {flags, skillDir, spawnedBy?} for review" -> "review run_start ok: true with a runDb?";
-    "review run_start ok: true with a runDb?" -> "run_stage {action: start, stage: review}" [label="yes: keep runDb"];
-    "review run_start ok: true with a runDb?" -> "STOP: rt predates the run tools; tell the user to update rt" [label="no"];
-    "run_stage {action: start, stage: review}" -> "Resolve the review target";
 
     "Resolve the review target" -> "Review target form?";
     "Review target form?" -> "mr_view {mrUrl, or repoName + iid}" [label="GitLab URL or iid"];
@@ -201,14 +226,14 @@ digraph review {
     "mr_for_branch {repoName: <checkout>, branches: [<branch>]}" -> "mr_for_branch entry for the branch?";
     "mr_for_branch entry for the branch?" -> "mr_view {mrUrl, or repoName + iid}" [label="an iid"];
     "mr_for_branch entry for the branch?" -> "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}" [label="null: no open MR, look for a merged or closed one"];
-    "mr_for_branch entry for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text"];
+    "mr_for_branch entry for the branch?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="an error: hold, quoting its text"];
     "mr_for_branch entry for the branch?" -> "STOP: GitLab branch lookups go through the read tools or gitlab_get" [label="tempted to look it up with the GitLab CLI"];
     "STOP: GitLab branch lookups go through the read tools or gitlab_get" -> "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}";
     "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}" -> "mr_list matches for the branch?";
     "mr_list matches for the branch?" -> "mr_view {mrUrl, or repoName + iid}" [label="exactly one: its iid"];
-    "mr_list matches for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="none: hold, GitLab has no MR for the branch"];
+    "mr_list matches for the branch?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="none: hold, GitLab has no MR for the branch"];
     "mr_list matches for the branch?" -> "Gate review clarify: which target?" [label="several, or a truncated list"];
-    "mr_list matches for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text (never read as none)"];
+    "mr_list matches for the branch?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="an error: hold, quoting its text (never read as none)"];
     "mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}" -> "mr_list matches for the ticket?";
     "Review target form?" -> "STOP: GitLab ticket searches go through the read tools or gitlab_get" [label="tempted to search with the GitLab CLI"];
     "STOP: GitLab ticket searches go through the read tools or gitlab_get" -> "mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}";
@@ -217,18 +242,19 @@ digraph review {
     "mr_list matches for the ticket?" -> "Gate review clarify: which target?" [label="an error: quoted in the gate's sentence"];
     "mr_view {mrUrl, or repoName + iid}" -> "mr_view returned the MR?";
     "mr_view returned the MR?" -> "Own review run: record the target?" [label="yes"];
-    "mr_view returned the MR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text (usually GitLab's 404 or 403)"];
+    "mr_view returned the MR?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="an error: hold, quoting its text (usually GitLab's 404 or 403)"];
     "mr_view returned the MR?" -> "STOP: GitLab reads go through the read tools or gitlab_get" [label="tempted to read it with the GitLab CLI"];
     "STOP: GitLab reads go through the read tools or gitlab_get" -> "mr_view {mrUrl, or repoName + iid}";
     "gh pr view <ref>" -> "gh pr view found the PR?";
     "gh pr view found the PR?" -> "Own review run: record the target?" [label="yes"];
-    "gh pr view found the PR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="no: hold, quoting the error"];
+    "gh pr view found the PR?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="no: hold, quoting the error"];
     "Gate review clarify: which target?" -> "Review target answer?";
     "Review target answer?" -> "Review target form?" [label="a target picked: resolve it"];
-    "Review target answer?" -> "Review clarify rounds = 2?" [label="their text"];
-    "Review clarify rounds = 2?" -> "Review target form?" [label="no: resolve it"];
-    "Review clarify rounds = 2?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="yes: hold, naming what was tried"];
-    "Review target answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
+    "Review target answer?" -> "run_budget {runDb, key: target-clarify, limit: 2, stage}" [label="their text: charge it"];
+    "run_budget {runDb, key: target-clarify, limit: 2, stage}" -> "Review clarify rounds = 2?";
+    "Review clarify rounds = 2?" -> "Review target form?" [label="no: not exhausted, resolve it"];
+    "Review clarify rounds = 2?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="yes: exhausted, hold naming what was tried"];
+    "Review target answer?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="next: hold"];
     "Own review run: record the target?" -> "Record the review target: mr, branch and any ticket" [label="yes"];
     "Own review run: record the target?" -> "Caller framed a re-review?" [label="no: inherited"];
     "Record the review target: mr, branch and any ticket" -> "Caller framed a re-review?";
@@ -236,7 +262,7 @@ digraph review {
     "Caller framed a re-review?" -> "Print the review depth block" [label="no: a first review"];
     "Take the earlier threads the caller handed in" -> "Earlier threads in hand?";
     "Earlier threads in hand?" -> "Print the review depth block" [label="yes, or none to judge"];
-    "Earlier threads in hand?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="no: the thread read errored; hold, quoting its text"];
+    "Earlier threads in hand?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="no: the thread read errored; hold, quoting its text"];
 
     "Print the review depth block" -> "Review diff forge?";
     "Review diff forge?" -> "gh pr diff <ref>" [label="GitHub"];
@@ -246,11 +272,11 @@ digraph review {
     "gh pr diff <ref>" -> "git fetch origin +pull/<n>/head:refs/remotes/origin/pr-<n>";
     "git fetch origin +pull/<n>/head:refs/remotes/origin/pr-<n>" -> "MR-head checkout in hand for the review checks?";
     "MR-head checkout in hand for the review checks?" -> "Set up for the review depth" [label="yes, or read depth"];
-    "MR-head checkout in hand for the review checks?" -> "worktree_provision {repoName, branch: <source branch>} for the review head" [label="no: verify or repro depth"];
+    "MR-head checkout in hand for the review checks?" -> "worktree_provision {repoName, branch: <source branch>, reuse: true} for the review head" [label="no: verify or repro depth"];
     "MR-head checkout in hand for the review checks?" -> "STOP: create a review checkout only with worktree_provision" [label="tempted to create one by hand"];
-    "STOP: create a review checkout only with worktree_provision" -> "worktree_provision {repoName, branch: <source branch>} for the review head";
-    "worktree_provision {repoName, branch: <source branch>} for the review head" -> "Review head worktree_provision returned a path?";
-    "Review head worktree_provision returned a path?" -> "Provisioned review tree at the fetched head?" [label="yes: run the checks in that path"];
+    "STOP: create a review checkout only with worktree_provision" -> "worktree_provision {repoName, branch: <source branch>, reuse: true} for the review head";
+    "worktree_provision {repoName, branch: <source branch>, reuse: true} for the review head" -> "Review head worktree_provision returned a path?";
+    "Review head worktree_provision returned a path?" -> "Provisioned review tree at the fetched head?" [label="yes: provisioned or reused; run the checks in that path"];
     "Review head worktree_provision returned a path?" -> "Dispatch the fresh reviewer; it forms the findings" [label="no: refused; the checks are noted as not run"];
     "Provisioned review tree at the fetched head?" -> "Set up for the review depth" [label="yes"];
     "Provisioned review tree at the fetched head?" -> "Dispatch the fresh reviewer; it forms the findings" [label="no: checks noted as not run, both shas quoted"];
@@ -259,9 +285,10 @@ digraph review {
     "Assemble the review draft" -> "Verify each blocking finding against the MR head";
     "Verify each blocking finding against the MR head" -> "Every blocking finding verified?";
     "Every blocking finding verified?" -> "Review report path given?" [label="yes, or none are blocking"];
-    "Every blocking finding verified?" -> "Review verify rounds = 2?" [label="no"];
-    "Review verify rounds = 2?" -> "Re-dispatch a fresh reviewer on the unverified findings" [label="no"];
-    "Review verify rounds = 2?" -> "Demote each unverified finding to Minor, marked unverified" [label="yes"];
+    "Every blocking finding verified?" -> "run_budget {runDb, key: verify-rounds:<depth>, limit: 2, stage}" [label="no: charge the round"];
+    "run_budget {runDb, key: verify-rounds:<depth>, limit: 2, stage}" -> "Review verify rounds = 2?";
+    "Review verify rounds = 2?" -> "Re-dispatch a fresh reviewer on the unverified findings" [label="no: not exhausted"];
+    "Review verify rounds = 2?" -> "Demote each unverified finding to Minor, marked unverified" [label="yes: exhausted"];
     "Re-dispatch a fresh reviewer on the unverified findings" -> "Assemble the review draft";
     "Demote each unverified finding to Minor, marked unverified" -> "Review report path given?";
     "Review report path given?" -> "Write the review report and its json sibling" [label="yes"];
@@ -272,110 +299,135 @@ digraph review {
     "Decided selection handed in by the review caller?" -> "Review report json in hand?" [label="no"];
     "Review report json in hand?" -> "Write review-post.extras.json" [label="yes"];
     "Review report json in hand?" -> "Gate review-post, legacy: tiers, outcome and next" [label="no"];
-    "Write review-post.extras.json" -> "sh \"${CLAUDE_SKILL_DIR}/scripts/review-source.sh\" <report json> <dir>/review-post.extras.json > <dir>/review-post.source.json";
-    "sh \"${CLAUDE_SKILL_DIR}/scripts/review-source.sh\" <report json> <dir>/review-post.extras.json > <dir>/review-post.source.json" -> "sh \"${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh\" fit < <dir>/review-post.source.json > <dir>/review-post.open.json";
-    "sh \"${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh\" fit < <dir>/review-post.source.json > <dir>/review-post.open.json" -> "Both review scripts exit 0?";
-    "Both review scripts exit 0?" -> "Caller owns the review gates?" [label="yes"];
-    "Both review scripts exit 0?" -> "Fixed a field a review script named once already?" [label="no: exit 1 names a field"];
-    "Both review scripts exit 0?" -> "Open the review off-script gate: a review script refused" [label="no: exit 2, no field to fix"];
-    "Fixed a field a review script named once already?" -> "Fix the field the review script names" [label="no"];
-    "Fixed a field a review script named once already?" -> "Open the review off-script gate: a review script refused" [label="yes"];
-    "Fix the field the review script names" -> "sh \"${CLAUDE_SKILL_DIR}/scripts/review-source.sh\" <report json> <dir>/review-post.extras.json > <dir>/review-post.source.json";
+    "Write review-post.extras.json" -> "Caller owns the review gates?";
+    "Caller owns the review gates?" -> "sh \"${CLAUDE_SKILL_DIR}/scripts/review-source.sh\" <report json> <dir>/review-post.extras.json > <dir>/review-post.source.json" [label="yes: a board wrapper said so"];
+    "Caller owns the review gates?" -> "Review report json under the Claude Code temp root?" [label="no: direct run"];
+    "Review report json under the Claude Code temp root?" -> "gate_open {kind: review-post, review: {findingsPath, extras}, runDb, stage, scope: post}" [label="yes: findingsPath is the report json"];
+    "Review report json under the Claude Code temp root?" -> "Copy the report json into the review scratch dir" [label="no: a --report elsewhere"];
+    "Copy the report json into the review scratch dir" -> "gate_open {kind: review-post, review: {findingsPath, extras}, runDb, stage, scope: post}";
+    "gate_open {kind: review-post, review: {findingsPath, extras}, runDb, stage, scope: post}" -> "gate_open result?";
+    "sh \"${CLAUDE_SKILL_DIR}/scripts/review-source.sh\" <report json> <dir>/review-post.extras.json > <dir>/review-post.source.json" -> "review-source.sh exit 0?";
+    "review-source.sh exit 0?" -> "gate_open {kind: review-post, sourcePath: <dir>/review-post.source.json, handBack: true, outPath: <dir>/review-post.open.json, runDb, stage, scope: post}" [label="yes"];
+    "review-source.sh exit 0?" -> "run_budget {runDb, key: post-open-fix, limit: 1, increment: 0, stage}" [label="exit 1: names a field"];
+    "review-source.sh exit 0?" -> "Open the review off-script gate: a review script refused" [label="exit 2: no field to fix"];
+    "gate_open {kind: review-post, sourcePath: <dir>/review-post.source.json, handBack: true, outPath: <dir>/review-post.open.json, runDb, stage, scope: post}" -> "gate_open result?";
+    "gate_open result?" -> "Gate review-post: carry the opened gate through gate-protocol" [label="opened: the direct run"];
+    "gate_open result?" -> "Write the review-run line into the handed --report" [label="handed back: the open is at outPath"];
+    "gate_open result?" -> "run_budget {runDb, key: post-open-fix, limit: 1, increment: 0, stage}" [label="refused: a line names a field to fix"];
+    "gate_open result?" -> "Open the review off-script gate: a review script refused" [label="refused: nothing a field fix can mend"];
+    "gate_open result?" -> "STOP: never hand-edit or hand-fit the review-post open; open the review off-script gate" [label="tempted to edit the open by hand or fit it with a script"];
+    "STOP: never hand-edit or hand-fit the review-post open; open the review off-script gate" -> "Open the review off-script gate: a review script refused";
+    "run_budget {runDb, key: post-open-fix, limit: 1, increment: 0, stage}" -> "Fixed a field a review script named once already?";
+    "Fixed a field a review script named once already?" -> "run_budget {runDb, key: post-open-fix, limit: 1, stage}" [label="no: charge the fix"];
+    "Fixed a field a review script named once already?" -> "Open the review off-script gate: a review script refused" [label="yes: exhausted"];
+    "run_budget {runDb, key: post-open-fix, limit: 1, stage}" -> "Fix the field the review script names";
+    "Fix the field the review script names" -> "Caller owns the review gates?";
     "Open the review off-script gate: a review script refused" -> "Review script off-script answer?";
     "Review script off-script answer?" -> "Gate review-post, legacy: tiers, outcome and next" [label="take: open the legacy gate instead"];
     "Review script off-script answer?" -> "Write review-post.extras.json" [label="iterate here: rebuild with their note"];
-    "Review script off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
+    "Review script off-script answer?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="hold"];
     "Review script off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
-    "Caller owns the review gates?" -> "Hand back the severity line and the open's paths" [label="yes: a board wrapper said so"];
-    "Caller owns the review gates?" -> "Gate review-post: open the posting gate from review-post.open.json" [label="no: direct run"];
+    "Write the review-run line into the handed --report" -> "Hand back the severity line and the open's paths";
     "Hand back the severity line and the open's paths" -> "Review caller's answer?";
     "Review caller's answer?" -> "Review posting forge?" [label="{findings, outcome}, with replies and restored on a re-review"];
-    "Review caller's answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
-    "Gate review-post: open the posting gate from review-post.open.json" -> "Review-post next answer?";
+    "Review caller's answer?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="hold"];
+    "Gate review-post: carry the opened gate through gate-protocol" -> "Review-post next answer?";
     "Gate review-post, legacy: tiers, outcome and next" -> "Review-post next answer?";
     "Review-post next answer?" -> "Review posting forge?" [label="proceed"];
     "Review-post next answer?" -> "Take the human's changes into the review draft" [label="iterate here"];
-    "Review-post next answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold: nothing posted"];
+    "Review-post next answer?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="hold: nothing posted, nothing recorded"];
     "Take the human's changes into the review draft" -> "Review iterate note asks for another depth?";
-    "Review iterate note asks for another depth?" -> "Print the review depth block" [label="yes: redo from the depth block, verify rounds reset"];
+    "Review iterate note asks for another depth?" -> "Print the review depth block" [label="yes: redo from the depth block; the new depth's verify-rounds key is fresh"];
     "Review iterate note asks for another depth?" -> "Review report path given?" [label="no: draft edits only; the next gate is a new one"];
 
     "Review posting forge?" -> "gh pr review <ref> with the disposition and the summary body" [label="GitHub"];
-    "Review posting forge?" -> "This review already on the MR?" [label="GitLab"];
+    "Review posting forge?" -> "Compose the submitted review: comments, summary, outcome" [label="GitLab"];
     "gh pr review <ref> with the disposition and the summary body" -> "gh pr review result?";
-    "gh pr review result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="posted"];
+    "gh pr review result?" -> "gate_record {runDb, stage, scope: post, shape: post, gateId | answers + decidedBy}" [label="posted"];
     "gh pr review result?" -> "Open the review off-script gate: gh pr review refused" [label="error"];
     "Open the review off-script gate: gh pr review refused" -> "gh pr review off-script answer?";
     "gh pr review off-script answer?" -> "gh pr comment <ref> with the summary body" [label="take"];
     "gh pr review off-script answer?" -> "gh pr review <ref> with the disposition and the summary body" [label="iterate here: retry with their note"];
-    "gh pr review off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
+    "gh pr review off-script answer?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="hold"];
     "gh pr review off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
-    "gh pr comment <ref> with the summary body" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}";
-    "This review already on the MR?" -> "Compose the submitted review: comments, summary, outcome" [label="no: nothing from it is up"];
+    "gh pr comment <ref> with the summary body" -> "gate_record {runDb, stage, scope: post, shape: post, gateId | answers + decidedBy}";
+    "Compose the submitted review: comments, summary, outcome" -> "Resumed review run: read the MR before the submit?";
+    "Resumed review run: read the MR before the submit?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}" [label="no: a first pass, nothing from it is up"];
+    "Resumed review run: read the MR before the submit?" -> "mr_posted_since {mrUrl, since: <run started_at>, items}" [label="yes: run_enter said resumed"];
+    "mr_posted_since {mrUrl, since: <run started_at>, items}" -> "This review already on the MR?";
+    "This review already on the MR?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}" [label="no: no item posted"];
     "This review already on the MR?" -> "Open the review off-script gate: mr_approve refused" [label="yes, approval outstanding"];
-    "This review already on the MR?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="yes, nothing outstanding"];
-    "This review already on the MR?" -> "Open the review off-script gate: mr_review_submit refused" [label="partly: some of its comments are up without its summary"];
-    "This review already on the MR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="the resumed MR read errored: hold, quoting its text"];
-    "Compose the submitted review: comments, summary, outcome" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}";
+    "This review already on the MR?" -> "gate_record {runDb, stage, scope: post, shape: post, gateId | answers + decidedBy}" [label="yes, nothing outstanding: record, never resubmit"];
+    "This review already on the MR?" -> "Open the review off-script gate: mr_review_submit refused" [label="partly: some items posted"];
+    "This review already on the MR?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="the read errored: hold, quoting its text"];
     "mr_review_submit {mrUrl, outcome, summary, comments, replies}" -> "mr_review_submit result?";
-    "mr_review_submit result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="published, approved as asked: keep mrUrl"];
+    "mr_review_submit result?" -> "gate_record {runDb, stage, scope: post, shape: post, gateId | answers + decidedBy}" [label="published, approved as asked: keep mrUrl"];
     "mr_review_submit result?" -> "Open the review off-script gate: mr_approve refused" [label="published, approved: false on an approve"];
-    "mr_review_submit result?" -> "Bad anchors moved into the summary once already?" [label="published: false, bad-anchors"];
+    "mr_review_submit result?" -> "run_budget {runDb, key: bad-anchors, limit: 1, increment: 0, stage}" [label="published: false, bad-anchors"];
     "mr_review_submit result?" -> "Open the review off-script gate: pending comments on the MR" [label="published: false, pending-drafts"];
     "mr_review_submit result?" -> "Open the review off-script gate: mr_review_submit refused" [label="error"];
     "mr_review_submit result?" -> "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" [label="tempted to post the pieces with mr_comment_inline, mr_comment, mr_reply_thread, mr_resolve_thread or the GitLab CLI"];
     "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" -> "Open the review off-script gate: mr_review_submit refused";
-    "Bad anchors moved into the summary once already?" -> "Move the bad-anchor findings into the summary" [label="no"];
-    "Bad anchors moved into the summary once already?" -> "Open the review off-script gate: mr_review_submit refused" [label="yes"];
+    "run_budget {runDb, key: bad-anchors, limit: 1, increment: 0, stage}" -> "Bad anchors moved into the summary once already?";
+    "Bad anchors moved into the summary once already?" -> "run_budget {runDb, key: bad-anchors, limit: 1, stage}" [label="no: charge the move"];
+    "Bad anchors moved into the summary once already?" -> "Open the review off-script gate: mr_review_submit refused" [label="yes: exhausted"];
+    "run_budget {runDb, key: bad-anchors, limit: 1, stage}" -> "Move the bad-anchor findings into the summary";
     "Move the bad-anchor findings into the summary" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}";
     "Open the review off-script gate: mr_review_submit refused" -> "Review submit off-script answer?";
     "Open the review off-script gate: pending comments on the MR" -> "Review submit off-script answer?";
     "Review submit off-script answer?" -> "Make the recorded review move once" [label="take"];
     "Review submit off-script answer?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}" [label="iterate here: retry with their note"];
-    "Review submit off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
+    "Review submit off-script answer?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="hold"];
     "Review submit off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
-    "Make the recorded review move once" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}";
+    "Make the recorded review move once" -> "gate_record {runDb, stage, scope: post, shape: post, gateId | answers + decidedBy}";
     "mr_approve {mrUrl}" -> "mr_approve result?";
-    "mr_approve result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="approved"];
+    "mr_approve result?" -> "gate_record {runDb, stage, scope: post, shape: post, gateId | answers + decidedBy}" [label="approved"];
     "mr_approve result?" -> "Open the review off-script gate: mr_approve refused" [label="refused"];
     "Open the review off-script gate: mr_approve refused" -> "Approval off-script answer?";
     "Approval off-script answer?" -> "Make the recorded approval move once" [label="take"];
     "Approval off-script answer?" -> "mr_approve {mrUrl}" [label="iterate here: retry with their note"];
-    "Approval off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
+    "Approval off-script answer?" -> "run_hold {runDb, stage, reason, decidedBy} for review" [label="hold"];
     "Approval off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
-    "Make the recorded approval move once" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}";
-    "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" -> "Own review run: close it?";
-    "Own review run: close it?" -> "run_stage {action: done, stage: review}" [label="yes: own run, started or resumed"];
+    "Make the recorded approval move once" -> "gate_record {runDb, stage, scope: post, shape: post, gateId | answers + decidedBy}";
+    "gate_record {runDb, stage, scope: post, shape: post, gateId | answers + decidedBy}" -> "Own review run: close it?";
+    "Own review run: close it?" -> "run_close {runDb, workType: review, stage: review, outcome}" [label="yes: own run, outcome done"];
     "Own review run: close it?" -> "End with the review target's forge link" [label="no: inherited"];
-    "run_stage {action: done, stage: review}" -> "run_status {status: done} for review";
-    "run_status {status: done} for review" -> "End with the review target's forge link";
-    "End with the review target's forge link" -> "Review posted";
-
-    "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" -> "run_field_set {key: hold, value: <their words>, stage: <review stage>}";
-    "run_field_set {key: hold, value: <their words>, stage: <review stage>}" -> "Review held: end the turn";
-    "Own review run: close it as abandoned?" -> "run_stage {action: fail, stage: review, reason: <why; what already posted>}" [label="yes: own run, started or resumed"];
+    "Own review run: close it as abandoned?" -> "run_close {runDb, workType: review, stage: review, outcome}" [label="yes: own run, outcome abandoned with the why"];
     "Own review run: close it as abandoned?" -> "run_stage {action: fail, stage: <run.current_stage>, reason: <why; what already posted>}" [label="no: inherited, the caller decides"];
-    "run_stage {action: fail, stage: review, reason: <why; what already posted>}" -> "run_status {status: abandoned} for review";
-    "run_status {status: abandoned} for review" -> "Review handed back: the why and what posted, quoted";
+    "run_close {runDb, workType: review, stage: review, outcome}" -> "Review closed as?";
+    "Review closed as?" -> "End with the review target's forge link" [label="done"];
+    "Review closed as?" -> "Review handed back: the why and what posted, quoted" [label="abandoned"];
+    "End with the review target's forge link" -> "Review posted";
     "run_stage {action: fail, stage: <run.current_stage>, reason: <why; what already posted>}" -> "Review handed back: the why and what posted, quoted";
+    "run_hold {runDb, stage, reason, decidedBy} for review" -> "Review held: end the turn";
 }
 ```
 
 ### Gate review clarify: Resume / Start fresh / Hold
 
 No run of yours exists yet, so this gate is the structured-question tool
-in the pane. One sentence naming each candidate's `spawned_by`,
-`started_at` and `current_stage`, then one **Resume** option per candidate
-this pane may take, a run this session started earlier (recommended) or
-one no live pane owns; a run another live pane owns gets no Resume
-option, named unavailable, then **Start fresh**, **Hold**. A
-surface-launched pane never reaches this gate: another pane's live run is
-not yours to resume.
-Resume: your `runDb` is `<home>/.mattstack/runs/<repo>/<its id>/state.db`
-(the candidate row's `id`, the home directory written out, never `~`).
-Re-enter with the snapshot's decisions: a question they already answered
-is never asked again. Hold here records nothing and ends the turn: no run
-exists yet, so there is nothing to write a hold reason into.
+in the pane. The candidates come from `run_enter`'s result, each with its
+`runId`, `runDb` (absolute), `startedAt`, `spawnedBy`, `currentStage` and
+`ownSession`. One sentence naming each candidate's `spawnedBy`, `startedAt`
+and `currentStage`, then one **Resume** option per candidate this pane may
+take, a run this session started earlier (`ownSession: true`,
+recommended) or one no live pane owns; a run another live pane owns gets
+no Resume option, named unavailable, then **Start fresh**, **Hold**. A
+surface-launched pane never reaches this gate: `run_enter` starts a fresh
+run when it gets `spawnedBy` and no `resume`, since another pane's live run
+is not yours to resume.
+Resume calls `run_enter` again with the picked candidate's `runId` as
+`resume`; Start fresh calls it with `fresh: true`. Re-enter with the
+snapshot's decisions: a question they already answered is never asked
+again. Hold here records nothing (no run has started or been resumed to
+record it against) and ends the turn.
+
+### The refused review run_enter carried resume?
+
+A refused resume means the run is gone or no longer running: say so in one
+line, then start fresh, keeping the first call's `spawnedBy`. Any other
+refusal, or no `run_enter` tool at all, is an rt that predates the run
+tools.
 
 ### Resolve the review target
 
@@ -442,17 +494,21 @@ is quoted as GitLab wrote it. Its refusal of a credential path is final.
 
 ### Gate review clarify: which target?
 
-Bracket with `run_field_set {key: gate, value: clarify, stage: <stage>}`,
-one sentence naming the candidates, quoting the GitLab error when a read
+One sentence naming the candidates, quoting the GitLab error when a read
 failed, or saying the search was cut at 200 rows when a list was
-truncated, or saying none was found, then run gate-protocol's Runs
-integration with kind `clarify` and two questions: `target`, one option
-per candidate (none when nothing was found or a read failed: their typed
-text is the answer), and `next`: **Proceed** (recommended) / **Hold**. Record
-`run_decision {contract: gate@1, scope: clarify, selection: {"target":
-"<picked>"}, decidedBy: <the answer's by>}`. Their text goes back to the
-target form and resolves again; `Review clarify rounds = 2?` counts the
-typed answers this gate has taken in this run, and the second one ends in a hold naming what was tried.
+truncated, or saying none was found. Then run gate-protocol's Runs
+integration from `Trigger: a site reaches its gate`:
+
+`gate_ask {questions, kind: clarify, context, runDb, stage}`
+
+with two questions: `target`, one option per candidate (none when nothing
+was found or a read failed: their typed text is the answer), and `next`:
+**Proceed** (recommended) / **Hold**. The protocol's `gate_answer` or
+`gate_reconcile` records the answers map `{target, next}` at scope
+`clarify`. A `next: hold` is the hold, whatever `target` says. A picked
+target resolves it. Their text charges `target-clarify` once, then goes
+back to the target form and resolves again; the second typed answer
+exhausts the budget and ends in a hold naming what was tried.
 
 ### Record the review target: mr, branch and any ticket
 
@@ -518,18 +574,19 @@ In hand means a checkout already at the MR head: one a caller handed, or
 this pane's own tree when it sits at the MR head. At `read` depth nothing
 runs, so take the yes edge. At `verify` or `repro` depth with none in
 hand, provision one with `worktree_provision` (`repoName` = this
-checkout's path, `branch` = the MR's or PR's source branch) and run every
-check in the path it returns; never change this pane's own directory for
-it. The tree keeps rt's default disposal, so rt disposes it once the MR
-merges; the review never disposes it by hand. A refusal is quoted in the
-setup observations, and the setup checks and the verify step's command
-check are noted as not run.
+checkout's path, `branch` = the MR's or PR's source branch, `reuse: true`)
+and run every check in the path it returns; never change this pane's own
+directory for it. The tree keeps rt's default disposal, so rt disposes it
+once the MR merges; the review never disposes it by hand. A refusal is
+quoted in the setup observations, and the setup checks and the verify
+step's command check are noted as not run.
 
 ### Review head worktree_provision returned a path?
 
-A `branch-attached:<tree>` refusal names an existing tree; take the yes
-edge with that tree's path, so the head check decides whether it is
-usable.
+`kind: "provisioned"` (a tree claimed or created) and `kind: "reused"` (a
+tree already on the branch) both return a `path`: take the yes edge with
+it, so the head check decides whether it is usable. A refusal is the no
+edge.
 
 ### Provisioned review tree at the fetched head?
 
@@ -587,15 +644,19 @@ Check each blocking finding's facts, never its reasoning:
 A GitLab fact a check needs is read as in "Reading a GitLab fact no read
 tool returns".
 
-A round counts each time this step runs, whether the first pass or a
-re-dispatch.
+Each verify round that leaves a blocking finding unverified charges
+`verify-rounds:<depth>` once (`<depth>` is the depth in force: `read`,
+`verify` or `repro`), and `Review verify rounds = 2?` reads that call's
+`exhausted`. Back in this loop after a compaction or resume with no fresh
+round in hand, read the key with `increment: 0` and go on from what it
+says; never charge a round twice.
 
 ### Re-dispatch a fresh reviewer on the unverified findings
 
 One fresh-context dispatch, same template, naming each failed check
 verbatim ("validate.ts:42 is a blank line on the head"; "the 'rounds half
 up' test passes on the head") and asking it to confirm each finding with a
-corrected anchor or withdraw it. The counter is verify rounds in this run.
+corrected anchor or withdraw it.
 
 ### Demote each unverified finding to Minor, marked unverified
 
@@ -613,9 +674,10 @@ so the json mirrors the verified draft.
 
 ### Write review-post.extras.json
 
-Make one scratch directory (`mktemp -d`) and write its path out literally
-from then on: each tool call is a fresh shell. Write
-`<dir>/review-post.extras.json`:
+Make one scratch directory: a new directory inside this session's
+scratchpad (the Claude Code temp root, the only place `gate_open` reads
+and writes), never `mktemp -d`. Write its path out literally from then on:
+each tool call is a fresh shell. Write `<dir>/review-post.extras.json`:
 
 ```json
 {"target": "!87", "reviewer": "<the reviewer the caller names>", "round": 2,
@@ -636,113 +698,130 @@ from then on: each tool call is a fresh shell. Write
 | `outcome` options | `comment` and `approve`, each described by what picking it does for this review. `request_changes` joins them only when this verb runs the gate itself and the target is on GitHub (`gh pr review --request-changes`); rt's GitLab MR tools have no Request changes. The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment` |
 | `next` | only when this verb runs the gate itself; a caller that owns the gates navigates on its own, so omit the question |
 
-Then the two scripts, exactly:
+On the direct run, the file's object is the `extras` that `gate_open
+{review: {findingsPath, extras}}` takes, passed inline; `findingsPath` is
+the report json (or its copy, below). On the hand-back path the file goes
+to `review-source.sh`.
 
-```bash
-sh "${CLAUDE_SKILL_DIR}/scripts/review-source.sh" <report json> <dir>/review-post.extras.json > <dir>/review-post.source.json
-sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" fit < <dir>/review-post.source.json > <dir>/review-post.open.json
-```
+Both paths build the same open from the report json and the extras: every
+finding becomes a `findings-<n>` option (tier order, four per question)
+whose value is the finding's `id`; ahead of those, each entry of the
+report's `threads` becomes its own `thread-<n>` question (options
+`post:<discussionId>` and `resolve:<discussionId>`); after them, the
+report's `skipped` entries become `skipped-<n>` questions (options
+`restore:<id>`, none recommended). Those question ids are the keys of the
+gate's answers. A report json from before version 2 carries no bodies, so
+the open falls back to prose on its own; that is correct, not an error.
+Never hand-edit the open, and never shorten a body to make it fit.
 
-`review-source.sh` turns every finding into a `findings-<n>` option (tier
-order, four per question) whose label and description are the recipe
-older board renderers parse, and gives each question its findings in full
-as context. Ahead of those, each entry of the report's `threads` becomes
-its own `thread-<n>` question (the gate protocol's `carryover@1`). After
-the findings questions, the report's `skipped` entries become
-`skipped-<n>` questions (the gate protocol's `skipped@1`, four per
-question), each option `restore:<id>` and none recommended. The output
-file IS the open: its `.context` and `.questions` go to the gate
-verbatim, fitted to the shared budget. A report json from
-before version 2 carries no bodies, so fit opens it as prose on its own;
-that is correct, not an error. Never hand-edit the open, and never shorten
-a body to make it fit. Exit 1 names a field to fix; exit 2 goes straight
-to the off-script gate. Either is a refusal at "Both review scripts exit
-0?".
+### Copy the report json into the review scratch dir
+
+`gate_open` reads `findingsPath` only under the Claude Code temp root (or
+an installed plugin root). A report json elsewhere, such as a caller's
+`--report` sibling, is copied into `<dir>` first, unchanged, and the copy
+is the `findingsPath`. The report and its json stay where the caller put
+them.
+
+### review-source.sh exit 0?
+
+The hand-back path only: the board's prose step reads the source file this
+writes, `<dir>/review-post.source.json`, so it is built with the vendored
+script, exactly as in the node. Exit 0: open it with `gate_open {...,
+sourcePath, handBack: true, outPath}`. Exit 1 names a field to fix, in the
+extras or in the report json where it drifted from the draft. Exit 2 is a
+usage or unreadable-input error with no field to fix.
+
+### gate_open result?
+
+- **Opened** (the direct run): keep the result's `id`, `paneAction` and
+  `formChunks`. Under the run `gate_open` has already written the `gate`
+  field and stored the untrimmed source as `extra.gate-source.post`.
+- **Handed back:** nothing opened; the open is written at `outPath` in
+  `gate-ctx.sh fit`'s shape, its source beside it. The result says
+  `droppedContexts` when even the prose was over the shared budget.
+- **Refused:** nothing opened, one problem per line. A line that names a
+  field in the extras or the report json is a field to fix. A refusal no
+  field fix can mend (a file it cannot read or parse, a path outside the
+  read roots) goes straight to the off-script gate.
 
 ### Fix the field the review script names
 
-Exit 1 from either script names the field to fix: in the extras, or in
-the report json where it drifted from the draft. Fix exactly that, once.
+The field the refusal names (a `gate_open` line, or `review-source.sh`'s
+exit 1): in the extras, or in the report json where it drifted from the
+draft. Fix exactly that, once, then go back through `Caller owns the
+review gates?` to the same open.
+
+### Write the review-run line into the handed --report
+
+Before the hand-back, write one line `review-run: <run id>` (`run_enter`'s
+`runId`) into the handed `--report` file, replacing any earlier
+`review-run:` line. A fresh pane the board later hands a decision to
+passes that id as `resume`, and lands on this run, which holds the stored
+gate source. The board never reads the line.
 
 ### Hand back the severity line and the open's paths
 
 A caller that owns the gates (a board wrapper; it says so when it
 delegates) gets no gate from this verb. Hand back the severity line, the
 absolute paths of `<dir>/review-post.open.json` (its source sits
-beside it as `review-post.source.json`) and of the `gate-ctx.sh` that
-fitted it, and on GitLab the MR head sha this review read (`mr_view`'s
-`mr.sha`), then wait for its `{findings, outcome}` (with `replies` and
-`restored` on a re-review) or its hold.
-`"fits": false` means even the prose is over the shared budget, and the
-caller has no daemon to drop contexts for it: drop whole question contexts
-largest first yourself and say so in the hand-back.
+beside it as `review-post.source.json`) and of this skill's vendored
+`${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh`, and on GitLab the MR head sha
+this review read (`mr_view`'s `mr.sha`), then wait for its `{findings,
+outcome}` (with `replies` and `restored` on a re-review) or its hold. When
+the result listed `droppedContexts`, name them in the hand-back.
 
-### Gate review-post: open the posting gate from review-post.open.json
+### Gate review-post: carry the opened gate through gate-protocol
 
-Bracket with `run_field_set {key: gate, value: post, stage: <stage>}`.
-Read `<dir>/review-post.open.json` with the Read tool and run
-gate-protocol's Runs integration with its `questions`, `kind:
-review-post` (the registry kind every review surface routes on; the run
-field and the decision keep scope `post`) and its `context`. With
-`"fits": false` open the file verbatim anyway: the daemon drops contexts
-loudly. On the in-pane form (gate-protocol's `presentation: "form"`
-branch) the form never shows the JSON: run `sh
-"${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose <
-<dir>/review-post.source.json`, show its `.context` in the pane before the
-first form call, and make each `thread-<n>`, `findings-<n>` and
-`skipped-<n>` question's form text its label, a newline, then its prose
-`context`; options keep the gate's labels and descriptions. Ask in gate
-order, up to four questions per call, then submit exactly ONE
-`gate_answer` carrying every question. The gate
-protocol records nothing for this gate: the `run_decision` node after
-posting is its record.
+`gate_open` opened the gate, so enter gate-protocol at `Trigger: a site
+opened its gate with gate_open` with its result and walk on from
+`paneAction?`:
+
+- **form:** `### Present the in-pane gate form`, one AskUserQuestion call
+  per `formChunks` chunk, then exactly one `gate_answer {id, answers,
+  runDb, stage}` carrying every question;
+- **wait:** `rt gate wait <id> as a background Bash task`, then `End the
+  turn: holding at gate <id>`; the re-entry is `gate_reconcile {id, runDb,
+  stage}`.
+
+On a review gate neither call records anything. Keep the gate's `id` and
+its answers map (`thread-<n>`, `findings-<n>`, `skipped-<n>`, `outcome`,
+`next`): Compose builds the submit from them, and `gate_record` after
+posting is the gate's record. With `fits: false` or `contextDropped: true`
+the gate is still open as it is: carry on.
 
 ### Gate review-post, legacy: tiers, outcome and next
 
-No report json leaves nothing to build from. The same bracket and
-`kind: review-post`, `context` the severity line verbatim, and three
-questions: `tiers` (multi-select over the levels present, each
-pre-selected), then `outcome` and `next` exactly as in the extras above.
+No report json leaves nothing to build from. Run gate-protocol's Runs
+integration from `Trigger: a site reaches its gate`:
+
+`gate_ask {questions, kind: review-post, scope: post, context, runDb, stage}`
+
+with `context` the severity line verbatim, and three questions: `tiers`
+(multi-select over the levels present, each pre-selected), then `outcome`
+and `next` exactly as in the extras above. It records nothing either: the
+`gate_record` after posting reads its `tiers` as the legacy selection.
 
 ### Take the human's changes into the review draft
 
 Their text is changes to the draft: apply them. Their words asking for a
 different review depth (verify instead of read, repro instead of verify,
 or similarly) are a depth request: it sends the graph back to the depth
-block and resets the verify-round counter, since a deeper depth means new
-setup and a fresh verify pass. Anything else is a draft edit only:
-re-present, and the next gate is a NEW gate, never the old one reopened.
-
-### This review already on the MR?
-
-Asked before anything posts on GitLab. A run on its first pass answers
-no: nothing from this review is up. A resumed run with no post decision
-recorded reads the MR before any submit, whatever its holds say, since a
-submit can land after the last thing the run recorded:
-`mr_threads {mrUrl, refresh: true}`. A top-level note carrying this
-review's summary, written by this account, means it is posted; some of
-this review's comments without that note means partly; neither means no.
-A read that errors is a hold whose reason quotes the error, so nothing is
-submitted unchecked. The latest hold's reason (see Review off-script gates) adds what the MR
-read cannot show: a review it names as posted by the human in the forge
-UI is posted, and it says whether the approval landed. On an approve, an
-approval the reason does not name as landed is outstanding.
-
-- **Yes, approval outstanding:** the approval gate, whose iterate runs
-  `mr_approve` alone. The review is never submitted again.
-- **Yes, nothing outstanding:** the post record, with nothing posted.
-- **Partly:** the refused-review gate, whose move is the human finishing
-  the review in the forge UI.
-- **No:** compose and submit.
+block, and that depth's `verify-rounds:<depth>` key starts fresh, since a
+deeper depth means new setup and a fresh verify pass. Anything else is a
+draft edit only: re-present, and the next gate is a NEW gate, never the
+old one reopened.
 
 ### Compose the submitted review: comments, summary, outcome
 
-One call carries the whole review. `comments` is one entry per selected
-finding that has both `file` and `line`: `{body, path, line}`, `body` the
-finding as the summary would state it (tier, title, what to change).
-`summary` is the review-posting summary, its issue list holding every
-selected finding with no `file` or no `line`. `outcome` is the
-disposition: `comment` or `approve`. A review carries at most 100
+One call carries the whole review. The selected findings are the gate's
+answers: the union of every `findings-<n>` answer (a `{value, note}`
+unwraps to its value), or every finding in the tiers a legacy `tiers`
+answer picked, or the caller's selection as handed. `comments` is one
+entry per selected finding that has both `file` and `line`: `{body, path,
+line}`, `body` the finding as the summary would state it (tier, title,
+what to change). `summary` is the review-posting summary, its issue list
+holding every selected finding with no `file` or no `line`. `outcome` is
+the disposition: `comment` or `approve`. A review carries at most 100
 comments and replies in total; past that, the lowest-tier anchored
 findings go in the summary's issue list instead.
 
@@ -770,12 +849,41 @@ else the skipped entry it handed in with that `id` (`title`, then
 when it decided the selection, else the report json's `skipped` entry
 with that `id`.
 
+### This review already on the MR?
+
+Asked on GitLab after Compose and before anything posts. A run on its
+first pass (`run_enter` said `started` or `inherited`) answers no without
+a read: nothing from this review is up. A resumed run with no post decision
+recorded reads the MR before any submit, whatever its holds say, since a
+submit can land after the last thing the run recorded:
+
+`mr_posted_since {mrUrl, since: <the snapshot's run.started_at>, items}`
+
+with `items` built from what Compose just wrote: `{id: "summary",
+contains: <the summary's first line>}`, then one `{id: <finding id>,
+contains: <the first line of its body>, path, line}` per comment. Every
+item `posted` means yes; some means partly; none means no. Never judge it
+from a thread read by hand. A read that errors is a hold whose reason
+quotes the error, so nothing is submitted unchecked. The latest hold's
+reason (see Review off-script gates) adds what the MR read cannot show: a
+review it names as posted by the human in the forge UI is posted, and it
+says whether the approval landed. On an approve, an approval the reason
+does not name as landed is outstanding.
+
+- **Yes, approval outstanding:** the approval gate, whose iterate runs
+  `mr_approve` alone. The review is never submitted again.
+- **Yes, nothing outstanding:** the post record, with nothing posted.
+- **Partly:** the refused-review gate, whose move is the human finishing
+  the review in the forge UI.
+- **No:** submit.
+
 ### Move the bad-anchor findings into the summary
 
 The result's `badAnchors` names comments by `index`, the zero-based
 position in the `comments` array that was sent. Nothing posted. Take each
 named finding out of `comments` and add it to the summary's issue list
-with its `file:line` in the text, as a finding with no anchor. Call again with the rest unchanged. This happens once: a
+with its `file:line` in the text, as a finding with no anchor. Call again
+with the rest unchanged. This happens once, counted on `bad-anchors`: a
 second bad-anchors result is a refusal.
 
 ### Make the recorded review move once
@@ -798,10 +906,12 @@ review-posting close HARD-GATE below).
 
 ### Open the review off-script gate: a review script refused
 
-Exit 2 (a usage or unreadable-input error) opens this gate at once; exit
-1 opens it when the field fix has already been tried once. The proposed
-move is the legacy gate in place of the structured open. The rest is the
-shape in Review off-script gates below.
+A refusal no field fix can mend (`review-source.sh` exit 2, or a
+`gate_open` refusal of an unreadable file or a path outside the read
+roots) opens this gate at once; a field refusal opens it when the
+`post-open-fix` budget is spent. The proposed move is the legacy gate in
+place of the structured open. The rest is the shape in Review off-script
+gates below.
 
 ### Open the review off-script gate: gh pr review refused
 
@@ -830,7 +940,8 @@ records it as posted by the human.
 After any of these errors, `context` also says that **Iterate here** is
 only for a human who has confirmed nothing from this review is on the MR;
 it is never a blind resubmit. Reached from `This review already on the MR?`
-with partly, `context` quotes the hold reason and what the threads show.
+with partly, `context` quotes the hold reason and which `mr_posted_since`
+items are posted.
 
 ### Open the review off-script gate: pending comments on the MR
 
@@ -857,28 +968,27 @@ a resume, the hold reason that names the approval outstanding.
 ## Review off-script gates
 
 Leaving the graph is legal when it is explicit. Every off-script box opens
-a gate per the gate protocol, scope `off-script:review:<n>` (`n` counts
-from 1 in this run), `context` quoting the refusal verbatim:
+gate-protocol's `## Off-script gate` with site `review`: scope
+`off-script:review:<n>` (`n` counts from 1 in this run), `context` quoting
+the refusal verbatim, and its `action` and `next` questions, under the run
+with `runDb` and `stage`. The include defines the questions and what the
+answers map records. A board that owns the review gates does not own
+these: they open in this pane.
 
-| Question | Options |
-|---|---|
-| `action` | **Take the proposed move** (the value spells the move in full) / **Hand back** |
-| `next` | **Proceed** (recommended) / **Iterate here** / **Hold** |
-
-Selection: `{"move": "<the move>", "why": "<the refusal>", "action":
-"take|handback", "next": "proceed|iterate|hold", "note": "<their words or
-null>"}`. `action: handback` is hand back, whatever `next` says; otherwise
-`next: iterate` is iterate here, `next: hold` is hold, and `next: proceed`
-is take. Take makes exactly that move, once, then continues after it.
-Iterate here retries the refused call with their note; each retry that
-fails opens a new gate. A hold's reason, like a hand-back's, says what is
-on the MR. From the submit gate, the pending-comments gate or the
-approval gate it always says whether this review is posted (by the
-submit, by the human, partly, or with its outcome unknown) and, on an
-approve, whether the approval is outstanding: on a resume, `This review
-already on the MR?` reads exactly that. A gate that comes back `closed`
-is a hold whose reason is "gate closed"; record it as any hold and end
-the turn.
+Route on the answers: `action: handback` is hand back whatever `next`
+says; otherwise `next: iterate` is iterate here, `next: hold` is hold, and
+`next: proceed` is take. Take makes exactly that move, once, then
+continues after it. Iterate here retries the refused call with their note;
+each retry that fails opens a new gate. A hold is `run_hold`, its reason
+their words; a hand back closes an own run as abandoned and fails the
+stage on an inherited one, per the graph. A hold's reason, like a
+hand-back's, says what is on the MR. From the submit gate, the
+pending-comments gate or the approval gate it always says whether this
+review is posted (by the submit, by the human, partly, or with its outcome
+unknown) and, on an approve, whether the approval is outstanding: on a
+resume, `This review already on the MR?` reads exactly that. A gate that
+comes back `closed` is a hold whose reason is "gate closed"; record it as
+any hold and end the turn.
 
 ## What the graph cannot show
 
@@ -898,34 +1008,25 @@ the turn.
   by the caller from its own record; each posts as `Compose the submitted
   review: comments, summary, outcome` says, with the caller's text and
   `changed`. Use the decider the caller names alongside it.
-- Posting runs per review-posting below, handed `{findings: <ids>,
-  disposition: <outcome>}`: `<ids>` is the union of every `findings-<n>`
-  answer (unwrap a `{value, note}` object to its value), empty when the
-  gate carried none, and `<outcome>` the answered value, already in
-  posting's vocabulary (`comment`, `approve`, `request_changes`). A
-  tier-shaped selection, or a `tiers` answer, passes as legacy `{levels:
-  <tiers>, disposition: <outcome>}`, which posting accepts unchanged. On
-  a re-review `replies` rides along: the caller's as handed, else built
-  from the `thread-<n>` answers as `Compose the submitted review:
-  comments, summary, outcome` says. So do the restored findings: the
-  caller's `restored` as handed, else one per `restore:<id>` value in the
-  `skipped-<n>` answers, each carrying the `changed` of the report json's
-  `skipped` entry with that `id`. A restored finding is a selected one for
-  posting, never a deselected one.
-- The post record's `selection` is that same object (for example
-  `{"findings": ["f1", "f3"], "disposition": "comment"}`); `decidedBy`
-  names the surface that actually answered (`board`, `console`, `pane`, or
-  `shepherd`): the caller's named decider on intake, else the gate
-  answer's `by`.
-- A hold records `run_decision {contract: gate@1, scope:
-  hold:<stage>:<attempt>, selection: {"reason": "<their words>"},
-  decidedBy: <the answer's by>}` and `run_field_set {key: hold, value:
-  "<their words>", stage: <stage>}`, then ends the turn.
-- On a resume with no post decision recorded, `This review already on
-  the MR?` reads the MR with `mr_threads` for this review's summary note,
-  and the latest hold's reason, before anything posts: a review either
-  shows as posted is never submitted again, and its outstanding approval
-  goes to the approval gate.
+- Posting runs per review-posting below, handed the selection Compose
+  built: `{findings: <ids>, disposition: <outcome>}`, or legacy `{levels:
+  <tiers>, disposition: <outcome>}`, with `replies` and the restored
+  findings riding along on a re-review. A restored finding is a selected
+  one for posting, never a deselected one.
+- The post record is `gate_record {runDb, stage, scope: post, shape: post}`,
+  made only after the review is up (posted by the submit, by `gh`, or by
+  the human on an off-script take), never before: rt reads the latest
+  post decision as what posted. Pass `gateId` for an answered posting
+  gate, or the caller's selection as `answers` with `decidedBy` its named
+  decider. The tool builds `{findings, disposition, replies?, restored?}`
+  itself (legacy `tiers` included); never hand-build it.
+- A hold is the one `run_hold` call: `stage` is your stage, `reason` the
+  human's words or the quoted error, `decidedBy` the answer's by (`pane`
+  for an error hold). It computes the attempt and writes the `hold` field;
+  then the turn ends.
+- `run_close` takes `outcome: done` after the post record, or `outcome:
+  abandoned` with `reason: <why; what already posted>` on a hand back. It
+  refuses an inherited run, which never reaches it.
 - A gate that comes back `closed` is a hold whose reason is "gate
   closed"; record it as any hold and end the turn.
 - A fetch, diff or `gh pr diff` that errors is a hold whose reason quotes
