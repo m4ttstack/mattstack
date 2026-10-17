@@ -353,3 +353,24 @@ Per rep:
   as "records the tier" without naming a tool, so this reads the stand-in,
   not the stage file; three reps in the first run and four in the final one
   also wrote `evidence-plan` as `none` rather than the full `none -- no policy bound`.
+
+#### Task 3 fix round 1
+
+This round changes:
+
+- Resume: every resumed position checks `waiting-gate` before routing on `at.status`. An answered failure or close gate goes to its `run_resolve` mapping, and a late (`alreadyReconciled`) answer is acted on.
+- Resume edges: `closed or not found` reads the stage file from the top, and a refused `gate_reconcile` goes to `run_hold`.
+- A `run_hold` refusal ends at a STOP.
+- A hand-back passes the stage's own `decidedBy`.
+- The relaunched wait uses gate-protocol's exact node text.
+- Kept rules put back: candidates come from `run_list`, Decided questions stay decided, and the `to` rows' Go back condition.
+- Size cuts.
+
+All four scenarios ran again.
+
+| Scenario | GREEN | Notes |
+|---|---|---|
+| S1 stage end | 5/5 | `run_next {runDb, stage: "plan"}`, then the gates Read; no `run_stage`, `run_snapshot` or `run_field_set` |
+| S2 failure gate Go back | 5/5 | Same path as before: `gate_ask` with `runDb` and `stage: "ship"`, one background wait, `gate_reconcile`, `run_resolve {..., attempt: 2, decidedBy: "board"}`, implement Read; Part 3 follows `repeated: true` with no `run_stage start` |
+| S2b engine refusal | 5/5 | Every rep: `gate_reconcile`, `run_resolve` (refused), then `run_hold` with the refusal verbatim and `decidedBy: "pane"`, ending held |
+| S3 compacted resume | 5/5 | Every rep: `run_enter {resume: "r-20261016-abc"}`, `run_field_get waiting-gate`, `gate_reconcile`, then the new diamond: "`plan` is not a failure or close gate, so I re-enter the stage at its gate site and do not call `run_resolve`" (rep 1); no re-ask, no `run_stage start` |
