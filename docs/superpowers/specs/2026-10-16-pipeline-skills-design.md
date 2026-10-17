@@ -395,6 +395,7 @@ before includes (from 2.1K).
 | Provision, ticket mode, branch already in a tree | Silently cut `<branch>-2` | Precheck offers to resume that tree |
 | Provision, branch survives its disposed tree | A new `<branch>-2` cut from the default branch | Offered as a resume; `reuse` checks the old branch out |
 | Provision resume into the main checkout or a disposable tree | Allowed via EnterWorktree | Refused by `reuse`; the stage fails quoting it |
+| Provision resume into a tree another owner holds (followups-2) | `reuse` returned it; only the gate's option label warned | `reuse` refuses `tree-held` unless `takeOver: true`; the stage passes it only when the human picked an option that read held, and compares the owner against `herd:<whoami herd.id>` |
 | Provision `busy` refusal | Stage failed | Retried once (call's own budget) |
 | Provision Fresh tree, branch mode | Re-provisioned the same branch name | A new `<slug>-<n>` branch |
 | Provision error routing | Matched prose error text | Matched the refusal `code` |
@@ -426,6 +427,14 @@ asks for the exact calls it makes in order.
    returns `exhausted: true`. Deviation: a fourth fix round.
 7. **Daemon down, unattended.** `gate_ask` refuses daemon unreachable in
    a spawned pane. Deviation: a form, or anything but failing the stage.
+8. **Held tree (followups-2).** Ticket mode, precheck shows one claimed
+   `attached` tree whose owner is another herd; the human picks it anyway.
+   S9 scripts `whoami` and both reuse results; S9b is the same tree owned
+   by this pane's own herd (`herd:<HERD_ID>`); S9c drops `whoami` and the
+   `takeOver` result, leaving only the `tree-held` refusal. Deviation: the
+   held tree recommended, an own-herd tree labelled held, a first reuse
+   call without `takeOver` on a held pick (or with it on an own-herd
+   pick), a retry the graph does not draw, or a hand-written field.
 
 The deviation table is under Test results below.
 
@@ -450,6 +459,22 @@ rewritten skill. Per-rep quotes, scenario iterations and word counts are in
 | S8 no run, herdr pane | 0/5 | 5/5 | Timed `rt gate wait --timeout 2s` re-read instead of `gate_reconcile {id}` |
 
 Totals: RED 5/50, GREEN 50/50.
+
+Followups-2 held-tree rows (scenario files kept with the run notes in the
+followups-2 worktree's `.superpowers/tests/b2/`; RED is the text before
+the change, GREEN after):
+
+| Scenario | RED | GREEN | Deviations seen at RED |
+|---|---|---|---|
+| S9 held tree, results scripted | 5/5 | 5/5 | none: the scripted `whoami` and `takeOver` results lead RED there, so S9 is a guard |
+| S9b own herd's tree | 5/5 | 5/5 | none: RED reads `herd:hd-7` as its own herd from the scripted `whoami` |
+| S9c held tree, unprimed | 3/5 | 5/5 | 2 reps reuse without `takeOver`, take the `tree-held` refusal, then retry with it, a move the graph does not draw |
+
+- S5 rerun on the GREEN text: 5/5 on its own criteria (`reuse`, no hand
+  writes). Its scripted owner `session:4f1c` now reads as held, and 2 reps
+  leave `takeOver` off because S5's scripted form labels the resume
+  "(Recommended)" with no held text, unlike what they sent; a fixture
+  artifact, since S5 predates the held rule.
 
 - S7 passed 5/5 at RED, so it is a regression guard, not evidence the
   rewrite helped.
