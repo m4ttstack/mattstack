@@ -213,11 +213,13 @@ worktree_provision result?        (node text kept: the fills attach here)
   refused busy, budget not exhausted -> retry the provision
   any other refusal, or busy with the budget exhausted -> run_stage fail
 Gate provision answers:
-  resume in <tree or branch> -> worktree_provision {repoName, branch: <its branch>, reuse: true, runDb, stage: provision}
+  resume in <tree or branch> -> Picked tree read held?
+    no -> worktree_provision {repoName, branch: <its branch>, reuse: true, runDb, stage: provision}
+    yes (followups-2) -> worktree_provision {repoName, branch: <its branch>, reuse: true, takeOver: true, runDb, stage: provision}
   fresh tree -> run_budget {key: fresh-tree, limit: 2, stage: provision} -> exhausted? no: provision; yes: fail
   ticket / slug / domain / iterate -> Follow the domain's provision flow  (unchanged labels)
   hold -> run_hold
-Reuse result? reused or provisioned -> EnterWorktree; refused -> run_stage fail
+Reuse result? reused or provisioned -> EnterWorktree; refused (tree-held included) -> run_stage fail
 EnterWorktree -> Recorded on the run? yes -> ticket?; no (recordError) -> run_field_set branch -> run_field_set worktree
 ```
 

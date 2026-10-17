@@ -536,6 +536,7 @@ Followups-2 rows (B7, scenario files kept in the followups-2 worktree's
 | scenario | RED | GREEN | notes |
 |---|---|---|---|
 | Y1 hand launch, one running candidate, Resume | 0/5: `run_list`, hand-built runDb, `run_stage start` on the resumed run, hand-cleared `hold` (5/5) | 5/5: `run_enter`, in-pane clarify from `candidates`, `run_enter {resume}`, `run_snapshot` for the recorded sweep answer | |
+| Y3 a resume refused for a locked run db (CodeRabbit round) | 1/5: 4 reps started a second run while the picked one stayed running | 5/5: quote the refusal, start nothing |
 | Y2 close a run this verb started | 0/5: `run_stage done` then `run_status done` (5/5) | 5/5: one `run_close {outcome: done}` | |
 
 RED: 102 deviations over 45 agent-scenarios (10 sonnet/low agents, describe-only); no suffix parsing seen, since agents mapped `kind` by meaning.

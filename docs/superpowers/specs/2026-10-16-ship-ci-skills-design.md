@@ -538,7 +538,7 @@ here at the end of execution:
 | ship EV2 | 14 (mr_upload 4, hand link 2, old gate 5, re-derived 3) | 0 (r2) | refusal at the old mr_upload gate 5/5; Take sends linkRefused 5/5 in GREEN |
 | stage-ship EV1 | 9 (evidence write 1, mr_upload 4, hand section 4) | 0 (r3) | run_field_set evidence 1/5; section rebuilt by hand |
 | stage-ship EV2 | 12 (evidence write 1, mr_upload 4, hand link 2, old gate 5) | 0 (r3) | refusal at the old mr_upload gate 5/5; Take sends linkRefused 5/5 in GREEN |
-| stage-ship B22 | not run (GREEN only) | 0 (5/5) | landing compared after each Take, never pushed; budget spent 1 then 2; one reopened gate quoting the comparison, then `run_stage fail`; rep 1 calls the budget before the comparison, same counts |
+| stage-ship B22 | not run (GREEN only) | 1 (4/5 in order) | landing compared after each Take, never pushed; budget spent 1 then 2; one reopened gate quoting the comparison, then `run_stage fail`. Rep 1 charges `ship:landing-checks` before the comparison instead of after the miss, a deviation: on a push that did land it would spend the allowance. Same counts and outcome here, since the scene never lands |
 | stage-ship B23 | not run (GREEN only) | 0 (5/5) | `mr` read at entry; push with `leaseMrUrl`; stood down naming the doctor; no release, gate or `run_stage` |
 
 ## Left to the builder

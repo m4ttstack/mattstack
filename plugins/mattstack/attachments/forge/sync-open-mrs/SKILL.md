@@ -35,7 +35,8 @@ digraph sync_open_mrs {
     "clarify answer?" [shape=diamond];
     "run_enter {flags, skillDir, stage: sync-open-mrs, resume: <picked runId>}" [shape=plaintext];
     "run_enter {flags, skillDir, stage: sync-open-mrs, fresh: true, spawnedBy?}" [shape=plaintext];
-    "The refused run_enter carried resume?" [shape=diamond];
+    "Why was run_enter refused?" [shape=diamond];
+    "run_enter refused: reported" [shape=doublecircle];
     "run_snapshot {runDb: <resumed>}" [shape=plaintext];
     "Keep the recorded answers" [shape=box];
     "git -C <checkout> remote get-url origin" [shape=plaintext];
@@ -104,9 +105,10 @@ digraph sync_open_mrs {
     "sync-open-mrs run_enter mode?" -> "Inherit the run" [label="inherited"];
     "sync-open-mrs run_enter mode?" -> "run_snapshot {runDb: <resumed>}" [label="resumed"];
     "sync-open-mrs run_enter mode?" -> "Gate clarify: resume or start fresh" [label="candidates"];
-    "sync-open-mrs run_enter mode?" -> "The refused run_enter carried resume?" [label="refused, or the tool is missing"];
-    "The refused run_enter carried resume?" -> "run_enter {flags, skillDir, stage: sync-open-mrs, fresh: true, spawnedBy?}" [label="yes: say so, start fresh"];
-    "The refused run_enter carried resume?" -> "rt too old: told the user to update" [label="no: quote the refusal"];
+    "sync-open-mrs run_enter mode?" -> "Why was run_enter refused?" [label="refused, or the tool is missing"];
+    "Why was run_enter refused?" -> "run_enter {flags, skillDir, stage: sync-open-mrs, fresh: true, spawnedBy?}" [label="a resume of a run that is gone or no longer running: say so, start fresh"];
+    "Why was run_enter refused?" -> "rt too old: told the user to update" [label="no run_enter tool"];
+    "Why was run_enter refused?" -> "run_enter refused: reported" [label="anything else: quote it"];
     "Inherit the run" -> "git -C <checkout> remote get-url origin";
     "Gate clarify: resume or start fresh" -> "clarify answer?";
     "clarify answer?" -> "run_enter {flags, skillDir, stage: sync-open-mrs, resume: <picked runId>}" [label="resume a candidate"];
@@ -226,12 +228,16 @@ Resume passes the picked candidate's `runId` as `resume`; the result's
 re-records this session and clears a `hold`, so nothing else is written.
 Start fresh passes `fresh: true`.
 
-### The refused run_enter carried resume?
+### Why was run_enter refused?
 
-A refused resume means the run is gone or no longer running: say so in one
-line, then start fresh, keeping the first call's `spawnedBy`. Any other
-refusal ends the verb: quote it verbatim. Only when there is no `run_enter`
-tool at all, say rt predates the run tools; update rt.
+Start fresh only when the refused call carried `resume` and the refusal
+says that run is gone or no longer running (`no run <id>`, `run <id> is
+<status>`); say so in one line, then start fresh, keeping the first call's
+`spawnedBy`. Any other refusal, a resume one included (a locked or
+unreadable run db, stages that do not match the pack), ends the verb:
+quote it verbatim and start nothing, since the picked run is still
+running. Only when there is no `run_enter` tool at all, say rt predates
+the run tools; update rt.
 
 ### Keep the recorded answers
 

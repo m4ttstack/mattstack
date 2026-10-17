@@ -487,6 +487,10 @@ digraph shepherdr_start {
 
 ## Appendix B: watch graph draft
 
+The draft as approved, before the followups-2 rows (16 and 17): the
+shipped skill also puts a `Job's pane a bg: ref ...?` diamond before each
+`herd_attend`, sending a visible pane to `Point the user at the job's tab`.
+
 ```dot
 digraph shepherdr_watch {
     rankdir=TB;
