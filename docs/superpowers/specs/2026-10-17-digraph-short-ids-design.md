@@ -311,6 +311,8 @@ RED/GREEN with the approved tool-less recipe (`claude --model sonnet --tools
 these scenarios; the test cannot show they help. As loaded, tokens fall 15.1%
 (watch-ci) and 7.1% (stage-provision), and every check is green. I recommend
 requiring short ids in the plugin once every graph is converted.
+Matt chose that (gate 0cf47cb8); the full migration's results are under
+"Migration (after gate 0cf47cb8)" at the end of this section.
 
 ### Behavior
 
@@ -454,3 +456,186 @@ plugin's CI), while team packs keep both forms legal.
   whichever neighbor they happened to open.
 - **Cost:** the remaining conversions, which are scripted and proven per
   file by `--verify`, plus the flag.
+
+### Migration (after gate 0cf47cb8)
+
+**Verdict.** Every converted skill tested scored 0 behavior deviations on
+both sides, in all six lanes. Source words fall 19.0% across the 25
+measured files and compiled tokens fall 13.4% across the five tested verbs,
+and every check is green. One secondary signal: agents on short ids name a
+STOP node a little less often, but not significantly (pooled p 0.25).
+
+#### Behavior
+
+Sources are under `plugins/mattstack/docs/superpowers/tests/2026-10-17-digraph-ids/`.
+Stop-named cells read RED, GREEN.
+
+| Lane | Reps per side | RED deviations | GREEN deviations | Lenient stop named | Strict STOP named | Source |
+|---|---|---|---|---|---|---|
+| watch-ci (13 scenarios) | 5 | 0 | 0 | 61/65, 65/65 | n/a | `red-green.md`, watch-ci |
+| stage-provision (S5, S5b) | 5 per scenario | 0 | 0 | 10/10, 10/10 | n/a | `red-green.md`, stage-provision |
+| ship (10 scenarios) | 5 | 0 | 0 | 50/50, 50/50 | 9/15, 5/15 | `red-green.md`, ship |
+| gate-protocol (S3, S4, S8) | 5 per scenario | 0 | 0 | 15/15, 15/15 | n/a | `red-green.md`, gate-protocol |
+| receive-review (R2, R3, R4, R7, R8) | 5 per scenario | 0 | 0 | 25/25, 25/25 | n/a | `red-green.md`, receive-review |
+| shepherdr (H1 to H4) | 5 per scenario, plus 10 on H1 | 0 | 0 | 20/20, 20/20 | 0/25, 1/25 | `shepherdr/red-green.md` |
+
+Strict STOP named is n/a where the lane did not score it: watch-ci and
+stage-provision used the prototype's single stop column, and no
+receive-review expected path passes a STOP node. Deviations for shepherdr
+are on the final-call reading; the retracted call is covered below.
+
+#### STOP naming
+
+The confirmation run (`stop-naming.md`, 10 reps per side on ship S3, ship
+S6 and watch-ci T4) gave GREEN 19/30 against RED 24/30, Fisher p 0.25
+two-sided. The stricter reading, which drops four title-case "Stop" plus
+subject rows, gives 16/30 against 23/30, p 0.10. GREEN was lower in all
+three scenarios, none significantly. shepherdr's lane gave RED 0/25 and
+GREEN 1/25 (`shepherdr/red-green.md`): there the STOP edges are
+temptations no rep takes, so nothing prompts a rep to name them.
+
+What reps wrote at the STOP instead, across the 60 scored slots of
+`stop-naming.md` (30 per side). Ten rows there record only "none"; I read
+those sections in the blind transcripts (Task 9b scratch,
+`m/t9b/blind/`) to place them.
+
+| What the rep wrote | RED | GREEN |
+|---|---|---|
+| The literal id (`stop_shell_push`, `stop_lease_holder_owns`) | 0 | 0 |
+| The label text, verbatim or near (named) | 20 | 14 |
+| "STOP" with its own wording of the subject (named; "the push STOP", "Shell push is a STOP") | 4 | 5 |
+| "the STOP edge" with no subject | 3 | 2 |
+| A bare "Stop." | 0 | 1 |
+| A behavior-only paraphrase ("I don't push from Bash", "I never push from here") | 3 | 8 |
+| Nothing | 0 | 0 |
+
+For off-script gate wording: no rep on either side wrote a literal `stop_`
+id, in the deciding phrases or anywhere in the 40 transcripts. Every miss
+is a paraphrase of the behavior or a pointer at the edge, not a wrong move:
+each one still pushes nothing from a shell, releases no lease, and reaches
+the gate or the stand-down (behavior deviations stayed 0, Task 9b in the
+migration ledger). GREEN's extra misses are behavior paraphrases. Four
+GREEN deciding phrases use the slug's words as prose ("Shell push is a
+STOP", "Stop shell pushing.", "the shell-push shortcut", "No shell push");
+"shell push" appears in 5 GREEN transcripts and no RED one.
+
+#### The shepherdr retracted call
+
+One GREEN H1 rep listed a wrong `herd_gate_answer` value, then retracted it
+and listed Matt's value. A 10-rep-per-side H1 confirmation found the same
+slip once on RED, so combined it is 1/15 against 1/15 (p 1.0): noise
+(`shepherdr/red-green.md`, "H1 confirmation").
+
+#### Size
+
+Source by Task 14a measurement (build-system-files.sh at 8dd1f8efa vs
+this branch; count-tokens.sh none). Words are `wc -w` on the 25 files.
+
+| File (under `plugins/mattstack/`) | Before | After | Saved |
+|---|---|---|---|
+| `attachments/evidence-record/SKILL.md` | 1,862 | 1,501 | 361 |
+| `attachments/forge/checkout/SKILL.md` | 2,376 | 1,935 | 441 |
+| `attachments/forge/rebase-worktree/SKILL.md` | 2,598 | 2,182 | 416 |
+| `attachments/forge/sync-open-mrs/SKILL.md` | 4,190 | 3,576 | 614 |
+| `attachments/gate-protocol/SKILL.md` | 2,495 | 2,039 | 456 |
+| `attachments/orchestration/shepherdr/SKILL.md` | 8,646 | 6,866 | 1,780 |
+| `attachments/orchestration/shepherdr/references/job-template.md` | 1,906 | 1,606 | 300 |
+| `attachments/pipeline/ship/SKILL.md` | 5,080 | 3,745 | 1,335 |
+| `attachments/pipeline/stage-evidence/SKILL.md` | 2,264 | 1,712 | 552 |
+| `attachments/pipeline/stage-gates/SKILL.md` | 380 | 295 | 85 |
+| `attachments/pipeline/stage-implement/SKILL.md` | 616 | 474 | 142 |
+| `attachments/pipeline/stage-plan/SKILL.md` | 1,045 | 912 | 133 |
+| `attachments/pipeline/stage-provision/SKILL.md` | 2,027 | 1,543 | 484 |
+| `attachments/pipeline/stage-self-review/SKILL.md` | 525 | 403 | 122 |
+| `attachments/pipeline/stage-ship/SKILL.md` | 3,506 | 2,678 | 828 |
+| `attachments/pipeline/stage-watch-ci/SKILL.md` | 4,059 | 3,071 | 988 |
+| `attachments/pipeline/watch-ci/SKILL.md` | 5,794 | 4,216 | 1,578 |
+| `attachments/pipeline/work/SKILL.md` | 1,732 | 1,365 | 367 |
+| `attachments/review/receive-review/SKILL.md` | 11,721 | 9,700 | 2,021 |
+| `attachments/review/review/SKILL.md` | 8,038 | 6,304 | 1,734 |
+| `attachments/review/self-review/SKILL.md` | 3,524 | 2,843 | 681 |
+| `plugin/skills/creating-a-pack/SKILL.md` | 3,254 | 2,740 | 514 |
+| `plugin/skills/editing-skills/SKILL.md` | 5,501 | 4,789 | 712 |
+| `plugin/skills/extending-a-pack/SKILL.md` | 5,288 | 4,611 | 677 |
+| `plugin/skills/process-digraphs/SKILL.md` | 2,140 | 2,249 | -109 |
+| **Total** | **90,567** | **73,355** | **17,212 (19.0%)** |
+
+process-digraphs grew because it now documents `--short-ids`; the total is
+net of that.
+
+Tokens on the five compiled verbs (`count-tokens.sh none`, input tokens
+less the empty baseline; RED is 8dd1f8efa, GREEN this branch):
+
+| Compiled file | RED | GREEN | Saved |
+|---|---|---|---|
+| gate-protocol | 6,786 | 6,071 | 715 (10.5%) |
+| receive-review | 41,721 | 37,172 | 4,549 (10.9%) |
+| ship | 30,396 | 26,076 | 4,320 (14.2%) |
+| stage-provision | 13,729 | 12,003 | 1,726 (12.5%) |
+| watch-ci | 29,016 | 23,938 | 5,078 (17.5%) |
+| **Total** | **121,648** | **105,260** | **16,388 (13.4%)** |
+
+The token saving is smaller than the word saving because each compiled
+file also carries engine text that has no graph.
+
+#### Checks
+
+At `c0bd8a99b` (plugin 0.31.27), from the Task 14a report; every command
+exited 0.
+
+| Command | Result |
+|---|---|
+| check-dot with `--short-ids` over `skills`, `plugin/skills`, `attachments` (the CI step) | 38 graphs ok, 0 warnings |
+| check-dot plain over the rest of the plugin (docs) | 3 graphs ok, 0 warnings |
+| `test-check-dot.sh` | "all cases pass" |
+| `certify.sh` over every CI dir | 0 failures |
+| Hook tests (pipeline-gate-stop, test-gate-stop-hook, agent-effort-guard, agent-effort-note) | all pass (the report gives no counts) |
+| `skills check --strict` | exit 0, advisory "pack scripts: 8 hits" |
+| `skills compile --dry-run` | exit 0; it lists writing-style-* as "would write" from stamps that predate this compile, untouched here |
+| `skills:check:board` | current, 4 skills; an expand rerun gives no new diff |
+| Version guard (`plugin-version-bumped.ts --base origin/main`) | "0.31.26 -> 0.31.27" |
+| `bun run purity` | 0 fail |
+| Board tests (skill-path, skills-resolve, gates-kind-sync, herdr) | 110 pass |
+| rt tests (no-unlinkable-skills, no-board-skills-drift, anatomy, mcp-lint, ci-lint, surface, layout, packs, base-attachments) | 171 pass |
+
+#### Limits
+
+- 5 reps per side per scenario (10 more in the two confirmation runs). RED
+  scored 0 deviations everywhere, so GREEN could only tie: the lanes show
+  short ids cost nothing, not that they help.
+- Blinding was partial in every lane: slug words written as prose, byte
+  counts in the run log, and the scenario visible in each transcript.
+- The agent that ran each lane scored it. A reviewer re-scored a sample in
+  every lane and agreed on every deviation cell (the migration ledger;
+  the gate-protocol and receive-review records predate their review and
+  say "no second scorer").
+- shepherdr is a new lane with no earlier baseline, and its key
+  (`shepherdr/expected.md`) was written by the agent that scored it,
+  though committed before any rep ran.
+- receive-review ran 5 of the review lane's 10 scenarios (R1, R3b, R5, R6
+  and R7b were not run).
+- stage-provision's RED/GREEN ran on the text before #862. Its three new
+  nodes (`whoami`, `picked_tree_held`, `worktree_provision_take_over`) are
+  verify-proven but were not re-run.
+
+#### Rulings made during the migration
+
+From the migration ledger (`.superpowers/sdd/2026-10-17-digraph-short-ids-migration/progress.md`):
+
+- Files that concurrent PRs edited were converted after those PRs merged,
+  by rebasing onto main and reconverting each from its slug map (#862,
+  #863, #865).
+- RED bases moved with main, `3aad678d6` then `1726f3a4c`; the tested texts
+  of ship, watch-ci, gate-protocol, work and stage-plan are unchanged
+  between them.
+- A cross-skill cleanup gave one slug per step (15 texts unified). It
+  renamed a few ids in already-tested skills (stage-provision `held` to
+  `held_end_turn`, `enter_worktree_path` to `enter_worktree`; watch-ci
+  `mr_view` to `mr_view_draft`); those are verify-proven and were not
+  re-run.
+- `check-dot.py`'s call_prefix check was fixed for env values carrying
+  placeholders and quotes, with a non-overlapping regex and a test for the
+  exponential case.
+- CI split: plugin skill and attachment graphs must use short ids; docs
+  test records elsewhere in the plugin keep their sentence ids and pass
+  the plain check.
