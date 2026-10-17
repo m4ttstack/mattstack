@@ -152,8 +152,7 @@ Selection: `{"waivers":{"<case>/<slot>[/<theme>]":"<reason>|annotate","<case>":"
 
 ## Attach the evidence
 
-Entered only after the verb's attach gate proceeds (ship and stage-ship:
-at the bridge below). The domain supplies `heading`, `before` and
+Entered only after the verb's attach gate proceeds. The domain supplies `heading`, `before` and
 `appendix`; unbound, `heading` is the repo MR template's evidence
 heading, else `## Evidence`, always the full line with its `##`. On
 GitHub nothing uploads; `<n>` is the PR number in `mrUrl`. Attach held is
@@ -228,24 +227,6 @@ human moves or copies a file.
 
 Run `Record the evidence` with the new file at its new path, or the last recorded images
 by their `value` paths with covers.
-
-## Bridges until ship's phase 2
-
-For a verb that still draws the old nodes:
-
-- **Merge into the record**: run `Record the evidence` here and skip the
-  verb's own annotate-or-waive pass and evidence write; Record held and
-  Record failed take its `Annotate or waive outcome?` hold and failure
-  edges.
-- **Write before upload**: already done by `Record the evidence`.
-- **Upload only what the record allows**: run `Attach the evidence` at the
-  verb's `Files to attach` decision, whatever it answers (GitHub and no
-  files included), instead of its `mr_upload` loop; Attach held and Attach
-  failed take its upload gate's hold and hand-back edges.
-- **The evidence section of the description**: `Attach the evidence`
-  wrote it; write the title and description around it byte for byte as
-  it stands on the MR (or the returned `section`), never a second
-  evidence block.
 
 ## Domain precedence
 
