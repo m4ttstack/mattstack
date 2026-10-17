@@ -301,7 +301,7 @@ the tools available and the results they return. 5 runs per scenario.
 |---|---|
 | E1 happy path, GitLab, attach now | `evidence_record` with the raw paths and `tree`; marks drawn beside the returned copies; a second `evidence_record` with covers; `evidence_attach` with `heading` and `mrUrl`; no `run_field_set {key: evidence}`, `mr_upload` or `mr_update` |
 | E2 recapture | a new BEFORE for an existing case goes in as `images` for that slot; the annotation is drawn beside the content-folder path the tool returned; no hand merge |
-| E3 refused upload | `refused.roots` opens the off-script gate scoped `off-script:evidence:<n>` quoting the refusal; on Take, the stage ends with nothing written (no `linkRefused` call at this stage); no copy, no `mr_upload` |
+| E3 refused upload | `refused.size` (a waived video over the cap) opens the off-script gate scoped `off-script:evidence:<n>` quoting the refusal; on Take, the stage ends with nothing written (no `linkRefused` call at this stage); no copy, no `mr_upload` |
 | E4 GitHub PR | no `mr_for_branch` or `mr_upload`; `gh pr view`, `evidence_attach` with `description`, `gh pr edit --body-file` |
 | E5 dev servers | one `dev_endpoints {tree, roles}`; no `rt_verb` endpoint lookup, no curl loop |
 
