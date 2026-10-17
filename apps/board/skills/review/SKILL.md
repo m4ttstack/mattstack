@@ -15,7 +15,7 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.31.14"
+  compiled: "mattstack:gate-protocol@0.31.18"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
@@ -2096,7 +2096,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.14 path=attachments/gate-protocol/SKILL.md lines=7-305 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.18 path=attachments/gate-protocol/SKILL.md lines=7-307 -->
 # Gate protocol
 
 The daemon's gate registry is the single arbiter; under a run the gate
@@ -2228,6 +2228,9 @@ not your own.
   `value` bare. In a site table headed `Options (recommended first)`, mark
   the option the table writes; a row with none, such as the stage-end
   `next`, marks none.
+- **`next` values** are exactly these, since the tools read them:
+  `proceed`, `iterate`, `go-back`, `hold`, and `abandon` or `done` where
+  offered.
 - **Write-ins** go only on a decision question whose free text you can act
   on, never on `next` or a review-post, respond, doctor or pane-attention
   question.
@@ -2256,8 +2259,8 @@ Fix exactly what it names (a blank context, several running runs, a bad
 `runDb`) and ask again, once. Under a run each counter diamond reads
 `run_budget`'s `exhausted` and a `run_budget` error counts as exhausted;
 with no run, count in context. A second refusal fails the stage or ends the
-verb, quoting it verbatim; never off-script, since that gate opens through
-`gate_ask` too.
+verb, quoting it verbatim; never off-script, which opens through `gate_ask`
+too.
 
 ### Present the gate form with no registry
 
@@ -2293,8 +2296,7 @@ pane's own answer or words, and go on with the result's `answers`.
 
 Never launch a second wait for this gate. End the turn in one line,
 `holding at gate <id>`. Under a run a turn ends only with `waiting-gate`
-set: `gate_ask` arms it on `wait`, the `run_field_set` node after a
-cancelled form or a spent remap.
+set.
 
 ### gate_reconcile status?
 
@@ -2339,12 +2341,14 @@ bracket the gate, arm `waiting-gate` on a wait, record the answers map
 hook bounces the turn. With no run, omit both; nothing here calls a `run_*`
 tool.
 
-- **Sites not yet on the tools** (ship, watch-ci, evidence, review, forge,
-  board) still draw a `run_field_set {key: gate}` bracket, run before
-  `gate_ask`, and a `run_decision` gate@1 line, run at `Act on the gate
-  answer at the site` (it upserts in the site's shape; a write-in records
-  as `{"writeIn": "<their words>"}` in the slot holding that question's
-  answer, never bare text).
+- **Sites not yet on the tools** (review, self-review, receive-review,
+  forge, board) still draw a `run_field_set {key: gate}` bracket, run
+  before `gate_ask`, and a `run_decision` gate@1 line, run at `Act on the
+  gate answer at the site` (it upserts in the site's shape; a write-in
+  records as `{"writeIn": "<their words>"}` in the slot holding that
+  question's answer, never bare text).
+- **Ship, watch-ci and evidence** draw neither: the tools record their
+  answers map, and their `Selection:` lines are dead.
 - **Review shapes.** `gate_answer` and `gate_reconcile` record nothing on a
   review gate (`respond-plan`, `respond-post`, `review-post`, scope `post`)
   unless passed `record: true`; the site records with `gate_record`, or
@@ -2369,7 +2373,6 @@ with no run, end the verb quoting it.
 
 A site that opens a structured gate builds its source per
 `${CLAUDE_SKILL_DIR}/parts/include-gate-protocol/structured-context.md` and opens it with `gate_open`.
-Nothing else in this protocol needs it.
 
 ## Answers are option values
 
@@ -2382,14 +2385,13 @@ decides what either changes. A `writeIn: true` question may instead take
 
 ## Closed gates, Hold / Iterate
 
-`closed` abandons the site: end that path per the verb's policy, never
-inventing an answer. The verb handles Hold and Iterate in the pane once the
-answer is recorded; a re-ask opens a NEW gate.
+`closed` ends that path per the verb's policy. The verb handles Hold and
+Iterate in the pane once the answer is recorded; a re-ask opens a NEW gate.
 
 ## Doorbell
 
 Verify-only: it never carries the answer, only "re-read the registry",
-which is `gate_reconcile`. The daemon dismisses an open form first.
+which is `gate_reconcile`.
 
 ## Red flags
 
