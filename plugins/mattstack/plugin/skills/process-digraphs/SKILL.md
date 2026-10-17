@@ -37,7 +37,8 @@ Every node is a short id and its text:
 - **The id is the handle edges use**: lowercase words joined by underscores
   that name the step (`push_refused`, `fix_remote`). A `plaintext` id starts
   with its call's first word in that form (`git_push`, `enter_worktree` for
-  `EnterWorktree`), skipping a leading `NAME=value`: an id for
+  `EnterWorktree`), dropping digits (`python_check` for
+  `python3 check-dot.py ...`) and skipping a leading `NAME=value`: an id for
   `CLAUDE_CONFIG_DIR=<dir> claude plugin update x` starts `claude_`. A
   STOP's id starts with `stop_` (`stop_shell_push`).
 - **Declare each node once, in the order the process meets it**, every one

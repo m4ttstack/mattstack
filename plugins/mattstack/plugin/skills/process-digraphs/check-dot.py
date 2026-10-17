@@ -103,7 +103,8 @@ def call_prefix(text):
     text = re.sub(r"^([A-Za-z_][A-Za-z0-9_]*=\S*\s+)+", "", text)
     word = re.match(r"[A-Za-z0-9_-]+", text)
     word = word.group(0) if word else ""
-    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", word).replace("-", "_").lower()
+    word = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", word).replace("-", "_").lower()
+    return re.sub(r"_+", "_", re.sub(r"[0-9]", "", word)).strip("_")
 
 
 def double_declared(src):
@@ -144,7 +145,9 @@ def check(graph):
                 problems.append(f"{shown[i]}: a short id is lowercase words joined by underscores, no digits")
             if shape[i] == "plaintext":
                 prefix = call_prefix(name)
-                if ids[i] != prefix and not ids[i].startswith(prefix + "_"):
+                if not prefix:
+                    problems.append(f'"{name}" [{ids[i]}]: a plaintext label starts with its call word')
+                elif ids[i] != prefix and not ids[i].startswith(prefix + "_"):
                     problems.append(f"{shown[i]}: a plaintext short id starts with its call ({prefix})")
             if shape[i] == "octagon" and not ids[i].startswith("stop_"):
                 problems.append(f"{shown[i]}: a STOP's short id starts with stop_")

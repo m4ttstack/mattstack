@@ -60,6 +60,9 @@ expect prefix-camel-ok "" 'digraph g { '"$SHORT"' enter_worktree [label="EnterWo
 expect prefix-env-ok "" 'digraph g { '"$SHORT"' claude_update [label="CLAUDE_CONFIG_DIR=<dir> claude plugin update x" shape=plaintext]; start -> claude_update; claude_update -> done; }'
 expect prefix-shell-ok "" 'digraph g { '"$SHORT"' gh_pr_view [label="gh pr view <PR>" shape=plaintext]; start -> gh_pr_view; gh_pr_view -> done; }'
 expect prefix-escaped-ok "" 'digraph g { '"$SHORT"' rt_verb_skills_check [label="rt_verb {args: [\"skills\", \"check\"]}" shape=plaintext]; start -> rt_verb_skills_check; rt_verb_skills_check -> done; }'
+expect prefix-digit-ok "" 'digraph g { '"$SHORT"' python_check [label="python3 check-dot.py <SKILL.md>" shape=plaintext]; start -> python_check; python_check -> done; }'
+expect prefix-digit-mid-ok "" 'digraph g { '"$SHORT"' shasum_verify [label="sha256sum -c <file>" shape=plaintext]; start -> shasum_verify; shasum_verify -> done; }'
+expect prefix-empty "a plaintext label starts with its call word" 'digraph g { '"$SHORT"' rt_skills [label="`rt skills check`" shape=plaintext]; start -> rt_skills; rt_skills -> done; }'
 expect stop-prefix "starts with stop_" 'digraph g { '"$SHORT"' halt [label="STOP: halt" shape=octagon]; start -> halt; start -> done; }'
 expect label-rules "phrased as a question" 'digraph g { '"$SHORT"' ask [label="Ready" shape=diamond]; start -> ask; ask -> done [label="yes"]; ask -> done [label="no"]; }'
 expect newline-short-id "\[multi_line\]: a plaintext node is one short command" 'digraph g { '"$SHORT"' multi_line [label="git_push {tree}
