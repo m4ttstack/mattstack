@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { EngineOp } from "../../../commands/runs-write.ts";
+import { isFieldChanged, valueSha256 } from "../../runs/write.ts";
 import { packRootFrom, realRunToolDeps, runToolDefs, splitFlags, type RunToolDeps } from "../run-tools.ts";
 
 type Call = { verb: string; args: string[]; env: NodeJS.ProcessEnv; cwd: string };
@@ -166,6 +167,16 @@ describe("run tools pass runDb as RT_RUN_DB and cwd through", () => {
     expect(calls[0]).toMatchObject({ verb: "field", args: ["set", "branch", "feat", "--stage", "provision"] });
     expect(calls[1]).toMatchObject({ verb: "field", args: ["get", "branch"] });
     expect(got).toEqual({ ok: true, body: { value: "main" } });
+  });
+  test("run_field_set passes ifSha256 as --if-sha256 and refuses one that is not 64 hex digits", async () => {
+    const { deps, calls } = fakeDeps("", 0);
+    const sha = "a".repeat(64);
+    await tool(deps, "run_field_set").handler({ runDb: DB, key: "branch", value: "feat", stage: "provision", ifSha256: sha }, RUNS_ROOT_ENV);
+    expect(calls[0]).toMatchObject({ verb: "field", args: ["set", "branch", "feat", "--stage", "provision", "--if-sha256", sha] });
+    const bad = await tool(deps, "run_field_set").handler({ runDb: DB, key: "branch", value: "feat", stage: "provision", ifSha256: "nope" }, RUNS_ROOT_ENV);
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain("ifSha256");
+    expect(calls).toHaveLength(1);
   });
   test("run_field_get on a missing key (exit 3) is an error naming the key", async () => {
     const { deps } = fakeDeps("", 3);
@@ -503,6 +514,18 @@ describe("run engine tools against a real run store", () => {
 
     const resolved = await tool(deps, "run_resolve").handler({ runDb: e.runDb, stage: "build", next: "redirect", to: "plan", note: "again", decidedBy: "pane" }, env);
     expect(resolved.body).toMatchObject({ ok: true, applied: "redirect", next: { stage: "plan", attempt: 2 } });
+  });
+
+  test("run_field_set with ifSha256 against a real run: a match writes, a stale hash refuses and keeps the value", async () => {
+    const { skillDir, env, deps } = store();
+    const e = (await tool(deps, "run_enter").handler({ flags: FLAGS_DEMO, skillDir }, env)).body as { runDb: string };
+    const set = (value: string, ifSha256: string) => tool(deps, "run_field_set").handler({ runDb: e.runDb, key: "notes", value, stage: "plan", ifSha256 }, env);
+    expect((await set("one", valueSha256(""))).ok).toBe(true);
+    const stale = await set("two", valueSha256(""));
+    expect(stale.ok).toBe(false);
+    expect(isFieldChanged(stale.error ?? "")).toBe(true);
+    expect((await set("two", valueSha256("one"))).ok).toBe(true);
+    expect((await tool(deps, "run_field_get").handler({ runDb: e.runDb, key: "notes" }, env)).body).toEqual({ value: "two" });
   });
 
   test("a handed runDb for a running run of the repo is inherited", async () => {
