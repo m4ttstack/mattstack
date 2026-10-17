@@ -6,6 +6,7 @@
 
 import { boardCronByToolMigration } from "./board-cron-by-tool.ts";
 import { boardPeerTriggerMigration } from "./board-peer-trigger.ts";
+import { enableTeamPackMigration } from "./enable-team-pack.ts";
 import { importAppSettingsMigration } from "./import-app-settings.ts";
 import { importLegacySettingsMigration } from "./import-legacy-settings.ts";
 import { retireSwitchboardUrlMigration } from "./retire-switchboard-url.ts";
@@ -44,6 +45,7 @@ export const MIGRATIONS: MigrationDef[] = [
   boardCronByToolMigration,
   importLegacySettingsMigration,
   importAppSettingsMigration,
+  enableTeamPackMigration,
 ];
 
 export function migrationEventId(id: string): MigrationEventId {

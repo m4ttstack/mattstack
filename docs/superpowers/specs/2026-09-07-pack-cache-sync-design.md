@@ -286,7 +286,9 @@ installed yet.
 
 A team-authored pack must never be left installed and enabled, because
 `claude plugin install` enables what it installs and the ruling says a joined
-team does not get to grant itself execution. Rather than remember a failed
+team does not get to grant itself execution. (Superseded for the active team's
+own pack, which is now installed turned on: see
+`2026-10-16-install-cleanup-design.md` §3.) Rather than remember a failed
 `disable` and retry it later, a failed `disable` **undoes the install**:
 
 ```
