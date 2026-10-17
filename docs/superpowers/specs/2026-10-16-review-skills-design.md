@@ -270,7 +270,7 @@ so the old instruction changes.
      tool now. The prose keeps one paragraph: what an override means for the
      row walk.
 8. `code-changes answer?` (unchanged) -> the row loop. The loop is unchanged
-   except for its counter: `Fix attempts on this thread = 3?` reads
+   except for its counter: `fix:<threadId> spent?` reads
    `run_budget {key: fix:<threadId>, limit: 3, stage}`.
 9. `Any thread offered (a finalized fix or an override)?`
    - **No:** go straight to the post side; there is no respond-post gate.
@@ -287,9 +287,12 @@ so the old instruction changes.
     `tree` is this checkout's root. It has the same requirement `git_push`
     has today: a checkout or worktree of a repo registered with rt.
     `respond_post_execute result?`:
-    - **refused** (it moved nothing) -> `Fix what the respond_post_execute
-      refusal names` against `run_budget {key: post-execute-fix, limit: 1}`;
-      spent -> `Off-script gate: respond_post_execute refused`.
+    - **refused** (it moved nothing) -> `run_budget {key: post-execute-fix,
+      limit: 2}`, charged on each fixable refusal, then `post-execute-fix
+      spent?`: the first charge goes to `Fix what the respond_post_execute
+      refusal names`, the second opens `Off-script gate: respond_post_execute
+      refused`. The tool bounds its own reply, resolve and push retries, so
+      no other counter is drawn on the post side.
     - **nothing held** -> `run_field_set {key: hold, value: -, stage}` (an
       earlier pass of this session, or the tool, may have set it; the tool
       never clears it), then report and close.
