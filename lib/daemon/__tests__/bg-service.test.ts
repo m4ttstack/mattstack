@@ -1,5 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { join } from "path";
 import pino from "pino";
 import type { Logger } from "pino";
 import { createBgService, bgSocketPath, defaultProbePane } from "../bg-service.ts";
@@ -7,10 +6,10 @@ import type { HerdrRunner } from "../../agent-herdr.ts";
 
 const log = pino({ level: "silent" });
 
-/** Never lands real subprocess calls: the login-shell env probe and the
-    parity probes both go through this unless a test overrides them. */
-const fixedEnvLines = ["/probed/bin", "/probed/home", "/probed/bin/zsh", "/probed/tmp", "en_US.UTF-8"];
-const quietRun = async () => ({ exitCode: 0, stdout: fixedEnvLines.join("\n") });
+/** Never lands real subprocess calls: the login-shell env and the parity
+    probes go through these unless a test overrides them. */
+const loginEnv = { PATH: "/probed/bin", HOME: "/probed/home", SHELL: "/probed/bin/zsh", TMPDIR: "/probed/tmp", LANG: "en_US.UTF-8" };
+const quietLogin = async () => loginEnv;
 const matchingProbe = async () => "bun\nnode\nclaude\nrt\ngit\n/probed/bin";
 
 function silent(warns?: unknown[][]): Logger {
@@ -34,40 +33,47 @@ describe("bg service", () => {
     expect(spawned).toEqual([]);
   });
 
-  test("ensure spawns `herdr server` through nohup in a job-control shell, with HERDR_SESSION and no HERDR_SOCKET_PATH, then waits for the socket", async () => {
+  test("ensure spawns `herdr server` detached in the user context with HERDR_SESSION and no HERDR_SOCKET_PATH, then waits for the socket", async () => {
     let calls = 0;
-    const spawned: Array<{ argv: string[]; env: Record<string, string>; logPath: string }> = [];
-    const s = createBgService({
-      log, home: "/h", logDir: "/h/logs", readyTimeoutMs: 500,
-      available: async () => ++calls > 2,
-      spawn: (argv, env, logPath) => { spawned.push({ argv, env, logPath }); },
-      run: quietRun,
-      probePane: matchingProbe,
-    });
-    const result = await s.ensure();
-    expect(result).toEqual({ socket: "/h/.config/herdr/sessions/bg/herdr.sock", started: true });
-    expect(spawned[0]!.argv.slice(0, 2)).toEqual(["/bin/bash", "-c"]);
-    expect(spawned[0]!.argv[2]).toContain("set -m");
-    expect(spawned[0]!.argv[2]).toContain("nohup");
-    expect(spawned[0]!.argv.slice(-2)).toEqual([expect.stringMatching(/herdr$/), join("/h/logs", "bg-service.log")]);
-    expect(spawned[0]!.env.HERDR_SESSION).toBe("bg");
-    expect("HERDR_SOCKET_PATH" in spawned[0]!.env).toBe(false);
-    expect(spawned[0]!.logPath).toBe(join("/h/logs", "bg-service.log"));
+    const spawned: Array<{ argv: string[]; env: Record<string, string>; cwd: string }> = [];
+    const prior = process.env.HERDR_SOCKET_PATH;
+    process.env.HERDR_SOCKET_PATH = "/visible/herdr.sock";
+    try {
+      const s = createBgService({
+        log, home: "/h", readyTimeoutMs: 500,
+        available: async () => ++calls > 2,
+        spawn: (argv, env, cwd) => { spawned.push({ argv, env, cwd }); },
+        loginEnv: quietLogin,
+        probePane: matchingProbe,
+      });
+      const result = await s.ensure();
+      expect(result).toEqual({ socket: "/h/.config/herdr/sessions/bg/herdr.sock", started: true });
+    } finally {
+      if (prior === undefined) delete process.env.HERDR_SOCKET_PATH;
+      else process.env.HERDR_SOCKET_PATH = prior;
+    }
+    expect(spawned[0]!.argv).toEqual([expect.stringMatching(/herdr$/), "server"]);
+    expect(spawned[0]!.cwd).toBe("/h");
+    const env = spawned[0]!.env;
+    expect(env.HERDR_SESSION).toBe("bg");
+    expect(env.HERDR_MACOS_SERVER_CONTEXT).toBe("user");
+    expect("HERDR_SOCKET_PATH" in env).toBe(false);
+    expect("RT_BATCH" in env).toBe(false);
   });
 
   test("ensure fails loudly when the socket never appears", async () => {
-    const s = createBgService({ log, home: "/h", readyTimeoutMs: 50, available: async () => false, spawn: () => {}, run: quietRun });
-    await expect(s.ensure()).rejects.toThrow(/did not come up/);
+    const s = createBgService({ log, home: "/h", readyTimeoutMs: 50, available: async () => false, spawn: () => {}, loginEnv: quietLogin });
+    await expect(s.ensure()).rejects.toThrow(/did not come up.*\/h\/\.config\/herdr\/herdr-server\.log/);
   });
 
   test("concurrent ensures join the launch already running instead of spawning a second server", async () => {
     let calls = 0;
     const spawned: string[][] = [];
     const s = createBgService({
-      log, home: "/h", logDir: "/h/logs", readyTimeoutMs: 500,
+      log, home: "/h", readyTimeoutMs: 500,
       available: async () => ++calls > 2,
       spawn: (argv) => { spawned.push(argv); },
-      run: quietRun,
+      loginEnv: quietLogin,
       probePane: matchingProbe,
     });
     const [a, b] = await Promise.all([s.ensure(), s.ensure()]);
@@ -79,10 +85,10 @@ describe("bg service", () => {
   test("a retry after a timed-out launch refuses to spawn a second server", async () => {
     const spawned: string[][] = [];
     const s = createBgService({
-      log, home: "/h", logDir: "/h/logs", readyTimeoutMs: 50,
+      log, home: "/h", readyTimeoutMs: 50,
       available: async () => false,
       spawn: (argv) => { spawned.push(argv); },
-      run: quietRun,
+      loginEnv: quietLogin,
     });
     await expect(s.ensure()).rejects.toThrow(/did not come up/);
     await expect(s.ensure()).rejects.toThrow(/has not bound/);
@@ -97,10 +103,10 @@ describe("bg service", () => {
     const spawned: string[][] = [];
     let up = false; let spawnCount = 0;
     const s = createBgService({
-      log, home: "/h", logDir: "/h/logs", readyTimeoutMs: 200,
+      log, home: "/h", readyTimeoutMs: 200,
       available: async () => up,
       spawn: (argv) => { spawned.push(argv); spawnCount += 1; if (spawnCount === 1) up = true; },
-      run: quietRun,
+      loginEnv: quietLogin,
       probePane: matchingProbe,
     });
     expect(await s.ensure()).toEqual({ socket: "/h/.config/herdr/sessions/bg/herdr.sock", started: true });
@@ -113,7 +119,7 @@ describe("bg service", () => {
   test("stop resets the spawn stamp so a subsequent ensure is not blocked by the cooldown", async () => {
     const spawned: string[][] = [];
     const s = createBgService({
-      log, home: "/h", logDir: "/h/logs", readyTimeoutMs: 50,
+      log, home: "/h", readyTimeoutMs: 50,
       available: async () => false,
       spawn: (argv) => { spawned.push(argv); },
       run: async () => ({ exitCode: 0, stdout: "" }),
@@ -133,69 +139,49 @@ describe("bg service", () => {
     expect("HERDR_SOCKET_PATH" in runs[0]!.env).toBe(false);
   });
 
-  test("ensure seeds the spawned server's env from the login-shell probe, overriding the daemon's own PATH", async () => {
+  test("ensure builds the spawned server's env from the login-shell env, not the daemon's own PATH", async () => {
     let calls = 0;
     const spawned: Array<{ env: Record<string, string> }> = [];
-    const runs: Array<{ argv: string[]; env: Record<string, string> }> = [];
     const s = createBgService({
-      log, home: "/h", logDir: "/h/logs", readyTimeoutMs: 500,
+      log, home: "/h", readyTimeoutMs: 500,
       available: async () => ++calls > 2,
       spawn: (argv, env) => { spawned.push({ env }); },
-      run: async (argv, env) => { runs.push({ argv, env }); return { exitCode: 0, stdout: fixedEnvLines.join("\n") }; },
+      loginEnv: quietLogin,
       probePane: matchingProbe,
     });
     await s.ensure();
-    expect(runs[0]!.argv).toEqual(["zsh", "-lc", 'printf "%s\\n" "$PATH" "$HOME" "$SHELL" "$TMPDIR" "$LANG"']);
     const env = spawned[0]!.env;
-    expect(env.PATH).toBe(fixedEnvLines[0]);
-    expect(env.HOME).toBe(fixedEnvLines[1]);
-    expect(env.SHELL).toBe(fixedEnvLines[2]);
-    expect(env.TMPDIR).toBe(fixedEnvLines[3]);
-    expect(env.LANG).toBe(fixedEnvLines[4]);
-    expect(env.HERDR_SESSION).toBe("bg");
+    expect(env.PATH).toBe(loginEnv.PATH);
+    expect(env.HOME).toBe(loginEnv.HOME);
+    expect(env.SHELL).toBe(loginEnv.SHELL);
+    expect(env.TMPDIR).toBe(loginEnv.TMPDIR);
+    expect(env.LANG).toBe(loginEnv.LANG);
     expect(env.PATH).not.toBe(process.env.PATH);
   });
 
-  test("a failed login-shell probe warns and falls back to the daemon's own env, without failing ensure", async () => {
-    const warns: unknown[][] = [];
+  test("an empty login-shell env falls back to the daemon's own PATH, without failing ensure", async () => {
     let calls = 0;
     const spawned: Array<{ env: Record<string, string> }> = [];
     const s = createBgService({
-      log: silent(warns), home: "/h", logDir: "/h/logs", readyTimeoutMs: 500,
+      log, home: "/h", readyTimeoutMs: 500,
       available: async () => ++calls > 2,
       spawn: (argv, env) => { spawned.push({ env }); },
-      run: async () => ({ exitCode: 1, stdout: "" }),
+      loginEnv: async () => ({}),
       probePane: matchingProbe,
     });
     const result = await s.ensure();
     expect(result.started).toBe(true);
     expect(spawned[0]!.env.PATH).toBe(process.env.PATH);
-    expect(warns.some((a) => String(a[1] ?? "").includes("login-shell env probe"))).toBe(true);
-  });
-
-  test("a login-shell probe that throws also falls back to the daemon's own env, without failing ensure", async () => {
-    const warns: unknown[][] = [];
-    let calls = 0;
-    const s = createBgService({
-      log: silent(warns), home: "/h", logDir: "/h/logs", readyTimeoutMs: 500,
-      available: async () => ++calls > 2,
-      spawn: () => {},
-      run: async () => { throw new Error("boom"); },
-      probePane: matchingProbe,
-    });
-    const result = await s.ensure();
-    expect(result.started).toBe(true);
-    expect(warns.some((a) => String(a[1] ?? "").includes("login-shell env probe"))).toBe(true);
   });
 
   test("a fresh start runs a parity probe and records drift when a binary resolves differently", async () => {
     let calls = 0;
     const probes: Array<string | null> = [];
     const s = createBgService({
-      log, home: "/h", logDir: "/h/logs", readyTimeoutMs: 500,
+      log, home: "/h", readyTimeoutMs: 500,
       available: async () => ++calls > 2,
       spawn: () => {},
-      run: quietRun,
+      loginEnv: quietLogin,
       probePane: async (socket) => {
         probes.push(socket);
         return socket === null
@@ -216,10 +202,10 @@ describe("bg service", () => {
   test("a fresh start with matching probes records ok parity and no drift", async () => {
     let calls = 0;
     const s = createBgService({
-      log, home: "/h", logDir: "/h/logs", readyTimeoutMs: 500,
+      log, home: "/h", readyTimeoutMs: 500,
       available: async () => ++calls > 2,
       spawn: () => {},
-      run: quietRun,
+      loginEnv: quietLogin,
       probePane: matchingProbe,
     });
     await s.ensure();
@@ -230,10 +216,10 @@ describe("bg service", () => {
     const warns: unknown[][] = [];
     let calls = 0;
     const s = createBgService({
-      log: silent(warns), home: "/h", logDir: "/h/logs", readyTimeoutMs: 500,
+      log: silent(warns), home: "/h", readyTimeoutMs: 500,
       available: async () => ++calls > 2,
       spawn: () => {},
-      run: quietRun,
+      loginEnv: quietLogin,
       probePane: async () => { throw new Error("herdr not found"); },
     });
     const result = await s.ensure();

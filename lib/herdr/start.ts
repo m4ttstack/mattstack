@@ -28,19 +28,21 @@ export interface HerdrStartSeams {
   home: string;
 }
 
+export function spawnDetached(argv: string[], env: Record<string, string>, cwd: string): void {
+  const child = spawnChild(argv[0]!, argv.slice(1), { detached: true, stdio: "ignore", cwd, env });
+  // An unheard 'error' event (ENOENT, EACCES) would crash the caller;
+  // the ready poll already reports a server that never came up.
+  child.on("error", () => {});
+  child.unref();
+}
+
 function defaultSeams(): HerdrStartSeams {
   return {
     ping: (sock) => herdrAvailable(sock),
     resolveBin: () => resolveHerdrBin(),
     exists: existsSync,
     loginEnv: () => loginShellEnv(),
-    spawn: (argv, env, cwd) => {
-      const child = spawnChild(argv[0]!, argv.slice(1), { detached: true, stdio: "ignore", cwd, env });
-      // An unheard 'error' event (ENOENT, EACCES) would crash the caller;
-      // the ready poll already reports a server that never came up.
-      child.on("error", () => {});
-      child.unref();
-    },
+    spawn: spawnDetached,
     sleep: (ms) => Bun.sleep(ms),
     now: () => Date.now(),
     env: process.env,
