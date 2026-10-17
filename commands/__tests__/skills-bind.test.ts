@@ -929,6 +929,34 @@ describe("applyBind", () => {
         expect(errors.join("\n")).toContain("rt skills materialize");
       }
     });
+
+    test("no engine pack after an unset: the note claims no fallback", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+      cpSync(FIX, root, { recursive: true });
+      process.env.HOME = join(root, "home");
+      mkdirSync(process.env.HOME, { recursive: true });
+      process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
+      const stages = ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"];
+      const withOverride = { pipelines: { feature: { stages, bindings: { "mattstack:stage-plan": { domain: "acme:plan-policy" } } } }, bindings: {} };
+      const pack = join(root, "pack");
+      const fragmentPath = join(pack, "pack", "skills.jsonc");
+      writeFile(fragmentPath, JSON.stringify(withOverride, null, 2));
+      const manifest = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+      writeFile(manifest, JSON.stringify(withOverride, null, 2));
+      const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(join(root, "mattstack-home")));
+      io.clear();
+      try {
+        await skillsBind(["stage-plan", "domain", "--pipeline", "feature", "--unset", "--pack-dir", pack, "--manifest", manifest]);
+      } finally {
+        rootsSpy.mockRestore();
+      }
+
+      expect(process.exitCode).toBe(1);
+      expect(JSON.parse(readFileSync(fragmentPath, "utf8")).pipelines.feature).toEqual(stages);
+      expect(io.lines()).toContain("  note: Removed this pack's feature override.");
+      expect(io.lines().join("\n")).not.toContain("falls back");
+      expect(io.errLines()[0]).toBe("The bindings file was not rebuilt, so nothing was recompiled");
+    });
   });
 
   describe("regeneratePackFile scope", () => {
@@ -1067,6 +1095,16 @@ describe("bindBlocks", () => {
       ].join("\n"),
     );
     expect(renderPlain(bindBlocks({ ...bind, dryRun: true, unset: { pipeline: "accessibility", stillOverriddenBy: null } }))).toBe("[not yet] stage-plan.domain  (unbound) -> acme:plan-policy\n");
+  });
+
+  test("an unset whose bindings file was not rebuilt claims no fallback", () => {
+    expect(renderPlain(bindBlocks({ ...bind, from: "acme:b", unset: { pipeline: "accessibility", stillOverriddenBy: null, rebuilt: false } }))).toBe(
+      [
+        "[ok] stage-plan.domain  acme:b -> acme:plan-policy",
+        "  note: Removed this pack's accessibility override.",
+        "",
+      ].join("\n"),
+    );
   });
 
   test("the shadow warning is a note on stderr, never stdout", () => {

@@ -3453,13 +3453,15 @@ export function bindBlocks(b: {
   dryRun: boolean;
   fragmentUpdated: string | null;
   basePack: string | null;
-  unset?: { pipeline: string; stillOverriddenBy: string | null };
+  unset?: { pipeline: string; stillOverriddenBy: string | null; rebuilt?: boolean };
 }): Block[] {
-  const unsetNote = !b.unset || b.dryRun
-    ? []
-    : [out.callout("note", b.unset.stillOverriddenBy
-      ? `Removed this pack's ${b.unset.pipeline} override, but ${b.unset.stillOverriddenBy}'s override still applies.`
-      : `Removed the ${b.unset.pipeline} override, so this slot falls back to the default.`)];
+  const unsetText = (u: NonNullable<typeof b.unset>): string => {
+    if (u.rebuilt === false) return `Removed this pack's ${u.pipeline} override.`;
+    return u.stillOverriddenBy
+      ? `Removed this pack's ${u.pipeline} override, but ${u.stillOverriddenBy}'s override still applies.`
+      : `Removed the ${u.pipeline} override, so this slot falls back to the default.`;
+  };
+  const unsetNote = !b.unset || b.dryRun ? [] : [out.callout("note", unsetText(b.unset))];
   return [
     out.line(b.dryRun ? "pending" : "done", `${b.verb}.${b.slot}`, `${b.from} -> ${b.to}`),
     ...unsetNote,
@@ -3658,7 +3660,7 @@ export async function skillsBind(args: string[]): Promise<void> {
         out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to, ...unsetField, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
         return;
       }
-      out.print(...bindBlocks({ ...written, fragmentUpdated }));
+      out.print(...bindBlocks({ ...written, fragmentUpdated, ...(written.unset ? { unset: { ...written.unset, rebuilt: false } } : {}) }));
       out.fail({ title: "The bindings file was not rebuilt, so nothing was recompiled", ...(regenerateDetail ? { why: regenerateDetail } : {}), next: out.cmd("rt skills materialize") });
       return;
     }
