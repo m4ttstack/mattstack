@@ -178,7 +178,8 @@ dir>` points at the pack dir in the org clone.
 ## Calling the skills verbs
 
 Skills verbs go through `rt_verb {args: [...]}`: `--pack <pack>` sits in
-`args`, resolves to the pack dir in the org clone, and the call never
+`args`, resolves to the pack dir in the org clone (unless your cwd is
+inside another copy of that pack, which then wins), and the call never
 carries a `cwd`. `--pack-dir <dir>` rides in `args` for `check` only, and
 this skill never needs it. `rt skills composition` and
 `rt skills packs` refuse `rt_verb` (not agent-safe); run them as plain

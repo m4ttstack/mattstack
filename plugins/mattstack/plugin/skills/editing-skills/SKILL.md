@@ -84,10 +84,10 @@ digraph publish_skill {
     "Gate: certify rounds spent" [shape=box];
     "Bump version in the manifest" [shape=box];
     "git add <files>; git commit" [shape=plaintext];
-    "On the default branch?" [shape=diamond];
-    "Push the default branch from the checkout" [shape=box];
+    "Team pack (the org clone, on whatever branch it has checked out)?" [shape=diamond];
+    "Push the org clone's checked-out branch" [shape=box];
     "Push landed?" [shape=diamond];
-    "Gate: default-branch push rejected" [shape=box];
+    "Gate: team pack push rejected" [shape=box];
     "git_push {tree: <checkout>, setUpstream: true}" [shape=plaintext];
     "git_push result?" [shape=diamond];
     "STOP: push feature branches only with git_push" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -111,7 +111,7 @@ digraph publish_skill {
     "Drifted pack current?" [shape=diamond];
     "Gate: drift survives the compile" [shape=box];
     "git add <drifted pack files>; git commit" [shape=plaintext];
-    "Push the drifted pack's default branch" [shape=box];
+    "Push the drifted pack's checked-out branch" [shape=box];
     "Drift push landed?" [shape=diamond];
     "Gate: drift push rejected" [shape=box];
     "claude plugin update <drifted pack>@<marketplace>" [shape=plaintext];
@@ -160,14 +160,14 @@ digraph publish_skill {
     "Gate: certify rounds spent" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill folder this change wrote or revised>" [label="retry: human fixed it"];
     "Gate: certify rounds spent" -> "Handed to the human" [label="human takes over"];
     "Bump version in the manifest" -> "git add <files>; git commit";
-    "git add <files>; git commit" -> "On the default branch?";
-    "On the default branch?" -> "Push the default branch from the checkout" [label="yes: a team pack"];
-    "On the default branch?" -> "git_push {tree: <checkout>, setUpstream: true}" [label="no: a feature branch, and every mattstack change"];
-    "Push the default branch from the checkout" -> "Push landed?";
+    "git add <files>; git commit" -> "Team pack (the org clone, on whatever branch it has checked out)?";
+    "Team pack (the org clone, on whatever branch it has checked out)?" -> "Push the org clone's checked-out branch" [label="yes: a team pack"];
+    "Team pack (the org clone, on whatever branch it has checked out)?" -> "git_push {tree: <checkout>, setUpstream: true}" [label="no: every mattstack change"];
+    "Push the org clone's checked-out branch" -> "Push landed?";
     "Push landed?" -> "List the packs to bring current" [label="yes"];
-    "Push landed?" -> "Gate: default-branch push rejected" [label="no: quote the rejection"];
-    "Gate: default-branch push rejected" -> "Push the default branch from the checkout" [label="retry: human fixed it"];
-    "Gate: default-branch push rejected" -> "Handed to the human" [label="human takes over"];
+    "Push landed?" -> "Gate: team pack push rejected" [label="no: quote the rejection"];
+    "Gate: team pack push rejected" -> "Push the org clone's checked-out branch" [label="retry: human fixed it"];
+    "Gate: team pack push rejected" -> "Handed to the human" [label="human takes over"];
     "git_push {tree: <checkout>, setUpstream: true}" -> "git_push result?";
     "git_push result?" -> "Pushed: sync waits until the branch lands on main" [label="ok"];
     "git_push result?" -> "STOP: push feature branches only with git_push" [label="refused"];
@@ -200,11 +200,11 @@ digraph publish_skill {
     "Drifted pack current?" -> "Gate: drift survives the compile" [label="no"];
     "Gate: drift survives the compile" -> "rt_verb {args: [\"skills\", \"compile\", \"--pack\", \"<drifted pack>\"]}" [label="retry: human fixed it"];
     "Gate: drift survives the compile" -> "Handed to the human" [label="human takes over"];
-    "git add <drifted pack files>; git commit" -> "Push the drifted pack's default branch";
-    "Push the drifted pack's default branch" -> "Drift push landed?";
+    "git add <drifted pack files>; git commit" -> "Push the drifted pack's checked-out branch";
+    "Push the drifted pack's checked-out branch" -> "Drift push landed?";
     "Drift push landed?" -> "claude plugin update <drifted pack>@<marketplace>" [label="yes"];
     "Drift push landed?" -> "Gate: drift push rejected" [label="no: quote the rejection"];
-    "Gate: drift push rejected" -> "Push the drifted pack's default branch" [label="retry: human fixed it"];
+    "Gate: drift push rejected" -> "Push the drifted pack's checked-out branch" [label="retry: human fixed it"];
     "Gate: drift push rejected" -> "Handed to the human" [label="human takes over"];
     "claude plugin update <drifted pack>@<marketplace>" -> "Another listed pack not yet current?";
     "Another listed pack not yet current?" -> "Sync calls = listed packs + 2?" [label="yes"];
@@ -264,8 +264,9 @@ after the mattstack cache updates:
 
 `rt skills compile --pack mattstack --pack-dir <your monorepo worktree>/plugins/mattstack` <!-- mcp-lint: allow -->
 
-A team pack's own fill compiles in the org clone, which `--pack` resolves,
-so it takes no `--pack-dir`:
+A team pack's own fill compiles in the org clone, which `--pack` resolves
+(unless your cwd is inside another copy of that pack, which then wins), so
+it takes no `--pack-dir`:
 `rt_verb {args: ["skills", "compile", "--pack", "<pack>"]}`. Never use the
 `--pack` form alone for mattstack: it resolves mattstack to the shared
 monorepo checkout.
@@ -334,10 +335,11 @@ from the app, leave the floor and, if the `Engine floor` check in the
 changes), add a line `engine-floor: unchanged <reason>` to the PR body.
 Edit the PR body, then push a commit: re-running the job reads the old body.
 
-### Push the default branch from the checkout
+### Push the org clone's checked-out branch
 
-From the checkout directory (for a team pack, the org clone), a bare push
-(`git_push` refuses a default branch):
+From the org clone, on the branch it has checked out, a bare push. A team
+pack always takes it: `git_push` refuses main, master and origin's default
+branch, and on some orgs that is the branch the clone has checked out.
 
 `git push` <!-- mcp-lint: allow -->
 
@@ -412,9 +414,10 @@ first.`): update the app, never lower the floor. A pack whose own floor is
 above this app is not a refusal: sync reports it held (`skipped`, with the
 update-the-app copy) and leaves its installed copy alone.
 
-### Push the drifted pack's default branch
+### Push the drifted pack's checked-out branch
 
-In the drifted pack's checkout, the same bare push:
+In the drifted pack's org clone, on the branch it has checked out, the
+same bare push:
 
 `git push` <!-- mcp-lint: allow -->
 
@@ -459,7 +462,7 @@ Quote the `FAIL` lines from the last certify run and propose the fix you
 would try next. Retry: the human fixed it; certify again, with `Certify
 rounds` starting again at zero. Takes over: the human finishes the change.
 
-### Gate: default-branch push rejected
+### Gate: team pack push rejected
 
 Quote the rejection and propose the next move (bring in the remote change,
 fix the credentials). Never force. Retry: the human fixed it; push again,
@@ -544,8 +547,8 @@ in the pack working tree for you to carry forward. An in-tree plugin is
 never pulled, bumped, compiled or committed in the shared checkout: its
 version is read from `main`, and drift in it refuses so the fix lands as a
 monorepo pull request. A merged mattstack change reaches sync only once the
-shared monorepo checkout's `main` is current (see Push the default branch
-from the checkout). What sync never does is
+shared monorepo checkout's `main` is current (see Push the org clone's
+checked-out branch). What sync never does is
 author or bump the ENGINE, so everything up to the push stays yours in
 every case.
 
@@ -587,7 +590,7 @@ What `compile` and `check` read:
 | Source                                       | Read from                                                                                                                            |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache                                                                                                 |
-| the pack's own fills                         | the pack checkout (`--pack-dir`)                                                                                                     |
+| the pack's own fills                         | the pack dir `--pack` resolves (the org clone)                                                                                       |
 | everything, for `--pack mattstack` itself    | the monorepo CHECKOUT's plugins/mattstack (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
 | mattstack version in every seam marker       | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
 | the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json` (never hand-edited; `check` reports a stale one as drift). mattstack's own floor is hand-maintained |
