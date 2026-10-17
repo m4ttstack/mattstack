@@ -922,6 +922,46 @@ describe('a specialized pipeline', () => {
     });
   });
 
+  it("titles a stage copy's link card by its stage and pipeline, keeping its file", () => {
+    const view = buildTemplateView({
+      anatomy: anatomyA11y,
+      composition,
+      check,
+      changes: undefined,
+      step: null,
+      workType: 'accessibility',
+    });
+    expect(view.links[3]).toMatchObject({
+      title: 'evidence · accessibility',
+      file: 'stage-evidence--accessibility/SKILL.md',
+    });
+    expect(view.links[2]).toMatchObject({
+      title: 'stage-gates/SKILL.md',
+      file: 'stage-gates/SKILL.md',
+    });
+  });
+
+  it("titles a stage copy's rendered card by its stage and pipeline", () => {
+    const copy = buildTemplateView({
+      anatomy: anatomyCopy,
+      composition,
+      check,
+      changes: undefined,
+      step: 4,
+      workType: 'accessibility',
+    });
+    const stage = buildTemplateView({
+      anatomy: anatomyEvidence,
+      composition,
+      check,
+      changes: undefined,
+      step: 4,
+      workType: 'feature',
+    });
+    expect(copy.output?.title).toBe('evidence · accessibility');
+    expect(stage.output?.title).toBe('evidence');
+  });
+
   it('fills the copy from the override and the default stage from the default', () => {
     const copyView = buildTemplateView({
       anatomy: anatomyCopy,

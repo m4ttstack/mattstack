@@ -326,6 +326,38 @@ describe('runs page, Day timeline', () => {
     expect(card).not.toHaveTextContent('API-7');
   });
 
+  it('timeline shows and clears the pipeline filter', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: RUNS.map(r =>
+          r.id === 'merged' ? { ...r, pipeline: 'accessibility' } : r
+        ),
+        asOf: NOW,
+      })
+    );
+    history.replaceState(null, '', '/?view=timeline&pipeline=accessibility');
+    renderPage();
+    await screen.findByTestId('timeline-row-merged');
+    expect(rowIds()).toEqual(['merged']);
+    expect(
+      document.querySelector('[data-parity="Title row"] [data-parity="sub"]')
+    ).toHaveTextContent(/^accessibility pipeline · Thu Oct 8 · /);
+
+    const select = document.querySelector<HTMLInputElement>(
+      'input[aria-label="pipeline"]'
+    )!;
+    expect(select).toHaveValue('accessibility');
+    await userEvent.click(select);
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'all pipelines' })
+    );
+    expect(location.search).toBe('?view=timeline');
+    await waitFor(() => expect(rowIds()).toEqual(['live', 'merged']));
+    expect(
+      document.querySelector('[data-parity="Title row"] [data-parity="sub"]')
+    ).toHaveTextContent(/^Thu Oct 8 · /);
+  });
+
   it('switches to the list and back', async () => {
     renderPage();
     await screen.findByTestId('day-timeline');

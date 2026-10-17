@@ -44,7 +44,7 @@ import { LiveLane } from './LiveLane';
 import { gateHref, runHref, ticketOf } from './runLinks';
 import classes from './RunsPage.module.css';
 import { StatLine } from './StatLine';
-import { TimelineView, ViewToggle } from './TimelineView';
+import { PipelineSelect, TimelineView, ViewToggle } from './TimelineView';
 import { useLinkedGates } from './useLinkedGates';
 import { useRunsUrl } from './useRunsUrl';
 import { WaitingBanner } from './WaitingBanner';
@@ -57,7 +57,6 @@ const FILTERS: { value: RunsFilter; label: string }[] = [
 ];
 
 const ALL_REPOS = '';
-const ALL_PIPELINES = '';
 const NO_GATES: GateRow[] = [];
 
 function EmptyCard({ title, sub }: { title: string; sub: string }) {
@@ -259,6 +258,8 @@ export function RunsPage() {
                   gatesByRun={linked.byRun}
                   loading={!settled || !linked.loaded}
                   repoName={url.repo ? labelOf(url.repo) : null}
+                  pipeline={url.pipeline}
+                  pipelines={pipelines}
                   now={now}
                   day={url.day}
                   setUrl={setUrl}
@@ -286,9 +287,14 @@ export function RunsPage() {
                     className={classes.titleBlock}
                     data-parity="sub"
                   >
-                    {repoName
-                      ? `${repoName} · every pipeline run on this Mac`
-                      : 'every pipeline run on this Mac'}
+                    {[
+                      repoName,
+                      url.pipeline
+                        ? `${url.pipeline} pipeline runs on this Mac`
+                        : 'every pipeline run on this Mac',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </Text>
                   <MattstackShell.AppBar>
                     <Select
@@ -309,23 +315,11 @@ export function RunsPage() {
                       ]}
                       onChange={v => setUrl({ repo: v ? v : null })}
                     />
-                    {pipelines.length > 1 || url.pipeline ? (
-                      <Select
-                        aria-label="pipeline"
-                        w={180}
-                        size="xs"
-                        leftSection={<Icon name="workflow" size={14} />}
-                        value={url.pipeline ?? ALL_PIPELINES}
-                        data={[
-                          { value: ALL_PIPELINES, label: 'all pipelines' },
-                          ...pipelines.map(p => ({ value: p, label: p })),
-                          ...(url.pipeline && !pipelines.includes(url.pipeline)
-                            ? [{ value: url.pipeline, label: url.pipeline }]
-                            : []),
-                        ]}
-                        onChange={v => setUrl({ pipeline: v ? v : null })}
-                      />
-                    ) : null}
+                    <PipelineSelect
+                      pipelines={pipelines}
+                      value={url.pipeline}
+                      onChange={pipeline => setUrl({ pipeline })}
+                    />
                   </MattstackShell.AppBar>
                   <Group gap={8} wrap="nowrap">
                     <SegmentedControl

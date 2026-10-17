@@ -53,6 +53,17 @@ export function stepLabel(skill: string): string {
     : skill;
 }
 
+/** A stage copy as `evidence · accessibility`; null for any other skill. */
+export function copyLabelOf(
+  composition: Pick<SkillsComposition, 'targets'>,
+  skill: string
+): string | null {
+  const target = composition.targets?.find(t => t.name === skill);
+  return target?.engine && target.pipeline
+    ? `${stepLabel(target.engine)} · ${target.pipeline}`
+    : null;
+}
+
 export function buildFocusGroups(
   composition: SkillsComposition,
   check: SkillsCheck | undefined

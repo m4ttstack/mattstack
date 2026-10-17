@@ -487,6 +487,25 @@ describe('RunsPage', () => {
     );
   });
 
+  it('names the filtered pipeline in the title', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: [
+          done({ id: 'feat', pipeline: 'feature' }),
+          done({ id: 'a11y', pipeline: 'accessibility' }),
+        ],
+        repos: [{ repo: 'remote:acme%2Fweb', label: 'web' }],
+        asOf: NOW,
+      })
+    );
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+    history.replaceState(null, '', '/?pipeline=accessibility');
+    renderPage();
+    expect(
+      await screen.findByText('web · accessibility pipeline runs on this Mac')
+    ).toBeInTheDocument();
+  });
+
   it('offers no pipeline choice when every run shares one', async () => {
     runsGet.mockResolvedValue(
       ok({ runs: RUNS.filter(r => r.pipeline === 'work'), asOf: NOW })

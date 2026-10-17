@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
+import { MattstackShell } from '@mattstack/app-kit/app';
 import {
   Group,
   SegmentedControl,
+  Select,
   Stack,
   Text,
   Tooltip,
@@ -50,6 +52,39 @@ export function ViewToggle({
   );
 }
 
+const ALL_PIPELINES = '';
+
+/** The pipeline filter, on both views of the runs page; shown only when
+    there is a choice to make or one already made. */
+export function PipelineSelect({
+  pipelines,
+  value,
+  onChange,
+}: {
+  pipelines: string[];
+  value: string | null;
+  onChange: (pipeline: string | null) => void;
+}) {
+  if (pipelines.length < 2 && !value) return null;
+  return (
+    <Select
+      aria-label="pipeline"
+      w={180}
+      size="xs"
+      leftSection={<Icon name="workflow" size={14} />}
+      value={value ?? ALL_PIPELINES}
+      data={[
+        { value: ALL_PIPELINES, label: 'all pipelines' },
+        ...pipelines.map(p => ({ value: p, label: p })),
+        ...(value && !pipelines.includes(value)
+          ? [{ value, label: value }]
+          : []),
+      ]}
+      onChange={v => onChange(v ? v : null)}
+    />
+  );
+}
+
 export interface TimelineViewProps {
   runs: RunSummary[];
   gates: GateRow[];
@@ -58,6 +93,10 @@ export interface TimelineViewProps {
   loading: boolean;
   /** The repo `?repo=` filters to, or null for every repo. */
   repoName: string | null;
+  /** The pipeline `?pipeline=` filters to, or null for every pipeline. */
+  pipeline: string | null;
+  /** The pipelines the filter can choose from. */
+  pipelines: string[];
   now: number;
   day: string | null;
   setUrl: (patch: Partial<RunsUrl>) => void;
@@ -78,6 +117,8 @@ export function TimelineView({
   gatesByRun,
   loading,
   repoName,
+  pipeline,
+  pipelines,
   now,
   day,
   setUrl,
@@ -118,6 +159,7 @@ export function TimelineView({
     key,
     now,
     repoName,
+    pipeline,
     overnight,
   });
   const settling = loading || pending;
@@ -137,6 +179,13 @@ export function TimelineView({
             {timeline.sub}
           </Text>
         </Stack>
+        <MattstackShell.AppBar>
+          <PipelineSelect
+            pipelines={pipelines}
+            value={pipeline}
+            onChange={next => setUrl({ pipeline: next })}
+          />
+        </MattstackShell.AppBar>
         <ViewToggle
           view="timeline"
           onChange={view => setUrl({ view, day: null })}

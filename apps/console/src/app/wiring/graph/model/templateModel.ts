@@ -11,7 +11,7 @@ import {
 } from '../../outline';
 import { ownerOf, type Owner } from '../../owner';
 import type { SkillsAnatomy, SkillsChanges } from '../../useWiring';
-import { stepLabel } from './focusModel';
+import { copyLabelOf, stepLabel } from './focusModel';
 
 export type RowState =
   | 'ok'
@@ -89,6 +89,9 @@ export type LinkCard = {
   rowId: string;
   skill: string;
   title: string;
+  /** The linked file, `stage-plan/SKILL.md`; the title too unless the step
+      is a stage copy. */
+  file: string;
   subtitle: string;
   status: SkillStatus;
 };
@@ -503,7 +506,8 @@ export function buildTemplateView(input: {
           skill,
           id,
           stepOf(skill),
-          checkRows.get(skill)
+          checkRows.get(skill),
+          copyLabelOf(composition, skill)
         )
       );
       continue;
@@ -822,7 +826,8 @@ function linkCard(
   skill: string,
   rowId: string,
   step: number | null,
-  row: CheckRow | undefined
+  row: CheckRow | undefined,
+  copyLabel: string | null
 ): LinkCard {
   const lines = part.target?.lines ?? null;
   const status: SkillStatus =
@@ -835,11 +840,15 @@ function linkCard(
   ]
     .filter(phrase => phrase !== null)
     .join(' · ');
+  const file = part.target
+    ? fileLabelOf(part.target.path)
+    : `${skill}/SKILL.md`;
   return {
     id: cardId,
     rowId,
     skill,
-    title: part.target ? fileLabelOf(part.target.path) : `${skill}/SKILL.md`,
+    title: copyLabel ?? file,
+    file,
     subtitle,
     status,
   };
@@ -874,7 +883,7 @@ function outputCard(
 
   return {
     step,
-    title: stepLabel(anatomy.skill),
+    title: copyLabelOf(composition, anatomy.skill) ?? stepLabel(anatomy.skill),
     lines: rendered.lines,
     status,
     reason: status === 'stale' ? staleReason(row?.staleBecause) : null,
