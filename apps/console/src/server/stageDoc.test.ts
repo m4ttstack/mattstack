@@ -207,6 +207,16 @@ describe('resolveStageDoc', () => {
     ).toMatchObject({ text: 'ACME EVIDENCE', pack: 'acme' });
   });
 
+  it("reads nothing when the pack's dir is here but the commit holds only another pack's docs", async () => {
+    expect(
+      await resolveStageDoc(deps(), {
+        packCommits: 'acme=fff6666',
+        stage: 'evidence',
+        pipeline: 'accessibility',
+      })
+    ).toBeNull();
+  });
+
   describe('for a pack with no dir on this machine', () => {
     const onlyGlobex = deps({
       packDirs: async () => [

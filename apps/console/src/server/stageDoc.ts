@@ -111,7 +111,7 @@ async function fromSha(
       (ownDir && rel ? hits.find(p => p.startsWith(rel + '/')) : undefined);
     const pick =
       byStage.map(ownPick).find(p => p !== undefined) ??
-      (ownDir ? byStage.find(h => h.length > 0)?.[0] : undefined);
+      (!named && ownDir ? byStage.find(h => h.length > 0)?.[0] : undefined);
     if (pick === undefined) continue;
     const text = await git(deps, ['-C', root, 'show', `${token.ref}:${pick}`]);
     if (text != null) {
