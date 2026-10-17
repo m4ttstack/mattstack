@@ -35,33 +35,33 @@ the evidence section by hand. A `<slug> spent?` diamond is yes when the
 
 ```dot
 digraph record_evidence {
-    "Record the evidence (evidence-record)" [shape=ellipse];
-    "evidence_record {runDb, stage, tree: <worktree>, images, cases?, transcript?, url?}" [shape=plaintext];
-    "evidence_record result?" [shape=diamond];
-    "run_budget {runDb, key: evidence:cover-rounds, limit: 3, stage}" [shape=plaintext];
-    "cover-rounds spent?" [shape=diamond];
-    "Annotate or waive each image the record does not yet cover (evidence-record)" [shape=box];
-    "Annotate or waive outcome?" [shape=diamond];
-    "run_budget {runDb, key: evidence:record-retries, limit: 1, stage}" [shape=plaintext];
-    "record-retries spent?" [shape=diamond];
-    "Recorded" [shape=doublecircle style=filled fillcolor=lightgreen];
-    "Record held" [shape=doublecircle];
-    "Record failed" [shape=doublecircle];
+    record_evidence [label="Record the evidence (evidence-record)" shape=ellipse];
+    evidence_record [label="evidence_record {runDb, stage, tree: <worktree>, images, cases?, transcript?, url?}" shape=plaintext];
+    record_result [label="evidence_record result?" shape=diamond];
+    run_budget_cover [label="run_budget {runDb, key: evidence:cover-rounds, limit: 3, stage}" shape=plaintext];
+    cover_rounds_spent [label="cover-rounds spent?" shape=diamond];
+    annotate_or_waive [label="Annotate or waive each image the record does not yet cover (evidence-record)" shape=box];
+    annotate_outcome [label="Annotate or waive outcome?" shape=diamond];
+    run_budget_retries [label="run_budget {runDb, key: evidence:record-retries, limit: 1, stage}" shape=plaintext];
+    record_retries_spent [label="record-retries spent?" shape=diamond];
+    recorded [label="Recorded" shape=doublecircle style=filled fillcolor=lightgreen];
+    record_held [label="Record held" shape=doublecircle];
+    record_failed [label="Record failed" shape=doublecircle];
 
-    "Record the evidence (evidence-record)" -> "evidence_record {runDb, stage, tree: <worktree>, images, cases?, transcript?, url?}" -> "evidence_record result?";
-    "evidence_record result?" -> "Recorded" [label="written"];
-    "evidence_record result?" -> "run_budget {runDb, key: evidence:cover-rounds, limit: 3, stage}" [label="uncovered listed"];
-    "evidence_record result?" -> "run_budget {runDb, key: evidence:record-retries, limit: 1, stage}" [label="the evidence field changed during this call"];
-    "evidence_record result?" -> "Record failed" [label="any other error"];
-    "run_budget {runDb, key: evidence:cover-rounds, limit: 3, stage}" -> "cover-rounds spent?";
-    "cover-rounds spent?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no"];
-    "Annotate or waive each image the record does not yet cover (evidence-record)" -> "Annotate or waive outcome?";
-    "Annotate or waive outcome?" -> "evidence_record {runDb, stage, tree: <worktree>, images, cases?, transcript?, url?}" [label="Ready: each image `uncovered` lists, by its path there, with its cover and a new case's label"];
-    "Annotate or waive outcome?" -> "Record held" [label="Waiver held"];
-    "Annotate or waive outcome?" -> "Record failed" [label="Waiver openings spent"];
-    "run_budget {runDb, key: evidence:record-retries, limit: 1, stage}" -> "record-retries spent?";
-    "record-retries spent?" -> "evidence_record {runDb, stage, tree: <worktree>, images, cases?, transcript?, url?}" [label="no: the same call again"];
-    {"cover-rounds spent?" "record-retries spent?"} -> "Record failed" [label="yes"];
+    record_evidence -> evidence_record -> record_result;
+    record_result -> recorded [label="written"];
+    record_result -> run_budget_cover [label="uncovered listed"];
+    record_result -> run_budget_retries [label="the evidence field changed during this call"];
+    record_result -> record_failed [label="any other error"];
+    run_budget_cover -> cover_rounds_spent;
+    cover_rounds_spent -> annotate_or_waive [label="no"];
+    annotate_or_waive -> annotate_outcome;
+    annotate_outcome -> evidence_record [label="Ready: each image `uncovered` lists, by its path there, with its cover and a new case's label"];
+    annotate_outcome -> record_held [label="Waiver held"];
+    annotate_outcome -> record_failed [label="Waiver openings spent"];
+    run_budget_retries -> record_retries_spent;
+    record_retries_spent -> evidence_record [label="no: the same call again"];
+    {cover_rounds_spent record_retries_spent} -> record_failed [label="yes"];
 }
 ```
 
@@ -84,42 +84,42 @@ the verb, naming the images.
 
 ```dot
 digraph annotate_or_waive {
-    "Image needs cover" [shape=ellipse];
-    "Nothing selected, a video, or nothing worth marking?" [shape=diamond];
-    "Draw the marks beside the value copy" [shape=box];
-    "Drawn?" [shape=diamond];
-    "run_budget {runDb, key: evidence:draw-failures:<case>/<slot>[/<theme>], limit: 1, stage}" [shape=plaintext];
-    "draw-failures spent?" [shape=diamond];
-    "Write the caption" [shape=box];
-    "run_budget {runDb, key: evidence:waiver-openings:<case>/<slot>[/<theme>], limit: 2, stage}" [shape=plaintext];
-    "waiver-openings spent?" [shape=diamond];
-    "Gate evidence-waiver (below)" [shape=box];
-    "waiver answer?" [shape=diamond];
-    "STOP: only the human waives an image" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Waiver held" [shape=doublecircle];
-    "Waiver openings spent" [shape=doublecircle];
-    "Ready" [shape=doublecircle style=filled fillcolor=lightgreen];
+    image_needs_cover [label="Image needs cover" shape=ellipse];
+    nothing_to_mark [label="Nothing selected, a video, or nothing worth marking?" shape=diamond];
+    draw_marks [label="Draw the marks beside the value copy" shape=box];
+    drawn [label="Drawn?" shape=diamond];
+    run_budget_draw [label="run_budget {runDb, key: evidence:draw-failures:<case>/<slot>[/<theme>], limit: 1, stage}" shape=plaintext];
+    draw_failures_spent [label="draw-failures spent?" shape=diamond];
+    write_caption [label="Write the caption" shape=box];
+    run_budget_waiver [label="run_budget {runDb, key: evidence:waiver-openings:<case>/<slot>[/<theme>], limit: 2, stage}" shape=plaintext];
+    waiver_openings_spent [label="waiver-openings spent?" shape=diamond];
+    gate_evidence_waiver [label="Gate evidence-waiver (below)" shape=box];
+    waiver_answer [label="waiver answer?" shape=diamond];
+    stop_self_waive [label="STOP: only the human waives an image" shape=octagon style=filled fillcolor=red fontcolor=white];
+    waiver_held [label="Waiver held" shape=doublecircle];
+    waiver_openings_exhausted [label="Waiver openings spent" shape=doublecircle];
+    ready [label="Ready" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Image needs cover" -> "Nothing selected, a video, or nothing worth marking?";
-    "Nothing selected, a video, or nothing worth marking?" -> "Draw the marks beside the value copy" [label="no"];
-    "Nothing selected, a video, or nothing worth marking?" -> "STOP: only the human waives an image" [label="tempted to keep the base unmarked"];
-    "STOP: only the human waives an image" -> "run_budget {runDb, key: evidence:waiver-openings:<case>/<slot>[/<theme>], limit: 2, stage}";
-    "Draw the marks beside the value copy" -> "Drawn?";
-    "Drawn?" -> "Write the caption" [label="yes"];
-    "Drawn?" -> "run_budget {runDb, key: evidence:draw-failures:<case>/<slot>[/<theme>], limit: 1, stage}" [label="no"];
-    "Drawn?" -> "run_budget {runDb, key: evidence:waiver-openings:<case>/<slot>[/<theme>], limit: 2, stage}" [label="no, after Annotate it after all"];
-    "run_budget {runDb, key: evidence:draw-failures:<case>/<slot>[/<theme>], limit: 1, stage}" -> "draw-failures spent?";
-    "draw-failures spent?" -> "Draw the marks beside the value copy" [label="no: one retry"];
-    {"Nothing selected, a video, or nothing worth marking?" "draw-failures spent?"} -> "run_budget {runDb, key: evidence:waiver-openings:<case>/<slot>[/<theme>], limit: 2, stage}" [label="yes"];
-    "Write the caption" -> "Ready";
-    "run_budget {runDb, key: evidence:waiver-openings:<case>/<slot>[/<theme>], limit: 2, stage}" -> "waiver-openings spent?";
-    "waiver-openings spent?" -> "Gate evidence-waiver (below)" [label="no"];
-    "waiver-openings spent?" -> "Waiver openings spent" [label="yes"];
-    "Gate evidence-waiver (below)" -> "waiver answer?";
-    "waiver answer?" -> "Ready" [label="proceed: a reason"];
-    "waiver answer?" -> "Draw the marks beside the value copy" [label="proceed: Annotate it after all"];
-    "waiver answer?" -> "run_budget {runDb, key: evidence:waiver-openings:<case>/<slot>[/<theme>], limit: 2, stage}" [label="proceed with neither"];
-    "waiver answer?" -> "Waiver held" [label="hold"];
+    image_needs_cover -> nothing_to_mark;
+    nothing_to_mark -> draw_marks [label="no"];
+    nothing_to_mark -> stop_self_waive [label="tempted to keep the base unmarked"];
+    stop_self_waive -> run_budget_waiver;
+    draw_marks -> drawn;
+    drawn -> write_caption [label="yes"];
+    drawn -> run_budget_draw [label="no"];
+    drawn -> run_budget_waiver [label="no, after Annotate it after all"];
+    run_budget_draw -> draw_failures_spent;
+    draw_failures_spent -> draw_marks [label="no: one retry"];
+    {nothing_to_mark draw_failures_spent} -> run_budget_waiver [label="yes"];
+    write_caption -> ready;
+    run_budget_waiver -> waiver_openings_spent;
+    waiver_openings_spent -> gate_evidence_waiver [label="no"];
+    waiver_openings_spent -> waiver_openings_exhausted [label="yes"];
+    gate_evidence_waiver -> waiver_answer;
+    waiver_answer -> ready [label="proceed: a reason"];
+    waiver_answer -> draw_marks [label="proceed: Annotate it after all"];
+    waiver_answer -> run_budget_waiver [label="proceed with neither"];
+    waiver_answer -> waiver_held [label="hold"];
 }
 ```
 
@@ -162,58 +162,58 @@ refused files.
 
 ```dot
 digraph attach_evidence {
-    "Attach the evidence (evidence-record)" [shape=ellipse];
-    "Forge host?" [shape=diamond];
-    "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" [shape=plaintext];
-    "evidence_attach result?" [shape=diamond];
-    "STOP: only the human moves a refused file" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Off-script gate: upload refused" [shape=box];
-    "upload off-script answer?" [shape=diamond];
-    "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, linkRefused: true}" [shape=plaintext];
-    "Linked description written?" [shape=diamond];
-    "run_budget {runDb, key: evidence:upload-off-script, limit: 1, stage}" [shape=plaintext];
-    "upload-off-script spent?" [shape=diamond];
-    "Iterate needs a re-record?" [shape=diamond];
-    "Re-record the images through Record the evidence" [shape=box];
-    "Re-record outcome?" [shape=diamond];
-    "gh pr view <n> --json body" [shape=plaintext];
-    "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, description: <the body>}" [shape=plaintext];
-    "description returned?" [shape=diamond];
-    "gh pr edit <n> --body-file <file holding the returned description>" [shape=plaintext];
-    "Attached" [shape=doublecircle style=filled fillcolor=lightgreen];
-    "Taken" [shape=doublecircle];
-    "Attach held" [shape=doublecircle];
-    "Attach failed" [shape=doublecircle];
+    attach_evidence [label="Attach the evidence (evidence-record)" shape=ellipse];
+    forge_host [label="Forge host?" shape=diamond];
+    evidence_attach [label="evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" shape=plaintext];
+    attach_result [label="evidence_attach result?" shape=diamond];
+    stop_move_refused_file [label="STOP: only the human moves a refused file" shape=octagon style=filled fillcolor=red fontcolor=white];
+    gate_upload_refused [label="Off-script gate: upload refused" shape=box];
+    upload_answer [label="upload off-script answer?" shape=diamond];
+    evidence_attach_link [label="evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, linkRefused: true}" shape=plaintext];
+    link_written [label="Linked description written?" shape=diamond];
+    run_budget_upload [label="run_budget {runDb, key: evidence:upload-off-script, limit: 1, stage}" shape=plaintext];
+    upload_off_script_spent [label="upload-off-script spent?" shape=diamond];
+    needs_rerecord [label="Iterate needs a re-record?" shape=diamond];
+    rerecord_images [label="Re-record the images through Record the evidence" shape=box];
+    rerecord_outcome [label="Re-record outcome?" shape=diamond];
+    gh_pr_view [label="gh pr view <n> --json body" shape=plaintext];
+    evidence_attach_body [label="evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, description: <the body>}" shape=plaintext];
+    description_returned [label="description returned?" shape=diamond];
+    gh_pr_edit [label="gh pr edit <n> --body-file <file holding the returned description>" shape=plaintext];
+    attached [label="Attached" shape=doublecircle style=filled fillcolor=lightgreen];
+    taken [label="Taken" shape=doublecircle];
+    attach_held [label="Attach held" shape=doublecircle];
+    attach_failed [label="Attach failed" shape=doublecircle];
 
-    "Attach the evidence (evidence-record)" -> "Forge host?";
-    "Forge host?" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" [label="GitLab"];
-    "Forge host?" -> "gh pr view <n> --json body" [label="GitHub"];
-    "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" -> "evidence_attach result?";
-    "evidence_attach result?" -> "Attached" [label="descriptionWritten, or notWritten: unchanged"];
-    "evidence_attach result?" -> "STOP: only the human moves a refused file" [label="any refused bucket, or timedOutTwice"];
-    "evidence_attach result?" -> "STOP: only the human moves a refused file" [label="tempted to copy the file or upload another way"];
-    "evidence_attach result?" -> "Attach failed" [label="writeErrors, or the call errored"];
-    "STOP: only the human moves a refused file" -> "Off-script gate: upload refused" -> "upload off-script answer?";
-    "upload off-script answer?" -> "Taken" [label="proceed + take, a later stage attaches (stage-evidence)"];
-    "upload off-script answer?" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, linkRefused: true}" [label="proceed + take, the last attach (ship, stage-ship)"];
-    "upload off-script answer?" -> "Attach failed" [label="proceed + hand back"];
-    "upload off-script answer?" -> "run_budget {runDb, key: evidence:upload-off-script, limit: 1, stage}" [label="iterate"];
-    "upload off-script answer?" -> "Attach held" [label="hold"];
-    "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, linkRefused: true}" -> "Linked description written?";
-    "run_budget {runDb, key: evidence:upload-off-script, limit: 1, stage}" -> "upload-off-script spent?";
-    "upload-off-script spent?" -> "Iterate needs a re-record?" [label="no"];
-    "Iterate needs a re-record?" -> "Re-record the images through Record the evidence" [label="yes: size, bytes or missing (a recapture), a new file, or a record or raw-capture refusal"];
-    "Iterate needs a re-record?" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" [label="no: timedOutTwice, the human checked the daemon"];
-    "Re-record the images through Record the evidence" -> "Re-record outcome?";
-    "Re-record outcome?" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" [label="Recorded"];
-    "Re-record outcome?" -> "Attach held" [label="Record held"];
-    "Re-record outcome?" -> "Attach failed" [label="Record failed"];
-    "gh pr view <n> --json body" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, description: <the body>}" -> "description returned?";
-    "description returned?" -> "gh pr edit <n> --body-file <file holding the returned description>" [label="yes"];
-    "gh pr edit <n> --body-file <file holding the returned description>" -> "Attached";
-    "Linked description written?" -> "Attached" [label="yes"];
-    {"Linked description written?" "description returned?"} -> "Attach failed" [label="no"];
-    "upload-off-script spent?" -> "Attach failed" [label="yes"];
+    attach_evidence -> forge_host;
+    forge_host -> evidence_attach [label="GitLab"];
+    forge_host -> gh_pr_view [label="GitHub"];
+    evidence_attach -> attach_result;
+    attach_result -> attached [label="descriptionWritten, or notWritten: unchanged"];
+    attach_result -> stop_move_refused_file [label="any refused bucket, or timedOutTwice"];
+    attach_result -> stop_move_refused_file [label="tempted to copy the file or upload another way"];
+    attach_result -> attach_failed [label="writeErrors, or the call errored"];
+    stop_move_refused_file -> gate_upload_refused -> upload_answer;
+    upload_answer -> taken [label="proceed + take, a later stage attaches (stage-evidence)"];
+    upload_answer -> evidence_attach_link [label="proceed + take, the last attach (ship, stage-ship)"];
+    upload_answer -> attach_failed [label="proceed + hand back"];
+    upload_answer -> run_budget_upload [label="iterate"];
+    upload_answer -> attach_held [label="hold"];
+    evidence_attach_link -> link_written;
+    run_budget_upload -> upload_off_script_spent;
+    upload_off_script_spent -> needs_rerecord [label="no"];
+    needs_rerecord -> rerecord_images [label="yes: size, bytes or missing (a recapture), a new file, or a record or raw-capture refusal"];
+    needs_rerecord -> evidence_attach [label="no: timedOutTwice, the human checked the daemon"];
+    rerecord_images -> rerecord_outcome;
+    rerecord_outcome -> evidence_attach [label="Recorded"];
+    rerecord_outcome -> attach_held [label="Record held"];
+    rerecord_outcome -> attach_failed [label="Record failed"];
+    gh_pr_view -> evidence_attach_body -> description_returned;
+    description_returned -> gh_pr_edit [label="yes"];
+    gh_pr_edit -> attached;
+    link_written -> attached [label="yes"];
+    {link_written description_returned} -> attach_failed [label="no"];
+    upload_off_script_spent -> attach_failed [label="yes"];
 }
 ```
 
