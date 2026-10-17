@@ -5,7 +5,14 @@ Usage:
   convert.py --scheme <scheme> <in.md> [out.md]   rewrite every ```dot block
   convert.py --measure <file.md> [...]            word counts per scheme
   convert.py --breakdown <file.md> [...]          id words per node shape today
-  convert.py --verify <file.md> [...]             every scheme keeps each graph
+  convert.py --verify <file.md> [...] [--slugs <map.json>]
+                                                  every scheme keeps each graph
+  convert.py --emit-slugs <in.md>                 JSON {"<node text>": "<slug>"}
+                                                  for every node scheme all converts
+  convert.py --scheme all --slugs <map.json> <in.md> [out.md]
+                                                  use the map's slug for each text
+                                                  it lists, the auto slug otherwise;
+                                                  an entry matching no node exits 1
 
 Schemes say which nodes get a short id; every other node keeps its sentence
 as its quoted id:
@@ -20,7 +27,11 @@ name the slug. Words are counted like `wc -w` (whitespace-separated runs).
 Only fences that open at column 1 are rewritten, the same blocks render.sh
 and check-dot.py read.
 """
+import importlib.util
+import json
+import os
 import re
+import subprocess
 import sys
 
 FENCE_OPEN = re.compile(r"^```dot\s*$")
@@ -98,24 +109,53 @@ def node_positions(toks):
     return found
 
 
+def load_call_prefix():
+    sys.dont_write_bytecode = True
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "../../../../plugin/skills/process-digraphs/check-dot.py")
+    spec = importlib.util.spec_from_file_location("check_dot", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.call_prefix
+
+
+call_prefix = load_call_prefix()
+LABELLED_ID = re.compile(r"^[a-z]+(_[a-z]+)*$")
+FILLERS = ["alt", "other", "more", "else"]
+
+
+def words_of(text):
+    return [w for w in re.findall(r"[a-z]+", text.lower()) if w not in STOPWORDS]
+
+
 def make_slug(text, shape, taken):
+    extra = []
     if shape == "plaintext":
-        head = re.match(r"[A-Za-z_][A-Za-z0-9_]*", text)
-        words = [head.group()] if head else []
-        tail = re.split(r"[}\]]\s*:\s*", text, maxsplit=1)
-        if len(tail) == 2:
-            words += [w for w in re.findall(r"[a-z0-9]+", tail[1].lower()) if w not in STOPWORDS][:2]
-        elif not head or " " in text.split("{")[0].strip():
-            words = re.findall(r"[a-z0-9]+", text.split("{")[0].lower())[:3]
+        prefix = call_prefix(text)
+        if LABELLED_ID.match(prefix):
+            head = [prefix]
+            tail = re.split(r"[}\]]\s*:\s*", text, maxsplit=1)
+            if len(tail) == 2:
+                extra = words_of(tail[1])[:2]
+        else:
+            print(f"note: no call prefix can start an id for {text!r}; using a word slug", file=sys.stderr)
+            head, extra = [], words_of(text.split("{")[0])[:3]
     else:
-        words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in STOPWORDS]
-        words = (["stop"] if text.startswith("STOP") else []) + [w for w in words if w != "stop"][:3]
-    base = "_".join(words) or "node"
-    if not re.match(r"[A-Za-z_]", base):
-        base = "n_" + base
-    slug, n = base, 2
-    while slug in taken or slug.lower() in KEYWORDS:
-        slug, n = f"{base}_{n}", n + 1
+        head = ["stop"] if shape == "octagon" else []
+        extra = [w for w in words_of(text) if w != "stop"][:3]
+    base = "_".join(head + extra) or "node"
+    if shape == "octagon" and not extra:
+        base = "stop_here"
+    spare = [w for w in words_of(text) if w not in base.split("_")] + FILLERS
+    slug, grown = base, base
+    for word in [None] + spare:
+        slug = base if word is None else f"{base}_{word}"
+        if slug not in taken and slug not in KEYWORDS:
+            break
+    else:
+        while grown in taken or grown in KEYWORDS:
+            grown += "_" + FILLERS[grown.count("_") % len(FILLERS)]
+        slug = grown
     taken.add(slug)
     return slug
 
@@ -132,7 +172,7 @@ def chosen(scheme, text, shape):
     raise ValueError(f"unknown scheme {scheme}")
 
 
-def convert_block(src, scheme):
+def convert_block(src, scheme, slugmap=None):
     toks = tokens(src)
     positions = node_positions(toks)
     shapes, declared = {}, {}
@@ -143,12 +183,22 @@ def convert_block(src, scheme):
             if attr and shape_of(attr):
                 shapes.setdefault(name, shape_of(attr))
             declared.setdefault(name, i)
-    slugs, taken = {}, set()
+    picked = []
     for i, _ in positions:
         name = unquote(toks[i][1]) if toks[i][0] == "str" else toks[i][1]
-        if toks[i][0] != "str" or name in slugs or name not in declared:
-            continue
-        if chosen(scheme, name, shapes.get(name, "ellipse")):
+        if toks[i][0] == "str" and name not in picked and name in declared \
+                and chosen(scheme, name, shapes.get(name, "ellipse")):
+            picked.append(name)
+    slugs, taken = {}, set()
+    for name in picked:
+        if name in (slugmap or {}):
+            slug = slugmap[name]
+            if slug in taken:
+                raise ValueError(f"slug {slug!r} is used twice in one graph")
+            slugs[name] = slug
+            taken.add(slug)
+    for name in picked:
+        if name not in slugs:
             slugs[name] = make_slug(name, shapes.get(name, "ellipse"), taken)
     out = [t[1] for t in toks]
     for i, _ in positions:
@@ -167,7 +217,7 @@ def convert_block(src, scheme):
     return "".join(out), slugs
 
 
-def convert_markdown(text, scheme):
+def convert_markdown(text, scheme, slugmap=None):
     lines, out, i, all_slugs = text.split("\n"), [], 0, []
     while i < len(lines):
         out.append(lines[i])
@@ -177,7 +227,7 @@ def convert_markdown(text, scheme):
             while i < len(lines) and not FENCE_CLOSE.match(lines[i]):
                 body.append(lines[i])
                 i += 1
-            new, slugs = convert_block("\n".join(body), scheme)
+            new, slugs = convert_block("\n".join(body), scheme, slugmap)
             all_slugs.append(slugs)
             out.extend(new.split("\n"))
             if i < len(lines):
@@ -259,11 +309,8 @@ def breakdown(paths):
                 print(f"| {name} | {shape} | {n} | {words:,} | {saved:,} |")
 
 
-def verify(paths):
+def verify(paths, slugmap=None):
     """Fail unless each scheme's graphs match today's: same node texts, shapes and edges."""
-    import json
-    import subprocess
-
     def shape_of_graph(src):
         run = subprocess.run(["dot", "-Tjson"], input=src, capture_output=True, text=True, check=True)
         g = json.loads(run.stdout)
@@ -290,15 +337,34 @@ def verify(paths):
     for path in paths:
         text = open(path, encoding="utf-8").read()
         want = graphs(text)
-        for scheme in SCHEMES:
-            got = graphs(convert_markdown(text, scheme)[0])
+        runs = [(scheme, None) for scheme in SCHEMES]
+        if slugmap is not None:
+            runs.append(("all+slugs", slugmap))
+        for scheme, mapping in runs:
+            got = graphs(convert_markdown(text, scheme.split("+slugs")[0], mapping)[0])
             ok = got == want
             bad += not ok
             print(f"{'ok  ' if ok else 'FAIL'} {path.rsplit('/', 1)[-1]} {scheme}: {len(want)} graph(s)")
     return 1 if bad else 0
 
 
+def merged(all_slugs):
+    out = {}
+    for block in all_slugs:
+        for text, slug in block.items():
+            out.setdefault(text, slug)
+    return out
+
+
 def main(argv):
+    slugmap = None
+    if "--slugs" in argv:
+        k = argv.index("--slugs")
+        if k + 1 >= len(argv):
+            print((__doc__ or "").strip(), file=sys.stderr)
+            return 64
+        slugmap = json.load(open(argv[k + 1], encoding="utf-8"))
+        argv = argv[:k] + argv[k + 2:]
     if argv[:1] == ["--measure"] and len(argv) > 1:
         measure(argv[1:])
         return 0
@@ -306,10 +372,19 @@ def main(argv):
         breakdown(argv[1:])
         return 0
     if argv[:1] == ["--verify"] and len(argv) > 1:
-        return verify(argv[1:])
+        return verify(argv[1:], slugmap)
+    if argv[:1] == ["--emit-slugs"] and len(argv) == 2:
+        text = open(argv[1], encoding="utf-8").read()
+        print(json.dumps(merged(convert_markdown(text, "all")[1]), indent=2))
+        return 0
     if len(argv) >= 3 and argv[0] == "--scheme":
         text = open(argv[2], encoding="utf-8").read()
-        new, _ = convert_markdown(text, argv[1])
+        new, used = convert_markdown(text, argv[1], slugmap)
+        absent = sorted(set(slugmap or {}) - set(merged(used)))
+        if absent:
+            for name in absent:
+                print(f"slug map entry matches no converted node: {name!r}", file=sys.stderr)
+            return 1
         if len(argv) > 3:
             open(argv[3], "w", encoding="utf-8").write(new)
         else:
