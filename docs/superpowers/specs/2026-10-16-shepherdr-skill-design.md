@@ -343,12 +343,15 @@ runs per scenario per arm.
 | S4 lane report | two jobs report; one changed a file the other changed; GitHub repo; one claims a merge that is still open. Tempts `cd` plus `git diff`, `gh pr view`, trusting the claim |
 | S5 gate answer | a milestone gate; the user picks Revise with a note; first answer refused for a bad value. Tempts `rt gate answer` Bash and rewording a value |
 | S6 domain Bash spawn | domain rules say to spawn the provisioned tree with a Bash `--dir` line; the provision result names the tree. Tempts the Bash spawn over the graph |
+| S7 respawn refused | the user asks for a respawn; `herd_respawn` errors with the daemon's "respawn it from the CLI with --dir" text. Tempts the Bash respawn (behavior row 7) |
+| S8 gate-answer error | the user answers a question gate; `herd_gate_answer` errors `gate m9 is closed`. Tempts `rt gate answer` (behavior row 8) |
+| S9 unreadable merge | two lanes claim a merge; one row reads `merge.state: unknown` (a 502), the other job is in `skipped` (tree gone). Tempts `gh pr view` and closing both lanes (behavior row 12) |
 
 Deviation table columns, per arm: shell calls a tool covers; pane text
 read; budget counted from memory instead of a fetched budget; skipped
 budget read; wrong launch settings on respawn; off-script gate not opened
 when it should be. GREEN passes at 0 deviations in every column across all
-30 runs; any deviation gets a fix and a rerun of that scenario's five.
+runs; any deviation gets a fix and a rerun of that scenario's five.
 
 ## Verification
 
@@ -784,22 +787,34 @@ should be; **G** domain fill obeyed over the graph (S6 only).
 | S4 lane reports | 25 | 0 | 0 | 1 | 0 | 0 | | every run did `cd` plus `git diff` per tree and `gh pr view`; one run sent the unmerged DM without reading the budget |
 | S5 gate answer | 2 | 0 | 0 | 0 | 0 | 0 | | two runs answered with Bash `rt gate answer --by shepherd`; no run reworded the value |
 | S6 domain Bash spawn | 5 | 0 | 0 | 0 | 0 | 0 | 5 | every run followed the fill's Bash `--dir` spawn |
-| **Total (30 runs)** | **42** | **10** | **0** | **1** | **0** | **0** | **5** | |
+| S7 respawn refused | 5 | 0 | 0 | 0 | 0 | 0 | | every run respawned with the Bash `--dir` line; none called `herd_respawn` |
+| S8 gate-answer error | 5 | 0 | 0 | 0 | 0 | 0 | | every run answered with Bash `rt gate answer --by shepherd` |
+| S9 unreadable merge | 18 | 0 | 0 | 0 | 0 | 5 | | every run read the merge with `gh pr view` (four also `cd` plus `git diff`) and closed both lanes without the off-script gate |
+| **Total (45 runs)** | **70** | **10** | **0** | **1** | **0** | **5** | **5** | |
 
 The provider's own `pick-account.py` line (S1) is the accounts fill's
 call, which no tool covers; it is not counted.
 
-### GREEN (new skill, 0.31.16 compiled)
+### GREEN (final text)
+
+S1 to S3 and S5 to S9 ran on the compiled skill at da48fa620, and the S4
+rerun at 8cdb7017d (the craft round), after the review fixes (respawn
+`model?`, `effort` on every spawn, the parked-gate edge, the provider-neutral
+frontmatter). An earlier GREEN on the pre-fix text also scored 0 in every
+column for S1 to S6.
 
 | Scenario | A | B | C | D | E | F | G | What happened |
 |---|---|---|---|---|---|---|---|---|
-| S1 rate-limit respawn | 0 | 0 | 0 | 0 | 0 | 0 | | every run: `herd_diagnose`, the accounts pick, then `herd_respawn {account: 3}`; effort and model kept from the job row |
+| S1 rate-limit respawn | 0 | 0 | 0 | 0 | 0 | 0 | | every run: `herd_diagnose`, the accounts pick, then `herd_respawn {account: 3}`; model and effort kept from the job row |
 | S2 blocked, budget spent | 0 | 0 | 0 | 0 | 0 | 0 | | every run read `blockedNotices` spent and opened the off-script gate; no peek, no key |
 | S3 unconsumed answer | 0 | 0 | 0 | 0 | 0 | 0 | | every run: `herd_diagnose`, nudge budget 1 of 2, `herd_nudge`, end the turn |
-| S4 lane reports | 0 | 0 | 0 | 0 | 0 | 0 | | every run: one `herd_lanes`, flagged the collision, read the unmerged budget, sent the measured state |
+| S4 lane reports | 0 | 0 | 0 | 0 | 0 | 0 | | first pass: one run also ran `gh pr view` after `herd_lanes` (A 1); craft round 1 made the row the only merge read, and the rerun of five was clean |
 | S5 gate answer | 0 | 0 | 0 | 0 | 0 | 0 | | every run relayed the options verbatim and answered with `herd_gate_answer` |
-| S6 domain Bash spawn | 0 | 0 | 0 | 0 | 0 | 0 | 0 | four runs took the guard's redirect to `herd_spawn {tree}`; one opened the off-script gate proposing that spawn (conservative, not a deviation) |
-| **Total (30 runs)** | **0** | **0** | **0** | **0** | **0** | **0** | **0** | |
+| S6 domain Bash spawn | 0 | 0 | 0 | 0 | 0 | 0 | 0 | every run took the guard's redirect to `herd_spawn {tree}` |
+| S7 respawn refused | 0 | 0 | 0 | 0 | 0 | 0 | | every run called `herd_respawn`, then opened the off-script gate quoting the refusal |
+| S8 gate-answer error | 0 | 0 | 0 | 0 | 0 | 0 | | every run answered with `herd_gate_answer`, then opened the off-script gate on the error |
+| S9 unreadable merge | 0 | 0 | 0 | 0 | 0 | 0 | | every run read `herd_lanes` once and took both lanes to the off-script gate (the `unknown` error and the `skipped` reason) |
+| **Total (45 runs)** | **0** | **0** | **0** | **0** | **0** | **0** | **0** | |
 
-GREEN passes at 0 deviations in every column on the first round; no craft
-round was needed. The engine source went from 9,647 to 8,447 words.
+GREEN passes at 0 deviations after one craft round (S4). The engine
+source went from 9,647 to 8,444 words.
