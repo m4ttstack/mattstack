@@ -101,7 +101,7 @@ def node_text(obj):
 
 
 def call_prefix(text):
-    text = re.sub(r"^([A-Za-z_][A-Za-z0-9_]*=\S*\s+)+", "", text)
+    text = re.sub(r"^([A-Za-z_][A-Za-z0-9_]*=(?:<[^>]*>|\"[^\"]*\"|'[^']*'|\S)*\s+)+", "", text)
     word = re.match(r"[A-Za-z0-9_-]+", text)
     word = word.group(0) if word else ""
     word = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", word).replace("-", "_").lower()

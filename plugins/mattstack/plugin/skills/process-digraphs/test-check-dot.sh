@@ -62,6 +62,7 @@ expect double-decl "declared with a label twice" 'digraph g { '"$SHORT"' git_pus
 expect prefix-bad "starts with its call" 'digraph g { '"$SHORT"' push [label="git_push {tree}" shape=plaintext]; start -> push; push -> done; }'
 expect prefix-camel-ok "" 'digraph g { '"$SHORT"' enter_worktree [label="EnterWorktree {name}" shape=plaintext]; start -> enter_worktree; enter_worktree -> done; }'
 expect prefix-env-ok "" 'digraph g { '"$SHORT"' claude_update [label="CLAUDE_CONFIG_DIR=<dir> claude plugin update x" shape=plaintext]; start -> claude_update; claude_update -> done; }'
+expect prefix-env-placeholder-ok "" 'digraph g { '"$SHORT"' claude_update [label="CLAUDE_CONFIG_DIR=<session dir> claude plugin update x" shape=plaintext]; start -> claude_update; claude_update -> done; }'
 expect prefix-shell-ok "" 'digraph g { '"$SHORT"' gh_pr_view [label="gh pr view <PR>" shape=plaintext]; start -> gh_pr_view; gh_pr_view -> done; }'
 expect prefix-escaped-ok "" 'digraph g { '"$SHORT"' rt_verb_skills_check [label="rt_verb {args: [\"skills\", \"check\"]}" shape=plaintext]; start -> rt_verb_skills_check; rt_verb_skills_check -> done; }'
 expect prefix-digit-ok "" 'digraph g { '"$SHORT"' python_check [label="python3 check-dot.py <SKILL.md>" shape=plaintext]; start -> python_check; python_check -> done; }'
