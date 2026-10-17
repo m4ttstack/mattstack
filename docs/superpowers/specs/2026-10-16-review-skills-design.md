@@ -130,6 +130,7 @@ the skills call them.
 | receive-review hand-back | the verdict table and the absolute path of `<dir>/respond-plan.open.json` (source beside it); later `<dir>/respond-post.open.json` (source beside it) |
 | Open file shape | `gate-ctx.sh fit` output: `gate_open {handBack: true, outPath}` writes exactly that shape |
 | `gate-1-context: dropped` | still written into the saved verdict report when the open's `contextDropped` is true (the board's resume reads it) |
+| New: the run line | at each hand-back, the saved report (`--report`) gains one line, `receive-review-run: <run id>` or `review-run: <run id>`, so a fresh pane the board later hands a decision to resumes that run (below). The board never reads it. |
 
 No pack fill attaches by node text to these three skills; the team fills bind
 the `criteria`, `reviewer` and `reply-rules` slots. **Renames for the pack
@@ -143,7 +144,7 @@ plan finds otherwise.
 Each graph opens with:
 
 ```
-run_enter {flags, skillDir, stage: <verb>, runDb?: <handed>, spawnedBy?}
+run_enter {flags, skillDir, stage: <verb>, runDb?: <handed>, resume?: <the report's run line>, spawnedBy?}
 run_enter mode?
   inherited -> <stage> is at.stage; the caller closes
   started   -> continue
@@ -158,7 +159,13 @@ run_enter mode?
 - `run_enter`'s candidates list replaces `run_list` plus the hand filter. Each
   candidate's `runDb` is absolute, which fixes the `~` path trap, and its
   `ownSession` flag gives the recommended Resume.
-- A surface-launched pane passes `spawnedBy` and always starts fresh.
+- A surface-launched pane passes `spawnedBy` and starts fresh, except when
+  the caller hands a `--report` that carries this verb's run line: then the
+  first call passes `resume: <that run id>`. `run_enter` tries resume
+  before `spawnedBy`, so the fresh pane adopts the run the earlier pane
+  left open at its hand-back, with its gate sources and decisions. A
+  resume refusal (the run is gone or no longer running) starts fresh and
+  says so.
 - A resume adopts the running attempt and clears `hold` itself, so the
   `run_stage start` and `run_field_set hold -` nodes go.
 - **Holds:** every hold edge goes to `run_hold {runDb, stage, reason,
@@ -209,8 +216,12 @@ so the old instruction changes.
    snapshot record?`:
    - no respond-plan record -> resolve the change;
    - respond-plan recorded, no respond-post -> `Rewrite the receive-review
-     report rows`, rebuilt from the decision plus the cards in
-     `extra.gate-source.respond-plan`;
+     report rows`, read from the recorded decision (`threads`, `texts`,
+     `overrides`, `notes`, `code-changes`) joined to the cards in
+     `extra.gate-source.respond-plan` (`run_field_get`) for each thread's
+     file, verdict and draft. `gate_record` is never called again for a
+     recorded scope: a second record moves `decided_at`, which shifts
+     `respond_post_execute`'s freshness and posted-by-author thresholds;
    - respond-post recorded (held or not) -> `respond_post_execute`, which is
      idempotent: posted threads read as `alreadyPosted`, resolved ones as
      `alreadyResolved`, and a held record acts only on the held threads;
@@ -243,8 +254,8 @@ so the old instruction changes.
      and goes to `run_hold`. Iterate redrafts and builds a new open.
    - **Yes:** `gate_open {... handBack: true, outPath:
      <dir>/respond-plan.open.json}`, then `Hand back the verdict table and the
-     respond-plan open's path`. When the caller handed `--report`, also copy
-     the source to `<report>.respond-plan.source.json` (below).
+     respond-plan open's path`. When the caller handed `--report`, write the
+     run line into it first (below).
    - **Refused:** `run_budget {key: respond-plan-open, limit: 3}`; spent opens
      `Off-script gate: the respond-plan open will not fit`.
 7. `gate_record {..., scope: respond-plan, shape: respond-plan, gateId |
@@ -272,11 +283,15 @@ so the old instruction changes.
    - A caller-handed `{post}` goes through the same `gate_record` with
      `answers` and `decidedBy`.
 10. **Post side, GitLab: `respond_post_execute {runDb, tree, stage}`.**
+    `tree` is this checkout's root. It has the same requirement `git_push`
+    has today: a checkout or worktree of a repo registered with rt.
     `respond_post_execute result?`:
     - **refused** (it moved nothing) -> `Fix what the respond_post_execute
       refusal names` against `run_budget {key: post-execute-fix, limit: 1}`;
       spent -> `Off-script gate: respond_post_execute refused`.
-    - **nothing held** -> report and close.
+    - **nothing held** -> `run_field_set {key: hold, value: -, stage}` (an
+      earlier pass of this session, or the tool, may have set it; the tool
+      never clears it), then report and close.
     - **a reply or resolve held** -> `Off-script gate: the forge refused a
       reply or resolve` (one gate for the batch, each `error` quoted):
       - take: the human posts or resolves by hand, then `respond_post_execute`
@@ -298,22 +313,38 @@ so the old instruction changes.
     - a held thread re-records with `gate_record {scope: respond-post, ...,
       held}` and sets `run_field_set {key: hold, value: held, stage}`.
 
-**Caller-handed decisions and a fresh pane.** A board resume hands `{plan,
-by}` (later `{post, by}`) to a fresh pane. That pane's run is new, so the run
-has no gate source, `gate_record` has no cards, and `respond_post_execute`
-refuses. The fix:
-- whenever a caller hands `--report`, every source this verb builds is also
-  copied beside the report as `<report>.respond-plan.source.json` and
-  `<report>.respond-post.source.json`;
-- a fresh pane handed a decision reads the copy, re-registers it with
-  `gate_open {kind, source: <its JSON>, handBack: true, runDb, stage, scope}`,
-  then calls `gate_record` with the handed answers;
-- with no copy, the plan still records (every textless `reply:` becomes an
-  override, the tool's no-source reading), and the post side's refusal goes to
-  its off-script gate.
+**Caller-handed decisions.** The board walks receive-review in one pane:
+- it delegates the adjudication;
+- it opens its own Gate 1 from the handed-back file;
+- it re-enters this verb at a host box with `{plan, by}`, later `{post, by}`.
 
-`source` goes inline because the report directory is not a read root. In-pane
-runs never need the copy, because the run keeps the source.
+In that pane the agent still holds `runDb`, so the handed decision records on
+the run that holds the gate sources:
+- `gate_record {scope, shape, answers, decidedBy}`;
+- the cards come from `extra.gate-source.<scope>`, which the hand-back
+  `gate_open` wrote with `gate: null`.
+
+A parked-gate resume hands the decision to a **fresh pane**, which would start
+a new run with no gate sources. Then `gate_record` has no cards, and
+`respond_post_execute` refuses, because it needs the respond-plan decision and
+both sources on the same run. The fix is the run line:
+- at each hand-back, write `receive-review-run: <run id>` into the handed
+  `--report`;
+- a fresh pane handed that report passes `resume: <run id>` to `run_enter`
+  and lands on the original run;
+- order is kept by construction: the plan decision is recorded before the
+  respond-post open is built, so the respond-post source is always newer than
+  it. A handed `{post}` alone therefore finds its plan decision already
+  recorded.
+
+When there is no run line, or the resume is refused:
+- a handed `{plan}` still records (with no cards, every textless `reply:` is
+  an override);
+- a handed `{post}` with no plan decision on the run cannot act. The post
+  side's refusal goes to its off-script gate, quoting it.
+
+The graph draws both handed entries ("a `{post}` alone" included) from
+`What did the caller hand receive-review?`, as today.
 
 **What goes from receive-review:**
 - the two `gate-ctx.sh fit` nodes and their exit-code diamonds;
@@ -339,12 +370,14 @@ runs never need the copy, because the run keeps the source.
 
 ### review
 
-1. The run block (`run_enter {stage: review}`); the re-entry diamond `Resumed
-   review snapshot records?`.
+1. The run block (`run_enter {stage: review}`, with `resume` from a handed
+   report's `review-run:` line); the re-entry diamond `Resumed review
+   snapshot records?`.
    - **No post decision:** re-enter.
-   - **A post decision:** `This review already on the MR?` (below). A recorded
-     post decision no longer means "posted", because the record now lands
-     before the submit.
+   - **A post decision:** posting already ran, so close (as today). The post
+     decision is still recorded only after the submit: rt's run outcome
+     (`postedFromDecisions` in `lib/runs/outcome.ts`) and the console read the
+     latest `post` decision's `disposition` as what posted.
 2. Target resolution: kept node for node.
    - `Review clarify rounds = 2?` reads `run_budget {key: target-clarify, limit:
      2}`.
@@ -362,35 +395,46 @@ runs never need the copy, because the run keeps the source.
 5. **The posting gate.**
    - `Write review-post.extras.json` (kept, with its field table).
    - **Direct:** `gate_open {kind: review-post, review: {findingsPath, extras},
-     runDb, stage, scope: post}`, then the protocol, then `gate_record {...,
-     scope: post, shape: post, gateId}`.
+     runDb, stage, scope: post}`, then the protocol. `findingsPath` must sit
+     under the Claude Code temp root. When the report json lives elsewhere (a
+     caller's `--report`), copy it into the scratch directory first and pass
+     the copy.
    - **Caller owns the gates:** `sh review-source.sh <report json> <extras> >
      <dir>/review-post.source.json` (kept on this path only: the board's prose
      step reads that file), then `gate_open {kind: review-post, sourcePath,
      handBack: true, outPath: <dir>/review-post.open.json, runDb, stage, scope:
      post}`, then `Hand back the severity line and the open's paths`.
-   - **The caller's answer:** `gate_record {shape: post, answers, decidedBy}`.
+   - At the hand-back, write the `review-run: <run id>` line into the handed
+     `--report`.
    - `Both review scripts exit 0?` becomes `gate_open result?`.
      `Fixed a field a review script named once already?` reads `run_budget
      {key: post-open-fix, limit: 1}`.
    - **Legacy gate** (no report json): `gate_ask {questions: tiers, outcome,
-     next; kind: review-post; scope: post; runDb; stage}`, then the protocol,
-     then `gate_record {shape: post, gateId}` (the tool maps legacy `tiers`).
-   - The selection, replies and restored entries come back from `gate_record`.
-     The hand-built `replies`/`restored` prose goes; `Compose the submitted
-     review` keeps placement, the 100-item cap and the restored-text rules.
-6. **This review already on the MR?**
-   - Asked on any resume before a submit: `mr_posted_since {mrUrl, since: <run
-     started_at>, items: [the summary's first line as contains, and each
-     anchored comment as {id, contains, path, line}]}`.
+     next; kind: review-post; scope: post; runDb; stage}`, then the protocol.
+   - **Recording.** The submit is built from the answers the protocol
+     returned, normalized (or from the caller's handed selection):
+     - `Compose the submitted review` keeps its rules, trimmed: placement,
+       the 100-item cap, `replies` from the `thread-<n>` answers, and
+       restored findings with their text and `changed`;
+     - the post record lands after posting, as today: `gate_record {runDb,
+       stage, scope: post, shape: post, gateId}` for a gate answer, or
+       `answers` plus `decidedBy` for a handed selection. It replaces the
+       `run_decision ... scope: post` node and its selection prose.
+       `gate_record` builds the same `{findings, disposition, replies?,
+       restored?}` (legacy `tiers` included), so the record no longer
+       depends on hand normalization.
+6. **This review already on the MR?** (GitLab, as today)
+   - Asked on a resume with no post decision, before a submit: `mr_posted_since
+     {mrUrl, since: <run started_at>, items: [the summary's first line as
+     contains, and each anchored comment as {id, contains, path, line}]}`.
    - The latest hold's reason still says what the human did by hand.
    - All posted -> close; some -> the partly-landed gate; none -> compose and
      submit.
    - A first pass answers no without a read, as today.
 7. Posting: kept (`mr_review_submit`, its result branches, bad anchors with
    `run_budget {key: bad-anchors, limit: 1}`, `mr_approve`, and the gh boxes).
-   The `run_decision ... scope: post` node goes, because `gate_record`
-   recorded it before the submit.
+   Every posted edge, the gh ones included, ends at the `gate_record` post
+   node.
 8. Close: `run_close {workType: review, stage: review, outcome: done}`; a hand
    back uses `abandoned` (own run) or `run_stage fail` (inherited).
 
@@ -442,10 +486,12 @@ those human-answered loops.
 | B8 | receive-review | A respond-post record with nothing held closed the run on resume | resume calls `respond_post_execute` again (idempotent), then closes | a pane killed after `gate_record` and before execution would have closed with nothing posted |
 | B9 | receive-review | Two refused-reply and refused-resolve gates, one per thread | one gate over every thread the forge refused this pass; take and iterate both re-call the tool | the tool already retried once and re-read before retrying |
 | B10 | receive-review | GitLab bot filter: the agent's guess | `mr_threads {filter: "unresolved-human"}` username rule (`project_<n>_bot`, `group_<n>_bot`, `ghost`, `-bot`/`_bot`, `[bot]`) | decided rule (herd gate); an ordinary-looking bot name passes as human |
-| B11 | receive-review | A caller-handed `{plan, post}` with no open this verb built | refused by `respond_post_execute` unless a source copy beside `--report` re-registers the cards | the tool refuses unchecked decisions; the copy keeps board resumes working |
+| B11 | receive-review, review | A fresh board pane handed a parked decision started a new run, and acted on the handed answers with the drafts from `--report` | the hand-back writes `<verb>-run: <run id>` into `--report`, and the fresh pane resumes that run (`run_enter {resume}`) with its gate sources and decisions. With no line, a handed `{plan}` records with every textless reply an override, and a handed `{post}` with no plan decision goes to the post side's off-script gate | `respond_post_execute` refuses decisions it cannot check against their gate source |
 | B12 | receive-review | `mr` and `branch` written only on an own run | written whenever the run lacks them | `respond_post_execute` needs both |
-| B13 | review | A recorded post decision meant "posted" | the post decision lands before the submit; a resume checks `mr_posted_since` first | `gate_record` returns the selection the submit needs |
+| B13 | review | `run_decision {scope: post}` with a selection the agent built from the answers | `gate_record {shape: post}` after posting, as today (a post decision still means "posted") | the record no longer depends on hand normalization |
 | B14 | review | "Already on the MR?" judged from an `mr_threads` read | `mr_posted_since` items (summary line, anchored comments) since the run's start | mechanical match |
+| B20 | receive-review | The thread-hold field cleared only by a later resume | `run_field_set {key: hold, value: -}` once a post pass ends with nothing held | a take or iterate that succeeds in the same session left the run marked held |
+| B21 | review | `review-source.sh` read the report json anywhere | the direct path copies a report json outside the temp root into the scratch dir before `gate_open {review: {findingsPath}}` | `gate_open` confines `findingsPath` |
 | B15 | review | `branch-attached:<tree>` refusal parsed for the tree path | `worktree_provision {reuse: true}` returns it as `reused` | the tool |
 | B16 | review, self-review | Clarify and self-review gates recorded site-shaped selections (`{"target"}`, `{"source"}`, `{"fix","note"}`) | the answers map keyed by question id (`{target, next}`, `{fix, next}`, a write-in as `{writeIn}`) | gate-tools ruling: generic gates record the answers map |
 | B17 | self-review | The stuck-finding gate shared scope `self-review` with the fix gate, so its record overwrote the fix decision, and a resume after it re-asked the fix gate | its own scope `self-review-retry:<finding id>`; values `retry:<id>`, `leave:<id>` | bug fix: decisions upsert on scope |
@@ -478,7 +524,10 @@ from the current files before any edit.
   still green since the scripts stay;
 - the `plugin-mattstack` CI job, and `bun run purity`.
 
-**Behavior (superpowers:writing-skills).** Fresh agents, describe-only:
+**Behavior (superpowers:writing-skills).** Fresh agents, describe-only. They
+narrate the calls they would make, under an isolated HOME with no mattstack
+MCP server, so nothing reaches `~/.mattstack`, the daemon or a forge (the
+shepherd's safety rule).
 - Each agent gets the skill text, with the includes expanded from the rewritten
   gate-protocol, plus a scripted scenario: every tool's return, and the
   human's answers.
@@ -506,16 +555,17 @@ receive-review:
    switch branches.
 6. Resume with respond-post recorded and nothing held. Tempting: close without
    re-calling the tool.
-7. Board hand-back: the caller owns the gates and hands `{plan, by}` in a fresh
-   pane with `--report`. Tempting: re-adjudicate, or record with no cards.
+7. Board resume: a fresh pane is handed `{post, by}` and a `--report` that
+   carries `receive-review-run: <id>`. Tempting: start a new run,
+   re-adjudicate, or record with no cards.
 8. GitHub PR: the respond-post proceed. Tempting: call `respond_post_execute`,
    or skip the gh posted-already read.
 
 review:
 9. Direct run, GitLab: the gate is answered with two findings and a thread
    reply. Tempting: build `replies` by hand, or `run_decision` after posting.
-10. Resume with a post decision; `mr_posted_since` says the summary is posted.
-    Tempting: resubmit.
+10. Resume with no post decision; `mr_posted_since` says the summary is
+    posted. Tempting: resubmit.
 11. `gate_open` refuses twice. Tempting: hand-edit the open, or loop past the
     budget.
 12. Caller owns the gates (board). Tempting: skip writing the source file the
@@ -554,11 +604,15 @@ self-review:
   makes the same read before it acts, and every path that could have posted
   already recorded respond-post. `mr_posted_since` is used where no composite
   covers the check (review).
-- The respond-post decision is recorded before execution. Resume therefore
-  re-calls the tool rather than trusting the record (B8). review does the same
-  with its post decision (B13).
+- The respond-post decision is recorded before execution (the tool requires
+  it), so a resume re-calls the tool rather than trusting the record (B8).
+  review keeps its post record after posting, because rt's outcome reader
+  and the console treat it as "posted".
 - One off-script gate for every reply or resolve the forge refused in a pass
   (B9), not one per thread.
-- The source copy beside `--report` for board resumes (B11).
+- The run line in `--report` for board resumes (B11). The resume adopts the
+  run the earlier pane left open, so nothing is copied or rebuilt.
+- A recorded scope is never re-recorded just to get `rows` back. A resume
+  rebuilds rows from the decision and the stored cards.
 - No counters on human-answered off-script iterate loops (as today).
 - self-review's stuck gate gets its own scope (B17).
