@@ -125,9 +125,19 @@ export function clearCloneFailure(p: Probes, identity: string): void {
   });
 }
 
+/** A linked worktree's `.git` is a file naming its own git dir, whose `commondir` leads to the config the main checkout shares. */
+function gitConfigPath(p: Pick<Probes, "readFile">, dest: string): string {
+  const dotGit = join(dest, ".git");
+  const pointer = p.readFile(dotGit)?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
+  if (!pointer) return join(dotGit, "config");
+  const gitDir = resolve(dest, pointer);
+  const common = p.readFile(join(gitDir, "commondir"))?.trim();
+  return join(common ? resolve(gitDir, common) : gitDir, "config");
+}
+
 /** A real clone of `identity`, not just any directory that happens to share its basename — two tracked identities can collide on basename (`gitlab.com/a/api`, `github.com/b/api`), and an unrelated folder can already occupy the path. */
 export function isCloneOf(p: Pick<Probes, "readFile">, dest: string, identity: string): boolean {
-  const config = p.readFile(join(dest, ".git", "config"));
+  const config = p.readFile(gitConfigPath(p, dest));
   if (config === null) return false;
   // Any remote's URL, in whatever form git accepts (scp-style ssh has no slash after the host), normalized to the identity's own host/path form.
   for (const match of config.matchAll(/^\s*url\s*=\s*(\S+)/gm)) {

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execSync } from "child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, relative } from "path";
@@ -36,6 +37,15 @@ describe("checkCheckout", () => {
     const path = join(home, "code", "widgets");
     gitRepo(path, { origin: "https://gitlab.com/acme/widgets.git" });
     expect(await checkCheckout(realFsProbes(home), WIDGETS, path, { tracked: [] })).toEqual({ ok: true, path });
+  });
+
+  test("a linked worktree of the repo is accepted", async () => {
+    const main = join(home, "code", "widgets");
+    gitRepo(main, { origin: "https://gitlab.com/acme/widgets.git" });
+    execSync(`git -C ${JSON.stringify(main)} -c user.name=dev1 -c user.email=dev1@example.com commit -q --allow-empty -m init`);
+    const linked = join(home, "trees", "widgets-feature");
+    execSync(`git -C ${JSON.stringify(main)} worktree add -q -b feature ${JSON.stringify(linked)}`);
+    expect(await checkCheckout(realFsProbes(home), WIDGETS, linked, { tracked: [] })).toEqual({ ok: true, path: linked });
   });
 
   test("a trailing slash and ~ are normalised", async () => {
