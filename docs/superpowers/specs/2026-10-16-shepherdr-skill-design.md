@@ -50,8 +50,8 @@ The skill also warns that "a respawn keeps neither `--effort` nor
   budgets go to the off-script gate, as today.
 - A provider name (`cswap`, `pick-account.py`) in the engine body.
 - The shepherd reading pane text, by any tool, for any reason.
-- A pre-read that is skipped because "the diagnosis is probably the same".
-  A budget diamond reads a budget fetched in this turn.
+- A budget diamond answered from memory. It reads a budget fetched in this
+  decision.
 
 ## Constraints
 
@@ -77,15 +77,18 @@ The skill also warns that "a respawn keeps neither `--effort` nor
 ### How a budget is read
 
 The daemon counts; the skill decides. A budget diamond (`... spent?`)
-reads `{used, cap, spent}` from a tool result fetched in the same turn,
-before the move it guards:
+reads `{used, cap, spent}` from a read made in the same decision (since the
+arrival that started it), before the move it guards. A user's answer in
+between does not stale it: `respawns`, `nudges` and `reviewerRounds` tick
+only on the shepherd's own moves, and a new blocked notice or report is a
+new arrival with its own read.
 
 | Budget | Read from | Before |
 |---|---|---|
 | `respawns` | `herd_diagnose` `budgets.respawns` | `herd_respawn` |
 | `blockedNotices` | `herd_diagnose` `budgets.blockedNotices` | routing a `<job> blocked` notice |
 | `nudges[gate]` | `herd_diagnose` `budgets.nudges[<gate>]` (absent = unused) | `herd_nudge` |
-| `reviewerRounds[artifact]` | `herd_diagnose` on the host job, `budgets.reviewerRounds[<milestone artifact>]` (absent = unused) | the reviewer `herd_spawn` |
+| `reviewerRounds[artifact]` | `herd_diagnose` on the host job, `budgets.reviewerRounds[<artifact>]`, where the artifact is the one in the job's milestone room line (`<job> #<n>: milestone: <artifact>`); absent = unused | the reviewer `herd_spawn` |
 | `unmergedReports` | `herd_lanes` row's `unmergedReports` | the "measured merge state" DM |
 
 `spent` (used >= cap) answers yes. No tool refuses on a spent budget
@@ -138,7 +141,7 @@ The full draft is in Appendix B; it passes `render.sh` and `check-dot.py`.
 | reviewer `rt herd spawn ... --dir <the job's tree> --disposable` | `herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort?, account?}` |
 | `<job> blocked` → `Blocked notices for this job = 3?` → `herd_gates` → `Open gate for the blocked job?` → `rt_verb pane peek` → `What does the pane show?` | `herd_diagnose {herd, job}: the blocked job` → `Blocked notices for this job spent?` → `What does the diagnosis say?` |
 | UNCONSUMED → `rt_verb pane peek: the unconsumed lane` → `Is the lane alive?` | `herd_diagnose {herd, job}: the unconsumed lane` → `What does the diagnosis say?` |
-| `Nudges for this gate?` 0/1/2, `An idle prompt, and no form on screen?`, `chat_dm ... call herd_answer`, `rt pane send` | `Nudges for this gate spent?` → `herd_nudge {herd, job, gate}` → `Nudge delivered?` (needsHuman → off-script gate, quoting `why`) |
+| `Nudges for this gate?` 0/1/2, `An idle prompt, and no form on screen?`, `chat_dm ... call herd_answer`, `rt pane send` | `Nudges for this gate spent?` → `herd_nudge {herd, job, gate}` → `Nudge delivered?` (delivered: end the turn; refused as already consumed: end the turn, the worker read it; needsHuman or any other refusal → off-script gate, quoting it) |
 | `Ask: attend or close and respawn` → `herd_close: parked, respawning` → respawn | `Ask: attend or respawn` → respawn (`herd_respawn` closes the old pane itself) |
 | `Respawns of this job = 2?` | `Respawns of this job spent?`; the user-asked respawn and the scope kill reach it through `herd_diagnose {herd, job}: the respawn budget` |
 | `STOP: herd_spawn never respawns; it takes no dir` → Bash respawn | `STOP: a respawn goes through herd_respawn` → `herd_respawn {herd, job, brief?, account?, effort?}` |
@@ -150,12 +153,16 @@ The full draft is in Appendix B; it passes `render.sh` and `check-dot.py`.
 | Verdict | Edge |
 |---|---|
 | `at-gate` | `herd_gates {herd}: the diagnosed job's gate` → `Open gates returned?` (the gate rows carry the options to present) |
-| `idle` with `lastGate` answered and `consumed: false` | `Nudges for this gate spent?` |
-| `working`, or `idle` with nothing waiting | end the turn |
+| `idle`, reached from an UNCONSUMED arrival (the gate id it named) | `Nudges for this gate spent?` |
+| `working`, or `idle` reached from a blocked notice | end the turn |
 | `rate-limited` | `Accounts section non-empty?` |
 | `dead`, `gone`, `no-pane`, `login-expired` | `Smart-distribute pool in use?` |
 | `parked-modal` | `Ask: attend or respawn` |
 | `needs-human` | `herd_attend {job, herd}: a human is needed` |
+
+The nudge edge keys on the arrival, not on `lastGate.consumed`: that field
+reads `null` for any gate the daemon does not nudge, so it cannot tell
+"nothing waiting" from "not tracked".
 
 `Smart-distribute pool in use?` gains a third edge: no pool and
 `login-expired` → `Report the stall to the user`. Relaunching on an account
@@ -197,9 +204,14 @@ Draft in Appendix C; it passes both checkers.
 | Today | After |
 |---|---|
 | `rt_verb git log` → `cd <tree>` → `git diff --stat --merge-base ...` → `More active job trees to diff?` loop | `herd_lanes {herd}: the report's lanes` |
-| `Merged on the repo?` from `gh pr view` or the report | from the job's `herd_lanes` row `merge.state`; adds `unknown: quote the read's error` → off-script gate |
+| `Merged on the repo?` from `gh pr view` or the report | from the job's `herd_lanes` row `merge.state`; adds `unknown: quote the read's error` and `no row: quote the skipped reason` → off-script gate |
 | `mr_merge` / `gh pr merge` → `Merged on the repo?` | → `herd_lanes {herd, job}: after the merge call` → `Merged on the repo?` |
 | `Unmerged reports for this lane = 2?` | `Unmerged reports for this lane spent?` (row's `unmergedReports`) |
+
+A job whose worktree is gone (a merge can dispose it) has no row; it is in
+`skipped` with a reason. Its merge cannot be read, so it goes to the
+off-script gate, whose proposed move is closing the lane once the user
+confirms the merge. The drift check skips it too.
 
 Wrap-up nodes are unchanged. Prose: rewrite `The two objective checks`
 around `herd_lanes` (per lane: `commits`, `drift.files`, `collidesWith`,
@@ -350,6 +362,10 @@ when it should be. GREEN passes at 0 deviations in every column across all
 
 ## Calls I made (not asked)
 
+- A lane with no `herd_lanes` row goes to the off-script gate, never to
+  a hand-run forge read.
+- The nudge edge keys on the UNCONSUMED arrival's gate, not on
+  `lastGate.consumed`.
 - Budgets are pre-read from `herd_diagnose`/`herd_lanes` before the move,
   not taken from the move's own result, so "spent" keeps meaning "the
   cap's moves already ran".
@@ -568,7 +584,7 @@ digraph shepherdr_watch {
     "Blocked notices for this job spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
     "herd_diagnose {herd, job}: the unconsumed lane" -> "What does the diagnosis say?";
     "What does the diagnosis say?" -> "herd_gates {herd}: the diagnosed job's gate" [label="at-gate"];
-    "What does the diagnosis say?" -> "Nudges for this gate spent?" [label="idle, and its last gate answered but unconsumed"];
+    "What does the diagnosis say?" -> "Nudges for this gate spent?" [label="idle, and the arrival named an answered gate it has not read"];
     "What does the diagnosis say?" -> "End the turn until something arrives" [label="working, or idle with nothing waiting"];
     "What does the diagnosis say?" -> "Accounts section non-empty?" [label="rate-limited"];
     "What does the diagnosis say?" -> "Smart-distribute pool in use?" [label="dead, gone, no-pane or login-expired"];
@@ -580,7 +596,8 @@ digraph shepherdr_watch {
     "Nudges for this gate spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
     "herd_nudge {herd, job, gate}" -> "Nudge delivered?";
     "Nudge delivered?" -> "End the turn until something arrives" [label="delivered"];
-    "Nudge delivered?" -> "Shepherd off-script gate: ask the user" [label="needsHuman: quote its why"];
+    "Nudge delivered?" -> "End the turn until something arrives" [label="refused: already consumed, the worker read it"];
+    "Nudge delivered?" -> "Shepherd off-script gate: ask the user" [label="needsHuman, or another refusal: quote it"];
     "Smart-distribute pool in use?" -> "Pick the account per the accounts rules" [label="yes"];
     "Smart-distribute pool in use?" -> "Respawns of this job spent?" [label="no, and not login-expired: relaunch on the same account"];
     "Smart-distribute pool in use?" -> "Report the stall to the user" [label="no, and login-expired: only a login fixes it"];
@@ -700,6 +717,7 @@ digraph shepherdr_lanes {
     "Merged on the repo?" -> "Flip the lane's ticket, when it has one" [label="yes"];
     "Merged on the repo?" -> "Did this lane claim the merge itself?" [label="no: open, closed or none"];
     "Merged on the repo?" -> "Shepherd off-script gate: ask the user" [label="unknown: quote the read's error"];
+    "Merged on the repo?" -> "Shepherd off-script gate: ask the user" [label="no row: quote the skipped reason"];
     "Did this lane claim the merge itself?" -> "Unmerged reports for this lane spent?" [label="yes"];
     "Did this lane claim the merge itself?" -> "Back to the watch loop: end the turn" [label="no: it waits on the integration job or the gate"];
     "Did this lane claim the merge itself?" -> "Shepherd off-script gate: ask the user" [label="no: your own merge call did not land"];
