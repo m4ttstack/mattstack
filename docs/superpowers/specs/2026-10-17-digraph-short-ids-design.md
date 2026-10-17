@@ -141,13 +141,21 @@ digraph hotfix_push {
   sentence, so no section heading and no team-pack fill changes.
 - **The id is a handle**: lowercase words joined by underscores that name the
   step (`push_refused`, not `n4` or `decision_2`). No digits.
-- **A `plaintext` id starts with its tool or command** (`git_push`,
-  `git_push_retry`, `gh_pr_create`), so an edge shows which call comes next.
-  **A STOP's id starts with `stop_`**, so an edge into a STOP shows it.
+- **A `plaintext` id starts with its tool or command**, so an edge shows which
+  call comes next: the label's first word, lowercased into the id's form
+  (`git_push`, `gh_pr_create`, `enter_worktree` for `EnterWorktree`,
+  `rt_verb_skills_check` for an `rt_verb` call), skipping a leading
+  `NAME=value` environment assignment (`claude_...` for
+  `CLAUDE_CONFIG_DIR=<dir> claude ...`). **A STOP's id starts with `stop_`**,
+  so an edge into a STOP shows it.
 - **Declare every node once, in the order the process meets it.** The
   declarations read as the ordered list of steps; the edges are the map.
-- **A graph uses short ids for every node or for none.** Old graphs pass
-  unchanged; a converted graph cannot drift back half-converted.
+- **A graph labels every node or none.** A graph with no `label` on any node
+  is today's form and passes unchanged; once one node has a label, every node
+  needs one (`done [shape=doublecircle]` fails there), so a converted graph
+  cannot drift back half-converted. The form is told apart by labels, never
+  by guessing from an id's spelling, so an old graph whose node is one
+  lowercase word (`"done"`) is still today's form.
 
 Why A over B: the saving difference is small, but A gives every step a stable,
 machine-friendly key. The skill's "Not yet standard" note (recording the
@@ -163,7 +171,7 @@ also easier to write and check than a word-count threshold.
 | Fails any node whose `label` differs from its id (the opaque-id ban) | Removed. A node with a `label` must have a short id (`^[a-z]+(_[a-z]+)*$`), else fail "a short id is lowercase words joined by underscores, no digits" |
 | Every text rule (`?` on decisions, `STOP:` on octagons, one line per plaintext, two calls in one node, the off-script exit) reads the id | Each reads the node's text: its label, or its id when it has none |
 | Identical text merges two nodes, caught as a step with two unlabelled exits | New: two nodes with the same text fail ("give each step distinct text"); an id declared with a label twice fails (dot keeps the last label and merges the steps silently) |
-| (none) | New: a graph mixing short ids and sentence ids fails; a `plaintext` short id not starting with its call's first word fails; an octagon short id not starting with `stop_` fails |
+| (none) | New: a graph where some nodes have a label and some do not fails; a `plaintext` short id not starting with its call's first word (normalized as above) fails; an octagon short id not starting with `stop_` fails |
 | Messages print the id | Messages print the text, and the id in brackets when they differ |
 
 `render.sh`, `certify.sh` (runs both scripts, no node logic of its own) and
@@ -185,6 +193,16 @@ case flips to the new id-form failure, and new cases cover each new rule.
 | extending-a-pack, creating-a-pack | "keys its sections to that step's node text" | None: still true |
 | Historical plans citing exact node texts | Docs only | None |
 
+## What this branch delivers
+
+The exploration, not the migration: the rule and checker change in
+`process-digraphs` (written to land as migration step 1, so not throwaway),
+`convert.py --slugs`, the two converted prototype skills, the RED/GREEN record
+and this spec with its Results. Nothing merges from the branch, and no other
+skill converts until Matt approves the direction. The prototype tests option
+A; if Matt picks B at this milestone, the per-graph rule becomes a
+word-count threshold and the slug maps keep short nodes as sentences.
+
 ## Prototype and behavior test
 
 Prototype on `attachments/pipeline/watch-ci` (plaintext-heavy, 13 scored
@@ -205,14 +223,17 @@ RED/GREEN with the approved tool-less recipe (`claude --model sonnet --tools
 - **RED** is today's compiled text (sentence ids); **GREEN** is the
   prototype's compiled text (short ids). Same scenarios, same prompt, same
   scoring; only the id form differs.
-- **watch-ci**: the ship-ci lane's World, Conventions, Shared shapes and
-  watch-ci sections (T1 to T10, T3b, W1, S6), its prompt line, and its scorer
-  key (`2026-10-16-ship-ci-skills/expected.md`), scored on its columns: shell
+- **watch-ci**, by the ship-ci lane's method: the prompt is `SKILL.md` as
+  written, then the World, Conventions, Shared shapes and watch-ci sections
+  of `2026-10-16-ship-ci-skills/scenarios.md` (T1 to T10, T3b, W1, S6), then
+  its prompt line. Scored with its key (`expected.md`) on its columns: shell
   calls a tool covers, hand-held lease calls, counters in context,
   re-derived values, skipped steps, runaway loops, refusals that missed their
   gate or the stand-down, a release on a stand-down.
-- **stage-provision**: the pipeline lane's S5 and S5b scenario files and pass
-  criteria.
+- **stage-provision**, by the pipeline lane's method: the compiled stage as
+  the appended system prompt (so the converted stage graph sits beside the
+  unconverted gate-protocol graph), S5 and S5b as the prompt, scored on that
+  lane's pass criteria.
 - One extra column on both sides: whether the rep names where it stops by the
   node's text or id (the "knows its exact step" check). Recorded, not a pass
   criterion.
@@ -276,8 +297,9 @@ RED/GREEN with the approved tool-less recipe (`claude --model sonnet --tools
 
 - The measurement scripts live beside the other RED/GREEN records, in
   `plugins/mattstack/docs/superpowers/tests/2026-10-17-digraph-ids/`.
-- The prototype's RED/GREEN feeds compiled text (what an agent loads), where
-  the ship-ci lane fed the raw SKILL.md; both sides use the same form.
+- Each prototype's RED/GREEN reuses its own lane's method unchanged (raw
+  `SKILL.md` for watch-ci, compiled text for stage-provision), so the earlier
+  lanes' GREEN results are a third reference point.
 - No plugin version bump on this branch: nothing merges from it.
 - The id regex forbids digits outright, so `step_2` and `n1` fail without a
   separate "opaque" heuristic.
