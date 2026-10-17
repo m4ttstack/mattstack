@@ -298,6 +298,13 @@ test("the clear fixture ends a step with a done event that carries clear", () =>
   expect(events.at(-1)).toEqual({ t: "done", title: "scanning ports…", clear: true });
 });
 
+test("the replace fixture overwrites the last sub-line with replace: true", () => {
+  const events = fixture("steps-stream-replace.json") as StepEvent[];
+  expect(events.map((e) => e.t)).toEqual(["hello", "start", "sub", "sub", "done"]);
+  expect(events[2]).toEqual({ t: "sub", text: "Receiving objects 10%" });
+  expect(events[3]).toEqual({ t: "sub", text: "Receiving objects 42%", replace: true });
+});
+
 test("the thrown clear fixture ends a step with clear and the failed status", () => {
   const events = fixture("steps-stream-clear-thrown.json") as StepEvent[];
   expect(events.map((e) => e.t)).toEqual(["hello", "start", "done"]);

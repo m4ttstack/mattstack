@@ -39,6 +39,15 @@ let installRunChecks: [Check] = [
         InstallRunModel.apply(.step(id: "repos.clone", state: .done, detail: "cloned 1, present 0, failed 0", remedy: nil), to: &steps)
         c.expectEqual(steps[0].progress, nil)
     },
+    Check("reducer: the next repo's running detail drops the last repo's bar") { c in
+        var steps: [InstallStep] = []
+        InstallRunModel.apply(.plan([StepInfo(id: "repos.clone", title: "Clone your repos", kind: .rt)]), to: &steps)
+        InstallRunModel.apply(.step(id: "repos.clone", state: .running, detail: "Cloning acme-api (1 of 2)", remedy: nil), to: &steps)
+        InstallRunModel.apply(.progress(id: "repos.clone", label: "Updating files", percent: 100, note: nil), to: &steps)
+        InstallRunModel.apply(.step(id: "repos.clone", state: .running, detail: "Cloning widgets (2 of 2)", remedy: nil), to: &steps)
+        c.expectEqual(steps[0].progress, nil)
+        c.expectEqual(steps[0].detail, "Cloning widgets (2 of 2)")
+    },
     Check("reducer: plan seeds pending steps; step events update state/detail/remedy") { c in
         var steps: [InstallStep] = []
         InstallRunModel.apply(try ApplyEvent.decode(planLine), to: &steps)

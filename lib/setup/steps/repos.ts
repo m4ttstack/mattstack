@@ -16,7 +16,7 @@ import { gitWithToken } from "../../team/git-credential.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
-import { PROGRESS_SHAPE, parseGitProgress, splitProgressLines } from "../git-progress.ts";
+import { PROGRESS_SHAPE, REMOTE_COUNTING, parseGitProgress, splitProgressLines } from "../git-progress.ts";
 import type { ExecResult } from "../probes.ts";
 import { expandHome, promoteStagedRepoRoot } from "../repo-root.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
@@ -102,7 +102,7 @@ function cloningDetail(base: string, n: number, total: number, found: string[]):
 /** Never empty: git killed without a word still says how it ended. */
 function cloneFailureReason(result: ExecResult): string {
   const stderr = splitProgressLines(result.stderr)
-    .filter((line) => !PROGRESS_SHAPE.test(line))
+    .filter((line) => !PROGRESS_SHAPE.test(line) && !REMOTE_COUNTING.test(line))
     .join("\n");
   const output = withoutUrls(`${result.stdout}\n${stderr}`.trim());
   if (result.code === TIMED_OUT && !output) return `timed out after ${CLONE_TIMEOUT_MS / 60_000} minutes`;

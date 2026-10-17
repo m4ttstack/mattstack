@@ -14,6 +14,8 @@ const PHASES = new Set(["Receiving objects", "Resolving deltas", "Updating files
 const LINE = /^([A-Za-z ]+):\s+(\d{1,3})% \(\d+\/\d+\)(?:,\s*(.*))?$/;
 /** Any counted line, the remote's own phases included: none of it explains a failed clone. */
 export const PROGRESS_SHAPE = /\d{1,3}% \(\d+\/\d+\)/;
+/** The server's counting that `--progress` turns on. Only these exact shapes: other `remote:` lines carry auth and not-found errors. */
+export const REMOTE_COUNTING = /^remote: (?:Enumerating objects: \d+, done\.|Total \d+ \(delta \d+\), reused \d+)/;
 
 export function parseGitProgress(line: string): GitProgress | null {
   const match = LINE.exec(line.trim());

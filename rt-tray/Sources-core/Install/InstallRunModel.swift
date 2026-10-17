@@ -231,7 +231,9 @@ public final class InstallRunModel: ObservableObject {
             steps[i].state = state
             if let detail { steps[i].detail = detail }
             if let remedy { steps[i].remedy = remedy }
-            if state != .running { steps[i].waitingOnYou = false; steps[i].progress = nil }
+            // A running step with a new detail has moved on (the next repo), so the last bar no longer describes it.
+            if state != .running || detail != nil { steps[i].progress = nil }
+            if state != .running { steps[i].waitingOnYou = false }
         case .progress(let id, let label, let percent, let note):
             guard let i = steps.firstIndex(where: { $0.id == id }), steps[i].state == .running else { return }
             steps[i].progress = StepProgress(label: label, percent: percent, note: note)

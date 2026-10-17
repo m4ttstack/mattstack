@@ -85,16 +85,25 @@ const DEFAULT_FETCH_TIMEOUT_MS = 5000;
 /** Grace between SIGTERM and SIGKILL once timeoutMs elapses — long enough for a well-behaved child to exit on TERM, short enough to keep the 124 path bounded. */
 const KILL_GRACE_MS = 200;
 
-async function readStreaming(stream: ReadableStream<Uint8Array>, onChunk: (chunk: string) => void): Promise<string> {
+/** A listener that throws, or a chunk that arrives after the caller already has its 124, must not break exec's never-throws, settle-once contract. */
+async function readStreaming(stream: ReadableStream<Uint8Array>, onChunk: (chunk: string) => void, delivering: () => boolean): Promise<string> {
   const decoder = new TextDecoder();
+  const deliver = (chunk: string): void => {
+    if (!chunk || !delivering()) return;
+    try {
+      onChunk(chunk);
+    } catch {
+      // The listener only narrates; the result below still carries every byte.
+    }
+  };
   let all = "";
   for await (const bytes of stream) {
     const chunk = decoder.decode(bytes, { stream: true });
     all += chunk;
-    if (chunk) onChunk(chunk);
+    deliver(chunk);
   }
   const tail = decoder.decode();
-  if (tail) onChunk(tail);
+  deliver(tail);
   return all + tail;
 }
 
@@ -146,11 +155,12 @@ export async function execWithTimeout(argv: string[], opts?: ExecOpts & { onStde
       }
     }
 
+    let pastDeadline = false;
     const stdoutP = opts?.inherit ? Promise.resolve("") : new Response(proc.stdout as ReadableStream).text();
     const stderrP = opts?.inherit
       ? Promise.resolve("")
       : opts?.onStderr
-        ? readStreaming(proc.stderr as ReadableStream<Uint8Array>, opts.onStderr)
+        ? readStreaming(proc.stderr as ReadableStream<Uint8Array>, opts.onStderr, () => !pastDeadline)
         : new Response(proc.stderr as ReadableStream).text();
     const collected = Promise.all([stdoutP, stderrP, proc.exited]);
 
@@ -166,7 +176,10 @@ export async function execWithTimeout(argv: string[], opts?: ExecOpts & { onStde
     // outright — either way `collected` may never settle, so it races the
     // deadline instead of being awaited unconditionally.
     const timedOut = new Promise<true>((resolve) => {
-      deadlineTimer = setTimeout(() => resolve(true), opts.timeoutMs);
+      deadlineTimer = setTimeout(() => {
+        pastDeadline = true;
+        resolve(true);
+      }, opts.timeoutMs);
     });
     const raceResult = await Promise.race([
       collected.then((r) => ({ timedOut: false as const, r })),

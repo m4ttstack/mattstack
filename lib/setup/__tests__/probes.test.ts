@@ -135,6 +135,28 @@ describe("createRealProbes().execStreaming", () => {
     expect(result).toEqual({ code: 0, stdout: "out\n", stderr: "Receiving objects:  10%\rdone\n" });
   });
 
+  test("an onStderr that throws never escapes: the result still carries all of stderr", async () => {
+    const result = await createRealProbes().execStreaming(["sh", "-c", "printf a >&2; printf b >&2"], {
+      timeoutMs: 5000,
+      onStderr: () => {
+        throw new Error("listener bug");
+      },
+    });
+    expect(result).toEqual({ code: 0, stdout: "", stderr: "ab" });
+  });
+
+  test("no chunk reaches onStderr after the deadline fired", async () => {
+    const seen: string[] = [];
+    // The grandchild keeps the pipe open past the kill, so it can still write after 124.
+    const result = await createRealProbes().execStreaming(["sh", "-c", "printf early >&2; (sleep 0.3; printf late >&2) & sleep 5"], {
+      timeoutMs: 100,
+      onStderr: (chunk) => seen.push(chunk),
+    });
+    expect(result.code).toBe(124);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(seen.join("")).toBe("early");
+  }, 3000);
+
   test.each([
     [["/nonexistent/bin"], {}, 127],
     [["sh", "-c", "printf x >&2; sleep 5"], { timeoutMs: 100 }, 124],

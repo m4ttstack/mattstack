@@ -1,0 +1,7 @@
+[
+  { "t": "hello", "protocol": 1 },
+  { "t": "start", "title": "Clone your repos" },
+  { "t": "sub", "text": "Receiving objects 10%" },
+  { "t": "sub", "text": "Receiving objects 42%", "replace": true },
+  { "t": "done", "title": "Clone your repos" }
+]

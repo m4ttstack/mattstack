@@ -1272,6 +1272,22 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(logs.map((l) => l.line)).toContain("acme-api: clone failed: fatal: early EOF (git exited 128)");
   });
 
+  test("repos.clone: the server's own counting is left out of a failure reason, but a remote: error stays", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const stderr =
+      "remote: Enumerating objects: 5, done.\n" +
+      "remote: Total 5 (delta 0), reused 0 (delta 0), pack-reused 0\n" +
+      "remote: The project you were looking for could not be found.\n" +
+      "fatal: repository not found\n";
+    const p = fakeProbes({ home, exec: async (argv) => (argv.includes("clone") ? { code: 128, stdout: "", stderr } : sshRefused(argv)) });
+    const { ctx, logs } = makeCtx(p, { snapshot: ACME_API });
+
+    await reposCloneStep.run(ctx);
+    expect(logs.map((l) => l.line)).toContain(
+      "acme-api: clone failed: remote: The project you were looking for could not be found.\nfatal: repository not found (git exited 128)",
+    );
+  });
+
   test("repos.clone: an https clone made with rt's token names rt as that host's credential helper, so the user's own pulls work", async () => {
     setSetting("rt.repoRoots", [join(home, "code")], "machine");
     mkdirSync(join(home, "code"), { recursive: true });
