@@ -1701,7 +1701,7 @@ describe("herd:spawn {tree} and herd:respawn", () => {
     expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: dirJob })).ok).toBe(true);
     const res = await h["herd:respawn"]({ herd, job: "job-a" });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toBe(`job "job-a" worktree ${dirJob} is not a registered tree; respawn it from the CLI with --dir`);
+    if (!res.ok) expect(res.error).toBe(`job "job-a" worktree ${dirJob} is not a registered tree, so herd_respawn cannot relaunch it; a person can, with rt herd spawn --herd ${herd} --job job-a --dir ${dirJob}`);
     expect(agentCalls).toHaveLength(1);
   });
 

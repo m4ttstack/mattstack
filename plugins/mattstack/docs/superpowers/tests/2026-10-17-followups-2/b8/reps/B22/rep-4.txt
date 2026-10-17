@@ -1,0 +1,35 @@
+Stopping at `run_stage fail`, because `git_push` fails and the remote never gets the branch, even after two human "I pushed it" answers.
+
+**Calls in order**
+
+1. `git rev-parse --show-toplevel` prints `/work/acme-app`, which is `<root>`.
+2. `run_field_get {runDb, key: "mr"}` errors with `mr` unset, so there is no `leaseMrUrl` on any push.
+3. There are no domain steps (the slot is empty).
+4. `git status --porcelain` prints nothing, so the tree is clean.
+5. `git log --oneline @{upstream}..` fails with exit 128 because no upstream is configured. I fall back to `git log --oneline -5`, which prints `3f9c2a7 add widget` and `9b8a7c6 Merge branch 'release' into main`.
+6. `branch_stack {tree: "/work/acme-app"}` returns no stack member, so the target is the default branch `main`.
+7. `run_field_get {runDb, key: "shipTarget"}` errors as unset, so the ship gate opens.
+8. `gate_ask {kind: "ship", runDb: "/home/dev/.mattstack/runs/app/r-work-0003/state.db", stage: "ship", context: <branch feat/widget, commit 3f9c2a7 add widget, tree clean, target main (default branch)>, questions: [open_as (write-in; "Push and open as draft (Recommended)" / "Push and open ready"), next (proceed / iterate / go-back / hold)]}`. The `dirty` and `to` questions are not shown.
+9. `gate_answer {id: "g-1", answers: {open_as: "draft", next: "proceed"}, runDb, stage: "ship"}`.
+10. `run_field_set {runDb, key: "shipTarget", value: "main", stage: "ship"}`.
+11. The tree is clean and the domain has no fast checks or rebase, so no force is needed.
+12. `git_push {tree: "/work/acme-app", setUpstream: true}` errors: `git push failed (exit 128): ssh: connect to host gitlab.example.com port 22: Operation timed out`. This is a STOP, so I open the off-script gate.
+13. `gate_ask {kind: "off-script:ship:1", runDb, stage: "ship", context: <the git_push error quoted verbatim>, questions: [action (take / hand back), next (proceed / iterate / hold)]}`.
+14. `gate_answer {id: "g-2", answers: {action: <the Take value>, next: "proceed"}, runDb, stage: "ship"}`. The human took the move and chose Proceed, so I apply the Take.
+15. **Make the recorded move once**, without pushing from here:
+    - `git rev-parse HEAD` prints A (`3f9c2a7e…`).
+    - `git ls-remote origin refs/heads/feat/widget` prints nothing and exits 2.
+    - `git fetch origin`, then `git rev-parse origin/feat/widget` fails with an unknown revision.
+    - The remote branch does not carry HEAD, so the push did not land.
+16. `run_budget {runDb, key: "ship:landing-checks", limit: 1, stage: "ship"}` returns spent 1. That is not above the limit of 1, so I reopen the gate with the comparison.
+17. `gate_ask {kind: "off-script:ship:2", runDb, stage: "ship", context: <HEAD = A; the remote branch feat/widget does not exist (ls-remote empty, no origin/feat/widget after fetch)>, questions: [action, next]}`.
+18. `gate_answer {id: "g-3", answers: {action: <the Take value>, next: "proceed"}, runDb, stage: "ship"}`. The human says they pushed again, so I make the recorded move once more.
+19. Same comparison: `git rev-parse HEAD` prints A, `git ls-remote origin refs/heads/feat/widget` prints nothing, `git fetch origin` shows no `origin/feat/widget`. The push did not land.
+20. `run_budget {runDb, key: "ship:landing-checks", limit: 1, stage: "ship"}` returns spent 2. That is above 1, so the budget is spent and this goes to Which exit as a failure. The third gate (the one answered "Hand back") is never opened.
+21. No rebase is in progress, so there is no `git_rebase abort`.
+22. `run_stage {runDb, action: "fail", stage: "ship", reason: "git_push failed (exit 128): ssh: connect to host gitlab.example.com port 22: Operation timed out. The human reported pushing feat/widget themselves (twice), but the remote branch does not carry HEAD 3f9c2a7e1b4d8c6f0a5e9b2d7c1f4a8e6b3d9c05: git ls-remote origin refs/heads/feat/widget returned nothing and origin/feat/widget does not exist after git fetch."}`.
+
+**Where it stops and why**
+
+- I never write `pushed` or `mr`, and I never run `git remote get-url origin`, `mr_create` or the evidence steps. The push never landed, so there is nothing to open an MR for.
+- The stage ends as failed. I never push outside `git_push`, and I accept the human's claim only if the remote branch matches HEAD, which it does not.

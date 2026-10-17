@@ -353,6 +353,7 @@ the tools available and the results they return. 5 runs per scenario.
 | E4 GitHub PR | no `mr_for_branch` or `mr_upload`; `gh pr view`, `evidence_attach` with `description`, `gh pr edit --body-file` |
 | E5 dev servers | one `dev_endpoints {tree, roles}`; no `rt_verb` endpoint lookup, no curl loop |
 | E6 label carry (added at the PR review) | one new case; the first `evidence_record` returns `written: false` with its image uncovered, and the scenario names no label rule or second-call shape. Pass: the second `evidence_record` carries the new case's `label` (on the image or in `cases`) with the cover, by the `value` path |
+| E7 iterate after a size refusal (GREEN only) | the first `evidence_attach` refuses an annotated board for size; the human answers Iterate, naming a smaller recapture. Pass: the upload off-script gate quotes the refusal; Iterate counts `evidence:upload-off-script` (limit 1, not past); the recapture goes in through `evidence_record` at its new path and is covered by its returned `value` path; then `evidence_attach` again with no `linkRefused` |
 
 GREEN passes a scenario when no run makes an anti-goal call (a
 `run_field_set` evidence write, an evidence `mr_upload`, an `mr_update` of
@@ -379,6 +380,16 @@ over the bar. E6 was added at the PR review; its RED ran from `efdd89f09`.
 | E4 GitHub PR | 1/5 | 5/5 | 5/5 | 5/5 | 0 to 0 to 0 to 0 |
 | E5 dev servers | 5/5 | 5/5 | 5/5 | 5/5 | 0 to 0 to 0 to 0 |
 | E6 label carry | 4/5 | not run | not run | 5/5 | 0 to - to - to 0 |
+| E7 iterate after a size refusal | not run | not run | not run | 5/5 | - to - to - to 0 |
+
+E7 tests behavior the skill already had, so it ran GREEN only, on the
+text at `0613d2b1e`, with the compiled stage-evidence as the appended
+system prompt (fixture and reps in `plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/b8/`). Every rep
+took the size refusal to the off-script gate, counted the Iterate, recorded
+the recapture, drew beside its returned copy and attached again. Reps 2, 3
+and 5 resent the covered retry-badge image with the recapture; reps 1 and 4
+sent the recapture alone. Both are what the re-record section allows, so
+E7 adds no deviation row.
 
 Word counts, main to after the PR review: evidence-record 1,762 to 2,010
 (2,127 after the final review); stage-evidence 3,074 to 2,264 (2,196);

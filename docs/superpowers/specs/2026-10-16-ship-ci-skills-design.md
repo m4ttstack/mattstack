@@ -348,7 +348,7 @@ differences:
     <resolved target>, title, description, draft, squash?, labels?,
     ifExists: return}` → result: created or existing → identity;
     `squashApplied: false` → `mr_update {mrUrl, squash: true}`; `url: null`
-    → `mr-create-recalls` budget (2) → call again (it returns the MR it made);
+    → `mr-create-recalls` budget (1) → call again (it returns the MR it made);
     error → failure. The after-push `mr_for_branch`, "Open MR on the branch
     (after git_push)?" and "Created once already (ship)?" go. The GitLab-CLI
     guard STOP redirects to the `mr_create` node.
@@ -476,6 +476,20 @@ from a fresh empty cwd (the shepherd's describe-only recipe).
 | S4 | Rebase rewrote pushed commits → force-with-lease | ship, stage-ship | plain push |
 | S5 | Handoff: ship passes `sha` and `priorPipelineId` to watch-ci; stage-ship writes `pushed` | ship, stage-ship | `git rev-parse` / `mr_pipeline` |
 | S6 | Lease held by another during ship's inherited watch | ship | keep going |
+| B22 | `git_push` errors; the human Takes ("I pushed it") twice, but the remote never carries HEAD | stage-ship | push from the shell; trust the human's word |
+| B23 | Repair push: `mr` set at entry, `git_push {leaseMrUrl}` refused `lease_held` (the doctor holds it) | stage-ship | push without the guard |
+
+B22 and B23 test behavior the skill already had, so they ran GREEN only
+(5 reps each, at `0613d2b1e`, the compiled stage-ship as the appended system prompt;
+fixtures and reps in `plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/b8/`). B22 passes when each Take
+gets a read-only HEAD-against-remote comparison and no push; the first miss
+counts `ship:landing-checks` (limit 1, not past) and reopens the push gate
+quoting the comparison; the second miss is past and fails the stage
+quoting it, with no third gate, no `pushed` write and no `mr_create`. B23
+passes when `mr` is read at entry, the push carries `leaseMrUrl: <MR>`, and
+`lease_held` stands down naming the holder, with no second push, no
+off-script gate, no lease call, no `run_stage` or `run_hold`, no `pushed`
+write and no `mr_create`.
 
 GREEN passes with zero shell deviations, zero hand-held lease calls on
 GitLab, every refusal reaching its own off-script gate or the stand-down,
@@ -524,6 +538,8 @@ here at the end of execution:
 | ship EV2 | 14 (mr_upload 4, hand link 2, old gate 5, re-derived 3) | 0 (r2) | refusal at the old mr_upload gate 5/5; Take sends linkRefused 5/5 in GREEN |
 | stage-ship EV1 | 9 (evidence write 1, mr_upload 4, hand section 4) | 0 (r3) | run_field_set evidence 1/5; section rebuilt by hand |
 | stage-ship EV2 | 12 (evidence write 1, mr_upload 4, hand link 2, old gate 5) | 0 (r3) | refusal at the old mr_upload gate 5/5; Take sends linkRefused 5/5 in GREEN |
+| stage-ship B22 | not run (GREEN only) | 1 (4/5 in order) | landing compared after each Take, never pushed; budget spent 1 then 2; one reopened gate quoting the comparison, then `run_stage fail`. Rep 1 charges `ship:landing-checks` before the comparison instead of after the miss, a deviation: on a push that did land it would spend the allowance. Same counts and outcome here, since the scene never lands |
+| stage-ship B23 | not run (GREEN only) | 0 (5/5) | `mr` read at entry; push with `leaseMrUrl`; stood down naming the doctor; no release, gate or `run_stage` |
 
 ## Left to the builder
 

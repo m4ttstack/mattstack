@@ -48,7 +48,7 @@ digraph herd_job {
     "STOP: questions go through herd_ask, never a bare pane form" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "herd_ask {questions, context}: a decision" [shape=plaintext];
     "herd_milestone {artifact, summary}: a spec or plan" [shape=plaintext];
-    "run_start {flags, skillDir: <the verb's skill dir>, spawnedBy: herd:<HERD_ID>}" [shape=plaintext];
+    "run_enter {flags, skillDir: <the verb's skill dir>, spawnedBy: herd:<HERD_ID>}" [shape=plaintext];
     "STOP: push only with git_push" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "git_push {tree: <root>, setUpstream: true}" [shape=plaintext];
     "git_push result?" [shape=diamond];
@@ -81,12 +81,12 @@ digraph herd_job {
     "What does the Method need next?" -> "STOP: questions go through herd_ask, never a bare pane form" [label="tempted to put up a form in this pane"];
     "STOP: questions go through herd_ask, never a bare pane form" -> "herd_ask {questions, context}: a decision";
     "What does the Method need next?" -> "herd_milestone {artifact, summary}: a spec or plan" [label="a milestone review"];
-    "What does the Method need next?" -> "run_start {flags, skillDir: <the verb's skill dir>, spawnedBy: herd:<HERD_ID>}" [label="a pipeline verb"];
+    "What does the Method need next?" -> "run_enter {flags, skillDir: <the verb's skill dir>, spawnedBy: herd:<HERD_ID>}" [label="a pipeline verb"];
     "What does the Method need next?" -> "git_push {tree: <root>, setUpstream: true}" [label="a push or PR the goal asks for"];
     "What does the Method need next?" -> "STOP: push only with git_push" [label="tempted to push from the shell"];
     "STOP: push only with git_push" -> "git_push {tree: <root>, setUpstream: true}";
     "What does the Method need next?" -> "Write the report draft" [label="the work is done"];
-    "run_start {flags, skillDir: <the verb's skill dir>, spawnedBy: herd:<HERD_ID>}" -> "Work the Method";
+    "run_enter {flags, skillDir: <the verb's skill dir>, spawnedBy: herd:<HERD_ID>}" -> "Work the Method";
     "git_push {tree: <root>, setUpstream: true}" -> "git_push result?";
     "git_push result?" -> "Forge?" [label="ok"];
     "git_push result?" -> "herd_ask {questions, context}: the push was refused" [label="refused"];
@@ -150,8 +150,9 @@ call.
 
 ## Pipeline runs
 When your Method runs a pipeline verb (`work`, `ship`, `review`, ...),
-start its run with the `run_start` tool and pass
-`spawnedBy: "herd:<HERD_ID>"` and `skillDir`, the base directory of the
+load its skill and walk its graph. The verb opens its own run: its first
+call is `run_enter`, the one start the run gets, and to that call you add
+`spawnedBy: "herd:<HERD_ID>"`, with `skillDir` the base directory of the
 pipeline verb's skill you just loaded (an absolute path), where
 `<HERD_ID>` is the value of `HERD_ID` in this pane's environment
 (`printenv HERD_ID` prints it). The

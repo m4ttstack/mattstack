@@ -1,0 +1,166 @@
+The stage ends with `evidence` recorded and the evidence section written into MR !12's description. This is the call sequence I would make, with each result taken from the scenario or assumed where it says nothing.
+
+**1. Read the plan and worktree (in parallel)**
+
+```json
+run_field_get {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"evidence-plan"}
+run_field_get {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"worktree"}
+```
+The plan doesn't start with `none`. No domain is bound, so I skip `dev_endpoints` and `rt_verb`. The data source is local and no intake questions are declared, so I skip the `evidence` gate. The ticket doesn't show the broken state, so I capture both BEFOREs.
+
+**2. Capture the BEFOREs**
+
+The captures succeed, so the capture-attempts budget isn't touched.
+```json
+browser_take_screenshot {"filename":"/home/dev/.fast-browser/screenshots/retry-badge-before.png"}
+browser_take_screenshot {"filename":"/home/dev/.fast-browser/screenshots/dlq-list-before.png"}
+```
+
+**3. Find the MR**
+
+```json
+run_field_get {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"branch"}
+Bash {"command":"git -C /home/dev/.mattstack/rt/worktrees/queue/fix-retry remote get-url origin"}
+mr_for_branch {"repoName":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry","branches":["fix-retry"]}
+```
+The remote is GitLab and the MR is open. I keep `https://gitlab.example.com/acme/queue/-/merge_requests/12`.
+
+**4. Gate `evidence-attach`**
+
+Sentence above the form: "Captured the retry badge and dead-letter list BEFOREs under /home/dev/.fast-browser/screenshots/; proposing marks for each."
+```json
+gate_ask {
+  "kind":"evidence-attach",
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db",
+  "stage":"evidence",
+  "context":"Captured BEFOREs:\n- retry-badge: /home/dev/.fast-browser/screenshots/retry-badge-before.png\n- dlq-list: /home/dev/.fast-browser/screenshots/dlq-list-before.png\nOpen MR: https://gitlab.example.com/acme/queue/-/merge_requests/12",
+  "questions":[
+    {"id":"annotations","label":"Marks to draw","multi":true,"options":[
+      {"value":"retry-badge: box the retry badge","label":"retry-badge: box the retry badge"},
+      {"value":"dlq-list: box the dead-letter list rows","label":"dlq-list: box the dead-letter list rows"}]},
+    {"id":"attach","label":"Attach","multi":false,"writeIn":true,"options":[
+      {"value":"handback","label":"Hand back the markdown (Recommended)"},
+      {"value":"now","label":"Attach to the MR now"}]},
+    {"id":"next","label":"Next","multi":false,"options":[
+      {"value":"proceed","label":"Proceed"},{"value":"iterate","label":"Iterate here"},{"value":"hold","label":"Hold"}]}
+  ]
+}
+```
+The answer is `{"annotations":["all proposed"],"attach":"now","next":"proceed"}`.
+
+**5. Record the evidence, first call**
+
+```json
+evidence_record {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "tree":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry",
+  "images":[
+    {"case":"retry-badge","label":"Retry badge","slot":"before","path":"/home/dev/.fast-browser/screenshots/retry-badge-before.png"},
+    {"case":"dlq-list","label":"Dead-letter list","slot":"before","path":"/home/dev/.fast-browser/screenshots/dlq-list-before.png"}
+  ]
+}
+```
+It returns `written: false`, with both images uncovered.
+
+**6. Cover round 1**
+
+```json
+run_budget {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"evidence:cover-rounds","limit":3,"stage":"evidence"}
+```
+Spent is 1, so it isn't spent. I draw the marks beside each value copy:
+```json
+draw {"image":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before.png","marks":"red box around the retry badge","output":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before-annotated.png"}
+draw {"image":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before.png","marks":"red box around the dead-letter list rows","output":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before-annotated.png"}
+```
+```json
+evidence_record {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "tree":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry",
+  "images":[
+    {"case":"retry-badge","label":"Retry badge","slot":"before","path":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before.png","annotated":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before-annotated.png","caption":"Red box: the retry badge as it renders before the fix"},
+    {"case":"dlq-list","label":"Dead-letter list","slot":"before","path":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before.png","annotated":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before-annotated.png","caption":"Red box: the dead-letter list rows before the fix"}
+  ]
+}
+```
+It returns `{"written": true}`.
+
+**7. Attach, first try**
+
+The answer was `attach: now`.
+```json
+evidence_attach {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "heading":"## Evidence",
+  "mrUrl":"https://gitlab.example.com/acme/queue/-/merge_requests/12"
+}
+```
+The heading is the assumed default because the repo MR template isn't read here. The dlq-list image is refused: 14 MB against a 10 MB cap. The description isn't written. That is the STOP, so I open the off-script gate.
+
+**8. Off-script gate: upload refused**
+
+```json
+gate_ask {
+  "kind":"off-script:evidence:1",
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "context":"Upload refused:\n- /home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before-annotated.png: file is 14 MB; the upload cap is 10 MB\nOnly the human moves or copies a file.",
+  "questions":[
+    {"id":"action","label":"Action","multi":false,"options":[
+      {"value":"Recapture the dlq-list BEFORE at a smaller size and re-record it","label":"Take the proposed move"},
+      {"value":"handback","label":"Hand back"}]},
+    {"id":"next","label":"Next","multi":false,"options":[
+      {"value":"proceed","label":"Proceed (Recommended)"},{"value":"iterate","label":"Iterate here"},{"value":"hold","label":"Hold"}]}
+  ]
+}
+```
+The answer is `{"next":"iterate","note":"I recaptured the dead-letter list in a smaller window: /home/dev/.fast-browser/screenshots/dlq-list-before-small.png"}`.
+
+**9. Budget check and re-record**
+
+```json
+run_budget {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"evidence:upload-off-script","limit":1,"stage":"evidence"}
+```
+Spent is 1 against a limit of 1, so it isn't spent. A new file needs a re-record, so I go back through Record the evidence. I pass the new file at its new path and the retry-badge image by its value path with its cover.
+```json
+evidence_record {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "tree":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry",
+  "images":[
+    {"case":"retry-badge","slot":"before","path":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before.png","annotated":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before-annotated.png","caption":"Red box: the retry badge as it renders before the fix"},
+    {"case":"dlq-list","slot":"before","path":"/home/dev/.fast-browser/screenshots/dlq-list-before-small.png"}
+  ]
+}
+```
+It returns `written: false`, with only dlq-list uncovered. Its value copy is now at `.../dlq-list/8c41e0d2a9b7/dlq-list-before-small.png`.
+```json
+run_budget {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"evidence:cover-rounds","limit":3,"stage":"evidence"}
+```
+Spent is 2, so it isn't spent.
+```json
+draw {"image":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/8c41e0d2a9b7/dlq-list-before-small.png","marks":"red box around the dead-letter list rows","output":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/8c41e0d2a9b7/dlq-list-before-small-annotated.png"}
+```
+```json
+evidence_record {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "tree":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry",
+  "images":[
+    {"case":"retry-badge","slot":"before","path":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before.png","annotated":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before-annotated.png","caption":"Red box: the retry badge as it renders before the fix"},
+    {"case":"dlq-list","slot":"before","path":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/8c41e0d2a9b7/dlq-list-before-small.png","annotated":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/8c41e0d2a9b7/dlq-list-before-small-annotated.png","caption":"Red box: the dead-letter list rows before the fix"}
+  ]
+}
+```
+It returns `{"written": true}`.
+
+**10. Attach, second try**
+
+```json
+evidence_attach {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "heading":"## Evidence",
+  "mrUrl":"https://gitlab.example.com/acme/queue/-/merge_requests/12"
+}
+```
+It returns `refused: {}` and `descriptionWritten: true`. The old retry-badge upload is reused and the new dlq-list image is uploaded. The MR had no evidence heading, so the section is added.
+
+**Stage end**
+
+The result is Attached. I don't write `run_stage done`, because the orchestrator closes the stage, and I return control to it.

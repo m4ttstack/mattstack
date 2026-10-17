@@ -905,6 +905,18 @@ describe("evidence_attach", () => {
     expect(state.live).not.toContain(home);
   });
 
+  test("a home given with a trailing slash still finds a bare home path in a caption", async () => {
+    const { evidence: base } = boardRecord();
+    const rec = JSON.parse(base);
+    const unresolvable = "/nonexistent-home/someone";
+    rec.cases[0].before.caption = `captured in ${unresolvable}.`;
+    const { deps, calls } = makeDeps({ fields: { evidence: JSON.stringify(rec) }, live: "## Verification Evidence\n\nold\n" });
+    const withSlash = { ...deps, home: () => `${unresolvable}/` };
+    const body = (await tool(withSlash, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody & { writeErrors?: string[] };
+    expect(calls.some((c) => c.cmd === "mr:update")).toBe(false);
+    expect(body.writeErrors?.join(" ")).toContain("home directory");
+  });
+
   test("on GitHub a section naming the home directory comes back with the reason and no spliced description", async () => {
     const { evidence: base } = boardRecord();
     const rec = JSON.parse(base);

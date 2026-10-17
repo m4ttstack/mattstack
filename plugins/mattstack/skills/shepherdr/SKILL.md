@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.31.17 + mattstack:model-tiering@0.31.17 + mattstack:execution-strategy@0.31.17 + mattstack:cswap-accounts@0.31.17"
+  compiled: "mattstack@0.31.22 + mattstack:model-tiering@0.31.22 + mattstack:execution-strategy@0.31.22 + mattstack:cswap-accounts@0.31.22"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.31.17 path=attachments/orchestration/shepherdr/SKILL.md lines=13-840 -->
+<!-- part: step source=mattstack:shepherdr version=0.31.22 path=attachments/orchestration/shepherdr/SKILL.md lines=13-856 -->
 
 # shepherdr
 
@@ -27,7 +27,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.31.17 path=attachments/model-tiering/SKILL.md lines=8-164 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.31.22 path=attachments/model-tiering/SKILL.md lines=8-164 -->
 # Model Tiering
 
 Start from the table's row for the work; where no row fits, start from
@@ -190,7 +190,7 @@ framework they override.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.31.17 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.31.22 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -302,7 +302,7 @@ When nothing is inlined above, every engine default stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.31.17 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.31.22 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -713,8 +713,11 @@ digraph shepherdr_watch {
     "Pick the account per the accounts rules" [shape=box];
     "Report the stall to the user" [shape=box];
     "Ask: attend or respawn" [shape=box];
+    "Job's pane a bg: ref (the parked dialog)?" [shape=diamond];
+    "Job's pane a bg: ref (a human is needed)?" [shape=diamond];
     "herd_attend {job, herd}: the parked dialog" [shape=plaintext];
     "herd_attend {job, herd}: a human is needed" [shape=plaintext];
+    "Point the user at the job's tab" [shape=box];
     "Report the crash with its job and pane" [shape=box];
     "chat_dm {to: <job handle>, body: the ruling or findings}" [shape=plaintext];
     "Ask: let them finish, kill and respawn, or hold" [shape=box];
@@ -786,7 +789,9 @@ digraph shepherdr_watch {
     "What does the diagnosis say?" -> "Accounts section non-empty?" [label="rate-limited"];
     "What does the diagnosis say?" -> "Smart-distribute pool in use?" [label="dead, gone, no-pane or login-expired"];
     "What does the diagnosis say?" -> "Ask: attend or respawn" [label="parked-modal"];
-    "What does the diagnosis say?" -> "herd_attend {job, herd}: a human is needed" [label="needs-human"];
+    "What does the diagnosis say?" -> "Job's pane a bg: ref (a human is needed)?" [label="needs-human"];
+    "Job's pane a bg: ref (a human is needed)?" -> "herd_attend {job, herd}: a human is needed" [label="yes: a hidden herd"];
+    "Job's pane a bg: ref (a human is needed)?" -> "Point the user at the job's tab" [label="no: the pane is already a tab"];
     "What does the diagnosis say?" -> "STOP: herd_diagnose reads the pane; never peek it yourself" [label="tempted to peek the pane or send a key"];
     "STOP: herd_diagnose reads the pane; never peek it yourself" -> "Shepherd off-script gate: ask the user";
     "Nudges for this gate spent?" -> "herd_nudge {herd, job, gate}" [label="no"];
@@ -803,7 +808,10 @@ digraph shepherdr_watch {
     "Pick the account per the accounts rules" -> "Respawns of this job spent?" [label="an account picked"];
     "Pick the account per the accounts rules" -> "End the turn until something arrives" [label="wait or abandon"];
     "Report the stall to the user" -> "End the turn until something arrives";
-    "Ask: attend or respawn" -> "herd_attend {job, herd}: the parked dialog" [label="attend"];
+    "Ask: attend or respawn" -> "Job's pane a bg: ref (the parked dialog)?" [label="attend"];
+    "Job's pane a bg: ref (the parked dialog)?" -> "herd_attend {job, herd}: the parked dialog" [label="yes: a hidden herd"];
+    "Job's pane a bg: ref (the parked dialog)?" -> "Point the user at the job's tab" [label="no: the pane is already a tab"];
+    "Point the user at the job's tab" -> "End the turn until something arrives";
     "Ask: attend or respawn" -> "Respawns of this job spent?" [label="respawn"];
     "herd_attend {job, herd}: the parked dialog" -> "End the turn until something arrives";
     "herd_attend {job, herd}: a human is needed" -> "End the turn until something arrives";
@@ -878,6 +886,14 @@ Single-account mode, or an expired login with no pool (only the user's
 A dialog the watchdog could not clear parks the job (`stuck-at-modal`).
 **Attend** opens the pane for the user; **Respawn** reuses the stored
 brief.
+
+### Point the user at the job's tab
+
+The job's pane in `herd_status` has no `bg:` prefix: the herd is visible,
+so the pane is already a tab in the herd's workspace and `herd_attend`,
+which opens tabs only for a hidden herd's panes, would refuse. Tell the
+user in one message which job, its pane ref and tab, and what waits on
+them (the diagnosis reason, or the parked dialog).
 
 ### Report the crash with its job and pane
 
@@ -1131,7 +1147,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.31.17 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.31.22 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait

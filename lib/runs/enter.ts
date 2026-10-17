@@ -148,6 +148,8 @@ function resumeRun(i: EnterInput, id: string, handedFlag: { handedRunDb?: "not-r
         writeManifest(db, picked.stages, i.stage !== undefined ? null : i.packRoot);
         manifest = readManifest(db);
         backfilled = true;
+        const listed = db.query("SELECT 1 FROM fields WHERE key = 'pipeline-stages'").get();
+        if (!listed) must(fieldSet(db, "pipeline-stages", picked.stages.map((s) => s.stage).join(" "), picked.stages[0]!.stage, now));
       }
 
       recordIdentity(db, i.env, now);

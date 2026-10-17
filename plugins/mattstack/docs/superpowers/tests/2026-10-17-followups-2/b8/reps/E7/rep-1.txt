@@ -1,0 +1,147 @@
+I followed the stage graph. Tool results are the scenario's, or assumed where it gives none (marked "assumed").
+
+**1. Read the plan and worktree**
+```
+run_field_get {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"evidence-plan"}
+run_field_get {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"worktree"}
+```
+Assumed: the plan is `screenshots: the retry badge and the dead-letter list, before`, and the worktree is `/home/dev/.mattstack/rt/worktrees/queue/fix-retry`.
+
+The plan does not start with `none`, and no domain is bound. So there are no dev servers, no `rt_verb` and no `dev_endpoints` call. The source is local with no intake questions, so the `evidence` gate is skipped. The ticket does not show the broken state, so I capture both BEFOREs.
+
+**2. Capture the BEFOREs**
+```
+browser_take_screenshot {"filename":"/home/dev/.fast-browser/screenshots/retry-badge-before.png"}
+browser_take_screenshot {"filename":"/home/dev/.fast-browser/screenshots/dlq-list-before.png"}
+```
+Both captured, so no `capture-attempts` budget is touched.
+
+**3. Look up the MR**
+```
+run_field_get {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"branch"}
+Bash {"command":"git -C /home/dev/.mattstack/rt/worktrees/queue/fix-retry remote get-url origin"}
+mr_for_branch {"repoName":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry","branches":["fix-retry"]}
+```
+The branch is `fix-retry` (assumed). The remote is `git@gitlab.example.com:acme/queue.git`, so the host is GitLab. The open MR is `https://gitlab.example.com/acme/queue/-/merge_requests/12`, and I keep that URL.
+
+**4. Gate `evidence-attach`**
+
+One sentence above the form: "Captured the BEFORE screenshots of the retry badge and the dead-letter list, at `/home/dev/.fast-browser/screenshots/`; MR 12 is open on `fix-retry`."
+```
+gate_ask {
+  "kind":"evidence-attach",
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db",
+  "stage":"evidence",
+  "context":"Captured BEFORE screenshots for plan: screenshots: the retry badge and the dead-letter list, before\n- retry-badge: /home/dev/.fast-browser/screenshots/retry-badge-before.png\n- dlq-list: /home/dev/.fast-browser/screenshots/dlq-list-before.png\nOpen MR: https://gitlab.example.com/acme/queue/-/merge_requests/12",
+  "questions":[
+    {"id":"annotations","label":"Marks to draw","multi":true,"options":[
+      {"value":"retry-badge/before:box-badge","label":"retry-badge before: box the retry badge"},
+      {"value":"dlq-list/before:box-rows","label":"dlq-list before: box the dead-letter rows"}]},
+    {"id":"attach","label":"Attach to the MR?","writeIn":true,"options":[
+      {"value":"handback","label":"Hand back the markdown (Recommended)"},
+      {"value":"now","label":"Attach to the MR now"}]},
+    {"id":"next","label":"Next","options":[
+      {"value":"proceed","label":"Proceed"},
+      {"value":"iterate","label":"Iterate here"},
+      {"value":"hold","label":"Hold"}]}]
+}
+```
+Assumed: `{ok, id:"g-1", paneAction:"form"}`. I present the form, and the answer maps to option values:
+```
+gate_answer {"id":"g-1","runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "answers":{"annotations":["retry-badge/before:box-badge","dlq-list/before:box-rows"],"attach":"now","next":"proceed"}}
+```
+This answer wins. "All proposed" means both marks are selected, and `attach` is `now`.
+
+**5. Record the evidence (first call)**
+```
+evidence_record {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "tree":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry",
+  "images":[
+    {"case":"retry-badge","label":"Retry badge","slot":"before","path":"/home/dev/.fast-browser/screenshots/retry-badge-before.png"},
+    {"case":"dlq-list","label":"Dead-letter list","slot":"before","path":"/home/dev/.fast-browser/screenshots/dlq-list-before.png"}]
+}
+```
+The result is `written:false` with both images uncovered, so I use the paths in `value`.
+```
+run_budget {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"evidence:cover-rounds","limit":3,"stage":"evidence"}
+```
+Assumed: spent 1, not spent. Selections exist, so I draw rather than waive.
+```
+draw {"input":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before.png","output":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before-annotated.png","marks":["box: retry badge"]}
+draw {"input":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before.png","output":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before-annotated.png","marks":["box: dead-letter rows"]}
+```
+Both draws succeed.
+```
+evidence_record {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "tree":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry",
+  "images":[
+    {"case":"retry-badge","label":"Retry badge","slot":"before","path":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before.png","annotated":"/home/dev/.mattstack/work/r-20261016-abc/evidence/retry-badge/retry-badge-before-annotated.png","caption":"Red box: the retry badge as it renders before the fix"},
+    {"case":"dlq-list","label":"Dead-letter list","slot":"before","path":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before.png","annotated":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before-annotated.png","caption":"Red box: the dead-letter rows before the fix"}]
+}
+```
+The result is `{"written": true}`.
+
+**6. Attach (attach = now)**
+```
+evidence_attach {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence","heading":"## Evidence","mrUrl":"https://gitlab.example.com/acme/queue/-/merge_requests/12"}
+```
+Assumed: the repo has no MR template heading, so I use `## Evidence`.
+
+The result shows `refused.size` for `dlq-list-before-annotated.png` (14 MB, cap 10 MB). That triggers the STOP: only the human moves a refused file. I do not resize or upload it another way, and I open the off-script gate instead.
+
+**7. Off-script gate: upload refused**
+```
+gate_ask {
+  "kind":"off-script:evidence:1",
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "context":"evidence_attach refused a file:\n- /home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/dlq-list-before-annotated.png: file is 14 MB; the upload cap is 10 MB",
+  "questions":[
+    {"id":"action","label":"Refused upload","options":[
+      {"value":"recapture-dlq-list-under-10MB-and-record-it","label":"Take the proposed move"},
+      {"value":"handback","label":"Hand back"}]},
+    {"id":"next","label":"Next","options":[
+      {"value":"proceed","label":"Proceed (Recommended)"},
+      {"value":"iterate","label":"Iterate here"},
+      {"value":"hold","label":"Hold"}]}]
+}
+```
+Assumed: `{ok, id:"g-2", paneAction:"form"}`. The answer is `next: iterate` with the note about the smaller recapture.
+```
+gate_answer {"id":"g-2","runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence","answers":{"next":"iterate","note":"I recaptured the dead-letter list in a smaller window: /home/dev/.fast-browser/screenshots/dlq-list-before-small.png"}}
+run_budget {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"evidence:upload-off-script","limit":1,"stage":"evidence"}
+```
+Assumed: spent 1, which is not above the limit of 1, so it is not spent. The refusal was for size, so the iterate needs a re-record.
+
+**8. Re-record the new file**
+```
+evidence_record {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "tree":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry",
+  "images":[{"case":"dlq-list","label":"Dead-letter list","slot":"before","path":"/home/dev/.fast-browser/screenshots/dlq-list-before-small.png"}]
+}
+```
+The result is `written:false` with dlq-list uncovered.
+```
+run_budget {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","key":"evidence:cover-rounds","limit":3,"stage":"evidence"}
+```
+Assumed: spent 2, not spent.
+```
+draw {"input":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/8c41e0d2a9b7/dlq-list-before-small.png","output":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/8c41e0d2a9b7/dlq-list-before-small-annotated.png","marks":["box: dead-letter rows"]}
+evidence_record {
+  "runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence",
+  "tree":"/home/dev/.mattstack/rt/worktrees/queue/fix-retry",
+  "images":[{"case":"dlq-list","label":"Dead-letter list","slot":"before","path":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/8c41e0d2a9b7/dlq-list-before-small.png","annotated":"/home/dev/.mattstack/work/r-20261016-abc/evidence/dlq-list/8c41e0d2a9b7/dlq-list-before-small-annotated.png","caption":"Red box: the dead-letter rows before the fix"}]
+}
+```
+The result is `{"written": true}`.
+
+**9. Attach again**
+```
+evidence_attach {"runDb":"/home/dev/.mattstack/runs/queue/r-20261016-abc/state.db","stage":"evidence","heading":"## Evidence","mrUrl":"https://gitlab.example.com/acme/queue/-/merge_requests/12"}
+```
+The result has nothing refused and `descriptionWritten: true`. The retry-badge upload was reused and the smaller dlq-list upload is new. The MR had no evidence heading, so the section was added.
+
+**Outcome: Attached.** The stage ends and control returns to the orchestrator. I make no `run_stage` `start`/`done` call, because the orchestrator owns those, and `evidence_record` has already written the `evidence` field.

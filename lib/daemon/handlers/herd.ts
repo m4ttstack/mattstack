@@ -707,7 +707,7 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
       if (!existsSync(job.worktree)) return { ok: false, error: `job "${name}" worktree ${job.worktree} no longer exists; spawn the job fresh instead` };
       const hit = registry.byPath(job.worktree);
-      if (!hit) return { ok: false, error: `job "${name}" worktree ${job.worktree} is not a registered tree; respawn it from the CLI with --dir` };
+      if (!hit) return { ok: false, error: `job "${name}" worktree ${job.worktree} is not a registered tree, so herd_respawn cannot relaunch it; a person can, with rt herd spawn --herd ${herdId} --job ${name} --dir ${job.worktree}` };
       const admitted = admitTree(registry.load(hit.repoName).find((t) => t.name === hit.tree), hit.tree);
       if (!admitted.ok) return { ok: false, error: `job "${name}" worktree ${job.worktree}: ${admitted.error}` };
 

@@ -389,21 +389,26 @@ JSONC with full-line `//` comments only.
 
 ## Stage contract v2: run state
 
-Alongside `stage-consumes`/`stage-produces`, every stage reports lifecycle
-and data to the run DB through the run tools (`run_stage`, `run_field_set`,
-`run_field_get`, `run_decision`, `run_status`). The contract:
+Alongside `stage-consumes`/`stage-produces`, every stage reports data to
+the run DB through the run tools, and the run engine moves the run
+(`run_enter`, `run_next`, `run_resolve`, `run_hold`, `run_budget`,
+`run_close`; `run_field_get`, `run_field_set`, `run_decision`, and
+`run_stage` for a failure). The contract:
 
-- A compiled stage always runs under `work`, which passes `runDb` into
-  each stage's context before the first stage. There is no standalone
-  stage invocation, so the four calls below are unconditional.
-- On entry: `run_stage {runDb, action: "start", stage: <name>}`.
+- A compiled stage always runs under `work`, which opens the run with
+  `run_enter` and passes `runDb` into each stage's context. The engine
+  starts every stage: `run_enter` starts the first, and `work`'s
+  `run_next` (or `run_resolve` on a gate answer) starts each one after.
+  A stage makes no start call of its own. There is no standalone stage
+  invocation, so the calls below are unconditional.
 - Consumed fields are read with `run_field_get {runDb, key: <key>}` (it
   errors when the key is not set; fall back to asking or deriving, exactly
   as consumes-resolution already prescribes).
 - Every declared produce is written with `run_field_set {runDb, key,
   value, stage: <name>}` at the moment it is known.
-- On success: `run_stage {runDb, action: "done", stage: <name>}`; on
-  failure: `run_stage {runDb, action: "fail", stage: <name>, reason:
+- On success the stage hands back with its produces written; `work`'s
+  `run_next {runDb, stage: <name>}` checks them and starts the next stage.
+  On failure: `run_stage {runDb, action: "fail", stage: <name>, reason:
   "<one-line, what actually failed>"}` before reporting the failure. The
   reason is a sentence, not a category ("ui-islands gate: 3 files exceed
   the loc budget", not "gate failed"). Pass `detailPath` too when the
@@ -418,11 +423,16 @@ and data to the run DB through the run tools (`run_stage`, `run_field_set`,
 
 ## Stage contract v4: gates
 
-A gate is a named human decision point. Every gate site in an engine
-brackets with `run_field_set` (key `gate`) -> publishes and resolves per
-gate-protocol's Runs integration -> `run_decision {..., decidedBy: <the
-answer's by>}`. A gate whose `gate` field is newer than its last `gate@1`
-decision for that scope is pending.
+A gate is a named human decision point. Under a run, a gate site opens it
+with `gate_ask` or `gate_open`, passing `runDb` and `stage` (and `scope`
+when it differs from the kind), and walks gate-protocol's Runs
+integration. The tool writes the run's `gate` field, and `waiting-gate`
+when its `paneAction` is wait; `gate_answer` or `gate_reconcile` records
+the answer as the scope's `gate@1` decision with the answer's by as
+`decidedBy` (a review scope records its shape with `gate_record`). The
+skill writes none of `gate`, `waiting-gate` or that decision itself. A
+gate whose `gate` field is newer than its last `gate@1` decision for that
+scope is pending.
 
 Scopes. Pipeline gates: `plan`, `provision`, `evidence`, `evidence-attach`,
 `ship`, `mark-ready`, `ci`, `close`, `<stage>-failed`, `redirect`, `hold`.
@@ -464,11 +474,12 @@ conflict, push, and clarify gates for the exact wording). A resolved run
 always gets the run tool calls and its gate integration, however the
 runDb reached this call.
 
-A verb that inherited a run (invoked from inside a stage) uses
-`run.current_stage` as its `stage`, calls no `run_stage {action: "done"}`
-and no `run_status`, and fires no gate beyond its own: only the verb that
-called `run_start` closes the stage and the run. Every close ends with
-`run_status {runDb, status}`.
+A verb that inherited a run (invoked from inside a stage; `run_enter`
+returned `mode: "inherited"`) uses the result's `at.stage` as its `stage`,
+closes nothing, and fires no gate beyond its own: only a verb whose
+`run_enter` started or resumed the run closes it, with `run_close {runDb,
+workType, stage, outcome}` (`done`, `failed` or `abandoned`, with
+`reason`). `run_close` refuses an inherited run.
 
 Selections record the standing options with the pattern work's failure and
 close gates use: `next` is the gate's own enum and always includes
@@ -479,13 +490,14 @@ stand beside them.
 A `clarify` form carries its candidates, optionally their text, and Hold;
 it offers no Iterate here (the free-text candidate plays that role) and no
 Go back, and its selection keeps its single key. Hold on any form: one
-sentence, end the turn; under a run also record `hold:<stage>:<attempt>`
-and `run_field_set {runDb, key: "hold", value: "<their words>", stage}`;
-outside a run nothing is recorded.
+sentence, end the turn; under a run, `run_hold {runDb, stage, reason:
+"<their words>", decidedBy: <the answer's by>}` records the hold (at a
+`work` stage gate, `run_resolve {next: "hold"}` does the same); outside a
+run nothing is recorded.
 
 Every `run_*` call takes `runDb` whenever one reached you: the value
-`run_start` returned, carried in the calling agent's context; `cwd` is
+`run_enter` returned, carried in the calling agent's context; `cwd` is
 only the fallback for a call no runDb reached. A compiled stage
 receives it already, since the engine passes `runDb` into each stage's
-context; call `run_start` yourself only to open a run other than the one
-you inherited.
+context; a standalone verb's own first call is `run_enter`, which starts,
+resumes or inherits its run.

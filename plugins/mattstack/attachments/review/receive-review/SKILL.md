@@ -184,7 +184,8 @@ digraph receive_review {
     "receive-review clarify answer?" -> "Held: end the turn naming the run and stage" [label="hold: no run yet, record nothing"];
     "run_snapshot {runDb: <resumed receive-review>}" -> "What does the receive-review snapshot record?";
     "What does the receive-review snapshot record?" -> "What did the caller hand receive-review?" [label="no respond-plan record"];
-    "What does the receive-review snapshot record?" -> "run_field_get {runDb, key: extra.gate-source.respond-plan}" [label="respond-plan recorded only: never record it again"];
+    "What does the receive-review snapshot record?" -> "run_field_get {runDb, key: extra.gate-source.respond-plan}" [label="respond-plan recorded only, no plan handed after a revise: never record it again"];
+    "What does the receive-review snapshot record?" -> "What did the caller hand receive-review?" [label="respond-plan recorded as code-changes: revise, a {plan} handed: the newer plan"];
     "What does the receive-review snapshot record?" -> "gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy}" [label="respond-plan recorded only, a {post} handed"];
     "What does the receive-review snapshot record?" -> "Forge for the post side?" [label="respond-post recorded, held or not"];
     "run_field_get {runDb, key: extra.gate-source.respond-plan}" -> "Rewrite the receive-review report rows" [label="the stored cards, or an unset-key error"];
@@ -487,6 +488,13 @@ never asked again.
   rows. Never record respond-plan again: a second record moves its
   `decided_at`, which `respond_post_execute` reads for the decision's
   freshness and for which notes by this account count as already posted.
+- **`respond-plan` recorded with `code-changes: revise`, no
+  `respond-post` record, and the caller handed a `{plan}`:** the revise
+  re-adjudicated and stored a new respond-plan source, and the handed plan
+  answers that newer open. Take it through `What did the caller hand
+  receive-review?` as an unspent plan: it records once against the stored
+  cards. The revise record never acts (`respond_post_execute` refuses
+  it), so rows rebuilt from it drop the human's newer answer.
 - **The same, and the caller handed a `{post}`:** record it at once
   (`answers`, `decidedBy`), then the post side; the rows walk nothing.
 - **A `respond-post` record, held or not:** the post side again, never a
@@ -527,7 +535,7 @@ record `mr` (the MR/PR URL) and `branch` (its source branch) on whatever
 run this is, keeping a field the run already records (an inherited run's
 `mr` above all; read an inherited run's with `run_field_get {runDb, key}`,
 an unset-key error meaning not recorded). `ticket` is recorded only on a
-run this verb started, per Run identity.
+run this verb started or resumed, per Run identity.
 
 ### Report that no open MR has this branch as its source
 
@@ -548,7 +556,10 @@ the bodies the fix and override rows need. The record needs the
 respond-plan source on the run first: `respond_post_execute` refuses a run
 without it, and a source stored after the decision makes it stale. The
 plan is spent once recorded: go to the rows, never record it again; a
-revise adjudicates afresh.
+revise adjudicates afresh. A plan handed to a resumed run whose only
+respond-plan record says `code-changes: revise` is not yet spent: that
+record answered the earlier open, and this plan answers the open the
+revise built.
 
 ### Read the handed plan's threads on GitHub with gh
 
@@ -1208,6 +1219,7 @@ wrong implementation follow. Per thread it returns `valid` / `pushback` /
 | "I know the contexts were dropped; I'll apply that when the answer comes" | A pane that dies takes that with it. Write `gate-1-context: dropped` into the saved report right after the open. |
 | "I'll work out the overrides and texts from the answers myself" | `gate_record` computes them. Write its `rows` as they come back. |
 | "The resumed run lost its rows, so I'll record respond-plan again" | Never re-record a recorded scope: it moves `decided_at`. Join the decision to the stored cards. |
+| "The run already records respond-plan (a revise), so the handed plan is spent and the record wins" | The revise answered the earlier open. A plan handed after it answers the newer open: record it once and walk its rows. |
 | "The verdict report recommended a reply here, so it posts" | Posting reads each row's `gate-1` field, never the recommendation. |
 | "The gate approved posting, not a push, so I'll ask before pushing" | The proceed authorizes the push. |
 | "The fix is held on a branch mismatch; I'll switch branches, or push from the shell" | Never. Report it verbatim; the run stays open. Only `respond_post_execute` (GitLab) or `git_push` (GitHub) pushes, never forced. |

@@ -1,0 +1,44 @@
+Scenario B22 stops at step 8: the push never reaches the remote, the landing check runs out of budget on its second miss, and the stage fails. Nothing was executed; this is the call sequence the skill prescribes.
+
+**1. Entry reads**
+1. `run_field_get {"key":"mr"}` returns "not set", so there is no `leaseMrUrl` on any push.
+2. There are no domain steps (unbound).
+3. `run_field_get {"key":"commits"}` and `run_field_get {"key":"ticket"}` (E1, E2).
+4. `git rev-parse --show-toplevel` prints `/work/acme-app`. Also `git branch --show-current` and `git symbolic-ref --short refs/remotes/origin/HEAD`.
+5. `git status --porcelain` prints nothing, so the tree is clean.
+6. `git log --oneline @{upstream}..` fails with exit 128. Fallback: `git log --oneline -5`.
+7. `branch_stack {"tree":"/work/acme-app"}` returns `member: false`, `stackStore: "read"`, so the target is `main`, the default branch.
+8. `run_field_get {"key":"shipTarget"}` returns "not set", so the ship gate opens.
+
+**2. Ship gate (`g-1`)**
+1. `gate_ask {"kind":"ship","runDb":"/home/dev/.mattstack/runs/app/r-work-0003/state.db","stage":"ship","context":"<branch feat/widget, commit 3f9c2a7 add widget, clean tree, target main (default branch)>","questions":[open_as (write-in), next]}`. There is no `dirty` question because the tree is clean, and no `to` question.
+2. I present the form chunks with AskUserQuestion.
+3. `gate_answer {"id":"g-1","answers":{"open_as":"draft","next":"proceed"},"runDb":"…","stage":"ship"}`.
+4. `run_field_set {"key":"shipTarget","value":"main","stage":"ship"}`.
+5. The tree is clean, so there is no commit or stash. The domain has no fast checks and no rebase, so I never force-push.
+
+**3. Push**
+1. `git_push {"tree":"/work/acme-app","setUpstream":true}` fails with `ssh: connect to host gitlab.example.com port 22: Operation timed out`.
+2. This is the "any other error or refusal" edge, so the STOP applies: I do not run `git push` myself. The off-script gate opens.
+
+**4. Off-script gate 1 (`g-2`)**
+1. `gate_ask {"kind":"off-script:ship:1","runDb":"…","stage":"ship","context":"git_push refused: git push failed (exit 128): ssh: connect to host gitlab.example.com port 22: Operation timed out","questions":[action, next]}`.
+2. `gate_answer {"id":"g-2","answers":{"action":"I pushed feat/widget from my own terminal","next":"proceed","note":"pushed it over the VPN"},…}`.
+3. Proceed, so Take applies. I do not push myself. I only make the recorded check once: compare `git rev-parse HEAD` (A) with the remote branch.
+   - `git rev-parse HEAD` prints A.
+   - `git ls-remote origin refs/heads/feat/widget` prints nothing and exits 2.
+   - `git fetch origin`, then `git rev-parse origin/feat/widget` fails with an unknown revision.
+4. The remote does not carry HEAD, so it did not land. I do not write `pushed`.
+5. `run_budget {"key":"ship:landing-checks","limit":1,"stage":"ship"}` returns spent 1. 1 > 1 is false, so the gate reopens.
+
+**5. Off-script gate 2 (`g-3`)**
+1. `gate_ask {"kind":"off-script:ship:2","context":"<the refusal plus the comparison: HEAD=3f9c2a7e…, remote feat/widget does not exist>", …}`.
+2. `gate_answer {"id":"g-3","answers":{"action":"I pushed feat/widget again","next":"proceed","note":"the VPN dropped, it should be there now"},…}`.
+3. I make the check once more: `git rev-parse HEAD`, `git ls-remote origin refs/heads/feat/widget`, `git fetch origin`. The remote branch still does not exist.
+4. `run_budget {"key":"ship:landing-checks","limit":1,"stage":"ship"}` returns spent 2. 2 > 1, so it is spent, and the route is "Which exit?" as a failure.
+
+**6. Failure**
+- No rebase is in progress, so there is no `git_rebase abort`.
+- `run_stage {"action":"fail","stage":"ship","reason":"git_push failed (exit 128): ssh: connect to host gitlab.example.com port 22: Operation timed out. Human reported pushing twice (note: 'the VPN dropped, it should be there now'), but HEAD 3f9c2a7e1b4d8c6f0a5e9b2d7c1f4a8e6b3d9c05 is not on origin: git ls-remote origin refs/heads/feat/widget printed nothing (exit 2) and origin/feat/widget does not exist after git fetch."}`.
+
+**Where I stop:** the stage is failed. I never write `pushed`, never create the MR (`mr_create`), and never run the evidence or MR-description steps. I also never claim the branch was pushed, because the remote shows it was not. There is no third off-script gate, so the "Hand back" answer in step 9 is never used.

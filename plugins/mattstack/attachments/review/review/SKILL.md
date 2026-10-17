@@ -94,6 +94,7 @@ digraph review {
     "Review target answer?" [shape=diamond];
     "Own review run: record the target?" [shape=diamond];
     "Record the review target: mr, branch and any ticket" [shape=box];
+    "Caller handed a decided selection and the report it decided on?" [shape=diamond];
     "Caller framed a re-review?" [shape=diamond];
     "Take the earlier threads the caller handed in" [shape=box];
     "Earlier threads in hand?" [shape=diamond];
@@ -241,8 +242,11 @@ digraph review {
     "target-clarify spent?" -> "Review target form?" [label="no: resolve it"];
     "target-clarify spent?" -> "run_hold {runDb, stage, reason, decidedBy}" [label="yes: hold"];
     "Own review run: record the target?" -> "Record the review target: mr, branch and any ticket" [label="yes"];
-    "Own review run: record the target?" -> "Caller framed a re-review?" [label="no: inherited"];
-    "Record the review target: mr, branch and any ticket" -> "Caller framed a re-review?";
+    "Own review run: record the target?" -> "Caller handed a decided selection and the report it decided on?" [label="no: inherited"];
+    "Record the review target: mr, branch and any ticket" -> "Caller handed a decided selection and the report it decided on?";
+    "Caller handed a decided selection and the report it decided on?" -> "Review posting forge?" [label="yes: post it; review nothing again"];
+    "Caller handed a decided selection and the report it decided on?" -> "run_hold {runDb, stage, reason, decidedBy}" [label="yes, but a selected id the json lacks: hold, quoting it"];
+    "Caller handed a decided selection and the report it decided on?" -> "Caller framed a re-review?" [label="no"];
     "Caller framed a re-review?" -> "Take the earlier threads the caller handed in" [label="yes"];
     "Caller framed a re-review?" -> "Print the review depth block" [label="no"];
     "Take the earlier threads the caller handed in" -> "Earlier threads in hand?";
@@ -459,6 +463,23 @@ and a spent budget's hold names what was tried.
 `run_field_set` with `stage: review`: `key: mr` (the MR or PR URL), `key:
 branch` (its source branch), and `key: ticket` only when the MR or PR
 itself names one.
+
+### Caller handed a decided selection and the report it decided on?
+
+Yes when the caller hands a decided selection (`{findings, outcome}`, or
+legacy `{tiers, outcome}`) together with the `--report` the human decided
+it on: the review already ran in an earlier pane, a board's fresh pane or
+a resume of this run included. Go straight to posting. Compose reads each
+selected finding's text, anchor and tier from the report's json sibling
+(the report itself for a legacy selection) as written. Print no depth
+block, fetch, diff, provision or dispatch nothing, and never rewrite the
+report or its json: a second pass forms new findings whose ids and
+anchors are not the ones the human picked. A selected finding id the json
+lacks means the selection was decided on another revision of the report:
+hold, quoting the missing ids, and never post a partial set. On a resumed
+run the post still reads the MR first (`This review already on the MR?`).
+No: a
+selection handed with no report, or none handed, goes on to the review.
 
 ### Caller framed a re-review?
 
@@ -689,7 +710,8 @@ gate.
 
 One call carries the whole review. Selected findings: the union of the
 `findings-<n>` answers (`{value, note}` unwraps to its value), a legacy
-`tiers` answer's whole tiers, or the caller's selection. `comments`: one
+`tiers` answer's whole tiers, or the caller's selection (each finding
+as the report json it was decided on writes it). `comments`: one
 `{body, path, line}` per selected finding with both `file` and `line`,
 `body` its tier, title and what to change. `summary`: the review-posting
 summary, its issue list holding each selected finding without both.
