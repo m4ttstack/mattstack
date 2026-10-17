@@ -32,7 +32,7 @@ import { AUTH_FAILURE_PATTERN } from "../../team/publish.ts";
 import { intentPath, type SetupIntent } from "../intent.ts";
 import { stageSecret, stagingDir } from "../staging.ts";
 import { readStagedRepoRoot, stageRepoRoot } from "../repo-root.ts";
-import { fakeProbes } from "./fakes.ts";
+import { fakeProbes, gitRepo, realFsProbes } from "./fakes.ts";
 
 import { INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
@@ -1572,20 +1572,6 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(p.exists(dest)).toBe(true);
   });
 
-  /** A real repo on disk (reuse is confirmed with git itself), seen through real fs probes and a fake exec that records any clone attempt. */
-  function gitRepo(path: string, remotes: Record<string, string>, extraConfig: [string, string][] = []): void {
-    mkdirSync(path, { recursive: true });
-    execSync(`git init -q ${JSON.stringify(path)}`);
-    for (const [name, url] of Object.entries(remotes)) execSync(`git -C ${JSON.stringify(path)} remote add ${name} ${url}`);
-    for (const [key, value] of extraConfig) execSync(`git -C ${JSON.stringify(path)} config ${key} ${value}`);
-  }
-
-  function realFsProbes(): Probes & { clones: string[][] } {
-    const clones: string[][] = [];
-    const exec = async (argv: string[]) => (argv.includes("clone") && clones.push(argv), ok());
-    return { ...createRealProbes(), home, clones, exec, execStreaming: exec };
-  }
-
   test("repos.clone: an existing clone under another repo root is registered in place of a second clone", async () => {
     const code = join(home, "code");
     const work = join(home, "work");
@@ -1594,7 +1580,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     setSetting("rt.repoRoots", [code, work], "machine");
     const existing = join(work, "luke");
     gitRepo(existing, { origin: "https://gitlab.com/acme/acme-dev.git" });
-    const p = realFsProbes();
+    const p = realFsProbes(home);
     const { ctx, logs } = makeCtx(p, { snapshot: ACME_DEV });
 
     const outcome = await reposCloneStep.run(ctx);
@@ -1610,7 +1596,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const elsewhere = join(home, "src", "acme");
     gitRepo(elsewhere, { origin: "git@gitlab.com:acme/acme-dev.git" });
     setKvValue("repo-index", serializeIdentity({ kind: "remote", id: "gitlab.com/acme/acme-dev" }), elsewhere);
-    const p = realFsProbes();
+    const p = realFsProbes(home);
     const { ctx } = makeCtx(p, { snapshot: ACME_DEV });
 
     const outcome = await reposCloneStep.run(ctx);
@@ -1626,7 +1612,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     mkdirSync(code, { recursive: true });
     setSetting("rt.repoRoots", [code], "machine");
     gitRepo(join(code, "lookalike"), remotes, extra);
-    const p = realFsProbes();
+    const p = realFsProbes(home);
     const { ctx } = makeCtx(p, { snapshot: ACME_DEV });
 
     await reposCloneStep.run(ctx);

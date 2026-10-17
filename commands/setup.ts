@@ -54,7 +54,8 @@ import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
-import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
+import { checkCheckout, checkCloneTarget, resolvePlacements, writePlacement, type CheckoutCheck, type PlacementMode } from "../lib/setup/repo-placement.ts";
+import { checkRepoRoot, expandHome, stageRepoRoot } from "../lib/setup/repo-root.ts";
 import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
 import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
@@ -684,6 +685,100 @@ export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}
   } catch (err) {
     if (err instanceof UserActionableError) {
       return exitWithUserError(err, json, sinkOf(deps), err.code === "usage" ? { title: "Which folder?", next: out.cmd("rt setup repo-root set <folder>") } : undefined);
+    }
+    throw err;
+  }
+}
+
+// ─── repo placement (`rt setup repo place`) ────────────────────────────────
+
+export interface RepoPlaceDeps {
+  probes: Probes;
+  /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
+  json: (value: unknown) => void;
+  exit: (code: number) => never;
+  isTTY: () => boolean;
+  /** Reads the full stdin body: valid JSON parses to its value; anything else comes back as the trimmed raw string; empty stdin is null. Never throws. */
+  stdin: () => Promise<unknown>;
+  /** The team's tracked repo identities, in raw `host/path` form. */
+  tracked: () => string[];
+  /** `rt.repoRoots`, `~` expanded. */
+  repoRoots: () => string[];
+}
+
+export function realRepoPlaceDeps(): RepoPlaceDeps {
+  const probes = createRealProbes();
+  return {
+    probes,
+    json: (v) => out.json(v),
+    exit: process.exit,
+    isTTY: () => process.stdin.isTTY === true,
+    stdin: readSmartStdin,
+    tracked: () => realResolveTeamSnapshot(probes).trackingIdentities,
+    repoRoots: () => {
+      try {
+        return (getSetting<string[]>("rt.repoRoots").value ?? []).map((r) => expandHome(probes, r));
+      } catch {
+        return [];
+      }
+    },
+  };
+}
+
+const REPO_PLACE_USAGE = "usage: rt setup repo place <identity> (--checkout <path> | --clone-to <path>) [--json]";
+
+function placeRequest(args: string[]): { identity: string; mode: PlacementMode; path: string } {
+  const checkout = flagValue(args, "--checkout");
+  const cloneTo = flagValue(args, "--clone-to");
+  const identity = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--checkout" && args[i - 1] !== "--clone-to");
+  if (!identity || (checkout === undefined) === (cloneTo === undefined)) throw new UserActionableError("usage", REPO_PLACE_USAGE);
+  return checkout !== undefined ? { identity, mode: "checkout", path: checkout } : { identity, mode: "clone", path: cloneTo! };
+}
+
+function placeRequestFromStdin(input: unknown): { identity: string; mode: PlacementMode; path: string } | null {
+  if (!isPlainObject(input)) return null;
+  const { identity, mode, path } = input;
+  if (typeof identity !== "string" || identity.trim() === "" || typeof path !== "string" || (mode !== "checkout" && mode !== "clone")) return null;
+  return { identity: identity.trim(), mode, path };
+}
+
+/**
+ * Records one tracked repo's answer on the "Your repos" page after the same
+ * checks the row runs, so the row and this verb never disagree. A clone
+ * destination is checked against every other tracked repo's placement or
+ * default, which is what keeps two repos sharing a basename apart.
+ */
+export async function setupRepoPlace(args: string[], _ctx: CommandContext = {}, deps: RepoPlaceDeps = realRepoPlaceDeps()): Promise<void> {
+  const json = args.includes("--json");
+  try {
+    let request: { identity: string; mode: PlacementMode; path: string };
+    if (args.some((a) => !a.startsWith("--"))) {
+      request = placeRequest(args);
+    } else {
+      if (deps.isTTY()) throw new UserActionableError("usage", REPO_PLACE_USAGE);
+      const fromStdin = placeRequestFromStdin(await deps.stdin());
+      if (!fromStdin) throw new UserActionableError("bad-stdin", 'No placement given. Pipe {"identity": "<host/path>", "mode": "checkout" | "clone", "path": "<path>"} on stdin');
+      request = fromStdin;
+    }
+
+    const { probes } = deps;
+    const tracked = deps.tracked();
+    let check: CheckoutCheck;
+    if (request.mode === "checkout") {
+      check = await checkCheckout(probes, request.identity, request.path, tracked);
+    } else {
+      const others = tracked.filter((id) => id !== request.identity);
+      const placements = await resolvePlacements(probes, others, deps.repoRoots());
+      check = checkCloneTarget(probes, request.path, Object.entries(placements).map(([identity, pl]) => ({ identity, path: pl.path })));
+    }
+    if (!check.ok) throw new UserActionableError("bad-path", check.detail);
+
+    writePlacement(probes, request.identity, { mode: request.mode, path: check.path });
+    if (json) deps.json(envelope({ identity: request.identity, mode: request.mode, path: check.path }, probes.now()));
+    else out.print(out.line("done", request.mode === "checkout" ? "Checkout saved" : "Clone location saved", check.path));
+  } catch (err) {
+    if (err instanceof UserActionableError) {
+      return exitWithUserError(err, json, sinkOf(deps), err.code === "usage" ? { title: "Which repo, and where?", next: out.cmd("rt setup repo place <identity> --checkout <path>") } : undefined);
     }
     throw err;
   }

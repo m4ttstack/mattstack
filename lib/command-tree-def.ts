@@ -2740,6 +2740,28 @@ export const TREE: Record<string, CommandNode> = {
           },
         },
       },
+      repo: {
+        description: "Where each of your team's repos lives on this Mac",
+        subcommands: {
+          place: {
+            description: "Record an existing checkout of a repo, or the folder a new clone of it goes in",
+            module: "./commands/setup.ts",
+            fn: "setupRepoPlace",
+            args: [
+              {
+                name: "Repo",
+                type: "text",
+                optional: true,
+                placeholder: "gitlab.com/acme/widgets",
+                hint: 'The repo as host/path; omit to pipe {"identity", "mode", "path"} on stdin',
+              },
+              { name: "Checkout", flag: "--checkout", type: "text", optional: true, placeholder: "~/code/widgets", hint: "An existing checkout of the repo" },
+              { name: "Clone to", flag: "--clone-to", type: "text", optional: true, placeholder: "~/code/widgets", hint: "The folder a new clone becomes" },
+              SETUP_JSON_ARG,
+            ],
+          },
+        },
+      },
       github: integrationNode("github", "GitHub"),
       gitlab: integrationNode("gitlab", "GitLab"),
       linear: integrationNode("linear", "Linear"),

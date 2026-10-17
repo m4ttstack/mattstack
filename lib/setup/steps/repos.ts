@@ -10,7 +10,7 @@
 import { join } from "path";
 import { resolveIndexPathForIdentity, updateRepoIndexAsync } from "../../repo-index.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { deriveRepoIdentity, normalizeRemote, serializeIdentity } from "../../settings/identity.ts";
+import { serializeIdentity } from "../../settings/identity.ts";
 import { linkPath } from "../../deps/links.ts";
 import { gitWithToken } from "../../team/git-credential.ts";
 import { withoutUrls } from "../../team/redact.ts";
@@ -18,6 +18,7 @@ import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { PROGRESS_SHAPE, REMOTE_COUNTING, parseGitProgress, splitProgressLines } from "../git-progress.ts";
 import type { ExecResult } from "../probes.ts";
+import { isCloneOf, isReusableCloneOf, repoBasename } from "../repo-placement.ts";
 import { expandHome, promoteStagedRepoRoot } from "../repo-root.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -37,10 +38,7 @@ const SSH_PROBE_TIMEOUT_MS = 30_000;
 /** execWithTimeout's code for a child it killed at the deadline. */
 const TIMED_OUT = 124;
 
-/** The identity's last path segment (`github.com/acme/repo` -> `repo`) — the clone destination's directory name. Exported: `steps/skills.ts`'s `board.keys` derives the same registered-repo-name set from tracking identities and must agree with this step on what a repo is called. */
-export function repoBasename(identity: string): string {
-  return identity.split("/").pop() || identity;
-}
+export { repoBasename };
 
 /** `RT_SKIP_REPOS`: identities or basenames the operator told Install to leave uncloned. Exported: `board.keys` must not wait on a repo this step will never land. */
 export function skippedIdentities(env: Record<string, string | undefined>): Set<string> {
@@ -64,17 +62,6 @@ async function indexDest(ctx: ApplyContext, identity: string, base: string, dest
   if (indexed.ok) return true;
   const run = indexed.next ? `Run ${indexed.next}, then rt repos locate ${dest}` : `Run rt repos locate ${dest}`;
   ctx.log("repos.clone", `${base}: ${dest} is in place, but ${identity} is indexed at a path that no longer exists and could not be moved (${indexed.error}). ${run}`);
-  return false;
-}
-
-/** A real clone of `identity`, not just any directory that happens to share its basename — two tracked identities can collide on basename (`gitlab.com/a/api`, `github.com/b/api`), and an unrelated folder can already occupy the path. */
-function isCloneOf(p: ApplyContext["p"], dest: string, identity: string): boolean {
-  const config = p.readFile(join(dest, ".git", "config"));
-  if (config === null) return false;
-  // Any remote's URL, in whatever form git accepts (scp-style ssh has no slash after the host), normalized to the identity's own host/path form.
-  for (const match of config.matchAll(/^\s*url\s*=\s*(\S+)/gm)) {
-    if (normalizeRemote(match[1]!) === identity) return true;
-  }
   return false;
 }
 
@@ -108,20 +95,6 @@ function cloneFailureReason(result: ExecResult): string {
   if (result.code === TIMED_OUT && !output) return `timed out after ${CLONE_TIMEOUT_MS / 60_000} minutes`;
   if (result.signal) return `${output ? `${output} ` : ""}git was killed by ${result.signal} (exit ${result.code})`.trim();
   return output ? `${output} (git exited ${result.code})` : `git exited ${result.code} with no output`;
-}
-
-/**
- * `isCloneOf` is only a prefilter: any `url =` line matches it, so a fork
- * whose `upstream` is the tracked repo, or a superproject carrying it as a
- * submodule, would pass. The repo's own derived identity (origin) decides.
- */
-async function isReusableCloneOf(p: ApplyContext["p"], path: string, identity: string): Promise<boolean> {
-  if (!isCloneOf(p, path, identity)) return false;
-  try {
-    return serializeIdentity(await deriveRepoIdentity(path)) === serializeIdentity({ kind: "remote", id: identity });
-  } catch {
-    return false;
-  }
 }
 
 /** An existing clone of `identity` somewhere other than `dest`: the index's own row first, then any direct child of a repo root. */
