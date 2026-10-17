@@ -99,7 +99,7 @@ digraph publish_skill {
     rt_verb_sync_pack [label="rt_verb {args: [\"skills\", \"sync\", \"--pack\", \"<pack>\"]}" shape=plaintext];
     sync_result [label="Sync result?" shape=diamond];
     sync_warned_cswap [label="Sync warned about cswap sessions?" shape=diamond];
-    dir_claude_update_session [label="CLAUDE_CONFIG_DIR=<session dir> claude plugin update <plugin>@<marketplace>" shape=plaintext];
+    claude_update_session [label="CLAUDE_CONFIG_DIR=<session dir> claude plugin update <plugin>@<marketplace>" shape=plaintext];
     git_status [label="git status" shape=plaintext];
     pack_tree [label="Pack tree?" shape=diamond];
     read_sync_reasons [label="Read each sync step's reason on Bash" shape=box];
@@ -183,9 +183,9 @@ digraph publish_skill {
     rt_verb_sync_pack -> sync_result;
     sync_result -> sync_warned_cswap [label="ok"];
     sync_result -> git_status [label="failed (exit 1)"];
-    sync_warned_cswap -> dir_claude_update_session [label="yes: once per named session"];
+    sync_warned_cswap -> claude_update_session [label="yes: once per named session"];
     sync_warned_cswap -> another_pack_pending [label="no"];
-    dir_claude_update_session -> another_pack_pending;
+    claude_update_session -> another_pack_pending;
     git_status -> pack_tree;
     pack_tree -> rt_verb_compile_drifted [label="modified plugin.json plus compiled output: content drift"];
     pack_tree -> read_sync_reasons [label="clean"];

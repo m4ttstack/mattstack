@@ -34,7 +34,7 @@
   "rt_verb {args: [\"skills\", \"sync\", \"--pack\", \"<pack>\"]}": "rt_verb_sync_pack",
   "Sync result?": "sync_result",
   "Sync warned about cswap sessions?": "sync_warned_cswap",
-  "CLAUDE_CONFIG_DIR=<session dir> claude plugin update <plugin>@<marketplace>": "dir_claude_update_session",
+  "CLAUDE_CONFIG_DIR=<session dir> claude plugin update <plugin>@<marketplace>": "claude_update_session",
   "git status": "git_status",
   "Pack tree?": "pack_tree",
   "Read each sync step's reason on Bash": "read_sync_reasons",
