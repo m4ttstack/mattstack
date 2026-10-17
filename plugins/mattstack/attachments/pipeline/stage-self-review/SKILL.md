@@ -15,11 +15,10 @@ metadata:
 
 {{stage.fields}}
 
-Run state: the orchestrator opens and closes this stage, so never write
-`run_stage` `start` or `done` here. Read consumes with `run_field_get`,
-write `review` with `run_field_set` (`stage: "self-review"`), and on
-failure write `run_stage {action: fail, stage: "self-review", reason}`
-naming what failed.
+The orchestrator owns this stage's rows: read consumes with
+`run_field_get`, write produces with `run_field_set {stage:
+"self-review"}`, and end a failure with `run_stage {action: fail, stage:
+"self-review", reason}`.
 
 ```dot
 digraph self_review {
@@ -31,6 +30,7 @@ digraph self_review {
     "Follow the domain review" [shape=box];
     "Dispatch one fresh-context reviewer over the diff" [shape=box];
     "Blocking findings?" [shape=diamond];
+    "run_budget {key: review-rounds, limit: 3, stage: self-review}" [shape=plaintext];
     "Review rounds = 3?" [shape=diamond];
     "Fix each blocking finding test-first, commit" [shape=box];
     "git log --format=%h <branch-point>..HEAD" [shape=plaintext];
@@ -47,9 +47,10 @@ digraph self_review {
     "Follow the domain review" -> "Blocking findings?";
     "Dispatch one fresh-context reviewer over the diff" -> "Blocking findings?";
     "Blocking findings?" -> "run_field_set {key: review, value: <verdict; findings fixed or waived>, stage: self-review}" [label="no"];
-    "Blocking findings?" -> "Review rounds = 3?" [label="yes"];
-    "Review rounds = 3?" -> "Fix each blocking finding test-first, commit" [label="no"];
-    "Review rounds = 3?" -> "run_stage {action: fail, stage: self-review, reason: blocking findings after 3 rounds}" [label="yes"];
+    "Blocking findings?" -> "run_budget {key: review-rounds, limit: 3, stage: self-review}" [label="yes"];
+    "run_budget {key: review-rounds, limit: 3, stage: self-review}" -> "Review rounds = 3?";
+    "Review rounds = 3?" -> "Fix each blocking finding test-first, commit" [label="no: not exhausted"];
+    "Review rounds = 3?" -> "run_stage {action: fail, stage: self-review, reason: blocking findings after 3 rounds}" [label="yes: exhausted, or a budget error"];
     "Fix each blocking finding test-first, commit" -> "git log --format=%h <branch-point>..HEAD";
     "git log --format=%h <branch-point>..HEAD" -> "run_field_set {key: commits, value: <all shas, fixes included>, stage: self-review}";
     "run_field_set {key: commits, value: <all shas, fixes included>, stage: self-review}" -> "Domain rules inlined?" [label="review again"];
@@ -63,6 +64,13 @@ digraph self_review {
 The unbound review: one subagent reads `git diff <branch-point>..HEAD`
 against the ticket or task description for correctness, tests present and
 honest, and scope drift.
+
+### Review rounds = 3?
+
+Read `exhausted` from the `run_budget` call just made, which charges this
+review: never count rounds from context. The count lives on the run per
+stage attempt, so a compacted or resumed stage keeps it, and a new attempt
+starts at zero.
 
 ### Fix each blocking finding test-first, commit
 
