@@ -4,10 +4,13 @@
  * own runtime file, so they can be given before and after Install alike.
  */
 import { realpathSync } from "fs";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { loadRepoIndex, resolveIndexPathForIdentity } from "../repo-index.ts";
 import { deriveRepoIdentity, normalizeRemote, serializeIdentity } from "../settings/identity.ts";
+import { listOrgs } from "../settings/stores.ts";
+import { orgRefFromIntent, readIntent } from "./intent.ts";
 import type { Probes } from "./probes.ts";
+import { readTeamSnapshot } from "./team-settings.ts";
 import { CANDIDATE_ROOT_NAMES, detectCandidate, expandHome } from "./repo-root.ts";
 
 /** The identity's last path segment (`github.com/acme/repo` -> `repo`) — the clone destination's directory name. `board.keys` derives the same registered-repo-name set from tracking identities and must agree with `repos.clone` on what a repo is called. */
@@ -148,6 +151,12 @@ export async function findCheckout(p: Pick<Probes, "home" | "readFile" | "readDi
   return null;
 }
 
+/** Where a new clone goes when nothing was found or recorded for the repo. */
+export function defaultClonePath(p: Pick<Probes, "home" | "exists">, identity: string, ctx: { rootPaths: string[]; placedParents: string[] }): string {
+  const parent = ctx.placedParents[0] ?? ctx.rootPaths[0] ?? detectCandidate(p) ?? join(p.home, "Documents/GitHub");
+  return join(parent, repoBasename(identity));
+}
+
 /** What a row shows before the member touches it, and what `repos.clone` does for a row left untouched. */
 export async function defaultPlacement(
   p: Pick<Probes, "home" | "readFile" | "readDir" | "exists">,
@@ -156,39 +165,59 @@ export async function defaultPlacement(
 ): Promise<Placement & { found: boolean }> {
   const found = await findCheckout(p, identity, { rootPaths: ctx.rootPaths });
   if (found) return { mode: "checkout", path: found, found: true };
-  const parent = ctx.placedParents[0] ?? ctx.rootPaths[0] ?? detectCandidate(p) ?? join(p.home, "Documents/GitHub");
-  return { mode: "clone", path: join(parent, repoBasename(identity)), found: false };
+  return { mode: "clone", path: defaultClonePath(p, identity, ctx), found: false };
 }
 
-/** Every identity's recorded placement, else its default, with checkouts placed first so a new clone lands next to them. */
+export type PlacementSource = "recorded" | "found" | "default";
+export type ResolvedPlacement = Placement & { source: PlacementSource };
+
+/** Every identity's recorded placement, else its found checkout, else its default clone next to the placed checkouts. */
 export async function resolvePlacements(
   p: Pick<Probes, "home" | "readFile" | "readDir" | "exists">,
   identities: string[],
   rootPaths: string[],
-): Promise<Record<string, Placement>> {
+): Promise<Record<string, ResolvedPlacement>> {
   const { placements } = readPlacements(p);
-  const result: Record<string, Placement> = {};
+  const result: Record<string, ResolvedPlacement> = {};
   for (const identity of identities) {
     const recorded = placements[identity];
     if (recorded) {
-      result[identity] = recorded;
+      result[identity] = { ...recorded, source: "recorded" };
       continue;
     }
     const found = await findCheckout(p, identity, { rootPaths });
-    if (found) result[identity] = { mode: "checkout", path: found };
+    if (found) result[identity] = { mode: "checkout", path: found, source: "found" };
   }
   const placedParents = [...new Set(Object.values(result).filter((pl) => pl.mode === "checkout").map((pl) => dirname(pl.path)))];
   for (const identity of identities) {
     if (result[identity]) continue;
-    const { mode, path } = await defaultPlacement(p, identity, { rootPaths, placedParents });
-    result[identity] = { mode, path };
+    result[identity] = { mode: "clone", path: defaultClonePath(p, identity, { rootPaths, placedParents }), source: "default" };
   }
   return result;
 }
 
+/**
+ * The paths `identity` may not clone into: every other repo's recorded or
+ * found folder, and the default of a repo earlier in `identities`. When two
+ * repos share a basename, the first keeps the default and the second's row
+ * shows the clash.
+ */
+export function takenFor(resolved: Record<string, ResolvedPlacement>, identities: string[], identity: string): { identity: string; path: string }[] {
+  const position = identities.indexOf(identity);
+  return identities
+    .filter((other, i) => other !== identity && resolved[other] && (resolved[other]!.source !== "default" || position < 0 || i < position))
+    .map((other) => ({ identity: other, path: resolved[other]!.path }));
+}
+
+/** The active team's tracked repos, the same list `repos.clone` places. */
+export function trackedIdentities(p: Probes): string[] {
+  const ref = orgRefFromIntent(readIntent(p), listOrgs());
+  return ref.slug ? readTeamSnapshot(p, ref.slug).trackingIdentities : [];
+}
+
 function normalize(p: Pick<Probes, "home">, raw: string): string {
-  const path = expandHome(p, raw.trim());
-  return path.length > 1 ? path.replace(/\/+$/, "") || "/" : path;
+  const trimmed = raw.trim();
+  return trimmed === "" ? "" : resolve(expandHome(p, trimmed));
 }
 
 function tildify(home: string, path: string): string {
@@ -206,7 +235,8 @@ function realPath(path: string): string {
 
 export type CheckoutCheck = { ok: true; path: string } | { ok: false; detail: string };
 
-export async function checkCheckout(p: Pick<Probes, "home" | "readFile" | "readDir" | "exists">, identity: string, raw: string, tracked: string[] = []): Promise<CheckoutCheck> {
+export async function checkCheckout(p: Pick<Probes, "home" | "readFile" | "readDir" | "exists">, identity: string, raw: string, opts: { tracked: string[] }): Promise<CheckoutCheck> {
+  const { tracked } = opts;
   const base = repoBasename(identity);
   const path = normalize(p, raw);
   const shown = tildify(p.home, path);

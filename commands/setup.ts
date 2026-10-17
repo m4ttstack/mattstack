@@ -54,7 +54,7 @@ import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
-import { checkCheckout, checkCloneTarget, resolvePlacements, writePlacement, type CheckoutCheck, type PlacementMode } from "../lib/setup/repo-placement.ts";
+import { checkCheckout, checkCloneTarget, resolvePlacements, takenFor, trackedIdentities, writePlacement, type CheckoutCheck, type PlacementMode } from "../lib/setup/repo-placement.ts";
 import { checkRepoRoot, expandHome, stageRepoRoot } from "../lib/setup/repo-root.ts";
 import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
 import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
@@ -714,7 +714,7 @@ export function realRepoPlaceDeps(): RepoPlaceDeps {
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
     stdin: readSmartStdin,
-    tracked: () => realResolveTeamSnapshot(probes).trackingIdentities,
+    tracked: () => trackedIdentities(probes),
     repoRoots: () => {
       try {
         return (getSetting<string[]>("rt.repoRoots").value ?? []).map((r) => expandHome(probes, r));
@@ -763,13 +763,13 @@ export async function setupRepoPlace(args: string[], _ctx: CommandContext = {}, 
 
     const { probes } = deps;
     const tracked = deps.tracked();
+    if (!tracked.includes(request.identity)) throw new UserActionableError("untracked", `${request.identity} isn't one of your team's repos.`);
     let check: CheckoutCheck;
     if (request.mode === "checkout") {
-      check = await checkCheckout(probes, request.identity, request.path, tracked);
+      check = await checkCheckout(probes, request.identity, request.path, { tracked });
     } else {
-      const others = tracked.filter((id) => id !== request.identity);
-      const placements = await resolvePlacements(probes, others, deps.repoRoots());
-      check = checkCloneTarget(probes, request.path, Object.entries(placements).map(([identity, pl]) => ({ identity, path: pl.path })));
+      const resolved = await resolvePlacements(probes, tracked, deps.repoRoots());
+      check = checkCloneTarget(probes, request.path, takenFor(resolved, tracked, request.identity));
     }
     if (!check.ok) throw new UserActionableError("bad-path", check.detail);
 

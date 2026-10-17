@@ -112,13 +112,25 @@ describe("rt setup repo place", () => {
     expect((deps.lines[0] as { error: { message: string } }).error.message).toBe("~/code/widgets already exists. Choose an empty or new folder.");
   });
 
-  test("two repos named api: the second cannot take the first's default destination", async () => {
+  test("two repos named api: the first keeps the default destination, the second cannot take it", async () => {
     mkdirSync(join(home, "code"), { recursive: true });
     const deps = baseDeps({ repoRoots: () => [join(home, "code")] });
 
-    await expectExit(() => setupRepoPlace([GITHUB_API, "--clone-to", "~/code/api", "--json"], {}, deps));
+    await setupRepoPlace([GITLAB_API, "--clone-to", "~/code/api", "--json"], {}, deps);
+    expect(readPlacements(deps.probes).placements[GITLAB_API]).toEqual({ mode: "clone", path: join(home, "code", "api") });
 
-    expect((deps.lines[0] as { error: { message: string } }).error.message).toBe("~/code/api is where api goes. Choose another folder.");
+    await expectExit(() => setupRepoPlace([GITHUB_API, "--clone-to", "~/code/api", "--json"], {}, deps));
+    expect((deps.lines[1] as { error: { message: string } }).error.message).toBe("~/code/api is where api goes. Choose another folder.");
+  });
+
+  test("an untracked repo is refused and nothing is recorded", async () => {
+    const deps = baseDeps();
+
+    await expectExit(() => setupRepoPlace(["gitlab.com/acme/nope", "--clone-to", join(home, "nope"), "--json"], {}, deps));
+
+    expect(deps.exitCodes).toEqual([2]);
+    expect((deps.lines[0] as { error: { message: string } }).error.message).toBe("gitlab.com/acme/nope isn't one of your team's repos.");
+    expect(readPlacements(deps.probes).placements).toEqual({});
   });
 
   test("the destination another repo recorded is refused", async () => {

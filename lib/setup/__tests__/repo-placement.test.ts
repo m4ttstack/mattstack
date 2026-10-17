@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, relative } from "path";
 import { setKvValue } from "../../state/index.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import {
@@ -16,6 +16,8 @@ import {
   placementsPath,
   readPlacements,
   recordCloneFailure,
+  resolvePlacements,
+  takenFor,
   writePlacement,
 } from "../repo-placement.ts";
 import { gitRepo, realFsProbes } from "./fakes.ts";
@@ -33,15 +35,21 @@ describe("checkCheckout", () => {
   test("a clone of the repo is accepted at the path given", async () => {
     const path = join(home, "code", "widgets");
     gitRepo(path, { origin: "https://gitlab.com/acme/widgets.git" });
-    expect(await checkCheckout(realFsProbes(home), WIDGETS, path)).toEqual({ ok: true, path });
+    expect(await checkCheckout(realFsProbes(home), WIDGETS, path, { tracked: [] })).toEqual({ ok: true, path });
   });
 
   test("a trailing slash and ~ are normalised", async () => {
     const path = join(home, "code", "widgets");
     gitRepo(path, { origin: "git@gitlab.com:acme/widgets.git" });
     const p = realFsProbes(home);
-    expect(await checkCheckout(p, WIDGETS, `${path}/`)).toEqual({ ok: true, path });
-    expect(await checkCheckout(p, WIDGETS, "~/code/widgets/")).toEqual({ ok: true, path });
+    expect(await checkCheckout(p, WIDGETS, `${path}/`, { tracked: [] })).toEqual({ ok: true, path });
+    expect(await checkCheckout(p, WIDGETS, "~/code/widgets/", { tracked: [] })).toEqual({ ok: true, path });
+  });
+
+  test("a relative path is recorded absolute", async () => {
+    const path = join(home, "code", "widgets");
+    gitRepo(path, { origin: "https://gitlab.com/acme/widgets.git" });
+    expect(await checkCheckout(realFsProbes(home), WIDGETS, relative(process.cwd(), path), { tracked: [] })).toEqual({ ok: true, path });
   });
 
   test("a symlink to the checkout is judged by the real path and returned as given", async () => {
@@ -49,12 +57,12 @@ describe("checkCheckout", () => {
     gitRepo(real, { origin: "https://gitlab.com/acme/widgets.git" });
     const link = join(home, "widgets-link");
     symlinkSync(real, link);
-    expect(await checkCheckout(realFsProbes(home), WIDGETS, link)).toEqual({ ok: true, path: link });
+    expect(await checkCheckout(realFsProbes(home), WIDGETS, link, { tracked: [] })).toEqual({ ok: true, path: link });
   });
 
   test("a folder that holds repos points at the one inside it", async () => {
     gitRepo(join(home, "code", "widgets"), { origin: "https://gitlab.com/acme/widgets.git" });
-    expect(await checkCheckout(realFsProbes(home), WIDGETS, join(home, "code"))).toEqual({
+    expect(await checkCheckout(realFsProbes(home), WIDGETS, join(home, "code"), { tracked: [] })).toEqual({
       ok: false,
       detail: "~/code holds repos but isn't one. Choose the widgets folder inside it.",
     });
@@ -62,7 +70,7 @@ describe("checkCheckout", () => {
 
   test("a checkout of another tracked repo names it by its basename", async () => {
     gitRepo(join(home, "code", "widgets"), { origin: "https://gitlab.com/acme/widgets.git" });
-    expect(await checkCheckout(realFsProbes(home), ACME_API, join(home, "code", "widgets"), [WIDGETS, ACME_API])).toEqual({
+    expect(await checkCheckout(realFsProbes(home), ACME_API, join(home, "code", "widgets"), { tracked: [WIDGETS, ACME_API] })).toEqual({
       ok: false,
       detail: "~/code/widgets is your widgets checkout, not acme-api.",
     });
@@ -70,7 +78,7 @@ describe("checkCheckout", () => {
 
   test("a checkout of an untracked repo names its identity", async () => {
     gitRepo(join(home, "code", "gadgets"), { origin: "https://github.com/acme/gadgets.git" });
-    expect(await checkCheckout(realFsProbes(home), ACME_API, join(home, "code", "gadgets"), [ACME_API])).toEqual({
+    expect(await checkCheckout(realFsProbes(home), ACME_API, join(home, "code", "gadgets"), { tracked: [ACME_API] })).toEqual({
       ok: false,
       detail: "~/code/gadgets is a checkout of github.com/acme/gadgets, not acme-api.",
     });
@@ -78,7 +86,7 @@ describe("checkCheckout", () => {
 
   test("any other folder is not a git checkout", async () => {
     mkdirSync(join(home, "foo"), { recursive: true });
-    expect(await checkCheckout(realFsProbes(home), WIDGETS, "~/foo")).toEqual({ ok: false, detail: "~/foo isn't a git checkout." });
+    expect(await checkCheckout(realFsProbes(home), WIDGETS, "~/foo", { tracked: [] })).toEqual({ ok: false, detail: "~/foo isn't a git checkout." });
   });
 });
 
@@ -104,6 +112,11 @@ describe("checkCloneTarget", () => {
     });
   });
 
+  test("a relative path is made absolute", () => {
+    const path = join(home, "code", "acme-api");
+    expect(checkCloneTarget(realFsProbes(home), relative(process.cwd(), path), [])).toEqual({ ok: true, path });
+  });
+
   test("two repos with one basename cannot share a destination", () => {
     const path = join(home, "code", "api");
     expect(checkCloneTarget(realFsProbes(home), path, [{ identity: "gitlab.com/a/api", path }])).toEqual({
@@ -120,11 +133,12 @@ describe("findCheckout and defaultPlacement", () => {
     expect(await findCheckout(realFsProbes(home), WIDGETS, { rootPaths: [] })).toBe(path);
   });
 
-  test("the index row comes first", async () => {
-    const path = join(home, "elsewhere", "w");
-    gitRepo(path, { origin: "https://gitlab.com/acme/widgets.git" });
-    setKvValue("repo-index", serializeIdentity({ kind: "remote", id: WIDGETS }), path);
-    expect(await findCheckout(realFsProbes(home), WIDGETS, { rootPaths: [] })).toBe(path);
+  test("the index row comes before a clone in a scanned folder", async () => {
+    const indexed = join(home, "elsewhere", "w");
+    gitRepo(indexed, { origin: "https://gitlab.com/acme/widgets.git" });
+    gitRepo(join(home, "code", "widgets"), { origin: "https://gitlab.com/acme/widgets.git" });
+    setKvValue("repo-index", serializeIdentity({ kind: "remote", id: WIDGETS }), indexed);
+    expect(await findCheckout(realFsProbes(home), WIDGETS, { rootPaths: [join(home, "code")] })).toBe(indexed);
   });
 
   test("a found checkout is the default", async () => {
@@ -149,6 +163,38 @@ describe("findCheckout and defaultPlacement", () => {
       path: join(home, "Documents", "GitHub", "acme-api"),
       found: false,
     });
+  });
+});
+
+describe("resolvePlacements and takenFor", () => {
+  test("two repos named api: the first keeps the default, the second's default clashes", async () => {
+    const tracked = ["gitlab.com/a/api", "github.com/b/api"];
+    const code = join(home, "code");
+    const p = realFsProbes(home);
+    const resolved = await resolvePlacements(p, tracked, [code]);
+    expect(resolved["gitlab.com/a/api"]).toEqual({ mode: "clone", path: join(code, "api"), source: "default" });
+    expect(resolved["github.com/b/api"]).toEqual({ mode: "clone", path: join(code, "api"), source: "default" });
+
+    expect(takenFor(resolved, tracked, "gitlab.com/a/api")).toEqual([]);
+    expect(checkCloneTarget(p, join(code, "api"), takenFor(resolved, tracked, "github.com/b/api"))).toEqual({
+      ok: false,
+      detail: "~/code/api is where api goes. Choose another folder.",
+    });
+  });
+
+  test("a later repo's recorded folder is taken from an earlier one", async () => {
+    const tracked = [WIDGETS, ACME_API];
+    const p = realFsProbes(home);
+    writePlacement(p, ACME_API, { mode: "clone", path: join(home, "x") });
+    const resolved = await resolvePlacements(p, tracked, []);
+    expect(takenFor(resolved, tracked, WIDGETS)).toEqual([{ identity: ACME_API, path: join(home, "x") }]);
+  });
+
+  test("a new clone lands next to a found checkout", async () => {
+    gitRepo(join(home, "code", "widgets"), { origin: "https://gitlab.com/acme/widgets.git" });
+    const resolved = await resolvePlacements(realFsProbes(home), [WIDGETS, ACME_API], []);
+    expect(resolved[WIDGETS]).toEqual({ mode: "checkout", path: join(home, "code", "widgets"), source: "found" });
+    expect(resolved[ACME_API]).toEqual({ mode: "clone", path: join(home, "code", "acme-api"), source: "default" });
   });
 });
 
