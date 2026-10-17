@@ -18,7 +18,8 @@ metadata:
 Run state: the orchestrator opens and closes this stage, so never write
 `run_stage` `start` or `done` here. `evidence_record` writes `evidence`;
 never write it with `run_field_set`. A `<slug> spent?` diamond is yes when
-the `run_budget` before it returns `spent` over `limit`. `detailPath` on a
+the `run_budget` before it returns `spent` > `limit` (read `spent` against
+`limit`; ignore `exhausted` and `remaining`). `detailPath` on a
 failure is whatever was captured so far.
 
 Capture the BEFORE now, before implementation changes the surface.
@@ -36,7 +37,7 @@ digraph evidence {
     "STOP: ports come only from dev_endpoints" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Any role waiting or unclaimed?" [shape=diamond];
     "rt_verb {args: [<verb>, ...]}" [shape=plaintext];
-    "STOP: rt reads go only through rt_verb" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: rt reads go through rt_verb, never rt on Bash" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Intake questions declared, or source not local?" [shape=diamond];
     "Gate evidence (table below)" [shape=box];
     "evidence answer?" [shape=diamond];
@@ -83,10 +84,10 @@ digraph evidence {
     "Domain needs dev servers or another rt read?" -> "dev_endpoints {tree: <worktree>, roles: <the domain's roles>}" [label="dev servers"];
     "Domain needs dev servers or another rt read?" -> "rt_verb {args: [<verb>, ...]}" [label="another rt read"];
     "Domain needs dev servers or another rt read?" -> "STOP: ports come only from dev_endpoints" [label="tempted to look up or probe ports on Bash"];
-    "Domain needs dev servers or another rt read?" -> "STOP: rt reads go only through rt_verb" [label="tempted to run rt on Bash"];
+    "Domain needs dev servers or another rt read?" -> "STOP: rt reads go through rt_verb, never rt on Bash" [label="tempted to run rt on Bash"];
     "Domain needs dev servers or another rt read?" -> "Intake questions declared, or source not local?" [label="no"];
     "STOP: ports come only from dev_endpoints" -> "dev_endpoints {tree: <worktree>, roles: <the domain's roles>}";
-    "STOP: rt reads go only through rt_verb" -> "rt_verb {args: [<verb>, ...]}";
+    "STOP: rt reads go through rt_verb, never rt on Bash" -> "rt_verb {args: [<verb>, ...]}";
     "dev_endpoints {tree: <worktree>, roles: <the domain's roles>}" -> "Any role waiting or unclaimed?";
     "Any role waiting or unclaimed?" -> "Gate evidence (table below)" [label="yes: name it in the gate's sentence"];
     "Any role waiting or unclaimed?" -> "rt_verb {args: [<verb>, ...]}" [label="no, and another rt read"];
@@ -151,8 +152,9 @@ digraph evidence {
 The domain's gathering steps: the running app's dev servers, its data
 source, and any fact the gate's sentence or the `source` question needs.
 Their result decides whether `source` fires. A role `dev_endpoints` lists
-in `waiting` (claimed, never answered) or reports unclaimed goes in the
-evidence gate's sentence, so the gate opens with no intake question.
+in `waiting` (claimed, never answered), or reports unclaimed or with an
+`error`, goes in the evidence gate's sentence, so the gate opens with no
+intake question.
 
 ### Reading a GitLab fact no read tool returns
 

@@ -7,7 +7,7 @@
 # or a path to a checkout whose plugins/mattstack is copied as it stands on
 # disk. Writes <out-dir>/stage-evidence.md. Only a scratch copy of the plugin
 # is edited; the compile runs under an isolated HOME and --mattstack-dir, so
-# nothing reads or writes ~/.mattstack.
+# nothing reads or writes ~/.mattstack. <out-dir> must be new or empty.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -41,14 +41,13 @@ case "$out/" in
     exit 65
     ;;
 esac
+if [ -e "$out" ] && { [ ! -d "$out" ] || [ -n "$(ls -A "$out")" ]; }; then
+  echo "refusing: <out-dir> $out must be new or empty; nothing was deleted" >&2
+  exit 65
+fi
 mkdir -p "$out"
 
 scratch="$out/.build"
-case "$scratch" in
-  "$out"/.build) ;;
-  *) echo "refusing: unexpected scratch path $scratch" >&2; exit 65 ;;
-esac
-rm -rf "$scratch"
 mkdir -p "$scratch/home" "$scratch/mattstack" "$scratch/tree"
 
 if [ -d "$src" ]; then

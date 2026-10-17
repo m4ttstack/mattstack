@@ -10,7 +10,8 @@ what may leave the machine. `evidence_record` writes it; `evidence_attach`
 uploads from it and writes the MR's evidence section. Never write
 `evidence` with `run_field_set`, upload evidence with `mr_upload`, or edit
 the evidence section by hand. A `<slug> spent?` diamond is yes when the
-`run_budget` before it returns `spent` over `limit`.
+`run_budget` before it returns `spent` > `limit` (read `spent` against
+`limit`; ignore `exhausted` and `remaining`).
 
 ## The record
 
@@ -55,7 +56,7 @@ digraph record_evidence {
     "run_budget {runDb, key: evidence:cover-rounds, limit: 3, stage}" -> "cover-rounds spent?";
     "cover-rounds spent?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no"];
     "Annotate or waive each image the record does not yet cover (evidence-record)" -> "Annotate or waive outcome?";
-    "Annotate or waive outcome?" -> "evidence_record {runDb, stage, tree: <worktree>, images, cases?, transcript?, url?}" [label="ready: the same images by their value paths, with covers"];
+    "Annotate or waive outcome?" -> "evidence_record {runDb, stage, tree: <worktree>, images, cases?, transcript?, url?}" [label="ready: each image `uncovered` lists, by its path there, with its cover"];
     "Annotate or waive outcome?" -> "Record held at evidence-waiver: the verb's hold path" [label="held"];
     "Annotate or waive outcome?" -> "Record failed: the verb fails, naming the images or quoting the error" [label="waiver openings spent"];
     "run_budget {runDb, key: evidence:record-retries, limit: 1, stage}" -> "record-retries spent?";
@@ -147,7 +148,8 @@ Selection: `{"waivers":{"<case>/<slot>[/<theme>]":"<reason>|annotate","<case>":"
 
 ## Attach the evidence
 
-Entered only after the verb's attach gate proceeds. `heading`, `before`
+Entered only after the verb's attach gate proceeds (ship and stage-ship:
+at the bridge below). `heading`, `before`
 and `appendix` come from the domain. Unbound, `heading` is the repo MR
 template's evidence heading, else `## Evidence`: always the full line,
 `##` included. On GitHub nothing uploads; `<n>` is the PR number in
@@ -167,6 +169,9 @@ digraph attach_evidence {
     "Linked description written?" [shape=diamond];
     "run_budget {runDb, key: evidence:upload-off-script, limit: 1, stage}" [shape=plaintext];
     "upload-off-script spent?" [shape=diamond];
+    "Iterate needs a re-record?" [shape=diamond];
+    "Re-record the images through Record the evidence" [shape=box];
+    "Re-record outcome?" [shape=diamond];
     "gh pr view <n> --json body" [shape=plaintext];
     "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, description: <the body>}" [shape=plaintext];
     "description returned?" [shape=diamond];
@@ -194,7 +199,13 @@ digraph attach_evidence {
     "Does this verb attach again later?" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, linkRefused: true}" [label="no"];
     "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, linkRefused: true}" -> "Linked description written?";
     "run_budget {runDb, key: evidence:upload-off-script, limit: 1, stage}" -> "upload-off-script spent?";
-    "upload-off-script spent?" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" [label="no"];
+    "upload-off-script spent?" -> "Iterate needs a re-record?" [label="no"];
+    "Iterate needs a re-record?" -> "Re-record the images through Record the evidence" [label="yes: a recapture, a new file, or a record or raw-capture refusal"];
+    "Iterate needs a re-record?" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" [label="no: the human checked the daemon"];
+    "Re-record the images through Record the evidence" -> "Re-record outcome?";
+    "Re-record outcome?" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" [label="Recorded"];
+    "Re-record outcome?" -> "Attach held: the verb's hold path" [label="Held"];
+    "Re-record outcome?" -> "Attach failed: the verb fails, the reason quoted" [label="Failed"];
     "gh pr view <n> --json body" -> "evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, description: <the body>}" -> "description returned?";
     "description returned?" -> "gh pr edit <n> --body-file <file holding the returned description>" [label="yes"];
     "gh pr edit <n> --body-file <file holding the returned description>" -> "PR edited?";
@@ -207,15 +218,24 @@ digraph attach_evidence {
 ### Off-script gate: upload refused
 
 Scope `off-script:<stage>:<n>`, `n` shared with the verb's other
-off-script gates; `context` quotes each refusal and its path. Iterate
-means the human moved the file, widened `rt.mcp.uploadRoots` or
-recaptured; only the human copies a file under an allowed root.
+off-script gates; `context` quotes each refusal and its path. Only the
+human moves or copies a file. Iterate, by what was refused: `timedOutTwice`
+means the human checked the daemon; `size`, `bytes` or `missing` means a
+recapture the agent re-records; `record` or `raw-capture` means the record
+the guard read is not the one written, so re-record the last recorded
+images. Take: stage-evidence leaves the refused files for ship's attach,
+nothing written; ship and stage-ship call `linkRefused: true`, which lists
+them as attached separately.
+
+### Re-record the images through Record the evidence
+
+Run `Record the evidence (evidence-record)` with the new file at its new
+path, or the last recorded images by their `value` paths with covers.
 
 ### Does this verb attach again later?
 
-Yes when a later stage of this run attaches again (stage-evidence: ship
-sends the refused files). No for ship and stage-ship, so Take lists them
-as attached separately.
+Yes when a later stage of this run attaches again (stage-evidence: ship's
+attach). No for ship and stage-ship.
 
 ## Merge into the record
 

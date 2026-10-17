@@ -73,9 +73,11 @@ The tools' contract: `docs/superpowers/specs/2026-10-16-evidence-tools-design.md
   (`<name>-annotated.<ext>`). Its `import` and `redaction` refusal buckets
   fall into box 3's "any other bucket" route (the off-script gate) until
   #822 adds its own route; main's guard never produces them.
-- **Counters** follow ship-ci-skills' convention: `run_budget {key:
+- **Counters** follow ship-ci-skills' convention: `run_budget {runDb, key:
   evidence:<slug>, limit: N, stage}` each time the counted event happens,
-  then a diamond `<slug> past its limit?` reading `spent > limit`. Holds go
+  then a diamond `<slug> spent?`, yes when `spent > limit` (read `spent`
+  against `limit`; ignore the tool's `exhausted`, which is `spent >= limit`,
+  and `remaining`). Holds go
   through `run_hold`, which writes the same `hold:<stage>:<attempt>`
   decision and `hold` field as today's `run_decision` plus `run_field_set`
   pair.
@@ -123,16 +125,16 @@ Record the evidence (ellipse)
 -> evidence_record {runDb, stage, tree: <worktree>, images, cases?, transcript?, url?}
 -> evidence_record result?
    written                                   -> Recorded (green)
-   uncovered listed                          -> run_budget {key: evidence:cover-rounds, limit: 3, stage}
-                                                -> cover-rounds past its limit?
+   uncovered listed                          -> run_budget {runDb, key: evidence:cover-rounds, limit: 3, stage}
+                                                -> cover-rounds spent?
                                                    no  -> Annotate or waive each image the record does not yet cover (evidence-record)
                                                    yes -> Failed: the images named
    error: the evidence field changed during this call
-                                             -> run_budget {key: evidence:record-retries, limit: 1, stage}
-                                                -> record-retries past its limit?  no -> the same call again; yes -> Failed, quoted
+                                             -> run_budget {runDb, key: evidence:record-retries, limit: 1, stage}
+                                                -> record-retries spent?  no -> the same call again; yes -> Failed, quoted
    any other error                           -> Failed, the error quoted
 Annotate or waive outcome?
-   ready                     -> evidence_record {..., the same images with their covers}
+   ready                     -> evidence_record {..., each image uncovered lists, by its path there, with its cover}
    held at evidence-waiver   -> Held: the verb's hold path
    waiver openings spent     -> Failed: the images named
 ```
@@ -140,9 +142,8 @@ Annotate or waive outcome?
 The first call carries the captures as `path`s (plus labels for new
 cases); every later call names the same images by the paths in the
 returned `value`, with their covers. Outcomes: **Recorded**, **Held**,
-**Failed** (reason). `cover-rounds` is 3:
-the first call on raw captures always lists them, one correction, and one
-re-record from box 3.
+**Failed** (reason). `cover-rounds` is 3: the first call, one correction,
+and one re-record after a recapture.
 
 ### Box 2: `Annotate or waive each image the record does not yet cover (evidence-record)`
 
@@ -157,7 +158,8 @@ The draw writes `<name>-annotated.<ext>` beside the run-folder copy. The
 
 ### Box 3: `Attach the evidence (evidence-record)`
 
-Entered only after the verb's attach gate proceeds. The domain supplies
+Entered only after the verb's attach gate proceeds (ship and stage-ship:
+at the bridge). The domain supplies
 `heading`, `before` and `appendix`; unbound, `heading` is the repo MR
 template's evidence heading when it has one, else `## Evidence`.
 
@@ -167,39 +169,41 @@ Attach the evidence (ellipse)
    GitLab -> evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}
              -> evidence_attach result?
                 descriptionWritten, or notWritten: unchanged   -> Attached (green)
-                refused: record or raw-capture                 -> run_budget {key: evidence:record-recalls, limit: 1, stage}
-                                                                  -> record-recalls past its limit?
-                                                                     no  -> Record the evidence (evidence-record) [the named files]
-                                                                            -> Recorded -> evidence_attach (again)
-                                                                     yes -> STOP
-                any other refused bucket, or timedOutTwice     -> STOP
+                any refused bucket, or timedOutTwice           -> STOP
                 tempted to copy the file or upload another way -> STOP
-                writeErrors, or the call refused               -> Failed, quoted
-             STOP: a refused file moves only by the human's hand
+                writeErrors, or the call errored               -> Failed, quoted
+             STOP: only the human moves a refused file
              -> Off-script gate: upload refused (gate-protocol, scope off-script:<stage>:<n>)
              -> upload off-script answer?
                 proceed + take       -> Does this verb attach again later?
                                         yes (stage-evidence: ship attaches) -> Taken: nothing written
-                                        no (ship)  -> evidence_attach {..., linkRefused: true} -> take result?
-                                                      descriptionWritten -> Attached; writeErrors -> Failed, quoted
+                                        no (ship, stage-ship) -> evidence_attach {..., linkRefused: true}
+                                                                 -> Linked description written? yes -> Attached; no -> Failed
                 proceed + hand back  -> Failed, the refusal quoted
-                iterate              -> run_budget {key: evidence:upload-off-script, limit: 1, stage}
-                                        -> past its limit? no -> evidence_attach (again); yes -> Failed, quoted
+                iterate              -> run_budget {runDb, key: evidence:upload-off-script, limit: 1, stage}
+                                        -> upload-off-script spent?  yes -> Failed, quoted
+                                           no -> Iterate needs a re-record?
+                                                 yes: a recapture, a new file, or a record or raw-capture refusal
+                                                      -> Re-record the images through Record the evidence (box 1)
+                                                         -> Recorded -> evidence_attach (again); Held -> Held; Failed -> Failed
+                                                 no: the human checked the daemon -> evidence_attach (again)
                 hold                 -> Held: the verb's hold path
    GitHub -> gh pr view <n> --json body
              -> evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, description: <the body>}
+             -> description returned?  no -> Failed
              -> gh pr edit <n> --body-file <a file holding the returned description>
-             -> Attached
+             -> PR edited?  yes -> Attached; no -> Failed
 ```
 
-A `record` or `raw-capture` refusal means the record the guard reads is
-not the one box 1 wrote (the field changed, or box 1 never wrote). The
-re-record sends box 1 the same images the verb last recorded, by their
-`value` paths with their covers, once; the next refusal goes to the gate.
-
-Removed in Task 3b (the operator's trim ruling): the `record-recalls`
-re-record. A `record` or `raw-capture` refusal now goes straight to the
-upload off-script gate like any other refused bucket.
+A `record` or `raw-capture` refusal goes to the upload off-script gate like
+any other refused bucket: the Task 3b trim (operator ruling #6050) dropped
+main's one agent fix (`Record fixed once already?`; an earlier draft's
+`record-recalls`).
+Iterate re-records through box 1 before it attaches again when the human
+recaptured, the note names a new file, or the refusal was `record` or
+`raw-capture` (box 1 then gets the last recorded images by their `value`
+paths, with covers). After `timedOutTwice` the human checked the daemon, so
+Iterate attaches again directly. Both count against `upload-off-script`.
 
 Outcomes: **Attached**, **Taken** (refused files left for a later attach),
 **Held**, **Failed** (reason). Box 1's Held and
@@ -207,10 +211,15 @@ Failed reached from here are box 3's Held and Failed.
 
 The off-script gate node lives in the include, so each verb that inlines
 it gets its own copy, scoped `off-script:<stage>:<n>` with `n` shared with
-the verb's other off-script gates. Its section keeps today's rule: Take
-links the refused files' local paths (the tool records them so the next
-attach sends them again); Iterate means the human moved the file, widened
-`rt.mcp.uploadRoots` or recaptured; copying a file under an allowed root is
+the verb's other off-script gates. Records hold run-folder copies, so the
+`roots` bucket cannot fire. Its section reads: Take at stage-evidence
+leaves the refused files for ship's attach, nothing written; Take at ship
+and stage-ship calls `linkRefused: true`, which names each file "<file
+name> (attached separately)", never its path. Iterate by what was refused:
+`timedOutTwice` means the human checked the daemon; `size`, `bytes` or
+`missing` means a recapture the agent re-records; `record` or
+`raw-capture` means the record the guard read is not the one written, so
+the agent re-records the last recorded images. Moving or copying a file is
 only ever the human's move.
 
 ### Kept sections
@@ -225,10 +234,13 @@ only ever the human's move.
     `run_field_set` evidence write that follow are already done: skip them.
   - `Write before upload`: box 1 wrote the record; never write `evidence`
     with `run_field_set`.
-  - `Upload only what the record allows` and `The evidence section of the
-    description`: where the verb's own upload loop starts, run box 3
-    instead; it uploads, renders and writes the section, so skip the verb's
-    `mr_upload`, `mr_view` and `mr_update` nodes.
+  - `Upload only what the record allows`: run box 3 at the verb's `Files
+    to attach` decision, whatever it answers (GitHub and no files
+    included), and skip only the verb's `mr_upload` loop.
+  - `The evidence section of the description`: box 3 wrote the section;
+    the verb writes the title and description around it byte for byte as
+    it stands on the MR (or the `section` the attach returned), never a
+    second evidence block.
 
 ### Removed
 
@@ -240,7 +252,8 @@ must know.
 ## stage-evidence, after
 
 Kept as is (node text and sections): entry, the `evidence-plan` and
-`worktree` reads, the domain steps box, the `rt_verb` STOP, the evidence
+`worktree` reads (now one node each), the domain steps box, the `rt_verb`
+STOP (`STOP: rt reads go through rt_verb, never rt on Bash`), the evidence
 gate and its table, the ticket diamond and box, the capture loop with its
 attempt counter, the data-source off-script gate, the attach gate and its
 table, the GitLab-fact read section.
@@ -253,7 +266,7 @@ Changed:
 | `Domain needs an rt read (ports, endpoints)?` -> `rt_verb` | `Domain needs dev servers or another rt read?`: dev servers -> `dev_endpoints {tree: <worktree>, roles: <the domain's roles>}`; another read -> `rt_verb` (kept). A role in `waiting`, or unclaimed, goes in the evidence gate's sentence. |
 | attach gate's **Hand back the markdown** | unchanged label and meaning: record only, attach nothing; ship attaches later (today's flow, which also produces no markdown at this stage) |
 | attach gate, then annotate-or-waive, then the `evidence@2` / `plan:ticket` / `plan:text` writes, the validator loop, then the upload loop, `mr_view`, `mr_update` and the "record plus attach" write | attach gate (unchanged), then `Record the evidence (evidence-record)`, then `Attach now answered?`, then `Attach the evidence (evidence-record)` |
-| `Domain attaches evidence to an MR here?` -> `run_field_get branch` -> `mr_for_branch` | the same, plus `Forge host?` from `git -C <worktree> remote get-url origin`: GitHub -> `gh pr view <branch> --json number,url` |
+| `Domain attaches evidence to an MR here?` -> `run_field_get branch` -> `mr_for_branch` | the same, plus `Forge host?` from `git -C <worktree> remote get-url origin`: GitHub -> `gh pr view <branch> --json number,url,state` (a PR not `OPEN` means ship attaches); another host -> ship attaches |
 | the upload off-script gate section | moves into the include (box 3) |
 | `run_decision {... hold:evidence:<attempt> ...}` + `run_field_set {key: hold, ...}` | `run_hold {runDb, stage: evidence, reason, decidedBy}` |
 | `Attempts for this case = 3?`, `Off-script rounds = 2?` | `run_budget` pairs (`evidence:capture-attempts:<case>`, limit 2; `evidence:source-off-script`, limit 1) |
@@ -264,14 +277,15 @@ Changed:
 
 | Fill section (both evidence fills) | Host node today | After |
 |---|---|---|
-| `At: mr_upload {mrUrl, path} per file; keep each markdown` | `mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown` (already drifted: no `runId`) | `Attach the evidence (evidence-record)`. The fill's rules there become the `heading`, `before` and `appendix` it passes (ingestion's `<details>` text blocks are the `appendix`); the per-file upload text and the "never copy" line go. |
+| `At: mr_upload {mrUrl, path} per file; keep each markdown` | `mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown` (already drifted: no `runId`) | `Attach the evidence (evidence-record)`. The fill's rules there become the `heading`, `before` and `appendix` it passes (one fill's `<details>` text blocks are the `appendix`); the per-file upload text and the "never copy" line go. |
 | `At: Capture the BEFORE` | `Capture the BEFORE for the next case` (already drifted) | unchanged host text; the replay renames the fill heading to match. |
 | `At: Run the domain steps before the gate (none when unbound)` | unchanged | unchanged. The replay can route the target graph's port lookups to `dev_endpoints` and drop the `rt.mcp.uploadRoots` read. |
 | `At: Gate evidence (table below)` | unchanged | unchanged. The `upload_root` question is obsolete: captures no longer need an upload root. |
 | `At: Gate evidence-attach (table below)` | unchanged | unchanged. Drop the `rt.mcp.uploadRoots` re-read. |
 | the "evidence tree" paragraphs | none | obsolete: captures stay where taken and box 1 files them. |
-| none (no fill anchors here) | `Open PR on the branch?` | `Open MR or PR on the branch?` |
-| none (no fill anchors here) | stage-evidence's data-source off-script gate | `Off-script gate: a new data source` |
+| none (no fill anchors here) | `Open MR on the branch?` | `Open MR or PR on the branch?` |
+| none (no fill anchors here) | stage-evidence's data-source off-script gate, `Off-script gate (gate-protocol, scope off-script:evidence:<n>)` | `Off-script gate: a new data source` |
+| none (no fill anchors here) | stage: `run_field_get {key: evidence-plan}; run_field_get {key: worktree}`; `Domain needs an rt read (ports, endpoints)?`; `Attempts for this case = 3?`; `Off-script rounds = 2?`; `STOP: upload only with mr_upload; another route is off-script`. Box 2: `Draw the marks to a sibling -annotated file`; `Nothing selected for it at an annotations question?` and `Video, or nothing worth marking?`; `Drawn after an Annotate it after all answer?`; `Draw failures for this image = 2?`; `Waiver openings for this image = 2?`; `Record the waiver`; `STOP: a waiver is the human's answer, never the agent's` | stage: split into `run_field_get {key: evidence-plan}` and `run_field_get {key: worktree}`; `Domain needs dev servers or another rt read?`; `capture-attempts spent?`; `source-off-script spent?`; box 3's `STOP: only the human moves a refused file`. Box 2: `Draw the marks beside the value copy`; merged into `Nothing selected, a video, or nothing worth marking?`; folded into `Drawn?` (its edge `no, after Annotate it after all`); `draw-failures spent?`; `waiver-openings spent?`; dropped (`waiver answer?` goes to `Ready`); `STOP: only the human waives an image`. The upload loop, validator, evidence-write and hold nodes are removed (Changed table above). |
 
 ## Behavior changes
 
@@ -281,12 +295,17 @@ Changed:
 | C2 | Upload and the description splice go through `evidence_attach`: earlier uploads are reused by sha256, and `evidence` is no longer rewritten with "the record plus attach" after the description write. | Approved in wave 2 (tools B2, B5). |
 | C3 | A `missing` refusal (path not found, not absolute) goes to the off-script gate instead of a corrected-path retry. Paths now come from the record, so there is nothing for the agent to correct. | My call. |
 | C4 | A file that times out twice is reported with the rest still uploaded, instead of stopping at the first. | Tools B6. |
-| C5 | (dropped) Take at stage-evidence stays as today: nothing is written, and ship's attach sends the refused files again. | Shepherd's condition on gate `269aef04`: `linkRefused` prints bare absolute local paths into an employer-visible description. Ship's Take (phase 2, ship-ci-skills) keeps today's local-path link, a pre-existing leak; a tool follow-up (a neutral "<file name> (attached separately)" link for linked files, `lib/evidence/section.ts`) is flagged to the shepherd (DM #6040). |
+| C5 | Take at stage-evidence writes nothing, and ship's attach sends the refused files. Take at ship and stage-ship calls `evidence_attach {linkRefused: true}`, which since #853 (on main) names each refused file "<file name> (attached separately)", never by path; ship and stage-ship reach it through this branch's bridge. | Tools (#853), which meets the shepherd's condition on gate `269aef04`. |
 | C6 | On GitHub, stage-evidence finds the PR with `gh pr view` and writes the section through `gh pr edit`. Today it calls `mr_for_branch`, which is GitLab-only and fails. | Bug fix. |
 | C7 | Dev-server ports come from one bounded `dev_endpoints` call instead of the domain's `rt endpoint lookup` reads and curl probe. | Tools ruling (C3 in recon). |
 | C8 | Loop counters persist on the run through `run_budget`, so they survive compaction and resume; holds use `run_hold` (same decision and field). | My call, matching ship-ci-skills. |
 | C9 | Unbound, the section heading is the MR template's evidence heading, else `## Evidence`. Today it is unspecified. | My call. |
 | C10 | A capture whose source sits outside the tool's allowed sources fails the stage with the refusal quoted. Today nothing checks it. | My call: a new location is not the agent's to invent. |
+| C11 | A `record` or `raw-capture` refusal goes straight to the upload off-script gate; main fixed the record once (`Record fixed once already?`). Iterate after a recapture, a new file or such a refusal re-records through box 1, then attaches again. | Operator ruling #6050 (the trim); the re-record on Iterate is the controller's final-review ruling. |
+| C12 | A dev-server role left waiting, unclaimed or with an `error` opens the evidence gate even with no intake question; Iterate re-runs `dev_endpoints`. | My call. |
+| C13 | On GitHub the lookup is `gh pr view <branch> --json number,url,state`; a merged or closed PR means ship attaches. A host neither GitLab nor GitHub skips the attach at this stage. | Bug fix. |
+| C14 | ship and stage-ship pick up C1-C4 and C9 at this merge through the bridges, not at their phase 2: box 1 records the copies, box 3 uploads and splices through `evidence_attach`, no corrected-path retry, and Take lists refused files as attached separately. | My call (the shim, agreed by DM #6035). |
+| C15 | A GitHub section names each file "(attached separately)" where main printed local paths. | Tools (#853). |
 
 ## Test plan
 
@@ -321,24 +340,26 @@ finish.
 
 ## Results
 
-GREEN passed every scenario on the first run, with no fix rounds (the
-per-rep tables are in the plugin's RED/GREEN test record).
+GREEN passed every scenario on the first run, with no fix rounds, both
+before and after the final-review fixes (the per-rep tables are in the
+plugin's RED/GREEN test record).
 
-| Scenario | RED | GREEN | Anti-goal reps, RED to GREEN |
-|---|---|---|---|
-| E1 happy path, GitLab | 0/5 | 5/5 | 0 to 0 |
-| E2 recapture | 2/5 | 5/5 | 0 to 0 |
-| E3 refused upload | 0/5 | 5/5 | 3 to 0 |
-| E4 GitHub PR | 1/5 | 5/5 | 0 to 0 |
-| E5 dev servers | 5/5 | 5/5 | 0 to 0 |
+| Scenario | RED | GREEN | GREEN after final review | Anti-goal reps, RED to GREEN to final |
+|---|---|---|---|---|
+| E1 happy path, GitLab | 0/5 | 5/5 | 5/5 | 0 to 0 to 0 |
+| E2 recapture | 2/5 | 5/5 | 5/5 | 0 to 0 to 0 |
+| E3 refused upload | 0/5 | 5/5 | 5/5 | 3 to 0 to 0 |
+| E4 GitHub PR | 1/5 | 5/5 | 5/5 | 0 to 0 to 0 |
+| E5 dev servers | 5/5 | 5/5 | 5/5 | 0 to 0 to 0 |
 
-Word counts, before to now: evidence-record 1,762 to 1,938;
-stage-evidence 3,074 to 2,175; compiled stage-evidence 10,407 to 9,698.
+Word counts, main to after the final review: evidence-record 1,762 to
+2,127; stage-evidence 3,074 to 2,196; compiled stage-evidence 10,407 to
+9,908.
 
-evidence-record misses the operator's 25% target: boxes 1 and 3 replaced
-prose and JSON with graphs whose full-sentence node ids repeat on every
-edge, and box 2, the waiver table, the record concepts, the bridges and
-Domain precedence (all kept) already total about main's size.
+evidence-record misses the operator's 25% target (1,321 words). The parts
+kept from main total about 880 words (box 2 578, the record concepts 160,
+the bridges 114, Domain precedence 28), and boxes 1 and 3 are about 1,147
+words, 865 of them graph, replacing main's prose and JSON.
 
 ### Deviations
 
@@ -355,18 +376,18 @@ Domain precedence (all kept) already total about main's size.
 | E4 | 3 | target as `repoName`, no `mrUrl` | RED | box 3's GitHub call node names `mrUrl` |
 | E4 | 2 of 5 | `heading` without `##` | RED | box 3's heading rule |
 | E5 | 1-5 | `heading` without `##` | RED | box 3's heading rule |
-| E3 | 1-5 | the video's waiver passed on the first `evidence_record`, taken from the scenario's wording, not a waiver gate | GREEN | not fixed: the scenario states the waiver, so not a skill gap |
+| E3 | 1-5 | the video's waiver passed on the first `evidence_record`, taken from the scenario's wording, not a waiver gate | GREEN, and again after the final review | not fixed: the scenario states the waiver, so not a skill gap |
 
 ## My calls
 
-- `cover-rounds` limit 3, `record-recalls` limit 1, `upload-off-script`
+- `cover-rounds` limit 3, `record-retries` limit 1, `upload-off-script`
   limit 1, `capture-attempts` limit 2 (today's "= 3?" on the third
   failure), `source-off-script` limit 1.
 - The include owns the upload off-script gate (agreed with ship-ci-skills).
 - Shim headings stay until ship's phase 2, then that lane deletes them.
 - Box 3 checks the forge itself, so a verb need not.
-- The re-record after a `record`/`raw-capture` refusal resends the last
-  recorded images (by `value` path, with covers) rather than going straight
-  to the gate, because "box 1 never wrote" is fixable by the agent.
+- Iterate's re-record after a `record`/`raw-capture` refusal resends the
+  last recorded images (by `value` path, with covers), under the
+  `upload-off-script` budget.
 - `import` and `redaction` buckets go to the off-script gate until #822.
 - The GREEN pass bar above.
