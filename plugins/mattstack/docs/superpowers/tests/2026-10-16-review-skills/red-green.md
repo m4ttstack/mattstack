@@ -739,6 +739,65 @@ already-written json). Round 2 restores all three.
   are extras-shape slips outside the A to E classes. V12 rep 3's closing
   line garbles the order of the future post record, narration only.
 
+### Trim pass: receive-review
+
+System files: the branch tree with the trimmed receive-review (committed as
+`58c866a07`, built from the working tree at that commit), compiled with
+the worktree's own gate-protocol and no `--gate-protocol` overlay: the
+merged include (origin/main 38b7cb848 + ebbc00870), which no longer names
+the review skills among the sites not yet on the tools. sha1 of the scored
+receive-review system file: `1a178301eec62be635ad8332168d6d00d1ff5c2b`.
+Transcripts: `<scratch>/trim-receive-review/green1/<id>/rep-1..5.txt`.
+
+| | Source words | Compiled words |
+|---|---|---|
+| main (`1cb4ba5da`, no overlay) | | 20351 |
+| before the trim (`ebbc00870`, merged include) | 15715 | 19434 |
+| after the trim | 11487 | 15206 (target 15263, -25.3% on main) |
+
+Budget convention: the controller's trim ruling supersedes the plan's
+Global Constraints budget line for this skill. `post-execute-fix` goes
+from limit 1 to limit 2, one `run_budget` on each fixable
+`respond_post_execute` refusal feeding `post-execute-fix spent?` (first
+charge: fix once; second: the off-script gate), replacing the
+`increment: 0` read and the separate charge. `respond_post_execute`
+bounds its own reply, resolve and push retries, so the post side draws no
+other counter. `respond-plan-open`, `respond-post-open` and
+`fix:<threadId>` keep limit 3; their diamonds become `respond-plan-open
+spent?`, `respond-post-open spent?` and `fix:<threadId> spent?`. No board
+wrapper or pack names any renamed node.
+
+One round, no wording changed after it.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| R1 bot thread | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter` started, `mr` and `branch`, `mr_threads {filter: "unresolved-human"}` kept as given, one dispatch over T1 and T2, `gate_open {kind: "respond-plan"}`, the background wait, holding at `gt-701` |
+| R2 note on a reply | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `code-changes` held back, one `gate_answer` with `{"value": "reply:T1", "note": "softer"}`, `gate_record {gateId: "gt-701"}`, rows as returned, T1 an override offered at respond-post |
+| R3 Hold at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; one `gate_answer` with `next: hold`, `run_hold`; no `gate_record`, no `respond_post_execute` |
+| R3b Iterate at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gt-702` answered with `next: iterate`, a redraft, a new `gate_open` (`gt-703`), `gate_record {gateId: "gt-703"}`, `respond_post_execute`, the hold clear, `run_close` |
+| R4 partial post retry | 5/5 | 0 | 0 | 0 | 0 | 0 | none; one off-script gate quoting T1's `500`, a second `respond_post_execute`, `run_field_set {key: hold, value: "-"}`, `run_close`; no `mr_reply_thread` |
+| R5 mismatch | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the held entry quoted in a fence, threads held, run left open; no push, no branch switch, no `git_push`, no `run_hold` |
+| R6 resume, nothing held | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume}`, `run_snapshot`, `respond_post_execute` again, the hold clear, `run_close` |
+| R7 board fresh-pane resume | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume: "r-20261016-rev", spawnedBy}`, `gate_record {scope: "respond-post", answers, decidedBy: "board"}`, `respond_post_execute`, the hold clear, `run_close` |
+| R7b board same pane | 5/5 | 0 | 0 | 0 | 0 | 0 | none; first call `gate_record {answers, decidedBy: "board"}`, no `run_enter`; the respond-post hand-back `gate_open {handBack: true}`, the run line, and the open, source and `gate-ctx.sh` paths |
+| R8 GitHub proceed | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_record`, the fresh gh read, the two git reads, `git_push {tree}`, gh reply and resolve; no `respond_post_execute`, no `mr_*` |
+| **Total** | **50/50** | **0** | **0** | **0** | **0** | **0** | |
+
+- No rep drew a `run_field_set {key: gate}` bracket or a hand
+  `run_decision`, so the positive one-line gate rule holds with the merged
+  include.
+- **R4** (5/5): every rep opened the batch gate straight from the result,
+  with no counter: "A held `reply` entry means one off-script gate for the
+  batch." (rep 1).
+- Unscored notes: R3 to R8 reps left the respond-post `reviewer` as a
+  placeholder, since the fixture names no author on those turns (an
+  extras-shape slip outside A to E). R2 rep 3 and R7b rep 5 ran `git -C`
+  for the commit, which no tool covers.
+- No scenario covers the handed `{plan}` with no stored respond-plan
+  source, a combined `{plan, post}` with offered threads, the GitHub held
+  re-record, or a `respond_post_execute` refusal, so those routes (all
+  touched by the trim) are checked by the graph and the sections only.
+
 ## Summary
 
 Latest scored round per scenario, 5 reps each side:
