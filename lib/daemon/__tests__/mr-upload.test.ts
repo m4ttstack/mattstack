@@ -232,7 +232,7 @@ describe("mr:upload", () => {
     test("an image missing from the record is refused, naming the file", async () => {
       const h = harness({ repoPath, ...record(v2(repoPath)) });
       const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath, "stray.png"), runId: "run-1" });
-      expect(res).toEqual({ ok: false, error: "stray.png is not in run run-1's evidence record as an annotated image or a waived capture; record it with run_field_set first" });
+      expect(res).toEqual({ ok: false, error: "stray.png is not in run run-1's evidence record as an annotated image or a waived capture; record it with evidence_record first" });
       expect(h.calls.length).toBe(0);
     });
 
@@ -389,7 +389,23 @@ describe("mr:upload", () => {
       expect(h.calls.length).toBe(1);
     });
 
-    test("without runId the record is never read", async () => {
+    test("with no run in scope, a run whose db cannot be read is skipped with a warning", async () => {
+      mkdirSync(join(home, ".mattstack", "work", "r-bad", "evidence"), { recursive: true });
+      mkdirSync(join(home, ".mattstack", "runs", "app", "r-bad"), { recursive: true });
+      writeFileSync(join(home, ".mattstack", "runs", "app", "r-bad", "state.db"), "not a db");
+      const warns: unknown[] = [];
+      const savedRuns = process.env.RT_RUNS_ROOT;
+      process.env.RT_RUNS_ROOT = join(home, ".mattstack", "runs");
+      try {
+        const h = harness({ repoPath, warns, runEvidence: () => ({ found: false as const }) });
+        expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) })).ok).toBe(true);
+        expect(JSON.stringify(warns)).toContain("its db could not be read; skipped");
+      } finally {
+        if (savedRuns === undefined) delete process.env.RT_RUNS_ROOT; else process.env.RT_RUNS_ROOT = savedRuns;
+      }
+    });
+
+    test("without runId and with no run evidence folder under the work root, the record is never read", async () => {
       const h = harness({ repoPath, runEvidence: () => { throw new Error("read"); } });
       expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) })).ok).toBe(true);
     });

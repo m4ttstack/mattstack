@@ -19,7 +19,8 @@ import { decodeRepo } from "../identity-decoder.ts";
 import { getRepoContext, providerRequestHook } from "../freshness.ts";
 import { loadSecrets } from "../../linear.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { findRun } from "../../runs/store.ts";
+import { findRun, listRunRepoDirs } from "../../runs/store.ts";
+import { runsRoot } from "../../runs/paths.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
 import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
 import { evidenceUploadRefusal, ticketCopyRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
@@ -64,9 +65,18 @@ function ticketCopyAnyRun(
   for (const id of ids) {
     if (!existsSync(join(root, id, "evidence"))) continue;
     const run = runEvidence(id);
-    if (!run.found) continue;
+    // Skipping a run that exists but cannot be read keeps one bad db from blocking every upload; the warn records the skip.
+    if (!run.found) {
+      if (listRunRepoDirs().some((repo) => existsSync(join(runsRoot(), repo, id, "state.db")))) {
+        warn("ticket copy check: run has an evidence folder but its db could not be read; skipped", { err: null, path: join(root, id) });
+      }
+      continue;
+    }
     const record = readEvidence(run.evidence);
-    if (record.version !== 2) continue;
+    if (record.version !== 2) {
+      if (run.evidence) warn("ticket copy check: run's evidence field is not a v2 record; skipped", { err: null, path: join(root, id) });
+      continue;
+    }
     const refusal = ticketCopyRefusal({ record, realpath: real, filename, bytes, warn });
     if (refusal) return refusal;
   }
@@ -144,7 +154,7 @@ export function createMrUploadHandlers(
       for (const runId of runIds) {
         const refusal = evidenceUploadRefusal({ runId, realpath: checked.realpath, filename: checked.filename, run: runEvidenceFn(runId), bytes: checked.bytes, warn });
         if (!refusal) continue;
-        const byLocation = runId === owner && runId !== p?.runId && !refusal.includes("ticket image");
+        const byLocation = runId === owner && runId !== (typeof p?.runId === "string" ? p.runId.trim() : undefined) && !refusal.includes("ticket image");
         return { ok: false, error: byLocation ? `${checked.filename} is in run ${runId}'s evidence folder and not in run ${runId}'s evidence record; record it with evidence_record first` : refusal };
       }
       if (runIds.size === 0) {

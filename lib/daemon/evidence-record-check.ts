@@ -101,5 +101,5 @@ export function evidenceUploadRefusal(o: {
     const theme = raw.shot.theme ? ` (${raw.shot.theme})` : "";
     return `${o.filename} is the raw capture for case "${raw.caseId}" ${raw.slot}${theme}; upload its annotated image ${basename(raw.shot.annotated!)} instead`;
   }
-  return `${o.filename} is not in run ${o.runId}'s evidence record as an annotated image or a waived capture; record it with run_field_set first`;
+  return `${o.filename} is not in run ${o.runId}'s evidence record as an annotated image or a waived capture; record it with evidence_record first`;
 }
