@@ -1,7 +1,7 @@
 import { applyEdits, findNodeAtLocation, getNodeValue, modify, parseTree } from "jsonc-parser";
+import { PROVENANCE_LINE } from "./manifest-merge.ts";
 
 const FORMAT = { insertSpaces: true, tabSize: 2 };
-const PROVENANCE_LINE = /^\/\/\s{3}(.+?) <- (\S+)\s*$/;
 
 function remove(text: string, path: (string | number)[]): string {
   return applyEdits(text, modify(text, path, undefined, { formattingOptions: FORMAT }));

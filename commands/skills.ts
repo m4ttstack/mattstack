@@ -60,6 +60,7 @@ import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } fro
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
 import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
+import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
@@ -3174,6 +3175,7 @@ type BindFlags = {
   mattstackDir: string | null;
   json: boolean;
   pipeline: string | null;
+  unset: boolean;
 };
 
 function parseBindFlags(args: string[]): BindFlags {
@@ -3185,6 +3187,7 @@ function parseBindFlags(args: string[]): BindFlags {
   let mattstackDir: string | null = null;
   let json = false;
   let pipeline: string | null = null;
+  let unset = false;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -3198,12 +3201,13 @@ function parseBindFlags(args: string[]): BindFlags {
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;
       case "--json": json = true; break;
       case "--pipeline": pipeline = requireFlagValue("--pipeline", args[++i]); break;
+      case "--unset": unset = true; break;
       default:
         throw new SkillsUsageError(`unrecognized argument "${a}"`);
     }
   }
 
-  return { team, manifest, repo, dryRun, packDir, mattstackDir, json, pipeline };
+  return { team, manifest, repo, dryRun, packDir, mattstackDir, json, pipeline, unset };
 }
 
 type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: string[] };
@@ -3215,14 +3219,14 @@ type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: 
  * skillsBind falls through to its existing error -- the non-TTY / --json paths
  * never call this and stay byte-for-byte unchanged.
  */
-/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir/--pipeline). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
+/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json/--unset boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir/--pipeline). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
 function separateBindArgs(args: string[]): { positionals: string[]; flagArgs: string[] } {
   const valued = new Set(["--pack", "--team", "--manifest", "--repo", "--pack-dir", "--mattstack-dir", "--pipeline"]);
   const positionals: string[] = [];
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
-    if (a === "--dry-run" || a === "--json") {
+    if (a === "--dry-run" || a === "--json" || a === "--unset") {
       flagArgs.push(a);
     } else if (valued.has(a)) {
       flagArgs.push(a);
@@ -3320,6 +3324,8 @@ export type BindOutcome = {
   shadowedBy: string | null;
   regenerated?: boolean;
   regenerateDetail?: string;
+  /** An unset's fill the slot reads in the written manifest; absent when that manifest was not rebuilt. */
+  to?: string;
 };
 
 /**
@@ -3336,11 +3342,17 @@ export async function applyBind(opts: {
   slotName: string;
   fill: string;
   pipeline: string | null;
+  /** Removes this pack's override at the slot instead of writing `fill`; needs `pipeline`. */
+  unset?: boolean;
   fixtureMode: boolean;
   materialize: () => Promise<RegenerateOutcome>;
 }): Promise<BindOutcome> {
   const formattingOptions = { insertSpaces: true, tabSize: 2 };
+  const unsetPipeline = opts.unset ? opts.pipeline : null;
+  if (opts.unset && unsetPipeline === null) throw new SkillsUsageError("--unset removes a pipeline override; name the pipeline with --pipeline");
+  const overrideKey = opts.pipeline === null ? `${opts.engineRef} ${opts.slotName}` : pipelineBindingKey(opts.pipeline, opts.engineRef, opts.slotName);
   const edit = (text: string) => {
+    if (unsetPipeline !== null) return removePipelineOverride(text, unsetPipeline, opts.engineRef, opts.slotName);
     if (opts.pipeline === null) {
       return applyEdits(text, modify(text, ["bindings", opts.engineRef, opts.slotName], opts.fill, { formattingOptions }));
     }
@@ -3353,9 +3365,19 @@ export async function applyBind(opts: {
       : text;
     return applyEdits(objectForm, modify(objectForm, [...pipelinePath, "bindings", opts.engineRef, opts.slotName], opts.fill, { formattingOptions }));
   };
-  const writeManifestOnly = (): { fragmentUpdated: null; shadowedBy: null } => {
-    writeFileSync(opts.manifestPath, edit(readFileSync(opts.manifestPath, "utf8")));
-    return { fragmentUpdated: null, shadowedBy: null };
+  // A manifest edited in place gets no materialize to rewrite its header, so an unset drops the override's provenance line itself.
+  const editManifest = (text: string) => (unsetPipeline === null ? edit(text) : dropProvenanceLine(edit(text), overrideKey));
+  const afterUnset = (outcome: BindOutcome): BindOutcome => {
+    if (unsetPipeline === null) return outcome;
+    const overrides = readManifestPipelineBindings(opts.manifestPath)[unsetPipeline];
+    const stillOverridden = overrides?.[opts.engineRef]?.[opts.slotName] !== undefined;
+    const shadowedBy = stillOverridden ? readManifestProvenance(readFileSync(opts.manifestPath, "utf8"))[overrideKey] ?? "another layer" : null;
+    const to = effectiveSlotBindings(readManifestBindings(opts.manifestPath), overrides, opts.engineRef)[opts.slotName] || "(unbound)";
+    return { ...outcome, shadowedBy, to };
+  };
+  const writeManifestOnly = (): BindOutcome => {
+    writeFileSync(opts.manifestPath, editManifest(readFileSync(opts.manifestPath, "utf8")));
+    return afterUnset({ fragmentUpdated: null, shadowedBy: null });
   };
 
   const fragmentPath = join(opts.packDir, "pack", "skills.jsonc");
@@ -3374,16 +3396,17 @@ export async function applyBind(opts: {
 
   const fragmentAfter = edit(readFileSync(fragmentPath, "utf8"));
   if (opts.fixtureMode) {
-    const manifestAfter = edit(readFileSync(opts.manifestPath, "utf8"));
+    const manifestAfter = editManifest(readFileSync(opts.manifestPath, "utf8"));
     writeFileSync(fragmentPath, fragmentAfter);
     writeFileSync(opts.manifestPath, manifestAfter);
-    return { fragmentUpdated: fragmentPath, shadowedBy: null };
+    return afterUnset({ fragmentUpdated: fragmentPath, shadowedBy: null });
   }
   writeFileSync(fragmentPath, fragmentAfter);
   const regen = await opts.materialize();
   if (!regen.ok) {
     return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: false, regenerateDetail: regen.detail };
   }
+  if (unsetPipeline !== null) return afterUnset({ fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: true });
 
   const landed = opts.pipeline === null
     ? readManifestBindings(opts.manifestPath)[opts.engineRef]?.[opts.slotName]
@@ -3392,8 +3415,7 @@ export async function applyBind(opts: {
     return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: true };
   }
   const provenance = readManifestProvenance(readFileSync(opts.manifestPath, "utf8"));
-  const key = opts.pipeline === null ? `${opts.engineRef} ${opts.slotName}` : pipelineBindingKey(opts.pipeline, opts.engineRef, opts.slotName);
-  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[key] ?? "another layer", regenerated: true };
+  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[overrideKey] ?? "another layer", regenerated: true };
 }
 
 function samePath(a: string, b: string): boolean {
@@ -3423,9 +3445,24 @@ export async function regeneratePackFile(manifestPath: string): Promise<Regenera
   return regenerateOutcomeFor(await materializeSkills(p, { dir }), manifestPath);
 }
 
-export function bindBlocks(b: { verb: string; slot: string; from: string; to: string; dryRun: boolean; fragmentUpdated: string | null; basePack: string | null }): Block[] {
+export function bindBlocks(b: {
+  verb: string;
+  slot: string;
+  from: string;
+  to: string;
+  dryRun: boolean;
+  fragmentUpdated: string | null;
+  basePack: string | null;
+  unset?: { pipeline: string; stillOverriddenBy: string | null };
+}): Block[] {
+  const unsetNote = !b.unset || b.dryRun
+    ? []
+    : [out.callout("note", b.unset.stillOverriddenBy
+      ? `Removed this pack's ${b.unset.pipeline} override, but ${b.unset.stillOverriddenBy}'s override still applies.`
+      : `Removed the ${b.unset.pipeline} override, so this slot falls back to the default.`)];
   return [
     out.line(b.dryRun ? "pending" : "done", `${b.verb}.${b.slot}`, `${b.from} -> ${b.to}`),
+    ...unsetNote,
     ...(b.fragmentUpdated ? [out.callout("note", ["Also saved in the pack's own bindings file: ", out.dim(b.fragmentUpdated)])] : []),
     ...(b.basePack ? [out.callout("note", `${b.basePack} is a base pack. Packs that extend it pick this up once it is published and their bindings are rebuilt.`)] : []),
   ];
@@ -3445,17 +3482,26 @@ export async function skillsBind(args: string[]): Promise<void> {
     const { positionals, flagArgs } = separateBindArgs(args);
     let [verbName, slotName, fill] = positionals;
     let rest = flagArgs;
-    if ((!verbName || !slotName || !fill) && process.stdin.isTTY && !args.includes("--json") && !process.env.RT_BATCH) {
-      const picked = await pickBindArgs(args);
-      if (picked) {
-        verbName = picked.verbName;
-        slotName = picked.slotName;
-        fill = picked.fill;
-        rest = picked.flagArgs;
+    const unset = flagArgs.includes("--unset");
+    if (unset) {
+      if (parseBindFlags(flagArgs).pipeline === null) throw new SkillsUsageError("--unset removes a pipeline override; name the pipeline with --pipeline");
+      if (fill !== undefined) throw new SkillsUsageError("--unset takes no fill");
+      if (!verbName || !slotName) {
+        throw new SkillsUsageError("bind --unset requires: rt skills bind <verb> <slot> --pipeline <name> --unset", usageFailure("Remove the override on which verb and slot?", "rt skills bind <verb> <slot> --pipeline <name> --unset"));
       }
-    }
-    if (!verbName || !slotName || !fill) {
-      throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>", usageFailure("Bind which verb, slot and fill?", "rt skills bind <verb> <slot> <fill> [--pipeline <name>]"));
+    } else {
+      if ((!verbName || !slotName || !fill) && process.stdin.isTTY && !args.includes("--json") && !process.env.RT_BATCH) {
+        const picked = await pickBindArgs(args);
+        if (picked) {
+          verbName = picked.verbName;
+          slotName = picked.slotName;
+          fill = picked.fill;
+          rest = picked.flagArgs;
+        }
+      }
+      if (!verbName || !slotName || !fill) {
+        throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>", usageFailure("Bind which verb, slot and fill?", "rt skills bind <verb> <slot> <fill> [--pipeline <name>]"));
+      }
     }
 
     const bindFlags = parseBindFlags(rest);
@@ -3526,20 +3572,31 @@ export async function skillsBind(args: string[]): Promise<void> {
       );
     }
 
-    // loadAttachment throws a plain Error on an unresolvable binding or a fill
-    // missing metadata.provides -- wrap it so it exits clean like every other
-    // validation failure here, instead of surfacing as an uncaught crash.
-    let attachment;
-    try {
-      attachment = loadAttachment(fill, slotName, resolved.pluginRoots);
-    } catch (err) {
-      throw new SkillsUsageError((err as Error).message);
-    }
+    const unsetPipeline = unset ? pipeline : null;
+    if (unsetPipeline !== null) {
+      if (resolved.pipelineBindings[unsetPipeline]?.[engineRef]?.[slotName] === undefined) {
+        throw new SkillsUsageError(`${unsetPipeline} has no override for ${verbName}.${slotName}`);
+      }
+      const layer = resolved.provenance[pipelineBindingKey(unsetPipeline, engineRef, slotName)];
+      if (layer !== undefined && layer !== "pack") {
+        throw new SkillsUsageError(`${unsetPipeline}'s override for ${verbName}.${slotName} comes from ${layer}; remove it there`);
+      }
+    } else {
+      // loadAttachment throws a plain Error on an unresolvable binding or a fill
+      // missing metadata.provides -- wrap it so it exits clean like every other
+      // validation failure here, instead of surfacing as an uncaught crash.
+      let attachment;
+      try {
+        attachment = loadAttachment(fill ?? "", slotName, resolved.pluginRoots);
+      } catch (err) {
+        throw new SkillsUsageError((err as Error).message);
+      }
 
-    if (attachment.provides !== slotSpec.contract) {
-      throw new SkillsUsageError(
-        `fill "${fill}" provides "${attachment.provides}", but slot "${slotName}" demands "${slotSpec.contract}"`,
-      );
+      if (attachment.provides !== slotSpec.contract) {
+        throw new SkillsUsageError(
+          `fill "${fill}" provides "${attachment.provides}", but slot "${slotName}" demands "${slotSpec.contract}"`,
+        );
+      }
     }
 
     if (!resolved.manifestPath) {
@@ -3549,56 +3606,63 @@ export async function skillsBind(args: string[]): Promise<void> {
     const oldValue = pipeline === null
       ? resolved.bindings[engineRef]?.[slotName] ?? "(unbound)"
       : effectiveSlotBindings(resolved.bindings, resolved.pipelineBindings[pipeline], engineRef)[slotName] || "(unbound)";
+    // Before the write, an unset can only predict the default fill: provenance names the winning layer, not a lower one under it.
+    const predictedTo = unset ? resolved.bindings[engineRef]?.[slotName] || "(unbound)" : fill ?? "";
     const pipelineField = pipeline === null ? {} : { pipeline };
+    const unsetField = unset ? { unset: true } : {};
     const label = pipeline === null ? verbName : `${pipeline}: ${verbName}`;
     if (!bindFlags.dryRun) {
       try {
         refuseUnlessPackOwned(resolved.packDir);
       } catch (err) {
         if (!(err instanceof SkillsRefusal) || !bindFlags.json) throw err;
-        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill, fragmentUpdated: null, shadowedBy: null, compileErrors: [err.message] });
+        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: predictedTo, ...unsetField, fragmentUpdated: null, shadowedBy: null, compileErrors: [err.message] });
         process.exit(2);
       }
     }
-    const bound = { verb: label, slot: slotName, from: oldValue, to: fill, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null };
+    const unsetNote = (stillOverriddenBy: string | null) => (unsetPipeline === null ? {} : { unset: { pipeline: unsetPipeline, stillOverriddenBy } });
+    const bound = { verb: label, slot: slotName, from: oldValue, to: predictedTo, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null, ...unsetNote(null) };
 
     if (bindFlags.dryRun) {
-      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill });
+      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: predictedTo, ...unsetField });
       else out.print(...bindBlocks(bound));
       return;
     }
 
     const manifestPath = resolved.manifestPath;
-    const { fragmentUpdated, shadowedBy, regenerated, regenerateDetail } = await applyBind({
+    const { fragmentUpdated, shadowedBy, regenerated, regenerateDetail, to: landedTo } = await applyBind({
       manifestPath,
       packDir: resolved.packDir,
       engineRef,
       slotName,
-      fill,
+      fill: fill ?? "",
       pipeline,
+      unset,
       fixtureMode: bindFlags.mattstackDir !== null,
       materialize: () => regeneratePackFile(manifestPath),
     });
+    const to = landedTo ?? predictedTo;
+    const written = { ...bound, to, ...unsetNote(shadowedBy) };
     if (resolved.base) {
       if (bindFlags.json) {
-        out.json({ ok: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true });
+        out.json({ ok: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to, ...unsetField, fragmentUpdated, shadowedBy, base: true });
         return;
       }
-      out.print(...bindBlocks({ ...bound, basePack: resolved.team }));
+      out.print(...bindBlocks({ ...written, basePack: resolved.team }));
       return;
     }
     // A recompile here would read the stale bindings file and bake the old fill in.
     if (regenerated === false) {
       process.exitCode = 1;
       if (bindFlags.json) {
-        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
+        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to, ...unsetField, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
         return;
       }
-      out.print(...bindBlocks({ ...bound, fragmentUpdated }));
+      out.print(...bindBlocks({ ...written, fragmentUpdated }));
       out.fail({ title: "The bindings file was not rebuilt, so nothing was recompiled", ...(regenerateDetail ? { why: regenerateDetail } : {}), next: out.cmd("rt skills materialize") });
       return;
     }
-    if (shadowedBy) out.note(...shadowWarning(label, slotName, shadowedBy, manifestPath));
+    if (shadowedBy && !unset) out.note(...shadowWarning(label, slotName, shadowedBy, manifestPath));
 
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every
@@ -3624,7 +3688,8 @@ export async function skillsBind(args: string[]): Promise<void> {
         slot: slotName,
         ...pipelineField,
         from: oldValue,
-        to: fill,
+        to,
+        ...unsetField,
         fragmentUpdated,
         shadowedBy,
         ...(regenerated === undefined ? {} : { regenerated }),
@@ -3634,7 +3699,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       return;
     }
 
-    out.print(...bindBlocks({ ...bound, fragmentUpdated }));
+    out.print(...bindBlocks({ ...written, fragmentUpdated }));
     const surfaceFlags: SurfaceFlags = {
       team: resolved.team,
       dryRun: false,

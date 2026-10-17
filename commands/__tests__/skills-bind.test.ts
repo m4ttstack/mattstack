@@ -14,7 +14,8 @@ import { readManifestBindings, stripJsonc } from "../../lib/skills/sources.ts";
 import * as skillsMaterialize from "../../lib/setup/skills-materialize.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { applyBind, bindBlocks, regenerateOutcomeFor, regeneratePackFile, shadowWarning, skillsBind, skillsCompile } from "../skills.ts";
+import { mergeLayers, parseFragment, renderManifest } from "../../lib/skills/manifest-merge.ts";
+import { applyBind, bindBlocks, checkPack, regenerateOutcomeFor, regeneratePackFile, shadowWarning, skillsBind, skillsCompile } from "../skills.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 /**
@@ -1057,6 +1058,17 @@ describe("bindBlocks", () => {
     );
   });
 
+  test("an unset notes that the override was removed", () => {
+    expect(renderPlain(bindBlocks({ ...bind, verb: "accessibility: stage-plan", from: "acme:b", unset: { pipeline: "accessibility", stillOverriddenBy: null } }))).toBe(
+      [
+        "[ok] accessibility: stage-plan.domain  acme:b -> acme:plan-policy",
+        "  note: Removed the accessibility override, so this slot falls back to the default.",
+        "",
+      ].join("\n"),
+    );
+    expect(renderPlain(bindBlocks({ ...bind, dryRun: true, unset: { pipeline: "accessibility", stillOverriddenBy: null } }))).toBe("[not yet] stage-plan.domain  (unbound) -> acme:plan-policy\n");
+  });
+
   test("the shadow warning is a note on stderr, never stdout", () => {
     io.clear();
     ui.note(...shadowWarning("watch-ci", "domain", "override", "/h/packs/acme/skills.jsonc"));
@@ -1253,6 +1265,31 @@ describe("skillsBind --pipeline", () => {
       const errors = await refused((args) => ["stage-evidence--accessibility", "domain", "acme:b", ...args]);
       expect(errors[0]).toContain("stage-evidence--accessibility is a compiled copy; bind stage-evidence --pipeline accessibility instead");
     });
+
+    test("--unset without --pipeline", async () => {
+      const errors = await refused((args) => ["stage-evidence", "domain", "--unset", ...args]);
+      expect(errors[0]).toContain("--unset removes a pipeline override; name the pipeline with --pipeline");
+    });
+
+    test("--unset with a fill", async () => {
+      const errors = await refused((args) => ["stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", "--unset", ...args]);
+      expect(errors[0]).toContain("--unset takes no fill");
+    });
+
+    test("--unset where the pipeline has no override", async () => {
+      const errors = await refused((args) => ["stage-evidence", "domain", "--pipeline", "feature", "--unset", ...args]);
+      expect(errors[0]).toContain("feature has no override for stage-evidence.domain");
+    });
+
+    test("--unset an override another layer sets", async () => {
+      const errors = await refused(
+        (args) => ["stage-evidence", "domain", "--pipeline", "accessibility", "--unset", ...args],
+        ({ manifest }) => {
+          writeFile(manifest, `//   accessibility/mattstack:stage-evidence domain <- base:acme-base\n${readFileSync(manifest, "utf8")}`);
+        },
+      );
+      expect(errors[0]).toContain("accessibility's override for stage-evidence.domain comes from base:acme-base; remove it there");
+    });
   });
 
   test("binding a work verb's own slot recompiles every verb on its engine", async () => {
@@ -1295,6 +1332,105 @@ describe("skillsBind --pipeline", () => {
     expect(verbRows).not.toContain("--accessibility");
     expect(sources.readManifestPipelineBindings(manifest).accessibility?.["mattstack:stage-evidence"]).toEqual({ domain: "acme:b" });
   });
+});
+
+describe("skillsBind --unset", () => {
+  const COPY_DIR = "stage-evidence--accessibility";
+  const unsetArgv = (args: string[], ...extra: string[]) => ["stage-evidence", "domain", "--pipeline", "accessibility", "--unset", ...extra, ...args];
+
+  async function bindOverride(f: ReturnType<typeof pipelinesFixture>, pipeline = "accessibility"): Promise<void> {
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "domain", "acme:b", "--pipeline", pipeline, ...f.args]));
+    expect(errors).toEqual([]);
+    expect(exitCode).toBeUndefined();
+    io.clear();
+  }
+
+  test("--unset removes the override and its copy", async () => {
+    const f = pipelinesFixture(PLAIN_LIST_FRAGMENT);
+    await bindOverride(f);
+    expect(existsSync(join(f.pack, "attachments", COPY_DIR))).toBe(true);
+
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(unsetArgv(f.args)));
+    expect(errors).toEqual([]);
+    expect(exitCode).toBeUndefined();
+
+    const fragment = readFileSync(f.fragmentPath, "utf8");
+    expect(fragment).toContain("// acme fragment");
+    expect(JSON.parse(stripJsonc(fragment)).pipelines.accessibility).toEqual(PIPELINE_STAGES);
+    expect(existsSync(join(f.pack, "attachments", COPY_DIR))).toBe(false);
+    expect((await checkPack({ packDir: f.pack, mattstackDir: f.ms, manifest: f.manifest })).drift).toBe(false);
+    expect(io.lines()).toContain("[ok] accessibility: stage-evidence.domain  acme:b -> acme:evidence-a");
+  }, 30_000);
+
+  test("unset in fixture mode drops the provenance line", async () => {
+    const f = pipelinesFixture(PLAIN_LIST_FRAGMENT);
+    writeFile(f.manifest, `//   accessibility/mattstack:stage-evidence domain <- pack\n${readFileSync(f.manifest, "utf8")}`);
+
+    await runExpectingCleanExit(() => skillsBind(unsetArgv(f.args)));
+
+    const manifest = readFileSync(f.manifest, "utf8");
+    expect(manifest).not.toContain("accessibility/mattstack:stage-evidence domain");
+    expect(manifest).toContain("// acme bindings");
+    expect(sources.readManifestPipelineBindings(f.manifest).accessibility).toBeUndefined();
+  }, 30_000);
+
+  test("unset an override on the only pipeline", async () => {
+    const f = pipelinesFixture(`// acme fragment\n{\n  "pipelines": { "feature": ${JSON.stringify(PIPELINE_STAGES)} },\n  "bindings": {}\n}\n`);
+    writeFile(join(f.pack, "pack", "stubs.jsonc"), JSON.stringify({ verbs: { work: { engine: "work", description: "Run a unit of work" } } }));
+    writeFile(join(f.pack, "pack", "surface.jsonc"), JSON.stringify({ public: ["work"] }));
+    writeFile(f.manifest, `// acme bindings\n${JSON.stringify({ pipelines: { feature: PIPELINE_STAGES }, bindings: { "mattstack:stage-evidence": { domain: "acme:evidence-a" } } }, null, 2)}\n`);
+    await bindOverride(f, "feature");
+    expect(existsSync(join(f.pack, "attachments", "stage-evidence--feature"))).toBe(true);
+
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "domain", "--pipeline", "feature", "--unset", ...f.args]));
+    expect(errors).toEqual([]);
+    expect(exitCode).toBeUndefined();
+
+    expect(JSON.parse(stripJsonc(readFileSync(f.fragmentPath, "utf8"))).pipelines.feature).toEqual(PIPELINE_STAGES);
+    expect(existsSync(join(f.pack, "attachments", "stage-evidence--feature"))).toBe(false);
+    expect(readFileSync(join(f.pack, "attachments", "stage-evidence", "SKILL.md"), "utf8")).toContain("evidence-a body");
+  }, 30_000);
+
+  test("unset json", async () => {
+    const f = pipelinesFixture(PLAIN_LIST_FRAGMENT);
+
+    await skillsBind(unsetArgv(f.args, "--json"));
+
+    expect(JSON.parse(io.stdout())).toMatchObject({
+      ok: true, verb: "stage-evidence", slot: "domain", pipeline: "accessibility", from: "acme:evidence-b", to: "acme:evidence-a", unset: true,
+    });
+  }, 30_000);
+
+  test("unset dry run", async () => {
+    const f = pipelinesFixture(PLAIN_LIST_FRAGMENT);
+    const before = [readFileSync(f.manifest, "utf8"), readFileSync(f.fragmentPath, "utf8")];
+
+    await skillsBind(unsetArgv(f.args, "--dry-run"));
+
+    expect(io.lines()).toContain("[not yet] accessibility: stage-evidence.domain  acme:evidence-b -> acme:evidence-a");
+    expect([readFileSync(f.manifest, "utf8"), readFileSync(f.fragmentPath, "utf8")]).toEqual(before);
+    expect(existsSync(join(f.pack, "attachments", "stage-evidence"))).toBe(false);
+  });
+
+  test("the unset usage line names --pipeline and --unset", async () => {
+    const { exitCode, errors } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "--pipeline", "accessibility", "--unset"]));
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("rt skills bind <verb> <slot> --pipeline <name> --unset");
+  });
+
+  test("byte-identical after unset", async () => {
+    const f = pipelinesFixture(PLAIN_LIST_FRAGMENT);
+    await bindOverride(f);
+    await runExpectingCleanExit(() => skillsBind(unsetArgv(f.args)));
+
+    const after = readFileSync(f.fragmentPath, "utf8");
+    const render = (text: string) => renderManifest(
+      mergeLayers([{ label: "pack", fragment: parseFragment(text, f.fragmentPath) }]),
+      { repo: "gitlab.example.com/acme/widgets", pack: "acme", zone: "acme" },
+    );
+    expect(JSON.parse(stripJsonc(after))).toEqual(JSON.parse(stripJsonc(PLAIN_LIST_FRAGMENT)));
+    expect(render(after)).toBe(render(PLAIN_LIST_FRAGMENT));
+  }, 30_000);
 });
 
 describe("applyBind --pipeline", () => {
@@ -1341,5 +1477,34 @@ describe("applyBind --pipeline", () => {
       },
     });
     expect(result).toEqual({ fragmentUpdated: join(packDir, "pack", "skills.jsonc"), shadowedBy: null, regenerated: true });
+  });
+
+  test("a lower layer's override still applies after unset", async () => {
+    const { packDir, manifestPath } = teamPack(
+      `{\n  "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence": { "domain": "acme:b" } } } }\n}\n`,
+    );
+    const result = await applyBind({
+      manifestPath, packDir, engineRef: "mattstack:stage-evidence", slotName: "domain", fill: "", pipeline: "accessibility", unset: true, fixtureMode: false,
+      materialize: async () => {
+        writeFile(manifestPath, [
+          "//   mattstack:stage-evidence domain <- pack",
+          "//   accessibility/mattstack:stage-evidence domain <- base:acme-base",
+          `{ "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence": { "domain": "acme:base-evidence" } } } }, "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" } } }`,
+        ].join("\n"));
+        return { ok: true };
+      },
+    });
+
+    expect(JSON.parse(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).pipelines.accessibility).toEqual(["mattstack:stage-evidence"]);
+    expect(result.to).toBe("acme:base-evidence");
+    expect(result.shadowedBy).toBe("base:acme-base");
+    expect(renderPlain(bindBlocks({
+      verb: "accessibility: stage-evidence", slot: "domain", from: "acme:b", to: result.to!, dryRun: false, fragmentUpdated: null, basePack: null,
+      unset: { pipeline: "accessibility", stillOverriddenBy: result.shadowedBy },
+    }))).toBe([
+      "[ok] accessibility: stage-evidence.domain  acme:b -> acme:base-evidence",
+      "  note: Removed this pack's accessibility override, but base:acme-base's override still applies.",
+      "",
+    ].join("\n"));
   });
 });
