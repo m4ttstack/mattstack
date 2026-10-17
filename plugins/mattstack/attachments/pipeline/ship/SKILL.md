@@ -132,9 +132,9 @@ digraph ship {
     "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [shape=plaintext];
     "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" [shape=plaintext];
     "run_field_set {key: shipTarget, value: -, stage: ship} (hold)" [shape=plaintext];
-    "run_budget {key: ship:ship-gate-rounds, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: ship:ship-gate-rounds, limit: 1, stage}" [shape=plaintext];
     "ship-gate-rounds past its limit (ship)?" [shape=diamond];
-    "run_budget {key: ship:ship-gate-reopenings, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: ship:ship-gate-reopenings, limit: 1, stage}" [shape=plaintext];
     "ship-gate-reopenings past its limit (ship)?" [shape=diamond];
     "Rebase in progress (ship gate budget spent)?" [shape=diamond];
     "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [shape=plaintext];
@@ -164,16 +164,16 @@ digraph ship {
     "STOP: push only with git_push (ship)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "ship off-script gate: git_push refused" [shape=box];
     "ship off-script answer (git_push)?" [shape=diamond];
-    "run_budget {key: ship:push-off-script, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: ship:push-off-script, limit: 1, stage}" [shape=plaintext];
     "push-off-script past its limit (ship)?" [shape=diamond];
     "Confirm the human's push landed (ship)" [shape=box];
     "Push landed (ship)?" [shape=diamond];
-    "run_budget {key: ship:landing-checks, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: ship:landing-checks, limit: 1, stage}" [shape=plaintext];
     "landing-checks past its limit (ship)?" [shape=diamond];
 
     "git remote get-url origin (ship)" [shape=plaintext];
     "Forge host (ship, open the MR)?" [shape=diamond];
-    "run_budget {key: ship:forge-clarify-rounds, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: ship:forge-clarify-rounds, limit: 1, stage}" [shape=plaintext];
     "forge-clarify-rounds past its limit (ship)?" [shape=diamond];
     "ship gate clarify: which forge?" [shape=box];
     "Forge clarify answer (ship)?" [shape=diamond];
@@ -191,7 +191,7 @@ digraph ship {
     "run_field_get {key: evidence} (ship)" [shape=plaintext];
     "Capture the AFTER for the next case the domain names (ship)" [shape=box];
     "AFTER captured, or none left to capture (ship)?" [shape=diamond];
-    "run_budget {key: ship:after-attempts:<case id>, limit: 3, stage}" [shape=plaintext];
+    "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" [shape=plaintext];
     "after-attempts past its limit (ship)?" [shape=diamond];
     "Every named case tried (ship)?" [shape=diamond];
     "A v1 or v2 record with an image, or an AFTER was captured (ship)?" [shape=diamond];
@@ -200,7 +200,7 @@ digraph ship {
     "Annotate or waive outcome (ship)?" [shape=diamond];
     "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: <the run's stage>}" [shape=plaintext];
     "evidence write result (ship)?" [shape=diamond];
-    "run_budget {key: ship:validator-refusals, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: ship:validator-refusals, limit: 1, stage}" [shape=plaintext];
     "validator-refusals past its limit (ship)?" [shape=diamond];
     "run_budget {key: ship:record-fixes, limit: 1, stage}" [shape=plaintext];
     "record-fixes past its limit (ship)?" [shape=diamond];
@@ -213,7 +213,7 @@ digraph ship {
     "STOP: upload only with mr_upload (ship)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "ship off-script gate: mr_upload refused" [shape=box];
     "ship off-script answer (mr_upload)?" [shape=diamond];
-    "run_budget {key: ship:upload-off-script, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: ship:upload-off-script, limit: 1, stage}" [shape=plaintext];
     "upload-off-script past its limit (ship)?" [shape=diamond];
     "run_budget {key: ship:upload-timeouts:<basename>, limit: 1, stage}" [shape=plaintext];
     "upload-timeouts past its limit (ship)?" [shape=diamond];
@@ -236,7 +236,7 @@ digraph ship {
     "MR still a draft (ship)?" [shape=diamond];
     "ship gate mark-ready" [shape=box];
     "mark-ready answer (ship)?" [shape=diamond];
-    "run_budget {key: ship:mark-ready-rounds, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: ship:mark-ready-rounds, limit: 1, stage}" [shape=plaintext];
     "mark-ready-rounds past its limit (ship)?" [shape=diamond];
     "Forge host (ship, mark-ready)?" [shape=diamond];
     "mr_ready {repoName: <root>, iid}" [shape=plaintext];
@@ -276,8 +276,8 @@ digraph ship {
     "ship answer (ship)?" -> "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [label="proceed: record the consented target"];
     "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" -> "dirty answer (ship)?";
     "ship answer (ship)?" -> "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" [label="iterate: clear the recorded consent first"];
-    "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" -> "run_budget {key: ship:ship-gate-rounds, limit: 2, stage}";
-    "run_budget {key: ship:ship-gate-rounds, limit: 2, stage}" -> "ship-gate-rounds past its limit (ship)?";
+    "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" -> "run_budget {key: ship:ship-gate-rounds, limit: 1, stage}";
+    "run_budget {key: ship:ship-gate-rounds, limit: 1, stage}" -> "ship-gate-rounds past its limit (ship)?";
     "ship-gate-rounds past its limit (ship)?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
     "ship-gate-rounds past its limit (ship)?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, their last note quoted"];
     "Rebase in progress (ship gate budget spent)?" -> "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [label="yes"];
@@ -299,7 +299,7 @@ digraph ship {
     "Checks pass (ship)?" -> "run_budget {key: ship:fix-rounds, limit: 3, stage}" [label="no"];
     "run_budget {key: ship:fix-rounds, limit: 3, stage}" -> "fix-rounds past its limit (ship)?";
     "fix-rounds past its limit (ship)?" -> "Fix test-first, commit, rerun (ship)" [label="no"];
-    "fix-rounds past its limit (ship)?" -> "run_budget {key: ship:ship-gate-reopenings, limit: 2, stage}" [label="yes: reopen, failing output quoted"];
+    "fix-rounds past its limit (ship)?" -> "run_budget {key: ship:ship-gate-reopenings, limit: 1, stage}" [label="yes: reopen, failing output quoted"];
     "Fix test-first, commit, rerun (ship)" -> "Run the domain's fast checks (none when unbound)";
     "Domain rebases, and no rebase finished this pass (ship)?" -> "git_rebase {tree: <root>, onto: origin/<resolved target>}" [label="yes"];
     "Domain rebases, and no rebase finished this pass (ship)?" -> "Push needs force-with-lease (ship)?" [label="no"];
@@ -309,8 +309,8 @@ digraph ship {
     "Rebase status (ship)?" -> "Which exit is this (ship)?" [label="any other error: a failure, quoted as the reason"];
     "run_budget {key: ship:conflict-rounds, limit: 3, stage}" -> "conflict-rounds past its limit (ship)?";
     "conflict-rounds past its limit (ship)?" -> "Resolve the files, then git rebase --continue on Bash (ship)" [label="no"];
-    "conflict-rounds past its limit (ship)?" -> "run_budget {key: ship:ship-gate-reopenings, limit: 2, stage}" [label="yes: reopen, conflicted files quoted"];
-    "run_budget {key: ship:ship-gate-reopenings, limit: 2, stage}" -> "ship-gate-reopenings past its limit (ship)?";
+    "conflict-rounds past its limit (ship)?" -> "run_budget {key: ship:ship-gate-reopenings, limit: 1, stage}" [label="yes: reopen, conflicted files quoted"];
+    "run_budget {key: ship:ship-gate-reopenings, limit: 1, stage}" -> "ship-gate-reopenings past its limit (ship)?";
     "ship-gate-reopenings past its limit (ship)?" -> "ship gate ship" [label="no: reopen with what was quoted"];
     "ship-gate-reopenings past its limit (ship)?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, the failing output or conflicted files quoted"];
     "Resolve the files, then git rebase --continue on Bash (ship)" -> "Continue result (ship)?";
@@ -330,22 +330,22 @@ digraph ship {
     "ship off-script answer (git_push)?" -> "Confirm the human's push landed (ship)" [label="take: the human pushed"];
     "ship off-script answer (git_push)?" -> "Which exit is this (ship)?" [label="hand back: a failure, the refusal is the reason"];
     "ship off-script answer (git_push)?" -> "Which exit is this (ship)?" [label="hold"];
-    "ship off-script answer (git_push)?" -> "run_budget {key: ship:push-off-script, limit: 2, stage}" [label="iterate: the human fixed the cause, retry the push"];
-    "run_budget {key: ship:push-off-script, limit: 2, stage}" -> "push-off-script past its limit (ship)?";
+    "ship off-script answer (git_push)?" -> "run_budget {key: ship:push-off-script, limit: 1, stage}" [label="iterate: the human fixed the cause, retry the push"];
+    "run_budget {key: ship:push-off-script, limit: 1, stage}" -> "push-off-script past its limit (ship)?";
     "push-off-script past its limit (ship)?" -> "Push needs force-with-lease (ship)?" [label="no: retry the push"];
     "push-off-script past its limit (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the push refusal quoted"];
     "Confirm the human's push landed (ship)" -> "Push landed (ship)?";
     "Push landed (ship)?" -> "git remote get-url origin (ship)" [label="yes: the remote branch carries HEAD"];
-    "Push landed (ship)?" -> "run_budget {key: ship:landing-checks, limit: 2, stage}" [label="no"];
-    "run_budget {key: ship:landing-checks, limit: 2, stage}" -> "landing-checks past its limit (ship)?";
+    "Push landed (ship)?" -> "run_budget {key: ship:landing-checks, limit: 1, stage}" [label="no"];
+    "run_budget {key: ship:landing-checks, limit: 1, stage}" -> "landing-checks past its limit (ship)?";
     "landing-checks past its limit (ship)?" -> "ship off-script gate: git_push refused" [label="no: reopen with what the comparison showed"];
     "landing-checks past its limit (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the comparison quoted"];
 
     "git remote get-url origin (ship)" -> "Forge host (ship, open the MR)?";
     "Forge host (ship, open the MR)?" -> "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?, ifExists: return}" [label="GitLab"];
     "Forge host (ship, open the MR)?" -> "gh pr create --fill --base <resolved target>, --draft unless the gate said ready" [label="GitHub"];
-    "Forge host (ship, open the MR)?" -> "run_budget {key: ship:forge-clarify-rounds, limit: 2, stage}" [label="anything else"];
-    "run_budget {key: ship:forge-clarify-rounds, limit: 2, stage}" -> "forge-clarify-rounds past its limit (ship)?";
+    "Forge host (ship, open the MR)?" -> "run_budget {key: ship:forge-clarify-rounds, limit: 1, stage}" [label="anything else"];
+    "run_budget {key: ship:forge-clarify-rounds, limit: 1, stage}" -> "forge-clarify-rounds past its limit (ship)?";
     "forge-clarify-rounds past its limit (ship)?" -> "ship gate clarify: which forge?" [label="no: ask which forge"];
     "forge-clarify-rounds past its limit (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the origin URL and their answer quoted"];
     "ship gate clarify: which forge?" -> "Forge clarify answer (ship)?";
@@ -375,8 +375,8 @@ digraph ship {
     "Capture the AFTER for the next case the domain names (ship)" -> "AFTER captured, or none left to capture (ship)?";
     "AFTER captured, or none left to capture (ship)?" -> "Every named case tried (ship)?" [label="captured"];
     "AFTER captured, or none left to capture (ship)?" -> "A v1 or v2 record with an image, or an AFTER was captured (ship)?" [label="none named: there is no AFTER"];
-    "AFTER captured, or none left to capture (ship)?" -> "run_budget {key: ship:after-attempts:<case id>, limit: 3, stage}" [label="the capture failed"];
-    "run_budget {key: ship:after-attempts:<case id>, limit: 3, stage}" -> "after-attempts past its limit (ship)?";
+    "AFTER captured, or none left to capture (ship)?" -> "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" [label="the capture failed"];
+    "run_budget {key: ship:after-attempts:<case id>, limit: 2, stage}" -> "after-attempts past its limit (ship)?";
     "after-attempts past its limit (ship)?" -> "Capture the AFTER for the next case the domain names (ship)" [label="no: another attempt, same case"];
     "after-attempts past its limit (ship)?" -> "Every named case tried (ship)?" [label="yes: go on without it; the description names the gap"];
     "Every named case tried (ship)?" -> "Capture the AFTER for the next case the domain names (ship)" [label="no"];
@@ -390,9 +390,9 @@ digraph ship {
     "Annotate or waive outcome (ship)?" -> "Which exit is this (ship)?" [label="a failure: waiver openings spent, the images named"];
     "run_field_set {key: evidence, value: <the merged evidence@2 JSON>, stage: <the run's stage>}" -> "evidence write result (ship)?";
     "evidence write result (ship)?" -> "Files to attach (ship)?" [label="ok"];
-    "evidence write result (ship)?" -> "run_budget {key: ship:validator-refusals, limit: 2, stage}" [label="refused: the validator names an image"];
+    "evidence write result (ship)?" -> "run_budget {key: ship:validator-refusals, limit: 1, stage}" [label="refused: the validator names an image"];
     "evidence write result (ship)?" -> "Which exit is this (ship)?" [label="any other error: a failure, quoted as the reason"];
-    "run_budget {key: ship:validator-refusals, limit: 2, stage}" -> "validator-refusals past its limit (ship)?";
+    "run_budget {key: ship:validator-refusals, limit: 1, stage}" -> "validator-refusals past its limit (ship)?";
     "validator-refusals past its limit (ship)?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no"];
     "validator-refusals past its limit (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the evidence refusal quoted"];
     "Files to attach (ship)?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="yes, GitLab: every uploadable path in the record (a repeat upload is harmless)"];
@@ -421,11 +421,11 @@ digraph ship {
     "ship off-script answer (mr_upload)?" -> "Domain owns the title or description (ship)?" [label="take: link the refused files' local paths"];
     "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hand back: a failure, the upload refusal is the reason"];
     "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hold: nothing linked"];
-    "ship off-script answer (mr_upload)?" -> "run_budget {key: ship:upload-off-script, limit: 2, stage}" [label="iterate: the human fixed the cause, retry the upload"];
-    "run_budget {key: ship:upload-off-script, limit: 2, stage}" -> "upload-off-script past its limit (ship)?";
+    "ship off-script answer (mr_upload)?" -> "run_budget {key: ship:upload-off-script, limit: 1, stage}" [label="iterate: the human fixed the cause, retry the upload"];
+    "run_budget {key: ship:upload-off-script, limit: 1, stage}" -> "upload-off-script past its limit (ship)?";
     "upload-off-script past its limit (ship)?" -> "mr_upload {mrUrl, path, runId} per uploadable file; keep each markdown" [label="no: retry the refused files"];
     "upload-off-script past its limit (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the upload refusal quoted"];
-    "Domain owns the title or description (ship)?" -> "Forge host (ship, read back the description)?" [label="yes, or an evidence section to write"];
+    "Domain owns the title or description (ship)?" -> "Forge host (ship, read back the description)?" [label="yes, or an evidence section to write on an MR this run created"];
     "Domain owns the title or description (ship)?" -> "Domain runs CI after the MR (ship)?" [label="no, or an existing MR the domain leaves alone: nothing to write"];
     "Forge host (ship, read back the description)?" -> "mr_view {mrUrl}" [label="GitLab"];
     "Forge host (ship, read back the description)?" -> "gh pr view <mr> --json title,body" [label="GitHub"];
@@ -456,8 +456,8 @@ digraph ship {
     "mark-ready answer (ship)?" -> "Which exit is this (ship)?" [label="keep it draft: done"];
     "mark-ready answer (ship)?" -> "Which exit is this (ship)?" [label="go back (inherited run only)"];
     "mark-ready answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
-    "mark-ready answer (ship)?" -> "run_budget {key: ship:mark-ready-rounds, limit: 2, stage}" [label="iterate"];
-    "run_budget {key: ship:mark-ready-rounds, limit: 2, stage}" -> "mark-ready-rounds past its limit (ship)?";
+    "mark-ready answer (ship)?" -> "run_budget {key: ship:mark-ready-rounds, limit: 1, stage}" [label="iterate"];
+    "run_budget {key: ship:mark-ready-rounds, limit: 1, stage}" -> "mark-ready-rounds past its limit (ship)?";
     "mark-ready-rounds past its limit (ship)?" -> "ship gate mark-ready" [label="no: a new gate with their note"];
     "mark-ready-rounds past its limit (ship)?" -> "Which exit is this (ship)?" [label="yes: done, the MR stays a draft, their last note quoted"];
     "Forge host (ship, mark-ready)?" -> "mr_ready {repoName: <root>, iid}" [label="GitLab"];
@@ -525,15 +525,15 @@ when the stack store was unreadable the value is `<default branch> (stack
 store unreadable)`, so a later reader can tell consent to the fallback from
 a real read. The rebase and `mr_create` use the plain branch name.
 
-Each Iterate counts one `ship-gate-rounds` round and redoes the steps
-before the gate with the note; past two, the verb fails with the note
-quoted instead, aborting a rebase in progress first. A reopening after the
+Each Iterate counts one `ship-gate-rounds` round: the first redoes the
+steps before the gate with the note, and the second fails the verb with
+the note quoted instead, aborting a rebase in progress first. A reopening after the
 fix or conflict rounds are spent is not an Iterate and does not count.
 
-Each time the fix or conflict rounds run out, one `ship-gate-reopenings`
-round reopens this gate with the failing output or conflicted files
-quoted; past two, the verb fails with them quoted, aborting a rebase in
-progress first. The fix and conflict rounds carry over a reopen: the
+Each time the fix or conflict rounds run out counts one
+`ship-gate-reopenings` round: the first reopens this gate with the failing
+output or conflicted files quoted, and the second fails the verb with them
+quoted, aborting a rebase in progress first. The fix and conflict rounds carry over a reopen: the
 reopened gate is the human's turn to fix it, so a Proceed whose checks
 still fail reaches this counter again without new fix rounds.
 
@@ -555,8 +555,8 @@ drift the checks leave behind before continuing. A full suite the domain
 rules out stays out: CI runs it. A finished rebase, clean or resolved,
 sends the checks round again because the tree changed under them; the "no
 rebase finished this pass" guard keeps that second round from rebasing
-again. So a force-with-lease push always follows checks that ran on the
-rewritten tree; no extra check node is needed before it.
+again, so a force-with-lease push always follows checks on the rewritten
+tree.
 
 ### Fix test-first, commit, rerun (ship)
 
@@ -573,15 +573,15 @@ fast checks, like a clean one.
 
 ### ship gate clarify: which forge?
 
-The origin host is neither GitLab nor GitHub; the branch is already
-pushed. Ask which forge it is, quoting the `git remote get-url origin`
-line as the context. Options: **GitLab** /
-**GitHub** / **Hand back**, and `next`: **Proceed** / **Hold**. Each time
-the host reads as neither counts one `forge-clarify-rounds` round; past
-two, the verb fails with the origin URL and the answer quoted. The named
-forge stands for the host from here on: this diamond and every later forge
-diamond read the answer, never the origin URL again, so the counter trips
-only when the answer names no forge this verb knows.
+The origin host is neither GitLab nor GitHub; the branch is already pushed.
+Ask which forge it is, quoting the `git remote get-url origin` line as the
+context. Options: **GitLab** / **GitHub** / **Hand back**, and `next`:
+**Proceed** / **Hold**. Each time the host reads as neither counts one
+`forge-clarify-rounds` round: the first asks, and the second fails the verb
+with the origin URL and the answer quoted. The named forge stands for the
+host from here on: every later forge diamond reads the answer, never the
+origin URL, so the counter trips only when the answer names no forge this
+verb knows.
 
 ### ship off-script gate: git_push refused
 
@@ -600,8 +600,8 @@ Iterate means the human fixed the cause (a tree registration, the daemon)
 and ignores `action`; only Proceed applies `action`. Retrying `git_push`
 is Iterate, never Take, whatever the answer calls it; if the retry is
 refused again, the Iterate note goes into the next gate's context. Each
-Iterate counts one `push-off-script` round and retries the push; past two,
-the verb fails with the refusal quoted instead.
+Iterate counts one `push-off-script` round: the first retries the push,
+and the second fails the verb with the refusal quoted instead.
 
 ### Confirm the human's push landed (ship)
 
@@ -610,8 +610,8 @@ remote branch and say what it shows in the final report; never push from
 here. The push landed when the remote branch carries HEAD, which becomes
 the watched sha with no prior pipeline id; otherwise the off-script gate
 reopens with the comparison as its context. Each miss counts one
-`landing-checks` round; past two, the verb fails with the comparison
-quoted.
+`landing-checks` round: the first reopens the gate, and the second fails
+the verb with the comparison quoted.
 
 ### ship off-script gate: mr_upload refused
 
@@ -621,7 +621,8 @@ has checked the daemon), as does a second refusal that the file is not
 in the record or is a raw capture. Scope `off-script:<stage>:<n>`,
 sharing `n` with the push's off-script gate,
 `context` quoting the refusal and the path; the `action`/`next` questions
-and selection are the push gate's, and Iterate counts `upload-off-script`.
+and selection are the push gate's, and Iterate counts `upload-off-script`
+(a second Iterate fails the verb).
 Take writes the description with the
 refused files' local paths linked instead of uploads, while files already
 uploaded keep their upload markdown; Iterate means the human moved the
@@ -635,8 +636,8 @@ For each case in the record, the same view as its BEFORE, on the sha
 just pushed; a v1 record's BEFORE counts as the case `case`, so an AFTER
 of that view belongs to it. Any other capture the domain names is a new
 case with its own `id` and `label`. Each failed capture counts one
-`after-attempts:<case id>` round; past three, that case goes on without its
-AFTER and the description says what was tried. Unbound, there is no
+`after-attempts:<case id>` round; after the third, that case goes on
+without its AFTER and the description says what was tried. Unbound, there is no
 AFTER. The record is this run's: an own run's `runDb`, or the inherited
 one. With no BEFORE in it, each AFTER comes in as a new case. Every
 capture goes into the record through the evidence record's merge and
@@ -684,9 +685,9 @@ the attachments are there (or are not).
 | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4; with exactly one candidate it labels **Go back to `<stage>`** in `next` instead | Go back answered and `run_snapshot` shows more than one earlier stage row |
 
 Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
-Each Iterate counts one `mark-ready-rounds` round and opens a new gate
-with the note; past two, the verb ends as done with the MR left a draft
-and the note quoted in the final report.
+Each Iterate counts one `mark-ready-rounds` round: the first opens a new
+gate with the note, and the second ends the verb as done with the MR left
+a draft and the note quoted in the final report.
 
 ## What the graph cannot show
 
@@ -701,16 +702,15 @@ and the note quoted in the final report.
   takes the same target as `--base`. The domain rebase goes onto
   `origin/<that target>`, so a stack member never replays its parent's
   unmerged commits; the gate names the target, the unreadable-store
-  fallback included, before any rebase runs. A resumed run
-  re-checks the target as "Resumed ship run: re-enter at run_snapshot's
-  decisions" says.
+  fallback included, before any rebase runs.
 - Keep the `url` `mr_create` returns as `mrUrl` for every later write, and
   print it. `mr_create` takes `draft: false` only when the gate said ready;
   write its title from the branch's commits. `existing: true` is an MR
   already open on the branch: it is left as found (nothing this call passed
   was applied), and when its `targetBranch` differs from the resolved
-  target, the final report names both. After `url: null`, the re-call
-  returns the MR the first call made.
+  target, the final report names both. After `url: null`, the re-call's
+  `existing: true` MR is the first call's, left as found: the report says
+  squash is unset when it was asked and no result said it applied.
 - A hold at any gate records `run_hold`: `stage` as the gates write it,
   the gate as `reason`, `decidedBy` as the answer recorded it. The run stays
   open and the turn ends naming the run and the gate.

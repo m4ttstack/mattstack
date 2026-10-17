@@ -101,7 +101,10 @@ says "the stage has no prior pipeline id".
    run write is on the map) called once as the loop is entered, followed by
    `<slug> past its limit?` reading `spent > limit`. The tool increments
    first and its `exhausted` is `spent >= limit`, so routing on `exhausted`
-   would allow N-1 rounds; `spent > limit` keeps today's N. Keys are
+   would allow N-1 rounds; `spent > limit` keeps today's N for a diamond
+   checked before its round. Where today's diamond counted the current
+   round ("this one included"), the limit is one less than today's N, so
+   the round counts stay as today. Keys are
    prefixed with the verb (`watch-ci:fix-rounds`) so a verb inheriting
    another's run cannot collide. `stage` is the verb's stage in an own run
    and `run.current_stage` in an inherited one (the tool refuses a stage

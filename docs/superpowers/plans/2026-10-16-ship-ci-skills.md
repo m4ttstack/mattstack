@@ -42,21 +42,21 @@
 | | `watch-ci:github-claim-off-script` | 2 | stage |
 | | `watch-ci:github-polls:<sha12>` | 45 | stage, per commit |
 | | `watch-ci:github-sha-waits:<sha12>` | 5 | stage, per commit |
-| ship, stage-ship | `ship:ship-gate-rounds` | 2 | stage |
-| | `ship:ship-gate-reopenings` | 2 | stage |
+| ship, stage-ship | `ship:ship-gate-rounds` | 1 | stage |
+| | `ship:ship-gate-reopenings` | 1 | stage |
 | | `ship:fix-rounds` | 3 | stage |
 | | `ship:conflict-rounds` | 3 | stage |
-| | `ship:forge-clarify-rounds` | 2 | stage |
-| | `ship:push-off-script` | 2 | stage |
-| | `ship:landing-checks` | 2 | stage (ship only) |
+| | `ship:forge-clarify-rounds` | 1 | stage |
+| | `ship:push-off-script` | 1 | stage |
+| | `ship:landing-checks` | 1 | stage (ship only) |
 | | `ship:mr-create-recalls` | 1 | stage (counts re-calls after `url: null`, not the first call) |
-| | `ship:after-attempts:<case id>` | 3 | stage |
-| | `ship:validator-refusals` | 2 | stage |
+| | `ship:after-attempts:<case id>` | 2 | stage |
+| | `ship:validator-refusals` | 1 | stage |
 | | `ship:record-fixes` | 1 | stage |
 | | `ship:upload-path-fixes:<basename>` | 1 | stage (until phase 2) |
 | | `ship:upload-timeouts:<basename>` | 1 | stage (until phase 2) |
-| | `ship:upload-off-script` | 2 | stage (until phase 2) |
-| | `ship:mark-ready-rounds` | 2 | stage (ship only) |
+| | `ship:upload-off-script` | 1 | stage (until phase 2) |
+| | `ship:mark-ready-rounds` | 1 | stage (ship only) |
 
 `<sha12>` is the watched sha's first 12 characters.
 
