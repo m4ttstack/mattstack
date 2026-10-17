@@ -252,7 +252,8 @@ Its terminals answer `Captured?`:
   uncaptured, the doctor stayed red, no compose on PATH, sign-in asks
   spent, no driver to spawn, redaction rounds or openings spent, confirm
   refused twice) reopens the evidence gate with what was tried, which then
-  also offers **Hand back** and **Go on without this BEFORE**.
+  offers **Hand back** and **Go on without this BEFORE** in place of
+  **Proceed**, since the same pass would end Not drawn again.
 - **Not drawn** for a failed brief or spent re-renders takes the no edge,
   counted against `capture-attempts`.
 
@@ -314,7 +315,7 @@ fails the stage, naming the roles.
 |---|---|---|
 | the domain's intake | as the domain words them; an open-ended one is free text in the form | the domain declares them |
 | `source` (write-in) | **Proceed with `<source>` (Recommended)** / **Switch to local** | the data source is not local |
-| `next` | **Proceed** / **Iterate here** / **Hold**, plus **Hand back** once three captures have failed, plus **Hand back** and **Go on without this BEFORE** when the gate reopens from an unfixable Not drawn | always |
+| `next` | **Proceed** / **Iterate here** / **Hold**, plus **Hand back** once three captures have failed; when the gate reopens from an unfixable Not drawn, **Hand back** / **Go on without this BEFORE** / **Iterate here** / **Hold** (no **Proceed**) | always |
 
 Selection: `{"intake":{<answers>},"source":"<as confirmed>","next":"proceed|iterate|hold|handback|goon","note":"<their words or null>"}`.
 
@@ -343,7 +344,9 @@ board unless the note asks to waive it.
 **Iterate here** with a drawn board the note names is a revision. The
 board is not recorded yet and still sits in `~/.fast-browser/screenshots/`,
 so walk browser-evidence's Revise a board steps 3 to 5 on it, then re-ask
-this gate; `Record the evidence` records the revised board.
+this gate; `Record the evidence` records the revised board. A Hold at its
+redaction gate (step 5) is the stage's hold (`run_hold`); a refused
+confirm re-asks this gate with the output quoted.
 
 | Thought | Reality |
 |---|---|

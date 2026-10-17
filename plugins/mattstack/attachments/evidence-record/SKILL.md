@@ -207,7 +207,7 @@ digraph attach_evidence {
     forge_host -> gh_pr_view [label="GitHub"];
     evidence_attach -> attach_result;
     attach_result -> attached [label="descriptionWritten, or notWritten: unchanged"];
-    attach_result -> run_budget_repair [label="refused: redaction, per board"];
+    attach_result -> run_budget_repair [label="refused: redaction, per board, before any other bucket"];
     attach_result -> stop_move_refused_file [label="any other refused bucket, or timedOutTwice"];
     run_budget_repair -> repairs_spent;
     repairs_spent -> repair_board [label="no"];
@@ -255,10 +255,12 @@ unconfirmed, stale or malformed, or whose crop changed: its redaction gate
 was skipped, or the board changed after it. Walk browser-evidence's Revise
 a board steps 1 to 6 on that board with no wording change: they re-render
 it, pass Gate evidence-redaction, confirm after a yes and record the new
-bundle. Recorded is Repaired; a Hold at the gate is Held at
-evidence-redaction, with nothing uploaded; no spec beside the board, a
-compose error, a refused confirm, or spent redaction rounds is Not
-repaired. An `import` refusal (an imported original is in the record as
+bundle. Recorded is Repaired; a Hold at the gate, or Record held, is
+Held at evidence-redaction, with nothing uploaded; no spec beside the
+board, a compose error, a refused confirm, spent redaction rounds, or
+Record failed is Not repaired. When the result also refuses files in
+other buckets, repair the redaction boards first and attach again; the
+other buckets reach the off-script gate on that next result. An `import` refusal (an imported original is in the record as
 uploadable) goes to the off-script gate with every other bucket.
 
 ### Re-record the images through Record the evidence

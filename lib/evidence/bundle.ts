@@ -22,7 +22,35 @@ export function bundleStem(fileName: string): string | null {
   return stem === "" ? null : stem;
 }
 
-export function bundleMembers(dir: string, fileName: string, list: (dir: string) => string[]): string[] {
+function readText(p: string): string | null {
+  try {
+    return readFileSync(p, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** A pair's spec names the before bundle's captures, which keep the before's stem; a bundle carries them so it re-renders wherever it lands. */
+function specCaptures(dir: string, stem: string, present: Set<string>, read: (p: string) => string | null): string[] {
+  const raw = read(join(dir, `${stem}.spec.json`));
+  if (raw === null) return [];
+  let panels: unknown;
+  try {
+    panels = (JSON.parse(raw) as { panels?: unknown }).panels;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(panels)) return [];
+  const out: string[] = [];
+  for (const panel of panels) {
+    const capture = (panel as { capture?: unknown } | null)?.capture;
+    if (typeof capture !== "string" || basename(capture) !== capture || !capture.endsWith(".capture.json")) continue;
+    for (const name of [capture, `${capture.slice(0, -".capture.json".length)}.png`]) if (present.has(name)) out.push(name);
+  }
+  return out;
+}
+
+export function bundleMembers(dir: string, fileName: string, list: (dir: string) => string[], read: (p: string) => string | null = readText): string[] {
   const stem = bundleStem(fileName);
   if (stem === null) return [];
   const s = escapeRegExp(stem);
@@ -30,7 +58,9 @@ export function bundleMembers(dir: string, fileName: string, list: (dir: string)
     `^${s}\\.(?:(?:c\\d+\\.)?(?:${IMAGE_EXTS})|c\\d+\\.capture\\.json|spec\\.json|redactions\\.json|redact-[^./]+\\.png)$`,
     "i",
   );
-  const names = new Set(list(dir).filter((n) => member.test(n)));
+  const present = new Set(list(dir));
+  const names = new Set([...present].filter((n) => member.test(n)));
+  for (const name of specCaptures(dir, stem, present, read)) names.add(name);
   names.add(fileName);
   return [...names].sort();
 }

@@ -419,7 +419,8 @@ the board); a pair board covers the case's before image too, named by its
 ### Attach the evidence (evidence-record)
 
 The ship gate's Proceed is the attach consent. This is the last attach, so
-Take sends `linkRefused: true`.
+a Take at the upload off-script gate (never the first call) sends
+`linkRefused: true`.
 
 ### Write the title and description
 

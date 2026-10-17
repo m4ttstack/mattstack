@@ -331,11 +331,14 @@ by hand:
 1. Find the image in the record's `value`; its `annotated` path's folder
    holds the bundle. No `<stem>.spec.json` there: say so and offer a new
    capture.
-2. Clear the old render's redaction files from the screenshots folder,
-   then bring the recorded bundle back into it, each as its own command (a
-   glob that matches nothing stops a whole zsh command):
-   `find ~/.fast-browser/screenshots -maxdepth 1 \( -name '<stem>.redact-*.png' -o -name '<stem>.redactions.json' \) -delete`
+2. Bring the recorded bundle back into the screenshots folder, then clear
+   its redaction files there so no stale record rides into the new render,
+   each as its own command (a glob that matches nothing stops a whole zsh
+   command):
    `cp <bundle folder>/<stem>.* ~/.fast-browser/screenshots/`
+   then, for a pair, each capture the spec's `panels` name, with its PNG,
+   from the bundle folder, then
+   `find ~/.fast-browser/screenshots -maxdepth 1 \( -name '<stem>.redact-*.png' -o -name '<stem>.redactions.json' \) -delete`
 3. Edit `~/.fast-browser/screenshots/<stem>.spec.json`: the wording, tags,
    marks or redactions asked for, keeping the Labels rule, and append
    `{ "asked": "<their words>", "changed": "<what you changed>" }` to its
@@ -353,8 +356,11 @@ by hand:
 7. Attach the evidence (evidence-record): `evidence_attach` uploads the
    changed board and rewrites the evidence section.
 
-A revision counts its own budgets: every `evidence:*:<stem>` key it uses
-(re-renders, redaction openings and rounds, confirm refusals) ends in
-`:r<k>`, where `<k>` is the length of the spec's `revisions` list after
-step 3, so a run that already spent them drawing the board still gets a
-fresh allowance.
+A revision counts its own budgets and gates: every `evidence:*` key used
+while walking it (re-renders, redaction openings and rounds, confirm
+refusals, and on a recapture sign-in asks and doctor reds, and
+evidence-record's `redaction-repairs:<stem>` in step 7) ends in `:r<k>`,
+and its redaction gate's scope is `evidence-redaction:<stage>:r<k>:<n>`,
+where `<k>` is the length of the spec's `revisions` list after step 3. A
+run that already spent them drawing the board still gets a fresh
+allowance, and no earlier gate answer reads as this one.
