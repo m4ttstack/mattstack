@@ -214,7 +214,10 @@ link-only branch.
 The saved file is the case's BEFORE `path`, and the first `evidence_record`
 call that names it carries `source: "ticket"` on that image: the record then
 refuses a waiver on it and the upload refuses its own path, so only its
-board ever leaves the machine. Its board is drawn inside
+board ever leaves the machine. Once that call returns the image's run-folder
+copy in `value`, delete the saved original from the session temp root
+(`rm '<the saved path>'`): the copy is the one the record governs, and no
+unredacted original is left in an upload root. Its board is drawn inside
 `Record the evidence`, at its annotate-or-waive pass, as a browser-evidence
 `import:` brief of its `value` path from the link with `state: FOUND`, so a
 run that also has a live browser case spawns the driver twice by design.
