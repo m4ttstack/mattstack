@@ -68,8 +68,8 @@ A **Choose location…** pick that already exists and is non-empty is
 refused with "~/code/acme-api already exists. Choose an empty or new
 folder."
 
-The page's footer counts what is left ("Every repo has a place. Install
-clones acme-api.").
+The page keeps the checklist's generic footer (the mockup's footer copy is
+illustrative; a page-specific footer would need a new contract field).
 
 ### What rt does with the answers
 
@@ -121,8 +121,11 @@ whenever the tracked list is known. For a joiner that is after `team.join`.
    that into the context as a new `appDriven` flag): clone nothing for that
    repo and report `needs-you` ("Choose where your repos go"). The rest of
    Install carries on; the "Your repos" rows show on the post-Install
-   summary, finish-gated, with the same controls. Answering and retrying
-   runs `repos.clone` again.
+   summary, finish-gated, with the same controls. The deferral is recorded
+   in rt's placements file, so it outlives the setup intent. Answering a
+   deferred row records the placement and then the app runs the row's
+   follow-up verb (`rt setup apply --only repos.clone`), which rt names in
+   the row; the row stays finish-gated until the repo is in the index.
 4. No placement, no clone, any other run (a member who saw the rows, a
    terminal `rt setup apply`, a `--non-interactive` run, CI): clone to the
    default destination. A terminal run never stops on this.
