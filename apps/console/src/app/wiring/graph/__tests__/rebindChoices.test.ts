@@ -242,8 +242,11 @@ describe('pipelineChoices', () => {
     ).toEqual([]);
   });
 
-  it('gives no choice on a stage copy, which stays on its pipeline', () => {
-    expect(evidence(null, 'stage-evidence--accessibility').choices).toEqual([]);
+  it("offers a stage copy its stage's choices, preselecting its own pipeline", () => {
+    expect(evidence('accessibility', 'stage-evidence--accessibility')).toEqual({
+      choices: [DEFAULT, { pipeline: 'accessibility', label: 'accessibility' }],
+      preselected: 'accessibility',
+    });
   });
 });
 
@@ -273,6 +276,26 @@ describe('rebindChoices for a chosen pipeline', () => {
       current: 'acme:evidence-a11y',
       overridden: true,
       fallback: 'acme:evidence-policy',
+    });
+  });
+
+  it('reads and writes the default on a copy when Default is chosen', () => {
+    expect(evidence(null, 'stage-evidence--accessibility')).toMatchObject({
+      verb: 'stage-evidence',
+      pipeline: null,
+      current: 'acme:evidence-policy',
+      overridden: false,
+    });
+  });
+
+  it('keeps a copy on its own pipeline when that is chosen', () => {
+    expect(
+      evidence('accessibility', 'stage-evidence--accessibility')
+    ).toMatchObject({
+      verb: 'stage-evidence',
+      pipeline: 'accessibility',
+      current: 'acme:evidence-a11y',
+      overridden: true,
     });
   });
 

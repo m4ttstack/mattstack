@@ -386,6 +386,10 @@
   padding-inline: 9px;
 }
 
+.useDefault {
+  margin-inline-end: auto;
+}
+
 .publicSwitch {
   flex: none;
 }

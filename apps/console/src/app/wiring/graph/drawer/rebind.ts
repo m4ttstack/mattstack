@@ -141,9 +141,10 @@ function viewPipeline(
 /**
  * The pipelines a write to a stage slot can target from `workType`'s view:
  * Default, every other pipeline that lists the stage, and the default
- * pipeline only once it overrides the slot. No choice at all on a stage
- * copy, which stays on its own pipeline, nor on a slot no specialized
- * pipeline lists, which always takes the default.
+ * pipeline only once it overrides the slot. A stage copy, which a
+ * specialized view always opens in place of its stage, offers its stage's
+ * choices with its own pipeline preselected. No choice on a slot no
+ * specialized pipeline lists, which always takes the default.
  */
 export function pipelineChoices(
   composition: SkillsComposition,
@@ -153,14 +154,12 @@ export function pipelineChoices(
   workType: string | null
 ): { choices: PipelineChoice[]; preselected: string | null } {
   const copyOf = composition.targets?.find(t => t.name === skill)?.pipeline;
-  if (copyOf) return { choices: [], preselected: copyOf };
-
   const defaultPipeline = defaultPipelineOf(composition.pipelines);
   const binderSlot = binderSlotOf(composition, ref, slot) ?? {};
   const listing = Object.entries(composition.pipelines ?? {})
     .filter(([, stages]) => stages.includes(ref))
     .map(([name]) => name);
-  const preselected = viewPipeline(composition, ref, slot, workType);
+  const preselected = copyOf ?? viewPipeline(composition, ref, slot, workType);
   if (!listing.some(name => name !== defaultPipeline))
     return { choices: [], preselected };
 
@@ -183,8 +182,8 @@ export function pipelineChoices(
  * A stage copy reads and writes its own pipeline's override. A stage of any
  * other pipeline but the default writes that pipeline's override too, as
  * does a stage the pipeline already overrides at the slot. A `chosen`
- * pipeline, null for the default, replaces that rule: it is both the one
- * read and the one written.
+ * pipeline, null for the default, replaces that rule, on a copy too: it is
+ * both the one read and the one written.
  */
 export function rebindChoices(
   composition: SkillsComposition,
@@ -197,12 +196,14 @@ export function rebindChoices(
   const target = composition.targets?.find(t => t.name === skill);
   const verb = target?.engine ?? skill;
   const pipeline =
-    target?.pipeline ??
-    (chosen !== undefined
+    chosen !== undefined
       ? chosen
-      : viewPipeline(composition, ref, slot, workType));
+      : (target?.pipeline ?? viewPipeline(composition, ref, slot, workType));
   const reading =
-    target?.pipeline ?? (chosen !== undefined ? chosen : workType);
+    chosen !== undefined ? chosen : (target?.pipeline ?? workType);
+  // A copy's facts read its own pipeline whatever they are asked, so another
+  // pipeline is read through the stage it copies.
+  const readAs = chosen !== undefined ? verb : skill;
   const binderSlot = binderSlotOf(composition, ref, slot);
   const overridden = overrideOf(binderSlot ?? {}, pipeline) !== undefined;
 
@@ -213,7 +214,7 @@ export function rebindChoices(
         .map(v => v.name)
     : [verb];
 
-  const facts = slotFactsOf(composition, skill, ref, reading).get(slot);
+  const facts = slotFactsOf(composition, readAs, ref, reading).get(slot);
   const contract = facts?.contract ?? null;
   const current = facts?.boundTo ?? null;
   const sites = invertBindings(composition);
