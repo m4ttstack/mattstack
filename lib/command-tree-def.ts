@@ -2724,7 +2724,7 @@ export const TREE: Record<string, CommandNode> = {
         description: "Where rt clones your team's repos",
         subcommands: {
           set: {
-            description: "Validate and record the repo folder (staged pre-Install, written directly once the home repo exists)",
+            description: "Validate and record the folder new clones go in (staged pre-Install, written directly once the home repo exists)",
             module: "./commands/setup.ts",
             fn: "setupRepoRootSet",
             args: [

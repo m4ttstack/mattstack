@@ -36,7 +36,7 @@ See [Teams and invites](/start/teams) for how teams, invites, and team packs wor
 
 ### The checklist
 
-The checklist of everything setup needs, one page for each group: Your Mac, Accounts, Access, Agents and editors, Browser, rt on this Mac, and Team and backup. A group with no rows has no page.
+The checklist of everything setup needs, one page for each group: Your Mac, Accounts, Access, Agents and editors, Browser, Your repos, rt on this Mac, and Team and backup. A group with no rows has no page.
 
 Each page sorts its rows into up to three sections:
 
@@ -57,7 +57,7 @@ Each page sorts its rows into up to three sections:
 
 Paste the token and Connect. A pasted token missing a scope is refused, naming the scope it lacks; a token already stored that falls short shows as needing you, with the same Connect sheet. A GitLab member needs `api` because the board posts review comments and replies on merge requests as you. The GitHub row is ready without a token when the `gh` CLI is already signed in. The GitLab link targets GitLab 16 or newer.
 
-**Your repos** has one row for each repo your team tracks. Each row is either **Current checkout** (a copy you already have on this Mac; **Choose folder…** points at it) or **New checkout** (rt clones the repo where you choose). A repo rt finds on this Mac starts on Current checkout. A repo rt can't place shows what to fix on its row. If you join a team, the page fills in after Install, and each repo still to place offers **Clone here**.
+**Your repos** has one row for each repo your team tracks. Each row is either **Current checkout** (a copy you already have on this Mac; **Locate…** points at it) or **New checkout** (rt clones the repo where you choose; **Choose location…** picks where). A repo rt finds on this Mac starts on Current checkout. A repo rt can't place shows what to fix on its row. If you join a team, you choose where your repos go after Install (each offers **Clone here**), and those rows must be answered before Finish, not Install.
 
 ### Installing
 
@@ -104,7 +104,7 @@ Each checklist button has a CLI equivalent:
 
 ```bash
 rt setup gitlab connect            # or github, linear, slack, sdm
-rt setup repo place gitlab.com/acme/widgets --checkout ~/code/widgets   # or --clone-to <folder>
+rt setup repo place github.com/acme/widgets --checkout ~/code/widgets   # or --clone-to <folder>
 rt setup repo-root set ~/code      # the folder new clones go in
 rt home remote set <url>           # or --create
 rt skills writing-style use <id>   # omit the id to pick
