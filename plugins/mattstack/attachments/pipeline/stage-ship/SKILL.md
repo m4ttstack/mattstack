@@ -16,10 +16,9 @@ metadata:
 {{stage.fields}}
 
 Run state: the orchestrator opens and closes this stage, so never write
-`run_stage` `start` or `done` here. Read consumes with `run_field_get`;
-write `mr` the moment it exists and `pushed` once the push lands; fail
-with `run_stage {action: fail}` naming what failed. Every `stage` argument
-is `"ship"`. `<root>` is the absolute worktree root
+`run_stage` `start` or `done` here. Write `mr` the moment it exists and
+`pushed` once the push lands; fail with `run_stage {action: fail}` naming
+what failed. Every `stage` argument is `"ship"`. `<root>` is the absolute worktree root
 `git rev-parse --show-toplevel` prints.
 
 ```dot
@@ -30,6 +29,7 @@ digraph ship {
     "Run the domain steps before the gate (none when unbound)" [shape=box];
     "git status --porcelain; git log --oneline @{upstream}.. or -5" [shape=plaintext];
     "branch_stack {tree: <root>}" [shape=plaintext];
+    "Stack parent read?" [shape=diamond];
     "run_field_get {key: shipTarget}" [shape=plaintext];
     "shipTarget matches the fresh target?" [shape=diamond];
     "Gate ship (table below)" [shape=box];
@@ -133,7 +133,9 @@ digraph ship {
     "Ship stage entered" -> "Run the domain steps before the gate (none when unbound)";
     "Run the domain steps before the gate (none when unbound)" -> "git status --porcelain; git log --oneline @{upstream}.. or -5";
     "git status --porcelain; git log --oneline @{upstream}.. or -5" -> "branch_stack {tree: <root>}";
-    "branch_stack {tree: <root>}" -> "run_field_get {key: shipTarget}";
+    "branch_stack {tree: <root>}" -> "Stack parent read?";
+    "Stack parent read?" -> "run_field_get {key: shipTarget}" [label="yes: the stack parent"];
+    "Stack parent read?" -> "run_field_get {key: shipTarget}" [label="no: the default branch (an unreadable store or error says so)"];
     "run_field_get {key: shipTarget}" -> "shipTarget matches the fresh target?";
     "shipTarget matches the fresh target?" -> "dirty answer?" [label="yes: the earlier Proceed stands"];
     "shipTarget matches the fresh target?" -> "Gate ship (table below)" [label="no"];
@@ -151,7 +153,7 @@ digraph ship {
     "Rebase in progress?" -> "Which exit?" [label="no"];
     "git_rebase {tree: <root>, abort: true}" -> "Which exit?";
     "Which exit?" -> "Hand the Go back answer to the orchestrator" [label="go back"];
-    "Which exit?" -> "run_stage {action: fail, stage, reason}" [label="a failure"];
+    "Which exit?" -> "run_stage {action: fail, stage, reason}" [label="a failure, abort or hand back"];
     "dirty answer?" -> "Commit named files, ticket-prefixed subject" [label="commit"];
     "dirty answer?" -> "Stash them" [label="stash"];
     "dirty answer?" -> "Run the domain's fast checks (none when unbound)" [label="clean tree"];
@@ -186,7 +188,7 @@ digraph ship {
     "git_push {tree: <root>, setUpstream: true}" -> "git_push result?";
     "git_push {tree: <root>, forceWithLease: true}" -> "git_push result?";
     "git_push result?" -> "run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}" [label="ok"];
-    "git_push result?" -> "STOP: push only with git_push" [label="refused"];
+    "git_push result?" -> "STOP: push only with git_push" [label="refused or errored"];
     "run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}" -> "git remote get-url origin";
     "STOP: push only with git_push" -> "Off-script gate: git_push refused";
     "Off-script gate: git_push refused" -> "Make the recorded move once" [label="take"];
@@ -258,7 +260,7 @@ digraph ship {
     "mr_upload result?" -> "run_budget {key: ship:record-fixes, limit: 1, stage}" [label="not in the record, or a raw capture"];
     "mr_upload result?" -> "run_budget {key: ship:upload-timeouts:<basename>, limit: 1, stage}" [label="timed out"];
     "mr_upload result?" -> "STOP: upload only with mr_upload" [label="other refusal"];
-    "mr_upload result?" -> "STOP: upload only with mr_upload" [label="tempted to upload another way"];
+    "mr_upload result?" -> "STOP: upload only with mr_upload" [label="tempted to copy it into a root or upload another way"];
     "run_budget {key: ship:record-fixes, limit: 1, stage}" -> "record-fixes spent?";
     "record-fixes spent?" -> "Annotate or waive each image the record does not yet cover (evidence-record)" [label="no: the named file"];
     "record-fixes spent?" -> "STOP: upload only with mr_upload" [label="yes"];
@@ -350,6 +352,10 @@ Only the checks the domain names, on the changed files; revert generated
 drift they leave. A full suite the domain rules out stays out. A finished
 rebase reruns them, then the push follows: a pass never rebases twice.
 
+### Fix test-first, commit, rerun
+
+Each fix gets its failing test first, then the fix, then a commit.
+
 ### Resolve the files, then git rebase --continue on Bash
 
 Resolve each conflicted file `git_rebase` returned, then continue on Bash
@@ -368,8 +374,7 @@ one `n` for both, `context` quoting the refusal): `action` Take (its
 section names the move) or Hand back (a failure, the refusal its reason);
 `next` Proceed, Iterate here (the human fixed the cause) or Hold (no
 move). Read `next` first: only Proceed applies `action`; retrying
-`git_push` or `mr_upload` is Iterate, never Take. A spent Iterate budget
-fails the same way, the refusals as the reason.
+`git_push` or `mr_upload` is Iterate, never Take.
 
 ### Off-script gate: git_push refused
 
@@ -378,7 +383,7 @@ nothing: `git_push` bounds its own retries.
 
 ### Make the recorded move once
 
-Never retried. It landed when the remote branch carries
+It landed when the remote branch carries
 `git rev-parse HEAD`, which `pushed` records with no prior id.
 
 ### Gate clarify: which forge?
@@ -420,10 +425,8 @@ teammate's edits). The domain's title, template and voice rules win.
   `null`, or the watch waits for a pipeline that never comes.
 - **Hold** records `run_hold`: `reason` their words or the gate,
   `decidedBy` as the answer recorded it.
-- **`targetBranch`** is what `branch_stack` resolved: the stack parent
-  for a stack member, else the default branch read from git, never
-  guessed; on `stackStore: "unavailable"` or an error, the default
-  branch. A GitHub PR takes it as `--base`, with `--draft` unless the gate
+- **`targetBranch`** is what `branch_stack` resolved; a default branch is
+  read from git, never guessed. A GitHub PR takes it as `--base`, with `--draft` unless the gate
   said ready. The rebase
   goes onto `origin/<target>`, so a stack member never replays its
   parent's unmerged commits.
@@ -439,8 +442,8 @@ Each `run_budget` counts one as its loop is entered and lasts the stage
 attempt, through compaction and resume. Its `spent?` diamond reads `spent` against `limit`
 (`spent > limit`); ignore `exhausted` and `remaining` (`exhausted` is
 `spent >= limit` and would stop one round early). A failure quotes what it last saw (the error, the note, the
-failing output or conflicted files, the origin URL and answer, the
-refusal) as its reason.
+failing output or conflicted files, the origin URL and answer, the images
+named, the refusal) as its reason.
 
 ## Domain rules
 
