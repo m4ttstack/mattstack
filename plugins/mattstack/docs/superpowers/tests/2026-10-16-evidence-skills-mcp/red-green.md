@@ -48,13 +48,13 @@ file, `rt` or `curl` on Bash for ports.
 
 ## RED
 
-System file: `build-system-file.sh 98fbf05e0 <scratch>/red` (the branch
+System file: `build-system-file.sh 98fbf05e0 <scratch>/evidence-reps/red` (the branch
 base; 10,407 words). The old text names none of `evidence_record`,
 `evidence_attach`, `dev_endpoints` or `run_budget`; every rep reached them
 from the tool list in `common.md` alone.
 
-Rep outputs (not committed):
-`/private/tmp/claude-501/-Users-matt--mattstack-rt-worktrees-gh-m4ttstack-mattstack-ioreth/847db433-8d1b-49f1-998c-2cc8cdca39ef/scratchpad/evidence-reps/red/<scenario>/rep-<i>.txt`
+Rep outputs:
+`<scratch>/evidence-reps/red/<scenario>/rep-<i>.txt`, where `<scratch>` is the session scratchpad. The outputs are not committed.
 
 ### E1 happy path, GitLab, attach now
 
@@ -86,11 +86,13 @@ paths again in the second `evidence_record`, which would copy a second time.
 
 | Pass item | 1 | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|---|
-| `refused.size` opens the off-script gate `off-script:evidence:<n>` quoting the refusal | yes (scope as `kind`) | yes (scope as `kind`) | yes (scope as `kind`) | yes (scope as `kind`) | yes (scope as `kind`) |
+| `refused.size` opens the off-script gate `off-script:evidence:<n>` quoting the refusal | yes | yes | yes | yes | yes |
 | on Take, the stage ends with nothing written (no `linkRefused` call) | no | no | no | no | no |
 | no copy, no `mr_upload` | yes | yes | yes | yes | yes |
 | anti-goal call | none | `run_field_set {key: evidence}` | `run_field_set {key: evidence}` | none | `run_field_set {key: evidence}` |
 | **rep passes** | no | no | no | no | no |
+
+Every rep opens the gate with `kind: "off-script:evidence:1"`; under a run `gate_ask` derives the scope from `kind`, so that meets the scope item.
 
 Every rep follows the old "Take links the refused files' local paths" and
 calls `evidence_attach {linkRefused: true}` at this stage; rep 3 also adds
@@ -138,7 +140,6 @@ Reps 1-3 and 5 call `evidence_attach` without the body, then read it with
 - **Hand-written evidence field after attach** (E3 3/5): the old "record plus attach" `run_field_set` node survives the new tools.
 - **GitHub body read after the attach** (E4 4/5): the old text has no GitHub branch, so the body is not passed as `description`.
 - **Heading without the `##` level** (E1 5/5, E3 4/5, E4 2/5, E5 5/5): the old text names no default heading.
-- **Gate scope sent as `kind`** (E3 5/5): the off-script gate's scope rides in `kind`, never `scope`.
 
 ## GREEN
 

@@ -20,14 +20,28 @@ out_arg="$2"
 repo_root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 repo_real="$(cd "$repo_root" && pwd -P)"
 
-mkdir -p "$out_arg"
-out="$(cd "$out_arg" && pwd -P)"
+# The real path of a directory that may not exist yet: the nearest existing
+# ancestor resolved with pwd -P, plus the missing tail.
+real_path() {
+  local p="$1" tail=""
+  while [ ! -d "$p" ]; do
+    case "$(basename "$p")" in
+      ..|.) echo "refusing: <out-dir> $1 has a . or .. in a missing part" >&2; exit 65 ;;
+    esac
+    tail="/$(basename "$p")$tail"
+    p="$(dirname "$p")"
+  done
+  echo "$(cd "$p" && pwd -P)$tail"
+}
+
+out="$(real_path "$out_arg")"
 case "$out/" in
   "$repo_real"/*)
     echo "refusing: <out-dir> $out is inside the repo $repo_real" >&2
     exit 65
     ;;
 esac
+mkdir -p "$out"
 
 scratch="$out/.build"
 case "$scratch" in
