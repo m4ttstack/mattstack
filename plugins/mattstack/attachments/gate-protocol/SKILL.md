@@ -248,13 +248,13 @@ bracket the gate, arm `waiting-gate` on a wait, record the answers map
 hook bounces the turn. With no run, omit both; nothing here calls a `run_*`
 tool.
 
-- **Sites not yet on the tools** (forge, board) still draw a
+- **Sites not yet on the tools** (the forge checkout verb, board) still draw a
   `run_field_set {key: gate}` bracket, run before `gate_ask`, and a
   `run_decision` gate@1 line, run at `Act on the gate answer at the site`
   (it upserts in the site's shape; a write-in records as
   `{"writeIn": "<their words>"}` in the slot holding that question's
   answer, never bare text).
-- **Ship, watch-ci and evidence** draw neither: the tools record their
+- **Ship, watch-ci, evidence and sync-open-mrs** draw neither: the tools record their
   answers map, and their `Selection:` lines are dead.
 - **Review shapes.** `gate_answer` and `gate_reconcile` record nothing on a
   review gate (`respond-plan`, `respond-post`, `review-post`, scope `post`)
