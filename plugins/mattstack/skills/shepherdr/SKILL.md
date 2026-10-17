@@ -9,7 +9,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.31.17 path=attachments/orchestration/shepherdr/SKILL.md lines=15-841 -->
+<!-- part: step source=mattstack:shepherdr version=0.31.17 path=attachments/orchestration/shepherdr/SKILL.md lines=15-842 -->
 
 # shepherdr
 
@@ -504,6 +504,7 @@ right skill for this") and do it yourself in the main pane; one agent
 behind a relay is pure overhead. `worktree_provision` and `EnterWorktree`
 keep it out of the user's checkout, and the delegator rules then do not
 apply. Apply a bound domain part's single-worker exception if it names one.
+A later job for a live herd is never this case.
 
 ### Ask the strategy and model per job
 
@@ -533,9 +534,8 @@ is wrong.
 
 ### Ask the account pool question
 
-Ask it once per herd, after the models are chosen: some providers budget
-per-model pools, so headroom cannot be shown honestly until the model mix
-is known. A later job for a live herd keeps the herd's pool answer.
+Ask it once per herd, after the models are chosen: per-model pools
+hide headroom until the model mix is known. A later job for a live herd keeps the herd's pool answer.
 
 ### Collect the repo conventions
 
@@ -582,8 +582,8 @@ the budget, then three options:
 skipped and the batch goes on; in the other two graphs you end the turn.
 One job's spent budget never ends the herd.
 
-A `... spent?` diamond reads the daemon budget fetched in this decision
-(see **Budgets** under the watch loop), never a count from memory. A
+A `... spent?` diamond reads the daemon budget fetched in this decision,
+never a count from memory. A
 `... = 2?` diamond (`Brief retries = 2?`, `Answer retries = 2?`) is a
 same-turn retry count kept in your head, since no daemon budget covers it;
 it answers yes once two retries have run.
@@ -621,12 +621,10 @@ composed. Its inputs:
 - `out`: an absolute path in this session's scratchpad, one file per job
 
 `${CLAUDE_SKILL_DIR}` is the absolute directory this skill loaded from;
-both paths come from it alone (an installed plugin or pack root), and rt
-never guesses skill paths. The tool copies the template
+both paths come from it alone (an installed plugin or pack root). The tool copies the template
 and the named strategy body (into `## Method`) verbatim and fills the
 `<angle-bracket>` slots from `fill`; an unfilled marker is a refusal
-listing the leftovers, so nothing is retyped from memory and no slot goes
-silently empty. `<shepherd handle>` and `<shepherd id>` pass through for
+listing the leftovers. `<shepherd handle>` and `<shepherd id>` pass through for
 `herd_spawn` to fill from the herd row; never `fill` them. The `out` path
 is the brief.
 
@@ -672,7 +670,7 @@ off-script gate.
 
 ## The watch loop
 
-After the spawns, do nothing until something arrives; arrival is the proof the daemon and your subscription are live.
+After the spawns, do nothing until something arrives.
 
 ```dot
 digraph shepherdr_watch {
@@ -751,6 +749,7 @@ digraph shepherdr_watch {
     "What arrived?" -> "chat_dm {to: <job handle>, body: the ruling or findings}" [label="a ruling or findings for one worker"];
     "What arrived?" -> "Ask: let them finish, kill and respawn, or hold" [label="the user redirects scope"];
     "What arrived?" -> "herd_diagnose {herd, job}: the respawn budget" [label="the user asks for a respawn"];
+    "What arrived?" -> "herd_gate_answer {herd, gate, answers}" [label="the user answers a parked gate"];
     "What arrived?" -> "Go to lanes and wrap-up" [label="a report line, or a nag about a done job's open pane"];
     "herd_gates {herd}: the gate push" -> "Open gates returned?";
     "herd_resume {herd}: after a relaunch" -> "Open gates returned?";
@@ -832,7 +831,7 @@ digraph shepherdr_watch {
 ### End the turn until something arrives
 
 The daemon pushes gates and room lines; nothing arms, and you never read a
-pane or scrollback (`herd_diagnose` is the only pane read). Your room posts
+pane or scrollback. Your room posts
 deliver as `@here` and wake every worker, so a question for one worker is a
 DM.
 
@@ -852,7 +851,9 @@ the answer is literally in the brief you wrote. A human answer fitting no
 option goes as `{"writeIn": "<their words>"}` if the question was opened
 with `writeIn`, else ask them to pick. When the user parks a gate,
 `herd_gate_park` takes it off the open list; it stays answerable with
-`herd_gate_answer` until it is answered or closed.
+`herd_gate_answer` until answered or closed. A later answer takes its id
+from the job's `herd_status` row: `lastGate`, with `lastGateStatus:
+parked`; relay it verbatim.
 
 ### Say which answer won, in one line
 
@@ -891,7 +892,7 @@ briefs** / **Hold**. No restated heading, no per-option descriptions.
 
 ## What the watch loop cannot show
 
-- **The push is transport.** A gate push is one line, `[gate] <id> is now open; re-read the gate registry.`, carrying only an id. Its arrival proves the daemon, the subscription and the herd; the `herd_gates` read is the verification, made first. Room lines arrive the same way (`<job> #<n>: <body>` a report, `<job> #<n>: milestone: <artifact>` a milestone). A stale id or an unrelated room line is normal, never a reason to reach for another command or distrust the push.
+- **The push is transport.** A gate push is one line, `[gate] <id> is now open; re-read the gate registry.`, carrying only an id. Its arrival proves the daemon, the subscription and the herd; the `herd_gates` read is the verification, made first. `herd_gates` defaults to `HERD_ID` or the sole active herd and also returns open pipeline-run gates in a herd job's worktree. Room lines arrive the same way (`<job> #<n>: <body>` a report, `<job> #<n>: milestone: <artifact>` a milestone). A stale id or an unrelated room line is normal, never a reason to reach for another command or distrust the push.
 - **Diagnosis and nudges.** `herd_diagnose {herd, job}` has the daemon read the pane and returns a verdict and budgets, never pane text. An `UNCONSUMED` gate in `herd_status`, or the watchdog's "answered Nm ago and unconsumed" line, is the arrival for a nudge; the nudge keys on the UNCONSUMED arrival's gate, never `lastGate.consumed`, which reads null for a gate the daemon does not track. `herd_nudge` sends a DM, then a typed line only into an idle pane with no form open, else `needsHuman`. No tool presses keys, and neither do you. A hidden (`bg:`) pane reaches the user only through `herd_attend {job, herd}`.
 - **The disposable reviewer.** Its spawn is `herd_spawn {tree}` into the job's own tree (a guest if another job holds it; the tree stays the host's); the result's `reviewerRound` echoes the ticked budget. Its brief reads the artifact, DMs findings, and reports a verdict; the daemon closes its pane. You never read the artifact. With the Accounts section non-empty it takes a per-spawn pick.
 - **A bare pane form.** A worker pane showing a structured question with no gate behind it (`herd_gates` returns nothing for it) is the banned bare pane-local form, unreachable from every channel. Flag it to the user; never answer it yourself. Covered panes deny it at source through the launch-injected gate-fork hook, so seeing one means the pane is uncovered or its daemon was unreachable.
@@ -1044,7 +1045,7 @@ a collision. Flag it now, not at integration.
 ### Relay only what you measured
 
 A worker's claims about its environment (servers up, ports free, CI green)
-are routinely stale; forwarded as fact, they read as checked. Measure first
+are routinely stale. Measure first
 (`rt_verb {args: ["endpoint", "lookup", "<role>", "--path", "<the job's worktree>"]}`,
 `curl`, `lsof`, a CI status call), or attribute it: "the worker reports X".
 
@@ -1122,7 +1123,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 - **The two objective checks.** `herd_lanes {herd}` returns a row per active job (`commits`; `drift.files`, committed and uncommitted work since the merge base; `collidesWith`) plus herd-wide `collisions`. Compare each job's `drift.files` against its write fence yourself; no fence is stored. A job whose tree is gone has no row (it is in `skipped` with a reason), and the drift check skips it.
 - **A report is a claim, not a merge.** Answer "Merged on the repo?" from the job's row `merge.state`, on GitHub or GitLab, never from the report: `merged` is yes; `open`, `closed` or `none` is no; `unknown` goes to the off-script gate with the read's error. A lane with no row (a merge can dispose its tree) goes there with its `skipped` reason, and the proposed move closes the lane once the user confirms the merge. The row's `unmergedReports` feeds `Unmerged reports for this lane spent?` (see **Budgets**).
 - **Job state is the daemon's.** It marks a job `done` when its report is published.
-- **The integration job.** Its brief merges or cherry-picks the job branches, runs full verification, carries the shipping conventions, and reports. Never merge, fix or push for the agents. The first is `integration-1`; a lane that joined after it spawned gets the next number, and that brief covers only the lanes no integration job has merged.
+- **The integration job.** Its brief merges or cherry-picks the job branches, runs full verification, carries the shipping conventions, and reports. The first is `integration-1`; a lane that joined after it spawned gets the next number, and that brief covers only the lanes no integration job has merged.
 - **Domain hook: after the report.** Unbound: the integration job merges. A bound domain part may define what follows a report (the worker ships through its own skill chain, or the shepherd merges after a gate; how jobs feeding one deliverable integrate) and whether it waits for the user to ask. Fixing and pushing stay with workers.
 - **Domain hook: wrap-up.** Unbound: as drawn. A bound domain part may state its own tree lifecycle (trees that dispose themselves on merge, what a disposal refusal means); follow it over the defaults here.
 

@@ -558,6 +558,7 @@ digraph shepherdr_watch {
     "What arrived?" -> "chat_dm {to: <job handle>, body: the ruling or findings}" [label="a ruling or findings for one worker"];
     "What arrived?" -> "Ask: let them finish, kill and respawn, or hold" [label="the user redirects scope"];
     "What arrived?" -> "herd_diagnose {herd, job}: the respawn budget" [label="the user asks for a respawn"];
+    "What arrived?" -> "herd_gate_answer {herd, gate, answers}" [label="the user answers a parked gate"];
     "What arrived?" -> "Go to lanes and wrap-up" [label="a report line, or a nag about a done job's open pane"];
     "herd_gates {herd}: the gate push" -> "Open gates returned?";
     "herd_resume {herd}: after a relaunch" -> "Open gates returned?";
