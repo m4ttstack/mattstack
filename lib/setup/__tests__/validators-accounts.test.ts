@@ -73,7 +73,7 @@ describe("accountRows — account.gitlab", () => {
       label: "Connect",
       integration: "gitlab",
       fields: [{ name: "token", label: "GitLab token", secret: true, hint: "api" }],
-      create: { label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api" },
+      create: { label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features" },
     });
   });
 
@@ -85,7 +85,7 @@ describe("accountRows — account.gitlab", () => {
       label: "Connect",
       integration: "gitlab",
       fields: [{ name: "token", label: "GitLab token", secret: true, hint: "api" }],
-      create: { label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api" },
+      create: { label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features" },
     });
   });
 
@@ -123,7 +123,7 @@ describe("accountRows — account.gitlab", () => {
     );
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
-    expect((r.action as { create?: { url: string } }).create?.url).toStartWith("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api");
+    expect((r.action as { create?: { url: string } }).create?.url).toStartWith("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features");
   });
 
   test("a member's stored read_api token needs you: the board cannot post reviews with it", async () => {
@@ -137,7 +137,7 @@ describe("accountRows — account.gitlab", () => {
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("This token is missing api (needs api to post board review comments)");
     expect(r.action?.type).toBe("connect");
-    expect((r.action as { create?: { url: string } }).create?.url).toBe("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api");
+    expect((r.action as { create?: { url: string } }).create?.url).toBe("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features");
   });
 
   test("secret present, host user-confirmed, validate 200s -> ready", async () => {
@@ -166,7 +166,7 @@ describe("accountRows — account.gitlab", () => {
       label: "Connect",
       integration: "gitlab",
       fields: [{ name: "token", label: "GitLab token", secret: true, hint: "api" }],
-      create: { label: "Create a token on GitLab…", url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api" },
+      create: { label: "Create a token on GitLab…", url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features" },
     });
   });
 
@@ -962,7 +962,7 @@ describe("forge reconnect role", () => {
       const r = await pickRow(accountRows(p, baseTeam({ integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }), [], fakeSecrets({ "rt.gitlabToken": "fixture-token" }), null), "account.gitlab");
       expect(r.status).toBe("needs-you");
       expect(r.detail).toBe(`This token is missing api (${reason})`);
-      expect(r.action).toMatchObject({ type: "connect", fields: [{ hint: "api" }], create: { url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api" } });
+      expect(r.action).toMatchObject({ type: "connect", fields: [{ hint: "api" }], create: { url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features" } });
     }
   });
 });

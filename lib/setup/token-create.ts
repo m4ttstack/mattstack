@@ -1,7 +1,8 @@
 /**
  * The token scopes rt needs on each forge, and the forge's own new-token page
- * with them pre-checked. One list feeds the Connect sheet's hint, the create
- * link and the scope check, so the three can never disagree.
+ * with them pre-checked. The required list feeds the Connect sheet's hint and
+ * the scope check; the create link pre-checks it plus a few extras
+ * (LINK_EXTRAS), which the check and the hint never read.
  *
  * GitLab grants git abilities through API scopes (lib/gitlab/auth.rb):
  * `read_api` carries download_code but no API writes, and the board's
@@ -20,6 +21,11 @@ export type ForgeRole = "owner" | "member";
 const SCOPES: Record<ForgeProvider, Record<ForgeRole, readonly string[]>> = {
   github: { owner: ["repo", "read:org"], member: ["repo", "read:org"] },
   gitlab: { owner: ["api"], member: ["api"] },
+};
+
+/** Scopes the create link pre-checks beyond the required ones; the check and the hint never read them. */
+const LINK_EXTRAS: Partial<Record<ForgeProvider, readonly string[]>> = {
+  gitlab: ["read_api", "read_user", "read_repository", "write_repository", "ai_features"],
 };
 
 /** A scope a token holds on the left satisfies every scope on the right. */
@@ -50,13 +56,18 @@ export function forgeScopes(provider: ForgeProvider, role: ForgeRole): string[] 
   return [...SCOPES[provider][role]];
 }
 
+/** What the create link pre-checks: the required scopes plus the extras. */
+export function linkScopes(provider: ForgeProvider, role: ForgeRole): string[] {
+  return [...new Set([...forgeScopes(provider, role), ...(LINK_EXTRAS[provider] ?? [])])];
+}
+
 export function tokenField(provider: ForgeProvider, role: ForgeRole): ConnectField {
   return { name: "token", label: `${TITLES[provider]} token`, secret: true, hint: forgeScopes(provider, role).join(", ") };
 }
 
 /** GitHub's link is always github.com: rt's validator dials api.github.com only, so GHE never holds a token here. */
 export function tokenCreateLink(provider: ForgeProvider, role: ForgeRole, host: string | null): { label: string; url: string } {
-  const scopes = forgeScopes(provider, role).join(",");
+  const scopes = linkScopes(provider, role).join(",");
   const params: Record<string, string> = provider === "github" ? { description: TOKEN_NAME, scopes } : { name: TOKEN_NAME, scopes };
   const query = new URLSearchParams(params).toString();
   const page = provider === "github" ? "https://github.com/settings/tokens/new" : `https://${host ?? "gitlab.com"}/-/user_settings/personal_access_tokens`;

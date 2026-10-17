@@ -1,9 +1,29 @@
+import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { herdrStart } from '@mattstack/rt-client';
 import { IS_COMPILED } from '../core/app-root.ts';
 import type { JobAction } from './job-state.ts';
 
-const HERDR_BIN = process.env.HERDR_BIN || join(homedir(), '.local', 'bin', 'herdr');
+/** HERDR_BIN, then the first herdr that exists: the installer's ~/.local/bin,
+    then a Homebrew prefix (Apple silicon, then Intel). */
+export function herdrBin(env: NodeJS.ProcessEnv = process.env, exists: (path: string) => boolean = existsSync): string {
+  if (env.HERDR_BIN) return env.HERDR_BIN;
+  const installed = join(homedir(), '.local', 'bin', 'herdr');
+  return [installed, '/opt/homebrew/bin/herdr', '/usr/local/bin/herdr'].find(exists) ?? installed;
+}
+
+type HerdrStart = () => Promise<{ ok: boolean; data?: { state: string; detail?: string } }>;
+
+/** Asks the rt daemon to start herdr before a launch into it. An unreachable
+    daemon is ignored so the launch fails as it would have without one. */
+export async function ensureHerdr(start: HerdrStart = herdrStart): Promise<void> {
+  const res = await start();
+  if (!res.ok || !res.data) return;
+  if (res.data.state === 'not-installed' || res.data.state === 'failed')
+    throw new Error(res.data.detail ?? "herdr isn't installed. Open mattstack Setup to install it");
+}
+
 const HERDR_SOCKET_PATH = process.env.HERDR_SOCKET_PATH || join(homedir(), '.config', 'herdr', 'herdr.sock');
 
 export type HerdrRunner = (args: string[]) => Promise<string>;
@@ -12,7 +32,7 @@ export type HerdrRunner = (args: string[]) => Promise<string>;
     bin + explicit socket path because the server may run under a minimal
     launchd environment. */
 export const defaultRunner: HerdrRunner = async (args) => {
-  const proc = Bun.spawn([HERDR_BIN, ...args], {
+  const proc = Bun.spawn([herdrBin(), ...args], {
     env: { ...process.env, HERDR_SOCKET_PATH },
     stdout: 'pipe',
     stderr: 'pipe',
@@ -132,7 +152,9 @@ export interface LaunchOpts {
 export async function launchInWorkspace(
   opts: LaunchOpts,
   runner: HerdrRunner = defaultRunner,
+  start?: HerdrStart,
 ): Promise<{ tabId: string; workspaceId: string; focusedExisting: boolean }> {
+  await ensureHerdr(start);
   const workspaceId = findWorkspaceIdByLabel(await runner(['workspace', 'list']), opts.workspaceLabel);
   if (!workspaceId) {
     const created = parseWorkspaceCreate(

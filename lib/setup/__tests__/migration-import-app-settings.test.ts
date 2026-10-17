@@ -54,8 +54,9 @@ describe("2026-10-11-import-app-settings", () => {
   const stores = (key: string) => getSetting(key).provenance.filter((row) => row.scope !== "default").map((row) => row.scope);
 
   test("runs right after the hooks and writing-style import", () => {
-    expect(MIGRATIONS.at(-1)).toBe(importAppSettingsMigration);
-    expect(MIGRATIONS.at(-2)).toBe(importLegacySettingsMigration);
+    const at = MIGRATIONS.indexOf(importAppSettingsMigration);
+    expect(at).toBeGreaterThan(0);
+    expect(MIGRATIONS[at - 1]).toBe(importLegacySettingsMigration);
     expect(importAppSettingsMigration.id).toBe("2026-10-11-import-app-settings");
   });
 

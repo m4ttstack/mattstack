@@ -1,7 +1,9 @@
 // src/herdr.ts
+import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
+import { herdrStart } from '@mattstack/rt-client';
 import {
   startAgentPane,
   type AgentIo,
@@ -14,15 +16,46 @@ import { resolveSkillPath } from './skill-path.ts';
 
 export type HerdrRunner = (args: string[]) => Promise<string>;
 
-const HERDR_BIN =
-  process.env.HERDR_BIN || join(homedir(), '.local', 'bin', 'herdr');
+/** HERDR_BIN, then the first herdr that exists: the installer's
+    ~/.local/bin, then a Homebrew prefix (Apple silicon, then Intel). */
+export function herdrBin(
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync
+): string {
+  if (env.HERDR_BIN) return env.HERDR_BIN;
+  const installed = join(homedir(), '.local', 'bin', 'herdr');
+  return (
+    [installed, '/opt/homebrew/bin/herdr', '/usr/local/bin/herdr'].find(
+      exists
+    ) ?? installed
+  );
+}
+
+type HerdrStart = () => Promise<{
+  ok: boolean;
+  data?: { state: string; detail?: string };
+}>;
+
+/** Asks the rt daemon to start herdr before a launch into it. An unreachable
+    daemon is ignored so the launch fails as it would have without one. */
+export async function ensureHerdr(
+  start: HerdrStart = herdrStart
+): Promise<void> {
+  const res = await start();
+  if (!res.ok || !res.data) return;
+  if (res.data.state === 'not-installed' || res.data.state === 'failed')
+    throw new Error(
+      res.data.detail ??
+        "herdr isn't installed. Open mattstack Setup to install it"
+    );
+}
 const HERDR_SOCKET_PATH =
   process.env.HERDR_SOCKET_PATH ||
   join(homedir(), '.config', 'herdr', 'herdr.sock');
 
 /** Runs the herdr CLI and returns stdout. Absolute binary + socket, since the server runs under a minimal launchd env. */
 export const defaultRunner: HerdrRunner = async args => {
-  const proc = Bun.spawn([HERDR_BIN, ...args], {
+  const proc = Bun.spawn([herdrBin(), ...args], {
     env: { ...process.env, HERDR_SOCKET_PATH },
     stdout: 'pipe',
     stderr: 'pipe',
@@ -403,8 +436,10 @@ async function launchInWorkspace(
   paneCommand: string,
   workspaceKind: string,
   tabLabel: string,
-  runner: HerdrRunner
+  runner: HerdrRunner,
+  start?: HerdrStart
 ): Promise<{ tabId: string; workspaceId: string }> {
+  await ensureHerdr(start);
   const workspaceId = findWorkspaceIdByLabel(
     await runner(['workspace', 'list']),
     opts.workspaceLabel
@@ -587,7 +622,8 @@ export async function launchLegacyResume(
     prompt?: string;
     tabPrefix?: string;
   },
-  runner: HerdrRunner = defaultRunner
+  runner: HerdrRunner = defaultRunner,
+  start?: HerdrStart
 ): Promise<{ tabId: string; workspaceId: string }> {
   return launchInWorkspace(
     opts,
@@ -600,7 +636,8 @@ export async function launchLegacyResume(
     ),
     opts.workspaceKind,
     mrTabLabel(opts.iid, opts.author, opts.tabPrefix ?? '↺'),
-    runner
+    runner,
+    start
   );
 }
 

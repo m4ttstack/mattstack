@@ -11,12 +11,13 @@
  * session (verified on herdr 0.7.5).
  */
 import { homedir } from "os";
-import { join, dirname } from "path";
-import { mkdirSync } from "fs";
+import { join } from "path";
 import type { Logger } from "pino";
 import { herdrAvailable } from "../herdr/client.ts";
 import { resolveHerdrBin, defaultHerdrRunner, launchInWorkspace, type HerdrRunner } from "../agent-herdr.ts";
 import { runCapture } from "../subprocess.ts";
+import { herdrServerEnv, loginShellEnv } from "../herdr/login-env.ts";
+import { spawnDetached } from "../herdr/start.ts";
 
 export const BG_SESSION = "bg";
 
@@ -44,13 +45,6 @@ function envWithoutSocket(extra: Record<string, string>): Record<string, string>
   return { ...env, ...extra };
 }
 
-function plainProcessEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
-  return env;
-}
-
-const ENV_PROBE_KEYS = ["PATH", "HOME", "SHELL", "TMPDIR", "LANG"] as const;
 const PROBE_BINARIES = ["bun", "node", "claude", "rt", "git"] as const;
 const PROBE_CMD = 'zsh -lc "which bun node claude rt git; echo $PATH"';
 
@@ -93,29 +87,22 @@ export async function defaultProbePane(socket: string | null, cmd: string, runne
 
 export function createBgService(opts: {
   log: Logger;
-  spawn?: (argv: string[], env: Record<string, string>, logPath: string) => void;
+  spawn?: (argv: string[], env: Record<string, string>, cwd: string) => void;
+  loginEnv?: () => Promise<Record<string, string>>;
   available?: (sock: string) => Promise<boolean>;
   run?: (argv: string[], env: Record<string, string>) => Promise<{ exitCode: number; stdout: string }>;
   probePane?: (socket: string | null, cmd: string) => Promise<string>;
   home?: string;
-  logDir?: string;
   readyTimeoutMs?: number;
 }): BgService {
   const home = opts.home ?? process.env.HOME ?? homedir();
-  const logDir = opts.logDir ?? join(home, ".mattstack", "rt", "logs");
+  const serverLog = join(home, ".config", "herdr", "herdr-server.log");
   const readyTimeoutMs = opts.readyTimeoutMs ?? 10_000;
   const available = opts.available ?? herdrAvailable;
   const probePane = opts.probePane ?? defaultProbePane;
   const sock = bgSocketPath(home);
-  // Bun.spawn has no detached mode, and launchd kills the daemon's whole
-  // process group on restart. `set -m` makes bash put the background job in
-  // its own process group; nohup keeps it alive past the shell.
-  const spawn = opts.spawn ?? ((argv: string[], env: Record<string, string>, logPath: string) => {
-    mkdirSync(dirname(logPath), { recursive: true });
-    const child = Bun.spawn(argv, { env, stdout: "ignore", stderr: "ignore", stdin: "ignore" });
-    child.unref();
-  });
-  const serverArgv = (bin: string, logPath: string): string[] => ["/bin/bash", "-c", 'set -m; nohup "$0" server >>"$1" 2>&1 &', bin, logPath];
+  const spawn = opts.spawn ?? spawnDetached;
+  const loginEnv = opts.loginEnv ?? (() => loginShellEnv());
   const run = opts.run ?? (async (argv: string[], env: Record<string, string>) => {
     const r = await runCapture([argv[0]!, ...argv.slice(1)], { env, timeoutMs: 15_000, stderr: "pipe" });
     return { exitCode: r.exitCode, stdout: r.stdout || r.stderr };
@@ -127,31 +114,6 @@ export function createBgService(opts: {
   let inFlight: Promise<{ socket: string; started: boolean }> | null = null;
   let lastSpawnAt = 0;
   let lastParityReport: ParityReport | null = null;
-
-  /** Captures a login-shell snapshot so the server's own binary resolution
-      matches the user's terminal, not launchd's minimal env. A probe failure
-      degrades to the daemon's own env rather than blocking the start. */
-  async function seededEnv(): Promise<Record<string, string>> {
-    const base = envWithoutSocket({ HERDR_SESSION: BG_SESSION });
-    let r: { exitCode: number; stdout: string };
-    try {
-      r = await run(["zsh", "-lc", 'printf "%s\\n" "$PATH" "$HOME" "$SHELL" "$TMPDIR" "$LANG"'], plainProcessEnv());
-    } catch (err) {
-      opts.log.warn({ err }, "bg: login-shell env probe threw; starting with the daemon's own env");
-      return base;
-    }
-    if (r.exitCode !== 0) {
-      opts.log.warn({ exitCode: r.exitCode }, "bg: login-shell env probe failed; starting with the daemon's own env");
-      return base;
-    }
-    const lines = r.stdout.split("\n");
-    const seeded = { ...base };
-    ENV_PROBE_KEYS.forEach((key, i) => {
-      const v = lines[i];
-      if (v) seeded[key] = v;
-    });
-    return seeded;
-  }
 
   /** Sequential, not Promise.all: defaultProbePane spawns its throwaway pane
       into a shared "bg-probe" workspace label, so running both probes
@@ -170,14 +132,15 @@ export function createBgService(opts: {
 
   async function launch(): Promise<{ socket: string; started: boolean }> {
     if (await available(sock)) return { socket: sock, started: false };
-    const logPath = join(logDir, "bg-service.log");
     const sinceSpawn = Date.now() - lastSpawnAt;
     if (lastSpawnAt > 0 && sinceSpawn < SPAWN_COOLDOWN_MS) {
-      throw new Error(`bg server was spawned ${Math.round(sinceSpawn / 1000)}s ago and has not bound yet; see ${logPath}`);
+      throw new Error(`bg server was spawned ${Math.round(sinceSpawn / 1000)}s ago and has not bound yet; see ${serverLog}`);
     }
     lastSpawnAt = Date.now();
-    const env = await seededEnv();
-    spawn(serverArgv(resolveHerdrBin(), logPath), env, logPath);
+    const login = await loginEnv();
+    if (!login.PATH) opts.log.warn("bg: login-shell env unavailable; starting with the daemon's own PATH");
+    const env = herdrServerEnv(process.env, login, { HERDR_SESSION: BG_SESSION });
+    spawn([resolveHerdrBin(), "server"], env, home);
     const deadline = Date.now() + readyTimeoutMs;
     while (Date.now() < deadline) {
       if (await available(sock)) {
@@ -190,7 +153,7 @@ export function createBgService(opts: {
       }
       await Bun.sleep(100);
     }
-    throw new Error(`bg server did not come up within ${readyTimeoutMs}ms (socket ${sock}); see ${logPath}`);
+    throw new Error(`bg server did not come up within ${readyTimeoutMs}ms (socket ${sock}); see ${serverLog}`);
   }
 
   return {

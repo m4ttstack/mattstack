@@ -121,7 +121,7 @@ describe("convergePackCache", () => {
     expect(execs.every((a) => a[2] === "list")).toBe(true);
   });
 
-  test("a pack the listing does not carry is installed, then disabled", async () => {
+  test("a pack the listing does not carry is installed and turned on, never disabled", async () => {
     const { p, execs } = probesWith(
       { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.5.28") },
       (argv) => {
@@ -133,7 +133,26 @@ describe("convergePackCache", () => {
     const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.installed).toEqual(["acme-skills@acme-market"]);
     const verbs = execs.filter((a) => a[1] === "plugin").map((a) => a[2]);
-    expect(verbs).toEqual(["list", "update", "install", "disable"]);
+    expect(verbs).toEqual(["list", "update", "install", "enable"]);
+    expect(execs.find((a) => a[2] === "enable")?.at(-1)).toBe("acme-skills@acme-market");
+  });
+
+  test("a failed enable leaves the newly installed pack installed and logs why", async () => {
+    const warnings: string[] = [];
+    const log = { info: () => {}, warn: (_o: unknown, msg: string) => warnings.push(msg), error: () => {} } as never;
+    const { p } = probesWith(
+      { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.5.28") },
+      (argv) => {
+        if (argv.includes("list")) return listing([]);
+        if (argv.includes("update")) return { code: 1, stdout: "", stderr: 'Plugin "acme-skills" not found' };
+        if (argv.includes("enable")) return { code: 1, stdout: "", stderr: "settings.json is not writable" };
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    );
+    const result = await convergePackCache(p, "acme", log, ACTIVE);
+    expect(result.installed).toEqual(["acme-skills@acme-market"]);
+    expect(result.failed).toEqual([]);
+    expect(warnings).toContain("pack enable failed");
   });
 
   test("a claude that phrases update's absence as 'is not installed' still settles the pack", async () => {
@@ -149,7 +168,7 @@ describe("convergePackCache", () => {
     expect(result.installed).toEqual(["acme-skills@acme-market"]);
     expect(result.failed).toEqual([]);
     const verbs = execs.filter((a) => a[1] === "plugin").map((a) => a[2]);
-    expect(verbs).toEqual(["list", "update", "install", "disable"]);
+    expect(verbs).toEqual(["list", "update", "install", "enable"]);
   });
 
   test("a null served version is skipped whether or not it is listed", async () => {

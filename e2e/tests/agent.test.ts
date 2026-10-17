@@ -2,6 +2,14 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createTestHome, RT_BINARY } from "../harness.ts";
+import { fakeHerdr, HerdrFakeError } from "../../lib/herdr/__tests__/fake-herdr.ts";
+
+/** Answers only the readiness ping, so a launch finds herdr running and never
+    starts the shim as a server; every other call reads as unreachable, as it
+    did with no socket at all. */
+function herdrPingSocket() {
+  return fakeHerdr((method) => (method === "session.snapshot" ? {} : new HerdrFakeError("unreachable", "no server")));
+}
 
 /**
  * rt agent e2e ... compiled binary, daemon, and state.db against a fake
@@ -137,9 +145,11 @@ describe("rt agent (handoff e2e)", () => {
   let cleanup: () => void;
   let herdrLog: string;
   let daemon: ReturnType<typeof runRt>;
+  let herdrSock: ReturnType<typeof herdrPingSocket>;
 
   beforeAll(async () => {
     ({ path: home, cleanup } = createTestHome());
+    herdrSock = herdrPingSocket();
     const binDir = join(home, ".local", "bin");
     mkdirSync(binDir, { recursive: true });
     const herdrBin = join(binDir, "herdr");
@@ -154,6 +164,7 @@ describe("rt agent (handoff e2e)", () => {
       HERDR_BIN: herdrBin,
       FAKE_HERDR_LOG: herdrLog,
       FAKE_HERDR_STATE: herdrState,
+      HERDR_SOCKET_PATH: herdrSock.sock,
     });
     await waitForSocket(join(home, ".mattstack", "rt", "rt.sock"));
     if (daemon.exitCode !== null) {
@@ -166,6 +177,7 @@ describe("rt agent (handoff e2e)", () => {
       try { child.kill(); } catch { /* already gone */ }
     }
     await Promise.all(children.map((c) => c.exited));
+    herdrSock.stop();
     cleanup();
   });
 
@@ -223,9 +235,11 @@ describe("rt agent (daemon-down fallback)", () => {
   let cleanup: () => void;
   let herdrLog: string;
   let herdrEnv: Record<string, string>;
+  let herdrSock: ReturnType<typeof herdrPingSocket>;
 
   beforeAll(() => {
     ({ path: home, cleanup } = createTestHome());
+    herdrSock = herdrPingSocket();
     const binDir = join(home, ".local", "bin");
     mkdirSync(binDir, { recursive: true });
     const herdrBin = join(binDir, "herdr");
@@ -236,10 +250,13 @@ describe("rt agent (daemon-down fallback)", () => {
     mkdirSync(herdrState, { recursive: true });
     // No daemon is started for this HOME, so isDaemonRunning() resolves
     // false and the CLI itself shells out to herdr in the fallback path.
-    herdrEnv = { HERDR_BIN: herdrBin, FAKE_HERDR_LOG: herdrLog, FAKE_HERDR_STATE: herdrState };
+    herdrEnv = { HERDR_BIN: herdrBin, FAKE_HERDR_LOG: herdrLog, FAKE_HERDR_STATE: herdrState, HERDR_SOCKET_PATH: herdrSock.sock };
   });
 
-  afterAll(() => cleanup());
+  afterAll(() => {
+    herdrSock.stop();
+    cleanup();
+  });
 
   test("herdr start records with no daemon, and show reads it back", async () => {
     const start = await finished(runRt(["agent", "start", "--repo", home, "--surface", "herdr", "--prompt", "hi", "--json"], home, herdrEnv));

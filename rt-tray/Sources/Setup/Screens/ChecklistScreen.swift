@@ -92,6 +92,7 @@ struct ChecklistScreen: View {
                 return failure
             }
         }
+        .environment(\.repoPlacementAnswer, { row, mode, path in placeRepo(row, mode: mode, path: path) })
         // .contain: without it, the footer HStack's only interactive child
         // (Re-check) reports THIS screen-level identifier instead of its own
         // -- same fix as InstallScreen's stepRow.
@@ -286,7 +287,17 @@ struct ChecklistScreen: View {
         run(RowActionDispatcher.dispatch(action, fieldValues: nil, alternative: nil), for: row)
     }
 
-    private func run(_ dispatched: DispatchedAction, for row: PlanRow) {
+    /// rt's `then` (indexing or cloning what was just placed) runs only once the pick is recorded, exactly as a `run` action's verb would.
+    private func placeRepo(_ row: PlanRow, mode: String, path: String) {
+        guard let action = row.action else { return }
+        actionErrors[row.id] = nil
+        run(RowActionDispatcher.dispatch(action, fieldValues: ["mode": mode, "path": path], alternative: nil), for: row) {
+            guard let then = action.then, !then.isEmpty else { return }
+            run(RowActionDispatcher.dispatch(RowAction(type: .run, label: action.label, verb: then), fieldValues: nil, alternative: nil), for: row)
+        }
+    }
+
+    private func run(_ dispatched: DispatchedAction, for row: PlanRow, onSuccess: (() -> Void)? = nil) {
         switch dispatched {
         case .openSettings(let target):
             permissions.openSettings(target)
@@ -337,6 +348,8 @@ struct ChecklistScreen: View {
                 if let failure { recordFailure(failure, for: row) }
                 await model.afterAction(rowId: row.id)
                 restampFailure(failure, for: row)
+                // A task of its own, so it starts after this one's deferred endChecking and its own spinner is not cleared by it.
+                if failure == nil, let onSuccess { Task { onSuccess() } }
             }
         case .chooseFolder(let startAt):
             guard let action = row.action else { return }
@@ -357,6 +370,9 @@ struct ChecklistScreen: View {
             connect = (row, fields, alternatives, create)
         case .chooseOption:
             choose = row
+        case .placeRepo(let action):
+            guard let mode = action.mode, let path = RepoPlacementPanel.pick(mode: mode, action: action) else { return }
+            placeRepo(row, mode: mode, path: path)
         case .none:
             break
         }

@@ -1495,6 +1495,26 @@ describe("ApplyContext.redact", () => {
 
     expect(events).toEqual([{ event: "log", id: "team.join", line: "key=***" }]);
   });
+
+  test("a progress report is a progress event, its note redacted like a log line", async () => {
+    const events: ApplyEvent[] = [];
+    const ctx = await createApplyContext({
+      probes: fakeProbes(),
+      emit: (ev) => events.push(ev),
+      secrets: fakeSecrets,
+      relay: fakeRelay,
+      flags: { nonInteractive: false, teamOfOne: false, ci: false },
+    });
+    ctx.redact("sekrit");
+
+    ctx.progress?.("repos.clone", { label: "Receiving objects", percent: 42, note: "sekrit 1.21 GiB" });
+    ctx.progress?.("repos.clone", { label: "Resolving deltas", percent: 100 });
+
+    expect(events).toEqual([
+      { event: "progress", id: "repos.clone", label: "Receiving objects", percent: 42, note: "*** 1.21 GiB" },
+      { event: "progress", id: "repos.clone", label: "Resolving deltas", percent: 100 },
+    ]);
+  });
 });
 
 function fakeMigration(id: string, outcome: StepOutcome | (() => Promise<StepOutcome>)): MigrationDef {

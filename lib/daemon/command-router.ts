@@ -31,6 +31,8 @@ import { createHerdHandlers, type HerdDeps } from "./handlers/herd.ts";
 import { createBgHandlers } from "./handlers/bg.ts";
 import { createChatHandlers } from "./handlers/chat.ts";
 import { createAgentHandlers } from "./handlers/agent.ts";
+import { createHerdrHandlers } from "./handlers/herdr.ts";
+import { startHerdr } from "../herdr/start.ts";
 import { createPaneHandlers } from "./handlers/pane.ts";
 import type { RelocationWatcher } from "./relocation-announce.ts";
 import { createEndpointHandlers } from "./handlers/endpoint.ts";
@@ -169,6 +171,7 @@ export function buildRoutedHandlers(opts: {
   const agentHandlers = createAgentHandlers({
     db: opts.stateDb, emitEvent, log: ctx.log,
     bg: opts.bgService, bgClaims: opts.bgClaims, lifecycle: opts.herdLifecycle,
+    startHerdr,
   });
   const worktreeHandlers = createWorktreeHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log }, opts.worktree);
   const worktreeTriageHandlers = createWorktreeTriageHandlers(
@@ -283,6 +286,7 @@ export function buildRoutedHandlers(opts: {
     ...createReposHandlers({ ...opts.repos, emitEvent }),
     ...createOrgHandlers({ ...opts.repos, emitEvent, teamSnapshots: opts.teamSnapshots }),
     ...createGitStatusHandlers({ store: opts.gitBadges, sweep: opts.gitStatusSweep }),
+    ...createHerdrHandlers({ start: startHerdr }),
 
     // Applies repo-tracking edits immediately (rt daemon track <repo>
     // live|poll|off) instead of waiting for the next refresh-tail reconcile.

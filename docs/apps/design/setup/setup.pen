@@ -19857,6 +19857,1168 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "EPbUi",
+      "x": 920,
+      "y": 5058,
+      "name": "R · Your repos: Current checkout / New checkout per repo",
+      "clip": true,
+      "width": 720,
+      "fill": "#F5F5F7",
+      "cornerRadius": 12,
+      "stroke": "#C7C7CC",
+      "strokeWidth": 1,
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "oaLeZ",
+          "name": "Title bar",
+          "width": "fill_container",
+          "fill": "#ECECEE",
+          "gap": 8,
+          "padding": [
+            10,
+            14
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "ellipse",
+              "id": "Hx3CR",
+              "name": "Light",
+              "fill": "#C7C7CC",
+              "width": 12,
+              "height": 12
+            },
+            {
+              "type": "ellipse",
+              "id": "QzjMi",
+              "name": "Light",
+              "fill": "#C7C7CC",
+              "width": 12,
+              "height": 12
+            },
+            {
+              "type": "ellipse",
+              "id": "jSa3N",
+              "name": "Light",
+              "fill": "#C7C7CC",
+              "width": 12,
+              "height": 12
+            },
+            {
+              "type": "text",
+              "id": "gnaQC",
+              "name": "  mattstack Setup",
+              "fill": "#4A4A4F",
+              "content": "  mattstack Setup",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "BKGAm",
+          "name": "Header",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "padding": [
+            14,
+            20,
+            10,
+            20
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "MIVNC",
+              "name": "Your Mac",
+              "fill": "#1D1D1F",
+              "content": "Your repos",
+              "fontFamily": "Inter",
+              "fontSize": 17,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "FLykA",
+              "name": "Spacer",
+              "width": "fill_container",
+              "height": 1
+            },
+            {
+              "type": "text",
+              "id": "KeSzh",
+              "name": "Step 3 of 10",
+              "fill": "#6E6E73",
+              "content": "Step 4 of 10",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "a9atIu",
+          "name": "Progress",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "stroke": "#E3E3E6",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "gap": 4,
+          "padding": [
+            0,
+            20,
+            12,
+            20
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "rCOdX",
+              "name": "Segment 1",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#34C759",
+              "cornerRadius": 2
+            },
+            {
+              "type": "frame",
+              "id": "eJUvS",
+              "name": "Segment 2",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#34C759",
+              "cornerRadius": 2
+            },
+            {
+              "type": "frame",
+              "id": "rNn5w",
+              "name": "Segment 3",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#34C759",
+              "cornerRadius": 2
+            },
+            {
+              "type": "frame",
+              "id": "KHjGv",
+              "name": "Segment 4",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#007AFF",
+              "cornerRadius": 2
+            },
+            {
+              "type": "frame",
+              "id": "m4eCK",
+              "name": "Segment 5",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#E3E3E6",
+              "cornerRadius": 2
+            },
+            {
+              "type": "frame",
+              "id": "T0m4p",
+              "name": "Segment 6",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#E3E3E6",
+              "cornerRadius": 2
+            },
+            {
+              "type": "frame",
+              "id": "FKl5c",
+              "name": "Segment 7",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#E3E3E6",
+              "cornerRadius": 2
+            },
+            {
+              "type": "frame",
+              "id": "SUNRV",
+              "name": "Segment 8",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#E3E3E6",
+              "cornerRadius": 2
+            },
+            {
+              "type": "frame",
+              "id": "Jtd8N",
+              "name": "Segment 9",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#E3E3E6",
+              "cornerRadius": 2
+            },
+            {
+              "type": "frame",
+              "id": "kKJvc",
+              "name": "Segment 10",
+              "width": "fill_container",
+              "height": 4,
+              "fill": "#E3E3E6",
+              "cornerRadius": 2
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "xrKE0",
+          "name": "Body",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 12,
+          "padding": [
+            14,
+            20
+          ],
+          "children": [
+            {
+              "type": "text",
+              "id": "T52DX",
+              "name": "Lead",
+              "fill": "#6E6E73",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "rt works inside your team's repos. Show it the checkouts you already have, and it clones the rest wherever you say.",
+              "lineHeight": 1.35,
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "ZCZxM",
+              "name": "Needs you",
+              "clip": true,
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 10,
+              "stroke": "#E3E3E6",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "kuhse",
+                  "name": "Card header",
+                  "width": "fill_container",
+                  "fill": "#FAFAFB",
+                  "stroke": "#E3E3E6",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 8,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "h5x2Bi",
+                      "name": "Icon triangle-alert",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "folder-git-2",
+                      "library": "lucide",
+                      "fill": "#6E6E73"
+                    },
+                    {
+                      "type": "text",
+                      "id": "bwftK",
+                      "name": "Needs you",
+                      "fill": "#1D1D1F",
+                      "content": "Your team's repos",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "XvXWQ",
+                      "name": "Spacer",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "text",
+                      "id": "RyrYJ",
+                      "name": "2 required · 2 optional",
+                      "fill": "#8E8E93",
+                      "content": "1 found · 1 to clone",
+                      "fontFamily": "Inter",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "bAzX4",
+                  "name": "Repo widgets",
+                  "width": "fill_container",
+                  "stroke": "#E3E3E6",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": [
+                    12,
+                    14
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "xLcXk",
+                      "name": "Title line",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "NOHzX",
+                          "name": "State icon",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "circle-check",
+                          "library": "lucide",
+                          "fill": "#34C759"
+                        },
+                        {
+                          "type": "text",
+                          "id": "pg07g",
+                          "name": "Repo",
+                          "fill": "#1D1D1F",
+                          "content": "widgets",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "uIN2u",
+                          "name": "Host",
+                          "fill": "#8E8E93",
+                          "content": "gitlab.com/acme",
+                          "fontFamily": "Inter",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "mp3nV",
+                          "name": "Spacer",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "KxwGx",
+                          "name": "Fork",
+                          "fill": "#E9E9EB",
+                          "cornerRadius": 7,
+                          "gap": 2,
+                          "padding": 2,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "nEs4Z",
+                              "name": "Current checkout (selected)",
+                              "fill": "#FFFFFF",
+                              "cornerRadius": 5,
+                              "effect": {
+                                "type": "shadow",
+                                "shadowType": "outer",
+                                "color": "#0000001F",
+                                "offset": {
+                                  "x": 0,
+                                  "y": 1
+                                },
+                                "blur": 2
+                              },
+                              "padding": [
+                                4,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "j05xH",
+                                  "name": "Label",
+                                  "fill": "#1D1D1F",
+                                  "content": "Current checkout",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "K6fu2",
+                              "name": "New checkout",
+                              "fill": "#00000000",
+                              "cornerRadius": 5,
+                              "padding": [
+                                4,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "eEdU0",
+                                  "name": "Label",
+                                  "fill": "#3A3A3C",
+                                  "content": "New checkout",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "a4MIh",
+                      "name": "Path line",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "kf9cE",
+                          "name": "Path field",
+                          "width": "fill_container",
+                          "fill": "#F5F5F7",
+                          "cornerRadius": 6,
+                          "stroke": "#E3E3E6",
+                          "strokeWidth": 1,
+                          "padding": [
+                            5,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "U5ahe",
+                              "name": "Path",
+                              "fill": "#1D1D1F",
+                              "content": "~/code/widgets",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "vVCoP",
+                          "name": "Locate button",
+                          "fill": "#FFFFFF",
+                          "cornerRadius": 6,
+                          "stroke": "#D1D1D6",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "a7bau",
+                              "name": "Label",
+                              "fill": "#1D1D1F",
+                              "content": "Locate…",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "o08ZAd",
+                      "name": "Note",
+                      "fill": "#248A3D",
+                      "content": "Found your widgets checkout",
+                      "fontFamily": "Inter",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "i0yS1",
+                  "name": "Repo acme-api",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": [
+                    12,
+                    14
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "jJiD5",
+                      "name": "Title line",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "rIGUy",
+                          "name": "State icon",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "download",
+                          "library": "lucide",
+                          "fill": "#007AFF"
+                        },
+                        {
+                          "type": "text",
+                          "id": "yLMvT",
+                          "name": "Repo",
+                          "fill": "#1D1D1F",
+                          "content": "acme-api",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "gDz6t",
+                          "name": "Host",
+                          "fill": "#8E8E93",
+                          "content": "gitlab.com/acme",
+                          "fontFamily": "Inter",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Y4s2h",
+                          "name": "Spacer",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "idoIm",
+                          "name": "Fork",
+                          "fill": "#E9E9EB",
+                          "cornerRadius": 7,
+                          "gap": 2,
+                          "padding": 2,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "JxNmf",
+                              "name": "Current checkout",
+                              "fill": "#00000000",
+                              "cornerRadius": 5,
+                              "padding": [
+                                4,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "cHZKR",
+                                  "name": "Label",
+                                  "fill": "#3A3A3C",
+                                  "content": "Current checkout",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Vpjon",
+                              "name": "New checkout (selected)",
+                              "fill": "#FFFFFF",
+                              "cornerRadius": 5,
+                              "effect": {
+                                "type": "shadow",
+                                "shadowType": "outer",
+                                "color": "#0000001F",
+                                "offset": {
+                                  "x": 0,
+                                  "y": 1
+                                },
+                                "blur": 2
+                              },
+                              "padding": [
+                                4,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "gBBzM",
+                                  "name": "Label",
+                                  "fill": "#1D1D1F",
+                                  "content": "New checkout",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "LcEUj",
+                      "name": "Path line",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "u0FEX",
+                          "name": "Path field",
+                          "width": "fill_container",
+                          "fill": "#F5F5F7",
+                          "cornerRadius": 6,
+                          "stroke": "#E3E3E6",
+                          "strokeWidth": 1,
+                          "padding": [
+                            5,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B8iEL",
+                              "name": "Path",
+                              "fill": "#1D1D1F",
+                              "content": "~/code/acme-api",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "jrtXy",
+                          "name": "Choose location button",
+                          "fill": "#FFFFFF",
+                          "cornerRadius": 6,
+                          "stroke": "#D1D1D6",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "hd1vD",
+                              "name": "Label",
+                              "fill": "#1D1D1F",
+                              "content": "Choose location…",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "aRwWz",
+                      "name": "Note",
+                      "fill": "#6E6E73",
+                      "content": "rt clones it here when you click Install",
+                      "fontFamily": "Inter",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "yG3AO",
+          "name": "Footer",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "stroke": "#E3E3E6",
+          "strokeWidth": {
+            "top": 1
+          },
+          "layout": "vertical",
+          "children": [
+            {
+              "type": "frame",
+              "id": "uQeLS",
+              "name": "Status line",
+              "width": "fill_container",
+              "stroke": "#E3E3E6",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "padding": [
+                8,
+                20
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Y7wmS5",
+                  "name": "Status",
+                  "fill": "#6E6E73",
+                  "content": "Every repo has a place. Install clones acme-api.",
+                  "fontFamily": "Inter",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "CArwe",
+                  "name": "Spacer",
+                  "width": "fill_container",
+                  "height": 1
+                },
+                {
+                  "type": "frame",
+                  "id": "KvTuL",
+                  "name": "Re-check button",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 6,
+                  "stroke": "#D1D1D6",
+                  "strokeWidth": 1,
+                  "padding": [
+                    4,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "oVc4a",
+                      "name": "Re-check",
+                      "fill": "#1D1D1F",
+                      "content": "Re-check",
+                      "fontFamily": "Inter",
+                      "fontSize": 11,
+                      "fontWeight": "500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "gYpY7",
+              "name": "Actions",
+              "width": "fill_container",
+              "gap": 8,
+              "padding": [
+                12,
+                20
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "hNqqq",
+                  "name": "Spacer",
+                  "width": "fill_container",
+                  "height": 1
+                },
+                {
+                  "type": "frame",
+                  "id": "f6jWcC",
+                  "name": "Back button",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 6,
+                  "stroke": "#D1D1D6",
+                  "strokeWidth": 1,
+                  "padding": [
+                    5,
+                    14
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "G6H8B",
+                      "name": "Back",
+                      "fill": "#1D1D1F",
+                      "content": "Back",
+                      "fontFamily": "Inter",
+                      "fontSize": 11,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "yd5mS",
+                  "name": "Continue button",
+                  "fill": "#007AFF",
+                  "cornerRadius": 6,
+                  "padding": [
+                    5,
+                    14
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "mg3rw",
+                      "name": "Continue",
+                      "fill": "#FFFFFF",
+                      "content": "Continue",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "S95lm",
+      "x": 1760,
+      "y": 5058,
+      "name": "R · Install: Clone your repos with git's progress",
+      "width": 720,
+      "fill": "#F5F5F7",
+      "cornerRadius": 12,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 20,
+      "children": [
+        {
+          "type": "text",
+          "id": "KcNOg",
+          "name": "Header",
+          "fill": "#6E6E73",
+          "content": "Installing… nothing runs that isn't listed here.",
+          "fontFamily": "Inter",
+          "fontSize": 11,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "a5XnC",
+          "name": "Steps",
+          "clip": true,
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 10,
+          "stroke": "#E3E3E6",
+          "strokeWidth": 1,
+          "layout": "vertical",
+          "children": [
+            {
+              "type": "frame",
+              "id": "lPCfD",
+              "name": "Join your team",
+              "width": "fill_container",
+              "stroke": "#E3E3E6",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "layout": "vertical",
+              "gap": 6,
+              "padding": [
+                10,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "LQis6",
+                  "name": "Head",
+                  "width": "fill_container",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "obuhi",
+                      "name": "Status",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "circle-check",
+                      "library": "lucide",
+                      "fill": "#34C759"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "b0unI",
+                      "name": "Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "MHbqG",
+                          "name": "Title",
+                          "fill": "#1D1D1F",
+                          "content": "Join your team",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "cwSb6",
+                          "name": "Detail",
+                          "fill": "#6E6E73",
+                          "content": "Joined acme",
+                          "fontFamily": "Inter",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "QGCrc",
+              "name": "Clone your repos",
+              "width": "fill_container",
+              "stroke": "#E3E3E6",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "layout": "vertical",
+              "gap": 6,
+              "padding": [
+                10,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "d9Va6W",
+                  "name": "Head",
+                  "width": "fill_container",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "haN6i",
+                      "name": "Status",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "loader",
+                      "library": "lucide",
+                      "fill": "#8E8E93"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "BC3j5",
+                      "name": "Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "AtGTF",
+                          "name": "Title",
+                          "fill": "#1D1D1F",
+                          "content": "Clone your repos",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "q8a7uC",
+                          "name": "Detail",
+                          "fill": "#6E6E73",
+                          "content": "Cloning acme-api (2 of 2) · widgets was already on this Mac",
+                          "fontFamily": "Inter",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Yw9vw",
+                  "name": "Progress",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "padding": [
+                    0,
+                    0,
+                    2,
+                    26
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "vcaai",
+                      "name": "Track",
+                      "width": "fill_container",
+                      "height": 6,
+                      "fill": "#E3E3E6",
+                      "cornerRadius": 3,
+                      "layout": "none",
+                      "children": [
+                        {
+                          "type": "rectangle",
+                          "cornerRadius": 3,
+                          "id": "g4oid",
+                          "x": 0,
+                          "y": 0,
+                          "name": "Fill",
+                          "fill": "#007AFF",
+                          "width": 268,
+                          "height": 6
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Ettch",
+                      "name": "Label line",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "XKV6d",
+                          "name": "Phase",
+                          "fill": "#6E6E73",
+                          "content": "Receiving objects 42%",
+                          "fontFamily": "Inter",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ntUGw",
+                          "name": "Spacer",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "text",
+                          "id": "oxqqU",
+                          "name": "Size",
+                          "fill": "#8E8E93",
+                          "content": "1.21 GiB · 18.4 MiB/s",
+                          "fontFamily": "Inter",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "VynKv",
+              "name": "Set up the board",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 6,
+              "padding": [
+                10,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "SAar6",
+                  "name": "Head",
+                  "width": "fill_container",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "oGTAa",
+                      "name": "Status",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "circle-dashed",
+                      "library": "lucide",
+                      "fill": "#C7C7CC"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "NzOYV",
+                      "name": "Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "RePbG",
+                          "name": "Title",
+                          "fill": "#1D1D1F",
+                          "content": "Set up the board",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "fileToken": "1b96926a-7f4e-4f73-aad1-8c61feb41b2f"

@@ -5,9 +5,13 @@ struct RowIDs {
     let row: (String) -> String
     let action: (String) -> String
     let status: (String) -> String
-    static let checklist = RowIDs(row: AXID.checklistRow, action: AXID.checklistRowAction, status: AXID.checklistRowStatus)
+    let segment: (String) -> String
+    let oneClick: (String) -> String
+    static let checklist = RowIDs(row: AXID.checklistRow, action: AXID.checklistRowAction, status: AXID.checklistRowStatus,
+                                  segment: AXID.checklistRowSegment, oneClick: AXID.checklistRowOneClick)
     static let beforeYouFinish = RowIDs(row: AXID.doneBeforeYouFinishRow, action: AXID.doneBeforeYouFinishRowAction,
-                                        status: AXID.doneBeforeYouFinishRowStatus)
+                                        status: AXID.doneBeforeYouFinishRowStatus, segment: AXID.doneBeforeYouFinishRowSegment,
+                                        oneClick: AXID.doneBeforeYouFinishRowOneClick)
 }
 
 struct RowActivity {
@@ -221,6 +225,15 @@ struct SectionRow: View {
     private var isBroken: Bool { row.status == .error || row.status == .invalid }
 
     var body: some View {
+        if let action = row.action, action.type == .placeRepo {
+            RepoPlacementRow(row: row, action: action, badge: badge, context: context, isChecking: isChecking,
+                             error: activity.errors[row.id], ids: ids)
+        } else {
+            plainRow
+        }
+    }
+
+    private var plainRow: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 heading
@@ -281,6 +294,15 @@ struct SettledRow: View {
     let error: String?
     let perform: (PlanRow) -> Void
     var body: some View {
+        // A ready repo row still offers its segment and Locate…, so it is never folded to one line.
+        if let action = row.action, action.type == .placeRepo {
+            RepoPlacementRow(row: row, action: action, isChecking: isChecking, error: error, ids: .checklist)
+        } else {
+            plainRow
+        }
+    }
+
+    private var plainRow: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
                 Text(row.title).font(.callout)

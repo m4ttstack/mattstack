@@ -73,6 +73,9 @@ Defended:
   inattention, not a convincing lookalike: a human copies what they see, and
   `login-example.com` reads like `login.example.com`.
 
+  Update 2026-10-16: the typed host was replaced by typing the password
+  twice; see `2026-10-16-install-cleanup-design.md` section 4.
+
 Not defended, stated so nobody assumes otherwise:
 
 - **The agent, or a page steering it, deliberately extracting a value by

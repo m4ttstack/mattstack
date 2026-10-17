@@ -152,17 +152,19 @@ case "$AP" in
   *) bad "mattstack.appPath is not the canonical path (wanted /Applications/mattstack.app): $AP";;
 esac
 
-# repos.root: renders only when a team is being joined or a team on this
-# machine already tracks repos, so it is absent in headless and no-team runs.
-# drive-setup.sh answers it before Continue when it runs at all; absence here
-# is a stated pass, not a failure.
+# repos.place:<identity>: one row per repo the team tracks, so none in
+# headless and no-team runs; absence is a stated pass, not a failure. After
+# Install every one must be in place (cloned or found).
 JQ_ROOT=/Applications/mattstack.app/Contents/Helpers/jq
-ROOT_STATUS=$([ -x "$JQ_ROOT" ] && rt setup status --json 2>/dev/null | tail -1 | "$JQ_ROOT" -r '.groups[].rows[]|select(.id=="repos.root")|.status' 2>/dev/null)
-case "$ROOT_STATUS" in
-  ready) ok "repos.root ready";;
-  "")    ok "repos.root row absent (no team tracked, or headless)";;
-  *)     bad "repos.root present but not ready: $ROOT_STATUS";;
-esac
+REPO_ROWS=$([ -x "$JQ_ROOT" ] && rt setup status --json 2>/dev/null | tail -1 | "$JQ_ROOT" -r '.groups[].rows[]|select(.id|startswith("repos.place:"))|"\(.id) \(.status)"' 2>/dev/null)
+REPO_ROWS_WAITING=$(printf '%s\n' "$REPO_ROWS" | grep -v ' ready$')
+if [ -z "$REPO_ROWS" ]; then
+  ok "no repos.place rows (no team tracked, or headless)"
+elif [ -n "$REPO_ROWS_WAITING" ]; then
+  bad "repos.place rows not ready: $(printf '%s\n' "$REPO_ROWS_WAITING" | tr '\n' ' ')"
+else
+  ok "repos.place rows ready ($(printf '%s\n' "$REPO_ROWS" | wc -l | tr -d ' '))"
+fi
 
 # daemon registered + running under the canonical label
 launchctl print "gui/$(id -u)/com.mattstack.daemon" > "$LOGS/launchctl.txt" 2>&1
