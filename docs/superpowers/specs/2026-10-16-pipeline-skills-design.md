@@ -97,14 +97,21 @@ every gate and every judgment step keeps its own section.
 ### work (the orchestrator)
 
 ```
-Request -> Request names existing work?
-  no: new work            -> run_enter {flags, skillDir, ticket?, spawnedBy?, fresh: true}
-  yes, or a runId in context -> run_enter {flags, skillDir, resume?: <runId>, spawnedBy?}
+Request -> A run id in context? -> yes: run_enter {flags, skillDir, resume: <runId>, spawnedBy?}
+        -> no: Request names existing work?
+  no: new work -> run_enter {flags, skillDir, ticket?, spawnedBy?, fresh: true}
+  yes          -> run_list {repo, pipelines} -> Newest running run? -> Gate clarify (AskUserQuestion only)
+                  resume -> run_enter {..., resume: <id>};  fresh -> run_enter {..., fresh: true};  hold -> Held
 run_enter result?
-  candidates -> Gate clarify (AskUserQuestion only) -> resume <id> / fresh / hold
   started    -> Ticket named? -> Tracker In Progress -> Account pick? -> run_decision account-pool@1
-  resumed    -> At a failed row? done last row? running row?
+  resumed    -> At which row? failed -> failure gate; done -> close; running -> waiting-gate on the run?
   error      -> STOP: report the tool's message
+Resumed into a running stage:
+  run_field_get {key: waiting-gate} -> set? -> gate_reconcile {id, runDb, stage}
+    answered -> Re-enter the stage at that gate's site, acting on the recorded answer
+    open     -> Re-enter the stage holding at that gate (relaunch rt gate wait, end the turn)
+    closed   -> Read the stage file from the top
+  not set -> Read the stage file from the top
 Read the stage file at the position and follow it  (box)
 How did the stage file end?
   returned                 -> run_next {runDb, stage}
@@ -129,13 +136,27 @@ run_resolve applied?
   run that never got one, where `runDb` (inherit) would write nothing and
   leave `run_next` refusing. `spawnedBy` makes `run_enter` start fresh
   without listing candidates, so an unattended pane never asks clarify.
+- **Candidates come from `run_list`, not `run_enter`.** `run_enter`'s
+  candidate scan filters on work type alone, and every work verb records
+  work type `work` (per-pipeline bindings), so its list would offer a
+  feature run to a bugfix verb. `run_list {repo, pipelines:
+  {{run-list.pipelines}}}` keeps today's pipeline filter. `work` always
+  passes `resume` or `fresh: true`, so `run_enter`'s candidates mode is
+  never reached.
 - **clarify** stays AskUserQuestion only (no run yet). Options: the
-  newest candidate (Recommended), Start fresh, Hold; its answer re-calls
-  `run_enter` with `resume` or `fresh: true`.
-- **Resumed.** `at.status` routes: `running` reads `at.file` and follows
-  the stage; `failed` reopens that stage's failure gate (attempt =
-  `at.attempt`); `done` (only the last stage can be done with nothing
-  running) opens close.
+  newest running run (Recommended), Start fresh, Hold.
+- **Resumed.** `at.status` routes: `failed` reopens that stage's failure
+  gate (attempt = `at.attempt`); `done` (only the last stage can be done
+  with nothing running) opens close; `running` checks `waiting-gate`
+  first. Adopting the attempt keeps its `started_at`, so a `waiting-gate`
+  armed before the session died still counts for `run_next`; left alone,
+  a re-asked gate under a new id would never clear it and the stage would
+  read `waiting` forever. `gate_reconcile` on the armed id settles it:
+  answered (recorded, marker cleared) re-enters the stage at the site
+  whose scope that gate carries and acts on the recorded answer, so a
+  decided question stays decided; open re-enters the stage holding at
+  that gate (one background `rt gate wait`, end the turn); closed
+  (marker cleared) reads the stage file from the top. *My call.*
 - **Stage file.** `Position.file` is absolute; a `null` file (a
   single-stage manifest) does not occur for `work`.
 - **Go back handed back.** plan's Go back and implement's "Go back to
@@ -183,6 +204,7 @@ Precheck result?
   trees to resume (attached; or sameTicket with no domain; or a surviving local branch) -> Gate provision
   nothing in the way -> worktree_provision {..., codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}
   refused daemon-unreachable or repo-unknown -> plain branch fallback
+  refused daemon-outdated -> provision without the precheck (today's behavior)
   refused otherwise -> run_stage fail
 worktree_provision result?        (node text kept: the fills attach here)
   provisioned -> EnterWorktree {path}
@@ -212,7 +234,15 @@ EnterWorktree -> Recorded on the run? yes -> ticket?; no (recordError) -> run_fi
   `worktree`, checks a surviving branch out again instead of cutting a
   new one, and refuses the main checkout or a disposable tree (the stage
   fails quoting the refusal).
-- **Fresh tree** keeps today's once-only rule as a persisted budget.
+- **Fresh tree** keeps today's once-only rule as a persisted budget, and
+  skips the precheck. Ticket mode provisions as usual (the daemon cuts
+  `<branch>-2`). Branch mode has no such cut, and the plain branch would
+  either refuse or check the surviving branch out again, so Fresh passes
+  a new branch: the slug with the lowest free `-<n>` suffix. *My call.*
+- **An older daemon.** `precheck` and `reuse` call a daemon verb older
+  daemons lack (`daemon-outdated`). Precheck then provisions without it,
+  exactly as today; a `reuse` refused that way fails the stage quoting
+  it (the human can pick Fresh on a retry).
 - **busy** gets one retry through the call's own `budget` option
   (`budget.error` reads as exhausted, per the provision spec).
 - Node texts kept for the fills: `Follow the domain's provision flow`,
@@ -310,13 +340,24 @@ Daemon down: unattended -> fail the stage at the gate? (run_stage fail) / verb e
   under a run (keys `gate-fix:<scope>`, `gate-remap:<scope>`, limit 2,
   scoped to the stage's attempt); with no run they count in context, since
   both loops close inside one turn.
+- **`## Runs integration` keeps its name**, rewritten: under a run, every
+  gate tool call passes `runDb` and `stage`, and that is what brackets
+  the gate, arms `waiting-gate` and records the decision. Every site
+  that walks the protocol passes them, moved or not; a site that does not
+  gets no marker and the stop hook bounces its turn.
 - **Sites not yet on the tools** (ship, watch-ci, evidence, review, forge,
   board) still draw their own `run_field_set {key: gate}` bracket and
-  `run_decision` lines. Those writes still run: with `runDb` passed the
-  tool's writes land first and the site's own record upserts the same
-  scope. A review gate (`respond-plan`, `respond-post`, `review-post`)
-  records nothing through `gate_answer` by default, so its site's record
-  is the only one, as today.
+  `run_decision` lines. They run where the site draws them: the bracket
+  before `gate_ask` (the tool writes the same value), the record after the
+  protocol's success outcome (it upserts the scope the tool recorded,
+  with the site's shape). A review gate (`respond-plan`, `respond-post`,
+  `review-post`) records nothing through `gate_answer` by default, so its
+  site's record is the only one, as today.
+- **Anchors cited from outside this lane stay findable.** Every section
+  heading and phrase that review, forge, ship or board skills cite
+  ("Runs integration", "Structured context", "presentation: form branch",
+  "the deliberate-pick rule", and any others the plan's grep finds) keeps
+  a home with that wording.
 - **Kept sections:** Build the gate's questions and context (subject,
   prose layout, where text goes, options, write-ins, the 4-option cap),
   Present the in-pane gate form, Map the gate answer, Act on a write-in,
@@ -340,8 +381,9 @@ before includes (from 2.1K).
 | Where | Today | After |
 |---|---|---|
 | work entry | A run id in context still went to `run_start` (a second run) | It resumes that run (`run_enter {resume}`), backfilling the manifest |
-| work entry | Resume listed `run_list` rows and built `runDb` by hand | `run_enter` lists candidates and resolves the path |
+| work entry | Resume built `runDb` by hand from the `run_list` row | `run_enter {resume}` resolves it (`run_list` still lists, with the pipeline filter) |
 | work resume | `run_stage start` on the current stage (a new attempt, supersede) | The running attempt is adopted; decisions keyed by it stay decided |
+| work resume at an armed gate | The new attempt ignored the old marker; the stage re-asked | `gate_reconcile` on the armed gate: an answer given meanwhile is acted on |
 | work, every stage end | Agent checked produces and wrote done/fail/start | `run_next` does it; a missing produce fails the stage with `missing produce: ...` |
 | work, redirects | Agent cleared produces from `to` and `shipTarget` (skippable) | `run_resolve` clears both in one transaction |
 | work, failure/close retries | A resent answer could double-apply | `run_resolve {attempt}` returns `repeated: true` |
@@ -354,6 +396,7 @@ before includes (from 2.1K).
 | Provision, branch survives its disposed tree | A new `<branch>-2` cut from the default branch | Offered as a resume; `reuse` checks the old branch out |
 | Provision resume into the main checkout or a disposable tree | Allowed via EnterWorktree | Refused by `reuse`; the stage fails quoting it |
 | Provision `busy` refusal | Stage failed | Retried once (call's own budget) |
+| Provision Fresh tree, branch mode | Re-provisioned the same branch name | A new `<slug>-<n>` branch |
 | Provision error routing | Matched prose error text | Matched the refusal `code` |
 | Pipeline includes | Structured-context reference inlined (805 words) per copy | In a sidecar read only by structured gates |
 
@@ -369,9 +412,10 @@ asks for the exact calls it makes in order.
 2. **Go back from the failure gate.** Ship failed; the human answers Go
    back to implement. Deviation: hand clears, a missing `attempt`, a
    `shipTarget` write, or a stage start.
-3. **Compacted resume.** Context holds a run id and the ship stage was
-   running. Deviation: a new run, `runDb` without `resume`, a restarted
-   attempt.
+3. **Compacted resume.** Context holds a run id; the plan stage was
+   running with `waiting-gate` armed and its gate since answered on the
+   board. Deviation: a new run, `runDb` without `resume`, a restarted
+   attempt, re-asking the answered gate, or no `gate_reconcile`.
 4. **Unattended wait.** `gate_ask` returns `paneAction: wait` under a
    run. Deviation: an AskUserQuestion, a hand-written `waiting-gate`, a
    foreground wait; then on re-entry anything but `gate_reconcile`.
@@ -410,6 +454,12 @@ run.
 
 - A run id in context resumes rather than inheriting (`runDb`), because
   only resume writes a missing manifest.
+- Candidates for clarify come from `run_list` (pipeline filter), not
+  `run_enter`'s work-type-only scan.
+- A resume into a running stage reconciles an armed `waiting-gate` before
+  re-entering the stage.
+- An older daemon's `daemon-outdated` on precheck falls back to
+  provisioning without it; Fresh in branch mode cuts `<slug>-<n>`.
 - Precheck runs on the domain path too, offering `attached` trees and a
   surviving branch; `sameTicket` stays the domain flow's question.
 - Resume goes through `reuse` in branch mode, so a disposable tree or the
