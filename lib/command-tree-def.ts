@@ -1591,6 +1591,21 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
+  herdr: {
+    description: "The herdr server your agents run in",
+    hidden: true,
+    subcommands: {
+      start: {
+        description: "Start herdr if it isn't running",
+        module: "./commands/herdr.ts",
+        fn: "herdrStart",
+        hidden: true,
+        omitBehavior: { exempt: "agent- and app-facing; never prompts" },
+        args: [{ name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the result as JSON" }],
+      },
+    },
+  },
+
   bg: {
     description: "Daemon-owned background herdr server: status, claims, stop",
     subcommands: bgSubcommands,
