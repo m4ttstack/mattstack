@@ -48,14 +48,9 @@
 | | `ship:landing-checks` | 1 | stage (ship only) |
 | | `ship:mr-create-recalls` | 1 | stage (counts re-calls after `url: null`, not the first call) |
 | | `ship:after-attempts:<case id>` | 2 | stage |
-| | `ship:validator-refusals` | 1 | stage |
-| | `ship:record-fixes` | 1 | stage |
-| | `ship:upload-path-fixes:<basename>` | 1 | stage (until phase 2) |
-| | `ship:upload-timeouts:<basename>` | 1 | stage (until phase 2) |
-| | `ship:upload-off-script` | 1 | stage (until phase 2) |
 | | `ship:mark-ready-rounds` | 1 | stage (ship only) |
 
-`<sha12>` is the watched sha's first 12 characters. `ship:push-off-script` went in the trim pass, from ship and from stage-ship (spec B19).
+`<sha12>` is the watched sha's first 12 characters. `ship:push-off-script` went in the trim pass, from ship and from stage-ship (spec B19). Phase 2 (Task 8) dropped `ship:validator-refusals`, `ship:record-fixes`, `ship:upload-path-fixes:<basename>`, `ship:upload-timeouts:<basename>` and `ship:upload-off-script`: the evidence-record include's own `evidence:` budgets count the record and the attach.
 
 ## Review Focus
 

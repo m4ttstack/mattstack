@@ -209,6 +209,7 @@ says "the stage has no prior pipeline id".
 | B18 | watch-ci and stage-watch-ci count re-claims after a lost lease (2), then open Gate ci | `ci_watch {attend}` re-claims twice per commit itself; `lease_unavailable` opens the gate, whose Iterate calls `ci_watch` again with no count, and a second `lease_unavailable` reopens the gate (`watch-ci:lease-rounds:<sha12>` dropped) | the tool bounds the re-claims; the human paces each Iterate (trim pass, shepherd #6050) |
 | B19 | watch-ci's, ship's and stage-ship's `git_push` off-script gates count their Iterate (off-script rounds = 2) | Iterate calls `git_push` again with no count; a refusal reopens the gate, and in watch-ci and ship so does a human push that did not land (ship still bounds those misses with `landing-checks`; stage-ship goes on with `pushed` unwritten) (`watch-ci:push-off-script` and `ship:push-off-script` dropped, the latter in both ship and stage-ship) | `git_push` bounds its own retries; the human paces each Iterate (trim pass, shepherd #6050) |
 | B20 | One "Off-script rounds" count per stage, shared by every off-script gate | each gate's Iterate counts on its own key (`ci-watch-off-script`, `github-claim-off-script`, `retry-off-script`, ...), so a run refused at several gates gets one Iterate at each; the two retry gates (`mr_retry` on GitLab, the re-claim before `gh run rerun` on GitHub) share `retry-off-script`, one per forge; the `lease_unavailable` and `git_push` gates count none (B18, B19) | one gate per origin needs its own budget to return to the right place |
+| B21 | ship and stage-ship run the upload loop when the record has files, and (through the evidence-record bridge) the attach at every `Files to attach?` | the attach runs after `Record the evidence` or when the evidence read returned a record, and is skipped when the field is unset; in ship, evidence alone no longer sends the flow to `Write the title and description (ship)`, so an existing MR left as found gets only the evidence section the include writes | `evidence_attach` has nothing to render without a record; the include owns the section (phase 2) |
 
 ## Design
 
@@ -359,21 +360,42 @@ differences:
 
 ### Phase 2: evidence_attach (after #851 merges)
 
-Rebase onto main, then replace in ship and stage-ship the upload loop
-("Files to attach?" through the `mr_upload` retry and refusal nodes), the
-description read-back and the evidence part of "Write the title and
-description" with `evidence_attach` as #851's tool and `evidence-record`
-include define it, keeping the off-script gate on its refusals and the
-title/description write the domain owns. If #851 has not merged when the
-rest is done, DM the shepherd and wait. The exact nodes are planned after
-the rebase, against the merged contract.
+Rebased onto main with #851 and #856 merged. In ship and stage-ship
+(stage-ship's nodes drop the `(ship)` suffix):
+
+- Removed: `Merge into the record (evidence-record)`, the verb's own
+  `Annotate or waive each image the record does not yet cover
+  (evidence-record)` and `Annotate or waive outcome (ship)?`, the
+  `run_field_set` evidence write and its result, `Files to attach (ship)?`,
+  the three `mr_upload` nodes and their result, the upload STOP, the
+  `mr_upload` off-script gate and its answer, and the budgets
+  `ship:validator-refusals`, `ship:record-fixes`,
+  `ship:upload-path-fixes:<basename>`, `ship:upload-timeouts:<basename>`
+  and `ship:upload-off-script`.
+- Added: `Record the evidence (evidence-record)` -> `Record outcome
+  (ship)?` (Recorded -> the attach, with no evidence write of the verb's
+  own; Record held -> the hold path; Record failed -> the failure exit);
+  `Run has an evidence record (ship)?` on the no-AFTER edge (yes -> the
+  attach; no: the field is unset -> past it); `Attach the evidence
+  (evidence-record)` -> `Attach outcome (ship)?` (Attached, or Taken ->
+  the title and description; Attach held -> the hold path; Attach failed
+  -> the failure exit).
+- The include owns the upload off-script gate; ship and stage-ship are the
+  last attach, so its Take sends `linkRefused: true`. The ship gate's
+  Proceed is the attach consent.
+- `Write the title and description` keeps the include's evidence section
+  byte for byte and writes no evidence block of its own. ship's `Domain
+  owns the title or description (ship)?` edges become plain `yes` / `no`.
+- The evidence-record include's "Bridges until ship's phase 2" section is
+  deleted (shepherd #6110).
 
 ### Fill anchors (for the pack replay)
 
 | Fill section | Host node today | After |
 |---|---|---|
 | `At: mr_create {repoName: <root>, sourceBranch, targetBranch, title, description, draft, squash?, labels?}` (both ship-domain fills) | `mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?}` | the same with `, ifExists: return}` |
-| `At: Gate ship`, `Commit named files...`, `Run the domain's fast checks...`, `Fix test-first...`, `Domain rebases...`, `Resolve the files...`, `Capture the AFTER...`, `Write the title and description`, `Domain runs CI after the MR (ship)?` | unchanged | unchanged (phase 2 may touch "Write the title and description"; listed then) |
+| `At: Gate ship`, `Commit named files...`, `Run the domain's fast checks...`, `Fix test-first...`, `Domain rebases...`, `Resolve the files...`, `Capture the AFTER...`, `Domain runs CI after the MR (ship)?` | unchanged | unchanged |
+| `At: Write the title and description` | `Write the title and description` (ship: `... (ship)`), which built the evidence section from the record with each upload's markdown | node text unchanged; its section now keeps the section `Attach the evidence (evidence-record)` wrote, byte for byte, so a fill rule that builds or links the evidence there yields to the include (the replay can drop it) |
 | watch-ci-domain fills' `ci-triage.sh --forge <forge> --pipeline <N> --config ...` and `<forge> jobs <id>` | ran the vendored scripts | redirected to `ci_triage {config}` and `pipeline_jobs`; the replay can delete both bash blocks and the Requirements bullets |
 | pack manifests' `forge: mattstack:ci-forge-gitlab` binding on watch-ci and stage-watch-ci | inlined the forge slot | still inlined, now uncalled; the replay drops the binding, then a follow-up lane deletes the slot, the scripts, the e2e assertions and the `init.ts` binding |
 
@@ -395,7 +417,7 @@ and where each lands:
 | One retry per INFRA job | `infra-retries` budget |
 | Never force unless a rebase this pass rewrote pushed commits | force-with-lease diamond in both ship skills |
 | Never create the MR twice | `mr_create {ifExists: return}` plus `mr-create-calls` |
-| The roots are the upload boundary; copying a file in is only the human's move | upload off-script gate section (kept; phase 2 keeps it on `evidence_attach`) |
+| The roots are the upload boundary; copying a file in is only the human's move | the evidence-record include's `Off-script gate: upload refused`, on `evidence_attach` (phase 2) |
 | Release the lease on every exit that leaves the MR unattended, never on a stand-down | exit diamond plus `ci_lease_release` |
 | End the turn while `ci_watch` runs in the background | kept node and section |
 | GitHub: checks only for `headRefOid` = watched sha; "no checks" is pending | GitHub poll, kept |

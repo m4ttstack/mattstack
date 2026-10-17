@@ -639,6 +639,52 @@ pane closed before the push. The domain slot is empty.
 11. O12, O13.
 12. Run close calls: default.
 
+### ship evidence fill (E1, E2)
+
+Inlined at `{{slot:domain}}`:
+
+```markdown
+## Ship rules (acme/app)
+
+- Before the gate: nothing to gather. Fast checks: none.
+- AFTER: one case, `widgets-page` ("Widgets page shows the count badge"),
+  captured in both themes with `browser_take_screenshot` on
+  `http://localhost:5173/widgets`. Mark the count badge on each.
+- Evidence heading: `## Verification Evidence`.
+- Do not watch CI from ship.
+```
+
+`<EV>` is `/home/dev/.mattstack/work/r-ship-0002/evidence/widgets-page`.
+
+### E1
+
+Invocation: Matt: "ship this". The ship evidence fill above is inlined. The
+branch has never been pushed.
+
+1. O1 to O8. `git log` as S1 step 1.
+2. O9, O10, O11.
+3. `git_push` as S1 step 4.
+4. `mr_create` as S1 step 6.
+5. O12, O13.
+6. `browser_take_screenshot` writes `/home/dev/.fast-browser/screenshots/widgets-light.png` in the light theme and `/home/dev/.fast-browser/screenshots/widgets-dark.png` in the dark theme.
+7. The first `evidence_record` (those two paths, case `widgets-page` with its label, slot `after`, theme `light` and `dark`) returns `{written: false, encoding: "evidence@2", value: <the record naming <EV>/widgets-light.png and <EV>/widgets-dark.png>, uncovered: [{case: "widgets-page", slot: "after", theme: "light", path: "<EV>/widgets-light.png", why: "no annotated board or waiver"}, {case: "widgets-page", slot: "after", theme: "dark", path: "<EV>/widgets-dark.png", why: "no annotated board or waiver"}], copied: ["<EV>/widgets-light.png", "<EV>/widgets-dark.png"]}`.
+8. Drawing the marks writes `<EV>/widgets-light-annotated.png` and `<EV>/widgets-dark-annotated.png`.
+9. `evidence_record` naming `<EV>/widgets-light.png` and `<EV>/widgets-dark.png`, each with its `annotated` board and a `caption` (and the case label), returns `{written: true, encoding: "evidence@2", value: <the record with both boards>, uncovered: [], copied: [the two boards]}`.
+10. `evidence_attach {runDb, stage: "ship", heading: "## Verification Evidence", mrUrl: "<MR>"}` returns `{forge: "gitlab", mr: {iid: 42, url: "<MR>"}, uploaded: [{file: "widgets-light-annotated.png", markdown: "![widgets-light-annotated](/uploads/a1/widgets-light-annotated.png)"}, {file: "widgets-dark-annotated.png", markdown: "![widgets-dark-annotated](/uploads/b2/widgets-dark-annotated.png)"}], refused: {}, timedOutTwice: [], linked: [], section: "## Verification Evidence\n\n<the case, both boards and captions>", descriptionWritten: true}`.
+11. (if called) `mr_view` returns `View(A, true)` with that section as its description. (if called) `mr_update`: `{ok: true}`.
+12. Run close calls: default.
+
+### E2
+
+Invocation: Matt: "ship this". As E1, but the dark board is too large to upload.
+
+1. E1 steps 1 to 9.
+2. `evidence_attach {runDb, stage: "ship", heading: "## Verification Evidence", mrUrl: "<MR>"}` returns `{forge: "gitlab", mr: {iid: 42, url: "<MR>"}, uploaded: [{file: "widgets-light-annotated.png", markdown: "![widgets-light-annotated](/uploads/a1/widgets-light-annotated.png)"}], refused: {size: [{file: "widgets-dark-annotated.png", path: "<EV>/widgets-dark-annotated.png", why: "11.8 MB, over the 10 MB upload limit"}]}, timedOutTwice: [], linked: [], section: "<the section>", descriptionWritten: false, notWritten: "a refused file blocks the write"}`.
+3. Gate off-script (upload refused): the human answers `{action: "Take the proposed move: link it as attached separately", next: "Proceed", note: null}`.
+4. `evidence_attach` with `linkRefused: true` returns `{forge: "gitlab", mr: {iid: 42, url: "<MR>"}, uploaded: [{file: "widgets-light-annotated.png", markdown: "![widgets-light-annotated](/uploads/a1/widgets-light-annotated.png)", reused: true}], refused: {size: [{file: "widgets-dark-annotated.png", path: "<EV>/widgets-dark-annotated.png", why: "11.8 MB, over the 10 MB upload limit"}]}, timedOutTwice: [], linked: ["widgets-dark-annotated.png"], section: "<the section, naming widgets-dark-annotated.png (attached separately)>", descriptionWritten: true}`.
+5. (if called) `mr_view` returns `View(A, true)` with that section as its description. (if called) `mr_update`: `{ok: true}`.
+6. Run close calls: default.
+
 ---
 
 ## stage-ship
@@ -740,3 +786,30 @@ is unpushed; `origin/main` has not moved.
 6. (if called) `mr_for_branch` returns `MR42(A, true)`.
 7. (if called) `mr_create` with `ifExists: "return"` returns `{iid: 42, url: "<MR>", existing: true, targetBranch: "main", draft: true, title: "Add widget", applied: false}`; without `ifExists` it returns the 409 tool error from S2.
 8. E10, E11, E12.
+
+### E1
+
+These scenario ids are not the entry steps: steps below name entry steps as
+"entry E1" and so on. The evidence stage recorded one case; the domain slot
+is empty. `<EV>` is `/home/dev/.mattstack/work/r-work-0003/evidence/badge-count`.
+
+1. Entry E1 to E6. `git log` as S1 step 1.
+2. Entry E7, E8.
+3. `git_push` as S1 step 3. (if called) `git rev-parse HEAD` prints A. Entry E9.
+4. `mr_create` as S1 step 6.
+5. Entry E10.
+6. `run_field_get {key: evidence}` returns `{key: "evidence", value: <the record: case badge-count, "Badge shows the item count", its before a {light, dark} pair at <EV>/before-light.png and <EV>/before-dark.png, annotated <EV>/before-light-annotated.png and <EV>/before-dark-annotated.png, each with a caption>}`.
+7. (if read) the repo has no MR template.
+8. (if called) `evidence_record` naming `<EV>/before-light.png` and `<EV>/before-dark.png` with their boards and captions returns `{written: true, encoding: "evidence@2", value: <the same record>, uncovered: [], copied: []}`.
+9. `evidence_attach {runDb, stage: "ship", heading: "## Evidence", mrUrl: "<MR>"}` returns `{forge: "gitlab", mr: {iid: 42, url: "<MR>"}, uploaded: [{file: "before-light-annotated.png", markdown: "![before-light-annotated](/uploads/c3/before-light-annotated.png)"}, {file: "before-dark-annotated.png", markdown: "![before-dark-annotated](/uploads/d4/before-dark-annotated.png)"}], refused: {}, timedOutTwice: [], linked: [], section: "## Evidence\n\n<the case, both boards and captions>", descriptionWritten: true}`.
+10. `mr_view` returns `View(A, true)` with that section as its description. (if called) `mr_update {mrUrl, title, description}`: `{ok: true}`.
+
+### E2
+
+As E1, but the dark board is too large to upload.
+
+1. E1 steps 1 to 8.
+2. `evidence_attach {runDb, stage: "ship", heading: "## Evidence", mrUrl: "<MR>"}` returns `{forge: "gitlab", mr: {iid: 42, url: "<MR>"}, uploaded: [{file: "before-light-annotated.png", markdown: "![before-light-annotated](/uploads/c3/before-light-annotated.png)"}], refused: {size: [{file: "before-dark-annotated.png", path: "<EV>/before-dark-annotated.png", why: "11.8 MB, over the 10 MB upload limit"}]}, timedOutTwice: [], linked: [], section: "<the section>", descriptionWritten: false, notWritten: "a refused file blocks the write"}`.
+3. Gate off-script (upload refused): the human answers `{action: "Take the proposed move: link it as attached separately", next: "Proceed", note: null}`.
+4. `evidence_attach` with `linkRefused: true` returns `{forge: "gitlab", mr: {iid: 42, url: "<MR>"}, uploaded: [{file: "before-light-annotated.png", markdown: "![before-light-annotated](/uploads/c3/before-light-annotated.png)", reused: true}], refused: {size: [{file: "before-dark-annotated.png", path: "<EV>/before-dark-annotated.png", why: "11.8 MB, over the 10 MB upload limit"}]}, timedOutTwice: [], linked: ["before-dark-annotated.png"], section: "<the section, naming before-dark-annotated.png (attached separately)>", descriptionWritten: true}`.
+5. `mr_view` returns `View(A, true)` with that section as its description. (if called) `mr_update {mrUrl, title, description}`: `{ok: true}`.
