@@ -201,7 +201,8 @@ digraph watch_ci {
     confirm_human_push [label="Confirm the human's push landed (watch-ci)" shape=box];
     push_landed [label="Push landed (watch-ci)?" shape=diamond];
     own_run_new_attempt [label="Own run (watch-ci new attempt)?" shape=diamond];
-    run_stage_start [label="run_stage {action: start, stage: watch-ci} (a new attempt)" shape=plaintext];
+    run_resolve_iterate [label="run_resolve {runDb, stage: watch-ci, next: iterate, attempt: <n>, note, decidedBy} (a new attempt)" shape=plaintext];
+    new_attempt_result [label="run_resolve result (watch-ci new attempt)?" shape=diamond];
     mr_found_for_retry [label="MR found (before the retry)?" shape=diamond];
     run_budget_gate_retries [label="run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage} (ci gate retry)" shape=plaintext];
     gate_retries_spent [label="infra-retries spent (ci gate retry, watch-ci)?" shape=diamond];
@@ -396,9 +397,11 @@ digraph watch_ci {
     confirm_human_push -> push_landed;
     push_landed -> own_run_new_attempt [label="yes: the remote carries HEAD"];
     push_landed -> gate_push_refused [label="no: reopen with the comparison"];
-    own_run_new_attempt -> run_stage_start [label="yes"];
+    own_run_new_attempt -> run_resolve_iterate [label="yes"];
     own_run_new_attempt -> mr_found_for_lease [label="no: inherited"];
-    run_stage_start -> mr_found_for_lease;
+    run_resolve_iterate -> new_attempt_result;
+    new_attempt_result -> mr_found_for_lease [label="applied: iterate, repeated or not"];
+    new_attempt_result -> mr_known_at_exit [label="refused: fail, quoting it"];
 
     mr_found_for_retry -> run_budget_gate_retries [label="yes"];
     mr_found_for_retry -> run_budget_ci_gate [label="no: nothing to retry"];
@@ -601,6 +604,14 @@ never push from here. It landed when the remote carries HEAD.
   returns `superseded` when the head moves past it. On GitHub, `headRefOid`
   must equal the watched sha, "no checks reported" is pending, and
   `gh run rerun` takes the run id in the failed check's link.
+- **The new attempt.** A fix push in an own run starts the next attempt of
+  `watch-ci` with `run_resolve` (`next: iterate`, `to` left out), never
+  `run_stage` start: `attempt` is the `<n>` in the `ci` gate's scope,
+  `decidedBy` is the answer that sent you to push (the `ci` gate's
+  **Fix and re-push**, or the `git_push` off-script gate's Take), and
+  `note` is `fix pushed: <sha12>`. The next `ci` gate's scope carries the
+  new attempt. An inherited run writes nothing: the caller's stage is not
+  this verb's to restart.
 - **Holding.** `run_hold` takes the gate-write stage, the gate as `reason`,
   and `decidedBy` as the answer recorded it.
 
