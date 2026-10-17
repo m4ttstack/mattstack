@@ -42,6 +42,7 @@ digraph extend_pack {
     "rt_verb {args: [\"skills\", \"bind\", \"<stage-or-verb>\", \"<slot>\", \"<pack>:<fill>\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
     "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"<pack>:<fill>\", \"--pipeline\", \"<name>\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
     "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"--pipeline\", \"<name>\", \"--unset\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
+    "Unset result?" [shape=diamond];
     "Bind result?" [shape=diamond];
     "Bind attempts = 2?" [shape=diamond];
     "Fix what the refusal names" [shape=box];
@@ -81,7 +82,9 @@ digraph extend_pack {
     "Add the work-<kind> verb in pack/stubs.jsonc" -> "rt_verb {args: [\"skills\", \"surface\", \"set\", \"<verb>\", \"--public\", \"--pack\", \"<pack>\"]}";
     "Where does the ask land?" -> "Reword the description in pack/stubs.jsonc" [label="the wording of a verb"];
     "Where does the ask land?" -> "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"--pipeline\", \"<name>\", \"--unset\", \"--pack\", \"<pack>\"]}" [label="undo a pipeline's override"];
-    "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"--pipeline\", \"<name>\", \"--unset\", \"--pack\", \"<pack>\"]}" -> "rt_verb {args: [\"skills\", \"check\", \"--pack\", \"<pack>\"]}";
+    "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"--pipeline\", \"<name>\", \"--unset\", \"--pack\", \"<pack>\"]}" -> "Unset result?";
+    "Unset result?" -> "rt_verb {args: [\"skills\", \"check\", \"--pack\", \"<pack>\"]}" [label="ok"];
+    "Unset result?" -> "Handed to the author" [label="refused: stop and report the refusal"];
     "Where does the ask land?" -> "RED: run the stage or verb without the rule" [label="a context rule, or a fill for one stage or verb"];
     "Add the roster entry in pack/stubs.jsonc" -> "rt_verb {args: [\"skills\", \"surface\", \"set\", \"<verb>\", \"--public\", \"--pack\", \"<pack>\"]}";
     "rt_verb {args: [\"skills\", \"surface\", \"set\", \"<verb>\", \"--public\", \"--pack\", \"<pack>\"]}" -> "A shepherdr door?";
@@ -200,10 +203,10 @@ one publish at the end:
    fill (or reuse one the pack already has), then bind it with
    `--pipeline <name>` (the `One pipeline's fill only?` yes edge). Bind
    works straight after the materialize in step 1. Certify the fill's
-   folder if you wrote it, check, and run GREEN in a second fresh `--plugin-dir` session.
-   When the ask names the fill ("accessibility runs use
-   `acme:evidence-a11y`"), the override is the ask itself: it binds even
-   when RED shows no miss (see `The named fill exists?`).
+   folder if you wrote it, check, and run GREEN in a second fresh
+   `--plugin-dir` session. When the ask names the fill ("accessibility
+   runs use `acme:evidence-a11y`"), the override is the ask itself: it
+   binds even when RED shows no miss (see `The named fill exists?`).
 3. Hand to editing-skills to publish, once.
 
 Stages the pipeline does not override run the pack's default fills, and
@@ -237,9 +240,16 @@ file and recompiles the pack:
   (`attachments/stage-evidence--accessibility/`) once that stage's fills
   match the default again. Never delete the copy by hand.
 
-Then run `rt_verb {args: ["skills", "check", "--pack", "<pack>"]}`: it
-passes with every verb and stage current and no stage copy left over. The
-undo writes no rule, so there is no certify, RED or GREEN: the
+Bind refuses an unset when the pipeline has no override at that slot
+(`<pipeline> has no override for <stage>.<slot>`) or the override comes
+from another layer (`... comes from <layer>; remove it there`). A refused
+unset changed nothing: stop, quote the refusal to the author, and publish
+nothing (the `Unset result?` refused edge).
+
+After an ok unset, run
+`rt_verb {args: ["skills", "check", "--pack", "<pack>"]}`: it passes
+with every verb and stage current and no stage copy left over. The undo
+writes no rule, so there is no certify, RED or GREEN: the
 `Undid an override this round?` yes edge goes straight to the hand-off.
 Hand to editing-skills to publish: it enters at `What changed?` with no RED
 baseline and takes the `no skill folder written` edge (see Publish).
@@ -420,9 +430,8 @@ Certify takes one skill folder, never the pack folder. Certify the folder
 you wrote or revised this round: `<pack dir>/attachments/<fill>` for a
 fill, `<pack dir>/skills/context` for the context skill. A round that only
 declared a pipeline, added a door, reworded a verb or undid an override
-wrote no such folder,
-so it skips certify and runs check alone. `Certify and check pass?` then
-asks only about check.
+wrote no such folder, so it skips certify and runs check alone. `Certify
+and check pass?` then asks only about check.
 
 ### Read what moved on Bash
 
