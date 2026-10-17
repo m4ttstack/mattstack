@@ -407,8 +407,8 @@ agent gets one skill's text and a scripted scenario (each tool's return in
 order) and writes the calls it would make and where it stops. RED: today's
 text against the new tool results. GREEN: the new text. Five agents per
 skill per side, each walking every scenario for its skill (5 runs per
-scenario). Reps: Sonnet through `claude -p` with no tools, no MCP server,
-an isolated HOME and a fresh empty cwd (the shepherd's describe-only rule).
+scenario). Reps: Sonnet through `claude -p` with no tools, MCP, hooks or plugins,
+from a fresh empty cwd (the shepherd's describe-only recipe).
 
 | # | Scenario | Skills | Tempting move |
 |---|---|---|---|
