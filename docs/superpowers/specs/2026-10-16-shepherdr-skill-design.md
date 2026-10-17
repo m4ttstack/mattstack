@@ -104,7 +104,7 @@ The off-script gate section says which is which.
 
 | Today | After |
 |---|---|
-| `Domain provisions the tree?` yes → `rt herd spawn ... --dir <its tree> [--account <A>]` (Bash) | yes → `herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}` |
+| `Domain provisions the tree?` yes → `rt herd spawn ... --dir <its tree> [--account <A>]` (Bash) | yes → `herd_spawn {herd, job, brief, model, effort, account?, tree: <the domain's tree>}` |
 | no guard | `Domain provisions the tree?` → `STOP: spawn only with herd_spawn` on `tempted to spawn from the shell`, redirecting to the tree spawn |
 
 Everything else in the start graph keeps its text. Prose:
@@ -138,7 +138,7 @@ The full draft is in Appendix B; it passes `render.sh` and `check-dot.py`.
 | `Answer recorded?`: recorded / conflict / refused | adds `error: closed, not this herd's, or gone` → off-script gate (a bug fix: today an error had no edge) |
 | `Fix the answers: each value verbatim` | same node; its section reads the refusal's `validValues` |
 | `Reviewer rounds on this milestone = 2?` (head count) | `herd_diagnose {herd, job}: the reviewer budget` → `Reviewer rounds on this milestone spent?` |
-| reviewer `rt herd spawn ... --dir <the job's tree> --disposable` | `herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort?, account?}` |
+| reviewer `rt herd spawn ... --dir <the job's tree> --disposable` | `herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort, account?}` |
 | `<job> blocked` → `Blocked notices for this job = 3?` → `herd_gates` → `Open gate for the blocked job?` → `rt_verb pane peek` → `What does the pane show?` | `herd_diagnose {herd, job}: the blocked job` → `Blocked notices for this job spent?` → `What does the diagnosis say?` |
 | UNCONSUMED → `rt_verb pane peek: the unconsumed lane` → `Is the lane alive?` | `herd_diagnose {herd, job}: the unconsumed lane` → `What does the diagnosis say?` |
 | `Nudges for this gate?` 0/1/2, `An idle prompt, and no form on screen?`, `chat_dm ... call herd_answer`, `rt pane send` | `Nudges for this gate spent?` → `herd_nudge {herd, job, gate}` → `Nudge delivered?` (delivered: end the turn; refused as already consumed: end the turn, the worker read it; needsHuman or any other refusal → off-script gate, quoting it) |
@@ -300,7 +300,7 @@ No pack attaches these by text today; listed so a later fill can.
 
 | Old node | New node |
 |---|---|
-| `rt herd spawn ... --dir <its tree> [--account <A>]` (start) | `herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}` |
+| `rt herd spawn ... --dir <its tree> [--account <A>]` (start) | `herd_spawn {herd, job, brief, model, effort, account?, tree: <the domain's tree>}` |
 | `rt gate answer <id> --answers <json> --by shepherd` | `herd_gate_answer {herd, gate, answers}` |
 | `rt gate park <id>` | `herd_gate_park {herd, gate}` |
 | `Reviewer rounds on this milestone = 2?` | `Reviewer rounds on this milestone spent?` |
@@ -314,6 +314,9 @@ No pack attaches these by text today; listed so a later fill can.
 | `rt_verb {args: [git, log], cwd: <worktree>}`, `cd <an active job's tree>`, `git diff --stat --merge-base origin/<default branch>`, `More active job trees to diff?` | `herd_lanes {herd}: the report's lanes` |
 | `Unmerged reports for this lane = 2?` | `Unmerged reports for this lane spent?` |
 | (new) | `herd_lanes {herd, job}: after the merge call` |
+| `herd_spawn {herd, job, brief, model, effort?, account?}` | `herd_spawn {herd, job, brief, model, effort, account?}` |
+| `herd_spawn {herd, job: integration-<n>, brief, model, account?}` | `herd_spawn {herd, job: integration-<n>, brief, model, effort, account?}` |
+| the domain-tree and reviewer spawn nodes | the same text with `effort` in place of `effort?` |
 
 **For the team pack replay** (not done here): delta 2's Bash spawn
 becomes `herd_spawn {tree: <the provision result's tree>}` and the zsh
@@ -411,8 +414,8 @@ digraph shepherdr_start {
     "Fix what the refusal names" [shape=box];
     "STOP: fix the refusal; never copy the template or strategies file elsewhere" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Domain provisions the tree?" [shape=diamond];
-    "herd_spawn {herd, job, brief, model, effort?, account?}" [shape=plaintext];
-    "herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}" [shape=plaintext];
+    "herd_spawn {herd, job, brief, model, effort, account?}" [shape=plaintext];
+    "herd_spawn {herd, job, brief, model, effort, account?, tree: <the domain's tree>}" [shape=plaintext];
     "STOP: spawn only with herd_spawn" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Spawn result?" [shape=diamond];
     "STOP: never hand-roll a tree, a pane or a launch" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -455,12 +458,12 @@ digraph shepherdr_start {
     "Brief retries = 2?" -> "Fix what the refusal names" [label="no"];
     "Brief retries = 2?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
     "Fix what the refusal names" -> "herd_brief {job, template, strategy, strategies, fill, out}";
-    "Domain provisions the tree?" -> "herd_spawn {herd, job, brief, model, effort?, account?}" [label="no: herd_spawn provisions"];
-    "Domain provisions the tree?" -> "herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}" [label="yes: its tree, by name"];
+    "Domain provisions the tree?" -> "herd_spawn {herd, job, brief, model, effort, account?}" [label="no: herd_spawn provisions"];
+    "Domain provisions the tree?" -> "herd_spawn {herd, job, brief, model, effort, account?, tree: <the domain's tree>}" [label="yes: its tree, by name"];
     "Domain provisions the tree?" -> "STOP: spawn only with herd_spawn" [label="tempted to spawn from the shell"];
-    "STOP: spawn only with herd_spawn" -> "herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}";
-    "herd_spawn {herd, job, brief, model, effort?, account?}" -> "Spawn result?";
-    "herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}" -> "Spawn result?";
+    "STOP: spawn only with herd_spawn" -> "herd_spawn {herd, job, brief, model, effort, account?, tree: <the domain's tree>}";
+    "herd_spawn {herd, job, brief, model, effort, account?}" -> "Spawn result?";
+    "herd_spawn {herd, job, brief, model, effort, account?, tree: <the domain's tree>}" -> "Spawn result?";
     "Spawn result?" -> "More jobs in this batch (cap 6)?" [label="ok"];
     "Spawn result?" -> "Shepherd off-script gate: ask the user" [label="error: quote it"];
     "Spawn result?" -> "STOP: never hand-roll a tree, a pane or a launch" [label="tempted to build the tree or pane yourself"];
@@ -503,7 +506,7 @@ digraph shepherdr_watch {
     "Spawn a reviewer chosen?" [shape=diamond];
     "herd_diagnose {herd, job}: the reviewer budget" [shape=plaintext];
     "Reviewer rounds on this milestone spent?" [shape=diamond];
-    "herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort?, account?}" [shape=plaintext];
+    "herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort, account?}" [shape=plaintext];
     "herd_diagnose {herd, job}: the blocked job" [shape=plaintext];
     "Blocked notices for this job spent?" [shape=diamond];
     "herd_diagnose {herd, job}: the unconsumed lane" [shape=plaintext];
@@ -577,9 +580,9 @@ digraph shepherdr_watch {
     "Spawn a reviewer chosen?" -> "End the turn until something arrives" [label="no"];
     "Spawn a reviewer chosen?" -> "herd_diagnose {herd, job}: the reviewer budget" [label="yes"];
     "herd_diagnose {herd, job}: the reviewer budget" -> "Reviewer rounds on this milestone spent?";
-    "Reviewer rounds on this milestone spent?" -> "herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort?, account?}" [label="no"];
+    "Reviewer rounds on this milestone spent?" -> "herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort, account?}" [label="no"];
     "Reviewer rounds on this milestone spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
-    "herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort?, account?}" -> "End the turn until something arrives";
+    "herd_spawn {herd, job: review-<job>, brief: <review brief>, tree: <the job's tree>, disposable: true, model, effort, account?}" -> "End the turn until something arrives";
     "herd_diagnose {herd, job}: the blocked job" -> "Blocked notices for this job spent?";
     "Blocked notices for this job spent?" -> "What does the diagnosis say?" [label="no"];
     "Blocked notices for this job spent?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
@@ -652,7 +655,7 @@ digraph shepherdr_lanes {
     "Integration job spawned already?" [shape=diamond];
     "Ask the integration job's strategy and model" [shape=box];
     "herd_brief {job: integration-<n>, template, strategy, strategies, fill, out}" [shape=plaintext];
-    "herd_spawn {herd, job: integration-<n>, brief, model, account?}" [shape=plaintext];
+    "herd_spawn {herd, job: integration-<n>, brief, model, effort, account?}" [shape=plaintext];
     "chat_dm {to: <job handle>, body: ship through your skill chain}" [shape=plaintext];
     "Gate: merge this lane?" [shape=box];
     "Forge?" [shape=diamond];
@@ -705,8 +708,8 @@ digraph shepherdr_lanes {
     "Integration job spawned already?" -> "Ask the integration job's strategy and model" [label="yes, it has reported and this lane joined after it spawned: a new one for it"];
     "Integration job spawned already?" -> "Back to the watch loop: end the turn" [label="yes, and it is still running: wait for its report"];
     "Ask the integration job's strategy and model" -> "herd_brief {job: integration-<n>, template, strategy, strategies, fill, out}";
-    "herd_brief {job: integration-<n>, template, strategy, strategies, fill, out}" -> "herd_spawn {herd, job: integration-<n>, brief, model, account?}";
-    "herd_spawn {herd, job: integration-<n>, brief, model, account?}" -> "Back to the watch loop: end the turn";
+    "herd_brief {job: integration-<n>, template, strategy, strategies, fill, out}" -> "herd_spawn {herd, job: integration-<n>, brief, model, effort, account?}";
+    "herd_spawn {herd, job: integration-<n>, brief, model, effort, account?}" -> "Back to the watch loop: end the turn";
     "chat_dm {to: <job handle>, body: ship through your skill chain}" -> "Back to the watch loop: end the turn";
     "Gate: merge this lane?" -> "Forge?" [label="merge"];
     "Gate: merge this lane?" -> "Back to the watch loop: end the turn" [label="not yet, or hold"];

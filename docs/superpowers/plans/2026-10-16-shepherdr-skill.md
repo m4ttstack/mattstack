@@ -15,7 +15,7 @@
 - Write only under `plugins/mattstack/attachments/orchestration/shepherdr/**`, `plugins/mattstack/skills/shepherdr/**` (compile output only), `plugins/mattstack/.claude-plugin/plugin.json`, `plugins/mattstack/pack/requires.json`, plugin tests and fixtures, `docs/superpowers/{specs,plans}/`, `.superpowers/`.
 - Never edit, compile or sync anything under `~/.mattstack/orgs/<team org>/`.
 - Never restart or touch the live rt daemon; run every `bun cli.ts` skills command under an isolated HOME (`env -i HOME=<temp> PATH="$PATH" ...`).
-- `plugin.json` version `0.31.15`; `requires.json` `{ "minEngine": "0.31.15" }`.
+- `plugin.json` version `0.31.16`; `requires.json` `{ "minEngine": "0.31.16" }`.
 - The engine body names no account provider, script or launcher (`cswap`, `pick-account.py`).
 - No pane text read by the shepherd anywhere in the skill; `herd_diagnose` is the only pane read.
 - Node `Domain provisions the tree?` keeps its exact text.
@@ -60,7 +60,7 @@ The controller runs this task itself: it dispatches the fresh test agents, which
 
 **Interfaces:**
 - Consumes: spec Appendix A (start graph draft) and the spec's "Start graph" section.
-- Produces: node texts `herd_spawn {herd, job, brief, model, effort?, account?, tree: <the domain's tree>}` and `STOP: spawn only with herd_spawn`.
+- Produces: node texts `herd_spawn {herd, job, brief, model, effort, account?, tree: <the domain's tree>}` and `STOP: spawn only with herd_spawn`.
 
 - [ ] **Step 1: Replace the `digraph shepherdr_start` block** with the spec's Appendix A block, byte for byte.
 - [ ] **Step 2: Rewrite the prose** per the spec's "Start graph" bullets: `## Accounts` text after the slot (pass the pick as `account` on `herd_spawn` or `herd_respawn`; accounts in use are each job's `account` in `herd_status`; no Bash clause), `### Ask the strategy and model per job` (drop the Bash clause; add the respawn-inherits sentence), `**The domain-provisioned spawn.**` (no code block; tree name from `worktree_provision`'s `tree`; admission rule; refusal goes to the off-script gate), `**Spawn facts.**` linked-worktree bullet.
@@ -113,7 +113,7 @@ The controller runs this task itself: it dispatches the fresh test agents, which
 ### Task 5: Compile, bump, certify, check
 
 **Files:**
-- Modify: `plugins/mattstack/.claude-plugin/plugin.json` (`"version": "0.31.15"`), `plugins/mattstack/pack/requires.json` (`{ "minEngine": "0.31.15" }`)
+- Modify: `plugins/mattstack/.claude-plugin/plugin.json` (`"version": "0.31.16"`), `plugins/mattstack/pack/requires.json` (`{ "minEngine": "0.31.16" }`)
 - Regenerate: `plugins/mattstack/skills/shepherdr/**`
 
 - [ ] **Step 1:** Set both versions; confirm main's version first with `git fetch -q origin main && git show origin/main:plugins/mattstack/.claude-plugin/plugin.json | grep version` (if main is above 0.31.14, use main's next patch in both files).
@@ -126,7 +126,7 @@ The controller runs this task itself: it dispatches the fresh test agents, which
   Run: `bash $D/render.sh plugins/mattstack/skills/shepherdr/SKILL.md && python3 $D/check-dot.py plugins/mattstack/skills/shepherdr/SKILL.md` → clean.
   Run: `T=$(mktemp -d); mkdir -p $T/m; env -i HOME=$T PATH="$PATH" bun cli.ts skills check --pack-dir "$PWD/plugins/mattstack" --mattstack-dir $T/m --strict; echo rc=$?` → `rc=0`.
   Run: `bun run purity` → pass.
-- [ ] **Step 5: Commit:** `git add plugins/mattstack && git commit -m "mattstack 0.31.15: compile shepherdr on the herd tools"`.
+- [ ] **Step 5: Commit:** `git add plugins/mattstack && git commit -m "mattstack 0.31.16: compile shepherdr on the herd tools"`.
 
 ### Task 6: GREEN and refactor (controller-run)
 
