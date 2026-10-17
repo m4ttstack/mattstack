@@ -134,7 +134,12 @@ function bundleDigest(members: Array<{ name: string; real: string }>): string {
  */
 export function copyIntoRun(
   requests: CopyRequest[],
-  o: { allowedRoots: string[]; destRoot: string },
+  o: {
+    allowedRoots: string[];
+    destRoot: string;
+    /** Must fail with EEXIST rather than replace a file; tests wrap it to land files mid-call. */
+    copyFile?: (from: string, to: string) => void;
+  },
 ): { ok: true; copied: CopyResult[]; mapped: Map<string, string> } | { ok: false; error: string } {
   const roots = o.allowedRoots.filter((r) => typeof r === "string" && r.length > 0 && isAbsolute(r));
   const planned = new Map<string, string>();
@@ -197,17 +202,27 @@ export function copyIntoRun(
     ok: false as const,
     error: `${error}${copied.length ? ` (copied before it: ${copied.map((c) => c.to).join(", ")})` : ""}`,
   });
+  const copyFile = o.copyFile ?? ((from: string, to: string) => copyFileSync(from, to, fsConstants.COPYFILE_EXCL));
+  const linkAt = (to: string) => {
+    const link = symlinkBelow(o.destRoot, to);
+    if (link === null) return null;
+    return landed(link === to ? `${to}: destination is a symlink` : `${link}: destination directory is a symlink`);
+  };
   for (const w of writes) {
     // planning saw these destinations; another process may have written one since
-    if (safeRealpath(w.to) !== null || isSymlink(w.to)) {
+    const linked = linkAt(w.to);
+    if (linked !== null) return linked;
+    if (safeRealpath(w.to) !== null) {
       if (!sameBytes(w.from, w.to)) return landed(`${w.to}: landed under this call with other bytes`);
       continue;
     }
     mkdirSync(dirname(w.to), { recursive: true });
     try {
-      copyFileSync(w.from, w.to, fsConstants.COPYFILE_EXCL);
+      copyFile(w.from, w.to);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") return landed(`${w.to}: ${(e as Error).message}`);
+      const late = linkAt(w.to);
+      if (late !== null) return late;
       if (!sameBytes(w.from, w.to)) return landed(`${w.to}: landed under this call with other bytes`);
       continue;
     }

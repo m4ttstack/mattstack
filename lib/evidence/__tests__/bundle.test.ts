@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
+import { constants as fsConstants, copyFileSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { workRoot } from "../../daemon/upload-guard.ts";
@@ -145,6 +145,97 @@ describe("copyIntoRun", () => {
     writeFileSync(join(src, "a.spec.json"), "spec v2");
     const moved = copyIntoRun([{ src: a, destDir: dest }], opts());
     expect(moved.ok && moved.copied.map((c) => basename(c.to)).sort()).toEqual(["a.png", "a.spec.json"]);
+  });
+
+  describe("a file another process lands mid-call", () => {
+    const exclusive = (from: string, to: string) => copyFileSync(from, to, fsConstants.COPYFILE_EXCL);
+    /** Runs land(other) during the first copy, where other is the bundle member that copy is not writing. */
+    const landDuringFirstCopy = (names: string[], land: (other: string) => void) => {
+      let first = true;
+      return (from: string, to: string) => {
+        if (first) {
+          first = false;
+          land(join(dirname(to), names.find((n) => n !== basename(to))!));
+        }
+        exclusive(from, to);
+      };
+    };
+
+    test("other bytes landed after planning are refused, naming the files copied before them", () => {
+      const a = put("a.png", "one");
+      put("a.spec.json", "spec");
+      let landed = "";
+      const copyFile = landDuringFirstCopy(["a.png", "a.spec.json"], (other) => {
+        landed = other;
+        writeFileSync(other, "theirs");
+      });
+      const res = copyIntoRun([{ src: a, destDir: dest }], { ...opts(), copyFile });
+      const first = join(dest, landed.endsWith("a.png") ? "a.spec.json" : "a.png");
+      expect(res).toEqual({ ok: false, error: `${landed}: landed under this call with other bytes (copied before it: ${first})` });
+      expect(readFileSync(landed, "utf8")).toBe("theirs");
+    });
+
+    test("a file landed between the check and the copy: other bytes are refused, the same bytes kept and not listed", () => {
+      const a = put("a.png", "one");
+      const theirs = (body: string) => (from: string, to: string) => {
+        writeFileSync(to, body);
+        exclusive(from, to);
+      };
+      expect(copyIntoRun([{ src: a, destDir: dest, single: true }], { ...opts(), copyFile: theirs("other") })).toEqual({
+        ok: false,
+        error: `${join(dest, "a.png")}: landed under this call with other bytes`,
+      });
+      expect(readFileSync(join(dest, "a.png"), "utf8")).toBe("other");
+      rmSync(join(dest, "a.png"));
+      const same = copyIntoRun([{ src: a, destDir: dest, single: true }], { ...opts(), copyFile: theirs("one") });
+      expect(same.ok && same.copied).toEqual([]);
+    });
+
+    test("a symlink landed after planning is refused even when it points at the same bytes", () => {
+      const a = put("a.png", "one");
+      put("a.spec.json", "spec");
+      const outside = join(base, "outside");
+      mkdirSync(outside);
+      let landed = "";
+      const copyFile = landDuringFirstCopy(["a.png", "a.spec.json"], (other) => {
+        landed = other;
+        const twin = join(outside, basename(other));
+        writeFileSync(twin, readFileSync(join(src, basename(other))));
+        symlinkSync(twin, other);
+      });
+      const res = copyIntoRun([{ src: a, destDir: dest }], { ...opts(), copyFile });
+      expect(!res.ok && res.error.startsWith(`${landed}: destination is a symlink`)).toBe(true);
+      rmSync(dest, { recursive: true });
+      const atCopy = (from: string, to: string) => {
+        const twin = join(outside, `late-${basename(to)}`);
+        writeFileSync(twin, readFileSync(from));
+        symlinkSync(twin, to);
+        exclusive(from, to);
+      };
+      expect(copyIntoRun([{ src: a, destDir: dest, single: true }], { ...opts(), copyFile: atCopy })).toEqual({
+        ok: false,
+        error: `${join(dest, "a.png")}: destination is a symlink`,
+      });
+    });
+
+    test("a case folder that became a symlink after planning is refused and nothing lands where it points", () => {
+      const a = put("a.png", "one");
+      const b = put("b.png", "two");
+      const second = join(base, "run", "evidence", "second-case");
+      const outside = join(base, "outside");
+      mkdirSync(outside);
+      let first = true;
+      const copyFile = (from: string, to: string) => {
+        if (first) {
+          first = false;
+          symlinkSync(outside, dirname(to) === dest ? second : dest);
+        }
+        exclusive(from, to);
+      };
+      const res = copyIntoRun([{ src: a, destDir: dest, single: true }, { src: b, destDir: second, single: true }], { ...opts(), copyFile });
+      expect(!res.ok && /: destination directory is a symlink \(copied before it: /.test(res.error)).toBe(true);
+      expect(readdirSync(outside)).toEqual([]);
+    });
   });
 
   test("a symlinked content folder, or a symlinked file inside one, is refused and nothing lands where it points", () => {

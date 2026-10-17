@@ -263,8 +263,10 @@ ends ingestion's `upload_root` question.
   carries every path the record would store, so the next call can name
   them.
 - At write time each destination is checked again: a file another process
-  put there since planning is accepted only with the same bytes, otherwise
-  the call is refused, naming the files it already copied.
+  put there since planning is accepted only with the same bytes, a symlink
+  at the file or a folder below the run root is refused whatever it points
+  at (as planning refuses it), and either refusal names the files the call
+  already copied.
 
 **Write.**
 - **Coverage first.** An image with neither `annotated` (plus `caption`)
