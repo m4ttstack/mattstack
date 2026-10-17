@@ -491,6 +491,42 @@ has no `compose`; the first driver run returned both boards failed
 (`compose-unavailable`) and closed its tab, which is the include's Not
 drawn path working as written. The second run named the 0.1.13 runtime.
 
+### Steps board on Fast Browser 0.1.15 (after the re-port)
+
+One real compose of a `steps` board on Fast Browser 0.1.15, after the
+skills moved onto `evidence_record` and `evidence_attach`. Fixture: a
+local job page (`http://127.0.0.1:8765/`) that goes Failed, then Retry,
+then Done, and shows an owner email that is not being verified. Scenario:
+`scenarios/S11-steps-board.md` (ship, run `r-20261017-st1`, one new case
+`retry-flow`).
+
+- The brief came from a fresh Sonnet given only the compiled `ship` (no
+  fills) and S11: `state: FLOW`, three `point at` lines each
+  `OK | <step> | <outcome>. Verified.`, `hide` naming the owner's email,
+  `page:` with the steps.
+- The controller spawned one `fast-browser:browser-driver` on Sonnet at
+  `effort: medium` with the include's prompt and that brief; compose ran
+  on the 0.1.15 runtime (the `fast-browser` first on PATH was older). The
+  driver closed its tab and left the window size alone.
+- The record went through the real `evidence_record` handler and run
+  tools against a fresh run under an isolated HOME, with `path` = the last
+  step's capture and `annotated` = the board.
+
+| Check | Result |
+|---|---|
+| `layout: steps`; the title is the claim word for word | yes |
+| Each step carries a tag and an outcome description; marks inside a step carry no text | yes (three steps, all `OK`) |
+| Nothing personal readable (the email redacted on every step) | yes |
+| `evidence_record` writes `evidence@2` with the board as `annotated` and the claim as `caption`, nothing uncovered | `written: true` |
+| The whole bundle (board, spec, three captures and sidecars) copied into `evidence/retry-flow/` | yes |
+| `mr_upload`'s checks on the recorded board: record membership, redaction | both accepted (a live capture has no redaction record to confirm) |
+| The raw capture refused | yes: "is the raw capture for case ... upload its annotated image" |
+| The bundle copy re-renders with no browser | byte-identical board |
+
+The driver noted the click step shows the page just before the click (the
+fixture's 1.5 s retry finished before a post-click capture), which the
+composing skill allows for a click step.
+
 ## Final-review fixes
 
 One rep each against fresh compiles of `ea921e7dd..c5629d94f` (the redaction
@@ -580,3 +616,43 @@ Observation: no GREEN rep compared the board with the MR's attached
 images. Each said it had not viewed them and handed the reviewer the
 claim alone ("I have no read route to its upload paths"). No tool reads
 an MR's uploaded image, so the comparison rests on the description.
+
+## Re-port onto the evidence tools (2026-10-17)
+
+Main rewrote evidence-record, stage-evidence, ship, stage-ship and the
+review verbs onto `evidence_record`, `evidence_attach`, `run_budget`,
+`run_hold` and the gate tools, with short digraph ids, while this branch
+waited. The branch was re-ported onto that text: browser-evidence records
+through `evidence_record` (which copies the bundle) instead of a hand
+`cp`; `Compose the board (browser-evidence)` replaces `Draw the marks`;
+the redaction repair lives in `Attach the evidence`; every counter is a
+`run_budget`.
+
+GREEN on the ported text (compiled with `build.sh`, tool-less Sonnet, 3
+reps, read by hand; S7 and S10 bound to the acme fixtures). The scenarios'
+evidence paths moved to the per-case folders `evidence_record` writes.
+
+| Scenario | GREEN |
+|---|---|
+| S1 live before | 2/3 (r2 re-asked the attach gate the scenario had answered) |
+| S2 ticket image before | 3/3 |
+| S3 redaction confirmed | 3/3 |
+| S4 pair at ship (stage-ship) | 2/3 (r2's spawn named no `effort`) |
+| S4 pair at ship (ship) | 2/2, one rep refused by the safeguard |
+| S5 revise shipped | 2/3, then 3/3 after the fix below |
+| S6 revise gated | 3/3, and 3/3 again after the fix below |
+| S7 opted in before | 3/3 |
+| S10 review repro | 3/3 |
+
+No rep wrote `evidence` with `run_field_set`, uploaded with `mr_upload`,
+edited the section with `mr_update` or copied into the run folder.
+
+Fixed from this run: ship's "this is the last attach, so Take sends
+`linkRefused: true`" read as always sending it (S5 r3 and every S6 rep
+planned it on the first attach); ship and stage-ship now say only a Take
+at the upload off-script gate sends it. S5 and S6 then ran 3/3 each with
+no `linkRefused` on the first attach.
+
+Noted, not changed here: the evidence-attach gate always recommends Hand
+back even when a bound domain says to attach when an MR is open (S7 r1,
+r2); this predates the port.
