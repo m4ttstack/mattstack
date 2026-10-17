@@ -29,10 +29,13 @@ function probe(p: string): Probe {
 
 const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 
+const IS_TICKET = (filename: string) => `${filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
+
 /**
  * Refuses a file that is a run's saved ticket image, at its path or as a byte
- * copy. A ticket file it cannot read fails closed; a ticket file that is gone
- * cannot be compared, a known limit (the record holds no hash of it).
+ * copy. A shot with a recorded size and sha256 is matched against those, so
+ * the ticket file is never read and need not exist. A legacy shot with none
+ * reads the ticket file: unreadable fails closed, gone cannot be compared.
  */
 export function ticketCopyRefusal(o: {
   record: EvidenceRecord;
@@ -45,11 +48,17 @@ export function ticketCopyRefusal(o: {
 }): string | null {
   const resolve = o.resolve ?? safeRealpath;
   const look = o.probe ?? probe;
-  const mine = o.bytes ? sha256(o.bytes) : null;
+  let mine: string | null = null;
+  const mineOf = (b: Uint8Array) => (mine ??= sha256(b));
   for (const { shot } of evidenceShots(o.record)) {
     if (shot.source !== "ticket") continue;
-    if (resolve(shot.path) === o.realpath) return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
-    if (!o.bytes || mine === null) continue;
+    if (o.bytes && shot.sha256 !== undefined) {
+      if (shot.path === o.realpath) return IS_TICKET(o.filename);
+      if ((shot.size === undefined || shot.size === o.bytes.length) && mineOf(o.bytes) === shot.sha256) return IS_TICKET(o.filename);
+      continue;
+    }
+    if (resolve(shot.path) === o.realpath) return IS_TICKET(o.filename);
+    if (!o.bytes) continue;
     const found = look(shot.path);
     if (found.kind === "gone") continue;
     let theirs: Uint8Array | null = null;
@@ -64,9 +73,7 @@ export function ticketCopyRefusal(o: {
       o.warn?.("ticket copy check: unreadable ticket image, failing closed", { err: found.err, path: shot.path });
       return `${o.filename}: the run's ticket image ${basename(shot.path)} could not be read to rule out a copy; fix its permissions or recapture it`;
     }
-    if (theirs !== null && sha256(theirs) === mine) {
-      return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
-    }
+    if (theirs !== null && sha256(theirs) === mineOf(o.bytes)) return IS_TICKET(o.filename);
   }
   return null;
 }
