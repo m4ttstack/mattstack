@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createHash } from "crypto";
 import { spawnSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, truncateSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -505,6 +506,65 @@ describe("evidence_record", () => {
     const covered = await tool(real, "evidence_record").handler({ runDb: started.runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", path: shot, source: "ticket", annotated: board, caption: "c" }] }, realEnv);
     expect(covered.ok).toBe(true);
     expect(JSON.parse((covered.body as { value: string }).value).cases[0].before.source).toBe("ticket");
+  });
+
+  describe("a ticket image's recorded size and sha256", () => {
+    const hex = (body: string) => createHash("sha256").update(body).digest("hex");
+    const before = (value: string) => JSON.parse(value).cases[0].before;
+    const record = (deps: EvidenceToolDeps, image: Record<string, unknown>) =>
+      tool(deps, "evidence_record").handler({ runDb, stage: "verify", images: [{ case: "t", label: "T", slot: "before", ...image }] }, env);
+
+    test("come from the bytes copied into the run folder", async () => {
+      const { deps, fields } = makeDeps();
+      const res = await record(deps, { path: put("t.png", "ticket-bytes"), source: "ticket", annotated: put("t-board.png"), caption: "c" });
+      expect(res.ok).toBe(true);
+      const shot = before(fields.get("evidence")!);
+      expect(shot.path).toBe(join(evidenceDir("t"), "t.png"));
+      expect(shot).toMatchObject({ source: "ticket", size: "ticket-bytes".length, sha256: hex("ticket-bytes") });
+    });
+
+    test("are never taken from the caller", async () => {
+      for (const extra of [{ sha256: hex("other") }, { size: 3 }]) {
+        const { deps, fields } = makeDeps();
+        const res = await record(deps, { path: put("t.png", "ticket-bytes"), source: "ticket", annotated: put("t-board.png"), caption: "c", ...extra });
+        expect(res).toMatchObject({ ok: false, error: 'images[0]: "size" and "sha256" are recorded from the copied file; leave them out' });
+        expect(fields.has("evidence")).toBe(false);
+      }
+    });
+
+    test("stay on a same-path re-record and survive the run-folder copy being deleted", async () => {
+      const dir = evidenceDir("t");
+      const ticket = put("t.png", "ticket-bytes", dir);
+      const kept = "b".repeat(64);
+      const evidence = v2([{ id: "t", label: "T", before: { path: ticket, source: "ticket", size: 12, sha256: kept, annotated: put("t-board.png", "board", dir), caption: "c" } }]);
+      const { deps, fields } = makeDeps({ fields: { evidence } });
+      expect((await record(deps, { path: ticket, caption: "c2" })).ok).toBe(true);
+      expect(before(fields.get("evidence")!)).toMatchObject({ source: "ticket", size: 12, sha256: kept, caption: "c2" });
+      rmSync(ticket);
+      expect((await record(deps, { annotated: put("t-board2.png", "board2"), caption: "c3" })).ok).toBe(true);
+      expect(before(fields.get("evidence")!)).toMatchObject({ source: "ticket", size: 12, sha256: kept, caption: "c3" });
+    });
+
+    test("are recomputed on a recapture at a new path, and cleared with the mark when the recapture drops source", async () => {
+      const dir = evidenceDir("t");
+      const evidence = v2([{ id: "t", label: "T", before: { path: put("t.png", "ticket-bytes", dir), source: "ticket", size: 12, sha256: hex("ticket-bytes"), annotated: put("t-board.png", "board", dir), caption: "c" } }]);
+      const { deps, fields } = makeDeps({ fields: { evidence } });
+      expect((await record(deps, { path: put("t2.png", "second-ticket"), source: "ticket", annotated: put("t2-board.png"), caption: "c" })).ok).toBe(true);
+      expect(before(fields.get("evidence")!)).toMatchObject({ source: "ticket", size: "second-ticket".length, sha256: hex("second-ticket") });
+      expect((await record(deps, { path: put("plain.png", "plain"), waiver: "no ui" })).ok).toBe(true);
+      const plain = before(fields.get("evidence")!);
+      expect(plain.source).toBeUndefined();
+      expect(plain.size).toBeUndefined();
+      expect(plain.sha256).toBeUndefined();
+    });
+
+    test("are added to a legacy ticket shot the call touches", async () => {
+      const dir = evidenceDir("t");
+      const evidence = v2([{ id: "t", label: "T", before: { path: put("t.png", "legacy-bytes", dir), source: "ticket", annotated: put("t-board.png", "board", dir), caption: "c" } }]);
+      const { deps, fields } = makeDeps({ fields: { evidence } });
+      expect((await record(deps, { caption: "c2" })).ok).toBe(true);
+      expect(before(fields.get("evidence")!)).toMatchObject({ size: "legacy-bytes".length, sha256: hex("legacy-bytes") });
+    });
   });
 
   test("against a real run db through the run tools' handlers", async () => {

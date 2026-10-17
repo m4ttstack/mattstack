@@ -7,7 +7,8 @@
  * each file sent; the only skip is a reuse whose bytes match a prior upload
  * and that the redaction check would still pass.
  */
-import { existsSync, readFileSync, realpathSync } from "fs";
+import { createHash } from "crypto";
+import { existsSync, readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join } from "path";
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
@@ -17,7 +18,7 @@ import { waitForAnswers } from "../endpoint/readiness.ts";
 import { ticketCopyRefusal } from "../daemon/evidence-record-check.ts";
 import { redactionUploadRefusal } from "../daemon/redaction-record-check.ts";
 import { allowedSourceRoots, bundleStem, copyIntoRun, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
-import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
+import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, stampTicketBytes, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
 import { appendixProblem, namesHome, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
 import { parseUploads, serializeUploads, sha256Of, type UploadEntry } from "../evidence/uploads-field.ts";
@@ -179,6 +180,7 @@ function parseRecordInput(input: Obj): { ok: true; merge: MergeInput; plan: bool
       ?? (SLOTS.has(e.slot as string) ? null : `${where}: "slot" must be "before" or "after"`)
       ?? (e.theme === undefined || THEMES.has(e.theme as string) ? null : `${where}: "theme" must be "light" or "dark"`)
       ?? (e.source === undefined || e.source === "ticket" ? null : `${where}: "source" must be "ticket"`)
+      ?? (e.size === undefined && e.sha256 === undefined ? null : `${where}: "size" and "sha256" are recorded from the copied file; leave them out`)
       ?? optionalStrings(e, where, ["label", "path", "annotated", "caption", "waiver"])
       ?? checkPaths(e, where, ["path", "annotated"]);
     if (problem) return { ok: false, error: problem };
@@ -293,6 +295,13 @@ function onRun<T>(runDb: unknown, task: () => Promise<T>): Promise<T> {
   return next;
 }
 
+/** stat before the read: a record path can name a FIFO or a device. */
+function measureFile(path: string): { size: number; sha256: string } {
+  if (!statSync(path).isFile()) throw new Error("not a regular file");
+  const bytes = readFileSync(path);
+  return { size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+}
+
 async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.ProcessEnv): Promise<ToolResult> {
   const bad = checkRequired(input, [{ name: "runDb", type: "string" }, { name: "stage", type: "string" }]);
   if (bad) return err(bad);
@@ -345,6 +354,8 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const withCopied = (error: string) => err(`${error} (the files were copied: ${copied.map((c) => c.to).join(", ") || "none"})`);
   const merged = mergeRecord(current, remap(merge, copy.mapped, evidenceRoot));
   if (!merged.ok) return withCopied(merged.error);
+  const stamped = stampTicketBytes(merged.record, merge.images ?? [], measureFile);
+  if (!stamped.ok) return withCopied(stamped.error);
   const serialized = serializeRecord(merged.record);
   if (!serialized.ok) return withCopied(serialized.error);
   const uncovered = uncoveredImages(merged.record);
