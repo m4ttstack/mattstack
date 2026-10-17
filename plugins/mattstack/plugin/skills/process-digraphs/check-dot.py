@@ -110,7 +110,10 @@ def call_prefix(text):
 
 def double_declared(src):
     seen = {}
-    for m in re.finditer(r"(?m)(?:^|[{;])\s*([a-z][a-z_]*)\s*\[", src):
+    blanked = re.sub(r'"(?:\\.|[^"\\])*"', lambda s: '"' + " " * (len(s.group(0)) - 2) + '"', src, flags=re.S)
+    for m in re.finditer(r"(?m)(?:^|[{;])\s*([a-z][a-z_]*)\s*\[", blanked):
+        if blanked[: m.start(1)].rstrip().endswith(("->", "--")):
+            continue
         seen[m.group(1)] = seen.get(m.group(1), 0) + 1
     return [n for n, c in seen.items() if c > 1 and n not in ("node", "edge", "graph")]
 

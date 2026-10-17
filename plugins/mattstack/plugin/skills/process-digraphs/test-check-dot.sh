@@ -63,6 +63,9 @@ expect phantom-edge "label every node or none" 'digraph g { '"$SHORT"' git_push 
 expect dup-text "two nodes share the text" 'digraph g { '"$SHORT"' do_a [label="Do it" shape=box]; do_b [label="Do it" shape=box]; start -> do_a; start -> do_b; do_a -> done; do_b -> done; }'
 expect double-decl "declared twice" 'digraph g { '"$SHORT"' git_push [label="git_push {tree}" shape=plaintext]; git_push [label="git_push {tree: <root>}"]; start -> git_push; git_push -> done; }'
 expect double-decl-unlabelled "declared twice" 'digraph g { '"$SHORT"' work [label="Do the work" shape=box]; start [color=red]; start -> work; work -> done; }' --short-ids
+expect wrapped-edge-ok "" 'digraph g { '"$SHORT"' do_a [label="Do a" shape=box]; do_b [label="Do b" shape=box]; start -> do_a; do_a ->
+do_b [label="go"]; do_b -> done; }'
+expect label-semicolon-ok "" 'digraph g { '"$SHORT"' do_a [label="Do a" shape=box]; do_b [label="x; do_a [y" shape=box]; start -> do_a; do_a -> do_b; do_b -> done; }'
 expect prefix-bad "starts with its call" 'digraph g { '"$SHORT"' push [label="git_push {tree}" shape=plaintext]; start -> push; push -> done; }'
 expect prefix-camel-ok "" 'digraph g { '"$SHORT"' enter_worktree [label="EnterWorktree {name}" shape=plaintext]; start -> enter_worktree; enter_worktree -> done; }'
 expect prefix-env-ok "" 'digraph g { '"$SHORT"' claude_update [label="CLAUDE_CONFIG_DIR=<dir> claude plugin update x" shape=plaintext]; start -> claude_update; claude_update -> done; }'
