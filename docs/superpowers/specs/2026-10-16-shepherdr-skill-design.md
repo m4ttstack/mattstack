@@ -828,8 +828,8 @@ source went from 9,647 to 8,444 words.
 
 ### Followups-2 rows
 
-Same recipe; scenario files kept in the followups-2 worktree's
-`.superpowers/tests/b4/` and `b7j/`. RED is the text before the change.
+Same recipe; scenario files in
+`plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/b4/` and `b7j/`. RED is the text before the change.
 
 | Scenario | RED | GREEN | What happened |
 |---|---|---|---|

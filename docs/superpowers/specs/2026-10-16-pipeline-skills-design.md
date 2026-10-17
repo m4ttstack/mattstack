@@ -463,8 +463,8 @@ rewritten skill. Per-rep quotes, scenario iterations and word counts are in
 
 Totals: RED 5/50, GREEN 50/50.
 
-Followups-2 held-tree rows (scenario files kept with the run notes in the
-followups-2 worktree's `.superpowers/tests/b2/`; RED is the text before
+Followups-2 held-tree rows (scenario files in
+`plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/b2/`, C1 in `b5/` beside it; RED is the text before
 the change, GREEN after):
 
 | Scenario | RED | GREEN | Deviations seen at RED |

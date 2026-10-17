@@ -384,7 +384,7 @@ over the bar. E6 was added at the PR review; its RED ran from `efdd89f09`.
 
 E7 tests behavior the skill already had, so it ran GREEN only, on the
 text at `0613d2b1e`, with the compiled stage-evidence as the appended
-system prompt (fixture and reps in `.superpowers/tests/b8/`). Every rep
+system prompt (fixture and reps in `plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/b8/`). Every rep
 took the size refusal to the off-script gate, counted the Iterate, recorded
 the recapture, drew beside its returned copy and attached again. Reps 2, 3
 and 5 resent the covered retry-badge image with the recapture; reps 1 and 4

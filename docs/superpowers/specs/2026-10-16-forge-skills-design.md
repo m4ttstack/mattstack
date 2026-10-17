@@ -530,8 +530,8 @@ sync-open-mrs:
 | 11 checkout, no tree (phase 2) | n/a (new path) | 0: one `mr_resolve_branch`, provision on `sourceBranch` (5/5) | |
 | 12 checkout, merged, tree exists (phase 2) | n/a (new path) | 0: points at the tree, report names "merged" (5/5) | |
 
-Followups-2 rows (B7, scenario files kept in the followups-2 worktree's
-`.superpowers/tests/b7/`; RED is the text before the change, GREEN after):
+Followups-2 rows (B7, scenario files and build script in
+`plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/b7/`; RED is the text before the change, GREEN after):
 
 | scenario | RED | GREEN | notes |
 |---|---|---|---|

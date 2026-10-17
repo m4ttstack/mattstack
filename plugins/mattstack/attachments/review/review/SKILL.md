@@ -245,6 +245,7 @@ digraph review {
     "Own review run: record the target?" -> "Caller handed a decided selection and the report it decided on?" [label="no: inherited"];
     "Record the review target: mr, branch and any ticket" -> "Caller handed a decided selection and the report it decided on?";
     "Caller handed a decided selection and the report it decided on?" -> "Review posting forge?" [label="yes: post it; review nothing again"];
+    "Caller handed a decided selection and the report it decided on?" -> "run_hold {runDb, stage, reason, decidedBy}" [label="yes, but a selected id the json lacks: hold, quoting it"];
     "Caller handed a decided selection and the report it decided on?" -> "Caller framed a re-review?" [label="no"];
     "Caller framed a re-review?" -> "Take the earlier threads the caller handed in" [label="yes"];
     "Caller framed a re-review?" -> "Print the review depth block" [label="no"];
@@ -473,8 +474,11 @@ selected finding's text, anchor and tier from the report's json sibling
 (the report itself for a legacy selection) as written. Print no depth
 block, fetch, diff, provision or dispatch nothing, and never rewrite the
 report or its json: a second pass forms new findings whose ids and
-anchors are not the ones the human picked. On a resumed run the post
-still reads the MR first (`This review already on the MR?`). No: a
+anchors are not the ones the human picked. A selected finding id the json
+lacks means the selection was decided on another revision of the report:
+hold, quoting the missing ids, and never post a partial set. On a resumed
+run the post still reads the MR first (`This review already on the MR?`).
+No: a
 selection handed with no report, or none handed, goes on to the review.
 
 ### Caller framed a re-review?

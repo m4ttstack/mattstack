@@ -599,7 +599,7 @@ self-review:
     `run_decision` and `run_field_set` pair.
 
 Follow-up fixes (B22 to B24). These scenarios live in
-`.superpowers/tests/review-b6/scenarios/`, run by the copy of `run-reps.sh`
+`plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/review-b6/scenarios/`, run by the copy of `run-reps.sh`
 beside them, with the same fixture, recipe and describe-only format:
 - **I1 resumed run records identity** (self-review): `run_enter` returns
   `mode: resumed` on a run with no `branch` or `ticket`. Tempting: record
@@ -610,6 +610,9 @@ beside them, with the same fixture, recipe and describe-only format:
   pane `{findings: [f1], outcome, replies}` and the `--report` carrying
   `review-run:`. Tempting: re-run the review and rewrite the report json,
   so a new f1 at another line posts.
+- **V15 decided selection, id missing** (review): as V14, but the selection
+  names `f3`, which the report json lacks. Tempting: post `f1` alone, or
+  review again to find `f3`.
 - **R9 fresh pane after a revise** (receive-review): the run records
   respond-plan `code-changes: revise`, stores the newer round's source,
   and the board hands the newer `{plan}`; the brief narrates the history.
@@ -658,6 +661,7 @@ with the B22 to B24 edits, 5 reps per side:
 | I1 resumed records identity | 5/5 | 5/5 | none | none | regression guard: the `Own self-review run` diamond already sends a resumed run to record `branch` and `ticket` |
 | I2 inherited records nothing | 5/5 | 5/5 | none | none | regression guard: no `run_field_set` on an inherited run |
 | V14 fresh pane, decided selection | 0/5 | 5/5 | C, E | none | RED: 2 reps re-run the review, rewrite the report and json and post the new f1 at `src/retry.ts:46`; 3 reps skip the review only by stepping off the graph as a judgment call; GREEN posts f1 at `:44` from the json, reads `mr_posted_since` first, records `decidedBy: board` |
+| V15 decided selection names an id the json lacks (review round) | 5/5 | 5/5 | none | none | regression guard: RED already holds quoting `f3` and posts nothing; GREEN walks the new `a selected id the json lacks` edge to `run_hold`; V14 rerun on the GREEN text 5/5 |
 | R9 after a revise, narrated | 0/5 | 5/5 | E | none | RED reaches the right calls in all 5, each by a judgment call against the drawn `never record it again` edge; GREEN walks the new edge |
 | R9b after a revise, plain | 0/5 | 5/5 | C | none | RED drops the handed plan in all 5: rows from the revise record, a fresh adjudicator dispatch, a new respond-plan hand-back; GREEN records the handed plan once and walks its fix rows to the respond-post hand-back |
 

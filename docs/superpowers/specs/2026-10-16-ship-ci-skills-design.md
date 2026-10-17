@@ -481,7 +481,7 @@ from a fresh empty cwd (the shepherd's describe-only recipe).
 
 B22 and B23 test behavior the skill already had, so they ran GREEN only
 (5 reps each, at `0613d2b1e`, the compiled stage-ship as the appended system prompt;
-fixtures and reps in `.superpowers/tests/b8/`). B22 passes when each Take
+fixtures and reps in `plugins/mattstack/docs/superpowers/tests/2026-10-17-followups-2/b8/`). B22 passes when each Take
 gets a read-only HEAD-against-remote comparison and no push; the first miss
 counts `ship:landing-checks` (limit 1, not past) and reopens the push gate
 quoting the comparison; the second miss is past and fails the stage
