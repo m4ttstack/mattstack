@@ -30,9 +30,10 @@ digraph extend_pack {
     "rt_verb {args: [\"skills\", \"bind\", \"shepherdr\", \"strategy\", \"mattstack:execution-strategy\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
     "Reword the description in pack/stubs.jsonc" [shape=box];
     "rt_verb {args: [\"skills\", \"compile\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
-    "Compiled after a revision or a new pipeline?" [shape=diamond];
+    "What did this round change?" [shape=diamond];
     "RED: run the stage or verb without the rule" [shape=box];
     "The miss reproduced?" [shape=diamond];
+    "The named fill exists?" [shape=diamond];
     "Where does the edit land?" [shape=diamond];
     "STOP: edit the pack source, never compiled output or the cache" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Write the rule in the author's words" [shape=box];
@@ -40,20 +41,25 @@ digraph extend_pack {
     "One pipeline's fill only?" [shape=diamond];
     "rt_verb {args: [\"skills\", \"bind\", \"<stage-or-verb>\", \"<slot>\", \"<pack>:<fill>\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
     "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"<pack>:<fill>\", \"--pipeline\", \"<name>\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
+    "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"--pipeline\", \"<name>\", \"--unset\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
+    "Unset result?" [shape=diamond];
     "Bind result?" [shape=diamond];
     "Bind attempts = 2?" [shape=diamond];
     "Fix what the refusal names" [shape=box];
     "Gate: bind refused twice" [shape=box];
     "Add it to pack/surface.jsonc public" [shape=box];
-    "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir> --domain" [shape=plaintext];
+    "Wrote or revised a skill or fill this round?" [shape=diamond];
+    "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill or fill folder> --domain" [shape=plaintext];
     "rt_verb {args: [\"skills\", \"check\", \"--pack\", \"<pack>\"]}" [shape=plaintext];
     "Certify and check pass?" [shape=diamond];
-    "Declared a pipeline this round?" [shape=diamond];
     "Fix rounds = 3?" [shape=diamond];
     "Read what moved on Bash" [shape=box];
     "Fix what failed" [shape=box];
     "Gate: fix rounds spent" [shape=box];
+    "Undid an override this round?" [shape=diamond];
     "Bound a fill this round?" [shape=diamond];
+    "Declared a pipeline this round?" [shape=diamond];
+    "A stage's fill differs for this pipeline?" [shape=diamond];
     "The fragment carries the binding?" [shape=diamond];
     "Fragment checks = 2?" [shape=diamond];
     "Gate: fragment still missing the binding" [shape=box];
@@ -75,20 +81,29 @@ digraph extend_pack {
     "rt skills materialize" -> "Add the work-<kind> verb in pack/stubs.jsonc";
     "Add the work-<kind> verb in pack/stubs.jsonc" -> "rt_verb {args: [\"skills\", \"surface\", \"set\", \"<verb>\", \"--public\", \"--pack\", \"<pack>\"]}";
     "Where does the ask land?" -> "Reword the description in pack/stubs.jsonc" [label="the wording of a verb"];
+    "Where does the ask land?" -> "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"--pipeline\", \"<name>\", \"--unset\", \"--pack\", \"<pack>\"]}" [label="undo a pipeline's override"];
+    "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"--pipeline\", \"<name>\", \"--unset\", \"--pack\", \"<pack>\"]}" -> "Unset result?";
+    "Unset result?" -> "rt_verb {args: [\"skills\", \"check\", \"--pack\", \"<pack>\"]}" [label="ok"];
+    "Unset result?" -> "Handed to the author" [label="refused: stop and report the refusal"];
     "Where does the ask land?" -> "RED: run the stage or verb without the rule" [label="a context rule, or a fill for one stage or verb"];
     "Add the roster entry in pack/stubs.jsonc" -> "rt_verb {args: [\"skills\", \"surface\", \"set\", \"<verb>\", \"--public\", \"--pack\", \"<pack>\"]}";
     "rt_verb {args: [\"skills\", \"surface\", \"set\", \"<verb>\", \"--public\", \"--pack\", \"<pack>\"]}" -> "A shepherdr door?";
     "A shepherdr door?" -> "rt_verb {args: [\"skills\", \"bind\", \"shepherdr\", \"tiering\", \"mattstack:model-tiering\", \"--pack\", \"<pack>\"]}" [label="yes"];
-    "A shepherdr door?" -> "rt_verb {args: [\"skills\", \"compile\", \"--pack\", \"<pack>\"]}" [label="no"];
+    "A shepherdr door?" -> "What did this round change?" [label="no: surface set compiled the pack"];
     "rt_verb {args: [\"skills\", \"bind\", \"shepherdr\", \"tiering\", \"mattstack:model-tiering\", \"--pack\", \"<pack>\"]}" -> "rt_verb {args: [\"skills\", \"bind\", \"shepherdr\", \"strategy\", \"mattstack:execution-strategy\", \"--pack\", \"<pack>\"]}";
-    "rt_verb {args: [\"skills\", \"bind\", \"shepherdr\", \"strategy\", \"mattstack:execution-strategy\", \"--pack\", \"<pack>\"]}" -> "rt_verb {args: [\"skills\", \"compile\", \"--pack\", \"<pack>\"]}";
+    "rt_verb {args: [\"skills\", \"bind\", \"shepherdr\", \"strategy\", \"mattstack:execution-strategy\", \"--pack\", \"<pack>\"]}" -> "What did this round change?";
     "Reword the description in pack/stubs.jsonc" -> "rt_verb {args: [\"skills\", \"compile\", \"--pack\", \"<pack>\"]}";
-    "rt_verb {args: [\"skills\", \"compile\", \"--pack\", \"<pack>\"]}" -> "Compiled after a revision or a new pipeline?";
-    "Compiled after a revision or a new pipeline?" -> "Round done: hand to editing-skills to publish" [label="no: a new door or a reworded verb"];
-    "Compiled after a revision or a new pipeline?" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir> --domain" [label="yes: certify and check it"];
+    "rt_verb {args: [\"skills\", \"compile\", \"--pack\", \"<pack>\"]}" -> "What did this round change?";
+    "What did this round change?" -> "Round done: hand to editing-skills to publish" [label="a new door or a reworded verb"];
+    "What did this round change?" -> "rt_verb {args: [\"skills\", \"check\", \"--pack\", \"<pack>\"]}" [label="a new pipeline: nothing hand-written to certify"];
+    "What did this round change?" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill or fill folder> --domain" [label="a revised rule (GREEN failed)"];
     "RED: run the stage or verb without the rule" -> "The miss reproduced?";
     "The miss reproduced?" -> "Where does the edit land?" [label="yes: quote it"];
-    "The miss reproduced?" -> "No miss: nothing to write" [label="no"];
+    "The miss reproduced?" -> "No miss: nothing to write" [label="no, and nothing else changed this round"];
+    "The miss reproduced?" -> "Round done: hand to editing-skills to publish" [label="no, no fill named, and this round declared a pipeline"];
+    "The miss reproduced?" -> "The named fill exists?" [label="no, but the ask names a pipeline's fill"];
+    "The named fill exists?" -> "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"<pack>:<fill>\", \"--pipeline\", \"<name>\", \"--pack\", \"<pack>\"]}" [label="yes: the override is the ask"];
+    "The named fill exists?" -> "Where does the edit land?" [label="no: write it first"];
     "Where does the edit land?" -> "Write the rule in the author's words" [label="the pack source"];
     "Where does the edit land?" -> "STOP: edit the pack source, never compiled output or the cache" [label="tempted: compiled output or a cache copy"];
     "STOP: edit the pack source, never compiled output or the cache" -> "Write the rule in the author's words";
@@ -99,28 +114,34 @@ digraph extend_pack {
     "A fill?" -> "Add it to pack/surface.jsonc public" [label="no: a context skill"];
     "rt_verb {args: [\"skills\", \"bind\", \"<stage-or-verb>\", \"<slot>\", \"<pack>:<fill>\", \"--pack\", \"<pack>\"]}" -> "Bind result?";
     "rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"<pack>:<fill>\", \"--pipeline\", \"<name>\", \"--pack\", \"<pack>\"]}" -> "Bind result?";
-    "Bind result?" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir> --domain" [label="ok"];
+    "Bind result?" -> "Wrote or revised a skill or fill this round?" [label="ok"];
     "Bind result?" -> "Bind attempts = 2?" [label="refused"];
     "Bind attempts = 2?" -> "Fix what the refusal names" [label="no"];
     "Bind attempts = 2?" -> "Gate: bind refused twice" [label="yes"];
     "Fix what the refusal names" -> "One pipeline's fill only?";
     "Gate: bind refused twice" -> "One pipeline's fill only?" [label="retry: author fixed it"];
     "Gate: bind refused twice" -> "Handed to the author" [label="author takes over"];
-    "Add it to pack/surface.jsonc public" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir> --domain";
-    "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir> --domain" -> "rt_verb {args: [\"skills\", \"check\", \"--pack\", \"<pack>\"]}";
+    "Add it to pack/surface.jsonc public" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill or fill folder> --domain";
+    "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill or fill folder> --domain" -> "rt_verb {args: [\"skills\", \"check\", \"--pack\", \"<pack>\"]}";
     "rt_verb {args: [\"skills\", \"check\", \"--pack\", \"<pack>\"]}" -> "Certify and check pass?";
-    "Certify and check pass?" -> "Declared a pipeline this round?" [label="yes"];
-    "Declared a pipeline this round?" -> "Round done: hand to editing-skills to publish" [label="yes: its fills come in later rounds"];
-    "Declared a pipeline this round?" -> "Bound a fill this round?" [label="no"];
+    "Certify and check pass?" -> "Undid an override this round?" [label="yes"];
+    "Undid an override this round?" -> "Round done: hand to editing-skills to publish" [label="yes: no certify, RED or GREEN"];
+    "Undid an override this round?" -> "Bound a fill this round?" [label="no"];
     "Certify and check pass?" -> "Fix rounds = 3?" [label="no"];
     "Fix rounds = 3?" -> "Read what moved on Bash" [label="no"];
     "Fix rounds = 3?" -> "Gate: fix rounds spent" [label="yes"];
     "Read what moved on Bash" -> "Fix what failed";
-    "Fix what failed" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir> --domain";
-    "Gate: fix rounds spent" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir> --domain" [label="retry: author fixed it"];
+    "Fix what failed" -> "Wrote or revised a skill or fill this round?";
+    "Gate: fix rounds spent" -> "Wrote or revised a skill or fill this round?" [label="retry: author fixed it"];
     "Gate: fix rounds spent" -> "Handed to the author" [label="author takes over"];
+    "Wrote or revised a skill or fill this round?" -> "sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <the skill or fill folder> --domain" [label="yes"];
+    "Wrote or revised a skill or fill this round?" -> "rt_verb {args: [\"skills\", \"check\", \"--pack\", \"<pack>\"]}" [label="no: check only"];
     "Bound a fill this round?" -> "The fragment carries the binding?" [label="yes"];
-    "Bound a fill this round?" -> "claude --plugin-dir <pack dir>" [label="no"];
+    "Bound a fill this round?" -> "Declared a pipeline this round?" [label="no"];
+    "Declared a pipeline this round?" -> "A stage's fill differs for this pipeline?" [label="yes"];
+    "Declared a pipeline this round?" -> "claude --plugin-dir <pack dir>" [label="no: a context skill"];
+    "A stage's fill differs for this pipeline?" -> "RED: run the stage or verb without the rule" [label="yes: same round, with /<pack>:work-<kind>"];
+    "A stage's fill differs for this pipeline?" -> "Round done: hand to editing-skills to publish" [label="no: it only changes the stage list"];
     "The fragment carries the binding?" -> "claude --plugin-dir <pack dir>" [label="yes"];
     "The fragment carries the binding?" -> "Fragment checks = 2?" [label="no"];
     "Fragment checks = 2?" -> "One pipeline's fill only?" [label="no: bind again"];
@@ -160,6 +181,7 @@ Bash, and only as a one-time lookup, not a per-round call.
 | a new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | a roster entry in `pack/stubs.jsonc` plus `rt_verb {args: ["skills", "surface", "set", "<verb>", "--public", "--pack", "<pack>"]}` |
 | the wording of an existing verb | its `description` in `pack/stubs.jsonc` |
 | one kind of work (accessibility, a bug fix) that runs its own stages or its own fills | a pipeline in `pack/skills.jsonc` plus a `work-<kind>` verb that names it (see Add a specialized pipeline) |
+| taking a pipeline's override back off | one `bind --pipeline <name> --unset`, then check (see Undo a pipeline's override) |
 
 `slots.md` beside this file maps asks to slots and contracts.
 `rt skills composition --pack <pack>` (Bash, one-time) is the live list; use
@@ -167,24 +189,29 @@ it when the table and the pack disagree.
 
 ### Add a specialized pipeline
 
-A specialized pipeline takes two rounds or more, in this order:
+A specialized pipeline and its first fill override fit in one round, with
+one publish at the end:
 
-1. This round: `Declare the pipeline in pack/skills.jsonc`, run
-   `rt skills materialize` on Bash, then `Add the work-<kind> verb in
-   pack/stubs.jsonc`, put it on the surface, compile, certify and check.
-2. One later round per stage whose fill differs for this pipeline: RED with
-   `/<pack>:work-<kind>`, write the fill, then bind it with `--pipeline
-   <name>` (the `One pipeline's fill only?` yes edge). Stages it does not
-   override run the pack's default fills.
+1. `Declare the pipeline in pack/skills.jsonc`, run `rt skills materialize`
+   on Bash, then `Add the work-<kind> verb in pack/stubs.jsonc` and put it
+   on the surface. Surface set compiles the whole pack, so no separate
+   compile follows. Check the pack. There is nothing to certify yet: no
+   hand-written skill or fill changed.
+2. When one stage's fill differs for this pipeline, stay in the round. Run
+   RED with `/<pack>:work-<kind>` in a fresh `claude --plugin-dir <pack dir>`
+   session: the installed cache has no such verb until publish. Write the
+   fill (or reuse one the pack already has), then bind it with
+   `--pipeline <name>` (the `One pipeline's fill only?` yes edge). Bind
+   works straight after the materialize in step 1. Certify the fill's
+   folder if you wrote it, check, and run GREEN in a second fresh
+   `--plugin-dir` session. When the ask names the fill ("accessibility
+   runs use `acme:evidence-a11y`"), the override is the ask itself: it
+   binds even when RED shows no miss (see `The named fill exists?`).
+3. Hand to editing-skills to publish, once.
 
-To take a pipeline's override back off, run `rt_verb {args: ["skills",
-"bind", "<stage>", "<slot>", "--pipeline", "<name>", "--unset", "--pack",
-"<pack>"]}`. It takes no fill; it rewrites the fragment, recompiles, and
-sweeps the stage copy once that stage's fills match the default again.
-For example, `rt skills bind stage-evidence domain --pipeline accessibility --unset` <!-- mcp-lint: allow -->
-puts the accessibility pipeline's evidence domain back on the default fill;
-send it as `rt_verb {args: ["skills", "bind", "stage-evidence", "domain",
-"--pipeline", "accessibility", "--unset", "--pack", "<pack>"]}`.
+Stages the pipeline does not override run the pack's default fills, and
+plain `/<pack>:work` keeps them all. Each further stage this pipeline
+overrides is its own round, entering at `RED`.
 
 Compile, check and bind read the pack's bindings file for the repo
 (`~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`), never the fragment,
@@ -195,12 +222,45 @@ declaration and the materialize always come first. `rt skills materialize`
 is not agent-safe: `rt_verb` refuses it, so run it as plain Bash. Later
 `bind` calls materialize on their own.
 
+#### Undo a pipeline's override
+
+This is the `undo a pipeline's override` edge: unset, check, hand off. The
+form is `<stage> <slot> --pipeline <name> --unset`, with no fill. To put the
+accessibility pipeline's evidence back on the default fill, run
+`rt_verb {args: ["skills", "bind", "stage-evidence", "domain", "--pipeline",
+"accessibility", "--unset", "--pack", "<pack>"]}`. The bare stage name works
+on every rt, including one older than the plugin. It needs no materialize
+first. It removes the override from the fragment, rebuilds the bindings
+file and recompiles the pack:
+
+- When this was the pipeline's last override, `pipelines.accessibility` in
+  the fragment goes back to a plain stage list. A pipeline that keeps
+  other overrides keeps its object form.
+- The recompile removes the stage copy
+  (`attachments/stage-evidence--accessibility/`) once that stage's fills
+  match the default again. Never delete the copy by hand.
+
+Bind refuses an unset when the pipeline has no override at that slot
+(`<pipeline> has no override for <stage>.<slot>`) or the override comes
+from another layer (`... comes from <layer>; remove it there`). A refused
+unset changed nothing: stop, quote the refusal to the author, and publish
+nothing (the `Unset result?` refused edge).
+
+After an ok unset, run
+`rt_verb {args: ["skills", "check", "--pack", "<pack>"]}`: it passes
+with every verb and stage current and no stage copy left over. The undo
+writes no rule, so there is no certify, RED or GREEN: the
+`Undid an override this round?` yes edge goes straight to the hand-off.
+Hand to editing-skills to publish: it enters at `What changed?` with no RED
+baseline and takes the `no skill folder written` edge (see Publish).
+
 ### Declare the pipeline in pack/skills.jsonc
 
 Add a key under `pipelines` in the fragment. The name matches
 `^[a-z][a-z0-9-]*$` (`accessibility`, `bugfix`). Its value is a plain stage
 list; `bind --pipeline` turns it into the object form when it writes the
-first override:
+first override. For the same stages as `feature`, copy `feature`'s list
+from the fragment. The seeded `feature` list is these eight, in this order:
 
 ```jsonc
 "pipelines": {
@@ -208,29 +268,41 @@ first override:
   "accessibility": [
     "mattstack:stage-provision",
     "mattstack:stage-plan",
+    "mattstack:stage-gates",
     "mattstack:stage-evidence",
     "mattstack:stage-implement",
+    "mattstack:stage-self-review",
     "mattstack:stage-ship",
     "mattstack:stage-watch-ci"
   ]
 }
 ```
 
-A pipeline a work verb runs starts with `mattstack:stage-provision`, ends
-with `mattstack:stage-watch-ci`, and lists `mattstack:stage-implement` and
+Change only what differs for this kind of work. A pipeline a work verb runs
+starts with `mattstack:stage-provision`, ends with
+`mattstack:stage-watch-ci`, and lists `mattstack:stage-implement` and
 `mattstack:stage-ship`; in between, any order the consumes/produces chain
 check accepts. Keep the `feature` pipeline: plain `work` runs it.
 
 ### Add the work-<kind> verb in pack/stubs.jsonc
 
 One roster entry on the `work` engine, naming the pipeline it runs, with a
-trigger-only description in the team's words:
+trigger-only description in the team's words. It goes inside the `verbs`
+object, next to `work`; rt reads no entry outside `verbs`:
 
 ```jsonc
-"work-a11y": {
-  "engine": "work",
-  "pipeline": "accessibility",
-  "description": "Use when running accessibility work end to end"
+{
+  "verbs": {
+    "work": {
+      "engine": "work",
+      "description": "..."
+    },
+    "work-a11y": {
+      "engine": "work",
+      "pipeline": "accessibility",
+      "description": "Use when running accessibility work end to end"
+    }
+  }
 }
 ```
 
@@ -263,7 +335,19 @@ Running the tool the rule is about (the linter, the test runner) in the
 checkout is not the RED pass; it tests the tool, not the pipeline.
 
 For a fill only a specialized pipeline should run, RED runs that
-pipeline's verb (`/<pack>:work-a11y`), not plain `work`.
+pipeline's verb (`/<pack>:work-a11y`), not plain `work`. A verb declared
+this round is not in the installed cache yet, so run that RED in a fresh
+`claude --plugin-dir <pack dir>` session, the same way as GREEN.
+
+### The named fill exists?
+
+You reach this when RED showed no miss but the ask names a fill for one
+pipeline. An explicit override is the requirement, so it binds whether or
+not RED reproduces a miss; only a fill the ask leaves unnamed needs RED to
+justify it. When the fill exists, bind it with `--pipeline` straight away.
+When it does not, write it first: RED and GREEN still apply to the fill's
+own content. Either way GREEN then records that `/<pack>:work-<kind>`
+runs the named fill and plain `/<pack>:work` does not.
 
 ### Write the rule in the author's words
 
@@ -313,14 +397,18 @@ that still wins is reported. It refuses a fill that does not exist
 yet: write it first. Other causes a refusal can name:
 
 - the fill's `provides` needs to match the slot's contract;
-- a verb-level bind (`mattstack:ship`) needs the door rostered first. The
-  stage-level bind (`mattstack:stage-ship`) works either way.
+- a verb-level bind (`ship`) needs the door rostered first, and names the
+  door with no plugin prefix. The stage-level bind (`mattstack:stage-ship`)
+  works either way.
 - with `--pipeline` (`pipeline "<name>" is not declared in this pack's
   manifest`): the pack's bindings file must declare the pipeline, so declare
   it in the fragment, then run `rt skills materialize` on Bash. Its name
   matches `^[a-z][a-z0-9-]*$`, and its stage list carries the stage. The
-  verb is the stage (`stage-evidence`), never its compiled copy
+  verb is the stage (`mattstack:stage-evidence`), never its compiled copy
   (`stage-evidence--accessibility`).
+- a stage under another plugin's prefix (`acme:stage-evidence`): name it as
+  the manifest does (`mattstack:stage-evidence`) or bare
+  (`stage-evidence`).
 
 `Bind attempts` counts the refused binds this round.
 
@@ -328,6 +416,22 @@ yet: write it first. Other causes a refusal can name:
 
 `context` needs no bind: it is public by being under `skills/`. Add it to
 `pack/surface.jsonc`'s `public` list.
+
+### What did this round change?
+
+Reached after surface set, the shepherdr binds, or a compile. A compile
+that follows `Revise the rule` (GREEN failed) is always `a revised rule
+(GREEN failed)`, even in a round that also declared a pipeline or added a
+door. Only a first pass through this diamond picks the other edges.
+
+### Wrote or revised a skill or fill this round?
+
+Certify takes one skill folder, never the pack folder. Certify the folder
+you wrote or revised this round: `<pack dir>/attachments/<fill>` for a
+fill, `<pack dir>/skills/context` for the context skill. A round that only
+declared a pipeline, added a door, reworded a verb or undid an override
+wrote no such folder, so it skips certify and runs check alone. `Certify
+and check pass?` then asks only about check.
 
 ### Read what moved on Bash
 
@@ -351,7 +455,9 @@ The running session still loads the pack from the installed cache, so GREEN
 runs in a fresh `claude --plugin-dir <pack dir>` session in the worktree,
 where the pack's verbs come from its source, after the fill is bound or
 compiled again. In it, re-run the same stage or verb on the same task with
-the same stop point, and record that the miss is gone.
+the same stop point, and record that the miss is gone. For an override
+bound with no RED miss, `The miss is gone?` asks whether the run follows
+the named fill.
 
 ### Revise the rule
 
@@ -370,7 +476,8 @@ written and unbound for the author.
 
 Quote the last certify `FAIL` lines or the bare check's stale lines, and
 propose the fix you would try next. Retry: the author fixed it; certify
-again, with `Fix rounds` starting again at zero. Takes over: the author
+(when the round wrote a skill or fill) and check again, with `Fix rounds`
+starting again at zero. Takes over: the author
 finishes the change.
 
 ### Gate: fragment still missing the binding
@@ -401,8 +508,13 @@ again at zero. Takes over: the author finishes the rule.
 - Two packs on one repo never conflict: each gets its own bindings file.
   A team folder holds one pack, and it claims the team's `board.projects`
   (the org's list unless the team sets its own).
-- When the ask has both a stage level and a verb level (`mattstack:stage-ship`
-  and `mattstack:ship`), bind both, one bind call each.
+- Bind takes a stage by the name the manifest keys it under
+  (`mattstack:stage-evidence`) or bare (`stage-evidence`); both write the
+  same binding. A rostered verb takes its roster name with no prefix
+  (`ship`, `work-a11y`).
+- When the ask has both a stage level and a verb level
+  (`mattstack:stage-ship` and the `ship` door), bind both, one bind call
+  each.
 - A `shepherdr` door compiles only with its two required slots bound:
   `tiering` to `mattstack:model-tiering`, `strategy` to
   `mattstack:execution-strategy`.
@@ -483,8 +595,16 @@ and compile each team pack.
 
 Hand to `mattstack:editing-skills`: bump, commit, push, check and sync each
 pack (`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), then
-`/reload-plugins`. The round already passed RED and GREEN, so it enters
-editing-skills at `What changed?`. The daemon's team snapshot leaves pack
+`/reload-plugins`. Every hand-off enters editing-skills at `What changed?`,
+with no RED baseline there:
+
+- A round that wrote or revised a skill or fill already passed its RED and
+  GREEN here, and certifies that folder.
+- A round that wrote no skill folder (a new pipeline, a door, a reworded
+  verb, a bind of an existing fill, or an `--unset` undo) needs no RED, and
+  takes the `no skill folder written` edge past certify.
+
+The daemon's team snapshot leaves pack
 edits to this publish; it is how the edit reaches the team.
 
 A published change does not reach a member whose app is below the pack's

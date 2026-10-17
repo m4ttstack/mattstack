@@ -3254,6 +3254,12 @@ function separateBindArgs(args: string[]): { positionals: string[]; flagArgs: st
   return { positionals, flagArgs };
 }
 
+/** `mattstack:stage-evidence` names the stage `stage-evidence` the way a manifest's binding key does. */
+function splitPluginPrefix(name: string): { plugin: string | null; name: string } {
+  const colon = name.indexOf(":");
+  return colon === -1 ? { plugin: null, name } : { plugin: name.slice(0, colon), name: name.slice(colon + 1) };
+}
+
 async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
   const { positionals, flagArgs } = separateBindArgs(args);
   if (positionals.length >= 3) return null;
@@ -3292,7 +3298,10 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
     verbName = picked;
   }
 
-  const verb = resolved.fullRoster.find((v) => v.name === verbName) ?? resolved.stages.find((v) => v.name === verbName);
+  const typed = splitPluginPrefix(verbName);
+  const verb = typed.plugin === null
+    ? resolved.fullRoster.find((v) => v.name === verbName) ?? resolved.stages.find((v) => v.name === verbName)
+    : resolved.stages.find((v) => v.name === typed.name);
   if (!verb) return null;
 
   let step;
@@ -3543,10 +3552,16 @@ export async function skillsBind(args: string[]): Promise<void> {
     const pipelineProblem = pipeline === null ? null : pipelineNameError(pipeline);
     if (pipelineProblem) throw new SkillsUsageError(pipelineProblem);
 
+    const typedName = verbName;
+    const { plugin: typedPlugin, name: bareName } = splitPluginPrefix(typedName);
+    verbName = bareName;
     // Roster verb wins on a name collision -- resolve() lets compileTargets reject
     // that collision pack-wide, so bind's own tie-break only ever matters for --dry-run.
-    const rosterVerb = resolved.fullRoster.find((v) => v.name === verbName);
+    const rosterVerb = typedPlugin === null ? resolved.fullRoster.find((v) => v.name === verbName) : undefined;
     const verb = rosterVerb ?? resolved.stages.find((v) => v.name === verbName);
+    if (!verb && typedPlugin !== null && resolved.fullRoster.some((v) => v.name === verbName)) {
+      throw new SkillsUsageError(`"${typedName}": a roster verb takes no plugin prefix; bind ${verbName}`);
+    }
     if (!rosterVerb && verb?.pipeline !== undefined) {
       throw new SkillsUsageError(`${verbName} is a compiled copy; bind ${verb.engine} --pipeline ${verb.pipeline} instead`);
     }
@@ -3565,7 +3580,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       const knownVerbs = resolved.fullRoster.map((v) => v.name).sort();
       const knownStages = resolved.stages.map((v) => v.name).sort();
       throw new SkillsUsageError(
-        `"${verbName}" is neither a roster verb nor a pipeline stage (verbs: ${knownVerbs.join(", ") || "none"}; stages: ${knownStages.join(", ") || "none"})`,
+        `"${typedName}" is neither a roster verb nor a pipeline stage (verbs: ${knownVerbs.join(", ") || "none"}; stages: ${knownStages.join(", ") || "none"})`,
       );
     }
 
@@ -3576,6 +3591,9 @@ export async function skillsBind(args: string[]): Promise<void> {
       throw new SkillsUsageError(`verb "${verbName}": ${(err as Error).message}`);
     }
 
+    if (typedPlugin !== null && typedPlugin !== step.plugin) {
+      throw new SkillsUsageError(`"${typedName}" names plugin ${typedPlugin}, but ${verbName} comes from ${step.plugin}; bind ${verbName} or ${step.plugin}:${verbName}`);
+    }
     const engineRef = `${step.plugin}:${verb.engine}`;
     if (pipeline !== null && !resolved.pipelines[pipeline]!.includes(engineRef)) {
       throw new SkillsUsageError(`${verbName} is not a stage of pipeline "${pipeline}"`);

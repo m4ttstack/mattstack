@@ -13,6 +13,11 @@
 | how to answer review threads | `mattstack:receive-review` | `reply-rules` | `reply-rules@1` |
 | fan-out rules for parallel agents | `mattstack:shepherdr` | `domain` | `shepherdr-domain@1` |
 
+The engine column is the name the manifest keys a binding under. Pass a
+stage to `rt skills bind` in that form (`mattstack:stage-evidence`); the <!-- mcp-lint: allow -->
+bare `stage-evidence` binds the same slot. A door is the pack's rostered
+verb and takes no prefix: bind `ship`, not `mattstack:ship`.
+
 Every slot above is optional; an unbound slot renders as nothing. One fill
 may be bound to more than one engine (ship's stage and door share one fill).
 `mattstack:shepherdr` is the one engine with required slots, `tiering`

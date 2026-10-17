@@ -4,6 +4,8 @@ Without `--pipeline`, the fill becomes the default for every pipeline, under the
 rt skills bind stage-evidence domain acme:capture-evidence --pack acme
 ```
 
+A stage takes its bare name (`stage-evidence`) or the plugin-prefixed name the fragment stores it under (`mattstack:stage-evidence`). Both bind the same slot, and the output names the bare stage. Bind refuses a prefix that is not the stage's own plugin. A roster verb (`work`, `ship`) takes no prefix.
+
 With `--pipeline`, the fill overrides that slot for one pipeline only. Every other slot, and every other pipeline, keeps the default:
 
 ```bash
