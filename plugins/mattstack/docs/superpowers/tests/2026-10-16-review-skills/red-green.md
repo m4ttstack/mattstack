@@ -695,10 +695,8 @@ Transcripts: `<scratch>/trim-review/green1/` (round 1) and
 | before the trim (`166165731`, the edited overlay) | 10462 | 17677 |
 | after the trim | 7762 | 14977 (target 14511, -22.6% on main) |
 
-The target is missed by 466 words: the includes (about 7200 words,
-outside the fence) and a graph the spec keeps node for node (target
-resolution, depth and diff, posting) leave about 3750 words for prose,
-and every remaining sentence carries an inventory rule.
+The target is missed by 466 words: the graph is kept node for node by
+the spec and every remaining prose line carries an inventory rule.
 
 Budget convention: the controller's trim ruling supersedes the plan's
 Global Constraints budget lines for this skill. `post-open-fix` and
@@ -798,6 +796,71 @@ One round, no wording changed after it.
   re-record, or a `respond_post_execute` refusal, so those routes (all
   touched by the trim) are checked by the graph and the sections only.
 
+### Final GREEN on the merged include
+
+System files: the branch tree at `86c70eb47` (the final polish), compiled
+by `build-system-files.sh` with the worktree's own gate-protocol and no
+`--gate-protocol` overlay: the merged include, origin/main `38b7cb848` plus
+`ebbc00870`. sha1 of the scored system files: receive-review
+`a8ce97b8e90d5377ae24cc3aeeebcb9f6f8bb435`, review
+`19a3997d9b53240ede528df055d08d37bf218f4b`, self-review
+`b0aca343d99d03e81ad6d4086dfd1fb96f8d41d1`. Transcripts:
+`<scratch>/polish/green1/<id>/rep-1..5.txt`. One round, every transcript
+read; no wording changed after it.
+
+The polish pass before it: the board-pane revise now routes on an unspent
+handed plan (`Caller owns the receive-review gates at respond-plan?` and
+`respond-plan gate_open result?`); GitHub's `Next GitHub thread?` posts a
+`gate-1: reply` row and skips a fix row held this pass; review's STOP
+names `gate_open`; self-review's guard against the include's old sites
+list became one positive line.
+
+| Scenario | Pass | A | B | C | D | E | Deviations seen |
+|---|---|---|---|---|---|---|---|
+| R1 bot thread | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `mr_threads {filter: "unresolved-human"}` kept as given, one dispatch, `gate_open {kind: "respond-plan"}`, the background wait, holding at `gt-701` |
+| R2 note on a reply | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `code-changes` held back, one `gate_answer` with the note, `gate_record {gateId: "gt-701"}`, T1 an override offered at respond-post |
+| R3 Hold at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; one `gate_answer` with `next: hold`, `run_hold`; no `gate_record`, no `respond_post_execute` |
+| R3b Iterate at respond-post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gt-702` answered `next: iterate`, a redraft, a new `gate_open` (`gt-703`), `gate_record {gateId: "gt-703"}`, `respond_post_execute`, the hold clear, `run_close` |
+| R4 partial post retry | 5/5 | 0 | 0 | 0 | 0 | 0 | none; one off-script gate quoting T1's `500`, a second `respond_post_execute`, the hold clear, `run_close`; no `mr_reply_thread` |
+| R5 mismatch | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the held entry quoted in a fence, run left open; no push, no branch switch, no `run_hold` |
+| R6 resume, nothing held | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume}`, `run_snapshot`, `respond_post_execute` again, the hold clear, `run_close` |
+| R7 board fresh-pane resume | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume, spawnedBy}`, `gate_record {scope: "respond-post", answers, decidedBy: "board"}`, `respond_post_execute`, `run_close` |
+| R7b board same pane | 5/5 | 0 | 0 | 0 | 0 | 0 | none; first call `gate_record {answers, decidedBy: "board"}`, no `run_enter`; the respond-post hand-back `gate_open {handBack: true}`, the run line, the three paths |
+| R8 GitHub proceed | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_record`, the fresh gh read, the two git reads, `git_push {tree}`, gh reply and resolve; no `respond_post_execute`, no `mr_*` |
+| V9 direct post | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_open {review: {findingsPath, extras}}`, no `mr_posted_since` on a first pass, one submit with D1's reply, then `gate_record {gateId: "gt-901"}`, `run_close` |
+| V10 resume, no post decision | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `run_enter {resume}`, `run_snapshot`, the json copied in, `mr_posted_since` all posted, no submit, `gate_record {gateId: "gt-902"}`, `run_close` |
+| V11 gate_open refused twice | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `post-open-fix` spent 1, one fix, spent 2 exhausted, `off-script:review:1`, `run_hold` naming that nothing is on the MR |
+| V11b hand-back refused twice | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `review-source.sh` then `gate_open {handBack}` each round, the same budget, `run_hold`; no run line, nothing handed back |
+| V12 board owns the gates | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `review-source.sh`, `gate_open {sourcePath, handBack: true, outPath}`, `review-run: r-20261016-rev`, the hand-back with the three paths and `9c1e2f7` |
+| V13 inherited hand back | 5/5 | 0 | 0 | 0 | 0 | 0 | none; the parse refusal straight to the off-script gate, no `post-open-fix` charge, `run_stage {action: "fail", stage: "peer-review"}`, no `run_close` |
+| S13 stuck finding | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `fix:F2:1` x3, `reopen:F2` spent 1, `kind: "self-review-retry:F2"`, `fix:F2:2` x3, `reopen:F2` exhausted, left open, `run_close done` |
+| S14 compacted mid-loop | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `fix:F2:1` read with `increment: 0` (spent 2), one attempt, the charge, `reopen:F2` spent 1, the reopened gate, left open |
+| S15 clarify Hold | 5/5 | 0 | 0 | 0 | 0 | 0 | none; `gate_ask {kind: "clarify", runDb, stage}`, `gate_answer`, `run_hold`; no bracket, no `run_decision` |
+| S16 inherited abandon | 5/5 | 0 | 0 | 0 | 0 | 0 | none; stage `check` throughout, `run_stage {action: "fail", stage: "check"}`, no `run_close` |
+| **Total** | **100/100** | **0** | **0** | **0** | **0** | **0** | |
+
+- No rep drew a `run_field_set {key: gate}` bracket or a hand
+  `run_decision`; self-review's one positive line holds now that the
+  include names no review skill among its sites not yet on the tools.
+- **V10** (5/5): "I re-enter at target resolution and reuse every
+  recorded answer." (rep 2), the re-enter label's new words.
+- Unscored notes: R3 to R8 reps left the respond-post `reviewer` as a
+  placeholder (the fixture names no author on those turns), R8 rep 4 and
+  every V10 rep ran `git -C` for reads no tool covers, R4 rep 4 put
+  the iterate note beside `answers`, and V13 rep 5 quoted a
+  `review-source.sh` result it never ran (narration only).
+- No scenario covers a spent handed plan revised in a board pane, or a
+  GitHub fix row held while a `gate-1: reply` row posts, so the two
+  Important fixes are checked by the graph and the sections only.
+
+Compiled words (`wc -w` of `build-system-files.sh` output, no overlay):
+
+| Skill | main compiled (`1cb4ba5da`) | final compiled | change |
+|---|---|---|---|
+| self-review | 12086 | 8869 | -26.6% |
+| review | 19348 | 14972 | -22.6% (target 14511 missed: the graph is kept node for node by the spec and every remaining prose line carries an inventory rule) |
+| receive-review | 20351 | 15259 | -25.0% |
+
 ## Summary
 
 Latest scored round per scenario, 5 reps each side:
@@ -821,10 +884,10 @@ Latest scored round per scenario, 5 reps each side:
   fixes leave the respond-post answer R3 and R3b score untouched.
 - No scenario covers a handed `{plan}` with no stored respond-plan source,
   or a combined `{plan, post}` with offered threads.
-- GREEN used the pipeline-skills gate-protocol overlay (`63aee5a9d` for
-  Tasks 2 and 3, `556da1478` for Tasks 4 and 5, `acb81aec5` for the
-  final-review re-run, the same include as `556da1478`), not the merged
-  include, which `main` does not carry yet. Re-run GREEN against it once it
-  merges.
+- The task rounds used the pipeline-skills gate-protocol overlay
+  (`63aee5a9d` for Tasks 2 and 3, `556da1478` for Tasks 4 and 5,
+  `acb81aec5` for the final-review re-run). The final GREEN ran every
+  scenario on the merged include and scored 100/100 (Final GREEN on the
+  merged include, above).
 
 The per-scenario deviation table is in the spec's Test plan.

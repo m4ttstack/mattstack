@@ -600,7 +600,7 @@ self-review:
 The plan renumbers the scenarios above: 1 to 8 are R1 to R8, 9 to 12 are V9
 to V12, 13 to 15 are S13 to S15; R3b, R7b, V11b, V13 and S16 are added.
 Each scenario ran 5 reps per side. RED is the text at `a5ef5c538`; GREEN
-is the latest scored round on this branch. Classes: **A** a shell call a
+is the final run on the merged include (`86c70eb47`, no overlay). Classes: **A** a shell call a
 tool covers; **B** hand mechanics a tool covers; **C** a skipped step;
 **D** a runaway loop; **E** a stop that should have been a gate.
 
@@ -626,15 +626,26 @@ tool covers; **B** hand mechanics a tool covers; **C** a skipped step;
 | S14 compacted mid-loop | 5/5 | 5/5 | B | none | regression guard: one attempt from the stored count, then the reopen |
 | S15 clarify Hold | 0/5 | 5/5 | B | none | GREEN sends `gate_ask` with `runDb` and `stage`, then `run_hold` alone |
 | S16 inherited abandon | 5/5 | 5/5 | B | none | regression guard: fails stage `check`, no `run_close` |
-| **Total** | **25/100** | **100/100** | A 76, B 95, C 12, D 0, E 1 reps | 0 in the latest rounds | GREEN deviations before a fix round: R7b 3 reps (shape miss), R3b 1 rep (C) |
+| **Total** | **25/100** | **100/100** | A 76, B 95, C 12, D 0, E 1 reps | 0 in the final run | GREEN deviations before a fix round (task rounds): R7b 3 reps (shape miss), R3b 1 rep (C) |
 
-GREEN ran against the pipeline-skills lane's gate-protocol overlay, not the
-merged include: `63aee5a9d` for Tasks 2 and 3 (self-review, review) and
-`556da1478` for Tasks 4 and 5 (receive-review). The final-review re-run
-(every scenario but R1, R3 and R3b, on the final-review fixes) used
-`acb81aec5`, whose include is the same as `556da1478`'s, and scored 85/85,
-so no count above changed. None of these commits is on `main` yet. Re-run
-GREEN against the merged gate-protocol once it lands.
+The task rounds ran against the pipeline-skills lane's gate-protocol
+overlay (`63aee5a9d`, `556da1478`, `acb81aec5`). The final GREEN ran all 20
+scenarios, 5 reps each, on the merged include (origin/main `38b7cb848` plus
+`ebbc00870`) after the trim and polish passes, and scored 100/100 with zero
+deviations; red-green.md's Final GREEN section has the table and the system
+file sha1s.
+
+**Word counts.** Compiled words (`wc -w` of `build-system-files.sh`
+output, no overlay); the trim target was 25% under main.
+
+| Skill | main compiled (`1cb4ba5da`) | final compiled | change |
+|---|---|---|---|
+| self-review | 12086 | 8869 | -26.6% |
+| review | 19348 | 14972 | -22.6% |
+| receive-review | 20351 | 15259 | -25.0% |
+
+Review misses -25% (target 14511): the graph is kept node for node by the
+spec and every remaining prose line carries an inventory rule.
 
 ## Left to the builder
 
