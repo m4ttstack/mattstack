@@ -82,7 +82,7 @@ digraph review {
     "run_enter {flags, skillDir, stage: review, resume: <picked runId>}" [shape=plaintext];
     "run_enter {flags, skillDir, stage: review, fresh: true, spawnedBy?}" [shape=plaintext];
     "The refused review run_enter carried resume?" [shape=diamond];
-    "STOP: rt predates the run tools; tell the user to update rt" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: no review run without run_enter; report why to the user" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "run_snapshot {runDb: <resumed review>}" [shape=plaintext];
     "Resumed review snapshot records?" [shape=diamond];
 
@@ -208,7 +208,7 @@ digraph review {
     "review run_enter mode?" -> "Gate review clarify: Resume / Start fresh / Hold" [label="candidates"];
     "review run_enter mode?" -> "The refused review run_enter carried resume?" [label="refused, or the tool is missing"];
     "The refused review run_enter carried resume?" -> "run_enter {flags, skillDir, stage: review, fresh: true, spawnedBy?}" [label="yes: say the resume was refused, start fresh"];
-    "The refused review run_enter carried resume?" -> "STOP: rt predates the run tools; tell the user to update rt" [label="no"];
+    "The refused review run_enter carried resume?" -> "STOP: no review run without run_enter; report why to the user" [label="no: another refusal, or no run_enter tool"];
     "Gate review clarify: Resume / Start fresh / Hold" -> "Review resume answer?";
     "Review resume answer?" -> "run_enter {flags, skillDir, stage: review, resume: <picked runId>}" [label="resume"];
     "Review resume answer?" -> "run_enter {flags, skillDir, stage: review, fresh: true, spawnedBy?}" [label="start fresh"];
@@ -426,8 +426,9 @@ record it against) and ends the turn.
 
 A refused resume means the run is gone or no longer running: say so in one
 line, then start fresh, keeping the first call's `spawnedBy`. Any other
-refusal, or no `run_enter` tool at all, is an rt that predates the run
-tools.
+refusal ends the review here: quote it to the user verbatim, whole and
+unedited, never a paraphrase or a guessed cause. Only when there is no
+`run_enter` tool at all, say rt predates the run tools; update rt.
 
 ### Resolve the review target
 
@@ -720,7 +721,9 @@ Never hand-edit the open, and never shorten a body to make it fit.
 an installed plugin root). A report json elsewhere, such as a caller's
 `--report` sibling, is copied into `<dir>` first, unchanged, and the copy
 is the `findingsPath`. The report and its json stay where the caller put
-them.
+them. Every pass through this box copies again, over the earlier copy, so
+a field fix never goes into the copy: fix the caller's original (or the
+extras), and the next copy carries it.
 
 ### review-source.sh exit 0?
 
@@ -748,16 +751,19 @@ usage or unreadable-input error with no field to fix.
 
 The field the refusal names (a `gate_open` line, or `review-source.sh`'s
 exit 1): in the extras, or in the report json where it drifted from the
-draft. Fix exactly that, once, then go back through `Caller owns the
-review gates?` to the same open.
+draft. When the `findingsPath` was a copy (Copy the report json into the
+review scratch dir), fix the caller's original report json, never the
+copy: the way back re-copies it, and the copy carries the fix. Fix exactly
+that, once, then go back through `Caller owns the review gates?` to the
+same open.
 
 ### Write the review-run line into the handed --report
 
 Before the hand-back, write one line `review-run: <run id>` (`run_enter`'s
 `runId`) into the handed `--report` file, replacing any earlier
-`review-run:` line. A fresh pane the board later hands a decision to
-passes that id as `resume`, and lands on this run, which holds the stored
-gate source. The board never reads the line.
+`review-run:` line; with no `--report`, write nothing. A fresh pane the
+board later hands a decision to passes that id as `resume`, and lands on
+this run, which holds the stored gate source. The board never reads the line.
 
 ### Hand back the severity line and the open's paths
 

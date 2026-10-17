@@ -127,7 +127,7 @@ the skills call them.
 | Node texts named by the team pack's `board-review` wrapper | `Caller owns the review gates?`, `Review caller's answer?`, `Write the review report and its json sibling` |
 | Node texts named by the team pack's `board-respond` wrapper | `Build the open`, `code-changes answer?`, `Hand back the verdict table and the respond-plan open's path` |
 | review hand-back | the severity line; absolute paths of `<dir>/review-post.open.json` (its source beside it as `review-post.source.json`) and of the skill's vendored `scripts/gate-ctx.sh`; the MR head sha |
-| receive-review hand-back | the verdict table and the absolute path of `<dir>/respond-plan.open.json` (source beside it); later `<dir>/respond-post.open.json` (source beside it) |
+| receive-review hand-back | the verdict table and the absolute paths of `<dir>/respond-plan.open.json` (its source beside it as `respond-plan.source.json`) and of the skill's vendored `scripts/gate-ctx.sh`; later the offered replies and the absolute paths of `<dir>/respond-post.open.json` (its source beside it as `respond-post.source.json`) and of the same `scripts/gate-ctx.sh` |
 | Open file shape | `gate-ctx.sh fit` output: `gate_open {handBack: true, outPath}` writes exactly that shape |
 | `gate-1-context: dropped` | still written into the saved verdict report when the open's `contextDropped` is true (the board's resume reads it) |
 | New: the run line | at each hand-back, the saved report (`--report`) gains one line, `receive-review-run: <run id>` or `review-run: <run id>`, so a fresh pane the board later hands a decision to resumes that run (below). The board never reads it. |
@@ -153,7 +153,8 @@ run_enter mode?
        resume -> run_enter {..., resume: <runId>}   (back to "run_enter mode?")
        start fresh -> run_enter {..., fresh: true}
        hold -> Held before any run: end the turn (records nothing)
-  refused, or the tool is missing -> STOP: rt predates the run tools; tell the user to update rt
+  refused, or the tool is missing -> STOP: no <verb> run without run_enter; report why to the user
+       (quote the refusal verbatim; "rt predates the run tools; update rt" only when the tool is missing)
 ```
 
 - `run_enter`'s candidates list replaces `run_list` plus the hand filter. Each
@@ -337,9 +338,17 @@ both sources on the same run. The fix is the run line:
   it. A handed `{post}` alone therefore finds its plan decision already
   recorded.
 
-When there is no run line, or the resume is refused:
-- a handed `{plan}` still records (with no cards, every textless `reply:` is
-  an override);
+When there is no run line, or the resume is refused (or the gate was parked
+before this version), the run stores no respond-plan source:
+- a handed `{plan}` first builds the open from the handed `--report`'s
+  verdict table and its own thread read, stores it with `gate_open {kind:
+  respond-plan, sourcePath, handBack: true, outPath:
+  <dir>/respond-plan.open.json, runDb, stage, scope: respond-plan}`, then
+  records with `gate_record {scope: respond-plan, shape: respond-plan,
+  answers, decidedBy}`. A refusal takes the `respond-plan-open` budget and
+  its off-script gate. Recording it bare would leave `respond_post_execute`
+  no source to check it against, and a source stored after the record makes
+  the decision stale;
 - a handed `{post}` with no plan decision on the run cannot act. The post
   side's refusal goes to its off-script gate, quoting it.
 
@@ -486,7 +495,7 @@ those human-answered loops.
 | B8 | receive-review | A respond-post record with nothing held closed the run on resume | resume calls `respond_post_execute` again (idempotent), then closes | a pane killed after `gate_record` and before execution would have closed with nothing posted |
 | B9 | receive-review | Two refused-reply and refused-resolve gates, one per thread | one gate over every thread the forge refused this pass; take and iterate both re-call the tool | the tool already retried once and re-read before retrying |
 | B10 | receive-review | GitLab bot filter: the agent's guess | `mr_threads {filter: "unresolved-human"}` username rule (`project_<n>_bot`, `group_<n>_bot`, `ghost`, `-bot`/`_bot`, `[bot]`) | decided rule (herd gate); an ordinary-looking bot name passes as human |
-| B11 | receive-review, review | A fresh board pane handed a parked decision started a new run, and acted on the handed answers with the drafts from `--report` | the hand-back writes `<verb>-run: <run id>` into `--report`, and the fresh pane resumes that run (`run_enter {resume}`) with its gate sources and decisions. With no line, a handed `{plan}` records with every textless reply an override, and a handed `{post}` with no plan decision goes to the post side's off-script gate | `respond_post_execute` refuses decisions it cannot check against their gate source |
+| B11 | receive-review, review | A fresh board pane handed a parked decision started a new run, and acted on the handed answers with the drafts from `--report` | the hand-back writes `<verb>-run: <run id>` into `--report`, and the fresh pane resumes that run (`run_enter {resume}`) with its gate sources and decisions. With no line, a handed `{plan}` stores a respond-plan source built from `--report` before it records, and a handed `{post}` with no plan decision goes to the post side's off-script gate | `respond_post_execute` refuses decisions it cannot check against their gate source |
 | B12 | receive-review | `mr` and `branch` written only on an own run | written whenever the run lacks them | `respond_post_execute` needs both |
 | B13 | review | `run_decision {scope: post}` with a selection the agent built from the answers | `gate_record {shape: post}` after posting, as today (a post decision still means "posted") | the record no longer depends on hand normalization |
 | B14 | review | "Already on the MR?" judged from an `mr_threads` read | `mr_posted_since` items (summary line, anchored comments) since the run's start | mechanical match |

@@ -105,7 +105,7 @@ digraph self_review {
     "run_enter {flags, skillDir, stage: self-review, resume: <picked runId>}" [shape=plaintext];
     "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" [shape=plaintext];
     "The refused self-review run_enter carried resume?" [shape=diamond];
-    "STOP: rt predates the run tools; tell the user to update rt before a self-review" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: no self-review run without run_enter; report why to the user" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "run_snapshot {runDb: <resumed self-review>}" [shape=plaintext];
 
     "Find the self-review merge-base" [shape=box];
@@ -161,7 +161,7 @@ digraph self_review {
     "self-review run_enter mode?" -> "Gate self-review clarify: Resume / Start fresh / Hold" [label="candidates"];
     "self-review run_enter mode?" -> "The refused self-review run_enter carried resume?" [label="refused, or the tool is missing"];
     "The refused self-review run_enter carried resume?" -> "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" [label="yes: say the resume was refused, start fresh"];
-    "The refused self-review run_enter carried resume?" -> "STOP: rt predates the run tools; tell the user to update rt before a self-review" [label="no"];
+    "The refused self-review run_enter carried resume?" -> "STOP: no self-review run without run_enter; report why to the user" [label="no: another refusal, or no run_enter tool"];
     "Gate self-review clarify: Resume / Start fresh / Hold" -> "Self-review resume answer?";
     "Self-review resume answer?" -> "run_enter {flags, skillDir, stage: self-review, resume: <picked runId>}" [label="resume"];
     "Self-review resume answer?" -> "run_enter {flags, skillDir, stage: self-review, fresh: true, spawnedBy?}" [label="start fresh"];
@@ -256,8 +256,10 @@ the turn.
 ### The refused self-review run_enter carried resume?
 
 A refused resume means the run is gone or no longer running: say so in one
-line, then start fresh, keeping the first call's `spawnedBy`. Any other refusal, or no `run_enter` tool at all, is
-an rt that predates the run tools.
+line, then start fresh, keeping the first call's `spawnedBy`. Any other
+refusal ends the self-review here: quote it to the user verbatim, whole and
+unedited, never a paraphrase or a guessed cause. Only when there is no
+`run_enter` tool at all, say rt predates the run tools; update rt.
 
 ### Find the self-review merge-base
 
