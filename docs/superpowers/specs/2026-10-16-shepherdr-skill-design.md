@@ -256,6 +256,7 @@ is a worker's same-session loop; and `run_start` does not yet default
 | 12 | Unreadable merge state | read as unmerged | `unknown` → off-script gate |
 | 13 | Nudge rung choice | shepherd judged the pane by eye | the daemon picks; an unsafe pane rung returns `needsHuman` |
 | 14 | Effort on spawns | optional on every spawn node; the integration spawn omitted it | required on every `herd_spawn`, so a spawn never falls back to the default effort |
+| 15 | A parked gate the user returns to | no drawn route; after a compaction the id was lost | `What arrived?` edge to `herd_gate_answer`; the id is the job's `herd_status` `lastGate` with `lastGateStatus: parked` |
 
 Rows 3 and 4 follow from the daemon's tick order and the spec's caps; the
 caps are wave 2's constants and this wave does not tune them.
