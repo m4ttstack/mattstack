@@ -10,10 +10,9 @@ slots:
 
 # watch-ci
 
-The standalone entry for CI watching: the target comes from the
-conversation and the checkout, and the verdict goes to the user. The run
-graph opens or inherits the run; the flow graph watches, triages and closes
-it.
+Standalone CI watching: the target comes from the conversation and the
+checkout, the verdict goes to the user. The run graph opens or inherits the
+run; the flow graph watches, triages and closes it.
 
 ## Run
 
@@ -115,9 +114,11 @@ digraph watch_ci {
 
     "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [shape=plaintext];
     "ci_watch state (watch-ci)?" [shape=diamond];
+    "run_budget {key: watch-ci:waiting-results:<sha12>, limit: 4, stage}" [shape=plaintext];
+    "waiting-results spent (watch-ci)?" [shape=diamond];
     "End the turn: ci_watch runs in the background (watch-ci)" [shape=box];
     "Trigger: the ci_watch task notification (watch-ci)" [shape=ellipse];
-    "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: GitLab CI goes through ci_watch, the read tools, gitlab_get and mr_retry (watch-ci)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: the lease holder owns every commit, push and retry (watch-ci)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Stand down: report the holder, or hand it back (watch-ci)" [shape=doublecircle];
     "watch-ci off-script gate: lease_unavailable" [shape=box];
@@ -242,7 +243,11 @@ digraph watch_ci {
     "git ls-remote origin refs/heads/<branch> (the watched sha)" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}";
 
     "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" -> "ci_watch state (watch-ci)?";
-    "ci_watch state (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="running or waiting"];
+    "ci_watch state (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="running"];
+    "ci_watch state (watch-ci)?" -> "run_budget {key: watch-ci:waiting-results:<sha12>, limit: 4, stage}" [label="waiting"];
+    "run_budget {key: watch-ci:waiting-results:<sha12>, limit: 4, stage}" -> "waiting-results spent (watch-ci)?";
+    "waiting-results spent (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="no"];
+    "waiting-results spent (watch-ci)?" -> "watch-ci gate ci" [label="yes: quote its next"];
     "ci_watch state (watch-ci)?" -> "End the turn: ci_watch runs in the background (watch-ci)" [label="backgrounded"];
     "End the turn: ci_watch runs in the background (watch-ci)" -> "Trigger: the ci_watch task notification (watch-ci)" [style=dashed];
     "Trigger: the ci_watch task notification (watch-ci)" -> "ci_watch state (watch-ci)?";
@@ -253,8 +258,8 @@ digraph watch_ci {
     "ci_watch state (watch-ci)?" -> "watch-ci off-script gate: lease_unavailable" [label="lease_unavailable"];
     "ci_watch state (watch-ci)?" -> "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)" [label="unsupported_forge: a GitHub PR"];
     "ci_watch state (watch-ci)?" -> "run_budget {key: watch-ci:ci-watch-errors:<sha12>, limit: 1, stage}" [label="tool error"];
-    "ci_watch state (watch-ci)?" -> "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" [label="tempted to watch with a script or the GitLab CLI"];
-    "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}";
+    "ci_watch state (watch-ci)?" -> "STOP: GitLab CI goes through ci_watch, the read tools, gitlab_get and mr_retry (watch-ci)" [label="tempted to watch with a script or the GitLab CLI"];
+    "STOP: GitLab CI goes through ci_watch, the read tools, gitlab_get and mr_retry (watch-ci)" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}";
     "STOP: the lease holder owns every commit, push and retry (watch-ci)" -> "Stand down: report the holder, or hand it back (watch-ci)";
 
     "watch-ci off-script gate: lease_unavailable" -> "MR known (watch-ci exit)?" [label="take, hold or hand back"];
@@ -421,8 +426,8 @@ digraph watch_ci {
 
 ### watch-ci gate clarify: which forge?
 
-The origin host is neither GitLab nor GitHub. Ask which forge it is, quoting
-the origin URL.
+The origin host is neither GitLab nor GitHub: ask which forge, quoting the
+origin URL.
 
 ### End the turn: ci_watch runs in the background (watch-ci)
 
@@ -430,9 +435,8 @@ Claude Code backgrounds a `ci_watch` still running after 120 s and
 re-invokes this pane with a `<task-notification>` whose `<result>` is the
 next `ci_watch state`. End the turn in one line: `watching CI in the
 background (task <id>)`. The stop hook lets the turn end while the task is
-pending, and a message arriving meanwhile reaches you at once; a
-foreground wait (a `sleep`, a polling script, a second `ci_watch`) delays
-both.
+pending, and a message meanwhile reaches you at once; a foreground wait
+(`sleep`, a polling script, a second `ci_watch`) delays both.
 
 ### The off-script gates (watch-ci)
 
@@ -440,7 +444,7 @@ Each gate below is the gate protocol's Off-script gate (scope
 `off-script:<stage>:<n>`, `context` quoting the refusal), with `action`
 **Take** (the move its section names) / **Hand back**, and `next`
 **Proceed** (Recommended) / **Iterate here** (the human fixed it) /
-**Hold**. A spent Iterate budget fails the same way, quoting the refusals.
+**Hold**. A spent Iterate budget fails, quoting the refusals.
 
 The `lease_unavailable` and `git_push` gates have no budget: `ci_watch`
 re-claims itself, a `git_push` retry needs a new answer, a refusal reopens
@@ -450,7 +454,7 @@ an inherited run hands the answer back.
 ### watch-ci off-script gate: lease_unavailable
 
 `ci_watch` could not claim or keep the lease after its own re-claims
-(`error` says why). No one else holds it, so this is not a stand-down.
+(`error` says why). No one else holds it: not a stand-down.
 Take: the human attends the MR.
 
 ### Fix what the ci_watch error names
@@ -491,34 +495,33 @@ gate's.
 
 No failure is classified before its log is read; an unreadable trace is
 UNCLEAR, never INFRA. The domain rules judge the report and may move a job
-between REAL and INFRA. INHERITED goes to the gate, named as inherited,
+between REAL and INFRA. INHERITED goes to the gate, named,
 never retried or fixed here; UNKNOWN still gets its one INFRA retry. This
-box only classifies: INFRA job ids go to `mr_retry`, and no retry command a
-report prints is run.
+box only classifies: INFRA job ids go to `mr_retry`; never run a retry
+command a report prints.
 
 ### Classify each failure REAL or INFRA from failedJobs (watch-ci)
 
 `ci_triage` errored: quote it and classify `ci_watch`'s `failedJobs` as the
 triage-report section says, ownership unknown. Read a job with no
 `traceTail` (past the first five blocking), or a tail too short or
-teardown-only, with `mr_job_trace` within this step.
+teardown-only, with `mr_job_trace` here.
 
 `failedJobs` already lists same-project downstream jobs, so an empty list on
 a `failed` pipeline likely means a cross-project downstream pipeline: read
 `projects/:id/pipelines/<pipelineId>/bridges` with `gitlab_get` for it, its
 jobs, then the failed job's `projects/<downstream project id>/jobs/<jobId>/trace`
 (`mr_job_trace` reads only this project). `gitlab_get` returns at most
-256 KiB, so a log whose end is out of reach stays UNCLEAR, never INFRA.
+256 KiB; a log whose end is out of reach is unreadable.
 Other pipelines on the branch come from `pipeline_list`, a pipeline's jobs
 from `pipeline_jobs`.
 
 ### Reading a GitLab fact no read tool returns
 
-At any step, read such a fact with `gitlab_get {repoName, path}`:
-`repoName` the tree this verb targets, `path` relative to the API root with
-`:id` for this project (`projects/:id/jobs/<jobId>`). The read is part of
-the step, not an off-script move. Quote a GitLab error as written; its
-refusal of a credential path is final.
+Read it with `gitlab_get {repoName, path}`: `repoName` the tree this verb
+targets, `path` relative to the API root with `:id` for this project
+(`projects/:id/jobs/<jobId>`), as part of the step, not off-script. Quote a
+GitLab error as written; its refusal of a credential path is final.
 
 ### Classify each failing check REAL or INFRA (GitHub)
 
@@ -548,9 +551,8 @@ Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redi
 
 ### watch-ci gate ci
 
-Quote any error that led here. On
-`no_pipeline` (ten minutes with no pipeline for the sha), `pushed: false`
-means the MR head is `remoteSha`: say ship first; `pushed: true` means no
+Quote any error, or a spent `waiting`'s `next`. On
+`no_pipeline`, `pushed: false` means the MR head is `remoteSha`: say ship first; `pushed: true` means no
 pipeline ran for it. Scope `ci:<stage>:<attempt>`. One sentence above the
 form: the verdict and a one-line triage per blocking failure.
 
@@ -590,13 +592,14 @@ never push from here. It landed when the remote carries HEAD.
   then any a result carries; never the watched pipeline's own
   `pipeline.id`. A non-null `mr` in the `git_push` result is the MR to
   watch.
-- **The tool owns the watch window.** `ci_watch {attend: true}` measures
-  the pipeline against `ci.watch.budgetMinutes`, reopens the window itself,
-  and returns `timeout`, or `no_pipeline` after 10 minutes without one:
-  pass no budget arguments, count nothing.
+- **The watch window.** `ci_watch {attend: true}` owns `timeout`
+  (`ci.watch.budgetMinutes`, reopened itself) and `no_pipeline` (10 minutes
+  with no pipeline, or one proved not this commit's): pass no budget
+  arguments. An unprovable `waiting` (a merge train with no prior id, an
+  unread commit) gets neither: `waiting-results` counts it.
 - **The sha guard.** `ci_watch` counts only a pipeline for `sha` and
   returns `superseded` when the head moves past it. On GitHub, `headRefOid`
-  must equal the watched sha, "no checks reported" is pending, not red, and
+  must equal the watched sha, "no checks reported" is pending, and
   `gh run rerun` takes the run id in the failed check's link.
 - **Holding.** `run_hold` takes the gate-write stage, the gate as `reason`,
   and `decidedBy` as the answer recorded it.
@@ -613,22 +616,21 @@ Never pass `underBoardLease`. `git_push` and `mr_retry` with `leaseMrUrl:
 <mr>` take a lapsed lease back or refuse with `lease_held`, so a long fix
 needs no heartbeat. On GitHub the graph claims and heartbeats. Every exit
 that knows the MR calls `ci_lease_release` (harmless on another owner's
-lease); the stand-down never does, because that lease is someone else's.
+lease); the stand-down never does: that lease is someone else's.
 
 | Thought | Reality |
 |---|---|
 | "The doctor's on it, but I can fix or retry faster" | A repair is the lease holder's. Stand down and stop. |
-| "This fix is long, so I'll heartbeat or claim by hand" | On GitLab the keepalive and the guard cover it, and only `ci_watch` claims. |
+| "This fix is long, so I'll heartbeat or claim by hand" | On GitLab the keepalive and the guard cover it; only `ci_watch` claims. |
 | "A ci_watch error, so a script or the GitLab CLI" | Fix the input once, then the off-script gate. |
 
 ## Budgets in this verb
 
 Each `run_budget` counts one as its loop is entered. The `spent` diamond
-after it reads `spent` against `limit` (`spent > limit`); ignore
-`exhausted` and `remaining` (`exhausted` is `spent >= limit` and would stop
-one round early). A key ending `<sha12>` counts per watched commit; one
-with no `stage` counts run-wide, since a fix push starts a new attempt
-mid-loop.
+after it reads `spent > limit`; ignore `remaining` and `exhausted`
+(`spent >= limit`, one round early). A key ending `<sha12>` counts per
+watched commit; one with no `stage` counts run-wide, since a fix push
+starts a new attempt mid-loop.
 
 ## Domain rules
 
@@ -658,8 +660,7 @@ fills that name them; this skill calls neither.
 
 {{slot:forge}}
 
-Both slots are optional; when neither is inlined above, the graph's
-unbound flows apply.
+With neither slot inlined, the graph's unbound flows apply.
 
 ## Gate protocol
 

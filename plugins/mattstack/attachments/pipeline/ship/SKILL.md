@@ -522,7 +522,9 @@ and `git_push`'s `priorPipelineId` only when the push moved the branch:
 `git log @{upstream}..` listed commits before the push (before the gate,
 or committed by this verb since), or the push forced. Otherwise that
 pipeline is the sha's own and the watch would wait for one that never
-comes.
+comes. A push that moved nothing relies on the sha's own pipeline matching
+by sha; on a fast-forward merge train that pipeline is unprovable, and
+watch-ci's waiting budget ends the watch.
 
 A stand-down means another attendant (the doctor or another watch-ci
 session) holds the MR's lease: an own run closes `done`, since the MR

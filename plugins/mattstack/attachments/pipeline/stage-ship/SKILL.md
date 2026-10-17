@@ -26,6 +26,7 @@ digraph ship {
     rankdir=TB;
 
     "Ship stage entered" [shape=ellipse];
+    "run_field_get {key: mr}" [shape=plaintext];
     "Run the domain steps before the gate (none when unbound)" [shape=box];
     "git status --porcelain; git log --oneline @{upstream}.. or -5" [shape=plaintext];
     "branch_stack {tree: <root>}" [shape=plaintext];
@@ -60,14 +61,18 @@ digraph ship {
     "Continue result?" [shape=diamond];
 
     "Push needs force-with-lease?" [shape=diamond];
-    "git_push {tree: <root>, setUpstream: true}" [shape=plaintext];
-    "git_push {tree: <root>, forceWithLease: true}" [shape=plaintext];
+    "git_push {tree: <root>, setUpstream: true, leaseMrUrl?: <mr>}" [shape=plaintext];
+    "git_push {tree: <root>, forceWithLease: true, leaseMrUrl?: <mr>}" [shape=plaintext];
     "git_push result?" [shape=diamond];
     "run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}" [shape=plaintext];
     "STOP: push only with git_push" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: the lease holder owns every commit, push and retry" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Stand down: report the holder and stop" [shape=doublecircle];
     "Off-script gate: git_push refused" [shape=box];
     "Make the recorded move once" [shape=box];
     "Push landed?" [shape=diamond];
+    "run_budget {key: ship:landing-checks, limit: 1, stage}" [shape=plaintext];
+    "landing-checks spent?" [shape=diamond];
     "run_field_set {key: pushed, value: <{\"sha\": HEAD, \"priorPipelineId\": null} JSON>, stage}" [shape=plaintext];
 
     "git remote get-url origin" [shape=plaintext];
@@ -112,7 +117,8 @@ digraph ship {
     "Stage failed" [shape=doublecircle];
     "Ship done: return to the orchestrator" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Ship stage entered" -> "Run the domain steps before the gate (none when unbound)";
+    "Ship stage entered" -> "run_field_get {key: mr}";
+    "run_field_get {key: mr}" -> "Run the domain steps before the gate (none when unbound)";
     "Run the domain steps before the gate (none when unbound)" -> "git status --porcelain; git log --oneline @{upstream}.. or -5";
     "git status --porcelain; git log --oneline @{upstream}.. or -5" -> "branch_stack {tree: <root>}";
     "branch_stack {tree: <root>}" -> "Stack parent read?";
@@ -165,12 +171,14 @@ digraph ship {
     "Continue result?" -> "Run the domain's fast checks (none when unbound)" [label="rebase finished"];
     "Continue result?" -> "git_rebase {tree: <root>, abort: true}" [label="error: a failure"];
 
-    "Push needs force-with-lease?" -> "git_push {tree: <root>, setUpstream: true}" [label="no"];
-    "Push needs force-with-lease?" -> "git_push {tree: <root>, forceWithLease: true}" [label="yes"];
-    "git_push {tree: <root>, setUpstream: true}" -> "git_push result?";
-    "git_push {tree: <root>, forceWithLease: true}" -> "git_push result?";
+    "Push needs force-with-lease?" -> "git_push {tree: <root>, setUpstream: true, leaseMrUrl?: <mr>}" [label="no"];
+    "Push needs force-with-lease?" -> "git_push {tree: <root>, forceWithLease: true, leaseMrUrl?: <mr>}" [label="yes"];
+    "git_push {tree: <root>, setUpstream: true, leaseMrUrl?: <mr>}" -> "git_push result?";
+    "git_push {tree: <root>, forceWithLease: true, leaseMrUrl?: <mr>}" -> "git_push result?";
     "git_push result?" -> "run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}" [label="ok"];
-    "git_push result?" -> "STOP: push only with git_push" [label="refused or errored"];
+    "git_push result?" -> "STOP: the lease holder owns every commit, push and retry" [label="refused: lease_held, holder named"];
+    "git_push result?" -> "STOP: push only with git_push" [label="any other error or refusal"];
+    "STOP: the lease holder owns every commit, push and retry" -> "Stand down: report the holder and stop";
     "run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}" -> "git remote get-url origin";
     "STOP: push only with git_push" -> "Off-script gate: git_push refused";
     "Off-script gate: git_push refused" -> "Make the recorded move once" [label="take"];
@@ -179,7 +187,10 @@ digraph ship {
     "Off-script gate: git_push refused" -> "run_hold {stage, reason, decidedBy}" [label="hold"];
     "Make the recorded move once" -> "Push landed?";
     "Push landed?" -> "run_field_set {key: pushed, value: <{\"sha\": HEAD, \"priorPipelineId\": null} JSON>, stage}" [label="yes"];
-    "Push landed?" -> "git remote get-url origin" [label="no: go on, pushed unwritten"];
+    "Push landed?" -> "run_budget {key: ship:landing-checks, limit: 1, stage}" [label="no"];
+    "run_budget {key: ship:landing-checks, limit: 1, stage}" -> "landing-checks spent?";
+    "landing-checks spent?" -> "Off-script gate: git_push refused" [label="no: reopen with the comparison"];
+    "landing-checks spent?" -> "Which exit?" [label="yes: a failure"];
     "run_field_set {key: pushed, value: <{\"sha\": HEAD, \"priorPipelineId\": null} JSON>, stage}" -> "git remote get-url origin";
 
     "git remote get-url origin" -> "Forge host?";
@@ -329,8 +340,9 @@ Iterate counts nothing: each retry needs a new answer at this gate.
 
 ### Make the recorded move once
 
-It landed when the remote branch carries
-`git rev-parse HEAD`, which `pushed` records with no prior id.
+Compare `git rev-parse HEAD` with the remote branch; never push from here.
+It landed when the remote branch carries HEAD, which `pushed` records with
+no prior id. A miss reopens the push gate, quoting the comparison.
 
 ### Gate clarify: which forge?
 
@@ -372,7 +384,15 @@ write happens.
 - **`pushed`** hands the watch-ci stage `git_push`'s `sha`, and its
   `priorPipelineId` only when the push moved the branch (commits listed
   before the gate, a commit by this stage since, or a forced push); else
-  `null`, or the watch waits for a pipeline that never comes.
+  `null`, or the watch waits for a pipeline that never comes. A push that
+  moved nothing relies on the sha's own pipeline matching by sha; on a
+  fast-forward merge train that pipeline is unprovable, and the watch's
+  waiting budget ends the watch.
+- **The lease.** `<mr>` is the `mr` field read at entry: when it is set
+  (a repair push after a red CI), both pushes pass `leaseMrUrl: <mr>`.
+  `refused: "lease_held"` means another attendant holds the MR's CI lease:
+  report the `holder` and stop, releasing nothing; that lease is someone
+  else's.
 - **Hold** records `run_hold`: `reason` their words or the gate,
   `decidedBy` as the answer recorded it.
 - **`targetBranch`** is what `branch_stack` resolved; a default branch is

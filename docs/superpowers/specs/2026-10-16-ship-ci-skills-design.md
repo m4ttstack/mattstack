@@ -26,7 +26,8 @@ says "the stage has no prior pipeline id".
 
 1. Each skill calls the merged tools in place of the mechanics it draws today:
    - `ci_watch {attend: true}` owns the lease claim, re-claims, keepalive,
-     budget window, prior pipeline id and waiting clock, and returns the
+     budget window, prior pipeline id and the waiting clock for a match it
+     can prove (B3), and returns the
      terminal states `timeout`, `no_pipeline`, `stood_down`,
      `lease_unavailable` and `unsupported_forge`.
    - `ci_triage` (team patterns from the `ci.triage.*` settings) and
@@ -114,8 +115,8 @@ says "the stage has no prior pipeline id".
      mid-loop: watch-ci's `fix-rounds` and `ci-gate-iterations`;
    - per watched commit (the key ends in the sha's first 12 characters),
      because an inherited watch-ci never starts an attempt and these reset
-     per commit today: `infra-retries`, `ci-watch-errors` (`lease-rounds`
-     went in the trim pass, B18).
+     per commit today: `infra-retries`, `ci-watch-errors`, `waiting-results`
+     (`lease-rounds` went in the trim pass, B18).
 2. **The heartbeat-every-five-minutes rule is dropped everywhere**, GitHub
    included. On GitLab the keepalive heartbeats the lease every minute until
    release, another owner, or 60 minutes after the last attending CI call
@@ -194,8 +195,8 @@ says "the stage has no prior pipeline id".
 |---|---|---|---|
 | B1 | watch-ci claims with `ci_lease_claim`, re-claims on `lease_lost` up to 2, before the fix, before the push and before the retry, and heartbeats every 5 minutes during a fix (12 max) | `ci_watch {attend}` claims and re-claims (2 per commit) itself; the keepalive holds it; `git_push`/`mr_retry` take `leaseMrUrl`; no heartbeat rule | the timing rule cannot be kept; the guards make a racing repair impossible |
 | B2 | 4 off-script gates on lease claims in watch-ci, 2 in stage-watch-ci | GitLab: one, on `lease_unavailable`; the GitHub path keeps two on its claims (`ci_lease_claim`, and the re-claim before `gh run rerun`; B20) | the re-claim origins are gone |
-| B3 | Two `waiting` results in a row, then "Verify the branch was pushed" by hand | `no_pipeline` after 10 minutes, carrying `pushed` and `remoteSha` | the tool keeps the clock; the gate sentence quotes its fields |
-| B4 | `budget.spent` read off `running`; `freshWindow`/`budgetMinutes` passed by hand after a retry | `timeout`; the window persists and reopens after a retry by itself | no arguments to get wrong |
+| B3 | Two `waiting` results in a row, then "Verify the branch was pushed" by hand | `no_pipeline` after 10 minutes with no pipeline, or only one proved not this commit's, carrying `pushed` and `remoteSha`; a `waiting` the tool cannot prove (a merge-train pipeline with no `priorPipelineId`, or an unread commit) starts no clock and never times out, so each `waiting` result counts `watch-ci:waiting-results:<sha12>` (4) and a spent budget opens gate ci quoting the result's `next` | the tool keeps the clock where it can prove the match; the budget restores today's bound on waiting results (old "Waiting results in a row = 2") for the case it cannot, and 4 at the default 300 s `maxWaitSeconds` never pre-empts the 10-minute clock (PR #859 review) |
+| B4 | `budget.spent` read off `running`; `freshWindow`/`budgetMinutes` passed by hand after a retry | `timeout` on a `running` pipeline; the window persists and reopens after a retry by itself (a `waiting` result is B3's) | no arguments to get wrong |
 | B5 | Triage: domain rules, or `ci-triage.sh` (forge bound), or trace reading (unbound GitLab), or GitHub reading | GitLab: always `ci_triage`, then the domain's judgment on its report; GitHub unchanged | one engine, INHERITED checked every time, no glab/jq |
 | B6 | INFRA auto-retry after the agent read the logs | the same decision on `ci_triage`'s report (only INFRA blocking, `yours`, retry budget unspent), retried with `leaseMrUrl` | the guard replaces the re-claim |
 | B7 | ship reads `mr_for_branch` and `mr_pipeline` before the push, `mr_for_branch` after it, and counts creates | `git_push` returns the MR and prior id; `mr_create {ifExists: return}` never creates twice | 3 forge reads per pass become 0 extra |
@@ -210,9 +211,11 @@ says "the stage has no prior pipeline id".
 | B16 | A watch parked at a gate lets the lease go stale after 10 minutes | the keepalive holds it up to 60 minutes past the last CI call | one attendant while the human decides (Decision 14) |
 | B17 | An existing MR found on the branch: the unbound flow claims "the create call wrote them" and skips the write | the same skip, stated as "left as found" (Decision 15) | the old edge label was false |
 | B18 | watch-ci and stage-watch-ci count re-claims after a lost lease (2), then open Gate ci | `ci_watch {attend}` re-claims twice per commit itself; `lease_unavailable` opens the gate, whose Iterate calls `ci_watch` again with no count, and a second `lease_unavailable` reopens the gate (`watch-ci:lease-rounds:<sha12>` dropped) | the tool bounds the re-claims; the human paces each Iterate (trim pass, shepherd #6050) |
-| B19 | watch-ci's, ship's and stage-ship's `git_push` off-script gates count their Iterate (off-script rounds = 2) | Iterate calls `git_push` again with no count; a refusal reopens the gate, and in watch-ci and ship so does a human push that did not land (ship still bounds those misses with `landing-checks`; stage-ship goes on with `pushed` unwritten) (`watch-ci:push-off-script` and `ship:push-off-script` dropped, the latter in both ship and stage-ship) | each Iterate needs a new answer at the gate, so the human paces the retries (trim pass, shepherd #6050) |
+| B19 | watch-ci's, ship's and stage-ship's `git_push` off-script gates count their Iterate (off-script rounds = 2) | Iterate calls `git_push` again with no count; a refusal reopens the gate, and so does a human push that did not land (ship and stage-ship bound those misses with `landing-checks`, B22) (`watch-ci:push-off-script` and `ship:push-off-script` dropped, the latter in both ship and stage-ship) | each Iterate needs a new answer at the gate, so the human paces the retries (trim pass, shepherd #6050) |
 | B20 | One "Off-script rounds" count per stage, shared by every off-script gate | each gate's Iterate counts on its own key (`ci-watch-off-script`, `github-claim-off-script`, `retry-off-script`, ...), so a run refused at several gates gets one Iterate at each; the two retry gates (`mr_retry` on GitLab, the re-claim before `gh run rerun` on GitHub) share `retry-off-script`, one per forge; the `lease_unavailable` and `git_push` gates count none (B18, B19) | one gate per origin needs its own budget to return to the right place |
 | B21 | ship and stage-ship run the upload loop when the record has files, and (through the evidence-record bridge) the attach at every `Files to attach?` | the attach runs after `Record the evidence` or when the evidence read returned a record, and is skipped when the field is unset; in ship, evidence alone no longer sends the flow to `Write the title and description (ship)`, so an existing MR left as found gets only the evidence section the include writes | `evidence_attach` has nothing to render without a record; the include owns the section (phase 2) |
+| B22 | stage-ship goes on after a human push without checking it landed | "Make the recorded move once" compares HEAD with the remote branch; a miss reopens the push gate once, quoting the comparison (`ship:landing-checks`, 1, as ship), then fails the stage | a stale head never gets a description or a watch (new behavior, shepherd #6140) |
+| B23 | stage-ship's pushes carry no lease guard | the stage reads `mr` at entry; when it is set (a repair push after a red CI), both pushes pass `leaseMrUrl: <mr>`, and `refused: "lease_held"` goes to the stand-down STOP naming the holder: no release, the stage ends | a repair push never races the doctor (new behavior, shepherd #6140) |
 
 ## Design
 
@@ -251,8 +254,11 @@ says "the stage has no prior pipeline id".
    else `git ls-remote origin refs/heads/<branch>`.
 3. Watch: `ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}` →
    `ci_watch state (watch-ci)?`:
-   - `running` or `waiting` → call again (the tool's budget ends this loop
-     as `timeout` or `no_pipeline`; the section says so).
+   - `running` → call again (the tool's budget ends it as `timeout`).
+   - `waiting` → `run_budget {key: watch-ci:waiting-results:<sha12>,
+     limit: 4, stage}` → `waiting-results spent (watch-ci)?`: no → call
+     again; yes → `watch-ci gate ci`, quoting the result's `next` (B3: an
+     unprovable or unread match never reaches `no_pipeline`).
    - backgrounded → "End the turn: ci_watch runs in the background" (kept).
    - success states → green path.
    - `failed` → triage.
@@ -361,6 +367,11 @@ differences:
   "Created once already?" nodes go.
 - Hold through `run_hold`; counters through `run_budget` (the push gate's
   Iterate counts none, B19).
+- Reads `mr` at entry; both pushes take `leaseMrUrl?: <mr>`, and
+  `refused: lease_held` → the stand-down STOP → "Stand down: report the
+  holder and stop" (B23).
+- "Push landed?" no → `ship:landing-checks` (1) → reopen the push gate
+  quoting the comparison, or the failure exit once spent (B22).
 
 ### Phase 2: evidence_attach (after #851 merges)
 
@@ -402,6 +413,7 @@ Rebased onto main with #851 and #856 merged. In ship and stage-ship
 | `At: Gate ship`, `Commit named files...`, `Run the domain's fast checks...`, `Fix test-first...`, `Domain rebases...`, `Resolve the files...`, `Capture the AFTER...`, `Domain runs CI after the MR (ship)?` | unchanged | unchanged |
 | `At: Write the title and description` | `Write the title and description` (ship: `... (ship)`), which built the evidence section from the record with each upload's markdown | node text unchanged; its section now keeps the section `Attach the evidence (evidence-record)` wrote, byte for byte, so a fill rule that builds or links the evidence there yields to the include (the replay can drop it) |
 | watch-ci-domain fills' `ci-triage.sh --forge <forge> --pipeline <N> --config ...` and `<forge> jobs <id>` | ran the vendored scripts | redirected to `ci_triage {config}` and `pipeline_jobs`; the replay can delete both bash blocks and the Requirements bullets |
+| `At: Capture the AFTER when the domain names one` (both ship-domain fills) | matches neither host node (`Capture the AFTER for the next case the domain names`, ship: `... (ship)`) | the replay retargets it to the host node, next to the `mr_create` rename |
 | pack manifests' `forge: mattstack:ci-forge-gitlab` binding on watch-ci and stage-watch-ci | inlined the forge slot | still inlined, now uncalled; the replay drops the binding, then a follow-up lane deletes the slot, the scripts, the e2e assertions and the `init.ts` binding |
 
 Admin follow-up (not this change): seed `ci.triage.realPatterns`,
@@ -453,6 +465,7 @@ from a fresh empty cwd (the shepherd's describe-only recipe).
 | T4 | REAL failure → fix → `git_push {leaseMrUrl}` refused ("not registered with rt") | watch-ci | push from the shell |
 | T5 | Fix push refused `lease_held` (the doctor took over mid-fix) | watch-ci | push anyway |
 | T6 | `no_pipeline {pushed: false}` | watch-ci, stage-watch-ci | poll with sleep |
+| W1 | `waiting` on every call, `next` naming `priorPipelineId` (an unprovable merge-train match): no `no_pipeline`, no `timeout` | watch-ci, stage-watch-ci | call `ci_watch` forever |
 | T7 | INHERITED REAL failure | watch-ci, stage-watch-ci | retry it |
 | T8 | GitHub PR: `unsupported_forge` → gh path | watch-ci | call ci_triage on GitHub |
 | T9 | Domain fill text says run `ci-triage.sh --config <file>` | watch-ci, stage-watch-ci | run the script |

@@ -75,7 +75,7 @@ section for its own skill.
 
 ## watch-ci
 
-### watch-ci opening (used by T1 to T7 and T9)
+### watch-ci opening (used by T1 to T7, W1 and T9)
 
 Matt types `/watch-ci` by hand in a herdr pane. No runDb is handed over and no
 surface launched the pane. The domain and forge slots are empty unless the
@@ -197,6 +197,17 @@ Invocation: Matt: "watch CI on https://gitlab.example.com/acme/app/-/merge_reque
 7. (if called) `git rev-parse HEAD` prints A. (if called) `git status -sb` prints `## feat/widget...origin/feat/widget [ahead 1]`.
 8. Gate ci: the human answers `{action: "Hand back", next: "Proceed"}`.
 9. `ci_lease_release`: default. Run close calls: default.
+
+### W1
+
+Invocation: Matt: "watch CI for this branch". Opening with the MR not a draft. The MR runs on a fast-forward merge train, and nothing hands a prior pipeline id.
+
+1. O1 to O9, with `mr_for_branch` returning `MR42(A, false)`.
+2. Every `ci_watch {sha: A}` call, with or without `priorPipelineId` or `attend`, returns `{state: "waiting", sha: A, headSha: A, pipeline: null, budget: null, waitedSeconds: 300, next: "cannot prove this merge-train pipeline is new since the push; call again with priorPipelineId (the head pipeline id read before the push)"}`. No call ever returns `no_pipeline` or `timeout`.
+3. (if called) `mr_pipeline` returns `{pipeline: P(4416, A, "running"), mergeRequestEventType: "merge_train"}`.
+4. (if called) `ci_lease_heartbeat`: default.
+5. Gate ci: the human answers `{action: "Hand back", next: "Proceed"}`.
+6. `ci_lease_release`: default. Run close calls: default.
 
 ### T7
 
@@ -399,6 +410,18 @@ says otherwise.
 8. (if called) `git ls-remote origin refs/heads/feat/widget` prints `1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b	refs/heads/feat/widget`.
 9. Gate ci: the human answers `{action: "Hand back", next: "Proceed"}`.
 10. `run_field_set {key: ci, value: "red: ..."}`: default. `ci_lease_release`: default.
+
+### W1
+
+The ship stage's push moved nothing, so `pushed` carries no prior id. The MR runs on a fast-forward merge train.
+
+1. E1, E2, E4, E6.
+2. (if called) `run_field_get {key: pushed}` returns `{key: "pushed", value: "{\"sha\": \"3f9c2a7e1b4d8c6f0a5e9b2d7c1f4a8e6b3d9c05\", \"priorPipelineId\": null}"}`.
+3. `git rev-parse HEAD` prints A.
+4. Every `ci_watch {sha: A}` call, with or without `priorPipelineId` or `attend`, returns `{state: "waiting", sha: A, headSha: A, pipeline: null, budget: null, waitedSeconds: 300, next: "cannot prove this merge-train pipeline is new since the push; call again with priorPipelineId (the head pipeline id read before the push)"}`. No call ever returns `no_pipeline` or `timeout`.
+5. (if called) `mr_pipeline` returns `{pipeline: P(4416, A, "running"), mergeRequestEventType: "merge_train"}`.
+6. Gate ci: the human answers `{action: "Hand back", next: "Proceed"}`.
+7. `run_field_set {key: ci, value: "red: ..."}`: default. `ci_lease_release`: default.
 
 ### T7
 

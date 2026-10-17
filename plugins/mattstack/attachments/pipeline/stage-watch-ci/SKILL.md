@@ -38,6 +38,8 @@ digraph watch_ci {
 
     "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [shape=plaintext];
     "ci_watch state?" [shape=diamond];
+    "run_budget {key: watch-ci:waiting-results:<sha12>, limit: 4, stage}" [shape=plaintext];
+    "waiting-results spent?" [shape=diamond];
     "End the turn: ci_watch runs in the background" [shape=box];
     "Trigger: the ci_watch task notification" [shape=ellipse];
     "STOP: GitLab CI goes through ci_watch, the read tools, gitlab_get and mr_retry" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -138,7 +140,11 @@ digraph watch_ci {
     "pushed set, and its sha is HEAD?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="no or unreadable: HEAD, no prior id"];
 
     "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" -> "ci_watch state?";
-    "ci_watch state?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="running or waiting"];
+    "ci_watch state?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="running"];
+    "ci_watch state?" -> "run_budget {key: watch-ci:waiting-results:<sha12>, limit: 4, stage}" [label="waiting"];
+    "run_budget {key: watch-ci:waiting-results:<sha12>, limit: 4, stage}" -> "waiting-results spent?";
+    "waiting-results spent?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="no"];
+    "waiting-results spent?" -> "Gate ci" [label="yes: quote its next"];
     "ci_watch state?" -> "End the turn: ci_watch runs in the background" [label="backgrounded"];
     "End the turn: ci_watch runs in the background" -> "Trigger: the ci_watch task notification" [style=dashed];
     "Trigger: the ci_watch task notification" -> "ci_watch state?";
@@ -296,13 +302,12 @@ digraph watch_ci {
 
 ### End the turn: ci_watch runs in the background
 
-A `ci_watch` still running after 120 s moves to the background, and its
+A `ci_watch` still running after 120 s moves to the background; its
 `<task-notification>` `<result>` is the next `ci_watch state`. End the
-turn in one line: `watching CI in the background (task <id>)`. The
-pipeline gate stop hook lets a turn end while a background task is
-pending, and a chat or user message arriving meanwhile reaches you at
-once; a foreground wait (a `sleep`, a polling script, a second `ci_watch`)
-delays the result and every message.
+turn in one line: `watching CI in the background (task <id>)`. The stop
+hook lets the turn end while the task is pending, and a message meanwhile
+reaches you at once; a foreground wait (`sleep`, a polling script, a
+second `ci_watch`) delays both.
 
 ### The off-script gates
 
@@ -310,8 +315,8 @@ Each is the gate protocol's Off-script gate (scope
 `off-script:watch-ci:<n>`, `context` quoting the refusal): `action`
 **Take** (the move its section names) / **Hand back** (a failure, the
 refusal its reason); `next` **Proceed** (Recommended) / **Iterate
-here** (the human fixed it) / **Hold**. A spent Iterate budget fails the
-same way, quoting the refusals. An attending Take writes `ci` red,
+here** (the human fixed it) / **Hold**. A spent Iterate budget fails,
+quoting the refusals. An attending Take writes `ci` red,
 the refusal as its triage line.
 
 ### Off-script gate: lease_unavailable
@@ -377,7 +382,7 @@ whose end is out of reach stays UNCLEAR. Other pipelines come from
 
 ### Classify each failing check REAL or INFRA
 
-Read the failing checks' logs from the links `gh pr checks <mr>` prints and
+Read the failing checks' logs from the links `gh pr checks <mr>` prints;
 classify as the triage-report section says, ownership unknown.
 
 ### Off-script gate: mr_retry refused
@@ -393,14 +398,14 @@ The re-claim before `gh run rerun` errored. Take: the human reran the job.
 
 Read it with `gitlab_get {repoName, path}` (`repoName` this worktree,
 `path` from the API root, `:id` for this project:
-`projects/:id/jobs/<jobId>`) within the step, not as an off-script move.
+`projects/:id/jobs/<jobId>`), part of the step, not off-script.
 Quote a GitLab error as written; a refused credential path is final.
 
 ### Gate ci
 
-Quote any error that led here. On `no_pipeline`, `pushed: false` means the
-MR head is `remoteSha`: say ship first; `pushed: true` means no pipeline
-ran for it. Scope `ci:watch-ci:<attempt>`. One sentence above the form: the
+Quote any error, or a spent `waiting`'s `next`. On `no_pipeline`,
+`pushed: false` means the MR head is `remoteSha`: say ship first; `pushed:
+true` means no pipeline ran for it. Scope `ci:watch-ci:<attempt>`. One sentence above the form: the
 verdict and a one-line triage per blocking failure.
 
 | Question | Options (recommended first) | Shown when |
@@ -410,8 +415,7 @@ verdict and a one-line triage per blocking failure.
 
 Selection: `{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
 An `action` write-in adds `"action": {"writeIn": "<their words>"}`, and
-`next` records `iterate`, or the deliberate `next` pick (Hold or Go back)
-that won.
+`next` records `iterate`, or the Hold or Go back that won.
 
 ### Gate mark-ready
 
@@ -431,14 +435,15 @@ Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<st
 - **The pushed sha.** The ship stage writes `pushed` = `{"sha",
   "priorPipelineId"}`; `<sha12>` is the watched sha's first 12 characters.
   A `priorPipelineId` a result carries goes on the next call; the watched
-  pipeline's own `pipeline.id` never does. Both diamond edges call
-  `ci_watch`; each label says what to pass.
-- **The tool owns the watch window.** `timeout` (against
-  `ci.watch.budgetMinutes`) and `no_pipeline` (10 minutes without one) are
-  `ci_watch`'s own: pass no budget arguments, count nothing.
-- **The sha guard.** `ci_watch` counts only a pipeline for `sha` (a
-  success is green only for it) and returns `superseded` when the head
-  moves on. On GitHub `headRefOid` must equal it, "no checks reported" is
+  pipeline's own `pipeline.id` never does. Each edge into `ci_watch` says
+  what to pass.
+- **The watch window.** `ci_watch` owns `timeout`
+  (`ci.watch.budgetMinutes`) and `no_pipeline` (10 minutes with no pipeline,
+  or one proved not this commit's): pass no budget arguments. An unprovable
+  `waiting` (a merge train with no prior id, an unread commit) gets neither:
+  `waiting-results` counts it.
+- **The sha guard.** `ci_watch` counts only a pipeline for `sha` and
+  returns `superseded` when the head moves on. On GitHub `headRefOid` must equal it, "no checks reported" is
   pending, and `gh run rerun` takes the run id from the failed check's link.
 - **Hold.** `run_hold` takes the gate as `reason` and `decidedBy` as the
   answer recorded it.
@@ -461,17 +466,16 @@ it for the re-run. The stand-down never releases and writes no
 | Thought | Reality |
 |---|---|
 | "The doctor's on it, but I can fix or retry faster" | A repair is the lease holder's. Stand down and stop. |
-| "On GitLab I'll heartbeat or claim by hand" | The keepalive and the `leaseMrUrl` guard cover it, and only `ci_watch` claims. |
+| "On GitLab I'll heartbeat or claim by hand" | The keepalive and the `leaseMrUrl` guard cover it; only `ci_watch` claims. |
 | "A ci_watch error, so a script or the GitLab CLI" | Fix the input once, then the off-script gate. |
 
 ## Budgets in this stage
 
 Each `run_budget` counts one as its loop is entered; a `<sha12>` key
-counts per watched commit. Its
-`spent?` diamond reads `spent` against `limit` (`spent > limit`); ignore
-`exhausted` and `remaining` (`exhausted` is `spent >= limit` and would stop
-one round early). `infra-retries` counts right before the retry it allows,
-so a retry nobody chose is never spent.
+counts per watched commit. Its `spent?` diamond reads `spent > limit`;
+ignore `remaining` and `exhausted` (`spent >= limit`, one round early).
+`infra-retries` counts just before the retry it allows, so an unchosen
+retry is never spent.
 
 ## Domain rules
 
@@ -489,7 +493,7 @@ with `pipelineId: <N>` (never the ref's newest pipeline) and the rule's
 
 {{slot:domain}}
 
-When nothing is inlined above, the graph's other flows apply.
+With nothing inlined, the graph's other flows apply.
 
 ## Forge
 

@@ -31,6 +31,7 @@
 |---|---|---|---|
 | watch-ci, stage-watch-ci | `watch-ci:ci-watch-errors:<sha12>` | 1 | stage, per commit |
 | | `watch-ci:ci-watch-off-script` | 1 | stage |
+| | `watch-ci:waiting-results:<sha12>` | 4 | stage, per commit (counts each `waiting` result; the tool's `no_pipeline` clock never starts on an unprovable or unread match, spec B3) |
 | | `watch-ci:infra-retries:<sha12>` | 1 | stage, per commit |
 | | `watch-ci:retry-off-script` | 1 | stage |
 | | `watch-ci:ci-gate-iterations` | 2 | run-wide (no `stage`) in watch-ci; stage in stage-watch-ci |
@@ -45,7 +46,7 @@
 | | `ship:fix-rounds` | 3 | stage |
 | | `ship:conflict-rounds` | 3 | stage |
 | | `ship:forge-clarify-rounds` | 1 | stage |
-| | `ship:landing-checks` | 1 | stage (ship only) |
+| | `ship:landing-checks` | 1 | stage (ship and stage-ship, spec B22) |
 | | `ship:mr-create-recalls` | 1 | stage (counts re-calls after `url: null`, not the first call) |
 | | `ship:after-attempts:<case id>` | 2 | stage |
 | | `ship:mark-ready-rounds` | 1 | stage (ship only) |
