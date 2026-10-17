@@ -251,3 +251,112 @@ both sides reached the right node.
 As expected, the RED here (today's skill) behaves like the ship-ci lane's
 GREEN round 3. At this sample size the measurement can show that short ids
 cost nothing. It cannot show that they help.
+
+
+---
+
+# RED/GREEN: stage-provision short digraph ids
+
+Same question as watch-ci, on the stage-provision stage: are its converted
+graph followed no worse? Node text, shapes and edges are the same on both
+sides. Only the id form differs.
+
+## Method
+
+- **RED** is the sentence-id SKILL.md at `1043f9eb8`. **GREEN** is the
+  short-id SKILL.md at the worktree HEAD (`de9eaf82a`).
+- **System files**: `build-system-files.sh 1043f9eb8 t7/red` and
+  `build-system-files.sh <worktree> t7/green`; each side's compiled
+  `stage-provision.md` is the appended system prompt. It carries the stage's
+  graph and the gate-protocol include graph. Sanity checks: `check-dot.py`
+  passes on both (2 graphs, 0 warnings). RED has no node labels in the stage
+  graph (41 `label=` lines, all on edges); GREEN has 76 (node and edge
+  labels). The gate-protocol graph is unconverted on both sides: 36 `label=`
+  lines each, all on edges.
+- **Prompts**: `../2026-10-16-pipeline-skills/scenarios/S5-occupied-ticket-branch.md`
+  and `S5b-precheck-daemon-outdated.md`, unchanged.
+- **Recipe**: `run-reps.sh --system <stage-provision.md> --prompt <scenario>`,
+  5 reps per scenario per side (20 reps), all exit 0 with non-empty output.
+- **Blinding**: `blind.sh` over all four out dirs at once; the 20 transcripts
+  were scored in its shuffled order and the mapping was opened afterwards.
+  The blind was partial: two GREEN S5 reps write "hand-rolled worktree", which
+  is `stop_hand_rolled_worktree` in prose (RED never uses the word). It did not
+  change a score.
+- **Scoring**: the pipeline lane's S5 and S5b pass criteria. A rep passes a
+  scenario only if it meets every clause; each missed clause is a deviation.
+  - **S5 clauses**: precheck before any provision; the resume question on
+    the `provision` gate; `worktree_provision {repoName, branch:
+    "acme-12-fix-login", reuse: true, runDb, stage: "provision"}`;
+    `EnterWorktree`; no hand-written `branch`/`worktree` after `recorded: true`.
+  - **S5b clauses**: provision with `codes: true` and `runDb`; no precheck
+    retry; no stage failure.
+  - **Stop named** is yes when the rep says the stage ends done and hands
+    back to the orchestrator, the text of `provision_done` ("Provision done:
+    return to the orchestrator"). Prose for the id counts.
+- **Pass bar**: GREEN deviations at most RED, per scenario and in total.
+
+## Results
+
+### RED
+
+#### S5 occupied ticket branch
+
+| rep | precheck before provision | resume question on the `provision` gate | `worktree_provision` with `reuse`, `branch`, `runDb`, `stage` | `EnterWorktree` | no hand-written `branch`/`worktree` | deviations | stop named | notes |
+|---|---|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 2 | yes | yes | yes | yes | yes | 0 | yes | lists Fresh tree first in the gate; still one resume question |
+| 3 | yes | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 4 | yes | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 5 | yes | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+
+#### S5b precheck on an older daemon
+
+| rep | `codes: true` and `runDb` | no precheck retry | no stage failure | deviations | stop named | notes |
+|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 2 | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 3 | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 4 | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 5 | yes | yes | yes | 0 | yes | matches the pass criteria |
+
+### GREEN
+
+#### S5 occupied ticket branch
+
+| rep | precheck before provision | resume question on the `provision` gate | `worktree_provision` with `reuse`, `branch`, `runDb`, `stage` | `EnterWorktree` | no hand-written `branch`/`worktree` | deviations | stop named | notes |
+|---|---|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | yes | yes | 0 | yes | adds `runDb`/`stage` to the precheck; harmless |
+| 2 | yes | yes | yes | yes | yes | 0 | yes | writes "No hand-rolled ... worktree", the id as prose |
+| 3 | yes | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 4 | yes | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 5 | yes | yes | yes | yes | yes | 0 | yes | writes "never hand-rolled a worktree", the id as prose |
+
+#### S5b precheck on an older daemon
+
+| rep | `codes: true` and `runDb` | no precheck retry | no stage failure | deviations | stop named | notes |
+|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 2 | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 3 | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 4 | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 5 | yes | yes | yes | 0 | yes | matches the pass criteria |
+
+### Totals per scenario
+
+| scenario | RED pass | GREEN pass | RED deviations | GREEN deviations | RED stop named | GREEN stop named | GREEN <= RED |
+|---|---|---|---|---|---|---|---|
+| S5 occupied ticket branch | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | yes |
+| S5b precheck on an older daemon | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | yes |
+| total | 10/10 | 10/10 | 0 | 0 | 10/10 | 10/10 | yes |
+
+## Verdict
+
+**Pass.** Both sides scored 0 deviations on both scenarios, so GREEN is at
+most RED per scenario and in total. No fix round was needed; the slug map and
+SKILL.md are unchanged.
+
+Every rep on both sides took the same path. S5: precheck, one `resume_in`
+question plus `next`, `gate_answer`, reuse call, `EnterWorktree`, no hand
+writes. S5b: `daemon-outdated`, then one provision with `codes`, `runDb`,
+`stage` and the budget, no retry, no failure. As in watch-ci, the sample
+shows short ids cost nothing here; it cannot show they help.
