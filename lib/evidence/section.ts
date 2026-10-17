@@ -68,6 +68,13 @@ function withoutLocalPaths(line: string): string {
     GITLAB_RELATIVE.test(path) ? whole : `${pre}${basename(path)} (attached separately)`);
 }
 
+/** The last guard before a section leaves the machine: the home directory (or its realpath) appearing anywhere, captions and waivers included, which the per-field renders cannot see. */
+export function namesHome(text: string, homes: string[]): boolean {
+  return homes
+    .filter((h) => h.length > 1)
+    .some((h) => new RegExp(`${h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[/\\s)\\]"'\`,;:])`).test(text));
+}
+
 function linksOf(line: string): string[] {
   return (line.match(/[^\s()[\]]+/g) ?? []).filter((t) => t.startsWith("/") || /^https?:\/\//.test(t));
 }

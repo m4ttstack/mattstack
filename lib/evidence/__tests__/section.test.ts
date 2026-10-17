@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
-import { appendixProblem, type FileLink, renderSection, spliceSection } from "../section.ts";
+import { appendixProblem, type FileLink, namesHome, renderSection, spliceSection } from "../section.ts";
 
 const up = (p: string): FileLink => {
   const name = p.split("/").pop()!.replace(/\.[a-z]+$/, "");
@@ -195,6 +195,18 @@ describe("spliceSection", () => {
     }
     const section = renderSection(rec({ v: 2, cases: [{ id: "a", label: "A", before: { path: "/a.png", waiver: "w" } }], attach: "## Old" }), (p) => ({ local: p }), {});
     expect(section).toContain("\\## Old");
+  });
+});
+
+describe("namesHome", () => {
+  test("finds the home directory or its realpath anywhere in the text", () => {
+    const homes = ["/Users/someone", "/private/var/someone"];
+    expect(namesHome("Caption: see /Users/someone/shot.png", homes)).toBe(true);
+    expect(namesHome("Waived: /private/var/someone/x", homes)).toBe(true);
+    expect(namesHome("Caption: /api/foo and /Users/other/x", homes)).toBe(false);
+  });
+  test("an empty home names nothing", () => {
+    expect(namesHome("anything", ["", "/"])).toBe(false);
   });
 });
 

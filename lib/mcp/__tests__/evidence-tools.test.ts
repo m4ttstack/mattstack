@@ -891,6 +891,32 @@ describe("evidence_attach", () => {
     expect(JSON.stringify(res.body)).toContain("gh pr edit 12");
   });
 
+  test("a caption naming the home directory refuses the description write and says why", async () => {
+    const { board, evidence: base } = boardRecord();
+    const rec = JSON.parse(base);
+    rec.cases[0].before.caption = `captured from ${join(home, "Desktop", "shot.png")}`;
+    const { deps, calls, state } = makeDeps({ fields: { evidence: JSON.stringify(rec) }, live: "## Verification Evidence\n\nold\n" });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody & { writeErrors?: string[] };
+    expect(uploads(calls).some((c) => c.payload.path === board)).toBe(true);
+    expect(calls.some((c) => c.cmd === "mr:update")).toBe(false);
+    expect(body.descriptionWritten).toBe(false);
+    expect(body.notWritten).toBe("refused");
+    expect(body.writeErrors?.join(" ")).toContain("home directory");
+    expect(state.live).not.toContain(home);
+  });
+
+  test("on GitHub a section naming the home directory comes back with the reason and no spliced description", async () => {
+    const { evidence: base } = boardRecord();
+    const rec = JSON.parse(base);
+    rec.cases[0].waiver = `see ${join(home, "notes.txt")}`;
+    const { deps } = makeDeps({ fields: { evidence: JSON.stringify(rec) } });
+    const res = await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "https://github.com/acme/web/pull/12", description: "body" }, env);
+    const body = res.body as AttachBody & { writeErrors?: string[]; description?: string; next?: string };
+    expect(body.writeErrors?.join(" ")).toContain("home directory");
+    expect(body.description).toBeUndefined();
+    expect(body.next).toBeUndefined();
+  });
+
   test("a plan:text record uploads nothing and prints only the transcript line", async () => {
     const { deps, calls } = makeDeps({ fields: { evidence: JSON.stringify({ plan: "text", transcript: "/t.txt" }) } });
     const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "web" }, env)).body as AttachBody;

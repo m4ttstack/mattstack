@@ -16,7 +16,7 @@ import { waitForAnswers } from "../endpoint/readiness.ts";
 import { allowedSourceRoots, bundleStem, copyIntoRun, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
-import { appendixProblem, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
+import { appendixProblem, namesHome, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
 import { parseUploads, serializeUploads, sha256Of, type UploadEntry } from "../evidence/uploads-field.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
@@ -443,6 +443,13 @@ function attachRecord(value: string | undefined): EvidenceRecord {
   return readEvidence(value ?? null);
 }
 
+const HOME_IN_SECTION = "the section names a path in your home directory (a caption, label, waiver, ticket or appendix carries it), so the description was not written; take the path out of the evidence record and call again";
+
+function homesOf(deps: EvidenceToolDeps): string[] {
+  const home = deps.home();
+  return [...new Set([home, realOr(home)])];
+}
+
 function realOr(path: string): string {
   try {
     return realpathSync(path);
@@ -526,6 +533,9 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
 
   if (target.forge === "github") {
     const section = isEmptyRecord(record) ? "" : renderSection(record, (path) => ({ local: path }), { appendix });
+    if (namesHome(section, homesOf(deps))) {
+      return ok({ forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, linked, section, descriptionWritten: false, notWritten: "github", writeErrors: [HOME_IN_SECTION] });
+    }
     return ok({
       forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, linked, section,
       ...(description !== undefined && { description: section ? splice(description, section) : description }),
@@ -610,6 +620,9 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
     descriptionOut = description;
   } else if (blocked) {
     notWritten = "refused";
+  } else if (namesHome(section, homesOf(deps))) {
+    notWritten = "refused";
+    writeErrors.push(HOME_IN_SECTION);
   } else if (target.iid === undefined) {
     notWritten = "no-mr";
     if (description !== undefined) descriptionOut = splice(description, section);
@@ -739,7 +752,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as \"<file name> (attached separately)\" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section names each file as attached separately and next names the gh move. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as \"<file name> (attached separately)\" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section names each file as attached separately and next names the gh move. A section that names a path in your home directory (a caption, label, waiver, ticket or appendix carrying one) is never written, nor next given, and writeErrors says so. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
