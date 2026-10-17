@@ -32,7 +32,7 @@ The run engine walks them in this order.
 ```dot
 digraph work {
     "Trigger: run a unit of work" [shape=ellipse];
-    "A run id in context?" [shape=diamond];
+    "A running run's id in context this request continues?" [shape=diamond];
     "Existing work?" [shape=diamond];
     "run_list {repo, pipelines}" [shape=plaintext];
     "A running run listed?" [shape=diamond];
@@ -49,6 +49,7 @@ digraph work {
     "run_field_get {key: waiting-gate}" [shape=plaintext];
     "waiting-gate set?" [shape=diamond];
     "gate_reconcile {id, runDb, stage}" [shape=plaintext];
+    "run_field_set {key: waiting-gate, value: -, stage}" [shape=plaintext];
     "Armed gate's status?" [shape=diamond];
     "A failure or close gate?" [shape=diamond];
     "rt gate wait <id> as a background Bash task" [shape=plaintext];
@@ -72,9 +73,9 @@ digraph work {
     "Run abandoned" [shape=doublecircle];
     "Run done" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: run a unit of work" -> "A run id in context?";
-    "A run id in context?" -> "run_enter {flags, skillDir, resume: <runId>, spawnedBy?}" [label="yes"];
-    "A run id in context?" -> "Existing work?" [label="no"];
+    "Trigger: run a unit of work" -> "A running run's id in context this request continues?";
+    "A running run's id in context this request continues?" -> "run_enter {flags, skillDir, resume: <runId>, spawnedBy?}" [label="yes"];
+    "A running run's id in context this request continues?" -> "Existing work?" [label="no"];
     "Existing work?" -> "run_list {repo, pipelines}" [label="yes"];
     "Existing work?" -> "run_enter {flags, skillDir, ticket?, spawnedBy?, fresh: true}" [label="no, or spawnedBy set"];
     "run_list {repo, pipelines}" -> "A running run listed?";
@@ -86,22 +87,25 @@ digraph work {
     "clarify answer?" -> "Held" [label="hold"];
     "run_enter {flags, skillDir, resume: <runId>, spawnedBy?}" -> "run_enter result?";
     "run_enter {flags, skillDir, ticket?, spawnedBy?, fresh: true}" -> "run_enter result?";
-    "run_enter result?" -> "Ticket named?" [label="started"];
-    "run_enter result?" -> "run_field_get {key: waiting-gate}" [label="resumed"];
+    "run_enter result?" -> "Ticket named?" [label="started, or resumed at the first stage's attempt 1"];
+    "run_enter result?" -> "run_field_get {key: waiting-gate}" [label="resumed elsewhere"];
     "run_enter result?" -> "STOP: report the tool's message; no run_enter tool means rt needs an update" [label="refused or error"];
     "Ticket named?" -> "Tracker: In Progress, assigned to the operator" [label="yes"];
     "Ticket named?" -> "Account picked at spawn?" [label="no"];
     "Tracker: In Progress, assigned to the operator" -> "Account picked at spawn?";
     "Account picked at spawn?" -> "run_decision {contract: account-pool@1, scope: run, selection, decidedBy}" [label="yes"];
-    "Account picked at spawn?" -> "Read the stage file at the position and follow it" [label="no"];
-    "run_decision {contract: account-pool@1, scope: run, selection, decidedBy}" -> "Read the stage file at the position and follow it" -> "How did the stage file end?";
+    "Account picked at spawn?" -> "run_field_get {key: waiting-gate}" [label="no"];
+    "run_decision {contract: account-pool@1, scope: run, selection, decidedBy}" -> "run_field_get {key: waiting-gate}";
+    "Read the stage file at the position and follow it" -> "How did the stage file end?";
     "run_field_get {key: waiting-gate}" -> "waiting-gate set?";
     "waiting-gate set?" -> "gate_reconcile {id, runDb, stage}" [label="yes"];
     "waiting-gate set?" -> "at.status?" [label="no: not set, or -"];
     "gate_reconcile {id, runDb, stage}" -> "Armed gate's status?";
     "Armed gate's status?" -> "A failure or close gate?" [label="answered or late"];
     "Armed gate's status?" -> "rt gate wait <id> as a background Bash task" [label="open"];
-    "Armed gate's status?" -> "at.status?" [label="closed or not found"];
+    "Armed gate's status?" -> "at.status?" [label="closed"];
+    "Armed gate's status?" -> "run_field_set {key: waiting-gate, value: -, stage}" [label="not found"];
+    "run_field_set {key: waiting-gate, value: -, stage}" -> "at.status?";
     "Armed gate's status?" -> "run_hold {runDb, stage, reason: <the refusal>, decidedBy: pane}" [label="refused"];
     "A failure or close gate?" -> "run_resolve {runDb, stage, next, to?, note?, attempt, decidedBy}" [label="yes"];
     "A failure or close gate?" -> "Re-enter the stage at that gate's site" [label="no"];
@@ -109,8 +113,8 @@ digraph work {
     "Re-enter the stage at that gate's site" -> "How did the stage file end?";
     "at.status?" -> "Read the stage file at the position and follow it" [label="running"];
     "at.status?" -> "run_next {runDb, stage}" [label="failed or done"];
-    "How did the stage file end?" -> "run_next {runDb, stage}" [label="returned"];
-    "How did the stage file end?" -> "run_resolve {runDb, stage, next: redirect, to, note, attempt, decidedBy}" [label="handed back a Go back"];
+    "How did the stage file end?" -> "run_next {runDb, stage}" [label="returned, failed, held or abandoned (run_next routes them)"];
+    "How did the stage file end?" -> "run_resolve {runDb, stage, next: redirect, to, note, attempt, decidedBy}" [label="handed back a Go back or a Fix (a redirect)"];
     "run_next {runDb, stage}" -> "run_next ended?";
     "run_next ended?" -> "Read the stage file at the position and follow it" [label="done, next"];
     "run_next ended?" -> "Gate close" [label="done, last"];
@@ -153,7 +157,7 @@ from the top and follow it to its end.
 ### Re-enter the stage at that gate's site
 
 Read the stage file, go to the site of that gate's scope, and continue at
-gate-protocol's `Act on the gate answer at the site` with the recorded
+gate-protocol's `A write-in to act on (actOnWriteIn)?` with the recorded
 answers, never re-asking; then walk every node after that gate.
 
 ### Gate <stage>-failed:<attempt>
@@ -168,7 +172,7 @@ stage, `reason` and `detailPath`.
 
 ## What the graph cannot show
 
-- **Entry.** A run id in context goes to `resume`, never `runDb`: only
+- **Entry.** A running run's id goes to `resume`, never `runDb`: only
   resume writes a missing manifest. `spawnedBy` starts fresh, never clarify.
 - **Resumed.** The attempt is adopted, so an armed `waiting-gate` on any
   row is reconciled first, and a late (`alreadyReconciled`) answer is still
@@ -178,7 +182,8 @@ stage, `reason` and `detailPath`.
   its fields and its own `run_stage fail`. Never write stage rows, produce
   clears, `shipTarget` or `pipeline-stages` here.
 - **Hand-back.** A stage ending at a Go back hands `{to, note,
-  decidedBy}`; `attempt` is its running attempt.
+  decidedBy}`, and a Fix hands `{to: implement, note, decidedBy}` the same
+  way; `attempt` is its running attempt.
 - **`repeated: true`**: already applied; follow the result.
 - **decidedBy** is the gate tool's returned `decidedBy`, or, for a
   hand-back, the handed `decidedBy` (`pane` when it was typed in the
