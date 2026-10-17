@@ -706,3 +706,205 @@ Telling those apart would need more reps at these nodes.
   unblinded, with the phrases quoted for checking.
 - **Self-scoring.** I ran and scored my own reps. A review re-score of 3
   reps agreed on every deviation cell.
+
+
+---
+
+## gate-protocol
+
+Same question on the gate-protocol include: is its converted graph followed
+no worse? The include is inlined into every gating stage, so it is tested
+through three of the pipeline lane's scenarios: the gate step with no run,
+an unattended wait under a run, and a compacted resume through
+`gate_reconcile`. Node text, shapes and edges are the same on both sides.
+Only the id form differs.
+
+### Method
+
+- **RED** is `3aad678d6`, where every plugin graph uses sentence ids.
+  **GREEN** is the worktree at `c7f1abc2d`: gate-protocol converted in
+  `d7cc81212`, work in `e60dd1e93`, stage-plan in `b819b9b42`.
+- **System files**: the pipeline lane's
+  `../2026-10-16-pipeline-skills/build-system-files.sh 3aad678d6 t11/red`
+  and `build-system-files.sh <worktree> t11/green`. The script compiles
+  with `bun cli.ts skills compile` under `HOME=<out>/.build/home` and
+  `--mattstack-dir <out>/.build/mattstack`, so no compiled rt binary runs and
+  nothing touches `~/.mattstack`. It ran unchanged.
+
+  | System file | Scenario | Graphs |
+  |---|---|---|
+  | `work.md` | S3 compacted resume | `work`, `gate_protocol` (inlined) |
+  | `stage-plan.md` | S4 unattended wait | `plan`, `gate_protocol` (inlined) |
+  | `board-gate.md` | S8 no run, herdr pane | `gate_protocol` alone |
+
+- **Sanity checks**, all on the built files:
+  - `check-dot.py` passes on all three GREEN files (2, 2 and 1 graphs, 0
+    warnings), and with `--short-ids` too. RED passes plain `check-dot.py`
+    and fails `--short-ids`, as a sentence-id file should.
+  - Labels: RED's `gate_protocol` graph has 0 node lines with `label=` (36
+    edge labels). GREEN's has 44 node lines with `label=`, one per node (36
+    edge labels). The other graphs: `work` 0 against 41, `plan` 0 against 16.
+  - With each id resolved to its label, every graph has the same node set,
+    the same shapes and the same edges (with their labels) on both sides:
+    `work` 41 nodes and 61 edges, `plan` 16 and 17, `gate_protocol` 44 and
+    54.
+  - With every dot block cut out, RED and GREEN are byte-identical for all
+    three files. No part header or version differs: the branch has not
+    bumped the plugin version.
+  - S3 and S4 also carry the converted `work` and `plan` graphs, so they
+    test those conversions together with gate-protocol's. S8 tests
+    gate-protocol alone.
+- **Prompts**: `../2026-10-16-pipeline-skills/scenarios/S3-compacted-resume.md`,
+  `S4-unattended-wait.md` and `S8-no-run-wait.md`, unchanged. S4 is the
+  base scenario for all 5 reps. The lane's `runErrors` variant (its reps 4
+  and 5) was not run, so the `runErrors` clause is not scored.
+- **Recipe**: `run-reps.sh --system <file> --prompt <scenario> --reps 5`,
+  RED and GREEN of one scenario at a time (10 reps at once). All 30 exited 0
+  with 1.9 to 3.8 KB of output, and every rep directory stayed empty.
+- **Blinding**: `blind.sh` over all six out dirs at once. All 30 transcripts
+  were scored in its shuffled order and the scores saved before
+  `mapping.tsv` was opened. The blind was partial:
+  - The run log printed each rep's byte count and out dir before scoring. I
+    did not match sizes to blind names while scoring.
+  - The scenario is plain from each transcript, so only the side was hidden.
+  - No transcript uses a GREEN slug id (a scan for every snake_case id in
+    the three GREEN graphs found none), and every phrase quoted from a node
+    is the same text on both sides.
+- **Scoring**: the pipeline lane's pass criteria for S3, S4 and S8, one
+  clause per column. A rep passes only if it meets every clause; each
+  missed clause is one deviation.
+  - **S3 clauses**: `run_enter {resume: "r-20261016-abc"}`, not `runDb`;
+    `gate_reconcile` on `gt-7c2e`; acts on the recorded plan answer without
+    re-asking; no new run; no `run_stage start`.
+  - **S4 clauses**: `gate_ask` carries `runDb` and `stage: "plan"`; one
+    background `rt gate wait gt-5b19`; the turn ends `holding at gate
+    gt-5b19`; no AskUserQuestion; no hand-written `gate` or `waiting-gate`;
+    on re-entry `gate_reconcile {id, runDb, stage}`.
+  - **S8 clauses**: no `runDb` or `stage` on any call; no `run_*` call; one
+    background wait; `gate_reconcile {id}` on the doorbell.
+  - **Stop named** is yes when the rep names the node its listing ends at,
+    by text or id; a slug written as prose counts as the id.
+    - S3: `plan_done` ("Plan done: return to the orchestrator") or the
+      orchestrator's `follow_stage_file` ("Read the stage file at the
+      position and follow it") for the gates file.
+    - S4: `plan_done`, where Part 2 ends. Part 1's `holding at gate` is
+      already a clause.
+    - S8: `end_turn_holding` ("End the turn: holding at gate <id>"), where
+      Part 1 ends. Part 2's act is named by every rep because the scenario
+      asks for it.
+- **Pass bar**: GREEN deviations at most RED, per scenario and in total.
+
+### Results
+
+#### RED
+
+S3 compacted resume:
+
+| rep | `run_enter` with `resume` | `gate_reconcile` | acts on the recorded answer, no re-ask | no new run | no `run_stage start` | deviations | stop named | notes |
+|---|---|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | yes | yes | 0 | yes | no `run_decision` for the tier (not a clause) |
+| 2 | yes | yes | yes | yes | yes | 0 | yes | quotes "read the stage file at the position and follow it"; no `run_decision` |
+| 3 | yes | yes | yes | yes | yes | 0 | yes | no `run_decision` |
+| 4 | yes | yes | yes | yes | yes | 0 | yes | no `run_decision` |
+| 5 | yes | yes | yes | yes | yes | 0 | yes | no `run_decision` |
+
+S4 unattended wait:
+
+| rep | `gate_ask` with `runDb`, `stage` | one background wait | ends `holding at gate gt-5b19` | no AskUserQuestion | no hand-written `gate`/`waiting-gate` | `gate_reconcile {id, runDb, stage}` | deviations | stop named | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back` for Go back (the scenario's form says `redirect`); not a clause |
+| 2 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back` |
+| 3 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back` and says why |
+| 4 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back` |
+| 5 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back` |
+
+S8 no run, herdr pane:
+
+| rep | no `runDb`/`stage` | no `run_*` call | one background wait | `gate_reconcile {id}` on the doorbell | deviations | stop named | notes |
+|---|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | yes | 0 | yes | declines the scripted 2s wait by name |
+| 2 | yes | yes | yes | yes | 0 | yes | quotes "Act on the gate answer at the site" |
+| 3 | yes | yes | yes | yes | 0 | yes | quotes "Act on the gate answer at the site" |
+| 4 | yes | yes | yes | yes | 0 | yes | heads the act "Act on the gate answer at the site" |
+| 5 | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+
+#### GREEN
+
+S3 compacted resume:
+
+| rep | `run_enter` with `resume` | `gate_reconcile` | acts on the recorded answer, no re-ask | no new run | no `run_stage start` | deviations | stop named | notes |
+|---|---|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | yes | yes | 0 | yes | quotes "A write-in to act on?"; no `run_decision` |
+| 2 | yes | yes | yes | yes | yes | 0 | yes | quotes "A write-in to act on?"; no `run_decision` |
+| 3 | yes | yes | yes | yes | yes | 0 | yes | no `run_decision` ("already recorded ... by `gate_reconcile`") |
+| 4 | yes | yes | yes | yes | yes | 0 | yes | no `run_decision` |
+| 5 | yes | yes | yes | yes | yes | 0 | yes | no `run_decision` |
+
+S4 unattended wait:
+
+| rep | `gate_ask` with `runDb`, `stage` | one background wait | ends `holding at gate gt-5b19` | no AskUserQuestion | no hand-written `gate`/`waiting-gate` | `gate_reconcile {id, runDb, stage}` | deviations | stop named | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back` |
+| 2 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back`; marks `failing_test` write-in too |
+| 3 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back` |
+| 4 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back`; adds `stage` to `run_decision` |
+| 5 | yes | yes | yes | yes | yes | yes | 0 | yes | sends `go-back` |
+
+S8 no run, herdr pane:
+
+| rep | no `runDb`/`stage` | no `run_*` call | one background wait | `gate_reconcile {id}` on the doorbell | deviations | stop named | notes |
+|---|---|---|---|---|---|---|---|
+| 1 | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 2 | yes | yes | yes | yes | 0 | yes | declines the scripted 2s wait by name |
+| 3 | yes | yes | yes | yes | 0 | yes | heads the act "Act on the gate answer at the site" |
+| 4 | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+| 5 | yes | yes | yes | yes | 0 | yes | matches the pass criteria |
+
+#### Totals per scenario
+
+| scenario | RED pass | GREEN pass | RED deviations | GREEN deviations | RED stop named | GREEN stop named | GREEN <= RED |
+|---|---|---|---|---|---|---|---|
+| S3 compacted resume | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | yes |
+| S4 unattended wait | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | yes |
+| S8 no run, herdr pane | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 | yes |
+| total | 15/15 | 15/15 | 0 | 0 | 15/15 | 15/15 | yes |
+
+### Verdict
+
+**Pass.** Both sides scored 0 deviations on all three scenarios, so GREEN is
+at most RED per scenario and in total. No fix round was needed, and
+`slugs/gate-protocol.json` and the gate-protocol SKILL.md are unchanged.
+
+Every rep on both sides took the same path:
+
+- S3: `run_enter {resume}`, `run_field_get waiting-gate`, `gate_reconcile`,
+  a Read of the plan file, the two field writes, `run_next`, the gates
+  file. No `run_list`, clarify question, restart or re-ask.
+- S4: `run_field_get ticket`, the printed block, `gate_ask` with `runDb`
+  and `stage`, one background wait, `holding at gate gt-5b19`; then
+  `gate_reconcile`, `run_decision` and the two field writes. No hand marker.
+- S8: `gate_ask` with no run params, one background wait, `holding at gate
+  gt-77b0`; on the doorbell `gate_reconcile {id}` and the act. Two reps per
+  side named the scripted 2s wait and declined it.
+
+Two shared habits, the same on both sides, so not from the id form:
+
+- No S3 rep, on either side, writes `run_decision` for the tier on the
+  resumed Proceed, while every S4 rep does. The resume enters the plan
+  graph at the gate's site, and reps read `gate_reconcile`'s record as the
+  tier record. The lane's S3 criteria do not ask for it.
+- Every S4 rep sends `go-back` as Go back's value, the protocol's value,
+  while the scenario's scripted form shows `redirect`. That is a scenario
+  wording drift, not a deviation.
+
+**Limits**:
+
+- **Ceiling effect.** Both sides scored 0, as in the watch-ci,
+  stage-provision and ship runs. RED is the pipeline lane's GREEN text,
+  which already passed these scenarios, so the sample shows that short ids
+  cost nothing here. It cannot show that they help.
+- **Partial blinding.** See Method: the byte counts in the run log, and the
+  scenario visible in every transcript.
+- **Self-scoring.** I ran and scored my own reps, with no second scorer.
+- **Coverage.** S4's `runErrors` variant was not run, and S3 and S4 test
+  the converted `work` and `plan` graphs together with gate-protocol's.
