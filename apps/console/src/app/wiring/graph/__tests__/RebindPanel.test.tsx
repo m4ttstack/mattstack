@@ -361,7 +361,7 @@ describe('RebindPanel', () => {
     );
     expect(within(root).getByTestId('rebind-command')).toHaveTextContent(
       'rt skills bind stage-evidence domain acme:evidence-policy --pipeline accessibility --pack acme' +
-        "Writes the accessibility pipeline's own binding in this pack, then rebuilds its evidence step. Nothing is shared until you sync."
+        "Writes the accessibility pipeline's own binding in this pack, then rebuilds every skill in the pack. Nothing is shared until you sync."
     );
 
     await confirmApply(root);
@@ -633,6 +633,35 @@ describe('the pipeline choice', () => {
     );
     expect(within(root).getByTestId('rebind-command')).toHaveTextContent(
       'rt skills bind stage-evidence domain acme:evidence-policy --pipeline accessibility --pack acme'
+    );
+  });
+
+  it('says a pipeline write rebuilds the whole pack, as a default stage bind does', async () => {
+    renderAt(A11Y_EVIDENCE);
+    const root = await panel();
+    const note = () =>
+      within(root)
+        .getByTestId('rebind-command')
+        .querySelector('[data-parity="n"]');
+
+    await userEvent.click(picker(root));
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^evidence-policy/ })
+    );
+    expect(note()).toHaveTextContent(
+      "Writes the accessibility pipeline's own binding in this pack, then rebuilds every skill in the pack."
+    );
+    expect(note()?.textContent).not.toContain('step');
+
+    await userEvent.click(
+      within(pipelines(root)).getByRole('radio', { name: 'Default' })
+    );
+    await userEvent.click(picker(root));
+    await userEvent.click(
+      within(root).getByRole('option', { name: /^evidence-a11y/ })
+    );
+    expect(note()).toHaveTextContent(
+      'Writes the binding in this pack, then rebuilds every skill in the pack.'
     );
   });
 

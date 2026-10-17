@@ -54,8 +54,8 @@ export type RebindChoices = {
   /** The skills a write recompiles: every roster verb on the bound verb's
       engine, since they share its binding key. */
   rebuilds: string[];
-  /** Whether a default write rebuilds the whole pack: rt recompiles every
-      skill for a stage bind. */
+  /** Whether the write rebuilds the whole pack: rt recompiles every skill
+      for a stage bind, with or without a pipeline. */
   rebuildsPack: boolean;
 };
 
