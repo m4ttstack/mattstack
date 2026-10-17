@@ -208,6 +208,10 @@ describe("worktree tools", () => {
       const r = await tool.handler({ repoName: ID, ticket: "ACME-1", reuse: true }, ENV);
       expect((r.body as any).kind).toBe("reused");
     });
+    test("the description says owner is asserted by the caller", () => {
+      const { tool } = routed({});
+      expect(tool.description).toContain("owner is asserted by the caller");
+    });
     test("takeOver is only for reuse and must be a boolean", async () => {
       const { tool, calls } = routed({});
       expect((await tool.handler({ repoName: ID, ticket: "t", takeOver: true }, ENV)).error).toBe("takeOver only goes with reuse");
