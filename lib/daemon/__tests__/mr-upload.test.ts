@@ -399,7 +399,7 @@ describe("mr:upload", () => {
       const hashedValue = (path: string) => ({ v: 2, cases: [{ id: "t", label: "T", before: {
         path, source: "ticket", size: TICKET_BYTES.length, sha256: createHash("sha256").update(TICKET_BYTES).digest("hex"), annotated: join(path, "..", "board.png"), caption: "c",
       } }] });
-      const REFUSED = { ok: false, error: "r-t-ticket.png is the unredacted original of an imported ticket image; upload the composed board instead" };
+      const REFUSED = { ok: false as const, error: "r-t-ticket.png is the unredacted original of an imported ticket image; upload the composed board instead" };
 
       test("with no runId, its original is refused after the run-folder copy is deleted", async () => {
         const dir = join(home, ".mattstack", "work", "run-1", "evidence", "t");
