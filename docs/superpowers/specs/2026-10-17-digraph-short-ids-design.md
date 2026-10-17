@@ -306,6 +306,146 @@ RED/GREEN with the approved tool-less recipe (`claude --model sonnet --tools
 
 ## Results
 
-To be filled after the prototype's RED/GREEN: per-scenario deviation table,
-words and tokens before and after for the two prototype skills (hand-picked
-slugs), and the checks' output.
+The checks below are the evidence for this milestone: a milestone to Matt
+carries this section.
+
+### Behavior
+
+**watch-ci** (13 scenarios, 5 reps per side; source:
+`plugins/mattstack/docs/superpowers/tests/2026-10-17-digraph-ids/red-green.md`)
+
+| Scenario | RED deviations | GREEN deviations | RED stop named | GREEN stop named |
+|---|---|---|---|---|
+| T1 | 0 | 0 | 5/5 | 5/5 |
+| T2 | 0 | 0 | 5/5 | 5/5 |
+| T3 | 0 | 0 | 5/5 | 5/5 |
+| T3b | 0 | 0 | 5/5 | 5/5 |
+| T4 | 0 | 0 | 3/5 | 5/5 |
+| T5 | 0 | 0 | 3/5 | 5/5 |
+| T6 | 0 | 0 | 5/5 | 5/5 |
+| W1 | 0 | 0 | 5/5 | 5/5 |
+| T7 | 0 | 0 | 5/5 | 5/5 |
+| T8 | 0 | 0 | 5/5 | 5/5 |
+| T9 | 0 | 0 | 5/5 | 5/5 |
+| T10 | 0 | 0 | 5/5 | 5/5 |
+| S6 | 0 | 0 | 5/5 | 5/5 |
+| **Total** | **0** | **0** | **61/65** | **65/65** |
+
+RED's four stop-named misses are wording ("the STOP edge", a bare "Stop.")
+at the two push-time stops. Every rep on both sides stopped at the right node.
+
+**stage-provision** (5 reps per scenario per side; source: the same file)
+
+| Scenario | RED pass | GREEN pass | RED deviations | GREEN deviations | RED stop named | GREEN stop named |
+|---|---|---|---|---|---|---|
+| S5 occupied ticket branch | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 |
+| S5b precheck on an older daemon | 5/5 | 5/5 | 0 | 0 | 5/5 | 5/5 |
+
+**Authoring** (5 reps per scenario per side; source:
+`plugins/mattstack/docs/superpowers/tests/2026-10-17-digraph-ids/authoring/authoring-red-green.md`)
+
+| Scenario | RED short-id rate | GREEN short-id rate | RED block words | GREEN block words |
+|---|---|---|---|---|
+| A1 draw from prose | 0/5 | 5/5 | 168 to 179 | 113 to 115 (final skill) |
+| A2 extend a short-id graph | 5/5 | 5/5 | 170 to 172 | 170 to 172 |
+| A3 other tools | 0/5 | 5/5 | 240 to 271 | 149 to 167 |
+
+A2 is a regression guard, not evidence: both sides copy the form they are
+handed. A3 is the real test: every GREEN rep wrote ids the skill never shows
+(`gh_pr_view`, `enter_worktree`, `claude_plugin_update`, `stop_cache_edit`).
+Every block on both sides passed `check-dot.py`, with no mixed graph and no
+digit id.
+
+**What this shows.** Both sides scored 0 deviations, so short ids cost
+nothing on these scenarios. With RED already at 0, the test cannot show
+that they help.
+
+### Size
+
+**Source `SKILL.md` words** (`wc -w`, base `1043f9eb8` vs HEAD)
+
+| Skill | Base | HEAD | Change |
+|---|---|---|---|
+| watch-ci | 5,794 | 4,216 | -1,578 (-27.2%) |
+| stage-provision | 1,869 | 1,416 | -453 (-24.2%) |
+
+**Compiled, as loaded** (Task 7's build dirs `t7/red` and `t7/green`; words
+are `wc -w`, tokens are `count-tokens.sh <dir> <out> none`)
+
+| Skill | RED words | GREEN words | Change | RED tokens | GREEN tokens | Change |
+|---|---|---|---|---|---|---|
+| watch-ci | 8,757 | 7,179 | -1,578 (-18.0%) | 28,980 | 24,608 | -4,372 (-15.1%) |
+| stage-provision | 4,660 | 4,207 | -453 (-9.7%) | 13,263 | 12,317 | -946 (-7.1%) |
+
+RED's token counts match the Measured table exactly. The other three files
+(ship, receive-review, gate-protocol) are byte-identical on both sides and
+count the same tokens (30,360, 41,298, 6,786).
+
+**Against the scheme-all estimate.** The Measured tables estimate watch-ci at
+-23.2% words and -17.2% tokens, and stage-provision at -19.5% and -12.5%. The
+gap is the included gate-protocol graph, which the prototype leaves as
+sentences and scheme all converts. Converting RED with the hand slug maps
+(auto slugs for the rest) gives the same words as auto slugs alone (6,723
+and 3,751), so hand slugs cost no words. GREEN sits 456 words above that in
+both files, which is exactly gate-protocol's own scheme-all saving (2,460 to
+2,004). In tokens, hand slugs cost a little more than auto slugs: watch-ci
+23,951 vs 23,822 (+129), stage-provision 11,660 vs 11,510 (+150), from the
+tool-prefixed and `stop_` ids. GREEN sits 657 tokens above the hand-slug
+file in both, the unconverted gate-protocol graph. (This run's auto-slug
+token counts are 175 and 90 lower than the Measured table's because
+`convert.py`'s auto slugs were made rule-clean in `8ec9bbe65`; words did not
+change.) Scratch outputs: `scratchpad/t8/tokens-red.md`,
+`tokens-green.md`, `tokens-decomp.md`.
+
+### Checks
+
+Run from the repo root at `fafb888af`, `bun cli.ts` under an isolated HOME
+and a scratch `--mattstack-dir`.
+
+| Command | Result |
+|---|---|
+| check-dot sweep (the `checks.yml` step, every plugin `.md` with a dot block, 28 files) | exit 0: "39 graph(s) checked, ok, 0 warning(s)" |
+| `bash plugins/mattstack/plugin/skills/process-digraphs/test-check-dot.sh` | exit 0: 53 cases ok, "all cases pass" |
+| `sh tests/certify.sh` on process-digraphs, watch-ci, stage-provision | exit 0 on each: stage-decl ok, digraphs ok |
+| `bun cli.ts skills check --pack-dir ... --strict` | exit 0: every compiled skill current, mcp lint clean; 7 advisory pack-script hits (one new on this branch, a `gh pr view` case in `test-check-dot.sh`) |
+| `bun cli.ts skills compile --dry-run --pack-dir ...` | exit 0: five skills "would write" into the empty scratch dir |
+| `bun run purity` | exit 0: repo-purity ok, 1 test pass |
+
+`skills check --strict` did not fail on the version. The plugin CI job's
+version-bump guard would fail a PR from this branch, which has no bump by
+design.
+
+### Limits
+
+- 5 reps per side per scenario.
+- Ceiling effect: RED already scored 0 deviations everywhere, so GREEN could
+  only tie.
+- Blinding was partial: GREEN reps wrote slug words as prose ("shell push",
+  "hand-rolled worktree"), which RED never did.
+- watch-ci fed the raw `SKILL.md`, so its includes were unexpanded on both
+  sides.
+- Stop named is judgement scoring, not a pass criterion.
+
+### Rulings made during the run
+
+- The 1-to-4-word slug cap counts the words after a required prefix (the
+  call prefix or `stop_`), so `run_budget_claim_off_script` passes.
+- Authoring added scenario A3, because A1 could not separate learning the
+  rule from copying the example.
+- `check-dot.py` leaves two edge cases as is: a sentence node with a
+  redundant label equal to its id fails the short-id regex, and a
+  `node [label=...]` default reads as labelling every node. No skill writes
+  either.
+
+### Recommendation on Decision 2
+
+For Matt to decide. I recommend requiring short ids in the plugin once every
+plugin graph is converted (migration step 5, a `--short-ids` flag in the
+plugin's CI), while team packs keep both forms legal.
+
+- **Why:** the prototype found no behavior cost on the scored reps. Fresh
+  agents write the form from the rule alone, including tools the example
+  never shows (A3). With one form across the plugin, authors stop copying
+  whichever neighbor they happened to open.
+- **Cost:** the remaining conversions, which are scripted and proven per
+  file by `--verify`, plus the flag.
