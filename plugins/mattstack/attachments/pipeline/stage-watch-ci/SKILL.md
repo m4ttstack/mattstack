@@ -193,7 +193,7 @@ digraph watch_ci {
     "github-claim-off-script spent?" -> "MR known (exit)?" [label="yes: fail"];
 
     "gh pr checks <mr>" -> "gh pr checks exit?";
-    "gh pr checks exit?" -> "gh pr view <mr> --json headRefOid" [label="0, or another exit with checks reported"];
+    "gh pr checks exit?" -> "gh pr view <mr> --json headRefOid" [label="0, or non-8 exit with checks reported"];
     "gh pr checks exit?" -> "run_budget {key: watch-ci:github-polls:<sha12>, limit: 45, stage}" [label="8, or no checks reported: pending"];
     "run_budget {key: watch-ci:github-polls:<sha12>, limit: 45, stage}" -> "github-polls spent?";
     "github-polls spent?" -> "ci_lease_heartbeat {mrUrl: <mr>}" [label="no"];

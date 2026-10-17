@@ -348,7 +348,7 @@ differences:
     <resolved target>, title, description, draft, squash?, labels?,
     ifExists: return}` → result: created or existing → identity;
     `squashApplied: false` → `mr_update {mrUrl, squash: true}`; `url: null`
-    → `mr-create-calls` budget (2) → call again (it returns the MR it made);
+    → `mr-create-recalls` budget (2) → call again (it returns the MR it made);
     error → failure. The after-push `mr_for_branch`, "Open MR on the branch
     (after git_push)?" and "Created once already (ship)?" go. The GitLab-CLI
     guard STOP redirects to the `mr_create` node.
@@ -433,7 +433,7 @@ and where each lands:
 | A lease refusal on a repair is the holder's to act on | `git_push`/`mr_retry` return `refused: "lease_held"` with `holder` (`lib/ci/lease-guard.ts`; the reference says only `pushed: false` / `retried: false`) → stand-down STOP |
 | One retry per INFRA job | `infra-retries` budget |
 | Never force unless a rebase this pass rewrote pushed commits | force-with-lease diamond in both ship skills |
-| Never create the MR twice | `mr_create {ifExists: return}` plus `mr-create-calls` |
+| Never create the MR twice | `mr_create {ifExists: return}` plus `mr-create-recalls` |
 | The roots are the upload boundary; copying a file in is only the human's move | the evidence-record include's `Off-script gate: upload refused`, on `evidence_attach` (phase 2) |
 | Release the lease on every exit that leaves the MR unattended, never on a stand-down | exit diamond plus `ci_lease_release` |
 | End the turn while `ci_watch` runs in the background | kept node and section |
