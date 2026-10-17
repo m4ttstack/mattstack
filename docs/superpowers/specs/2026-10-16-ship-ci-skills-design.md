@@ -207,7 +207,7 @@ says "the stage has no prior pipeline id".
 | B16 | A watch parked at a gate lets the lease go stale after 10 minutes | the keepalive holds it up to 60 minutes past the last CI call | one attendant while the human decides (Decision 14) |
 | B17 | An existing MR found on the branch: the unbound flow claims "the create call wrote them" and skips the write | the same skip, stated as "left as found" (Decision 15) | the old edge label was false |
 | B18 | watch-ci and stage-watch-ci count re-claims after a lost lease (2), then the off-script gate's Iterate counts off-script rounds | `ci_watch {attend}` re-claims twice per commit itself; `lease_unavailable` opens the gate, whose Iterate calls `ci_watch` again with no count, and a second `lease_unavailable` reopens the gate (`watch-ci:lease-rounds:<sha12>` dropped) | the tool bounds the re-claims; the human paces each Iterate (trim pass, shepherd #6050) |
-| B19 | watch-ci's `git_push` off-script gate counts its Iterate (off-script rounds = 2) | Iterate calls `git_push` again with no count; a refusal, or a human push that did not land, reopens the gate (`watch-ci:push-off-script` dropped) | `git_push` bounds its own retries; the human paces each Iterate (trim pass, shepherd #6050) |
+| B19 | watch-ci's and ship's `git_push` off-script gates count their Iterate (off-script rounds = 2) | Iterate calls `git_push` again with no count; a refusal, or a human push that did not land, reopens the gate (ship still bounds the landing misses with `landing-checks`) (`watch-ci:push-off-script` and `ship:push-off-script` dropped) | `git_push` bounds its own retries; the human paces each Iterate (trim pass, shepherd #6050) |
 | B20 | One "Off-script rounds" count per stage, shared by every off-script gate | each gate's Iterate counts on its own key (`ci-watch-off-script`, `github-claim-off-script`, `retry-off-script`, ...), so a run refused at several gates gets one Iterate at each; the `lease_unavailable` and `git_push` gates count none (B18, B19) | one gate per origin needs its own budget to return to the right place |
 
 ## Design
@@ -324,8 +324,8 @@ differences:
 - Flow kept as is, except:
   - Every counter becomes a `run_budget` pair (ship-gate-rounds,
     ship-gate-reopenings, fix-rounds, conflict-rounds, forge-clarify-rounds,
-    push-rounds, landing-checks, upload counters until phase 2,
-    mark-ready-rounds).
+    landing-checks, upload counters until phase 2, mark-ready-rounds;
+    the push gate's Iterate counts none, B19).
   - The push block: "Push needs force-with-lease (ship)?" → `git_push {tree:
     <root>, setUpstream: true}` or `git_push {tree: <root>, forceWithLease:
     true}` → result: ok keeps `sha`, `mr`, `priorPipelineId`; the refusal

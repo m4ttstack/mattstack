@@ -45,7 +45,6 @@
 | | `ship:fix-rounds` | 3 | stage |
 | | `ship:conflict-rounds` | 3 | stage |
 | | `ship:forge-clarify-rounds` | 1 | stage |
-| | `ship:push-off-script` | 1 | stage |
 | | `ship:landing-checks` | 1 | stage (ship only) |
 | | `ship:mr-create-recalls` | 1 | stage (counts re-calls after `url: null`, not the first call) |
 | | `ship:after-attempts:<case id>` | 2 | stage |
@@ -56,7 +55,7 @@
 | | `ship:upload-off-script` | 1 | stage (until phase 2) |
 | | `ship:mark-ready-rounds` | 1 | stage (ship only) |
 
-`<sha12>` is the watched sha's first 12 characters.
+`<sha12>` is the watched sha's first 12 characters. `ship:push-off-script` went in ship's trim pass (spec B19); stage-ship's trim follows and drops it there too.
 
 ## Review Focus
 
