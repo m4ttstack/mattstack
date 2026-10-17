@@ -52,7 +52,7 @@ digraph rebase_worktree {
     sync_pushed [label="branch_sync pushed it?" shape=diamond];
     gate_push [label="Gate push" shape=box];
     push_answer [label="push answer?" shape=diamond];
-    git_push_lease [label="git_push {tree, forceWithLease: true}" shape=plaintext];
+    git_push_force_lease [label="git_push {tree, forceWithLease: true}" shape=plaintext];
     git_push_result [label="git_push result?" shape=diamond];
     stop_shell_push [label="STOP: push only with git_push" shape=octagon style=filled fillcolor=red fontcolor=white];
     gate_off_script [label="Off-script gate" shape=box];
@@ -129,11 +129,11 @@ digraph rebase_worktree {
     sync_pushed -> done [label="yes: synced, pushed true"];
     sync_pushed -> gate_push [label="no: synced unpushed, push-refused, or the human finished the rebase"];
     gate_push -> push_answer;
-    push_answer -> git_push_lease [label="push with force-with-lease"];
+    push_answer -> git_push_force_lease [label="push with force-with-lease"];
     push_answer -> rebased_unpushed [label="leave it unpushed"];
     push_answer -> report_move [label="iterate"];
     push_answer -> held_end_turn [label="hold"];
-    git_push_lease -> git_push_result;
+    git_push_force_lease -> git_push_result;
     git_push_result -> done [label="pushed"];
     git_push_result -> push_refused [label="safety refusal: lease, protected or default branch, detached HEAD, upstream mismatch"];
     git_push_result -> stop_shell_push [label="not registered with rt"];
@@ -144,7 +144,7 @@ digraph rebase_worktree {
     off_script_answer -> off_script_rounds_spent [label="iterate: the human fixed it, retry"];
     off_script_answer -> push_refused [label="hand back"];
     off_script_answer -> held_end_turn [label="hold"];
-    off_script_rounds_spent -> git_push_lease [label="no"];
+    off_script_rounds_spent -> git_push_force_lease [label="no"];
     off_script_rounds_spent -> push_refused [label="yes"];
     make_recorded_move -> recorded_move_succeeded;
     recorded_move_succeeded -> done [label="yes"];
@@ -298,7 +298,7 @@ Every gate box runs this graph.
 digraph gate_steps {
     rankdir=TB;
 
-    gate_box_trigger [label="Trigger: a gate box in the graph above" shape=ellipse];
+    trigger_gate_box [label="Trigger: a gate box in the graph above" shape=ellipse];
     holds_rundb [label="This conversation holds a runDb?" shape=diamond];
     run_field_set [label="run_field_set {runDb, key: gate, value: <scope>, stage}" shape=plaintext];
     publish_answer [label="Publish and answer per the gate protocol" shape=box];
@@ -309,7 +309,7 @@ digraph gate_steps {
     gate_path_ended [label="Gate path ended" shape=doublecircle];
     answer_back [label="Answer back at the gate box" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    gate_box_trigger -> holds_rundb;
+    trigger_gate_box -> holds_rundb;
     holds_rundb -> run_field_set [label="yes"];
     holds_rundb -> spawned_pane [label="no"];
     run_field_set -> publish_answer;

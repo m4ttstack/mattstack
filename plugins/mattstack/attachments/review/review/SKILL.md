@@ -79,7 +79,7 @@ digraph review {
     mr_view_found [label="mr_view returned the MR?" shape=diamond];
     mr_for_branch [label="mr_for_branch {repoName: <checkout>, branches: [<branch>]}" shape=plaintext];
     branch_entry_found [label="mr_for_branch entry for the branch?" shape=diamond];
-    gh_pr_view_ref [label="gh pr view <ref>" shape=plaintext];
+    gh_pr_view [label="gh pr view <ref>" shape=plaintext];
     pr_view_found [label="gh pr view found the PR?" shape=diamond];
     mr_list_branch [label="mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}" shape=plaintext];
     branch_matches [label="mr_list matches for the branch?" shape=diamond];
@@ -87,8 +87,8 @@ digraph review {
     ticket_matches [label="mr_list matches for the ticket?" shape=diamond];
     run_budget_target_clarify [label="run_budget {runDb, key: target-clarify, limit: 2, stage}" shape=plaintext];
     target_clarify_spent [label="target-clarify spent?" shape=diamond];
-    stop_gitlab_ticket_search [label="STOP: GitLab ticket searches go through the read tools or gitlab_get" shape=octagon style=filled fillcolor=red fontcolor=white];
-    stop_gitlab_read_shortcut [label="STOP: GitLab reads go through the read tools or gitlab_get" shape=octagon style=filled fillcolor=red fontcolor=white];
+    stop_gitlab_shell_search [label="STOP: GitLab ticket searches go through the read tools or gitlab_get" shape=octagon style=filled fillcolor=red fontcolor=white];
+    stop_gitlab_shell_reads [label="STOP: GitLab reads go through the read tools or gitlab_get" shape=octagon style=filled fillcolor=red fontcolor=white];
     stop_gitlab_branch_lookup [label="STOP: GitLab branch lookups go through the read tools or gitlab_get" shape=octagon style=filled fillcolor=red fontcolor=white];
     gate_which_target [label="Gate review clarify: which target?" shape=box];
     target_answer [label="Review target answer?" shape=diamond];
@@ -206,11 +206,11 @@ digraph review {
     resolve_target -> target_form;
     target_form -> mr_view [label="GitLab URL or iid"];
     target_form -> mr_for_branch [label="GitLab branch"];
-    target_form -> gh_pr_view_ref [label="GitHub"];
+    target_form -> gh_pr_view [label="GitHub"];
     target_form -> gate_which_target [label="several candidates"];
     target_form -> mr_list_ticket [label="ticket id only"];
-    target_form -> stop_gitlab_ticket_search [label="tempted to search with the GitLab CLI"];
-    stop_gitlab_ticket_search -> mr_list_ticket;
+    target_form -> stop_gitlab_shell_search [label="tempted to search with the GitLab CLI"];
+    stop_gitlab_shell_search -> mr_list_ticket;
     mr_for_branch -> branch_entry_found;
     branch_entry_found -> mr_view [label="an iid"];
     branch_entry_found -> mr_list_branch [label="null: no open MR"];
@@ -229,9 +229,9 @@ digraph review {
     mr_view -> mr_view_found;
     mr_view_found -> own_run_record_target [label="yes"];
     mr_view_found -> run_hold [label="an error: hold, quoting it"];
-    mr_view_found -> stop_gitlab_read_shortcut [label="tempted to read it with the GitLab CLI"];
-    stop_gitlab_read_shortcut -> mr_view;
-    gh_pr_view_ref -> pr_view_found;
+    mr_view_found -> stop_gitlab_shell_reads [label="tempted to read it with the GitLab CLI"];
+    stop_gitlab_shell_reads -> mr_view;
+    gh_pr_view -> pr_view_found;
     pr_view_found -> own_run_record_target [label="yes"];
     pr_view_found -> run_hold [label="no: hold, quoting it"];
     gate_which_target -> target_answer;

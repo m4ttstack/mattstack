@@ -36,7 +36,7 @@
   "Push needs force-with-lease?": "needs_force_lease",
   "git_push {tree: <root>, setUpstream: true, leaseMrUrl?: <mr>}": "git_push_upstream",
   "git_push {tree: <root>, forceWithLease: true, leaseMrUrl?: <mr>}": "git_push_lease",
-  "git_push result?": "push_result",
+  "git_push result?": "git_push_result",
   "run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}": "run_field_set_pushed",
   "STOP: push only with git_push": "stop_shell_push",
   "STOP: the lease holder owns every commit, push and retry": "stop_lease_holder_owns",

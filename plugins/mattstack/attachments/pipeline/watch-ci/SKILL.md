@@ -176,7 +176,7 @@ digraph watch_ci {
 
     own_run_green [label="Own run (watch-ci green)?" shape=diamond];
     draft_forge_host [label="Forge host (watch-ci draft check)?" shape=diamond];
-    mr_view [label="mr_view {repoName, iid} (draft check)" shape=plaintext];
+    mr_view_draft [label="mr_view {repoName, iid} (draft check)" shape=plaintext];
     gh_pr_view_draft [label="gh pr view <mr> --json isDraft (draft check)" shape=plaintext];
     mr_still_draft [label="MR still a draft (watch-ci)?" shape=diamond];
     gate_mark_ready [label="watch-ci gate mark-ready" shape=box];
@@ -354,9 +354,9 @@ digraph watch_ci {
 
     own_run_green -> draft_forge_host [label="yes"];
     own_run_green -> mr_known_at_exit [label="no: inherited"];
-    draft_forge_host -> mr_view [label="GitLab"];
+    draft_forge_host -> mr_view_draft [label="GitLab"];
     draft_forge_host -> gh_pr_view_draft [label="GitHub"];
-    mr_view -> mr_still_draft;
+    mr_view_draft -> mr_still_draft;
     gh_pr_view_draft -> mr_still_draft;
     mr_still_draft -> gate_mark_ready [label="yes"];
     mr_still_draft -> mr_known_at_exit [label="no"];

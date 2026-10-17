@@ -32,7 +32,7 @@ digraph sync_open_mrs {
     run_enter_mode [label="sync-open-mrs run_enter mode?" shape=diamond];
     inherit_run [label="Inherit the run" shape=box];
     gate_resume_choice [label="Gate clarify: resume or start fresh" shape=box];
-    resume_answer [label="clarify answer?" shape=diamond];
+    clarify_answer [label="clarify answer?" shape=diamond];
     run_enter_resume [label="run_enter {flags, skillDir, stage: sync-open-mrs, resume: <picked runId>}" shape=plaintext];
     run_enter_fresh [label="run_enter {flags, skillDir, stage: sync-open-mrs, fresh: true, spawnedBy?}" shape=plaintext];
     why_refused [label="Why was run_enter refused?" shape=diamond];
@@ -40,7 +40,7 @@ digraph sync_open_mrs {
     run_snapshot [label="run_snapshot {runDb: <resumed>}" shape=plaintext];
     keep_recorded_answers [label="Keep the recorded answers" shape=box];
     git_remote_url [label="git -C <checkout> remote get-url origin" shape=plaintext];
-    forge [label="Forge?" shape=diamond];
+    forge_host [label="Forge?" shape=diamond];
     mr_map [label="mr_map {repoName, author: me}" shape=plaintext];
     mr_map_result [label="mr_map result?" shape=diamond];
     stop_gitlab_mr_read [label="STOP: GitLab MR reads go through mr_map" shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -110,16 +110,16 @@ digraph sync_open_mrs {
     why_refused -> rt_too_old [label="no run_enter tool"];
     why_refused -> refused_reported [label="anything else: quote it"];
     inherit_run -> git_remote_url;
-    gate_resume_choice -> resume_answer;
-    resume_answer -> run_enter_resume [label="resume a candidate"];
-    resume_answer -> run_enter_fresh [label="start fresh"];
-    resume_answer -> held_end_turn [label="hold"];
+    gate_resume_choice -> clarify_answer;
+    clarify_answer -> run_enter_resume [label="resume a candidate"];
+    clarify_answer -> run_enter_fresh [label="start fresh"];
+    clarify_answer -> held_end_turn [label="hold"];
     run_snapshot -> keep_recorded_answers;
     keep_recorded_answers -> git_remote_url;
-    git_remote_url -> forge;
-    forge -> mr_map [label="GitLab"];
-    forge -> follow_map_open_mrs [label="GitHub"];
-    forge -> stop_gitlab_mr_read [label="tempted to use the GitLab CLI"];
+    git_remote_url -> forge_host;
+    forge_host -> mr_map [label="GitLab"];
+    forge_host -> follow_map_open_mrs [label="GitHub"];
+    forge_host -> stop_gitlab_mr_read [label="tempted to use the GitLab CLI"];
     stop_gitlab_mr_read -> mr_map;
     mr_map -> mr_map_result;
     mr_map_result -> plan_sweep [label="rows"];
@@ -518,17 +518,17 @@ digraph gate_steps {
     run_field_set_gate [label="run_field_set {runDb, key: gate, value: <scope>, stage: sync-open-mrs}" shape=plaintext];
     publish_answer [label="Publish and answer per the gate protocol" shape=box];
     run_decision [label="run_decision {runDb, contract: gate@1, scope, selection, decidedBy}" shape=plaintext];
-    answer_back_gate [label="Answer back at the gate box" shape=doublecircle style=filled fillcolor=lightgreen];
+    answer_back [label="Answer back at the gate box" shape=doublecircle style=filled fillcolor=lightgreen];
 
     trigger_gate_box -> holds_rundb;
     holds_rundb -> resumed_holds_decision [label="yes"];
     holds_rundb -> pane_form_only [label="no: the resume question, launched by hand"];
-    pane_form_only -> answer_back_gate;
-    resumed_holds_decision -> answer_back_gate [label="yes: take the recorded answer"];
+    pane_form_only -> answer_back;
+    resumed_holds_decision -> answer_back [label="yes: take the recorded answer"];
     resumed_holds_decision -> run_field_set_gate [label="no"];
     run_field_set_gate -> publish_answer;
     publish_answer -> run_decision;
-    run_decision -> answer_back_gate;
+    run_decision -> answer_back;
 }
 ```
 

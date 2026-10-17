@@ -256,7 +256,7 @@ Every gate box above runs this graph.
 digraph gate_steps {
     rankdir=TB;
 
-    gate_box_trigger [label="Trigger: a gate box in the graph above" shape=ellipse];
+    trigger_gate_box [label="Trigger: a gate box in the graph above" shape=ellipse];
     holds_rundb [label="This conversation holds a runDb?" shape=diamond];
     run_field_set [label="run_field_set {runDb, key: gate, value: <scope>, stage}" shape=plaintext];
     publish_answer [label="Publish and answer per the gate protocol" shape=box];
@@ -267,7 +267,7 @@ digraph gate_steps {
     gate_path_ended [label="Gate path ended" shape=doublecircle];
     answer_back [label="Answer back at the gate box" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    gate_box_trigger -> holds_rundb;
+    trigger_gate_box -> holds_rundb;
     holds_rundb -> run_field_set [label="yes"];
     holds_rundb -> spawned_pane [label="no"];
     run_field_set -> publish_answer;

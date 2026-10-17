@@ -63,7 +63,7 @@ digraph ship {
     needs_force_lease [label="Push needs force-with-lease?" shape=diamond];
     git_push_upstream [label="git_push {tree: <root>, setUpstream: true, leaseMrUrl?: <mr>}" shape=plaintext];
     git_push_lease [label="git_push {tree: <root>, forceWithLease: true, leaseMrUrl?: <mr>}" shape=plaintext];
-    push_result [label="git_push result?" shape=diamond];
+    git_push_result [label="git_push result?" shape=diamond];
     run_field_set_pushed [label="run_field_set {key: pushed, value: <{\"sha\", \"priorPipelineId\"} JSON>, stage}" shape=plaintext];
     stop_shell_push [label="STOP: push only with git_push" shape=octagon style=filled fillcolor=red fontcolor=white];
     stop_lease_holder_owns [label="STOP: the lease holder owns every commit, push and retry" shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -173,11 +173,11 @@ digraph ship {
 
     needs_force_lease -> git_push_upstream [label="no"];
     needs_force_lease -> git_push_lease [label="yes"];
-    git_push_upstream -> push_result;
-    git_push_lease -> push_result;
-    push_result -> run_field_set_pushed [label="ok"];
-    push_result -> stop_lease_holder_owns [label="refused: lease_held, holder named"];
-    push_result -> stop_shell_push [label="any other error or refusal"];
+    git_push_upstream -> git_push_result;
+    git_push_lease -> git_push_result;
+    git_push_result -> run_field_set_pushed [label="ok"];
+    git_push_result -> stop_lease_holder_owns [label="refused: lease_held, holder named"];
+    git_push_result -> stop_shell_push [label="any other error or refusal"];
     stop_lease_holder_owns -> stand_down;
     run_field_set_pushed -> git_remote_origin;
     stop_shell_push -> gate_push_refused;

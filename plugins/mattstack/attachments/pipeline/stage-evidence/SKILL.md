@@ -51,7 +51,7 @@ digraph evidence {
     same_source [label="Same source the gate recorded?" shape=diamond];
     stop_new_source [label="STOP: a new data source is an off-script move" shape=octagon style=filled fillcolor=red fontcolor=white];
     gate_new_source [label="Off-script gate: a new data source" shape=box];
-    new_source_answer [label="off-script answer?" shape=diamond];
+    off_script_answer [label="off-script answer?" shape=diamond];
     run_budget_source_off_script [label="run_budget {runDb, key: evidence:source-off-script, limit: 1, stage: evidence}" shape=plaintext];
     source_off_script_spent [label="source-off-script spent?" shape=diamond];
     run_budget_gate_iterates [label="run_budget {runDb, key: evidence:gate-iterates, limit: 2, stage: evidence}" shape=plaintext];
@@ -118,10 +118,10 @@ digraph evidence {
     pick_next_source -> same_source;
     same_source -> capture_before_case [label="yes"];
     same_source -> stop_new_source [label="no"];
-    stop_new_source -> gate_new_source -> new_source_answer;
-    new_source_answer -> capture_before_case [label="proceed + take: the proposed source"];
-    new_source_answer -> run_stage_fail [label="proceed + hand back"];
-    new_source_answer -> run_budget_source_off_script [label="iterate: the human fixed the recorded source"];
+    stop_new_source -> gate_new_source -> off_script_answer;
+    off_script_answer -> capture_before_case [label="proceed + take: the proposed source"];
+    off_script_answer -> run_stage_fail [label="proceed + hand back"];
+    off_script_answer -> run_budget_source_off_script [label="iterate: the human fixed the recorded source"];
     run_budget_source_off_script -> source_off_script_spent;
     source_off_script_spent -> capture_before_case [label="no: the recorded source"];
     source_off_script_spent -> run_stage_fail [label="yes: hand back"];
@@ -137,7 +137,7 @@ digraph evidence {
     gate_evidence_attach -> attach_answer;
     attach_answer -> record_evidence [label="attach now, or hand back the markdown"];
     attach_answer -> gate_evidence_attach [label="iterate: re-ask with their note"];
-    {evidence_answer new_source_answer attach_answer} -> run_hold [label="hold"];
+    {evidence_answer off_script_answer attach_answer} -> run_hold [label="hold"];
     record_evidence -> record_outcome;
     record_outcome -> attach_answered [label="Recorded"];
     attach_answered -> attach_evidence [label="yes"];

@@ -81,7 +81,7 @@
   "mark-ready-iterations spent?": "mark_ready_spent",
   "Forge host (mark-ready)?": "mark_ready_forge_host",
   "mr_ready {repoName, iid}": "mr_ready",
-  "gh pr ready <number>": "gh_ready",
+  "gh pr ready <number>": "gh_pr_ready",
   "run_field_set {key: ci, value: green, stage}": "run_field_set_ci_green",
   "MR known (exit)?": "mr_known_at_exit",
   "ci_lease_release {mrUrl: <mr>}": "ci_lease_release",
@@ -92,6 +92,6 @@
   "Hand Fix and re-push to the orchestrator: Redirect to implement": "hand_back_redirect",
   "Hand the Go back answer to the orchestrator": "hand_back_go_back",
   "Held: end the turn naming run and stage": "held_end_turn",
-  "Run abandoned": "abandoned",
+  "Run abandoned": "run_abandoned",
   "Watch-ci done: return to the orchestrator": "watch_ci_done"
 }

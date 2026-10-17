@@ -86,7 +86,7 @@
   "gh run rerun <run-id> --failed": "gh_run_rerun",
   "Own run (watch-ci green)?": "own_run_green",
   "Forge host (watch-ci draft check)?": "draft_forge_host",
-  "mr_view {repoName, iid} (draft check)": "mr_view",
+  "mr_view {repoName, iid} (draft check)": "mr_view_draft",
   "gh pr view <mr> --json isDraft (draft check)": "gh_pr_view_draft",
   "MR still a draft (watch-ci)?": "mr_still_draft",
   "watch-ci gate mark-ready": "gate_mark_ready",

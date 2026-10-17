@@ -46,7 +46,7 @@ digraph provision {
     run_budget_fresh_tree [label="run_budget {key: fresh-tree, limit: 2, stage: provision}" shape=plaintext];
     fresh_tree_budget_spent [label="Fresh trees this attempt = 2?" shape=diamond];
     git_branch_list [label="git -C <repo> branch --list <slug>-*" shape=plaintext];
-    enter_worktree_path [label="EnterWorktree {path}" shape=plaintext];
+    enter_worktree [label="EnterWorktree {path}" shape=plaintext];
     recorded_on_run [label="Recorded on the run?" shape=diamond];
     git_rev_parse [label="git -C <repo> rev-parse --git-dir" shape=plaintext];
     git_status_porcelain [label="git -C <repo> status --porcelain" shape=plaintext];
@@ -59,7 +59,7 @@ digraph provision {
     run_field_set_ticket [label="run_field_set {key: ticket, value: <id>, stage: provision}" shape=plaintext];
     run_stage_fail [label="run_stage {action: fail, stage: provision, reason}" shape=plaintext];
     run_hold [label="run_hold {runDb, stage: provision, reason, decidedBy}" shape=plaintext];
-    held [label="Held: end the turn naming run and stage" shape=doublecircle];
+    held_end_turn [label="Held: end the turn naming run and stage" shape=doublecircle];
     stage_failed [label="Stage failed" shape=doublecircle];
     provision_done [label="Provision done: return to the orchestrator" shape=doublecircle style=filled fillcolor=lightgreen];
 
@@ -84,7 +84,7 @@ digraph provision {
     precheck_result -> git_rev_parse [label="refused daemon-unreachable or repo-unknown"];
     precheck_result -> run_stage_fail [label="refused otherwise"];
     worktree_provision_codes -> provision_result;
-    provision_result -> enter_worktree_path [label="provisioned: the result's path"];
+    provision_result -> enter_worktree [label="provisioned: the result's path"];
     provision_result -> whoami [label="refused branch-attached"];
     provision_result -> git_rev_parse [label="refused daemon-unreachable or repo-unknown"];
     provision_result -> worktree_provision_codes [label="refused busy, budget not exhausted"];
@@ -107,17 +107,17 @@ digraph provision {
     provision_answer -> follow_domain_flow [label="a domain answer"];
     provision_answer -> follow_domain_flow [label="iterate: redo with their note"];
     provision_answer -> run_hold [label="hold"];
-    run_hold -> held;
+    run_hold -> held_end_turn;
     worktree_provision_reuse -> reuse_result;
     worktree_provision_take_over -> reuse_result;
-    reuse_result -> enter_worktree_path [label="reused or provisioned: the result's path"];
+    reuse_result -> enter_worktree [label="reused or provisioned: the result's path"];
     reuse_result -> run_stage_fail [label="refused: quote it"];
     run_budget_fresh_tree -> fresh_tree_budget_spent;
     fresh_tree_budget_spent -> worktree_provision_codes [label="no, ticket mode: provision fresh, no precheck"];
     fresh_tree_budget_spent -> git_branch_list [label="no, branch mode"];
     git_branch_list -> worktree_provision_codes [label="branch = <slug>-<n>"];
     fresh_tree_budget_spent -> run_stage_fail [label="yes: exhausted"];
-    enter_worktree_path -> recorded_on_run;
+    enter_worktree -> recorded_on_run;
     recorded_on_run -> stage_made_ticket [label="yes: recorded true"];
     recorded_on_run -> run_field_set_branch [label="no: recordError"];
     run_field_set_branch -> run_field_set_worktree;

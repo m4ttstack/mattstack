@@ -4,7 +4,7 @@
   "sync-open-mrs run_enter mode?": "run_enter_mode",
   "Inherit the run": "inherit_run",
   "Gate clarify: resume or start fresh": "gate_resume_choice",
-  "clarify answer?": "resume_answer",
+  "clarify answer?": "clarify_answer",
   "run_enter {flags, skillDir, stage: sync-open-mrs, resume: <picked runId>}": "run_enter_resume",
   "run_enter {flags, skillDir, stage: sync-open-mrs, fresh: true, spawnedBy?}": "run_enter_fresh",
   "Why was run_enter refused?": "why_refused",
@@ -12,7 +12,7 @@
   "run_snapshot {runDb: <resumed>}": "run_snapshot",
   "Keep the recorded answers": "keep_recorded_answers",
   "git -C <checkout> remote get-url origin": "git_remote_url",
-  "Forge?": "forge",
+  "Forge?": "forge_host",
   "mr_map {repoName, author: me}": "mr_map",
   "mr_map result?": "mr_map_result",
   "STOP: GitLab MR reads go through mr_map": "stop_gitlab_mr_read",
@@ -75,5 +75,5 @@
   "run_field_set {runDb, key: gate, value: <scope>, stage: sync-open-mrs}": "run_field_set_gate",
   "Publish and answer per the gate protocol": "publish_answer",
   "run_decision {runDb, contract: gate@1, scope, selection, decidedBy}": "run_decision",
-  "Answer back at the gate box": "answer_back_gate"
+  "Answer back at the gate box": "answer_back"
 }

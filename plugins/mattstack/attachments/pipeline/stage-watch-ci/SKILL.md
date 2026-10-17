@@ -115,7 +115,7 @@ digraph watch_ci {
     mark_ready_spent [label="mark-ready-iterations spent?" shape=diamond];
     mark_ready_forge_host [label="Forge host (mark-ready)?" shape=diamond];
     mr_ready [label="mr_ready {repoName, iid}" shape=plaintext];
-    gh_ready [label="gh pr ready <number>" shape=plaintext];
+    gh_pr_ready [label="gh pr ready <number>" shape=plaintext];
     run_field_set_ci_green [label="run_field_set {key: ci, value: green, stage}" shape=plaintext];
     mr_known_at_exit [label="MR known (exit)?" shape=diamond];
     ci_lease_release [label="ci_lease_release {mrUrl: <mr>}" shape=plaintext];
@@ -126,7 +126,7 @@ digraph watch_ci {
     hand_back_redirect [label="Hand Fix and re-push to the orchestrator: Redirect to implement" shape=doublecircle];
     hand_back_go_back [label="Hand the Go back answer to the orchestrator" shape=doublecircle];
     held_end_turn [label="Held: end the turn naming run and stage" shape=doublecircle];
-    abandoned [label="Run abandoned" shape=doublecircle];
+    run_abandoned [label="Run abandoned" shape=doublecircle];
     watch_ci_done [label="Watch-ci done: return to the orchestrator" shape=doublecircle style=filled fillcolor=lightgreen];
 
     watch_ci_entered -> run_field_get_mr;
@@ -264,7 +264,7 @@ digraph watch_ci {
     run_budget_gate_retries -> gate_retries_spent;
     gate_retries_spent -> retry_forge_host [label="no"];
     gate_retries_spent -> run_budget_ci_gate [label="yes: reopen"];
-    run_status_abandoned -> abandoned;
+    run_status_abandoned -> run_abandoned;
 
     draft_forge_host -> mr_view [label="GitLab"];
     draft_forge_host -> gh_pr_view_draft [label="GitHub"];
@@ -281,9 +281,9 @@ digraph watch_ci {
     mark_ready_spent -> gate_mark_ready [label="no: reopen with their note"];
     mark_ready_spent -> run_field_set_ci_green [label="yes: keep it draft"];
     mark_ready_forge_host -> mr_ready [label="GitLab"];
-    mark_ready_forge_host -> gh_ready [label="GitHub"];
+    mark_ready_forge_host -> gh_pr_ready [label="GitHub"];
     mr_ready -> run_field_set_ci_green;
-    gh_ready -> run_field_set_ci_green;
+    gh_pr_ready -> run_field_set_ci_green;
     run_field_set_ci_green -> mr_known_at_exit;
     run_field_set_ci_red -> mr_known_at_exit;
 

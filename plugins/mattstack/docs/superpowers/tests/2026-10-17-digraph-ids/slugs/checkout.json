@@ -36,7 +36,7 @@
   "Provision refused: reported": "provision_refused",
   "Held: end the turn naming the gate": "held_end_turn",
   "Checked out: path reported": "checked_out",
-  "Trigger: a gate box in the graph above": "gate_box_trigger",
+  "Trigger: a gate box in the graph above": "trigger_gate_box",
   "This conversation holds a runDb?": "holds_rundb",
   "run_field_set {runDb, key: gate, value: <scope>, stage}": "run_field_set",
   "Publish and answer per the gate protocol": "publish_answer",
