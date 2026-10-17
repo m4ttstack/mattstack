@@ -135,7 +135,7 @@ digraph watch_ci {
     "watch-ci off-script gate: ci_watch refused" [shape=box];
     "watch-ci off-script answer (ci_watch)?" [shape=diamond];
     "Verdict the human reported (watch-ci)?" [shape=diamond];
-    "run_budget {key: watch-ci:ci-watch-off-script, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: watch-ci:ci-watch-off-script, limit: 1, stage}" [shape=plaintext];
     "ci-watch-off-script past its limit (watch-ci)?" [shape=diamond];
 
     "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)" [shape=plaintext];
@@ -146,7 +146,7 @@ digraph watch_ci {
     "Fix what the claim error names (GitHub)" [shape=box];
     "watch-ci off-script gate: ci_lease_claim refused (GitHub)" [shape=box];
     "watch-ci off-script answer (ci_lease_claim, GitHub)?" [shape=diamond];
-    "run_budget {key: watch-ci:github-claim-off-script, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: watch-ci:github-claim-off-script, limit: 1, stage}" [shape=plaintext];
     "github-claim-off-script past its limit (watch-ci)?" [shape=diamond];
     "gh pr checks <mr> (poll)" [shape=plaintext];
     "gh pr checks exit (GitHub poll)?" [shape=diamond];
@@ -180,13 +180,13 @@ digraph watch_ci {
     "mr_retry result (watch-ci)?" [shape=diamond];
     "watch-ci off-script gate: mr_retry refused" [shape=box];
     "watch-ci off-script answer (mr_retry)?" [shape=diamond];
-    "run_budget {key: watch-ci:retry-off-script, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" [shape=plaintext];
     "retry-off-script past its limit (watch-ci)?" [shape=diamond];
     "ci_lease_claim {mrUrl: <mr>, branch} (before the GitHub retry)" [shape=plaintext];
     "Re-claim result (before the GitHub retry)?" [shape=diamond];
     "watch-ci off-script gate: ci_lease_claim refused (before the GitHub retry)" [shape=box];
     "watch-ci off-script answer (GitHub retry claim)?" [shape=diamond];
-    "run_budget {key: watch-ci:retry-off-script, limit: 2, stage} (GitHub retry claim)" [shape=plaintext];
+    "run_budget {key: watch-ci:retry-off-script, limit: 1, stage} (GitHub retry claim)" [shape=plaintext];
     "retry-off-script past its limit (GitHub retry claim, watch-ci)?" [shape=diamond];
     "gh run rerun <run-id> --failed" [shape=plaintext];
 
@@ -198,7 +198,7 @@ digraph watch_ci {
     "MR still a draft (watch-ci)?" [shape=diamond];
     "watch-ci gate mark-ready" [shape=box];
     "mark-ready answer (watch-ci)?" [shape=diamond];
-    "run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: watch-ci:mark-ready-iterations, limit: 1, stage}" [shape=plaintext];
     "mark-ready-iterations past its limit (watch-ci)?" [shape=diamond];
     "Forge host (watch-ci mark-ready)?" [shape=diamond];
     "mr_ready {repoName, iid}" [shape=plaintext];
@@ -206,7 +206,7 @@ digraph watch_ci {
 
     "watch-ci gate ci" [shape=box];
     "ci answer (watch-ci)?" [shape=diamond];
-    "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [shape=plaintext];
+    "run_budget {key: watch-ci:ci-gate-iterations, limit: 2}" [shape=plaintext];
     "ci-gate-iterations past its limit (watch-ci)?" [shape=diamond];
     "run_budget {key: watch-ci:fix-rounds, limit: 3}" [shape=plaintext];
     "fix-rounds past its limit (watch-ci)?" [shape=diamond];
@@ -218,7 +218,7 @@ digraph watch_ci {
     "STOP: push only with git_push (watch-ci)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "watch-ci off-script gate: git_push refused" [shape=box];
     "watch-ci off-script answer (git_push)?" [shape=diamond];
-    "run_budget {key: watch-ci:push-off-script, limit: 2, stage}" [shape=plaintext];
+    "run_budget {key: watch-ci:push-off-script, limit: 1, stage}" [shape=plaintext];
     "push-off-script past its limit (watch-ci)?" [shape=diamond];
     "Confirm the human's push landed (watch-ci)" [shape=box];
     "Push landed (watch-ci)?" [shape=diamond];
@@ -294,11 +294,11 @@ digraph watch_ci {
     "Fix what the ci_watch error names" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}";
     "watch-ci off-script gate: ci_watch refused" -> "watch-ci off-script answer (ci_watch)?";
     "watch-ci off-script answer (ci_watch)?" -> "Verdict the human reported (watch-ci)?" [label="take: the human read the pipeline"];
-    "watch-ci off-script answer (ci_watch)?" -> "run_budget {key: watch-ci:ci-watch-off-script, limit: 2, stage}" [label="iterate: the human fixed it"];
+    "watch-ci off-script answer (ci_watch)?" -> "run_budget {key: watch-ci:ci-watch-off-script, limit: 1, stage}" [label="iterate: the human fixed it"];
     "watch-ci off-script answer (ci_watch)?" -> "MR known (watch-ci exit)?" [label="hold or hand back"];
     "Verdict the human reported (watch-ci)?" -> "Own run (watch-ci green)?" [label="green for the watched sha"];
     "Verdict the human reported (watch-ci)?" -> "watch-ci gate ci" [label="red, or not for the watched sha"];
-    "run_budget {key: watch-ci:ci-watch-off-script, limit: 2, stage}" -> "ci-watch-off-script past its limit (watch-ci)?";
+    "run_budget {key: watch-ci:ci-watch-off-script, limit: 1, stage}" -> "ci-watch-off-script past its limit (watch-ci)?";
     "ci-watch-off-script past its limit (watch-ci)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="no: watch again"];
     "ci-watch-off-script past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
 
@@ -314,8 +314,8 @@ digraph watch_ci {
     "Fix what the claim error names (GitHub)" -> "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)";
     "watch-ci off-script gate: ci_lease_claim refused (GitHub)" -> "watch-ci off-script answer (ci_lease_claim, GitHub)?";
     "watch-ci off-script answer (ci_lease_claim, GitHub)?" -> "MR known (watch-ci exit)?" [label="take, hold or hand back"];
-    "watch-ci off-script answer (ci_lease_claim, GitHub)?" -> "run_budget {key: watch-ci:github-claim-off-script, limit: 2, stage}" [label="iterate: the human fixed it"];
-    "run_budget {key: watch-ci:github-claim-off-script, limit: 2, stage}" -> "github-claim-off-script past its limit (watch-ci)?";
+    "watch-ci off-script answer (ci_lease_claim, GitHub)?" -> "run_budget {key: watch-ci:github-claim-off-script, limit: 1, stage}" [label="iterate: the human fixed it"];
+    "run_budget {key: watch-ci:github-claim-off-script, limit: 1, stage}" -> "github-claim-off-script past its limit (watch-ci)?";
     "github-claim-off-script past its limit (watch-ci)?" -> "ci_lease_claim {mrUrl: <mr>, branch} (GitHub)" [label="no: claim again"];
     "github-claim-off-script past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
 
@@ -368,9 +368,9 @@ digraph watch_ci {
     "mr_retry result (watch-ci)?" -> "watch-ci off-script gate: mr_retry refused" [label="tool error"];
     "watch-ci off-script gate: mr_retry refused" -> "watch-ci off-script answer (mr_retry)?";
     "watch-ci off-script answer (mr_retry)?" -> "ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" [label="take: the human retried the job"];
-    "watch-ci off-script answer (mr_retry)?" -> "run_budget {key: watch-ci:retry-off-script, limit: 2, stage}" [label="iterate: the human fixed it"];
+    "watch-ci off-script answer (mr_retry)?" -> "run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" [label="iterate: the human fixed it"];
     "watch-ci off-script answer (mr_retry)?" -> "MR known (watch-ci exit)?" [label="hold or hand back"];
-    "run_budget {key: watch-ci:retry-off-script, limit: 2, stage}" -> "retry-off-script past its limit (watch-ci)?";
+    "run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" -> "retry-off-script past its limit (watch-ci)?";
     "retry-off-script past its limit (watch-ci)?" -> "mr_retry {mrUrl: <mr>, jobId, leaseMrUrl: <mr>} per INFRA job" [label="no: retry again"];
     "retry-off-script past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
     "ci_lease_claim {mrUrl: <mr>, branch} (before the GitHub retry)" -> "Re-claim result (before the GitHub retry)?";
@@ -379,9 +379,9 @@ digraph watch_ci {
     "Re-claim result (before the GitHub retry)?" -> "watch-ci off-script gate: ci_lease_claim refused (before the GitHub retry)" [label="tool error"];
     "watch-ci off-script gate: ci_lease_claim refused (before the GitHub retry)" -> "watch-ci off-script answer (GitHub retry claim)?";
     "watch-ci off-script answer (GitHub retry claim)?" -> "gh pr checks <mr> (poll)" [label="take: the human reran the job"];
-    "watch-ci off-script answer (GitHub retry claim)?" -> "run_budget {key: watch-ci:retry-off-script, limit: 2, stage} (GitHub retry claim)" [label="iterate: the human fixed it"];
+    "watch-ci off-script answer (GitHub retry claim)?" -> "run_budget {key: watch-ci:retry-off-script, limit: 1, stage} (GitHub retry claim)" [label="iterate: the human fixed it"];
     "watch-ci off-script answer (GitHub retry claim)?" -> "MR known (watch-ci exit)?" [label="hold or hand back"];
-    "run_budget {key: watch-ci:retry-off-script, limit: 2, stage} (GitHub retry claim)" -> "retry-off-script past its limit (GitHub retry claim, watch-ci)?";
+    "run_budget {key: watch-ci:retry-off-script, limit: 1, stage} (GitHub retry claim)" -> "retry-off-script past its limit (GitHub retry claim, watch-ci)?";
     "retry-off-script past its limit (GitHub retry claim, watch-ci)?" -> "ci_lease_claim {mrUrl: <mr>, branch} (before the GitHub retry)" [label="no: claim again"];
     "retry-off-script past its limit (GitHub retry claim, watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
     "gh run rerun <run-id> --failed" -> "gh pr checks <mr> (poll)";
@@ -399,8 +399,8 @@ digraph watch_ci {
     "watch-ci gate mark-ready" -> "mark-ready answer (watch-ci)?";
     "mark-ready answer (watch-ci)?" -> "Forge host (watch-ci mark-ready)?" [label="mark ready now"];
     "mark-ready answer (watch-ci)?" -> "MR known (watch-ci exit)?" [label="keep it draft, go back or hold"];
-    "mark-ready answer (watch-ci)?" -> "run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}" [label="iterate"];
-    "run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}" -> "mark-ready-iterations past its limit (watch-ci)?";
+    "mark-ready answer (watch-ci)?" -> "run_budget {key: watch-ci:mark-ready-iterations, limit: 1, stage}" [label="iterate"];
+    "run_budget {key: watch-ci:mark-ready-iterations, limit: 1, stage}" -> "mark-ready-iterations past its limit (watch-ci)?";
     "mark-ready-iterations past its limit (watch-ci)?" -> "watch-ci gate mark-ready" [label="no: a new gate with their note"];
     "mark-ready-iterations past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: keep it draft"];
     "Forge host (watch-ci mark-ready)?" -> "mr_ready {repoName, iid}" [label="GitLab"];
@@ -412,13 +412,13 @@ digraph watch_ci {
     "ci answer (watch-ci)?" -> "run_budget {key: watch-ci:fix-rounds, limit: 3}" [label="fix and re-push"];
     "ci answer (watch-ci)?" -> "MR found (before the retry)?" [label="retry the job"];
     "ci answer (watch-ci)?" -> "MR known (watch-ci exit)?" [label="hand back, abandon or hold"];
-    "ci answer (watch-ci)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [label="iterate"];
-    "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" -> "ci-gate-iterations past its limit (watch-ci)?";
+    "ci answer (watch-ci)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 2}" [label="iterate"];
+    "run_budget {key: watch-ci:ci-gate-iterations, limit: 2}" -> "ci-gate-iterations past its limit (watch-ci)?";
     "ci-gate-iterations past its limit (watch-ci)?" -> "watch-ci gate ci" [label="no: re-triage with their note, a new gate"];
     "ci-gate-iterations past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: hand back"];
     "run_budget {key: watch-ci:fix-rounds, limit: 3}" -> "fix-rounds past its limit (watch-ci)?";
     "fix-rounds past its limit (watch-ci)?" -> "Fix the REAL failure, commit" [label="no"];
-    "fix-rounds past its limit (watch-ci)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [label="yes: reopen with Hand back recommended"];
+    "fix-rounds past its limit (watch-ci)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 2}" [label="yes: reopen with Hand back recommended"];
     "Fix the REAL failure, commit" -> "MR found (before git_push)?";
     "MR found (before git_push)?" -> "git_push {tree: <root>, leaseMrUrl: <mr>}" [label="yes: an MR or PR"];
     "MR found (before git_push)?" -> "git_push {tree: <root>}" [label="no MR: no lease"];
@@ -430,23 +430,23 @@ digraph watch_ci {
     "STOP: push only with git_push (watch-ci)" -> "watch-ci off-script gate: git_push refused";
     "watch-ci off-script gate: git_push refused" -> "watch-ci off-script answer (git_push)?";
     "watch-ci off-script answer (git_push)?" -> "Confirm the human's push landed (watch-ci)" [label="take: the human pushed"];
-    "watch-ci off-script answer (git_push)?" -> "run_budget {key: watch-ci:push-off-script, limit: 2, stage}" [label="iterate: registration fixed, retry"];
+    "watch-ci off-script answer (git_push)?" -> "run_budget {key: watch-ci:push-off-script, limit: 1, stage}" [label="iterate: registration fixed, retry"];
     "watch-ci off-script answer (git_push)?" -> "MR known (watch-ci exit)?" [label="hand back or hold"];
-    "run_budget {key: watch-ci:push-off-script, limit: 2, stage}" -> "push-off-script past its limit (watch-ci)?";
+    "run_budget {key: watch-ci:push-off-script, limit: 1, stage}" -> "push-off-script past its limit (watch-ci)?";
     "push-off-script past its limit (watch-ci)?" -> "MR found (before git_push)?" [label="no: push again"];
     "push-off-script past its limit (watch-ci)?" -> "MR known (watch-ci exit)?" [label="yes: a failure, the refusals are the reason"];
     "Confirm the human's push landed (watch-ci)" -> "Push landed (watch-ci)?";
     "Push landed (watch-ci)?" -> "Own run (watch-ci new attempt)?" [label="yes: the remote branch carries HEAD"];
-    "Push landed (watch-ci)?" -> "run_budget {key: watch-ci:push-off-script, limit: 2, stage}" [label="no: say what the comparison showed"];
+    "Push landed (watch-ci)?" -> "run_budget {key: watch-ci:push-off-script, limit: 1, stage}" [label="no: say what the comparison showed"];
     "Own run (watch-ci new attempt)?" -> "run_stage {action: start, stage: watch-ci} (a new attempt)" [label="yes"];
     "Own run (watch-ci new attempt)?" -> "MR found (watch-ci lease)?" [label="no: inherited, watch the pushed sha"];
     "run_stage {action: start, stage: watch-ci} (a new attempt)" -> "MR found (watch-ci lease)?";
 
     "MR found (before the retry)?" -> "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage, increment: 0} (ci gate retry)" [label="yes"];
-    "MR found (before the retry)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [label="no: nothing to retry"];
+    "MR found (before the retry)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 2}" [label="no: nothing to retry"];
     "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage, increment: 0} (ci gate retry)" -> "infra-retries spent (ci gate retry, watch-ci)?";
     "infra-retries spent (ci gate retry, watch-ci)?" -> "run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage}" [label="no"];
-    "infra-retries spent (ci gate retry, watch-ci)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" [label="yes: reopen, the retry is spent"];
+    "infra-retries spent (ci gate retry, watch-ci)?" -> "run_budget {key: watch-ci:ci-gate-iterations, limit: 2}" [label="yes: reopen, the retry is spent"];
 
     "MR known (watch-ci exit)?" -> "ci_lease_release {mrUrl: <mr>}" [label="yes"];
     "MR known (watch-ci exit)?" -> "Which exit is this (watch-ci)?" [label="no"];
@@ -491,7 +491,9 @@ from 1 within the stage attempt), `context` quoting the refusal, and:
 | `action` | **Take** (the human makes the move, named in the gate's section) / **Iterate** (the human fixed it: try again) / **Hand back** |
 | `next` | **Proceed** (Recommended) / **Hold** |
 
-Iterate counts one round on the gate's own off-script budget first. A Take
+Iterate counts one round on the gate's own off-script budget first: the
+first tries again, and a second fails the verb (`lease-rounds` allows a
+second try). A Take
 that means the human attends the MR closes an own run `done`, the report
 saying so, and an inherited run hands the answer back.
 
@@ -601,7 +603,8 @@ is green for the MR's head.
 | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4; with exactly one candidate it labels **Go back to `<stage>`** in `next` instead | Go back answered and `run_snapshot` shows more than one earlier stage row |
 
 Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
-Iterate counts one `mark-ready-iterations` round; past two, it stays draft.
+Iterate counts one `mark-ready-iterations` round: the first opens a new
+gate with the note, and the second keeps it draft.
 
 ### watch-ci gate ci
 
@@ -622,7 +625,8 @@ one-line triage per blocking failure.
 Selection: `{"next":"fix|retry|handback|abandon|iterate|hold","note":"<their words or null>"}`.
 An `action` write-in adds `"action": {"writeIn": "<their words>"}`, and
 `next` records `iterate`, or the Hold that won. Iterate counts one
-`ci-gate-iterations` round; past three, it hands back. Hand back leaves the
+`ci-gate-iterations` round: the first two reopen the gate with the note,
+and the third hands back. Hand back leaves the
 MR red for the human: an own run closes `done`, an inherited one hands the
 verdict back.
 
@@ -712,16 +716,16 @@ counts.
 | Key | Limit | Scope |
 |---|---|---|
 | `watch-ci:ci-watch-errors:<sha12>` | 1 | stage, per commit |
-| `watch-ci:ci-watch-off-script` | 2 | stage |
+| `watch-ci:ci-watch-off-script` | 1 | stage |
 | `watch-ci:lease-rounds:<sha12>` | 2 | stage, per commit |
 | `watch-ci:infra-retries:<sha12>` | 1 | stage, per commit |
-| `watch-ci:retry-off-script` | 2 | stage |
-| `watch-ci:ci-gate-iterations` | 3 | run-wide |
+| `watch-ci:retry-off-script` | 1 | stage |
+| `watch-ci:ci-gate-iterations` | 2 | run-wide |
 | `watch-ci:fix-rounds` | 3 | run-wide |
-| `watch-ci:push-off-script` | 2 | stage |
-| `watch-ci:mark-ready-iterations` | 2 | stage |
+| `watch-ci:push-off-script` | 1 | stage |
+| `watch-ci:mark-ready-iterations` | 1 | stage |
 | `watch-ci:github-claim-errors` | 1 | stage |
-| `watch-ci:github-claim-off-script` | 2 | stage |
+| `watch-ci:github-claim-off-script` | 1 | stage |
 | `watch-ci:github-polls:<sha12>` | 45 | stage, per commit |
 | `watch-ci:github-sha-waits:<sha12>` | 5 | stage, per commit |
 

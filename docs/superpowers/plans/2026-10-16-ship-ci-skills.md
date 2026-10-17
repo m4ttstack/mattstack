@@ -30,16 +30,16 @@
 | Skill | key (prefix `<verb>:` as shown) | limit | scope |
 |---|---|---|---|
 | watch-ci, stage-watch-ci | `watch-ci:ci-watch-errors:<sha12>` | 1 | stage, per commit |
-| | `watch-ci:ci-watch-off-script` | 2 | stage |
+| | `watch-ci:ci-watch-off-script` | 1 | stage |
 | | `watch-ci:lease-rounds:<sha12>` | 2 | stage, per commit |
 | | `watch-ci:infra-retries:<sha12>` | 1 | stage, per commit |
-| | `watch-ci:retry-off-script` | 2 | stage |
-| | `watch-ci:ci-gate-iterations` | 3 | run-wide (no `stage`) in watch-ci; stage in stage-watch-ci |
+| | `watch-ci:retry-off-script` | 1 | stage |
+| | `watch-ci:ci-gate-iterations` | 2 | run-wide (no `stage`) in watch-ci; stage in stage-watch-ci |
 | | `watch-ci:fix-rounds` | 3 | run-wide (watch-ci only; the stage hands fixes to implement) |
-| | `watch-ci:push-off-script` | 2 | stage (watch-ci only) |
-| | `watch-ci:mark-ready-iterations` | 2 | stage |
+| | `watch-ci:push-off-script` | 1 | stage (watch-ci only) |
+| | `watch-ci:mark-ready-iterations` | 1 | stage |
 | | `watch-ci:github-claim-errors` | 1 | stage |
-| | `watch-ci:github-claim-off-script` | 2 | stage |
+| | `watch-ci:github-claim-off-script` | 1 | stage |
 | | `watch-ci:github-polls:<sha12>` | 45 | stage, per commit |
 | | `watch-ci:github-sha-waits:<sha12>` | 5 | stage, per commit |
 | ship, stage-ship | `ship:ship-gate-rounds` | 1 | stage |
