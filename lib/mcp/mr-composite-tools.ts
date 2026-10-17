@@ -6,6 +6,7 @@
 import { readProjectMRs, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion, GateRow } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
+import { answerValue, decisionForGate, extraOf, optionValueOf, splitVerb, type AnswerWire } from "../gates/record.ts";
 import { joinMrsToWorktrees, type MrMapRow } from "../mr-map.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { statusPorcelainAsync } from "../worktree/git-async.ts";
@@ -342,24 +343,24 @@ export function gateSourceField(fields: SnapshotField[], scope: RespondScope): G
   return r.ok ? r.field : null;
 }
 
-const optionValue = (o: unknown): string | null => (typeof o === "string" ? o : isRecord(o) && typeof o.value === "string" ? o.value : null);
-
 function splitPick(value: string): { verb: string; threadId: string } | null {
-  const i = value.indexOf(":");
-  if (i <= 0 || i === value.length - 1) return null;
-  return { verb: value.slice(0, i), threadId: value.slice(i + 1) };
+  const { verb, id } = splitVerb(value);
+  return verb && id ? { verb, threadId: id } : null;
 }
 
 /** A registry answer is a bare value, an array of values, or {value, note, text}; a write-in names no option and reads null. */
 function pickValues(a: unknown): string[] | null {
-  if (typeof a === "string") return [a];
-  if (Array.isArray(a)) return a.every((v) => typeof v === "string") ? (a as string[]) : null;
-  if (isRecord(a) && (typeof a.value === "string" || Array.isArray(a.value))) return pickValues(a.value);
-  return null;
+  if (typeof a !== "string" && !Array.isArray(a) && !isRecord(a)) return null;
+  const v = answerValue(a as AnswerWire);
+  if (typeof v === "string") return [v];
+  return Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null;
 }
 
-const pickText = (a: unknown): string | undefined => (isRecord(a) && typeof a.text === "string" ? a.text : undefined);
-const pickNote = (a: unknown): string | undefined => (isRecord(a) && typeof a.note === "string" && a.note.trim() ? a.note : undefined);
+const pickText = (a: unknown): string | undefined => extraOf(a as AnswerWire, "text");
+const pickNote = (a: unknown): string | undefined => {
+  const note = extraOf(a as AnswerWire, "note");
+  return note?.trim() ? note : undefined;
+};
 
 function parseContext(c: unknown): Record<string, unknown> | null {
   if (isRecord(c)) return c;
@@ -377,7 +378,7 @@ function sourceThreads(scope: RespondScope, questions: unknown[], verbs: readonl
   for (const q of questions) {
     if (!isRecord(q) || typeof q.id !== "string" || !Array.isArray(q.options)) refuse(`the ${scope} gate source has a question that is not {id, options}`);
     const question = q as { id: string; options: unknown[]; context?: unknown };
-    const picks = question.options.map((o) => splitPick(optionValue(o) ?? ""));
+    const picks = question.options.map((o) => splitPick(optionValueOf(o) ?? ""));
     if (picks.every((p) => p === null || !verbs.includes(p.verb))) continue;
     const ids = new Set(picks.map((p) => (p && verbs.includes(p.verb) ? p.threadId : null)));
     if (ids.size !== 1 || ids.has(null)) refuse(`the ${scope} gate source's question ${question.id} does not name exactly one thread in its option values`);
@@ -388,18 +389,16 @@ function sourceThreads(scope: RespondScope, questions: unknown[], verbs: readonl
   return threads;
 }
 
-const gateDecision = (snapshot: RunSnapshot, scope: RespondScope) => snapshot.decisions.find((x) => x.contract === GATE_CONTRACT && x.scope === scope);
-
 /** A respond-post source counts as offered this round only when it was written at or after the respond-plan decision; an older one is last round's and acts on nothing. */
 export function postSourceIsCurrent(snapshot: RunSnapshot, post: { at: number }): boolean {
-  const d = gateDecision(snapshot, "respond-plan");
-  return d !== undefined && typeof d.decided_at === "number" && post.at >= d.decided_at;
+  const d = decisionForGate(snapshot.decisions, "respond-plan", -Infinity);
+  return d !== null && post.at >= d.decided_at;
 }
 
 function freshDecision(snapshot: RunSnapshot, scope: RespondScope, threshold: number): SnapshotDecision {
-  const d = gateDecision(snapshot, scope);
-  if (!d || typeof d.decided_at !== "number" || d.decided_at < threshold) refuse(`${scope} has no decision recorded since its gate opened; if the gate is answered, record it with gate_record, then call again`);
-  return d!;
+  const d = decisionForGate(snapshot.decisions, scope, threshold);
+  if (!d) refuse(`${scope} has no decision recorded since its gate opened; if the gate is answered, record it with gate_record, then call again`);
+  return d as SnapshotDecision;
 }
 
 function parseSelection(scope: RespondScope, d: SnapshotDecision): Record<string, unknown> {
@@ -444,7 +443,7 @@ function shownInProse(ctx: string, text: string, shape: "thread@1" | "reply@1"):
 
 /** The text the human was shown: a structured context's reply, or a prose context whose card marker line carries it whole. */
 function shownInRegistry(row: GateRow, threadId: string, text: string, shape: "thread@1" | "reply@1"): boolean {
-  const q = row.questions.find((x) => x.options.some((o) => splitPick(optionValue(o) ?? "")?.threadId === threadId));
+  const q = row.questions.find((x) => x.options.some((o) => splitPick(optionValueOf(o) ?? "")?.threadId === threadId));
   const ctx = q?.context;
   if (typeof ctx !== "string" || !ctx.trim()) return false;
   let parsed: unknown;
@@ -619,7 +618,7 @@ function plan(snapshot: RunSnapshot, gates: { plan: GateRow | null; post: GateRo
   let offered: SourceThread[] = [];
 
   if (!postSrc) {
-    const late = snapshot.decisions.find((d) => d.contract === GATE_CONTRACT && d.scope === "respond-post" && d.decided_at >= planDecision.decided_at);
+    const late = decisionForGate(snapshot.decisions, "respond-post", planDecision.decided_at);
     if (late) refuse(`respond-post has a decision recorded after the respond-plan decision but no ${sourceKey("respond-post")} field this round: open respond-post with gate_open {runDb}`);
   } else {
     const postRow = registryRow("respond-post", postSrc, gates.post);
