@@ -124,14 +124,27 @@ test("--write pushes a data branch of exactly the org's paths and commits the po
   expect(readdirSync(scratch())).toEqual([]);
 });
 
-test("the forge access steps print last, in order", () => {
+/** The steps after the move, in the order printed: the pull first, since forge access reads this Mac's own copy, which is still on main. */
+function nextSteps(result: string): string[] {
+  const steps = ["rt team pull", "rt team manage-membership on", "rt team forge-access --apply"];
+  return steps.filter((step) => result.includes(step)).sort((a, b) => result.indexOf(a) - result.indexOf(b));
+}
+
+test("the steps after the move pull this Mac's copy first, then set up forge access, last and in order", () => {
   const dir = org();
   const result = out(run(dir, "me", "--write"));
-  const on = result.indexOf("rt team manage-membership on");
-  const apply = result.indexOf("rt team forge-access --apply");
-  expect(on).toBeGreaterThan(-1);
-  expect(apply).toBeGreaterThan(on);
+  expect(nextSteps(result)).toEqual(["rt team pull", "rt team manage-membership on", "rt team forge-access --apply"]);
   expect(result.trimEnd().endsWith("rt team forge-access --apply")).toBe(true);
+  expect(result).toMatch(/rt daemon[^\n]*v2\.25\.0/);
+});
+
+test("a pointer landed on a branch still prints the pull before forge access", () => {
+  const dir = org();
+  const hook = join(origin, "hooks", "pre-receive");
+  writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do [ "$ref" = refs/heads/main ] && { echo "protected branch" >&2; exit 1; }; done\nexit 0\n');
+  chmodSync(hook, 0o755);
+  const result = out(run(dir, "me", "--write"));
+  expect(nextSteps(result)).toEqual(["rt team pull", "rt team manage-membership on", "rt team forge-access --apply"]);
 });
 
 test("a refused push of main lands the pointer on mattstack-pointer instead", () => {

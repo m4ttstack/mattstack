@@ -308,7 +308,14 @@ function report(opts: Options, outcome: PointerOutcome | null): void {
       ...(outcome.why ? [out.callout("why", outcome.why.split("\n").slice(-3).join(" "))] : []),
     );
   }
-  if (outcome !== null) blocks.push(out.line("pending", "Forge access is next", "Run these two in order"), out.callout("next", out.cmd("rt team manage-membership on"), out.cmd("rt team forge-access --apply")));
+  if (outcome !== null) {
+    const when = outcome.kind === "main" ? "Forge access reads this Mac's own copy of the org, which stays on main until it pulls" : "Once the pointer is on main, run these in order";
+    blocks.push(
+      out.line("pending", "Pull this Mac's copy, then set up forge access", when),
+      out.callout("note", "The pull needs this Mac's rt daemon on v2.25.0 or later; an older one holds it as a layout it cannot read"),
+      out.callout("next", out.cmd("rt team pull"), out.cmd("rt team manage-membership on"), out.cmd("rt team forge-access --apply")),
+    );
+  }
   out.print(...blocks);
 }
 

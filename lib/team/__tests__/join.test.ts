@@ -2197,3 +2197,174 @@ test("a real join of a data-branch org clones only that branch and narrows to th
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+describe("a rejoin over a copy cloned before the org moved to its data branch", () => {
+  const env = { ...childEnv(), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const LAYOUT3_MARKER = `{ "role": "org", "org": "acme", "layout": 3 }\n`;
+  const LAYOUT4_MARKER = `{ "role": "org", "org": "acme", "layout": 4 }\n`;
+  const POINTER_MARKER = `{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }\n`;
+
+  /**
+   * An origin whose main held a layout 3 org that did not list dev2 yet, then
+   * moved as the conversion script moves it: mattstack holds the data, roster
+   * and all, and main's next commit leaves only the pointer.
+   * `copyAt` is the copy already on this Mac: main as it was, main's pointer, or the data branch.
+   */
+  function world(home: string, copyAt: "layout3" | "pointer" | "layout4") {
+    const work = pathJoin(home, "work");
+    const bare = pathJoin(home, "origin.git");
+    const dir = pathJoin(home, ".mattstack", "orgs", "acme");
+    const write = (rel: string, text: string) => {
+      mkdirSync(pathJoin(work, rel, ".."), { recursive: true });
+      writeFileSync(pathJoin(work, rel), text);
+    };
+    const inWork = (...args: string[]) => execFileSync("git", ["-C", work, ...args], { env }).toString();
+    const inDir = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { env }).toString().trim();
+    execFileSync("git", ["init", "-q", "-b", "main", work], { env });
+    write("mattstack/mattstack.jsonc", LAYOUT3_MARKER);
+    write("mattstack/org/settings.org.jsonc", rosterWith("dev1"));
+    inWork("add", ".");
+    inWork("commit", "-q", "-m", "layout 3 org");
+    execFileSync("git", ["clone", "-q", "--bare", work, bare], { env });
+    const clone = () => {
+      execFileSync("git", ["clone", "-q", bare, dir], { env });
+      inDir("config", `url.${bare}.insteadOf`, REMOTE);
+      inDir("remote", "set-url", "origin", REMOTE);
+    };
+    if (copyAt === "layout3") clone();
+
+    inWork("checkout", "-q", "--orphan", "mattstack");
+    write("mattstack/mattstack.jsonc", LAYOUT4_MARKER);
+    write("mattstack/org/settings.org.jsonc", rosterWith("dev1", "dev2"));
+    inWork("add", ".");
+    inWork("commit", "-q", "-m", "org data moves to its own branch");
+    inWork("push", "-q", bare, "mattstack");
+    inWork("checkout", "-q", "-f", "main");
+    inWork("rm", "-rq", "mattstack/org");
+    write("mattstack/mattstack.jsonc", POINTER_MARKER);
+    inWork("add", "-A");
+    inWork("commit", "-q", "-m", "pointer");
+    inWork("push", "-q", bare, "main");
+
+    if (copyAt === "pointer") clone();
+    if (copyAt === "layout4") {
+      clone();
+      inDir("checkout", "-q", "-b", "mattstack", "origin/mattstack");
+    }
+
+    const p = createRealProbes();
+    const realExec = p.exec.bind(p);
+    // The pointer's remote must be an https url; the copy's insteadOf sends it to the local bare repo, which join's GIT_PROTOCOL_FROM_USER=0 would refuse as a file transport.
+    p.exec = (argv, opts) => realExec(argv.map((arg) => (arg === REMOTE ? bare : arg)), { ...opts, env: { ...opts?.env, GIT_PROTOCOL_FROM_USER: "1" } });
+    return { dir, p, inDir };
+  }
+
+  const priorHome = process.env.HOME;
+  let home: string | null = null;
+  const enter = (copyAt: Parameters<typeof world>[1]) => {
+    home = mkdtempSync(pathJoin(tmpdir(), "join-rejoin-"));
+    process.env.HOME = home;
+    return world(home, copyAt);
+  };
+  const leave = () => {
+    if (priorHome === undefined) delete process.env.HOME; else process.env.HOME = priorHome;
+    if (home) rmSync(home, { recursive: true, force: true });
+    home = null;
+  };
+
+  test.each(["layout3", "pointer"] as const)("a %s copy moves onto the data branch and finds the roster there", async (copyAt) => {
+    try {
+      const w = enter(copyAt);
+      const result = await joinRedeem(w.p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+      expect(result.access).toBe("ok");
+      expect(w.inDir("rev-parse", "--abbrev-ref", "HEAD")).toBe("mattstack");
+      expect(w.inDir("config", "--get-all", "remote.origin.fetch")).toBe("+refs/heads/mattstack:refs/remotes/origin/mattstack");
+    } finally {
+      leave();
+    }
+  });
+
+  test("a copy already on the data branch is left as it is", async () => {
+    try {
+      const w = enter("layout4");
+      const before = [w.inDir("rev-parse", "HEAD"), w.inDir("config", "--get-all", "remote.origin.fetch"), w.inDir("status", "--porcelain")];
+      const result = await joinRedeem(w.p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+      expect(result.access).toBe("ok");
+      expect(w.inDir("rev-parse", "--abbrev-ref", "HEAD")).toBe("mattstack");
+      expect([w.inDir("rev-parse", "HEAD"), w.inDir("config", "--get-all", "remote.origin.fetch"), w.inDir("status", "--porcelain")]).toEqual(before);
+    } finally {
+      leave();
+    }
+  });
+
+  test("a copy the move holds is refused with what holds it, before the invite is used, never as a roster wait", async () => {
+    try {
+      const w = enter("layout3");
+      writeFileSync(pathJoin(w.dir, "mattstack", "mattstack.jsonc"), `${LAYOUT3_MARKER}// edited\n`);
+      const relay = fakeRelay();
+      const err = await joinRedeem(w.p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams).then(() => null, (e: unknown) => e);
+
+      expect(err).toBeInstanceOf(UserActionableError);
+      expect((err as UserActionableError).code).toBe("org-copy-held");
+      expect((err as UserActionableError).message).toContain("Your copy of the org has unsaved changes: mattstack/mattstack.jsonc");
+      expect((err as UserActionableError).next).toBe("Save or discard those changes, then run rt team pull");
+      expect(relay.redeemCalls).toEqual([]);
+      expect(w.inDir("rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
+    } finally {
+      leave();
+    }
+  });
+
+  test("an origin that cannot be asked where the data lives is refused as such, never as a roster wait", async () => {
+    try {
+      const w = enter("layout3");
+      const realExec = w.p.exec;
+      w.p.exec = (argv, opts) => (argv[0] === "git" && (argv.includes("fetch") || argv.includes("pull")) ? Promise.resolve({ code: 128, stdout: "", stderr: "fatal: unable to access the repo" }) : realExec(argv, opts));
+      const relay = fakeRelay();
+      const err = await joinRedeem(w.p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams).then(() => null, (e: unknown) => e);
+
+      expect((err as UserActionableError).code).toBe("org-copy-unchecked");
+      expect((err as UserActionableError).log).toContain("unable to access");
+      expect(relay.redeemCalls).toEqual([]);
+    } finally {
+      leave();
+    }
+  });
+
+  test.each([["lists", ["dev1", "dev2"]], ["does not list", ["dev1"]]] as const)("a detached copy whose roster %s the joiner is refused as detached, before the invite is used", async (_, roster) => {
+    try {
+      const w = enter("layout3");
+      writeFileSync(pathJoin(w.dir, "mattstack", "org", "settings.org.jsonc"), rosterWith(...roster));
+      execFileSync("git", ["-C", w.dir, "commit", "-q", "--allow-empty", "-am", "roster"], { env });
+      execFileSync("git", ["-C", w.dir, "checkout", "-q", "--detach"], { env });
+      const relay = fakeRelay();
+      const err = await joinRedeem(w.p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams).then(() => null, (e: unknown) => e);
+
+      expect((err as UserActionableError).code).toBe("org-copy-held");
+      expect((err as UserActionableError).message).toBe("Your copy of the org is not on a branch");
+      expect((err as UserActionableError).why).not.toMatch(/own branch now/);
+      expect((err as UserActionableError).why).toContain("The invite has not been used yet");
+      expect(relay.redeemCalls).toEqual([]);
+    } finally {
+      leave();
+    }
+  });
+
+  test("a move that fails is refused with git's reason, never as a roster wait", async () => {
+    try {
+      const w = enter("layout3");
+      const realExec = w.p.exec;
+      w.p.exec = (argv, opts) => (argv[0] === "git" && argv.includes("checkout") && argv.includes("-B") ? Promise.resolve({ code: 128, stdout: "", stderr: "fatal: checkout exploded" }) : realExec(argv, opts));
+      const relay = fakeRelay();
+      const err = await joinRedeem(w.p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams).then(() => null, (e: unknown) => e);
+
+      expect((err as UserActionableError).code).toBe("org-copy-move-failed");
+      expect((err as UserActionableError).log).toContain("checkout exploded");
+      expect(relay.redeemCalls).toEqual([]);
+    } finally {
+      leave();
+    }
+  });
+});

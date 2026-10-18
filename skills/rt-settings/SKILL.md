@@ -280,7 +280,9 @@ request. `--no-pointer` pushes only the data branch and leaves `main`
 untouched, so no Mac moves. To try the conversion first, run the script
 with `--data-branch <trial> --no-pointer --write`, then `rt team branch
 use <trial>` on the dev app's Mac; no other Mac switches to it. After
-pushing a pointer the script prints the forge-access steps (`rt team
+pushing a pointer the script prints `rt team pull` first, since forge
+access reads this Mac's own copy, which is still on `main` (this Mac's
+daemon must run v2.25.0 or later), then the forge-access steps (`rt team
 manage-membership on`, then `rt team forge-access --apply`); with
 `--no-pointer` it prints how to try the branch instead. Once the pointer is on `main`, each layout 3 clone on an updated app moves
 onto the data branch in place: the daemon's pull holds with a "moved"
