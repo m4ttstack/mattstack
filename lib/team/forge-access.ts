@@ -76,11 +76,52 @@ export function parseJson(stdout: string): unknown {
   }
 }
 
-/** gh's `--paginate --slurp` wraps each page in an outer array; glab's `--paginate` already joins the pages into one. */
+/** Splits stdout into its top-level JSON values; null when any part is not JSON. */
+function jsonValues(stdout: string): unknown[] | null {
+  const values: unknown[] = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let start = -1;
+  for (let i = 0; i < stdout.length; i++) {
+    const ch = stdout.charAt(i);
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      if (depth === 0) return null;
+      inString = true;
+    } else if (ch === "[" || ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "]" || ch === "}") {
+      depth--;
+      if (depth < 0) return null;
+      if (depth === 0) {
+        const value = parseJson(stdout.slice(start, i + 1));
+        if (value === null) return null;
+        values.push(value);
+      }
+    } else if (depth === 0 && !/\s/.test(ch)) return null;
+  }
+  return depth === 0 && !inString ? values : null;
+}
+
+/** gh's `--paginate --slurp` wraps each page in an outer array; glab's `--paginate` prints one array per page, back to back. */
 export function pagedList(stdout: string, cli: "gh" | "glab"): Record<string, unknown>[] | null {
-  const parsed = parseJson(stdout);
-  if (!Array.isArray(parsed)) return null;
-  const items: unknown[] = cli === "gh" ? parsed.flat(1) : parsed;
+  let items: unknown[];
+  if (cli === "gh") {
+    const parsed = parseJson(stdout);
+    if (!Array.isArray(parsed)) return null;
+    items = parsed.flat(1);
+  } else {
+    const pages = jsonValues(stdout);
+    if (pages === null || pages.length === 0 || !pages.every(Array.isArray)) return null;
+    items = (pages as unknown[][]).flat(1);
+  }
   return items.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object" && !Array.isArray(item));
 }
 
