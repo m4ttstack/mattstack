@@ -71,7 +71,7 @@ Right-click a stack (or one of its branches) for the menu:
 - **`absorb`** is listed once per dirty worktree, as `absorb from <worktree>`, so you choose which set of uncommitted changes to distribute. With no dirty worktree, the item is present but disabled.
 - **`open !<iid>` in gitlab** (or `#<iid>` in github, following the repo's forge), when you right-clicked a branch that has an MR.
 
-Each action spawns a herdr tab running `claude` with the matching skill and the `--state` / `--status-bin` contract, which is how the job chips update live while the agent works. Relaunching an action that is already live refocuses its tab instead of spawning a second pane. [Agent skills](/gitq/guides/agent-skills) covers what each skill actually does once it starts.
+Each action spawns a herdr tab running `claude` with the matching skill and the `--state` / `--status-bin` contract, which is how the job chips update live while the agent works. When herdr isn't running, the board asks the rt daemon to start it first. Relaunching an action that is already live refocuses its tab instead of spawning a second pane. [Agent skills](/gitq/guides/agent-skills) covers what each skill actually does once it starts.
 
 ## Local only, by Host header
 

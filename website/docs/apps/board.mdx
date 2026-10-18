@@ -122,7 +122,7 @@ The rest of the agent work. Items with nothing to act on (no saved session, no r
 
 ### What each agent does
 
-Review, respond and doctor each run as a Claude Code agent in their own herdr pane on this Mac, in the `reviews`, `responses` or `doctors` workspace. They use the account and model set in `board.agent.account` and `board.agent.model`, and work in the folder `board.cwds` sets for that kind of work. When an agent needs a decision from you, it asks on the board and waits. Anything it posts to the MR is posted as you.
+Review, respond and doctor each run as a Claude Code agent in their own herdr pane on this Mac, in the `reviews`, `responses` or `doctors` workspace. When herdr isn't running, the board starts it first. They use the account and model set in `board.agent.account` and `board.agent.model`, and work in the folder `board.cwds` sets for that kind of work. When an agent needs a decision from you, it asks on the board and waits. Anything it posts to the MR is posted as you.
 
 #### Review
 
@@ -470,6 +470,8 @@ These are registry keys, so you can read them with `rt settings get <key>`. The 
 | `board.reReview` | Turns the automatic re-review sweep on or off. |
 | `board.agent.account` | The cswap account the board's review, respond and doctor panes launch under. |
 | `board.agent.model` | Default model for those panes. |
+
+An older board kept its team's fields, such as `gitlabHost`, `projects` and `members`, in its own `config.json`, which an update renamed to `config.json.imported`. When that file sets a field your team's settings do not, setup's **Old board settings** row names the fields. **Show steps…** gives the `rt settings set` lines for a team admin to run, or the invites for the roster.
 
 ## Related
 

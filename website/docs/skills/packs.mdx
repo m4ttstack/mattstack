@@ -61,20 +61,46 @@ For the lint example, you see a failing run first, with nothing running lint. Th
 
 ## Add a specialized pipeline
 
-The pack starts with one pipeline, `feature`, and `/widgets:work` runs it. To give one kind of work its own stages or its own fills, ask `mattstack:extending-a-pack` for a specialized pipeline. It:
+The pack starts with one pipeline, `feature`, and `/widgets:work` runs it. To give one kind of work its own stages or its own fills, ask `mattstack:extending-a-pack` for a specialized pipeline. The pipeline and its first override fit in one round, with one publish at the end. It:
 
-1. Declares the pipeline in `pack/skills.jsonc`, say `accessibility`. A pipeline a work verb runs starts with `stage-provision`, ends with `stage-watch-ci`, and includes `stage-implement` and `stage-ship`.
+1. Declares the pipeline in `pack/skills.jsonc`, say `accessibility`, starting from a copy of `feature`'s stage list. A pipeline a work verb runs starts with `stage-provision`, ends with `stage-watch-ci`, and includes `stage-implement` and `stage-ship`.
 2. Runs `rt skills materialize`. Compile, check and bind read the pack's bindings file for your repo, not `pack/skills.jsonc`, so the new pipeline exists for them only after this step.
-3. Adds a verb that runs it to `pack/stubs.jsonc`, named `work-<kind>` so it groups under `/widgets:work`:
+3. Adds a verb that runs it inside the `verbs` object of `pack/stubs.jsonc`, next to `work`, named `work-<kind>` so it groups under `/widgets:work`. rt reads no entry outside `verbs`:
 
    ```jsonc
-   "work-a11y": { "engine": "work", "pipeline": "accessibility", "description": "Use when running accessibility work end to end" }
+   {
+     "verbs": {
+       "work": { "engine": "work", "description": "..." },
+       "work-a11y": {
+         "engine": "work",
+         "pipeline": "accessibility",
+         "description": "Use when running accessibility work end to end"
+       }
+     }
+   }
    ```
 
-4. Binds each fill that differs for that pipeline with `rt skills bind <stage> <slot> <fill> --pipeline accessibility`. Every stage it does not override runs the default fills.
-5. Compiles and checks. Where a pipeline's fills differ, compile writes a stage copy such as `attachments/stage-evidence--accessibility/`.
+4. Puts the verb on the pack's surface with `rt skills surface set work-a11y --public`, which also compiles the pack, then checks it.
+5. Binds each fill that differs for that pipeline with `rt skills bind <stage> <slot> <fill> --pipeline accessibility`. Every stage it does not override runs the default fills. Where a pipeline's fills differ, compile writes a stage copy such as `attachments/stage-evidence--accessibility/`.
 
 `/widgets:work-a11y` then runs accessibility work, and its runs record the pipeline `accessibility`. Each verb resumes only runs of its own pipeline.
+
+To put a pipeline's slot back on the default fill, ask the same skill to undo the override. It runs `rt skills bind <stage> <slot> --pipeline accessibility --unset`, checks the pack and publishes. The recompile removes the stage copy once that stage matches the default again. [`rt skills bind`](/rt/reference/skills/bind) has the details and refusals.
+
+## Add browser evidence
+
+For screenshots of your app as evidence, ask `mattstack:extending-a-pack` for browser evidence. It adds a `## Browser target` section to the pack's evidence fill, with facts about your app and no steps:
+
+| Block | What goes in |
+| --- | --- |
+| Reach the view | How the servers start, the URL the app answers on, where the saved login is, the URL for a case, the state to set up first |
+| What proves a change | Which view and elements show each kind of change, and what to ask you at intake |
+| Captions | How labels and the claim are worded |
+| Personal data | What is always hidden, and what may show |
+
+Leave a block out and it takes its default. The URL comes from the plan, and you sign in. The plan's words describe the case. Captions use plain words. Every personal detail that the case does not verify is hidden.
+
+The evidence and ship stages do the rest. They get the app ready, and Fast Browser captures the page and composes an evidence board: one cropped, labelled image. When an evidence board hides part of the page, you're asked to open each hidden crop and confirm that nothing in it is readable, or to widen it, and it can't be uploaded until you confirm. The run keeps each evidence board with its captures, and ship asks before it attaches them to the MR. A ticket image the run saved as a case's before is never uploaded as it is; its evidence board is.
 
 ## When a pack needs a newer app
 
@@ -85,6 +111,7 @@ The pack starts with one pipeline, `feature`, and `/widgets:work` runs it. To gi
 - Do not edit `skills/work/`, `attachments/stage-*/` (stage copies like `attachments/stage-evidence--accessibility/` included), `pack/requires.json` or an attachment folder holding `compiled.json`: compiled output, overwritten on the next compile.
 - Do not edit the mattstack engine in the plugin cache: every team compiles from it, and the next update erases the edit.
 - Do not edit a repo's generated `skills.jsonc` under `~/.mattstack/repos/`: `rt skills materialize` regenerates it, and `pack/skills.jsonc` is the source.
+- Do not edit a pack in a git worktree or another copy of the org repo. Make every pack edit, with its commit and push, in the org clone, on the branch it has checked out. Materialize reads a pack's fragment only from the org clone. `rt skills sync` refuses a `.worktrees/` or `.claude/worktrees/` folder under the pack.
 - Do not copy another team's pack: its fills carry that team's rules.
 - Do not write a fill "to have something there": an unbound slot renders as nothing, which is the correct state until a rule exists.
 

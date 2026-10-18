@@ -142,6 +142,8 @@ The joiner opens the invite link, or pastes the code into **Join a team** in set
 - If the joiner's forge account (GitHub or GitLab) cannot see the repo, a warning names the problem and suggests asking for access. The `access.team-repo` checklist row holds Install until access is resolved.
 - If access is confirmed, setup continues normally.
 
+A rejoin on a Mac whose copy of the org was cloned before the org moved to a data branch moves that copy onto the data branch first, the same way a pull does. When the move is held, for example by unsaved changes or a copy that is not on a branch, the join refuses and says what is in the way. The invite is still unused, so join again once it's fixed.
+
 The join clones only the org's data branch, then narrows it to the folders the joiner's role reaches. Whatever else the org repo holds, like an app's code on `main`, stays on the remote and never lands on the joiner's Mac.
 
 An invite minted before the org was renamed names the org by its old name. The join refuses it with "This invite names the org by an old name; ask for a fresh one" and removes the clone it just made; ask an admin for a new invite.
@@ -201,6 +203,16 @@ bun scripts/move-to-data-branch.ts ~/.mattstack/orgs/<org> --admin <username>
 ```
 
 On its own it prints the plan and writes nothing. Run it again with `--write` to make the move. It refuses unless your clone is clean and matches the org repo's `main`. It makes the data branch, `mattstack` unless `--data-branch` names another, with the org's data and a README. Then it commits the pointer to `main`. When `main` refuses the push, the pointer goes to a `mattstack-pointer` branch instead; land it the way your repo takes changes, such as a merge request.
+
+After the pointer is pushed, the script prints the next steps. Run them in order once the pointer is on `main`:
+
+```bash
+rt team pull
+rt team manage-membership on
+rt team forge-access --apply
+```
+
+`rt team pull` comes first because forge access reads this Mac's own copy of the org, which stays on `main` until it pulls. The pull needs this Mac's rt daemon on v2.25.0 or later; an older one holds the copy at a layout it cannot read.
 
 To try the move first, give the data branch a trial name and leave `main` alone:
 
@@ -273,9 +285,9 @@ GitHub limits pushes to named people only on a repo an organization owns, and pr
 
 ## Team packs
 
-Your team's pack is installed during setup but is **not enabled** by default. The daemon's snapshot engine converges your team's pack on every pull that moves HEAD: for a pack that is already installed it runs `claude plugin update` (preserving the disabled state), never `install` (which would re-enable). Other teams' packs are left alone.
+Setup installs your team's pack and turns it on: joining the team is the consent. If you turn it off yourself, rt leaves it off. The daemon's snapshot engine converges your team's pack on every pull that moves HEAD. For a pack that is already installed, it runs `claude plugin update`, which keeps the pack on or off as you left it. A pack it installs fresh is turned on. Other teams' packs are left alone. If you joined before v2.25.0, when setup still left the pack off, the update to v2.25.0 or later turns your team's pack on, once.
 
-The checklist (**Setup status…**, or `rt setup status`) shows a row per team-served pack with its installed version, served version, and the command to enable it.
+The checklist (**Setup status…**, or `rt setup status`) shows a row per team-served pack with its installed version and served version, plus the command to turn it on when it is off.
 
 ### A pack that needs a newer app
 
