@@ -19,3 +19,7 @@ Add a row when a page introduces a concept.
 | The repo access and data branch push rights the org's roles give each person on the forge | forge access | forge grants, repo permissions, membership sync |
 | A pipeline a team adds for one kind of work, run by its own `work-<kind>` verb | specialized pipeline | variant, flavor, work type |
 | The compiled `<stage>--<pipeline>` copy of a stage whose fills a pipeline overrides | stage copy | override stage, stage variant |
+| A gate answer in the human's own words instead of a pick | write-in | free text, custom answer, Other |
+| The branch of the org repo that holds the org's data | data branch | settings branch, config branch |
+| A branch an org admin's clone uses to try an org change | trial branch | test branch, staging branch |
+| The cropped, labelled image Fast Browser composes from a capture as a run's evidence | evidence board | board (alone), annotated screenshot, composite |

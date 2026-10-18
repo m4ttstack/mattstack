@@ -13,11 +13,12 @@ rt glitter
 
 ## The board
 
-- **Top bar.** Three segments (repository, worktree, branch) and an action button on the right. Click a segment, or press `r`, `w` or `b`, to open its foldout.
+- **Top bar.** Three segments (repository, worktree, branch) and an action button on the right. Click a segment, or press `r`, `w` or `b`, to open its foldout. Each segment shows its key beside its label, and the action button shows `f`.
 - **Changes list.** Every changed file with a checkbox, and a summary line reading "N changed files · M staged", where M counts ticked files. `/` filters the list: type, then press `enter`.
 - **Diff pane.** The selected file's full change against `HEAD`.
 - **Commit box.** A summary field, a description field, and the commit button, docked under the changes list.
-- **Keybar.** The main keys for the current tab. It changes on the History tab and in the stash view.
+- **Keybar.** The keys that act on the list in view. It changes on the History tab and in the stash view.
+- **Toasts.** A short confirmation, such as "Stashed changes" or "Pushed origin", floats over the bottom right corner after an action. It goes after 3 seconds, or at your next key or click.
 
 `1` and `2` switch between the Changes and History tabs.
 
@@ -57,7 +58,7 @@ The button on the right of the top bar always offers the next sensible remote st
 ## Repos, worktrees and branches
 
 - `r` opens the repository foldout. Repos are grouped by host and owner, and each repo shows a badge with its dirty count and ahead and behind arrows. The list is every repo `rt cd` finds, tracked or not. Untracked repos refresh their badges in the background every 15 minutes while glitter has focus, and fetch at most every 30 minutes.
-- `w` opens the worktree foldout, including the on-deck pool. `ctrl+n` turns the filter into a name field for a new worktree. The name you type is the **branch** name; rt picks the folder name itself. In a repo rt does not track, the foldout lists git's own worktrees and has no provision action.
+- `w` opens the worktree foldout, including the on-deck pool. The repo's main checkout is pinned first. `W` switches to it from any tab without opening the foldout. `ctrl+n` turns the filter into a name field for a new worktree. The name you type is the **branch** name; rt picks the folder name itself. In a repo rt does not track, the foldout lists git's own worktrees and has no provision action.
 - `b` opens the branch foldout, and `ctrl+n` there names a new branch. A branch that is checked out in another worktree, or that a gitq stack protects, is refused. Desktop would switch to the other worktree instead.
 
 Switching branches with uncommitted changes asks what to do: **Leave** them on the current branch as a stash, or **Bring** them to the new branch.
@@ -109,6 +110,7 @@ A `d` discard is permanent. It does not use the Trash, and it does not work on n
 | `u` | Undo the last commit |
 | `f` | Run the action button |
 | `b` / `w` / `r` | Branch, worktree, repository foldouts |
+| `W` | Switch to the main checkout |
 | `/` | Filter files (type, then `enter`) |
 | `S` / `h` | Stash all changes / show the stash |
 | `2` | History tab |

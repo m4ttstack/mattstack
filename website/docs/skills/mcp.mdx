@@ -32,12 +32,17 @@ The full list, with every tool's description and input schema, is the [MCP tools
 | Tool | What it does |
 | --- | --- |
 | `gate_ask` | Open a decision gate with daemon-side ceremony (subject resolution, presentation, nudge). Returns the gate id and presentation. |
-| `gate_answer` | Answer an open gate's questions as this pane. Values must match option values verbatim; nuance goes in a `note` field. |
+| `gate_open` | Build a gate from a structured source (or a review's findings), check it, fit its context to the 8 KB budget, then open it the way `gate_ask` does. A source with problems is refused, one line per problem, and nothing opens. |
+| `gate_answer` | Answer an open gate's questions as this pane. Values must match option values verbatim; nuance goes in a `note` field. A question opened with `writeIn: true` may take `{writeIn}`, the human's own words, instead. Under a run, the answer is recorded as the stage's decision. |
+| `gate_reconcile` | The one call on every return to a gate: a finished `rt gate wait`, a doorbell push, or words typed at a held gate. Reads the gate and, when it was answered under a run, records the answer as the stage's decision. It never invents an answer for a closed gate. |
+| `gate_record` | Record a decision on a run that no gate tool recorded when it was answered, such as a review's post decision after the skill acted on it. It records only; the skill acts. |
 | `gate_list` | List gates (every status, or only open ones), optionally filtered by subject prefix or kind. Supports cursor-based paging. |
+
+The gate tools open, read and record. None picks an answer; the skill that owns the gate presents it and acts on the answer.
 
 ### Run tracking
 
-Pipeline runs record their stages, fields and decisions through these tools. `run_start` returns a `runDb`; pass it to every run-targeted tool (all of them except `run_start` and `run_list`, which takes only an optional `repo` and `pipelines`). Those tools also accept an absolute `cwd` in its place, which resolves to this session's run, else the newest running run whose worktree holds `cwd`, but passing `runDb` is the reliable form. A `runDb` outside rt's runs root is refused.
+Pipeline runs record their stages, fields and decisions through these tools. `run_start` and `run_enter` return a `runDb`; pass it to every run-targeted tool (all of them except `run_start`, `run_enter` and `run_list`, which takes only an optional `repo` and `pipelines`). Those tools also accept an absolute `cwd` in its place, which resolves to this session's run, else the newest running run whose worktree holds `cwd`, but passing `runDb` is the reliable form. A `runDb` outside rt's runs root is refused.
 
 | Tool | What it does |
 | --- | --- |
@@ -50,6 +55,19 @@ Pipeline runs record their stages, fields and decisions through these tools. `ru
 | `run_snapshot` | The run's stages, fields and decisions. |
 | `run_list` | Runs the daemon knows, newest first, optionally for one repo and for some pipelines. A run recorded without a pipeline counts as `work`. |
 
+A pipeline moves from stage to stage through the run engine:
+
+| Tool | What it does |
+| --- | --- |
+| `run_enter` | Start, resume or inherit a run and say where it stands, or list the runs to choose between. |
+| `run_next` | Read how a stage ended and move on: start the next stage when every produce is set, or report failed, held, waiting or the last stage. |
+| `run_resolve` | Apply a gate's answer to a stage: retry, redirect, iterate, hold, abandon or done. |
+| `run_hold` | Record that a stage is held, with an optional reason. |
+| `run_close` | Close a standalone verb's own run as done, failed or abandoned. A run the verb inherited is refused. |
+| `run_budget` | Count against a named budget on the run and return what is spent and left. It counts past the limit and never refuses. |
+
+The run engine returns results and opens no gates; the skill asks any question a result raises.
+
 ### MR writes
 
 | Tool | What it does |
@@ -61,12 +79,13 @@ Pipeline runs record their stages, fields and decisions through these tools. `ru
 | `mr_approve` | Approve an MR, or withdraw the approval with `approved: false` (GitLab only). |
 | `mr_ready` | Mark a draft MR ready, or back to draft with `ready: false` (GitLab only). |
 | `mr_retry` | Retry one CI job or a whole pipeline (GitLab only). |
-| `mr_rebase` | Request a server-side rebase of the MR's source branch (GitLab only). |
-| `mr_create` | Create an MR from a pushed branch, as a draft by default, with optional `labels` and `squash` (GitLab only). |
+| `mr_rebase` | Request a server-side rebase of the MR's source branch. With `wait: true` it polls the MR until the rebase lands, fails or the wait runs out, and says which (GitLab only). |
+| `mr_create` | Create an MR from a pushed branch, as a draft by default, with optional `labels` and `squash`. With `ifExists: "return"` it returns the branch's open MR instead of creating a second one (GitLab only). |
 | `mr_update` | Edit an open MR's `title`, `description`, `addLabels`, `removeLabels` or `squash`; at least one (GitLab only). |
-| `mr_upload` | Upload one local image or video to the project and get back the markdown that embeds it (GitLab only). |
+| `mr_upload` | Upload one local image or video, or up to 20 in order, to the project and get back the markdown that embeds each (GitLab only). |
+| `respond_post_execute` | Carry out a review response in one call: push the fixes when a fix was picked, post the replies and resolve the threads, exactly as the recorded decisions say. A reply already on the MR is not posted twice (GitLab only). |
 | `mr_merge` | Merge an MR now, optionally squashing and deleting the source branch, or enable auto-merge with `whenPipelineSucceeds: true`; reports what it observed after the request (GitLab only). |
-| `mr_map` | List open MRs joined to the local worktrees holding their branches. |
+| `mr_map` | List a repo's open MRs, read live from GitLab, joined to the local worktrees holding their branches (GitLab only). |
 
 `mr_merge` goes through GitLab like a merge from its web page: GitLab still enforces the project's approval and pipeline rules. The skill that calls it holds its own ship gate, which is where you say go.
 
@@ -79,15 +98,18 @@ Pipeline runs record their stages, fields and decisions through these tools. `ru
 | `mr_for_branch` | The open MR, or null, for each named source branch, by any author (GitLab only). |
 | `mr_threads` | The MR's discussion threads, fetched from GitLab on every call (GitLab only). |
 | `mr_pipeline` | The MR's head pipeline, and with `jobId` that job's detail (GitLab only). |
+| `pipeline_jobs` | The jobs of one pipeline and its same-project child pipelines, the latest run of each, with the bridges to downstream pipelines (GitLab only). |
+| `mr_posted_since` | Whether you (or a named account) already posted on the MR since a time, by thread or by item. It reads the threads once and posts nothing (GitLab only). |
+| `mr_resolve_branch` | An MR's branch and the registered worktrees already on it, for a checkout. It provisions nothing (GitLab only). |
 | `mr_job_trace` | Part of one CI job's trace: the tail, the head, a line range, or lines matching text; ANSI escapes stripped, capped at 64 KiB (GitLab only). |
 | `pipeline_list` | Pipelines for a branch, a commit or an MR, newest first; works with no MR (GitLab only). |
 | `project_labels` | The project's labels, optionally searched by name (GitLab only). |
 | `gitlab_get` | One read-only GET against GitLab's REST API for a fact no other tool returns. It refuses paths that return credentials, and query keys that carry credentials and impersonation. It caps the body at 256 KiB, does not follow redirects, and redacts token values (GitLab only). |
-| `branch_stack` | Whether a tree's branch is in a tracked stack, and its parent. Takes `tree`, the absolute root of a registered checkout or worktree; reads no forge. |
+| `branch_stack` | Whether a tree's branch is in a tracked stack, and its parent. Takes `tree`, a registered checkout or worktree or a directory inside one; reads no forge. |
 
-`pipeline_list`, `project_labels` and `gitlab_get` name their target with `repoName`, like the `mr_*` tools. `mr_view`, `mr_list`, `mr_for_branch`, `mr_threads`, `mr_pipeline`, `mr_job_trace`, `pipeline_list`, `project_labels` and `gitlab_get` ask GitLab on each call and none uses the daemon's open-MR cache, so an agent can read any MR its token can see. `mr_map` is the exception: it reads the daemon's synced MR list. A refusal comes back as GitLab's own status and text. `mr_list` with `targetBranch` also returns `full`, true when nothing was cut, so an empty full list proves the branch has no open MRs targeting it.
+`pipeline_list`, `project_labels` and `gitlab_get` name their target with `repoName`, like the `mr_*` tools. Every MR and pipeline read here asks GitLab on each call and none uses the daemon's open-MR cache, so an agent can read any MR its token can see. `mr_map` reads its MRs live too, and takes only each MR's CI status from the daemon's synced MR list. A refusal comes back as GitLab's own status and text. `mr_list` with `targetBranch` also returns `full`, true when nothing was cut, so an empty full list proves the branch has no open MRs targeting it.
 
-Every `mr_*` tool names its target with `repoName`. That value is the repo's serialized identity such as `remote:gitlab.com%2Fexample%2Fapp`, an absolute path to a checkout or worktree, or a repo label that matches exactly one registered repo. The tools that act on one MR also take `mrUrl` (the MR's URL; its project must be registered with rt, and the URL supplies the iid). A URL is matched to a registered repo by identity first, then by the registered checkouts' origin remotes. That way, a repo pinned to another identity through `rt.repoIdentityOverrides` still resolves. A URL matching two checkouts is refused as ambiguous. Given both, they must agree. `mr_map` takes `repo` (identity or label).
+Every `mr_*` tool names its target with `repoName`. That value is the repo's serialized identity such as `remote:gitlab.com%2Fexample%2Fapp`, an absolute path to a checkout or worktree, or a repo label that matches exactly one registered repo. The tools that act on one MR also take `mrUrl` (the MR's URL; its project must be registered with rt, and the URL supplies the iid). A URL is matched to a registered repo by identity first, then by the registered checkouts' origin remotes. That way, a repo pinned to another identity through `rt.repoIdentityOverrides` still resolves. A URL matching two checkouts is refused as ambiguous. Given both, they must agree. `mr_map` still accepts `repo` as an older name for `repoName`.
 
 `mr_upload` reads only regular files with no other hard links. The file must sit under one of these:
 
@@ -103,18 +125,23 @@ It reads only png, jpg, jpeg, gif, webp, mp4, mov or webm files up to 50 MB whos
 rt settings set rt.mcp.uploadRoots '["/Users/you/Screenshots"]' --scope machine
 ```
 
-`mr_upload` also takes a pipeline run's `runId`. With it, the tool refuses a file that the run's evidence record does not list as an annotated image or a waived capture, and the refusal names the file.
+`mr_upload` also takes a pipeline run's `runId`. With it, the tool refuses a file that the run's evidence record does not list as an annotated image or a waived capture, and the refusal names the file. A file under a run's evidence folder is checked against that run's record even without `runId`. It also refuses:
+
+- An evidence board that hides part of an image, until its redactions are confirmed.
+- An imported capture; upload its evidence board instead.
+- A ticket image a run saved, at its own path or as a copy of the same bytes anywhere.
 
 ### Git
 
-Each git tool takes `tree`, the absolute path of the root of a checkout or worktree of a repo registered with rt. Anything else (an unregistered repo, a directory inside a tree) is refused before git runs.
+Each git tool takes `tree`, the absolute path of a checkout or worktree of a repo registered with rt. A directory inside one resolves to that tree's root, which the result names. An unregistered repo is refused before git runs, and so is a directory behind another repo's `.git` (a submodule or a vendored clone) or one the tree's git ignores.
 
 | Tool | What it does |
 | --- | --- |
-| `git_push` | Push the current branch to its same-named upstream, or as `origin/<branch>` with `setUpstream: true`. |
+| `git_push` | Push the current branch to its same-named upstream, or as `origin/<branch>` with `setUpstream: true`. Returns the pushed sha, and on GitLab the branch's open MR and its latest pipeline id from just before the push, so a CI watch can tell the new pipeline from the old. |
 | `git_pull` | Fast-forward the current branch from its upstream (`--ff-only`). |
 | `git_rebase` | Rebase onto a named branch or ref, fetching a remote-tracking ref first; `abort: true` aborts a rebase in progress. |
 | `branch_sync` | Bring the branch current in one call, the `rt sync` flow: fetch, reset to origin when GitLab rebased it, rebase onto the default branch, and push with a lease when the reset or rebase changed the branch. |
+| `branch_sync_sweep` | Run `branch_sync` on each of your branches with an open MR and a local worktree, one at a time, or only on the branches you name. Takes `repoName`, not `tree`. A conflict leaves that branch's rebase paused and the sweep moves on. |
 
 What they refuse:
 
@@ -128,11 +155,34 @@ What they refuse:
   - A branch name that is unsafe or ambiguous with a tag or other ref.
   - A local ref shadowing `origin/<branch>` or `origin/<default>`.
   - A push that config would redirect to another ref.
-  - A gitq stack member.
+  - A gitq stack member, or a branch whose stack membership cannot be checked.
 
   A branch only ahead of origin is not refused, but it is pushed only when the reset or rebase changed it. Use `git_push` to publish new commits.
 
 `git commit` and `git add` are not tools; they stay in Bash.
+
+### CI
+
+| Tool | What it does |
+| --- | --- |
+| `ci_watch` | Watch the MR's pipeline for the pushed commit until it settles or the wait runs out, and return the state, the failed jobs with a trace tail, and the watch budget. With `attend: true` it holds this session's CI lease across calls and keeps the budget window per MR (GitLab only). |
+| `ci_triage` | Sort a pipeline's failed jobs into real, infrastructure or unclear by their logs, and mark each blocking job as yours or inherited from the target branch. It reports; retrying is the caller's call (GitLab only). |
+| `ci_lease_claim` | Claim the MR's CI attendant lease for this session, so only one session attends an MR's CI at a time. |
+| `ci_lease_heartbeat` | Refresh this session's lease between watches. |
+| `ci_lease_release` | Release this session's lease. |
+| `ci_lease_read` | Read the MR's lease and whether it is this session's. |
+
+`ci_triage`'s patterns and its comparison branch come from the `ci.triage.*` settings, and `ci_watch`'s budget from `ci.watch.budgetMinutes` (default 75).
+
+### Evidence
+
+| Tool | What it does |
+| --- | --- |
+| `evidence_record` | Merge images, case labels, waivers, a transcript or a ticket link into a run's evidence, copying each image with its bundle into the run's own evidence folder. It writes only when every image has a caption or a waiver. |
+| `evidence_attach` | After the attach gate says proceed, upload each file the run's evidence allows, reusing an earlier upload of the same bytes, and write the evidence section into the MR description. |
+| `dev_endpoints` | Look up the dev-server endpoints rt claimed for a worktree and probe each until it answers or the wait runs out. |
+
+`evidence_record` takes images only from the target repo's checkout or worktrees, your Claude Code temp root, `~/.mattstack/evidence`, a run's evidence folder, `~/.fast-browser/screenshots` and the `rt.mcp.uploadRoots` folders. `evidence_attach` never writes a section that names a path in your home directory. On GitHub it uploads nothing and names each file as attached separately.
 
 ### Worktrees
 
@@ -141,6 +191,13 @@ What they refuse:
 | `worktree_provision` | Claim a worktree for a ticket or branch (from the on-deck pool, or freshly created) and return its path; enter it with `EnterWorktree` in path mode. |
 | `worktree_dispose` | Dispose a worktree by its tree name; it goes to the restorable trash. |
 | `worktree_stop_holders` | End the processes rt ties to a worktree (dev servers, watchers), and only those. |
+
+`worktree_provision` takes options a pipeline's provision stage uses, all off by default:
+
+- `precheck` reports the branch a provision would use and the trees already on it, and creates nothing.
+- `reuse` hands back the tree already on the branch instead of making another. It refuses a tree someone else claimed and names the owner, unless `takeOver` says a human picked that tree.
+- `codes` returns each refusal as JSON with a code, such as `branch-attached`, `tree-held` or `daemon-unreachable`.
+- `runDb` records the tree's branch and path on the run, and `budget` counts each refusal against a run budget.
 
 There is no general process-kill tool.
 
@@ -162,7 +219,13 @@ Shepherd side:
 | --- | --- |
 | `herd_start` | Start a herd (room, workspace, gate subscription) for this session. |
 | `herd_brief` | Assemble a job brief from a template plus a strategy body or method file. |
-| `herd_spawn` | Spawn a worker pane for a job: provision its worktree and launch Claude with the brief. Takes minutes. |
+| `herd_spawn` | Spawn a worker pane for a job: provision its worktree, or reuse a registered tree named with `tree`, and launch Claude with the brief. A spawn into a tree another job holds is a reviewer, counted against the host's reviewer rounds. Takes minutes. |
+| `herd_respawn` | Relaunch a job's agent in its existing worktree, with the stored brief and settings unless given new ones. Takes minutes. |
+| `herd_gate_answer` | Answer one of the herd's open or parked gates as the shepherd. A bad value is refused with each question's valid values. |
+| `herd_gate_park` | Park one of the herd's open gates. It stays answerable. |
+| `herd_diagnose` | A stuck-looking job's pane state, open gates, last gate and watchdog strikes, with a verdict and the job's budgets. It never returns pane text. |
+| `herd_nudge` | Nudge a job about an answered gate it has not picked up: a direct message, then the pane, within its budget. |
+| `herd_lanes` | Each job's lane: branch drift, files shared with other jobs, and its MR's merge state. |
 | `herd_close` | Close one job's pane. |
 | `herd_follow_up` | Reopen a done job for a follow-up round. |
 | `herd_attend` | Open a job's pane in a tab of this shepherd's workspace. |
@@ -171,7 +234,7 @@ Shepherd side:
 | `herd_status` | One herd: jobs, panes, gates, subscription, unread. |
 | `herd_list` | Active herds, or every herd with `all: true`. |
 
-`herd_start` refuses in a worker pane. Only the herd's shepherd can run `herd_spawn`, `herd_close`, `herd_follow_up`, `herd_attend` and `herd_wrap_up`, never a worker pane. The daemon records the shepherd as the session that ran `herd_start`, or took the herd over with `herd_resume`. The files these tools read or write are confined. `herd_brief`'s `out` must sit in your Claude Code temp root. A brief, template, strategies file or method file must be an existing `.md` file in the temp root or an installed plugin or pack root.
+`herd_start` refuses in a worker pane. Only the herd's shepherd can run `herd_spawn`, `herd_respawn`, `herd_gate_answer`, `herd_gate_park`, `herd_diagnose`, `herd_nudge`, `herd_lanes`, `herd_close`, `herd_follow_up`, `herd_attend` and `herd_wrap_up`, never a worker pane. The daemon keeps each job's respawn, nudge and reviewer budgets, so they survive a new shepherd session. The daemon records the shepherd as the session that ran `herd_start`, or took the herd over with `herd_resume`. The files these tools read or write are confined. `herd_brief`'s `out` must sit in your Claude Code temp root. A brief, template, strategies file or method file must be an existing `.md` file in the temp root or an installed plugin or pack root.
 
 ### Chat
 
@@ -242,7 +305,6 @@ Forge payloads can carry live credentials: avatar URLs with a `private_token` qu
 A few things skills still run in a shell, on purpose:
 
 - **Long waits.** `rt gate wait <id>` and `rt events wait` block past any tool timeout, so skills run them as background Bash or under `Monitor`. Install's allow list covers them with the prefix rules `Bash(rt gate *)` and `Bash(rt events wait *)`.
-- **The shepherd's gate answers.** `gate_answer` always answers as the pane, so a shepherd answering a herd gate runs `rt gate answer --by shepherd` in Bash, under the same `rt gate` rule.
 - **Commits and staging.** `git commit`, `git add`, and `git rebase --continue` after a resolved conflict run in Bash; in auto mode the classifier approves routine commits.
 - **Project tooling.** A repo's own checks and scripts, and a pack's scripts.
 - **GitHub.** Every `mr_*` tool is GitLab only; GitHub flows run `gh` in Bash.

@@ -62,6 +62,21 @@ Each question can carry its own `context` field for material specific to that ch
 ]
 ```
 
+### Write-ins
+
+A question can also take an answer in the human's own words. Mark it with `"writeIn": true`, and set it only on a decision question whose free-text answer the agent can act on, never on `next`. The question still needs options; a question with none is free-form already.
+
+```json
+{
+  "id": "approach",
+  "label": "How should we split this?",
+  "options": ["One MR", "Two MRs"],
+  "writeIn": true
+}
+```
+
+In the console and the board, the human leaves the options alone and types into the question's note box.
+
 ## Answering
 
 ```bash
@@ -71,13 +86,26 @@ rt gate answer <id> --answers '{"q1":"refactor"}' --by human   # answer one
 
 Answer values must match an option's value verbatim. Free-text feedback rides a per-answer `note` field. For multi-select questions, the answer is an array of values.
 
+A question marked `writeIn` may instead take the human's own words, sent alone with no `value`, `note` or `text`:
+
+```bash
+rt gate answer <id> --by human \
+  --answers '{"approach":{"writeIn":"migration in its own MR"}}'
+```
+
+The daemon refuses an empty write-in, and a write-in on a question not marked for one. The agent treats a write-in as the human's instruction and never maps it onto the nearest option.
+
 ### Herd ownership
 
-When a gate was opened by a herd worker, only the owning shepherd's session (or the gated pane itself) can answer it. Pass `--override` to escalate as a human past the automated owner.
+When a gate was opened by a herd worker, only the owning shepherd's session (or the gated pane itself) can answer it. The shepherd answers or parks one with the `herd_gate_answer` and `herd_gate_park` tools. Pass `--override` to escalate as a human past the automated owner.
+
+## Gates in a pipeline run
+
+A pipeline's skills ask their questions through the gate tools on the [MCP server](/skills/mcp), not the CLI. A stage opens its gate with `gate_ask`, or with `gate_open` from a structured source that the tool fits to the 8 KB budget. When the gate is answered, the answer is recorded on the run as a decision in that stage, so the run's story in [console](/apps/console) shows it. A gate superseded by a later one at the same point records nothing. The gate tools only open, read and record; the skill decides what happens next.
 
 ## Delivery
 
-When a gate that carries a nudge session (every form-presented gate does) is answered from another surface, the daemon pushes a notification to the gated pane. The notification tells the pane to re-read the registry; it does not carry the answer itself. The pane then calls `rt gate wait` (or `rt herd answer`) to read the recorded answer. A gate with no nudge session (a wait-presented `rt gate ask` gate, for one) gets no push: its `rt gate wait` simply returns.
+When a gate that carries a nudge session (every form-presented gate does) is answered from another surface, the daemon pushes a notification to the gated pane. The notification tells the pane to re-read the registry; it does not carry the answer itself. The pane then reads the recorded answer. A skill calls `gate_reconcile`, which under a run also records the answer. A shell calls `rt gate wait` (or `rt herd answer`). A gate with no nudge session (a wait-presented `rt gate ask` gate, for one) gets no push: its `rt gate wait` returns.
 
 If the gated pane has exited, the daemon retries delivery with bounded retries (up to 20 attempts). An unanswered herd-owned gate is escalated to the human once its TTL passes, or as soon as the owning shepherd's subscription is gone.
 
