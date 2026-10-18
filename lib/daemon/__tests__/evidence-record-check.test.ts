@@ -16,14 +16,19 @@ function record(shot: object) {
   return readEvidence(JSON.stringify({ v: 2, cases: [{ id: "t", label: "T", before: { path: "/work/r1/evidence/t/t.png", source: "ticket", annotated: "/work/r1/evidence/t/b.png", caption: "c", ...shot } }] }));
 }
 const untouchable = {
-  resolve: (p: string): string | null => { throw new Error(`resolved ${p}`); },
+  resolve: (): string | null => null,
   probe: (p: string): never => { throw new Error(`probed ${p}`); },
 };
 
 describe("ticketCopyRefusal with a recorded size and sha256", () => {
   const hashed = record({ size: TICKET.length, sha256: hex(TICKET) });
 
-  test("refuses a byte copy without resolving or probing the ticket file", () => {
+  test("refuses the ticket file edited in place at its own path when the recorded path reaches it through a symlink", () => {
+    const res = ticketCopyRefusal({ record: hashed, realpath: "/real/work/r1/evidence/t/t.png", filename: "copy.png", bytes: new TextEncoder().encode("edited"), resolve: () => "/real/work/r1/evidence/t/t.png", probe: untouchable.probe });
+    expect(res).toBe(REFUSED);
+  });
+
+  test("refuses a byte copy without probing the ticket file", () => {
     expect(ticketCopyRefusal({ record: hashed, realpath: "/tmp/copy.png", filename: "copy.png", bytes: TICKET, ...untouchable })).toBe(REFUSED);
   });
 

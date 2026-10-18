@@ -37,7 +37,8 @@ const IS_TICKET = (filename: string) => `${filename} is the unredacted original 
 /**
  * Refuses a file that is a run's saved ticket image, at its path or as a byte
  * copy. A shot with a recorded size and sha256 is matched against those, so
- * the ticket file is never read and need not exist. A legacy shot with none
+ * the ticket file is never read and need not exist; the record is trusted
+ * over the file. A legacy shot with none
  * reads the ticket file: unreadable fails closed, gone cannot be compared.
  */
 export function ticketCopyRefusal(o: {
@@ -56,7 +57,7 @@ export function ticketCopyRefusal(o: {
   for (const { shot } of evidenceShots(o.record)) {
     if (shot.source !== "ticket") continue;
     if (o.bytes && shot.sha256 !== undefined) {
-      if (shot.path === o.realpath) return IS_TICKET(o.filename);
+      if (shot.path === o.realpath || resolve(shot.path) === o.realpath) return IS_TICKET(o.filename);
       if ((shot.size === undefined || shot.size === o.bytes.length) && mineOf(o.bytes) === shot.sha256) return IS_TICKET(o.filename);
       continue;
     }
