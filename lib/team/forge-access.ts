@@ -91,8 +91,10 @@ function jsonValues(stdout: string): unknown[] | null {
       else if (ch === '"') inString = false;
       continue;
     }
-    if (ch === '"') inString = true;
-    else if (ch === "[" || ch === "{") {
+    if (ch === '"') {
+      if (depth === 0) return null;
+      inString = true;
+    } else if (ch === "[" || ch === "{") {
       if (depth === 0) start = i;
       depth++;
     } else if (ch === "]" || ch === "}") {

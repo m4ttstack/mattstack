@@ -31,5 +31,6 @@ describe("pagedList", () => {
   test("output that is not JSON arrays reads as null", () => {
     expect(pagedList("HTTP 403 Forbidden", "glab")).toBeNull();
     expect(pagedList(`${JSON.stringify([member(1, "ada")])}{"message":"oops"}`, "glab")).toBeNull();
+    expect(pagedList('[]"error"[]', "glab")).toBeNull();
   });
 });
