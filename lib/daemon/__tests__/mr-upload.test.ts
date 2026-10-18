@@ -450,6 +450,13 @@ describe("mr:upload", () => {
       });
     });
 
+    test("with no run in scope, a plan:ticket record passes the ticket pre-filter and is skipped without a warning", async () => {
+      const warns: unknown[] = [];
+      const h = harness({ repoPath, warns, runRecords: () => [{ runId: "run-1", evidence: JSON.stringify({ plan: "ticket", url: "https://tracker.example.com/T-1" }) }] });
+      expect((await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) })).ok).toBe(true);
+      expect(warns).toEqual([]);
+    });
+
     test("with no run in scope, a run whose db cannot be read is skipped with a warning naming the run", async () => {
       mkdirSync(join(home, ".mattstack", "runs", "app", "r-bad"), { recursive: true });
       writeFileSync(join(home, ".mattstack", "runs", "app", "r-bad", "state.db"), "not a db");
