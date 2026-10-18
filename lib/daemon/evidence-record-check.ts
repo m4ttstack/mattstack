@@ -10,6 +10,9 @@ import { readFileSync, realpathSync, statSync } from "fs";
 import { basename } from "path";
 import { evidenceShots, readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
 
+/** The one remedy for a file a run's record does not hold: the tool that copies and records it, never a raw field write. */
+export const RECORD_REMEDY = "record it with evidence_record first";
+
 export type RunEvidenceLookup = { found: false } | { found: true; evidence: string | null };
 
 type Warn = (message: string, context: { err: unknown; path: string }) => void;
@@ -29,10 +32,14 @@ function probe(p: string): Probe {
 
 const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 
+const IS_TICKET = (filename: string) => `${filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
+
 /**
  * Refuses a file that is a run's saved ticket image, at its path or as a byte
- * copy. A ticket file it cannot read fails closed; a ticket file that is gone
- * cannot be compared, a known limit (the record holds no hash of it).
+ * copy. A shot with a recorded size and sha256 is matched against those, so
+ * the ticket file is never read and need not exist; the record is trusted
+ * over the file. A legacy shot with none
+ * reads the ticket file: unreadable fails closed, gone cannot be compared.
  */
 export function ticketCopyRefusal(o: {
   record: EvidenceRecord;
@@ -45,11 +52,17 @@ export function ticketCopyRefusal(o: {
 }): string | null {
   const resolve = o.resolve ?? safeRealpath;
   const look = o.probe ?? probe;
-  const mine = o.bytes ? sha256(o.bytes) : null;
+  let mine: string | null = null;
+  const mineOf = (b: Uint8Array) => (mine ??= sha256(b));
   for (const { shot } of evidenceShots(o.record)) {
     if (shot.source !== "ticket") continue;
-    if (resolve(shot.path) === o.realpath) return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
-    if (!o.bytes || mine === null) continue;
+    if (o.bytes && shot.sha256 !== undefined) {
+      if (shot.path === o.realpath || resolve(shot.path) === o.realpath) return IS_TICKET(o.filename);
+      if ((shot.size === undefined || shot.size === o.bytes.length) && mineOf(o.bytes) === shot.sha256) return IS_TICKET(o.filename);
+      continue;
+    }
+    if (resolve(shot.path) === o.realpath) return IS_TICKET(o.filename);
+    if (!o.bytes) continue;
     const found = look(shot.path);
     if (found.kind === "gone") continue;
     let theirs: Uint8Array | null = null;
@@ -64,9 +77,7 @@ export function ticketCopyRefusal(o: {
       o.warn?.("ticket copy check: unreadable ticket image, failing closed", { err: found.err, path: shot.path });
       return `${o.filename}: the run's ticket image ${basename(shot.path)} could not be read to rule out a copy; fix its permissions or recapture it`;
     }
-    if (theirs !== null && sha256(theirs) === mine) {
-      return `${o.filename} is the unredacted original of an imported ticket image; upload the composed board instead`;
-    }
+    if (theirs !== null && sha256(theirs) === mineOf(o.bytes)) return IS_TICKET(o.filename);
   }
   return null;
 }
@@ -90,7 +101,7 @@ export function evidenceUploadRefusal(o: {
 }): string | null {
   if (!o.run.found) return `run ${o.runId} not found`;
   const record = readEvidence(o.run.evidence);
-  if (record.version !== 2) return `run ${o.runId} has no evidence record; write evidence before uploading with runId`;
+  if (record.version !== 2) return `run ${o.runId} has no evidence record; ${RECORD_REMEDY}`;
   const resolve = o.resolve ?? safeRealpath;
   const same = (p: string) => resolve(p) === o.realpath;
   const ticket = ticketCopyRefusal({ record, realpath: o.realpath, filename: o.filename, bytes: o.bytes, resolve, warn: o.warn });
@@ -101,5 +112,5 @@ export function evidenceUploadRefusal(o: {
     const theme = raw.shot.theme ? ` (${raw.shot.theme})` : "";
     return `${o.filename} is the raw capture for case "${raw.caseId}" ${raw.slot}${theme}; upload its annotated image ${basename(raw.shot.annotated!)} instead`;
   }
-  return `${o.filename} is not in run ${o.runId}'s evidence record as an annotated image or a waived capture; record it with evidence_record first`;
+  return `${o.filename} is not in run ${o.runId}'s evidence record as an annotated image or a waived capture; ${RECORD_REMEDY}`;
 }
