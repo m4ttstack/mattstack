@@ -92,9 +92,12 @@ check_gatekeeper() { # app label
         echo "  · $label: notarization not asserted (pass --notarized after notarize.sh)"
         return
     fi
-    xcrun stapler validate "$app" >/dev/null 2>&1 \
-        && pass "$label has a stapled notarization ticket" \
-        || fail "$label has no stapled ticket -- Gatekeeper will refuse it on a machine that has not seen it before"
+    local staple_out
+    if staple_out="$("$SCRIPT_DIR/../scripts/release/stapler.sh" validate "$app" 2>&1)"; then
+        pass "$label has a stapled notarization ticket"
+    else
+        fail "$label has no valid stapled ticket -- Gatekeeper will refuse it on a machine that has not seen it before: $(printf '%s' "$staple_out" | tail -3 | tr '\n' ' ')"
+    fi
     # -t exec + --context: assess it the way Launch Services does, not as an
     # install package. Offline is the point: a stapled ticket must verify with
     # no network, which is the case a first launch on a locked-down or airplane

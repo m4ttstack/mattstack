@@ -137,6 +137,8 @@ elif [ "$STATUS" != "Accepted" ]; then
     exit 1
 fi
 
-xcrun stapler staple "$TARGET"
-xcrun stapler validate "$TARGET"
+# staple validates the ticket it attaches ("The staple and validate action
+# worked!"), so a separate validate here would only be one more lookup at
+# Apple's ticket service to lose the connection on.
+"$(dirname "$0")/stapler.sh" staple "$TARGET"
 echo "✓ notarized + stapled $TARGET"
