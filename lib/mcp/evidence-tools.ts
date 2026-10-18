@@ -14,6 +14,7 @@ import { basename, dirname, isAbsolute, join } from "path";
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
+import { UPLOAD_MAX_BYTES } from "../daemon/upload-guard.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
 import { ticketCopyRefusal } from "../daemon/evidence-record-check.ts";
 import { redactionUploadRefusal } from "../daemon/redaction-record-check.ts";
@@ -295,9 +296,11 @@ function onRun<T>(runDb: unknown, task: () => Promise<T>): Promise<T> {
   return next;
 }
 
-/** stat before the read: a record path can name a FIFO or a device. */
+/** stat before the read: a record path can name a FIFO, a device, or a video too big to ever upload. */
 function measureFile(path: string): { size: number; sha256: string } {
-  if (!statSync(path).isFile()) throw new Error("not a regular file");
+  const st = statSync(path);
+  if (!st.isFile()) throw new Error("not a regular file");
+  if (st.size > UPLOAD_MAX_BYTES) throw new Error("over the upload cap, so it never uploads; save a smaller image");
   const bytes = readFileSync(path);
   return { size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
 }

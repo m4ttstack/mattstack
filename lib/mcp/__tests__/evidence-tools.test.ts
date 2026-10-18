@@ -558,6 +558,16 @@ describe("evidence_record", () => {
       expect(plain.sha256).toBeUndefined();
     });
 
+    test("are never read from a file over the upload cap: the record is refused", async () => {
+      const big = put("t.png", "");
+      truncateSync(big, UPLOAD_MAX_BYTES + 1);
+      const { deps, fields } = makeDeps();
+      const res = await record(deps, { path: big, source: "ticket", annotated: put("t-board.png"), caption: "c" });
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain('case "t" before: the ticket image could not be read to record its size and sha256 (over the upload cap');
+      expect(fields.has("evidence")).toBe(false);
+    });
+
     test("are added to a legacy ticket shot the call touches", async () => {
       const dir = evidenceDir("t");
       const evidence = v2([{ id: "t", label: "T", before: { path: put("t.png", "legacy-bytes", dir), source: "ticket", annotated: put("t-board.png", "board", dir), caption: "c" } }]);
