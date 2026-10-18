@@ -24,7 +24,8 @@ for try in $(seq 1 "$TRIES"); do
         printf '%s\n' "$out"
         exit 0
     fi
-    if ! printf '%s' "$out" | grep -qE 'NSURLErrorDomain|CloudKit'; then
+    # -1001 timed out, -1004 could not connect, -1005 connection lost.
+    if ! printf '%s' "$out" | grep -qE 'NSURLErrorDomain Code=-100(1|4|5)\b|network connection was lost'; then
         printf '%s\n' "$out" >&2
         exit "$rc"
     fi

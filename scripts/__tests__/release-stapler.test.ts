@@ -86,6 +86,13 @@ describe("scripts/release/stapler.sh", () => {
     expect(r.stderr).toContain("does not have a ticket stapled");
   });
 
+  test("a network error that is not a dropped or refused connection fails at once", () => {
+    fakeXcrun([{ out: 'error is Error Domain=NSURLErrorDomain Code=-1202 "The certificate for this server is invalid."\nThe validate action failed! Error 68.', rc: 68 }]);
+    const r = run("validate");
+    expect(r.status).toBe(68);
+    expect(r.calls).toBe(1);
+  });
+
   test("an unknown action is refused", () => {
     fakeXcrun([{ out: "", rc: 0 }]);
     const r = run("remove");
