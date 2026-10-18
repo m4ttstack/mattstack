@@ -668,9 +668,17 @@ is no page to measure.
   values, with or without a `runId`; with none it reads every run's record
   under the runs root. So deleting the run-folder copy, or the run's whole
   work folder, no longer lets a leftover original go up: the earlier ENOENT
-  limit is closed. What remains: a run whose record is gone too no longer
-  remembers the image, and a legacy record with no hash still compares
-  against the ticket file, which cannot be compared once it is gone.
+  limit is closed. What remains:
+  - The memory lasts as long as the run's record. The daemon's run prune
+    deletes a finished run's whole folder, `state.db` included,
+    `rt.runsPruneDays` (default 30) after it ends, so by default an original
+    left in a temp root uploads 30 days after its run ends.
+  - A legacy ticket shot, recorded before this change with no hash, cannot
+    be compared once its ticket file is gone.
+  - The record is trusted over the file: a well-formed but wrong `sha256`
+    written straight through `run_field_set` lets the real original pass.
+    That is a shift in what is trusted, not a new kind of bypass: the same
+    writer could already drop `source` or the case.
 - Coordinates are in the image's real pixels. The skill tells the driver to
   read the real size first and to scale anything read off a downscaled
   display; compose refuses a frame outside the image or a box outside the
