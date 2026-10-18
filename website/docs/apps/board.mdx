@@ -93,8 +93,11 @@ Every item here needs a local board. Each row links to what that agent does. The
 | <BoardIcon name="agent" lane="doctor" /> | focus doctor | Shows the running doctor's pane. | The doctor is running and its pane is open. |
 | <BoardIcon name="agent" lane="doctor" /> | redo doctor | Starts a new doctor run from scratch, after you confirm. See [Redo](#redo). | The doctor finished, or its pane closed while it ran, and the MR still has failing CI or conflicts. |
 | <BoardIcon name="agent" lane="doctor" /> | rebase locally | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target, and a doctor skill is set up for the tab you are on. |
-| <BoardIcon name="agentCloud" /> | request review from… | Asks a teammate's agent to review your MR. See [Asks between boards](#asks-between-boards). | Your own MR, when there is a teammate left to ask. Otherwise it sits greyed in **all agent actions**. |
-| <BoardIcon name="people" /> | ask dev1's agent to respond | Asks the author's agent to answer your review. See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
+| <BoardIcon name="agentCloud" /> | request review from… | Opens a list of people to ask for a review, on your team and others. See [Picking who to ask](#picking-who-to-ask). | Your own MR, when there is someone left to ask. Otherwise it sits greyed in **all agent actions**. |
+| <BoardIcon name="agentCloud" /> | ask dev2's agent to re-review | Asks a teammate whose review left comments to review again. See [Asks between boards](#asks-between-boards). | Your own MR, one item per such teammate. |
+| <BoardIcon name="agentCloud" /> | ask dev1's agent to respond | Asks the author's agent to answer your review. See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
+
+The asks to a teammate's agent sit last, below a divider.
 
 When a follow-up review is offered, **review** and **redo review** move into **all agent actions**. On your own MR, **review**, **redo review** and **follow-up review** always sit there.
 
@@ -115,12 +118,11 @@ The rest of the agent work. Items with nothing to act on (no saved session, no r
 | <BoardIcon name="dismiss" /> | dismiss review line | Clears a failed review's line from the row. The next run brings the line back. |
 | <BoardIcon name="dismiss" /> | dismiss respond line | The same for a failed response. |
 | <BoardIcon name="dismiss" /> | dismiss doctor line | The same for a failed doctor. |
-| <BoardIcon name="people" /> | ask dev2's agent to re-review | Asks a teammate whose review left comments to review again. See [Asks between boards](#asks-between-boards). One item per such teammate, on your own MR. |
 | <BoardIcon name="agentCloud" /> | request review from… | Shown here, greyed, when there is nobody left to ask: "ask already sent", "no teammate boards connected" or "no teammate left to ask". |
 
 ### What each agent does
 
-Review, respond and doctor each run as a Claude Code agent in their own herdr pane on this Mac, in the `reviews`, `responses` or `doctors` workspace. They use the account and model set in `board.agent.account` and `board.agent.model`, and work in the folder `board.cwds` sets for that kind of work. When an agent needs a decision from you, it asks on the board and waits. Anything it posts to the MR is posted as you.
+Review, respond and doctor each run as a Claude Code agent in their own herdr pane on this Mac, in the `reviews`, `responses` or `doctors` workspace. When herdr isn't running, the board starts it first. They use the account and model set in `board.agent.account` and `board.agent.model`, and work in the folder `board.cwds` sets for that kind of work. When an agent needs a decision from you, it asks on the board and waits. Anything it posts to the MR is posted as you.
 
 #### Review
 
@@ -294,17 +296,39 @@ A stack of MRs stays together in the group of its bottom MR. Within a group, the
 
 ## Asks between boards
 
-When your teammates run their own boards, your board can ask a teammate's agent to work on an MR, and theirs can ask yours. The agent runs on the Mac of the person whose agent it is, with their Claude usage, and only after they say go ahead, unless they always allow you.
+When your teammates run their own boards, your board can ask a teammate's agent to work on an MR, and theirs can ask yours. A teammate can be on another team in your org. The agent runs on the Mac of the person whose agent it is, with their Claude usage, and only after they say go ahead, unless they always allow you.
 
 There are three kinds of ask:
 
 | Ask | Sent by | From the menu item |
 | --- | --- | --- |
-| review | The MR's author, to a teammate | request review from… |
+| review | The MR's author, to anyone in the org | request review from… |
 | re-review | The MR's author, to a teammate whose agent left comments | ask dev2's agent to re-review |
 | respond | A reviewer, to the MR's author | ask dev1's agent to respond |
 
-Asks need peering: both boards must be in the same [team](/start/teams) and connected to the team's relay, which `rt team join` sets up. A board that is not connected shows a banner with the command that fixes it.
+Asks need peering: both boards must be in the same [org](/start/teams) and connected to its relay, which `rt team join` sets up. A board that is not connected shows a banner with the command that fixes it.
+
+### Picking who to ask
+
+**request review from…** opens a list in the menu's place, with a search over names and teams. Only people whose board takes asks are listed, and never someone whose board already reviewed the MR or is reviewing it. The list runs in the order a code owners post uses:
+
+1. Your team, marked "your team".
+2. Each code owners section on the MR that still has to approve, in CODEOWNERS order, marked "code owner". A section reaches its team through the Slack channel in its name and the [team directory](/start/teams#team-directory).
+3. Every other team.
+
+A code owner group carries a **needs approval** or **approved** badge, or "checking…" while the MR has changed since its approvals were read. Your own team carries one too when it owns a section.
+
+When a code owner group has nobody on a board to ask, it offers its Slack channel instead:
+
+- **post in #channel…** opens the [post to slack](#post-to-slack) dialog with only that channel switched on.
+- **posted in slack** opens the post once the channel has it.
+- **slack channel not known** shows, greyed, when the section names no channel.
+
+Pick a person, and the ask's dialog opens before anything is sent. With several rows checked, the bulk menu offers only your teammates.
+
+### Asking for a re-review through the MR
+
+A reviewer's board whose review left comments adds a thread to the MR, for the author to resolve once everything is addressed (see [Review](#review)). When the relay has heard nothing from that reviewer's board but their thread is still open, **ask dev2's agent to re-review** resolves the thread instead of sending an ask. Their board picks it up on its next pass. Until then the item is greyed "asked in the MR thread".
 
 ### The inbox
 
@@ -389,6 +413,12 @@ dev1's row grows a band at its foot that follows the ask. Click it for the trail
 | `board.peerAsksAlwaysAllow` | The teammates whose asks start without waiting for you. The inbox's always allow checkbox and the Always allowed list edit it. |
 | `board.triage` | Its `cooldownMinutes` and `dailyAttemptBudget` pace always-allowed asks, alongside auto-doctor. |
 
+## A teammate already reviewing
+
+When a teammate's board starts a review of someone else's MR, it tells every peered board in your org. Your row for that MR then reads "dev2 is reviewing" in its status line, with a spinner, and **view ↗** opens the MR. The line clears when their review ends or its pane closes, or after two hours with no word from their board.
+
+Starting a **review** or **follow-up review** on that MR asks first: "dev2 is already reviewing this". Press **Review anyway** to go ahead, or **Cancel**. A bulk review leaves those MRs out and names them in its summary, for example "skipped !2, dev2 is reviewing".
+
 ## Waiting on author
 
 An MR is waiting on its author when the next move is theirs, not a reviewer's. The board checks six signals in this order and takes the first that is true and turned on:
@@ -440,6 +470,8 @@ These are registry keys, so you can read them with `rt settings get <key>`. The 
 | `board.reReview` | Turns the automatic re-review sweep on or off. |
 | `board.agent.account` | The cswap account the board's review, respond and doctor panes launch under. |
 | `board.agent.model` | Default model for those panes. |
+
+An older board kept its team's fields, such as `gitlabHost`, `projects` and `members`, in its own `config.json`, which an update renamed to `config.json.imported`. When that file sets a field your team's settings do not, setup's **Old board settings** row names the fields. **Show steps…** gives the `rt settings set` lines for a team admin to run, or the invites for the roster.
 
 ## Related
 

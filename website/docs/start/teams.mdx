@@ -7,26 +7,35 @@ title: Teams and invites
 
 An org is one git repo that rt manages, shared by everyone in it: settings, secrets, skill packs, and forge access, distributed to every member's Mac. Inside the org are teams. Each team is a folder with its own settings and its own skill pack, and the org's settings apply to every team.
 
+The org's data lives on its own branch of that repo, the data branch, named `mattstack` unless the org picked another. The repo's `main` holds only a small pointer to it, so `main` stays free for anything else.
+
 A Mac holds one org. Its clone lives at `~/.mattstack/orgs/<org>/`, a folder named for the org:
 
 - `mattstack/org/` holds the org's settings, its secrets and its base packs.
 - `mattstack/teams/<team>/` holds one team's settings and its pack, the team's Claude plugin, under `plugin/`.
 
+Each Mac holds only the team folders its role reaches. An org owner's or admin's Mac holds every team. Everyone else holds the org's own files and the teams they are on or own. When you leave a team while your copy has changes in its folder, the folder stays, and the **Team folders** row in setup status says what to do.
+
 ## Roles
 
 The org's `mattstack.org` setting names who may change what:
 
-- An **admin** changes anything in the org: its settings, every team folder, the roster, secrets and invites.
-- A team's **owner** changes that team's folder: its settings and its pack.
+- An **org owner** can do everything an admin can, and is the only one who renames the org or changes who the org owners are. `owners` lists them; when it lists nobody, the admins are the org owners.
+- An **admin** changes anything else in the org: its settings, every team folder, the roster, secrets and invites.
+- A team's **owner** changes that team's folder: its settings and its pack. They can also put people already in the org on their own teams, or take them off, but cannot change anything else about them.
 - A **member** changes nothing shared. Their Mac only pulls the org.
 
 A change you are not allowed to make is refused before anything is written, with a note naming who to ask: the team's owners, then the org's admins.
+
+:::note
+An app older than v2.25.0 reads only `admins`. Until every member has updated, list a new org owner in `admins` too.
+:::
 
 ## Creating an org
 
 In setup's team step, choose **Create a team**, give it a name, and leave **Others will join later** on if teammates will follow. For the repo, paste the URL of an empty repo on GitHub, GitLab, or anything git can push to. When the `gh` CLI is signed in, you can instead let mattstack create a private GitHub repo under an owner you pick. Setup scaffolds the org under `~/.mattstack/orgs/<name>/`, and its Install step pushes it.
 
-The org starts with one team inside. That first team takes the org's name, unless you name it with `--first-team`. You become the org's admin and the first team's owner.
+The org starts with one team inside. That first team takes the org's name, unless you name it with `--first-team`. You become the org's owner and the first team's owner. The org starts with its data on the `mattstack` branch and a pointer on `main`.
 
 From a terminal:
 
@@ -47,6 +56,13 @@ rt team members set dev3 --teams gadgets
 ```
 
 `rt team add` writes the team's folder and pack and shares them with the org.
+
+A team's owner puts someone who is already in the org on one of their teams, or takes them off it:
+
+```bash
+rt team members add dev3 --to gadgets
+rt team members drop dev3 --from gadgets
+```
 
 ## Team directory
 
@@ -107,7 +123,7 @@ A member's app that reads only an older layout never pulls the converted org. It
 
 ## Inviting a member
 
-Only an admin invites. Open **Settings → Team** (or **Invite teammates…** on setup's last screen), pick the team when the org has more than one, type the teammate's GitHub or GitLab handle, and click **Invite…**. You get an invite link to copy or share, plus a paste block for chat clients that mangle links, with the invite's expiry and the forge access it grants. When rt can't grant forge access itself, the steps to do it by hand appear underneath.
+Only an org owner or admin invites, and only while their clone is on the org's data branch. Open **Settings → Team** (or **Invite teammates…** on setup's last screen), pick the team when the org has more than one, type the teammate's GitHub or GitLab handle, and click **Invite…**. You get an invite link to copy or share, plus a paste block for chat clients that mangle links, with the invite's expiry and the forge access it grants. When rt can't grant forge access itself, the steps to do it by hand appear underneath.
 
 The link looks like `https://mattstack.dev/join#<code>`. The code lives in the URL fragment, so it never reaches the join page's server.
 
@@ -126,7 +142,9 @@ The joiner opens the invite link, or pastes the code into **Join a team** in set
 - If the joiner's forge account (GitHub or GitLab) cannot see the repo, a warning names the problem and suggests asking for access. The `access.team-repo` checklist row holds Install until access is resolved.
 - If access is confirmed, setup continues normally.
 
-The join clones only what mattstack uses: the `mattstack/` and `.claude-plugin/` folders and the files at the top of the org repo, such as `.sops.yaml`. When the org repo also holds other work, like an app's code or its docs, that stays on the remote and never lands on the joiner's Mac.
+A rejoin on a Mac whose copy of the org was cloned before the org moved to a data branch moves that copy onto the data branch first, the same way a pull does. When the move is held, for example by unsaved changes or a copy that is not on a branch, the join refuses and says what is in the way. The invite is still unused, so join again once it's fixed.
+
+The join clones only the org's data branch, then narrows it to the folders the joiner's role reaches. Whatever else the org repo holds, like an app's code on `main`, stays on the remote and never lands on the joiner's Mac.
 
 An invite minted before the org was renamed names the org by its old name. The join refuses it with "This invite names the org by an old name; ask for a fresh one" and removes the clone it just made; ask an admin for a new invite.
 
@@ -154,22 +172,63 @@ While you have outstanding invites, the daemon checks each one for a reply every
 
 ## How changes travel
 
-The daemon keeps each Mac's clone in step with the org repo. It pulls on a timer, and on an admin's or owner's Mac it also commits and pushes the changes that Mac's role owns, such as a `rt settings set --scope org` or `--scope team` write, with no hand commit. Packs are the exception: the pack's author commits and pushes a pack's edits, and `rt skills sync` brings the installed copies current. A member's Mac only pulls, so its clone never drifts from the org's.
+The daemon keeps each Mac's clone in step with the org repo. It pulls on a timer, and on an admin's or owner's Mac it also commits and pushes the changes that Mac's role owns, such as a `rt settings set --scope org` or `--scope team` write, with no hand commit. It does this only on the org's data branch, or on a [trial branch](#trying-a-change-on-a-branch) you chose; on any other branch the **Org branch** row in setup status says it is paused. Packs are the exception: the pack's author commits and pushes a pack's edits, and `rt skills sync` brings the installed copies current. A member's Mac only pulls, so its clone never drifts from the org's.
 
 ## Trying a change on a branch
 
-Your clone of the org follows whatever branch it has checked out: the daemon syncs that branch, `rt team publish` pushes it, and your apps read it. Everyone else stays on `main`, so you can try a breaking change without touching their Macs:
+Your clone of the org follows whatever branch it has checked out: the daemon syncs that branch, `rt team publish` pushes it, and your apps read it. Everyone else stays on the data branch, so an org owner or admin can try a breaking change without touching their Macs:
 
 ```bash
-git -C ~/.mattstack/orgs/acme switch -c org-trial
-git -C ~/.mattstack/orgs/acme push -u origin org-trial
+rt team branch use org-trial
 ```
 
-Make and test the change, then merge `org-trial` into `main` on your forge and switch your clone back with `git switch main`. `rt team status` names the branch while it isn't `main`. `rt team invite` refuses on a branch, because the people you invite clone `main`.
+When the org repo has no `org-trial` branch, rt makes it from the data branch's published tip. It then switches your clone in place, and the daemon commits your changes there, on this Mac only. The switch holds while your clone has unsaved changes or unpublished commits, and it refuses a branch that holds no org data.
+
+Make and test the change, then merge `org-trial` into the data branch on your forge, and switch back:
+
+```bash
+rt team branch use mattstack
+```
+
+`rt team status` names the branch when your clone is not on `main`. `rt team invite` refuses on a trial branch, because the people you invite clone the data branch.
+
+An org that still keeps its data on `main` has no data branch to start from, so there `rt team branch use` switches only to a branch that already holds the org's data, such as one the move script made. `rt team branch use main` switches back.
+
+## Moving to a data branch
+
+An org made before v2.25.0 keeps its data on `main`. An org admin moves it onto its own branch once, from a mattstack checkout:
+
+```bash
+bun scripts/move-to-data-branch.ts ~/.mattstack/orgs/<org> --admin <username>
+```
+
+On its own it prints the plan and writes nothing. Run it again with `--write` to make the move. It refuses unless your clone is clean and matches the org repo's `main`. It makes the data branch, `mattstack` unless `--data-branch` names another, with the org's data and a README. Then it commits the pointer to `main`. When `main` refuses the push, the pointer goes to a `mattstack-pointer` branch instead; land it the way your repo takes changes, such as a merge request.
+
+After the pointer is pushed, the script prints the next steps. Run them in order once the pointer is on `main`:
+
+```bash
+rt team pull
+rt team manage-membership on
+rt team forge-access --apply
+```
+
+`rt team pull` comes first because forge access reads this Mac's own copy of the org, which stays on `main` until it pulls. The pull needs this Mac's rt daemon on v2.25.0 or later; an older one holds the copy at a layout it cannot read.
+
+To try the move first, give the data branch a trial name and leave `main` alone:
+
+```bash
+bun scripts/move-to-data-branch.ts ~/.mattstack/orgs/<org> --admin <username> \
+  --data-branch org-trial --no-pointer --write
+rt team branch use org-trial
+```
+
+No other Mac moves. The real move refuses when the org repo already has its data branch, so never try it under the name you will keep.
+
+Once the pointer is on `main`, each member's Mac on an updated app moves its clone onto the data branch by itself, at its next pull or `rt team pull`. Unpublished org commits move with it. Uncommitted changes, a detached HEAD, or commits outside the org's data hold the move, and the **Org layout** row says which. A member's app that cannot read the new layout holds at the last commit it can read, and the row says to update the app.
 
 ## Renaming your org
 
-The org's name is what its repo says it is, not the folder on any one Mac. An admin renames it with:
+The org's name is what its repo says it is, not the folder on any one Mac. An org owner renames it with:
 
 ```bash
 rt team rename gadgets
@@ -226,9 +285,9 @@ GitHub limits pushes to named people only on a repo an organization owns, and pr
 
 ## Team packs
 
-Your team's pack is installed during setup but is **not enabled** by default. The daemon's snapshot engine converges your team's pack on every pull that moves HEAD: for a pack that is already installed it runs `claude plugin update` (preserving the disabled state), never `install` (which would re-enable). Other teams' packs are left alone.
+Setup installs your team's pack and turns it on: joining the team is the consent. If you turn it off yourself, rt leaves it off. The daemon's snapshot engine converges your team's pack on every pull that moves HEAD. For a pack that is already installed, it runs `claude plugin update`, which keeps the pack on or off as you left it. A pack it installs fresh is turned on. Other teams' packs are left alone. If you joined before v2.25.0, when setup still left the pack off, the update to v2.25.0 or later turns your team's pack on, once.
 
-The checklist (**Setup status…**, or `rt setup status`) shows a row per team-served pack with its installed version, served version, and the command to enable it.
+The checklist (**Setup status…**, or `rt setup status`) shows a row per team-served pack with its installed version and served version, plus the command to turn it on when it is off.
 
 ### A pack that needs a newer app
 
@@ -258,13 +317,16 @@ Asks the daemon to pull the org clone immediately instead of waiting for its per
 | `rt team add <team> --owner <user>` | Admins: add a team with its owners |
 | `rt team use <team>` | Switch which of your teams you work as |
 | `rt team publish` | Push your org changes to the remote |
-| `rt team rename <name>` | Admins: rename the org; members follow at their next update |
+| `rt team rename <name>` | Org owners: rename the org; members follow at their next update |
+| `rt team branch use <branch>` | Org owners and admins: switch your clone to a trial branch, or back |
 | `rt team invite --handle <user> [--teams <team>]` | Admins: mint an invite that puts someone on a team |
 | `rt team manage-membership [on\|off]` | Admins: let rt manage forge access from this Mac |
 | `rt team forge-access [--apply]` | Admins: see and fix who can reach the org's repo on the forge |
 | `rt team join` | Redeem an invite code |
 | `rt team members sync` | Admins: collect reply keys from invitees |
 | `rt team members set <user> --teams <team>` | Admins: change which teams someone is on |
+| `rt team members add <user> --to <team>` | Team owners: put someone in the org on one of your teams |
+| `rt team members drop <user> --from <team>` | Team owners: take someone off one of your teams |
 | `rt team members remove <user>` | Admins: revoke access and re-encrypt |
 | `rt team status` | Show the org and your team |
 | `rt team pull` | Pull the clone via the daemon, converging your team's pack if HEAD moved |
