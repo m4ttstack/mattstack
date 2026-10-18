@@ -78,8 +78,12 @@ export const V1_CASE_ID = "case";
 
 export const EVIDENCE_SOURCES = ["ticket"] as const;
 export type EvidenceSource = (typeof EVIDENCE_SOURCES)[number];
-/** source "ticket" marks a saved ticket image: never waived, never uploaded as shot. */
-export interface EvidenceShot { theme?: EvidenceTheme; path: string; source?: EvidenceSource; annotated?: string; caption?: string; waiver?: string }
+/**
+ * source "ticket" marks a saved ticket image: never waived, never uploaded as
+ * shot. size and sha256 are its recorded bytes, so a copy is recognised after
+ * the file itself is gone; only a ticket image carries them.
+ */
+export interface EvidenceShot { theme?: EvidenceTheme; path: string; source?: EvidenceSource; size?: number; sha256?: string; annotated?: string; caption?: string; waiver?: string }
 export interface EvidenceCase { id: string; label: string; waiver?: string; before?: EvidenceShot[]; after?: EvidenceShot[] }
 export type EvidenceRecord =
   | { version: 2; source: 1 | 2; cases: EvidenceCase[]; transcript?: string; url?: string; attach?: string }
@@ -98,12 +102,20 @@ function nonEmpty(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+const SHA256 = /^[0-9a-f]{64}$/;
+const isSize = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+const isSha256 = (v: unknown): v is string => typeof v === "string" && SHA256.test(v);
+
 // A case waiver covers only images with neither an annotated copy nor a waiver of their own.
 function readImage(o: unknown, theme: EvidenceTheme | undefined, caseWaiver: string | undefined): EvidenceShot | null {
   if (!isObject(o) || !nonEmpty(o.path)) return null;
   const shot: EvidenceShot = { path: o.path };
   if (theme) shot.theme = theme;
-  if ((EVIDENCE_SOURCES as readonly unknown[]).includes(o.source)) shot.source = o.source as EvidenceSource;
+  if ((EVIDENCE_SOURCES as readonly unknown[]).includes(o.source)) {
+    shot.source = o.source as EvidenceSource;
+    if (isSize(o.size)) shot.size = o.size;
+    if (isSha256(o.sha256)) shot.sha256 = o.sha256;
+  }
   if (nonEmpty(o.annotated)) shot.annotated = o.annotated;
   if (nonEmpty(o.caption)) shot.caption = o.caption;
   const waiver = nonEmpty(o.waiver) ? o.waiver : shot.annotated ? undefined : caseWaiver;
@@ -200,6 +212,9 @@ function imageProblem(o: unknown, where: string, caseWaived: boolean): string | 
   if (!isAbsolutePath(o.path)) return `${where} path must be an absolute path`;
   if (o.annotated !== undefined && !isAbsolutePath(o.annotated)) return `${where} annotated must be an absolute path`;
   if (o.source !== undefined && !(EVIDENCE_SOURCES as readonly unknown[]).includes(o.source)) return `${where} source must be "ticket"`;
+  if ((o.size !== undefined || o.sha256 !== undefined) && o.source !== "ticket") return `${where} carries a size or sha256 but is not a ticket image`;
+  if (o.size !== undefined && !isSize(o.size)) return `${where} size must be a non-negative whole number of bytes`;
+  if (o.sha256 !== undefined && !isSha256(o.sha256)) return `${where} sha256 must be 64 lowercase hex characters`;
   if (o.source === "ticket" && o.annotated === undefined && (o.waiver !== undefined || caseWaived)) {
     return `${where} is a ticket image and cannot be waived; compose an import board that hides its personal data`;
   }

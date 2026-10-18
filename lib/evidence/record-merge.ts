@@ -246,6 +246,30 @@ export function mergeRecord(current: RawRecord, input: MergeInput): { ok: true; 
   return { ok: true, record };
 }
 
+/**
+ * Records size and sha256 on each ticket image the call addressed that has
+ * none: a recapture (newImage drops them) or a legacy shot. measure reads the
+ * run-folder copy, never the caller's word; a shot that has them keeps them.
+ */
+export function stampTicketBytes(
+  record: RawRecord,
+  touched: Array<{ case: string; slot: Slot; theme?: Theme }>,
+  measure: (path: string) => { size: number; sha256: string },
+): { ok: true } | Fail {
+  for (const t of touched) {
+    const img = imageAt(record.cases.find((c) => c.id === t.case), t.slot, t.theme);
+    if (!img || img.source !== "ticket" || typeof img.sha256 === "string") continue;
+    try {
+      const { size, sha256 } = measure(img.path);
+      img.size = size;
+      img.sha256 = sha256;
+    } catch (err) {
+      return { ok: false, error: `${where(t.case, t.slot, t.theme)}: the ticket image could not be read to record its size and sha256 (${(err as Error).message}); recapture it` };
+    }
+  }
+  return { ok: true };
+}
+
 export function serializeRecord(
   record: RawRecord,
   plan?: "none",

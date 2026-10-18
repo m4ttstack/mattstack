@@ -6,6 +6,7 @@ import {
   mergeRecord,
   parseCurrent,
   serializeRecord,
+  stampTicketBytes,
   uncoveredImages,
 } from "../record-merge.ts";
 
@@ -177,6 +178,43 @@ describe("ticket source", () => {
     const r = mergeRecord(first(), { images: [{ case: "t", slot: "before", path: "/run/live.png", annotated: "/run/b.png", caption: "c" }] });
     if (!r.ok) throw new Error(r.error);
     expect(r.record.cases[0]!.before).toEqual({ path: "/run/live.png", annotated: "/run/b.png", caption: "c" });
+  });
+});
+
+describe("stampTicketBytes", () => {
+  const SHA = "c".repeat(64);
+  const at = { case: "t", slot: "before" as const };
+  const ticket = (extra: object = {}) => parseCurrent(JSON.stringify({ v: 2, cases: [{ id: "t", label: "T", before: { path: "/run/t.png", source: "ticket", ...extra } }] }));
+  const measured: string[] = [];
+  const measure = (p: string) => { measured.push(p); return { size: 7, sha256: SHA }; };
+
+  test("stamps a touched ticket image from its recorded path", () => {
+    const record = ticket();
+    measured.length = 0;
+    expect(stampTicketBytes(record, [at], measure)).toEqual({ ok: true });
+    expect(record.cases[0]!.before).toEqual({ path: "/run/t.png", source: "ticket", size: 7, sha256: SHA });
+    expect(measured).toEqual(["/run/t.png"]);
+  });
+  test("keeps a recorded hash, leaves untouched and non-ticket images alone", () => {
+    const kept = ticket({ size: 1, sha256: "d".repeat(64) });
+    measured.length = 0;
+    stampTicketBytes(kept, [at], measure);
+    expect(kept.cases[0]!.before).toMatchObject({ size: 1, sha256: "d".repeat(64) });
+    const untouched = ticket();
+    stampTicketBytes(untouched, [], measure);
+    const plain = parseCurrent(JSON.stringify({ v: 2, cases: [{ id: "t", label: "T", before: { path: "/run/p.png", waiver: "w" } }] }));
+    stampTicketBytes(plain, [at], measure);
+    expect(measured).toEqual([]);
+  });
+  test("a sticky same-path merge keeps size and sha256; a recapture drops them for restamping", () => {
+    const same = mergeRecord(ticket({ size: 1, sha256: SHA }), { images: [{ ...at, path: "/run/t.png", caption: "c" }] });
+    expect(same.ok && same.record.cases[0]!.before).toMatchObject({ size: 1, sha256: SHA });
+    const moved = mergeRecord(ticket({ size: 1, sha256: SHA }), { images: [{ ...at, path: "/run/t2.png", source: "ticket" }] });
+    expect(moved.ok && moved.record.cases[0]!.before).toEqual({ path: "/run/t2.png", source: "ticket" });
+  });
+  test("an unreadable ticket image refuses, naming where it sits", () => {
+    const r = stampTicketBytes(ticket(), [at], () => { throw new Error("ENOENT"); });
+    expect(r).toEqual({ ok: false, error: 'case "t" before: the ticket image could not be read to record its size and sha256 (ENOENT); recapture it' });
   });
 });
 

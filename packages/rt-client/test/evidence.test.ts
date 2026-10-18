@@ -194,6 +194,30 @@ describe("ticket source", () => {
     const without = readEvidence(JSON.stringify({ v: 2, cases: [{ id: "c1", label: "C", before: { path: "/t.png", annotated: "/b.png", caption: "x" } }] }));
     expect(without.version === 2 && without.cases[0]!.before![0]).toEqual({ path: "/t.png", annotated: "/b.png", caption: "x" });
   });
+
+  const SHA = "a".repeat(64);
+  const hashed = (extra: object) =>
+    JSON.stringify({ v: 2, cases: [{ id: "c1", label: "C", before: { path: "/t.png", annotated: "/b.png", caption: "x", ...extra } }] });
+
+  test("readEvidence keeps a ticket image's recorded size and sha256", () => {
+    const r = readEvidence(hashed({ source: "ticket", size: 412, sha256: SHA }));
+    expect(r.version === 2 && r.cases[0]!.before![0]).toEqual({ path: "/t.png", source: "ticket", size: 412, sha256: SHA, annotated: "/b.png", caption: "x" });
+  });
+
+  test("readEvidence drops size and sha256 off a shot that is not a ticket image, or when malformed", () => {
+    const plain = readEvidence(hashed({ size: 412, sha256: SHA }));
+    expect(plain.version === 2 && plain.cases[0]!.before![0]).toEqual({ path: "/t.png", annotated: "/b.png", caption: "x" });
+    const malformed = readEvidence(hashed({ source: "ticket", size: -1, sha256: "ABC" }));
+    expect(malformed.version === 2 && malformed.cases[0]!.before![0]).toEqual({ path: "/t.png", source: "ticket", annotated: "/b.png", caption: "x" });
+  });
+
+  test("readers that do not know size and sha256 read a hashed record exactly as an unhashed one", () => {
+    const withHash = readEvidence(hashed({ source: "ticket", size: 412, sha256: SHA }));
+    const withoutHash = readEvidence(hashed({ source: "ticket" }));
+    expect(uploadablePaths(withHash)).toEqual(uploadablePaths(withoutHash));
+    expect(resolveEvidencePath(withHash, { case: "c1", slot: "before" })).toEqual(resolveEvidencePath(withoutHash, { case: "c1", slot: "before" }));
+    expect(evidenceShots(withHash).map((s) => s.shot.path)).toEqual(evidenceShots(withoutHash).map((s) => s.shot.path));
+  });
 });
 
 describe("validateEvidence", () => {
@@ -225,6 +249,22 @@ describe("validateEvidence", () => {
       ok: false,
       error: 'evidence@2: case "c1" before source must be "ticket"',
     });
+  });
+  test("a ticket image may carry its recorded size and sha256; anything else carrying them, or a malformed one, is refused", () => {
+    const ticket = (extra: object) => one({ before: { path: "/t.png", source: "ticket", annotated: "/b.png", caption: "x", ...extra } });
+    const SHA = "0123456789abcdef".repeat(4);
+    expect(bad(ticket({ size: 0, sha256: SHA }))).toEqual(ok);
+    expect(bad(ticket({ size: 412 }))).toEqual(ok);
+    const refusals: [object, string][] = [
+      [ticket({ size: -1 }), 'case "c1" before size must be a non-negative whole number of bytes'],
+      [ticket({ size: 1.5 }), 'case "c1" before size must be a non-negative whole number of bytes'],
+      [ticket({ size: "412" }), 'case "c1" before size must be a non-negative whole number of bytes'],
+      [ticket({ sha256: SHA.toUpperCase() }), 'case "c1" before sha256 must be 64 lowercase hex characters'],
+      [ticket({ sha256: "abc" }), 'case "c1" before sha256 must be 64 lowercase hex characters'],
+      [one({ before: { path: "/a.png", annotated: "/b.png", caption: "x", sha256: SHA } }), 'case "c1" before carries a size or sha256 but is not a ticket image'],
+      [one({ before: { path: "/a.png", waiver: "w", size: 3 } }), 'case "c1" before carries a size or sha256 but is not a ticket image'],
+    ];
+    for (const [value, error] of refusals) expect(bad(value)).toEqual({ ok: false, error: `evidence@2: ${error}` });
   });
   test("a raw image with no annotation and no waiver is refused, naming case, slot and theme", () => {
     expect(bad(one({ after: { path: "/a.png" } }))).toEqual({
