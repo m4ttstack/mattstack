@@ -41,6 +41,7 @@ import { gitWithToken } from "./git-credential.ts";
 import { readMainPointer } from "./main-pointer.ts";
 import { ORG_CLONE_FOLDERS } from "./org-clone.ts";
 import { applyRoleCone } from "./org-cone.ts";
+import { convergeDataBranch, heldCopy, type ConvergeResult } from "./org-data-branch.ts";
 import { validBranch } from "./org-marker.ts";
 import { decodeCode, open, sealReply } from "./invite-crypto.ts";
 import { AUTH_FAILURE_PATTERN } from "./publish.ts";
@@ -520,6 +521,33 @@ function clonedOrgName(p: Pick<Probes, "readFile">, dir: string): string | null 
   }
 }
 
+/**
+ * Moves a copy cloned before its org moved to the data branch, as the
+ * daemon's pull would, so the roster check reads the data branch. Throws when
+ * the move is held or fails; returns git's words when origin could not be
+ * asked, else null.
+ */
+async function followDataBranch(p: Probes, dir: string, token: string | null): Promise<string | null> {
+  // The converge reads a detached HEAD as nothing to move; exit 1 is git saying detached, unlike a failure to ask.
+  const head = await p.exec(["git", "symbolic-ref", "-q", "HEAD"], { cwd: dir, env: GIT_ENV });
+  const moved: ConvergeResult | null = head.code === 1 ? { kind: "held", why: "detached" } : await convergeDataBranch(p, dir, { readToken: async () => token });
+  if (moved === null || moved.kind === "moved" || moved.kind === "already") return null;
+  if (moved.kind === "unchecked") return moved.log;
+  if (moved.kind === "failed") {
+    throw new UserActionableError("org-copy-move-failed", "rt could not move your copy of the org to its data branch", {}, {
+      why: "The org keeps its settings on their own branch now. The invite has not been used yet, so join again once the move works.",
+      next: "rt team pull",
+      log: moved.log,
+    });
+  }
+  const held = heldCopy(moved);
+  // A detached copy is refused before origin is asked, so whether the org moved is unknown.
+  const why = moved.why === "detached"
+    ? "Your copy of the org has to be on a branch before the join can finish. The invite has not been used yet."
+    : "The org keeps its settings on their own branch now, and your copy has to move there before the join can finish. The invite has not been used yet.";
+  throw new UserActionableError("org-copy-held", held.detail, {}, { why, next: held.remedy });
+}
+
 function rosterLists(p: Pick<Probes, "home" | "readFile">, org: string, username: string): boolean {
   const file = orgStoreFile(p.home, org);
   const raw = p.readFile(file);
@@ -632,10 +660,18 @@ export async function joinRedeem(
     });
   }
 
+  const unchecked = alreadyCloned ? await followDataBranch(p, dir, token) : null;
+
   if (!rosterLists(p, pointer.team, pointer.username)) {
     const pull = gitWithToken(["pull", "--ff-only"], token, GIT_ENV, { remote: pointer.remote });
     await p.exec(pull.argv, { cwd: dir, env: pull.env });
     if (!rosterLists(p, pointer.team, pointer.username)) {
+      if (unchecked !== null) {
+        throw new UserActionableError("org-copy-unchecked", "rt could not reach the org repo to check where its settings live now", {}, {
+          why: "The invite has not been used yet, so joining again works once the repo answers.",
+          log: unchecked,
+        });
+      }
       throw new UserActionableError("roster-not-ready", "Your admin's roster change has not reached the org repo yet; try again in a minute", {}, { log: `the org roster does not list ${pointer.username}` });
     }
   }
