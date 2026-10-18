@@ -118,6 +118,7 @@ Nothing changes for an org until its admin converts it: this app reads both the 
 - the update leg's walkthrough presses Install on the previous release's one-list checklist (#837)
 - the solo walkthrough starts from a reset team repo (#839)
 - the marketplace publish says when it skips its version check, and orders prerelease versions (#799)
+- the release retries stapling when Apple's ticket service drops the connection, and shows Apple's error when it gives up (#871)
 
 ### Bundled tools
 
