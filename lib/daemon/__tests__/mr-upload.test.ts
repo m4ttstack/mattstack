@@ -428,6 +428,16 @@ describe("mr:upload", () => {
         expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "r-t-ticket.png", "ticket-bytes"), runId: "run-1" })).toEqual(REFUSED);
       });
 
+      test("with a runId, the ticket file edited in place is refused at its own path when the record names it through a symlinked work root", async () => {
+        const realWork = join(elsewhere, "work");
+        mkdirSync(realWork, { recursive: true });
+        const linkedWork = join(home, "linked-work");
+        symlinkSync(realWork, linkedWork);
+        const edited = pngWith(realWork, "r-t-ticket.png", "edited-in-place");
+        const h = harness({ repoPath, tempRoots: () => [elsewhere], ...record(hashedValue(join(linkedWork, "r-t-ticket.png"))) });
+        expect(await h.handlers["mr:upload"]({ repoName: REPO, path: edited, runId: "run-1" })).toEqual(REFUSED);
+      });
+
       test("the default scan reads each run's record from the runs root", async () => {
         const runs = join(home, ".mattstack", "runs");
         const started = runStart(runs, { repo: "app", workType: "fix", pipeline: "default", env: { RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv });
