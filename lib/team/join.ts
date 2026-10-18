@@ -541,10 +541,11 @@ async function followDataBranch(p: Probes, dir: string, token: string | null): P
     });
   }
   const held = heldCopy(moved);
-  throw new UserActionableError("org-copy-held", held.detail, {}, {
-    why: "The org keeps its settings on their own branch now, and your copy has to move there before the join can finish. The invite has not been used yet.",
-    next: held.remedy,
-  });
+  // A detached copy is refused before origin is asked, so whether the org moved is unknown.
+  const why = moved.why === "detached"
+    ? "Your copy of the org has to be on a branch before the join can finish. The invite has not been used yet."
+    : "The org keeps its settings on their own branch now, and your copy has to move there before the join can finish. The invite has not been used yet.";
+  throw new UserActionableError("org-copy-held", held.detail, {}, { why, next: held.remedy });
 }
 
 function rosterLists(p: Pick<Probes, "home" | "readFile">, org: string, username: string): boolean {

@@ -2344,6 +2344,8 @@ describe("a rejoin over a copy cloned before the org moved to its data branch", 
 
       expect((err as UserActionableError).code).toBe("org-copy-held");
       expect((err as UserActionableError).message).toBe("Your copy of the org is not on a branch");
+      expect((err as UserActionableError).why).not.toMatch(/own branch now/);
+      expect((err as UserActionableError).why).toContain("The invite has not been used yet");
       expect(relay.redeemCalls).toEqual([]);
     } finally {
       leave();
