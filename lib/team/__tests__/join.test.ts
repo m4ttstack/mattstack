@@ -2333,6 +2333,23 @@ describe("a rejoin over a copy cloned before the org moved to its data branch", 
     }
   });
 
+  test.each([["lists", ["dev1", "dev2"]], ["does not list", ["dev1"]]] as const)("a detached copy whose roster %s the joiner is refused as detached, before the invite is used", async (_, roster) => {
+    try {
+      const w = enter("layout3");
+      writeFileSync(pathJoin(w.dir, "mattstack", "org", "settings.org.jsonc"), rosterWith(...roster));
+      execFileSync("git", ["-C", w.dir, "commit", "-q", "--allow-empty", "-am", "roster"], { env });
+      execFileSync("git", ["-C", w.dir, "checkout", "-q", "--detach"], { env });
+      const relay = fakeRelay();
+      const err = await joinRedeem(w.p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams).then(() => null, (e: unknown) => e);
+
+      expect((err as UserActionableError).code).toBe("org-copy-held");
+      expect((err as UserActionableError).message).toBe("Your copy of the org is not on a branch");
+      expect(relay.redeemCalls).toEqual([]);
+    } finally {
+      leave();
+    }
+  });
+
   test("a move that fails is refused with git's reason, never as a roster wait", async () => {
     try {
       const w = enter("layout3");

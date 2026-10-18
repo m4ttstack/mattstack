@@ -41,7 +41,7 @@ import { gitWithToken } from "./git-credential.ts";
 import { readMainPointer } from "./main-pointer.ts";
 import { ORG_CLONE_FOLDERS } from "./org-clone.ts";
 import { applyRoleCone } from "./org-cone.ts";
-import { convergeDataBranch, heldCopy } from "./org-data-branch.ts";
+import { convergeDataBranch, heldCopy, type ConvergeResult } from "./org-data-branch.ts";
 import { validBranch } from "./org-marker.ts";
 import { decodeCode, open, sealReply } from "./invite-crypto.ts";
 import { AUTH_FAILURE_PATTERN } from "./publish.ts";
@@ -528,7 +528,9 @@ function clonedOrgName(p: Pick<Probes, "readFile">, dir: string): string | null 
  * asked, else null.
  */
 async function followDataBranch(p: Probes, dir: string, token: string | null): Promise<string | null> {
-  const moved = await convergeDataBranch(p, dir, { readToken: async () => token });
+  // The converge reads a detached HEAD as nothing to move; exit 1 is git saying detached, unlike a failure to ask.
+  const head = await p.exec(["git", "symbolic-ref", "-q", "HEAD"], { cwd: dir, env: GIT_ENV });
+  const moved: ConvergeResult | null = head.code === 1 ? { kind: "held", why: "detached" } : await convergeDataBranch(p, dir, { readToken: async () => token });
   if (moved === null || moved.kind === "moved" || moved.kind === "already") return null;
   if (moved.kind === "unchecked") return moved.log;
   if (moved.kind === "failed") {
