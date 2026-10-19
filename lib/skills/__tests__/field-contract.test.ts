@@ -115,7 +115,8 @@ describe("routeFieldContract", () => {
     expect(routeFieldContract(["a", "b"])).toEqual({ warnings: [], errors: ["a", "b"] });
   });
 
-  test("the default follows the exported constant", () => {
-    expect(routeFieldContract(["a"])).toEqual(FIELD_CONTRACT_SEVERITY === "warn" ? { warnings: ["a"], errors: [] } : { warnings: [], errors: ["a"] });
+  test("the default severity is error, so every line fails the compile or check", () => {
+    expect(FIELD_CONTRACT_SEVERITY).toBe("error");
+    expect(routeFieldContract(["a"])).toEqual({ warnings: [], errors: ["a"] });
   });
 });

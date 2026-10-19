@@ -85,8 +85,8 @@ export function fieldContractErrors(docs: CompiledDoc[], stageEntries: Record<st
   return errors.map((e) => e.message);
 }
 
-/** Flip to "error" to make the field-contract check fail compile and check again. */
-export const FIELD_CONTRACT_SEVERITY: "warn" | "error" = "warn";
+/** "warn" routes the check's lines to warnings, so compile still writes and check exits 0. */
+export const FIELD_CONTRACT_SEVERITY: "warn" | "error" = "error";
 
 let severityOverride: "warn" | "error" | null = null;
 

@@ -1481,17 +1481,14 @@ describe("base pack attachments", () => {
     expect(existsSync(join(withWriter.packDir, "attachments", "plan-writer", "SKILL.md"))).toBe(true);
 
     const noWriter = seedBaseAndTeam({ domainBody: reader });
-    io.clear();
-    const warned = await noWriter.compile();
-    expect(warned.exitCode).toBeUndefined();
-    expect(warned.errors).toEqual([]);
-    expect(io.lines().join("\n")).toContain('reads "extra.plan-verdict", which nothing in this pack writes');
+    const refused = await noWriter.compile();
+    expect(refused.exitCode).toBe(1);
+    expect(refused.errors.join("\n")).toContain('reads "extra.plan-verdict", which nothing in this pack writes');
 
     const emittedReader = seedBaseAndTeam({ baseFiles: { "attachments/plan-reader/SKILL.md": "---\nname: plan-reader\ndescription: reads the verdict\n---\nRead it: run_field_get {key: extra.plan-verdict}\n" } });
-    io.clear();
-    const emittedWarned = await emittedReader.compile();
-    expect(emittedWarned.exitCode).toBeUndefined();
-    expect(io.lines().join("\n")).toContain("field contract: attachments/plan-reader/SKILL.md:");
+    const emittedRefused = await emittedReader.compile();
+    expect(emittedRefused.exitCode).toBe(1);
+    expect(emittedRefused.errors.join("\n")).toContain("field contract: attachments/plan-reader/SKILL.md:");
   });
 
   test("a pack that extends a base but has no verbs still emits", async () => {
@@ -4523,65 +4520,67 @@ describe("pack/pipelines.json and the field contract in compile and check", () =
     expect(JSON.parse(io.lines().join("\n")).compileErrors).toContain("pack/pipelines.json is out of date with the pack's pipelines");
   });
 
-  test("compile warns, and still writes, when a fill reads a field nothing writes", async () => {
-    const { flags, packDir } = makeFieldPack({ writer: false });
-
-    const { exitCode, stderr } = await runSkillsCapturing(["compile", ...flags]);
-
-    expect(exitCode).toBeUndefined();
-    expect(process.exitCode ?? 0).toBe(0);
-    expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(true);
-    expect(stderr).not.toContain("did not compile");
-    const text = io.lines().join("\n");
-    expect(text).toContain("field contract: 1 warning");
-    expect(text).toContain('field contract: attachments/stage-plan/SKILL.md');
-    expect(text).toContain('reads "extra.plan-verdict", which nothing in this pack writes');
-  });
-
-  test("compile --json lists the field-contract lines under fieldContract and exits 0, even under strict", async () => {
-    const { flags, packDir } = makeFieldPack({ writer: false });
-
-    await skillsCompile([...flags, "--json", "--strict"]);
-
-    const parsed = JSON.parse(io.stdout());
-    expect(process.exitCode ?? 0).toBe(0);
-    expect(parsed.written).toBe(true);
-    expect(parsed.fieldContract).toHaveLength(1);
-    expect(parsed.fieldContract[0]).toContain('field contract: attachments/stage-plan/SKILL.md');
-    expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(true);
-  });
-
-  test("compile --json carries an empty fieldContract when the pack is clean", async () => {
-    const { flags } = makeFieldPack({ writer: true });
-
-    await skillsCompile([...flags, "--json"]);
-
-    expect(JSON.parse(io.stdout()).fieldContract).toEqual([]);
-  });
-
-  test("check warns on the same pack: fieldContract set, no drift, exit 0", async () => {
-    const { flags } = makeFieldPack({ writer: false });
-    await skillsCompile(flags);
-    io.clear();
-
-    await skillsCheck([...flags, "--json", "--strict"]);
-
-    const parsed = JSON.parse(io.stdout());
-    expect(parsed.fieldContract).toHaveLength(1);
-    expect(parsed.fieldContract[0]).toStartWith("field contract: attachments/stage-plan/SKILL.md");
-    expect(parsed.compileErrors).toEqual([]);
-    expect(process.exitCode ?? 0).toBe(0);
-
-    io.clear();
-    await skillsCheck(flags);
-    expect(io.lines().join("\n")).toContain("field contract: 1 warning");
-    expect(process.exitCode ?? 0).toBe(0);
-  });
-
-  describe("when the field contract is routed as an error", () => {
-    beforeEach(() => setFieldContractSeverityForTest("error"));
+  describe("when the field contract is routed as a warning", () => {
+    beforeEach(() => setFieldContractSeverityForTest("warn"));
     afterEach(() => setFieldContractSeverityForTest(null));
 
+    test("compile warns, and still writes, when a fill reads a field nothing writes", async () => {
+      const { flags, packDir } = makeFieldPack({ writer: false });
+
+      const { exitCode, stderr } = await runSkillsCapturing(["compile", ...flags]);
+
+      expect(exitCode).toBeUndefined();
+      expect(process.exitCode ?? 0).toBe(0);
+      expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(true);
+      expect(stderr).not.toContain("did not compile");
+      const text = io.lines().join("\n");
+      expect(text).toContain("field contract: 1 warning");
+      expect(text).toContain('field contract: attachments/stage-plan/SKILL.md');
+      expect(text).toContain('reads "extra.plan-verdict", which nothing in this pack writes');
+    });
+
+    test("compile --json lists the field-contract lines under fieldContract and exits 0, even under strict", async () => {
+      const { flags, packDir } = makeFieldPack({ writer: false });
+
+      await skillsCompile([...flags, "--json", "--strict"]);
+
+      const parsed = JSON.parse(io.stdout());
+      expect(process.exitCode ?? 0).toBe(0);
+      expect(parsed.written).toBe(true);
+      expect(parsed.fieldContract).toHaveLength(1);
+      expect(parsed.fieldContract[0]).toContain('field contract: attachments/stage-plan/SKILL.md');
+      expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(true);
+    });
+
+    test("compile --json carries an empty fieldContract when the pack is clean", async () => {
+      const { flags } = makeFieldPack({ writer: true });
+
+      await skillsCompile([...flags, "--json"]);
+
+      expect(JSON.parse(io.stdout()).fieldContract).toEqual([]);
+    });
+
+    test("check warns on the same pack: fieldContract set, no drift, exit 0", async () => {
+      const { flags } = makeFieldPack({ writer: false });
+      await skillsCompile(flags);
+      io.clear();
+
+      await skillsCheck([...flags, "--json", "--strict"]);
+
+      const parsed = JSON.parse(io.stdout());
+      expect(parsed.fieldContract).toHaveLength(1);
+      expect(parsed.fieldContract[0]).toStartWith("field contract: attachments/stage-plan/SKILL.md");
+      expect(parsed.compileErrors).toEqual([]);
+      expect(process.exitCode ?? 0).toBe(0);
+
+      io.clear();
+      await skillsCheck(flags);
+      expect(io.lines().join("\n")).toContain("field contract: 1 warning");
+      expect(process.exitCode ?? 0).toBe(0);
+    });
+  });
+
+  describe("by default the field contract is an error", () => {
     test("compile fails and writes nothing", async () => {
       const { flags, packDir } = makeFieldPack({ writer: false });
 
