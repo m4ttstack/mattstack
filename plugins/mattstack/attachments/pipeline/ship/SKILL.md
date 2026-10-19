@@ -28,6 +28,7 @@ digraph ship_run {
     run_stage_reopen [label="run_stage {runDb: <the shipped run>, action: start, stage: ship, reopen: true}" shape=plaintext];
     reopen_result [label="Reopen result (ship)?" shape=diamond];
     not_recaptured_here [label="Not re-captured here: name the work verb for a pipeline run, or report the run's status" shape=doublecircle];
+    reopen_refused [label="Not reopened: report the refusal and the move it names" shape=doublecircle];
     revise_asked [label="Asked to revise a board on a run that already shipped?" shape=diamond];
     find_shipped_run [label="Find the shipped run (ship)" shape=box];
     run_snapshot_shipped [label="run_snapshot {runDb: <the shipped run>}" shape=plaintext];
@@ -61,7 +62,7 @@ digraph ship_run {
     standalone_done -> not_recaptured_here [label="no: a pipeline run, or not done"];
     run_stage_reopen -> reopen_result;
     reopen_result -> own_run_open [label="ok: the own run, reopened for a re-capture"];
-    reopen_result -> resume_refused [label="refused"];
+    reopen_result -> reopen_refused [label="refused"];
     revise_asked -> find_shipped_run [label="yes"];
     revise_asked -> run_enter [label="no"];
     find_shipped_run -> run_snapshot_shipped;

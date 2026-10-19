@@ -1,0 +1,2 @@
+1. Run r9 is still running, so there's nothing to reopen; I'm resuming it with `run_enter` (resume: r9) so the ship stage can re-capture the AFTER and ask your consent to re-attach it.
+2. No.

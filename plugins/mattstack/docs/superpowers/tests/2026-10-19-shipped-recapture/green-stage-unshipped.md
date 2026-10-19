@@ -443,7 +443,10 @@ browser case still runs. A capture is never uploaded outside the record.
 `label`), `tree` is `<root>`. A browser AFTER carries its board as
 `annotated` and the brief's claim as `caption` (browser-evidence, Record
 the board); a pair board covers the case's before image too, named by its
-`value` path. Recorded goes straight to the attach: this stage writes no
+`value` path, unless that before's board is an import board (its
+`<stem>.c1.capture.json` in the record's folder says `"source": "import"`):
+the before keeps that board and stays out of this call, so the pair covers
+the after alone. Recorded goes straight to the attach: this stage writes no
 `evidence` of its own.
 
 ### Attach the evidence (evidence-record)
@@ -830,7 +833,10 @@ A board ready goes into the record through evidence-record's
 - `annotated` is the board, `~/.fast-browser/screenshots/<stem>.png`, on
   every image the board shows, and `caption` is the brief's `claim` on each
   of them. A pair board covers both the before and the after image of its
-  case.
+  case, unless the before's board is an import board (its
+  `<stem>.c1.capture.json` says `"source": "import"`): that board stays the
+  before's cover, so the pair covers the after alone and the before stays
+  out of the call.
 - Each image's `path` is its own capture: `<stem>.c1.png` for a single
   board, each panel's own capture for a pair, the last step's capture for a
   steps board, and for an import the image the brief imported (its `value`
@@ -910,7 +916,7 @@ reaches `limit` takes yes).
   board proves) or waived (its own reason, or its case's, which covers only
   the images the case holds when written). One board may be the
   `annotated` of several images: a pair board covers its case's before and
-  after.
+  after, except a before whose board is an import board, which keeps it.
 - `transcript` (a text file, never uploaded or waived) and `url` (where
   the ticket shows the broken state) are run-level; a run with no image
   is recorded the same way.

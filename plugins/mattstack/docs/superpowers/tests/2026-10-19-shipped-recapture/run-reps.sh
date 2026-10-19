@@ -3,6 +3,7 @@
 # Exits 1 when any rep's claude process failed; its output file holds the error.
 T="$(cd "$(dirname "$0")" && pwd)"
 E="$(mktemp -d)"
+trap 'rm -rf "$E"' EXIT
 mkdir -p "$T/runs"; cd "$E" || exit 1
 mode=$1; shift
 pids=(); outs=()
@@ -13,5 +14,4 @@ for name in "$@"; do for i in 1 2 3 4 5; do
 done; done
 failed=0
 for k in "${!pids[@]}"; do wait "${pids[$k]}" || { echo "failed: ${outs[$k]}" >&2; failed=1; }; done
-rmdir "$E"
 exit $failed

@@ -33,6 +33,7 @@ digraph work {
     recapture_asked [label="Asked for a new AFTER capture on a run that already shipped?" shape=diamond];
     run_stage_reopen [label="run_stage {runDb: <the shipped run>, action: start, stage: ship, reopen: true}" shape=plaintext];
     reopen_result [label="Reopen result?" shape=diamond];
+    stop_reopen_refused [label="STOP: report the reopen refusal and the move it names" shape=octagon style=filled fillcolor=red fontcolor=white];
     run_id_in_context [label="A running run's id in context this request continues?" shape=diamond];
     existing_work [label="Existing work?" shape=diamond];
     run_list [label="run_list {repo, pipelines}" shape=plaintext];
@@ -79,7 +80,7 @@ digraph work {
     recapture_asked -> run_id_in_context [label="no"];
     run_stage_reopen -> reopen_result;
     reopen_result -> run_enter_resume [label="ok: resume that run"];
-    reopen_result -> stop_run_enter_missing [label="refused"];
+    reopen_result -> stop_reopen_refused [label="refused"];
     run_id_in_context -> run_enter_resume [label="yes"];
     run_id_in_context -> existing_work [label="no"];
     existing_work -> run_list [label="yes"];

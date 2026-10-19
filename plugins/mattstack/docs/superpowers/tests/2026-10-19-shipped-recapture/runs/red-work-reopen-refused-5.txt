@@ -1,0 +1,2 @@
+1. I tell the operator the reopen was refused because run r9 is still running, so there is nothing to reopen, and the tool's message says to resume it with `run_enter`.
+2. No.

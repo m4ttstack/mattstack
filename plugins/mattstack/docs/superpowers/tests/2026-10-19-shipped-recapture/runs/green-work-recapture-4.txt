@@ -1,3 +1,3 @@
-1. `run_stage {runDb: /runs/widgets/r9/state.db, action: start, stage: ship, reopen: true}`, then `run_enter {flags: <the work flags, verbatim>, skillDir: ${CLAUDE_SKILL_DIR}, resume: r9}`, then `run_field_get {runDb: /runs/widgets/r9/state.db, key: waiting-gate}`. No gate is armed on the reopened run, so there is no `gate_reconcile`.
-2. The ship stage file, at the position `run_enter` returns as `at` (ship, new attempt, running). It takes its re-capture route, with the operator's ask as the attach consent.
-3. No
+1. `run_stage {runDb: /runs/widgets/r9/state.db, action: start, stage: ship, reopen: true}`, then `run_enter {flags, skillDir, resume: r9}`, then `run_field_get {runDb: /runs/widgets/r9/state.db, key: waiting-gate}`. The reopen puts the run back at ship, so `run_enter` resumes elsewhere and the next call is `run_field_get`. I expect `waiting-gate` to be unset; if it were armed, `gate_reconcile {id, runDb, stage: ship}` would come first.
+2. The ship stage file, at the position `at` returns (`at.status` running), following its re-capture route, with the operator's ask as the attach consent.
+3. No.

@@ -40,6 +40,7 @@ digraph ship_run {
     run_stage_reopen [label="run_stage {runDb: <the shipped run>, action: start, stage: ship, reopen: true}" shape=plaintext];
     reopen_result [label="Reopen result (ship)?" shape=diamond];
     not_recaptured_here [label="Not re-captured here: name the work verb for a pipeline run, or report the run's status" shape=doublecircle];
+    reopen_refused [label="Not reopened: report the refusal and the move it names" shape=doublecircle];
     revise_asked [label="Asked to revise a board on a run that already shipped?" shape=diamond];
     find_shipped_run [label="Find the shipped run (ship)" shape=box];
     run_snapshot_shipped [label="run_snapshot {runDb: <the shipped run>}" shape=plaintext];
@@ -73,7 +74,7 @@ digraph ship_run {
     standalone_done -> not_recaptured_here [label="no: a pipeline run, or not done"];
     run_stage_reopen -> reopen_result;
     reopen_result -> own_run_open [label="ok: the own run, reopened for a re-capture"];
-    reopen_result -> resume_refused [label="refused"];
+    reopen_result -> reopen_refused [label="refused"];
     revise_asked -> find_shipped_run [label="yes"];
     revise_asked -> run_enter [label="no"];
     find_shipped_run -> run_snapshot_shipped;
@@ -647,7 +648,8 @@ brief (browser-evidence's `Write one brief per board`), stem
 
 - The case's BEFORE has a bundle (a `<stem>.spec.json` beside its board):
   a pair, `state: BEFORE → AFTER`, with `before:` that spec's absolute
-  path. The pair board covers the BEFORE image too.
+  path. The pair board covers the BEFORE image too, unless the BEFORE's
+  board is an import board (Record the evidence).
 - Otherwise (a different screen, a ticket link or text, a new case): its
   own `AFTER` board, with no `before:`.
 
@@ -686,7 +688,10 @@ still runs.
 `label`), `tree` is `<root>`. A browser board's images carry it as
 `annotated` (`~/.fast-browser/screenshots/<stem>.png`) with the brief's
 claim as `caption`, as browser-evidence's Record the board says; a pair
-board also covers the case's BEFORE, named by its `value` path. Recorded
+board also covers the case's BEFORE, named by its `value` path, unless that
+BEFORE's board is an import board (its `<stem>.c1.capture.json` in the
+record's folder says `"source": "import"`): the BEFORE keeps that board and
+stays out of this call, so the pair covers the AFTER alone. Recorded
 goes straight to the attach: this verb writes no `evidence` of its own.
 
 ### Attach the evidence (evidence-record)
@@ -1102,7 +1107,10 @@ A board ready goes into the record through evidence-record's
 - `annotated` is the board, `~/.fast-browser/screenshots/<stem>.png`, on
   every image the board shows, and `caption` is the brief's `claim` on each
   of them. A pair board covers both the before and the after image of its
-  case.
+  case, unless the before's board is an import board (its
+  `<stem>.c1.capture.json` says `"source": "import"`): that board stays the
+  before's cover, so the pair covers the after alone and the before stays
+  out of the call.
 - Each image's `path` is its own capture: `<stem>.c1.png` for a single
   board, each panel's own capture for a pair, the last step's capture for a
   steps board, and for an import the image the brief imported (its `value`
@@ -1182,7 +1190,7 @@ reaches `limit` takes yes).
   board proves) or waived (its own reason, or its case's, which covers only
   the images the case holds when written). One board may be the
   `annotated` of several images: a pair board covers its case's before and
-  after.
+  after, except a before whose board is an import board, which keeps it.
 - `transcript` (a text file, never uploaded or waived) and `url` (where
   the ticket shows the broken state) are run-level; a run with no image
   is recorded the same way.

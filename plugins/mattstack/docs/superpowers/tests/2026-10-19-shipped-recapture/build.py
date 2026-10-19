@@ -2,8 +2,12 @@ import re, subprocess, sys, pathlib
 T = pathlib.Path(__file__).resolve().parent
 ROOT = T.parents[5]
 ATT = "plugins/mattstack/attachments"
+if len(sys.argv) < 2 or sys.argv[1] not in ("red", "green"):
+    sys.exit("usage: build.py red [<ref>] | build.py green")
 mode = sys.argv[1]  # red: skill text at <ref> (default HEAD); green: the working tree
 ref = sys.argv[2] if len(sys.argv) > 2 else "HEAD"
+if ref.startswith("-"):
+    sys.exit(f"build.py: ref must not start with '-': {ref}")
 
 def read(rel):
     if mode == "red":
@@ -26,7 +30,7 @@ def inline(text, depth=0):
 
 SC = {"stage-recapture": ["pipeline/stage-ship"], "stage-unshipped": ["pipeline/stage-ship"],
       "stage-repair": ["pipeline/stage-ship"], "ship-recapture": ["pipeline/ship"],
-      "ship-recapture-fail": ["pipeline/ship"],
+      "ship-recapture-fail": ["pipeline/ship"], "work-reopen-refused": ["pipeline/work"],
       "work-recapture": ["pipeline/work"]}
 for name, skills in SC.items():
     out = (T / "headers" / f"{name}.md").read_text()
