@@ -1,5 +1,4 @@
 // @vitest-environment node
-import type { GateRow, RunSummary } from '@mattstack/rt-client';
 import {
   mkdirSync,
   mkdtempSync,
@@ -9,6 +8,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { GateRow, RunSummary } from '@mattstack/rt-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@mattstack/rt-client', () => ({

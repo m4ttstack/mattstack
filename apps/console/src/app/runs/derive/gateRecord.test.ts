@@ -1,6 +1,7 @@
 import type { GateRow } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
+import { boardsMarkdown } from '../../../shared/gate-boards';
 import { gateRecord } from './gateRecord';
 
 const gate = (over: Partial<GateRow>): GateRow =>
@@ -311,5 +312,37 @@ describe('gateRecord: a write-in', () => {
     if (record.shape !== 'form') throw new Error(record.shape);
     expect(record.questions[0]).toMatchObject({ writeIn: 'split it' });
     expect(record.questions[0]!.options.every(o => !o.picked)).toBe(true);
+  });
+});
+
+describe('gateRecord: a boards gate', () => {
+  it('keeps the boards the human looked at as words', () => {
+    const ctx = {
+      summary: 'One board is about to be attached.',
+      boards: [
+        {
+          case: 'rush-window',
+          slot: 'after' as const,
+          path: '/Users/acme/.fast-browser/screenshots/b.png',
+          caption: 'The window sits under the total',
+        },
+      ],
+    };
+    const r = gateRecord(
+      gate({
+        kind: 'evidence-attach',
+        context: JSON.stringify({ 'gate-ctx': 'boards@1', ...ctx }),
+        questions: [
+          {
+            id: 'boards',
+            label: 'Anything on these boards that should not be public?',
+            multi: false,
+            options: ['clear', 'hide'],
+          },
+        ],
+        answer: answered({ boards: 'clear' }),
+      })
+    );
+    expect(r.shape === 'form' && r.summary).toBe(boardsMarkdown(ctx));
   });
 });

@@ -6,7 +6,10 @@ import { isBoardImagePath, parseBoards } from '../shared/gate-boards';
 import { runIdOfGate } from '../shared/gate-run';
 import { LEGACY_IMAGE_MIME } from './legacyEvidence';
 
-export type BoardGate = Pick<GateRow, 'status' | 'subject' | 'origin' | 'context'>;
+export type BoardGate = Pick<
+  GateRow,
+  'status' | 'subject' | 'origin' | 'context'
+>;
 
 const WAITING: GateRow['status'][] = ['open', 'parked'];
 const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;

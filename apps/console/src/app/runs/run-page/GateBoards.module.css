@@ -1,0 +1,28 @@
+.context {
+  flex: 0 0 380px;
+  min-width: 0;
+  padding: 20px;
+  border-right: 1px solid var(--tk-border-soft);
+}
+
+.summary {
+  --gate-context-fz: var(--mantine-font-size-lg);
+  --gate-context-lh: 20px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.board {
+  min-width: 0;
+}
+
+/* A screenshot's 16:10, at the width of the column; the image fills it. */
+.frame {
+  display: flex;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+}

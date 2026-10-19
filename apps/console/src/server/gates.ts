@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import {
   isLocalRequest,
   type LocalServer,
@@ -14,8 +16,6 @@ import {
   type RtResponse,
   type RunSummary,
 } from '@mattstack/rt-client';
-import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
