@@ -320,8 +320,9 @@ evidence` with no waiver, so its annotate pass draws a board that hides
 what they name. Recorded reopens this gate with the new files. Words that
 name no board reopen it too, the context asking which board. A Hold at the
 redaction gate or Record held is Held at evidence-redaction; no spec
-beside the board, a compose error, a refused confirm or Record failed is
-Not revised.
+beside the board, a compose error, a refused confirm, a confirm that left
+an empty record unconfirmed, spent redaction rounds or openings, or Record
+failed is Not revised.
 
 ### Off-script gate: upload refused
 
@@ -342,8 +343,9 @@ bundle. Recorded is Repaired, and a repaired board is new bytes: Gate
 evidence-boards shows every file again from the first opening before the
 next `evidence_attach`. A Hold at the gate, or Record held, is
 Held at evidence-redaction, with nothing uploaded; no spec beside the
-board, a compose error, a refused confirm, spent redaction rounds, or
-Record failed is Not repaired. When the result also refuses files in
+board, a compose error, a refused confirm, a confirm that left an empty
+record unconfirmed, spent redaction rounds or openings, or Record failed
+is Not repaired. When the result also refuses files in
 other buckets, repair the redaction boards first, then show the files and attach again; the
 other buckets reach the off-script gate on that next result. An `import` refusal (an imported original is in the record as
 uploadable) goes to the off-script gate with every other bucket.

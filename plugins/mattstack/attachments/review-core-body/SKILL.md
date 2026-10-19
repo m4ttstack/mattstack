@@ -60,7 +60,7 @@ once per review pass, with these values in place of a run's:
 - stem: `review-<mr iid>-<case>-<before|after>`, `<case>` naming the view,
   plus the theme as Write one brief per board says; a self-review with no
   MR in hand puts its run id in place of `<mr iid>`.
-- after `Reads right?` yes, the board is ready: skip `Crops listed?` and
+- after `Reads right?` yes, the board is ready: skip `Redaction record?` and
   the redaction gate, which guard a board that leaves this machine, and a
   review's never does.
 

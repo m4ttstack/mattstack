@@ -66,6 +66,7 @@ test("pending redaction and import literals", () => {
     "a.png changed since its redactions were recorded",
     "a.png's redaction crop a.redact-1.png is missing or changed; render the board again",
     "a.png has a redaction not yet confirmed",
+    "a.png's empty redaction record is not yet confirmed; confirm at the redaction gate that nothing needs hiding",
   ]) expect(bucketFor(m)).toBe("redaction");
   expect(bucketFor("a.png is the unredacted original of an imported ticket image; upload the composed board instead")).toBe("import");
 });
