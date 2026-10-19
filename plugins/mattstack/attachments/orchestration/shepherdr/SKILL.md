@@ -372,6 +372,7 @@ digraph shepherdr_watch {
     herd_gates_push [label="herd_gates {herd}: the gate push" shape=plaintext];
     herd_resume_relaunch [label="herd_resume {herd}: after a relaunch" shape=plaintext];
     open_gates_returned [label="Open gates returned?" shape=diamond];
+    boards_gate [label="Gate context is boards@1?" shape=diamond];
     answer_literal_in_brief [label="Answer literally in the brief you wrote?" shape=diamond];
     present_open_gates [label="Present the open gates" shape=box];
     herd_gate_park [label="herd_gate_park {herd, gate}" shape=plaintext];
@@ -442,7 +443,9 @@ digraph shepherdr_watch {
     herd_gates_push -> open_gates_returned;
     herd_resume_relaunch -> open_gates_returned;
     herd_gates_diagnosed -> open_gates_returned;
-    open_gates_returned -> answer_literal_in_brief [label="yes"];
+    open_gates_returned -> boards_gate [label="yes"];
+    boards_gate -> present_open_gates [label="yes: only the human looks at boards"];
+    boards_gate -> answer_literal_in_brief [label="no"];
     open_gates_returned -> end_turn_wait [label="none: a stale id is normal"];
     answer_literal_in_brief -> herd_gate_answer [label="yes"];
     answer_literal_in_brief -> present_open_gates [label="no"];
@@ -540,7 +543,10 @@ never reworded, merged or reordered.
 
 Submit each `value` verbatim; free text rides the `note`.
 `herd_gate_answer` records `by: shepherd`. Answer for the agent only when
-the answer is literally in the brief you wrote. A human answer fitting no
+the answer is literally in the brief you wrote, and never a gate whose
+context is `boards@1`: whether an evidence board may go public is decided
+by a human looking at it, so that gate is presented whatever the brief
+says. A human answer fitting no
 option goes as `{"writeIn": "<their words>"}` if the question was opened
 with `writeIn`, else ask them to pick. When the user parks a gate,
 `herd_gate_park` takes it off the open list; it stays answerable with

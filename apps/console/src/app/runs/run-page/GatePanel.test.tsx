@@ -838,3 +838,90 @@ describe('usePruneGateDrafts', () => {
     expect(localStorage.getItem(gateDraftKey('done'))).toBeNull();
   });
 });
+
+describe('GatePanel: a boards gate', () => {
+  const dir = '/Users/acme/.fast-browser/screenshots';
+  const boardsGate = () =>
+    gateRow({
+      kind: 'evidence-attach',
+      meta: { stage: 'evidence' },
+      context: JSON.stringify({
+        'gate-ctx': 'boards@1',
+        summary: 'Two boards are about to be attached to !424.',
+        boards: [
+          {
+            case: 'rush-window',
+            slot: 'before',
+            path: `${dir}/r-before.png`,
+            caption: 'The card shows no delivery window',
+          },
+          {
+            case: 'rush-window',
+            slot: 'after',
+            theme: 'dark',
+            path: `${dir}/r-after.png`,
+            caption: 'The window sits under the total',
+          },
+        ],
+      }),
+      questions: [
+        {
+          id: 'boards',
+          label: 'Anything on these boards that should not be public?',
+          multi: false,
+          options: ['clear', 'hide'],
+        },
+      ],
+    });
+  const src = (path: string) =>
+    `/api/gates/g1/board?path=${encodeURIComponent(path)}`;
+
+  it('shows every board as a thumbnail the gate route serves, with its caption', () => {
+    renderPanel(boardsGate());
+    const boards = screen.getByTestId('gate-boards');
+    expect(
+      within(boards).getByText('Two boards are about to be attached to !424.')
+    ).toBeInTheDocument();
+    expect(
+      within(boards).getByText('Click a board to open it full size')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/is there anything here that should not be public/)
+    ).not.toBeInTheDocument();
+    const imgs = within(boards).getAllByRole('img');
+    expect(imgs.map(i => i.getAttribute('src'))).toEqual([
+      src(`${dir}/r-before.png`),
+      src(`${dir}/r-after.png`),
+    ]);
+    expect(
+      within(boards).getByText('The window sits under the total')
+    ).toBeInTheDocument();
+    expect(
+      within(boards).getByText('rush-window/after/dark')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/gate-ctx/)).not.toBeInTheDocument();
+  });
+
+  it('opens a board full size', async () => {
+    renderPanel(boardsGate());
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Open rush-window/after/dark full size',
+      })
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('img').getAttribute('src')).toBe(
+      src(`${dir}/r-after.png`)
+    );
+  });
+
+  it('still draws a markdown image in prose context as its alt text only', () => {
+    renderPanel(
+      gateRow({ context: 'See ![the board](https://example.test/board.png)' })
+    );
+    expect(screen.getByTestId('gate-findings')).toHaveTextContent('the board');
+    expect(
+      within(screen.getByTestId('gate-findings')).queryByRole('img')
+    ).toBeNull();
+  });
+});

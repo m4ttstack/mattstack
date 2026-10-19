@@ -1,0 +1,36 @@
+/* Boards take the panel's full width, above the form, so each is large
+   enough to read a name or a number on. */
+.context {
+  min-width: 0;
+  padding: 20px;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.summary {
+  --gate-context-fz: var(--mantine-font-size-lg);
+  --gate-context-lh: 20px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+.board {
+  min-width: 0;
+}
+
+/* The theme ends the name, so it wraps rather than truncating away. */
+.name {
+  overflow-wrap: anywhere;
+}
+
+/* The whole board shows, never a crop of it: what is cut off is what the
+   human would not see before it goes public. */
+.frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}

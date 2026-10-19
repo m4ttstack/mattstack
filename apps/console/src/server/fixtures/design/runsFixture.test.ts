@@ -567,6 +567,26 @@ describe('runsFixture', () => {
     );
   });
 
+  it('serves the boards an open evidence gate names, and nothing else', async () => {
+    const dir = '/Users/acme/.mattstack/evidence/web-421';
+    const [gate] = await runs.gates({ run: '20261008-1610' });
+    expect(gate!.kind).toBe('evidence-attach');
+    expect(gate!.status).toBe('open');
+    const named = await runs.boardImage(
+      gate!.id,
+      `${dir}/rush-after-annotated.png`
+    );
+    expect(named?.mime).toBe('image/png');
+    expect([...named!.bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(await runs.boardImage(gate!.id, `${dir}/rush-after.png`)).toBeNull();
+    expect(
+      await runs.boardImage('g-1600-plan', `${dir}/rush-after-annotated.png`)
+    ).toBeNull();
+    expect((await runs.listRuns()).some(r => r.id === '20261008-1610')).toBe(
+      false
+    );
+  });
+
   it('serves effective inputs and stage docs', async () => {
     const inputs = await runs.effectiveInputs(REPO, '20261008-0900');
     expect(inputs).toMatchObject({

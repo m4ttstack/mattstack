@@ -323,6 +323,10 @@ describe("review-source.sh parity", () => {
   }
 });
 
+/** gate-ctx.sh validates review gates only; the port also opens boards@1,
+    which the script's list of gate shapes never names. */
+const reviewShapesOnly = (problem: string): string => problem.replace(", boards@1", "");
+
 describe("gate-ctx.sh parity", () => {
   for (const c of GC_CASES) {
     for (const mode of MODES) {
@@ -338,7 +342,7 @@ describe("gate-ctx.sh parity", () => {
           expect(r.stdout.toString()).toBe(`${tojson(portOpen(src, args))}\n`);
         } else {
           expect(r.exitCode).toBe(1);
-          expect(check.ok ? [] : check.problems).toEqual(lines(r.stderr.toString()));
+          expect(check.ok ? [] : check.problems.map(reviewShapesOnly)).toEqual(lines(r.stderr.toString()));
         }
       });
     }

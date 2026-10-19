@@ -21,7 +21,7 @@ import {
 
 export type GateCtxSource = { context?: unknown; questions: unknown[]; [k: string]: unknown };
 
-export const GATE_SHAPES = ["plan@1", "post@1", "review@1"];
+export const GATE_SHAPES = ["plan@1", "post@1", "review@1", "boards@1"];
 export const QUESTION_SHAPES = ["thread@1", "reply@1", "findings@1", "carryover@1", "skipped@1"];
 const PER_THREAD = ["reply@1", "carryover@1"];
 const TIERS = ["critical", "important", "minor"];
@@ -160,6 +160,31 @@ function reviewErrs(c: unknown): string[] {
   ];
 }
 
+const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
+const imagePath = (v: unknown): boolean =>
+  typeof v === "string" && v.startsWith("/") && IMAGE.test(v) && !v.split("/").includes("..");
+
+function boardsErrs(c: unknown): string[] {
+  const list = entries(c, "boards");
+  return [
+    ...chk(() => optional(c, "summary", str), "summary: non-empty string when present"),
+    ...chk(() => {
+      const b = at(c, "boards");
+      return Array.isArray(b) && b.length > 0;
+    }, "boards: required non-empty array"),
+    ...list.flatMap((e, i) => [
+      ...chk(() => str(at(e, "case")), `boards[${i}].case: required non-empty string`),
+      ...chk(() => among(at(e, "slot"), ["before", "after", "crop"]), `boards[${i}].slot: before|after|crop`),
+      ...chk(
+        () => imagePath(at(e, "path")),
+        `boards[${i}].path: required absolute path to a .png, .jpg, .jpeg, .gif or .webp image`,
+      ),
+      ...chk(() => str(at(e, "caption")), `boards[${i}].caption: required non-empty string`),
+      ...chk(() => optional(e, "theme", (v) => among(v, ["light", "dark"])), `boards[${i}].theme: light|dark when present`),
+    ]),
+  ];
+}
+
 function findingsErrs(c: unknown, values: unknown[]): string[] {
   const list = entries(c, "findings");
   const ids = optionalIds(list);
@@ -221,6 +246,7 @@ export function contextShapeErrors(ctx: unknown, where: string, allowed: string[
     shape === "plan@1" ? planErrs(ctx)
     : shape === "post@1" ? postErrs(ctx)
     : shape === "review@1" ? reviewErrs(ctx)
+    : shape === "boards@1" ? boardsErrs(ctx)
     : shape === "thread@1" ? threadErrs(ctx)
     : shape === "reply@1" ? replyErrs(ctx, values)
     : shape === "carryover@1" ? carryoverErrs(ctx, values)
@@ -397,6 +423,16 @@ function threadProse(c: Obj): string {
   ].join("\n");
 }
 
+function boardsProse(c: Obj): string {
+  return [
+    ...(has(c, "summary") ? [s(c.summary)] : []),
+    ...(c.boards as Obj[]).flatMap((b) => [
+      `- ${[b.case, b.slot, ...(has(b, "theme") ? [b.theme] : [])].map(s).join("/")}: ${s(b.caption)}`,
+      `  ${s(b.path)}`,
+    ]),
+  ].join("\n");
+}
+
 function replyProse(c: Obj): string {
   const verb = c.verb === "fix" ? "FIX" + (has(c, "sha") ? ` · ${s(c.sha)}` : "") : "REPLY";
   return `${s(c.file)} ${verb}: ${s(c.text)}`;
@@ -411,6 +447,8 @@ export function proseContext(ctx: Record<string, unknown>): string {
       return postProse(c);
     case "review@1":
       return reviewProse(c);
+    case "boards@1":
+      return boardsProse(c);
     case "findings@1":
       return findingsProse(c);
     case "carryover@1":
@@ -546,8 +584,24 @@ export function proseOpen(source: GateCtxSource): FitResult {
   return render(structuredClone(source) as Working, "prose", GATE_CTX_LIMIT);
 }
 
+/** The most boards one gate carries: twelve realistic entries (a run-folder
+    path under a long home, a full-sentence claim, a theme) sit near 4 KB. */
+export const BOARDS_PER_GATE = 12;
+
+const isBoards = (w: Working): boolean => isObject(w.context) && w.context["gate-ctx"] === "boards@1";
+
+/** A boards gate the human cannot see in full is never opened: past the
+    cap, or past the budget, it is refused so the site splits it. */
+export function boardsBudgetError(source: GateCtxSource, fit: FitResult): string | null {
+  if (!isBoards(source as Working)) return null;
+  const n = ((source.context as Obj).boards as unknown[]).length;
+  if (n > BOARDS_PER_GATE) return `boards@1: ${n} boards; open at most ${BOARDS_PER_GATE} per gate`;
+  return fit.fits ? null : `boards@1: ${n} boards do not fit the ${GATE_CTX_LIMIT}-byte budget`;
+}
+
 export function fitOpen(source: GateCtxSource, limit: number = GATE_CTX_LIMIT): FitResult {
   const src = structuredClone(source) as Working;
+  if (isBoards(src)) return render(src, "structured", limit);
   if (!structurable(src)) return render(src, "prose", limit);
   const fitted = { ...structuredClone(src), trimmed: [] } as Working;
   trimThread(fitted, "points", limit);

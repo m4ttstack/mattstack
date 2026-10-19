@@ -554,6 +554,15 @@ describe("gate_open", () => {
     expect(f.log.at(-1)).toBe(sourceLine("post", "g1", built));
   });
 
+  test("a boards@1 source past the board cap is refused and nothing opens", async () => {
+    const f = rooted();
+    const boards = Array.from({ length: 13 }, (_, i) => ({ case: `c${i}`, slot: "after", path: `/tmp/e/b${i}.png`, caption: "A claim" }));
+    const res = await open({ kind: "evidence-boards:ship:1", source: { context: { "gate-ctx": "boards@1", boards }, questions: [{ id: "boards", multi: false, options: ["clear", "hide"] }] } }, f);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("boards@1: 13 boards; open at most 12 per gate");
+    expect(f.log).toEqual([]);
+  });
+
   test("an open that does not fit also saves the dropped fact", async () => {
     const f = rooted();
     const res = await open({ kind: "respond-plan", source: bigAdjudication(), ...RUN }, f);
