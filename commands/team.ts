@@ -8,6 +8,7 @@ import { activeTeamFor } from "../lib/team/active-team.ts";
 import { roleFor, rolesFor } from "../lib/team/roles.ts";
 import { applyForgeAccess, readForgeAccess, realForgeAccessSeams, sharedBranchSentence, type ForgeAccessApplied, type ForgeAccessReport, type ForgeAccessSeams } from "../lib/team/forge-access-apply.ts";
 import { diffLines, hasChanges, limitSentence } from "../lib/team/forge-access-plan.ts";
+import { restoreDataBranch, type RestorePlan, type RestoreResult } from "../lib/team/data-branch-guard.ts";
 import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
 /**
  * rt team create|publish|rename|invite|join|members|status: the team-repo
@@ -17,6 +18,7 @@ import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
  *   rt team publish [--team <slug>] --remote <url> [--json]
  *   rt team rename <name> [--team <org>] [--json]
  *   rt team branch use <branch> [--team <org>] [--json]
+ *   rt team restore-data-branch [--yes] [--team <org>] [--json]
  *   rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
  *   rt team members sync [--team <slug>] [--json]
@@ -203,12 +205,18 @@ const REFUSAL_CODES = new Set([
   "org-uncommitted",
   "org-behind",
   "invite-stale",
+  "invite-no-data-branch",
   "org-store-malformed",
   "trial-branch-admin-only",
   "trial-branch-not-moved",
   "trial-branch-held",
   "trial-branch-no-org-data",
   "forge-access-off",
+  "restore-not-admin",
+  "restore-no-data-branch",
+  "restore-not-needed",
+  "restore-no-copy",
+  "restore-behind",
 ]);
 
 /** The checked-out branch, shown unless it is the org's own; a recorded trial reads as one, anything else as off the org's branch. */
@@ -1291,6 +1299,65 @@ export async function teamForgeAccess(args: string[], _ctx: CommandContext = {},
       return;
     }
     out.print(...forgeAccessBlocks(slug, result.report, result.applied));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+/** What a restore would push: the branch, this copy's tip and its last commit. */
+export function restorePlanBlocks(slug: string, plan: RestorePlan): Block[] {
+  const past = plan.ahead === null ? "rt never saw the forge's tip of it" : plan.ahead === 0 ? "the same tip the forge last had" : `${plan.ahead} ${plan.ahead === 1 ? "commit" : "commits"} past the tip the forge last had`;
+  return [
+    out.line("needs-you", `The forge lost the ${plan.branch} branch. rt can push your copy back`),
+    out.kv("branch", plan.branch),
+    out.kv("commit", plan.sha.slice(0, 12), plan.subject),
+    out.kv("copy", past),
+    out.callout("next", out.cmd(`rt team restore-data-branch --yes --team ${slug}`)),
+  ];
+}
+
+export function restoreBlocks(slug: string, result: RestoreResult): Block[] {
+  const { branch } = result.plan;
+  const blocks: Block[] = [out.line("done", `Pushed your copy of the ${branch} branch back to the forge`, result.plan.sha.slice(0, 12))];
+  const protect = result.protect;
+  if (protect?.kind === "protected") blocks.push(out.line("done", `Protected the ${branch} branch again`));
+  else if (protect?.kind === "already") blocks.push(out.line("done", `The forge still protects the ${branch} branch`));
+  else if (protect?.kind === "unavailable") blocks.push(out.line("off", `This forge plan can't protect the ${branch} branch`));
+  else if (protect?.kind === "no-forge") blocks.push(out.line("off", "rt can't manage this forge's branch rules, so protect the branch by hand"));
+  else if (protect?.kind === "refused") blocks.push(out.line("needs-you", `The forge did not let rt protect the ${branch} branch`), ...protect.manualSteps.map((step) => out.line("pending", step)));
+  if (result.pushList === "refused") blocks.push(out.callout("next", "Check who can push it with ", out.cmd(`rt team forge-access --team ${slug}`)));
+  return blocks;
+}
+
+export async function teamRestoreDataBranch(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  try {
+    const slug = resolveTeamSlug(args, "team restore-data-branch");
+    const opts = { readToken: deps.forgeToken ?? storedForgeToken, forgeAccessSeams: deps.forgeAccessSeams };
+    let push = args.includes("--yes");
+    if (!push && !json) {
+      const plan = await restoreDataBranch(deps.probes, slug, { ...opts, push: false });
+      const gate = deps.interactive ?? (await import("../lib/ui/gate.ts")).interactive;
+      if (!gate()) {
+        out.print(...restorePlanBlocks(slug, plan.plan));
+        return;
+      }
+      out.print(...restorePlanBlocks(slug, plan.plan).slice(0, -1));
+      const ask = deps.confirm ?? (async (message: string) => (await import("../lib/ui/prompts.ts")).confirm({ message }));
+      push = await ask(`Push this copy of ${plan.plan.branch} back to the forge?`);
+      if (!push) {
+        out.print(out.line("off", "Nothing was pushed"));
+        return;
+      }
+    }
+    const result = await restoreDataBranch(deps.probes, slug, { ...opts, push });
+    if (json) {
+      deps.print(JSON.stringify(envelope({ ok: true, slug, ...result })));
+      return;
+    }
+    out.print(...(result.pushed ? restoreBlocks(slug, result) : restorePlanBlocks(slug, result.plan)));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;

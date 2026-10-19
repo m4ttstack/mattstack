@@ -7,7 +7,9 @@ title: Teams and invites
 
 An org is one git repo that rt manages, shared by everyone in it: settings, secrets, skill packs, and forge access, distributed to every member's Mac. Inside the org are teams. Each team is a folder with its own settings and its own skill pack, and the org's settings apply to every team.
 
-The org's data lives on its own branch of that repo, the data branch, named `mattstack` unless the org picked another. The repo's `main` holds only a small pointer to it, so `main` stays free for anything else.
+The org's data lives on its own branch of that repo, the data branch, named `mattstack` unless the org picked another. The repo's `main` holds only a small pointer to it, the `.mattstack.jsonc` file at its root, so `main` stays free for anything else. An org that moved before this file existed keeps its pointer at `mattstack/mattstack.jsonc`, and rt reads either.
+
+Each Mac also remembers the data branch in its own record, `~/.mattstack/rt/teams/<org>.json`, written when it joins or moves. That file sits outside the clone, so switching the clone to another branch can't change it, and rt reads it first whenever it needs to find the data branch.
 
 A Mac holds one org. Its clone lives at `~/.mattstack/orgs/<org>/`, a folder named for the org:
 
@@ -144,6 +146,8 @@ The joiner opens the invite link, or pastes the code into **Join a team** in set
 
 A rejoin on a Mac whose copy of the org was cloned before the org moved to a data branch moves that copy onto the data branch first, the same way a pull does. When the move is held, for example by unsaved changes or a copy that is not on a branch, the join refuses and says what is in the way. The invite is still unused, so join again once it's fixed.
 
+The join clones the data branch the invite names. An invite that names none reads the pointer on `main`, then tries a branch named `mattstack`, and when neither is there it asks you for a new invite without using this one.
+
 The join clones only the org's data branch, then narrows it to the folders the joiner's role reaches. Whatever else the org repo holds, like an app's code on `main`, stays on the remote and never lands on the joiner's Mac.
 
 An invite minted before the org was renamed names the org by its old name. The join refuses it with "This invite names the org by an old name; ask for a fresh one" and removes the clone it just made; ask an admin for a new invite.
@@ -225,6 +229,40 @@ rt team branch use org-trial
 No other Mac moves. The real move refuses when the org repo already has its data branch, so never try it under the name you will keep.
 
 Once the pointer is on `main`, each member's Mac on an updated app moves its clone onto the data branch by itself, at its next pull or `rt team pull`. Unpublished org commits move with it. Uncommitted changes, a detached HEAD, or commits outside the org's data hold the move, and the **Org layout** row says which. A member's app that cannot read the new layout holds at the last commit it can read, and the row says to update the app.
+
+A clone someone switched to `main` or to a branch that holds no org data comes back to the data branch the same way, and a clone with no branch checked out is told to switch to the data branch, never to `main`.
+
+### Moving the pointer to `.mattstack.jsonc`
+
+An org that moved to a data branch before `.mattstack.jsonc` existed keeps its pointer at `mattstack/mattstack.jsonc`, a whole folder on `main` for one file. An org admin moves it to the root file in two phases, from a mattstack checkout. Each prints its plan and writes nothing until you add `--write`:
+
+```bash
+bun scripts/move-pointer-to-root.ts ~/.mattstack/orgs/<org> --admin <your forge username> --phase add --write
+```
+
+Phase 1 adds `.mattstack.jsonc` beside the old file. Every version of rt reads one or the other, so it's safe to run at any time.
+
+```bash
+bun scripts/move-pointer-to-root.ts ~/.mattstack/orgs/<org> --admin <your forge username> --phase drop --members-confirmed --write
+```
+
+Phase 2 deletes `mattstack/mattstack.jsonc`, leaving `.mattstack.jsonc` as the org's only file on `main`. rt v2.25.1 and older read only the old file, so a Mac still on one would treat the org as not moved. rt keeps no record of which version each member runs, so check that every member has updated, then pass `--members-confirmed`. Without it, phase 2 refuses and says what to confirm. When `main` refuses the push, the change goes to a `mattstack-root-pointer` branch instead; land it the way your repo takes changes.
+
+## Keeping the data branch safe
+
+The data branch holds the org's roster, settings, packs and secrets. Its README and the pointer's header both say so: never delete it or merge it into `main`. An org admin's next `rt team publish` from the data branch brings the README up to date.
+
+A forge maintainer can still delete the branch, or merge it into `main` through a merge request. rt checks for both, in setup and from the daemon:
+
+- **Org data branch** shows on every Mac. When the branch is gone from the forge and your copy still has it, the row reads "The org's data branch is gone from the forge, and your copy still has it". An org owner or admin pushes it back with `rt team restore-data-branch`.
+- **Org files on main** shows on an org owner's or admin's Mac. When `main` holds any org file besides the pointer, the row reads "Org data was merged into main. Revert that commit", with the steps to do it. A `main` holding only the pointer reads ready.
+
+```bash
+rt team restore-data-branch          # show what it would push
+rt team restore-data-branch --yes    # push it back and protect it again
+```
+
+The restore pushes your copy of the branch, then protects it on the forge again and, when rt manages forge access on your Mac, restores its push list. It refuses when your copy is behind the last tip rt saw on the forge, since pushing it would drop commits someone else published; run it from a Mac whose copy has them.
 
 ## Renaming your org
 
@@ -322,6 +360,7 @@ Asks the daemon to pull the org clone immediately instead of waiting for its per
 | `rt team invite --handle <user> [--teams <team>]` | Admins: mint an invite that puts someone on a team |
 | `rt team manage-membership [on\|off]` | Admins: let rt manage forge access from this Mac |
 | `rt team forge-access [--apply]` | Admins: see and fix who can reach the org's repo on the forge |
+| `rt team restore-data-branch [--yes]` | Org owners and admins: push the data branch back to a forge that lost it |
 | `rt team join` | Redeem an invite code |
 | `rt team members sync` | Admins: collect reply keys from invitees |
 | `rt team members set <user> --teams <team>` | Admins: change which teams someone is on |

@@ -3,10 +3,34 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { markerOrg, markerState, ORG_LAYOUT, ORG_LAYOUT_ABSENT_DEFAULT, ORG_MARKER_REL, parseMarker, READABLE_LAYOUTS } from "../org-marker.ts";
+import { markerOrg, markerState, ORG_LAYOUT, ORG_LAYOUT_ABSENT_DEFAULT, ORG_MARKER_REL, parseMarker, POINTER_REL, pointerText, READABLE_LAYOUTS } from "../org-marker.ts";
 
 const dir = "/h/.mattstack/orgs/acme";
 const at = (raw: string) => fakeProbes({ home: "/h", files: { [`${dir}/${ORG_MARKER_REL}`]: raw } });
+
+describe("the root pointer", () => {
+  const both = (root: string | null, folder: string | null) =>
+    fakeProbes({ home: "/h", files: { ...(root !== null ? { [`${dir}/${POINTER_REL}`]: root } : {}), ...(folder !== null ? { [`${dir}/${ORG_MARKER_REL}`]: folder } : {}) } });
+
+  test("is a single file at the root of main", () => {
+    expect(POINTER_REL).toBe(".mattstack.jsonc");
+  });
+  test("a copy holding only the root pointer reads as the org it names", () => {
+    expect(markerState(both('{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }', null), dir)).toEqual({ kind: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+  });
+  test("the root pointer is read before the folder file", () => {
+    expect(markerState(both('{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "data" }', '{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }'), dir)).toMatchObject({ dataBranch: "data" });
+  });
+  test("only the old folder file still reads", () => {
+    expect(markerState(both(null, '{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }'), dir)).toMatchObject({ kind: "org", dataBranch: "mattstack" });
+  });
+  test("the pointer text says what the branch is and parses back to the same marker", () => {
+    const text = pointerText("acme", "mattstack");
+    expect(text).toContain("Never delete it or merge it into main.");
+    expect(text).toContain("the mattstack branch");
+    expect(parseMarker(text)).toEqual({ kind: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+  });
+});
 
 describe("markerOrg", () => {
   test("reads an org marker", () => {

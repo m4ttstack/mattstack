@@ -14,7 +14,7 @@ import { getSetting } from "../../settings/resolve.ts";
 import { readTeamLocal, updateTeamLocal } from "../team-local.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import * as isolation from "../../../packages/rt-client/src/test-isolation.ts";
-import { ORG_LAYOUT } from "../org-marker.ts";
+import { DATA_BRANCH_WARNING, ORG_LAYOUT, parseMarker, POINTER_REL, pointerText } from "../org-marker.ts";
 import { DEFAULT_DATA_BRANCH, publishPointer } from "../org-data-branch.ts";
 import { publishTeam } from "../publish.ts";
 
@@ -83,7 +83,7 @@ describe("scaffoldFiles", () => {
 
   test("writes the org layout: marker, org store, one team folder, marketplace, sops rule", () => {
     const files = scaffoldFiles("acme", "Acme", "https://gitlab.example.com/g/acme.git");
-    expect(Object.keys(files).sort()).toEqual([".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "mattstack/mattstack.jsonc", ORG_SETTINGS, TEAM_SETTINGS].sort());
+    expect(Object.keys(files).sort()).toEqual([".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "mattstack/mattstack.jsonc", "README.md", ORG_SETTINGS, TEAM_SETTINGS].sort());
     expect(JSON.parse(files["mattstack/mattstack.jsonc"]!)).toEqual({ role: "org", org: "acme", layout: ORG_LAYOUT, dataBranch: "mattstack" });
   });
 
@@ -190,9 +190,9 @@ describe("createTeam", () => {
       ["xcode-select", "-p"],
       ["git", "init", "-b", "mattstack"],
       ["git", "remote", "add", "origin", "https://github.com/acme/mattstack-team-acme.git"],
-      ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
-      ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
-      ["git", "commit", "-m", "team: scaffold acme", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
+      ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
+      ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
+      ["git", "commit", "-m", "team: scaffold acme", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
     ]);
     expect(p.calls.exec.some((argv) => argv.includes("push"))).toBe(false);
   });
@@ -247,9 +247,9 @@ describe("createTeam", () => {
     expect(p.calls.exec.filter((c) => c[0] === "git").slice(0, 5)).toEqual([
       ["git", "init", "-b", "mattstack"],
       ["git", "remote", "add", "origin", "https://github.com/acme/repo.git"],
-      ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
-      ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
-      ["git", "commit", "-m", "team: scaffold acme", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"],
+      ["git", "add", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
+      ["git", "diff", "--cached", "--quiet", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
+      ["git", "commit", "-m", "team: scaffold acme", "--", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"],
     ]);
     expect(p.readFile(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe(withCreator("// edited before CLT arrived\n{}", "acme", { username: "dev1", agePublicKey: FAKE_PUBLIC_KEY }));
   });
@@ -284,7 +284,7 @@ describe("createTeam", () => {
     expect(result.created).toBe(false);
     expect(result.remote).toBe("https://github.com/acme/repo.git");
     expect(p.calls.exec).toEqual([
-      ...["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"].map((path) => ["git", "cat-file", "-e", `HEAD:${path}`]),
+      ...["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"].map((path) => ["git", "cat-file", "-e", `HEAD:${path}`]),
       ["git", "symbolic-ref", "-q", "--short", "HEAD"],
     ]);
     // The intent file is refreshed (finding 8), but no NEW path is ever written on the idempotent path — no scaffold file is rewritten.
@@ -414,7 +414,7 @@ describe("createTeam", () => {
       const result = await createTeam(p, { name: "Acme", remote, others: false }, new FakeAgeKeySeam(), seams);
 
       expect(result.created).toBe(false);
-      expect(p.calls.exec).toEqual(["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"].map((path) => ["git", "cat-file", "-e", `HEAD:${path}`]));
+      expect(p.calls.exec).toEqual(["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"].map((path) => ["git", "cat-file", "-e", `HEAD:${path}`]));
       // The only permitted write on this path is the runtime intent — every zone file is untouched.
       expect(Object.keys(p.calls.writes)).toEqual(["/home/x/.mattstack/rt/setup-intent.json"]);
       expect(p.readFile(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe(customSettings);
@@ -453,7 +453,7 @@ describe("createTeam (real fs + real git, fake age key only) — R-T16-a / findi
 
 describe("a new org's data branch and main's pointer (real git, empty bare origin)", () => {
   const MARKER_PATH = "mattstack/mattstack.jsonc";
-  const DATA_FILES = [".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", MARKER_PATH, "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc"];
+  const DATA_FILES = [".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "README.md", MARKER_PATH, "mattstack/org/settings.org.jsonc", "mattstack/teams/acme/settings.team.jsonc"];
   let root: string;
   let originalHome: string | undefined;
   let originalUser: string | undefined;
@@ -493,9 +493,9 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
     const created = await createTeam(p, { name: "Acme", remote: origin, others: false }, new FakeAgeKeySeam(), seams);
 
     expect(git(created.dir, "symbolic-ref", "--short", "HEAD").out).toBe(DEFAULT_DATA_BRANCH);
-    expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(MARKER_PATH);
+    expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(POINTER_REL);
     expect(git(created.dir, "rev-list", "--count", "refs/heads/main").out).toBe("1");
-    expect(JSON.parse(git(created.dir, "show", `refs/heads/main:${MARKER_PATH}`).out)).toEqual({ role: "org", org: "acme", layout: ORG_LAYOUT, dataBranch: "mattstack" });
+    expect(git(created.dir, "show", `refs/heads/main:${POINTER_REL}`).out).toBe(pointerText("acme", "mattstack").trim());
     expect(git(created.dir, "status", "--porcelain").out).toBe("");
     expect(git(origin, "for-each-ref", "--format=%(refname)").out).toBe("");
   });
@@ -509,8 +509,9 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
     expect(git(origin, "for-each-ref", "--format=%(refname)", "refs/heads").out.split("\n")).toEqual(["refs/heads/main", "refs/heads/mattstack"]);
     expect(git(origin, "ls-tree", "-r", "--name-only", "mattstack").out.split("\n").sort()).toEqual(DATA_FILES);
     expect(JSON.parse(git(origin, "show", `mattstack:${MARKER_PATH}`).out)).toEqual({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
-    expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(MARKER_PATH);
-    expect(JSON.parse(git(origin, "show", `main:${MARKER_PATH}`).out)).toEqual({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+    expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(POINTER_REL);
+    expect(parseMarker(git(origin, "show", `main:${POINTER_REL}`).out)).toEqual({ kind: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+    expect(git(origin, "show", `mattstack:README.md`).out).toContain(DATA_BRANCH_WARNING);
 
     expect(git(created.dir, "symbolic-ref", "--short", "HEAD").out).toBe("mattstack");
     expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
@@ -537,12 +538,12 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
     expect(err).toMatchObject({ code: "pointer-push-failed" });
     expect((err as UserActionableError).log).toContain("unable to access");
     expect((err as UserActionableError).log).not.toContain("SECRET");
-    expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(MARKER_PATH);
+    expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(POINTER_REL);
     expect(git(origin, "for-each-ref", "--format=%(refname)", "refs/heads").out).toBe("refs/heads/mattstack");
 
     failing = false;
     await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote });
-    expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(MARKER_PATH);
+    expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(POINTER_REL);
     expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
   });
 
@@ -563,7 +564,7 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
       const err = await publishTeam(p, created.slug, null, { token: null, tokenRemote: created.remote }).catch((e: unknown) => e);
       expect(err).toMatchObject({ code: "remote-not-empty", message: "The team repo already has commits", why: "rt starts a team in an empty repo." });
       expect(git(origin, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads").out).toBe(`refs/heads/${branch} ${before}`);
-      expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(MARKER_PATH);
+      expect(git(created.dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(POINTER_REL);
     });
   }
 
@@ -593,7 +594,7 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
 
     failing = false;
     await createTeam(p, opts, new FakeAgeKeySeam(), seams);
-    expect(git(dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(MARKER_PATH);
+    expect(git(dir, "ls-tree", "-r", "--name-only", "refs/heads/main").out).toBe(POINTER_REL);
   });
 
   test("a deferred creator's claim pushes the data branch and then the pointer", async () => {
@@ -606,7 +607,7 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
     expect(await claimPendingAdmin(p, "acme", "dev1", null)).toEqual({ claimed: true, published: true });
 
     expect(git(origin, "for-each-ref", "--format=%(refname)", "refs/heads").out.split("\n")).toEqual(["refs/heads/main", "refs/heads/mattstack"]);
-    expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(MARKER_PATH);
+    expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(POINTER_REL);
     expect(git(created.dir, "rev-parse", "--verify", "-q", "refs/heads/main").code).not.toBe(0);
   });
 });
@@ -908,7 +909,7 @@ describe("fresh scaffold failure recovery", () => {
           failing = false;
           const retried = await createTeam(p, opts, new FakeAgeKeySeam(), forge);
           expect(retried.rolesDeferred).toBe(known ? undefined : true);
-          const paths = ["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"];
+          const paths = ["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"];
           for (const path of paths) expect(run(["show", `HEAD:${path}`])).toBe(p.readFile(join(dir, path))!.trim());
           expect(retried).toMatchObject({ created: true, team: "widgets" });
           expect(run(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]).split("\n").sort()).toEqual([...paths].sort());
@@ -956,7 +957,7 @@ describe("forge identity scaffold failure recovery", () => {
             if (argv.includes("ls-remote")) return { code: 0, stdout: publishedBase ? `${publishedBase}\trefs/heads/mattstack\n` : "", stderr: "" };
             if (argv.includes("push")) {
               const paths = run(["ls-tree", "-r", "--name-only", "HEAD"]).split("\n");
-              expect(paths.sort()).toEqual([".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/settings.team.jsonc", "unrelated.txt"].sort());
+              expect(paths.sort()).toEqual([".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/settings.team.jsonc", "README.md", "unrelated.txt"].sort());
               return { code: 0, stdout: "", stderr: "" };
             }
             return realExec(argv, opts);
@@ -978,7 +979,7 @@ describe("forge identity scaffold failure recovery", () => {
           failing = false;
           const retried = await recordForgeIdentity(p, "acme", { provider: "github", host: "github.com" }, null, async () => "dev1");
           expect(retried.admin).toEqual({ claimed: true, published: true });
-          const paths = ["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"];
+          const paths = ["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore", "README.md"];
           for (const path of paths) expect(run(["show", `HEAD:${path}`])).toBe(p.readFile(join(dir, path))!.trim());
 
           expect(run(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]).split("\n").sort()).toEqual([...paths].sort());

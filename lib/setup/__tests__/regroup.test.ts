@@ -22,7 +22,7 @@ describe("regroupTools", () => {
       "tool.chrome-signin", "tool.proxy", "tool.state-backup", "tool.team.doppler", "tool.plugins", "skills.writing-style",
       "pack.acme", "tool.linear-mcp", "repos.place:gitlab.com/acme/widgets", "tool.rt", "tool.rt-link", "tool.legacy-dirs", "tool.intercepts",
       "tool.app", "tool.vsix", "tool.extension", "tool.shell", "tool.daemon", "tool.flavor", "home.backup", "team.sync",
-      "team.marketplace", "team.one-per-machine", "org.folder", "org.layout", "org.sparse", "org.branch", "org.unpublished-packs", "board.team-fields",
+      "team.marketplace", "team.one-per-machine", "org.folder", "org.layout", "org.sparse", "org.branch", "org.data-branch", "org.main", "org.unpublished-packs", "board.team-fields",
     ]));
     expect(out.map((g) => [g.id, g.title])).toEqual([
       ["mac", "Your Mac"], ["accounts", "Accounts"], ["access", "Access"],
@@ -40,7 +40,7 @@ describe("regroupTools", () => {
     ]);
     expect(ids(out, "team")).toEqual([
       "tool.state-backup", "tool.team.doppler", "home.backup", "team.sync", "team.marketplace", "team.one-per-machine",
-      "org.folder", "org.layout", "org.sparse", "org.branch", "org.unpublished-packs", "board.team-fields",
+      "org.folder", "org.layout", "org.sparse", "org.branch", "org.data-branch", "org.main", "org.unpublished-packs", "board.team-fields",
     ]);
   });
 

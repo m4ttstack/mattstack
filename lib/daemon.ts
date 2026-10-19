@@ -39,6 +39,7 @@ import {
 } from "./daemon-logger.ts";
 import { onNotification, notifyEnabled, notifyEvent, loadNotificationPrefs } from "./notifier.ts";
 import { createForgeAccessSweep } from "./daemon/forge-access-sweep.ts";
+import { createOrgGuardSweep, ORG_GUARD_INTERVAL_MS } from "./daemon/org-guard-sweep.ts";
 import { checkInviteReplies, INVITE_REPLIES_NS, listInviteSlugs, MEMBER_JOINED_CATEGORY } from "./daemon/invite-replies.ts";
 import { readInviteRecords } from "./team/invite-records.ts";
 import { createRelayClient } from "./team/relay-client.ts";
@@ -977,6 +978,12 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           "forge-access",
           createForgeAccessSweep({ probes: createRealProbes(), log }),
           { bootDelayMs: 120_000, intervalMs: 2 * 60 * 1000 },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "org-guard",
+          createOrgGuardSweep({ probes: createRealProbes(), log }),
+          { bootDelayMs: 150_000, intervalMs: ORG_GUARD_INTERVAL_MS },
           log,
         ));
         sweepHandles.push(scheduleSweep(

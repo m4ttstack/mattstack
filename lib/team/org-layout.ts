@@ -10,7 +10,7 @@ import { UserActionableError } from "../errors.ts";
 import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
 import type { Probes } from "../setup/probes.ts";
 import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
-import { markerState, ORG_LAYOUT, ORG_MARKER_REL, parseMarker, READABLE_LAYOUTS, type MarkerState } from "./org-marker.ts";
+import { markerState, ORG_LAYOUT, ORG_MARKER_REL, parseMarker, POINTER_REL, READABLE_LAYOUTS, type MarkerState } from "./org-marker.ts";
 
 export type OrgLayoutState =
   | { kind: "none" }
@@ -23,19 +23,31 @@ export function updateSentence(layout: number): string {
   return `Your org uses layout ${layout} and this app reads up to ${ORG_LAYOUT}. Update the app.`;
 }
 
-/** The `git show` argument that prints the org marker at `ref`. */
+/** The `git show` argument that prints the folder marker at `ref`. */
 export function markerAtRef(ref: string): string {
   return `${ref}:${ORG_MARKER_REL}`;
 }
 
+export type Shown = { code: number; stdout: string; stderr: string };
+
+/** git's words for a path a ref does not hold. */
+export const MISSING_PATH_RE = /does not exist|exists on disk, but not in|not in the index/i;
+
+/** A `git show` of the marker at `ref`: `main`'s root pointer when the ref holds one, else the folder marker. */
+export async function showMarkerAt(show: (spec: string) => Promise<Shown>, ref: string): Promise<Shown> {
+  const root = await show(`${ref}:${POINTER_REL}`);
+  if (root.code === 0 || !MISSING_PATH_RE.test(root.stderr)) return root;
+  return show(markerAtRef(ref));
+}
+
 /**
- * The layout a `git show <markerAtRef(ref)>` printed, when it is one this rt
+ * The layout a `git show` of the marker printed, when it is one this rt
  * does not read. A tip with no marker, a marker rt cannot parse, or a layout
  * at or below ORG_LAYOUT passes; any other git failure throws.
  */
-export function layoutAbove(shown: { code: number; stdout: string; stderr: string }): { layout: number } | null {
+export function layoutAbove(shown: Shown): { layout: number } | null {
   if (shown.code !== 0) {
-    if (/does not exist|exists on disk, but not in|not in the index/i.test(shown.stderr)) return null;
+    if (MISSING_PATH_RE.test(shown.stderr)) return null;
     throw new Error(shown.stderr.trim() || `git show exited ${shown.code}`);
   }
   const marker = parseMarker(shown.stdout);

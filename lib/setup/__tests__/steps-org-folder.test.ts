@@ -78,8 +78,9 @@ const timedOut = (daemonSide: () => void = () => {}) => async () => {
   return null;
 };
 
-function seams(opts: { locate?: (newPath: string) => Promise<{ ok: boolean; error?: string }>; marketplace?: typeof orgFolderSeams.marketplace; dataBranch?: typeof orgFolderSeams.dataBranch } = {}) {
+function seams(opts: { locate?: (newPath: string) => Promise<{ ok: boolean; error?: string }>; marketplace?: typeof orgFolderSeams.marketplace; dataBranch?: typeof orgFolderSeams.dataBranch; remember?: typeof orgFolderSeams.remember } = {}) {
   orgFolderSeams.dataBranch = opts.dataBranch ?? (async () => null);
+  orgFolderSeams.remember = opts.remember ?? (async () => false);
   const located: { newPath: string; repo?: string }[] = [];
   const marketplaces: { dir: string; stalePaths: string[] }[] = [];
   orgFolderSeams.identity = async (dir) => `gitlab.example.com/acme/org@${dir}`;
@@ -590,6 +591,22 @@ describe("org.folder: the data branch piece", () => {
     const out = await convergeOrgFolder(makeCtx(p, { update: true }).ctx);
     expect(out).toMatchObject({ state: "done", detail: "acme already in place" });
     expect(dirs).toEqual([]);
+  });
+
+  test("a Mac that joined or moved before this release has its data branch remembered, daemon or not", async () => {
+    const remembered: string[] = [];
+    seams({ remember: async (_p, dir) => { remembered.push(dir); return true; } });
+    const p = fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed(), dirs: { [RT]: ["rt.sock"] }, files: { [`${RT}/rt.sock`]: "" } });
+    const out = await convergeOrgFolder(makeCtx(p, { update: true }).ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail?.split("; ")).toContain("Remembered which branch holds your org's data");
+    expect(remembered).toEqual([`${ORGS}/acme`]);
+  });
+
+  test("nothing to remember adds nothing to the step's words", async () => {
+    seams({ remember: async () => false });
+    const out = await convergeOrgFolder(makeCtx(inPlace(), { update: true }).ctx);
+    expect(out).toMatchObject({ state: "done", detail: "acme already in place" });
   });
 
   test("with no daemon the step moves the clone itself", async () => {

@@ -72,6 +72,8 @@ type World = {
   gitFail?: Record<string, string>;
   /** The org marker each checkout holds at its origin ref's fetched tip, by checkout dir; null means the tip has none. */
   originMarker?: Record<string, string | null>;
+  /** What origin's tip holds at the root pointer path, per clone. */
+  originRootPointer?: Record<string, string | null>;
   /** What `git show` at an origin ref prints to stderr when it fails for another reason. */
   originShowFail?: string;
 };
@@ -137,7 +139,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       if (args[0] === "show" && args[1]!.startsWith("refs/remotes/origin/")) {
         const [ref, path] = args[1]!.split(/:(.*)/s);
         if (world.originShowFail) return { code: 128, stdout: "", stderr: world.originShowFail };
-        const marker = world.originMarker?.[cwd];
+        const marker = path === ".mattstack.jsonc" ? world.originRootPointer?.[cwd] : world.originMarker?.[cwd];
         if (marker === undefined || marker === null) return { code: 128, stdout: "", stderr: `fatal: path '${path}' does not exist in '${ref}'` };
         return { code: 0, stdout: marker, stderr: "" };
       }
@@ -1150,6 +1152,18 @@ describe("pull-pack in an org clone", () => {
     expect(held[LAYOUT_HOLD]).toBe(true);
     expect(merges(calls)).toEqual([]);
     expect(calls.some((c) => c.args[0] === "show" && c.args[1] === "HEAD:mattstack/mattstack.jsonc" && c.cwd === clone)).toBe(true);
+  });
+
+  test("a fetched main holding only the root pointer refuses the pull with the moved sentence", async () => {
+    const { clone, pack } = orgClonePack();
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, originMarker: { [clone]: null }, originRootPointer: { [clone]: `// header\n{ "role": "org", "org": "acme", "layout": 4, "dataBranch": "mattstack" }` } }), orgsRoot: dirname(clone) };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "refused", detail: "Your org's data moved to the mattstack branch. rt switches this Mac over when your copy has no unsaved changes." });
+    expect(merges(calls)).toEqual([]);
   });
 
   test("a trial branch whose own marker names the data branch pulls", async () => {

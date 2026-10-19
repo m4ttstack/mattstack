@@ -78,10 +78,15 @@ function fakeJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): JoinRede
   };
 }
 
+/** Every git call succeeds, and main holds a layout 3 marker, so a join naming no branch clones main. */
+function layout3Main(argv: string[]): { code: number; stdout: string; stderr: string } {
+  return argv.includes("show") && argv.some((a) => a.startsWith("FETCH_HEAD:")) ? { code: 0, stdout: `{"role":"org","org":"acme","layout":3}`, stderr: "" } : { code: 0, stdout: "", stderr: "" };
+}
+
 function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string[] } {
   const lines: string[] = [];
   return {
-    probes: fakeProbes({ home: HOME, exec: () => ({ code: 0, stdout: "", stderr: "" }) }),
+    probes: fakeProbes({ home: HOME, exec: layout3Main }),
     print: (s: string) => lines.push(s),
     ageKeySeam: new FakeAgeKeySeam(),
     readCode: async () => CODE,
@@ -190,7 +195,7 @@ describe("teamJoin", () => {
   const staleMarker = { [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "globex" }` };
 
   test("an invite naming the org by an old name is refused, not failed", async () => {
-    const deps = baseDeps({ probes: fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }), files: staleMarker }) });
+    const deps = baseDeps({ probes: fakeProbes({ home: HOME, fetch: relayFetch(), exec: layout3Main, files: staleMarker }) });
     const io = captureOut();
     ui.__test__.setHuman(() => false);
     try {
@@ -203,7 +208,7 @@ describe("teamJoin", () => {
   });
 
   test("--json carries invite-stale in the usual error envelope", async () => {
-    const deps = baseDeps({ probes: fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }), files: staleMarker }) });
+    const deps = baseDeps({ probes: fakeProbes({ home: HOME, fetch: relayFetch(), exec: layout3Main, files: staleMarker }) });
     const code = await runExpectingProcessExit(() => teamJoin(["--json"], {}, deps));
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
@@ -212,7 +217,7 @@ describe("teamJoin", () => {
   });
 
   test("--dry-run --json prints the exact contract envelope for an accessible invite", async () => {
-    const deps = baseDeps({ probes: fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }) }) });
+    const deps = baseDeps({ probes: fakeProbes({ home: HOME, fetch: relayFetch(), exec: layout3Main }) });
 
     await teamJoin(["--dry-run", "--json"], {}, deps);
 
@@ -277,7 +282,7 @@ describe("teamJoin", () => {
   }
 
   test("--dry-run --json: a pasted deep link reaches joinDryRun as the normalized bare code", async () => {
-    const probes = fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }) });
+    const probes = fakeProbes({ home: HOME, fetch: relayFetch(), exec: layout3Main });
     const deps = baseDeps({ probes, readCode: undefined });
     const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(withStdinCode(`mattstack://join/${CODE}`));
 
@@ -315,7 +320,7 @@ describe("teamJoin", () => {
       fetch: relayFetch(),
       exec: (argv) => {
         if (argv[0] === "git" && argv[1] === "clone") return { code: 0, stdout: "", stderr: "" };
-        return { code: 0, stdout: "", stderr: "" };
+        return layout3Main(argv);
       },
     });
     const deps = baseDeps({ probes });
@@ -339,7 +344,7 @@ describe("teamJoin", () => {
         if (url.endsWith("/boards")) return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-1" }), headers: {} };
         return relayFetch()(url, init);
       },
-      exec: () => ({ code: 0, stdout: "", stderr: "" }),
+      exec: layout3Main,
     });
     const secretWrites: { key: string; value: string }[] = [];
     const deps = baseDeps({
@@ -362,7 +367,7 @@ describe("teamJoin", () => {
 
   test("redeem success clears the saved setup intent", async () => {
     const intentPath = pathJoin(HOME, ".mattstack", "rt", "setup-intent.json");
-    const probes = fakeProbes({ home: HOME, fetch: relayFetch(), files: { [intentPath]: "{}" } });
+    const probes = fakeProbes({ home: HOME, exec: layout3Main, fetch: relayFetch(), files: { [intentPath]: "{}" } });
     const deps = baseDeps({ probes });
 
     await teamJoin(["--json"], {}, deps);
@@ -373,6 +378,7 @@ describe("teamJoin", () => {
   test("a relay failure during redeem exits 0 with access:unreachable, never 2", async () => {
     const probes = fakeProbes({
       home: HOME,
+      exec: layout3Main,
       fetch: async (url, init) => {
         if (url.endsWith(`/v1/invites/${ID_HEX}/redeem`)) return { status: 503, body: "", headers: {} };
         return relayFetch()(url, init);
@@ -395,7 +401,7 @@ describe("teamJoin", () => {
   });
 
   test("a keychain failure after clone+redeem is user-actionable — exit 2 with a decodable envelope, a distinct code keeping it from reading as a dead invite", async () => {
-    const probes = fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }) });
+    const probes = fakeProbes({ home: HOME, fetch: relayFetch(), exec: layout3Main });
     const deps = baseDeps({ probes, ageKeySeam: new FakeAgeKeySeamLocked() });
 
     const code = await runExpectingProcessExit(() => teamJoin(["--json"], {}, deps));
@@ -413,7 +419,7 @@ describe("teamJoin", () => {
         if (url.endsWith("/boards")) return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-1" }), headers: {} };
         return relayFetch()(url, init);
       },
-      exec: () => ({ code: 0, stdout: "", stderr: "" }),
+      exec: layout3Main,
     });
     const deps = baseDeps({
       probes,
@@ -434,7 +440,7 @@ describe("teamJoin", () => {
   });
 
   test("a keychain failure in human mode prints a clean one-liner, not a raw stack", async () => {
-    const probes = fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }) });
+    const probes = fakeProbes({ home: HOME, fetch: relayFetch(), exec: layout3Main });
     const deps = baseDeps({ probes, ageKeySeam: new FakeAgeKeySeamLocked() });
     const io = captureOut();
     ui.__test__.setHuman(() => false);
@@ -459,7 +465,7 @@ describe("teamJoin", () => {
         urls.push(url);
         return relayFetch()(url, init);
       },
-      exec: () => ({ code: 0, stdout: "", stderr: "" }),
+      exec: layout3Main,
     });
     const deps = baseDeps({ probes, joinRedeemSeams: fakeJoinRedeemSeams({ forgeLogin: async () => null }) });
 

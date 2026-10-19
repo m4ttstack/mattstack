@@ -41,7 +41,7 @@ import { gitWithToken } from "./git-credential.ts";
 import { readMainPointer } from "./main-pointer.ts";
 import { ORG_CLONE_FOLDERS } from "./org-clone.ts";
 import { applyRoleCone } from "./org-cone.ts";
-import { convergeDataBranch, heldCopy, type ConvergeResult } from "./org-data-branch.ts";
+import { convergeDataBranch, DEFAULT_DATA_BRANCH, heldCopy, rememberDataBranch, type ConvergeResult } from "./org-data-branch.ts";
 import { validBranch } from "./org-marker.ts";
 import { decodeCode, open, sealReply } from "./invite-crypto.ts";
 import { AUTH_FAILURE_PATTERN } from "./publish.ts";
@@ -602,6 +602,7 @@ export async function joinRedeem(
   const token = mayOfferToken(pointer.remote, confirmedHost) ? await seams.forgeToken(p, pointer.remote) : null;
   const existingOrigin = p.exists(dir) ? readOrigin(p, dir) : null;
   let alreadyCloned = false;
+  let clonedBranch: string | null = null;
 
   if (existingOrigin !== null) {
     if (stripUserinfo(existingOrigin) !== stripUserinfo(pointer.remote)) {
@@ -618,9 +619,26 @@ export async function joinRedeem(
     let lastGit: ExecResult | null = null;
     const recording: Pick<Probes, "exec"> = { exec: async (argv, opts) => (lastGit = await p.exec(argv, opts)) };
     try {
-      branch = pointer.dataBranch ?? (await readMainPointer(recording, pointer.remote, token))?.dataBranch ?? null;
+      branch = pointer.dataBranch ?? null;
+      if (branch === null) {
+        const main = await readMainPointer(recording, pointer.remote, token);
+        // A pointer naming no branch is a layout 3 org, whose data is on main.
+        if (main !== null) branch = main.dataBranch;
+        else {
+          const lookup = gitWithToken(["ls-remote", "--heads", pointer.remote, `refs/heads/${DEFAULT_DATA_BRANCH}`], token, GIT_ENV, { remote: pointer.remote });
+          const listed = await recording.exec(lookup.argv, { env: lookup.env });
+          if (listed.code !== 0) throw new UserActionableError("main-pointer-unreadable", "rt could not look for the org's data branch", {}, { log: withoutUrls(listed.stderr) });
+          if (listed.stdout.trim() === "") {
+            updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
+            throw new UserActionableError("invite-no-data-branch", "rt could not find the branch this org keeps its data on, so ask your admin for a new invite", {}, {
+              why: "This invite names no branch, and the org's main branch does not say where its data lives. The invite has not been used.",
+            });
+          }
+          branch = DEFAULT_DATA_BRANCH;
+        }
+      }
     } catch (err) {
-      if (!(err instanceof UserActionableError)) throw err;
+      if (!(err instanceof UserActionableError) || err.code === "invite-no-data-branch") throw err;
       updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
       return gitAccessResult(pointer, lastGit ?? { code: 1, stdout: "", stderr: err.log ?? "" });
     }
@@ -639,6 +657,7 @@ export async function joinRedeem(
       const failed = gitAccessResult(pointer, sparse);
       return p.exists(dir) ? { ...failed, message: `${failed.message} rt could not remove the folder it cloned, so remove ${dir} before you join again.` } : failed;
     }
+    clonedBranch = branch;
   }
 
   const cloned = clonedOrgName(p, dir);
@@ -675,6 +694,7 @@ export async function joinRedeem(
       throw new UserActionableError("roster-not-ready", "Your admin's roster change has not reached the org repo yet; try again in a minute", {}, { log: `the org roster does not list ${pointer.username}` });
     }
   }
+  await rememberDataBranch(p, dir, clonedBranch ?? undefined);
 
   // Identity resolution runs BEFORE relay.redeem, deliberately: this is the
   // one precondition that can only be checked once the team is cloned

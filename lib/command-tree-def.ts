@@ -2990,6 +2990,16 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      "restore-data-branch": {
+        description: "Push your copy of the org's data branch back to a forge that lost it",
+        module: "./commands/team.ts",
+        fn: "teamRestoreDataBranch",
+        args: [
+          { name: "Yes", flag: "--yes", type: "boolean", default: false, hint: "Push without asking; leave it out to see what would be pushed" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
+          SETUP_JSON_ARG,
+        ],
+      },
       join: {
         description: "Redeem an invite (code on stdin, never an argument)",
         module: "./commands/team.ts",

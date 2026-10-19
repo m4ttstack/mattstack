@@ -13,12 +13,12 @@
 
 import { applyEdits, modify, parse } from "jsonc-parser";
 import { orgStoreFile } from "./org-store.ts";
-import { markerState, ORG_LAYOUT, ORG_MARKER_REL } from "./org-marker.ts";
+import { DATA_README, DATA_README_REL, markerState, ORG_LAYOUT, POINTER_REL, pointerText } from "./org-marker.ts";
 import { checkedOutBranch } from "./org-branch.ts";
 import { dataBranchRefspec, DEFAULT_DATA_BRANCH, POINTER_BRANCH } from "./org-data-branch.ts";
 import { publishTeam } from "./publish.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
-import { basename, dirname, join } from "path";
+import { dirname, join } from "path";
 import { type AgeKeySeam, createRealAgeKeySeam, ensureAgeKey, renderSopsYamlFor } from "../home/age-key.ts";
 import { TEAM_PATH_REGEX } from "../secrets/team-store.ts";
 import { forgeArgv, forgeLogin } from "./forge.ts";
@@ -190,6 +190,7 @@ export function scaffoldFiles(slug: string, name: string, remote: string, recipi
     ".claude-plugin/marketplace.json": `${JSON.stringify(marketplace, null, 2)}\n`,
     ".sops.yaml": renderSopsYamlFor(TEAM_PATH_REGEX, recipients),
     ".gitignore": "mattstack/org/secrets/*.tmp\nmattstack/org/admin-secrets/*.tmp\n.DS_Store\n",
+    [DATA_README_REL]: DATA_README,
   };
 }
 
@@ -237,9 +238,8 @@ async function buildPointer(p: Probes, cwd: string): Promise<void> {
     if (result.code !== 0 || id === "") throw gitStepError("git-pointer-failed", step, result);
     return id;
   };
-  const blob = await object("git rev-parse", ["git", "rev-parse", `HEAD:${ORG_MARKER_REL}`]);
-  const folder = await object("git mktree", ["git", "mktree"], `100644 blob ${blob}\t${basename(ORG_MARKER_REL)}\n`);
-  const root = await object("git mktree", ["git", "mktree"], `040000 tree ${folder}\t${dirname(ORG_MARKER_REL)}\n`);
+  const blob = await object("git hash-object", ["git", "hash-object", "-w", "--stdin"], pointerText(own.org, own.dataBranch, own.layout));
+  const root = await object("git mktree", ["git", "mktree"], `100644 blob ${blob}\t${POINTER_REL}\n`);
   const commit = await object("git commit-tree", ["git", "commit-tree", root, "-m", `team: ${POINTER_BRANCH} points at the ${own.dataBranch} branch`]);
   const ref = await p.exec(["git", "update-ref", `refs/heads/${POINTER_BRANCH}`, commit, ""], { cwd });
   if (ref.code !== 0) throw gitStepError("git-pointer-failed", "git update-ref", ref);

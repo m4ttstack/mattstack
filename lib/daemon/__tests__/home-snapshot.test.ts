@@ -3276,11 +3276,17 @@ describe("layoutGate", () => {
     await layoutGate(spy, "/clone", "ref", "main");
     expect(env).toEqual({ LC_ALL: "C" });
   });
-  const byRef = (ref: string, head: { code: number; stdout: string; stderr: string }) => (async (argv: string[]) => {
+  const byRef = (ref: string, head: { code: number; stdout: string; stderr: string }, at = "mattstack/mattstack.jsonc") => (async (argv: string[]) => {
     const pointer = { code: 0, stdout: JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" }), stderr: "" };
-    return argv.includes(`${ref}:mattstack/mattstack.jsonc`) ? pointer : head;
+    if (argv.includes(`${ref}:${at}`)) return pointer;
+    const spec = argv[argv.length - 1]!;
+    if (spec.endsWith(":.mattstack.jsonc")) return { code: 128, stdout: "", stderr: `fatal: path '.mattstack.jsonc' does not exist in '${spec.split(":")[0]}'` };
+    return head;
   }) as unknown as Probes["exec"];
   const REF = "refs/remotes/origin/main";
+  test("a fetched main holding only the root pointer moves a clone whose own marker names none", async () => {
+    expect(await layoutGate(byRef(REF, { code: 0, stdout: JSON.stringify({ role: "org", org: "acme", layout: 3 }), stderr: "" }, ".mattstack.jsonc"), "/clone", REF, "main")).toEqual({ kind: "moved", dataBranch: "mattstack" });
+  });
   test("a fetched marker naming another data branch moves a clone whose own marker names none", async () => {
     const calls: string[][] = [];
     const inner = byRef(REF, { code: 0, stdout: JSON.stringify({ role: "org", org: "acme", layout: 3 }), stderr: "" });

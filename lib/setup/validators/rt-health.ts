@@ -28,6 +28,7 @@ import { heldCopy, moveBlocker } from "../../team/org-data-branch.ts";
 import { approvedBranches } from "../../team/approved-branch.ts";
 import { isOrgAdmin } from "../../../packages/rt-client/src/settings/org-roles.ts";
 import { checkedOutBranch, shellQuote } from "../../team/org-branch.ts";
+import { checkDataBranch, checkMainForOrgData, GONE_SENTENCE, MERGED_SENTENCE } from "../../team/data-branch-guard.ts";
 import { roleFor } from "../../team/roles.ts";
 import { holdSentence, layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
@@ -895,6 +896,67 @@ export async function orgBranchRow(p: Probes): Promise<Row | null> {
   });
 }
 
+export const ORG_DATA_BRANCH_ROW_ID = "org.data-branch";
+export const ORG_MAIN_ROW_ID = "org.main";
+
+/** Whether the forge still has the org's data branch; every Mac checks, since any admin's copy can push it back. */
+export async function orgDataBranchRow(p: Probes, check: typeof checkDataBranch = checkDataBranch): Promise<Row | null> {
+  const state = orgLayoutState(p);
+  if (state.kind === "none") return null;
+  const result = await check(p, state.slug);
+  if (result === null) return null;
+  const base = {
+    id: ORG_DATA_BRANCH_ROW_ID,
+    kind: "tool" as const,
+    title: "Org data branch",
+    why: "The org's settings, roster, packs and secrets live on this branch. Every Mac's copy holds all of it, so an org admin can push it back if the forge loses it.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  if (result.kind === "present") return row({ ...base, status: "ready", detail: `The ${result.branch} branch is on the forge` });
+  if (result.kind === "unknown") return row({ ...base, status: "skipped", detail: "rt could not reach the forge to check the data branch, so it checks again next time" });
+  const admin = isOrgAdmin(roleFor(p, state.slug));
+  if (result.kind === "lost") {
+    return row({ ...base, status: "needs-you", detail: `The org's data branch is gone from the forge, and your copy does not have it either.`, action: { type: "steps", label: "Show steps…", steps: ["Ask an org admin whose copy has it to run rt team restore-data-branch"] } });
+  }
+  return row({
+    ...base,
+    status: "needs-you",
+    detail: `${GONE_SENTENCE}.`,
+    action: { type: "steps", label: "Show steps…", steps: admin ? ["rt team restore-data-branch"] : ["Ask an org admin to run rt team restore-data-branch"] },
+  });
+}
+
+/** On an admin's Mac: whether `main` holds org files besides the pointer, which a merge of the data branch leaves there. */
+export async function orgMainRow(p: Probes, check: typeof checkMainForOrgData = checkMainForOrgData): Promise<Row | null> {
+  const state = orgLayoutState(p);
+  if (state.kind === "none" || !isOrgAdmin(roleFor(p, state.slug))) return null;
+  const result = await check(p, state.slug);
+  if (result === null) return null;
+  const base = {
+    id: ORG_MAIN_ROW_ID,
+    kind: "tool" as const,
+    title: "Org files on main",
+    why: "main belongs to the repo's developers and keeps only the org's .mattstack.jsonc pointer. The org's data stays on its own branch.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  if (result.kind === "clean") return row({ ...base, status: "ready", detail: "main holds only the org's pointer" });
+  if (result.kind === "unknown") return row({ ...base, status: "skipped", detail: "rt could not read main to check it, so it checks again next time" });
+  const shown = result.files.slice(0, 3).join(", ");
+  const more = result.files.length > 3 ? ` and ${result.files.length - 3} more` : "";
+  return row({
+    ...base,
+    status: "needs-you",
+    detail: `${MERGED_SENTENCE}. main now holds ${shown}${more}.`,
+    action: {
+      type: "steps",
+      label: "Show steps…",
+      steps: ["On main, find the commit that merged the org's data branch", "Revert it (git revert -m 1 <that commit>) and push main", "Leave .mattstack.jsonc as the only org file on main"],
+    },
+  });
+}
+
 // ─── entry point ────────────────────────────────────────────────────────────
 
 function readTeamSnapshotSettings(): TeamSnapshotSettings | undefined {
@@ -937,6 +999,8 @@ export async function rtHealthRows(
   const orgLayout = await orgLayoutRow(p, readStatus);
   const orgSparse = await orgSparseRow(p);
   const orgBranch = await orgBranchRow(p);
+  const orgDataBranch = opts.ci ? null : await orgDataBranchRow(p);
+  const orgMain = opts.ci ? null : await orgMainRow(p);
   const unpublishedPacks = await orgUnpublishedPacksRow(p, readStatus);
 
   return [
@@ -957,6 +1021,8 @@ export async function rtHealthRows(
     ...(orgLayout ? [orgLayout] : []),
     ...(orgSparse ? [orgSparse] : []),
     ...(orgBranch ? [orgBranch] : []),
+    ...(orgDataBranch ? [orgDataBranch] : []),
+    ...(orgMain ? [orgMain] : []),
     ...(unpublishedPacks ? [unpublishedPacks] : []),
   ];
 }

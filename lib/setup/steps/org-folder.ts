@@ -15,7 +15,7 @@ import { orgDirUnder, orgsDirUnder } from "../../rt-paths.ts";
 import { daemonPresentIn, locateMovedRepo } from "../../repo-locate-dispatch.ts";
 import { clearIdentityMemo, deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
 import { classifyLocate, cleanupMovedRecords, runOrgMove, type LocateFn, type OrgMoveResult } from "../../team/org-folder-move.ts";
-import { convergeDataBranch, heldCopy, MOVED_DONE } from "../../team/org-data-branch.ts";
+import { convergeDataBranch, heldCopy, MOVED_DONE, rememberDataBranch } from "../../team/org-data-branch.ts";
 import { orgLayoutState } from "../../team/org-layout.ts";
 import { markerState } from "../../team/org-marker.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
@@ -40,7 +40,27 @@ async function cloneIdentity(dir: string): Promise<string> {
 }
 
 /** Replaceable in tests: the relocation, the identity derivation, the marketplace piece, the data branch move and the clock all reach outside the Probes seam. */
-export const orgFolderSeams = { locate: locateMovedRepo, identity: cloneIdentity, marketplace: convergeMarketplace, dataBranch: (p: Probes, dir: string) => convergeDataBranch(p, dir), now: Date.now };
+export const orgFolderSeams = {
+  locate: locateMovedRepo,
+  identity: cloneIdentity,
+  marketplace: convergeMarketplace,
+  dataBranch: (p: Probes, dir: string) => convergeDataBranch(p, dir),
+  remember: (p: Probes, dir: string) => rememberDataBranch(p, dir),
+  now: Date.now,
+};
+
+export const REMEMBERED_NOTE = "Remembered which branch holds your org's data";
+
+/** A Mac that joined or moved before the team record kept the data branch gets it written now; only git reads, so it runs beside a daemon too. */
+async function rememberPiece(p: Probes): Promise<string | null> {
+  const state = orgLayoutState(p);
+  if (state.kind === "none") return null;
+  try {
+    return (await orgFolderSeams.remember(p, orgDirUnder(p.home, state.slug))) ? REMEMBERED_NOTE : null;
+  } catch {
+    return null;
+  }
+}
 
 type DataPiece = { note: string; log?: string } | { held: { detail: string; remedy: string } } | { failed: string } | null;
 
@@ -256,6 +276,8 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
   if (data && "note" in data) notes.push(data.note);
   if (data && "note" in data && data.log !== undefined) ctx.log("org.folder", `data branch check: ${data.log}`);
   if (data && "failed" in data) failures.push({ detail: data.failed, remedy: ORG_FOLDER_REMEDY });
+  const remembered = await rememberPiece(p);
+  if (remembered) notes.push(remembered);
   const held = data && "held" in data ? data.held : null;
   if (held && (failures.length || partials.length)) notes.unshift(held.detail);
   const withHeld = (remedy: string): string => (held ? `${remedy}. ${held.remedy}` : remedy);

@@ -1,11 +1,13 @@
 /**
  * The branch an org clone has checked out is the branch rt reads, syncs and
  * publishes on this Mac, so an admin can try a breaking change on a branch
- * while every other member stays on main.
+ * while every other member stays on the org's data branch.
  */
 
+import { basename } from "path";
 import { UserActionableError } from "../errors.ts";
 import { markerState } from "./org-marker.ts";
+import { readTeamLocal } from "./team-local.ts";
 import type { Probes } from "../setup/probes.ts";
 
 export function shellQuote(s: string): string {
@@ -19,12 +21,30 @@ export async function checkedOutBranch(p: Pick<Probes, "exec">, dir: string): Pr
   return branch === "" ? null : branch;
 }
 
-export async function orgBranch(p: Pick<Probes, "exec">, dir: string): Promise<string> {
+/**
+ * The org's data branch as this Mac knows it without asking origin: the team
+ * record first, which no branch switch can change, then the copy's own marker
+ * (the root pointer on `main`, the folder marker elsewhere). A marker naming
+ * this Mac's trial branch is not the org's. Null for an org whose data has no
+ * branch of its own (layout 3).
+ */
+export function knownDataBranch(p: Pick<Probes, "readFile" | "home">, dir: string): string | null {
+  const record = readTeamLocal(p, basename(dir));
+  if (record.dataBranch) return record.dataBranch;
+  const own = markerState(p, dir);
+  if (own.kind !== "org" || own.dataBranch === null || own.dataBranch === record.trialBranch) return null;
+  return own.dataBranch;
+}
+
+type BranchProbes = Pick<Probes, "exec"> & Partial<Pick<Probes, "readFile" | "home">>;
+
+export async function orgBranch(p: BranchProbes, dir: string): Promise<string> {
   const branch = await checkedOutBranch(p, dir);
   if (branch === null) {
+    const home = p.readFile && p.home !== undefined ? knownDataBranch({ readFile: p.readFile, home: p.home }, dir) : null;
     throw new UserActionableError("org-detached", "Your copy of the org has no branch checked out", {}, {
       why: "rt reads, syncs and publishes the branch your copy of the org is on.",
-      next: `git -C ${shellQuote(dir)} switch main`,
+      next: `git -C ${shellQuote(dir)} switch ${shellQuote(home ?? "main")}`,
     });
   }
   return branch;
