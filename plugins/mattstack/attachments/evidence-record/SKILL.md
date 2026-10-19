@@ -23,7 +23,7 @@ reaches `limit` takes yes).
   board proves) or waived (its own reason, or its case's, which covers only
   the images the case holds when written). One board may be the
   `annotated` of several images: a pair board covers its case's before and
-  after.
+  after, except a before whose board is an import board, which keeps it.
 - `transcript` (a text file, never uploaded or waived) and `url` (where
   the ticket shows the broken state) are run-level; a run with no image
   is recorded the same way.

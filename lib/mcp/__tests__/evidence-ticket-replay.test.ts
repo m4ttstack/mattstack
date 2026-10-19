@@ -250,7 +250,7 @@ function importBundle(stem: string, o: { source?: "import" | "live"; capture?: B
   put(dir, `${stem}.c1.capture.json`, JSON.stringify({ schemaVersion: "capture/1", source: o.source ?? "import", image: `${stem}.c1.png`, origin: "https://tracker.example/CASE-1", format: "png", scale: 1, digest: "d" }));
   put(dir, `${stem}.spec.json`, JSON.stringify({ panels: [{ capture: `${stem}.c1.capture.json`, marks: [{ redact: { x: 0, y: 0, w: 4, h: 4 } }] }] }));
   put(dir, `${stem}.redact-1.png`, CROP);
-  put(dir, `${stem}.redactions.json`, JSON.stringify({ schemaVersion: "compose-redactions/1", board: `${stem}.png`, boardSha256: sha(BOARD), redactions: [{ crop: `${stem}.redact-1.png`, sha256: sha(CROP), confirmed: true }] }));
+  put(dir, `${stem}.redactions.json`, JSON.stringify({ schemaVersion: "compose-redactions/1", board: `${stem}.png`, boardSha256: sha(BOARD), redactions: [{ crop: `${stem}.redact-1.png`, sha256: sha(CROP), panel: 0, confirmed: true }] }));
   return put(dir, `${stem}.png`, BOARD);
 }
 
