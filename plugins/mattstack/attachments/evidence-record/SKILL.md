@@ -176,7 +176,9 @@ Selection: `{"waivers":{"<case>/<slot>[/<theme>]":"<reason>|annotate","<case>":"
 
 ## Attach the evidence
 
-Entered only after the verb's attach gate proceeds. The domain supplies `heading`, `before` and
+Entered only after the verb's attach gate proceeds. On GitLab, nothing
+uploads until the human has looked at every file the upload carries
+(Gate evidence-boards). The domain supplies `heading`, `before` and
 `appendix`; unbound, `heading` is the repo MR template's evidence
 heading, else `## Evidence`, always the full line with its `##`. On
 GitHub nothing uploads; `<n>` is the PR number in `mrUrl`. Attach held is
@@ -188,6 +190,13 @@ refused files.
 digraph attach_evidence {
     attach_evidence [label="Attach the evidence (evidence-record)" shape=ellipse];
     forge_host [label="Forge host?" shape=diamond];
+    boards_cleared [label="Every file the upload carries cleared this stage pass?" shape=diamond];
+    run_budget_boards [label="run_budget {runDb, key: evidence:boards-openings, limit: 3, stage}" shape=plaintext];
+    boards_openings_spent [label="boards-openings spent?" shape=diamond];
+    gate_evidence_boards [label="Gate evidence-boards (below)" shape=box];
+    boards_answer [label="boards answer?" shape=diamond];
+    revise_named_boards [label="Revise each board they name (browser-evidence)" shape=box];
+    boards_revision_outcome [label="Board revision outcome?" shape=diamond];
     evidence_attach [label="evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl}" shape=plaintext];
     attach_result [label="evidence_attach result?" shape=diamond];
     stop_move_refused_file [label="STOP: only the human moves a refused file" shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -214,7 +223,20 @@ digraph attach_evidence {
     attach_failed [label="Attach failed" shape=doublecircle];
 
     attach_evidence -> forge_host;
-    forge_host -> evidence_attach [label="GitLab"];
+    forge_host -> boards_cleared [label="GitLab"];
+    boards_cleared -> evidence_attach [label="yes: each one answered clear at a boards gate"];
+    boards_cleared -> run_budget_boards [label="no"];
+    run_budget_boards -> boards_openings_spent;
+    boards_openings_spent -> gate_evidence_boards [label="no"];
+    boards_openings_spent -> attach_held [label="yes: nothing uploaded"];
+    gate_evidence_boards -> boards_answer;
+    boards_answer -> evidence_attach [label="proceed + clear"];
+    boards_answer -> revise_named_boards [label="proceed + hide, or their words"];
+    boards_answer -> attach_held [label="hold"];
+    revise_named_boards -> boards_revision_outcome;
+    boards_revision_outcome -> run_budget_boards [label="Recorded, or no board named: reopen"];
+    boards_revision_outcome -> attach_held [label="Held at evidence-redaction, or Record held"];
+    boards_revision_outcome -> attach_failed [label="Not revised: the failure quoted"];
     forge_host -> gh_pr_view [label="GitHub"];
     evidence_attach -> attach_result;
     attach_result -> attached [label="descriptionWritten, or notWritten: unchanged"];
@@ -241,7 +263,7 @@ digraph attach_evidence {
     needs_rerecord -> rerecord_images [label="yes: size, bytes or missing (a recapture), a new file, or a record or raw-capture refusal"];
     needs_rerecord -> evidence_attach [label="no: timedOutTwice, the human checked the daemon"];
     rerecord_images -> rerecord_outcome;
-    rerecord_outcome -> evidence_attach [label="Recorded"];
+    rerecord_outcome -> boards_cleared [label="Recorded"];
     rerecord_outcome -> attach_held [label="Record held"];
     rerecord_outcome -> attach_failed [label="Record failed"];
     gh_pr_view -> evidence_attach_body -> description_returned;
@@ -252,6 +274,50 @@ digraph attach_evidence {
     upload_off_script_spent -> attach_failed [label="yes"];
 }
 ```
+
+### Every file the upload carries cleared this stage pass?
+
+The files the upload carries are each distinct `annotated` board in the
+record's `value` and each waived image's own `path`. Yes only when every
+one of them, matched by file name (recording copies a bundle into the run
+folder, so a board's folder changes and its name does not), was listed at
+a boards@1 gate this stage pass whose `boards` answer was `clear`: the
+verb's own attach gate or an earlier opening of Gate evidence-boards. A
+board drawn or redrawn since that answer was never cleared.
+
+### Gate evidence-boards (below)
+
+Scope `evidence-boards:<stage>:<n>`, `<n>` counting this gate's openings
+in this stage pass from 1. Open it with `gate_open` (gate-protocol,
+Structured context): the source's `context` is a `boards@1` object.
+
+- `summary`: one sentence naming the MR and how many files go up.
+- `boards`: one entry per file the upload carries, in the record's case
+  order. `case` and `slot` are the image's (a pair board's slot is
+  `after`); `theme` when the image has one; `path` the absolute path in
+  `value`; `caption` the image's caption, or `Waived: <its waiver>` for a
+  waived capture, which goes up as shot.
+
+| Question | Options | Shown when |
+|---|---|---|
+| `boards` (write-in) | **Nothing here should stay private** / **Hide something first**, with free text naming the board and what shows | always |
+| `next` | **Proceed** / **Hold** | always |
+
+No option is recommended: whether a file may go public is the human's
+call, made by looking at it. Selection: `{"boards":"clear|hide|<their words>","next":"proceed|hold","note":"<their words or null>"}`.
+
+### Revise each board they name (browser-evidence)
+
+For each board their words (or the note beside **Hide something first**)
+name, walk browser-evidence's Revise a board steps 1 to 6, adding a
+`redact` mark over what they name; step 3's `revisions` entry has their
+words as `asked`. A waived capture they name goes back through `Record the
+evidence` with no waiver, so its annotate pass draws a board that hides
+what they name. Recorded reopens this gate with the new files. Words that
+name no board reopen it too, the context asking which board. A Hold at the
+redaction gate or Record held is Held at evidence-redaction; no spec
+beside the board, a compose error, a refused confirm or Record failed is
+Not revised.
 
 ### Off-script gate: upload refused
 

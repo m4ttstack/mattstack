@@ -418,7 +418,9 @@ the board); a pair board covers the case's before image too, named by its
 
 ### Attach the evidence (evidence-record)
 
-The ship gate's Proceed is the attach consent. This is the last attach, so
+The ship gate's Proceed is the attach consent. No gate before it showed
+the AFTER boards, so on GitLab its Gate evidence-boards opens first and
+shows every file about to go up. This is the last attach, so
 a Take at the upload off-script gate (never the first call) sends
 `linkRefused: true`.
 

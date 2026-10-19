@@ -279,9 +279,19 @@ matches.
 
 Scope `evidence-redaction:<stage>:<n>`, where `<n>` counts this gate's
 openings in this stage pass from 1; `redaction-openings:<stem>` budgets
-the openings per board. One sentence above the form names each board's
-crop paths (absolute) and asks the human to open each crop and check that
-no hidden letter or digit is readable.
+the openings per board. Open it with `gate_open` (gate-protocol,
+Structured context): the source's `context` is a `boards@1` object, so the
+human sees the whole board, not only its crops.
+
+- `summary`: one sentence asking the human to look at each board and each
+  of its crops, and check that no hidden letter or digit is readable.
+- `boards`: for each board with crops, the board itself, then each crop
+  `<stem>.redactions.json` lists. Every entry's `path` is absolute (the
+  home directory written out, never `~`) and its `case` is the brief's
+  case. The board's `slot` is its stem's `before` or `after`, its `theme`
+  the stem's when it has one, and its `caption` the brief's claim; each
+  crop's `slot` is `crop` and its `caption` names the crop and its board
+  (`Crop 1 of the badge board`).
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|

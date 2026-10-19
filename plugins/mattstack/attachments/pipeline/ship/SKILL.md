@@ -118,7 +118,8 @@ find the case's board in the record (the image's `annotated` path in `value`), a
 browser-evidence's Revise a board steps 1 to 7, with `stage: ship` on
 every write and `mrUrl` = `mr`. Step 6 is `Record the evidence
 (evidence-record)` and step 7 is `Attach the evidence (evidence-record)`;
-the operator's ask is the attach consent. The first `evidence_attach`
+the operator's ask is the attach consent, and step 7's Gate
+evidence-boards shows the revised board before it goes up. The first `evidence_attach`
 carries no `linkRefused`; this is the last attach, so only a Take at its
 upload off-script gate resends with `linkRefused: true`.
 
@@ -602,7 +603,9 @@ goes straight to the attach: this verb writes no `evidence` of its own.
 
 ### Attach the evidence (evidence-record)
 
-The ship gate's Proceed is the attach consent. This is the last attach, so
+The ship gate's Proceed is the attach consent. No gate before it showed
+the AFTER boards, so on GitLab its Gate evidence-boards opens first and
+shows every file about to go up. This is the last attach, so
 a Take at the upload off-script gate (never the first call) sends
 `linkRefused: true`; the off-script gate shares the push gate's
 `n`.
