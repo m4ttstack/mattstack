@@ -205,6 +205,8 @@ export function makeFetchHandler(
       }
       if (!ping)
         return new Response('expected a telemetry ping', { status: 400 });
+      if (!telemetry.canRecord(ping.installId))
+        return new Response('telemetry is full', { status: 503 });
       const pingToken = bearer(req);
       telemetry.record(
         ping,

@@ -176,8 +176,14 @@ function addTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   else map.set(key, [value]);
 }
 
+/** Pings are unauthenticated, so the table needs a ceiling no sender can grow. */
+export const TELEMETRY_MAX_MACS = 2000;
+
 export class TelemetryStore {
-  constructor(private db: Database) {
+  constructor(
+    private db: Database,
+    private maxMacs: number = TELEMETRY_MAX_MACS
+  ) {
     db.run(`CREATE TABLE IF NOT EXISTS telemetry_macs (
       install_id TEXT PRIMARY KEY,
       ping TEXT NOT NULL,
@@ -195,6 +201,18 @@ export class TelemetryStore {
     db.run(
       `CREATE INDEX IF NOT EXISTS telemetry_updates_install_id ON telemetry_updates (install_id)`
     );
+  }
+
+  /** False only for an install id the table has not seen while it is full. */
+  canRecord(installId: string): boolean {
+    const known = this.db
+      .query(`SELECT 1 FROM telemetry_macs WHERE install_id = ?`)
+      .get(installId);
+    if (known) return true;
+    const row = this.db
+      .query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM telemetry_macs`)
+      .get();
+    return (row?.n ?? 0) < this.maxMacs;
   }
 
   record(

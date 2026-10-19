@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { makeFetchHandler, TELEMETRY_PINGS_PER_HOUR } from '../server.ts';
 import { SwitchboardStore } from '../store.ts';
-import { TeamInviteStore } from '../team-invites.ts';
+import { sourceIp, TeamInviteStore } from '../team-invites.ts';
 import { TelemetryStore, type TelemetryPing } from '../telemetry.ts';
 
 const ADMIN = 'admin-secret';
@@ -26,10 +26,10 @@ const ping = (over: Partial<TelemetryPing> = {}): TelemetryPing => ({
   ...over,
 });
 
-function setup(viewToken: string | null = VIEW) {
+function setup(viewToken: string | null = VIEW, maxMacs?: number) {
   const db = new Database(':memory:');
   const store = new SwitchboardStore(db);
-  const telemetry = new TelemetryStore(db);
+  const telemetry = new TelemetryStore(db, maxMacs);
   const clock = { t: NOW };
   const handler = makeFetchHandler(
     store,
@@ -160,6 +160,47 @@ describe('POST /telemetry/ping', () => {
     expect(other.status).toBe(204);
   });
 
+  test('a new install id is refused with a 503 once the table is full', async () => {
+    const { telemetry, post } = setup(VIEW, 2);
+    for (const installId of ['install-a', 'install-b'])
+      expect((await post(JSON.stringify(ping({ installId })))).status).toBe(
+        204
+      );
+    const refused = await post(
+      JSON.stringify(ping({ installId: 'install-c' }))
+    );
+    expect(refused.status).toBe(503);
+    expect(
+      telemetry
+        .snapshot(NOW)
+        .macs.map(m => m.installId)
+        .sort()
+    ).toEqual(['install-a', 'install-b']);
+  });
+
+  test('a known install id still updates when the table is full', async () => {
+    const { telemetry, post } = setup(VIEW, 1);
+    expect((await post(JSON.stringify(ping()))).status).toBe(204);
+    const res = await post(JSON.stringify(ping({ rtVersion: '2.1.0' })));
+    expect(res.status).toBe(204);
+    expect(telemetry.snapshot(NOW).macs[0]?.rtVersion).toBe('2.1.0');
+  });
+
+  test('the limit keys on X-Real-IP ahead of X-Forwarded-For', async () => {
+    const { post } = setup();
+    for (let i = 0; i < TELEMETRY_PINGS_PER_HOUR; i++) {
+      await post(JSON.stringify(ping()), undefined, {
+        'x-real-ip': '198.51.100.1',
+        'x-forwarded-for': `203.0.113.${i % 250}`,
+      });
+    }
+    const same = await post(JSON.stringify(ping()), undefined, {
+      'x-real-ip': '198.51.100.1',
+      'x-forwarded-for': '203.0.113.250',
+    });
+    expect(same.status).toBe(429);
+  });
+
   test('only POST is allowed', async () => {
     const { get } = setup();
     expect((await get('/telemetry/ping')).status).toBe(405);
@@ -273,5 +314,20 @@ describe('GET /telemetry', () => {
     expect(html).toContain('&lt;b&gt;org&lt;/b&gt;:3');
     expect(html).toContain('&lt;i&gt;pack&lt;/i&gt;@mkt (1.0.0)');
     expect(html).toContain('bare@mkt<');
+  });
+});
+
+describe('sourceIp', () => {
+  const from = (headers: Record<string, string>) =>
+    sourceIp(new Request('http://x/', { headers }));
+
+  test('prefers x-real-ip, then the first x-forwarded-for entry', () => {
+    expect(
+      from({ 'x-real-ip': '198.51.100.9', 'x-forwarded-for': '203.0.113.1' })
+    ).toBe('198.51.100.9');
+    expect(from({ 'x-forwarded-for': '203.0.113.1, 10.0.0.1' })).toBe(
+      '203.0.113.1'
+    );
+    expect(from({})).toBe('unknown');
   });
 });
