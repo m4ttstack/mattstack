@@ -2619,8 +2619,8 @@ const httpServer = Bun.serve({
           status: 'queued',
           boardTabId: boardTabId ?? '',
           noPack: !launchPack(boardTabId),
-          person,
-          responseRound,
+          person: person ?? null,
+          responseRound: responseRound ?? null,
         });
         void launchRespond({
           mrUrl: parsed.mrUrl,

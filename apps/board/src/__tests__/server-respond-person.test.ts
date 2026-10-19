@@ -6,8 +6,12 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, describe, expect, test } from 'bun:test';
 
-import { readRespondRounds } from '../respond-rounds.ts';
-import { respondFilePath, writeRespondState } from '../respond-state.ts';
+import { readRespondRounds, recordRespondRound } from '../respond-rounds.ts';
+import {
+  readRespondStates,
+  respondFilePath,
+  writeRespondState,
+} from '../respond-state.ts';
 import { openStateDb } from '../state/db.ts';
 import { readMemory, writeMemory } from '../triage/memory-store.ts';
 
@@ -162,7 +166,11 @@ writeMemory(
   db
 );
 
-const prs = [fakePr(host, 7, ALICE), fakePr(host, 8, ALICE)];
+const prs = [
+  fakePr(host, 7, ALICE),
+  fakePr(host, 8, ALICE),
+  fakePr(host, 9, ALICE),
+];
 const daemonSeen: Array<{ cmd: string; body: unknown }> = [];
 const rtDir = join(home, '.mattstack', 'rt');
 mkdirSync(rtDir, { recursive: true });
@@ -199,6 +207,7 @@ const daemon = Bun.serve({
   },
 });
 
+const { HERDR_SOCKET_PATH: _socket, ...childEnv } = process.env;
 const proc = Bun.spawn(
   [
     'bun',
@@ -209,7 +218,10 @@ const proc = Bun.spawn(
   ],
   {
     env: {
-      ...process.env,
+      ...childEnv,
+      // A focus must never reach a live herdr: the binary is missing and the
+      // socket is not inherited.
+      HERDR_BIN: join(home, 'no-such-herdr'),
       HOME: home,
       BOARD_APP_ROOT: home,
       BOARD_STATE_DB: dbPath,
@@ -299,9 +311,37 @@ describe('/respond for a person', () => {
       person: 'bob',
       focus: true,
     });
-    expect([200, 409]).toContain(res.status);
+    expect(res.status).toBe(409);
+    expect(await res.text()).toBe('pane is gone');
     await new Promise(r => setTimeout(r, 200));
     expect(rounds(8)).toEqual({});
     expect(launches(8)).toHaveLength(0);
+  }, 15_000);
+
+  test('a person with prior rounds but nothing open is answered again', async () => {
+    recordRespondRound(url(9), 'dana', 1000, db);
+    const res = await post({ mrUrl: url(9), iid: 9, person: 'dana' });
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 300));
+    expect(rounds(9)).toEqual({ dana: 2 });
+    expect(readRespondStates(db).get(url(9))).toMatchObject({
+      person: 'dana',
+      responseRound: 2,
+    });
+    expect(JSON.stringify(launches(9)[0]?.body)).toContain('--round 2');
+  }, 15_000);
+
+  test('a launch for everyone forgets the person the last run answered', async () => {
+    expect(readRespondStates(db).get(url(7))).toMatchObject({
+      person: 'bob',
+      responseRound: 1,
+    });
+    const res = await post({ mrUrl: url(7), iid: 7 });
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 300));
+    const state = readRespondStates(db).get(url(7));
+    expect(state?.person).toBeUndefined();
+    expect(state?.responseRound).toBeUndefined();
+    expect(rounds(7)).toEqual({ bob: 1 });
   }, 15_000);
 });

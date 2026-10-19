@@ -110,9 +110,20 @@ export function respondReportPath(handle: string): string {
   return reportPathForHandle(handle);
 }
 
+/** A respond write. `person` and `responseRound` also take null, which
+    removes them: a fresh launch for everyone must not inherit the person a
+    prior run answered. */
+export type RespondPatch = Partial<
+  Omit<RespondState, 'person' | 'responseRound'>
+> & {
+  status: RespondStatus;
+  person?: string | null;
+  responseRound?: number | null;
+};
+
 export function writeRespondState(
   handle: string,
-  patch: Partial<RespondState> & { status: RespondStatus },
+  patch: RespondPatch,
   now: number = Date.now(),
   db: Database = getStateDb()
 ): RespondState {
@@ -132,8 +143,8 @@ export function writeRespondState(
     threads: patch.threads,
     held: patch.held,
     round: patch.round,
-    person: patch.person,
-    responseRound: patch.responseRound,
+    person: patch.person ?? undefined,
+    responseRound: patch.responseRound ?? undefined,
     tabId: patch.tabId,
     boardTabId: patch.boardTabId,
     workspaceId: patch.workspaceId,
