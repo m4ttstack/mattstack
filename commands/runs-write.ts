@@ -125,7 +125,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
     case "stage-start": {
       const stage = required(args, "--stage");
       return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
-        const r = stageStart(db, stage, env, undefined, { onRunning: "supersede" });
+        const r = stageStart(db, stage, env, undefined, { onRunning: "refuse" });
         if (!r.ok) return fail(r);
         await emitted(env, runIdentity(db), stage, "stage-start");
         await adoptRunSession(db, env);

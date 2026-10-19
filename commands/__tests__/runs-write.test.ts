@@ -10,6 +10,7 @@ import { runWriteVerb } from "../runs-write.ts";
 import { runsList } from "../runs.ts";
 
 const QUIET = { RT_RUN_EMIT: "0" };
+const REFUSED_PLAN = "stage plan attempt 1 is still running; resume it with run_enter, end it with run_next, or start its next attempt with run_resolve (next: iterate)";
 
 async function startRun(): Promise<{ env: Record<string, string>; runDb: string }> {
   const root = mkdtempSync(join(tmpdir(), "rt-runs-cli-"));
@@ -108,16 +109,16 @@ describe("rt runs write verbs", () => {
     db.close();
   });
 
-  test("stage-start on a running stage supersedes it: attempt 1 redirected, attempt 2 running, one running row", async () => {
+  test("stage-start on a running stage refuses with exit 2, names the moves, and writes nothing", async () => {
     const { env, runDb } = await startRun();
     await runWriteVerb("stage-start", ["--stage", "plan"], env);
-    expect(await runWriteVerb("stage-start", ["--stage", "plan"], env)).toEqual({ out: '{"ok":true}', code: 0 });
+    expect(await runWriteVerb("stage-start", ["--stage", "plan"], env)).toEqual({
+      out: JSON.stringify({ ok: false, error: REFUSED_PLAN }),
+      code: 2,
+    });
     const db = new Database(runDb, { readonly: true });
-    expect(db.query("SELECT attempt, status, reason FROM stages ORDER BY attempt").all()).toEqual([
-      { attempt: 1, status: "redirected", reason: "superseded by attempt 2" },
-      { attempt: 2, status: "running", reason: null },
-    ]);
-    expect(db.query("SELECT scope, decided_by FROM decisions").all()).toEqual([{ scope: "redirect:plan:1", decided_by: "run_stage" }]);
+    expect(db.query("SELECT attempt, status, reason FROM stages ORDER BY attempt").all()).toEqual([{ attempt: 1, status: "running", reason: null }]);
+    expect(db.query("SELECT scope FROM decisions").all()).toEqual([]);
     db.close();
   });
 

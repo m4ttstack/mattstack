@@ -103,8 +103,8 @@ export function runStatus(db: Database, status: string, now: number = Date.now()
 export type StageStartOpts = {
   // "refuse" answers code 2 and writes nothing when the stage's latest attempt
   // is running; "supersede" ends that attempt redirected and starts the next.
-  // The engine always passes "refuse": only an agent's explicit start may
-  // supersede, never a run_next, run_resolve or run_enter.
+  // Every caller passes "refuse", run_stage start included: a new attempt
+  // goes through run_resolve, which records why.
   onRunning?: "refuse" | "supersede";
 };
 
@@ -142,7 +142,7 @@ export function stageStart(
       if (latest) {
         return {
           ok: false,
-          error: `stage ${name} attempt ${latest.attempt} is still running; end it (done, fail or redirect) before starting another, or resume it with run_enter`,
+          error: `stage ${name} attempt ${latest.attempt} is still running; resume it with run_enter, end it with run_next, or start its next attempt with run_resolve (next: iterate)`,
           code: 2,
         };
       }

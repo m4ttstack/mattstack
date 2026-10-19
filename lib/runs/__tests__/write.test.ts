@@ -138,7 +138,7 @@ describe("stage lifecycle", () => {
     expect(again).toMatchObject({ ok: false, code: 2 });
     if (again.ok) return;
     expect(again.error).toContain("stage plan attempt 1 is still running");
-    expect(again.error).toBe("stage plan attempt 1 is still running; end it (done, fail or redirect) before starting another, or resume it with run_enter");
+    expect(again.error).toBe("stage plan attempt 1 is still running; resume it with run_enter, end it with run_next, or start its next attempt with run_resolve (next: iterate)");
     expect((db.query("SELECT COUNT(*) AS n FROM stages").get() as { n: number }).n).toBe(1);
     expect(db.query("SELECT value FROM fields WHERE key='herdr-pane'").get()).toBeNull();
     db.close();
