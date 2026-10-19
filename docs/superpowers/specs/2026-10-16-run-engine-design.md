@@ -132,6 +132,13 @@ Items 3 and 4 above are superseded, and both revisions are temporary:
    The warnings surface in `rt skills compile` and `rt skills check`;
    `rt skills sync` does not show them while the severity is `warn`.
 
+Both revisions ended on 2026-10-18, once every caller had moved onto the
+new tools: `run_stage start` on a running stage refuses like the engine
+paths (the `onRunning` option is gone), and
+`FIELD_CONTRACT_SEVERITY` is `"error"`. Under `"error"`, `rt skills compile
+--json` still lists the lines under `fieldContract` (its envelope has no
+failures key), beside `written: false` and exit 1.
+
 ## Design
 
 ### Run DB schema v3
@@ -165,19 +172,15 @@ additive).
 
 ### `run_stage start` on a running stage
 
-`stageStart(db, name, env, now, { onRunning })` inserts only when the stage's
-latest row is not `running`, in the same statement (`INSERT ... SELECT ...
-WHERE NOT EXISTS`), so a concurrent start cannot slip between check and
-write. With `onRunning: "refuse"` (the default, and what the engine passes) a
+`stageStart(db, name, env, now)` inserts only when the stage's latest row
+is not `running`, in the same statement (`INSERT ... SELECT ... WHERE NOT
+EXISTS`), so a concurrent start cannot slip between check and write. A
 running latest row returns code 2 with: `stage <name> attempt <n> is still
-running; end it (done, fail or redirect) before starting another, or resume
-it with run_enter`, and nothing is written. With `onRunning: "supersede"`,
-which the MCP `run_stage` tool and the `rt runs stage-start` CLI pass (same
-function), the running row is ended `redirected` (reason `superseded by
-attempt <n+1>`) and the next attempt inserted in one IMMEDIATE transaction,
-which also records the `gate@1` decision `redirect:<stage>:<n>` (`decided_by`
-`run_stage`, selection `{from: <stage>, to: <stage>, reason: "superseded by
-attempt <n+1>"}`).
+running; resume it with run_enter, end it with run_next, or start its next
+attempt with run_resolve (next: iterate)`, and nothing is written. Every
+caller gets this, the MCP `run_stage` tool and `rt runs stage-start`
+included; the `onRunning: "supersede"` option the revision above added was
+deleted on 2026-10-18 with its last caller.
 
 ### The position object
 
@@ -425,13 +428,15 @@ compiled file's `<!-- part: ... -->` markers to the source it came from:
 `field contract: attachments/stage-gates/SKILL.md:88 (from acme:plan-gates attachments/plan-gates/SKILL.md:34) reads "extra.plan-verdict", which nothing in this pack writes`
 
 Findings are routed by `routeFieldContract` according to
-`FIELD_CONTRACT_SEVERITY`, which ships as `"warn"`. As warnings they never
+`FIELD_CONTRACT_SEVERITY`, which shipped as `"warn"` and is `"error"` since
+2026-10-18. As warnings they never
 change an exit code or block a write: `rt skills compile` writes as usual and
 reports them under `fieldContract` in `--json` (always present, `[]` when
 clean) and as a warning in the human output; `rt skills check` carries the
 same `fieldContract` key and sets neither drift nor an exit code. Set to
-`"error"`, they join compile `failures` (nothing is written) and check
-`compileErrors` (check exits 1). Both run only when every target compiled (a
+`"error"`, they join compile `failures` (nothing is written, exit 1; `--json`
+still lists them under `fieldContract`) and check `compileErrors` (check
+exits 1). Both run only when every target compiled (a
 failure elsewhere is reported first) and only on a full compile.
 
 ### MCP reference and plugin version

@@ -252,7 +252,7 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
       if (following) {
         const hold = db.query("SELECT value FROM fields WHERE key = 'hold'").get() as { value: string } | undefined;
         if (hold && !cleared(hold.value)) must(fieldSet(db, "hold", "-", following.stage, now));
-        must(stageStart(db, following.stage, o.env, now, { onRunning: "refuse" }));
+        must(stageStart(db, following.stage, o.env, now));
       }
       return finished(false);
     }).immediate();
@@ -346,7 +346,7 @@ export function resolveStage(
         if (offStage) return offStage;
         if (status !== "failed") return refuse(`stage ${o.stage} cannot be retried: ${status ? `its latest attempt is ${status}` : "it has no row"}, not failed`);
         const cleared = clearConsent(db, o.stage, now);
-        must(stageStart(db, o.stage, o.env, now, { onRunning: "refuse" }));
+        must(stageStart(db, o.stage, o.env, now));
         return { ok: true, applied: "retry", next: positionOf(db, o.stage)!, cleared };
       }
 
@@ -386,7 +386,7 @@ export function resolveStage(
           }
         }
         for (const m of manifest.slice(toIndex)) cleared.push(...clearConsent(db, m.stage, now));
-        must(stageStart(db, to, o.env, now, { onRunning: "refuse" }));
+        must(stageStart(db, to, o.env, now));
         return { ok: true, applied: o.next, next: positionOf(db, to)!, cleared };
       }
 

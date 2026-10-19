@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { skillsCompile } from "../../../commands/skills.ts";
+import { setFieldContractSeverityForTest } from "../field-contract.ts";
 import { captureSkills } from "./helpers.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "browser-target");
@@ -53,11 +54,14 @@ function withoutPart(text: string, marker: string): string {
 describe("browser target compile", () => {
   beforeAll(() => {
     root = mkdtempSync(join(tmpdir(), "rt-browser-target-"));
+    // The fixtures are partial packs: no stage writes evidence-plan, worktree or evidence.
+    setFieldContractSeverityForTest("warn");
   });
   afterEach(() => {
     process.exitCode = 0;
   });
   afterAll(() => {
+    setFieldContractSeverityForTest(null);
     rmSync(root, { recursive: true, force: true });
   });
 

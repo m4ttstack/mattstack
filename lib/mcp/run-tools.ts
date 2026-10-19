@@ -203,7 +203,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     },
     {
       name: "run_stage",
-      description: "Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason). A start on a stage whose latest attempt is still running ends that attempt as redirected (superseded) and begins the next one.",
+      description: "Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason). A start on a stage whose latest attempt is still running refuses and writes nothing: resume that attempt with run_enter, end it with run_next, or start its next attempt with run_resolve (next: iterate).",
       inputSchema: {
         type: "object",
         properties: {
