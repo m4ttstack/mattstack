@@ -8,6 +8,7 @@ import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "compile-native");
 const PIPELINES_FIX = join(import.meta.dir, "fixtures", "compile-pipelines");
+const REAL_MODEL_TIERING = join(import.meta.dir, "..", "..", "..", "plugins", "mattstack", "skills", "model-tiering");
 const REAL_ATTACHMENTS = join(import.meta.dir, "..", "..", "..", "plugins", "mattstack", "attachments");
 
 function treeOf(dir: string, prefix = ""): Record<string, string> {
@@ -337,6 +338,7 @@ function buildPipelines(): { pack: string; ms: string; manifest: string; args: s
   const pack = join(root, "pack");
   const ms = join(root, "mattstack-home");
   cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
+  cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "attachments", "model-tiering"), { recursive: true });
   const manifest = join(ms, "repos", "my-repo", "skills.jsonc");
   return { pack, ms, manifest, args: ["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest] };
 }

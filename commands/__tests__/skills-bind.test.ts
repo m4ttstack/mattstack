@@ -1185,6 +1185,7 @@ describe("a Mac with two org clones", () => {
 });
 
 const PIPELINES_FIX = join(import.meta.dir, "..", "..", "lib", "skills", "__tests__", "fixtures", "compile-pipelines");
+const REAL_MODEL_TIERING = join(import.meta.dir, "..", "..", "plugins", "mattstack", "skills", "model-tiering");
 const REAL_ATTACHMENTS = join(import.meta.dir, "..", "..", "plugins", "mattstack", "attachments");
 const PIPELINE_STAGES = [
   "mattstack:stage-provision",
@@ -1204,6 +1205,7 @@ function pipelinesFixture(fragment: string | null) {
   const pack = join(root, "pack");
   const ms = join(root, "mattstack-home");
   cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
+  cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "attachments", "model-tiering"), { recursive: true });
   writeFile(join(pack, "attachments", "b", "SKILL.md"), fillSkillMd("b", "evidence-domain@1"));
   const fragmentPath = join(pack, "pack", "skills.jsonc");
   if (fragment !== null) writeFile(fragmentPath, fragment);
