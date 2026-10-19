@@ -233,6 +233,10 @@ describe("importedTicketEntries", () => {
     const plain = record({ path: "/run/p.png", annotated: "/run/b.png", caption: "c" });
     expect(importedTicketEntries(plain, captures, measure)).toEqual({ ok: true, entries: [] });
   });
+  test("a capture measure returns null for is skipped, not refused", () => {
+    const r = record({ path: "/run/t.png", source: "ticket", annotated: "/run/b.png", caption: "c" });
+    expect(importedTicketEntries(r, captures, () => null)).toEqual({ ok: true, entries: [] });
+  });
   test("an unreadable import capture refuses, naming where it sits", () => {
     const r = record({ path: "/run/t.png", source: "ticket", annotated: "/run/b.png", caption: "c" });
     expect(importedTicketEntries(r, captures, () => { throw new Error("EACCES"); })).toEqual({

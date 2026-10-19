@@ -306,6 +306,12 @@ function measureFile(path: string): { size: number; sha256: string } {
   return { size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
+/** A capture over the upload cap can never upload, so there is nothing to refuse and no reason to fail the call reading it. */
+function measureCapture(path: string): { size: number; sha256: string } | null {
+  const size = sizeOf(path);
+  return size !== null && size > UPLOAD_MAX_BYTES ? null : measureFile(path);
+}
+
 function sizeOf(path: string): number | null {
   try {
     const st = statSync(path);
@@ -396,10 +402,17 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   markKnownTickets(merged.record, known, { real: realOr, size: sizeOf, sha256: sha256Or });
   const stamped = stampTicketBytes(merged.record, merge.images ?? [], measureFile);
   if (!stamped.ok) return withCopied(stamped.error);
-  const imported = importedTicketEntries(merged.record, importedCaptures, measureFile);
-  if (!imported.ok) return withCopied(imported.error);
-  markKnownTickets(merged.record, imported.entries, { real: realOr, size: sizeOf, sha256: sha256Or });
-  const remembered = await rememberTickets(deps, runDb, stage, [...known, ...ticketEntries(merged.record), ...imported.entries], env);
+  // A byte copy of an import capture becomes a ticket image here, and its own board's captures join on the next pass.
+  let imported: TicketEntry[] = [];
+  for (;;) {
+    const scan = importedTicketEntries(merged.record, importedCaptures, measureCapture);
+    if (!scan.ok) return withCopied(scan.error);
+    const next = addTickets(imported, scan.entries);
+    if (!next.changed) break;
+    imported = next.tickets;
+    markKnownTickets(merged.record, imported, { real: realOr, size: sizeOf, sha256: sha256Or });
+  }
+  const remembered = await rememberTickets(deps, runDb, stage, [...known, ...ticketEntries(merged.record), ...imported], env);
   if (remembered) return withCopied(remembered);
   const serialized = serializeRecord(merged.record);
   if (!serialized.ok) return withCopied(serialized.error);

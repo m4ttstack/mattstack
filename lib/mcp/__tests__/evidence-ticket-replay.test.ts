@@ -9,10 +9,11 @@
 import { spawnSync } from "child_process";
 import { createHash } from "crypto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, truncateSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { createMrUploadHandlers } from "../../daemon/handlers/mr-upload.ts";
+import { UPLOAD_MAX_BYTES } from "../../daemon/upload-guard.ts";
 import { runStart } from "../../runs/start.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { evidenceToolDefs, realEvidenceToolDeps, type EvidenceToolDeps } from "../evidence-tools.ts";
@@ -238,6 +239,7 @@ describe("a saved ticket image through the evidence skills' call sequence", () =
  * record and crop, and the board is recorded as the ticket image's cover.
  */
 const IMPORTED = Buffer.concat([PNG, Buffer.from("re-encoded ticket pixels")]);
+const IMPORTED_2 = Buffer.concat([PNG, Buffer.from("another re-encoded import")]);
 const BOARD = Buffer.concat([PNG, Buffer.from("redacted board")]);
 const CROP = Buffer.concat([PNG, Buffer.from("crop")]);
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
@@ -269,7 +271,7 @@ describe("the import capture of a saved ticket image", () => {
     const res = await recordWith([{ case: "t", label: "Broken state", slot: "before", path: copy, annotated: importBundle(stem), caption: "the badge overflows" }]);
     expect(res.error).toBeUndefined();
     expect(res.body!.written).toBe(true);
-    return { board: shotIn(res.body!.value).annotated as string };
+    return { board: shotIn(res.body!.value).annotated as string, copy };
   }
 
   test("a byte copy of the import capture is refused like the ticket image, with and without runId", async () => {
@@ -304,6 +306,39 @@ describe("the import capture of a saved ticket image", () => {
     ]);
     expect(res.ok).toBe(false);
     expect(res.error).toContain("is a ticket image and cannot be waived");
+  });
+
+  test("a byte copy of the import capture recorded with its own import board in the same call marks that board's capture too", async () => {
+    const original = put(src, `${runId}-t-ticket.png`, TICKET);
+    const copy = put(src, "capture-again.png", IMPORTED);
+    const res = await recordWith([
+      { case: "t", label: "Broken state", slot: "before", path: original, source: "ticket", annotated: importBundle(`${runId}-t-before`), caption: "c" },
+      { case: "o", label: "Other", slot: "before", path: copy, annotated: importBundle(`${runId}-o-before`, { capture: IMPORTED_2 }), caption: "c" },
+    ]);
+    expect(res.body?.written).toBe(true);
+    expect(shotIn(res.body!.value, "o").source).toBe("ticket");
+    expect(await upload(put(elsewhere, "second-copy.png", IMPORTED_2))).toEqual(REFUSED("second-copy.png"));
+  });
+
+  test("a re-rendered board landing in a content folder has its new import capture remembered there", async () => {
+    const stem = `${runId}-t-before`;
+    const { board, copy } = await ticketBoard(stem);
+    const res = await recordWith([{ case: "t", slot: "before", path: copy, annotated: importBundle(stem, { capture: IMPORTED_2 }), caption: "c2" }]);
+    expect(res.body?.written).toBe(true);
+    const moved = shotIn(res.body!.value).annotated as string;
+    expect(moved).not.toBe(board);
+    expect(moved).toMatch(/\/[0-9a-f]{12}\//);
+    expect(await upload(put(elsewhere, "rerender-copy.png", IMPORTED_2))).toEqual(REFUSED("rerender-copy.png"));
+  });
+
+  test("an import capture over the upload cap never uploads, so it is not measured and the call goes through", async () => {
+    const stem = `${runId}-t-before`;
+    const original = put(src, `${stem}-ticket.png`, TICKET);
+    const board = importBundle(stem);
+    truncateSync(join(base, "screenshots", `${stem}.c1.png`), UPLOAD_MAX_BYTES + 1);
+    const res = await recordWith([{ case: "t", label: "Broken state", slot: "before", path: original, source: "ticket", annotated: board, caption: "c" }]);
+    expect(res.error).toBeUndefined();
+    expect(res.body?.written).toBe(true);
   });
 
   test("an import whose source is not a ticket image is unaffected", async () => {
