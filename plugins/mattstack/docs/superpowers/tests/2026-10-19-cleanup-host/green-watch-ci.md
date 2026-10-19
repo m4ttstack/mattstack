@@ -513,9 +513,9 @@ With nothing inlined, the graph's other flows apply.
 
 If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
 
-`<scripts>` is `{{stage.dir}}/scripts/` and `<forge>` is
-`{{stage.dir}}/parts/forge/scripts/ci-forge.sh`, vendored for the fills
-that name them; this stage calls neither.
+`<scripts>` is `{{stage.dir}}/scripts/`. `<scripts>/ci-triage.sh` and
+`<forge> jobs` name a fill's old script calls; nothing is vendored for
+them, and the redirects above send each to its tool.
 
 {{slot:forge}}
 

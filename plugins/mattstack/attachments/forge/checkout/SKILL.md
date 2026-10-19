@@ -172,7 +172,7 @@ Scope `clarify`. One sentence naming the candidates with each one's state
 (opened, merged, closed), or quoting the GitLab error when a read failed,
 or saying the search was cut at 200 rows when a read was truncated, then the questions, each its own question:
 
-- `branch`: one option per candidate, or their text
+- `branch` (write-in): one option per candidate, or their text
 - `next`: **Proceed** (recommended) / **Hold**
 
 Selection `{"branch":"<picked>"}`. Their text goes back to "What was

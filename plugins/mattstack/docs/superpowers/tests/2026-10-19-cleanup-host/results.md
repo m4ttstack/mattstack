@@ -37,6 +37,11 @@ the MCP calls up to the next tool.
 | rebase-worktree (Gate push) | 3/5 (2/5 skipped both: the text and the protocol disagreed) | 5/5 |
 | checkout (Gate clarify: which branch) | 5/5 | 5/5 |
 
+The checkout `branch` question is now marked `(write-in)`, since its text
+promises their own branch name and `gate_answer` refuses text on a question
+without `writeIn`. Rerun after that edit: 5/5 clean and 5/5 set `writeIn`
+(the run before it is in `runs/round1/`).
+
 ## Limits
 
 | Key | Hosts | Old limit (spent > limit) | New limit (exhausted) | Yes on count | Rounds before yes |
