@@ -14,7 +14,7 @@
  * (../redaction-record-check.ts).
  */
 import { Database } from "bun:sqlite";
-import { existsSync, readdirSync, realpathSync } from "fs";
+import { readdirSync, realpathSync, statSync } from "fs";
 import { isAbsolute, join, relative, sep } from "path";
 import { decodeRepo } from "../identity-decoder.ts";
 import { getRepoContext, providerRequestHook } from "../freshness.ts";
@@ -64,9 +64,38 @@ export function readRunFields(dbPath: string, keys: readonly string[]): Record<s
   }
 }
 
-/** Every run's evidence fields, read straight from each state.db under the runs root, never a full run read. */
-function scanRunRecords(readFields: (dbPath: string, keys: readonly string[]) => Record<string, string | null>): RunRecordScan[] {
+type ScanCache = Map<string, { signature: string; record: RunRecordScan }>;
+
+/**
+ * A run db's identity, size and nanosecond mtime, with its WAL's: every
+ * committed write changes one of them, so an unchanged signature means
+ * unchanged fields. null when the db is gone; undefined when it cannot be stat'd.
+ */
+function dbSignature(path: string): string | null | undefined {
+  const part = (p: string): string | null | undefined => {
+    try {
+      const st = statSync(p, { bigint: true });
+      return `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}`;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      return code === "ENOENT" || code === "ENOTDIR" ? null : undefined;
+    }
+  };
+  const db = part(path);
+  if (db === null || db === undefined) return db;
+  const wal = part(`${path}-wal`);
+  return wal === undefined ? undefined : `${db}|${wal ?? "-"}`;
+}
+
+/**
+ * Every run's evidence fields, read straight from each state.db under the
+ * runs root, never a full run read. A run whose db and WAL are unchanged
+ * since the last scan reuses its cached fields without opening the db; an
+ * unreadable run is never cached, so it warns on every scan.
+ */
+function scanRunRecords(readFields: (dbPath: string, keys: readonly string[]) => Record<string, string | null>, cache: ScanCache): RunRecordScan[] {
   const out: RunRecordScan[] = [];
+  const seen = new Set<string>();
   for (const repo of listRunRepoDirs()) {
     let ids: string[];
     try {
@@ -76,15 +105,27 @@ function scanRunRecords(readFields: (dbPath: string, keys: readonly string[]) =>
     }
     for (const runId of ids) {
       const path = join(runsRoot(), repo, runId, "state.db");
-      if (!existsSync(path)) continue;
+      const signature = dbSignature(path);
+      if (signature === null) continue;
+      seen.add(path);
+      const hit = signature === undefined ? undefined : cache.get(path);
+      if (hit && hit.signature === signature) {
+        out.push(hit.record);
+        continue;
+      }
+      let record: RunRecordScan;
       try {
         const fields = readFields(path, SCAN_FIELDS);
-        out.push({ runId, evidence: fields.evidence ?? null, tickets: fields[TICKETS_FIELD] ?? null });
+        record = { runId, evidence: fields.evidence ?? null, tickets: fields[TICKETS_FIELD] ?? null };
       } catch {
-        out.push({ runId, unreadable: path });
+        record = { runId, unreadable: path };
       }
+      out.push(record);
+      if (signature !== undefined && !("unreadable" in record)) cache.set(path, { signature, record });
+      else cache.delete(path);
     }
   }
+  for (const path of cache.keys()) if (!seen.has(path)) cache.delete(path);
   return out;
 }
 
@@ -166,7 +207,8 @@ export function createMrUploadHandlers(
     return detail ? { found: true, evidence: field("evidence"), tickets: field(TICKETS_FIELD) } : { found: false };
   });
   const runFieldsFn = seams.runFields ?? readRunFields;
-  const runRecordsFn = seams.runRecords ?? (() => scanRunRecords(runFieldsFn));
+  const scanCache: ScanCache = new Map();
+  const runRecordsFn = seams.runRecords ?? (() => scanRunRecords(runFieldsFn, scanCache));
   const uploadRootsFn = seams.uploadRoots ?? (() => {
     let entries: unknown;
     try {
