@@ -1183,7 +1183,10 @@ describe('rowStatus: respond lane', () => {
 
   test('legacy row without a person reads exactly as before', () => {
     const [working] = candidateLines(
-      own({ ...people, respond: { status: 'triaging', message: 'x' } } as never),
+      own({
+        ...people,
+        respond: { status: 'triaging', message: 'x' },
+      } as never),
       NOW,
       NONE,
       ME
