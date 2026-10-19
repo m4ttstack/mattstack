@@ -164,6 +164,87 @@ describe("stage lifecycle", () => {
     db.close();
   });
 
+  test("stage-start on a done run refuses without reopen, writing nothing, and names the reopen", () => {
+    const db = started();
+    stageStart(db, "ship", {}, 10);
+    stageEnd(db, "ship", "done", { now: 20 });
+    runStatus(db, "done", 30);
+    const before = JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM runs").all()]);
+    expect(stageStart(db, "ship", {}, 40)).toEqual({
+      ok: false,
+      error: "this run is done; nothing to start. Reopen a stage on it first with run_stage (action: start, reopen: true)",
+      code: 2,
+    });
+    expect(JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM runs").all()])).toBe(before);
+    db.close();
+  });
+
+  test("stage-start with reopen on a done run starts the next attempt and sets the run running again", () => {
+    const db = started();
+    stageStart(db, "ship", {}, 10);
+    stageEnd(db, "ship", "done", { now: 20 });
+    runStatus(db, "done", 30);
+    expect(stageStart(db, "ship", {}, 40, { reopen: true })).toEqual({ ok: true });
+    expect(db.query("SELECT status, ended_at, current_stage FROM runs").get()).toEqual({ status: "running", ended_at: null, current_stage: "ship" });
+    expect(db.query("SELECT attempt, status FROM stages ORDER BY attempt").all()).toEqual([{ attempt: 1, status: "done" }, { attempt: 2, status: "running" }]);
+    db.close();
+  });
+
+  test("reopen on a running run is a plain start", () => {
+    const db = started();
+    expect(stageStart(db, "plan", {}, 10, { reopen: true })).toEqual({ ok: true });
+    expect(db.query("SELECT status FROM runs").get()).toEqual({ status: "running" });
+    db.close();
+  });
+
+  test("only a done run reopens: a failed or abandoned run refuses with or without reopen, writing nothing", () => {
+    for (const status of ["failed", "abandoned"]) {
+      const db = started();
+      stageStart(db, "ship", {}, 10);
+      stageEnd(db, "ship", "failed", { now: 20 });
+      runStatus(db, status, 30);
+      const before = JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM runs").all()]);
+      expect(stageStart(db, "ship", {}, 40)).toEqual({
+        ok: false,
+        error: `this run is ${status}; nothing to start. Start a fresh run with run_enter (fresh: true)`,
+        code: 2,
+      });
+      expect(stageStart(db, "ship", {}, 40, { reopen: true })).toEqual({
+        ok: false,
+        error: `this run is ${status}; only a done run reopens. Start a fresh run with run_enter (fresh: true)`,
+        code: 2,
+      });
+      expect(JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM runs").all()])).toBe(before);
+      db.close();
+    }
+  });
+
+  test("reopen refuses a stage the run's manifest does not list, writing nothing", () => {
+    const db = started();
+    db.run("INSERT INTO manifest (run_id, ordinal, stage, name, file, pack_root, consumes, produces) SELECT id, 0, 'ship', NULL, NULL, NULL, '[]', '[]' FROM runs");
+    stageStart(db, "ship", {}, 10);
+    stageEnd(db, "ship", "done", { now: 20 });
+    runStatus(db, "done", 30);
+    expect(stageStart(db, "ghost", {}, 40, { reopen: true })).toEqual({
+      ok: false,
+      error: "stage ghost is not in this run's pipeline manifest (stages: ship)",
+      code: 2,
+    });
+    expect(db.query("SELECT status FROM runs").get()).toEqual({ status: "done" });
+    db.close();
+  });
+
+  test("a reopen whose start refuses leaves the run done", () => {
+    const db = started();
+    stageStart(db, "ship", {}, 10);
+    runStatus(db, "done", 30);
+    const r = stageStart(db, "ship", {}, 40, { reopen: true });
+    expect(r).toMatchObject({ ok: false, code: 2 });
+    expect(db.query("SELECT status, ended_at FROM runs").get()).toEqual({ status: "done", ended_at: 30 });
+    expect(db.query("SELECT attempt, status FROM stages").all()).toEqual([{ attempt: 1, status: "running" }]);
+    db.close();
+  });
+
   test("stage-start records identity from env", () => {
     const db = started();
     stageStart(db, "plan", { HERDR_PANE_ID: "w1:p4" }, 10);

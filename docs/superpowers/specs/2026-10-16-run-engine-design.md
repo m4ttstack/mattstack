@@ -139,6 +139,22 @@ paths (the `onRunning` option is gone), and
 --json` still lists the lines under `fieldContract` (its envelope has no
 failures key), beside `written: false` and exit 1.
 
+## A done run reopens at a stage (2026-10-19)
+
+`run_stage start` and `run_hold` once disagreed on a done run: the start
+wrote a running row while the run stayed `done`, and the hold then refused.
+One rule now covers every run tool. A run that is not `running` is closed:
+`run_stage start`, `run_hold`, `run_resolve` (bar `done` on a done run) and
+`run_enter`'s resume refuse it, writing nothing, and each refusal names the
+next move. A done run reopens only through `run_stage start` with
+`reopen: true` (`rt runs stage-start --reopen`): in one transaction it
+starts the stage's next attempt, sets the run `running` and clears
+`ended_at`, so `run_hold`, `run_next`, `run_resolve` and `run_enter`'s
+resume work on it until it closes again. The stage must be in the run's
+manifest when it has one. Only a done run reopens; a failed or abandoned
+run's refusal names a fresh run (`run_enter` with `fresh: true`). The flag
+keeps a stale `runDb` from reopening a finished run by accident.
+
 ## Design
 
 ### Run DB schema v3
@@ -319,6 +335,7 @@ the attempt is its latest. Records `gate@1` `hold:<stage>:<attempt>` with
 `{reason: reason ?? "held"}`, then sets `hold` to the same text
 (`produced_by` = stage). Returns `{held: true, at, scope}`. A hold at close
 records against the last stage's row, which is what passing that stage does.
+A run that is not `running` is refused (see "A done run reopens at a stage").
 
 ### `run_close`
 

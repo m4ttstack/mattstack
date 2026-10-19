@@ -101,8 +101,25 @@ export function runStatus(db: Database, status: string, now: number = Date.now()
   }
 }
 
-export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, now: number = Date.now()): Ok | Fail {
-  try {
+/** The next move every run tool names when it refuses a run that is not running. */
+export function closedRunMove(status: string, runDb?: string): string {
+  if (status !== "done") return "Start a fresh run with run_enter (fresh: true)";
+  return `Reopen a stage on it first with run_stage (${runDb ? `runDb: ${runDb}, ` : ""}action: start, reopen: true)`;
+}
+
+export type StageStartOpts = { reopen?: boolean };
+
+export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, now: number = Date.now(), opts: StageStartOpts = {}): Ok | Fail {
+  const start = (): Ok | Fail => {
+    const run = db.query("SELECT status FROM runs LIMIT 1").get() as { status: string } | undefined;
+    const reopening = run !== undefined && run.status !== "running";
+    if (reopening) {
+      const refuse = (error: string): Fail => ({ ok: false, error, code: 2 });
+      if (!opts.reopen) return refuse(`this run is ${run.status}; nothing to start. ${closedRunMove(run.status)}`);
+      if (run.status !== "done") return refuse(`this run is ${run.status}; only a done run reopens. ${closedRunMove(run.status)}`);
+      const listed = (db.query("SELECT stage FROM manifest ORDER BY ordinal").all() as { stage: string }[]).map((m) => m.stage);
+      if (listed.length > 0 && !listed.includes(name)) return refuse(`stage ${name} is not in this run's pipeline manifest (stages: ${listed.join(", ")})`);
+    }
     db.run(
       `INSERT INTO stages (run_id, name, status, attempt, started_at)
        SELECT id, ?, 'running', COALESCE((SELECT MAX(attempt) FROM stages WHERE name = ?), 0) + 1, ? FROM runs
@@ -119,9 +136,15 @@ export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, n
         };
       }
     }
+    if (reopening) db.run("UPDATE runs SET status='running', ended_at=NULL");
     db.run("UPDATE runs SET current_stage=?", [name]);
     recordIdentity(db, env, now);
     return { ok: true };
+  };
+  try {
+    // IMMEDIATE takes the write lock before the status read, so a run that
+    // closes in between cannot be started into without reopen.
+    return db.inTransaction ? start() : db.transaction(start).immediate();
   } catch (err) {
     return { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };
   }
