@@ -1,7 +1,8 @@
 /**
  * Snapshot daemon engine, driven by a `SnapshotSpec`: watches a repo for
  * changes, auto-commits everything NOT inside a claimed zone, and
- * janitor-commits a claimed zone left dirty past its threshold. The home repo
+ * janitor-commits a claimed zone left dirty past its threshold (or, for a
+ * zone the spec marks save-only, saves it to a local ref). The home repo
  * (~/.mattstack/user) is one instance of it (`homeSnapshotSpec`), and
  * `startHomeSnapshot` is the wrapper that starts it. Zones stay owner-authored:
  * `runNow` never stages a claimed zone except through the janitor path, and
@@ -23,13 +24,14 @@
  * caller asked for "manual". Running it again gets a fresh manual cycle.
  */
 
-import { existsSync, readdirSync, watch as fsWatch } from "fs";
+import { existsSync, lstatSync, mkdtempSync, readdirSync, rmSync, watch as fsWatch } from "fs";
+import { tmpdir } from "os";
 import { isAbsolute, join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 
 import { mattstackHome, rtDir } from "../rt-paths.ts";
-import { runCapture, type RunResult } from "../subprocess.ts";
+import { childEnv, runCapture, type RunResult } from "../subprocess.ts";
 import { getSetting } from "../settings/resolve.ts";
 import type { Value } from "../settings/registry-schemas.ts";
 import {
@@ -55,7 +57,8 @@ import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
-import { isUnderZone, parsePorcelainZ, planSnapshot, scopeEntries } from "./home-snapshot-plan.ts";
+import { isUnderZone, parsePorcelainZ, planSnapshot, scopeEntries, type JanitorZone, type StatusEntry } from "./home-snapshot-plan.ts";
+import { JANITOR_REF_PREFIX, janitorRefFor, packsInZone, pullBlockedSentence, zoneOfJanitorRef } from "../team/unpublished-packs.ts";
 import { teamPackRel } from "../team/team-pack-path.ts";
 
 export type SnapshotReason = "manual" | "watch" | "janitor";
@@ -122,6 +125,8 @@ export interface SnapshotStatus {
   unownedDirty: string[];
   /** Paths the last round left out on purpose (a marketplace waiting for its pack's share). Absent from a daemon that predates it. */
   heldBack?: string[];
+  /** Packs whose unpublished changes stopped the last fast-forward or rebase. Absent from a daemon that predates it. */
+  pullBlockedBy?: string[];
   claimedZones: string[];
   firstSeenDirty: Record<string, number>;
   /** Set (and cleared) each time status() re-reads the owners file — surfaces a fail-closed readOwners throw without hiding it behind a stale cache. */
@@ -187,6 +192,13 @@ export interface SnapshotSpec {
   scope?: (relPath: string) => boolean;
   /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
   standingZones?: (repoDir: string, log: Logger) => Owners["zones"];
+  /**
+   * True for a zone whose push would publish it to other people. The janitor
+   * then never commits it on the branch: it saves the zone's dirty content to
+   * a local ref (`janitorRefFor`) instead, and drops that ref once the zone is
+   * clean. A pull such a zone stops names it.
+   */
+  janitorSavesOnly?: (zone: string, owner: string) => boolean;
   /** `held` paths are in scope but not staged this round, given the round's dirty paths; they are not reported as unowned. */
   readAuthorization?: (base?: { ref: string }) => Authorization | Promise<Authorization>;
   /** Every managed path, including paths this Mac may not push. */
@@ -404,13 +416,17 @@ export function homeSnapshotSpec(repoDir: string = join(mattstackHome(), "user")
   };
 }
 
+const PACK_ZONE_OWNER = "skills-publish";
+
 /**
- * Packs publish through their own commit (the editing-skills flow, `rt skills
- * sync`), which a watch commit would preempt mid-edit and push under the
- * generic message. The janitor still commits a pack left dirty past its
- * threshold, so an abandoned edit is not lost. Team folders come and go
- * (`rt team add`), so the zones are re-listed on every read; an unconverted
- * clone still keeps its packs in `mattstack/packs/`.
+ * Packs publish only through `rt skills sync`, with its version bump and
+ * its gate, which a watch commit would preempt mid-edit and push under the
+ * generic message. The janitor never commits a pack either, since its push
+ * would publish to teammates: past the threshold it saves the dirty pack to
+ * a local ref (`janitorSavesOnly` on the team spec), so an abandoned edit is
+ * not lost and nothing is published. Team folders come and go (`rt team
+ * add`), so the zones are re-listed on every read; an unconverted clone
+ * still keeps its packs in `mattstack/packs/`.
  */
 function teamStandingZones(repoDir: string, log: Logger): Owners["zones"] {
   let teams: string[] = [];
@@ -426,7 +442,7 @@ function teamStandingZones(repoDir: string, log: Logger): Owners["zones"] {
   }
   const legacy = !existsSync(join(repoDir, "mattstack", "org")) || existsSync(join(repoDir, "mattstack", "packs")) ? ["mattstack/packs/"] : [];
   const zones = [...legacy, "mattstack/org/packs/", ...teams.map((team) => `${teamPackRel(team)}/`)];
-  return Object.fromEntries(zones.map((zone) => [zone, { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" }]));
+  return Object.fromEntries(zones.map((zone) => [zone, { owner: PACK_ZONE_OWNER, claimedAt: "1970-01-01T00:00:00.000Z" }]));
 }
 
 const MARKETPLACE_PATH = ".claude-plugin/marketplace.json";
@@ -434,6 +450,20 @@ const MARKETPLACE_PATH = ".claude-plugin/marketplace.json";
 /** Names read off disk go to git as literal pathspecs: a file named `pa*` would otherwise stage every path it matches. */
 function literal(paths: string[]): string[] {
   return paths.map((path) => `:(literal)${path}`);
+}
+
+/** lstat, not exists: a dangling symlink is still a path git tracks. */
+function pathOnDisk(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function entryInZone(entry: StatusEntry, zone: string): boolean {
+  return isUnderZone(entry.path, zone) || (entry.origPath !== undefined && isUnderZone(entry.origPath, zone));
 }
 
 /**
@@ -496,6 +526,7 @@ export function teamSnapshotSpec(
     eventPrefix: "team",
     scope: (path) => teamScope(path) && owns(path),
     standingZones: teamStandingZones,
+    janitorSavesOnly: (_zone, owner) => owner === PACK_ZONE_OWNER,
     // Commit time judges by HEAD; the push gate passes the remote-tracking ref so a hand-committed self-grant cannot approve itself.
     readAuthorization: async (pushBase) => {
       const branch = currentBranchSync(repoDir);
@@ -587,6 +618,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let lastPullError: string | null = null;
   let unownedDirty: string[] = [];
   let heldBack: string[] = [];
+  let pullBlockedBy: string[] = [];
+  let loggedBlockedPull: string | null = null;
   let lastPullSkipped: string | null = null;
   let layoutHold: PullHold | null = null;
   let loggedHold: string | null = null;
@@ -909,6 +942,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     try {
       result = await p;
       lastPullSkipped = result.outcome === "skipped" ? result.detail : null;
+      if (result.outcome !== "skipped") loggedBlockedPull = null;
     } finally {
       pullInFlight = null;
     }
@@ -983,6 +1017,39 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     await runPullHook(outcome);
   }
 
+  /**
+   * A save-only zone stays dirty until its owner publishes or discards it, so
+   * it can be what stops a fast-forward or a rebase. Names the packs when it
+   * is, else null and the git error stands. The paths git lists under a
+   * refusal are what blocked; with none listed (a rebase refusing any
+   * unstaged change), every tracked dirty path is.
+   */
+  async function packsBlockingPull(stderr: string): Promise<string | null> {
+    if (!spec.janitorSavesOnly) return null;
+    let zones: string[];
+    try {
+      zones = Object.entries(readClaims().zones).filter(([zone, claim]) => spec.janitorSavesOnly!(zone, claim.owner)).map(([zone]) => zone);
+    } catch (err) {
+      deps.log.warn({ err }, `${label}: claimed zones unreadable; a refused pull keeps git's own reason`);
+      return null;
+    }
+    let blockers = stderr.split("\n").filter((line) => line.startsWith("\t")).map((line) => line.trim()).filter((line) => line !== "");
+    if (blockers.length === 0) {
+      const status = await deps.exec(["git", "status", "--porcelain=v1", "-uall", "-z"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      if (status.exitCode !== 0) return null;
+      blockers = parsePorcelainZ(status.stdout).filter((entry) => entry.xy !== "??").flatMap((entry) => (entry.origPath ? [entry.path, entry.origPath] : [entry.path]));
+    }
+    const packs = [...new Set(zones.flatMap((zone) => packsInZone(zone, blockers)))].sort();
+    pullBlockedBy = packs;
+    if (packs.length === 0) return null;
+    const detail = pullBlockedSentence(packs);
+    if (loggedBlockedPull !== detail) {
+      deps.log.warn({ id: spec.id, packs }, `${label}: ${detail}`);
+      loggedBlockedPull = detail;
+    }
+    return detail;
+  }
+
   async function doPull(): Promise<PullResult> {
     if (!(await hasRemote(deps.exec, deps.repoDir))) return { outcome: "skipped", detail: "no remote" };
     const branchResult = await deps.exec(["git", "symbolic-ref", "--short", "HEAD"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
@@ -1044,10 +1111,11 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       loggedHold = null;
       if (!threw) loggedGateError = null;
     }
+    pullBlockedBy = [];
     if (behind === 0) return { outcome: "up-to-date", detail: null };
     if (ahead === 0) {
       const ff = await deps.exec(["git", "merge", "-q", "--ff-only", `refs/remotes/origin/${branch}`], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
-      if (ff.exitCode !== 0) return { outcome: "skipped", detail: redactCredentials(ff.stderr) };
+      if (ff.exitCode !== 0) return { outcome: "skipped", detail: (await packsBlockingPull(ff.stderr)) ?? redactCredentials(ff.stderr) };
       deps.log.info({ id: spec.id, behind }, `${label}: fast-forwarded`);
       return { outcome: "fast-forwarded", detail: null };
     }
@@ -1062,6 +1130,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     const gitDir = await resolveGitDir();
     const rebaseStopped = existsSync(join(gitDir, "rebase-merge")) || existsSync(join(gitDir, "rebase-apply"));
     if (!rebaseStopped) {
+      const blocked = await packsBlockingPull(rebase.stderr);
+      if (blocked !== null) return { outcome: "skipped", detail: blocked };
       const reason = redactCredentials(rebase.stderr.trim() || "rebase refused");
       deps.log.warn({ id: spec.id, reason }, `${label}: rebase refused; will retry next tick`);
       return { outcome: "skipped", detail: reason };
@@ -1553,6 +1623,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         if (commitPaths.length === 0) continue;
         const dirtyHours = Math.floor((deps.now() - jz.dirtySinceMs) / (60 * 60 * 1000));
         const message = `snapshot (janitor): ${jz.zone} dirty >${dirtyHours}h, owner ${jz.owner}`;
+        if (spec.janitorSavesOnly?.(jz.zone, jz.owner)) {
+          await saveZoneLocally(jz, commitPaths, message, stageScope !== undefined);
+          continue;
+        }
         if (!(await mayWrite(commitPaths, rawEntries))) continue;
         const addResult = addPaths.length > 0
           ? await deps.exec(["git", "add", "-A", "--", ...(stageScope ? literal(addPaths) : addPaths)], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
@@ -1586,6 +1660,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       }
     }
 
+    if (spec.janitorSavesOnly && (reason === "janitor" || reason === "manual")) await dropCleanSavedZones(rawEntries);
+
     if (committed || pushPending) {
       schedulePush();
     } else if (reason !== "watch" && (await hasRemote(deps.exec, deps.repoDir)) && (await unpushedAgainstOrigin(deps.exec, deps.repoDir))) {
@@ -1602,6 +1678,73 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       return { committed: false, sha: null, paths: [], reason, skipped: "no-changes" };
     }
     return { committed, sha, paths: plan.autoPaths, reason };
+  }
+
+  /**
+   * Saves a save-only zone's dirty content as a commit under its local ref,
+   * written through a throwaway index so the working tree and the real index
+   * stay as the owner left them. One ref per zone, moved in place onto a
+   * commit whose parent is HEAD, so it never grows a chain. The author date
+   * is when the zone was first seen dirty, which the setup row reads.
+   */
+  async function saveZoneLocally(jz: JanitorZone, paths: string[], message: string, literalPaths: boolean): Promise<void> {
+    const ref = janitorRefFor(jz.zone);
+    const tmp = mkdtempSync(join(tmpdir(), "rt-janitor-index-"));
+    const env = { ...childEnv(), GIT_INDEX_FILE: join(tmp, "index") } as Record<string, string>;
+    const git = (args: string[], extraEnv: Record<string, string> = {}) =>
+      deps.exec(["git", ...args], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe", env: { ...env, ...extraEnv } });
+    const spell = (list: string[]) => (literalPaths ? literal(list) : list);
+    const failed = (step: string, result: RunResult): void => {
+      deps.log.warn({ stderr: result.stderr, zone: jz.zone, ref }, `${label}: janitor ${step} failed; the zone stays unsaved this cycle`);
+    };
+    try {
+      const read = await git(["read-tree", "HEAD"]);
+      if (read.exitCode !== 0) return failed("read-tree", read);
+      // `git add` refuses a path that is neither on disk nor in the index (added, then deleted), so a gone path is removed instead.
+      const onDisk = paths.filter((path) => pathOnDisk(join(deps.repoDir, path)));
+      const gone = paths.filter((path) => !onDisk.includes(path));
+      if (onDisk.length > 0) {
+        const add = await git(["add", "-A", "--", ...spell(onDisk)]);
+        if (add.exitCode !== 0) return failed("add", add);
+      }
+      if (gone.length > 0) {
+        const rm = await git(["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ...spell(gone)]);
+        if (rm.exitCode !== 0) return failed("rm", rm);
+      }
+      const written = await git(["write-tree"]);
+      const tree = written.stdout.trim();
+      if (written.exitCode !== 0 || tree === "") return failed("write-tree", written);
+      const saved = await git(["rev-parse", "--verify", "-q", `${ref}^{tree}`]);
+      if (saved.exitCode === 0 && saved.stdout.trim() === tree) return;
+      const commit = await git(["-c", "commit.gpgsign=false", "commit-tree", tree, "-p", "HEAD", "-m", message], {
+        GIT_AUTHOR_DATE: `@${Math.floor(jz.dirtySinceMs / 1000)} +0000`,
+      });
+      const sha = commit.stdout.trim();
+      if (commit.exitCode !== 0 || sha === "") return failed("commit-tree", commit);
+      const update = await git(["update-ref", ref, sha]);
+      if (update.exitCode !== 0) return failed("update-ref", update);
+      deps.log.warn({ zone: jz.zone, ref, sha }, `${label}: ${jz.zone} stayed dirty past the janitor threshold; saved a copy to ${ref} on this Mac and published nothing`);
+      deps.broadcast(`${spec.eventPrefix}:janitor-saved`, { zone: jz.zone, ref, sha, paths });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
+  /** A saved zone that is clean again was published or thrown away, so its copy has nothing left to keep. */
+  async function dropCleanSavedZones(entries: StatusEntry[]): Promise<void> {
+    const listed = await deps.exec(["git", "for-each-ref", "--format=%(refname)", JANITOR_REF_PREFIX], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+    if (listed.exitCode !== 0) {
+      deps.log.warn({ stderr: listed.stderr }, `${label}: could not list the janitor's saved zones`);
+      return;
+    }
+    for (const ref of listed.stdout.split("\n").map((line) => line.trim()).filter((line) => line !== "")) {
+      const zone = zoneOfJanitorRef(ref);
+      if (zone === null) continue;
+      if (entries.some((entry) => entryInZone(entry, zone))) continue;
+      const dropped = await deps.exec(["git", "update-ref", "-d", ref], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      if (dropped.exitCode === 0) deps.log.info({ zone, ref }, `${label}: ${zone} is clean again; dropped its saved copy`);
+      else deps.log.warn({ stderr: dropped.stderr, zone, ref }, `${label}: could not drop a clean zone's saved copy`);
+    }
   }
 
   async function runNow(reason: SnapshotReason): Promise<SnapshotResult> {
@@ -1661,6 +1804,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       pullOnly: current.pullOnly,
       unownedDirty: [...unownedDirty],
       heldBack: [...heldBack],
+      pullBlockedBy: [...pullBlockedBy],
       claimedZones,
       firstSeenDirty: { ...firstSeenDirty },
       ownersError,
