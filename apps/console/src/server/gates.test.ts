@@ -1,6 +1,15 @@
 // @vitest-environment node
 import type { GateRow, RunSummary } from '@mattstack/rt-client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@mattstack/rt-client', () => ({
   agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
@@ -729,5 +738,88 @@ describe('GET /api/badge', () => {
       data: { runs: [] },
     });
     expect((await badge()).status).toBe(502);
+  });
+});
+
+describe('GET /api/gates/:id/board', () => {
+  const realHome = process.env.HOME;
+  let home: string;
+  let png: string;
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), 'console-board-')));
+    process.env.HOME = home;
+    png = join(home, '.fast-browser', 'screenshots', 'run-r1-a-after.png');
+    mkdirSync(dirname(png), { recursive: true });
+    writeFileSync(png, 'PNGBYTES');
+  });
+  afterEach(() => {
+    process.env.HOME = realHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  const boardsGate = (over: Partial<GateRow> = {}) =>
+    row({
+      kind: 'evidence-attach',
+      context: JSON.stringify({
+        'gate-ctx': 'boards@1',
+        boards: [{ case: 'a', slot: 'after', path: png, caption: 'A claim' }],
+      }),
+      ...over,
+    });
+
+  function board(path: string, headers: Record<string, string> = {}) {
+    return gates.fetch(
+      new Request(
+        `http://localhost/api/gates/g1/board?path=${encodeURIComponent(path)}`,
+        { headers: { host: 'localhost', ...headers } }
+      )
+    );
+  }
+
+  it('serves a board the open gate names, never cached', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: { gates: [boardsGate()], cursor: 0 },
+    });
+    const res = await board(png);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.text()).toBe('PNGBYTES');
+  });
+
+  it('404s a path the gate does not name', async () => {
+    const other = join(dirname(png), 'other.png');
+    writeFileSync(other, 'X');
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: { gates: [boardsGate()], cursor: 0 },
+    });
+    const res = await board(other);
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({ error: 'no board' });
+  });
+
+  it('404s once the gate is answered', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: { gates: [boardsGate({ status: 'answered' })], cursor: 0 },
+    });
+    expect((await board(png)).status).toBe(404);
+  });
+
+  it('404s an unknown gate', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: { gates: [], cursor: 0 },
+    });
+    expect((await board(png)).status).toBe(404);
+  });
+
+  it('refuses a request through a public edge', async () => {
+    const res = await board(png, { 'cf-connecting-ip': '203.0.113.9' });
+    expect(res.status).toBe(403);
+    expect(rt.gateList).not.toHaveBeenCalled();
   });
 });

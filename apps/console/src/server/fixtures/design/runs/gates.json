@@ -1509,6 +1509,76 @@
         "by": "board",
         "answeredAt": "2026-10-07T10:04:30-05:00"
       }
+    },
+
+    {
+      "id": "g-1610-attach",
+      "subject": "run:20261008-1610",
+      "kind": "evidence-attach",
+      "meta": {
+        "stage": "evidence"
+      },
+      "owner": "human",
+      "origin": {
+        "runId": "20261008-1610",
+        "paneId": "fixture-pane-pippin"
+      },
+      "openedAt": "2026-10-08T16:16:00-05:00",
+      "context": "{\"gate-ctx\": \"boards@1\", \"summary\": \"Three boards are about to be attached to !424. Rush-order windows were captured on the staging store.\", \"boards\": [{\"case\": \"rush-window\", \"slot\": \"before\", \"path\": \"/Users/acme/.mattstack/evidence/web-421/rush-before-annotated.png\", \"caption\": \"The order card shows no delivery window\"}, {\"case\": \"rush-window\", \"slot\": \"after\", \"path\": \"/Users/acme/.mattstack/evidence/web-421/rush-after-annotated.png\", \"caption\": \"\\\"Today, 2-4 PM\\\" now sits under the total\"}, {\"case\": \"order-card-themes\", \"slot\": \"after\", \"theme\": \"light\", \"path\": \"/Users/acme/.mattstack/evidence/web-421/card-after-light-annotated.png\", \"caption\": \"The window keeps its contrast on the card\"}]}",
+      "questions": [
+        {
+          "id": "boards",
+          "label": "Anything on these boards that should not be public?",
+          "writeIn": true,
+          "options": [
+            {
+              "value": "clear",
+              "label": "Nothing here should stay private",
+              "description": "Every board can go on the MR as drawn"
+            },
+            {
+              "value": "hide",
+              "label": "Hide something first",
+              "description": "Name the board and what shows; it is redrawn and asked again"
+            }
+          ]
+        },
+        {
+          "id": "attach",
+          "label": "Attach now or hand back?",
+          "writeIn": true,
+          "options": [
+            {
+              "value": "handback",
+              "label": "Hand back the markdown (Recommended)",
+              "description": "Ship attaches it with the AFTERs"
+            },
+            {
+              "value": "now",
+              "label": "Attach to the MR now",
+              "description": "Upload the boards and write the evidence section"
+            }
+          ]
+        },
+        {
+          "id": "next",
+          "label": "Next?",
+          "options": [
+            {
+              "value": "proceed",
+              "label": "Proceed"
+            },
+            {
+              "value": "iterate",
+              "label": "Iterate here"
+            },
+            {
+              "value": "hold",
+              "label": "Hold"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

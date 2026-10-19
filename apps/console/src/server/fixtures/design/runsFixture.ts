@@ -27,6 +27,7 @@ import {
 } from '@mattstack/rt-client';
 import { legacyItems, readEvidence } from '@mattstack/rt-client/evidence';
 
+import { parseBoards } from '../../../shared/gate-boards';
 import { runIdOfGate } from '../../../shared/gate-run';
 import { readExcerpt, type Excerpt } from '../../artifact';
 import type { EffectiveInputsPayload } from '../../effectiveInputs';
@@ -77,6 +78,9 @@ export interface RunsFixture {
     a: { caseId: string; slot: string; theme?: string; annotated: boolean }
   ): Promise<FixtureEvidence | null>;
   artifact(repo: string, runId: string, path: string): Promise<Excerpt | null>;
+  /** A board an open gate's boards@1 context names under the fixture's
+      evidence root. */
+  boardImage(gateId: string, path: string): Promise<FixtureEvidence | null>;
   /** An image a legacy run's evidence names under the fixture's evidence root. */
   legacyEvidenceFile(
     repo: string,
@@ -301,6 +305,22 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
     return { mime, bytes: new Uint8Array(await readFile(onDisk(path))) };
   }
 
+  /** An image under the fixture's evidence root, read from `files/evidence`. */
+  async function evidenceRootFile(
+    path: string
+  ): Promise<FixtureEvidence | null> {
+    const mime = LEGACY_IMAGE_MIME[extname(path).toLowerCase()];
+    if (!mime || !path.startsWith(LEGACY_EVIDENCE_ROOT)) return null;
+    const rest = posix.normalize(path.slice(LEGACY_EVIDENCE_ROOT.length));
+    if (rest.startsWith('..')) return null;
+    try {
+      const bytes = await readFile(join(FILES, 'evidence', rest));
+      return { mime, bytes: new Uint8Array(bytes) };
+    } catch {
+      return null;
+    }
+  }
+
   async function evidenceValue(repo: string, runId: string) {
     const detail = await getRun(repo, runId);
     const field = detail?.fields.find(f => f.key === 'evidence');
@@ -414,23 +434,22 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
       return path ? fileOf(path) : null;
     },
 
+    async boardImage(gateId, path) {
+      const gate = (await allGates()).find(g => g.id === gateId);
+      if (gate?.status !== 'open') return null;
+      const named = parseBoards(gate.context)?.boards.some(
+        b => b.path === path
+      );
+      return named ? evidenceRootFile(path) : null;
+    },
+
     async legacyEvidenceFile(repo, runId, path) {
       const parsed = await evidenceValue(repo, runId);
       if (parsed.version !== 0) return null;
       const named = legacyItems(parsed.links).some(
         i => i.kind === 'image' && i.value === path
       );
-      const mime = LEGACY_IMAGE_MIME[extname(path).toLowerCase()];
-      if (!named || !mime || !path.startsWith(LEGACY_EVIDENCE_ROOT))
-        return null;
-      const rest = posix.normalize(path.slice(LEGACY_EVIDENCE_ROOT.length));
-      if (rest.startsWith('..')) return null;
-      try {
-        const bytes = await readFile(join(FILES, 'evidence', rest));
-        return { mime, bytes: new Uint8Array(bytes) };
-      } catch {
-        return null;
-      }
+      return named ? evidenceRootFile(path) : null;
     },
 
     async artifact(repo, runId, path) {

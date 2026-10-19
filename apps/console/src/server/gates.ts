@@ -14,6 +14,8 @@ import {
   type RtResponse,
   type RunSummary,
 } from '@mattstack/rt-client';
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
@@ -24,6 +26,7 @@ import {
   FIXTURE_READ_ONLY,
   type RunsFixture,
 } from './fixtures/design/runsFixture';
+import { boardMime, gateBoardPath } from './gateBoards';
 
 /** Read fresh per call, not cached at module scope -- this is the shared
     test seam across every rt-client call site in this file (panes.ts uses
@@ -264,6 +267,53 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
         if (!focusRes.ok) return c.json({ error: focusRes.error }, 502);
         return c.json({ focused: true }, 200);
       })
+      // A board can show a customer's data, so it is served only to this
+      // machine, only while its gate waits on the human, and never cached.
+      .get(
+        '/api/gates/:id/board',
+        validator('query', (value): { path?: string } => {
+          const v = value as { path?: unknown };
+          return { path: typeof v?.path === 'string' ? v.path : undefined };
+        }),
+        async c => {
+          if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+            return c.json({ error: 'forbidden' }, 403);
+          }
+          const { id } = c.req.param();
+          const { path } = c.req.valid('query');
+          if (!path) return c.json({ error: 'no board' }, 404);
+          const image = (bytes: Uint8Array<ArrayBuffer>, mime: string) =>
+            new Response(bytes, {
+              status: 200,
+              headers: { 'content-type': mime, 'cache-control': 'no-store' },
+            });
+          if (fixture) {
+            const file = await fixture.boardImage(id, path);
+            if (!file) return c.json({ error: 'no board' }, 404);
+            return image(file.bytes, file.mime);
+          }
+          const all = await allGates();
+          if (!all.ok) return c.json({ error: all.error }, 502);
+          const gate = all.gates.find(g => g.id === id);
+          const resolved = gate
+            ? gateBoardPath({
+                gate,
+                path,
+                home: homedir(),
+                uid: process.getuid?.() ?? -1,
+              })
+            : null;
+          const mime = resolved ? boardMime(resolved) : undefined;
+          if (!resolved || !mime) return c.json({ error: 'no board' }, 404);
+          let bytes: Buffer;
+          try {
+            bytes = await readFile(resolved);
+          } catch {
+            return c.json({ error: 'no board' }, 404);
+          }
+          return image(new Uint8Array(bytes), mime);
+        }
+      )
       .get('/api/gates/:id/locate', async c => {
         const { id } = c.req.param();
         const all = await allGates();
