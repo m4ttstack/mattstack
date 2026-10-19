@@ -50,15 +50,52 @@ publishes on that Mac (`orgBranch` in `lib/team/org-branch.ts`), so an admin
 can try a breaking change on a branch while every other member stays on the
 org's data branch. From layout 4 that branch is the marker's `dataBranch`
 (`mattstack` by default; `dataBranchOf` in `lib/team/org-branch.ts`) and
-`main` keeps only the marker as a pointer (`lib/team/main-pointer.ts`).
+`main` keeps only a pointer (`lib/team/main-pointer.ts`): the root file
+`.mattstack.jsonc` (`POINTER_REL`, with a header saying what the data
+branch is), or on an org that moved before it existed the old
+`mattstack/mattstack.jsonc`. Every reader takes the root file first and the
+folder file second: `markerState` on a copy, `showMarkerAt` (in
+`lib/team/org-layout.ts`) for a `git show` at a ref, so org detection, the
+`org.branch` row, the daemon's pull gate and the data-branch move all read
+either. `scripts/move-pointer-to-root.ts` moves an org's pointer in two
+admin-only phases, each a dry run until `--write`: `add` puts the root file
+beside the folder file (safe for every rt), `drop` deletes the folder file
+and refuses without `--members-confirmed`, because rt v2.25.1 and older read
+only the folder file and rt keeps no record of members' versions. Its
+commits go to `main` from a scratch repo and name no tickets, since the host
+repo can be employer-visible.
+Each Mac also keeps `dataBranch` in its team record
+(`~/.mattstack/rt/teams/<org>.json`), written by join, the data-branch move
+and the `org.folder` step (`rememberDataBranch` in
+`lib/team/org-data-branch.ts`, never for this Mac's trial and never
+overwriting a different branch), with `dataBranchTip`, origin's last known
+tip of it. `knownDataBranch` (`lib/team/org-branch.ts`) reads the record,
+then the copy's own marker, and every recovery uses it before main's
+pointer: a copy on `main` or a branch with no org store moves back, a
+detached copy's fix and the `org.branch` row's fix name the data branch,
+never `main`.
 Never hard-code `main` for the org clone's data: publish, team sync, pack
 sync, `rt team status` and the conversion scripts follow the checkout or
 the marker. `main` is named only where the pointer is read or written.
-`rt team create` starts a new org on its data branch and `publishTeam`
-pushes the pending pointer to `main`, refusing a non-empty origin. `rt team
-invite` reads `main`'s pointer and refuses unless the clone is on the
-branch it names (`main` for a layout 3 org, which has no pointer); the invite seals `dataBranch`, and `rt team join` clones
-that branch alone, then narrows the cone after the redeem.
+`rt team create` starts a new org on its data branch, with the data
+branch's README and the root pointer alone (an older rt never reads it: every
+invite seals the data branch, and a clone made from one never reads `main`), and `publishTeam`
+pushes the pending pointer to `main`, refusing a non-empty origin. An org
+admin's publish from the data branch also brings its README to the current
+words (`DATA_README`). `rt team invite` takes the data branch from
+`knownDataBranch`, else `main`'s pointer, and refuses unless the clone is on
+it (`main` for a layout 3 org, which has no data branch); the invite seals `dataBranch`, and `rt team join` clones
+that branch alone, then narrows the cone after the redeem. An invite naming
+no branch reads the pointer, then tries `mattstack`, then refuses with
+`invite-no-data-branch`.
+`lib/team/data-branch-guard.ts` watches for two losses the forge's
+protection does not stop. The `org.data-branch` row (every Mac) and the
+daemon's `org-guard` sweep report a data branch gone from origin while this
+copy has it; `rt team restore-data-branch` (owners and admins) shows the
+push, pushes the copy back with `--yes`, re-protects the branch through
+forge access, and refuses a copy behind `dataBranchTip`. The `org.main` row
+(admins) and the same sweep report org files merged onto `main`. rt puts no
+CI or other tooling on the host repo.
 `rt team branch use <name>` (`lib/team/trial-branch.ts`; org admins and
 owners) switches the clone in place to a trial branch and records it in
 the team-local record. On a layout 4 clone a missing branch is made from

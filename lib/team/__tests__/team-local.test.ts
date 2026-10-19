@@ -130,6 +130,17 @@ describe("trialBranch", () => {
   });
 });
 
+describe("dataBranch and dataBranchTip", () => {
+  test("keeps a plain branch name and a full commit id, drops anything else", () => {
+    const sha = "a".repeat(40);
+    const kept = fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ dataBranch: "mattstack", dataBranchTip: sha }) } });
+    expect(readTeamLocal(kept, SLUG)).toMatchObject({ dataBranch: "mattstack", dataBranchTip: sha });
+    const bad = fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ dataBranch: "-x", dataBranchTip: "abc" }) } });
+    expect(readTeamLocal(bad, SLUG).dataBranch).toBeUndefined();
+    expect(readTeamLocal(bad, SLUG).dataBranchTip).toBeUndefined();
+  });
+});
+
 test("forgeAccess round-trips, and a malformed one reads as absent", () => {
   const p = fakeProbes({ home: "/h" });
   writeTeamLocal(p, "acme", { createdByRt: false, joinedByRt: false, rtMayManageMembership: true, forgeAccess: { fingerprint: "abc", manualSteps: ["Open x"] } });

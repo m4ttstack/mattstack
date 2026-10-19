@@ -52,7 +52,7 @@ import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import { readTeamLocal, type PendingPackShare } from "../team/team-local.ts";
 import { approvedBranches, currentBranchSync } from "../team/approved-branch.ts";
-import { gateVerdict, headHoldsOrgStore, holdSentence, markerAtRef, shownDataBranch, type GateVerdict, type PullHold } from "../team/org-layout.ts";
+import { gateVerdict, headHoldsOrgStore, holdSentence, showMarkerAt, shownDataBranch, type GateVerdict, type PullHold } from "../team/org-layout.ts";
 import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
@@ -491,7 +491,7 @@ function marketplaceOwed(shares: PendingPackShare[], repoDir: string, dirty: rea
  * checked out: it names a data branch but holds no org store.
  */
 export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string, checkedOut: string): Promise<GateVerdict | null> {
-  const show = (at: string) => exec(["git", "-C", repoDir, "show", markerAtRef(at)], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } });
+  const show = (at: string) => showMarkerAt((spec) => exec(["git", "-C", repoDir, "show", spec], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } }), at);
   const shown = await show(ref);
   const named = shownDataBranch(await show("HEAD"));
   const own = named !== null && (await headHoldsOrgStore(exec, repoDir, GIT_TIMEOUT_MS)) === false ? null : named;

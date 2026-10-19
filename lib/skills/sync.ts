@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { dirname, join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
-import { gateVerdict, markerAtRef, MOVED_SENTENCE, shownDataBranch, updateSentence, type GateVerdict } from "../team/org-layout.ts";
+import { gateVerdict, MOVED_SENTENCE, showMarkerAt, shownDataBranch, updateSentence, type GateVerdict } from "../team/org-layout.ts";
 import { ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
 import { FLOOR_REL, heldCopy, readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
 import { admit, updateArgs } from "../setup/plugin-calls.ts";
@@ -600,8 +600,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       // Named, because an org clone's refspec is narrowed to the data branch and a trial branch would never move.
       const fetched = await originGit(deps, ["fetch", "origin", `+refs/heads/${current}:${tip}`], { cwd: clone });
       if (fetched.code !== 0) return pullFailed(fetched.stderr);
-      const shown = await deps.run("git", ["show", markerAtRef(tip)], { cwd: clone });
-      const own = await deps.run("git", ["show", markerAtRef("HEAD")], { cwd: clone });
+      const show = (spec: string) => deps.run("git", ["show", spec], { cwd: clone });
+      const shown = await showMarkerAt(show, tip);
+      const own = await showMarkerAt(show, "HEAD");
       let verdict: GateVerdict | null;
       try {
         verdict = gateVerdict(shown, current, shownDataBranch(own));

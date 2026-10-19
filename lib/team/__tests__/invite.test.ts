@@ -3,7 +3,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { childEnv } from "../../subprocess.ts";
 import { createRealProbes } from "../../setup/probes.ts";
-import { teamLocalPath } from "../team-local.ts";
+import { teamLocalPath, updateTeamLocal } from "../team-local.ts";
 import { afterEach, describe, test, expect } from "bun:test";
 import { cleanupOrgWorlds } from "./org-world.ts";
 import { dataBranchWorld, layout3World } from "./data-branch-world.ts";
@@ -1183,12 +1183,36 @@ describe("real invite seams against main's pointer", () => {
     });
   });
 
-  test("a trial branch whose own marker names the trial is refused, since main's pointer decides", async () => {
+  for (const at of ["root", "both", "folder"] as const) {
+    const where = at === "root" ? "only the root pointer" : at === "both" ? "both pointer files" : "only the old folder pointer";
+    test(`with ${where} on main and no team record, a clone on the data branch invites from its own marker`, async () => {
+      const w = dataBranchWorld();
+      w.pointMainAtData(at);
+      expect(await realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null)).toEqual({ dataBranch: "mattstack" });
+    });
+
+    test(`with ${where} on main, a clone on main whose own marker names no data branch is refused toward the pointer's`, async () => {
+      const w = dataBranchWorld();
+      w.pointMainAtData(at);
+      w.git("checkout", "-q", "main");
+      await expect(realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null)).rejects.toMatchObject({ code: "invite-off-main", next: "rt team branch use mattstack" });
+    });
+  }
+
+  test("the team record's data branch decides, without reading main", async () => {
+    const w = dataBranchWorld();
+    updateTeamLocal(w.p, SLUG, { dataBranch: "mattstack" });
+    w.atOrigin("update-ref", "-d", "refs/heads/main");
+    expect(await realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null)).toEqual({ dataBranch: "mattstack" });
+  });
+
+  test("a trial branch this Mac recorded, whose own marker names the trial, is refused, since main's pointer decides", async () => {
     const w = dataBranchWorld();
     w.pointMainAtData();
     w.git("checkout", "-q", "-b", "mattstack-trial");
     writeFileSync(join(w.root, "mattstack", "mattstack.jsonc"), `${JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack-trial" })}\n`);
     w.git("commit", "-q", "-am", "trial marker");
+    updateTeamLocal(w.p, SLUG, { trialBranch: "mattstack-trial" });
     const err = await realMintInviteSeams().pullOrg(w.p, SLUG, w.remote, null).catch((e: unknown) => e);
     expect(err).toMatchObject({
       code: "invite-off-main",

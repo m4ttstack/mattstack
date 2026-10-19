@@ -14,6 +14,7 @@
 import { dirname, join } from "path";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
+import { validBranch } from "./org-marker.ts";
 
 export interface TeamLocalRecord {
   /** rt created this org's remote itself (`gh repo create`). Provenance only: it confers nothing. */
@@ -50,6 +51,10 @@ export interface TeamLocalRecord {
   movedFrom?: string;
   /** A branch other than the data branch this Mac chose to publish from; the daemon auto-commits there too. */
   trialBranch?: string;
+  /** The branch holding the org's data, written by join and the data-branch move. It sits outside the copy, so a branch switch cannot change it, and every recovery reads it before the pointer. */
+  dataBranch?: string;
+  /** Origin's last known tip of the data branch, kept for when origin loses the branch and a pruning fetch drops the tracking ref. */
+  dataBranchTip?: string;
   /** The last forge access apply on this Mac. */
   forgeAccess?: ForgeAccessRecord;
 }
@@ -104,6 +109,8 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       } : {}),
       ...(typeof parsed.forgeUsername === "string" && parsed.forgeUsername.trim() !== "" ? { forgeUsername: parsed.forgeUsername.trim() } : {}),
       ...(typeof parsed.trialBranch === "string" && parsed.trialBranch !== "" ? { trialBranch: parsed.trialBranch } : {}),
+      ...(typeof parsed.dataBranch === "string" && validBranch(parsed.dataBranch) ? { dataBranch: parsed.dataBranch } : {}),
+      ...(typeof parsed.dataBranchTip === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(parsed.dataBranchTip) ? { dataBranchTip: parsed.dataBranchTip } : {}),
       ...(typeof parsed.movedFrom === "string" && parsed.movedFrom !== "" ? { movedFrom: parsed.movedFrom } : {}),
       ...(isForgeAccessRecord(parsed.forgeAccess) ? { forgeAccess: parsed.forgeAccess } : {}),
       ...(pendingPackShares(parsed.pendingPackShares).length > 0 ? { pendingPackShares: pendingPackShares(parsed.pendingPackShares) } : {}),
