@@ -208,6 +208,52 @@ describe("ticketPanelRefusal", () => {
     expect(panelCheck([])).toBeNull();
   });
 
+  test("a panel whose capture is not a bare name beside the board cannot be checked and is refused", () => {
+    pair();
+    mkdirSync(join(dir, "run"));
+    write("run/r1-c-before.c1.png", TICKET_PIXELS);
+    write("run/r1-c-before.c1.capture.json", JSON.stringify({ source: "import", image: "r1-c-before.c1.png" }));
+    const cannot = (capture: string) => `${stem}.png: panel 1's capture ${capture} is not beside the board, so it cannot be checked against the run's ticket images; copy the board's whole bundle`;
+    for (const capture of ["run/r1-c-before.c1.capture.json", join(dir, "run/r1-c-before.c1.capture.json")]) {
+      write(`${stem}.spec.json`, JSON.stringify({ panels: [{ capture, marks: [] }, { capture: `${stem}.c1.capture.json`, marks: [] }] }));
+      expect(panelCheck()).toBe(cannot(capture));
+      expect(panelCheck([])).toBeNull();
+    }
+  });
+
+  test("the sidecar's image decides which pixels the panel shows, as compose reads it", () => {
+    pair({ beforeBytes: new Uint8Array([1, 1, 1, 1]) });
+    write("ticket-pixels.png", TICKET_PIXELS);
+    write("r1-c-before.c1.capture.json", JSON.stringify({ source: "import", image: "ticket-pixels.png" }));
+    expect(panelCheck()).toContain("shows a ticket image in panel 1");
+  });
+
+  test("a sidecar whose image is not a bare name is refused", () => {
+    pair();
+    write("r1-c-before.c1.capture.json", JSON.stringify({ source: "import", image: "../ticket-pixels.png" }));
+    expect(panelCheck()).toBe(`${stem}.png: panel 1's capture ../ticket-pixels.png is not beside the board, so it cannot be checked against the run's ticket images; copy the board's whole bundle`);
+  });
+
+  test("an unreadable capture is refused as unreadable, not as missing", () => {
+    pair();
+    chmodSync(join(dir, "r1-c-before.c1.png"), 0o000);
+    try {
+      expect(panelCheck()).toBe(`${stem}.png: panel 1's capture r1-c-before.c1.png could not be read to rule out a ticket image; fix its permissions or render the board again`);
+    } finally {
+      chmodSync(join(dir, "r1-c-before.c1.png"), 0o644);
+    }
+  });
+
+  test("an unreadable sidecar is refused as unreadable", () => {
+    pair();
+    chmodSync(join(dir, "r1-c-before.c1.capture.json"), 0o000);
+    try {
+      expect(panelCheck()).toBe(`${stem}.png: panel 1's capture r1-c-before.c1.capture.json could not be read to rule out a ticket image; fix its permissions or render the board again`);
+    } finally {
+      chmodSync(join(dir, "r1-c-before.c1.capture.json"), 0o644);
+    }
+  });
+
   test("a malformed redaction record fails closed for a ticket panel", () => {
     pair({ marks: true });
     write(`${stem}.redactions.json`, "{");

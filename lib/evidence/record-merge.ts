@@ -322,7 +322,7 @@ export function displacedImportBoard(
     if (imported.length === 0 || imported.some((c) => c.live)) continue;
     const drawn = captures(e.annotated);
     if (!drawn.some((c) => c.live)) continue;
-    const fromIt = drawn.some((n) => imported.some((o) => basename(o.path) === basename(n.path) && same(o.path, n.path)));
+    const fromIt = drawn.some((n) => imported.some((o) => same(o.path, n.path)));
     if (fromIt) {
       return { ok: false, error: `${where(e.case, e.slot, e.theme)}: its cover ${basename(old)} is a standalone import board, which a board drawn from it with a live capture never replaces; record that board on the after alone and leave this image out of the call` };
     }

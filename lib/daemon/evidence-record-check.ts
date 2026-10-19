@@ -87,10 +87,25 @@ export function ticketCopyRefusal(o: {
   return null;
 }
 
-/** The recorded bytes of every ticket image a run knows, the shape ticketPanelRefusal matches a board's panels against. */
-export function ticketBytes(record: EvidenceRecord, tickets: EvidenceShot[] = []): Array<{ size: number; sha256: string }> {
-  return [...evidenceShots(record).map((s) => s.shot), ...tickets].flatMap((s) =>
-    s.source === "ticket" && s.size !== undefined && s.sha256 !== undefined ? [{ size: s.size, sha256: s.sha256 }] : []);
+/**
+ * The bytes of every ticket image a run knows, the shape ticketPanelRefusal
+ * matches a board's panels against. A legacy shot with no recorded size and
+ * sha256 is measured from its file; one that is gone or unreadable adds
+ * nothing here, since ticketCopyRefusal already fails closed on unreadable.
+ */
+export function ticketBytes(record: EvidenceRecord, tickets: EvidenceShot[] = [], look: (p: string) => Probe = probe): Array<{ size: number; sha256: string }> {
+  return [...evidenceShots(record).map((s) => s.shot), ...tickets].flatMap((s) => {
+    if (s.source !== "ticket") return [];
+    if (s.size !== undefined && s.sha256 !== undefined) return [{ size: s.size, sha256: s.sha256 }];
+    const found = look(s.path);
+    if (found.kind !== "file") return [];
+    try {
+      const bytes = found.read();
+      return [{ size: bytes.length, sha256: sha256(bytes) }];
+    } catch {
+      return [];
+    }
+  });
 }
 
 function safeRealpath(p: string): string | null {

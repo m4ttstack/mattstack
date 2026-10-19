@@ -96,9 +96,13 @@ export function redactionUploadRefusal(o: {
  * A board whose panel was drawn from a ticket image (the image itself, or its
  * import capture, both in the run's evidence-tickets) goes out only when its
  * redaction record holds a crop for that panel: a pair board reuses the
- * before's import capture, and its own marks decide what it hides. The
- * panel's capture is the PNG beside the board that its spec names, matched
- * by bytes, so neither its name nor its sidecar can clear it. Run after
+ * before's import capture, and its own marks decide what it hides. A panel's
+ * pixels are found as compose finds them, the sidecar its spec names and then
+ * the image that sidecar names, matched by bytes (with the <x>.png beside the
+ * sidecar too), so no name or sidecar field can clear them. A sidecar or image
+ * outside the board's folder cannot be checked here and fails closed. The
+ * record's panel field is trusted as compose wrote it, inside this module's
+ * scope (a skipped gate, not a hand-edited record). Run after
  * redactionUploadRefusal, which proves the record belongs to this board and
  * is confirmed.
  */
@@ -120,6 +124,13 @@ export function ticketPanelRefusal(o: {
   const panels = (json(specBytes) as { panels?: unknown } | null | undefined)?.panels;
   if (!Array.isArray(panels)) return null;
   const sizes = new Set(o.tickets.map((t) => t.size));
+  const isTicket = (bytes: Uint8Array) => {
+    if (!sizes.has(bytes.length)) return false;
+    const mine = sha256(bytes);
+    return o.tickets.some((t) => t.size === bytes.length && t.sha256 === mine);
+  };
+  const outside = (i: number, name: string) => `${o.filename}: panel ${i + 1}'s capture ${name} is not beside the board, so it cannot be checked against the run's ticket images; copy the board's whole bundle`;
+  const unreadable = (i: number, name: string) => `${o.filename}: panel ${i + 1}'s capture ${name} could not be read to rule out a ticket image; fix its permissions or render the board again`;
   let covered: Set<unknown> | null = null;
   const coveredPanels = () => {
     if (covered) return covered;
@@ -130,14 +141,25 @@ export function ticketPanelRefusal(o: {
   };
   for (const [i, panel] of panels.entries()) {
     const capture = (panel as { capture?: unknown } | null)?.capture;
-    if (typeof capture !== "string" || basename(capture) !== capture || !capture.endsWith(".capture.json")) continue;
-    const png = `${capture.slice(0, -".capture.json".length)}.png`;
-    const bytes = read(join(dir, png));
-    if (!bytes || bytes.length === 0) return `${o.filename}: panel ${i + 1}'s capture ${png} is not beside the board, so it cannot be checked against the run's ticket images; copy the board's whole bundle`;
-    if (!sizes.has(bytes.length)) continue;
-    const mine = sha256(bytes);
-    if (!o.tickets.some((t) => t.size === bytes.length && t.sha256 === mine)) continue;
-    if (!coveredPanels().has(i)) {
+    if (typeof capture !== "string" || capture.length === 0) continue;
+    if (basename(capture) !== capture || !capture.endsWith(".capture.json")) return outside(i, capture);
+    const sidecarBytes = read(join(dir, capture));
+    if (sidecarBytes !== null && sidecarBytes.length === 0) return unreadable(i, capture);
+    const sidecar = json(sidecarBytes ?? new Uint8Array(0)) as { image?: unknown } | null | undefined;
+    const fallback = `${capture.slice(0, -".capture.json".length)}.png`;
+    const image = typeof sidecar?.image === "string" ? sidecar.image : fallback;
+    if (basename(image) !== image) return outside(i, image);
+    let ticket = false;
+    for (const name of image === fallback ? [image] : [image, fallback]) {
+      const bytes = read(join(dir, name));
+      if (bytes === null) {
+        if (name === image) return outside(i, name);
+        continue;
+      }
+      if (bytes.length === 0) return unreadable(i, name);
+      if (isTicket(bytes)) ticket = true;
+    }
+    if (ticket && !coveredPanels().has(i)) {
       return `${o.filename} shows a ticket image in panel ${i + 1} with nothing hidden on it; redact its personal data in that panel, confirm the crops at the redaction gate, and copy the record and crops beside the board`;
     }
   }

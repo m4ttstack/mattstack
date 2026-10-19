@@ -194,6 +194,38 @@ describe("ship's pair over a standalone import board", () => {
     expect(slotOf((await readValue()).value, "before").annotated).toBe(before);
   });
 
+  test("a pair whose spec reaches the import capture by path, without copying it, is refused as the before's cover too", async () => {
+    const { copy, before } = await importBefore();
+    const beforeStem = basename(before, ".png");
+    const stem = `${runId}-t-after`;
+    const capture = put(shots, `${stem}.c1.png`, LIVE_AFTER);
+    sidecar(shots, `${stem}.c1.capture.json`, "live");
+    const pair = board(shots, stem, [join(dirname(before), `${beforeStem}.c1.capture.json`), `${stem}.c1.capture.json`], png("pair board"));
+    const res = await record([
+      { case: "t", slot: "after", path: capture, annotated: pair, caption: CAPTION },
+      { case: "t", slot: "before", path: copy, annotated: pair, caption: CAPTION },
+    ]);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("standalone import board");
+  });
+
+  test("a pair whose before sidecar names the import pixels under another file name is refused as the before's cover too", async () => {
+    const { copy, before } = await importBefore();
+    const stem = `${runId}-t-after`;
+    copyFileSync(join(dirname(before), `${basename(before, ".png")}.c1.png`), join(shots, "renamed-pixels.png"));
+    put(shots, "renamed.c1.png", png("innocent bytes"));
+    put(shots, "renamed.c1.capture.json", JSON.stringify({ schemaVersion: "capture/1", source: "live", image: "renamed-pixels.png" }));
+    const capture = put(shots, `${stem}.c1.png`, LIVE_AFTER);
+    sidecar(shots, `${stem}.c1.capture.json`, "live");
+    const pair = board(shots, stem, ["renamed.c1.capture.json", `${stem}.c1.capture.json`], png("pair board"));
+    const res = await record([
+      { case: "t", slot: "after", path: capture, annotated: pair, caption: CAPTION },
+      { case: "t", slot: "before", path: copy, annotated: pair, caption: CAPTION },
+    ]);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("standalone import board");
+  });
+
   test("the pair recorded on the after alone: both boards are in the record and in the section", async () => {
     const { before } = await importBefore();
     const { capture, pair } = drawPair(before);

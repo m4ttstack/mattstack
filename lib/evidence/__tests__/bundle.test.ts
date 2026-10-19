@@ -85,6 +85,21 @@ describe("boardCaptures", () => {
   const sidecar = (source: unknown) => JSON.stringify({ schemaVersion: "capture/1", source, image: "x" });
   const reader = (files: Record<string, string>) => (p: string) => files[basename(p)] ?? null;
 
+  test("follows a spec's capture by path, as compose does, and reads the image its sidecar names", () => {
+    const files: Record<string, string> = {
+      [join(src, "a.spec.json")]: JSON.stringify({ panels: [{ capture: "../run/b.c1.capture.json" }, { capture: "a.c1.capture.json" }] }),
+      [join(src, "a.c1.capture.json")]: JSON.stringify({ source: "live", image: "shot.png" }),
+      [join(src, "..", "run", "b.c1.capture.json")]: JSON.stringify({ source: "import", image: "b.c1.png" }),
+    };
+    const listing: Record<string, string[]> = { [src]: ["a.png", "a.spec.json", "a.c1.capture.json", "shot.png", "a.c1.png"], [join(src, "..", "run")]: ["b.c1.png", "b.c1.capture.json"] };
+    const caps = boardCaptures(join(src, "a.png"), (d) => listing[d] ?? [], (p) => files[p] ?? null);
+    expect(caps).toEqual([
+      { path: join(src, "shot.png"), live: true },
+      { path: join(src, "a.c1.png"), live: true },
+      { path: join(src, "..", "run", "b.c1.png"), live: false },
+    ]);
+  });
+
   test("names every capture in a pair board's bundle, the before's by its own stem, each with whether it was live", () => {
     const names = ["a.png", "a.spec.json", "a.c1.png", "a.c1.capture.json", "b.c1.png", "b.c1.capture.json", "c.c1.png", "c.c1.capture.json"];
     const read = reader({
