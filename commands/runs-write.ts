@@ -5,7 +5,7 @@
  *                       [--pack-dirs "DIR:DIR"] [--ticket ID] [--mattstack-sha SHA]
  *                       [--mattstack-dirty 0|1] [--pack-sha NAME=VALUE]
  *   rt runs run-status  --status done|failed|abandoned
- *   rt runs stage-start --stage NAME
+ *   rt runs stage-start --stage NAME [--reopen]
  *   rt runs stage-done  --stage NAME
  *   rt runs stage-fail  --stage NAME [--reason TEXT] [--detail-path PATH]
  *   rt runs stage-redirect --stage FROM --to TO [--reason TEXT]
@@ -125,7 +125,7 @@ async function dispatch(verb: WriteVerb, args: string[], env: NodeJS.ProcessEnv,
     case "stage-start": {
       const stage = required(args, "--stage");
       return withRunDbAsync(env, cwd, async ({ db, resolved }) => {
-        const r = stageStart(db, stage, env);
+        const r = stageStart(db, stage, env, undefined, { reopen: args.includes("--reopen") });
         if (!r.ok) return fail(r);
         await emitted(env, runIdentity(db), stage, "stage-start");
         await adoptRunSession(db, env);

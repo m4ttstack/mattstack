@@ -122,6 +122,22 @@ describe("rt runs write verbs", () => {
     db.close();
   });
 
+  test("stage-start --reopen reopens a done run; without it the start refuses with exit 2", async () => {
+    const { env, runDb } = await startRun();
+    await runWriteVerb("stage-start", ["--stage", "ship"], env);
+    await runWriteVerb("stage-done", ["--stage", "ship"], env);
+    await runWriteVerb("run-status", ["--status", "done"], env);
+    expect(await runWriteVerb("stage-start", ["--stage", "ship"], env)).toEqual({
+      out: JSON.stringify({ ok: false, error: "this run is done; nothing to start. Reopen a stage on it first with run_stage (action: start, reopen: true)" }),
+      code: 2,
+    });
+    expect((await runWriteVerb("stage-start", ["--stage", "ship", "--reopen"], env)).out).toBe('{"ok":true}');
+    const db = new Database(runDb, { readonly: true });
+    expect(db.query("SELECT status, ended_at FROM runs").get()).toEqual({ status: "running", ended_at: null });
+    expect(db.query("SELECT attempt, status FROM stages ORDER BY attempt").all()).toEqual([{ attempt: 1, status: "done" }, { attempt: 2, status: "running" }]);
+    db.close();
+  });
+
   test("stage-redirect closes the running attempt as redirected with the default reason", async () => {
     const { env, runDb } = await startRun();
     await runWriteVerb("stage-start", ["--stage", "implement"], env);

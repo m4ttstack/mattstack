@@ -27,6 +27,9 @@ digraph ship {
 
     ship_entered [label="Ship stage entered" shape=ellipse];
     run_field_get_mr [label="run_field_get {key: mr}" shape=plaintext];
+    recapture_asked [label="Reopened to re-capture the AFTER on a shipped run?" shape=diamond];
+    git_status_recapture [label="git status --porcelain; git log --oneline @{upstream}.. (re-capture)" shape=plaintext];
+    nothing_to_push [label="Nothing to push (re-capture)?" shape=diamond];
     domain_steps_before_gate [label="Run the domain steps before the gate (none when unbound)" shape=box];
     git_status_log [label="git status --porcelain; git log --oneline @{upstream}.. or -5" shape=plaintext];
     branch_stack [label="branch_stack {tree: <root>}" shape=plaintext];
@@ -120,7 +123,12 @@ digraph ship {
     ship_done [label="Ship done: return to the orchestrator" shape=doublecircle style=filled fillcolor=lightgreen];
 
     ship_entered -> run_field_get_mr;
-    run_field_get_mr -> domain_steps_before_gate;
+    run_field_get_mr -> recapture_asked;
+    recapture_asked -> domain_steps_before_gate [label="no"];
+    recapture_asked -> git_status_recapture [label="yes: mr is set"];
+    git_status_recapture -> nothing_to_push;
+    nothing_to_push -> run_field_get_evidence [label="yes: no push, no mr_create"];
+    nothing_to_push -> domain_steps_before_gate [label="no: ship the new commits first"];
     domain_steps_before_gate -> git_status_log;
     git_status_log -> branch_stack;
     branch_stack -> stack_parent_read;
@@ -263,6 +271,18 @@ digraph ship {
     run_hold -> held_end_turn;
 }
 ```
+
+### Reopened to re-capture the AFTER on a shipped run?
+
+Yes when the orchestrator reopened this stage on a done run because the
+operator asked for a new AFTER (or a re-attach of the evidence), and `mr`
+is set. Nothing to push is a clean tree and an empty `git log
+@{upstream}..`: the MR already carries HEAD, so the route goes straight to
+the AFTER with no gate, no `git_push` and no `mr_create`. The operator's
+ask is the attach consent and covers the title and description write after
+it, `mr` is `mrUrl`, and the capture's `page:` is on HEAD. Anything to push
+takes the usual route: the reopen cleared `shipTarget`, so the gate asks
+first.
 
 ### Run the domain steps before the gate (none when unbound)
 
@@ -421,7 +441,8 @@ the after alone. Recorded goes straight to the attach: this stage writes no
 
 ### Attach the evidence (evidence-record)
 
-The ship gate's Proceed is the attach consent. This is the last attach, so
+The ship gate's Proceed is the attach consent (on a re-capture, the
+operator's ask). This is the last attach, so
 a Take at the upload off-script gate (never the first call) sends
 `linkRefused: true`.
 

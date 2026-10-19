@@ -1,0 +1,3 @@
+1. `run_stage {runDb: /runs/widgets/r9/state.db, action: start, stage: ship, reopen: true}`, then `run_enter {flags: <the work flags, verbatim>, skillDir: ${CLAUDE_SKILL_DIR}, resume: r9}`, then `run_field_get {runDb: /runs/widgets/r9/state.db, key: waiting-gate}`. The `waiting-gate` field is not set after a reopen, so there is no `gate_reconcile`, and the reopened run is running at ship.
+2. The ship stage file, taking its re-capture route, with the operator's ask as the attach consent.
+3. no

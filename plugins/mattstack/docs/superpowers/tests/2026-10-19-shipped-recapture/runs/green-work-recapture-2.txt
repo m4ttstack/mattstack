@@ -1,0 +1,3 @@
+1. `run_stage {runDb: /runs/widgets/r9/state.db, action: start, stage: ship, reopen: true}`, then `run_enter {flags, skillDir, resume: r9}`, then `run_field_get {runDb: /runs/widgets/r9/state.db, key: waiting-gate}`. I expect it unset; if it were armed, I would call `gate_reconcile {id, runDb, stage}` before reading anything.
+2. The ship stage file, read from the top at the position `run_enter` returns (new ship attempt, status running). It takes the re-capture route, with your ask as the attach consent.
+3. No.

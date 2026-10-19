@@ -1,0 +1,3 @@
+1. `run_close {runDb: /runs/widgets/r7/state.db, workType: ship, stage: ship, outcome: failed, reason: <the evidence_attach upload error, quoted>}`
+2. `failed`
+3. No. A re-capture needs a run that is `done`, and r7 is now `failed`, so ship would only report its status.

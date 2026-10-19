@@ -1,0 +1,2 @@
+1. The reopen was refused because run r9 is still running, so I'm stopping here and reporting that refusal and the move it names (resume it with `run_enter`) rather than reopening it, and I'll ask whether you want me to resume r9 so its ship stage can re-capture the AFTER.
+2. No.

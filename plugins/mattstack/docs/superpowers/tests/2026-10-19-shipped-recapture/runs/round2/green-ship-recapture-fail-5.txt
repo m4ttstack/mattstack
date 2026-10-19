@@ -1,0 +1,3 @@
+1. `run_close {runDb: /runs/widgets/r7/state.db, workType: ship, stage: ship, outcome: done}`. A failed re-capture still closes `done`, with the Attach failed reason in the report, because the MR already shipped.
+2. `done`.
+3. Yes. The run is `done`, its work type is `ship` and `mr` is set, so it reopens again for the next try.

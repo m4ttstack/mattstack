@@ -1,0 +1,3 @@
+1. `run_close {runDb: /runs/widgets/r7/state.db, workType: ship, stage: ship, outcome: done}` (a re-capture's failure still closes `done`, with the Attach failed reason quoted in the report)
+2. `done`
+3. yes

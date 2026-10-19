@@ -1,0 +1,3 @@
+1. `run_list {repo, pipelines}` (r9 is done, so no running run is listed), then `run_enter {flags, skillDir, ticket: widgets-126, fresh: true}`, then `run_field_get {runDb: <the new run's runDb from run_enter, not /runs/widgets/r9/state.db>, key: waiting-gate}`. The tracker `save_issue` (In Progress, assignee `me`) also happens here, but it is not a run tool.
+2. The provision stage file, at the new run's first-stage position (`at.file` from `run_enter`), since `waiting-gate` is unset and `at.status` is running.
+3. yes

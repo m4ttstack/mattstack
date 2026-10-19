@@ -1,0 +1,3 @@
+1. `run_list {repo, pipelines}` (r9 is done, so no running run is listed), then `run_enter {flags, skillDir: ${CLAUDE_SKILL_DIR}, ticket: widgets-126, fresh: true}`, then `run_field_get {runDb: <the new run's runDb>, key: waiting-gate}`, which is not set. Between the last two I also move widgets-126 to In Progress via the tracker's `save_issue`, which is not a run tool.
+2. The provision stage file, at the first stage's position from `run_enter`'s `at`. Its `file` is absolute.
+3. Yes. r9 is finished and stays finished, so I never reuse its `/runs/widgets/r9/state.db` and start a new run instead.
