@@ -21,6 +21,8 @@ import { isOrgAdmin, mayWritePath, orgOwnersAsk, ownedRoots, roleOf, writeRefusa
 import { unpublishedPaths } from "./publish-history.ts";
 import { containsCommit, remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
+import { headHoldsOrgStore } from "./org-layout.ts";
+import { DATA_README, DATA_README_REL, markerState } from "./org-marker.ts";
 import { assertOriginTakesNewOrg, pendingPointer, publishPointer } from "./org-data-branch.ts";
 import { orgDirUnder } from "../rt-paths.ts";
 import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
@@ -50,6 +52,28 @@ function classifyPushFailure(result: ExecResult, branch: string, tracked: boolea
     });
   }
   return new UserActionableError("push-failed", "rt could not push the team repo", {}, { log: `git push -u origin ${branch} failed (exit ${result.code}): ${withoutUrls(text.trim())}` });
+}
+
+/** Files at the data branch's root that only an org admin changes. */
+const ADMIN_ROOT_FILES = [".gitignore", DATA_README_REL];
+
+/**
+ * An admin's publish from the data branch brings its README to the words
+ * every Mac's rt carries, so a forge maintainer reading the branch is told
+ * what it is. Any other branch, or a member, is left alone.
+ */
+async function commitDataReadme(p: Probes, slug: string, dir: string, branch: string): Promise<void> {
+  const own = markerState(p, dir);
+  if (own.kind !== "org" || own.dataBranch !== branch || !isOrgAdmin(roleFor(p, slug))) return;
+  if ((await headHoldsOrgStore(p.exec, dir)) !== true) return;
+  const file = join(dir, DATA_README_REL);
+  if (p.readFile(file) === DATA_README) return;
+  p.writeFile(file, DATA_README);
+  const add = await p.exec(["git", "add", "--", DATA_README_REL], { cwd: dir });
+  const commit = add.code === 0 ? await p.exec(["git", "commit", "-q", "-m", "team: say what the data branch is", "--", DATA_README_REL], { cwd: dir }) : add;
+  if (commit.code !== 0) {
+    throw new UserActionableError("git-commit-failed", "rt could not commit the data branch's README", {}, { log: withoutUrls(`${commit.stdout}\n${commit.stderr}`.trim()) });
+  }
 }
 
 async function currentOrigin(p: Probes, dir: string): Promise<string | null> {
@@ -86,6 +110,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
 
   const branch = await orgBranch(p, dir);
   const ref = `refs/heads/${branch}`;
+  await commitDataReadme(p, slug, dir, branch);
 
   if (deferredRefusal !== null && remote) throw deferredRefusal;
   if (remote) {
@@ -145,7 +170,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     }
     assertMayWrite(p, slug, path);
   };
-  const mayWrite = (path: string) => [judge, current].every((role) => mayWritePath(role, path) || (isOrgAdmin(role) && path === ".gitignore"));
+  const mayWrite = (path: string) => [judge, current].every((role) => mayWritePath(role, path) || (isOrgAdmin(role) && ADMIN_ROOT_FILES.includes(path)));
   if (deferredRefusal !== null && !pending.includes(ORG_STORE_REL)) throw deferredRefusal;
   if ((ownedRoots(judge).length === 0 || ownedRoots(current).length === 0) && !pending.includes(ORG_STORE_REL)) refuse(ORG_STORE_REL);
   if (pending.includes(ORG_STORE_REL)) {

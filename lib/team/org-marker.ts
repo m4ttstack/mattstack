@@ -11,6 +11,16 @@ export const POINTER_REL = ".mattstack.jsonc";
 /** The words the data branch's README and the pointer's header both carry. */
 export const DATA_BRANCH_WARNING = "This branch holds the org's data. Never delete it or merge it into main.";
 
+export const DATA_README_REL = "README.md";
+
+/** The data branch's README; an admin's publish keeps it at these words. */
+export const DATA_README = `# Org data
+
+${DATA_BRANCH_WARNING}
+
+It holds the org's mattstack data: the \`mattstack/\` folder, \`.sops.yaml\`, \`.claude-plugin/\` and \`.gitignore\`. It shares no history with \`main\`, where only the \`.mattstack.jsonc\` pointer lives.
+`;
+
 /** The pointer file's text: a header saying what the data branch is, then the marker. */
 export function pointerText(org: string, dataBranch: string, layout: number = ORG_LAYOUT): string {
   return `// mattstack: the org's data lives on the ${dataBranch} branch, not here.\n// ${DATA_BRANCH_WARNING.replace("This branch", `The ${dataBranch} branch`)}\n${JSON.stringify({ role: "org", org, layout, dataBranch }, null, 2)}\n`;

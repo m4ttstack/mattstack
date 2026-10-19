@@ -1748,6 +1748,31 @@ describe("orgBranchRow", () => {
     const r = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }, { forgeUsername: "dev1" }, { store: owner }));
     expect(r?.action).toMatchObject({ type: "steps", steps: ["rt team branch use mattstack"] });
   });
+
+  /** A copy someone switched to main: the pointer is all it holds, so no org store and no role. */
+  const onMain = (pointerAt: string, local: Record<string, unknown> = { forgeUsername: "dev1" }) => fakeProbes({
+    home: "/h",
+    files: {
+      "/h/.mattstack/orgs/acme/.git/config": "",
+      [`/h/.mattstack/orgs/acme/${pointerAt}`]: `// header\n${JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT, dataBranch: "mattstack" })}`,
+      "/h/.mattstack/rt/teams/acme.json": JSON.stringify(local),
+    },
+    dirs: { "/h/.mattstack/orgs": ["acme"] },
+    exec: (argv) => (argv.includes("symbolic-ref") ? ok("main\n") : ok("")),
+  });
+  test("a copy switched to main holding only the root pointer is told to switch to the data branch", async () => {
+    const r = await orgBranchRow(onMain(".mattstack.jsonc"));
+    expect(r).toMatchObject({ status: "needs-you", detail: "Auto-commit is paused: your copy of the org is on main." });
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["git -C /h/.mattstack/orgs/acme switch mattstack"] });
+  });
+  test("a copy switched to main holding only the old folder pointer is told the same", async () => {
+    const r = await orgBranchRow(onMain("mattstack/mattstack.jsonc"));
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["git -C /h/.mattstack/orgs/acme switch mattstack"] });
+  });
+  test("the fix names the data branch the team record holds before the pointer's", async () => {
+    const r = await orgBranchRow(onMain(".mattstack.jsonc", { forgeUsername: "dev1", dataBranch: "orgdata" }));
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["git -C /h/.mattstack/orgs/acme switch orgdata"] });
+  });
 });
 
 describe("team.sync for a clone waiting on its layout", () => {

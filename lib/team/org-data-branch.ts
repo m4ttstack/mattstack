@@ -11,13 +11,14 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { warn } from "../ui/warn.ts";
 import { gitWithToken } from "./git-credential.ts";
-import { checkedOutBranch } from "./org-branch.ts";
+import { checkedOutBranch, knownDataBranch } from "./org-branch.ts";
 import { applyRoleCone } from "./org-cone.ts";
-import { gateVerdict, headHoldsOrgStore, markerAtRef } from "./org-layout.ts";
-import { markerState, ORG_MARKER_REL } from "./org-marker.ts";
+import { gateVerdict, headHoldsOrgStore, showMarkerAt } from "./org-layout.ts";
+import { DATA_README_REL, markerState, ORG_MARKER_REL, POINTER_REL } from "./org-marker.ts";
 import { withoutUrls } from "./redact.ts";
 import { containsCommit } from "./remote-head.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
+import { editTeamLocal, readTeamLocal } from "./team-local.ts";
 
 export type HeldMove =
   | { kind: "held"; why: "dirty"; files: string[] }
@@ -46,7 +47,7 @@ export const dataBranchRefspec = (branch: string): string => `+refs/heads/${bran
 const FILES_SHOWN = 5;
 /** Every path the org's data branch holds; a commit touching anything else is not the org's data and is never carried. */
 const DATA_PATH = (path: string): boolean =>
-  path.startsWith("mattstack/") || path.startsWith(".claude-plugin/") || path === ".sops.yaml" || path === ".gitignore";
+  path.startsWith("mattstack/") || path.startsWith(".claude-plugin/") || path === ".sops.yaml" || path === ".gitignore" || path === DATA_README_REL;
 
 const commitsWord = (n: number): string => (n === 1 ? "1 unpublished commit" : `${n} unpublished commits`);
 
@@ -207,21 +208,22 @@ export async function convergeDataBranch(
   opts: { readToken?: (p: Probes, remote: string) => Promise<string | null> } = {},
 ): Promise<ConvergeResult | null> {
   const own = markerState(p, dir);
-  if (own.kind !== "org") return null;
+  const recorded = knownDataBranch(p, dir);
+  if (own.kind !== "org" && recorded === null) return null;
   const branch = await checkedOutBranch(p, dir);
   if (branch === null) return null;
-  if (own.dataBranch !== null && (branch === own.dataBranch || (await headHoldsOrgStore(p.exec, dir)) !== false)) return null;
+  if (recorded !== null && (branch === recorded || (await headHoldsOrgStore(p.exec, dir)) !== false)) return null;
   const url = await p.exec(["git", "remote", "get-url", "origin"], { cwd: dir, env: ENV });
   if (url.code !== 0) return null;
   const remote = url.stdout.trim();
   const token = await forgeToken(p, remote, opts.readToken ?? storedForgeToken);
-  let target = own.dataBranch;
+  let target = recorded;
   if (target === null) {
     const tracking = `refs/remotes/origin/${branch}`;
     const fetch = gitWithToken(["fetch", "-q", "origin", `+refs/heads/${branch}:${tracking}`], token, ENV, { remote });
     const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
     if (fetched.code !== 0) return { kind: "unchecked", log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) };
-    const shown = await p.exec(["git", "show", markerAtRef(tracking)], { cwd: dir, env: ENV });
+    const shown = await showMarkerAt((spec) => p.exec(["git", "show", spec], { cwd: dir, env: ENV }), tracking);
     let verdict;
     try {
       verdict = gateVerdict(shown, branch, null);
@@ -238,8 +240,30 @@ export async function convergeDataBranch(
     } catch (err) {
       warn("org-data-branch", `moved ${basename(dir)} to the ${result.branch} branch but could not narrow it to the role's folders`, { context: { err: String(err) } });
     }
+    await rememberDataBranch(p, dir);
   }
   return result;
+}
+
+/**
+ * Writes the data branch this copy is on, and origin's last known tip of it,
+ * into the team record. Only a copy on the branch its own marker names, whose
+ * HEAD holds the org store, and that is not this Mac's trial counts; a record
+ * naming another branch is never overwritten. True when it wrote.
+ */
+export async function rememberDataBranch(p: Probes, dir: string): Promise<boolean> {
+  const slug = basename(dir);
+  const own = markerState(p, dir);
+  const record = readTeamLocal(p, slug);
+  const branch = await checkedOutBranch(p, dir);
+  if (own.kind !== "org" || own.dataBranch === null || branch !== own.dataBranch || branch === record.trialBranch) return false;
+  if (record.dataBranch !== undefined && record.dataBranch !== branch) return false;
+  if ((await headHoldsOrgStore(p.exec, dir)) !== true) return false;
+  const tip = await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`], { cwd: dir, env: ENV });
+  const sha = tip.code === 0 && tip.stdout.trim() !== "" ? tip.stdout.trim() : undefined;
+  if (record.dataBranch === branch && (sha === undefined || record.dataBranchTip === sha)) return false;
+  editTeamLocal(p, slug, () => ({ dataBranch: branch, ...(sha !== undefined ? { dataBranchTip: sha } : {}) }));
+  return true;
 }
 
 /** git's words for a push origin turned away because the branch there holds commits this one lacks. */
@@ -262,7 +286,7 @@ export async function pendingPointer(p: Pick<Probes, "exec" | "readFile">, dir: 
   if ((checkedOut === undefined ? await checkedOutBranch(p, dir) : checkedOut) !== own.dataBranch) return null;
   const ref = `refs/heads/${POINTER_BRANCH}`;
   const listed = await p.exec(["git", "ls-tree", "-r", "--name-only", ref], { cwd: dir, env: ENV });
-  if (listed.code !== 0 || listed.stdout.trim() !== ORG_MARKER_REL) return null;
+  if (listed.code !== 0 || ![POINTER_REL, ORG_MARKER_REL].includes(listed.stdout.trim())) return null;
   const sha = await p.exec(["git", "rev-parse", "--verify", "-q", ref], { cwd: dir, env: ENV });
   return sha.code === 0 && sha.stdout.trim() !== "" ? { dataBranch: own.dataBranch, sha: sha.stdout.trim() } : null;
 }
