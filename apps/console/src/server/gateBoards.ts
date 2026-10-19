@@ -2,6 +2,7 @@ import {
   closeSync,
   constants,
   fstatSync,
+  lstatSync,
   openSync,
   readSync,
   realpathSync,
@@ -82,18 +83,23 @@ export interface GateBoardFile {
     inside the screenshots folder or an evidence folder. The checks on the
     file itself (a regular file this user owns, one link, bytes that are the
     image its name says) run on the descriptor the bytes are read from, and
-    the open refuses a symlink, so a link swapped in after realpath is never
-    followed. */
+    the open refuses a symlink, and the descriptor must still be the file at
+    the resolved path, so a path or a parent directory swapped after realpath
+    is never served. */
 export function readGateBoard({
   gate,
   path,
   home,
   uid,
+  afterOpen,
 }: {
   gate: BoardGate;
   path: string;
   home: string;
   uid: number;
+  /** Runs between the open and the checks: the window a swapped path or a
+      swapped parent directory would use. */
+  afterOpen?: () => void;
 }): GateBoardFile | null {
   if (!boardsWaiting(gate.status)) return null;
   const mime = LEGACY_IMAGE_MIME[extname(path).toLowerCase()];
@@ -115,8 +121,11 @@ export function readGateBoard({
     return null;
   }
   try {
+    afterOpen?.();
     const st = fstatSync(fd);
     if (!st.isFile() || st.uid !== uid || st.nlink !== 1) return null;
+    const now = lstatSync(resolved);
+    if (now.dev !== st.dev || now.ino !== st.ino) return null;
     const bytes = readFd(fd, st.size);
     return sniff(bytes) === mime ? { path: resolved, mime, bytes } : null;
   } catch {

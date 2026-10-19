@@ -606,11 +606,38 @@ describe('GET /api/gates/:id/locate', () => {
     expect(rt.listRuns).toHaveBeenCalledWith(undefined, expect.anything());
   });
 
-  it('404s when the gate itself does not exist', async () => {
-    vi.mocked(rt.gateList).mockResolvedValueOnce({
+  it('resolves an mr: subject gate to its run through origin.runId', async () => {
+    vi.mocked(rt.gateList)
+      .mockResolvedValueOnce({ ok: true, data: { gates: [], cursor: 0 } })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          gates: [row({ subject: 'mr:acme/web!412', origin: { runId: 'r1' } })],
+          cursor: 0,
+        },
+      });
+    vi.mocked(rt.listRuns).mockResolvedValueOnce({
       ok: true,
-      data: { gates: [], cursor: 0 },
+      data: { runs: [runSummary({ id: 'r1', repo: 'repo-tools' })] },
     });
+
+    const res = await locate('g1');
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      repo: 'repo-tools',
+      runId: 'r1',
+    });
+    expect(vi.mocked(rt.gateList).mock.calls[1]![0]).toMatchObject({
+      linked: true,
+    });
+  });
+
+  it('404s when the gate itself does not exist', async () => {
+    const empty = { ok: true as const, data: { gates: [], cursor: 0 } };
+    vi.mocked(rt.gateList)
+      .mockResolvedValueOnce(empty)
+      .mockResolvedValueOnce(empty);
 
     const res = await locate('missing');
 
@@ -788,6 +815,7 @@ describe('GET /api/gates/:id/board', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([...PNG]);
   });
 

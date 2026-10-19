@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -102,6 +103,19 @@ describe('readGateBoard refuses', () => {
   it('a jpeg named .png', () => {
     const p = file('.fast-browser/screenshots/a.png', imageBytes('x.jpg'));
     expect(serve(gate([p]), p)).toBeNull();
+  });
+
+  it('a path swapped for another file after it was opened', () => {
+    const p = file('.fast-browser/screenshots/a.png');
+    const swap = file('.fast-browser/screenshots/swap.png');
+    const got = readGateBoard({
+      gate: gate([p]),
+      path: p,
+      home,
+      uid,
+      afterOpen: () => renameSync(swap, p),
+    });
+    expect(got).toBeNull();
   });
 
   it('a file with a second hard link', () => {

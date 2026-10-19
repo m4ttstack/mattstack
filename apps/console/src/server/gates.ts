@@ -131,6 +131,20 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
         ? { ok: false, error: FIXTURE_OUTAGE }
         : { ok: true, data: { runs: await fixture.listRuns() } };
 
+  // A gate on an mr: subject reaches its run through origin.runId, so the
+  // linked list is read when the run list misses it.
+  const findGate = async (
+    id: string
+  ): Promise<{ ok: true; gate?: GateRow } | { ok: false; error: string }> => {
+    for (const scope of [{}, { linked: true }]) {
+      const all = await allGates(scope);
+      if (!all.ok) return all;
+      const gate = all.gates.find(g => g.id === id);
+      if (gate) return { ok: true, gate };
+    }
+    return { ok: true };
+  };
+
   return (
     new Hono()
       // A `query` validator is required: without one Hono infers the client
@@ -284,23 +298,20 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
           const image = (bytes: Uint8Array<ArrayBuffer>, mime: string) =>
             new Response(bytes, {
               status: 200,
-              headers: { 'content-type': mime, 'cache-control': 'no-store' },
+              headers: {
+                'content-type': mime,
+                'cache-control': 'no-store',
+                'x-content-type-options': 'nosniff',
+              },
             });
           if (fixture) {
             const file = await fixture.boardImage(id, path);
             if (!file) return c.json({ error: 'no board' }, 404);
             return image(file.bytes, file.mime);
           }
-          // A boards gate on an mr: subject reaches its run page through
-          // origin.runId, so the linked list is read when the run list
-          // misses it.
-          let gate: GateRow | undefined;
-          for (const scope of [{}, { linked: true }]) {
-            const all = await allGates(scope);
-            if (!all.ok) return c.json({ error: all.error }, 502);
-            gate = all.gates.find(g => g.id === id);
-            if (gate) break;
-          }
+          const found = await findGate(id);
+          if (!found.ok) return c.json({ error: found.error }, 502);
+          const gate = found.gate;
           const file = gate
             ? readGateBoard({
                 gate,
@@ -315,16 +326,12 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
       )
       .get('/api/gates/:id/locate', async c => {
         const { id } = c.req.param();
-        const all = await allGates();
-        if (!all.ok) return c.json({ error: all.error }, 502);
-        const row = all.gates.find(g => g.id === id);
+        const found = await findGate(id);
+        if (!found.ok) return c.json({ error: found.error }, 502);
+        const row = found.gate;
         if (!row) return c.json({ error: 'not-found' }, 404);
-        // listAllRunGates already scoped the list to subjectPrefix: 'run:' -- this
-        // re-check guards the daemon contract rather than filtering anything here.
-        if (!row.subject.startsWith('run:')) {
-          return c.json({ error: 'gate is not a run gate' }, 404);
-        }
-        const runId = row.subject.slice('run:'.length);
+        const runId = runIdOfGate(row);
+        if (!runId) return c.json({ error: 'gate is not a run gate' }, 404);
 
         // No repo in hand yet -- the gate names only the run id, so every repo's
         // runs must be searched, same as GET /api/runs does with no `repo` query.
