@@ -57,7 +57,7 @@ export function GateBoards({
                 onOpen={() => setFull(b)}
               />
             </Paper>
-            <Text fz="sm" ff="monospace" c="dimmed" truncate>
+            <Text fz="sm" ff="monospace" c="dimmed" className={classes.name}>
               {boardName(b)}
             </Text>
             <Text fz="sm" lh="normal">

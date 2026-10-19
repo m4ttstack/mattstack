@@ -20,6 +20,11 @@
   min-width: 0;
 }
 
+/* The theme ends the name, so it wraps rather than truncating away. */
+.name {
+  overflow-wrap: anywhere;
+}
+
 /* A screenshot's 16:10, at the width of the column; the image fills it. */
 .frame {
   display: flex;
