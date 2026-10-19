@@ -100,6 +100,10 @@ relay, one process, one SQLite file. To deploy it to
   registrations.
 - **Env**: `SWITCHBOARD_ADMIN_TOKEN`, a value you pick, is the bearer token for
   minting boards. `PORT` is supplied by Railway.
+- **Env, optional**: `SWITCHBOARD_TELEMETRY_TOKEN`, a value you pick, turns on
+  the version readout. Open `GET /telemetry?key=<token>` (or send the token as
+  a bearer) to see which versions each Mac runs. Unset, the page returns 404.
+  Macs report to `POST /telemetry/ping`; rows not seen for 90 days are dropped.
 
 ### Push
 

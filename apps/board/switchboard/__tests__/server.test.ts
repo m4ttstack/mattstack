@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { makeFetchHandler } from '../server.ts';
 import { SwitchboardStore } from '../store.ts';
 import { TeamInviteStore } from '../team-invites.ts';
+import { TelemetryStore } from '../telemetry.ts';
 
 const ADMIN = 'admin-secret';
 
@@ -14,7 +15,9 @@ function setup() {
     store,
     ADMIN,
     () => 1000,
-    new TeamInviteStore(db)
+    new TeamInviteStore(db),
+    new TelemetryStore(db),
+    null
   );
   const call = (
     path: string,
