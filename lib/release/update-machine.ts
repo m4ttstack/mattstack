@@ -338,9 +338,6 @@ async function staleManagedApps(seams: UpdateMachineSeams, apps: string[], witne
   return stale;
 }
 
-/** `deck restart` kicks a relaunch off; it is not a readiness guarantee. A single
- *  immediate check catches an app still mid-relaunch as stale, so this polls
- *  briefly before giving up on it. */
 type NotaryProbe =
   | { kind: "ready" }
   | { kind: "no-profile" }
@@ -350,8 +347,20 @@ type NotaryProbe =
 const NOTARY_PROBE_TRIES = 3;
 const NOTARY_PROBE_WAIT_MS = 10_000;
 
-function lastLine(text: string): string {
-  return text.trim().split("\n").filter((l) => l.trim()).pop()?.trim() ?? "";
+const NOTARY_UNREACHABLE = /NSURLErrorDomain|timed out|network connection|could not connect|offline|HTTP status code: 5\d\d|statusCode: Optional\(5\d\d\)/i;
+
+/** notarytool can end on advice ("Please try again later") after the error itself, so the line that names the error is the one worth showing. */
+function diagnosticLine(stderr: string, stdout: string): string {
+  for (const text of [stderr, stdout]) {
+    const lines = text.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    const named = [...lines].reverse().find((l) => /error|HTTP|status/i.test(l));
+    if (named) return named;
+  }
+  for (const text of [stderr, stdout]) {
+    const lines = text.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    if (lines.length > 0) return lines[lines.length - 1]!;
+  }
+  return "";
 }
 
 /** `notarytool history` signs in to Apple over the network, so a dropped or timed-out call is not a missing profile. */
@@ -363,10 +372,10 @@ async function probeNotary(seams: UpdateMachineSeams): Promise<NotaryProbe> {
     if (r.exitCode === 0) return { kind: "ready" };
     const text = `${r.stderr}\n${r.stdout}`;
     if (/No Keychain password item found|User interaction is not allowed|keychain/i.test(text)) return { kind: "no-profile" };
-    if (!/NSURLErrorDomain|timed out|network connection|could not connect|offline|HTTP status code: 5\d\d/i.test(text) && text.trim() !== "") {
-      return { kind: "refused", error: lastLine(text) };
+    if (!NOTARY_UNREACHABLE.test(text) && text.trim() !== "") {
+      return { kind: "refused", error: diagnosticLine(r.stderr, r.stdout) };
     }
-    last = { kind: "unreachable", error: lastLine(text) || "notarytool gave no answer" };
+    last = { kind: "unreachable", error: diagnosticLine(r.stderr, r.stdout) || "notarytool gave no answer" };
   }
   return last;
 }
@@ -382,6 +391,9 @@ function notaryBlocker(probe: Exclude<NotaryProbe, { kind: "ready" }>, profile: 
   }
 }
 
+/** `deck restart` kicks a relaunch off; it is not a readiness guarantee. A single
+ *  immediate check catches an app still mid-relaunch as stale, so this polls
+ *  briefly before giving up on it. */
 async function waitForFreshApps(seams: UpdateMachineSeams, apps: string[], witness: RestartWitness, attempts: number, delayMs: number): Promise<string[]> {
   let stale = await staleManagedApps(seams, apps, witness);
   for (let i = 1; i < attempts && stale.length > 0; i++) {

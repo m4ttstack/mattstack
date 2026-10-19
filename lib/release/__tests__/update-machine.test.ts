@@ -1133,6 +1133,25 @@ describe("rt release update-machine", () => {
       expect(calls.filter((c) => c.startsWith("xcrun notarytool history")).length).toBe(1);
     });
 
+    test("an Apple service error is retried, and the blocker names the error over the advice after it", async () => {
+      const outage = { stderr: "Error: internalError(statusCode: Optional(500), message: nil)\nPlease try again at a later time.", exitCode: 1 };
+      const { seams, calls } = fakeSeams({ notaryReplies: [outage] });
+      const report = await runUpdateMachine(seams, { yes: true });
+      const publish = report.legs.find((l) => l.id === "dev-publish")!;
+      expect(publish.status).toBe("skipped");
+      expect(publish.detail).toContain("Apple's notary service");
+      expect(publish.detail).toContain("statusCode: Optional(500)");
+      expect(publish.detail).not.toContain("Please try again");
+      expect(calls.filter((c) => c.startsWith("xcrun notarytool history")).length).toBe(3);
+    });
+
+    test("an Apple service error that clears on a retry lets the publish leg run", async () => {
+      const outage = { stderr: "Error: internalError(statusCode: Optional(503), message: nil)", exitCode: 1 };
+      const { seams } = fakeSeams({ notaryReplies: [outage, { stderr: "", exitCode: 0 }] });
+      const report = await runUpdateMachine(seams, { yes: true });
+      expect(report.legs.find((l) => l.id === "dev-publish")!.status).toBe("ok");
+    });
+
     test("a missing profile is asked about once, without retries", async () => {
       const { seams, calls } = fakeSeams({ notaryMissing: true });
       await runUpdateMachine(seams, { yes: true });
