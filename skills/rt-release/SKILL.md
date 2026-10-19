@@ -477,7 +477,7 @@ answer.
 | "The checkout is on another branch, so I switch it." | Never switch it. Open the gate. |
 | "Preflight was all current, so the skill's check is satisfied." | Preflight reads pins and settings schemas. What this release changes about setup is the audit's, on every release. |
 | "Create passed, so the walkthrough is green." | Four scenarios: create, join, solo and the update leg. Each is green on its own phases. |
-| "That failure looks like the VM, so it is green." | Only the expected-noise list counts as green. A failure that matches VM degradation (`Read the walkthrough failure`) reruns alone, uncounted; any other failure counts. |
+| "That failure looks like the VM, so it is green." | Only the expected-noise list counts as green. A failure that matches VM degradation, or a network or GitHub service failure with the signatures `Rehearsal red cause?` lists (`Read the walkthrough failure`), reruns alone, uncounted; an unclear failure or one of ours counts. |
 | "The commit subject says it seeds on update, so it is covered." | Covered needs a proof line from the code, never a subject. |
 | "Matt added a one-line fix, so his notes approval still covers it." | Re-prepare on the new main; Matt re-approves the delta, quoted. |
 | "The release is done, so the held pack sync can go now." | It waits for the team's real members to confirm they updated. |

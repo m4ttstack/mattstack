@@ -212,7 +212,8 @@ rehearsal to rerun; publish the intermediate release first.
 ### Rehearsal red cause?
 
 Read the failed step's log (`gh run view <run-id> --log-failed`) before any rerun, and decide
-whose red it is. It is outside, and reruns uncounted, only when the failing step's error names a
+whose red it is. A job that never started has no step log: read its status and annotations
+(`gh run view <run-id>`) instead. It is outside, and reruns uncounted, only when the failing step's error names a
 service or machine we do not run:
 
 - `NSURLErrorDomain` code `-1001` (timed out), `-1004` (could not connect) or `-1005` (connection
@@ -220,8 +221,8 @@ service or machine we do not run:
 - a CloudKit or notary service error while notarization already reads `status: Accepted`: for
   example `stapler` failing with Error 68 after its CloudKit lookup to api.apple-cloudkit.com lost
   the connection;
-- a GitHub runner failure (the runner lost contact, shut down, or never picked up the job) or a
-  network failure reaching GitHub or a download host.
+- a GitHub runner failure (the runner lost contact or shut down, or the job's annotation says no
+  runner picked it up) or a network failure reaching GitHub or a download host.
 
 Everything else is ours: a test, an assert, a build, signing or config error, a notarization that
 came back `Invalid` or `Rejected`, a missing secret. An unclear red is ours. When more than one

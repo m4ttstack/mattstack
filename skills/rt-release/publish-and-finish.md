@@ -241,7 +241,8 @@ out.
 ### Publish run failure cause?
 
 Read the failed step's log (`gh run view <run-id> --log-failed`) and decide whose failure it is,
-by the same signatures as prove-and-tag's `Rehearsal red cause?`. It is outside only when the
+by the same signatures as prove-and-tag's `Rehearsal red cause?` (a job that never started has no
+step log: read its status and annotations with `gh run view <run-id>`). It is outside only when the
 failing step's error names a service or machine we do not run: `NSURLErrorDomain` code `-1001`,
 `-1004` or `-1005`; a CloudKit or notary service error while notarization already reads
 `status: Accepted` (for example `stapler` failing with Error 68 after its lookup to
