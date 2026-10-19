@@ -2098,6 +2098,17 @@ export const TREE: Record<string, CommandNode> = {
     ],
   },
 
+  telemetry: {
+    description: "See which versions your team's Macs are running",
+    subcommands: {
+      open: {
+        description: "Open the version page in your browser, signed in with your stored key",
+        module: "./commands/telemetry.ts",
+        fn: "telemetryOpen",
+      },
+    },
+  },
+
   secrets: {
     description: "sops-encrypted secrets under ~/.mattstack/user/secrets/",
     subcommands: {

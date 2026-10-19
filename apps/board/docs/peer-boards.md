@@ -103,6 +103,8 @@ relay, one process, one SQLite file. To deploy it to
 - **Env, optional**: `SWITCHBOARD_TELEMETRY_TOKEN`, a value you pick, turns on
   the version readout. Open `GET /telemetry?key=<token>` (or send the token as
   a bearer) to see which versions each Mac runs. Unset, the page returns 404.
+  Store the same value with `rt secrets set rt switchboardTelemetryToken`, and
+  `rt telemetry open` opens the page with it filled in.
   Macs report to `POST /telemetry/ping`; rows not seen for 90 days are dropped.
 
 ### Push
