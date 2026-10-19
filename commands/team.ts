@@ -205,6 +205,7 @@ const REFUSAL_CODES = new Set([
   "org-uncommitted",
   "org-behind",
   "invite-stale",
+  "invite-no-data-branch",
   "org-store-malformed",
   "trial-branch-admin-only",
   "trial-branch-not-moved",
