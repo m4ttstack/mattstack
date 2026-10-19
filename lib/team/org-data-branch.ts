@@ -247,16 +247,18 @@ export async function convergeDataBranch(
 
 /**
  * Writes the data branch this copy is on, and origin's last known tip of it,
- * into the team record. Only a copy on the branch its own marker names, whose
- * HEAD holds the org store, and that is not this Mac's trial counts; a record
- * naming another branch is never overwritten. True when it wrote.
+ * into the team record. Only a copy on the data branch (`known`, as a join
+ * cloned it, else the one its own marker names), whose HEAD holds the org
+ * store, and that is not this Mac's trial counts; a record naming another
+ * branch is never overwritten. True when it wrote.
  */
-export async function rememberDataBranch(p: Probes, dir: string): Promise<boolean> {
+export async function rememberDataBranch(p: Probes, dir: string, known?: string): Promise<boolean> {
   const slug = basename(dir);
   const own = markerState(p, dir);
   const record = readTeamLocal(p, slug);
   const branch = await checkedOutBranch(p, dir);
-  if (own.kind !== "org" || own.dataBranch === null || branch !== own.dataBranch || branch === record.trialBranch) return false;
+  const named = known ?? (own.kind === "org" ? own.dataBranch : null);
+  if (named === null || branch !== named || branch === record.trialBranch) return false;
   if (record.dataBranch !== undefined && record.dataBranch !== branch) return false;
   if ((await headHoldsOrgStore(p.exec, dir)) !== true) return false;
   const tip = await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`], { cwd: dir, env: ENV });

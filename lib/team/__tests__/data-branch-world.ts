@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { childEnv } from "../../subprocess.ts";
 import { ORG_STORE_REL } from "../../../packages/rt-client/src/settings/paths.ts";
-import { ORG_MARKER_REL } from "../org-marker.ts";
+import { ORG_MARKER_REL, POINTER_REL, pointerText } from "../org-marker.ts";
 import { orgWorld } from "./org-world.ts";
 
 const markerNaming = (dataBranch: string): string => `${JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch })}\n`;
@@ -17,6 +17,8 @@ interface OrphanOptions {
   force?: boolean;
   /** The org store the branch holds; the conversion script copies the org's own. */
   store?: string;
+  /** Where the pointer's marker sits: the old folder file (the default), the root file alone (phase 2), or both (phase 1). */
+  at?: "folder" | "root" | "both";
 }
 
 /** Pushes `branch` to `remote` as a root commit sharing no history with the clone, as a `--no-pointer` trial from the conversion script does. */
@@ -26,7 +28,9 @@ function pushOrphan(remote: string, branch: string, opts: OrphanOptions = {}): v
   try {
     run("init", "-q", "-b", branch);
     mkdirSync(join(scratch, "mattstack", "org"), { recursive: true });
-    writeFileSync(join(scratch, ORG_MARKER_REL), markerNaming(opts.dataBranch ?? branch));
+    const at = opts.at ?? "folder";
+    if (at !== "root") writeFileSync(join(scratch, ORG_MARKER_REL), markerNaming(opts.dataBranch ?? branch));
+    if (at !== "folder") writeFileSync(join(scratch, POINTER_REL), pointerText("acme", opts.dataBranch ?? branch));
     if (opts.pointer !== true) writeFileSync(join(scratch, ORG_STORE_REL), opts.store ?? "{}\n");
     run("add", "-A");
     run("commit", "-q", "-m", "trial root");
@@ -47,7 +51,7 @@ export function dataBranchWorld(username = "dev1") {
   w.git("commit", "-q", "-m", "data branch");
   w.git("push", "-q", "-u", "origin", "mattstack");
   const pushUnrelated = (branch: string, opts: OrphanOptions = {}) => pushOrphan(w.remote, branch, { dataBranch: "mattstack", store: orgStore(w.root), ...opts });
-  const pointMainAtData = () => pushOrphan(w.remote, "main", { dataBranch: "mattstack", pointer: true, force: true });
+  const pointMainAtData = (at: OrphanOptions["at"] = "folder") => pushOrphan(w.remote, "main", { dataBranch: "mattstack", pointer: true, force: true, at });
   pointMainAtData();
   return { ...w, pushUnrelated, pointMainAtData };
 }

@@ -199,6 +199,11 @@ function ok(): ExecResult {
   return { code: 0, stdout: "", stderr: "" };
 }
 
+/** Every git call succeeds, and main's marker is a layout 3 org's, so a join naming no branch clones main. */
+function layout3MainExec(argv: string[]): ExecResult {
+  return argv.includes("show") && argv.some((a) => a.startsWith("FETCH_HEAD:")) ? { code: 0, stdout: '{"role":"org","org":"acme","layout":3}', stderr: "" } : ok();
+}
+
 describe("joinDryRun", () => {
   beforeEach(() => resetCltCacheForTests());
 
@@ -501,8 +506,18 @@ describe("joinDryRun", () => {
 });
 
 describe("joinRedeem", () => {
+  /** What main says when a test's exec answers its show with nothing: a layout 3 org, whose data is on main, so a join with no branch named clones main. */
+  const LAYOUT3_MAIN = '{"role":"org","org":"acme","layout":3}';
+
   function redeemProbes(overrides: Parameters<typeof fakeProbes>[0] = {}): ReturnType<typeof fakeProbes> {
-    return fakeProbes({ home: HOME, now: NOW, exec: () => ({ code: 0, stdout: "", stderr: "" }), ...overrides, files: { [ORG_STORE]: rosterWith("dev2"), ...(overrides?.files ?? {}) } });
+    const inner = overrides.exec ?? (() => ({ code: 0, stdout: "", stderr: "" }));
+    const asLayout3 = (argv: string[], r: ExecResult): ExecResult =>
+      argv.includes("show") && argv.some((a) => a.startsWith("FETCH_HEAD:")) && r.code === 0 && r.stdout === "" ? { ...r, stdout: LAYOUT3_MAIN } : r;
+    const exec: NonNullable<Parameters<typeof fakeProbes>[0]>["exec"] = (argv, opts) => {
+      const r = inner(argv, opts);
+      return r instanceof Promise ? r.then((res) => asLayout3(argv, res)) : asLayout3(argv, r);
+    };
+    return fakeProbes({ home: HOME, now: NOW, ...overrides, exec, files: { [ORG_STORE]: rosterWith("dev2"), ...(overrides?.files ?? {}) } });
   }
 
   test("clones, redeems after the clone, and posts a reply blob the inviter can open", async () => {
@@ -591,14 +606,53 @@ describe("joinRedeem", () => {
       expect(calls).toContainEqual(["git", "sparse-checkout", "set", "--cone", ...ORG_CLONE_FOLDERS]);
     });
 
-    test("an org whose main holds no marker clones the default branch", async () => {
+    /** main holding the root pointer, the old folder file, or both; `heads` are the branches origin answers ls-remote with. */
+    function pointerFilesExec(files: { root?: string; folder?: string }, calls: string[][] = [], heads: string[] = []): (argv: string[]) => ExecResult {
+      return (argv) => {
+        calls.push(argv);
+        const spec = argv[argv.length - 1] ?? "";
+        if (argv.includes("show")) {
+          const text = spec.endsWith(":.mattstack.jsonc") ? files.root : files.folder;
+          return text === undefined ? { code: 128, stdout: "", stderr: `fatal: path '${spec.split(":")[1]}' does not exist in 'FETCH_HEAD'` } : { code: 0, stdout: text, stderr: "" };
+        }
+        if (argv.includes("ls-remote")) return { code: 0, stdout: heads.map((h) => `${"a".repeat(40)}\trefs/heads/${h}\n`).join(""), stderr: "" };
+        return ok();
+      };
+    }
+
+    for (const [where, files] of [["only the root pointer", { root: `// header\n${MARKER_ON_MAIN("mattstack")}` }], ["both pointer files", { root: MARKER_ON_MAIN("mattstack"), folder: MARKER_ON_MAIN("mattstack") }]] as const) {
+      test(`an invite without dataBranch reads ${where} on main and clones the branch it names`, async () => {
+        const calls: string[][] = [];
+        const p = redeemProbes({ exec: pointerFilesExec(files, calls) });
+
+        const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+        expect(result.access).toBe("ok");
+        expect(clonesOf(calls)).toEqual([["git", "clone", "--sparse", "--single-branch", "--branch", "mattstack", REMOTE, TEAM_DIR]]);
+      });
+    }
+
+    test("an invite without dataBranch whose main holds no pointer tries the mattstack branch", async () => {
       const calls: string[][] = [];
-      const p = redeemProbes({ exec: mainPointerExec(null, calls) });
+      const p = redeemProbes({ exec: pointerFilesExec({}, calls, ["mattstack"]) });
 
       const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
 
       expect(result.access).toBe("ok");
-      expect(clonesOf(calls)).toEqual([["git", "clone", "--sparse", REMOTE, TEAM_DIR]]);
+      expect(clonesOf(calls)).toEqual([["git", "clone", "--sparse", "--single-branch", "--branch", "mattstack", REMOTE, TEAM_DIR]]);
+    });
+
+    test("with no pointer and no mattstack branch, join asks for a new invite and leaves the invite unused", async () => {
+      const calls: string[][] = [];
+      const p = redeemProbes({ exec: pointerFilesExec({}, calls, []) });
+      const relay = fakeRelay();
+
+      const err = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams).catch((e: unknown) => e);
+
+      expect(err).toMatchObject({ code: "invite-no-data-branch", message: "rt could not find the branch this org keeps its data on, so ask your admin for a new invite" });
+      expect(clonesOf(calls)).toEqual([]);
+      expect(relay.redeemCalls).toEqual([]);
+      expect(readTeamLocal(p, POINTER.team).joinedByRt).toBeFalsy();
     });
 
     test("a main branch rt cannot read fails like a failed clone: no clone, the flag restored, the invite unused", async () => {
@@ -1959,7 +2013,7 @@ describe("one team per machine", () => {
 
 
 describe("join identity and teams", () => {
-  const probes = (files: Record<string, string> = {}) => fakeProbes({ home: HOME, now: NOW, files: { [ORG_STORE]: rosterWith("dev2"), ...files }, exec: () => ({ code: 0, stdout: "", stderr: "" }) });
+  const probes = (files: Record<string, string> = {}) => fakeProbes({ home: HOME, now: NOW, files: { [ORG_STORE]: rosterWith("dev2"), ...files }, exec: layout3MainExec });
 
   test("an old pointer is refused before intent or clone writes on dry run, redeem and resume", async () => {
     const old = { ...POINTER, v: 1 } as unknown as InvitePointer;
@@ -2016,7 +2070,7 @@ describe("join identity and teams", () => {
 
   test("a missing roster entry pulls once and accepts the newly arrived entry", async () => {
     const p = probes({ [ORG_STORE]: rosterWith() });
-    p.exec = async (argv) => { p.calls.exec.push(argv); if (argv.includes("pull")) p.writeFile(ORG_STORE, rosterWith("dev2")); return { code: 0, stdout: "", stderr: "" }; };
+    p.exec = async (argv) => { p.calls.exec.push(argv); if (argv.includes("pull")) p.writeFile(ORG_STORE, rosterWith("dev2")); return layout3MainExec(argv); };
     expect((await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams)).access).toBe("ok");
     expect(p.calls.exec.filter((argv) => argv.includes("pull"))).toEqual([["git", "pull", "--ff-only"]]);
   });
@@ -2050,7 +2104,7 @@ test("a joined identity reads the selected team's board title through the resolv
   try {
     seedOrg({ org: "acme", roster: [{ username: "Dev2", teams: ["widgets", "gadgets"] }], settings: { "board.title": "Acme" }, teams: { widgets: { "board.title": "Widgets" }, gadgets: { "board.title": "Gadgets" } } });
     const p = createRealProbes();
-    p.exec = async () => ({ code: 0, stdout: "", stderr: "" });
+    p.exec = async (argv) => layout3MainExec(argv);
     const { seams } = baseJoinRedeemSeams({ forgeLogin: async () => "dev2", writeUserSetting: (key, value) => { setSetting(key, value, "user"); } });
     await joinRedeem(p, relayWith({ ...POINTER, teams: ["gadgets", "widgets"] }), () => NO_SECRETS, { code: CODE }, seams);
     expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev2");
@@ -2192,6 +2246,7 @@ test("a real join of a data-branch org clones only that branch and narrows to th
     expect(existsSync(pathJoin(dir, "mattstack/teams/widgets/plugin/README.md"))).toBe(true);
     expect(existsSync(pathJoin(dir, "mattstack/teams/gadgets"))).toBe(false);
     expect(inDir("sparse-checkout", "list").split("\n").sort()).toEqual([".claude-plugin", "mattstack/org", "mattstack/teams/widgets"]);
+    expect(readTeamLocal(p, "acme")).toMatchObject({ dataBranch: "mattstack", dataBranchTip: execFileSync("git", ["-C", bare, "rev-parse", "mattstack"], { env }).toString().trim() });
   } finally {
     if (priorHome === undefined) delete process.env.HOME; else process.env.HOME = priorHome;
     rmSync(home, { recursive: true, force: true });

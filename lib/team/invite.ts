@@ -33,7 +33,7 @@ import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
-import { orgBranch, shellQuote } from "./org-branch.ts";
+import { knownDataBranch, orgBranch, shellQuote } from "./org-branch.ts";
 import { readMainPointer } from "./main-pointer.ts";
 import { realReadAdminSecret, type ReadAdminSecret } from "./board-peers.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
@@ -220,15 +220,15 @@ export function realMintInviteSeams(): MintInviteSeams {
       const dir = orgDirUnder(p.home, slug);
       await refuseIfBusy(p, dir);
       const branch = await orgBranch(p, dir);
-      const pointer = await readMainPointer(p, remote, token);
-      const wanted = pointer?.dataBranch ?? "main";
+      // The team record, then this copy's own marker; main's pointer only when neither names a data branch.
+      const dataBranch = knownDataBranch(p, dir) ?? (await readMainPointer(p, remote, token))?.dataBranch ?? null;
+      const wanted = dataBranch ?? "main";
       if (branch !== wanted) {
         throw new UserActionableError("invite-off-main", `Your copy of the org is on ${branch}, so rt made no invite`, {}, {
-          why: pointer?.dataBranch ? `The people you invite clone ${wanted}. Switch to it to invite.` : "The people you invite clone main, so their roster entry has to land there. Switch back to main to invite.",
-          next: pointer?.dataBranch ? `rt team branch use ${wanted}` : `git -C ${shellQuote(dir)} switch main`,
+          why: dataBranch ? `The people you invite clone ${wanted}. Switch to it to invite.` : "The people you invite clone main, so their roster entry has to land there. Switch back to main to invite.",
+          next: dataBranch ? `rt team branch use ${wanted}` : `git -C ${shellQuote(dir)} switch main`,
         });
       }
-      const dataBranch = pointer?.dataBranch ?? null;
       const known = await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${wanted}`], { cwd: dir });
       if (known.code !== 0) return { dataBranch };
       const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", wanted], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
