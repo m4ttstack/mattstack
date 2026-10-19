@@ -77,3 +77,14 @@ the MCP calls up to the next tool.
 | `watch-ci:ci-gate-iterations` | stage-watch-ci, watch-ci | 2 | 3 | 3 | 2 |
 | `watch-ci:mark-ready-iterations` | stage-watch-ci, watch-ci | 1 | 2 | 2 | 1 |
 | `watch-ci:fix-rounds` | watch-ci | 3 | 4 | 4 | 3 |
+
+## H5 and H6: static checks
+
+- H5: no host's `allowed-tools` pre-allows a retired script
+  (`grep -rn "scripts/ci-" plugins/mattstack/attachments/*/*/SKILL.md`
+  frontmatter): the work engine's two rules were the only ones.
+- H6: `dead-paths.sh` lists the files watch-ci and stage-watch-ci name
+  under their own skill dir, each a compile warning with no forge binding.
+  RED: both hosts named `parts/forge/scripts/ci-forge.sh`. GREEN: none. The
+  redirect sentences a fill's old script call meets are unchanged, so no
+  agent scenario was run for it.

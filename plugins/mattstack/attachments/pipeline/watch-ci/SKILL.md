@@ -668,9 +668,9 @@ When nothing is inlined above, the graph's other flows apply.
 
 If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
 
-`<scripts>` is `${CLAUDE_SKILL_DIR}/scripts/` and `<forge>` is
-`${CLAUDE_SKILL_DIR}/parts/forge/scripts/ci-forge.sh`, vendored for the
-fills that name them; this skill calls neither.
+`<scripts>/ci-triage.sh` and `<forge> jobs` name a fill's old script
+calls. Nothing is vendored for them: the redirects above send each to its
+tool.
 
 {{slot:forge}}
 
