@@ -67,12 +67,39 @@ describe("redactionUploadRefusal", () => {
     record({ board: "other.png" });
     expect(check()).toBe("r1-c-before.png's redaction record is malformed; render the board again");
   });
-  test("an empty record means no redaction landed on the board: it uploads only with a matching board hash", () => {
+  const EMPTY_UNCONFIRMED = "r1-c-before.png's empty redaction record is not yet confirmed; confirm at the redaction gate that nothing needs hiding, run fast-browser compose --confirm after a yes, and copy the confirmed record beside the board";
+  test("an empty record the operator confirmed uploads", () => {
+    gatedSpec();
+    record({ redactions: [], confirmed: true });
+    expect(check()).toBeNull();
+  });
+  test("an empty record not yet confirmed is refused", () => {
+    gatedSpec();
+    record({ redactions: [], confirmed: false });
+    expect(check()).toBe(EMPTY_UNCONFIRMED);
+  });
+  test("an empty record with no confirmed flag, as older Fast Browser wrote it, is refused", () => {
     gatedSpec();
     record({ redactions: [] });
-    expect(check()).toBeNull();
-    record({ redactions: [], boardSha256: sha(new Uint8Array([7])) });
+    expect(check()).toBe(EMPTY_UNCONFIRMED);
+    record({ redactions: [], confirmed: "true" });
+    expect(check()).toBe(EMPTY_UNCONFIRMED);
+  });
+  test("an unconfirmed empty record with no spec beside it is still refused", () => {
+    record({ redactions: [] });
+    expect(check()).toBe(EMPTY_UNCONFIRMED);
+  });
+  test("a confirmed empty record beside a board that no longer matches is refused", () => {
+    gatedSpec();
+    record({ redactions: [], confirmed: true, boardSha256: sha(new Uint8Array([7])) });
     expect(check()).toContain("changed since its redactions were recorded");
+  });
+  test("a record with marks keeps its per-entry check whatever the top-level flag says", () => {
+    gatedSpec(); write("r1-c-before.redact-1.png", CROP);
+    record({ confirmed: false });
+    expect(check()).toBeNull();
+    record({ confirmed: true }, { confirmed: false });
+    expect(check()).toContain("has a redaction not yet confirmed");
   });
   test("a record with no spec beside it is still checked", () => {
     write("r1-c-before.redact-1.png", CROP); record({}, { confirmed: false });

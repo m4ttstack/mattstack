@@ -371,7 +371,9 @@ board is not recorded yet and still sits in `~/.fast-browser/screenshots/`,
 so walk browser-evidence's Revise a board steps 3 to 5 on it, then re-ask
 this gate; `Record the evidence` records the revised board. A Hold at its
 redaction gate (step 5) is the stage's hold (`run_hold`); a refused
-confirm re-asks this gate with the output quoted.
+confirm, a confirm that left an empty record unconfirmed, or spent
+redaction rounds or openings re-asks this gate with the output or the spent
+budget quoted.
 
 | Thought | Reality |
 |---|---|
