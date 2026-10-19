@@ -86,8 +86,9 @@ database (`SWITCHBOARD_DB`), as a new table beside `store.ts` and
 
 ## The page
 
-`GET /telemetry` on the relay, authorised by `SWITCHBOARD_ADMIN_TOKEN`
-(the same token the admin routes use). Plain HTML, no JS needed.
+`GET /telemetry` on the relay, authorised by a read-only view token
+(`SWITCHBOARD_TELEMETRY_TOKEN`, my call in planning) so the page can be
+bookmarked without exposing the admin token. Plain HTML, no JS needed.
 
 1. **Macs:** one row per install id, labelled by username (verified or
    not) or by install id when there is none. App, rt, plugin, flavor, macOS,
