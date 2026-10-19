@@ -1146,7 +1146,7 @@ describe("rt release update-machine", () => {
     });
 
     test("an Apple service error that clears on a retry lets the publish leg run", async () => {
-      const outage = { stderr: "Error: internalError(statusCode: Optional(503), message: nil)", exitCode: 1 };
+      const outage = { stderr: "Error: internalError(statusCode: 503, message: nil)", exitCode: 1 };
       const { seams } = fakeSeams({ notaryReplies: [outage, { stderr: "", exitCode: 0 }] });
       const report = await runUpdateMachine(seams, { yes: true });
       expect(report.legs.find((l) => l.id === "dev-publish")!.status).toBe("ok");

@@ -347,7 +347,7 @@ type NotaryProbe =
 const NOTARY_PROBE_TRIES = 3;
 const NOTARY_PROBE_WAIT_MS = 10_000;
 
-const NOTARY_UNREACHABLE = /NSURLErrorDomain|timed out|network connection|could not connect|offline|HTTP status code: 5\d\d|statusCode: Optional\(5\d\d\)/i;
+const NOTARY_UNREACHABLE = /NSURLErrorDomain|timed out|network connection|could not connect|offline|HTTP status code: 5\d\d|statusCode: (Optional\()?5\d\d/i;
 
 /** notarytool can end on advice ("Please try again later") after the error itself, so the line that names the error is the one worth showing. */
 function diagnosticLine(stderr: string, stdout: string): string {
