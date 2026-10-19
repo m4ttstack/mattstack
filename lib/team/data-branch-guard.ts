@@ -23,6 +23,8 @@ import { editTeamLocal, readTeamLocal } from "./team-local.ts";
 
 export const GONE_SENTENCE = "The org's data branch is gone from the forge, and your copy still has it";
 export const MERGED_SENTENCE = "Org data was merged into main. Revert that commit";
+/** A setup row asks the forge while someone waits on it. */
+const ASK_TIMEOUT_MS = 15_000;
 
 export type DataBranchCheck =
   | { kind: "present"; branch: string; sha: string }
@@ -77,7 +79,7 @@ export async function checkDataBranch(p: Probes, slug: string, opts: GuardOption
   if (origin === null) return null;
   const { dir, branch, remote, token } = origin;
   const lookup = gitWithToken(["ls-remote", "--heads", "origin", `refs/heads/${branch}`], token, ENV, { remote });
-  const listed = await p.exec(lookup.argv, { cwd: dir, env: lookup.env });
+  const listed = await p.exec(lookup.argv, { cwd: dir, env: lookup.env, timeoutMs: ASK_TIMEOUT_MS });
   if (listed.code !== 0) return { kind: "unknown", branch, log: withoutUrls(`${listed.stdout}\n${listed.stderr}`.trim()) };
   const sha = listed.stdout.trim().split(/\s+/)[0] ?? "";
   if (sha !== "") {
