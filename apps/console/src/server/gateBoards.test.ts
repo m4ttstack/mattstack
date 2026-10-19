@@ -105,15 +105,18 @@ describe('readGateBoard refuses', () => {
     expect(serve(gate([p]), p)).toBeNull();
   });
 
-  it('a path swapped for another file after it was opened', () => {
+  it('a parent directory swapped for another after the board was opened', () => {
     const p = file('.fast-browser/screenshots/a.png');
-    const swap = file('.fast-browser/screenshots/swap.png');
+    const dir = join(home, '.fast-browser/screenshots');
     const got = readGateBoard({
       gate: gate([p]),
       path: p,
       home,
       uid,
-      afterOpen: () => renameSync(swap, p),
+      afterOpen: () => {
+        renameSync(dir, join(home, 'moved-screenshots'));
+        file('.fast-browser/screenshots/a.png');
+      },
     });
     expect(got).toBeNull();
   });
