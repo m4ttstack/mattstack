@@ -10,8 +10,8 @@ what may leave the machine. `evidence_record` writes it; `evidence_attach`
 uploads from it and writes the MR's evidence section. Never write
 `evidence` with `run_field_set`, upload evidence with `mr_upload`, or edit
 the evidence section by hand. A `<slug> spent?` diamond is yes when the
-`run_budget` before it returns `spent` > `limit` (read `spent` against
-`limit`; ignore `exhausted` and `remaining`).
+`run_budget` before it returns `exhausted: true` (`spent >= limit`: the count that
+reaches `limit` takes yes).
 
 ## The record
 
@@ -41,11 +41,11 @@ digraph record_evidence {
     record_evidence [label="Record the evidence (evidence-record)" shape=ellipse];
     evidence_record [label="evidence_record {runDb, stage, tree: <worktree>, images, cases?, transcript?, url?}" shape=plaintext];
     record_result [label="evidence_record result?" shape=diamond];
-    run_budget_cover [label="run_budget {runDb, key: evidence:cover-rounds, limit: 3, stage}" shape=plaintext];
+    run_budget_cover [label="run_budget {runDb, key: evidence:cover-rounds, limit: 4, stage}" shape=plaintext];
     cover_rounds_spent [label="cover-rounds spent?" shape=diamond];
     annotate_or_waive [label="Annotate or waive each image the record does not yet cover (evidence-record)" shape=box];
     annotate_outcome [label="Annotate or waive outcome?" shape=diamond];
-    run_budget_retries [label="run_budget {runDb, key: evidence:record-retries, limit: 1, stage}" shape=plaintext];
+    run_budget_retries [label="run_budget {runDb, key: evidence:record-retries, limit: 2, stage}" shape=plaintext];
     record_retries_spent [label="record-retries spent?" shape=diamond];
     recorded [label="Recorded" shape=doublecircle style=filled fillcolor=lightgreen];
     record_held [label="Record held" shape=doublecircle];
@@ -98,10 +98,10 @@ digraph annotate_or_waive {
     compose_board [label="Compose the board (browser-evidence)" shape=box];
     drawn [label="Compose outcome?" shape=diamond];
     redaction_held [label="Redaction held" shape=doublecircle];
-    run_budget_draw [label="run_budget {runDb, key: evidence:draw-failures:<case>/<slot>[/<theme>], limit: 1, stage}" shape=plaintext];
+    run_budget_draw [label="run_budget {runDb, key: evidence:draw-failures:<case>/<slot>[/<theme>], limit: 2, stage}" shape=plaintext];
     draw_failures_spent [label="draw-failures spent?" shape=diamond];
     write_caption [label="Write the caption" shape=box];
-    run_budget_waiver [label="run_budget {runDb, key: evidence:waiver-openings:<case>/<slot>[/<theme>], limit: 2, stage}" shape=plaintext];
+    run_budget_waiver [label="run_budget {runDb, key: evidence:waiver-openings:<case>/<slot>[/<theme>], limit: 3, stage}" shape=plaintext];
     waiver_openings_spent [label="waiver-openings spent?" shape=diamond];
     gate_evidence_waiver [label="Gate evidence-waiver (below)" shape=box];
     waiver_answer [label="waiver answer?" shape=diamond];
@@ -195,12 +195,12 @@ digraph attach_evidence {
     upload_answer [label="upload off-script answer?" shape=diamond];
     evidence_attach_link [label="evidence_attach {runDb, stage, heading, before?, appendix?, mrUrl, linkRefused: true}" shape=plaintext];
     link_written [label="Linked description written?" shape=diamond];
-    run_budget_upload [label="run_budget {runDb, key: evidence:upload-off-script, limit: 1, stage}" shape=plaintext];
+    run_budget_upload [label="run_budget {runDb, key: evidence:upload-off-script, limit: 2, stage}" shape=plaintext];
     upload_off_script_spent [label="upload-off-script spent?" shape=diamond];
     needs_rerecord [label="Iterate needs a re-record?" shape=diamond];
     rerecord_images [label="Re-record the images through Record the evidence" shape=box];
     rerecord_outcome [label="Re-record outcome?" shape=diamond];
-    run_budget_repair [label="run_budget {runDb, key: evidence:redaction-repairs:<stem>, limit: 1, stage}" shape=plaintext];
+    run_budget_repair [label="run_budget {runDb, key: evidence:redaction-repairs:<stem>, limit: 2, stage}" shape=plaintext];
     repairs_spent [label="redaction-repairs spent?" shape=diamond];
     repair_board [label="Repair the board's redaction record (browser-evidence)" shape=box];
     repair_outcome [label="Repair outcome?" shape=diamond];
