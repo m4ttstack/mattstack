@@ -267,6 +267,7 @@ import {
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
+  deleteRespondRound,
   readRespondRounds,
   recordRespondRound,
 } from './respond-rounds.ts';
@@ -2650,6 +2651,8 @@ const httpServer = Bun.serve({
             console.error(
               `respond launch failed: ${err instanceof Error ? err.message : err}`
             );
+            if (person && responseRound !== undefined)
+              deleteRespondRound(parsed.mrUrl, person, responseRound);
             writeRespondState(statePath, {
               status: 'error',
               message: launchErrorMessage('respond', err),

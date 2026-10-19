@@ -24,6 +24,19 @@ export function recordRespondRound(
   })();
 }
 
+/** Drops one recorded round, for a launch that never started a pane. */
+export function deleteRespondRound(
+  mrUrl: string,
+  person: string,
+  round: number,
+  db: Database = getStateDb()
+): void {
+  db.run(
+    'DELETE FROM respond_rounds WHERE mr_url = ? AND person = ? AND round = ?',
+    [mrUrl, person, round]
+  );
+}
+
 /** Highest recorded round per person, per MR. */
 export function readRespondRounds(
   db: Database = getStateDb()

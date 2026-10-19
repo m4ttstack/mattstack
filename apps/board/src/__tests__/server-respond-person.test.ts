@@ -96,6 +96,14 @@ const DISCUSSIONS: Record<number, unknown[]> = {
       notes: [glanceNote(1, 'bob')],
     },
   ],
+  10: [
+    {
+      id: 't10-bob',
+      resolvable: true,
+      resolved: false,
+      notes: [glanceNote(1, 'bob')],
+    },
+  ],
 };
 
 const PORT = 47969;
@@ -170,7 +178,10 @@ const prs = [
   fakePr(host, 7, ALICE),
   fakePr(host, 8, ALICE),
   fakePr(host, 9, ALICE),
+  fakePr(host, 10, ALICE),
 ];
+/** The daemon refuses agent:start for this MR, so its launch fails. */
+const FAILING_IID = 10;
 const daemonSeen: Array<{ cmd: string; body: unknown }> = [];
 const rtDir = join(home, '.mattstack', 'rt');
 mkdirSync(rtDir, { recursive: true });
@@ -196,6 +207,19 @@ const daemon = Bun.serve({
         },
       });
     }
+    if (cmd === 'agent:start')
+      return JSON.stringify(body).includes(`merge_requests/${FAILING_IID}`)
+        ? Response.json({ ok: false, error: 'herdr is not running' })
+        : Response.json({
+            ok: true,
+            data: {
+              id: `agent-${Date.now()}`,
+              sessionId: 's1',
+              paneId: 'p1',
+              tabId: 'w1:t1',
+              workspaceId: 'w1',
+            },
+          });
     if (cmd === 'gate:list')
       return Response.json({ ok: true, data: { gates: [], cursor: 0 } });
     if (cmd === 'discussions:read')
@@ -329,6 +353,15 @@ describe('/respond for a person', () => {
       responseRound: 2,
     });
     expect(JSON.stringify(launches(9)[0]?.body)).toContain('--round 2');
+  }, 15_000);
+
+  test('a failed launch takes back the round it recorded', async () => {
+    const res = await post({ mrUrl: url(10), iid: 10, person: 'bob' });
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 300));
+    expect(launches(10)).toHaveLength(1);
+    expect(readRespondStates(db).get(url(10))?.status).toBe('error');
+    expect(rounds(10)).toEqual({});
   }, 15_000);
 
   test('a launch for everyone forgets the person the last run answered', async () => {

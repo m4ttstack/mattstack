@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
   attachRespondRounds,
+  deleteRespondRound,
   readRespondRounds,
   recordRespondRound,
 } from '../respond-rounds.ts';
@@ -42,6 +43,21 @@ describe('respond rounds', () => {
     recordRespondRound(URL_A, 'john', 2, db);
     expect(recordRespondRound(URL_B, 'john', 3, db)).toBe(1);
     expect(readRespondRounds(db).get(URL_B)).toEqual({ john: 1 });
+  });
+
+  test('deleting the latest round rolls the person back to the one before', () => {
+    recordRespondRound(URL_A, 'john', 1, db);
+    const round = recordRespondRound(URL_A, 'john', 2, db);
+    recordRespondRound(URL_A, 'darryl', 3, db);
+    deleteRespondRound(URL_A, 'john', round, db);
+    expect(readRespondRounds(db).get(URL_A)).toEqual({ john: 1, darryl: 1 });
+    expect(recordRespondRound(URL_A, 'john', 4, db)).toBe(2);
+  });
+
+  test("deleting a person's only round removes them from the MR", () => {
+    const round = recordRespondRound(URL_A, 'john', 1, db);
+    deleteRespondRound(URL_A, 'john', round, db);
+    expect(readRespondRounds(db).get(URL_A)).toBeUndefined();
   });
 
   test('attachRespondRounds sets rounds by webUrl and leaves others untouched', () => {
