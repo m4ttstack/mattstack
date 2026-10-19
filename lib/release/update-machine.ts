@@ -341,6 +341,47 @@ async function staleManagedApps(seams: UpdateMachineSeams, apps: string[], witne
 /** `deck restart` kicks a relaunch off; it is not a readiness guarantee. A single
  *  immediate check catches an app still mid-relaunch as stale, so this polls
  *  briefly before giving up on it. */
+type NotaryProbe =
+  | { kind: "ready" }
+  | { kind: "no-profile" }
+  | { kind: "unreachable"; error: string }
+  | { kind: "refused"; error: string };
+
+const NOTARY_PROBE_TRIES = 3;
+const NOTARY_PROBE_WAIT_MS = 10_000;
+
+function lastLine(text: string): string {
+  return text.trim().split("\n").filter((l) => l.trim()).pop()?.trim() ?? "";
+}
+
+/** `notarytool history` signs in to Apple over the network, so a dropped or timed-out call is not a missing profile. */
+async function probeNotary(seams: UpdateMachineSeams): Promise<NotaryProbe> {
+  let last: NotaryProbe = { kind: "no-profile" };
+  for (let attempt = 0; attempt < NOTARY_PROBE_TRIES; attempt++) {
+    if (attempt > 0) await seams.sleep(NOTARY_PROBE_WAIT_MS * attempt);
+    const r = await seams.exec(["xcrun", "notarytool", "history", "--keychain-profile", seams.notaryProfile], { timeoutMs: 60_000 });
+    if (r.exitCode === 0) return { kind: "ready" };
+    const text = `${r.stderr}\n${r.stdout}`;
+    if (/No Keychain password item found|User interaction is not allowed|keychain/i.test(text)) return { kind: "no-profile" };
+    if (!/NSURLErrorDomain|timed out|network connection|could not connect|offline|HTTP status code: 5\d\d/i.test(text) && text.trim() !== "") {
+      return { kind: "refused", error: lastLine(text) };
+    }
+    last = { kind: "unreachable", error: lastLine(text) || "notarytool gave no answer" };
+  }
+  return last;
+}
+
+function notaryBlocker(probe: Exclude<NotaryProbe, { kind: "ready" }>, profile: string): string {
+  switch (probe.kind) {
+    case "no-profile":
+      return `Not run: could not read the notary profile ${profile}. If the login keychain is locked, unlock it and run this again; if the profile was never saved, save it once with: xcrun notarytool store-credentials ${profile}`;
+    case "unreachable":
+      return `Not run: Apple's notary service did not answer after ${NOTARY_PROBE_TRIES} tries (${probe.error}). Run this again later: rt release update-machine --yes`;
+    case "refused":
+      return `Not run: notarytool could not sign in with the profile ${profile}: ${probe.error}`;
+  }
+}
+
 async function waitForFreshApps(seams: UpdateMachineSeams, apps: string[], witness: RestartWitness, attempts: number, delayMs: number): Promise<string[]> {
   let stale = await staleManagedApps(seams, apps, witness);
   for (let i = 1; i < attempts && stale.length > 0; i++) {
@@ -726,8 +767,7 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
   const sha = await resolveCommit(seams, tag);
   const ctx: ReleaseContext = { tag, ver, sha };
   // Checked before any leg changes the Mac, so a missing profile is known up front.
-  const notaryReady =
-    (await seams.exec(["xcrun", "notarytool", "history", "--keychain-profile", seams.notaryProfile], { timeoutMs: 60_000 })).exitCode === 0;
+  const notary = await probeNotary(seams);
   const legs: LegResult[] = [];
   let haltedAfter: string | null = null;
 
@@ -749,8 +789,8 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
   // Read here, not in the dev-bundle leg: a declined or failed one never reaches its own pgrep.
   let devNotRunning = (await pgrepPids(seams, DEV_APP_ANCHOR)).length === 0;
   await runGatedLeg("dev-bundle", DEV_BUNDLE_LABEL, () => runDevBundleLeg(seams, ctx, () => { devNotRunning = true; }, true));
-  const publishBlocker = !notaryReady
-    ? `Not run: could not read the notary profile ${seams.notaryProfile}. If the login keychain is locked, unlock it and run this again; if the profile was never saved, save it once with: xcrun notarytool store-credentials ${seams.notaryProfile}`
+  const publishBlocker = notary.kind !== "ready"
+    ? notaryBlocker(notary, seams.notaryProfile)
     : legs.find((l) => l.id === "dev-bundle")?.status !== "ok"
       ? "Not run: the dev app was not built in this run"
       : null;
