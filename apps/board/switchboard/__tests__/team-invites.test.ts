@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { makeFetchHandler } from '../server.ts';
 import { SwitchboardStore } from '../store.ts';
 import { TeamInviteStore } from '../team-invites.ts';
+import { TelemetryStore } from '../telemetry.ts';
 
 const ADMIN = 'admin-secret';
 const ID = '0123456789abcdef0123456789abcdef';
@@ -16,7 +17,14 @@ function setup(startAt = 1_000_000) {
   const db = new Database(':memory:');
   const store = new SwitchboardStore(db);
   const teamStore = new TeamInviteStore(db);
-  const handler = makeFetchHandler(store, ADMIN, () => clock, teamStore);
+  const handler = makeFetchHandler(
+    store,
+    ADMIN,
+    () => clock,
+    teamStore,
+    new TelemetryStore(db),
+    null
+  );
   const call = (
     path: string,
     opts: { method?: string; token?: string; body?: unknown; ip?: string } = {}

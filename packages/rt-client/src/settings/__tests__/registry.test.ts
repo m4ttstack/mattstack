@@ -409,8 +409,9 @@ describe("settings/registry", () => {
         "sdm.resources",
         "rt.hooks",
         "rt.branchNaming",
+        "telemetry.enabled",
       ];
-      expect(suiteKeys).toHaveLength(95);
+      expect(suiteKeys).toHaveLength(96);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

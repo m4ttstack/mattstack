@@ -85,7 +85,7 @@ is deliberate; see [Configuration](#configuration).
   domain-bound copy for its repo. Requires the
   [herdr skill](https://github.com/herdrdev/herdr/blob/master/skills/herdr/SKILL.md)
   (auto-installed if missing).
-- **mattstack:model-tiering** -- pick the least capable model tier and effort
+- **mattstack:model-tiering** (public skill, invocable by name) -- pick the least capable model tier and effort
   that can succeed at each unit of work, for both spawn-time (a shepherd
   picking worker models) and delegation-time (a worker dispatching
   sub-agents) decisions.
@@ -372,7 +372,7 @@ showing up where it should, the second almost never (a hook already stamps
 the time into context on every prompt).
 
 Everything else in [What's inside](#whats-inside) (the pipeline, the review
-cluster proper, the forge adapters, `model-tiering`, `execution-strategy`,
+cluster proper, the forge adapters, `execution-strategy`,
 `cswap-accounts`, `parameterized-skills`) is an engine with no slash menu
 entry of its own. It becomes usable once a team builds its own pack on top;
 see [Configuration](#configuration).

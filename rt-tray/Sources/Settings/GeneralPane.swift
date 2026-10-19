@@ -11,10 +11,12 @@ struct GeneralPane: View {
     @State private var autoUpdates = false
     @State private var switchError: String?
     @State private var confirmingSwitch = false
+    @StateObject private var telemetry: TelemetrySettingsModel
 
     init(env: SettingsEnvironment) {
         self.env = env
         self.readiness = env.readiness
+        _telemetry = StateObject(wrappedValue: TelemetrySettingsModel(rt: env.rt))
     }
 
     var body: some View {
@@ -59,6 +61,16 @@ struct GeneralPane: View {
                     if !env.updater.isEnabled { Text(env.isDevBuild ? "Updates are off in the dev flavor." : "Updates are off in this build.").font(.caption).foregroundStyle(.secondary) }
                 }
             }
+            Section("Privacy") {
+                Toggle("Share version info with the mattstack admin",
+                       isOn: Binding(get: { telemetry.enabled }, set: { on in Task { await telemetry.setEnabled(on) } }))
+                    .toggleStyle(.switch).controlSize(.small)
+                    .disabled(telemetry.inFlight)
+                    .accessibilityIdentifier(AXID.settingsTelemetryToggle)
+                Text("Sends your username for each team, a random install id, app, rt and plugin versions, app flavor, macOS version, setup progress, leftover legacy folder names, and your org names and layouts and team packs and their versions. Nothing about your repos, files or commands.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let e = telemetry.error { Text(e).font(.caption).foregroundStyle(.red) }
+            }
             Section("Developer") {
                 Button(FlavorSwitchCopy.buttonTitle(isDevBuild: env.isDevBuild)) { confirmingSwitch = true }
                     .accessibilityIdentifier(AXID.settingsGeneralSwitchApp)
@@ -70,6 +82,7 @@ struct GeneralPane: View {
         }
         .formStyle(.grouped)
         .task { await readiness.loadIfNeeded() }
+        .task { await telemetry.load() }
         .sheet(item: $chooseRow) { row in
             ChooseSheet(row: row) { id in
                 let failure = await ChoiceClient(rt: env.rt).choose(verb: row.action?.verb ?? [], id: id)
