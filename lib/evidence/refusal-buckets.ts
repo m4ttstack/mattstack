@@ -7,7 +7,7 @@ const TABLE: readonly (readonly [Bucket, readonly RegExp[]])[] = [
   ["record", [/not in run .* evidence record/, /has no evidence record/, /^run \S+ not found/]],
   ["raw-capture", [/is the raw capture for case/]],
   ["import", [/is the unredacted original of an imported ticket image/]],
-  ["redaction", [/has no redaction record beside it/, /redaction record is malformed/, /changed since its redactions were recorded/, /redaction crop/, /has a redaction not yet confirmed/]],
+  ["redaction", [/has no redaction record beside it/, /redaction record is malformed/, /changed since its redactions were recorded/, /redaction crop/, /has a redaction not yet confirmed/, /shows a ticket image in panel \d+ with nothing hidden on it/]],
   ["roots", [/outside the allowed upload roots/]],
   ["missing", [/file not found/, /path must be absolute/]],
   ["size", [/the upload cap is/]],
