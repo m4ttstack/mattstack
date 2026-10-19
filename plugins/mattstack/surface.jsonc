@@ -10,17 +10,18 @@
 // attachments/orchestration/.
 {
   "public": [
-    "subagent-review-loop",
-    "editing-skills",
     "creating-a-pack",
+    "editing-skills",
     "extending-a-pack",
-    "process-digraphs",
     "getting-current-time",
     "herd-progress",
+    "model-tiering",
+    "process-digraphs",
     "shepherdr",
+    "subagent-review-loop",
     "wrap-up",
-    "writing-style-sparse",
     "writing-style-conversational",
+    "writing-style-sparse",
     "writing-style-structured"
   ]
 }
