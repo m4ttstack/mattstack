@@ -882,6 +882,14 @@ const ROWS: readonly SettingDef[] = [
     description: "Default --yolo (--dangerously-skip-permissions) for claude rt agent launches; unset behaves as false.",
   },
   {
+    key: "telemetry.enabled",
+    type: "boolean",
+    scopes: ["user"],
+    default: true,
+    merge: "replace",
+    description: "Send this Mac's mattstack versions to the team's switchboard once an hour, so the org admin can see who is on which version.",
+  },
+  {
     key: "agent.codex.model",
     type: "string",
     scopes: ["user", "machine"],

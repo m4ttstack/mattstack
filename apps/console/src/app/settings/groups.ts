@@ -130,7 +130,7 @@ export const GROUPS: Group[] = [
     blurb:
       'Team integrations, the roster, install mode, Claude Code plugins and skills.',
     match: key =>
-      (/^(mattstack|setup|claude|skills)\./.test(key) &&
+      (/^(mattstack|setup|claude|skills|telemetry)\./.test(key) &&
         key !== 'mattstack.tracking') ||
       key === 'rt.integrations',
   },
