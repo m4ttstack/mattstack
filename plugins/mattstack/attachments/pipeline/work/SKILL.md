@@ -30,6 +30,9 @@ The run engine walks them in this order.
 ```dot
 digraph work {
     work_triggered [label="Trigger: run a unit of work" shape=ellipse];
+    recapture_asked [label="Asked for a new AFTER capture on a run that already shipped?" shape=diamond];
+    run_stage_reopen [label="run_stage {runDb: <the shipped run>, action: start, stage: ship, reopen: true}" shape=plaintext];
+    reopen_result [label="Reopen result?" shape=diamond];
     run_id_in_context [label="A running run's id in context this request continues?" shape=diamond];
     existing_work [label="Existing work?" shape=diamond];
     run_list [label="run_list {repo, pipelines}" shape=plaintext];
@@ -71,7 +74,12 @@ digraph work {
     run_abandoned [label="Run abandoned" shape=doublecircle];
     run_done [label="Run done" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    work_triggered -> run_id_in_context;
+    work_triggered -> recapture_asked;
+    recapture_asked -> run_stage_reopen [label="yes"];
+    recapture_asked -> run_id_in_context [label="no"];
+    run_stage_reopen -> reopen_result;
+    reopen_result -> run_enter_resume [label="ok: resume that run"];
+    reopen_result -> stop_run_enter_missing [label="refused"];
     run_id_in_context -> run_enter_resume [label="yes"];
     run_id_in_context -> existing_work [label="no"];
     existing_work -> run_list [label="yes"];
@@ -135,6 +143,17 @@ digraph work {
 }
 ```
 
+### Asked for a new AFTER capture on a run that already shipped?
+
+Yes when the operator wants the AFTER captured again, or the evidence
+re-attached, on a pipeline run that is done with its `mr` set. That run is
+the one they name: `run_list {repo, pipelines}`, the row with that run id
+(or the newest row whose `branch` matches); its `runDb` is
+`<runs root>/<the row's repo>/<its id>/state.db`, the runs root
+`~/.mattstack/runs` unless `RT_RUNS_ROOT` sets it. The reopen sets it
+running at a new ship attempt; resume it, and the ship stage takes its
+re-capture route, the operator's ask its attach consent.
+
 ### Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold
 
 No run exists yet: no `gate_*` or `run_*` call. Offer the newest
@@ -189,7 +208,8 @@ stage, `reason` and `detailPath`.
   hand-back, the handed `decidedBy` (`pane` when it was typed in the
   pane). The gate tools record each gate's answers; this file records none.
 - **A finished run stays finished.** Only Close's Done or Abandon ends it;
-  a green `ci` does not. Never carry a finished run's `runDb` into new work.
+  a green `ci` does not. Never carry a finished run's `runDb` into new work;
+  a new AFTER on a shipped run is not new work, so it reopens that run.
 - **This file's gates** walk gate-protocol's Runs integration with `runDb`
   and `stage`, "Under a run: fail the stage at the gate?" answered no.
 - **Account back-fill**: `selection` is the spawn-time pick as an object,

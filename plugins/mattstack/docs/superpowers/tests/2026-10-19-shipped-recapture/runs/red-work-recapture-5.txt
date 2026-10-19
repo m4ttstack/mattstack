@@ -1,0 +1,3 @@
+1. `run_list {repo: widgets, pipelines}` (r9 is done, so no running run is listed), then `run_enter {flags, skillDir: ${CLAUDE_SKILL_DIR}, ticket: widgets-126, fresh: true}` with no `resume` and no r9 `runDb`, then `run_field_get {key: waiting-gate, runDb: <the new run's runDb>}`, which is not set. A tracker `save_issue` (In Progress, assignee me) also happens after `run_enter`, but it is not a run tool call.
+2. The provision stage file, the first stage of the new run, read from the top at the `at` position that `run_enter` returned.
+3. Yes. r9 is finished and stays finished, so its `runDb` is never carried into new work. The re-capture and re-attach of the AFTER evidence runs as a fresh run.

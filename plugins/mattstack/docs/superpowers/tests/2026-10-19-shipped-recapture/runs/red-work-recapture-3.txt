@@ -1,0 +1,3 @@
+1. `run_list {repo, pipelines}` (no running run is listed, since r9 is done and a finished run stays finished, so no clarify gate); then `run_enter {flags, skillDir, ticket: widgets-126, fresh: true}` (never `resume` or r9's runDb); then `run_field_get {key: waiting-gate, runDb: <the new run's runDb>}`. It is unset on a fresh run, so the run goes straight to its stage file.
+2. The new run's first stage file, `provision` (the stage at the `at` position `run_enter` returned), read from the top and followed to its end.
+3. Yes.
