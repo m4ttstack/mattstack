@@ -168,6 +168,37 @@ describe('respondFreshDispatchFields', () => {
   });
 });
 
+describe('respondFreshDispatchFields with a person round', () => {
+  test('a given response round wins over the prior run round', () => {
+    expect(respondFreshDispatchFields({ round: 4 }, 2)).toEqual({ round: 2 });
+  });
+
+  test('no response round keeps the prior-round fallback', () => {
+    expect(respondFreshDispatchFields({ round: 4 })).toEqual({ round: 5 });
+  });
+});
+
+describe('writeRespondState person', () => {
+  test('person and responseRound round-trip', () => {
+    const handle = respondFilePath(URL_A);
+    writeRespondState(
+      handle,
+      {
+        mrUrl: URL_A,
+        iid: 1,
+        status: 'drafting',
+        person: 'john',
+        responseRound: 2,
+      },
+      1000,
+      db
+    );
+    const state = readRespondStates(db).get(URL_A);
+    expect(state?.person).toBe('john');
+    expect(state?.responseRound).toBe(2);
+  });
+});
+
 describe('writeRespondState identity', () => {
   test('a write with no prior row and no identity throws loudly', () => {
     expect(() =>

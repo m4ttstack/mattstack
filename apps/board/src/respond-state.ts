@@ -37,6 +37,11 @@ export interface RespondState {
       gone, can recover it instead of guessing 1. Absent on a state written
       before this field existed. */
   round?: number;
+  /** Username this run answers; absent on rows written before per-person
+      responses. */
+  person?: string;
+  /** This person's response round for this run, from recordRespondRound. */
+  responseRound?: number;
   /** The herdr tab the pane runs in; not a board tab (see boardTabId). */
   tabId?: string;
   /** The board tab the launch came from, "" for one with none (a peer's ask).
@@ -127,6 +132,8 @@ export function writeRespondState(
     threads: patch.threads,
     held: patch.held,
     round: patch.round,
+    person: patch.person,
+    responseRound: patch.responseRound,
     tabId: patch.tabId,
     boardTabId: patch.boardTabId,
     workspaceId: patch.workspaceId,
@@ -165,8 +172,10 @@ export function respondResumeDispatchFields(
     prior round (no prior run, or one that predates this field) omits the
     flag, same as respondResumeDispatchFields. */
 export function respondFreshDispatchFields(
-  state: Pick<RespondState, 'round'> | undefined
+  state: Pick<RespondState, 'round'> | undefined,
+  responseRound?: number
 ): { round?: number } {
+  if (responseRound !== undefined) return { round: responseRound };
   return { round: state?.round !== undefined ? state.round + 1 : undefined };
 }
 
