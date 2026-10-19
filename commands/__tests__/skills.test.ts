@@ -4581,6 +4581,19 @@ describe("pack/pipelines.json and the field contract in compile and check", () =
   });
 
   describe("by default the field contract is an error", () => {
+    test("compile --json exits 1, writes nothing, and says why under fieldContract", async () => {
+      const { flags, packDir } = makeFieldPack({ writer: false });
+
+      await skillsCompile([...flags, "--json"]);
+
+      const parsed = JSON.parse(io.stdout());
+      expect(parsed.written).toBe(false);
+      expect(parsed.fieldContract).toHaveLength(1);
+      expect(parsed.fieldContract[0]).toStartWith("field contract: attachments/stage-plan/SKILL.md");
+      expect(process.exitCode).toBe(1);
+      expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(false);
+    });
+
     test("compile fails and writes nothing", async () => {
       const { flags, packDir } = makeFieldPack({ writer: false });
 

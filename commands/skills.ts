@@ -1157,7 +1157,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   if (verbFilter === null && failures.length === 0) {
     const routed = routeFieldContract(fieldContractErrors(compiledDocsOf(outcomes, plan.emits), resolved.stageEntries));
     failures.push(...routed.errors);
-    fieldContract = routed.warnings;
+    // --json has no failures key, so an error-routed line rides here too or the exit-1 envelope never says why.
+    fieldContract = [...routed.warnings, ...routed.errors];
   }
 
   const writing = write && failures.length === 0;
