@@ -255,7 +255,10 @@ function AnsweredSheetBody({
                     >
                       reviewed your {forgeNoun(mr, gate.subject)}
                     </PersonLead>
-                    <RespondCtxFacts ctx={respondCtx} />
+                    <RespondCtxFacts
+                      ctx={respondCtx}
+                      responseRound={mr?.respond?.responseRound}
+                    />
                   </>
                 )}
               </ContextCard>

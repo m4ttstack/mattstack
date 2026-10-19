@@ -935,7 +935,11 @@ function RespondSheetBody({
                 ) : (
                   frame && <p className="tui-sheet-context-meta">{frame}</p>
                 )}
-                <RespondCtxFacts ctx={ctx} posting={railPosting} />
+                <RespondCtxFacts
+                  ctx={ctx}
+                  posting={railPosting}
+                  responseRound={mr?.respond?.responseRound}
+                />
               </div>
               {mr && <MrStatusCard mr={mr} />}
             </div>

@@ -453,3 +453,29 @@ test('a cloud-spin line leads with the cloud spinner and no ring', async () => {
   expect(spinner!.querySelector('.tui-cloud-fill')).not.toBeNull();
   expect(spinner!.querySelector('.tui-cloud-dash')).not.toBeNull();
 });
+
+test('a respond verb hands its person to onRespond', async () => {
+  const calls: Array<string | undefined> = [];
+  await render(
+    {
+      line: {
+        tone: 'warn',
+        word: 'replies posted',
+        verbs: [
+          {
+            kind: 'restart-respond',
+            label: 'respond to Darryl (round 2)',
+            person: 'darryl',
+          },
+        ],
+      },
+      more: [],
+      bar: 'warn',
+    },
+    ctx({ onRespond: (_mr, _note, _intent, person) => calls.push(person) })
+  );
+  await React.act(async () => {
+    container.querySelector<HTMLButtonElement>('button[data-verb]')!.click();
+  });
+  expect(calls).toEqual(['darryl']);
+});

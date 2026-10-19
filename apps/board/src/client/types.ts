@@ -365,7 +365,12 @@ export interface RowContext {
   onFocusPane: (mr: BoardMRWithReview, domain: GateDomain) => void;
   onLaunch: (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') => void;
   onReReview: (mr: BoardMR, note?: string) => void;
-  onRespond: (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') => void;
+  onRespond: (
+    mr: BoardMR,
+    note?: string,
+    intent?: 'launch' | 'focus',
+    person?: string
+  ) => void;
   onDoctor: (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') => void;
   /** Opens the decision queue modal at this gate: the status line's answer
       verb, which never mounts a form on the row itself. */

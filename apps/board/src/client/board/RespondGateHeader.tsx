@@ -55,13 +55,23 @@ export function headerChips(
   return chips;
 }
 
-/** The review round and the adjudication, the context's prose facts; they
-    read as a meta line rather than chips. */
-export function headerMeta(ctx: PlanCtx | PostCtx): string[] {
-  return [
-    ctx.round !== undefined ? `round ${ctx.round}` : undefined,
-    ctx.adjudication,
-  ].filter((m): m is string => Boolean(m));
+/** The round and the adjudication, the context's prose facts; they read as
+    a meta line rather than chips. Given the person's response round, the
+    wrapper's own round only shows as the revises past it. */
+export function headerMeta(
+  ctx: PlanCtx | PostCtx,
+  responseRound?: number
+): string[] {
+  const rounds =
+    responseRound === undefined
+      ? [ctx.round !== undefined ? `round ${ctx.round}` : undefined]
+      : [
+          responseRound >= 2 ? `round ${responseRound}` : undefined,
+          ctx.round !== undefined && ctx.round > responseRound
+            ? `revise ${ctx.round - responseRound}`
+            : undefined,
+        ];
+  return [...rounds, ctx.adjudication].filter((m): m is string => Boolean(m));
 }
 
 /** The reviewer's full name for a gate's reviewer handle: the board's team
@@ -110,16 +120,22 @@ export function subjectRef(subject: string): string {
 export function RespondCtxFacts({
   ctx,
   posting,
+  responseRound,
 }: {
   ctx: PlanCtx | PostCtx;
+  /** The person's response round off the MR's respond lane; see
+      `headerMeta`. */
+  responseRound?: number;
   /** A post gate's reply count as its submit will post it; see
       `headerChips`. */
   posting?: number;
 }) {
   return (
     <>
-      {headerMeta(ctx).length > 0 && (
-        <p className="tui-sheet-context-meta">{headerMeta(ctx).join(' · ')}</p>
+      {headerMeta(ctx, responseRound).length > 0 && (
+        <p className="tui-sheet-context-meta">
+          {headerMeta(ctx, responseRound).join(' · ')}
+        </p>
       )}
       <div className="tui-respond-chips">
         {headerChips(ctx, posting).map(chip => (

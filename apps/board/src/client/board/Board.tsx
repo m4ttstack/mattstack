@@ -720,8 +720,12 @@ export function Board() {
     [guardedLaunch]
   );
   const handleRespond = useCallback(
-    (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') =>
-      void launch('respond', mr, { note, intent }),
+    (
+      mr: BoardMR,
+      note?: string,
+      intent?: 'launch' | 'focus',
+      person?: string
+    ) => void launch('respond', mr, { note, intent, person }),
     [launch]
   );
   const handleDoctor = useCallback(

@@ -26,6 +26,8 @@ import {
   draftKey,
   laneInterrupted,
   RESPOND_ACTIVE,
+  respondPersonName,
+  roundSuffix,
 } from './format.ts';
 import { parseGateCtx } from './gate-ctx.ts';
 
@@ -58,6 +60,8 @@ export interface Verb {
   domain?: 'review' | 'respond' | 'doctor';
   agentId?: string;
   draft?: DraftInfo;
+  /** A respond verb's target: the username the launch answers. */
+  person?: string;
 }
 
 /** One source's offer for the status line. */
@@ -429,6 +433,23 @@ function reviewLine(
   }
 }
 
+/** The person the MR's latest response answered, named for the line; null
+    for a run that predates per-person responses. */
+function respondWho(mr: BoardMRWithReview): string | null {
+  const r = mr.respond;
+  if (!r?.person) return null;
+  return `${respondPersonName(mr, r.person)}${roundSuffix(r.responseRound ?? 0)}`;
+}
+
+/** Done and error lines keep their words; the detail leads with who. */
+function withWho(line: Candidate, who: string | null): Candidate {
+  if (!who) return line;
+  return {
+    ...line,
+    detail: line.detail ? `${who} · ${line.detail}` : who,
+  };
+}
+
 function respondDoneLine(
   mr: BoardMRWithReview,
   self: string | null
@@ -447,13 +468,27 @@ function respondDoneLine(
       // re-awaits the author when the reviewer's note is last again. A held
       // thread never got a reply, so it stays awaiting on GitLab for as long
       // as it stays open -- only awaiting beyond the held count is news.
-      const cameBack = (mr.threadSummary?.awaiting ?? 0) > held;
-      if (cameBack) {
+      const target = r.person
+        ? mr.respondTargets?.find(t => t.username === r.person)
+        : undefined;
+      const awaiting = r.person
+        ? (target?.openThreads ?? 0) + (target?.openComments ?? 0)
+        : (mr.threadSummary?.awaiting ?? 0);
+      if (awaiting > held) {
+        const again: Verb = r.person
+          ? {
+              kind: 'restart-respond',
+              label: `respond to ${respondPersonName(mr, r.person)}${roundSuffix(
+                (mr.respondRounds?.[r.person] ?? r.responseRound ?? 0) + 1
+              )}`,
+              person: r.person,
+            }
+          : { kind: 'restart-respond', label: 'respond again' };
         return {
           tone: 'warn',
           word: 'replies posted',
           detail: 'reviewer came back',
-          verbs: [{ kind: 'restart-respond', label: 'respond again' }, ...read],
+          verbs: [again, ...read],
         };
       }
       return {
@@ -503,34 +538,50 @@ function respondLine(
 ): Candidate | null {
   const r = mr.respond;
   if (!r || interrupted === 'respond' || laneDismissed(r)) return null;
-  const working = (word: string): Candidate => ({
+  const who = respondWho(mr);
+  const working = (word: string, phase: string): Candidate => ({
     tone: 'work',
-    word,
+    word: who ? `responding to ${who}` : word,
     spin: true,
-    detail: r.message || undefined,
+    detail: who
+      ? r.message
+        ? `${phase} · ${r.message}`
+        : phase
+      : r.message || undefined,
     verbs: [{ kind: 'focus', label: 'focus', domain: 'respond' }],
   });
   switch (r.status) {
     case 'queued':
-      return { tone: 'quiet', word: 'response queued', verbs: [] };
-    case 'triaging':
-      return working('triaging…');
-    case 'implementing':
-      return working('implementing…');
-    case 'drafting':
-      return working('drafting replies…');
-    case 'error':
       return {
-        tone: 'bad',
-        word: 'response failed',
-        detail: r.message || undefined,
-        verbs: [
-          { kind: 'restart-respond', label: 'restart' },
-          { kind: 'dismiss', label: 'dismiss', domain: 'respond' },
-        ],
+        tone: 'quiet',
+        word: who ? `response to ${who} queued` : 'response queued',
+        verbs: [],
       };
+    case 'triaging':
+      return working('triaging…', 'triaging');
+    case 'implementing':
+      return working('implementing…', 'implementing');
+    case 'drafting':
+      return working('drafting replies…', 'drafting replies');
+    case 'error':
+      return withWho(
+        {
+          tone: 'bad',
+          word: 'response failed',
+          detail: r.message || undefined,
+          verbs: [
+            {
+              kind: 'restart-respond',
+              label: 'restart',
+              ...(r.person ? { person: r.person } : {}),
+            },
+            { kind: 'dismiss', label: 'dismiss', domain: 'respond' },
+          ],
+        },
+        who
+      );
     case 'done':
-      return respondDoneLine(mr, self);
+      return withWho(respondDoneLine(mr, self), who);
   }
 }
 

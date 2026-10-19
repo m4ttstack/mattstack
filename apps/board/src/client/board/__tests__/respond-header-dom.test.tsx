@@ -391,6 +391,21 @@ test('plan chips: threads and blocking; the round and adjudication ride the meta
   expect(headerMeta(ctx)).toEqual(['round 2', 'both valid']);
 });
 
+test('headerMeta with a response round: round from 2, revise counts the wrapper round past it', () => {
+  const adj = 'both valid';
+  expect(headerMeta(plan({ adjudication: adj, round: 4 }), 2)).toEqual([
+    'round 2',
+    'revise 2',
+    adj,
+  ]);
+  expect(headerMeta(plan({ adjudication: adj, round: 1 }), 1)).toEqual([adj]);
+  expect(headerMeta(plan({ adjudication: adj, round: 3 }), 3)).toEqual([
+    'round 3',
+    adj,
+  ]);
+  expect(headerMeta(plan({ adjudication: adj }), 2)).toEqual(['round 2', adj]);
+});
+
 test('plan chips: zero blocking reads grey "all non-blocking"; one thread is singular', () => {
   expect(chips(plan({ threads: { total: 1, blocking: 0 } }))).toEqual([
     ['1 thread', 'grey'],

@@ -77,7 +77,7 @@ function runVerb(verb: Verb, mr: BoardMRWithReview, ctx: RowContext): void {
       return;
     case 'launch-respond':
     case 'restart-respond':
-      ctx.onRespond(mr);
+      ctx.onRespond(mr, undefined, undefined, verb.person);
       return;
     case 'call-doctor':
       ctx.onDoctor(mr);

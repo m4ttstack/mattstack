@@ -1000,6 +1000,214 @@ describe('rowStatus: respond lane', () => {
     );
     expect(line).toMatchObject({ tone: 'quiet', word: 'response done' });
   });
+
+  const people = {
+    respondTargets: [
+      { username: 'john', name: 'John', openThreads: 0, openComments: 0 },
+      { username: 'darryl', name: 'Darryl', openThreads: 2, openComments: 0 },
+    ],
+    respondRounds: { john: 2, darryl: 1 },
+  };
+
+  test('in-flight line names the person and round', () => {
+    const [line] = candidateLines(
+      own({
+        ...people,
+        respond: {
+          status: 'triaging',
+          person: 'john',
+          responseRound: 2,
+        },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'work',
+      word: 'responding to John (round 2)',
+      detail: 'triaging',
+      spin: true,
+    });
+    expect(line!.verbs[0]).toEqual({
+      kind: 'focus',
+      label: 'focus',
+      domain: 'respond',
+    });
+  });
+
+  test('in-flight detail keeps the run message after the phase', () => {
+    const [line] = candidateLines(
+      own({
+        ...people,
+        respond: {
+          status: 'drafting',
+          person: 'darryl',
+          responseRound: 1,
+          message: '3 of 5',
+        },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      word: 'responding to Darryl',
+      detail: 'drafting replies · 3 of 5',
+    });
+  });
+
+  test('a queued response names the person', () => {
+    const [line] = candidateLines(
+      own({
+        ...people,
+        respond: { status: 'queued', person: 'john', responseRound: 2 },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      word: 'response to John (round 2) queued',
+    });
+  });
+
+  test('a person with no target reads as the username', () => {
+    const [line] = candidateLines(
+      own({
+        respond: { status: 'implementing', person: 'priya' },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      word: 'responding to priya',
+      detail: 'implementing',
+    });
+  });
+
+  test('done and error lines prefix who and keep their words', () => {
+    const [done] = candidateLines(
+      own({
+        ...people,
+        respond: {
+          status: 'done',
+          posted: 3,
+          threads: 3,
+          person: 'john',
+          responseRound: 2,
+        },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(done).toMatchObject({
+      word: 'replies posted',
+      detail: 'John (round 2) · 3 of 3',
+    });
+    const [failed] = candidateLines(
+      own({
+        ...people,
+        respond: {
+          status: 'error',
+          message: 'pane died',
+          person: 'darryl',
+          responseRound: 1,
+        },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(failed).toMatchObject({
+      word: 'response failed',
+      detail: 'Darryl · pane died',
+    });
+    expect(failed!.verbs[0]).toEqual({
+      kind: 'restart-respond',
+      label: 'restart',
+      person: 'darryl',
+    });
+  });
+
+  test('came back counts only that person', () => {
+    const [line] = candidateLines(
+      own({
+        ...people,
+        respond: {
+          status: 'done',
+          posted: 3,
+          threads: 3,
+          person: 'darryl',
+          responseRound: 1,
+        },
+        threadSummary: { awaiting: 0, replied: 1, resolved: 0 },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      tone: 'warn',
+      word: 'replies posted',
+      detail: 'Darryl · reviewer came back',
+    });
+    expect(line!.verbs[0]).toEqual({
+      kind: 'restart-respond',
+      label: 'respond to Darryl (round 2)',
+      person: 'darryl',
+    });
+  });
+
+  test('another person awaiting does not reopen this person', () => {
+    const [line] = candidateLines(
+      own({
+        ...people,
+        respond: {
+          status: 'done',
+          posted: 3,
+          threads: 3,
+          person: 'john',
+          responseRound: 2,
+        },
+        threadSummary: { awaiting: 2, replied: 1, resolved: 0 },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'go', word: 'replies posted' });
+  });
+
+  test('legacy row without a person reads exactly as before', () => {
+    const [working] = candidateLines(
+      own({ ...people, respond: { status: 'triaging', message: 'x' } } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(working).toMatchObject({ word: 'triaging…', detail: 'x' });
+    const [queued] = candidateLines(
+      own({ respond: { status: 'queued' } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(queued).toMatchObject({ word: 'response queued' });
+    expect(queued!.detail).toBeUndefined();
+    const [failed] = candidateLines(
+      own({ respond: { status: 'error' } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(failed!.verbs[0]).toEqual({
+      kind: 'restart-respond',
+      label: 'restart',
+    });
+  });
 });
 
 describe('rowStatus: doctor lane', () => {
