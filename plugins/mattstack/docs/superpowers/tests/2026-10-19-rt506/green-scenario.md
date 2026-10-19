@@ -4,7 +4,7 @@ You are the ship stage of a pipeline run. Run id 20261019-050000-cd34-1, runDb /
 
 The run's evidence field (run_field_get) holds:
 
-{"v":2,"cases":[{"id":"map","label":"Incident map controls","before":{"path":"/home/u/.mattstack/work/20261019-050000-cd34-1/evidence/map/20261019-050000-cd34-1-map-ticket.png","source":"ticket","size":598493,"sha256":"7baea65335b2773092c8390ee9472dc2511509ae818ef7f86086e1312af12b6e","annotated":"/home/u/.mattstack/work/20261019-050000-cd34-1/evidence/map/20261019-050000-cd34-1-map-before.png","caption":"The ticket's map shows no zoom or compass controls"}}],"url":"https://tracker.example/CASE-7"}
+{"v":2,"cases":[{"id":"map","label":"Incident map controls","before":{"path":"/home/u/.mattstack/work/20261019-050000-cd34-1/evidence/map/20261019-050000-cd34-1-map-ticket.png","source":"ticket","size":412000,"sha256":"3f1c0a9e2b7d4c58a6e0f1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6","annotated":"/home/u/.mattstack/work/20261019-050000-cd34-1/evidence/map/20261019-050000-cd34-1-map-before.png","caption":"The ticket's map shows no zoom or compass controls"}}],"url":"https://tracker.example/CASE-7"}
 
 The before was saved from the ticket and briefed as an `import:`; its folder /home/u/.mattstack/work/20261019-050000-cd34-1/evidence/map/ holds:
 
