@@ -82,3 +82,21 @@ embed this round's.
 | GREEN | 5 | 5 | 5 | none; each showed all five, one rep citing "only an answer given while looking at these exact files lets them go up" |
 | RED | 6 | 5 | 0 | 5 of 5 split the crops the right way but each said the skill gives no rule for it ("my reading, not something it states") |
 | GREEN | 6 | 5 | 5 | none; each cited the skill's rule for a board with more than 11 crops |
+
+## Final check: the repair edge and the crop loop in the graph
+
+`red-scenario-7` embeds the text at commit a374ce622; `green-*` embed this
+round's. `green-scenario-6` was rerun on this round's text.
+
+- **Scenario 7** (spawned ship, GitLab; an attach is refused for a board's
+  redaction record, the board is repaired and re-recorded under a new
+  content folder): every call from the re-record to the next
+  `evidence_attach`.
+  Pass: Gate evidence-boards shows the repaired board before the attach,
+  by the graph, with no conflict between graph and prose.
+
+| Arm | Scenario | Reps | Pass | Notes |
+|---|---|---|---|---|
+| RED | 7 | 5 | 0 | 5 of 5 reopened the boards gate, but on the prose alone: the graph's `Repaired` edge went straight to `evidence_attach`, and 2 of 5 said they overrode it |
+| GREEN | 7 | 5 | 5 | the graph and the prose agree; none reports a conflict |
+| GREEN (rerun) | 6 | 5 | 5 | each opens two redaction openings with a budget per run of crops (`...:1`, `...:12`) and confirms after the last |

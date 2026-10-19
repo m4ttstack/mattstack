@@ -607,9 +607,9 @@ goes straight to the attach: this verb writes no `evidence` of its own.
 
 ### Attach the evidence (evidence-record)
 
-The ship gate's Proceed is the attach consent. No gate before it showed
-the AFTER boards, so on GitLab its Gate evidence-boards opens first and
-shows every file about to go up. This is the last attach, so
+The ship gate's Proceed is the attach consent. On GitLab, Gate
+evidence-boards then shows every file about to go up before anything
+uploads. This is the last attach, so
 a Take at the upload off-script gate (never the first call) sends
 `linkRefused: true`; the off-script gate shares the push gate's
 `n`.

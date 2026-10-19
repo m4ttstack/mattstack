@@ -66,10 +66,11 @@ digraph browser_evidence {
     rerenders_spent [label="rerenders spent?" shape=diamond];
     crops_listed [label="Crops listed?" shape=diamond];
     stop_self_confirm [label="STOP: confirming is the human's answer, never the agent's" shape=octagon style=filled fillcolor=red fontcolor=white];
-    run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<stem>, limit: 4, stage}" shape=plaintext];
+    run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<stem>:<first crop of this opening>, limit: 4, stage}" shape=plaintext];
     redaction_openings_spent [label="redaction-openings spent?" shape=diamond];
     gate_evidence_redaction [label="Gate evidence-redaction (below)" shape=box];
     redaction_answer [label="Redaction answer?" shape=diamond];
+    crops_left [label="Crops left for this board?" shape=diamond];
     fast_browser_confirm [label="fast-browser compose --confirm ~/.fast-browser/screenshots/<stem>.spec.json" shape=plaintext];
     confirm_result [label="Confirm result?" shape=diamond];
     run_budget_confirm [label="run_budget {runDb, key: evidence:confirm-refusals:<stem>, limit: 2, stage}" shape=plaintext];
@@ -122,7 +123,9 @@ digraph browser_evidence {
     redaction_openings_spent -> gate_evidence_redaction [label="no"];
     redaction_openings_spent -> not_drawn [label="yes: redaction openings spent"];
     gate_evidence_redaction -> redaction_answer;
-    redaction_answer -> fast_browser_confirm [label="proceed: confirm"];
+    redaction_answer -> crops_left [label="proceed: confirm"];
+    crops_left -> run_budget_redaction_gate [label="yes: the next 11 crops"];
+    crops_left -> fast_browser_confirm [label="no: every opening of this board confirmed"];
     redaction_answer -> run_budget_redaction [label="proceed: widen it"];
     redaction_answer -> held_redaction [label="hold"];
     fast_browser_confirm -> confirm_result;
@@ -278,8 +281,10 @@ matches.
 ## Gate evidence-redaction (below)
 
 Scope `evidence-redaction:<stage>:<n>`, where `<n>` counts this gate's
-openings in this stage pass from 1; `redaction-openings:<stem>` budgets
-the openings per board. Open it with `gate_open` (gate-protocol,
+openings in this stage pass from 1;
+`redaction-openings:<stem>:<first crop of this opening>` budgets the
+openings of each board's run of crops, so splitting a board's crops never
+spends the allowance its widen rounds need. Open it with `gate_open` (gate-protocol,
 Structured context): the source's `context` is a `boards@1` object, so the
 human sees the whole board, not only its crops.
 
@@ -295,9 +300,17 @@ human sees the whole board, not only its crops.
 - At most 12 entries per opening: when the boards and their crops pass 12,
   open one board (and its crops) per opening. A board with more than 11
   crops spreads them over consecutive openings, the board first in each
-  with the next 11 crops, until every crop has been shown; the confirm
-  waits until every one of those openings is answered. Each opening counts
-  toward that board's `redaction-openings:<stem>`.
+  with the next 11 crops, until every crop has been shown (Crops left for
+  this board?); the confirm waits until every one of those openings is
+  answered.
+
+### Crops left for this board?
+
+Yes while this board has crops after the ones the last opening showed:
+open the next opening with the board first and the next 11 crops. No once
+every crop has been in an opening answered confirmed; only then does
+`fast-browser compose --confirm` run. A widen in any opening re-renders the
+board, and the new render starts again from its first crop.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
