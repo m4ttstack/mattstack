@@ -466,7 +466,9 @@ answer.
 | "Main moved, so tag HEAD." | Tag the exercised sha: the commit the rehearsal and walkthrough ran. |
 | "A skip is close enough to green." | A skipped phase is not green. Read the failure; the counter and the gate take it from there. |
 | "`gh release view` shows it, so it is published." | A draft renders like a release. Run verify. |
-| "Rerun once more." | The counter decides. At the budget, open the gate. |
+| "Rerun once more." | For a red of ours, the counter decides: at the budget, open the gate. |
+| "The rerun budget is spent, so this outside red goes to the gate too." | A red whose failed step's log names an outside cause (Apple, notary, CloudKit, the network, a GitHub runner) never counts against the budget for reds of ours. It has its own: rerun `--failed` until it goes green, a red points at our code or config, or the stage's `outside reruns = 6?` is spent. |
+| "It is probably the network, so the rerun is free." | Outside needs the signature in the log (`Rehearsal red cause?`). An unclear red is ours and counts. |
 | "`--yes` is required to run at all, and it is faster." | The no-TTY refusal is why the plan gate comes first. `--yes` runs only after Matt approves the plan. |
 | "I'll push main with git_push." | git_push refuses main and tags. The push box's Bash line is the move. |
 | "`rt_verb` runs `rt release verify`." | No `rt release` leaf is agent-safe. Every `rt release` command runs on Bash. |
@@ -475,7 +477,7 @@ answer.
 | "The checkout is on another branch, so I switch it." | Never switch it. Open the gate. |
 | "Preflight was all current, so the skill's check is satisfied." | Preflight reads pins and settings schemas. What this release changes about setup is the audit's, on every release. |
 | "Create passed, so the walkthrough is green." | Four scenarios: create, join, solo and the update leg. Each is green on its own phases. |
-| "That failure looks like the VM, so it does not count." | Only the expected-noise list is ignorable. A VM-looking failure reruns alone before any gate. |
+| "That failure looks like the VM, so it is green." | Only the expected-noise list counts as green. A failure that matches VM degradation, or a network or GitHub service failure with the signatures `Rehearsal red cause?` lists (`Read the walkthrough failure`), reruns alone under `Walkthrough outside reruns = 6?`; an unclear failure or one of ours counts toward `Runs of the failing scenario >= 2?`. |
 | "The commit subject says it seeds on update, so it is covered." | Covered needs a proof line from the code, never a subject. |
 | "Matt added a one-line fix, so his notes approval still covers it." | Re-prepare on the new main; Matt re-approves the delta, quoted. |
 | "The release is done, so the held pack sync can go now." | It waits for the team's real members to confirm they updated. |
