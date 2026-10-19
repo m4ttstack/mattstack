@@ -176,6 +176,8 @@ function makeCtx(p: Probes, overrides: Partial<ApplyContext> = {}): { ctx: Apply
 }
 
 const ok = (stdout = ""): ExecResult => ({ code: 0, stdout, stderr: "" });
+/** Every other git call succeeds, and main holds a layout 3 marker, so a join naming no branch clones main. */
+const layout3Main = (argv: string[]): ExecResult => (argv.includes("show") && argv.some((a) => a.startsWith("FETCH_HEAD:")) ? ok(`{"role":"org","org":"acme","layout":3}`) : ok());
 
 // ─── home.init ───────────────────────────────────────────────────────────────
 
@@ -493,6 +495,7 @@ describe("team.create", () => {
       ["git", "cat-file", "-e", "HEAD:.claude-plugin/marketplace.json"],
       ["git", "cat-file", "-e", "HEAD:.sops.yaml"],
       ["git", "cat-file", "-e", "HEAD:.gitignore"],
+      ["git", "cat-file", "-e", "HEAD:README.md"],
       ["git", "symbolic-ref", "-q", "--short", "HEAD"],
       ["git", "symbolic-ref", "-q", "--short", "HEAD"],
       ["git", "remote", "get-url", "--push", "--all", "origin"],
@@ -573,7 +576,7 @@ describe("team.create", () => {
 
       const show = (...args: string[]) => Bun.spawnSync(["git", "-C", origin, ...args]).stdout.toString().trim();
       expect(show("for-each-ref", "--format=%(refname)", "refs/heads").split("\n")).toEqual(["refs/heads/main", "refs/heads/mattstack"]);
-      expect(show("ls-tree", "-r", "--name-only", "main")).toBe("mattstack/mattstack.jsonc");
+      expect(show("ls-tree", "-r", "--name-only", "main")).toBe(".mattstack.jsonc");
     } finally {
       process.env.HOME = originalHome;
       process.env.USER = originalUser;
@@ -627,7 +630,7 @@ describe("team.join", () => {
       exec: async (argv) => {
         if (argv[0] === "git" && argv[1] === "clone") return ok();
         if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "dev2" }));
-        return ok();
+        return layout3Main(argv);
       },
     });
     const relay: RelayClient = { ...fakeRelay, redeem: async () => "redeemed", reply: async () => {} };
@@ -663,7 +666,7 @@ describe("team.join", () => {
     const p = fakeProbes({
       home: "/fake-home",
       files: intentFile("/fake-home", joinIntent),
-      exec: async (argv) => (argv[0] === "git" && argv[1] === "clone" ? { code: 128, stdout: "", stderr: "remote: Permission denied to bob." } : ok()),
+      exec: async (argv) => (argv[0] === "git" && argv[1] === "clone" ? { code: 128, stdout: "", stderr: "remote: Permission denied to bob." } : layout3Main(argv)),
     });
     const { ctx } = makeCtx(p, { intent: joinIntent, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
 
@@ -688,7 +691,7 @@ describe("team.join", () => {
       exec: async (argv) => {
         if (argv[0] === "git" && argv[1] === "clone") return ok();
         if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "dev2" }));
-        return ok();
+        return layout3Main(argv);
       },
     });
     // readAgeKey succeeds (finds a key) but deriving its public half fails —
