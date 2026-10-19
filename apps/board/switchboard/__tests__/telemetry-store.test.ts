@@ -288,6 +288,14 @@ describe('TelemetryStore edge cases', () => {
     expect(s.snapshot(T0 + MIN).updates).toEqual([]);
   });
 
+  test('a null version that recovers appends no update', () => {
+    const s = setup();
+    s.record(ping(), null, T0);
+    s.record(ping({ appVersion: null }), null, T0 + MIN);
+    s.record(ping(), null, T0 + 2 * MIN);
+    expect(s.snapshot(T0 + 2 * MIN).updates).toEqual([]);
+  });
+
   test('a pack listed twice by one Mac counts that Mac once', () => {
     const s = setup();
     s.record(

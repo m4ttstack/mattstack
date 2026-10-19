@@ -39,7 +39,7 @@ function harness(overrides: Partial<TickDeps> = {}) {
 const loud = (calls: { level: string }[]) => calls.filter((c) => c.level !== "debug");
 
 describe("makeTelemetryTick", () => {
-  test("sends first, holds for the hour, then sends again", async () => {
+  test("sends first, holds for 50 minutes, then sends again", async () => {
     const h = harness();
     await h.tick();
     expect(h.posts).toHaveLength(1);
@@ -50,7 +50,11 @@ describe("makeTelemetryTick", () => {
     await h.tick();
     expect(h.posts).toHaveLength(1);
 
-    h.state.now += 55 * MIN;
+    h.state.now += 40 * MIN;
+    await h.tick();
+    expect(h.posts).toHaveLength(1);
+
+    h.state.now += 5 * MIN;
     await h.tick();
     expect(h.posts).toHaveLength(2);
   });

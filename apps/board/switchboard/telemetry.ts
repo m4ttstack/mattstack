@@ -246,7 +246,7 @@ export class TelemetryStore {
     to: string | null,
     at: number
   ): void {
-    if (to === null || to === from) return;
+    if (from === null || to === null || to === from) return;
     this.db.run(
       `INSERT INTO telemetry_updates (install_id, kind, from_version, to_version, at)
        VALUES (?, ?, ?, ?, ?)`,

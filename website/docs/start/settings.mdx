@@ -53,7 +53,7 @@ Settings, General, Privacy has a switch, "Share version info with your team's ad
 rt settings set telemetry.enabled false --scope user
 ```
 
-While it is on, the rt daemon sends one small report when it starts, once an hour, and when the app or rt version changes. It sends:
+While it is on, the rt daemon sends one small report when it starts, about every 50 minutes, and when the app or rt version changes. It sends:
 
 - your username for each team, and a random install id
 - the app, rt and plugin versions, and the app flavor
@@ -62,6 +62,8 @@ While it is on, the rt daemon sends one small report when it starts, once an hou
 - the names of any leftover legacy folders
 - your org names and layouts, and your team packs and their versions
 
-It never sends your repos, files, paths or commands. Test runs and CI never send it. A failed report is silent and is not retried until the next one is due.
+It never sends your repos, files, paths or commands. Test runs and CI never send it. The report goes to your team's switchboard relay. A failed report is silent and is retried on the next 5-minute check.
+
+To turn it back on, flip the switch, or run `rt settings set telemetry.enabled true --scope user`.
 
 See the [rt settings reference](/rt/reference/settings) for every flag.

@@ -244,7 +244,10 @@ describe('GET /telemetry', () => {
       ping({
         usernames: ['<script>x</script>'],
         orgs: [{ org: '<b>org</b>', layout: 3 }],
-        packs: [{ id: '<i>pack</i>', version: '1.0.0' }],
+        packs: [
+          { id: '<i>pack</i>@mkt', version: '1.0.0' },
+          { id: 'bare@mkt', version: null },
+        ],
         legacyDirs: ['<u>dir</u>'],
         migrationsKnown: ['<m>1'],
       }),
@@ -268,6 +271,7 @@ describe('GET /telemetry', () => {
     expect(html).toContain('(unverified)');
     expect(html).toContain(`running (${new Date(NOW).toISOString()})`);
     expect(html).toContain('&lt;b&gt;org&lt;/b&gt;:3');
-    expect(html).toContain('&lt;i&gt;pack&lt;/i&gt;@1.0.0');
+    expect(html).toContain('&lt;i&gt;pack&lt;/i&gt;@mkt (1.0.0)');
+    expect(html).toContain('bare@mkt<');
   });
 });

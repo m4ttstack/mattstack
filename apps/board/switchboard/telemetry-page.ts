@@ -50,7 +50,7 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
       orDash(m.pluginVersion),
       orDash(m.macosVersion),
       list(m.orgs.map(o => `${o.org}:${orDash(o.layout)}`)),
-      list(m.packs.map(p => `${p.id}@${orDash(p.version)}`)),
+      list(m.packs.map(p => (p.version === null ? p.id : `${p.id} (${p.version})`))),
       m.running ? `running (${iso(m.lastSeen)})` : iso(m.lastSeen),
       m.installId,
     ])

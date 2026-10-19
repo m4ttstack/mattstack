@@ -7,7 +7,8 @@
 import type { Logger } from "pino";
 import type { PingVersions, TelemetryPing } from "./ping.ts";
 
-const RESEND_AFTER_MS = 60 * 60_000;
+/** Under the relay's 60 minute "running" window, so tick jitter never lets a live Mac lapse. */
+const RESEND_AFTER_MS = 50 * 60_000;
 
 export interface TickDeps {
   enabled(): boolean;

@@ -10,7 +10,7 @@ import { getDaemonLogger } from "../daemon-logger.ts";
 import { appBundlePath } from "../deps/resolve.ts";
 import { processFlavor, type Flavor } from "../flavor.ts";
 import { legacyDirsPresent, orgDirUnder } from "../rt-paths.ts";
-import { MIGRATIONS } from "../setup/migrations/index.ts";
+import { MIGRATION_IDS } from "../setup/migrations/ids.ts";
 import { readServedPacks } from "../setup/pack-cache.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readSetupState } from "../setup/state.ts";
@@ -117,7 +117,7 @@ export async function collectPing(p: Probes): Promise<TelemetryPing> {
     flavor,
     macosVersion: await field("macosVersion", null, () => execText(p, ["sw_vers", "-productVersion"])),
     migrationsRecorded: await field("migrationsRecorded", [] as string[], () => readSetupState(p).migrations),
-    migrationsKnown: MIGRATIONS.map((m) => m.id),
+    migrationsKnown: [...MIGRATION_IDS],
     legacyDirs: await field("legacyDirs", [] as string[], () => {
       const { real, symlinks } = legacyDirsPresent();
       return [...real, ...symlinks].map((path) => basename(path)).sort();

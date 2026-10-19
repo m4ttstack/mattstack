@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { fakeProbes, type ExecScript } from "../../setup/__tests__/fakes.ts";
 import type { ExecResult } from "../../setup/probes.ts";
-import { MIGRATIONS } from "../../setup/migrations/index.ts";
+import { MIGRATION_IDS } from "../../setup/migrations/ids.ts";
 import { rtVersion } from "../../setup/update.ts";
 import { ENGINE_PACK_REF } from "../../skills/installed-plugins.ts";
 import type { PluginListEntry } from "../../skills/sources.ts";
@@ -145,7 +145,7 @@ describe("collectPing", () => {
   test("migrationsKnown is the registry and migrationsRecorded is the setup ledger", async () => {
     const p = world([], { files: { [`${HOME}/.mattstack/rt/setup-state.json`]: JSON.stringify({ v: 2, migrations: ["2026-01-01-one", "2026-02-02-two"] }) } });
     const ping = await collectPing(p);
-    expect(ping.migrationsKnown).toEqual(MIGRATIONS.map((m) => m.id));
+    expect(ping.migrationsKnown).toEqual([...MIGRATION_IDS]);
     expect(ping.migrationsRecorded).toEqual(["2026-01-01-one", "2026-02-02-two"]);
   });
 
@@ -211,7 +211,7 @@ describe("collectPing", () => {
     expect(ping.appVersion).toBeNull();
     expect(ping.macosVersion).toBeNull();
     expect(ping.migrationsRecorded).toEqual([]);
-    expect(ping.migrationsKnown).toEqual(MIGRATIONS.map((m) => m.id));
+    expect(ping.migrationsKnown).toEqual([...MIGRATION_IDS]);
   });
 
   test("the ping carries exactly the spec's fields", async () => {
