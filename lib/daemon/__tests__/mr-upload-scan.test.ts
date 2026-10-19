@@ -195,6 +195,26 @@ describe("mr:upload all-runs ticket scan", () => {
     expect((await h.upload({ repoName: REPO, path: file(elsewhere, "copy.png", "good-ticket") })).ok).toBe(false);
   });
 
+  test("an evidence-tickets field with one bad entry warns naming the run, and its good entries still refuse a copy", async () => {
+    const ticket = bytesOf("half-good");
+    const tickets = JSON.stringify({ v: 1, tickets: [{ path: join(home, "gone.png"), size: ticket.length, sha256: hex(ticket) }, { path: "", size: -1 }] });
+    const h = harness({ runRecords: () => [{ runId: "r-half", evidence: null, tickets }] });
+    expect(await h.upload({ repoName: REPO, path: file(elsewhere, "copy.png", "half-good") }))
+      .toEqual({ ok: false, error: "copy.png is the unredacted original of an imported ticket image; upload the composed board instead" });
+    expect(JSON.stringify(h.warns)).toContain(`ticket copy check: run r-half's ${TICKETS_FIELD} field is not valid; its remembered ticket images are unchecked`);
+  });
+
+  test("a ticket shot whose source is written with a JSON escape is still checked", async () => {
+    const ticket = bytesOf("escaped-ticket");
+    const shot = { path: join(home, "gone.png"), source: "ticket", size: ticket.length, sha256: hex(ticket), annotated: join(home, "b.png"), caption: "c" };
+    const escape = String.fromCharCode(92) + "u0069";
+    const evidence = JSON.stringify({ v: 2, cases: [{ id: "t", label: "T", before: shot }] }).replace('"source":"ticket"', `"source":"t${escape}cket"`);
+    expect(evidence).not.toContain('"ticket"');
+    const h = harness({ runRecords: () => [{ runId: "r-esc", evidence }] });
+    expect(await h.upload({ repoName: REPO, path: file(elsewhere, "copy.png", "escaped-ticket") }))
+      .toEqual({ ok: false, error: "copy.png is the unredacted original of an imported ticket image; upload the composed board instead" });
+  });
+
   test("readRunFields returns only the keys asked, and throws for a file that is not a database", () => {
     seedRuns(1, (i) => hashedRun(i));
     const db = join(runs, "widgets", "r-0", "state.db");
