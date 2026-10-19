@@ -615,7 +615,7 @@ export async function joinRedeem(
     alreadyCloned = true;
   } else {
     p.mkdirp(orgsDirUnder(p.home));
-    let branch: string | null = null;
+    let branch: string | null;
     let lastGit: ExecResult | null = null;
     const recording: Pick<Probes, "exec"> = { exec: async (argv, opts) => (lastGit = await p.exec(argv, opts)) };
     try {
