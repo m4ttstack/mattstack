@@ -1,10 +1,11 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { execSync } from "child_process";
-import { mkdtempSync, realpathSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { ReadyStep } from "../config.ts";
 import { changedSince, stepsToRun, runReadySteps } from "../ready.ts";
+import { __test__ as warnTest, setWarningLog } from "../../ui/warn.ts";
 
 function makeRepo(): string {
   // realpathSync: git canonicalizes /var → /private/var on macOS (Global Constraints)
@@ -126,5 +127,103 @@ describe("runReadySteps — command-not-found hint", () => {
       expect(result.output).toContain("zsh -lc");
       expect(result.output).toContain("~/.zshrc is NOT");
     }
+  });
+});
+
+describe("runReadySteps — nvm", () => {
+  let home: string;
+  let repo: string;
+  let warnings: string[];
+  const saved = { HOME: process.env.HOME, NVM_DIR: process.env.NVM_DIR };
+
+  function installFakeNvm(versions: string[]): void {
+    const nvmDir = join(home, ".nvm");
+    for (const v of versions) {
+      mkdirSync(join(nvmDir, "versions", v, "bin"), { recursive: true });
+      const bin = join(nvmDir, "versions", v, "bin", "fakenode");
+      writeFileSync(bin, `#!/bin/sh\necho v${v}\n`);
+      chmodSync(bin, 0o755);
+    }
+    writeFileSync(
+      join(nvmDir, "nvm.sh"),
+      [
+        'NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
+        "nvm() {",
+        '  [ "$1" = use ] || return 0',
+        "  v=$(head -n 1 .nvmrc)",
+        '  [ -d "$NVM_DIR/versions/$v/bin" ] || return 3',
+        '  PATH="$NVM_DIR/versions/$v/bin:$PATH"; export PATH',
+        "}",
+        `PATH="$NVM_DIR/versions/${versions[0]}/bin:$PATH"; export PATH`,
+        "",
+      ].join("\n"),
+    );
+    // Where nvm's installer puts it, and the one file a login shell skips.
+    writeFileSync(join(home, ".zshrc"), '. "$HOME/.nvm/nvm.sh"\n');
+  }
+
+  async function nodeVersion(): Promise<string> {
+    const result = await runReadySteps(repo, [{ run: "fakenode > nodev" }]);
+    expect(result).toEqual({ ok: true });
+    return readFileSync(join(repo, "nodev"), "utf8").trim();
+  }
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rtready-home-")));
+    repo = makeRepo();
+    process.env.HOME = home;
+    delete process.env.NVM_DIR;
+    warnings = [];
+    warnTest.reset();
+    setWarningLog((_module, message) => warnings.push(message));
+  });
+
+  afterEach(() => {
+    process.env.HOME = saved.HOME;
+    if (saved.NVM_DIR === undefined) delete process.env.NVM_DIR;
+    else process.env.NVM_DIR = saved.NVM_DIR;
+    warnTest.reset();
+  });
+
+  test("a step finds nvm's node when nvm is set up only in ~/.zshrc", async () => {
+    installFakeNvm(["20"]);
+    expect(await nodeVersion()).toBe("v20");
+  });
+
+  test("the repo's .nvmrc picks the version, not nvm's default", async () => {
+    installFakeNvm(["20", "22.22.0"]);
+    writeFileSync(join(repo, ".nvmrc"), "22.22.0\n");
+    expect(await nodeVersion()).toBe("v22.22.0");
+    expect(warnings).toEqual([]);
+  });
+
+  test("an .nvmrc version nvm has not installed falls back to the default and says so", async () => {
+    installFakeNvm(["20"]);
+    writeFileSync(join(repo, ".nvmrc"), "22.22.0\n");
+    expect(await nodeVersion()).toBe("v20");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("22.22.0");
+    expect(warnings[0]).toContain(repo);
+  });
+
+  test("a failing step's output names the .nvmrc fallback instead of the marker", async () => {
+    installFakeNvm(["20"]);
+    writeFileSync(join(repo, ".nvmrc"), "22.22.0\r\n");
+    const result = await runReadySteps(repo, [{ run: "echo boom >&2; exit 1" }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.output.startsWith("boom")).toBe(true);
+      expect(result.output).not.toContain("__rt_nvm");
+      expect(result.output).toContain("nvm could not switch to the node in .nvmrc (22.22.0)");
+    }
+  });
+
+  test("with no nvm the step runs as before, and a missing node names nvm", async () => {
+    writeFileSync(join(repo, ".nvmrc"), "22.22.0\n");
+    expect(await runReadySteps(repo, [{ run: "true" }])).toEqual({ ok: true });
+    const result = await runReadySteps(repo, [{ run: "fakenode" }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.output).toContain("nvm");
+    expect(warnings).toEqual([]);
   });
 });

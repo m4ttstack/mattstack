@@ -9,6 +9,7 @@
 
 import { runGit } from "./git-async.ts";
 import { runCapture } from "../subprocess.ts";
+import { warn } from "../ui/warn.ts";
 import type { ReadyStep } from "./config.ts";
 
 /**
@@ -52,24 +53,54 @@ export function stepsToRun(steps: ReadyStep[], changed: string[] | null): ReadyS
  */
 const SEED_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
+const NVM_MISSING_MARKER = "__rt_nvm_missing__";
+
+/**
+ * nvm's installer writes its lines to ~/.zshrc, which a login shell never
+ * reads, so each step loads nvm itself and switches to the tree's .nvmrc.
+ * A pinned version nvm has not installed leaves nvm's default on PATH and
+ * prints the marker line for the caller to log.
+ */
+const NVM_PRELUDE = [
+  'if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then',
+  '  . "${NVM_DIR:-$HOME/.nvm}/nvm.sh" >/dev/null 2>&1',
+  "  if [ -f .nvmrc ] && command -v nvm >/dev/null 2>&1 && ! nvm use --silent >/dev/null 2>&1; then",
+  `    printf '%s %s\\n' ${NVM_MISSING_MARKER} "$(head -n 1 .nvmrc)" >&2`,
+  "  fi",
+  "fi",
+].join("\n");
+
+const NVM_MISSING_LINE = new RegExp(`^${NVM_MISSING_MARKER} ([^\\r\\n]*)\\r*\\n?`, "m");
+
 /** Run ready steps in order via zsh, stopping at the first failure. */
 export async function runReadySteps(
   worktreePath: string,
   steps: ReadyStep[],
 ): Promise<{ ok: true } | { ok: false; failedStep: string; output: string }> {
+  let reportedMissingNvmVersion = false;
   for (const step of steps) {
-    const r = await runCapture(["/bin/zsh", "-lc", step.run], {
+    const r = await runCapture(["/bin/zsh", "-lc", `${NVM_PRELUDE}\n${step.run}`], {
       cwd: worktreePath,
       env: { ...process.env, PATH: SEED_PATH },
       timeoutMs: 15 * 60_000,
       stderr: "pipe",
     });
+    const missing = NVM_MISSING_LINE.exec(r.stderr);
+    const stderr = missing ? r.stderr.replace(NVM_MISSING_LINE, "") : r.stderr;
+    const fallback = missing
+      ? `nvm could not switch to the node in .nvmrc (${missing[1]!.trim() || "empty"}), so this step ran on nvm's default node`
+      : null;
+    if (fallback && !reportedMissingNvmVersion) {
+      reportedMissingNvmVersion = true;
+      warn("worktree", `${worktreePath}: ${fallback}`, { context: { worktreePath, nvmrc: missing![1]!.trim() } });
+    }
     if (r.exitCode !== 0) {
-      let output = r.stdout + r.stderr;
-      // 127 under a daemon is nearly always a PATH mystery — name the shell
+      let output = r.stdout + stderr;
+      if (fallback) output += `\n(${fallback}; run nvm install in this tree)`;
+      // 127 under a daemon is nearly always a PATH mystery: name the shell
       // contract so the failure is actionable instead of a silent backoff loop.
       if (r.exitCode === 127 || /command not found/.test(output)) {
-        output += "\n(ready steps run under `zsh -lc`: ~/.zshenv and ~/.zprofile are sourced, ~/.zshrc is NOT — put PATH setup for this tool in one of the former)";
+        output += "\n(ready steps run under `zsh -lc`: ~/.zshenv and ~/.zprofile are sourced, ~/.zshrc is NOT. nvm is loaded from $NVM_DIR or ~/.nvm and .nvmrc picks its version; put PATH setup for any other tool in ~/.zshenv or ~/.zprofile)";
       }
       return { ok: false, failedStep: step.run, output };
     }
