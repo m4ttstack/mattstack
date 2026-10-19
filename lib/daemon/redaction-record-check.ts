@@ -1,8 +1,10 @@
 /**
  * mr:upload's redaction gate: a composed board that hides part of a ticket
  * image goes out only once the operator confirmed every redaction crop of its
- * latest render. The record and crops are Fast Browser's compose output
- * (schema compose-redactions/1), copied beside the board with its bundle.
+ * latest render, and a board whose record is empty only once the operator
+ * confirmed nothing needed hiding (the record's top-level confirmed). The
+ * record and crops are Fast Browser's compose output (schema
+ * compose-redactions/1), copied beside the board with its bundle.
  * It guards against a skipped redaction gate, not against a board copied
  * elsewhere or a hand-edited record.
  */
@@ -72,7 +74,7 @@ export function redactionUploadRefusal(o: {
       : null;
   }
   const malformed = `${o.filename}'s redaction record is malformed; render the board again`;
-  const record = json(rawRecord) as { schemaVersion?: unknown; board?: unknown; boardSha256?: unknown; redactions?: unknown } | undefined;
+  const record = json(rawRecord) as { schemaVersion?: unknown; board?: unknown; boardSha256?: unknown; redactions?: unknown; confirmed?: unknown } | undefined;
   if (!record || record.schemaVersion !== SCHEMA || record.board !== board || typeof record.boardSha256 !== "string"
     || !Array.isArray(record.redactions)) return malformed;
   const entries = record.redactions as { crop?: unknown; sha256?: unknown; confirmed?: unknown }[];
@@ -85,6 +87,9 @@ export function redactionUploadRefusal(o: {
     if (!crop || sha256(crop) !== e.sha256) {
       return `${o.filename}'s redaction crop ${e.crop} is missing or changed; render the board again, confirm its crops at the redaction gate, and copy the record and crops beside the board`;
     }
+  }
+  if (entries.length === 0 && record.confirmed !== true) {
+    return `${o.filename}'s empty redaction record is not yet confirmed; confirm at the redaction gate that nothing needs hiding, run fast-browser compose --confirm after a yes, and copy the confirmed record beside the board`;
   }
   if (entries.some((e) => e.confirmed !== true)) {
     return `${o.filename} has a redaction not yet confirmed; show each crop at the redaction gate, run fast-browser compose --confirm after a yes, and copy the confirmed record beside the board`;
