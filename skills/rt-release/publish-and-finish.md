@@ -31,10 +31,10 @@ digraph publish_and_finish {
     "gh run list --workflow release.yml --event push --branch <tag> --json databaseId,headBranch,status,conclusion" [shape=plaintext];
     "A tag-push run for <tag> listed?" [shape=diamond];
     "rt release verify <tag> --json, rerun after the wait" [shape=plaintext];
-    "Failure is the asset-upload 500 flake?" [shape=diamond];
-    "Publish recoveries = 1?" [shape=diamond];
+    "Publish run failure cause?" [shape=diamond];
     "gh release delete <tag>" [shape=plaintext];
     "gh run rerun <run-id> --failed, after the delete" [shape=plaintext];
+    "gh run rerun <run-id> --failed, an outside cause before Create Release" [shape=plaintext];
     "Draft flips = 1?" [shape=diamond];
     "gh release edit <tag> --draft=false" [shape=plaintext];
     "STOP: CI owns the release object; rerun verify instead" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -62,8 +62,6 @@ digraph publish_and_finish {
     "Publish still pending: gate rounds = 2?" [shape=diamond];
     "Off-script gate: publish run failed another way" [shape=box];
     "Publish run failed another way: gate rounds = 2?" [shape=diamond];
-    "Off-script gate: upload flake persists" [shape=box];
-    "Upload flake persists: gate rounds = 2?" [shape=diamond];
     "Off-script gate: draft will not publish" [shape=box];
     "Draft will not publish: gate rounds = 2?" [shape=diamond];
     "Off-script gate: docs site setup missing" [shape=box];
@@ -90,7 +88,7 @@ digraph publish_and_finish {
     "gh run list --workflow release.yml --event push --branch <tag> --json databaseId,headBranch,status,conclusion" -> "A tag-push run for <tag> listed?";
     "A tag-push run for <tag> listed?" -> "Verify reruns = 4?" [label="yes: verify misread it, rerun from the source checkout"];
     "A tag-push run for <tag> listed?" -> "Verify reruns = 4?" [label="no: not started yet"];
-    "Verify status?" -> "Failure is the asset-upload 500 flake?" [label="failed run"];
+    "Verify status?" -> "Publish run failure cause?" [label="failed run"];
     "Verify status?" -> "Draft flips = 1?" [label="draft left behind"];
     "Off-script gate: assets missing" -> "rt release verify <tag> --json, rerun after the wait" [label="take: Matt hand-completed them with rt:mattstack-release"];
     "Off-script gate: assets missing" -> "Assets missing: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
@@ -116,24 +114,18 @@ digraph publish_and_finish {
     "Publish still pending: gate rounds = 2?" -> "rt release verify <tag> --json, rerun after the wait" [label="no: retry"];
     "Publish still pending: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Verify reruns = 4?" -> "Off-script gate: publish still pending" [label="yes: budget spent"];
-    "Failure is the asset-upload 500 flake?" -> "Publish recoveries = 1?" [label="yes"];
+    "Publish run failure cause?" -> "gh release delete <tag>" [label="outside, in Create Release: the asset-upload 500, or a runner or network loss mid-upload"];
+    "Publish run failure cause?" -> "gh run rerun <run-id> --failed, an outside cause before Create Release" [label="outside, before Create Release: Apple, notary, CloudKit, network or runner"];
+    "gh run rerun <run-id> --failed, an outside cause before Create Release" -> "rt release verify <tag> --json, rerun after the wait";
     "Off-script gate: publish run failed another way" -> "rt release verify <tag> --json, rerun after the wait" [label="take: Matt recovered the run by hand"];
     "Off-script gate: publish run failed another way" -> "Publish run failed another way: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: publish run failed another way" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: publish run failed another way" -> "Handed back to Matt" [label="hand back"];
     "Publish run failed another way: gate rounds = 2?" -> "rt release verify <tag> --json, rerun after the wait" [label="no: retry"];
     "Publish run failed another way: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
-    "Failure is the asset-upload 500 flake?" -> "Off-script gate: publish run failed another way" [label="no: any other failure"];
-    "Publish recoveries = 1?" -> "gh release delete <tag>" [label="no"];
+    "Publish run failure cause?" -> "Off-script gate: publish run failed another way" [label="ours: our code or config, or unclear"];
     "gh release delete <tag>" -> "gh run rerun <run-id> --failed, after the delete";
     "gh run rerun <run-id> --failed, after the delete" -> "rt release verify <tag> --json, rerun after the wait";
-    "Off-script gate: upload flake persists" -> "rt release verify <tag> --json, rerun after the wait" [label="take: Matt hand-completed it with rt:mattstack-release"];
-    "Off-script gate: upload flake persists" -> "Upload flake persists: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
-    "Off-script gate: upload flake persists" -> "Held: release paused, resume point named" [label="hold"];
-    "Off-script gate: upload flake persists" -> "Handed back to Matt" [label="hand back"];
-    "Upload flake persists: gate rounds = 2?" -> "gh release delete <tag>" [label="no: retry"];
-    "Upload flake persists: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
-    "Publish recoveries = 1?" -> "Off-script gate: upload flake persists" [label="yes: budget spent"];
     "Draft flips = 1?" -> "gh release edit <tag> --draft=false" [label="no"];
     "gh release edit <tag> --draft=false" -> "rt release verify <tag> --json, rerun after the wait";
     "Off-script gate: draft will not publish" -> "rt release verify <tag> --json, rerun after the wait" [label="take: Matt published the draft himself"];
@@ -227,8 +219,9 @@ release while the public API and mattstack.dev keep serving the previous tag; co
 assets by hand does not publish it, the flip does.
 
 Counters: the first `rt release verify <tag> --json` is not a rerun, so `Verify reruns = 4?` is
-yes after the fourth rerun. `Publish recoveries = 1?` counts delete-and-rerun pairs done and
-`Draft flips = 1?` counts flips done, so each is yes after the first. `Docs deploy attempts = 2?`
+yes after the fourth rerun. `Draft flips = 1?` counts flips done, so it is yes after the first. A
+rerun after an outside failure (`Publish run failure cause?`), a delete-and-rerun included, is
+never counted. `Docs deploy attempts = 2?`
 counts every deploy run, the first included. `Update-machine runs = 2?` counts every `--yes` run
 in this release, the first included. Every `<origin>: gate rounds = 2?` counts the iterate
 answers received at that gate: it is yes once Matt has answered iterate twice.
@@ -244,6 +237,28 @@ every verify rerun from here runs from the source checkout,
 the tag push may not have started a run yet; the reruns (also from the source checkout, about five
 minutes apart) wait for it, and the publish-still-pending gate quotes this listing once they run
 out.
+
+### Publish run failure cause?
+
+Read the failed step's log (`gh run view <run-id> --log-failed`) and decide whose failure it is,
+by the same signatures as prove-and-tag's `Rehearsal red cause?`. It is outside only when the
+failing step's error names a service or machine we do not run: `NSURLErrorDomain` code `-1001`,
+`-1004` or `-1005`; a CloudKit or notary service error while notarization already reads
+`status: Accepted` (for example `stapler` failing with Error 68 after its lookup to
+api.apple-cloudkit.com lost the connection); a GitHub runner or network failure; or the
+asset-upload 500 from GitHub. Everything else is ours, and so is an unclear failure or one where
+any failed step is ours.
+
+Where it failed picks the recovery. Create Release is the step that makes the release object, so
+a failure inside it (the asset-upload 500, or a runner or network loss mid-upload) leaves a
+release behind: delete it, which keeps the git tag, then rerun the failed jobs. A failure in any
+earlier step left no release, so the failed jobs rerun with no delete. An outside failure keeps
+rerunning, uncounted, as often as the log keeps naming an outside cause; the first failure that
+points at our code or config takes the gate.
+
+Every status names the kind and quotes the log line it rests on, for example
+`publish run red (outside: stapler NSURLError -1005 after Accepted), rerun uncounted` or
+`publish run red (ours: Assert release assets are complete)`.
 
 ### Gate: approve the update-machine legs
 
@@ -313,14 +328,8 @@ Matt confirms the release is live. Iterate: Matt fixed the cause, and verify run
 
 ### Off-script gate: publish run failed another way
 
-Quote the failing job, step and error lines (`gh run view <run-id> --log-failed`). Take: Matt
-recovered the run by hand. Iterate: Matt fixed the cause, and verify runs again.
-
-### Off-script gate: upload flake persists
-
-Quote the second failure's upload errors. One delete-and-rerun is the budget. Take: Matt
-hand-completed the release with `rt:mattstack-release`. Iterate: Matt fixed the cause, and the
-delete-and-rerun runs once more.
+Quote the failing job, step and error lines (`gh run view <run-id> --log-failed`) and the line
+that makes the failure ours. Take: Matt recovered the run by hand. Iterate: Matt fixed the cause, and verify runs again.
 
 ### Off-script gate: draft will not publish
 
