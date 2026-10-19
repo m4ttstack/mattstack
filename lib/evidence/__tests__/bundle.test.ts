@@ -3,7 +3,7 @@ import { constants as fsConstants, copyFileSync, linkSync, mkdirSync, mkdtempSyn
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { workRoot } from "../../daemon/upload-guard.ts";
-import { allowedSourceRoots, bundleMembers, bundleStem, CONTENT_DIR, copyIntoRun, importedCaptures, mapKey } from "../bundle.ts";
+import { allowedSourceRoots, boardCaptures, bundleMembers, bundleStem, CONTENT_DIR, copyIntoRun, importedCaptures, mapKey } from "../bundle.ts";
 
 let base: string;
 let src: string;
@@ -78,6 +78,24 @@ describe("importedCaptures", () => {
     expect(importedCaptures(join(src, "a.png"), () => ["a.png", "a.c1.png", "a.c1.capture.json"], reader({ "a.c1.capture.json": "{" }))).toEqual([join(src, "a.c1.png")]);
     expect(importedCaptures(join(src, "a.png"), () => ["a.png", "a.c1.capture.json"], reader({ "a.c1.capture.json": sidecar("import") }))).toEqual([]);
     expect(importedCaptures(join(src, "gone", "a.png"), () => { throw new Error("ENOENT"); })).toEqual([]);
+  });
+});
+
+describe("boardCaptures", () => {
+  const sidecar = (source: unknown) => JSON.stringify({ schemaVersion: "capture/1", source, image: "x" });
+  const reader = (files: Record<string, string>) => (p: string) => files[basename(p)] ?? null;
+
+  test("names every capture in a pair board's bundle, the before's by its own stem, each with whether it was live", () => {
+    const names = ["a.png", "a.spec.json", "a.c1.png", "a.c1.capture.json", "b.c1.png", "b.c1.capture.json", "c.c1.png", "c.c1.capture.json"];
+    const read = reader({
+      "a.spec.json": JSON.stringify({ panels: [{ capture: "b.c1.capture.json" }, { capture: "a.c1.capture.json" }] }),
+      "a.c1.capture.json": sidecar("live"),
+      "b.c1.capture.json": sidecar("import"),
+    });
+    expect(boardCaptures(join(src, "a.png"), () => names, read)).toEqual([
+      { path: join(src, "a.c1.png"), live: true },
+      { path: join(src, "b.c1.png"), live: false },
+    ]);
   });
 });
 

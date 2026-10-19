@@ -1,4 +1,5 @@
 import { parseEvidence } from "../../packages/rt-client/src/evidence.ts";
+import { basename } from "path";
 import type { TicketEntry } from "./tickets-field.ts";
 
 export type Slot = "before" | "after";
@@ -298,6 +299,35 @@ export function importedTicketEntries(
     }
   }
   return { ok: true, entries };
+}
+
+/**
+ * A standalone import board (every capture in its bundle an import) is the
+ * only cover that shows its image on its own, so a board drawn from it with a
+ * live capture beside (ship's pair) never replaces it: the pair covers the
+ * after alone. A re-rendered import board, or a live board that holds none
+ * of its captures, still does.
+ */
+export function displacedImportBoard(
+  current: RawRecord,
+  images: ImageInput[],
+  captures: (board: string) => Array<{ path: string; live: boolean }>,
+  same: (a: string, b: string) => boolean,
+): Fail | null {
+  for (const e of images) {
+    if (e.annotated === undefined) continue;
+    const old = imageAt(current.cases.find((c) => c.id === e.case), e.slot, e.theme)?.annotated;
+    if (old === undefined || old === e.annotated) continue;
+    const imported = captures(old);
+    if (imported.length === 0 || imported.some((c) => c.live)) continue;
+    const drawn = captures(e.annotated);
+    if (!drawn.some((c) => c.live)) continue;
+    const fromIt = drawn.some((n) => imported.some((o) => basename(o.path) === basename(n.path) && same(o.path, n.path)));
+    if (fromIt) {
+      return { ok: false, error: `${where(e.case, e.slot, e.theme)}: its cover ${basename(old)} is a standalone import board, which a board drawn from it with a live capture never replaces; record that board on the after alone and leave this image out of the call` };
+    }
+  }
+  return null;
 }
 
 const SHA256 = /^[0-9a-f]{64}$/;

@@ -65,13 +65,8 @@ export function bundleMembers(dir: string, fileName: string, list: (dir: string)
   return [...names].sort();
 }
 
-/**
- * The captures in a board's bundle that were not captured live: Fast Browser's
- * import writes the saved image re-encoded as <x>.png beside <x>.capture.json
- * with source "import". A sidecar that does not say "live" counts, as in the
- * redaction check.
- */
-export function importedCaptures(board: string, list: (dir: string) => string[] = (d) => readdirSync(d), read: (p: string) => string | null = readText): string[] {
+/** Every capture in a board's bundle, each with whether its sidecar says "live". */
+export function boardCaptures(board: string, list: (dir: string) => string[] = (d) => readdirSync(d), read: (p: string) => string | null = readText): Array<{ path: string; live: boolean }> {
   const dir = dirname(board);
   let names: string[];
   try {
@@ -90,8 +85,18 @@ export function importedCaptures(board: string, list: (dir: string) => string[] 
     } catch {
       source = undefined;
     }
-    return source === "live" ? [] : [join(dir, png)];
+    return [{ path: join(dir, png), live: source === "live" }];
   });
+}
+
+/**
+ * The captures in a board's bundle that were not captured live: Fast Browser's
+ * import writes the saved image re-encoded as <x>.png beside <x>.capture.json
+ * with source "import". A sidecar that does not say "live" counts, as in the
+ * redaction check.
+ */
+export function importedCaptures(board: string, list: (dir: string) => string[] = (d) => readdirSync(d), read: (p: string) => string | null = readText): string[] {
+  return boardCaptures(board, list, read).flatMap((c) => (c.live ? [] : [c.path]));
 }
 
 export interface CopyRequest {
