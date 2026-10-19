@@ -144,41 +144,12 @@ describe("stage lifecycle", () => {
     db.close();
   });
 
-  test("stage-start with onRunning refuse leaves a running latest attempt untouched", () => {
+  test("a refused stage-start leaves the running latest attempt untouched", () => {
     const db = started();
     stageStart(db, "plan", {}, 10);
-    const again = stageStart(db, "plan", {}, 20, { onRunning: "refuse" });
+    const again = stageStart(db, "plan", {}, 20);
     expect(again).toMatchObject({ ok: false, code: 2 });
     expect(db.query("SELECT attempt, status, reason, ended_at FROM stages ORDER BY attempt").all()).toEqual([{ attempt: 1, status: "running", reason: null, ended_at: null }]);
-    db.close();
-  });
-
-  test("stage-start with onRunning supersede ends the running attempt redirected and runs the next, in one step", () => {
-    const db = started();
-    stageStart(db, "plan", {}, 10);
-    expect(stageStart(db, "plan", { HERDR_PANE_ID: "w1:p4" }, 20, { onRunning: "supersede" })).toEqual({ ok: true });
-    expect(db.query("SELECT attempt, status, reason, started_at, ended_at FROM stages ORDER BY attempt").all()).toEqual([
-      { attempt: 1, status: "redirected", reason: "superseded by attempt 2", started_at: 10, ended_at: 20 },
-      { attempt: 2, status: "running", reason: null, started_at: 20, ended_at: null },
-    ]);
-    expect((db.query("SELECT COUNT(*) AS n FROM stages WHERE status='running'").get() as { n: number }).n).toBe(1);
-    expect(db.query("SELECT current_stage FROM runs").get()).toEqual({ current_stage: "plan" });
-    expect(db.query("SELECT contract, scope, selection, decided_by, decided_at FROM decisions").all()).toEqual([
-      { contract: "gate@1", scope: "redirect:plan:1", selection: '{"from":"plan","to":"plan","reason":"superseded by attempt 2"}', decided_by: "run_stage", decided_at: 20 },
-    ]);
-    expect(db.query("SELECT value FROM fields WHERE key='herdr-pane'").get()).toEqual({ value: "w1:p4" });
-    db.close();
-  });
-
-  test("stage-start with onRunning supersede on a stage that is not running behaves as a normal start", () => {
-    const db = started();
-    stageStart(db, "plan", {}, 10);
-    stageEnd(db, "plan", "done", { now: 20 });
-    expect(stageStart(db, "plan", {}, 30, { onRunning: "supersede" })).toEqual({ ok: true });
-    expect(db.query("SELECT attempt, status, reason FROM stages ORDER BY attempt").all()).toEqual([
-      { attempt: 1, status: "done", reason: null },
-      { attempt: 2, status: "running", reason: null },
-    ]);
     db.close();
   });
 

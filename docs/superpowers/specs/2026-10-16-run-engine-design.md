@@ -133,8 +133,8 @@ Items 3 and 4 above are superseded, and both revisions are temporary:
    `rt skills sync` does not show them while the severity is `warn`.
 
 Both revisions ended on 2026-10-18, once every caller had moved onto the
-new tools: `stage-start` passes `onRunning: "refuse"`, so `run_stage start`
-on a running stage refuses like the engine paths, and
+new tools: `run_stage start` on a running stage refuses like the engine
+paths (the `onRunning` option is gone), and
 `FIELD_CONTRACT_SEVERITY` is `"error"`. Under `"error"`, `rt skills compile
 --json` still lists the lines under `fieldContract` (its envelope has no
 failures key), beside `written: false` and exit 1.
@@ -172,19 +172,15 @@ additive).
 
 ### `run_stage start` on a running stage
 
-`stageStart(db, name, env, now, { onRunning })` inserts only when the stage's
-latest row is not `running`, in the same statement (`INSERT ... SELECT ...
-WHERE NOT EXISTS`), so a concurrent start cannot slip between check and
-write. With `onRunning: "refuse"` (the default, and what every caller passes,
-the MCP `run_stage` tool and `rt runs stage-start` included) a running latest
-row returns code 2 with: `stage <name> attempt <n> is still running; resume
-it with run_enter, end it with run_next, or start its next attempt with
-run_resolve (next: iterate)`, and nothing is written. With `onRunning:
-"supersede"`, which no caller passes since 2026-10-18, the running row is ended `redirected` (reason `superseded by
-attempt <n+1>`) and the next attempt inserted in one IMMEDIATE transaction,
-which also records the `gate@1` decision `redirect:<stage>:<n>` (`decided_by`
-`run_stage`, selection `{from: <stage>, to: <stage>, reason: "superseded by
-attempt <n+1>"}`).
+`stageStart(db, name, env, now)` inserts only when the stage's latest row
+is not `running`, in the same statement (`INSERT ... SELECT ... WHERE NOT
+EXISTS`), so a concurrent start cannot slip between check and write. A
+running latest row returns code 2 with: `stage <name> attempt <n> is still
+running; resume it with run_enter, end it with run_next, or start its next
+attempt with run_resolve (next: iterate)`, and nothing is written. Every
+caller gets this, the MCP `run_stage` tool and `rt runs stage-start`
+included; the `onRunning: "supersede"` option the revision above added was
+deleted on 2026-10-18 with its last caller.
 
 ### The position object
 

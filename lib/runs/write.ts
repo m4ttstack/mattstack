@@ -100,37 +100,8 @@ export function runStatus(db: Database, status: string, now: number = Date.now()
   }
 }
 
-export type StageStartOpts = {
-  // "refuse" answers code 2 and writes nothing when the stage's latest attempt
-  // is running; "supersede" ends that attempt redirected and starts the next.
-  // Every caller passes "refuse", run_stage start included: a new attempt
-  // goes through run_resolve, which records why.
-  onRunning?: "refuse" | "supersede";
-};
-
-export function stageStart(
-  db: Database,
-  name: string,
-  env: NodeJS.ProcessEnv,
-  now: number = Date.now(),
-  opts: StageStartOpts = {},
-): Ok | Fail {
-  const start = (): Ok | Fail => {
-    if (opts.onRunning === "supersede") {
-      const latest = db.query("SELECT attempt, status FROM stages WHERE name=? ORDER BY attempt DESC LIMIT 1").get(name) as { attempt: number; status: string } | undefined;
-      if (latest?.status === "running") {
-        const reason = `superseded by attempt ${latest.attempt + 1}`;
-        db.run("UPDATE stages SET status='redirected', ended_at=?, reason=? WHERE name=? AND attempt=?", [now, reason, name, latest.attempt]);
-        const recorded = decisionRecord(db, {
-          contract: "gate@1",
-          scope: `redirect:${name}:${latest.attempt}`,
-          selection: JSON.stringify({ from: name, to: name, reason }),
-          decidedBy: "run_stage",
-          now,
-        });
-        if (!recorded.ok) throw new Error(recorded.error);
-      }
-    }
+export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, now: number = Date.now()): Ok | Fail {
+  try {
     db.run(
       `INSERT INTO stages (run_id, name, status, attempt, started_at)
        SELECT id, ?, 'running', COALESCE((SELECT MAX(attempt) FROM stages WHERE name = ?), 0) + 1, ? FROM runs
@@ -150,12 +121,6 @@ export function stageStart(
     db.run("UPDATE runs SET current_stage=?", [name]);
     recordIdentity(db, env, now);
     return { ok: true };
-  };
-  try {
-    if (opts.onRunning !== "supersede" || db.inTransaction) return start();
-    // IMMEDIATE takes the write lock before the read of the latest attempt, so a
-    // concurrent start cannot slip between the supersede and the insert.
-    return db.transaction(start).immediate();
   } catch (err) {
     return { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };
   }
