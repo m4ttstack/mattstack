@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -135,6 +136,15 @@ describe("run_start", () => {
         "--pack-dirs", "/real/pack",
       ]);
     });
+  });
+});
+
+describe("run_stage description", () => {
+  test("says a start on a running stage refuses and names the moves, never that it supersedes", () => {
+    const { description } = tool(fakeDeps().deps, "run_stage");
+    expect(description).not.toContain("supersede");
+    expect(description).toContain("A start on a stage whose latest attempt is still running refuses");
+    for (const move of ["run_enter", "run_next", "run_resolve"]) expect(description).toContain(move);
   });
 });
 
@@ -514,6 +524,17 @@ describe("run engine tools against a real run store", () => {
 
     const resolved = await tool(deps, "run_resolve").handler({ runDb: e.runDb, stage: "build", next: "redirect", to: "plan", note: "again", decidedBy: "pane" }, env);
     expect(resolved.body).toMatchObject({ ok: true, applied: "redirect", next: { stage: "plan", attempt: 2 } });
+  });
+
+  test("run_stage start on a running stage refuses and leaves the attempt running", async () => {
+    const { skillDir, env, deps } = store();
+    const e = (await tool(deps, "run_enter").handler({ flags: FLAGS_DEMO, skillDir }, env)).body as { runDb: string };
+    const res = await tool(deps, "run_stage").handler({ runDb: e.runDb, action: "start", stage: "plan" }, env);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("stage plan attempt 1 is still running; resume it with run_enter");
+    const db = new Database(e.runDb, { readonly: true });
+    expect(db.query("SELECT attempt, status FROM stages WHERE name = 'plan'").all()).toEqual([{ attempt: 1, status: "running" }]);
+    db.close();
   });
 
   test("run_field_set with ifSha256 against a real run: a match writes, a stale hash refuses and keeps the value", async () => {

@@ -56,7 +56,8 @@ every gate and every judgment step keeps its own section.
 - No rt code changes. `run_stage start`'s supersede stays on: ship,
   watch-ci, sync-open-mrs, review, self-review, receive-review and the
   shepherdr job template still call `run_start` + `run_stage start`
-  (listed in the report so the refusal can flip once they move).
+  (listed in the report so the refusal can flip once they move) The refusal flipped on
+  2026-10-18, after they moved.
 - No new tools. `run_record_commits` (recon C7) and a `branch_create`
   fallback tool do not exist; implement and self-review keep their
   `git log` node, provision keeps its plain-branch git nodes.

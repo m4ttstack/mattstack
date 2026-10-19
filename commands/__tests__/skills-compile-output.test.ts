@@ -52,3 +52,9 @@ test("a misplaced skill names the fix", () => {
     "2 skills are in the wrong folder\n  why: A skill's folder has to match whether it is public or internal.\n  next: rt skills surface apply\n  a\n  b\n",
   );
 });
+
+test("field-contract failures are titled as such, not counted as verbs, and keep their exact words", () => {
+  const line = 'field contract: attachments/stage-plan/SKILL.md:3 reads "extra.plan-verdict", which nothing in this pack writes';
+  expect(renderPlain([out.failure(compileFailure([line]))])).toBe(`1 field-contract error\n  ${line}\n`);
+  expect(compileFailure([line, line]).title).toBe("2 field-contract errors");
+});
