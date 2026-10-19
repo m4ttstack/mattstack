@@ -558,7 +558,8 @@ brief (browser-evidence's `Write one brief per board`), stem
 
 - The case's BEFORE has a bundle (a `<stem>.spec.json` beside its board):
   a pair, `state: BEFORE → AFTER`, with `before:` that spec's absolute
-  path. The pair board covers the BEFORE image too.
+  path. The pair board covers the BEFORE image too, unless the BEFORE's
+  board is an import board (Record the evidence).
 - Otherwise (a different screen, a ticket link or text, a new case): its
   own `AFTER` board, with no `before:`.
 
@@ -597,7 +598,10 @@ still runs.
 `label`), `tree` is `<root>`. A browser board's images carry it as
 `annotated` (`~/.fast-browser/screenshots/<stem>.png`) with the brief's
 claim as `caption`, as browser-evidence's Record the board says; a pair
-board also covers the case's BEFORE, named by its `value` path. Recorded
+board also covers the case's BEFORE, named by its `value` path, unless that
+BEFORE's board is an import board (its `<stem>.c1.capture.json` in the
+record's folder says `"source": "import"`): the BEFORE keeps that board and
+stays out of this call, so the pair covers the AFTER alone. Recorded
 goes straight to the attach: this verb writes no `evidence` of its own.
 
 ### Attach the evidence (evidence-record)

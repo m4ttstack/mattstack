@@ -144,6 +144,7 @@ describe("tool defs", () => {
     const attach = defs.find((t) => t.name === "evidence_attach")!;
     for (const t of [record, attach]) expect((t.inputSchema as { additionalProperties?: unknown }).additionalProperties).toBe(false);
     expect(record.description).toContain("evidence field");
+    expect(record.description).toContain("a standalone import board keeps it");
     expect(attach.description).toContain("attach gate's proceed");
     expect(MR_UPLOAD_TIMEOUT_MS).toBe(120_000);
   });
