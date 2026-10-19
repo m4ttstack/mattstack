@@ -206,14 +206,15 @@ describe("runReadySteps — nvm", () => {
     expect(warnings[0]).toContain(repo);
   });
 
-  test("a failing step's output leaves out the nvm marker", async () => {
+  test("a failing step's output names the .nvmrc fallback instead of the marker", async () => {
     installFakeNvm(["20"]);
-    writeFileSync(join(repo, ".nvmrc"), "22.22.0\n");
-    const result = await runReadySteps(repo, [{ run: "echo boom; exit 1" }]);
+    writeFileSync(join(repo, ".nvmrc"), "22.22.0\r\n");
+    const result = await runReadySteps(repo, [{ run: "echo boom >&2; exit 1" }]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.output).toContain("boom");
+      expect(result.output.startsWith("boom")).toBe(true);
       expect(result.output).not.toContain("__rt_nvm");
+      expect(result.output).toContain("nvm could not switch to the node in .nvmrc (22.22.0)");
     }
   });
 

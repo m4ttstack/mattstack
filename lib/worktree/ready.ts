@@ -70,7 +70,7 @@ const NVM_PRELUDE = [
   "fi",
 ].join("\n");
 
-const NVM_MISSING_LINE = new RegExp(`^${NVM_MISSING_MARKER} (.*)\\n?`, "m");
+const NVM_MISSING_LINE = new RegExp(`^${NVM_MISSING_MARKER} ([^\\r\\n]*)\\r*\\n?`, "m");
 
 /** Run ready steps in order via zsh, stopping at the first failure. */
 export async function runReadySteps(
@@ -87,16 +87,16 @@ export async function runReadySteps(
     });
     const missing = NVM_MISSING_LINE.exec(r.stderr);
     const stderr = missing ? r.stderr.replace(NVM_MISSING_LINE, "") : r.stderr;
-    if (missing && !reportedMissingNvmVersion) {
+    const fallback = missing
+      ? `nvm could not switch to the node in .nvmrc (${missing[1]!.trim() || "empty"}), so this step ran on nvm's default node`
+      : null;
+    if (fallback && !reportedMissingNvmVersion) {
       reportedMissingNvmVersion = true;
-      warn(
-        "worktree",
-        `${worktreePath}: .nvmrc asks for node ${missing[1]!.trim()}, which nvm has not installed; ready steps used nvm's default node`,
-        { context: { worktreePath, nvmrc: missing[1]!.trim() } },
-      );
+      warn("worktree", `${worktreePath}: ${fallback}`, { context: { worktreePath, nvmrc: missing![1]!.trim() } });
     }
     if (r.exitCode !== 0) {
       let output = r.stdout + stderr;
+      if (fallback) output += `\n(${fallback}; run nvm install in this tree)`;
       // 127 under a daemon is nearly always a PATH mystery: name the shell
       // contract so the failure is actionable instead of a silent backoff loop.
       if (r.exitCode === 127 || /command not found/.test(output)) {
