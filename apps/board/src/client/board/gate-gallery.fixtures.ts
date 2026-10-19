@@ -450,6 +450,31 @@ const codeChangesRecommended = question(
   ]
 );
 
+/** John's second response, one revise in: the header reads "round 2 · revise 1". */
+export const respondPlanSecondRound: GalleryGate = {
+  mr: {
+    ...MRS.flagTargeting,
+    respond: {
+      status: 'drafting',
+      sessionId: 'gallery-resp',
+      person: 'john',
+      responseRound: 2,
+    },
+  } as BoardMRWithReview,
+  gate: {
+    ...respondPlan.gate,
+    gateId: 'gallery-respond-plan-round-two',
+    context: ctx({
+      'gate-ctx': 'plan@1',
+      reviewer: 'john',
+      round: 3,
+      threads: { total: 2, blocking: 1 },
+      adjudication: 'both valid · fresh-context adjudicated',
+    }),
+    questions: respondPlan.gate.questions?.slice(0, 2),
+  },
+};
+
 export const respondPlanTwoThreads: GalleryGate = {
   mr: MRS.sensorCount,
   gate: {

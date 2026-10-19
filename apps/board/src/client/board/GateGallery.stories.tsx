@@ -116,6 +116,10 @@ export const RespondPlan = face(
   'Respond: plan, structured (plan@1, thread@1)',
   G.respondPlan
 );
+export const RespondPlanSecondRound = face(
+  'Respond: plan, second response with a revise',
+  G.respondPlanSecondRound
+);
 export const RespondPlanTwoThreads = face(
   'Respond: plan, structured, two threads',
   G.respondPlanTwoThreads
