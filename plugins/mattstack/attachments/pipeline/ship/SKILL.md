@@ -477,9 +477,9 @@ digraph ship {
     mr_ready -> which_exit;
     gh_pr_ready -> which_exit;
 
-    which_exit -> run_close_done [label="own run: done, or stood down"];
+    which_exit -> run_close_done [label="own run: done, stood down, or a re-capture's failure"];
     which_exit -> run_close_abandoned [label="own run: abort"];
-    which_exit -> run_close_failed [label="own run: a failure or a hand back"];
+    which_exit -> run_close_failed [label="own run: a failure or a hand back, not on a re-capture"];
     which_exit -> hand_back_caller [label="inherited: any exit but hold"];
     which_exit -> run_hold [label="hold"];
     run_close_done -> shipped;
@@ -495,9 +495,12 @@ Yes when the run graph reopened the shipped run for the operator's new
 AFTER. Nothing to push is a clean tree and an empty `git log
 @{upstream}..`: the MR already carries HEAD, so the flow goes straight to
 the AFTER with no gate, no `git_push` and no `mr_create`. The operator's
-ask is the attach consent, `mrUrl` is the run's `mr`, and the capture's
-`page:` is on HEAD. The run is running again, so a hold is `run_hold` and
-the end is `run_close`. Anything to push takes the usual route.
+ask is the attach consent and covers the title and description write
+after it, `mrUrl` is the run's `mr`, and the capture's `page:` is on HEAD.
+The run is running again, so a hold is `run_hold` and the end is
+`run_close`. A re-capture's failure still closes `done`, its reason in the
+report: the MR shipped, and only a done run reopens for the next try.
+Anything to push takes the usual route.
 
 ### Run the domain steps before the gate (none when unbound)
 

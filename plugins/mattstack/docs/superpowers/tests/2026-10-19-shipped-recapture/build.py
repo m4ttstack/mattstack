@@ -26,6 +26,7 @@ def inline(text, depth=0):
 
 SC = {"stage-recapture": ["pipeline/stage-ship"], "stage-unshipped": ["pipeline/stage-ship"],
       "stage-repair": ["pipeline/stage-ship"], "ship-recapture": ["pipeline/ship"],
+      "ship-recapture-fail": ["pipeline/ship"],
       "work-recapture": ["pipeline/work"]}
 for name, skills in SC.items():
     out = (T / "headers" / f"{name}.md").read_text()

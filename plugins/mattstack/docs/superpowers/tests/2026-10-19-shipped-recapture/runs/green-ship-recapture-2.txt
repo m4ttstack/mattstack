@@ -2,4 +2,4 @@
 2. no
 3. no
 4. run_hold, yes
-5. run_close {workType: ship, stage: ship, outcome: done}
+5. run_close {runDb: /runs/widgets/r7/state.db, workType: ship, stage: ship, outcome: done}

@@ -151,9 +151,13 @@ next move. A done run reopens only through `run_stage start` with
 starts the stage's next attempt, sets the run `running` and clears
 `ended_at`, so `run_hold`, `run_next`, `run_resolve` and `run_enter`'s
 resume work on it until it closes again. The stage must be in the run's
-manifest when it has one. Only a done run reopens; a failed or abandoned
-run's refusal names a fresh run (`run_enter` with `fresh: true`). The flag
-keeps a stale `runDb` from reopening a finished run by accident.
+manifest when it has one. The reopen clears the stage's consent fields
+(`CONSENT_FIELDS`), as a retry or redirect does, and adopts the stage's
+latest attempt instead of starting one when a run closed by `run_status`
+left it running. Only a done run reopens; a failed or abandoned run's
+refusal names a fresh run (`run_enter` with `fresh: true`), and `reopen` on
+a running run refuses ("resume it with run_enter"). The flag keeps a stale
+`runDb` from reopening a finished run by accident.
 
 ## Design
 

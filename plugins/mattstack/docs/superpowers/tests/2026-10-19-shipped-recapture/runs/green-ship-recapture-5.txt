@@ -1,4 +1,4 @@
-1. run_stage, capture, evidence_record, evidence_attach, run_close
+1. run_list, run_stage, capture, evidence_record, evidence_attach, run_close
 2. no
 3. no
 4. run_hold, yes
