@@ -211,8 +211,9 @@ or it has none, a URL curl refuses, or one that redirects, is one no tool
 can fetch, and it is never fetched another way: the case takes the
 link-only branch.
 
-The saved file is the case's BEFORE `path`, and the first `evidence_record`
-call that names it carries `source: "ticket"` on that image: the record then
+The saved file is the case's BEFORE `path`, and every `evidence_record`
+call that names it carries `source: "ticket"` on that image, the first by
+this path and each later one by its run-folder copy's path: the record then
 refuses a waiver on it and the upload refuses its own path, so only its
 board ever leaves the machine. Once that call returns the image's run-folder
 copy in `value`, delete the saved original from the session temp root
@@ -301,7 +302,8 @@ text capture as `transcript`; the ticket location or a saved image's link
 as `url`; `tree` the worktree. A browser case's board that is ready rides
 on the first call: `path` its capture (`<stem>.c1.png`), `annotated` the
 board, `caption` the brief's claim (browser-evidence, Record the board).
-A saved ticket image carries `source: "ticket"`, and once the first call
+A saved ticket image carries `source: "ticket"` on this call and on every
+later call that names its copy, and once the first call
 returns its copy in `value`, delete the temp-root original (Save the ticket
 image as the BEFORE). The attach gate's `annotations` answers feed the annotate-or-waive pass
 for every other image. **Hand back the markdown** ends here, nothing

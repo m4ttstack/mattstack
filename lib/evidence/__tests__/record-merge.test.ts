@@ -3,10 +3,12 @@ import { validateEvidence } from "../../../packages/rt-client/src/evidence.ts";
 import {
   type RawRecord,
   imageAddresses,
+  markKnownTickets,
   mergeRecord,
   parseCurrent,
   serializeRecord,
   stampTicketBytes,
+  ticketEntries,
   uncoveredImages,
 } from "../record-merge.ts";
 
@@ -261,5 +263,49 @@ describe("serializeRecord", () => {
     const r = serializeRecord(parseCurrent(v));
     expect(r.ok).toBe(true);
     if (r.ok) expect(JSON.parse(r.value)).toEqual(JSON.parse(v));
+  });
+});
+
+describe("markKnownTickets", () => {
+  const SHA = "e".repeat(64);
+  const known = [{ path: "/run/t.png", size: 5, sha256: SHA }];
+  const one = (before: object) => parseCurrent(JSON.stringify({ v: 2, cases: [{ id: "t", label: "T", before }] }));
+  const files = (o: Record<string, { size: number; sha256: string }>) => ({
+    real: (p: string) => p.replace("/link/", "/run/"),
+    size: (p: string) => o[p]?.size ?? null,
+    sha256: (p: string) => o[p]?.sha256 ?? null,
+  });
+
+  test("an unmarked image at a known ticket path takes the mark and the recorded bytes, the file unread", () => {
+    for (const path of ["/run/t.png", "/link/t.png"]) {
+      const record = one({ path, annotated: "/run/b.png", caption: "c" });
+      markKnownTickets(record, known, files({}));
+      expect(record.cases[0]!.before).toEqual({ path, source: "ticket", size: 5, sha256: SHA, annotated: "/run/b.png", caption: "c" });
+    }
+  });
+
+  test("an unmarked image with a known ticket's bytes at any path takes the mark", () => {
+    const record = one({ path: "/run/elsewhere.png", waiver: "w" });
+    markKnownTickets(record, known, files({ "/run/elsewhere.png": { size: 5, sha256: SHA } }));
+    expect(record.cases[0]!.before).toMatchObject({ source: "ticket", size: 5, sha256: SHA });
+  });
+
+  test("other bytes stay unmarked, a size that matches no ticket is never hashed, and a gone file is skipped", () => {
+    const hashed: string[] = [];
+    const deps = { ...files({}), size: (p: string) => (p === "/run/same-size.png" ? 5 : p === "/run/big.png" ? 9 : null), sha256: (p: string) => { hashed.push(p); return "f".repeat(64); } };
+    for (const path of ["/run/same-size.png", "/run/big.png", "/run/gone.png"]) {
+      const record = one({ path, waiver: "w" });
+      markKnownTickets(record, known, deps);
+      expect(record.cases[0]!.before).toEqual({ path, waiver: "w" });
+    }
+    expect(hashed).toEqual(["/run/same-size.png"]);
+  });
+
+  test("ticketEntries lists each ticket image with recorded bytes", () => {
+    const record = parseCurrent(JSON.stringify({ v: 2, cases: [
+      { id: "t", label: "T", before: { path: "/run/t.png", source: "ticket", size: 5, sha256: SHA, waiver: "x" }, after: { path: "/run/a.png", waiver: "w" } },
+      { id: "u", label: "U", before: { light: { path: "/run/legacy.png", source: "ticket" } } },
+    ] }));
+    expect(ticketEntries(record)).toEqual(known);
   });
 });

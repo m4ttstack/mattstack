@@ -8,12 +8,14 @@
 import { createHash } from "crypto";
 import { readFileSync, realpathSync, statSync } from "fs";
 import { basename } from "path";
-import { evidenceShots, readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
+import { evidenceShots, readEvidence, uploadablePaths, type EvidenceRecord, type EvidenceShot } from "../../packages/rt-client/src/evidence.ts";
+import { parseTickets, ticketShots } from "../evidence/tickets-field.ts";
 
 /** The one remedy for a file a run's record does not hold: the tool that copies and records it, never a raw field write. */
 export const RECORD_REMEDY = "record it with evidence_record first";
 
-export type RunEvidenceLookup = { found: false } | { found: true; evidence: string | null };
+/** tickets is the run's evidence-tickets field: every ticket image the run has copied, recorded or not. */
+export type RunEvidenceLookup = { found: false } | { found: true; evidence: string | null; tickets?: string | null };
 
 type Warn = (message: string, context: { err: unknown; path: string }) => void;
 type Probe = { kind: "gone" } | { kind: "file"; size: number; read: () => Uint8Array } | { kind: "unreadable"; err: unknown };
@@ -40,9 +42,11 @@ const IS_TICKET = (filename: string) => `${filename} is the unredacted original 
  * the ticket file is never read and need not exist; the record is trusted
  * over the file. A legacy shot with none
  * reads the ticket file: unreadable fails closed, gone cannot be compared.
+ * tickets adds the run's remembered ticket images the record may no longer name.
  */
 export function ticketCopyRefusal(o: {
   record: EvidenceRecord;
+  tickets?: EvidenceShot[];
   realpath: string;
   filename: string;
   bytes?: Uint8Array;
@@ -54,7 +58,7 @@ export function ticketCopyRefusal(o: {
   const look = o.probe ?? probe;
   let mine: string | null = null;
   const mineOf = (b: Uint8Array) => (mine ??= sha256(b));
-  for (const { shot } of evidenceShots(o.record)) {
+  for (const shot of [...evidenceShots(o.record).map((s) => s.shot), ...(o.tickets ?? [])]) {
     if (shot.source !== "ticket") continue;
     if (o.bytes && shot.sha256 !== undefined) {
       if (shot.path === o.realpath || resolve(shot.path) === o.realpath) return IS_TICKET(o.filename);
@@ -101,11 +105,12 @@ export function evidenceUploadRefusal(o: {
 }): string | null {
   if (!o.run.found) return `run ${o.runId} not found`;
   const record = readEvidence(o.run.evidence);
-  if (record.version !== 2) return `run ${o.runId} has no evidence record; ${RECORD_REMEDY}`;
   const resolve = o.resolve ?? safeRealpath;
   const same = (p: string) => resolve(p) === o.realpath;
-  const ticket = ticketCopyRefusal({ record, realpath: o.realpath, filename: o.filename, bytes: o.bytes, resolve, warn: o.warn });
+  const tickets = ticketShots(parseTickets(o.run.tickets ?? null));
+  const ticket = ticketCopyRefusal({ record, tickets, realpath: o.realpath, filename: o.filename, bytes: o.bytes, resolve, warn: o.warn });
   if (ticket) return ticket;
+  if (record.version !== 2) return `run ${o.runId} has no evidence record; ${RECORD_REMEDY}`;
   if (uploadablePaths(record).some(same)) return null;
   const raw = evidenceShots(record).find(({ shot }) => shot.annotated && same(shot.path));
   if (raw) {

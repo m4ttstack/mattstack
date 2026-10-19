@@ -1,4 +1,5 @@
 import { parseEvidence } from "../../packages/rt-client/src/evidence.ts";
+import type { TicketEntry } from "./tickets-field.ts";
 
 export type Slot = "before" | "after";
 export type Theme = "light" | "dark";
@@ -268,6 +269,44 @@ export function stampTicketBytes(
     }
   }
   return { ok: true };
+}
+
+const SHA256 = /^[0-9a-f]{64}$/;
+
+export function ticketEntries(record: RawRecord): TicketEntry[] {
+  return imageAddresses(record).flatMap(({ image: i }) =>
+    i.source === "ticket" && Number.isSafeInteger(i.size) && typeof i.sha256 === "string" && SHA256.test(i.sha256)
+      ? [{ path: i.path, size: i.size as number, sha256: i.sha256 }]
+      : []);
+}
+
+/**
+ * The ticket mark never rests on the caller repeating source: an image at a
+ * known ticket image's path takes that image's recorded bytes, and one whose
+ * bytes match a known ticket image is that image wherever it sits. Only an
+ * image whose size matches a known ticket image is hashed.
+ */
+export function markKnownTickets(
+  record: RawRecord,
+  known: TicketEntry[],
+  files: { real: (p: string) => string; size: (p: string) => number | null; sha256: (p: string) => string | null },
+): void {
+  if (known.length === 0) return;
+  const byPath = new Map(known.map((t) => [files.real(t.path), t]));
+  const sizes = new Set(known.map((t) => t.size));
+  for (const { image } of imageAddresses(record)) {
+    if (image.source === "ticket") continue;
+    let match = byPath.get(files.real(image.path));
+    if (!match) {
+      const size = files.size(image.path);
+      const sha = size !== null && sizes.has(size) ? files.sha256(image.path) : null;
+      match = sha === null ? undefined : known.find((t) => t.size === size && t.sha256 === sha);
+    }
+    if (!match) continue;
+    image.source = "ticket";
+    image.size = match.size;
+    image.sha256 = match.sha256;
+  }
 }
 
 export function serializeRecord(
