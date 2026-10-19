@@ -354,13 +354,79 @@ function reviewLogged(mr: BoardMR): boolean {
   );
 }
 
-function respondItemLabel(
-  status?: RespondStatus,
-  interrupted?: boolean
+export interface RespondChoice {
+  username: string;
+  name: string;
+  /** The round a launch for this person would record. */
+  nextRound: number;
+  open: number;
+  /** The picker's right-hand text. */
+  hint: string;
+}
+
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+/** '' for a first round: the counter only shows from round 2. */
+function roundSuffix(round: number): string {
+  return round < 2 ? '' : ` (round ${round})`;
+}
+
+/** Everyone the respond item can answer: people with something open, plus
+    people the MR already has a round for and nothing open (a redo). A redo
+    person has no name on the snapshot, so the username stands in. */
+function respondChoices(
+  mr: Pick<BoardMR, 'respondTargets' | 'respondRounds'>
+): RespondChoice[] {
+  const rounds = mr.respondRounds ?? {};
+  const choices: RespondChoice[] = [];
+  const seen = new Set<string>();
+  for (const t of mr.respondTargets ?? []) {
+    const open = t.openThreads + t.openComments;
+    if (open === 0) continue;
+    seen.add(t.username);
+    const nextRound = (rounds[t.username] ?? 0) + 1;
+    const counts = [
+      t.openThreads > 0 && plural(t.openThreads, 'thread'),
+      t.openComments > 0 && plural(t.openComments, 'comment'),
+    ].filter(Boolean);
+    choices.push({
+      username: t.username,
+      name: t.name,
+      nextRound,
+      open,
+      hint: [nextRound > 1 && `round ${nextRound}`, counts.join(' · ')]
+        .filter(Boolean)
+        .join(' · '),
+    });
+  }
+  for (const [username, round] of Object.entries(rounds)) {
+    if (seen.has(username)) continue;
+    const nextRound = round + 1;
+    choices.push({
+      username,
+      name: username,
+      nextRound,
+      open: 0,
+      hint: `round ${nextRound} · nothing open · redo`,
+    });
+  }
+  return choices.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function respondChoiceLabel(c: RespondChoice): string {
+  const verb = c.open > 0 ? 'respond to' : 'redo response to';
+  return `${verb} ${c.name}${roundSuffix(c.nextRound)}`;
+}
+
+/** The name a respond label shows for a username: the display name while
+    the person still has something open. */
+function respondPersonName(
+  mr: Pick<BoardMR, 'respondTargets'>,
+  username: string
 ): string {
-  if (!status || status === 'error') return 'respond';
-  if (status === 'done' || interrupted) return 'redo response';
-  return 'focus response';
+  return (
+    mr.respondTargets?.find(t => t.username === username)?.name ?? username
+  );
 }
 
 /** A doctor at the api tier never touches a checkout: it retries flaky
@@ -442,6 +508,9 @@ export {
   THREAD_LABEL,
   reviewMenuItems,
   reviewLogged,
-  respondItemLabel,
+  respondChoices,
+  respondChoiceLabel,
+  respondPersonName,
+  roundSuffix,
   doctorItemLabel,
 };

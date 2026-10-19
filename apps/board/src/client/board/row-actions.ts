@@ -20,9 +20,12 @@ import {
   nudgeTargets,
   respondAskBlock,
   respondAskTarget,
-  respondItemLabel,
+  respondChoiceLabel,
+  respondChoices,
+  respondPersonName,
   reviewLogged,
   reviewMenuItems,
+  roundSuffix,
   SEAT_HINT,
 } from './format.ts';
 import { laneDismissed } from './row-status.ts';
@@ -54,7 +57,7 @@ export type LaunchFlow =
   | 'rebase-local';
 
 export type ActionRequest =
-  | { kind: 'launch'; flow: LaunchFlow; intent?: 'focus' }
+  | { kind: 'launch'; flow: LaunchFlow; intent?: 'focus'; person?: string }
   | { kind: 'mr'; action: MrAction }
   | { kind: 'refresh' }
   | { kind: 'draft'; draft: boolean }
@@ -279,35 +282,70 @@ export function rowActions(
       )
     );
     if (own) {
-      const label = respondItemLabel(
-        mrx.respond?.status,
-        laneInterrupted(mrx.orphan, mrx.respond)
-      );
-      agent.push(
-        label === 'focus response'
-          ? agentItem('respond', 'focus-respond', label, {
-              kind: 'launch',
-              flow: 'respond',
-              intent: 'focus',
-            })
-          : agentItem(
-              'respond',
-              'respond',
-              label,
-              { kind: 'launch', flow: 'respond' },
-              {
-                notable: true,
-                ...(label === 'redo response'
-                  ? { redo: 'respond' as const }
-                  : {}),
-              }
-            )
-      );
+      const r = mrx.respond;
+      const interrupted = laneInterrupted(mrx.orphan, r);
+      const running =
+        !!r && r.status !== 'done' && r.status !== 'error' && !interrupted;
+      const aboutPerson = (who: string | undefined, round?: number) =>
+        who
+          ? ` to ${respondPersonName(mrx, who)}${roundSuffix(round ?? 0)}`
+          : '';
+      const choices = respondChoices(mrx);
+      const respondItem = (): RowAction | null => {
+        if (running)
+          return agentItem(
+            'respond',
+            'focus-respond',
+            `focus response${aboutPerson(r.person, r.responseRound)}`,
+            { kind: 'launch', flow: 'respond', intent: 'focus' }
+          );
+        const only = choices.length === 1 ? choices[0]! : undefined;
+        if (only)
+          return agentItem(
+            'respond',
+            'respond',
+            respondChoiceLabel(only),
+            { kind: 'launch', flow: 'respond', person: only.username },
+            {
+              notable: true,
+              ...(only.open === 0 ? { redo: 'respond' as const } : {}),
+            }
+          );
+        if (choices.length > 1)
+          return agentItem(
+            'respond',
+            'respond',
+            'respond to…',
+            { kind: 'launch', flow: 'respond' },
+            {
+              pick: {
+                title: 'respond to',
+                aria: 'respond',
+                options: choices.map(c => ({
+                  value: c.username,
+                  label: c.name,
+                  hint: c.hint,
+                })),
+              },
+            }
+          );
+        if (r && (r.status === 'done' || interrupted))
+          return agentItem(
+            'respond',
+            'respond',
+            'redo response',
+            { kind: 'launch', flow: 'respond' },
+            { notable: true, redo: 'respond' }
+          );
+        return null;
+      };
+      const respond = respondItem();
+      if (respond) agent.push(respond);
       sessions.push(
         agentItem(
           'respond',
           'resume-respond',
-          'resume response',
+          `resume response${aboutPerson(r?.person, r?.responseRound)}`,
           { kind: 'launch', flow: 'resume-respond' },
           {
             section: 'sessions',
