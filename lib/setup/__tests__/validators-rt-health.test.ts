@@ -8,7 +8,7 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, ORG_SPARSE_ROW_ID, orgSparseRow, ORG_BRANCH_ROW_ID, orgBranchRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, ORG_SPARSE_ROW_ID, orgSparseRow, ORG_BRANCH_ROW_ID, orgBranchRow, ORG_UNPUBLISHED_PACKS_ROW_ID, orgUnpublishedPacksRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, memberShell, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
@@ -1619,6 +1619,77 @@ describe("orgSparseRow", () => {
   });
 });
 
+describe("orgUnpublishedPacksRow", () => {
+  const NOW = new Date("2026-01-01T12:00:00Z");
+  const sevenHoursAgo = Math.floor(NOW.getTime() / 1000) - 7 * 3600;
+  const WIDGETS_REF = "refs/mattstack/janitor/mattstack/teams/widgets/plugin";
+  const probes = (opts: { refs?: string; dirty?: Record<string, string>; refsCode?: number }) =>
+    fakeProbes({
+      home: "/h",
+      now: NOW,
+      files: {
+        "/h/.mattstack/orgs/acme/.git/config": "",
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}",
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"] },
+      exec: (argv) => {
+        if (argv.includes("for-each-ref")) return { code: opts.refsCode ?? 0, stdout: opts.refs ?? "", stderr: opts.refsCode ? "fatal: bad" : "" };
+        if (argv.includes("status")) return ok(opts.dirty?.[argv.at(-1)!] ?? "");
+        return ok("");
+      },
+    });
+  const noDaemon = async () => null;
+  const blocked = (packs: string[]) => async () => [{ slug: "acme", pullBlockedBy: packs } as TeamSnapshotEntry];
+
+  test("null with no org clone", async () => {
+    expect(await orgUnpublishedPacksRow(fakeProbes({ home: "/h" }), noDaemon)).toBeNull();
+  });
+
+  test("ready with no saved copies, never required or finish-gated", async () => {
+    const r = await orgUnpublishedPacksRow(probes({}), noDaemon);
+    expect(r).toMatchObject({ id: ORG_UNPUBLISHED_PACKS_ROW_ID, status: "ready", required: false, recheck: "on-activate" });
+    expect(r?.finishGated ?? false).toBe(false);
+  });
+
+  test("ready when a saved zone is clean again, published or thrown away", async () => {
+    const r = await orgUnpublishedPacksRow(probes({ refs: `${WIDGETS_REF} ${sevenHoursAgo}\n` }), noDaemon);
+    expect(r).toMatchObject({ status: "ready" });
+  });
+
+  test("needs-you naming the pack, how long it has waited, and the publish or discard steps", async () => {
+    const r = await orgUnpublishedPacksRow(probes({
+      refs: `${WIDGETS_REF} ${sevenHoursAgo}\n`,
+      dirty: { "mattstack/teams/widgets/plugin/": " M mattstack/teams/widgets/plugin/SKILL.md\0" },
+    }), noDaemon);
+    expect(r).toMatchObject({
+      status: "needs-you",
+      detail: "The widgets pack has unpublished changes from 7 hours ago. rt saved a copy on this Mac and published nothing.",
+      action: { type: "steps", steps: ["Publish them: rt skills sync --pack widgets --commit-pending", "Or throw them away: rt skills discard --pack widgets"] },
+    });
+  });
+
+  test("a folder of base packs names each pack that holds a change", async () => {
+    const r = await orgUnpublishedPacksRow(probes({
+      refs: `refs/mattstack/janitor/mattstack/org/packs ${sevenHoursAgo}\n`,
+      dirty: { "mattstack/org/packs/": "?? mattstack/org/packs/base/a.md\0 M mattstack/org/packs/core/b.md\0" },
+    }), noDaemon);
+    expect(r?.detail).toBe("The base pack has unpublished changes from 7 hours ago. The core pack has unpublished changes from 7 hours ago. rt saved a copy on this Mac and published nothing.");
+  });
+
+  test("a pack holding back the pull is named even before rt saved a copy", async () => {
+    const r = await orgUnpublishedPacksRow(probes({}), blocked(["widgets"]));
+    expect(r).toMatchObject({
+      status: "needs-you",
+      detail: "The widgets pack has unpublished changes. Your copy of the org is not taking updates until the widgets pack is published or thrown away.",
+    });
+  });
+
+  test("error when the saved copies cannot be read", async () => {
+    expect(await orgUnpublishedPacksRow(probes({ refsCode: 128 }), noDaemon)).toMatchObject({ status: "error" });
+  });
+});
+
 describe("orgBranchRow", () => {
   const ADMIN_STORE = JSON.stringify({ "mattstack.org": { admins: ["dev1"] } });
   const probes = (branch: string | null, marker: Record<string, unknown>, local: Record<string, unknown> = { forgeUsername: "dev1" }, opts: { store?: string; home?: string } = {}) => {
@@ -1741,6 +1812,7 @@ describe("held layout and row position", () => {
     expect(ids.indexOf("org.layout")).toBe(ids.indexOf("org.folder") + 1);
     expect(ids.indexOf("org.sparse")).toBe(ids.indexOf("org.layout") + 1);
     expect(ids.indexOf("org.branch")).toBe(ids.indexOf("org.sparse") + 1);
+    expect(ids.indexOf("org.unpublished-packs")).toBe(ids.indexOf("org.branch") + 1);
     expect(ids.indexOf("org.folder")).toBeGreaterThan(-1);
   });
 });

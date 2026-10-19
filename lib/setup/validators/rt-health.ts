@@ -31,6 +31,8 @@ import { checkedOutBranch, shellQuote } from "../../team/org-branch.ts";
 import { roleFor } from "../../team/roles.ts";
 import { holdSentence, layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
+import { agoPhrase, JANITOR_REF_PREFIX, packPhrase, packRemedySteps, packsInZone, zoneOfJanitorRef } from "../../team/unpublished-packs.ts";
+import { parsePorcelainZ } from "../../daemon/home-snapshot-plan.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
@@ -799,6 +801,64 @@ export async function orgSparseRow(p: Probes): Promise<Row | null> {
   return row({ ...base, status: "ready", detail: "Your copy holds only the teams you are on" });
 }
 
+export const ORG_UNPUBLISHED_PACKS_ROW_ID = "org.unpublished-packs";
+
+const PACKS_GIT_TIMEOUT_MS = 15_000;
+
+/**
+ * Pack edits rt kept but never published: a zone the snapshot janitor saved
+ * to a local ref that is still dirty, or one the daemon says is holding back
+ * the pull. A saved zone that is clean again was published or thrown away.
+ */
+export async function orgUnpublishedPacksRow(p: Probes, readStatus: () => Promise<TeamSnapshotEntry[] | null>): Promise<Row | null> {
+  const state = orgLayoutState(p);
+  if (state.kind === "none") return null;
+  const dir = orgDirUnder(p.home, state.slug);
+  const base = {
+    id: ORG_UNPUBLISHED_PACKS_ROW_ID,
+    kind: "tool" as const,
+    title: "Unpublished packs",
+    why: "A pack reaches your teammates only when you publish it with rt skills sync. Until then its edits stay on this Mac, and rt keeps a copy of any left for hours so nothing is lost.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  const git = (args: string[]) => p.exec(["git", "-C", dir, ...args], { timeoutMs: PACKS_GIT_TIMEOUT_MS });
+  const refs = await git(["for-each-ref", "--format=%(refname) %(authordate:unix)", JANITOR_REF_PREFIX]);
+  if (refs.code !== 0) return row({ ...base, status: "error", detail: `rt could not read the copies it saved of your pack edits: ${refs.stderr.trim() || "git for-each-ref failed"}` });
+
+  const since = new Map<string, number | null>();
+  for (const line of refs.stdout.split("\n").map((l) => l.trim()).filter((l) => l !== "")) {
+    const [ref, at] = line.split(" ");
+    const zone = zoneOfJanitorRef(ref!);
+    if (zone === null) continue;
+    const status = await git(["status", "--porcelain=v1", "-uall", "-z", "--", zone]);
+    if (status.code !== 0) return row({ ...base, status: "error", detail: `rt could not read your changes under ${zone}: ${status.stderr.trim() || "git status failed"}` });
+    const paths = parsePorcelainZ(status.stdout).flatMap((e) => (e.origPath ? [e.path, e.origPath] : [e.path]));
+    const savedAt = Number(at) * 1000;
+    for (const pack of packsInZone(zone, paths)) since.set(pack, Number.isFinite(savedAt) && savedAt > 0 ? savedAt : null);
+  }
+  const blocking = (await readStatus())?.find((e) => e.slug === state.slug)?.pullBlockedBy ?? [];
+  for (const pack of blocking) if (!since.has(pack)) since.set(pack, null);
+  if (since.size === 0) return row({ ...base, status: "ready", detail: "Every pack edit on this Mac is published" });
+
+  const packs = [...since.keys()].sort();
+  const now = p.now().getTime();
+  const sentences = packs.map((pack) => {
+    const at = since.get(pack);
+    return `The ${pack} pack has unpublished changes${at == null ? "" : ` from ${agoPhrase(at, now)}`}.`;
+  });
+  const saved = packs.filter((pack) => since.get(pack) != null);
+  if (saved.length > 0) sentences.push("rt saved a copy on this Mac and published nothing.");
+  const held = packs.filter((pack) => blocking.includes(pack));
+  if (held.length > 0) sentences.push(`Your copy of the org is not taking updates until ${packPhrase(held)} ${held.length === 1 ? "is" : "are"} published or thrown away.`);
+  return row({
+    ...base,
+    status: "needs-you",
+    detail: sentences.join(" "),
+    action: { type: "steps", label: "Show steps…", steps: packRemedySteps(packs) },
+  });
+}
+
 export const ORG_BRANCH_ROW_ID = "org.branch";
 
 /** Whether the daemon still auto-commits in this Mac's org clone: it does only on the data branch or a trial branch this Mac chose. */
@@ -869,6 +929,7 @@ export async function rtHealthRows(
   const orgLayout = await orgLayoutRow(p, readStatus);
   const orgSparse = await orgSparseRow(p);
   const orgBranch = await orgBranchRow(p);
+  const unpublishedPacks = await orgUnpublishedPacksRow(p, readStatus);
 
   return [
     await rtRow(p),
@@ -888,5 +949,6 @@ export async function rtHealthRows(
     ...(orgLayout ? [orgLayout] : []),
     ...(orgSparse ? [orgSparse] : []),
     ...(orgBranch ? [orgBranch] : []),
+    ...(unpublishedPacks ? [unpublishedPacks] : []),
   ];
 }
