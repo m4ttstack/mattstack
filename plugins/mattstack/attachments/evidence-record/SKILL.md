@@ -59,7 +59,7 @@ digraph record_evidence {
     run_budget_cover -> cover_rounds_spent;
     cover_rounds_spent -> annotate_or_waive [label="no"];
     annotate_or_waive -> annotate_outcome;
-    annotate_outcome -> evidence_record [label="Ready: each image `uncovered` lists, by its path there, with its cover and a new case's label"];
+    annotate_outcome -> evidence_record [label="Ready: each image `uncovered` lists, by its path there, with its cover, source: ticket on a ticket image, and a new case's label"];
     annotate_outcome -> record_held [label="Waiver held, or Redaction held"];
     annotate_outcome -> record_failed [label="Waiver openings spent"];
     run_budget_retries -> record_retries_spent;
@@ -70,14 +70,19 @@ digraph record_evidence {
 
 The first call names each capture by the `path` it was written to, with
 `case` and `slot` (and `theme`), and `source: "ticket"` on a saved ticket
-image; a recapture is a new `path`, and only a recapture clears that mark. Every later
-call names the same images by the paths in the last returned `value`,
-each with its cover: `annotated` (the board's path) plus `caption`, or
-`waiver` (a case waiver rides in `cases`). The call that first writes a
-new case carries its `label`, on the image or in `cases`, so every call
-until the record is written carries each new case's `label`. `tree` is
-the run's worktree root. Record held is the verb's hold path; Record
-failed fails the verb, naming the images or quoting the error.
+image. Every later call names the same images by the paths in the last
+returned `value`, each with:
+
+- its cover: `annotated` (the board's path) plus `caption`, or `waiver`
+  (a case waiver rides in `cases`);
+- `source: "ticket"` again on every image whose entry in that `value`
+  carries `"source": "ticket"`.
+
+The call that first writes a new case carries its `label`, on the image or
+in `cases`, so every call until the record is written carries each new
+case's `label`. `tree` is the run's worktree root. Record held is the
+verb's hold path; Record failed fails the verb, naming the images or
+quoting the error.
 
 ## Annotate or waive each image the record does not yet cover
 

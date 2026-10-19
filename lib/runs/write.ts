@@ -9,6 +9,7 @@ import { createHash } from "crypto";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
 import { validateEvidence } from "../../packages/rt-client/src/evidence.ts";
+import { TICKETS_FIELD, ticketsWriteProblem } from "../evidence/tickets-field.ts";
 import { recordIdentity } from "./identity.ts";
 
 export const KNOWN_SCHEMA_VERSION = 3;
@@ -179,9 +180,11 @@ export function fieldSet(db: Database, key: string, value: string, stage: string
     if (!valid.ok) return { ok: false, error: valid.error, code: 2 };
   }
   const write = (): Ok | Fail => {
-    if (opts.ifSha256 !== undefined) {
-      const row = db.query("SELECT value FROM fields WHERE key=?").get(key) as { value: string } | undefined;
-      if (valueSha256(row?.value ?? "") !== opts.ifSha256) return { ok: false, error: `field ${key} ${FIELD_CHANGED}`, code: 4 };
+    const row = db.query("SELECT value FROM fields WHERE key=?").get(key) as { value: string } | undefined;
+    if (opts.ifSha256 !== undefined && valueSha256(row?.value ?? "") !== opts.ifSha256) return { ok: false, error: `field ${key} ${FIELD_CHANGED}`, code: 4 };
+    if (key === TICKETS_FIELD) {
+      const problem = ticketsWriteProblem(row?.value ?? null, value);
+      if (problem) return { ok: false, error: problem, code: 2 };
     }
     db.run("INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at) SELECT id, ?, ?, ?, ? FROM runs", [key, value, stage, now]);
     return { ok: true };

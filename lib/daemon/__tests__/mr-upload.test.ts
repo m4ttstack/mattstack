@@ -417,6 +417,35 @@ describe("mr:upload", () => {
         expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "r-t-ticket.png", "ticket-bytes") })).toEqual(REFUSED);
       });
 
+      test("with no runId, a run's evidence-tickets field alone refuses a copy: a record never written, or its slot removed", async () => {
+        const tickets = JSON.stringify({ v: 1, tickets: [{ path: join(home, "gone", "r-t-ticket.png"), size: TICKET_BYTES.length, sha256: createHash("sha256").update(TICKET_BYTES).digest("hex") }] });
+        for (const evidence of [null, JSON.stringify({ v: 2, cases: [{ id: "o", label: "O", before: { path: join(repoPath, "o.png"), waiver: "w" } }] })]) {
+          const h = harness({ repoPath, tempRoots: () => [elsewhere], runRecords: () => [{ runId: "run-1", evidence, tickets }] });
+          expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "r-t-ticket.png", "ticket-bytes") })).toEqual(REFUSED);
+          expect(h.calls.length).toBe(0);
+        }
+      });
+
+      test("with a runId, the run's evidence-tickets field refuses a copy the record no longer names", async () => {
+        const tickets = JSON.stringify({ v: 1, tickets: [{ path: join(home, "gone", "r-t-ticket.png"), size: TICKET_BYTES.length, sha256: createHash("sha256").update(TICKET_BYTES).digest("hex") }] });
+        const evidence = JSON.stringify({ v: 2, cases: [{ id: "u", label: "U", after: { path: join(repoPath, "r-t-ticket.png"), waiver: "w" } }] });
+        const h = harness({ repoPath, runEvidence: () => ({ found: true, evidence, tickets }) });
+        expect(await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "r-t-ticket.png", "ticket-bytes"), runId: "run-1" })).toEqual(REFUSED);
+      });
+
+      test("with a runId, another run's ticket image recorded into this run as a waived capture is still refused", async () => {
+        const tickets = JSON.stringify({ v: 1, tickets: [{ path: join(home, "gone", "r-t-ticket.png"), size: TICKET_BYTES.length, sha256: createHash("sha256").update(TICKET_BYTES).digest("hex") }] });
+        const copy = pngWith(repoPath, "r-t-ticket.png", "ticket-bytes");
+        const runB = JSON.stringify({ v: 2, cases: [{ id: "u", label: "U", after: { path: copy, waiver: "w" } }] });
+        const h = harness({
+          repoPath,
+          runEvidence: (id) => (id === "run-b" ? { found: true, evidence: runB } : { found: false }),
+          runRecords: () => [{ runId: "run-a", evidence: null, tickets }, { runId: "run-b", evidence: runB }],
+        });
+        expect(await h.handlers["mr:upload"]({ repoName: REPO, path: copy, runId: "run-b" })).toEqual(REFUSED);
+        expect(h.calls.length).toBe(0);
+      });
+
       test("with the run's record gone too, nothing remembers the image: the stated limit", async () => {
         const h = harness({ repoPath, tempRoots: () => [elsewhere], runRecords: () => [] });
         expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(elsewhere, "r-t-ticket.png", "ticket-bytes") })).ok).toBe(true);

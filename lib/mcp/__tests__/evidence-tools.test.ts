@@ -863,6 +863,17 @@ describe("evidence_attach", () => {
     expect(body.uploaded.find((u) => u.path === copy)?.reused ?? false).toBe(false);
   });
 
+  test("reuse: a byte copy of a ticket image only the evidence-tickets field remembers is never reused", async () => {
+    const copy = put("copy.png", "ticket-bytes", evidenceDir("u"));
+    const evidence = v2([{ id: "u", label: "U", after: { path: copy, waiver: "w" } }]);
+    const tickets = JSON.stringify({ v: 1, tickets: [{ path: join(evidenceDir("t"), "gone.png"), size: "ticket-bytes".length, sha256: sha256Of(copy) }] });
+    const prior = serializeUploads({ [realpathSync(copy)]: { sha256: sha256Of(copy), project: IDENT, url: "u", markdown: "![c](u)", at: 1 } });
+    const { deps, calls } = makeDeps({ fields: { evidence, "evidence-uploads": prior, "evidence-tickets": tickets } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(uploads(calls).map((c) => c.payload.path)).toContain(copy);
+    expect(body.uploaded.find((u) => u.path === copy)?.reused ?? false).toBe(false);
+  });
+
   test("a FIFO or an oversize file in the record is never read: it goes to the daemon unhashed and is not remembered", async () => {
     const dir = evidenceDir("retry-badge");
     mkdirSync(dir, { recursive: true });
