@@ -2072,6 +2072,12 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "Old board settings not carried over: open Setup status" });
       });
 
+      test("pack edits rt saved but never published read as needs-you, so an update run reports them", () => {
+        const rows = [{ ...rowOf("org.unpublished-packs", "tool", "Unpublished packs", "needs-you"), required: false }];
+        const checks = [{ name: "org.unpublished-packs", status: "warn" as const, detail: "", severity: "warning" as const }];
+        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "Pack edits not published yet: open Setup status" });
+      });
+
       test("a genuine failure stays failed, is named by its row title, and still names what is left to connect", () => {
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.app", "tool", "mattstack.app", "error"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
         expect(outcomeFromChecks([fail("account.slack"), fail("tool.app"), fail("tool.team.doppler")], rows)).toEqual({

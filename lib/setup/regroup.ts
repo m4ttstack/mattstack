@@ -33,6 +33,7 @@ const HOME: Record<string, GroupId> = {
   "org.layout": "team",
   "org.sparse": "team",
   "org.branch": "team",
+  "org.unpublished-packs": "team",
   "board.team-fields": "team",
   "tool.mission-control": "mac",
 };
