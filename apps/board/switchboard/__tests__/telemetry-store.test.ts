@@ -59,14 +59,14 @@ describe('TelemetryStore', () => {
     );
     expect(s.snapshot(T0 + 3 * MIN).updates).toEqual([
       {
-        label: 'alice',
+        label: 'alice (unverified)',
         kind: 'rt',
         from: '2.0.0',
         to: '2.1.0',
         at: T0 + 3 * MIN,
       },
       {
-        label: 'alice',
+        label: 'alice (unverified)',
         kind: 'app',
         from: '2.0.0',
         to: '2.1.0',
@@ -126,8 +126,8 @@ describe('TelemetryStore', () => {
     });
     expect(migrations.find(m => m.id === 'm2')).toEqual({
       id: 'm2',
-      notRun: ['alice'],
-      tooOld: ['bob'],
+      notRun: ['alice (unverified)'],
+      tooOld: ['bob (unverified)'],
     });
   });
 
@@ -232,16 +232,18 @@ describe('TelemetryStore', () => {
       T0
     );
     const snap = s.snapshot(T0);
-    expect(snap.legacyDirs).toEqual([{ label: 'alice', dirs: ['.rt'] }]);
+    expect(snap.legacyDirs).toEqual([
+      { label: 'alice (unverified)', dirs: ['.rt'] },
+    ]);
     expect(snap.orgLayouts).toContainEqual({
       org: 'acme',
       layout: 3,
-      macs: ['alice', 'bob'],
+      macs: ['alice (unverified)', 'bob (unverified)'],
     });
     expect(snap.orgLayouts).toContainEqual({
       org: 'zed',
       layout: null,
-      macs: ['bob'],
+      macs: ['bob (unverified)'],
     });
   });
 
@@ -267,7 +269,7 @@ describe('macLabel', () => {
 
   test('prefers the verified username, then usernames, then the install id', () => {
     expect(macLabel(row({ verifiedUsername: 'v' }))).toBe('v');
-    expect(macLabel(row({ usernames: ['a', 'b'] }))).toBe('a, b');
+    expect(macLabel(row({ usernames: ['a', 'b'] }))).toBe('a, b (unverified)');
     expect(macLabel(row({ usernames: [], installId: 'iid' }))).toBe('iid');
   });
 });

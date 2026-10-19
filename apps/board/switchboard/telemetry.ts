@@ -146,11 +146,14 @@ export function parsePing(raw: unknown): TelemetryPing | null {
   };
 }
 
+/** The display name every section uses. Self-reported usernames are
+    spoofable, so they carry the marker; a verified username and the bare
+    install id do not. */
 export function macLabel(row: MacRow): string {
-  return (
-    row.verifiedUsername ||
-    (row.usernames.length > 0 ? row.usernames.join(', ') : row.installId)
-  );
+  if (row.verifiedUsername) return row.verifiedUsername;
+  if (row.usernames.length > 0)
+    return `${row.usernames.join(', ')} (unverified)`;
+  return row.installId;
 }
 
 function segments(version: string): number[] {

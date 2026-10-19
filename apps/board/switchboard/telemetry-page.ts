@@ -1,7 +1,7 @@
 /** The plain HTML readout for the relay's version telemetry: tables only, no
     script, no external assets. Every string that came from a ping goes
     through `escapeHtml`. */
-import { macLabel, type MacRow, type TelemetrySnapshot } from './telemetry.ts';
+import { macLabel, type TelemetrySnapshot } from './telemetry.ts';
 
 function escapeHtml(value: string): string {
   return value
@@ -28,10 +28,6 @@ function table(headers: string[], rows: string[][]): string {
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
-function label(row: MacRow): string {
-  return row.verifiedUsername ? macLabel(row) : `${macLabel(row)} (unverified)`;
-}
-
 export function renderTelemetryPage(s: TelemetrySnapshot): string {
   const macs = table(
     [
@@ -41,17 +37,21 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
       'rt',
       'Plugin',
       'macOS',
+      'Org layouts',
+      'Packs',
       'Last seen',
       'Install id',
     ],
     s.macs.map(m => [
-      label(m),
+      macLabel(m),
       m.flavor,
       orDash(m.appVersion),
       m.rtVersion,
       orDash(m.pluginVersion),
       orDash(m.macosVersion),
-      m.running ? 'running' : iso(m.lastSeen),
+      list(m.orgs.map(o => `${o.org}:${orDash(o.layout)}`)),
+      list(m.packs.map(p => `${p.id}@${orDash(p.version)}`)),
+      m.running ? `running (${iso(m.lastSeen)})` : iso(m.lastSeen),
       m.installId,
     ])
   );

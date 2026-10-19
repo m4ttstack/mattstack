@@ -7,12 +7,18 @@ import { Database } from 'bun:sqlite';
 
 import { parseDraftEnvelope } from '../src/peer/envelope.ts';
 import { ENVELOPE_TTL_MS, SwitchboardStore } from './store.ts';
-import { makeTeamInviteHandler, TeamInviteStore } from './team-invites.ts';
+import {
+  makeTeamInviteHandler,
+  RateLimiter,
+  sourceIp,
+  TeamInviteStore,
+} from './team-invites.ts';
 import { renderTelemetryPage } from './telemetry-page.ts';
 import { parsePing, TelemetryStore } from './telemetry.ts';
 import { InboxWaiters, MAX_WAIT_SECONDS } from './waiters.ts';
 
 const MAX_PING_BYTES = 64 * 1024;
+export const TELEMETRY_PINGS_PER_HOUR = 120;
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -63,6 +69,7 @@ export function makeFetchHandler(
   waiters: InboxWaiters = new InboxWaiters()
 ) {
   const teamInviteRoutes = makeTeamInviteHandler(teamInvites, now);
+  const pingLimiter = new RateLimiter(TELEMETRY_PINGS_PER_HOUR, 60 * 60_000);
   // Strictly increasing so a waker's cursor (`received_at > since`) can never
   // skip a second envelope stamped in the same millisecond.
   let lastStamp = 0;
@@ -185,6 +192,8 @@ export function makeFetchHandler(
     if (pathname === '/telemetry/ping') {
       if (req.method !== 'POST')
         return new Response('method not allowed', { status: 405 });
+      if (pingLimiter.exceeded(sourceIp(req), now()))
+        return new Response('too many requests', { status: 429 });
       const text = await readCappedText(req);
       let ping = null;
       if (text !== null) {
@@ -206,7 +215,7 @@ export function makeFetchHandler(
     }
 
     if (pathname === '/telemetry' && req.method === 'GET') {
-      if (viewToken === null) return new Response('not found', { status: 404 });
+      if (!viewToken) return new Response('not found', { status: 404 });
       const key = new URL(req.url).searchParams.get('key') ?? bearer(req) ?? '';
       if (!sameSecret(key, viewToken))
         return new Response('unauthorized', { status: 401 });
@@ -215,6 +224,9 @@ export function makeFetchHandler(
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-store',
           'referrer-policy': 'no-referrer',
+          'content-security-policy':
+            "default-src 'none'; style-src 'unsafe-inline'",
+          'x-content-type-options': 'nosniff',
         },
       });
     }

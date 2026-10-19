@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
-import { makeFetchHandler } from '../server.ts';
+import { makeFetchHandler, TELEMETRY_PINGS_PER_HOUR } from '../server.ts';
 import { SwitchboardStore } from '../store.ts';
 import { TeamInviteStore } from '../team-invites.ts';
 import { TelemetryStore, type TelemetryPing } from '../telemetry.ts';
@@ -30,28 +30,34 @@ function setup(viewToken: string | null = VIEW) {
   const db = new Database(':memory:');
   const store = new SwitchboardStore(db);
   const telemetry = new TelemetryStore(db);
+  const clock = { t: NOW };
   const handler = makeFetchHandler(
     store,
     ADMIN,
-    () => NOW,
+    () => clock.t,
     new TeamInviteStore(db),
     telemetry,
     viewToken
   );
-  const post = (body: string | ReadableStream<Uint8Array>, token?: string) =>
+  const post = (
+    body: string | ReadableStream<Uint8Array>,
+    token?: string,
+    extra: Record<string, string> = {}
+  ) =>
     handler(
       new Request('http://x/telemetry/ping', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           ...(token ? { authorization: `Bearer ${token}` } : {}),
+          ...extra,
         },
         body,
       })
     );
   const get = (path: string, headers: Record<string, string> = {}) =>
     handler(new Request(`http://x${path}`, { headers }));
-  return { store, telemetry, post, get };
+  return { store, telemetry, clock, post, get };
 }
 
 describe('POST /telemetry/ping', () => {
@@ -75,7 +81,9 @@ describe('POST /telemetry/ping', () => {
     expect(
       (await post(JSON.stringify(ping({ installId: 'install-b' })))).status
     ).toBe(204);
-    expect(telemetry.snapshot(NOW).macs).toHaveLength(2);
+    const macs = telemetry.snapshot(NOW).macs;
+    expect(macs).toHaveLength(2);
+    expect(macs.map(m => m.verifiedUsername)).toEqual([null, null]);
   });
 
   test('a body that is not a ping is a 400 and stores nothing', async () => {
@@ -99,6 +107,15 @@ describe('POST /telemetry/ping', () => {
     expect(telemetry.snapshot(NOW).macs).toHaveLength(0);
   });
 
+  test('a declared content-length over 64 KB is a 400 without reading', async () => {
+    const { telemetry, post } = setup();
+    const res = await post(JSON.stringify(ping()), undefined, {
+      'content-length': '100000',
+    });
+    expect(res.status).toBe(400);
+    expect(telemetry.snapshot(NOW).macs).toHaveLength(0);
+  });
+
   test('an oversized streamed body with no content-length is cut off', async () => {
     const { telemetry, post } = setup();
     const chunk = new TextEncoder().encode('x'.repeat(10_000));
@@ -112,6 +129,35 @@ describe('POST /telemetry/ping', () => {
     expect((await post(body)).status).toBe(400);
     expect(sent).toBeLessThan(20);
     expect(telemetry.snapshot(NOW).macs).toHaveLength(0);
+  });
+
+  test('a source over the hourly limit gets a 429 and stores nothing', async () => {
+    const { telemetry, clock, post } = setup();
+    for (let i = 0; i < TELEMETRY_PINGS_PER_HOUR; i++) {
+      expect((await post(JSON.stringify(ping()))).status).toBe(204);
+    }
+    const over = await post(JSON.stringify(ping({ installId: 'install-b' })));
+    expect(over.status).toBe(429);
+    expect(telemetry.snapshot(NOW).macs.map(m => m.installId)).toEqual([
+      'install-a',
+    ]);
+    clock.t += 60 * 60_000;
+    expect(
+      (await post(JSON.stringify(ping({ installId: 'install-b' })))).status
+    ).toBe(204);
+  });
+
+  test('the limit is per source address', async () => {
+    const { post } = setup();
+    for (let i = 0; i < TELEMETRY_PINGS_PER_HOUR; i++) {
+      await post(JSON.stringify(ping()), undefined, {
+        'x-forwarded-for': '198.51.100.1',
+      });
+    }
+    const other = await post(JSON.stringify(ping()), undefined, {
+      'x-forwarded-for': '198.51.100.2',
+    });
+    expect(other.status).toBe(204);
   });
 
   test('only POST is allowed', async () => {
@@ -145,6 +191,10 @@ describe('GET /telemetry', () => {
       expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
       expect(res.headers.get('cache-control')).toBe('no-store');
       expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+      expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(res.headers.get('content-security-policy')).toBe(
+        "default-src 'none'; style-src 'unsafe-inline'"
+      );
       const html = await res.text();
       for (const heading of [
         'Macs',
@@ -155,6 +205,32 @@ describe('GET /telemetry', () => {
         expect(html).toContain(heading);
       }
     }
+  });
+
+  test('an empty view token never opens the page', async () => {
+    const { get } = setup('');
+    expect((await get('/telemetry?key=')).status).toBe(404);
+  });
+
+  test('every section marks a spoofed name as unverified', async () => {
+    const { telemetry, get } = setup();
+    telemetry.record(ping({ usernames: ['mallory'] }), null, NOW);
+    telemetry.record(
+      ping({
+        usernames: ['mallory'],
+        rtVersion: '2.1.0',
+        migrationsKnown: ['m1'],
+        legacyDirs: ['.rt'],
+        orgs: [{ org: 'acme', layout: 3 }],
+      }),
+      null,
+      NOW + 1
+    );
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    expect(
+      html.split('mallory (unverified)').length - 1
+    ).toBeGreaterThanOrEqual(5);
+    expect(html).not.toMatch(/mallory(?! \(unverified\))/);
   });
 
   test('the admin token does not open the page', async () => {
@@ -181,8 +257,17 @@ describe('GET /telemetry', () => {
     for (const raw of ['<b>org', '<i>pack', '<u>dir', '<m>1']) {
       expect(html).not.toContain(raw);
     }
+    for (const escaped of [
+      '&lt;b&gt;org&lt;/b&gt;',
+      '&lt;i&gt;pack&lt;/i&gt;',
+      '&lt;u&gt;dir&lt;/u&gt;',
+      '&lt;m&gt;1',
+    ]) {
+      expect(html).toContain(escaped);
+    }
     expect(html).toContain('(unverified)');
-    expect(html).toContain('running');
-    expect(html).toContain(new Date(NOW).toISOString());
+    expect(html).toContain(`running (${new Date(NOW).toISOString()})`);
+    expect(html).toContain('&lt;b&gt;org&lt;/b&gt;:3');
+    expect(html).toContain('&lt;i&gt;pack&lt;/i&gt;@1.0.0');
   });
 });
