@@ -1311,7 +1311,7 @@ describe("emitted base attachments", () => {
   test("a row carries its base and reads internal even when the file lists it public", () => {
     const packDir = withEmitted(["dev-servers"]);
     const { rows } = computeRows(packDir, new Set(), { public: ["dev-servers"] }, new Set());
-    expect(rows.find((r) => r.name === "dev-servers")).toEqual({ name: "dev-servers", kind: "compiled", status: "internal", base: "acme-base" });
+    expect(rows.find((r) => r.name === "dev-servers")).toEqual({ name: "dev-servers", kind: "compiled", status: "internal", base: "acme-base", path: join(packDir, "attachments", "dev-servers", "SKILL.md") });
     expect(rows.find((r) => r.name === "helper")).not.toHaveProperty("base");
   });
 
@@ -1340,5 +1340,61 @@ describe("emitted base attachments", () => {
     const packDir = withEmitted(["dev-servers"]);
     await skillsSurface(["set", "dev-servers", "--internal", "--pack-dir", packDir, "--json"]);
     expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).not.toContain("dev-servers");
+  });
+});
+
+describe("templates", () => {
+  const template = (name: string) => `---\nname: ${name}\ndescription: "${name}"\ntype: pipeline-step\n---\n\n${name}.\n`;
+
+  function withTemplates(): string {
+    const packDir = makePackDir();
+    writeStubs(packDir, {});
+    writeFile(join(packDir, "attachments", "pipeline", "ship", "SKILL.md"), template("ship"));
+    writeFile(join(packDir, "attachments", "gate-protocol", "SKILL.md"), "---\nname: gate-protocol\n---\nbody\n");
+    writeFile(join(packDir, "skills", "wrap-up", "SKILL.md"), "---\nname: wrap-up\n---\nbody\n");
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["wrap-up"] }));
+    return packDir;
+  }
+
+  test("a template this pack builds nothing from is not a row", () => {
+    const { rows } = computeRows(withTemplates(), new Set(), { public: ["wrap-up"] }, new Set());
+    expect(rows.map((r) => r.name)).toEqual(["gate-protocol", "wrap-up"]);
+  });
+
+  test("a template whose name is one of this pack's verbs or stages stays", () => {
+    const packDir = withTemplates();
+    writeFile(join(packDir, "attachments", "pipeline", "stage-plan", "SKILL.md"), template("stage-plan"));
+    const { rows } = computeRows(packDir, new Set(["ship"]), { public: ["wrap-up"] }, new Set(["stage-plan"]));
+    expect(rows.find((r) => r.name === "ship")).toMatchObject({ kind: "compiled" });
+    expect(rows.find((r) => r.name === "stage-plan")).toMatchObject({ kind: "compiled" });
+  });
+
+  test("a row on disk carries the path of its SKILL.md; a missing one carries none", () => {
+    const packDir = withTemplates();
+    const { rows } = computeRows(packDir, new Set(), { public: ["wrap-up", "ghost"] }, new Set());
+    expect(rows.find((r) => r.name === "gate-protocol")?.path).toBe(join(packDir, "attachments", "gate-protocol", "SKILL.md"));
+    expect(rows.find((r) => r.name === "wrap-up")?.path).toBe(join(packDir, "skills", "wrap-up", "SKILL.md"));
+    expect(rows.find((r) => r.name === "ghost")).not.toHaveProperty("path");
+  });
+
+  for (const json of [[], ["--json"]]) test(`making one public is refused ${json.length ? "as JSON" : "for a person"}, and nothing moves`, async () => {
+    const packDir = withTemplates();
+    const before = readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8");
+    const result = await runExpectingCleanExit(() => skillsSurface(["set", "ship", "--public", "--pack-dir", packDir, ...json]));
+    expect(result.exitCode).toBe(2);
+    expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
+    expect(existsSync(join(packDir, "attachments", "pipeline", "ship", "SKILL.md"))).toBe(true);
+    const title = "ship is a template";
+    if (json.length) expect(JSON.parse(io.lines().at(-1)!).compileErrors[0]).toStartWith(title);
+    else expect(io.stderr()).toStartWith(`[refused] ${title}`);
+  });
+
+  test("apply never moves a template the surface file lists", async () => {
+    const packDir = withTemplates();
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["wrap-up", "ship"] }));
+    const { mattstackDir, manifestPath } = makeEngineFixture();
+    await skillsSurface(["apply", "--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
+    expect(existsSync(join(packDir, "attachments", "pipeline", "ship", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(packDir, "skills", "pipeline", "ship"))).toBe(false);
   });
 });

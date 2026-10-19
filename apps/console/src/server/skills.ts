@@ -233,6 +233,8 @@ interface SkillsSurfaceRow {
   status: 'public' | 'internal';
   /** Names the base a base-owned row came from. Optional because an rt older than the field answers without it. */
   base?: string;
+  /** The row's SKILL.md. Optional because an rt older than the field answers without it. */
+  path?: string;
 }
 interface SkillsSurfaceResponse {
   pack: string;
