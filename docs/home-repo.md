@@ -77,7 +77,9 @@ change.
 
 A claimed zone left dirty past a threshold is still committed, under its own
 `snapshot (janitor): ...` message, so an abandoned claim cannot block the zone
-from ever being backed up.
+from ever being backed up. In an org clone a pack zone is the exception: its
+push would publish the pack to teammates, so the janitor saves it on this Mac
+instead (see "Team clones" below).
 
 ## Configuration
 
@@ -89,7 +91,7 @@ The daemon's behavior is configured by the `rt.homeSnapshot` settings key
   "enabled": true,             // false disables watching and auto-commits entirely
   "debounceSec": 20,           // quiet period after a change before committing
   "pushDelaySec": 60,          // coalescing delay before pushing a commit
-  "janitorThresholdHours": 6,  // a claimed zone dirty this long gets janitor-committed
+  "janitorThresholdHours": 6,  // a claimed zone dirty this long gets janitor-committed (a team clone's pack is saved locally instead)
   "janitorIntervalMin": 30     // how often the janitor sweep runs
 }
 ```
@@ -130,7 +132,7 @@ The team instance differs from the home one in four ways:
 - **Scope.** It stages only `mattstack/**`, `.sops.yaml` and
   `.claude-plugin/**`. A team clone that is also a working repo keeps its
   `src/` and `docs/` hand-committed.
-- **Packs are janitor-only.** Every pack folder (`mattstack/org/packs/`, each
+- **Packs are never auto-committed.** Every pack folder (`mattstack/org/packs/`, each
   `mattstack/teams/<team>/plugin/`, and `mattstack/packs/` on a clone not yet
   converted) is a standing claimed zone (owner `skills-publish`): a pack is
   published by its own commit (the `mattstack:editing-skills` flow,
@@ -142,9 +144,17 @@ The team instance differs from the home one in four ways:
   While that commit is owed and the pack's folder still has uncommitted
   files, the snapshot leaves `marketplace.json` alone, and `rt team status`
   and the Team sync setup row say so; the next share or publish commits the
-  owed pack first, so the entry never reaches origin ahead of its pack. The janitor still commits
-  a pack left dirty past `janitorThresholdHours`. A claim on the same path in the clone's
-  own `snapshot-owners.jsonc` wins over the standing one.
+  owed pack first, so the entry never reaches origin ahead of its pack. The janitor never
+  commits or pushes a pack: one left dirty past `janitorThresholdHours` is saved to a local
+  ref, `refs/mattstack/janitor/<zone>`, through a throwaway index, so the working tree and
+  the index stay as you left them. The push sends `origin HEAD` only, so that ref never
+  leaves the Mac. There is one ref per zone, updated in place, and the janitor drops it
+  once the pack is clean again. The `org.unpublished-packs` setup row names a pack with a
+  saved copy and how long it has waited, and gives the remedy: publish it with
+  `rt skills sync --pack <pack> --commit-pending`, or throw it away with
+  `rt skills discard --pack <pack>`. A claim on the same path in the clone's own
+  `snapshot-owners.jsonc` wins over the standing one, and its owner's zone is committed
+  as before.
 - **Pull.** Before every push, at daemon boot and every `pullIntervalSec`, it
   fetches `origin` with rt's stored forge token (env, never argv) and either
   fast-forwards or rebases its own commits onto the remote. A rebase that stops
@@ -155,7 +165,9 @@ The team instance differs from the home one in four ways:
   top of it. The `team.sync` checklist row names it: rebase and
   `rt team publish` by hand, or reset to origin, and the next tick resumes. A
   rebase that never started (an index lock, unstaged edits outside the scope)
-  is skipped and retried.
+  is skipped and retried. When what stops a fast-forward or rebase is a pack's
+  unpublished edit, the skip names the pack and the same remedy as the
+  `org.unpublished-packs` row, which then reads `needs-you` too.
 - **Identity.** Commits need a committer git can resolve. Install's
   `git.identity` step writes the global `user.name`/`user.email` from the forge
   profile when none is configured; the engine itself only asks git
