@@ -182,7 +182,7 @@ export class TeamInviteStore {
 /** Fixed-window counter, keyed by source address or invite id. Keys arrive from
     the open internet, so a stale-window sweep is what stops the map from
     growing with every address that ever touched the relay. */
-class RateLimiter {
+export class RateLimiter {
   private hits = new Map<string, { window: number; count: number }>();
   constructor(
     private limit: number,
@@ -208,8 +208,11 @@ class RateLimiter {
 }
 
 /** Railway terminates TLS in front of the service, so the client address only
-    exists in this header; it is an abuse signal, never an authorization one. */
-function sourceIp(req: Request): string {
+    exists in these headers, and it names X-Real-IP as the client's address; it
+    is an abuse signal, never an authorization one. */
+export function sourceIp(req: Request): string {
+  const real = req.headers.get('x-real-ip')?.trim();
+  if (real) return real;
   const forwarded = req.headers.get('x-forwarded-for') ?? '';
   return forwarded.split(',')[0]?.trim() || 'unknown';
 }

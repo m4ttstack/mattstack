@@ -112,6 +112,7 @@ enum AXID {
     static let settingsGeneralCheckNow = "settings.general.checkNow"
     static let settingsGeneralSwitchApp = "settings.general.switchApp"
     static let settingsGeneralShellHandoff = "settings.general.shellHandoff"
+    static let settingsTelemetryToggle = "settings.general.telemetry"
     static func settingsPermissionRow(_ id: String) -> String { "settings.permissions.row.\(id)" }
     static func settingsPermissionRowStatus(_ id: String) -> String { "settings.permissions.row.\(id).status" }
     static func settingsPermissionAction(_ id: String) -> String { "settings.permissions.row.\(id).action" }

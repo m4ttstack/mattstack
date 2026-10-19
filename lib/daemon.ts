@@ -60,6 +60,8 @@ import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secr
 import { startPeerWaker } from "./daemon/peer-waker.ts";
 import { readSwitchboardToken } from "./daemon/handlers/secrets.ts";
 import { readBoardSwitchboardToken } from "./team/board-token.ts";
+import { collectPing, readPingVersions } from "./telemetry/ping.ts";
+import { startTelemetry } from "./telemetry/start.ts";
 
 import { SystemProcessScanner } from "./daemon/system-process-scanner.ts";
 
@@ -375,6 +377,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   let notifyBridgeStop: (() => void) | undefined;
   let healthSampler: ReturnType<typeof createHealthSampler>;
   let healthInterval: ReturnType<typeof setInterval> | null = null;
+  let telemetryInterval: ReturnType<typeof setInterval> | null = null;
   let loopMon: ReturnType<typeof startLoopMonitor>;
   let handlerCtx: HandlerContext;
   let freshnessEnv: FreshnessEnv;
@@ -1281,6 +1284,30 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         healthSampler.sample(); // seed baseline/free now, don't wait 5min
         healthInterval = safeInterval(() => healthSampler.sample(), 5 * 60_000, "health-sample", log);
 
+        const telemetryProbes = createRealProbes();
+        const telemetryLog = loggerHandle.childLogger("telemetry");
+        telemetryInterval = startTelemetry(
+          {
+            enabled: () => getSetting<boolean>("telemetry.enabled").value,
+            versions: () => readPingVersions(telemetryProbes),
+            collect: () => collectPing(telemetryProbes),
+            token: () => readBoardSwitchboardToken(telemetryProbes, () => readSwitchboardToken()),
+            post: async (url, body, token) =>
+              (
+                await telemetryProbes.fetch(url, {
+                  method: "POST",
+                  headers: { "content-type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                  body,
+                  timeoutMs: 10_000,
+                })
+              ).status,
+            url: () => `${switchboardUrl()}/telemetry/ping`,
+            now: Date.now,
+            log: telemetryLog,
+          },
+          log,
+        );
+
         // 250ms event-loop drift monitor; also writes the cross-process
         // liveness heartbeat file every ~2s. Both timers unref'd and db-free.
         loopMon = startLoopMonitor({
@@ -1292,6 +1319,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
       stop() {
         loopMon?.stop();
         if (healthInterval) clearInterval(healthInterval);
+        if (telemetryInterval) clearInterval(telemetryInterval);
         agentStatusPoller?.stop();
         notifyBridgeStop?.();
         homeSnapshot?.stop();

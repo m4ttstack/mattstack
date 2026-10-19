@@ -4,13 +4,21 @@ import { describe, expect, test } from 'bun:test';
 import { makeFetchHandler } from '../server.ts';
 import { SwitchboardStore } from '../store.ts';
 import { TeamInviteStore } from '../team-invites.ts';
+import { TelemetryStore } from '../telemetry.ts';
 
 const ADMIN = 'admintok';
 function handler(db = new Database(':memory:')) {
   const store = new SwitchboardStore(db);
   return {
     store,
-    fetch: makeFetchHandler(store, ADMIN, () => 5000, new TeamInviteStore(db)),
+    fetch: makeFetchHandler(
+      store,
+      ADMIN,
+      () => 5000,
+      new TeamInviteStore(db),
+      new TelemetryStore(db),
+      null
+    ),
   };
 }
 function req(path: string, init: RequestInit = {}) {
