@@ -265,7 +265,6 @@ import {
   tokenMissingNotice,
 } from './peer/runtime.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
-import { pruneRespondRounds } from './respond-rounds.ts';
 import {
   attachResponds,
   parseRespondRequestBody,
@@ -1881,7 +1880,6 @@ const httpServer = Bun.serve({
           );
           pruneReviewStates(onBoard);
           pruneRespondStates(onBoard);
-          pruneRespondRounds(onBoard);
           pruneDoctorStates(onBoard);
           // Fire-and-forget: this sits on the /data.json request path and
           // must never block or fail the response on a slow/failed daemon call.

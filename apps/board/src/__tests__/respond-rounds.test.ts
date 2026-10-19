@@ -4,11 +4,7 @@ import { join } from 'path';
 import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
-import {
-  pruneRespondRounds,
-  readRespondRounds,
-  recordRespondRound,
-} from '../respond-rounds.ts';
+import { readRespondRounds, recordRespondRound } from '../respond-rounds.ts';
 import { openStateDb } from '../state/db.ts';
 
 let dir: string;
@@ -37,12 +33,10 @@ describe('respond rounds', () => {
     expect(readRespondRounds(db).get(URL_A)).toEqual({ john: 2, darryl: 1 });
   });
 
-  test('prune keeps rounds for MRs still shown', () => {
+  test('rounds for one MR do not advance another', () => {
     recordRespondRound(URL_A, 'john', 1, db);
-    recordRespondRound(URL_B, 'john', 1, db);
-    pruneRespondRounds(new Set([URL_A]), db);
-    const rounds = readRespondRounds(db);
-    expect(rounds.has(URL_A)).toBe(true);
-    expect(rounds.has(URL_B)).toBe(false);
+    recordRespondRound(URL_A, 'john', 2, db);
+    expect(recordRespondRound(URL_B, 'john', 3, db)).toBe(1);
+    expect(readRespondRounds(db).get(URL_B)).toEqual({ john: 1 });
   });
 });
