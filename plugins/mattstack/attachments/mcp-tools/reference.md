@@ -1401,7 +1401,7 @@ Record a stage transition on a run: start, done, fail (with reason and detailPat
 ### run_field_set
 
 <!-- mcp-lint: allow -->
-Write one run field (key, value) as produced by a stage. With ifSha256, the write lands only if the field's current value still has that sha256 (hex; an unset field hashes as the empty string); otherwise it errors with "changed since it was read" and writes nothing, so a caller that read, merged and writes back cannot overwrite another process's write in between.
+Write one run field (key, value) as produced by a stage. With ifSha256, the write lands only if the field's current value still has that sha256 (hex; an unset field hashes as the empty string); otherwise it errors with "changed since it was read" and writes nothing, so a caller that read, merged and writes back cannot overwrite another process's write in between. evidence-tickets is evidence_record's; a write that drops any entry it holds is refused.
 
 ```json
 {

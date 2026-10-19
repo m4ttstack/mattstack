@@ -30,6 +30,25 @@ export function parseTickets(value: string | null): TicketEntry[] {
   }
 }
 
+/**
+ * The field is the only durable mark once a record has dropped one, so a
+ * write must parse whole and keep every entry already stored: a cleared or
+ * shrunk value would let a byte copy upload.
+ */
+export function ticketsWriteProblem(stored: string | null, next: string): string | null {
+  let parsed: { v?: unknown; tickets?: unknown };
+  try {
+    parsed = JSON.parse(next) as typeof parsed;
+  } catch {
+    return `${TICKETS_FIELD} must be {"v":1,"tickets":[...]}`;
+  }
+  if (parsed?.v !== 1 || !Array.isArray(parsed.tickets)) return `${TICKETS_FIELD} must be {"v":1,"tickets":[...]}`;
+  if (!parsed.tickets.every(isEntry)) return `${TICKETS_FIELD} entries each need a path, a whole size and a 64-hex sha256`;
+  const keys = new Set((parsed.tickets as TicketEntry[]).map((t) => `${t.path}\0${t.sha256}`));
+  const dropped = parseTickets(stored).filter((t) => !keys.has(`${t.path}\0${t.sha256}`));
+  return dropped.length ? `${TICKETS_FIELD} never shrinks: the write drops ${dropped.length} remembered ticket image(s)` : null;
+}
+
 export function serializeTickets(tickets: TicketEntry[]): string {
   return JSON.stringify({ v: 1, tickets });
 }

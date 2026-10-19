@@ -252,6 +252,23 @@ describe("fields", () => {
     db.close();
   });
 
+  test("field set takes evidence-tickets only well formed and only as a superset of what it holds", () => {
+    const db = started();
+    const a = { path: "/w/r/evidence/t/a.png", size: 3, sha256: "a".repeat(64) };
+    const b = { path: "/w/r/evidence/u/b.png", size: 4, sha256: "b".repeat(64) };
+    const value = (...tickets: object[]) => JSON.stringify({ v: 1, tickets });
+    expect(fieldSet(db, "evidence-tickets", value(a), "evidence", 10)).toEqual({ ok: true });
+    expect(fieldSet(db, "evidence-tickets", value(a, b), "evidence", 11)).toEqual({ ok: true });
+    for (const shrunk of [value(b), value(), "{}", "", "-"]) {
+      const r = fieldSet(db, "evidence-tickets", shrunk, "evidence", 12);
+      expect(r).toMatchObject({ ok: false, code: 2 });
+      if (!r.ok) expect(r.error).toStartWith("evidence-tickets ");
+    }
+    expect(fieldSet(db, "evidence-tickets", value(a, b, { path: "/x.png", size: -1, sha256: "c".repeat(64) }), "evidence", 13)).toMatchObject({ ok: false, code: 2 });
+    expect(fieldGet(db, "evidence-tickets")).toEqual({ ok: true, value: value(a, b) });
+    db.close();
+  });
+
   test("field set still writes v1 and legacy evidence, and validates only the evidence key", () => {
     const db = started();
     expect(fieldSet(db, "evidence", JSON.stringify({ v: 1, before: "/b.png" }), "evidence", 10)).toEqual({ ok: true });

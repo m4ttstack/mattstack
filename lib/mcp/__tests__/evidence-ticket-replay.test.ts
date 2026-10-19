@@ -6,11 +6,12 @@
  * source: "ticket"; every later one names the run-folder copy from the
  * returned value, as the skill says.
  */
+import { spawnSync } from "child_process";
 import { createHash } from "crypto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { createMrUploadHandlers } from "../../daemon/handlers/mr-upload.ts";
 import { runStart } from "../../runs/start.ts";
 import { closeStateDb } from "../../state/index.ts";
@@ -199,6 +200,21 @@ describe("a saved ticket image through the evidence skills' call sequence", () =
   test("a first call that is never followed up still leaves the bytes refused", async () => {
     const { copy } = await firstCall();
     expect(existsSync(copy)).toBe(true);
+    await expectByteCopyRefused();
+  });
+
+  test("clearing evidence-tickets through run_field_set or rt runs field set is refused, so the bytes stay refused", async () => {
+    await firstCall();
+    const cleared = JSON.stringify({ v: 1, tickets: [] });
+    const viaTool = await realEvidenceToolDeps.runTool("run_field_set", { runDb, key: "evidence-tickets", value: cleared, stage: "verify" }, env);
+    expect(viaTool.ok).toBe(false);
+    expect(viaTool.error).toStartWith("evidence-tickets ");
+    const cli = spawnSync("bun", [resolve(import.meta.dir, "../../../cli.ts"), "runs", "field", "set", "evidence-tickets", "{}", "--stage", "verify"], {
+      env: { PATH: process.env.PATH, HOME: home, RT_RUNS_ROOT: env.RT_RUNS_ROOT, RT_RUN_DB: runDb, RT_RUN_EMIT: "0" },
+      encoding: "utf8",
+    });
+    expect(cli.status).toBe(2);
+    expect(cli.stdout + cli.stderr).toContain("evidence-tickets ");
     await expectByteCopyRefused();
   });
 
