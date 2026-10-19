@@ -139,6 +139,15 @@ describe("run_start", () => {
   });
 });
 
+describe("run_stage description", () => {
+  test("says a start on a running stage refuses and names the moves, never that it supersedes", () => {
+    const { description } = tool(fakeDeps().deps, "run_stage");
+    expect(description).not.toContain("supersede");
+    expect(description).toContain("A start on a stage whose latest attempt is still running refuses");
+    for (const move of ["run_enter", "run_next", "run_resolve"]) expect(description).toContain(move);
+  });
+});
+
 describe("run tools pass runDb as RT_RUN_DB and cwd through", () => {
   test("run_stage start", async () => {
     const { deps, calls } = fakeDeps();
