@@ -41,3 +41,14 @@ export function readRespondRounds(
   }
   return out;
 }
+
+export function attachRespondRounds<T extends { webUrl?: string | null }>(
+  mrs: T[],
+  rounds: Map<string, Record<string, number>>
+): Array<T & { respondRounds?: Record<string, number> }> {
+  return mrs.map(mr =>
+    mr.webUrl && rounds.has(mr.webUrl)
+      ? { ...mr, respondRounds: rounds.get(mr.webUrl) }
+      : mr
+  );
+}

@@ -4,7 +4,11 @@ import { join } from 'path';
 import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
-import { readRespondRounds, recordRespondRound } from '../respond-rounds.ts';
+import {
+  attachRespondRounds,
+  readRespondRounds,
+  recordRespondRound,
+} from '../respond-rounds.ts';
 import { openStateDb } from '../state/db.ts';
 
 let dir: string;
@@ -38,5 +42,16 @@ describe('respond rounds', () => {
     recordRespondRound(URL_A, 'john', 2, db);
     expect(recordRespondRound(URL_B, 'john', 3, db)).toBe(1);
     expect(readRespondRounds(db).get(URL_B)).toEqual({ john: 1 });
+  });
+
+  test('attachRespondRounds sets rounds by webUrl and leaves others untouched', () => {
+    const rounds = new Map([[URL_A, { john: 2 }]]);
+    const a = { webUrl: URL_A };
+    const b = { webUrl: URL_B };
+    const none = { webUrl: null };
+    const out = attachRespondRounds([a, b, none], rounds);
+    expect(out[0]).toEqual({ webUrl: URL_A, respondRounds: { john: 2 } });
+    expect(out[1]).toBe(b);
+    expect(out[2]).toBe(none);
   });
 });

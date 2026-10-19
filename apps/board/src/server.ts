@@ -265,6 +265,7 @@ import {
   tokenMissingNotice,
 } from './peer/runtime.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
+import { attachRespondRounds, readRespondRounds } from './respond-rounds.ts';
 import {
   attachResponds,
   parseRespondRequestBody,
@@ -279,6 +280,7 @@ import {
   type RespondState,
   type RespondStatus,
 } from './respond-state.ts';
+import { respondTargets } from './respond-targets.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
 import { dropRounds, latestRounds } from './review-rounds.ts';
 import {
@@ -893,8 +895,14 @@ async function enrichReviewerComments(mrs: BoardMR[]): Promise<void> {
             m.author.username,
             roster
           );
-          if (ownedHere(m))
+          if (ownedHere(m)) {
             m.reviewerLatches = reviewerLatches(detail, m.author.username);
+            m.respondTargets = respondTargets(
+              detail,
+              m.author.username,
+              config.botUsernames
+            );
+          }
         } catch {
           // Keep the coarse fallback (unresolvedThreads) for this MR.
         }
@@ -1806,12 +1814,15 @@ const httpServer = Bun.serve({
                   attachSlack(
                     attachGates(
                       attachDoctors(
-                        attachResponds(
-                          attachReviews(
-                            withSlackChannel(mrs),
-                            readReviewStates()
+                        attachRespondRounds(
+                          attachResponds(
+                            attachReviews(
+                              withSlackChannel(mrs),
+                              readReviewStates()
+                            ),
+                            readRespondStates()
                           ),
-                          readRespondStates()
+                          readRespondRounds()
                         ),
                         readDoctorStates()
                       ),
@@ -1907,9 +1918,12 @@ const httpServer = Bun.serve({
         const reconciler = await fetchReconcilerView();
         const decision = decisionGates(
           attachDoctors(
-            attachResponds(
-              attachReviews(snapshot.mrs, reviews, latestRounds()),
-              responds
+            attachRespondRounds(
+              attachResponds(
+                attachReviews(snapshot.mrs, reviews, latestRounds()),
+                responds
+              ),
+              readRespondRounds()
             ),
             doctors
           ),

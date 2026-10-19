@@ -13,6 +13,7 @@ import type {
 import type { ExecutorState, ExecutorView } from './client/types.ts';
 import type { BoardConfig, Member } from './config.ts';
 import type { ReviewerLatch } from './latch/discussions.ts';
+import type { RespondTarget } from './respond-targets.ts';
 import { extractTicketId } from './ticket.ts';
 
 /** The board-wide sync failure: the failing project with the longest
@@ -51,6 +52,11 @@ export type BoardMR = MRDashboardProps & {
       author can ask for a re-review through the MR when the switchboard
       can't reach that reviewer. Set by the discussions fetch. */
   reviewerLatches?: ReviewerLatch[];
+  /** People with open feedback on an MR this board owns, for the respond
+      menu. Set by the discussions fetch. */
+  respondTargets?: RespondTarget[];
+  /** Highest respond round per username, from the rounds table. */
+  respondRounds?: Record<string, number>;
   pipelineState: PipelineState;
   /** Draft (unfinished) MR. Only your own drafts reach the board, so this also
       means "yours, and not marked ready yet" -- see buildBoard. */

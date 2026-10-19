@@ -76,6 +76,9 @@ export interface RespondInfo {
   dismissedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
+  /** Username the run answers, and that person's response round. */
+  person?: string;
+  responseRound?: number;
 }
 export type DoctorStatus =
   | 'queued'
