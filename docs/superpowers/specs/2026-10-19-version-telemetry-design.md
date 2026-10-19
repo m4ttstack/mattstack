@@ -69,8 +69,8 @@ endpoint accepts unauthenticated pings.
 - A new user-scope setting `telemetry.enabled`, default `true`, registered
   through the settings resolver (see the `rt:settings` skill).
 - When it is `false` the daemon sends nothing.
-- On the first daemon start that would send, rt shows a one-line notice once
-  saying version telemetry is on and how to turn it off.
+- The tray app's Settings window shows it as a checkbox, on by default.
+  There is no separate first-run notice (Matt's call).
 
 ## What the relay keeps
 
