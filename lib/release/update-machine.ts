@@ -338,6 +338,59 @@ async function staleManagedApps(seams: UpdateMachineSeams, apps: string[], witne
   return stale;
 }
 
+type NotaryProbe =
+  | { kind: "ready" }
+  | { kind: "no-profile" }
+  | { kind: "unreachable"; error: string }
+  | { kind: "refused"; error: string };
+
+const NOTARY_PROBE_TRIES = 3;
+const NOTARY_PROBE_WAIT_MS = 10_000;
+
+const NOTARY_UNREACHABLE = /NSURLErrorDomain|timed out|network connection|could not connect|offline|HTTP status code: 5\d\d|statusCode: (Optional\()?5\d\d/i;
+
+/** notarytool can end on advice ("Please try again later") after the error itself, so the line that names the error is the one worth showing. */
+function diagnosticLine(stderr: string, stdout: string): string {
+  for (const text of [stderr, stdout]) {
+    const lines = text.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    const named = [...lines].reverse().find((l) => /error|HTTP|status/i.test(l));
+    if (named) return named;
+  }
+  for (const text of [stderr, stdout]) {
+    const lines = text.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    if (lines.length > 0) return lines[lines.length - 1]!;
+  }
+  return "";
+}
+
+/** `notarytool history` signs in to Apple over the network, so a dropped or timed-out call is not a missing profile. */
+async function probeNotary(seams: UpdateMachineSeams): Promise<NotaryProbe> {
+  let last: NotaryProbe = { kind: "no-profile" };
+  for (let attempt = 0; attempt < NOTARY_PROBE_TRIES; attempt++) {
+    if (attempt > 0) await seams.sleep(NOTARY_PROBE_WAIT_MS * attempt);
+    const r = await seams.exec(["xcrun", "notarytool", "history", "--keychain-profile", seams.notaryProfile], { timeoutMs: 60_000 });
+    if (r.exitCode === 0) return { kind: "ready" };
+    const text = `${r.stderr}\n${r.stdout}`;
+    if (/No Keychain password item found|User interaction is not allowed|keychain/i.test(text)) return { kind: "no-profile" };
+    if (!NOTARY_UNREACHABLE.test(text) && text.trim() !== "") {
+      return { kind: "refused", error: diagnosticLine(r.stderr, r.stdout) };
+    }
+    last = { kind: "unreachable", error: diagnosticLine(r.stderr, r.stdout) || "notarytool gave no answer" };
+  }
+  return last;
+}
+
+function notaryBlocker(probe: Exclude<NotaryProbe, { kind: "ready" }>, profile: string): string {
+  switch (probe.kind) {
+    case "no-profile":
+      return `Not run: could not read the notary profile ${profile}. If the login keychain is locked, unlock it and run this again; if the profile was never saved, save it once with: xcrun notarytool store-credentials ${profile}`;
+    case "unreachable":
+      return `Not run: Apple's notary service did not answer after ${NOTARY_PROBE_TRIES} tries (${probe.error}). Run this again later: rt release update-machine --yes`;
+    case "refused":
+      return `Not run: notarytool could not sign in with the profile ${profile}: ${probe.error}`;
+  }
+}
+
 /** `deck restart` kicks a relaunch off; it is not a readiness guarantee. A single
  *  immediate check catches an app still mid-relaunch as stale, so this polls
  *  briefly before giving up on it. */
@@ -726,8 +779,7 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
   const sha = await resolveCommit(seams, tag);
   const ctx: ReleaseContext = { tag, ver, sha };
   // Checked before any leg changes the Mac, so a missing profile is known up front.
-  const notaryReady =
-    (await seams.exec(["xcrun", "notarytool", "history", "--keychain-profile", seams.notaryProfile], { timeoutMs: 60_000 })).exitCode === 0;
+  const notary = await probeNotary(seams);
   const legs: LegResult[] = [];
   let haltedAfter: string | null = null;
 
@@ -749,8 +801,8 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
   // Read here, not in the dev-bundle leg: a declined or failed one never reaches its own pgrep.
   let devNotRunning = (await pgrepPids(seams, DEV_APP_ANCHOR)).length === 0;
   await runGatedLeg("dev-bundle", DEV_BUNDLE_LABEL, () => runDevBundleLeg(seams, ctx, () => { devNotRunning = true; }, true));
-  const publishBlocker = !notaryReady
-    ? `Not run: could not read the notary profile ${seams.notaryProfile}. If the login keychain is locked, unlock it and run this again; if the profile was never saved, save it once with: xcrun notarytool store-credentials ${seams.notaryProfile}`
+  const publishBlocker = notary.kind !== "ready"
+    ? notaryBlocker(notary, seams.notaryProfile)
     : legs.find((l) => l.id === "dev-bundle")?.status !== "ok"
       ? "Not run: the dev app was not built in this run"
       : null;
