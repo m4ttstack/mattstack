@@ -85,6 +85,6 @@ the MCP calls up to the next tool.
   frontmatter): the work engine's two rules were the only ones.
 - H6: `dead-paths.sh` lists the files watch-ci and stage-watch-ci name
   under their own skill dir, each a compile warning with no forge binding.
-  RED: both hosts named `parts/forge/scripts/ci-forge.sh`. GREEN: none. The
+  RED: both hosts named `parts/forge/scripts/ci-forge.sh`. GREEN: none. The `<scripts>` directory stays named (a directory never warns): `compile-native.e2e.test.ts` pins the default stage's rendered `{{stage.dir}}/scripts/`, and a forge-bound copy gets its `ci-forge.sh` path from the binding's own text. The
   redirect sentences a fill's old script call meets are unchanged, so no
   agent scenario was run for it.
