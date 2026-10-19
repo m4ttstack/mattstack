@@ -25,8 +25,8 @@ import { runsRoot } from "../../runs/paths.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
 import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
 import { parseTickets, ticketShots, TICKETS_FIELD } from "../../evidence/tickets-field.ts";
-import { evidenceUploadRefusal, RECORD_REMEDY, ticketCopyRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
-import { redactionUploadRefusal } from "../redaction-record-check.ts";
+import { evidenceUploadRefusal, RECORD_REMEDY, ticketBytes, ticketCopyRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
+import { redactionUploadRefusal, ticketPanelRefusal } from "../redaction-record-check.ts";
 import { checkUploadPath, claudeTempRoots, workRoot } from "../upload-guard.ts";
 import type { CommandResult, HandlerContext, HandlerMap } from "./types.ts";
 
@@ -102,7 +102,9 @@ function ticketCopyAnyRun(
     }
     const tickets = ticketShots(parseTickets(run.tickets ?? null));
     if (!run.evidence?.includes('"ticket"') && tickets.length === 0) continue;
-    const refusal = ticketCopyRefusal({ record: readEvidence(run.evidence), tickets, realpath: real, filename, bytes, warn });
+    const record = readEvidence(run.evidence);
+    const refusal = ticketCopyRefusal({ record, tickets, realpath: real, filename, bytes, warn })
+      ?? ticketPanelRefusal({ realpath: real, filename, tickets: ticketBytes(record, tickets), warn });
     if (refusal) return refusal;
   }
   return null;

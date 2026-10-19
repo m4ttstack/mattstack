@@ -5,6 +5,9 @@
  */
 import { createHash } from "crypto";
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
 import { evidenceUploadRefusal, ticketCopyRefusal } from "../evidence-record-check.ts";
 
@@ -69,5 +72,22 @@ describe("ticketCopyRefusal on a legacy shot with no recorded hash", () => {
   test("an unreadable ticket file fails closed", () => {
     const res = ticketCopyRefusal({ record: legacy, realpath: "/tmp/copy.png", filename: "copy.png", bytes: TICKET, resolve: () => null, probe: () => ({ kind: "unreadable" as const, err: new Error("EACCES") }) });
     expect(res).toContain("could not be read to rule out a copy");
+  });
+});
+
+describe("evidenceUploadRefusal on a board with a panel drawn from the run's ticket image", () => {
+  test("refuses the recorded pair board whose ticket panel has nothing hidden, from the run's own record", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ticket-panel-"));
+    try {
+      writeFileSync(join(dir, "pair.png"), "board");
+      writeFileSync(join(dir, "imp.c1.png"), TICKET);
+      writeFileSync(join(dir, "pair.spec.json"), JSON.stringify({ panels: [{ capture: "imp.c1.capture.json", marks: [] }] }));
+      const board = join(dir, "pair.png");
+      const evidence = JSON.stringify({ v: 2, cases: [{ id: "t", label: "T", before: { path: "/gone/t.png", source: "ticket", size: TICKET.length, sha256: hex(TICKET), annotated: board, caption: "c" } }] });
+      const res = evidenceUploadRefusal({ runId: "r1", realpath: board, filename: "pair.png", run: { found: true, evidence }, bytes: new TextEncoder().encode("board"), resolve: (p) => p });
+      expect(res).toBe("pair.png shows a ticket image in panel 1 with nothing hidden on it; redact its personal data in that panel, confirm the crops at the redaction gate, and copy the record and crops beside the board");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

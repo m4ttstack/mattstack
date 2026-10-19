@@ -7,10 +7,11 @@
  */
 import { createHash } from "crypto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { createMrUploadHandlers } from "../../daemon/handlers/mr-upload.ts";
+import { serializeUploads } from "../../evidence/uploads-field.ts";
 import { runStart } from "../../runs/start.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { evidenceToolDefs, realEvidenceToolDeps, type EvidenceToolDeps } from "../evidence-tools.ts";
@@ -125,12 +126,15 @@ function sidecar(dir: string, name: string, source: "import" | "live") {
   put(dir, name, JSON.stringify({ schemaVersion: "capture/1", source, image: name.replace(/\.capture\.json$/, ".png"), origin: "https://tracker.example/CASE-1", format: "png", scale: 1, digest: "d" }));
 }
 
-/** A redacted board over its panels, with its compose-redactions record and the crop confirmed. */
-function board(dir: string, stem: string, panels: string[], bytes: Buffer) {
-  put(dir, `${stem}.spec.json`, JSON.stringify({ panels: panels.map((capture) => ({ capture, marks: [{ redact: { x: 0, y: 0, w: 4, h: 4 } }] })) }));
-  const crop = png(`${stem} crop`);
-  put(dir, `${stem}.redact-1.png`, crop);
-  put(dir, `${stem}.redactions.json`, JSON.stringify({ schemaVersion: "compose-redactions/1", board: `${stem}.png`, boardSha256: sha(bytes), redactions: [{ crop: `${stem}.redact-1.png`, sha256: sha(crop), confirmed: true }] }));
+/** A board over its panels; each panel listed in redacted gets a redact mark and a confirmed crop in the compose-redactions record. */
+function board(dir: string, stem: string, panels: string[], bytes: Buffer, redacted: number[] = panels.map((_, i) => i)) {
+  put(dir, `${stem}.spec.json`, JSON.stringify({ panels: panels.map((capture, i) => ({ capture, marks: redacted.includes(i) ? [{ redact: { x: 0, y: 0, w: 4, h: 4 } }] : [] })) }));
+  const redactions = redacted.map((panel, k) => {
+    const crop = png(`${stem} crop ${k + 1}`);
+    put(dir, `${stem}.redact-${k + 1}.png`, crop);
+    return { crop: `${stem}.redact-${k + 1}.png`, sha256: sha(crop), panel, confirmed: true };
+  });
+  put(dir, `${stem}.redactions.json`, JSON.stringify({ schemaVersion: "compose-redactions/1", board: `${stem}.png`, boardSha256: sha(bytes), redactions }));
   return put(dir, `${stem}.png`, bytes);
 }
 
@@ -164,13 +168,13 @@ async function liveBefore(): Promise<{ copy: string; before: string }> {
 }
 
 /** ship: the driver copies the before spec's captures in unchanged and composes the pair from them and the live after. */
-function drawPair(before: string): { capture: string; pair: string } {
+function drawPair(before: string, redacted?: number[]): { capture: string; pair: string } {
   const beforeStem = basename(before, ".png");
   for (const ext of [".c1.png", ".c1.capture.json"]) copyFileSync(join(dirname(before), `${beforeStem}${ext}`), join(shots, `${beforeStem}${ext}`));
   const stem = `${runId}-t-after`;
   const capture = put(shots, `${stem}.c1.png`, LIVE_AFTER);
   sidecar(shots, `${stem}.c1.capture.json`, "live");
-  const pair = board(shots, stem, [`${beforeStem}.c1.capture.json`, `${stem}.c1.capture.json`], png("pair board"));
+  const pair = board(shots, stem, [`${beforeStem}.c1.capture.json`, `${stem}.c1.capture.json`], png("pair board"), redacted);
   return { capture, pair };
 }
 
@@ -253,5 +257,67 @@ describe("ship's pair over a live before board", () => {
     const value = res.body!.value;
     expect(slotOf(value, "before").annotated).toBe(slotOf(value, "after").annotated);
     expect(basename(slotOf(value, "before").annotated)).toBe(basename(pair));
+  });
+});
+
+describe("a pair board's panel drawn from a ticket image", () => {
+  const refusedPanel = (name: string) => `${name} shows a ticket image in panel 1 with nothing hidden on it; redact its personal data in that panel, confirm the crops at the redaction gate, and copy the record and crops beside the board`;
+
+  test("a BEFORE panel reusing the ticket import with nothing hidden on it is refused at upload and at attach", async () => {
+    const { before } = await importBefore();
+    const { capture, pair } = drawPair(before, [1]);
+    const res = await record([{ case: "t", slot: "after", path: capture, annotated: pair, caption: CAPTION }]);
+    expect(res.body?.written).toBe(true);
+    const recorded = slotOf(res.body!.value, "after").annotated as string;
+    expect(await upload(recorded)).toEqual({ ok: false, error: refusedPanel(basename(recorded)) });
+    expect(await upload(recorded, runId)).toEqual({ ok: false, error: refusedPanel(basename(recorded)) });
+    const attached = await attach();
+    expect(attached.body!.uploaded.map((u) => u.path)).toEqual([before]);
+    expect(Object.values(attached.body!.refused).flat()).toEqual([{ path: recorded, error: refusedPanel(basename(recorded)) }]);
+  });
+
+  test("an earlier upload of that pair board is never reused by evidence_attach", async () => {
+    const { before } = await importBefore();
+    const { capture, pair } = drawPair(before, []);
+    rmSync(join(shots, `${runId}-t-after.redactions.json`));
+    const res = await record([{ case: "t", slot: "after", path: capture, annotated: pair, caption: CAPTION }]);
+    const recorded = slotOf(res.body!.value, "after").annotated as string;
+    const prior = { [realpathSync(recorded)]: { sha256: sha(readFileSync(recorded)), project: REPO, url: "https://gitlab.example.com/acme/app/uploads/old/p.png", markdown: "![p](/uploads/old/p.png)", at: 1 } };
+    const set = await realEvidenceToolDeps.runTool("run_field_set", { runDb, key: "evidence-uploads", value: serializeUploads(prior), stage: "ship" }, env);
+    expect(set.ok).toBe(true);
+    const attached = await attach();
+    expect(attached.body!.uploaded.some((u) => u.path === recorded)).toBe(false);
+    expect(Object.values(attached.body!.refused).flat()).toEqual([{ path: recorded, error: refusedPanel(basename(recorded)) }]);
+  });
+
+  test("the same pair with nothing hidden anywhere, copied outside the run, is refused too", async () => {
+    const { before } = await importBefore();
+    const { pair } = drawPair(before, []);
+    const out = join(elsewhere, "pair");
+    mkdirSync(out);
+    for (const name of [basename(pair), `${runId}-t-after.spec.json`, `${runId}-t-after.redactions.json`, `${runId}-t-after.c1.png`, `${runId}-t-before.c1.png`]) {
+      copyFileSync(join(shots, name), join(out, name));
+    }
+    expect(await upload(join(out, basename(pair)))).toEqual({ ok: false, error: refusedPanel(basename(pair)) });
+  });
+
+  test("a pair with its ticket panel redacted and confirmed uploads", async () => {
+    const { before } = await importBefore();
+    const { capture, pair } = drawPair(before, [0]);
+    const res = await record([{ case: "t", slot: "after", path: capture, annotated: pair, caption: CAPTION }]);
+    const recorded = slotOf(res.body!.value, "after").annotated as string;
+    expect((await upload(recorded, runId)).ok).toBe(true);
+    expect((await upload(recorded)).ok).toBe(true);
+  });
+
+  test("a pair drawn only from live captures, with nothing hidden, uploads", async () => {
+    const { copy, before } = await liveBefore();
+    const { capture, pair } = drawPair(before, []);
+    const res = await record([
+      { case: "t", slot: "after", path: capture, annotated: pair, caption: CAPTION },
+      { case: "t", slot: "before", path: copy, annotated: pair, caption: CAPTION },
+    ]);
+    expect(res.body?.written).toBe(true);
+    expect((await upload(slotOf(res.body!.value, "after").annotated, runId)).ok).toBe(true);
   });
 });

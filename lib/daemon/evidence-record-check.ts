@@ -10,6 +10,7 @@ import { readFileSync, realpathSync, statSync } from "fs";
 import { basename } from "path";
 import { evidenceShots, readEvidence, uploadablePaths, type EvidenceRecord, type EvidenceShot } from "../../packages/rt-client/src/evidence.ts";
 import { parseTickets, ticketShots } from "../evidence/tickets-field.ts";
+import { ticketPanelRefusal } from "./redaction-record-check.ts";
 
 /** The one remedy for a file a run's record does not hold: the tool that copies and records it, never a raw field write. */
 export const RECORD_REMEDY = "record it with evidence_record first";
@@ -86,6 +87,12 @@ export function ticketCopyRefusal(o: {
   return null;
 }
 
+/** The recorded bytes of every ticket image a run knows, the shape ticketPanelRefusal matches a board's panels against. */
+export function ticketBytes(record: EvidenceRecord, tickets: EvidenceShot[] = []): Array<{ size: number; sha256: string }> {
+  return [...evidenceShots(record).map((s) => s.shot), ...tickets].flatMap((s) =>
+    s.source === "ticket" && s.size !== undefined && s.sha256 !== undefined ? [{ size: s.size, sha256: s.sha256 }] : []);
+}
+
 function safeRealpath(p: string): string | null {
   try {
     return realpathSync(p);
@@ -108,7 +115,8 @@ export function evidenceUploadRefusal(o: {
   const resolve = o.resolve ?? safeRealpath;
   const same = (p: string) => resolve(p) === o.realpath;
   const tickets = ticketShots(parseTickets(o.run.tickets ?? null));
-  const ticket = ticketCopyRefusal({ record, tickets, realpath: o.realpath, filename: o.filename, bytes: o.bytes, resolve, warn: o.warn });
+  const ticket = ticketCopyRefusal({ record, tickets, realpath: o.realpath, filename: o.filename, bytes: o.bytes, resolve, warn: o.warn })
+    ?? ticketPanelRefusal({ realpath: o.realpath, filename: o.filename, tickets: ticketBytes(record, tickets), warn: o.warn });
   if (ticket) return ticket;
   if (record.version !== 2) return `run ${o.runId} has no evidence record; ${RECORD_REMEDY}`;
   if (uploadablePaths(record).some(same)) return null;

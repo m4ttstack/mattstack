@@ -16,8 +16,8 @@ import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readEvidence, uploadablePaths, type EvidenceRecord, type EvidenceShot } from "../../packages/rt-client/src/evidence.ts";
 import { UPLOAD_MAX_BYTES } from "../daemon/upload-guard.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
-import { ticketCopyRefusal } from "../daemon/evidence-record-check.ts";
-import { redactionUploadRefusal } from "../daemon/redaction-record-check.ts";
+import { ticketBytes, ticketCopyRefusal } from "../daemon/evidence-record-check.ts";
+import { redactionUploadRefusal, ticketPanelRefusal } from "../daemon/redaction-record-check.ts";
 import { allowedSourceRoots, boardCaptures, bundleStem, copyIntoRun, importedCaptures, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
 import { displacedImportBoard, imageAddresses, importedTicketEntries, markKnownTickets, mergeRecord, parseCurrent, serializeRecord, stampTicketBytes, ticketEntries, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
@@ -541,6 +541,7 @@ function reusable(entry: UploadEntry | undefined, real: string, project: string,
     if (sha256Of(real) !== entry.sha256) return null;
     const bytes = readFileSync(real);
     if (ticketCopyRefusal({ record, tickets, realpath: real, filename: basename(real), bytes }) !== null) return null;
+    if (ticketPanelRefusal({ realpath: real, filename: basename(real), tickets: ticketBytes(record, tickets) }) !== null) return null;
     return redactionUploadRefusal({ realpath: real, filename: basename(real), bytes }) === null ? entry : null;
   } catch {
     return null;
