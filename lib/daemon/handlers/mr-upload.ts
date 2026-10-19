@@ -81,8 +81,8 @@ function scanRunRecords(): RunRecordScan[] {
 }
 
 /**
- * With no run in scope a file can still be a run's saved ticket image (its
- * original in the session temp root, say): every run's record is checked,
+ * A file can be another run's saved ticket image (its original in the
+ * session temp root, or a copy recorded into a second run): every run's record is checked,
  * whether or not its work folder survives, and its remembered ticket images
  * whether or not its record still names them. A run with neither is skipped
  * unparsed, and a recorded size gates any hashing.
@@ -185,10 +185,8 @@ export function createMrUploadHandlers(
         const byLocation = runId === owner && runId !== asked && !refusal.includes("ticket image");
         return { ok: false, error: byLocation ? `${checked.filename} is in run ${runId}'s evidence folder and not in run ${runId}'s evidence record; ${RECORD_REMEDY}` : refusal };
       }
-      if (runIds.size === 0) {
-        const ticket = ticketCopyAnyRun(checked.realpath, checked.filename, checked.bytes, runRecordsFn(), warn);
-        if (ticket) return { ok: false, error: ticket };
-      }
+      const ticket = ticketCopyAnyRun(checked.realpath, checked.filename, checked.bytes, runRecordsFn(), warn);
+      if (ticket) return { ok: false, error: ticket };
 
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
