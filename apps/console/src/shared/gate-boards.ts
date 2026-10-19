@@ -3,6 +3,11 @@
 export const BOARDS_QUESTION =
   'Look at each board: is there anything here that should not be public?';
 
+/** A boards gate's images are served only while the gate still waits on the
+    human: open, or parked. */
+export const boardsWaiting = (status: string): boolean =>
+  status === 'open' || status === 'parked';
+
 export interface GateBoard {
   case: string;
   slot: 'before' | 'after' | 'crop';

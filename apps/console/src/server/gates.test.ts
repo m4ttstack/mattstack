@@ -741,6 +741,8 @@ describe('GET /api/badge', () => {
   });
 });
 
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7]);
+
 describe('GET /api/gates/:id/board', () => {
   const realHome = process.env.HOME;
   let home: string;
@@ -751,7 +753,7 @@ describe('GET /api/gates/:id/board', () => {
     process.env.HOME = home;
     png = join(home, '.fast-browser', 'screenshots', 'run-r1-a-after.png');
     mkdirSync(dirname(png), { recursive: true });
-    writeFileSync(png, 'PNGBYTES');
+    writeFileSync(png, PNG);
   });
   afterEach(() => {
     process.env.HOME = realHome;
@@ -786,7 +788,29 @@ describe('GET /api/gates/:id/board', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(res.headers.get('cache-control')).toBe('no-store');
-    expect(await res.text()).toBe('PNGBYTES');
+    expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([...PNG]);
+  });
+
+  it('serves a board on an mr: subject gate linked to a run', async () => {
+    vi.mocked(rt.gateList)
+      .mockResolvedValueOnce({ ok: true, data: { gates: [], cursor: 0 } })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          gates: [
+            boardsGate({
+              subject: 'mr:acme/web!412',
+              origin: { runId: 'r1' },
+            }),
+          ],
+          cursor: 0,
+        },
+      });
+    const res = await board(png);
+    expect(res.status).toBe(200);
+    expect(vi.mocked(rt.gateList).mock.calls[1]![0]).toMatchObject({
+      linked: true,
+    });
   });
 
   it('404s a path the gate does not name', async () => {
@@ -809,11 +833,11 @@ describe('GET /api/gates/:id/board', () => {
     expect((await board(png)).status).toBe(404);
   });
 
-  it('404s an unknown gate', async () => {
-    vi.mocked(rt.gateList).mockResolvedValueOnce({
-      ok: true,
-      data: { gates: [], cursor: 0 },
-    });
+  it('404s a gate on neither list', async () => {
+    const empty = { ok: true as const, data: { gates: [], cursor: 0 } };
+    vi.mocked(rt.gateList)
+      .mockResolvedValueOnce(empty)
+      .mockResolvedValueOnce(empty);
     expect((await board(png)).status).toBe(404);
   });
 

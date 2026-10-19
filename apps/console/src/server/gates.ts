@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import {
   isLocalRequest,
@@ -26,7 +25,7 @@ import {
   FIXTURE_READ_ONLY,
   type RunsFixture,
 } from './fixtures/design/runsFixture';
-import { boardMime, gateBoardPath } from './gateBoards';
+import { readGateBoard } from './gateBoards';
 
 /** Read fresh per call, not cached at module scope -- this is the shared
     test seam across every rt-client call site in this file (panes.ts uses
@@ -292,26 +291,26 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
             if (!file) return c.json({ error: 'no board' }, 404);
             return image(file.bytes, file.mime);
           }
-          const all = await allGates();
-          if (!all.ok) return c.json({ error: all.error }, 502);
-          const gate = all.gates.find(g => g.id === id);
-          const resolved = gate
-            ? gateBoardPath({
+          // A boards gate on an mr: subject reaches its run page through
+          // origin.runId, so the linked list is read when the run list
+          // misses it.
+          let gate: GateRow | undefined;
+          for (const scope of [{}, { linked: true }]) {
+            const all = await allGates(scope);
+            if (!all.ok) return c.json({ error: all.error }, 502);
+            gate = all.gates.find(g => g.id === id);
+            if (gate) break;
+          }
+          const file = gate
+            ? readGateBoard({
                 gate,
                 path,
                 home: homedir(),
                 uid: process.getuid?.() ?? -1,
               })
             : null;
-          const mime = resolved ? boardMime(resolved) : undefined;
-          if (!resolved || !mime) return c.json({ error: 'no board' }, 404);
-          let bytes: Buffer;
-          try {
-            bytes = await readFile(resolved);
-          } catch {
-            return c.json({ error: 'no board' }, 404);
-          }
-          return image(new Uint8Array(bytes), mime);
+          if (!file) return c.json({ error: 'no board' }, 404);
+          return image(file.bytes, file.mime);
         }
       )
       .get('/api/gates/:id/locate', async c => {

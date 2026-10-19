@@ -1,5 +1,6 @@
 // @vitest-environment node
 import {
+  linkSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -11,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { gateBoardPath, type BoardGate } from './gateBoards';
+import { readGateBoard, type BoardGate } from './gateBoards';
 
 let home: string;
 let uid: number;
@@ -22,7 +23,18 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
-function file(rel: string, bytes = 'png'): string {
+const MAGIC: Record<string, number[]> = {
+  png: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  jpg: [0xff, 0xd8, 0xff, 0xe0],
+  webp: [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50],
+};
+const imageBytes = (rel: string): Uint8Array =>
+  new Uint8Array([...(MAGIC[rel.split('.').pop()!] ?? []), 1, 2, 3]);
+
+function file(
+  rel: string,
+  bytes: Uint8Array | string = imageBytes(rel)
+): string {
   const p = join(home, rel);
   mkdirSync(join(p, '..'), { recursive: true });
   writeFileSync(p, bytes);
@@ -48,9 +60,9 @@ function gate(paths: string[], over: Partial<BoardGate> = {}): BoardGate {
 }
 
 const serve = (g: BoardGate, path: string, asUid = uid) =>
-  gateBoardPath({ gate: g, path, home, uid: asUid });
+  readGateBoard({ gate: g, path, home, uid: asUid })?.path ?? null;
 
-describe('gateBoardPath serves', () => {
+describe('readGateBoard serves', () => {
   it('a board in the screenshots folder that the open gate names', () => {
     const p = file('.fast-browser/screenshots/run-1-a-after.png');
     expect(serve(gate([p]), p)).toBe(p);
@@ -72,7 +84,32 @@ describe('gateBoardPath serves', () => {
   });
 });
 
-describe('gateBoardPath refuses', () => {
+describe('readGateBoard reads', () => {
+  it('the bytes and the type its own content shows', () => {
+    const p = file('.fast-browser/screenshots/a.png');
+    const got = readGateBoard({ gate: gate([p]), path: p, home, uid });
+    expect(got?.mime).toBe('image/png');
+    expect([...got!.bytes]).toEqual([...imageBytes('a.png')]);
+  });
+});
+
+describe('readGateBoard refuses', () => {
+  it('a file whose bytes are not the image its name says', () => {
+    const p = file('.fast-browser/screenshots/a.png', 'not an image');
+    expect(serve(gate([p]), p)).toBeNull();
+  });
+
+  it('a jpeg named .png', () => {
+    const p = file('.fast-browser/screenshots/a.png', imageBytes('x.jpg'));
+    expect(serve(gate([p]), p)).toBeNull();
+  });
+
+  it('a file with a second hard link', () => {
+    const p = file('.fast-browser/screenshots/a.png');
+    linkSync(p, join(home, 'elsewhere.png'));
+    expect(serve(gate([p]), p)).toBeNull();
+  });
+
   it('a path the gate does not name', () => {
     const named = file('.fast-browser/screenshots/a.png');
     const other = file('.fast-browser/screenshots/b.png');

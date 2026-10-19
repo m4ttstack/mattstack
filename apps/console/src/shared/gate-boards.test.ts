@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { BOARDS_QUESTION, boardsMarkdown, parseBoards } from './gate-boards';
+import {
+  BOARDS_QUESTION,
+  boardsMarkdown,
+  boardsWaiting,
+  parseBoards,
+} from './gate-boards';
 
 const board = {
   case: 'retry-badge',
@@ -67,5 +72,16 @@ describe('boardsMarkdown', () => {
         `  \`${board.path}\``,
       ].join('\n')
     );
+  });
+});
+
+describe('boardsWaiting', () => {
+  it.each([
+    ['open', true],
+    ['parked', true],
+    ['answered', false],
+    ['closed', false],
+  ] as const)('%s is %s', (status, waiting) => {
+    expect(boardsWaiting(status)).toBe(waiting);
   });
 });

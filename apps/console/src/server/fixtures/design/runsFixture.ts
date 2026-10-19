@@ -27,7 +27,7 @@ import {
 } from '@mattstack/rt-client';
 import { legacyItems, readEvidence } from '@mattstack/rt-client/evidence';
 
-import { parseBoards } from '../../../shared/gate-boards';
+import { boardsWaiting, parseBoards } from '../../../shared/gate-boards';
 import { runIdOfGate } from '../../../shared/gate-run';
 import { readExcerpt, type Excerpt } from '../../artifact';
 import type { EffectiveInputsPayload } from '../../effectiveInputs';
@@ -436,7 +436,7 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
 
     async boardImage(gateId, path) {
       const gate = (await allGates()).find(g => g.id === gateId);
-      if (gate?.status !== 'open') return null;
+      if (!gate || !boardsWaiting(gate.status)) return null;
       const named = parseBoards(gate.context)?.boards.some(
         b => b.path === path
       );
