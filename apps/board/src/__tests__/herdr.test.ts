@@ -1182,6 +1182,27 @@ describe('--round flag (respond resume round recovery)', () => {
     );
   });
 
+  test('respond prompt carries --person after --round', () => {
+    const p = respondPrompt({
+      mrUrl: 'https://x/mr/1',
+      statePath: '/s/1.json',
+      statusBin: '/b/board',
+      reportPath: '/s/1.md',
+      skill: 'myteam:respond',
+      round: 2,
+      person: 'john',
+    });
+    expect(p).toBe(
+      `/board:respond https://x/mr/1
+  --state /s/1.json
+  --status-bin /b/board
+  --report /s/1.md
+  --skill myteam:respond
+  --round 2
+  --person john`
+    );
+  });
+
   test('a normal launch (no round on file) omits the flag entirely', () => {
     const p = respondPrompt({
       mrUrl: 'https://x/mr/1',

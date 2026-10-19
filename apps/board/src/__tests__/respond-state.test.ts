@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
+  parseRespondRequestBody,
   pruneRespondStates,
   readRespondReport,
   readRespondStates,
@@ -318,5 +319,21 @@ describe('pruneRespondStates', () => {
     expect(readRespondReport(URL_A, db)).toBe('# adjudication A');
     expect(readRespondStates(db).has(OTHER)).toBe(false);
     expect(readRespondReport(OTHER, db)).toBeNull();
+  });
+});
+
+describe('parseRespondRequestBody person', () => {
+  const base = { mrUrl: URL_A, iid: 4821 };
+  test('accepts a person and omits it when absent', () => {
+    expect(parseRespondRequestBody({ ...base, person: 'john' })).toEqual({
+      ...base,
+      person: 'john',
+    });
+    expect(parseRespondRequestBody(base)).toEqual(base);
+  });
+  test('refuses a person that is not a non-empty string', () => {
+    expect(parseRespondRequestBody({ ...base, person: 7 })).toBeNull();
+    expect(parseRespondRequestBody({ ...base, person: '' })).toBeNull();
+    expect(parseRespondRequestBody({ ...base, person: null })).toBeNull();
   });
 });

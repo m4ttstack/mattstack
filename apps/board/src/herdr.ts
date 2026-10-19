@@ -203,6 +203,9 @@ export interface SkillPromptOpts {
       conversation, having lost its own memory of the round, can recover it
       instead of guessing 1. Absent on a normal (non-resume) launch. */
   round?: number;
+  /** Respond only: the username this response answers, as `--person <username>`
+      right after `--round`. */
+  person?: string;
 }
 
 /** The trailing paragraph a launch note becomes. The framing tells the wrapper
@@ -257,6 +260,7 @@ function dispatchArgs(o: SkillPromptOpts, skillPath?: string | null): string {
   flag('--resumed-gate', o.resumedGate);
   flag('--resumed-gate-kind', o.resumedGateKind);
   flag('--round', o.round !== undefined ? String(o.round) : undefined);
+  flag('--person', o.person);
   flag('--skill-path', skillPath);
   if (o.reReview) parts.push('--re-review');
   flag('--tier', o.tier);
@@ -412,6 +416,8 @@ export interface LaunchPaneOpts {
       MR's first-ever respond run, or one whose prior state predates the
       round field. */
   round?: number;
+  /** Respond only: the person this launch answers; rides as `--person`. */
+  person?: string;
 }
 
 /** Tab label for an MR pane: the MR id, the author beside it when known, and an
@@ -545,6 +551,7 @@ export async function launchRespond(
       skill: opts.skill,
       note: opts.note,
       round: opts.round,
+      person: opts.person,
     },
     resolvePath
   );

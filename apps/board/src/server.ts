@@ -265,7 +265,11 @@ import {
   tokenMissingNotice,
 } from './peer/runtime.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
-import { attachRespondRounds, readRespondRounds } from './respond-rounds.ts';
+import {
+  attachRespondRounds,
+  readRespondRounds,
+  recordRespondRound,
+} from './respond-rounds.ts';
 import {
   attachResponds,
   parseRespondRequestBody,
@@ -2522,9 +2526,10 @@ const httpServer = Bun.serve({
         }
         const parsed = parseRespondRequestBody(body);
         if (!parsed)
-          return new Response('expected { mrUrl: string, iid: number }', {
-            status: 400,
-          });
+          return new Response(
+            'expected { mrUrl: string, iid: number, person?: string }',
+            { status: 400 }
+          );
         const resume = (body as { resume?: unknown })?.resume === true;
         const focusOnly = (body as { focus?: unknown })?.focus === true;
         const boardTabId = requestBoardTab(body);
@@ -2582,6 +2587,15 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
+        const { person } = parsed;
+        if (
+          person &&
+          !mr.respondTargets?.some(t => t.username === person) &&
+          !Object.hasOwn(readRespondRounds().get(parsed.mrUrl) ?? {}, person)
+        )
+          return new Response(`person "${person}" has no feedback on this MR`, {
+            status: 400,
+          });
         {
           const dedup = await dedupInFlight(
             existing,
@@ -2595,6 +2609,9 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        const responseRound = person
+          ? recordRespondRound(parsed.mrUrl, person)
+          : undefined;
         const statePath = respondFilePath(parsed.mrUrl);
         writeRespondState(statePath, {
           mrUrl: parsed.mrUrl,
@@ -2602,6 +2619,8 @@ const httpServer = Bun.serve({
           status: 'queued',
           boardTabId: boardTabId ?? '',
           noPack: !launchPack(boardTabId),
+          person,
+          responseRound,
         });
         void launchRespond({
           mrUrl: parsed.mrUrl,
@@ -2614,7 +2633,8 @@ const httpServer = Bun.serve({
           pack: launchPack(boardTabId),
           author,
           ...loadAgentSettings(),
-          ...respondFreshDispatchFields(existing),
+          ...respondFreshDispatchFields(existing, responseRound),
+          person,
           note,
         })
           .then(result => {

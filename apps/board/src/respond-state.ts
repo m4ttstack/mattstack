@@ -208,10 +208,16 @@ export function attachResponds<T extends { webUrl?: string | null }>(
 
 export function parseRespondRequestBody(
   body: unknown
-): { mrUrl: string; iid: number } | null {
+): { mrUrl: string; iid: number; person?: string } | null {
   if (!body || typeof body !== 'object') return null;
-  const { mrUrl, iid } = body as { mrUrl?: unknown; iid?: unknown };
+  const { mrUrl, iid, person } = body as {
+    mrUrl?: unknown;
+    iid?: unknown;
+    person?: unknown;
+  };
   if (typeof mrUrl !== 'string' || !mrUrl) return null;
   if (typeof iid !== 'number' || !Number.isFinite(iid)) return null;
-  return { mrUrl, iid };
+  if (person === undefined) return { mrUrl, iid };
+  if (typeof person !== 'string' || !person) return null;
+  return { mrUrl, iid, person };
 }
