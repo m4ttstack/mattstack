@@ -42,6 +42,14 @@ promises their own branch name and `gate_answer` refuses text on a question
 without `writeIn`. Rerun after that edit: 5/5 clean and 5/5 set `writeIn`
 (the run before it is in `runs/round1/`).
 
+Review nits: both clarify gates' `Selection` lines now name `next`, and
+checkout's Hold calls `run_hold`, which writes the same `hold:<stage>:<attempt>`
+record and `hold` field in one transaction. `checkout-hold` (the human picks
+Hold, calls after `gate_answer`): RED (`build.py red 9c52fa8e9`) 5/5 hand-wrote
+`run_decision` and `run_field_set {key: hold}`; GREEN 5/5 one `run_hold`. The
+checkout gate rerun stays 5/5 clean with `writeIn` (the run before it is in
+`runs/round2/`).
+
 ## Limits
 
 | Key | Hosts | Old limit (spent > limit) | New limit (exhausted) | Yes on count | Rounds before yes |

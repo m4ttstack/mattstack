@@ -34,7 +34,7 @@ SUBS = {
 }
 SC = {"ship": ["pipeline/stage-ship"], "watch-ci": ["pipeline/stage-watch-ci"],
       "evidence": ["pipeline/stage-evidence"], "rebase-worktree": ["forge/rebase-worktree"],
-      "checkout": ["forge/checkout"]}
+      "checkout": ["forge/checkout"], "checkout-hold": ["forge/checkout"]}
 for name, skills in SC.items():
     h = (T / "headers" / f"{name}.md").read_text()
     for k, v in SUBS[mode].items(): h = h.replace("{{" + k + "}}", v)

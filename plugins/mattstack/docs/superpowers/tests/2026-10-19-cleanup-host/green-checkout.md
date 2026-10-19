@@ -182,16 +182,13 @@ or saying the search was cut at 200 rows when a read was truncated, then the que
 - `branch` (write-in): one option per candidate, or their text
 - `next`: **Proceed** (recommended) / **Hold**
 
-Selection `{"branch":"<picked>"}`. Their text goes back to "What was
+Selection `{"branch":"<picked>","next":"proceed|hold"}`. Their text goes back to "What was
 given?" and resolves again; the second text answer ends at **Unresolved:
 reported**, naming what was tried.
 
-Hold: when this conversation holds a run's `runDb`, record
-`hold:<run.current_stage>:<attempt>` (`run_decision` with
-`contract` `gate@1`, `scope` `hold:<run.current_stage>:<attempt>`,
-`selection` `{"reason":"<their words>"}`, `decidedBy` `<the answer's
-by>`), then `run_field_set` with `key` `hold`, `value` `<their words>`,
-`stage` `<run.current_stage>`, and end the turn. With no run, Hold ends the
+Hold: when this conversation holds a run's `runDb`, call
+`run_hold {runDb, stage: <run.current_stage>, reason: <their words>,
+decidedBy: <the answer's by>}` and end the turn. With no run, Hold ends the
 turn and makes no `run_*` call.
 
 
@@ -299,8 +296,8 @@ field, and `gate_answer` or `gate_reconcile` records the answers map as the
 scope's `gate@1` decision. Nothing here writes the `gate` field or the
 gate's decision by hand: a second record moves the decision's time. The
 recorded selection is that answers map, keyed by the question ids each gate
-names, `next` included; each `Selection` line names those keys. The Hold record under **Gate clarify: which branch** is the
-hold's own, not the gate's, and stays as written.
+names, `next` included; each `Selection` line names those keys. The hold under **Gate clarify: which branch** is `run_hold`'s
+own record, not the gate's.
 
 If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
 

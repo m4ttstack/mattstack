@@ -191,7 +191,7 @@ Scope `clarify`. One sentence listing the uncommitted paths (the result's
 - `tree`: **I committed them, retry** / **Abort**
 - `next`: **Proceed** / **Hold**
 
-Selection `{"tree":"retry|abort"}`. Read `next` first: **Hold** ends the
+Selection `{"tree":"retry|abort","next":"proceed|hold"}`. Read `next` first: **Hold** ends the
 turn with nothing moved. Never stash and
 proceed: moving someone's uncommitted work is not this skill's call. The
 table under **Gate push** binds this form too.

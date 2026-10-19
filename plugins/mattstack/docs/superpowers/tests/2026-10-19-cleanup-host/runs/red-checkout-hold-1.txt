@@ -1,0 +1,2 @@
+run_decision {runDb: "/runs/app/r1/state.db", contract: "gate@1", scope: "hold:review:2", selection: {"reason": "waiting on the author"}, decidedBy: "pane"}
+run_field_set {runDb: "/runs/app/r1/state.db", key: "hold", value: "waiting on the author", stage: "review"}
