@@ -34,6 +34,8 @@ export function respondTargets(
   for (const t of summarizeDiscussions(detail, author, botUsernames).threads) {
     const starter = t.notes[0];
     if (t.status !== 'awaiting' || !starter?.username) continue;
+    if (starter.username === author || isBotAuthor(starter, configBots))
+      continue;
     entry(starter.username, starter.name).openThreads++;
   }
 

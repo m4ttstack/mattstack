@@ -5,6 +5,7 @@ import { armedLatchBody } from '../latch/markers.ts';
 import { respondTargets } from '../respond-targets.ts';
 
 const AUTHOR = 'dorothy';
+let noteId = 0;
 
 function note(
   username: string,
@@ -17,7 +18,7 @@ function note(
   } = {}
 ) {
   return {
-    id: Math.floor(Math.random() * 1e6),
+    id: ++noteId,
     body: opts.body ?? 'a comment',
     author: {
       id: `gitlab:user:${username}`,
@@ -99,6 +100,24 @@ describe('respondTargets', () => {
       [note('john', { body: armedLatchBody('![x](y)') })],
     ]);
     expect(respondTargets(d, AUTHOR, ['Danger'])).toEqual([]);
+  });
+
+  test('an author-started thread John replied to last makes no target', () => {
+    const d = detail([[note(AUTHOR), note('john')]]);
+    expect(respondTargets(d, AUTHOR)).toEqual([]);
+  });
+
+  test('a bot-started thread John replied to last makes no target', () => {
+    const d = detail([[note('review-bot'), note('john')]]);
+    expect(respondTargets(d, AUTHOR)).toEqual([]);
+  });
+
+  test("an author Overview note earlier than John's comment does not answer it", () => {
+    const d = detail([
+      [overview(AUTHOR, '2026-07-09T00:00:00Z')],
+      [overview('john', '2026-07-10T00:00:00Z')],
+    ]);
+    expect(respondTargets(d, AUTHOR)[0]?.openComments).toBe(1);
   });
 
   test('omits people with nothing open', () => {
