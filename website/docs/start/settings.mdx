@@ -64,6 +64,8 @@ While it is on, the rt daemon sends one small report when it starts, about every
 
 It never sends your repos, files, paths or commands. Test runs and CI never send it. The report goes to the mattstack switchboard relay, where only the mattstack admin can read it. A failed report is silent and is retried on the next 5-minute check.
 
+The admin reads it with `rt telemetry open`, which opens the page in your browser with the key from `rt secrets set rt switchboardTelemetryToken`.
+
 To turn it back on, flip the switch, or run `rt settings set telemetry.enabled true --scope user`.
 
 See the [rt settings reference](/rt/reference/settings) for every flag.

@@ -12,20 +12,32 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
+const STYLE = `
+:root{color-scheme:light dark;--line:light-dark(#d4d4d8,#3f3f46);--head:light-dark(#f4f4f5,#27272a);--muted:light-dark(#71717a,#a1a1aa)}
+body{font:14px/1.45 system-ui,sans-serif;max-width:1200px;margin:0 auto;padding:1rem 1.25rem 3rem}
+h1,h2,h3{font-weight:600}
+h2{margin-top:2rem}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:6px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--head);white-space:nowrap}
+.none{color:var(--muted)}
+`.trim();
+
 const iso = (ms: number) => new Date(ms).toISOString();
 const orDash = (value: string | number | null) =>
   value === null ? '-' : String(value);
 const list = (items: string[]) => (items.length > 0 ? items.join(', ') : '-');
 
 function table(headers: string[], rows: string[][]): string {
-  if (rows.length === 0) return '<p>none</p>';
+  if (rows.length === 0) return '<p class="none">none</p>';
   const head = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('');
   const body = rows
     .map(
       row => `<tr>${row.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`
     )
     .join('');
-  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  return `<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 export function renderTelemetryPage(s: TelemetrySnapshot): string {
@@ -84,7 +96,7 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
   return (
     `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
     `<title>telemetry</title>` +
-    `<style>:root{color-scheme:light dark}body{font:14px system-ui;margin:1rem}td,th{padding:2px 8px;text-align:left}</style>` +
+    `<style>${STYLE}</style>` +
     `<h1>Version telemetry</h1>` +
     `<h2>Macs</h2>${macs}` +
     `<h2>Versions</h2>${versions}` +

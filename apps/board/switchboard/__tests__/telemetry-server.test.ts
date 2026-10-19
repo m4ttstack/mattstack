@@ -248,6 +248,16 @@ describe('GET /telemetry', () => {
     }
   });
 
+  test('styles the page inline and scrolls wide tables inside a wrapper', async () => {
+    const { telemetry, get } = setup();
+    telemetry.record(ping(), null, NOW);
+    const html = await (await get(`/telemetry?key=${VIEW}`)).text();
+    expect(html).toContain('color-scheme:light dark');
+    expect(html).toContain('light-dark(');
+    expect(html).toContain('<div class="scroll"><table>');
+    expect(html).not.toMatch(/<script|<link|@import|url\(/);
+  });
+
   test('an empty view token never opens the page', async () => {
     const { get } = setup('');
     expect((await get('/telemetry?key=')).status).toBe(404);
