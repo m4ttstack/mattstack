@@ -206,11 +206,10 @@ to the wait queue):
   **Abort the rebase**
 - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 
-Selection `{"next":"leave|abort|iterate|hold","note":"<their words or null>"}`.
-The recorded `next` folds both questions into one value: **Hold** records
-`hold` and ends the turn with nothing aborted; **Iterate here** records
-`iterate` and re-reads the tree, ignoring `conflict`; **Proceed** records
-the `conflict` choice itself (`leave` or `abort`). Never resolve the
+Selection `{"conflict":"leave|abort","next":"proceed|iterate|hold","note":"<their words or null>"}`.
+Read `next` first: **Hold** ends the turn with nothing aborted; **Iterate
+here** re-reads the tree, ignoring `conflict`; only **Proceed** applies
+the `conflict` choice (`leave` or `abort`). Never resolve the
 conflict yourself, stage the files, or continue or skip the rebase.
 
 {{include:spawned-no-run-guard}}
@@ -300,9 +299,7 @@ digraph gate_steps {
 
     trigger_gate_box [label="Trigger: a gate box in the graph above" shape=ellipse];
     holds_rundb [label="This conversation holds a runDb?" shape=diamond];
-    run_field_set [label="run_field_set {runDb, key: gate, value: <scope>, stage}" shape=plaintext];
     publish_answer [label="Publish and answer per the gate protocol" shape=box];
-    run_decision [label="run_decision {runDb, contract: gate@1, scope, selection, decidedBy}" shape=plaintext];
     spawned_pane [label="Spawned pane?" shape=diamond];
     error_line_to_spawner [label="One error line to the spawning surface" shape=box];
     pane_form_only [label="In-pane form only; nothing recorded" shape=box];
@@ -310,11 +307,9 @@ digraph gate_steps {
     answer_back [label="Answer back at the gate box" shape=doublecircle style=filled fillcolor=lightgreen];
 
     trigger_gate_box -> holds_rundb;
-    holds_rundb -> run_field_set [label="yes"];
+    holds_rundb -> publish_answer [label="yes"];
     holds_rundb -> spawned_pane [label="no"];
-    run_field_set -> publish_answer;
-    publish_answer -> run_decision;
-    run_decision -> answer_back;
+    publish_answer -> answer_back;
     spawned_pane -> error_line_to_spawner [label="yes"];
     spawned_pane -> pane_form_only [label="no: a human invoked it"];
     error_line_to_spawner -> gate_path_ended;
@@ -323,6 +318,14 @@ digraph gate_steps {
 ```
 
 ### Publish and answer per the gate protocol
+
+Under the run, every gate tool call passes `runDb` and `stage: <run.current_stage>`, so the
+tools bracket and record the gate: `gate_ask` writes the run's `gate`
+field, and `gate_answer` or `gate_reconcile` records the answers map as the
+scope's `gate@1` decision. Nothing here writes the `gate` field or the
+gate's decision by hand: a second record moves the decision's time. The
+recorded selection is that answers map, keyed by the question ids each gate
+names, `next` included; each `Selection` line names those keys.
 
 If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
 

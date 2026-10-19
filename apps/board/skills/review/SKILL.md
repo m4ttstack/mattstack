@@ -15,7 +15,7 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.31.28"
+  compiled: "mattstack:gate-protocol@0.32.3"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
@@ -2096,7 +2096,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.31.28 path=attachments/gate-protocol/SKILL.md lines=7-307 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.32.3 path=attachments/gate-protocol/SKILL.md lines=7-303 -->
 # Gate protocol
 
 The daemon's gate registry is the single arbiter; under a run the gate
@@ -2341,18 +2341,14 @@ bracket the gate, arm `waiting-gate` on a wait, record the answers map
 hook bounces the turn. With no run, omit both; nothing here calls a `run_*`
 tool.
 
-- **Sites not yet on the tools** (the forge checkout verb, board) still draw a
-  `run_field_set {key: gate}` bracket, run before `gate_ask`, and a
-  `run_decision` gate@1 line, run at `Act on the gate answer at the site`
-  (it upserts in the site's shape; a write-in records as
-  `{"writeIn": "<their words>"}` in the slot holding that question's
-  answer, never bare text).
-- **Ship, watch-ci, evidence and sync-open-mrs** draw neither: the tools record their
-  answers map, and their `Selection:` lines are dead.
+- **Every site is on the tools.** No host brackets a gate with
+  `run_field_set {key: gate}` or records its answer with a `run_decision`
+  gate@1 line: the tools record the answers map (a write-in as `{"writeIn": "<their
+  words>"}` in that question's slot), and `Selection:` lines only name its
+  keys. The board's wrappers run under no run, so they pass neither.
 - **Review shapes.** `gate_answer` and `gate_reconcile` record nothing on a
   review gate (`respond-plan`, `respond-post`, `review-post`, scope `post`)
-  unless passed `record: true`; the site records with `gate_record`, or
-  with its `run_decision` line while not yet on the tools.
+  unless passed `record: true`; the site records with `gate_record`.
 
 ## Off-script gate
 
