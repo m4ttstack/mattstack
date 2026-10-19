@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createRealProbes, execWithTimeout, type Probes } from "../../setup/probes.ts";
-import { convergeDataBranch, heldCopy, moveBlocker, moveCloneToDataBranch, MOVED_DONE, publishPointer } from "../org-data-branch.ts";
+import { convergeDataBranch, heldCopy, moveBlocker, moveCloneToDataBranch, MOVED_DONE, publishPointer, rememberDataBranch } from "../org-data-branch.ts";
+import { readTeamLocal, updateTeamLocal } from "../team-local.ts";
 
 const p = { exec: execWithTimeout };
 const MARKER = '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}';
@@ -51,6 +52,7 @@ beforeAll(() => {
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 beforeEach(() => {
+  rmSync(join(home, ".mattstack"), { recursive: true, force: true });
   const base = join(root, `case${n++}`);
   origin = join(base, "origin.git");
   clone = join(base, "clone");
@@ -352,6 +354,93 @@ describe("convergeDataBranch", () => {
     git(clone, "remote", "set-url", "origin", join(root, "nowhere.git"));
     expect((await convergeDataBranch(probes(), clone, noToken))?.kind).toBe("unchecked");
     expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("main");
+  });
+
+  /** Main after the pointer move: the root file, and the old folder file too in phase 1. */
+  function pointMainAtRoot(keepFolder: boolean): void {
+    git(seed, "checkout", "-q", "main");
+    git(seed, "rm", "-rq", "mattstack");
+    if (keepFolder) put(seed, "mattstack/mattstack.jsonc", POINTER);
+    put(seed, ".mattstack.jsonc", `// the org's data lives on the mattstack branch\n${POINTER}`);
+    git(seed, "add", "-A");
+    git(seed, "commit", "-q", "-m", "root pointer");
+    git(seed, "push", "-q", "origin", "main");
+  }
+  const recorded = () => readTeamLocal(probes(), "clone");
+
+  for (const keepFolder of [false, true]) {
+    test(`a layout 3 clone moves when origin main holds the root pointer${keepFolder ? " beside the folder file" : ""}, and the team record remembers the branch`, async () => {
+      pointMainAtRoot(keepFolder);
+      expect(await convergeDataBranch(probes(), clone, noToken)).toEqual({ kind: "moved", branch: "mattstack" });
+      expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("mattstack");
+      expect(recorded().dataBranch).toBe("mattstack");
+    });
+
+    test(`a copy switched to main${keepFolder ? " in phase 1" : " holding only the root pointer"} comes back to the data branch`, async () => {
+      pointMainAtRoot(keepFolder);
+      await convergeDataBranch(probes(), clone, noToken);
+      git(clone, "fetch", "-q", "origin", "+main:refs/heads/main");
+      git(clone, "checkout", "-q", "main");
+      expect(existsSync(join(clone, ".mattstack.jsonc"))).toBe(true);
+      expect(await convergeDataBranch(probes(), clone, noToken)).toEqual({ kind: "moved", branch: "mattstack" });
+      expect(git(clone, "symbolic-ref", "--short", "HEAD")).toBe("mattstack");
+    });
+  }
+
+  test("a copy on a branch with no marker and no org store comes back to the branch the team record names", async () => {
+    pointMainAtRoot(false);
+    await convergeDataBranch(probes(), clone, noToken);
+    git(seed, "checkout", "-q", "--orphan", "stray");
+    git(seed, "rm", "-rq", "--cached", ".");
+    git(seed, "clean", "-fdxq");
+    put(seed, "notes.txt", "x\n");
+    git(seed, "add", "-A");
+    git(seed, "commit", "-q", "-m", "stray");
+    git(seed, "push", "-q", "origin", "stray");
+    git(clone, "fetch", "-q", "origin", "+stray:refs/remotes/origin/stray");
+    git(clone, "checkout", "-q", "-b", "stray", "refs/remotes/origin/stray");
+    expect(existsSync(join(clone, "mattstack"))).toBe(false);
+    expect(await convergeDataBranch(probes(), clone, noToken)).toEqual({ kind: "moved", branch: "mattstack" });
+  });
+
+  test("a copy that moved before this release has its branch and origin's tip remembered, once", async () => {
+    await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    expect(recorded().dataBranch).toBeUndefined();
+    expect(await rememberDataBranch(probes(), clone)).toBe(true);
+    expect(recorded()).toMatchObject({ dataBranch: "mattstack", dataBranchTip: git(origin, "rev-parse", "mattstack") });
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+  });
+
+  test("a recorded tip newer than the tracking ref is never moved back, and a tip-only change is not reported", async () => {
+    await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    await rememberDataBranch(probes(), clone);
+    const older = git(clone, "rev-parse", "refs/remotes/origin/mattstack");
+    put(seed, "mattstack/org/settings.org.jsonc", '{ "x": 1 }');
+    git(seed, "checkout", "-q", "mattstack");
+    put(seed, "mattstack/org/settings.org.jsonc", '{ "x": 1 }');
+    git(seed, "commit", "-q", "-am", "newer");
+    git(seed, "push", "-q", "origin", "mattstack");
+    const newer = git(origin, "rev-parse", "mattstack");
+    updateTeamLocal(probes(), "clone", { dataBranchTip: newer });
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+    expect(recorded().dataBranchTip).toBe(newer);
+    git(clone, "fetch", "-q", "origin", "+mattstack:refs/remotes/origin/mattstack");
+    git(clone, "update-ref", "refs/remotes/origin/mattstack", newer);
+    updateTeamLocal(probes(), "clone", { dataBranchTip: older });
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+    expect(recorded().dataBranchTip).toBe(newer);
+  });
+
+  test("a copy on main or on this Mac's trial branch remembers nothing", async () => {
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+    git(seed, "checkout", "-q", "-b", "trial", "mattstack");
+    put(seed, "mattstack/mattstack.jsonc", '{"role":"org","org":"acme","layout":4,"dataBranch":"trial"}');
+    git(seed, "commit", "-q", "-am", "trial names itself");
+    git(seed, "push", "-q", "origin", "trial");
+    await moveCloneToDataBranch(p, clone, "trial", null, origin);
+    updateTeamLocal(probes(), "clone", { trialBranch: "trial" });
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+    expect(recorded().dataBranch).toBeUndefined();
   });
 
   test("the moved sentence names the branch", () => {

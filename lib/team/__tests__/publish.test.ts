@@ -9,6 +9,8 @@ import { publishTeam } from "../publish.ts";
 import { teamLocalPath } from "../team-local.ts";
 import { UserActionableError } from "../../errors.ts";
 import { cleanupOrgWorlds, orgWorld } from "./org-world.ts";
+import { dataBranchWorld } from "./data-branch-world.ts";
+import { DATA_BRANCH_WARNING, DATA_README, DATA_README_REL } from "../org-marker.ts";
 
 const DIR = "/home/x/.mattstack/orgs/acme";
 
@@ -449,6 +451,36 @@ describe("a declined push is told apart from an org that moved", () => {
     };
     await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "org-moved", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" });
     expect(raced).toBe(true);
+  }, 15_000);
+});
+
+describe("the data branch's README lands through a normal publish", () => {
+  afterEach(() => cleanupOrgWorlds());
+
+  test("an admin's publish from the data branch commits and pushes the README that says what the branch is", async () => {
+    const w = dataBranchWorld("dev1");
+    await publishTeam(w.p, "acme", null);
+    expect(readFileSync(join(w.root, DATA_README_REL), "utf8")).toBe(DATA_README);
+    expect(w.atOrigin("show", `mattstack:${DATA_README_REL}`)).toContain(DATA_BRANCH_WARNING);
+    expect(w.git("log", "-1", "--format=%s")).toContain("say what the data branch is");
+  }, 15_000);
+
+  test("an old README is brought to the current words, and a current one adds no commit", async () => {
+    const w = dataBranchWorld("dev1");
+    writeFileSync(join(w.root, DATA_README_REL), "# Org data\n\nold words\n");
+    w.git("add", "-A");
+    w.git("commit", "-q", "-m", "old readme");
+    await publishTeam(w.p, "acme", null);
+    expect(w.atOrigin("show", `mattstack:${DATA_README_REL}`)).toBe(DATA_README);
+    const head = w.git("rev-parse", "HEAD");
+    await publishTeam(w.p, "acme", null);
+    expect(w.git("rev-parse", "HEAD")).toBe(head);
+  }, 15_000);
+
+  test("a member's publish leaves the README alone", async () => {
+    const w = dataBranchWorld("dev2");
+    await publishTeam(w.p, "acme", null).catch(() => {});
+    expect(existsSync(join(w.root, DATA_README_REL))).toBe(false);
   }, 15_000);
 });
 

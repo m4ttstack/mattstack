@@ -18,8 +18,8 @@ import { UPLOAD_MAX_BYTES } from "../daemon/upload-guard.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
 import { ticketCopyRefusal } from "../daemon/evidence-record-check.ts";
 import { redactionUploadRefusal } from "../daemon/redaction-record-check.ts";
-import { allowedSourceRoots, bundleStem, copyIntoRun, importedCaptures, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
-import { imageAddresses, importedTicketEntries, markKnownTickets, mergeRecord, parseCurrent, serializeRecord, stampTicketBytes, ticketEntries, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
+import { allowedSourceRoots, boardCaptures, bundleStem, copyIntoRun, importedCaptures, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
+import { displacedImportBoard, imageAddresses, importedTicketEntries, markKnownTickets, mergeRecord, parseCurrent, serializeRecord, stampTicketBytes, ticketEntries, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
 import { appendixProblem, namesHome, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
 import { addTickets, parseTickets, serializeTickets, ticketShots, TICKETS_FIELD, type TicketEntry } from "../evidence/tickets-field.ts";
@@ -387,6 +387,8 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const merge = markRecaptures(current, parsed.merge);
   const dry = mergeRecord(current, merge);
   if (!dry.ok) return err(dry.error);
+  const displaced = displacedImportBoard(current, merge.images ?? [], (board) => boardCaptures(board), sameBytes);
+  if (displaced) return err(displaced.error);
 
   const roots = allowedSourceRoots({ home: deps.home(), uid: deps.uid(), repoRoots, uploadRoots: deps.uploadRoots() });
   const copy = copyIntoRun(copyRequests(merge, evidenceRoot), { allowedRoots: roots, destRoot: workDir });
@@ -787,7 +789,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
   return [
     {
       name: "evidence_record",
-      description: "Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A file already there is never rewritten: a bundle that would change one lands whole in a content folder beside it (<case>/<12 hex>/, names unchanged), so a capture the record names keeps its bytes until the record moves. A source must sit under the target repo's checkout or worktrees (pass tree, the run's own worktree root, to name the repo; a tree in another repo is refused), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes the record only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and leaves the record unwritten, so call again with each listed image's cover. Every call, written or not, adds each ticket image it saw to the run's evidence-tickets field, which never shrinks, with each import capture (a capture whose sidecar is not live) in the bundle of a ticket image's annotated board, since it holds the ticket's pixels under other bytes. plan: \"none\" writes {\"plan\":\"none\"} and takes nothing else. Returns {written, encoding, value, uncovered, copied}.",
+      description: "Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A file already there is never rewritten: a bundle that would change one lands whole in a content folder beside it (<case>/<12 hex>/, names unchanged), so a capture the record names keeps its bytes until the record moves. A source must sit under the target repo's checkout or worktrees (pass tree, the run's own worktree root, to name the repo; a tree in another repo is refused), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes the record only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and leaves the record unwritten, so call again with each listed image's cover. Every call, written or not, adds each ticket image it saw to the run's evidence-tickets field, which never shrinks, with each import capture (a capture whose sidecar is not live) in the bundle of a ticket image's annotated board, since it holds the ticket's pixels under other bytes. An image whose cover is a standalone import board keeps it: a board drawn from it with a live capture (a BEFORE → AFTER pair) is refused as that image's cover, so record the pair on the after alone. plan: \"none\" writes {\"plan\":\"none\"} and takes nothing else. Returns {written, encoding, value, uncovered, copied}.",
       inputSchema: {
         type: "object",
         properties: {

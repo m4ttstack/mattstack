@@ -310,7 +310,10 @@ A board ready goes into the record through evidence-record's
 - `annotated` is the board, `~/.fast-browser/screenshots/<stem>.png`, on
   every image the board shows, and `caption` is the brief's `claim` on each
   of them. A pair board covers both the before and the after image of its
-  case.
+  case, unless the before's board is an import board (its
+  `<stem>.c1.capture.json` says `"source": "import"`): that board stays the
+  before's cover, so the pair covers the after alone and the before stays
+  out of the call.
 - Each image's `path` is its own capture: `<stem>.c1.png` for a single
   board, each panel's own capture for a pair, the last step's capture for a
   steps board, and for an import the image the brief imported (its `value`

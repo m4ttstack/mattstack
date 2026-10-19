@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { validateEvidence } from "../../../packages/rt-client/src/evidence.ts";
 import {
   type RawRecord,
+  displacedImportBoard,
   imageAddresses,
   importedTicketEntries,
   markKnownTickets,
@@ -243,6 +244,45 @@ describe("importedTicketEntries", () => {
       ok: false,
       error: 'case "t" before: the import capture /run/b.c1.png of the ticket image could not be read to record its size and sha256 (EACCES); recapture it',
     });
+  });
+});
+
+describe("displacedImportBoard", () => {
+  const record: RawRecord = {
+    cases: [
+      { id: "t", label: "T", before: { path: "/run/t/ticket.png", source: "ticket", annotated: "/run/t/before.png", caption: "c" } },
+      { id: "l", label: "L", before: { path: "/run/l/before.c1.png", annotated: "/run/l/before.png", caption: "c" } },
+    ],
+    extra: {},
+  };
+  const boards: Record<string, Array<{ path: string; live: boolean }>> = {
+    "/run/t/before.png": [{ path: "/run/t/before.c1.png", live: false }],
+    "/run/l/before.png": [{ path: "/run/l/before.c1.png", live: true }],
+    "/shots/after.png": [{ path: "/shots/after.c1.png", live: true }, { path: "/shots/before.c1.png", live: false }],
+    "/shots/live-pair.png": [{ path: "/shots/after.c1.png", live: true }, { path: "/shots/before.c1.png", live: true }],
+    "/shots/before.png": [{ path: "/shots/before.c1.png", live: false }],
+    "/shots/fresh.png": [{ path: "/shots/fresh.c1.png", live: true }],
+  };
+  const captures = (board: string) => boards[board] ?? [];
+  const same = (a: string, b: string) => a.endsWith("/before.c1.png") && b.endsWith("/before.c1.png");
+  const check = (images: Array<Record<string, unknown>>) => displacedImportBoard(record, images as never, captures, same);
+
+  test("a board drawn from a standalone import board, with a live capture beside it, never replaces it", () => {
+    const res = check([{ case: "t", slot: "before", path: "/run/t/ticket.png", annotated: "/shots/after.png", caption: "c" }]);
+    expect(res).toEqual({ ok: false, error: expect.stringContaining('case "t" before: ') });
+    expect((res as { error: string }).error).toContain("standalone import board");
+  });
+
+  test("a re-rendered import board, a live board of its own, a caption alone, or another slot go through", () => {
+    expect(check([{ case: "t", slot: "before", path: "/run/t/ticket.png", annotated: "/shots/before.png", caption: "c" }])).toBeNull();
+    expect(check([{ case: "t", slot: "before", path: "/shots/fresh.c1.png", annotated: "/shots/fresh.png", caption: "c" }])).toBeNull();
+    expect(check([{ case: "t", slot: "before", path: "/run/t/ticket.png", caption: "c2" }])).toBeNull();
+    expect(check([{ case: "t", slot: "after", path: "/shots/after.c1.png", annotated: "/shots/after.png", caption: "c" }])).toBeNull();
+    expect(check([{ case: "new", label: "N", slot: "before", path: "/x.png", annotated: "/shots/after.png", caption: "c" }])).toBeNull();
+  });
+
+  test("a live before board is covered by its pair as before", () => {
+    expect(check([{ case: "l", slot: "before", path: "/run/l/before.c1.png", annotated: "/shots/live-pair.png", caption: "c" }])).toBeNull();
   });
 });
 

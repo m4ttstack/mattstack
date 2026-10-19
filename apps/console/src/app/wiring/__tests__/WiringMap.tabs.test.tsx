@@ -206,7 +206,7 @@ describe('WiringMap: top-level tabs', () => {
         expect.objectContaining({ query: { pack: 'demo' } })
       )
     );
-    expect(roster).toHaveTextContent('Public skills can be invoked by name');
+    expect(roster).toHaveTextContent('On: agents see it in their skill list.');
   });
 
   it('opening a Health row switches to Graph with that skill in focus', async () => {

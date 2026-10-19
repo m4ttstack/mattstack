@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { activeTeam, currentRole, readForgeUsername, readStore, setSetting } from "../../packages/rt-client/src/index.ts";
@@ -121,6 +121,12 @@ function probes(): Probes {
       }
       if (bin === "git" && argv[1] === "init" && opts?.cwd) mkdirSync(join(opts.cwd, ".git"), { recursive: true });
       if (bin === "git" && argv[1] === "remote" && argv[2] === "add" && opts?.cwd) writeFileSync(join(opts.cwd, ".git", "config"), origin(argv[4]!));
+      if (bin === "git" && argv.includes("show") && argv.at(-1)!.startsWith("FETCH_HEAD:")) {
+        // The remote tree is main as a join reads it: its marker is a layout 3 org's, so the join clones main.
+        const rel = argv.at(-1)!.slice("FETCH_HEAD:".length);
+        const file = remoteTree === null ? null : join(remoteTree, rel);
+        return file !== null && existsSync(file) ? ok(readFileSync(file, "utf8")) : { code: 128, stdout: "", stderr: `fatal: path '${rel}' does not exist in 'FETCH_HEAD'` };
+      }
       if (bin === "git" && argv.includes("symbolic-ref")) return ok("main\n");
       if (bin === "git" && argv[1] === "remote" && argv[2] === "get-url" && argv[3] === "origin") return ok(`${REMOTE}\n`);
       if (bin === "git" && argv[1] === "remote" && argv[2] === "get-url") {

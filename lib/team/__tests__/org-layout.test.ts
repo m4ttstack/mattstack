@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { ORG_MARKER_REL } from "../org-marker.ts";
 import { ORG_LAYOUT, READABLE_LAYOUTS } from "../org-marker.ts";
-import { gateVerdict, holdSentence, layoutAbove, layoutSentence, MOVED_SENTENCE, orgLayoutState, pickedCloneReady, orgLayoutWaitingError, shownDataBranch, updateSentence, WAITING_SENTENCE } from "../org-layout.ts";
+import { gateVerdict, holdSentence, layoutAbove, layoutSentence, MOVED_SENTENCE, orgLayoutState, pickedCloneReady, orgLayoutWaitingError, showMarkerAt, shownDataBranch, updateSentence, WAITING_SENTENCE } from "../org-layout.ts";
 
 const H = "/h";
 const orgs = `${H}/.mattstack/orgs`;
@@ -123,6 +123,29 @@ describe("gateVerdict", () => {
   test("a tip with no marker passes; any other git failure throws", () => {
     expect(gateVerdict({ code: 128, stdout: "", stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'refs/remotes/origin/main'" }, "main", null)).toBeNull();
     expect(() => gateVerdict({ code: 128, stdout: "", stderr: "fatal: bad object" }, "main", null)).toThrow("fatal: bad object");
+  });
+});
+
+describe("showMarkerAt", () => {
+  const missing = (spec: string) => ({ code: 128, stdout: "", stderr: `fatal: path '${spec.split(":")[1]}' does not exist in '${spec.split(":")[0]}'` });
+  const pointer = JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+
+  test("shows the root pointer first", async () => {
+    const asked: string[] = [];
+    const shown = await showMarkerAt(async (spec) => (asked.push(spec), { code: 0, stdout: pointer, stderr: "" }), "FETCH_HEAD");
+    expect(asked).toEqual(["FETCH_HEAD:.mattstack.jsonc"]);
+    expect(shownDataBranch(shown)).toBe("mattstack");
+  });
+  test("falls back to the folder file when the ref has no root pointer", async () => {
+    const asked: string[] = [];
+    const shown = await showMarkerAt(async (spec) => (asked.push(spec), spec.endsWith(".mattstack.jsonc") ? missing(spec) : { code: 0, stdout: pointer, stderr: "" }), "HEAD");
+    expect(asked).toEqual(["HEAD:.mattstack.jsonc", `HEAD:${ORG_MARKER_REL}`]);
+    expect(shownDataBranch(shown)).toBe("mattstack");
+  });
+  test("a ref with neither reads as no marker, and another failure is kept", async () => {
+    expect(gateVerdict(await showMarkerAt(async (spec) => missing(spec), "HEAD"), "main", null)).toBeNull();
+    const failed = await showMarkerAt(async () => ({ code: 128, stdout: "", stderr: "fatal: bad object" }), "HEAD");
+    expect(failed.stderr).toBe("fatal: bad object");
   });
 });
 
