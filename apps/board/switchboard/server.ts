@@ -1,13 +1,18 @@
 /** The switchboard: a dumb store-and-forward relay for peer mr-boards.
     It understands envelopes, never payloads — no GitLab/Slack credentials,
     no MR titles. Deployed standalone (Railway); boards only call outbound. */
+import { timingSafeEqual } from 'node:crypto';
 import { join } from 'path';
 import { Database } from 'bun:sqlite';
 
 import { parseDraftEnvelope } from '../src/peer/envelope.ts';
 import { ENVELOPE_TTL_MS, SwitchboardStore } from './store.ts';
 import { makeTeamInviteHandler, TeamInviteStore } from './team-invites.ts';
+import { renderTelemetryPage } from './telemetry-page.ts';
+import { parsePing, TelemetryStore } from './telemetry.ts';
 import { InboxWaiters, MAX_WAIT_SECONDS } from './waiters.ts';
+
+const MAX_PING_BYTES = 64 * 1024;
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -21,11 +26,40 @@ function bearer(req: Request): string | null {
   return h.startsWith('Bearer ') ? h.slice(7) : null;
 }
 
+function sameSecret(got: string, want: string): boolean {
+  const digest = (v: string) =>
+    new Bun.CryptoHasher('sha256').update(v).digest();
+  return timingSafeEqual(digest(got), digest(want));
+}
+
+/** Reads at most MAX_PING_BYTES, so an oversized body is never buffered. */
+async function readCappedText(req: Request): Promise<string | null> {
+  const declared = req.headers.get('content-length');
+  if (declared !== null && Number(declared) > MAX_PING_BYTES) return null;
+  if (!req.body) return '';
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const reader = req.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_PING_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 export function makeFetchHandler(
   store: SwitchboardStore,
   adminToken: string,
   now: () => number,
   teamInvites: TeamInviteStore,
+  telemetry: TelemetryStore,
+  viewToken: string | null,
   waiters: InboxWaiters = new InboxWaiters()
 ) {
   const teamInviteRoutes = makeTeamInviteHandler(teamInvites, now);
@@ -146,6 +180,43 @@ export function makeFetchHandler(
           },
         }
       );
+    }
+
+    if (pathname === '/telemetry/ping') {
+      if (req.method !== 'POST')
+        return new Response('method not allowed', { status: 405 });
+      const text = await readCappedText(req);
+      let ping = null;
+      if (text !== null) {
+        try {
+          ping = parsePing(JSON.parse(text));
+        } catch {
+          ping = null;
+        }
+      }
+      if (!ping)
+        return new Response('expected a telemetry ping', { status: 400 });
+      const pingToken = bearer(req);
+      telemetry.record(
+        ping,
+        pingToken ? store.authBoard(pingToken) : null,
+        now()
+      );
+      return new Response(null, { status: 204 });
+    }
+
+    if (pathname === '/telemetry' && req.method === 'GET') {
+      if (viewToken === null) return new Response('not found', { status: 404 });
+      const key = new URL(req.url).searchParams.get('key') ?? bearer(req) ?? '';
+      if (!sameSecret(key, viewToken))
+        return new Response('unauthorized', { status: 401 });
+      return new Response(renderTelemetryPage(telemetry.snapshot(now())), {
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+          'referrer-policy': 'no-referrer',
+        },
+      });
     }
 
     const token = bearer(req);
@@ -270,17 +341,27 @@ if (import.meta.main) {
   const db = new Database(dbPath);
   const store = new SwitchboardStore(db);
   const teamInvites = new TeamInviteStore(db);
+  const telemetry = new TelemetryStore(db);
+  const viewToken = process.env.SWITCHBOARD_TELEMETRY_TOKEN || null;
   const port = process.env.PORT !== undefined ? Number(process.env.PORT) : 7940;
   setInterval(() => {
     store.prune(Date.now(), ENVELOPE_TTL_MS);
     teamInvites.prune(Date.now());
+    telemetry.prune(Date.now());
   }, 60 * 60_000);
   // Bun closes a request idle for idleTimeout seconds (default 10), which
   // would cut every /inbox/wait held up to MAX_WAIT_SECONDS.
   const server = Bun.serve({
     port,
     idleTimeout: MAX_WAIT_SECONDS + 15,
-    fetch: makeFetchHandler(store, adminToken, Date.now, teamInvites),
+    fetch: makeFetchHandler(
+      store,
+      adminToken,
+      Date.now,
+      teamInvites,
+      telemetry,
+      viewToken
+    ),
   });
   console.log(`switchboard listening on :${server.port} (db: ${dbPath})`);
 }

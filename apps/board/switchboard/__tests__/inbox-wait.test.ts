@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { makeFetchHandler } from '../server.ts';
 import { SwitchboardStore } from '../store.ts';
 import { TeamInviteStore } from '../team-invites.ts';
+import { TelemetryStore } from '../telemetry.ts';
 import { InboxWaiters, MAX_WAITERS_PER_BOARD } from '../waiters.ts';
 
 const ADMIN = 'admin-secret';
@@ -18,6 +19,8 @@ function setup() {
     ADMIN,
     () => clock.t,
     new TeamInviteStore(db),
+    new TelemetryStore(db),
+    null,
     waiters
   );
   const call = (
