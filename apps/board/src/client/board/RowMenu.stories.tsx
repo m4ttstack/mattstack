@@ -150,7 +150,7 @@ export const RunningFocus: Story = {
     const { line } = rowStatus(running, Date.now(), new Map(), 'pat');
     return (
       <>
-        <p style={{ margin: 16 }}>
+        <p style={{ margin: '0 16px', paddingTop: 520 }}>
           lane line: {line.word}
           {line.detail ? ` · ${line.detail}` : ''}
         </p>

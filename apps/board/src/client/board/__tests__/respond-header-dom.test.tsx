@@ -133,6 +133,39 @@ async function renderModal(row: GateRow, mr?: BoardMRWithReview) {
 
 const $ = (selector: string) => document.body.querySelector(selector);
 
+const planAtRound = (round: number) =>
+  gate({ context: JSON.stringify({ ...JSON.parse(PLAN), round }) });
+const withRespond = (respond: Record<string, unknown>) =>
+  ({ ...MR, respond }) as unknown as BoardMRWithReview;
+
+test('the sheet heading splits the wrapper round like the header: response round, then revises', async () => {
+  await renderModal(
+    planAtRound(3),
+    withRespond({ status: 'triaging', person: 'john', responseRound: 2 })
+  );
+  expect($('.tui-sheet-round-n')!.textContent).toBe('Round 2 \u00b7 revise 1');
+  expect($('.tui-sheet-context-meta')!.textContent).toContain(
+    'round 2 \u00b7 revise 1'
+  );
+});
+
+test('the sheet heading stays out of a first round with no revises, and shows revises alone', async () => {
+  const first = withRespond({
+    status: 'triaging',
+    person: 'john',
+    responseRound: 1,
+  });
+  await renderModal(planAtRound(1), first);
+  expect($('.tui-sheet-round-n')).toBeNull();
+  await renderModal(planAtRound(2), first);
+  expect($('.tui-sheet-round-n')!.textContent).toBe('Revise 1');
+});
+
+test('the sheet heading reads the wrapper round when no response round is known', async () => {
+  await renderModal(planAtRound(3), withRespond({ status: 'triaging' }));
+  expect($('.tui-sheet-round-n')!.textContent).toBe('Round 3');
+});
+
 test('an open plan@1 gate opens the respond sheet: threads left; MR card, decision context, status and responses right', async () => {
   await renderModal(gate({}), MR);
   expect($('.tui-respond-sheet')).not.toBeNull();

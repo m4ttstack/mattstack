@@ -266,10 +266,28 @@ function SheetLost({
 
 /** The round a review or respond gate is on, as the first thing the main
     column says, with a one-line account of what this round holds. */
-function RoundHeading({ round, summary }: { round: number; summary?: string }) {
+function RoundHeading({
+  round,
+  revise,
+  summary,
+}: {
+  round?: number;
+  /** Re-adjudications past the round, shown after it. */
+  revise?: number;
+  summary?: string;
+}) {
+  const text = [
+    round !== undefined ? `Round ${round}` : undefined,
+    revise !== undefined
+      ? `${round !== undefined ? 'revise' : 'Revise'} ${revise}`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  if (!text) return null;
   return (
     <div className="tui-sheet-round">
-      <h2 className="tui-sheet-round-n">Round {round}</h2>
+      <h2 className="tui-sheet-round-n">{text}</h2>
       {summary && <span className="tui-sheet-round-summary">{summary}</span>}
     </div>
   );

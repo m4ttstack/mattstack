@@ -53,6 +53,7 @@ import {
   ThreadOutcome,
 } from './RespondCards.tsx';
 import {
+  gateRounds,
   RespondCtxFacts,
   reviewerName,
   subjectRef,
@@ -727,7 +728,7 @@ function RespondSheetBody({
   return (
     <div className="tui-sheet-body">
       <section className="tui-sheet-main">
-        {ctx.round !== undefined && <RoundHeading round={ctx.round} />}
+        <RoundHeading {...gateRounds(ctx, mr?.respond?.responseRound)} />
         <div className="tui-sheet-list-head">
           <span className="tui-sheet-list-title">
             {postThreads || perThread ? (

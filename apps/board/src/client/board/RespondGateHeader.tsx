@@ -55,23 +55,32 @@ export function headerChips(
   return chips;
 }
 
-/** The round and the adjudication, the context's prose facts; they read as
-    a meta line rather than chips. Given the person's response round, the
+/** The round a gate shows. Given the person's response round, the
     wrapper's own round only shows as the revises past it. */
+export function gateRounds(
+  ctx: PlanCtx | PostCtx,
+  responseRound?: number
+): { round?: number; revise?: number } {
+  if (responseRound === undefined) return { round: ctx.round };
+  const revise =
+    ctx.round !== undefined && ctx.round > responseRound
+      ? ctx.round - responseRound
+      : undefined;
+  return { round: responseRound >= 2 ? responseRound : undefined, revise };
+}
+
+/** The round and the adjudication, the context's prose facts; they read as
+    a meta line rather than chips. */
 export function headerMeta(
   ctx: PlanCtx | PostCtx,
   responseRound?: number
 ): string[] {
-  const rounds =
-    responseRound === undefined
-      ? [ctx.round !== undefined ? `round ${ctx.round}` : undefined]
-      : [
-          responseRound >= 2 ? `round ${responseRound}` : undefined,
-          ctx.round !== undefined && ctx.round > responseRound
-            ? `revise ${ctx.round - responseRound}`
-            : undefined,
-        ];
-  return [...rounds, ctx.adjudication].filter((m): m is string => Boolean(m));
+  const { round, revise } = gateRounds(ctx, responseRound);
+  return [
+    round !== undefined ? `round ${round}` : undefined,
+    revise !== undefined ? `revise ${revise}` : undefined,
+    ctx.adjudication,
+  ].filter((m): m is string => Boolean(m));
 }
 
 /** The reviewer's full name for a gate's reviewer handle: the board's team
