@@ -479,3 +479,25 @@ test('a respond verb hands its person to onRespond', async () => {
   });
   expect(calls).toEqual(['darryl']);
 });
+
+test('a launch-respond verb for one person hands that person to onRespond', async () => {
+  const calls: Array<string | undefined> = [];
+  await render(
+    {
+      line: {
+        tone: 'quiet',
+        word: 'changes requested',
+        verbs: [
+          { kind: 'launch-respond', label: 'respond to John', person: 'john' },
+        ],
+      },
+      more: [],
+      bar: null,
+    },
+    ctx({ onRespond: (_mr, _note, _intent, person) => calls.push(person) })
+  );
+  await React.act(async () => {
+    container.querySelector<HTMLButtonElement>('button[data-verb]')!.click();
+  });
+  expect(calls).toEqual(['john']);
+});

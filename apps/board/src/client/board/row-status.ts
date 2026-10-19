@@ -26,6 +26,8 @@ import {
   draftKey,
   laneInterrupted,
   RESPOND_ACTIVE,
+  respondChoiceLabel,
+  respondChoices,
   respondPersonName,
   roundSuffix,
 } from './format.ts';
@@ -407,9 +409,12 @@ function reviewLine(
       // there is nothing left to answer), and the report stays one hover away.
       const mine = self !== null && mr.author.username === self;
       const awaiting = mr.threadSummary?.awaiting ?? 0;
+      const respond = mine && awaiting > 0 ? respondVerb(mr) : null;
       const lead: Verb[] =
         mine && awaiting > 0
-          ? [{ kind: 'launch-respond', label: 'respond' }]
+          ? respond
+            ? [respond]
+            : []
           : canMerge(mr, self)
             ? [MERGE]
             : [];
@@ -431,6 +436,25 @@ function reviewLine(
         ],
       };
   }
+}
+
+/** The status line's respond verb. A row without respondTargets (not owned
+    here, or its discussions never loaded) keeps the plain verb that answers
+    everyone. Otherwise the verb answers the one person there is to answer,
+    named the way the row menu names them; with several or none the line has
+    no respond verb and the row menu's picker is the way in. */
+function respondVerb(mr: BoardMRWithReview): Verb | null {
+  if (mr.respondTargets === undefined)
+    return { kind: 'launch-respond', label: 'respond' };
+  const choices = respondChoices(mr);
+  const only = choices.length === 1 ? choices[0]! : undefined;
+  return only
+    ? {
+        kind: 'launch-respond',
+        label: respondChoiceLabel(only),
+        person: only.username,
+      }
+    : null;
 }
 
 /** The person the MR's latest response answered, named for the line; null
@@ -785,9 +809,10 @@ function authorLine(mr: BoardMRWithReview, self: string): Candidate {
       verbs: [{ kind: 'call-doctor', label: 'call doctor' }],
     };
   }
-  const respond: Verb = { kind: 'launch-respond', label: 'respond' };
+  const respond = respondVerb(mr);
+  const respondVerbs: Verb[] = respond ? [respond] : [];
   if (hasChangesRequested(mr))
-    return { tone: 'quiet', word: 'changes requested', verbs: [respond] };
+    return { tone: 'quiet', word: 'changes requested', verbs: respondVerbs };
   const awaiting = mr.threadSummary?.awaiting ?? 0;
   if (awaiting > 0) {
     return {
@@ -796,7 +821,7 @@ function authorLine(mr: BoardMRWithReview, self: string): Candidate {
         awaiting === 1
           ? 'a thread awaits you'
           : `${awaiting} threads await you`,
-      verbs: [respond],
+      verbs: respondVerbs,
     };
   }
   if (mr.isDraft)

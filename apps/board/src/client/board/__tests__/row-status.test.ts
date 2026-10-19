@@ -1666,6 +1666,123 @@ describe('a finished review that left threads for the author', () => {
   });
 });
 
+describe("the status line's respond verb answers one person", () => {
+  const john = {
+    username: 'john',
+    name: 'John',
+    openThreads: 2,
+    openComments: 0,
+  };
+  const darryl = {
+    username: 'darryl',
+    name: 'Darryl',
+    openThreads: 0,
+    openComments: 1,
+  };
+  const awaiting = (over: Over = {}) =>
+    own({ threadSummary: { awaiting: 2, replied: 0, resolved: 0 }, ...over });
+  const changesRequested = (over: Over = {}) =>
+    own({
+      reviews: {
+        isApproved: false,
+        required: 1,
+        given: 0,
+        reviewers: [{ username: 'john', reviewState: 'REQUESTED_CHANGES' }],
+      },
+      ...over,
+    });
+  const reviewReady = (over: Over = {}) =>
+    awaiting({
+      review: { status: 'done', outcome: 'comment', reportReady: true },
+      ...over,
+    });
+
+  test('one person to answer: the verb names them and carries their username', () => {
+    const [line] = candidateLines(
+      awaiting({ respondTargets: [john] }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      word: '2 threads await you',
+      verbs: [
+        { kind: 'launch-respond', label: 'respond to John', person: 'john' },
+      ],
+    });
+  });
+
+  test('a later round shows on the label', () => {
+    const [line] = candidateLines(
+      changesRequested({ respondTargets: [john], respondRounds: { john: 1 } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      word: 'changes requested',
+      verbs: [
+        {
+          kind: 'launch-respond',
+          label: 'respond to John (round 2)',
+          person: 'john',
+        },
+      ],
+    });
+  });
+
+  test('a person answered before with nothing open reads as a redo', () => {
+    const [line] = candidateLines(
+      changesRequested({ respondTargets: [], respondRounds: { john: 2 } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line!.verbs).toEqual([
+      {
+        kind: 'launch-respond',
+        label: 'redo response to john (round 3)',
+        person: 'john',
+      },
+    ]);
+  });
+
+  test('a finished review hands the verb to the one person too', () => {
+    const s = rowStatus(reviewReady({ respondTargets: [john] }), NOW, NONE, ME);
+    expect(s.line.word).toBe('review ready');
+    expect(s.line.verbs[0]).toEqual({
+      kind: 'launch-respond',
+      label: 'respond to John',
+      person: 'john',
+    });
+  });
+
+  test('several people: no respond verb on the line', () => {
+    const many = { respondTargets: [john, darryl] };
+    const [threads] = candidateLines(awaiting(many), NOW, NONE, ME);
+    expect(threads).toMatchObject({ word: '2 threads await you', verbs: [] });
+    const [changes] = candidateLines(changesRequested(many), NOW, NONE, ME);
+    expect(changes).toMatchObject({ word: 'changes requested', verbs: [] });
+    const ready = rowStatus(reviewReady(many), NOW, NONE, ME);
+    expect(ready.line.verbs.map(v => v.kind)).toEqual(['read-review']);
+  });
+
+  test('nobody to answer on a row that has targets: no respond verb', () => {
+    const [line] = candidateLines(
+      changesRequested({ respondTargets: [] }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ word: 'changes requested', verbs: [] });
+  });
+
+  test('a row without targets keeps the verb that answers everyone', () => {
+    const [line] = candidateLines(changesRequested(), NOW, NONE, ME);
+    expect(line!.verbs).toEqual([{ kind: 'launch-respond', label: 'respond' }]);
+  });
+});
+
 describe('merge from the row', () => {
   const verbs = (m: BoardMRWithReview) =>
     rowStatus(m, NOW, NONE, ME).line.verbs.map(v => v.kind);
