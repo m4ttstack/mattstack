@@ -1665,16 +1665,20 @@ describe("orgUnpublishedPacksRow", () => {
     expect(r).toMatchObject({
       status: "needs-you",
       detail: "The widgets pack has unpublished changes from 7 hours ago. rt saved a copy on this Mac and published nothing.",
-      action: { type: "steps", steps: ["Publish them: rt skills sync --pack widgets --commit-pending", "Or throw them away: rt skills discard --pack widgets"] },
+      action: { type: "steps", steps: ["Publish widgets: rt skills sync --pack widgets --commit-pending", "Or throw away the widgets changes: rt skills discard --pack widgets"] },
     });
   });
 
-  test("a folder of base packs names each pack that holds a change", async () => {
+  test("a folder of base packs names each pack that holds a change, with a hand commit to publish it and a one-at-a-time note", async () => {
     const r = await orgUnpublishedPacksRow(probes({
       refs: `refs/mattstack/janitor/mattstack/org/packs ${sevenHoursAgo}\n`,
       dirty: { "mattstack/org/packs/": "?? mattstack/org/packs/base/a.md\0 M mattstack/org/packs/core/b.md\0" },
     }), noDaemon);
     expect(r?.detail).toBe("The base pack has unpublished changes from 7 hours ago. The core pack has unpublished changes from 7 hours ago. rt saved a copy on this Mac and published nothing.");
+    const steps = (r?.action as { steps: string[] }).steps;
+    expect(steps[0]).toBe("Publish base: commit its folder by hand in your copy of the org, and rt pushes the commit");
+    expect(steps.some((s) => s.includes("rt skills sync --pack base"))).toBe(false);
+    expect(steps.at(-1)).toContain("one pack before the next");
   });
 
   test("a pack holding back the pull is named even before rt saved a copy", async () => {

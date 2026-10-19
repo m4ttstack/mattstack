@@ -150,9 +150,12 @@ The team instance differs from the home one in four ways:
   the index stay as you left them. The push sends `origin HEAD` only, so that ref never
   leaves the Mac. There is one ref per zone, updated in place, and the janitor drops it
   once the pack is clean again. The `org.unpublished-packs` setup row names a pack with a
-  saved copy and how long it has waited, and gives the remedy: publish it with
+  saved copy and how long it has waited, and gives the remedy: publish a team's pack with
   `rt skills sync --pack <pack> --commit-pending`, or throw it away with
-  `rt skills discard --pack <pack>`. A claim on the same path in the clone's own
+  `rt skills discard --pack <pack>`. An org base pack has no marketplace entry, so sync
+  refuses it; it is published by a hand commit, which the next push carries. Sync also
+  refuses while anything else in the clone is changed, so with two dirty packs, publish or
+  throw away one before the next. A claim on the same path in the clone's own
   `snapshot-owners.jsonc` wins over the standing one, and its owner's zone is committed
   as before.
 - **Pull.** Before every push, at daemon boot and every `pullIntervalSec`, it

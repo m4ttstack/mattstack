@@ -31,7 +31,8 @@ import { checkedOutBranch, shellQuote } from "../../team/org-branch.ts";
 import { roleFor } from "../../team/roles.ts";
 import { holdSentence, layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
-import { agoPhrase, JANITOR_REF_PREFIX, packPhrase, packRemedySteps, packsInZone, zoneOfJanitorRef } from "../../team/unpublished-packs.ts";
+import { agoPhrase, JANITOR_REF_PREFIX, packPhrase, packRemedySteps, packsInZone, uniquePacks, zoneOfJanitorRef, type PackRef } from "../../team/unpublished-packs.ts";
+import { teamPackRel } from "../../team/team-pack-path.ts";
 import { parsePorcelainZ } from "../../daemon/home-snapshot-plan.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
@@ -826,6 +827,7 @@ export async function orgUnpublishedPacksRow(p: Probes, readStatus: () => Promis
   const refs = await git(["for-each-ref", "--format=%(refname) %(authordate:unix)", JANITOR_REF_PREFIX]);
   if (refs.code !== 0) return row({ ...base, status: "error", detail: `rt could not read the copies it saved of your pack edits: ${refs.stderr.trim() || "git for-each-ref failed"}` });
 
+  const found: PackRef[] = [];
   const since = new Map<string, number | null>();
   for (const line of refs.stdout.split("\n").map((l) => l.trim()).filter((l) => l !== "")) {
     const [ref, at] = line.split(" ");
@@ -835,21 +837,27 @@ export async function orgUnpublishedPacksRow(p: Probes, readStatus: () => Promis
     if (status.code !== 0) return row({ ...base, status: "error", detail: `rt could not read your changes under ${zone}: ${status.stderr.trim() || "git status failed"}` });
     const paths = parsePorcelainZ(status.stdout).flatMap((e) => (e.origPath ? [e.path, e.origPath] : [e.path]));
     const savedAt = Number(at) * 1000;
-    for (const pack of packsInZone(zone, paths)) since.set(pack, Number.isFinite(savedAt) && savedAt > 0 ? savedAt : null);
+    for (const pack of packsInZone(zone, paths)) {
+      found.push(pack);
+      since.set(pack.name, Number.isFinite(savedAt) && savedAt > 0 ? savedAt : null);
+    }
   }
   const blocking = (await readStatus())?.find((e) => e.slug === state.slug)?.pullBlockedBy ?? [];
-  for (const pack of blocking) if (!since.has(pack)) since.set(pack, null);
-  if (since.size === 0) return row({ ...base, status: "ready", detail: "Every pack edit on this Mac is published" });
+  for (const name of blocking) {
+    if (since.has(name)) continue;
+    found.push({ name, team: p.exists(join(dir, teamPackRel(name))) });
+    since.set(name, null);
+  }
+  if (found.length === 0) return row({ ...base, status: "ready", detail: "No pack edits have waited unpublished for hours" });
 
-  const packs = [...since.keys()].sort();
+  const packs = uniquePacks(found);
   const now = p.now().getTime();
   const sentences = packs.map((pack) => {
-    const at = since.get(pack);
-    return `The ${pack} pack has unpublished changes${at == null ? "" : ` from ${agoPhrase(at, now)}`}.`;
+    const at = since.get(pack.name);
+    return `The ${pack.name} pack has unpublished changes${at == null ? "" : ` from ${agoPhrase(at, now)}`}.`;
   });
-  const saved = packs.filter((pack) => since.get(pack) != null);
-  if (saved.length > 0) sentences.push("rt saved a copy on this Mac and published nothing.");
-  const held = packs.filter((pack) => blocking.includes(pack));
+  if (packs.some((pack) => since.get(pack.name) != null)) sentences.push("rt saved a copy on this Mac and published nothing.");
+  const held = packs.filter((pack) => blocking.includes(pack.name));
   if (held.length > 0) sentences.push(`Your copy of the org is not taking updates until ${packPhrase(held)} ${held.length === 1 ? "is" : "are"} published or thrown away.`);
   return row({
     ...base,

@@ -58,7 +58,7 @@ import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
 import { isUnderZone, parsePorcelainZ, planSnapshot, scopeEntries, type JanitorZone, type StatusEntry } from "./home-snapshot-plan.ts";
-import { JANITOR_REF_PREFIX, janitorRefFor, packsInZone, pullBlockedSentence, zoneOfJanitorRef } from "../team/unpublished-packs.ts";
+import { JANITOR_REF_PREFIX, janitorRefFor, packsInZone, pullBlockedSentence, uniquePacks, zoneOfJanitorRef } from "../team/unpublished-packs.ts";
 import { teamPackRel } from "../team/team-pack-path.ts";
 
 export type SnapshotReason = "manual" | "watch" | "janitor";
@@ -1021,8 +1021,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
    * A save-only zone stays dirty until its owner publishes or discards it, so
    * it can be what stops a fast-forward or a rebase. Names the packs when it
    * is, else null and the git error stands. The paths git lists under a
-   * refusal are what blocked; with none listed (a rebase refusing any
-   * unstaged change), every tracked dirty path is.
+   * refusal are what blocked; a rebase refusing any unstaged change lists
+   * none, so there every tracked dirty path is. Any other refusal (a lock, a
+   * hook) keeps git's own reason.
    */
   async function packsBlockingPull(stderr: string): Promise<string | null> {
     if (!spec.janitorSavesOnly) return null;
@@ -1035,22 +1036,24 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
     let blockers = stderr.split("\n").filter((line) => line.startsWith("\t")).map((line) => line.trim()).filter((line) => line !== "");
     if (blockers.length === 0) {
+      if (!/unstaged changes|uncommitted changes/i.test(stderr)) return null;
       const status = await deps.exec(["git", "status", "--porcelain=v1", "-uall", "-z"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
       if (status.exitCode !== 0) return null;
       blockers = parsePorcelainZ(status.stdout).filter((entry) => entry.xy !== "??").flatMap((entry) => (entry.origPath ? [entry.path, entry.origPath] : [entry.path]));
     }
-    const packs = [...new Set(zones.flatMap((zone) => packsInZone(zone, blockers)))].sort();
-    pullBlockedBy = packs;
+    const packs = uniquePacks(zones.flatMap((zone) => packsInZone(zone, blockers)));
+    pullBlockedBy = packs.map((pack) => pack.name);
     if (packs.length === 0) return null;
     const detail = pullBlockedSentence(packs);
     if (loggedBlockedPull !== detail) {
-      deps.log.warn({ id: spec.id, packs }, `${label}: ${detail}`);
+      deps.log.warn({ id: spec.id, packs: pullBlockedBy }, `${label}: ${detail}`);
       loggedBlockedPull = detail;
     }
     return detail;
   }
 
   async function doPull(): Promise<PullResult> {
+    pullBlockedBy = [];
     if (!(await hasRemote(deps.exec, deps.repoDir))) return { outcome: "skipped", detail: "no remote" };
     const branchResult = await deps.exec(["git", "symbolic-ref", "--short", "HEAD"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
     if (branchResult.exitCode !== 0) return { outcome: "skipped", detail: "detached HEAD" };
@@ -1111,7 +1114,6 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       loggedHold = null;
       if (!threw) loggedGateError = null;
     }
-    pullBlockedBy = [];
     if (behind === 0) return { outcome: "up-to-date", detail: null };
     if (ahead === 0) {
       const ff = await deps.exec(["git", "merge", "-q", "--ff-only", `refs/remotes/origin/${branch}`], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
@@ -1660,7 +1662,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       }
     }
 
-    if (spec.janitorSavesOnly && (reason === "janitor" || reason === "manual")) await dropCleanSavedZones(rawEntries);
+    // A failed status reads as a clean tree, which would drop every saved copy.
+    if (spec.janitorSavesOnly && (reason === "janitor" || reason === "manual") && statusResult.exitCode === 0) await dropCleanSavedZones(rawEntries);
 
     if (committed || pushPending) {
       schedulePush();

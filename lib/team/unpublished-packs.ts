@@ -20,15 +20,31 @@ export function zoneOfJanitorRef(ref: string): string | null {
   return `${ref.slice(JANITOR_REF_PREFIX.length)}/`;
 }
 
+/**
+ * `team` is a team's pack, which `rt skills sync` publishes. An org base pack
+ * or a pack in the legacy folder has no marketplace entry, so sync refuses it
+ * and it is published by a hand commit instead.
+ */
+export interface PackRef {
+  name: string;
+  team: boolean;
+}
+
 const TEAM_PACK_ZONE = /^mattstack\/teams\/([^/]+)\/plugin\/$/;
 
 /** A team's pack zone is that one pack; a folder of packs (the org's base packs, the legacy packs folder) names each pack folder that holds one of `paths`. */
-export function packsInZone(zone: string, paths: readonly string[]): string[] {
+export function packsInZone(zone: string, paths: readonly string[]): PackRef[] {
   const inZone = paths.filter((path) => path.startsWith(zone));
   const team = TEAM_PACK_ZONE.exec(zone)?.[1];
-  if (team !== undefined) return inZone.length > 0 ? [team] : [];
+  if (team !== undefined) return inZone.length > 0 ? [{ name: team, team: true }] : [];
   const names = inZone.map((path) => path.slice(zone.length).split("/")).filter((parts) => parts.length > 1 && parts[0] !== "").map((parts) => parts[0]!);
-  return [...new Set(names)].sort();
+  return [...new Set(names)].sort().map((name) => ({ name, team: false }));
+}
+
+/** Sorted by name, one entry per name. */
+export function uniquePacks(packs: readonly PackRef[]): PackRef[] {
+  const byName = new Map(packs.map((pack) => [pack.name, pack]));
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function publishPackCommand(pack: string): string {
@@ -39,25 +55,40 @@ export function discardPackCommand(pack: string): string {
   return `rt skills discard --pack ${pack}`;
 }
 
-export function packPhrase(packs: readonly string[]): string {
-  if (packs.length === 1) return `the ${packs[0]} pack`;
-  return `the ${packs.slice(0, -1).join(", ")} and ${packs.at(-1)} packs`;
+export function packPhrase(packs: readonly PackRef[]): string {
+  const names = packs.map((pack) => pack.name);
+  if (names.length === 1) return `the ${names[0]} pack`;
+  return `the ${names.slice(0, -1).join(", ")} and ${names.at(-1)} packs`;
 }
 
-function remedySentence(packs: readonly string[]): string {
-  return packs.length === 1
-    ? `Publish them with ${publishPackCommand(packs[0]!)}, or throw them away with ${discardPackCommand(packs[0]!)}.`
-    : `Publish each with ${publishPackCommand("<pack>")}, or throw them away with ${discardPackCommand("<pack>")}.`;
+/** `rt skills sync` refuses while anything else in the clone is changed, so a second dirty pack blocks the first one's publish. */
+const ONE_AT_A_TIME = "rt skills sync publishes a pack only while the rest of your copy of the org is unchanged, so publish or throw away one pack before the next.";
+
+function remedyFor(pack: PackRef): string {
+  return pack.team
+    ? `publish it with ${publishPackCommand(pack.name)}, or throw it away with ${discardPackCommand(pack.name)}`
+    : `commit it by hand in your copy of the org and rt pushes the commit, or throw it away with ${discardPackCommand(pack.name)}`;
+}
+
+function remedySentences(packs: readonly PackRef[]): string {
+  const each = packs.map((pack) => `For ${packPhrase([pack])}, ${remedyFor(pack)}.`);
+  return [...each, ...(packs.length > 1 ? [ONE_AT_A_TIME] : [])].join(" ");
 }
 
 /** Why a pull stopped, when what stopped it is a pack's unpublished edits. */
-export function pullBlockedSentence(packs: readonly string[]): string {
-  return `Unpublished changes to ${packPhrase(packs)} are holding back the pull from the org. ${remedySentence(packs)}`;
+export function pullBlockedSentence(packs: readonly PackRef[]): string {
+  return `Unpublished changes to ${packPhrase(packs)} are holding back the pull from the org. ${remedySentences(packs)}`;
 }
 
 /** The steps a person runs for each pack, publish first. */
-export function packRemedySteps(packs: readonly string[]): string[] {
-  return packs.flatMap((pack) => [`Publish them: ${publishPackCommand(pack)}`, `Or throw them away: ${discardPackCommand(pack)}`]);
+export function packRemedySteps(packs: readonly PackRef[]): string[] {
+  return [
+    ...packs.flatMap((pack) => [
+      pack.team ? `Publish ${pack.name}: ${publishPackCommand(pack.name)}` : `Publish ${pack.name}: commit its folder by hand in your copy of the org, and rt pushes the commit`,
+      `Or throw away the ${pack.name} changes: ${discardPackCommand(pack.name)}`,
+    ]),
+    ...(packs.length > 1 ? [ONE_AT_A_TIME] : []),
+  ];
 }
 
 /** "7 hours ago", from the time a zone was first seen dirty. */

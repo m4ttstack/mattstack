@@ -2655,6 +2655,21 @@ describe("teamSnapshotSpec", () => {
       const { calls } = await janitorRound({ savedTree: "tree1", refs: [WIDGETS_REF, gadgetsRef] });
       expect(calls.filter((c) => gitVerb(c) === "update-ref")).toEqual([["git", "update-ref", "-d", gadgetsRef]]);
     }));
+
+    test("a round whose git status failed drops no saved copy, since it cannot tell a clean zone", () => withWidgetsFolder(async () => {
+      const { fn, calls } = makeFakeExec([
+        (argv) => (argv[1] === "status" ? { stdout: "", stderr: "fatal: timed out", exitCode: -1 } : undefined),
+        ...saveResponders({ refs: [WIDGETS_REF] }),
+        ...defaultResponders(),
+      ]);
+      const { deps } = baseDeps({ exec: fn });
+      const { repoDir: _repoDir, ...specDeps } = deps;
+      const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: adminProbes(), readToken: async () => "glpat-x" }), specDeps);
+      await handle.ready;
+      await handle.runNow("janitor");
+      expect(calls.some((c) => gitVerb(c) === "update-ref")).toBe(false);
+      handle.stop();
+    }));
   });
 
   test("the home repo's janitor still commits a claimed zone and pushes it", async () => {
@@ -2822,7 +2837,7 @@ describe("teamSnapshotSpec", () => {
       git(other, "commit", "-q", "-am", "publish widgets");
       git(other, "push", "-q", "origin", "main");
       const pulled = await handle.pullNow();
-      expect(pulled).toEqual({ outcome: "skipped", detail: pullBlockedSentence(["widgets"]) });
+      expect(pulled).toEqual({ outcome: "skipped", detail: pullBlockedSentence([{ name: "widgets", team: true }]) });
       expect(handle.status().pullBlockedBy).toEqual(["widgets"]);
       expect(git(clone, "rev-parse", "HEAD").trim()).toBe(head);
 
@@ -3458,11 +3473,32 @@ describe("startSnapshot: pull", () => {
       await handle.ready;
       const result = await handle.pullNow();
       expect(result.outcome).toBe("skipped");
-      if (blockedBy.length > 0) expect(result.detail).toBe(pullBlockedSentence(blockedBy));
+      if (blockedBy.length > 0) expect(result.detail).toBe(pullBlockedSentence(blockedBy.map((name) => ({ name, team: true }))));
       else expect(result.detail).toContain("unstaged");
       expect(handle.status().pullBlockedBy).toEqual([...blockedBy]);
       handle.stop();
     }
+  });
+
+  test("a fast-forward refused for a lock keeps git's reason even with a pack edit waiting", async () => {
+    const zone = "mattstack/teams/widgets/plugin/";
+    const lock = "fatal: Unable to create '.git/index.lock': File exists.";
+    const { fn } = makeFakeExec([
+      (argv) => (gitVerb(argv) === "merge" ? { stdout: "", stderr: lock, exitCode: 128 } : undefined),
+      ...pullResponders({ behind: 1, ahead: 0 }),
+      ...defaultResponders({ statusZ: ` M ${zone}SKILL.md\0` }),
+    ]);
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    const handle = startSnapshot({
+      ...teamSpecFor(),
+      standingZones: () => ({ [zone]: { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" } }),
+      janitorSavesOnly: () => true,
+    }, specDeps);
+    await handle.ready;
+    expect(await handle.pullNow()).toEqual({ outcome: "skipped", detail: lock });
+    expect(handle.status().pullBlockedBy).toEqual([]);
+    handle.stop();
   });
 
   test("a rebase conflict aborts, persists the marker, broadcasts once, suspends push and pull until it clears", async () => {
