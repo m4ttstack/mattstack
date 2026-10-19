@@ -666,7 +666,11 @@ is no page to measure.
   same-path re-record, recomputed on a recapture). `mr:upload` refuses the
   image at its own path, and any byte copy anywhere, by those recorded
   values, with or without a `runId`; with none it reads every run's record
-  under the runs root. So deleting the run-folder copy, or the run's whole
+  under the runs root. That scan reads only each run's `evidence` and
+  `evidence-tickets` fields, matches a hashed shot by its recorded path
+  string, size and sha256 without touching any file, and reuses a run's
+  fields from daemon memory while its `state.db` and WAL stat unchanged, so
+  a warm scan opens no run's db. So deleting the run-folder copy, or the run's whole
   work folder, no longer lets a leftover original go up: the earlier ENOENT
   limit is closed. What remains:
   - The memory lasts as long as the run's record. The daemon's run prune
@@ -674,7 +678,9 @@ is no page to measure.
     `rt.runsPruneDays` (default 30) after it ends, so by default an original
     left in a temp root uploads 30 days after its run ends.
   - A legacy ticket shot, recorded before this change with no hash, cannot
-    be compared once its ticket file is gone.
+    be compared once its ticket file is gone. While it lasts, every upload's
+    scan pays a realpath and a stat for it, and a read and hash when its
+    size matches the upload's.
   - The record is trusted over the file: a well-formed but wrong `sha256`
     written straight through `run_field_set` lets the real original pass.
     That is a shift in what is trusted, not a new kind of bypass: the same

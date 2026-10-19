@@ -41,6 +41,7 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/settings.ts": () => import("../commands/settings.ts"),
   "./commands/settings-keys.ts": () => import("../commands/settings-keys.ts"),
   "./commands/settings-schema.ts": () => import("../commands/settings-schema.ts"),
+  "./commands/telemetry.ts": () => import("../commands/telemetry.ts"),
   "./commands/skills.ts": () => import("../commands/skills.ts"),
   "./commands/skills-link.ts": () => import("../commands/skills-link.ts"),
   "./commands/skills-expand.ts": () => import("../commands/skills-expand.ts"),
