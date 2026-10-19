@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ActionIcon,
   Alert,
@@ -143,6 +143,74 @@ const KIND_BADGE: Record<
   'hand-authored': { label: 'fill', color: 'cyan' },
   missing: { label: 'missing', color: 'bad' },
 };
+
+const LEGEND_BADGES: {
+  badge: { label: string; color: string };
+  meaning: string;
+}[] = [
+  {
+    badge: KIND_BADGE['hand-authored'],
+    meaning: 'written by hand in this pack.',
+  },
+  {
+    badge: KIND_BADGE.compiled,
+    meaning: "built by rt from a mattstack template plus this pack's fills.",
+  },
+];
+
+function SurfaceLegend({ base }: { base: string | undefined }) {
+  const { text } = useSchemeColors();
+  const entry = (badge: ReactNode, meaning: string) => (
+    <Group key={meaning} gap={6} wrap="nowrap">
+      {badge}
+      <Text size="xs" c={text.muted}>
+        {meaning}
+      </Text>
+    </Group>
+  );
+
+  return (
+    <Stack gap={6} p="xl" pb="md" data-testid="surface-legend">
+      <Text size="xs" c={text.muted}>
+        <Text span inherit fw={600} c={text.normal}>
+          On:
+        </Text>{' '}
+        agents see it in their skill list.{' '}
+        <Text span inherit fw={600} c={text.normal}>
+          Off:
+        </Text>{' '}
+        agents only reach it when another skill points to it.
+      </Text>
+      <Group gap="lg" wrap="wrap">
+        {LEGEND_BADGES.map(({ badge, meaning }) =>
+          entry(
+            <Badge
+              size="xs"
+              variant="light"
+              color={badge.color}
+              style={{ flex: 'none' }}
+            >
+              {badge.label}
+            </Badge>,
+            meaning
+          )
+        )}
+        {base !== undefined &&
+          entry(
+            <Badge
+              size="xs"
+              variant="default"
+              c={text.muted}
+              style={{ flex: 'none' }}
+            >
+              from {base}
+            </Badge>,
+            'comes from the parent pack. Edit it there.'
+          )}
+      </Group>
+    </Stack>
+  );
+}
 
 const BASE_LOCK_LABEL =
   'The org base pack decides. Verbs read it from attachments/, so it stays internal.';
@@ -440,12 +508,7 @@ export function SurfaceTab({ pack }: SurfaceTabProps) {
       style={{ overflow: 'hidden' }}
       data-testid="surface-tab"
     >
-      <Box p="xl" pb={4}>
-        <Text size="xs" c={text.muted}>
-          Public skills can be invoked by name. Internal ones exist only to
-          compile into a verb.
-        </Text>
-      </Box>
+      <SurfaceLegend base={rows.find(row => row.base)?.base} />
 
       <Group
         wrap="wrap"
@@ -515,7 +578,7 @@ export function SurfaceTab({ pack }: SurfaceTabProps) {
                 row={row}
                 next={staged.get(row.name) ?? row.status}
                 onToggle={toggle}
-                sourcePath={sourceByName.get(row.name) ?? null}
+                sourcePath={row.path ?? sourceByName.get(row.name) ?? null}
               />
             ))
           )}
