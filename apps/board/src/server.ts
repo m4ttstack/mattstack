@@ -2633,8 +2633,7 @@ const httpServer = Bun.serve({
           pack: launchPack(boardTabId),
           author,
           ...loadAgentSettings(),
-          ...respondFreshDispatchFields(existing, responseRound),
-          person,
+          ...respondFreshDispatchFields(existing, responseRound, person),
           note,
         })
           .then(result => {

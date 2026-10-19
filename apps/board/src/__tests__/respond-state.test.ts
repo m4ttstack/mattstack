@@ -151,6 +151,19 @@ describe('respondResumeDispatchFields', () => {
   });
 });
 
+describe('respondResumeDispatchFields person', () => {
+  test('carries the person from state onto the resume dispatch', () => {
+    expect(respondResumeDispatchFields({ round: 2, person: 'john' })).toEqual({
+      round: 2,
+      person: 'john',
+    });
+  });
+
+  test('a legacy state with no person resumes with person omitted', () => {
+    expect(respondResumeDispatchFields({ round: 2 }).person).toBeUndefined();
+  });
+});
+
 describe('respondFreshDispatchFields', () => {
   test('a prior round on file bumps to the next round for the fresh launch', () => {
     expect(respondFreshDispatchFields({ round: 2 })).toEqual({ round: 3 });
@@ -176,6 +189,13 @@ describe('respondFreshDispatchFields with a person round', () => {
 
   test('no response round keeps the prior-round fallback', () => {
     expect(respondFreshDispatchFields({ round: 4 })).toEqual({ round: 5 });
+  });
+
+  test('the launch person rides beside the round', () => {
+    expect(respondFreshDispatchFields({ round: 4 }, 2, 'john')).toEqual({
+      round: 2,
+      person: 'john',
+    });
   });
 });
 

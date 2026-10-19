@@ -168,11 +168,13 @@ export function writeRespondState(
     kind-generic ones (`--resumed-gate`/`--resumed-gate-kind`) -- mirrors
     doctorResumeDispatchFields (doctor-state.ts). `round` rides the resume
     prompt as `--round <n>` so the fresh pane's wrapper can recover the round
-    its own conversation would otherwise have known from delegating it. */
+    its own conversation would otherwise have known from delegating it.
+    `person` rides as `--person <username>` so a resumed `revise` still
+    answers only that person. */
 export function respondResumeDispatchFields(
-  state: Pick<RespondState, 'round'> | undefined
-): { round?: number } {
-  return { round: state?.round };
+  state: Pick<RespondState, 'round' | 'person'> | undefined
+): { round?: number; person?: string } {
+  return { round: state?.round, person: state?.person };
 }
 
 /** The extra fields a FRESH respond launch's dispatch prompt carries: when a
@@ -184,10 +186,14 @@ export function respondResumeDispatchFields(
     flag, same as respondResumeDispatchFields. */
 export function respondFreshDispatchFields(
   state: Pick<RespondState, 'round'> | undefined,
-  responseRound?: number
-): { round?: number } {
-  if (responseRound !== undefined) return { round: responseRound };
-  return { round: state?.round !== undefined ? state.round + 1 : undefined };
+  responseRound?: number,
+  person?: string
+): { round?: number; person?: string } {
+  if (responseRound !== undefined) return { round: responseRound, person };
+  return {
+    round: state?.round !== undefined ? state.round + 1 : undefined,
+    person,
+  };
 }
 
 export function readRespondStates(

@@ -28,6 +28,7 @@ import {
   statusBinPath,
   type HerdrRunner,
 } from '../herdr.ts';
+import { respondResumeDispatchFields } from '../respond-state.ts';
 
 const runningStart = async () => ({
   ok: true,
@@ -1180,6 +1181,45 @@ describe('--round flag (respond resume round recovery)', () => {
   --resumed-gate-kind respond-post
   --round 2`
     );
+  });
+
+  test('a resume prompt carries --person from the recorded state after --round', () => {
+    const p = respondPrompt({
+      mrUrl: 'https://x/mr/1',
+      statePath: '/s/1.json',
+      statusBin: '/b/board',
+      reportPath: '/s/1.md',
+      skill: 'myteam:respond',
+      resumedGate: 'gate-9',
+      resumedGateKind: 'respond-post',
+      ...respondResumeDispatchFields({ round: 2, person: 'john' }),
+    });
+    expect(p).toBe(
+      `/board:respond https://x/mr/1
+  --state /s/1.json
+  --status-bin /b/board
+  --report /s/1.md
+  --skill myteam:respond
+  --resumed-gate gate-9
+  --resumed-gate-kind respond-post
+  --round 2
+  --person john`
+    );
+  });
+
+  test('a resume of a state with no person on file emits no --person', () => {
+    const p = respondPrompt({
+      mrUrl: 'https://x/mr/1',
+      statePath: '/s/1.json',
+      statusBin: '/b/board',
+      reportPath: '/s/1.md',
+      skill: 'myteam:respond',
+      resumedGate: 'gate-9',
+      resumedGateKind: 'respond-post',
+      ...respondResumeDispatchFields({ round: 2 }),
+    });
+    expect(p).toContain('--round 2');
+    expect(p).not.toContain('--person');
   });
 
   test('respond prompt carries --person after --round', () => {
