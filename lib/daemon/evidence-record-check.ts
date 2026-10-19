@@ -18,7 +18,10 @@ export const RECORD_REMEDY = "record it with evidence_record first";
 export type RunEvidenceLookup = { found: false } | { found: true; evidence: string | null; tickets?: string | null };
 
 type Warn = (message: string, context: { err: unknown; path: string }) => void;
-type Probe = { kind: "gone" } | { kind: "file"; size: number; read: () => Uint8Array } | { kind: "unreadable"; err: unknown };
+export type Probe = { kind: "gone" } | { kind: "file"; size: number; read: () => Uint8Array } | { kind: "unreadable"; err: unknown };
+
+/** The only ways the ticket copy check touches the filesystem. */
+export type TicketFileAccess = { resolve: (p: string) => string | null; probe: (p: string) => Probe };
 
 /** stat before any read: a FIFO or a device at a record path must never block the daemon. */
 function probe(p: string): Probe {
@@ -43,6 +46,9 @@ const IS_TICKET = (filename: string) => `${filename} is the unredacted original 
  * over the file. A legacy shot with none
  * reads the ticket file: unreadable fails closed, gone cannot be compared.
  * tickets adds the run's remembered ticket images the record may no longer name.
+ * resolveHashed: false keeps a hashed shot off the filesystem entirely, so
+ * its recorded path matches only as written; a scan over every run, whose
+ * own folders are checked by location first, passes it.
  */
 export function ticketCopyRefusal(o: {
   record: EvidenceRecord;
@@ -52,16 +58,18 @@ export function ticketCopyRefusal(o: {
   bytes?: Uint8Array;
   resolve?: (p: string) => string | null;
   probe?: (p: string) => Probe;
+  resolveHashed?: boolean;
   warn?: Warn;
 }): string | null {
   const resolve = o.resolve ?? safeRealpath;
+  const resolveHashed = o.resolveHashed ?? true;
   const look = o.probe ?? probe;
   let mine: string | null = null;
   const mineOf = (b: Uint8Array) => (mine ??= sha256(b));
   for (const shot of [...evidenceShots(o.record).map((s) => s.shot), ...(o.tickets ?? [])]) {
     if (shot.source !== "ticket") continue;
     if (o.bytes && shot.sha256 !== undefined) {
-      if (shot.path === o.realpath || resolve(shot.path) === o.realpath) return IS_TICKET(o.filename);
+      if (shot.path === o.realpath || (resolveHashed && resolve(shot.path) === o.realpath)) return IS_TICKET(o.filename);
       if ((shot.size === undefined || shot.size === o.bytes.length) && mineOf(o.bytes) === shot.sha256) return IS_TICKET(o.filename);
       continue;
     }

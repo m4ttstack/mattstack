@@ -30,6 +30,17 @@ export function parseTickets(value: string | null): TicketEntry[] {
   }
 }
 
+/** A stored value that is not the {"v":1,"tickets":[...]} shape, or holds an entry parseTickets drops. */
+export function ticketsCorrupt(value: string | null): boolean {
+  if (value === null || value === "") return false;
+  try {
+    const parsed = JSON.parse(value) as { v?: unknown; tickets?: unknown };
+    return parsed?.v !== 1 || !Array.isArray(parsed.tickets) || !parsed.tickets.every(isEntry);
+  } catch {
+    return true;
+  }
+}
+
 /**
  * The field is the only durable mark once a record has dropped one, so a
  * write must parse whole and keep every entry already stored: a cleared or
