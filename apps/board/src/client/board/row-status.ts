@@ -491,13 +491,16 @@ function respondDoneLine(
           verbs: [again, ...read],
         };
       }
+      const who = respondWho(mr);
       return {
         tone: 'go',
-        word: 'replies posted',
+        word: who ? `responded to ${who}` : 'replies posted',
         detail:
           held > 0
             ? `${posted} posted, ${held} held`
-            : `${threads} of ${threads}`,
+            : who
+              ? `${posted} posted`
+              : `${threads} of ${threads}`,
         verbs: canMerge(mr, self) ? [MERGE, ...read] : read,
       };
     }
@@ -580,8 +583,10 @@ function respondLine(
         },
         who
       );
-    case 'done':
-      return withWho(respondDoneLine(mr, self), who);
+    case 'done': {
+      const line = respondDoneLine(mr, self);
+      return line.word.startsWith('responded to ') ? line : withWho(line, who);
+    }
   }
 }
 

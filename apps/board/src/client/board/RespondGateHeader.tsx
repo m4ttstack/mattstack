@@ -130,12 +130,11 @@ export function RespondCtxFacts({
       `headerChips`. */
   posting?: number;
 }) {
+  const meta = headerMeta(ctx, responseRound);
   return (
     <>
-      {headerMeta(ctx, responseRound).length > 0 && (
-        <p className="tui-sheet-context-meta">
-          {headerMeta(ctx, responseRound).join(' · ')}
-        </p>
+      {meta.length > 0 && (
+        <p className="tui-sheet-context-meta">{meta.join(' · ')}</p>
       )}
       <div className="tui-respond-chips">
         {headerChips(ctx, posting).map(chip => (

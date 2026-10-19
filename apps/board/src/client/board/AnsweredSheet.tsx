@@ -256,8 +256,11 @@ function AnsweredSheetBody({
                       reviewed your {forgeNoun(mr, gate.subject)}
                     </PersonLead>
                     <RespondCtxFacts
-                      ctx={respondCtx}
-                      responseRound={mr?.respond?.responseRound}
+                      ctx={
+                        mr?.respond?.person
+                          ? { ...respondCtx, round: undefined }
+                          : respondCtx
+                      }
                     />
                   </>
                 )}

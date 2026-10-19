@@ -388,6 +388,50 @@ test('an answered respond plan keeps its reviewer in the rail and its thread car
   expect(document.body.textContent).not.toContain('gate-ctx');
 });
 
+const answeredPlan = (round: number) =>
+  shipped({
+    kind: 'respond-plan',
+    subject: 'mr:https://gitlab.example.com/acme/webapp/-/merge_requests/1235',
+    context: j({
+      'gate-ctx': 'plan@1',
+      reviewer: 'renee',
+      round,
+      threads: { total: 1, blocking: 0 },
+      adjudication: 'both valid',
+    }),
+    questions: [
+      {
+        id: 'thread-1',
+        label: 'queue/enqueue.ts:88',
+        multi: false,
+        options: ['reply:t1', 'skip:t1'],
+      },
+    ],
+    answers: { 'thread-1': 'reply:t1' },
+  });
+
+test("an answered respond gate on an MR whose current response is another person's shows no round meta", async () => {
+  await render(answeredPlan(1), {
+    ...MR,
+    respond: {
+      status: 'triaging',
+      person: 'john',
+      responseRound: 3,
+    },
+  } as unknown as BoardMRWithReview);
+  expect($('.tui-sheet-context-meta')?.textContent).toBe('both valid');
+});
+
+test('an answered respond gate on a legacy respond row keeps its round meta', async () => {
+  await render(answeredPlan(2), {
+    ...MR,
+    respond: { status: 'done' },
+  } as unknown as BoardMRWithReview);
+  expect($('.tui-sheet-context-meta')?.textContent).toBe(
+    'round 2 · both valid'
+  );
+});
+
 test('an answered per-thread post shows the reply as posted, edited text included', async () => {
   await render(
     shipped({

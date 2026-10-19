@@ -1104,8 +1104,8 @@ describe('rowStatus: respond lane', () => {
       ME
     );
     expect(done).toMatchObject({
-      word: 'replies posted',
-      detail: 'John (round 2) · 3 of 3',
+      word: 'responded to John (round 2)',
+      detail: '3 posted',
     });
     const [failed] = candidateLines(
       own({
@@ -1178,7 +1178,11 @@ describe('rowStatus: respond lane', () => {
       NONE,
       ME
     );
-    expect(line).toMatchObject({ tone: 'go', word: 'replies posted' });
+    expect(line).toMatchObject({
+      tone: 'go',
+      word: 'responded to John (round 2)',
+      detail: '3 posted',
+    });
   });
 
   test('legacy row without a person reads exactly as before', () => {
