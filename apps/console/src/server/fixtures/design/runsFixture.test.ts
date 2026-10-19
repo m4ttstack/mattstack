@@ -578,9 +578,7 @@ describe('runsFixture', () => {
     );
     expect(named?.mime).toBe('image/png');
     expect([...named!.bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
-    expect(
-      await runs.boardImage(gate!.id, `${dir}/rush-after.png`)
-    ).toBeNull();
+    expect(await runs.boardImage(gate!.id, `${dir}/rush-after.png`)).toBeNull();
     expect(
       await runs.boardImage('g-1600-plan', `${dir}/rush-after-annotated.png`)
     ).toBeNull();
