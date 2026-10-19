@@ -19,8 +19,8 @@ const REPO = "remote:gitlab.example.com%2Facme%2Fwidgets";
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
 const REPLY = { url: "/uploads/abc/shot.png", full_path: "/-/project/9/uploads/abc/shot.png", markdown: "![shot](/uploads/abc/shot.png)" };
 const RUNS = 300;
-/** A few hundred runs scanned per upload, well inside the client's 120s and the daemon's 100s GitLab timeout. */
-const SCAN_BUDGET_MS = 1500;
+/** The steady-state scan of a few hundred unchanged runs, once the daemon has read each run's fields. */
+const WARM_SCAN_BUDGET_MS = 250;
 
 const bytesOf = (tail: string) => Buffer.concat([PNG, Buffer.from(tail)]);
 const hex = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
@@ -58,6 +58,7 @@ describe("mr:upload all-runs ticket scan", () => {
     const warns: unknown[] = [];
     const fileCalls: string[] = [];
     const keysRead = new Set<string>();
+    const dbsRead: string[] = [];
     const seams: MrUploadSeams = {
       repoContext: async () => ({ provider: { baseURL: "https://gitlab.example.com" }, projectPath: "acme/widgets", projectId: 9 }),
       gitlabToken: async () => "tok",
@@ -69,6 +70,7 @@ describe("mr:upload all-runs ticket scan", () => {
       runEvidence: () => { throw new Error("looked up by id"); },
       runFields: (path, keys) => {
         for (const k of keys) keysRead.add(k);
+        dbsRead.push(path);
         return readRunFields(path, keys);
       },
       ticketFiles: {
@@ -81,10 +83,22 @@ describe("mr:upload all-runs ticket scan", () => {
       repoIndex: () => ({ [REPO]: repoPath }),
       log: { warn: (...a: unknown[]) => { warns.push(a); }, info() {}, debug() {}, error() {} } as any,
     };
-    return { upload: createMrUploadHandlers(ctx, seams)["mr:upload"], warns, fileCalls, keysRead };
+    return { upload: createMrUploadHandlers(ctx, seams)["mr:upload"], warns, fileCalls, keysRead, dbsRead };
   }
 
   /** One real run db, its fields set, copied to `count` run folders: the scan names each run by its folder. */
+  function setFields(dbPath: string, fields: Record<string, string>): void {
+    const db = openRunDb(dbPath);
+    try {
+      for (const [k, v] of Object.entries(fields)) {
+        const res = fieldSet(db, k, v, "verify");
+        if (!res.ok) throw new Error(res.error);
+      }
+    } finally {
+      db.close();
+    }
+  }
+
   function seedRuns(count: number, fields: (i: number) => Record<string, string>): void {
     const started = runStart(join(home, "template"), { repo: "widgets", workType: "fix", pipeline: "default", env: { RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv });
     if (!started.ok) throw new Error(started.error);
@@ -92,15 +106,7 @@ describe("mr:upload all-runs ticket scan", () => {
       const dir = join(runs, "widgets", `r-${i}`);
       mkdirSync(dir, { recursive: true });
       copyFileSync(started.runDb, join(dir, "state.db"));
-      const db = openRunDb(join(dir, "state.db"));
-      try {
-        for (const [k, v] of Object.entries(fields(i))) {
-          const res = fieldSet(db, k, v, "verify");
-          if (!res.ok) throw new Error(res.error);
-        }
-      } finally {
-        db.close();
-      }
+      setFields(join(dir, "state.db"), fields(i));
     }
   }
 
@@ -115,23 +121,45 @@ describe("mr:upload all-runs ticket scan", () => {
     };
   }
 
-  test("a few hundred runs with recorded hashes: only evidence fields read, no ticket file touched, within the budget", async () => {
+  test("a few hundred runs with recorded hashes: only evidence fields read, no ticket file touched, a warm scan opens no db", async () => {
     seedRuns(RUNS, hashedRun);
     const h = harness();
-    const started = performance.now();
     expect((await h.upload({ repoName: REPO, path: file(elsewhere, "notes.png", "ordinary") })).ok).toBe(true);
-    const elapsed = performance.now() - started;
     expect([...h.keysRead].sort()).toEqual(["evidence", TICKETS_FIELD]);
+    expect(h.dbsRead.length).toBe(RUNS);
     expect(h.fileCalls).toEqual([]);
     expect(h.warns).toEqual([]);
-    expect(elapsed).toBeLessThan(SCAN_BUDGET_MS);
+
+    const started = performance.now();
+    expect((await h.upload({ repoName: REPO, path: file(elsewhere, "notes-2.png", "ordinary-2") })).ok).toBe(true);
+    expect(performance.now() - started).toBeLessThan(WARM_SCAN_BUDGET_MS);
+    expect(h.dbsRead.length).toBe(RUNS);
 
     for (const tail of [`ticket-${RUNS - 7}`, `earlier-${RUNS - 3}`]) {
       const res = await h.upload({ repoName: REPO, path: file(elsewhere, "copy.png", tail) });
       expect(res).toEqual({ ok: false, error: "copy.png is the unredacted original of an imported ticket image; upload the composed board instead" });
     }
     expect(h.fileCalls).toEqual([]);
-  }, 30_000);
+    expect(h.dbsRead.length).toBe(RUNS);
+  }, 60_000);
+
+  test("a warm scan re-reads only a run whose db changed, and forgets a run that is gone", async () => {
+    seedRuns(3, hashedRun);
+    const h = harness();
+    expect((await h.upload({ repoName: REPO, path: file(elsewhere, "notes.png", "ordinary") })).ok).toBe(true);
+    expect(h.dbsRead.length).toBe(3);
+
+    const later = bytesOf("later-ticket");
+    const r1 = join(runs, "widgets", "r-1", "state.db");
+    const stored = JSON.parse(hashedRun(1)[TICKETS_FIELD]!) as { v: 1; tickets: unknown[] };
+    setFields(r1, { [TICKETS_FIELD]: JSON.stringify({ v: 1, tickets: [...stored.tickets, { path: join(home, "later.png"), size: later.length, sha256: hex(later) }] }) });
+    rmSync(join(runs, "widgets", "r-2"), { recursive: true, force: true });
+
+    expect((await h.upload({ repoName: REPO, path: file(elsewhere, "copy.png", "later-ticket") })).ok).toBe(false);
+    expect(h.dbsRead.slice(3)).toEqual([r1]);
+    expect((await h.upload({ repoName: REPO, path: file(elsewhere, "copy-2.png", "ticket-2") })).ok).toBe(true);
+    expect(h.dbsRead.length).toBe(4);
+  });
 
   test("a hashed ticket shot whose recorded path is the file itself is refused without resolving it", async () => {
     const ticketPath = file(elsewhere, "ticket.png", "edited-in-place");
