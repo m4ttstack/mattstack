@@ -5,8 +5,9 @@ status contract and the shared sections the sections here name in quotes
 ("Off-script step", "Gate 1 and Gate 2 shapes", "Reading answers", "Reply
 overrides", "Counts and the badge"); "Gate step" is in `gate-step.md`.
 
-Adjudicate every unresolved human thread, through the domain skill or on the
-generic path, write the verdict table and drafts to `--report`, and open Gate 1
+Adjudicate every unresolved human thread (only the `--person`'s threads and
+Overview comments when the launch names one), through the domain skill or on
+the generic path, write the verdict table and drafts to `--report`, and open Gate 1
 and wait for its answer.
 
 ```dot
@@ -20,6 +21,7 @@ digraph respond_triage_and_gate_1 {
     "Which triage call refused (resumed)?" [shape=diamond];
     "Delegate adjudication to the domain skill" [shape=box];
     "Domain adjudication result?" [shape=diamond];
+    "Drop verdict rows outside the --person's feedback" [shape=box];
     "mr_view {mrUrl} (respond source branch)" [shape=plaintext];
     "mr_view result (respond)?" [shape=diamond];
     "STOP: MR reads go through mr_view (respond)" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -66,7 +68,8 @@ digraph respond_triage_and_gate_1 {
     "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="fetch mr_threads iterate at round 1"];
     "Which triage call refused (resumed)?" -> "Adjudicate each unresolved thread" [label="fetch mr_threads take: the threads from its note"];
     "Delegate adjudication to the domain skill" -> "Domain adjudication result?";
-    "Domain adjudication result?" -> "Unresolved human threads = 0?" [label="a verdict table handed back"];
+    "Domain adjudication result?" -> "Drop verdict rows outside the --person's feedback" [label="a verdict table handed back"];
+    "Drop verdict rows outside the --person's feedback" -> "Unresolved human threads = 0?";
     "Domain adjudication result?" -> "Triage error: continue at the error write" [label="failed"];
     "mr_view {mrUrl} (respond source branch)" -> "mr_view result (respond)?";
     "mr_view result (respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="ok: keep sourceBranch"];
@@ -131,7 +134,7 @@ If a rule in the domain skill asks for a move this graph marks STOP, take the of
 
 Here that means the STOP's redirect: the move passes the same fix-once counter and goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
-Tell the domain skill these four things:
+Tell the domain skill these five things:
 
 - the MR url;
 - the `--report <path>`;
@@ -140,7 +143,12 @@ Tell the domain skill these four things:
   the board started for an MR with a prior recorded round, such as a
   further round of review), in which case `<n>` is this run's round;
 - that this wrapper owns both gates, so it opens neither: it hands back
-  instead, including the path of each fitted open file it builds.
+  instead, including the path of each fitted open file it builds;
+- the person, when the launch carries `--person <username>`: answer only
+  that person's feedback, the unresolved resolvable threads whose first
+  note is theirs plus their open Overview comments, and nothing else on
+  the MR. Without `--person`, say nothing here: every unresolved human
+  thread is in scope.
 
 Pass the operator note along as context when the launch carries one.
 
@@ -153,6 +161,23 @@ changes, and the absolute path of a fitted Gate 1 open file when it built
 one. It never presents a gate or decides what gets implemented or posted.
 A verdict table with no rows is zero unresolved threads. A failure it
 reports is `error` with its message.
+
+### Drop verdict rows outside the --person's feedback
+
+The backstop for a domain skill bound before the person reached it: it may
+hand back rows for everyone. Without `--person`, keep every row and move
+on. With `--person <username>`, keep a row only when its thread's first
+note is that person's (a resolvable thread they started, or their Overview
+comment), as the domain skill's row or its `--report` entry names it. A
+row that names no author is dropped too: only a row shown to be the
+person's goes on. Drop every other row from the verdict table, from `--report` and from any
+fitted Gate 1 open file it handed back (a file that held a dropped row is
+no longer the gate: build the Gate 1 questions yourself from the kept
+rows). Say in the pane which rows were dropped, one line each with the
+thread id, its `<file>:<line>` (or `Overview comment`) and its author, for
+example `dropped d-102 src/cache.ts:88 (darryl): outside --person john`.
+Nothing outside the person's feedback reaches Gate 1, so nothing outside
+it can post.
 
 ### Fix what the mr_view error names (respond)
 
@@ -181,6 +206,20 @@ gives the title and description for context. From the `mr_threads`
 result keep the unresolved threads a human opened: no resolved threads,
 no system notes, no bot threads.
 
+With `--person <username>`, keep only that person's feedback:
+
+- the unresolved resolvable threads whose first note is theirs;
+- their Overview comments (`resolvable: false` in `mr_threads`) that are
+  still open: the MR author has not replied on that comment's discussion
+  and has not left an Overview comment of their own after it.
+
+Every other thread and comment on the MR is out of scope, however much it
+seems to need an answer. An Overview comment's row is keyed by its
+discussion `id` like any thread, its location reads `Overview comment` in
+place of `<file>:<line>`, and its reply goes through `mr_reply_thread` on
+that discussion id: posted at once, as a note on that comment's own
+discussion (GitLab's "Reply to comment", then "Add comment now").
+
 Judge each thread on its merits and pick one verdict:
 
 - **fix:** the reviewer is right and the code should change. Draft the fix
@@ -192,7 +231,9 @@ Judge each thread on its merits and pick one verdict:
 Honor the operator note (for example "push back on the naming comment",
 "only handle thread 2"). Zero unresolved threads is not an error:
 `Unresolved human threads = 0?` writes `done "no unresolved threads"
---posted 0 --threads 0` and neither gate opens.
+--posted 0 --threads 0` and neither gate opens. With `--person`, the
+message names the person instead: `done "no open feedback from <person>"
+--posted 0 --threads 0`, on either path.
 
 ### Write the verdict table and drafts to --report
 

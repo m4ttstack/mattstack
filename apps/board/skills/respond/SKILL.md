@@ -5,7 +5,7 @@ description: >-
   on your OWN MR in a fresh herdr pane. Emits lifecycle status through the
   board's status CLI, then delegates the actual work to the skill named by --skill.
   Invoked as "/board:respond <mrUrl> --state <path> --status-bin
-  <path> [--report <path>] [--skill <name>]". When no --skill is given, the domain skill is
+  <path> [--report <path>] [--skill <name>] [--person <username>]". When no --skill is given, the domain skill is
   resolved from the respond slot binding in the pack's bindings file
   (repos/<slug>/packs/<pack>/skills.jsonc, chosen by MATTSTACK_PACK). Not for
   manual use.
@@ -13,13 +13,13 @@ disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/open-gate.sh:*)
 metadata:
   slots: "respond"
-  slot-respond: "required mr-respond@2 -- owns processing review feedback on one MR: fetching threads, adjudicating, drafting, implementing decided fixes, and executing posting once handed the decisions. Never presents decision gates or decides what posts. When gate 2 offers nothing, posts the reply-only threads on {plan}."
+  slot-respond: "required mr-respond@3 -- owns processing review feedback on one MR, scoped to one person when handed one (their unresolved threads and their open Overview comments): fetching threads, adjudicating, drafting, implementing decided fixes, and executing posting once handed the decisions. Never presents decision gates or decides what posts. When gate 2 offers nothing, posts the reply-only threads on {plan}."
   compiled: "mattstack:gate-protocol@0.32.9"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-547 -->
+<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-549 -->
 # mr-board respond runner
 
 The mr-board spawned this pane to process the review feedback on ONE of your own
@@ -37,7 +37,8 @@ board injects it:
 | `--skill-path <path>` | absolute path to that skill's SKILL.md, when the board already resolved it (optional; see "Resolving the domain skill") |
 | `--resumed-gate <gateId>` | this invocation is a parked-gate resume, not a fresh run (optional; see "Resumed entry" in `launch.md`) |
 | `--resumed-gate-kind <kind>` | the `kind` of the gate `--resumed-gate` names (`respond-plan`, `respond-post` or `respond-escalation`). Present exactly when `--resumed-gate` is, and the only way to learn it: `--state` is an opaque handle and `gate wait` returns only the answer. |
-| `--round <n>` | the round to delegate at, carried over from an earlier pane on this MR (recorded by the `--round` flag on `<status-bin> respond-status <state> drafting --round <n>`; see "Recover the round from --round (absent: 1)" in `launch.md`). Present on a parked-gate resume when a prior pane got as far as recording one, or on a fresh run when the board found a prior recorded round for this MR (a new run responding to a further round of review); absent means round 1, either because this is the MR's first round or because no earlier pane recorded a round. |
+| `--round <n>` | the round to delegate at, carried over from an earlier pane on this MR (recorded by the `--round` flag on `<status-bin> respond-status <state> drafting --round <n>`; see "Recover the round from --round (absent: 1)" in `launch.md`). Present on a parked-gate resume when a prior pane got as far as recording one, or on a fresh run when the board found a prior recorded round for this MR (a new run responding to a further round of review); absent means round 1, either because this is the MR's first round or because no earlier pane recorded a round. On a fresh run that also carries `--person`, `<n>` is the board's count of responses to that person on this MR, and this pane's `drafting --round` still counts on from it, one per `revise`. |
+| `--person <username>` | the one person whose feedback this run answers: the resolvable threads they started and their Overview comments. Absent means every unresolved human thread (a pane launched by an older board). |
 
 Write status **only** by running the injected `--status-bin`:
 
@@ -171,8 +172,9 @@ Read `launch.md` now and follow its graph; its sections are there.
 
 ### Triage and Gate 1 (triage.md)
 
-Adjudicate every unresolved human thread, through the domain skill or on the
-generic path, write the verdict table and drafts to `--report`, and open Gate 1
+Adjudicate every unresolved human thread (only the `--person`'s threads and
+Overview comments when the launch names one), through the domain skill or on
+the generic path, write the verdict table and drafts to `--report`, and open Gate 1
 with `<status-bin> gate open <state> --kind respond-plan` (or its fitted open
 file), then wait for its answer.
 Read `triage.md` now and follow its graph; its sections are there.
