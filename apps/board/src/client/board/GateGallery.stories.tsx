@@ -173,6 +173,10 @@ export const StageEvidenceAttach = face(
   'Stage: evidence attach',
   G.evidenceAttach
 );
+export const StageEvidenceBoards = face(
+  'Stage: evidence boards (answered in the console)',
+  G.evidenceBoards
+);
 export const StageImplementProgress = face(
   'Stage: implement progress',
   G.implementProgress
