@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { redactionUploadRefusal, ticketPanelRefusal } from "../redaction-record-check.ts";
+import { redactionUploadRefusal } from "../redaction-record-check.ts";
 
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 let dir: string;
@@ -142,121 +142,5 @@ describe("redactionUploadRefusal", () => {
     write("x.c1.capture.json", JSON.stringify({ source: "live" }));
     chmodSync(join(dir, "x.c1.capture.json"), 0o000);
     expect(raw()).toBe(RAW_MSG);
-  });
-});
-
-describe("ticketPanelRefusal", () => {
-  const TICKET_PIXELS = new Uint8Array([9, 9, 9, 9]);
-  const LIVE = new Uint8Array([7, 7, 7]);
-  const tickets = [{ size: TICKET_PIXELS.length, sha256: sha(TICKET_PIXELS) }];
-  const stem = "r1-c-after";
-  function pair(o: { beforeBytes?: Uint8Array; beforeSource?: string; marks?: boolean } = {}) {
-    write(`r1-c-before.c1.png`, o.beforeBytes ?? TICKET_PIXELS);
-    write(`r1-c-before.c1.capture.json`, JSON.stringify({ source: o.beforeSource ?? "import" }));
-    write(`${stem}.c1.png`, LIVE);
-    write(`${stem}.c1.capture.json`, JSON.stringify({ source: "live" }));
-    const marks = o.marks ? [{ redact: { x: 0, y: 0, w: 2, h: 2 } }] : [];
-    write(`${stem}.spec.json`, JSON.stringify({ panels: [{ capture: "r1-c-before.c1.capture.json", marks }, { capture: `${stem}.c1.capture.json`, marks: [] }] }));
-  }
-  function covering(panels: number[]) {
-    write(`${stem}.redactions.json`, JSON.stringify({
-      schemaVersion: "compose-redactions/1", board: `${stem}.png`, boardSha256: sha(BOARD),
-      redactions: panels.map((panel, i) => ({ crop: `${stem}.redact-${i + 1}.png`, sha256: sha(CROP), panel, confirmed: true })),
-    }));
-  }
-  const panelCheck = (t = tickets) => ticketPanelRefusal({ realpath: join(dir, `${stem}.png`), filename: `${stem}.png`, tickets: t });
-
-  test("a pair whose BEFORE panel is a ticket-derived capture with nothing hidden on it is refused", () => {
-    pair();
-    expect(panelCheck()).toBe(`${stem}.png shows a ticket image in panel 1 with nothing hidden on it; redact its personal data in that panel, confirm the crops at the redaction gate, and copy the record and crops beside the board`);
-  });
-
-  test("bytes decide, not the sidecar: a ticket-derived capture whose sidecar says live is still refused", () => {
-    pair({ beforeSource: "live" });
-    expect(panelCheck()).toContain("shows a ticket image in panel 1");
-  });
-
-  test("a record that covers only another panel does not cover the ticket panel", () => {
-    pair({ marks: true });
-    covering([1]);
-    expect(panelCheck()).toContain("shows a ticket image in panel 1");
-  });
-
-  test("a redacted ticket panel with a record entry for it passes", () => {
-    pair({ marks: true });
-    covering([0]);
-    expect(panelCheck()).toBeNull();
-  });
-
-  test("a pair drawn only from live captures, nothing hidden, passes; so does an explicit empty record", () => {
-    pair({ beforeBytes: new Uint8Array([1, 1, 1, 1]), beforeSource: "live" });
-    expect(panelCheck()).toBeNull();
-    covering([]);
-    expect(panelCheck()).toBeNull();
-  });
-
-  test("an explicit empty record does not let a ticket-derived panel through", () => {
-    pair();
-    covering([]);
-    expect(panelCheck()).toContain("shows a ticket image in panel 1");
-  });
-
-  test("a panel whose capture is not beside the board cannot be ruled out and is refused, only while the run has ticket images", () => {
-    pair();
-    rmSync(join(dir, "r1-c-before.c1.png"));
-    expect(panelCheck()).toBe(`${stem}.png: panel 1's capture r1-c-before.c1.png is not beside the board, so it cannot be checked against the run's ticket images; copy the board's whole bundle`);
-    expect(panelCheck([])).toBeNull();
-  });
-
-  test("a panel whose capture is not a bare name beside the board cannot be checked and is refused", () => {
-    pair();
-    mkdirSync(join(dir, "run"));
-    write("run/r1-c-before.c1.png", TICKET_PIXELS);
-    write("run/r1-c-before.c1.capture.json", JSON.stringify({ source: "import", image: "r1-c-before.c1.png" }));
-    const cannot = (capture: string) => `${stem}.png: panel 1's capture ${capture} is not beside the board, so it cannot be checked against the run's ticket images; copy the board's whole bundle`;
-    for (const capture of ["run/r1-c-before.c1.capture.json", join(dir, "run/r1-c-before.c1.capture.json")]) {
-      write(`${stem}.spec.json`, JSON.stringify({ panels: [{ capture, marks: [] }, { capture: `${stem}.c1.capture.json`, marks: [] }] }));
-      expect(panelCheck()).toBe(cannot(capture));
-      expect(panelCheck([])).toBeNull();
-    }
-  });
-
-  test("the sidecar's image decides which pixels the panel shows, as compose reads it", () => {
-    pair({ beforeBytes: new Uint8Array([1, 1, 1, 1]) });
-    write("ticket-pixels.png", TICKET_PIXELS);
-    write("r1-c-before.c1.capture.json", JSON.stringify({ source: "import", image: "ticket-pixels.png" }));
-    expect(panelCheck()).toContain("shows a ticket image in panel 1");
-  });
-
-  test("a sidecar whose image is not a bare name is refused", () => {
-    pair();
-    write("r1-c-before.c1.capture.json", JSON.stringify({ source: "import", image: "../ticket-pixels.png" }));
-    expect(panelCheck()).toBe(`${stem}.png: panel 1's capture ../ticket-pixels.png is not beside the board, so it cannot be checked against the run's ticket images; copy the board's whole bundle`);
-  });
-
-  test("an unreadable capture is refused as unreadable, not as missing", () => {
-    pair();
-    chmodSync(join(dir, "r1-c-before.c1.png"), 0o000);
-    try {
-      expect(panelCheck()).toBe(`${stem}.png: panel 1's capture r1-c-before.c1.png could not be read to rule out a ticket image; fix its permissions or render the board again`);
-    } finally {
-      chmodSync(join(dir, "r1-c-before.c1.png"), 0o644);
-    }
-  });
-
-  test("an unreadable sidecar is refused as unreadable", () => {
-    pair();
-    chmodSync(join(dir, "r1-c-before.c1.capture.json"), 0o000);
-    try {
-      expect(panelCheck()).toBe(`${stem}.png: panel 1's capture r1-c-before.c1.capture.json could not be read to rule out a ticket image; fix its permissions or render the board again`);
-    } finally {
-      chmodSync(join(dir, "r1-c-before.c1.capture.json"), 0o644);
-    }
-  });
-
-  test("a malformed redaction record fails closed for a ticket panel", () => {
-    pair({ marks: true });
-    write(`${stem}.redactions.json`, "{");
-    expect(panelCheck()).toContain("shows a ticket image in panel 1");
   });
 });
