@@ -10,7 +10,13 @@ public final class TelemetrySettingsModel: ObservableObject {
     private let rt: RtRunning
     public init(rt: RtRunning) { self.rt = rt }
 
+    /// Skips while a write is in flight so a late read cannot undo the optimistic switch.
     public func load() async {
+        guard !inFlight else { return }
+        await read()
+    }
+
+    private func read() async {
         struct Reading: Decodable { var value: Bool }
         error = nil
         switch await rt.runJSON(["settings", "get", "telemetry.enabled", "--json"], verb: "settings get", as: Reading.self) {
@@ -38,6 +44,6 @@ public final class TelemetrySettingsModel: ObservableObject {
             self.error = (error as? RtClientError)?.copy ?? "rt settings set failed to start."
             return
         }
-        await load()
+        await read()
     }
 }
