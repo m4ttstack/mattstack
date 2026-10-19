@@ -13,15 +13,16 @@ import { homedir } from "os";
 import { basename, dirname, isAbsolute, join } from "path";
 import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
-import { readEvidence, uploadablePaths, type EvidenceRecord } from "../../packages/rt-client/src/evidence.ts";
+import { readEvidence, uploadablePaths, type EvidenceRecord, type EvidenceShot } from "../../packages/rt-client/src/evidence.ts";
 import { UPLOAD_MAX_BYTES } from "../daemon/upload-guard.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
 import { ticketCopyRefusal } from "../daemon/evidence-record-check.ts";
 import { redactionUploadRefusal } from "../daemon/redaction-record-check.ts";
 import { allowedSourceRoots, bundleStem, copyIntoRun, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
-import { imageAddresses, mergeRecord, parseCurrent, serializeRecord, stampTicketBytes, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
+import { imageAddresses, markKnownTickets, mergeRecord, parseCurrent, serializeRecord, stampTicketBytes, ticketEntries, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
 import { appendixProblem, namesHome, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
+import { addTickets, parseTickets, serializeTickets, ticketShots, TICKETS_FIELD, type TicketEntry } from "../evidence/tickets-field.ts";
 import { parseUploads, serializeUploads, sha256Of, type UploadEntry } from "../evidence/uploads-field.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
@@ -305,6 +306,38 @@ function measureFile(path: string): { size: number; sha256: string } {
   return { size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
+function sizeOf(path: string): number | null {
+  try {
+    const st = statSync(path);
+    return st.isFile() ? st.size : null;
+  } catch {
+    return null;
+  }
+}
+
+function sha256Or(path: string): string | null {
+  try {
+    return measureFile(path).sha256;
+  } catch {
+    return null;
+  }
+}
+
+/** Merged onto the latest value, never over it, once more if another call lands between the read and the write. */
+async function rememberTickets(deps: EvidenceToolDeps, runDb: string, stage: string, seen: TicketEntry[], env: NodeJS.ProcessEnv): Promise<string | null> {
+  let res: ToolResult = err("run_field_set failed");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const latest = await readField(deps, runDb, TICKETS_FIELD, env);
+    if (!latest.ok) return latest.error;
+    const next = addTickets(parseTickets(latest.value), seen);
+    if (!next.changed) return null;
+    res = await deps.runTool("run_field_set", { runDb, key: TICKETS_FIELD, value: serializeTickets(next.tickets), stage, ifSha256: valueSha256(latest.value ?? "") }, env);
+    if (res.ok) return null;
+    if (!isFieldChanged(res.error ?? "")) break;
+  }
+  return `remembering the ticket images in ${TICKETS_FIELD} failed: ${res.error ?? "run_field_set failed"}`;
+}
+
 async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.ProcessEnv): Promise<ToolResult> {
   const bad = checkRequired(input, [{ name: "runDb", type: "string" }, { name: "stage", type: "string" }]);
   if (bad) return err(bad);
@@ -357,8 +390,14 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const withCopied = (error: string) => err(`${error} (the files were copied: ${copied.map((c) => c.to).join(", ") || "none"})`);
   const merged = mergeRecord(current, remap(merge, copy.mapped, evidenceRoot));
   if (!merged.ok) return withCopied(merged.error);
+  const ledger = await readField(deps, runDb, TICKETS_FIELD, env);
+  if (!ledger.ok) return withCopied(ledger.error);
+  const known = addTickets(parseTickets(ledger.value), ticketEntries(current)).tickets;
+  markKnownTickets(merged.record, known, { real: realOr, size: sizeOf, sha256: sha256Or });
   const stamped = stampTicketBytes(merged.record, merge.images ?? [], measureFile);
   if (!stamped.ok) return withCopied(stamped.error);
+  const remembered = await rememberTickets(deps, runDb, stage, [...known, ...ticketEntries(merged.record)], env);
+  if (remembered) return withCopied(remembered);
   const serialized = serializeRecord(merged.record);
   if (!serialized.ok) return withCopied(serialized.error);
   const uncovered = uncoveredImages(merged.record);
@@ -476,14 +515,14 @@ function realOr(path: string): string {
   }
 }
 
-function reusable(entry: UploadEntry | undefined, real: string, project: string, record: EvidenceRecord): Extract<UploadEntry, { url: string }> | null {
+function reusable(entry: UploadEntry | undefined, real: string, project: string, record: EvidenceRecord, tickets: EvidenceShot[]): Extract<UploadEntry, { url: string }> | null {
   if (!entry || !("url" in entry) || entry.project !== project) return null;
   const stem = bundleStem(basename(real));
   if (stem !== null && existsSync(join(dirname(real), `${stem}.redactions.json`))) return null;
   try {
     if (sha256Of(real) !== entry.sha256) return null;
     const bytes = readFileSync(real);
-    if (ticketCopyRefusal({ record, realpath: real, filename: basename(real), bytes }) !== null) return null;
+    if (ticketCopyRefusal({ record, tickets, realpath: real, filename: basename(real), bytes }) !== null) return null;
     return redactionUploadRefusal({ realpath: real, filename: basename(real), bytes }) === null ? entry : null;
   } catch {
     return null;
@@ -543,6 +582,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
 
   const record = attachRecord(field("evidence"));
   const uploadsMap = parseUploads(field("evidence-uploads") ?? null);
+  const tickets = ticketShots(parseTickets(field(TICKETS_FIELD) ?? null));
   const refused = emptyRefused();
   const uploaded: Uploaded[] = [];
   const timedOutTwice: string[] = [];
@@ -572,7 +612,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
     const real = realOr(path);
     const entry = uploadsMap[real];
     if (!linkRefused && entry && "linked" in entry && entry.linked === true) wasLinked.add(path);
-    const reuse = reusable(entry, real, target.identity, record);
+    const reuse = reusable(entry, real, target.identity, record, tickets);
     if (reuse) {
       uploaded.push({ path, url: reuse.url, markdown: reuse.markdown, reused: true });
       continue;

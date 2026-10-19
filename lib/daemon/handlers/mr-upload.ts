@@ -24,6 +24,7 @@ import { findRun, listRunRepoDirs } from "../../runs/store.ts";
 import { runsRoot } from "../../runs/paths.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
 import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
+import { parseTickets, ticketShots, TICKETS_FIELD } from "../../evidence/tickets-field.ts";
 import { evidenceUploadRefusal, RECORD_REMEDY, ticketCopyRefusal, type RunEvidenceLookup } from "../evidence-record-check.ts";
 import { redactionUploadRefusal } from "../redaction-record-check.ts";
 import { checkUploadPath, claudeTempRoots, workRoot } from "../upload-guard.ts";
@@ -45,10 +46,10 @@ export interface MrUploadSeams {
   workRoot?: () => string;
 }
 
-export type RunRecordScan = { runId: string; evidence: string | null } | { runId: string; unreadable: string };
+export type RunRecordScan = { runId: string; evidence: string | null; tickets?: string | null } | { runId: string; unreadable: string };
 
 /**
- * Every run's evidence field, read straight from each state.db under the runs
+ * Every run's evidence and evidence-tickets fields, read straight from each state.db under the runs
  * root: the scan below opens every run, so it skips findRun's full read.
  */
 function scanRunRecords(): RunRecordScan[] {
@@ -66,8 +67,9 @@ function scanRunRecords(): RunRecordScan[] {
       let db: Database | null = null;
       try {
         db = new Database(path, { readonly: true });
-        const row = db.query("SELECT value FROM fields WHERE key = 'evidence'").get() as { value: string } | null;
-        out.push({ runId, evidence: row?.value ?? null });
+        const rows = db.query("SELECT key, value FROM fields WHERE key IN ('evidence', ?)").all(TICKETS_FIELD) as Array<{ key: string; value: string }>;
+        const value = (key: string) => rows.find((r) => r.key === key)?.value ?? null;
+        out.push({ runId, evidence: value("evidence"), tickets: value(TICKETS_FIELD) });
       } catch {
         out.push({ runId, unreadable: path });
       } finally {
@@ -81,8 +83,9 @@ function scanRunRecords(): RunRecordScan[] {
 /**
  * With no run in scope a file can still be a run's saved ticket image (its
  * original in the session temp root, say): every run's record is checked,
- * whether or not its work folder survives. A record without a ticket image
- * is skipped unparsed, and a recorded size gates any hashing.
+ * whether or not its work folder survives, and its remembered ticket images
+ * whether or not its record still names them. A run with neither is skipped
+ * unparsed, and a recorded size gates any hashing.
  */
 function ticketCopyAnyRun(
   real: string,
@@ -97,10 +100,9 @@ function ticketCopyAnyRun(
       warn(`ticket copy check: run ${run.runId}'s db could not be read; skipped`, { err: null, path: run.unreadable });
       continue;
     }
-    if (!run.evidence?.includes('"ticket"')) continue;
-    const record = readEvidence(run.evidence);
-    if (record.version !== 2) continue;
-    const refusal = ticketCopyRefusal({ record, realpath: real, filename, bytes, warn });
+    const tickets = ticketShots(parseTickets(run.tickets ?? null));
+    if (!run.evidence?.includes('"ticket"') && tickets.length === 0) continue;
+    const refusal = ticketCopyRefusal({ record: readEvidence(run.evidence), tickets, realpath: real, filename, bytes, warn });
     if (refusal) return refusal;
   }
   return null;
@@ -133,7 +135,8 @@ export function createMrUploadHandlers(
   const hookFn = seams.requestHook ?? providerRequestHook;
   const runEvidenceFn = seams.runEvidence ?? ((runId: string): RunEvidenceLookup => {
     const detail = findRun(runId);
-    return detail ? { found: true, evidence: detail.fields.find((f) => f.key === "evidence")?.value ?? null } : { found: false };
+    const field = (key: string) => detail?.fields.find((f) => f.key === key)?.value ?? null;
+    return detail ? { found: true, evidence: field("evidence"), tickets: field(TICKETS_FIELD) } : { found: false };
   });
   const runRecordsFn = seams.runRecords ?? scanRunRecords;
   const uploadRootsFn = seams.uploadRoots ?? (() => {
