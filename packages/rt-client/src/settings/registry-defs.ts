@@ -887,7 +887,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["user"],
     default: true,
     merge: "replace",
-    description: "Send this Mac's mattstack versions to the team's switchboard once an hour, so the org admin can see who is on which version.",
+    description: "Send this Mac's mattstack versions to the mattstack switchboard about every 50 minutes, so the mattstack admin can see who is on which version.",
   },
   {
     key: "agent.codex.model",

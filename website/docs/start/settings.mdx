@@ -47,7 +47,7 @@ rt settings unset rt.ui.background --scope user
 
 ## Version reporting
 
-Settings, General, Privacy has a switch, "Share version info with your team's admin". It is on by default. Turn it off there, or from a terminal:
+Settings, General, Privacy has a switch, "Share version info with the mattstack admin". It is on by default. Turn it off there, or from a terminal:
 
 ```bash
 rt settings set telemetry.enabled false --scope user
@@ -62,7 +62,7 @@ While it is on, the rt daemon sends one small report when it starts, about every
 - the names of any leftover legacy folders
 - your org names and layouts, and your team packs and their versions
 
-It never sends your repos, files, paths or commands. Test runs and CI never send it. The report goes to your team's switchboard relay. A failed report is silent and is retried on the next 5-minute check.
+It never sends your repos, files, paths or commands. Test runs and CI never send it. The report goes to the mattstack switchboard relay, where only the mattstack admin can read it. A failed report is silent and is retried on the next 5-minute check.
 
 To turn it back on, flip the switch, or run `rt settings set telemetry.enabled true --scope user`.
 

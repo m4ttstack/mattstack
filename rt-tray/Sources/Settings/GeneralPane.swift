@@ -62,7 +62,7 @@ struct GeneralPane: View {
                 }
             }
             Section("Privacy") {
-                Toggle("Share version info with your team's admin",
+                Toggle("Share version info with the mattstack admin",
                        isOn: Binding(get: { telemetry.enabled }, set: { on in Task { await telemetry.setEnabled(on) } }))
                     .toggleStyle(.switch).controlSize(.small)
                     .disabled(telemetry.inFlight)
