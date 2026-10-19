@@ -1,7 +1,12 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
-import { macLabel, TelemetryStore, type TelemetryPing } from '../telemetry.ts';
+import {
+  macLabel,
+  parsePing,
+  TelemetryStore,
+  type TelemetryPing,
+} from '../telemetry.ts';
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -264,5 +269,153 @@ describe('macLabel', () => {
     expect(macLabel(row({ verifiedUsername: 'v' }))).toBe('v');
     expect(macLabel(row({ usernames: ['a', 'b'] }))).toBe('a, b');
     expect(macLabel(row({ usernames: [], installId: 'iid' }))).toBe('iid');
+  });
+});
+
+describe('TelemetryStore edge cases', () => {
+  test('a first ping appends no update', () => {
+    const s = setup();
+    s.record(ping(), null, T0);
+    expect(s.snapshot(T0).updates).toEqual([]);
+  });
+
+  test('a null new appVersion appends no update', () => {
+    const s = setup();
+    s.record(ping(), null, T0);
+    s.record(ping({ appVersion: null }), null, T0 + MIN);
+    expect(s.snapshot(T0 + MIN).updates).toEqual([]);
+  });
+
+  test('a pack listed twice by one Mac counts that Mac once', () => {
+    const s = setup();
+    s.record(
+      ping({
+        packs: [
+          { id: 'p', version: '1.0.0' },
+          { id: 'p', version: '1.2.0' },
+        ],
+      }),
+      null,
+      T0
+    );
+    expect(s.snapshot(T0).packs).toEqual([
+      { id: 'p', oldestVersion: '1.0.0', macs: 1 },
+    ]);
+  });
+
+  test('a malformed ping never lands, so snapshot keeps working', () => {
+    const s = setup();
+    s.record(ping(), null, T0);
+    s.record({ installId: 'evil' } as unknown as TelemetryPing, null, T0);
+    s.record(
+      {
+        ...ping({ installId: 'bad' }),
+        rtVersion: 5,
+      } as unknown as TelemetryPing,
+      null,
+      T0
+    );
+    expect(s.snapshot(T0).macs.map(m => m.installId)).toEqual(['install-a']);
+  });
+
+  test('extra keys never land in the stored row', () => {
+    const s = setup();
+    s.record({ ...ping(), hostname: 'secret' } as TelemetryPing, null, T0);
+    expect(s.snapshot(T0).macs[0]).not.toHaveProperty('hostname');
+  });
+
+  test('snapshot stays fast with many migration ids', () => {
+    const s = setup();
+    const ids = Array.from({ length: 256 }, (_, i) => `migration-${i}`);
+    for (let i = 0; i < 50; i++) {
+      s.record(ping({ installId: `mac-${i}`, migrationsKnown: ids }), null, T0);
+    }
+    const start = performance.now();
+    s.snapshot(T0);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+});
+
+describe('parsePing', () => {
+  const raw = (over: Record<string, unknown> = {}): unknown => ({
+    ...ping(),
+    ...over,
+  });
+
+  test('accepts a valid ping and drops extra keys', () => {
+    expect(parsePing(raw())).toEqual(ping());
+    const parsed = parsePing(raw({ hostname: 'x', repos: ['y'] }));
+    expect(parsed).toEqual(ping());
+    expect(parsed).not.toHaveProperty('hostname');
+    expect(parsed).not.toHaveProperty('repos');
+  });
+
+  test('accepts null for the nullable fields and nested entries', () => {
+    expect(
+      parsePing(
+        raw({
+          appVersion: null,
+          pluginVersion: null,
+          macosVersion: null,
+          orgs: [{ org: 'acme', layout: null }],
+          packs: [{ id: 'p', version: null }],
+        })
+      )
+    ).not.toBeNull();
+  });
+
+  test('rejects non-objects and a missing or empty installId', () => {
+    for (const bad of [null, undefined, 'x', 5, [], true]) {
+      expect(parsePing(bad)).toBeNull();
+    }
+    expect(parsePing({ installId: 'evil' })).toBeNull();
+    expect(parsePing(raw({ installId: '' }))).toBeNull();
+    expect(parsePing(raw({ installId: 7 }))).toBeNull();
+  });
+
+  test('rejects every field of the wrong type without coercing', () => {
+    const wrong: Record<string, unknown> = {
+      usernames: 'alice',
+      appVersion: 2,
+      rtVersion: 5,
+      pluginVersion: 1,
+      flavor: 'staging',
+      macosVersion: {},
+      migrationsRecorded: [1],
+      migrationsKnown: 'm1',
+      legacyDirs: [null],
+      orgs: [{ org: 1, layout: 3 }],
+      packs: [{ id: 'p', version: 1 }],
+    };
+    for (const [key, value] of Object.entries(wrong)) {
+      expect(parsePing(raw({ [key]: value }))).toBeNull();
+    }
+    expect(parsePing(raw({ orgs: [{ org: 'a', layout: '3' }] }))).toBeNull();
+    expect(parsePing(raw({ orgs: ['acme'] }))).toBeNull();
+    expect(parsePing(raw({ packs: [null] }))).toBeNull();
+  });
+
+  test('rejects a missing required field', () => {
+    for (const key of Object.keys(ping()) as (keyof TelemetryPing)[]) {
+      if (key === 'installId') continue;
+      const rest: Record<string, unknown> = { ...ping() };
+      delete rest[key];
+      expect(parsePing(rest)).toBeNull();
+    }
+  });
+
+  test('rejects arrays over 256 entries and strings over 128 chars', () => {
+    const many = Array.from({ length: 257 }, (_, i) => `m${i}`);
+    expect(parsePing(raw({ migrationsKnown: many }))).toBeNull();
+    expect(
+      parsePing(raw({ packs: many.map(id => ({ id, version: null })) }))
+    ).toBeNull();
+    expect(
+      parsePing(raw({ migrationsKnown: many.slice(0, 256) }))
+    ).not.toBeNull();
+    expect(parsePing(raw({ rtVersion: 'x'.repeat(129) }))).toBeNull();
+    expect(parsePing(raw({ installId: 'x'.repeat(129) }))).toBeNull();
+    expect(parsePing(raw({ usernames: ['x'.repeat(129)] }))).toBeNull();
+    expect(parsePing(raw({ rtVersion: 'x'.repeat(128) }))).not.toBeNull();
   });
 });

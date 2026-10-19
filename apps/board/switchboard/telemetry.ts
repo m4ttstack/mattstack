@@ -65,6 +65,87 @@ type UpdateDbRow = {
   at: number;
 };
 
+const MAX_ENTRIES = 256;
+const MAX_STRING = 128;
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+const isStr = (v: unknown): v is string =>
+  typeof v === 'string' && v.length <= MAX_STRING;
+const isStrOrNull = (v: unknown): v is string | null => v === null || isStr(v);
+
+function strings(v: unknown): string[] | null {
+  if (!Array.isArray(v) || v.length > MAX_ENTRIES) return null;
+  return v.every(isStr) ? (v as string[]) : null;
+}
+
+function entries<T>(v: unknown, read: (item: unknown) => T | null): T[] | null {
+  if (!Array.isArray(v) || v.length > MAX_ENTRIES) return null;
+  const out: T[] = [];
+  for (const item of v) {
+    const parsed = read(item);
+    if (parsed === null) return null;
+    out.push(parsed);
+  }
+  return out;
+}
+
+/** The relay's only gate on an unauthenticated body: a fresh object with the
+    spec's fields and nothing else, or null. No coercion. */
+export function parsePing(raw: unknown): TelemetryPing | null {
+  if (!isRecord(raw)) return null;
+  const { installId, rtVersion, flavor } = raw;
+  if (!isStr(installId) || installId === '' || !isStr(rtVersion)) return null;
+  if (flavor !== 'prod' && flavor !== 'dev') return null;
+  if (
+    !isStrOrNull(raw.appVersion) ||
+    !isStrOrNull(raw.pluginVersion) ||
+    !isStrOrNull(raw.macosVersion)
+  ) {
+    return null;
+  }
+  const usernames = strings(raw.usernames);
+  const migrationsRecorded = strings(raw.migrationsRecorded);
+  const migrationsKnown = strings(raw.migrationsKnown);
+  const legacyDirs = strings(raw.legacyDirs);
+  const orgs = entries(raw.orgs, item => {
+    if (!isRecord(item) || !isStr(item.org)) return null;
+    const { layout } = item;
+    if (layout !== null && typeof layout !== 'number') return null;
+    return { org: item.org, layout };
+  });
+  const packs = entries(raw.packs, item => {
+    if (!isRecord(item) || !isStr(item.id) || !isStrOrNull(item.version)) {
+      return null;
+    }
+    return { id: item.id, version: item.version };
+  });
+  if (
+    !usernames ||
+    !migrationsRecorded ||
+    !migrationsKnown ||
+    !legacyDirs ||
+    !orgs ||
+    !packs
+  ) {
+    return null;
+  }
+  return {
+    installId,
+    usernames,
+    appVersion: raw.appVersion,
+    rtVersion,
+    pluginVersion: raw.pluginVersion,
+    flavor,
+    macosVersion: raw.macosVersion,
+    migrationsRecorded,
+    migrationsKnown,
+    legacyDirs,
+    orgs,
+    packs,
+  };
+}
+
 export function macLabel(row: MacRow): string {
   return (
     row.verifiedUsername ||
@@ -114,10 +195,12 @@ export class TelemetryStore {
   }
 
   record(
-    ping: TelemetryPing,
+    input: TelemetryPing,
     verifiedUsername: string | null,
     now: number
   ): void {
+    const ping = parsePing(input);
+    if (!ping) return;
     this.db.transaction(() => {
       const previous = this.db
         .query<{ ping: string }, [string]>(
@@ -252,12 +335,17 @@ function versionCounts(macs: MacRow[]): TelemetrySnapshot['versions'] {
 
 function migrationStatus(macs: MacRow[]): TelemetrySnapshot['migrations'] {
   const ids = [...new Set(macs.flatMap(m => m.migrationsKnown))].sort();
+  const sets = macs.map(m => ({
+    label: macLabel(m),
+    known: new Set(m.migrationsKnown),
+    recorded: new Set(m.migrationsRecorded),
+  }));
   return ids.map(id => {
     const notRun: string[] = [];
     const tooOld: string[] = [];
-    for (const m of macs) {
-      if (!m.migrationsKnown.includes(id)) tooOld.push(macLabel(m));
-      else if (!m.migrationsRecorded.includes(id)) notRun.push(macLabel(m));
+    for (const { label, known, recorded } of sets) {
+      if (!known.has(id)) tooOld.push(label);
+      else if (!recorded.has(id)) notRun.push(label);
     }
     return { id, notRun, tooOld };
   });
@@ -283,8 +371,14 @@ function orgLayouts(macs: MacRow[]): TelemetrySnapshot['orgLayouts'] {
 
 function packStatus(macs: MacRow[]): TelemetrySnapshot['packs'] {
   const byPack = new Map<string, (string | null)[]>();
+  const macCounts = new Map<string, number>();
   for (const m of macs) {
-    for (const pack of m.packs) addTo(byPack, pack.id, pack.version);
+    const ids = new Set<string>();
+    for (const pack of m.packs) {
+      ids.add(pack.id);
+      addTo(byPack, pack.id, pack.version);
+    }
+    for (const id of ids) macCounts.set(id, (macCounts.get(id) ?? 0) + 1);
   }
   return [...byPack.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
@@ -296,6 +390,6 @@ function packStatus(macs: MacRow[]): TelemetrySnapshot['packs'] {
           : known.reduce((oldest, v) =>
               compareVersions(v, oldest) < 0 ? v : oldest
             );
-      return { id, oldestVersion, macs: versions.length };
+      return { id, oldestVersion, macs: macCounts.get(id) ?? 0 };
     });
 }
