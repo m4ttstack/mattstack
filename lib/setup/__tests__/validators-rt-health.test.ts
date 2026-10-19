@@ -8,7 +8,7 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, ORG_SPARSE_ROW_ID, orgSparseRow, ORG_BRANCH_ROW_ID, orgBranchRow, ORG_UNPUBLISHED_PACKS_ROW_ID, orgUnpublishedPacksRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, ORG_LAYOUT_ROW_ID, orgLayoutRow, ORG_SPARSE_ROW_ID, orgSparseRow, ORG_BRANCH_ROW_ID, orgBranchRow, ORG_DATA_BRANCH_ROW_ID, orgDataBranchRow, ORG_MAIN_ROW_ID, orgMainRow, ORG_UNPUBLISHED_PACKS_ROW_ID, orgUnpublishedPacksRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, memberShell, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
@@ -1772,6 +1772,51 @@ describe("orgBranchRow", () => {
   test("the fix names the data branch the team record holds before the pointer's", async () => {
     const r = await orgBranchRow(onMain(".mattstack.jsonc", { forgeUsername: "dev1", dataBranch: "orgdata" }));
     expect(r?.action).toMatchObject({ type: "steps", steps: ["git -C /h/.mattstack/orgs/acme switch orgdata"] });
+  });
+});
+
+describe("org.data-branch and org.main", () => {
+  const store = (admins: string[]) => JSON.stringify({ "mattstack.org": { admins } });
+  const probes = (admins = ["dev1"]) => fakeProbes({
+    home: "/h",
+    files: {
+      "/h/.mattstack/orgs/acme/.git/config": "",
+      "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT, dataBranch: "mattstack" }),
+      "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": store(admins),
+      "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+    },
+    dirs: { "/h/.mattstack/orgs": ["acme"] },
+  });
+
+  test("ready while the forge has the data branch", async () => {
+    expect(await orgDataBranchRow(probes(), async () => ({ kind: "present", branch: "mattstack", sha: "a".repeat(40) }))).toMatchObject({ id: ORG_DATA_BRANCH_ROW_ID, status: "ready", detail: "The mattstack branch is on the forge", required: false });
+  });
+  test("a branch gone from the forge is needs-you on every Mac: an admin gets the restore verb, a member asks for it", async () => {
+    const gone = async () => ({ kind: "gone" as const, branch: "mattstack", local: "a".repeat(40) });
+    const admin = await orgDataBranchRow(probes(), gone);
+    expect(admin).toMatchObject({ status: "needs-you", detail: "The org's data branch is gone from the forge, and your copy still has it." });
+    expect(admin?.action).toMatchObject({ type: "steps", steps: ["rt team restore-data-branch"] });
+    const member = await orgDataBranchRow(probes(["dev9"]), gone);
+    expect(member).toMatchObject({ status: "needs-you", detail: "The org's data branch is gone from the forge, and your copy still has it." });
+    expect(member?.action).toMatchObject({ steps: ["Ask an org admin to run rt team restore-data-branch"] });
+  });
+  test("a forge rt cannot reach is a calm skipped row, and an org with no data branch has no row", async () => {
+    expect(await orgDataBranchRow(probes(), async () => ({ kind: "unknown", branch: "mattstack", log: "x" }))).toMatchObject({ status: "skipped" });
+    expect(await orgDataBranchRow(probes(), async () => null)).toBeNull();
+  });
+
+  test("org files merged onto main turn the merge row needs-you with the revert step", async () => {
+    const r = await orgMainRow(probes(), async () => ({ kind: "merged", files: ["mattstack/org/settings.org.jsonc"] }));
+    expect(r).toMatchObject({ id: ORG_MAIN_ROW_ID, status: "needs-you", detail: "Org data was merged into main. Revert that commit. main now holds mattstack/org/settings.org.jsonc." });
+    expect((r?.action as { steps: string[] }).steps.some((s) => s.includes("git revert -m 1"))).toBe(true);
+  });
+  test("a main holding only the pointer reads ready", async () => {
+    expect(await orgMainRow(probes(), async () => ({ kind: "clean" }))).toMatchObject({ status: "ready", detail: "main holds only the org's pointer" });
+  });
+  test("the merge row shows only on an admin's Mac", async () => {
+    let asked = false;
+    expect(await orgMainRow(probes(["dev9"]), async () => { asked = true; return { kind: "clean" }; })).toBeNull();
+    expect(asked).toBe(false);
   });
 });
 
