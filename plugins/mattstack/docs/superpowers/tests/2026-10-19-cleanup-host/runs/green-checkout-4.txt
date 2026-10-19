@@ -1,0 +1,3 @@
+gate_ask {"questions": [{"id": "branch", "label": "Which branch?", "multi": false, "writeIn": true, "options": [{"value": "feat/a", "label": "feat/a (opened)"}, {"value": "feat/b", "label": "feat/b (merged)"}]}, {"id": "next", "label": "Next", "multi": false, "options": [{"value": "proceed", "label": "Proceed (Recommended)"}, {"value": "hold", "label": "Hold"}]}], "kind": "clarify", "context": "mr_resolve_branch returned two candidate branches for the ticket: feat/a (opened) and feat/b (merged).", "runDb": "/runs/app/r1/state.db", "stage": "review"}
+
+gate_answer {"id": "<id from gate_ask>", "answers": {"branch": "feat/a", "next": "proceed"}, "runDb": "/runs/app/r1/state.db", "stage": "review"}

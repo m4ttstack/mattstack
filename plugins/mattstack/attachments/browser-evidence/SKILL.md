@@ -13,7 +13,8 @@ and for a gated board its redaction record and crops) under one stem in
 `~/.fast-browser/screenshots/`, and `evidence_record` copies the whole
 bundle into the run's evidence folder, so any later session re-renders it
 without a browser. A `<slug> spent?` diamond is yes when the `run_budget`
-before it returns `spent` > `limit`.
+before it returns `exhausted: true` (`spent >= limit`: the count that
+reaches `limit` takes yes).
 
 A case enters this page only when the domain's fill picks a browser
 screenshot for it, or when evidence-record composes a board over any other
@@ -45,7 +46,7 @@ digraph browser_evidence {
     get_ready [label="Get ready" shape=box];
     fast_browser_doctor [label="fast-browser doctor" shape=plaintext];
     doctor_green [label="Doctor green?" shape=diamond];
-    run_budget_doctor [label="run_budget {runDb, key: evidence:doctor-reds, limit: 1, stage}" shape=plaintext];
+    run_budget_doctor [label="run_budget {runDb, key: evidence:doctor-reds, limit: 2, stage}" shape=plaintext];
     doctor_reds_spent [label="doctor-reds spent?" shape=diamond];
     fix_doctor [label="Fix what the doctor reports" shape=box];
     fast_browser_compose_help [label="fast-browser compose --help" shape=plaintext];
@@ -54,26 +55,26 @@ digraph browser_evidence {
     agent_driver [label="Agent {subagent_type: fast-browser:browser-driver, model: sonnet, effort: medium, prompt: <the briefs>}" shape=plaintext];
     driver_result [label="Driver result?" shape=diamond];
     stop_draw_yourself [label="STOP: the driver captures and composes; never drive the browser, draw or place marks yourself" shape=octagon style=filled fillcolor=red fontcolor=white];
-    run_budget_sign_in [label="run_budget {runDb, key: evidence:sign-in-asks, limit: 2, stage}" shape=plaintext];
+    run_budget_sign_in [label="run_budget {runDb, key: evidence:sign-in-asks, limit: 3, stage}" shape=plaintext];
     sign_in_asks_spent [label="sign-in-asks spent?" shape=diamond];
     stop_credential [label="STOP: never type or ask for a credential; only a saved login" shape=octagon style=filled fillcolor=red fontcolor=white];
     ask_sign_in [label="Ask the developer to sign in" shape=box];
     sign_in_answer [label="Sign-in answer?" shape=diamond];
     read_board [label="Read the board yourself" shape=box];
     reads_right [label="Reads right?" shape=diamond];
-    run_budget_rerender [label="run_budget {runDb, key: evidence:rerenders:<stem>, limit: 2, stage}" shape=plaintext];
+    run_budget_rerender [label="run_budget {runDb, key: evidence:rerenders:<stem>, limit: 3, stage}" shape=plaintext];
     rerenders_spent [label="rerenders spent?" shape=diamond];
     crops_listed [label="Crops listed?" shape=diamond];
     stop_self_confirm [label="STOP: confirming is the human's answer, never the agent's" shape=octagon style=filled fillcolor=red fontcolor=white];
-    run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<stem>, limit: 3, stage}" shape=plaintext];
+    run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<stem>, limit: 4, stage}" shape=plaintext];
     redaction_openings_spent [label="redaction-openings spent?" shape=diamond];
     gate_evidence_redaction [label="Gate evidence-redaction (below)" shape=box];
     redaction_answer [label="Redaction answer?" shape=diamond];
     fast_browser_confirm [label="fast-browser compose --confirm ~/.fast-browser/screenshots/<stem>.spec.json" shape=plaintext];
     confirm_result [label="Confirm result?" shape=diamond];
-    run_budget_confirm [label="run_budget {runDb, key: evidence:confirm-refusals:<stem>, limit: 1, stage}" shape=plaintext];
+    run_budget_confirm [label="run_budget {runDb, key: evidence:confirm-refusals:<stem>, limit: 2, stage}" shape=plaintext];
     confirm_refusals_spent [label="confirm-refusals spent?" shape=diamond];
-    run_budget_redaction [label="run_budget {runDb, key: evidence:redaction-rounds:<stem>, limit: 2, stage}" shape=plaintext];
+    run_budget_redaction [label="run_budget {runDb, key: evidence:redaction-rounds:<stem>, limit: 3, stage}" shape=plaintext];
     redaction_rounds_spent [label="redaction-rounds spent?" shape=diamond];
     board_ready [label="Board ready" shape=doublecircle style=filled fillcolor=lightgreen];
     not_drawn [label="Not drawn" shape=doublecircle];

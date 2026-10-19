@@ -1,0 +1,4 @@
+1. `run_field_set` {"runDb": "/runs/app/r1/state.db", "key": "gate", "value": "clarify", "stage": "review"}
+2. `gate_ask` {"questions": [{"id": "branch", "label": "...", "multi": false, "options": [{"value": "feat/a", "label": "feat/a (opened)"}, {"value": "feat/b", "label": "feat/b (merged)"}], "writeIn": true}, {"id": "next", "label": "...", "multi": false, "options": [{"value": "proceed", "label": "Proceed (Recommended)"}, {"value": "hold", "label": "Hold"}]}], "kind": "clarify", "context": "<one sentence naming feat/a (opened) and feat/b (merged)>", "runDb": "/runs/app/r1/state.db", "stage": "review"}
+3. `gate_answer` {"id": "<gate id from gate_ask>", "answers": {"branch": "feat/a", "next": "proceed"}, "runDb": "/runs/app/r1/state.db", "stage": "review"}
+4. `run_decision` {"runDb": "/runs/app/r1/state.db", "contract": "gate@1", "scope": "clarify", "selection": {"branch": "feat/a"}, "decidedBy": "pane"}

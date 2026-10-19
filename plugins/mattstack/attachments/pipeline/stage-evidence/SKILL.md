@@ -48,7 +48,7 @@ digraph evidence {
     capture_browser [label="Capture with the browser (browser-evidence)" shape=box];
     capture_before_case [label="Capture the BEFORE for the next case" shape=box];
     captured [label="Captured?" shape=diamond];
-    run_budget_capture_attempts [label="run_budget {runDb, key: evidence:capture-attempts:<case>, limit: 2, stage: evidence}" shape=plaintext];
+    run_budget_capture_attempts [label="run_budget {runDb, key: evidence:capture-attempts:<case>, limit: 3, stage: evidence}" shape=plaintext];
     capture_attempts_spent [label="capture-attempts spent?" shape=diamond];
     every_case_captured [label="Every planned case captured or located?" shape=diamond];
     pick_next_source [label="Pick the next source or view" shape=box];
@@ -56,9 +56,9 @@ digraph evidence {
     stop_new_source [label="STOP: a new data source is an off-script move" shape=octagon style=filled fillcolor=red fontcolor=white];
     gate_new_source [label="Off-script gate: a new data source" shape=box];
     off_script_answer [label="off-script answer?" shape=diamond];
-    run_budget_source_off_script [label="run_budget {runDb, key: evidence:source-off-script, limit: 1, stage: evidence}" shape=plaintext];
+    run_budget_source_off_script [label="run_budget {runDb, key: evidence:source-off-script, limit: 2, stage: evidence}" shape=plaintext];
     source_off_script_spent [label="source-off-script spent?" shape=diamond];
-    run_budget_gate_iterates [label="run_budget {runDb, key: evidence:gate-iterates, limit: 2, stage: evidence}" shape=plaintext];
+    run_budget_gate_iterates [label="run_budget {runDb, key: evidence:gate-iterates, limit: 3, stage: evidence}" shape=plaintext];
     gate_iterates_spent [label="gate-iterates spent?" shape=diamond];
     domain_attaches_mr [label="Domain attaches evidence to an MR here?" shape=diamond];
     run_field_get_branch [label="run_field_get {key: branch}" shape=plaintext];

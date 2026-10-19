@@ -36,10 +36,8 @@ closes the run. A handed `runDb` whose run is not running is not inherited
 
 Every gate runs through gate-protocol with `runDb` and `stage`; the gate
 tools write the gate fields and record the clarify and off-script answers.
-The posting gate records nothing until `gate_record`, after posting. This
-verb is on the tools, so gate-protocol's line on sites not yet on the
-tools never applies: draw no `run_field_set {key: gate}` bracket and no
-`run_decision` gate line.
+The posting gate records nothing until `gate_record`, after posting. Draw
+no `run_field_set {key: gate}` bracket and no `run_decision` gate line.
 
 Each loop counter is one `run_budget {runDb, key, limit, stage}` call on
 the counted event; its `<key> spent?` diamond reads `exhausted`. After a

@@ -1,0 +1,5 @@
+1. no
+
+2. The 5th `waiting` result for this sha: the budget call that reaches limit 5 returns `exhausted: true`, so `waiting-results spent?` takes "yes: quote its next" to `gate ci`.
+
+3. The 46th pending poll: the `github-polls` budget has limit 46, and the call that reaches it returns `exhausted: true`, so `polls spent?` takes "yes: timeout" to `gate ci`.
