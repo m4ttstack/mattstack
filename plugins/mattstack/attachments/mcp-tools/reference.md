@@ -1354,7 +1354,7 @@ Start a pipeline run and get back its runDb. flags is the compiled run-start fla
 ### run_stage
 
 <!-- mcp-lint: allow -->
-Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason). A start on a stage whose latest attempt is still running refuses and writes nothing: resume that attempt with run_enter, end it with run_next, or start its next attempt with run_resolve (next: iterate).
+Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason). A start on a stage whose latest attempt is still running refuses and writes nothing: resume that attempt with run_enter, end it with run_next, or start its next attempt with run_resolve (next: iterate). A start on a done run refuses unless reopen: true, which sets the run running again at that stage's next attempt (or adopts the attempt a closed run left running) and clears the stage's consent fields, so run_hold, run_next and run_resolve work on it until it closes again. Only a done run reopens; a failed or abandoned one refuses, and reopen on a running run refuses (resume it with run_enter).
 
 ```json
 {
@@ -1388,6 +1388,10 @@ Record a stage transition on a run: start, done, fail (with reason and detailPat
     },
     "to": {
       "type": "string"
+    },
+    "reopen": {
+      "type": "boolean",
+      "description": "With action start: reopen a done run at this stage."
     }
   },
   "required": [

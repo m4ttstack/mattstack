@@ -12,7 +12,7 @@ import { cleared, FailError, failOf, must, positionOf, readManifest, setManifest
 import { recordIdentity } from "./identity.ts";
 import { isPathComponent } from "./paths.ts";
 import { runStart, type RunStartOpts } from "./start.ts";
-import { fieldSet, openRunDb, stageStart, type Fail, type Ok } from "./write.ts";
+import { closedRunMove, fieldSet, openRunDb, stageStart, type Fail, type Ok } from "./write.ts";
 
 export type Candidate = { runId: string; runDb: string; startedAt: number; spawnedBy: string | null; currentStage: string | null; ownSession: boolean };
 export type EnterResult =
@@ -135,7 +135,7 @@ function resumeRun(i: EnterInput, id: string, handedFlag: { handedRunDb?: "not-r
         | { id: string; status: string; work_type: string; current_stage: string | null }
         | undefined;
       if (!run) return refused(`run ${id} has no run row`);
-      if (run.status !== "running") return refused(`run ${id} is ${run.status}; only a running run can be resumed`);
+      if (run.status !== "running") return refused(`run ${id} is ${run.status}; only a running run can be resumed. ${closedRunMove(run.status, runDb)}`);
       if (run.work_type !== i.start.workType) return refused(`run ${id} belongs to work type ${run.work_type}, not ${i.start.workType}`);
 
       let manifest = readManifest(db);

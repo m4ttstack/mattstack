@@ -97,8 +97,56 @@ describe("holdStage on a finished run", () => {
     attempt(db, "plan");
     expect(runStatus(db, "done", 5).ok).toBe(true);
     const before = JSON.stringify([db.query("SELECT * FROM decisions").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM runs").all()]);
-    expect(holdStage(db, { stage: "plan", decidedBy: "me" })).toEqual({ ok: false, error: "this run is done; nothing to hold", code: 2 });
+    expect(holdStage(db, { stage: "plan", decidedBy: "me" })).toEqual({
+      ok: false,
+      error: "this run is done; nothing to hold. Reopen a stage on it first with run_stage (action: start, reopen: true)",
+      code: 2,
+    });
     expect(JSON.stringify([db.query("SELECT * FROM decisions").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM runs").all()])).toBe(before);
+  });
+
+  test("a failed or abandoned run names a fresh run", () => {
+    for (const status of ["failed", "abandoned"]) {
+      const db = mkdb();
+      writeManifest(db, [{ stage: "plan", consumes: [], produces: [] }], null);
+      attempt(db, "plan");
+      expect(runStatus(db, status, 5).ok).toBe(true);
+      expect(holdStage(db, { stage: "plan", decidedBy: "me" })).toEqual({
+        ok: false,
+        error: `this run is ${status}; nothing to hold. Start a fresh run with run_enter (fresh: true)`,
+        code: 2,
+      });
+    }
+  });
+});
+
+describe("a done run with a reopened stage", () => {
+  function reopened(): Database {
+    const db = mkdb();
+    writeManifest(db, [{ stage: "ship", consumes: [], produces: [] }, { stage: "watch-ci", consumes: [], produces: [] }], null);
+    attempt(db, "ship");
+    attempt(db, "watch-ci");
+    expect(runStatus(db, "done", 5).ok).toBe(true);
+    expect(stageStart(db, "ship", {}, 10, { reopen: true })).toEqual({ ok: true });
+    return db;
+  }
+
+  test("run_hold and run_stage start agree: the reopened stage holds", () => {
+    const db = reopened();
+    expect(holdStage(db, { stage: "ship", reason: "redaction", decidedBy: "me", now: 20 })).toEqual({
+      ok: true,
+      held: true,
+      at: { stage: "ship", attempt: 2, status: "running", file: null },
+      scope: "hold:ship:2",
+    });
+  });
+
+  test("run_next moves it on and run_resolve closes it done again", () => {
+    const db = reopened();
+    expect(nextStage(db, { stage: "ship", env: {}, now: 20 })).toMatchObject({ ok: true, ended: "done", next: { stage: "watch-ci", attempt: 2, status: "running" } });
+    expect(nextStage(db, { stage: "watch-ci", env: {}, now: 30 })).toMatchObject({ ok: true, ended: "done", last: true });
+    expect(resolveStage(db, { stage: "watch-ci", next: "done", decidedBy: "me", env: {}, now: 40 })).toEqual({ ok: true, applied: "done", status: "done" });
+    expect(db.query("SELECT status, ended_at FROM runs").get()).toEqual({ status: "done", ended_at: 40 });
   });
 });
 
@@ -515,7 +563,7 @@ describe("resolveStage", () => {
     ok(runStatus(db, "abandoned", 300));
     const before = snap(db);
     for (const next of ["retry", "redirect", "iterate", "hold", "abandon", "done"] as const) {
-      expect(resolve(db, { next, to: "implement" })).toEqual({ ok: false, error: "this run is abandoned; nothing to resolve", code: 2 });
+      expect(resolve(db, { next, to: "implement" })).toEqual({ ok: false, error: "this run is abandoned; nothing to resolve. Start a fresh run with run_enter (fresh: true)", code: 2 });
     }
     expect(snap(db)).toBe(before);
 
@@ -525,7 +573,7 @@ describe("resolveStage", () => {
     expect(resolve(finished, { stage: "watch-ci", next: "done" })).toMatchObject({ applied: "done" });
     const done = snap(finished);
     expect(resolve(finished, { stage: "watch-ci", next: "done", now: 900 })).toEqual({ ok: true, applied: "done", status: "done" });
-    expect(resolve(finished, { stage: "watch-ci", next: "abandon" })).toEqual({ ok: false, error: "this run is done; nothing to resolve", code: 2 });
+    expect(resolve(finished, { stage: "watch-ci", next: "abandon" })).toEqual({ ok: false, error: "this run is done; nothing to resolve. Reopen a stage on it first with run_stage (action: start, reopen: true)", code: 2 });
     expect(snap(finished)).toBe(done);
   });
 

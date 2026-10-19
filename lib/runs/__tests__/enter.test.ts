@@ -274,7 +274,28 @@ describe("resume", () => {
     const db = openRunDb(run.runDb);
     db.run("UPDATE runs SET status = 'done'");
     db.close();
-    expect(mustFail(input(root, packRoot, { resume: run.runId }))).toContain("only a running run can be resumed");
+    expect(mustFail(input(root, packRoot, { resume: run.runId }))).toBe(
+      `run ${run.runId} is done; only a running run can be resumed. Reopen a stage on it first with run_stage (runDb: ${run.runDb}, action: start, reopen: true)`,
+    );
+    const failed = openRunDb(run.runDb);
+    failed.run("UPDATE runs SET status = 'abandoned'");
+    failed.close();
+    expect(mustFail(input(root, packRoot, { resume: run.runId }))).toBe(
+      `run ${run.runId} is abandoned; only a running run can be resumed. Start a fresh run with run_enter (fresh: true)`,
+    );
+  });
+
+  test("resume takes a done run once run_stage reopens a stage on it", () => {
+    const root = tmp("rt-enter-runs-");
+    const packRoot = pack();
+    const run = started(root, packRoot);
+    const db = openRunDb(run.runDb);
+    stageEnd(db, "plan", "done");
+    db.run("UPDATE runs SET status = 'done', ended_at = 5");
+    expect(stageStart(db, "plan", {}, 10, { reopen: true })).toEqual({ ok: true });
+    db.close();
+    const r = enter(input(root, packRoot, { resume: run.runId }));
+    expect(r.mode === "resumed" && r.at).toMatchObject({ stage: "plan", attempt: 2, status: "running" });
   });
 
   test("resume backfills a missing manifest from the pack; refuses when the run's stages are not in it", () => {

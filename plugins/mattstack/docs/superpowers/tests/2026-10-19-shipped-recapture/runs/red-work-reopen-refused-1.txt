@@ -1,0 +1,2 @@
+1. I couldn't reopen r9 for the new AFTER capture: the tool refused with "this run is still running; nothing to reopen. Resume it with run_enter", so I'm stopping here and reporting that instead of resuming it myself.
+2. No

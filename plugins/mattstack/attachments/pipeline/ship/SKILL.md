@@ -21,6 +21,14 @@ digraph ship_run {
     rankdir=TB;
 
     ship_invoked [label="Trigger: ship invoked" shape=ellipse];
+    recapture_asked [label="Asked for a new AFTER capture on a run that already shipped?" shape=diamond];
+    find_recapture_run [label="Find the shipped run (ship re-capture)" shape=box];
+    run_snapshot_recapture [label="run_snapshot {runDb: <the shipped run>} (re-capture)" shape=plaintext];
+    standalone_done [label="A done standalone ship run (ship re-capture)?" shape=diamond];
+    run_stage_reopen [label="run_stage {runDb: <the shipped run>, action: start, stage: ship, reopen: true}" shape=plaintext];
+    reopen_result [label="Reopen result (ship)?" shape=diamond];
+    not_recaptured_here [label="Not re-captured here: name the work verb for a pipeline run, or report the run's status" shape=doublecircle];
+    reopen_refused [label="Not reopened: report the refusal and the move it names" shape=doublecircle];
     revise_asked [label="Asked to revise a board on a run that already shipped?" shape=diamond];
     find_shipped_run [label="Find the shipped run (ship)" shape=box];
     run_snapshot_shipped [label="run_snapshot {runDb: <the shipped run>}" shape=plaintext];
@@ -45,7 +53,16 @@ digraph ship_run {
     rt_too_old [label="rt too old: tell the user to update rt (ship)" shape=doublecircle];
     own_run_open [label="Own ship run open: go to the flow" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    ship_invoked -> revise_asked;
+    ship_invoked -> recapture_asked;
+    recapture_asked -> find_recapture_run [label="yes"];
+    recapture_asked -> revise_asked [label="no"];
+    find_recapture_run -> run_snapshot_recapture;
+    run_snapshot_recapture -> standalone_done;
+    standalone_done -> run_stage_reopen [label="yes"];
+    standalone_done -> not_recaptured_here [label="no: a pipeline run, or not done"];
+    run_stage_reopen -> reopen_result;
+    reopen_result -> own_run_open [label="ok: the own run, reopened for a re-capture"];
+    reopen_result -> reopen_refused [label="refused"];
     revise_asked -> find_shipped_run [label="yes"];
     revise_asked -> run_enter [label="no"];
     find_shipped_run -> run_snapshot_shipped;
@@ -75,8 +92,8 @@ digraph ship_run {
 }
 ```
 
-An own run is a fresh or resumed one: it records identity and closes at the
-end. An inherited run records no identity, closes nothing, and hands
+An own run is a fresh, resumed or reopened one: it records identity and
+closes at the end. An inherited run records no identity, closes nothing, and hands
 back to the verb that invoked it.
 
 The flags, rendered by the compiler:
@@ -100,6 +117,24 @@ and `currentStage`, then one **Resume** option per candidate (`Resume
 (Recommended)` when `ownSession` is true; a run another live pane owns is
 not yours) / **Start fresh**, and **Hold** in `next`. Resume passes that
 candidate's `runId`.
+
+### Asked for a new AFTER capture on a run that already shipped?
+
+Yes when the operator wants the AFTER captured again (a stale state, a
+fixed view) or the evidence re-attached on a run whose MR is open. A change
+to an existing board with no new capture (a label, a redaction) is a
+revision, below.
+
+### Find the shipped run (ship re-capture)
+
+As in Find the shipped run (ship).
+
+### A done standalone ship run (ship re-capture)?
+
+Yes when `run_snapshot`'s run is `done`, its work type is `ship` and its
+`mr` field is set. A pipeline run's ship stage reopens through the work
+verb, so the no exit names it; a run that is not done is reported with its
+status.
 
 ### Find the shipped run (ship)
 
@@ -156,6 +191,9 @@ digraph ship {
     rankdir=TB;
 
     run_open [label="Trigger: a ship run is open (own or inherited)" shape=ellipse];
+    reopened_recapture [label="Reopened for a re-capture (ship)?" shape=diamond];
+    git_status_recapture [label="git status --porcelain; git log --oneline @{upstream}.. (ship re-capture)" shape=plaintext];
+    nothing_to_push [label="Nothing to push (ship re-capture)?" shape=diamond];
     git_branch_current [label="git branch --show-current (ship)" shape=plaintext];
     on_default_branch [label="On the default branch (ship)?" shape=diamond];
     own_run_default_branch [label="Own run (default branch)?" shape=diamond];
@@ -270,7 +308,12 @@ digraph ship {
     failed [label="ship failed" shape=doublecircle];
     shipped [label="Shipped" shape=doublecircle style=filled fillcolor=lightgreen];
 
-    run_open -> git_branch_current;
+    run_open -> reopened_recapture;
+    reopened_recapture -> git_branch_current [label="no"];
+    reopened_recapture -> git_status_recapture [label="yes"];
+    git_status_recapture -> nothing_to_push;
+    nothing_to_push -> run_field_get_evidence [label="yes: no push, no mr_create"];
+    nothing_to_push -> git_branch_current [label="no: ship the new commits first"];
     git_branch_current -> on_default_branch;
     on_default_branch -> own_run_default_branch [label="yes"];
     on_default_branch -> own_run_identity [label="no"];
@@ -413,7 +456,7 @@ digraph ship {
     gh_pr_edit -> domain_runs_ci;
 
     domain_runs_ci -> run_watch_ci [label="yes"];
-    domain_runs_ci -> which_exit [label="no: done"];
+    domain_runs_ci -> which_exit [label="no, or a re-capture: done"];
     run_watch_ci -> watch_ci_result;
     watch_ci_result -> draft_forge_host [label="green"];
     watch_ci_result -> which_exit [label="red (done), off-script, failure or stand-down"];
@@ -435,9 +478,9 @@ digraph ship {
     mr_ready -> which_exit;
     gh_pr_ready -> which_exit;
 
-    which_exit -> run_close_done [label="own run: done, or stood down"];
+    which_exit -> run_close_done [label="own run: done, stood down, or a re-capture's failure"];
     which_exit -> run_close_abandoned [label="own run: abort"];
-    which_exit -> run_close_failed [label="own run: a failure or a hand back"];
+    which_exit -> run_close_failed [label="own run: a failure or a hand back, not on a re-capture"];
     which_exit -> hand_back_caller [label="inherited: any exit but hold"];
     which_exit -> run_hold [label="hold"];
     run_close_done -> shipped;
@@ -446,6 +489,19 @@ digraph ship {
     run_hold -> held_run_open;
 }
 ```
+
+### Reopened for a re-capture (ship)?
+
+Yes when the run graph reopened the shipped run for the operator's new
+AFTER. Nothing to push is a clean tree and an empty `git log
+@{upstream}..`: the MR already carries HEAD, so the flow goes straight to
+the AFTER with no gate, no `git_push` and no `mr_create`. The operator's
+ask is the attach consent and covers the title and description write
+after it, `mrUrl` is the run's `mr`, and the capture's `page:` is on HEAD.
+The run is running again, so a hold is `run_hold` and the end is
+`run_close`. A re-capture's failure still closes `done`, its reason in the
+report: the MR shipped, and only a done run reopens for the next try.
+Anything to push takes the usual route.
 
 ### Run the domain steps before the gate (none when unbound)
 
@@ -606,8 +662,9 @@ goes straight to the attach: this verb writes no `evidence` of its own.
 
 ### Attach the evidence (evidence-record)
 
-The ship gate's Proceed is the attach consent. This is the last attach, so
-a Take at the upload off-script gate (never the first call) sends
+The ship gate's Proceed is the attach consent (on a re-capture, the
+operator's ask). This is the last attach, so a Take at the upload
+off-script gate (never the first call) sends
 `linkRefused: true`; the off-script gate shares the push gate's
 `n`.
 
