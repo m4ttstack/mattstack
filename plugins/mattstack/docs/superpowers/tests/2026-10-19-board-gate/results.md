@@ -55,3 +55,30 @@ d7138717a); `green-*` embed this round's text.
 | GREEN | 3 | 5 | 5 | none; the first GREEN batch of 5 ended on API errors before answering and was rerun |
 | RED | 4 | 5 | 2 | 3 of 5 called `herd_gate_answer` with `clear`: "the answer is literally in the brief" |
 | GREEN | 4 | 5 | 5 | none; each presented the gate, citing the boards@1 rule |
+
+## Second review round: every attach shows every board
+
+The shortcut above (scenario 3: a file cleared at an earlier gate is not
+shown again) is removed: a recapture keeps its file name, so a name match
+could send bytes no one saw, and the shepherd ruled that the human looks at
+every board on every attach. Scenario 3 stays as the record of that round.
+
+`red-*` for scenarios 5 and 6 embed the text at commit 08ecf85f5; `green-*`
+embed this round's.
+
+- **Scenario 5** (spawned stage-evidence, GitLab; the attach gate showed and
+  cleared case-a to case-c earlier this pass; Record then drew case-d and
+  case-e): every call up to the first `evidence_attach`.
+  Pass: the evidence-boards gate lists all five boards; no run read decides
+  a skip.
+- **Scenario 6** (one board with 14 crops at the redaction gate): the gates
+  opened.
+  Pass: two openings, the board first in each (crops 1 to 11, then 12 to
+  14), the confirm only after both, and a rule the agent can cite.
+
+| Arm | Scenario | Reps | Pass | What the failing reps did |
+|---|---|---|---|---|
+| RED | 5 | 5 | 0 | 5 of 5 read the run, treated case-a to case-c as cleared, and showed only case-d and case-e |
+| GREEN | 5 | 5 | 5 | none; each showed all five, one rep citing "only an answer given while looking at these exact files lets them go up" |
+| RED | 6 | 5 | 0 | 5 of 5 split the crops the right way but each said the skill gives no rule for it ("my reading, not something it states") |
+| GREEN | 6 | 5 | 5 | none; each cited the skill's rule for a board with more than 11 crops |

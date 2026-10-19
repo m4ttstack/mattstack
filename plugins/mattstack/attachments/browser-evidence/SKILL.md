@@ -293,8 +293,11 @@ human sees the whole board, not only its crops.
   crop's `slot` is `crop` and its `caption` names the crop and its board
   (`Crop 1 of the badge board`).
 - At most 12 entries per opening: when the boards and their crops pass 12,
-  open one board (and its crops) per opening, each counting toward that
-  board's `redaction-openings:<stem>`.
+  open one board (and its crops) per opening. A board with more than 11
+  crops spreads them over consecutive openings, the board first in each
+  with the next 11 crops, until every crop has been shown; the confirm
+  waits until every one of those openings is answered. Each opening counts
+  toward that board's `redaction-openings:<stem>`.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
