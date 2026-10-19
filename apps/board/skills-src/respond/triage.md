@@ -22,6 +22,7 @@ digraph respond_triage_and_gate_1 {
     "Delegate adjudication to the domain skill" [shape=box];
     "Domain adjudication result?" [shape=diamond];
     "Drop verdict rows outside the --person's feedback" [shape=box];
+    "Backstop entered on a revise round?" [shape=diamond];
     "mr_view {mrUrl} (respond source branch)" [shape=plaintext];
     "mr_view result (respond)?" [shape=diamond];
     "STOP: MR reads go through mr_view (respond)" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -58,7 +59,7 @@ digraph respond_triage_and_gate_1 {
     "Triage gate gone: continue at Respond gate gone" [shape=doublecircle];
     "Held at a triage off-script gate: continue at Held" [shape=doublecircle];
 
-    "Trigger: revise brought a new round (from Implement the plan)" -> "Write the verdict table and drafts to --report";
+    "Trigger: revise brought a new round (from Implement the plan)" -> "Drop verdict rows outside the --person's feedback";
     "Trigger: a fresh run with a domain skill (from Launch and resume)" -> "Delegate adjudication to the domain skill";
     "Trigger: a fresh generic run with the style loaded (from Launch and resume)" -> "mr_view {mrUrl} (respond source branch)";
     "Trigger: a resumed triage escalation (from Launch and resume)" -> "Which triage call refused (resumed)?";
@@ -69,7 +70,9 @@ digraph respond_triage_and_gate_1 {
     "Which triage call refused (resumed)?" -> "Adjudicate each unresolved thread" [label="fetch mr_threads take: the threads from its note"];
     "Delegate adjudication to the domain skill" -> "Domain adjudication result?";
     "Domain adjudication result?" -> "Drop verdict rows outside the --person's feedback" [label="a verdict table handed back"];
-    "Drop verdict rows outside the --person's feedback" -> "Unresolved human threads = 0?";
+    "Drop verdict rows outside the --person's feedback" -> "Backstop entered on a revise round?";
+    "Backstop entered on a revise round?" -> "Write the verdict table and drafts to --report" [label="yes: the new round's table"];
+    "Backstop entered on a revise round?" -> "Unresolved human threads = 0?" [label="no: the domain skill's first table"];
     "Domain adjudication result?" -> "Triage error: continue at the error write" [label="failed"];
     "mr_view {mrUrl} (respond source branch)" -> "mr_view result (respond)?";
     "mr_view result (respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="ok: keep sourceBranch"];
@@ -165,7 +168,9 @@ reports is `error` with its message.
 ### Drop verdict rows outside the --person's feedback
 
 The backstop for a domain skill bound before the person reached it: it may
-hand back rows for everyone. Without `--person`, keep every row and move
+hand back rows for everyone. It runs on the domain skill's first table
+and on every new round's table after a `revise`, on either path (a generic
+round's table already holds only the person's rows, so nothing drops). Without `--person`, keep every row and move
 on. With `--person <username>`, keep a row only when its thread's first
 note is that person's (a resolvable thread they started, or their Overview
 comment), as the domain skill's row or its `--report` entry names it. A
@@ -217,8 +222,10 @@ Every other thread and comment on the MR is out of scope, however much it
 seems to need an answer. An Overview comment's row is keyed by its
 discussion `id` like any thread, its location reads `Overview comment` in
 place of `<file>:<line>`, and its reply goes through `mr_reply_thread` on
-that discussion id: posted at once, as a note on that comment's own
-discussion (GitLab's "Reply to comment", then "Add comment now").
+that discussion id: as a live note rather than a draft review, when it
+posts, on that comment's own discussion (GitLab's "Reply to comment",
+then "Add comment now"). It cannot be resolved, so its Gate 2 question
+offers `post:` alone.
 
 Judge each thread on its merits and pick one verdict:
 

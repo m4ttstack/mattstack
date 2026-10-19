@@ -171,6 +171,24 @@ check slot_decl_invalid 1 '
   and .errors[0].code == "slot-decl-invalid"
   and (.errors[0].message | contains("sometimes"))'
 
+# --- case: multi-contract -- a slot listing two contracts takes either ---
+mkdir -p "$WORK/wrapper-multi/scripts"
+sed 's|required tiering@1 --|required tiering@2 tiering@1 --|' "$FIX/wrapper/SKILL.md" > "$WORK/wrapper-multi/SKILL.md"
+cp "$CANONICAL" "$WORK/wrapper-multi/scripts/resolve-args.sh"
+chmod +x "$WORK/wrapper-multi/scripts/resolve-args.sh"
+OUT=$("$WORK/wrapper-multi/scripts/resolve-args.sh" --manifest "$FIX/manifests/bound.jsonc" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+STATUS=$?
+check multi_contract_older 0 '
+  .ok == true
+  and .resolved.tiering.binding == "fake:tiering-good"
+  and .resolved.tiering.contract == "tiering@1"'
+OUT=$("$WORK/wrapper-multi/scripts/resolve-args.sh" --manifest "$FIX/manifests/mismatch.jsonc" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+STATUS=$?
+check multi_contract_mismatch 1 '
+  .ok == false
+  and .errors[0].code == "provides-mismatch"
+  and (.errors[0].message | contains("tiering@2 or tiering@1"))'
+
 # --- case: watch-ci's ci scripts stay identical to stage-watch-ci's ---
 for f in ci-triage.sh; do
   if cmp -s "$HERE/../../attachments/pipeline/stage-watch-ci/scripts/$f" "$HERE/../../attachments/pipeline/watch-ci/scripts/$f"; then

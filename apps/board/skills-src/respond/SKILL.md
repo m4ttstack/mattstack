@@ -13,7 +13,7 @@ disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/open-gate.sh:*)
 metadata:
   slots: "respond"
-  slot-respond: "required mr-respond@3 -- owns processing review feedback on one MR, scoped to one person when handed one (their unresolved threads and their open Overview comments): fetching threads, adjudicating, drafting, implementing decided fixes, and executing posting once handed the decisions. Never presents decision gates or decides what posts. When gate 2 offers nothing, posts the reply-only threads on {plan}."
+  slot-respond: "required mr-respond@3 mr-respond@2 -- owns processing review feedback on one MR, scoped to one person when handed one (their unresolved threads and their open Overview comments): fetching threads, adjudicating, drafting, implementing decided fixes, and executing posting once handed the decisions. Never presents decision gates or decides what posts. When gate 2 offers nothing, posts the reply-only threads on {plan}."
 ---
 
 # mr-board respond runner
@@ -348,7 +348,7 @@ does not ask; the script drops it.
 **Gate 1 (`respond-plan`).** ONE single-select question per unresolved
 thread, in verdict-table order, plus one `code-changes` question. A thread
 question's id is `thread-<n>` by 1-based position, its label that thread's
-`<file>:<line>`, and its three options carry the verb plus the thread id
+`<file>:<line>` (`Overview comment` for an Overview comment's row), and its three options carry the verb plus the thread id
 VERBATIM in the value (the ids shown are placeholders; substitute the real
 ones):
 
@@ -390,7 +390,9 @@ hidden, so it must always be present in the options.
 in verdict-table order (a reply-only or `skip:` thread gets none). Its id
 is `thread-<n>` by 1-based position among these threads, its label the
 thread's `<file>:<line>`, and its two options `post:<threadId>` and
-`resolve:<threadId>`, thread id VERBATIM:
+`resolve:<threadId>`, thread id VERBATIM. An Overview comment's row
+(`resolvable: false` in `mr_threads`) is labelled `Overview comment` and
+gets `post:<threadId>` alone: GitLab cannot resolve it.
 
 ```json
 [
@@ -411,7 +413,8 @@ reviewer unless the human ticks it. Post and resolve are independent:
 both, either one, or neither.
 
 **Labels.** Option labels cap at 200 UTF-8 bytes (these sit far under it).
-Keep a question label to the thread's path and line; when a path is long,
+Keep a question label to the thread's path and line, or `Overview
+comment`; when a path is long,
 middle-truncate the path portion (keep the filename and line). Never alter
 a value string.
 

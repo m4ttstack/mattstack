@@ -125,7 +125,7 @@ digraph respond_gate_2_and_posting {
     "Fixed the mr_reply_thread call once already?" -> "Fix what the mr_reply_thread error names" [label="no"];
     "Fixed the mr_reply_thread call once already?" -> "respond off-script gate: mr_reply_thread refused" [label="yes"];
     "Fix what the mr_reply_thread error names" -> "mr_reply_thread {mrUrl, discussionId, body}";
-    "Resolve this thread?" -> "mr_resolve_thread {mrUrl, discussionId}" [label="yes: resolve picked; not held, no mark stopping its resolve"];
+    "Resolve this thread?" -> "mr_resolve_thread {mrUrl, discussionId}" [label="yes: resolve picked; not held, no mark stopping its resolve, not an Overview comment"];
     "Resolve this thread?" -> "Threads left to post (respond)?" [label="no"];
     "mr_resolve_thread {mrUrl, discussionId}" -> "mr_resolve_thread result?";
     "mr_resolve_thread result?" -> "Threads left to post (respond)?" [label="resolved"];
@@ -200,6 +200,10 @@ error` and the fixed threads are held. `<root>` is the
 reply` thread, or an answer value names one (a gate opened before this
   rule), that thread's answer decides it instead, an empty array included,
   and no reply posts twice.
+- **Overview comments.** Resolve never runs for a `resolvable: false`
+  row (an Overview comment): GitLab cannot resolve it, so its Gate 2
+  question offers only `post:`, and a `resolve:` value that names it
+  anyway is ignored. `Resolve this thread?` answers no for it.
 - **Escalation marks.** An off-script answer at a posting origin that
   keeps a call from running again writes an `escalation:` field into the
   row it touches, before the walk moves on, whether this pane or a
@@ -225,7 +229,7 @@ No fitted open file came back, so build Gate 2 yourself from the finalized
 replies: one multi-select question per offered thread (each fixed thread
 and each reply override, in verdict-table order; never a reply-only,
 `skip:`, unfixed or posted-already thread), exactly as "Gate 1 and Gate 2
-shapes" draws them. Each thread's `<file>:<line>` and finalized reply ride
+shapes" draws them, an Overview comment's question with `post:` alone. Each thread's `<file>:<line>` and finalized reply ride
 its own question's `context`; `--context` carries only the shared frame,
 under the same byte budget. The open prints one JSON line (see "Gate
 step" in `gate-step.md`); keep `gateId` and `presentation`.
