@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createRealProbes, execWithTimeout, type Probes } from "../../setup/probes.ts";
-import { convergeDataBranch, heldCopy, moveBlocker, moveCloneToDataBranch, MOVED_DONE, publishPointer } from "../org-data-branch.ts";
-import { readTeamLocal } from "../team-local.ts";
+import { convergeDataBranch, heldCopy, moveBlocker, moveCloneToDataBranch, MOVED_DONE, publishPointer, rememberDataBranch } from "../org-data-branch.ts";
+import { readTeamLocal, updateTeamLocal } from "../team-local.ts";
 
 const p = { exec: execWithTimeout };
 const MARKER = '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}';
@@ -401,6 +401,26 @@ describe("convergeDataBranch", () => {
     git(clone, "checkout", "-q", "-b", "stray", "refs/remotes/origin/stray");
     expect(existsSync(join(clone, "mattstack"))).toBe(false);
     expect(await convergeDataBranch(probes(), clone, noToken)).toEqual({ kind: "moved", branch: "mattstack" });
+  });
+
+  test("a copy that moved before this release has its branch and origin's tip remembered, once", async () => {
+    await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    expect(recorded().dataBranch).toBeUndefined();
+    expect(await rememberDataBranch(probes(), clone)).toBe(true);
+    expect(recorded()).toMatchObject({ dataBranch: "mattstack", dataBranchTip: git(origin, "rev-parse", "mattstack") });
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+  });
+
+  test("a copy on main or on this Mac's trial branch remembers nothing", async () => {
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+    git(seed, "checkout", "-q", "-b", "trial", "mattstack");
+    put(seed, "mattstack/mattstack.jsonc", '{"role":"org","org":"acme","layout":4,"dataBranch":"trial"}');
+    git(seed, "commit", "-q", "-am", "trial names itself");
+    git(seed, "push", "-q", "origin", "trial");
+    await moveCloneToDataBranch(p, clone, "trial", null, origin);
+    updateTeamLocal(probes(), "clone", { trialBranch: "trial" });
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+    expect(recorded().dataBranch).toBeUndefined();
   });
 
   test("the moved sentence names the branch", () => {
