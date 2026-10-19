@@ -1269,8 +1269,12 @@ export function staleCopyBlocks(names: string[], writing: boolean): Block[] {
   return names.map((name) => writing ? out.line("done", `Removed ${name}`, why) : out.line("pending", name, `would remove; ${why}`));
 }
 
+// Field-contract lines only run once every verb compiled, so a failure list is all one kind or all the other.
 export function compileFailure(failures: string[]): out.FailureInput {
-  return { title: `${countOf(failures.length, "verb", "verbs")} did not compile`, details: failures.join("\n") };
+  const title = failures.every((f) => f.startsWith("field contract: "))
+    ? countOf(failures.length, "field-contract error", "field-contract errors")
+    : `${countOf(failures.length, "verb", "verbs")} did not compile`;
+  return { title, details: failures.join("\n") };
 }
 
 export function misplacedFailure(names: string[]): out.FailureInput {
