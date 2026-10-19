@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Paper, Stack, Text } from '@mattstack/app-kit/core';
+import { Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
+import { Icon } from '@mattstack/app-kit/icons';
 
 import {
   boardName,
-  BOARDS_QUESTION,
   type BoardsContext,
   type GateBoard,
 } from '../../../shared/gate-boards';
@@ -16,8 +16,8 @@ import classes from './GateBoards.module.css';
 export const boardUrl = (gateId: string, path: string): string =>
   `/api/gates/${encodeURIComponent(gateId)}/board?path=${encodeURIComponent(path)}`;
 
-/** Every board an evidence gate is about to attach, so the human sees what
-    would go public before answering. */
+/** Every board an evidence gate is about to attach, large enough to read,
+    so the human sees what would go public before answering. */
 export function GateBoards({
   gateId,
   boards,
@@ -33,15 +33,20 @@ export function GateBoards({
       data-parity="context"
       data-testid="gate-boards"
     >
-      <Eyebrow data-parity="label">Boards to attach</Eyebrow>
+      <Group justify="space-between" gap={8}>
+        <Eyebrow data-parity="label">Boards to attach</Eyebrow>
+        <Group gap={4} c="dimmed">
+          <Icon name="maximize" size={12} />
+          <Text fz="sm" c="dimmed">
+            Click a board to open it full size
+          </Text>
+        </Group>
+      </Group>
       {boards.summary ? (
         <div className={classes.summary}>
           <GateContext text={boards.summary} />
         </div>
       ) : null}
-      <Text fz="md" fw={500} lh="normal">
-        {BOARDS_QUESTION}
-      </Text>
       <div className={classes.grid}>
         {boards.boards.map(b => (
           <Stack key={b.path} gap={4} className={classes.board}>
@@ -53,7 +58,7 @@ export function GateBoards({
               <EvidenceImage
                 src={boardUrl(gateId, b.path)}
                 name={boardName(b)}
-                cover
+                maxHeight={360}
                 onOpen={() => setFull(b)}
               />
             </Paper>

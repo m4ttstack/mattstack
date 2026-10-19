@@ -1,8 +1,9 @@
+/* Boards take the panel's full width, above the form, so each is large
+   enough to read a name or a number on. */
 .context {
-  flex: 0 0 380px;
   min-width: 0;
   padding: 20px;
-  border-right: 1px solid var(--tk-border-soft);
+  border-bottom: 1px solid var(--tk-border-soft);
 }
 
 .summary {
@@ -12,8 +13,8 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
 }
 
 .board {
@@ -25,9 +26,11 @@
   overflow-wrap: anywhere;
 }
 
-/* A screenshot's 16:10, at the width of the column; the image fills it. */
+/* The whole board shows, never a crop of it: what is cut off is what the
+   human would not see before it goes public. */
 .frame {
   display: flex;
-  aspect-ratio: 16 / 10;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
 }

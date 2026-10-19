@@ -448,7 +448,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
           </Text>
         </div>
       ) : (
-        <div className={classes.split}>
+        <div className={classes.split} data-stacked={boards ? true : undefined}>
           {boards ? (
             <GateBoards gateId={gate.id} boards={boards} />
           ) : context !== null ? (

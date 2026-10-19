@@ -423,12 +423,9 @@ function threadProse(c: Obj): string {
   ].join("\n");
 }
 
-export const BOARDS_QUESTION = "Look at each board: is there anything here that should not be public?";
-
 function boardsProse(c: Obj): string {
   return [
     ...(has(c, "summary") ? [s(c.summary)] : []),
-    BOARDS_QUESTION,
     ...(c.boards as Obj[]).flatMap((b) => [
       `- ${[b.case, b.slot, ...(has(b, "theme") ? [b.theme] : [])].map(s).join("/")}: ${s(b.caption)}`,
       `  ${s(b.path)}`,

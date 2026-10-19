@@ -77,11 +77,10 @@ describe("boards@1 rejects", () => {
 });
 
 describe("boards@1 in the form and the fit", () => {
-  test("the form reads the summary, then one line per board with its path", () =>
+  test("the form reads the summary, then one line per board with its path; the question is the form's own", () =>
     expect(proseOpen(twoBoards() as any).context).toBe(
       [
         "Two boards are about to be attached to the MR.",
-        "Look at each board: is there anything here that should not be public?",
         "- retry-badge/after: The retry badge counts every retry",
         "  /Users/dev/.fast-browser/screenshots/run-1-retry-badge-after.png",
         "- export-total/before/dark: The export total was off by one",
@@ -89,9 +88,9 @@ describe("boards@1 in the form and the fit", () => {
       ].join("\n"),
     ));
 
-  test("with no summary the form opens on the question", () =>
+  test("with no summary the form opens on the first board", () =>
     expect(proseOpen(source({ boards: [board()] }) as any).context?.split("\n")[0]).toBe(
-      "Look at each board: is there anything here that should not be public?",
+      "- retry-badge/after: The retry badge counts every retry",
     ));
 
   test("a dozen boards open structured, under the shared budget", () => {

@@ -1,8 +1,3 @@
-/** Mirrors lib/gates/ctx.ts's boards@1 check: a context that fails it is
-    prose, never a board list. */
-export const BOARDS_QUESTION =
-  'Look at each board: is there anything here that should not be public?';
-
 /** A boards gate's images are served only while the gate still waits on the
     human: open, or parked. */
 export const boardsWaiting = (status: string): boolean =>
@@ -53,6 +48,8 @@ function boardOf(v: unknown): GateBoard | null {
   };
 }
 
+/** Mirrors lib/gates/ctx.ts's boards@1 check: a context that fails it is
+    prose, never a board list. */
 export function parseBoards(
   context: string | null | undefined
 ): BoardsContext | null {
@@ -83,8 +80,6 @@ export const boardName = (b: GateBoard): string =>
 export function boardsMarkdown(ctx: BoardsContext): string {
   return [
     ...(ctx.summary ? [ctx.summary, ''] : []),
-    BOARDS_QUESTION,
-    '',
     ...ctx.boards.flatMap(b => [
       `- **${boardName(b)}**: ${b.caption}`,
       `  \`${b.path}\``,

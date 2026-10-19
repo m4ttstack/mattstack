@@ -883,10 +883,11 @@ describe('GatePanel: a boards gate', () => {
       within(boards).getByText('Two boards are about to be attached to !424.')
     ).toBeInTheDocument();
     expect(
-      within(boards).getByText(
-        'Look at each board: is there anything here that should not be public?'
-      )
+      within(boards).getByText('Click a board to open it full size')
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/is there anything here that should not be public/)
+    ).not.toBeInTheDocument();
     const imgs = within(boards).getAllByRole('img');
     expect(imgs.map(i => i.getAttribute('src'))).toEqual([
       src(`${dir}/r-before.png`),

@@ -1,12 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import {
-  BOARDS_QUESTION,
-  boardsMarkdown,
-  boardsWaiting,
-  parseBoards,
-} from './gate-boards';
+import { boardsMarkdown, boardsWaiting, parseBoards } from './gate-boards';
 
 const board = {
   case: 'retry-badge',
@@ -61,12 +56,10 @@ describe('parseBoards', () => {
 });
 
 describe('boardsMarkdown', () => {
-  it('reads the same as the form: summary, question, a line per board', () => {
+  it('reads the same as the form: the summary, then a line per board', () => {
     expect(boardsMarkdown({ summary: 'One board.', boards: [board] })).toBe(
       [
         'One board.',
-        '',
-        BOARDS_QUESTION,
         '',
         '- **retry-badge/after**: The retry badge counts every retry',
         `  \`${board.path}\``,
