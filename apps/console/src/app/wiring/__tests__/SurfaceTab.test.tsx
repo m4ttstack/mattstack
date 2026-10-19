@@ -472,4 +472,56 @@ describe('SurfaceTab: open in editor', () => {
       screen.queryByTestId('surface-open-dev-servers')
     ).not.toBeInTheDocument();
   });
+
+  it("links a standalone skill through the row's own path", async () => {
+    renderSurfaceTab([
+      {
+        name: 'context',
+        kind: 'hand-authored',
+        status: 'public',
+        path: '/p/skills/context/SKILL.md',
+      },
+    ]);
+
+    expect(await screen.findByTestId('surface-open-context')).toHaveAttribute(
+      'href',
+      'vscode://file/p/skills/context/SKILL.md'
+    );
+  });
+});
+
+describe('SurfaceTab: legend', () => {
+  it('says what the switch and each badge mean', async () => {
+    renderSurfaceTab();
+    const legend = await screen.findByTestId('surface-legend');
+
+    expect(legend).toHaveTextContent('On: agents see it in their skill list.');
+    expect(legend).toHaveTextContent(
+      'Off: agents only reach it when another skill points to it.'
+    );
+    expect(legend).toHaveTextContent('fillwritten by hand in this pack.');
+    expect(legend).toHaveTextContent(
+      "compiledbuilt by rt from a mattstack template plus this pack's fills."
+    );
+    expect(legend).not.toHaveTextContent('parent pack');
+    expect(
+      screen.queryByText(/exist only to compile into a verb/)
+    ).not.toBeInTheDocument();
+  });
+
+  it('explains the base badge only when a row comes from a base', async () => {
+    renderSurfaceTab([
+      {
+        name: 'dev-servers',
+        kind: 'compiled',
+        status: 'internal',
+        base: 'acme-base',
+      },
+    ]);
+
+    await screen.findByTestId('surface-row-dev-servers');
+    expect(screen.getByTestId('surface-legend')).toHaveTextContent(
+      'from acme-basecomes from the parent pack. Edit it there.'
+    );
+  });
 });
