@@ -71,6 +71,8 @@ interface Options {
   failExactCode?: number;
   failExactOccurrence?: number;
   notaryMissing?: boolean;
+  /** Each notarytool history call takes the next reply; the last one repeats. */
+  notaryReplies?: { stderr: string; exitCode: number }[];
   publishUploadExit?: number;
 }
 
@@ -130,6 +132,7 @@ function fakeSeams(opts: Options = {}): {
   execOpts: { cmd: string; opts?: { env?: Record<string, string> } }[];
 } {
   const calls: string[] = [];
+  let notaryCalls = 0;
   const execOpts: { cmd: string; opts?: { env?: Record<string, string> } }[] = [];
   const rawCalls: string[][] = [];
   const managed = opts.managed ?? [{ name: "board", fresh: true }, { name: "chat", fresh: true }];
@@ -253,7 +256,13 @@ function fakeSeams(opts: Options = {}): {
         return ok(`${row?.psTime === "after" ? NEW_PS_TIME : OLD_PS_TIME}\n`);
       }
       if (cmd.includes("Info.plist")) return ok(`${opts.prodVersion ?? "2.11.0"}\n`);
-      if (cmd.startsWith("xcrun notarytool history")) return opts.notaryMissing ? fail("No Keychain password item found") : ok("");
+      if (cmd.startsWith("xcrun notarytool history")) {
+        if (opts.notaryReplies) {
+          const reply = opts.notaryReplies[Math.min(notaryCalls++, opts.notaryReplies.length - 1)]!;
+          return reply.exitCode === 0 ? ok("") : fail(reply.stderr, reply.exitCode);
+        }
+        return opts.notaryMissing ? fail('Error: No Keychain password item found for profile: mattstack-notary') : ok("");
+      }
       if (cmd.startsWith("scripts/release/notarize.sh")) return ok("");
       if (cmd.startsWith("ditto -c -k --keepParent")) return ok("");
       if (cmd.startsWith("gh release download")) return ok("");
@@ -1093,6 +1102,60 @@ describe("rt release update-machine", () => {
       expect(calls.some((c) => c.startsWith("scripts/release/notarize.sh"))).toBe(false);
       expect(report.legs.find((l) => l.id === "daemon")!.status).toBe("ok");
       expect(report.haltedAfter).toBeNull();
+    });
+
+    test("a lost connection to Apple is retried before the publish leg runs", async () => {
+      const lost = { stderr: 'Error: NSURLErrorDomain Code=-1005 "The network connection was lost."', exitCode: 1 };
+      const { seams, calls } = fakeSeams({ notaryReplies: [lost, lost, { stderr: "", exitCode: 0 }] });
+      const report = await runUpdateMachine(seams, { yes: true });
+      expect(report.legs.find((l) => l.id === "dev-publish")!.status).toBe("ok");
+      expect(calls.filter((c) => c.startsWith("xcrun notarytool history")).length).toBe(3);
+    });
+
+    test("Apple out of reach on every try says so, not the keychain", async () => {
+      const lost = { stderr: 'Error: NSURLErrorDomain Code=-1001 "The request timed out."', exitCode: 1 };
+      const { seams, calls } = fakeSeams({ notaryReplies: [lost] });
+      const report = await runUpdateMachine(seams, { yes: true });
+      const publish = report.legs.find((l) => l.id === "dev-publish")!;
+      expect(publish.status).toBe("skipped");
+      expect(publish.detail).toContain("Apple's notary service");
+      expect(publish.detail).toContain("The request timed out.");
+      expect(publish.detail).not.toContain("store-credentials");
+      expect(calls.filter((c) => c.startsWith("xcrun notarytool history")).length).toBe(3);
+    });
+
+    test("any other notarytool refusal shows notarytool's own words", async () => {
+      const { seams, calls } = fakeSeams({ notaryReplies: [{ stderr: "Error: HTTP status code: 401. Invalid credentials.", exitCode: 1 }] });
+      const report = await runUpdateMachine(seams, { yes: true });
+      const publish = report.legs.find((l) => l.id === "dev-publish")!;
+      expect(publish.status).toBe("skipped");
+      expect(publish.detail).toContain("Invalid credentials");
+      expect(calls.filter((c) => c.startsWith("xcrun notarytool history")).length).toBe(1);
+    });
+
+    test("an Apple service error is retried, and the blocker names the error over the advice after it", async () => {
+      const outage = { stderr: "Error: internalError(statusCode: Optional(500), message: nil)\nPlease try again at a later time.", exitCode: 1 };
+      const { seams, calls } = fakeSeams({ notaryReplies: [outage] });
+      const report = await runUpdateMachine(seams, { yes: true });
+      const publish = report.legs.find((l) => l.id === "dev-publish")!;
+      expect(publish.status).toBe("skipped");
+      expect(publish.detail).toContain("Apple's notary service");
+      expect(publish.detail).toContain("statusCode: Optional(500)");
+      expect(publish.detail).not.toContain("Please try again");
+      expect(calls.filter((c) => c.startsWith("xcrun notarytool history")).length).toBe(3);
+    });
+
+    test("an Apple service error that clears on a retry lets the publish leg run", async () => {
+      const outage = { stderr: "Error: internalError(statusCode: 503, message: nil)", exitCode: 1 };
+      const { seams } = fakeSeams({ notaryReplies: [outage, { stderr: "", exitCode: 0 }] });
+      const report = await runUpdateMachine(seams, { yes: true });
+      expect(report.legs.find((l) => l.id === "dev-publish")!.status).toBe("ok");
+    });
+
+    test("a missing profile is asked about once, without retries", async () => {
+      const { seams, calls } = fakeSeams({ notaryMissing: true });
+      await runUpdateMachine(seams, { yes: true });
+      expect(calls.filter((c) => c.startsWith("xcrun notarytool history")).length).toBe(1);
     });
 
     test("no notary profile is not a prompt: there is nothing to approve", async () => {
