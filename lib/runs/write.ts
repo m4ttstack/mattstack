@@ -107,26 +107,44 @@ export function closedRunMove(status: string, runDb?: string): string {
   return `Reopen a stage on it first with run_stage (${runDb ? `runDb: ${runDb}, ` : ""}action: start, reopen: true)`;
 }
 
+/** A stage's consent fields: cleared whenever the stage runs again, so its gate asks again. */
+export const CONSENT_FIELDS: Readonly<Record<string, readonly string[]>> = { ship: ["shipTarget"] };
+
 export type StageStartOpts = { reopen?: boolean };
 
 export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, now: number = Date.now(), opts: StageStartOpts = {}): Ok | Fail {
-  const start = (): Ok | Fail => {
-    const run = db.query("SELECT status FROM runs LIMIT 1").get() as { status: string } | undefined;
-    const reopening = run !== undefined && run.status !== "running";
-    if (reopening) {
-      const refuse = (error: string): Fail => ({ ok: false, error, code: 2 });
-      if (!opts.reopen) return refuse(`this run is ${run.status}; nothing to start. ${closedRunMove(run.status)}`);
-      if (run.status !== "done") return refuse(`this run is ${run.status}; only a done run reopens. ${closedRunMove(run.status)}`);
-      const listed = (db.query("SELECT stage FROM manifest ORDER BY ordinal").all() as { stage: string }[]).map((m) => m.stage);
-      if (listed.length > 0 && !listed.includes(name)) return refuse(`stage ${name} is not in this run's pipeline manifest (stages: ${listed.join(", ")})`);
-    }
+  const insertAttempt = (): boolean => {
     db.run(
       `INSERT INTO stages (run_id, name, status, attempt, started_at)
        SELECT id, ?, 'running', COALESCE((SELECT MAX(attempt) FROM stages WHERE name = ?), 0) + 1, ? FROM runs
        WHERE NOT EXISTS (SELECT 1 FROM stages s WHERE s.name = ? AND s.status = 'running' AND s.attempt = (SELECT MAX(attempt) FROM stages WHERE name = ?))`,
       [name, name, now, name, name],
     );
-    if (changes(db) === 0) {
+    return changes(db) > 0;
+  };
+  const start = (): Ok | Fail => {
+    const refuse = (error: string): Fail => ({ ok: false, error, code: 2 });
+    const run = db.query("SELECT status FROM runs LIMIT 1").get() as { status: string } | undefined;
+    const reopening = run !== undefined && run.status !== "running";
+    if (opts.reopen && run?.status === "running") return refuse("this run is still running; nothing to reopen. Resume it with run_enter");
+    if (reopening) {
+      if (!opts.reopen) return refuse(`this run is ${run.status}; nothing to start. ${closedRunMove(run.status)}`);
+      if (run.status !== "done") return refuse(`this run is ${run.status}; only a done run reopens. ${closedRunMove(run.status)}`);
+      const listed = (db.query("SELECT stage FROM manifest ORDER BY ordinal").all() as { stage: string }[]).map((m) => m.stage);
+      if (listed.length > 0 && !listed.includes(name)) return refuse(`stage ${name} is not in this run's pipeline manifest (stages: ${listed.join(", ")})`);
+      const latest = db.query("SELECT status FROM stages WHERE name=? ORDER BY attempt DESC LIMIT 1").get(name) as { status: string } | undefined;
+      // A run closed by run_status can leave its attempt running; reopening adopts it.
+      if (latest?.status !== "running") insertAttempt();
+      db.run("UPDATE runs SET status='running', ended_at=NULL");
+      for (const key of CONSENT_FIELDS[name] ?? []) {
+        const cleared = fieldSet(db, key, "-", name, now);
+        if (!cleared.ok) throw new Error(cleared.error);
+      }
+      db.run("UPDATE runs SET current_stage=?", [name]);
+      recordIdentity(db, env, now);
+      return { ok: true };
+    }
+    if (!insertAttempt()) {
       const latest = db.query("SELECT attempt FROM stages WHERE name=? ORDER BY attempt DESC LIMIT 1").get(name) as { attempt: number } | undefined;
       if (latest) {
         return {
@@ -136,7 +154,6 @@ export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, n
         };
       }
     }
-    if (reopening) db.run("UPDATE runs SET status='running', ended_at=NULL");
     db.run("UPDATE runs SET current_stage=?", [name]);
     recordIdentity(db, env, now);
     return { ok: true };

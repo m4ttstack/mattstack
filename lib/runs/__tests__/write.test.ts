@@ -190,10 +190,27 @@ describe("stage lifecycle", () => {
     db.close();
   });
 
-  test("reopen on a running run is a plain start", () => {
+  test("reopen on a running run refuses, writing nothing, and names the resume", () => {
     const db = started();
-    expect(stageStart(db, "plan", {}, 10, { reopen: true })).toEqual({ ok: true });
-    expect(db.query("SELECT status FROM runs").get()).toEqual({ status: "running" });
+    stageStart(db, "watch-ci", {}, 10);
+    const before = JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM runs").all()]);
+    expect(stageStart(db, "ship", {}, 20, { reopen: true })).toEqual({
+      ok: false,
+      error: "this run is still running; nothing to reopen. Resume it with run_enter",
+      code: 2,
+    });
+    expect(JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM runs").all()])).toBe(before);
+    db.close();
+  });
+
+  test("reopen clears the stage's consent fields, so its gate asks again", () => {
+    const db = started();
+    stageStart(db, "ship", {}, 10);
+    fieldSet(db, "shipTarget", "main", "ship", 15);
+    stageEnd(db, "ship", "done", { now: 20 });
+    runStatus(db, "done", 30);
+    expect(stageStart(db, "ship", {}, 40, { reopen: true })).toEqual({ ok: true });
+    expect(db.query("SELECT value, produced_by FROM fields WHERE key='shipTarget'").get()).toEqual({ value: "-", produced_by: "ship" });
     db.close();
   });
 
@@ -234,14 +251,15 @@ describe("stage lifecycle", () => {
     db.close();
   });
 
-  test("a reopen whose start refuses leaves the run done", () => {
+  test("a reopen at a stage whose latest attempt still runs adopts that attempt", () => {
     const db = started();
+    stageStart(db, "plan", {}, 5);
     stageStart(db, "ship", {}, 10);
+    db.run("UPDATE runs SET current_stage='plan'");
     runStatus(db, "done", 30);
-    const r = stageStart(db, "ship", {}, 40, { reopen: true });
-    expect(r).toMatchObject({ ok: false, code: 2 });
-    expect(db.query("SELECT status, ended_at FROM runs").get()).toEqual({ status: "done", ended_at: 30 });
-    expect(db.query("SELECT attempt, status FROM stages").all()).toEqual([{ attempt: 1, status: "running" }]);
+    expect(stageStart(db, "ship", {}, 40, { reopen: true })).toEqual({ ok: true });
+    expect(db.query("SELECT status, ended_at, current_stage FROM runs").get()).toEqual({ status: "running", ended_at: null, current_stage: "ship" });
+    expect(db.query("SELECT attempt, status FROM stages WHERE name='ship'").all()).toEqual([{ attempt: 1, status: "running" }]);
     db.close();
   });
 

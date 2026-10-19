@@ -163,11 +163,13 @@ describe("run_stage reopen", () => {
     expect(calls.map((c) => c.args)).toEqual([["--stage", "ship", "--reopen"], ["--stage", "ship"]]);
   });
 
-  test("reopen that is not a boolean, or on another action, is a field error", async () => {
+  test("reopen that is not a boolean, or true on another action, is a field error", async () => {
     const { deps, calls } = fakeDeps();
     expect((await tool(deps, "run_stage").handler({ runDb: DB, action: "start", stage: "ship", reopen: "yes" }, RUNS_ROOT_ENV)).error).toBe('"reopen" must be a boolean');
     expect((await tool(deps, "run_stage").handler({ runDb: DB, action: "done", stage: "ship", reopen: true }, RUNS_ROOT_ENV)).error).toBe('"reopen" goes only with action start');
     expect(calls).toEqual([]);
+    await tool(deps, "run_stage").handler({ runDb: DB, action: "done", stage: "ship", reopen: false }, RUNS_ROOT_ENV);
+    expect(calls.map((c) => c.verb)).toEqual(["stage-done"]);
   });
 });
 

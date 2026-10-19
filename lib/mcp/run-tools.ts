@@ -203,7 +203,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     },
     {
       name: "run_stage",
-      description: "Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason). A start on a stage whose latest attempt is still running refuses and writes nothing: resume that attempt with run_enter, end it with run_next, or start its next attempt with run_resolve (next: iterate). A start on a done run refuses unless reopen: true, which sets the run running again at that stage's next attempt, so run_hold, run_next and run_resolve work on it until it closes again. Only a done run reopens; a failed or abandoned one refuses.",
+      description: "Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason). A start on a stage whose latest attempt is still running refuses and writes nothing: resume that attempt with run_enter, end it with run_next, or start its next attempt with run_resolve (next: iterate). A start on a done run refuses unless reopen: true, which sets the run running again at that stage's next attempt (or adopts the attempt a closed run left running) and clears the stage's consent fields, so run_hold, run_next and run_resolve work on it until it closes again. Only a done run reopens; a failed or abandoned one refuses, and reopen on a running run refuses (resume it with run_enter).",
       inputSchema: {
         type: "object",
         properties: {
@@ -223,7 +223,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         const bad = checkRequired(input, [{ name: "action", type: "string" }, { name: "stage", type: "string" }])
           ?? checkOptional(input, [{ name: "reason", type: "string" }, { name: "detailPath", type: "string" }, { name: "to", type: "string" }, { name: "reopen", type: "boolean" }]);
         if (bad) return err(bad);
-        if (input.reopen !== undefined && input.action !== "start") return err('"reopen" goes only with action start');
+        if (input.reopen === true && input.action !== "start") return err('"reopen" goes only with action start');
         const stage = input.stage as string;
         switch (input.action) {
           case "start": return write("stage-start", input.reopen === true ? ["--stage", stage, "--reopen"] : ["--stage", stage], input, env);

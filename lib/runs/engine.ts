@@ -5,7 +5,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { join } from "path";
-import { closedRunMove, decisionRecord, fieldSet, runStatus, stageEnd, stageStart, type Fail, type Ok } from "./write.ts";
+import { closedRunMove, CONSENT_FIELDS, decisionRecord, fieldSet, runStatus, stageEnd, stageStart, type Fail, type Ok } from "./write.ts";
 
 export type StageStatus = "running" | "done" | "failed" | "redirected";
 export type Position = { stage: string; attempt: number; status: StageStatus; file: string | null };
@@ -20,7 +20,7 @@ export type ManifestStage = {
 };
 export type ManifestInput = { stage: string; name?: string; file?: string; consumes: string[]; produces: string[] };
 
-export const CONSENT_FIELDS: Readonly<Record<string, readonly string[]>> = { ship: ["shipTarget"] };
+export { CONSENT_FIELDS };
 
 type ManifestRow = {
   ordinal: number;
