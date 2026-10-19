@@ -10,6 +10,7 @@ import type { GateRow } from '../../gates/store.ts';
 import { gateContext } from '../../gates/wait-meta.ts';
 import type { BoardMRWithReview, ExecutorState } from '../types.ts';
 import { AnsweredSheetBody } from './AnsweredSheet.tsx';
+import { boardsInConsole } from './boards-gate.ts';
 import { cleanTitle, signOff } from './format.ts';
 import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import { useGateForm } from './GateForm.tsx';
@@ -66,7 +67,7 @@ function DecisionQueueModal({
   onContinue,
   onLostChange,
   people,
-  readOnly,
+  readOnly: seatReadOnly,
 }: {
   gate: GateRow & { executor?: ExecutorState };
   /** Absent for a non-MR gate (queueExtras) -- the strip and face below
@@ -105,7 +106,15 @@ function DecisionQueueModal({
     const ctx = parseGateCtx(context);
     return ctx?.shape === 'plan@1' || ctx?.shape === 'post@1' ? ctx : null;
   }, [context]);
-  const proseContext = useMemo(() => paneContext(context), [context]);
+  const boards = useMemo(
+    () => boardsInConsole(gate.gateId, context, window.location),
+    [gate.gateId, context]
+  );
+  const proseContext = useMemo(
+    () => (boards ? boards.context : paneContext(context)),
+    [boards, context]
+  );
+  const readOnly = seatReadOnly ?? boards?.readOnly ?? null;
   // A respond-post gate whose contexts were all flattened to prose still
   // carries its per-thread questions; the sheet takes it without a reviewer.
   const sheetCtx = useMemo((): PlanCtx | PostCtx | null => {

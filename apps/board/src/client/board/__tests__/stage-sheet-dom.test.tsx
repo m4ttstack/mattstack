@@ -996,3 +996,45 @@ test('a restored draft keeps Proceed when only another question was picked', asy
   expect(($('input[value="server"]') as HTMLInputElement).checked).toBe(true);
   expect(($('input[value="proceed"]') as HTMLInputElement).checked).toBe(true);
 });
+
+test('a boards@1 gate sends the human to the console and offers no answer here', async () => {
+  await render(
+    ship({
+      gateId: 'g-boards',
+      kind: 'evidence-attach',
+      label: 'evidence-attach',
+      context: JSON.stringify({
+        'gate-ctx': 'boards@1',
+        summary: 'Two boards go up to !1235.',
+        boards: [
+          {
+            case: 'badge',
+            slot: 'after',
+            path: '/Users/acme/.fast-browser/screenshots/b.png',
+            caption: 'The badge fits',
+          },
+        ],
+      }),
+      questions: [
+        {
+          id: 'boards',
+          label: 'Anything on these boards that should not be public?',
+          multi: false,
+          options: [
+            { value: 'clear', label: 'Nothing here should stay private' },
+            { value: 'hide', label: 'Hide something first' },
+          ],
+        },
+      ],
+    }),
+    MR
+  );
+  const link = $('.tui-sheet-context-card a') as HTMLAnchorElement | null;
+  expect(link?.textContent).toBe('Look at these boards in the console');
+  expect(link?.getAttribute('href')).toBe(
+    'https://console.localhost/gates/g-boards'
+  );
+  expect(text('.tui-sheet-context-card')).not.toContain('gate-ctx');
+  expect(text('.tui-banner')).toContain('console');
+  expect(submit()).toBeNull();
+});

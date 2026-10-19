@@ -16,6 +16,7 @@ path. The key is both the discriminant and the version:
 | `findings@1` | each `findings-*` question's `context` | `findings[]`, each `id`, `severity`, `title`, `body` | `file`, `fix`, `evidence`, `disposition`, `kind` per entry |
 | `carryover@1` | a review-post gate's `thread-<n>` question's `context`, one question per earlier thread, each its own question and never a chunk of one. The question is `multi` with exactly two options, `post:<thread>` and `resolve:<thread>`; an option label ending ` (recommended)` is a default. An answer is the picked values, or `{value: [...], text}` when the human edited the reply, and `text` replaces `reply` | `thread`, `round`, `call` (`fixed`, `not-fixed`, `pushback-accepted` or `pushback-rejected`), `original`, `reply` | `file` (the thread's anchor), `authorReply`, `note` |
 | `skipped@1` | a review-post gate's `skipped-<n>` questions' `context`, chunked at four after the findings questions. Each question is `multi` with one option per entry, its value `restore:<id>`, joined one to one like `findings@1`. Nothing is recommended: a skipped finding comes back only when the human ticks it. Answers read back as one union across the chunks | `skipped[]`, each `id`, `round`, `severity`, `title`, `changed` (boolean: the code it pointed at moved since that round) | `file` per entry (the finding's `path:line` anchor) |
+| `boards@1` | an evidence gate's `context` (`evidence-attach`, `evidence-boards`, `evidence-redaction`): every board the human must look at before it goes up | `boards[]`, each `case`, `slot` (`before`, `after`, or `crop` for a redaction crop), `path` (absolute, a `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp` file, no `..`), `caption` (the board's claim) | `summary` (the sentence above the form), `theme` (`light` or `dark`) per entry |
 
 - Enums: `severity` is `blocking | non-blocking | question | none`;
   `verdict.call` is `valid | valid-low-value | pushback |
@@ -60,3 +61,11 @@ path. The key is both the discriminant and the version:
   contexts for the whole gate, never a half-structured one.
 - The in-pane form never shows the JSON: flatten each context to prose
   for the form's question text.
+- A `boards@1` gate carries at most 12 boards and always opens
+  structured: `gate_open` refuses one past 12, or one whose boards do not
+  fit the budget, so a site with more opens one gate per 12, in order.
+- A `boards@1` entry carries paths only, never image bytes. The console
+  shows each board as a thumbnail and serves only a path an open gate's
+  `boards@1` names, inside the screenshots folder or the evidence folders;
+  the form's prose lists each board's path, and an attended form opens
+  each one first.

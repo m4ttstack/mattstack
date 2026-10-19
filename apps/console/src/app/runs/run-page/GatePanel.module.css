@@ -46,6 +46,11 @@
   align-items: stretch;
 }
 
+/* A boards gate puts the boards above the form at full width. */
+.split[data-stacked] {
+  flex-direction: column;
+}
+
 .context {
   flex: 0 0 380px;
   min-width: 0;

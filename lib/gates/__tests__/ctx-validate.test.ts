@@ -36,7 +36,7 @@ const rejects: [string, string, (s: Src) => void, string][] = [
   ["severity outside the enum", PLAN, (s) => (s.questions[0].context.severity = "major"), "thread-1: severity: blocking|non-blocking|question|none"],
   ["verbatim reply without text", PLAN, (s) => (s.questions[1].context.reply = { kind: "verbatim" }), "thread-2: reply.text: required unless reply.kind is none"],
   ["retired verdict word", PLAN, (s) => (s.questions[1].context.verdict.call = "invalid"), "thread-2: verdict.call: valid|valid-low-value|pushback|needs-clarification|no-ask"],
-  ["question shape at gate level", PLAN, (s) => (s.context["gate-ctx"] = "thread@1"), "gate: gate-ctx must be one of plan@1, post@1, review@1"],
+  ["question shape at gate level", PLAN, (s) => (s.context["gate-ctx"] = "thread@1"), "gate: gate-ctx must be one of plan@1, post@1, review@1, boards@1"],
   ["unknown version", PLAN, (s) => (s.questions[0].context["gate-ctx"] = "thread@2"), "thread-1: gate-ctx must be one of thread@1, reply@1, findings@1, carryover@1, skipped@1"],
   ["null optional", PLAN, (s) => (s.context.round = null), "gate: round: integer when present"],
   ["points as a string", PLAN, (s) => (s.questions[0].context.claim.points = "one"), "thread-1: claim.points: array of strings when present"],
@@ -96,7 +96,7 @@ const rejects: [string, string, (s: Src) => void, string][] = [
     },
     "findings-1: findings: id f1 appears more than once",
   ],
-  ["findings shape at gate level", REVIEW, (s) => (s.context["gate-ctx"] = "findings@1"), "gate: gate-ctx must be one of plan@1, post@1, review@1"],
+  ["findings shape at gate level", REVIEW, (s) => (s.context["gate-ctx"] = "findings@1"), "gate: gate-ctx must be one of plan@1, post@1, review@1, boards@1"],
   ["review shape on a question", REVIEW, (s) => (s.questions[0].context["gate-ctx"] = "review@1"), "findings-1: gate-ctx must be one of thread@1, reply@1, findings@1, carryover@1, skipped@1"],
   [
     "a skipped entry with no restore option",

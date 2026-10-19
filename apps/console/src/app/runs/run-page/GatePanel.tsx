@@ -40,6 +40,7 @@ import {
 import type { GateRow } from '@mattstack/rt-client';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { parseBoards } from '../../../shared/gate-boards';
 import { isMine } from '../../../shared/gate-waiting';
 import { client } from '../../api';
 import { formatDuration } from '../derive/duration';
@@ -49,6 +50,7 @@ import { GateContext } from '../GateContext';
 import { Glyph } from '../Glyph';
 import { RetryAlert } from '../RetryAlert';
 import { StatusCard } from '../StatusCard';
+import { GateBoards } from './GateBoards';
 import classes from './GatePanel.module.css';
 import { useGateDraft } from './useGateDraft';
 
@@ -360,6 +362,7 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
     (typeof gate.context === 'string' && gate.context.length > 0
       ? gate.context
       : null);
+  const boards = parseBoards(context);
   const tone = mine ? 'mine' : 'herd';
   const age = formatDuration(now - gate.openedAt);
   const primaryLabel = `${last ? 'Submit' : 'Next'}${skippable ? ' · none' : ''}`;
@@ -445,8 +448,12 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
           </Text>
         </div>
       ) : (
-        <div className={classes.split}>
-          {context !== null && <Findings text={context} />}
+        <div className={classes.split} data-stacked={boards ? true : undefined}>
+          {boards ? (
+            <GateBoards gateId={gate.id} boards={boards} />
+          ) : context !== null ? (
+            <Findings text={context} />
+          ) : null}
           <Stack gap={10} className={classes.form}>
             {active && (
               <Question

@@ -1,0 +1,82 @@
+{
+  "run": {
+    "id": "20261008-1610",
+    "work_type": "feature",
+    "pipeline": "work",
+    "status": "running",
+    "started_at": "2026-10-08T15:30:00-05:00",
+    "ended_at": null,
+    "agent": {
+      "status": "blocked",
+      "pane": "fixture-pane-pippin"
+    },
+    "outcome": {
+      "status": "running"
+    }
+  },
+  "stages": [
+    {
+      "name": "provision",
+      "status": "done",
+      "started_at": "2026-10-08T15:30:00-05:00",
+      "ended_at": "2026-10-08T15:31:00-05:00"
+    },
+    {
+      "name": "plan",
+      "status": "done",
+      "started_at": "2026-10-08T15:31:00-05:00",
+      "ended_at": "2026-10-08T15:52:00-05:00"
+    },
+    {
+      "name": "evidence",
+      "status": "running",
+      "started_at": "2026-10-08T15:52:00-05:00",
+      "ended_at": null
+    }
+  ],
+  "fields": [
+    {
+      "key": "pipeline-stages",
+      "value": "provision plan evidence implement self-review ship watch-ci",
+      "produced_by": "provision",
+      "at": "2026-10-08T15:30:05-05:00"
+    },
+    {
+      "key": "ticket",
+      "value": "WEB-424",
+      "produced_by": "provision",
+      "at": "2026-10-08T15:30:10-05:00"
+    },
+    {
+      "key": "title",
+      "value": "Show delivery windows on rush orders",
+      "produced_by": "provision",
+      "at": "2026-10-08T15:30:15-05:00"
+    },
+    {
+      "key": "branch",
+      "value": "web-424-rush-windows",
+      "produced_by": "provision",
+      "at": "2026-10-08T15:30:20-05:00"
+    },
+    {
+      "key": "worktree",
+      "value": "/Users/acme/.mattstack/rt/worktrees/acme-web/pippin",
+      "produced_by": "provision",
+      "at": "2026-10-08T15:30:30-05:00"
+    },
+    {
+      "key": "mr",
+      "value": "https://gitlab.com/acme/web/-/merge_requests/424",
+      "produced_by": "evidence",
+      "at": "2026-10-08T16:05:00-05:00"
+    },
+    {
+      "key": "waiting-gate",
+      "value": "g-1610-attach",
+      "produced_by": "evidence",
+      "at": "2026-10-08T16:16:00-05:00"
+    }
+  ],
+  "decisions": []
+}

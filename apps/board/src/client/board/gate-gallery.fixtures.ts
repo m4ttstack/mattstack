@@ -1528,6 +1528,52 @@ export const evidenceAttach = runGate(
   }
 );
 
+export const evidenceBoards = runGate(
+  '20260915-102402-9f14-58831',
+  'spruce',
+  'w7:p3',
+  {
+    gateId: 'gallery-evidence-boards',
+    kind: 'evidence-boards:ship:1',
+    label: 'evidence-boards',
+    openedAt: minutesAgo(3),
+    context: JSON.stringify({
+      'gate-ctx': 'boards@1',
+      summary: 'Two files go up to MR !846.',
+      boards: [
+        {
+          case: 'frost-highlights',
+          slot: 'after',
+          path: '/Users/dev/.mattstack/work/20260915-102402-9f14-58831/evidence/a1/frost-highlights-after.png',
+          caption: 'Frost at dawn now shows in the station highlights',
+        },
+        {
+          case: 'frost-highlights',
+          slot: 'after',
+          theme: 'dark',
+          path: '/Users/dev/.mattstack/work/20260915-102402-9f14-58831/evidence/a1/frost-highlights-after-dark.png',
+          caption: 'Frost at dawn now shows in the station highlights',
+        },
+      ],
+    }),
+    questions: [
+      question(
+        'boards',
+        'Anything on these boards that should not be public?',
+        false,
+        [
+          opt('clear', 'Nothing here should stay private'),
+          opt('hide', 'Hide something first'),
+        ]
+      ),
+      question('next', 'Next', false, [
+        NEXT_OPTIONS.proceed,
+        NEXT_OPTIONS.hold,
+      ]),
+    ],
+  }
+);
+
 export const evidenceFinding = runGate(
   '20260909-145932-3e8a-72015',
   'willow',

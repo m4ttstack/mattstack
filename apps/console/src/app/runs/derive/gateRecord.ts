@@ -1,5 +1,6 @@
 import type { GateQuestion, GateRow } from '@mattstack/rt-client';
 
+import { boardsMarkdown, parseBoards } from '../../../shared/gate-boards';
 import { type FindingSeverity } from './findings';
 import { optionViews, questionAnswer } from './gates';
 
@@ -157,8 +158,12 @@ export function formRecord(gate: GateRow): FormRecord {
         .options.filter(o => o.picked)
         .map(o => o.text)
     : [];
-  const prose =
-    gate.context && !parseObject(gate.context) ? gate.context : null;
+  const boards = parseBoards(gate.context);
+  const prose = boards
+    ? boardsMarkdown(boards)
+    : gate.context && !parseObject(gate.context)
+      ? gate.context
+      : null;
   return {
     shape: 'form',
     summary: prose,

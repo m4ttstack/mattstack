@@ -30,6 +30,8 @@ digraph gate_protocol {
     no_registry_under_run [label="Under a run (no-registry answer)?" shape=diamond];
     gate_record [label="gate_record {runDb, stage, scope, shape: answers, answers, decidedBy: pane}" shape=plaintext];
     pane_action [label="paneAction?" shape=diamond];
+    boards_to_open [label="A boards@1 context in an attended session, with a board not yet opened?" shape=diamond];
+    open_board [label="open <board path>" shape=plaintext];
     present_pane_form [label="Present the in-pane gate form" shape=box];
     form_result [label="Gate form result?" shape=diamond];
     map_answer [label="Map the gate answer to exact option values" shape=box];
@@ -79,7 +81,10 @@ digraph gate_protocol {
     no_registry_under_run -> write_in_to_act [label="no"];
     gate_record -> write_in_to_act;
     trigger_site_opened -> pane_action;
-    pane_action -> present_pane_form [label="form"];
+    pane_action -> boards_to_open [label="form"];
+    boards_to_open -> open_board [label="yes: the next board"];
+    boards_to_open -> present_pane_form [label="no, or every board opened"];
+    open_board -> boards_to_open;
     pane_action -> rt_gate_wait [label="wait"];
     present_pane_form -> form_result;
     form_result -> map_answer [label="answered"];
@@ -173,6 +178,14 @@ too.
 
 Form-only, with no other gate call: the answer is the decision (no CAS),
 `decidedBy` `pane`, and under a run `gate_record` records it.
+
+### A boards@1 context in an attended session, with a board not yet opened?
+
+A terminal form cannot show an image, so in an attended session (see
+Attendance) a gate whose context is `boards@1` opens each board on Bash
+before its form: `open '<path>'`, once per entry, the path as the entry
+gives it. Unattended, the human answers in the console, which shows every
+board as a thumbnail, so nothing opens on this machine's screen.
 
 ### Present the in-pane gate form
 
@@ -275,7 +288,11 @@ with no run, end the verb quoting it.
 ## Structured context (gate-ctx@1)
 
 A site that opens a structured gate builds its source per
-`${CLAUDE_SKILL_DIR}/structured-context.txt` and opens it with `gate_open`.
+`${CLAUDE_SKILL_DIR}/structured-context.txt` and opens it with
+`gate_open {kind: <scope>, source: {context: <the object>, questions}, runDb?, stage?}`:
+the context is the object itself, never a string of it. A gate that asks the human about evidence boards (`evidence-attach`,
+`evidence-boards`, `evidence-redaction`) carries them as a `boards@1`
+context, so the console shows each board itself rather than its path.
 
 ## Answers are option values
 

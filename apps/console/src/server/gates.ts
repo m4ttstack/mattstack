@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import {
   isLocalRequest,
   type LocalServer,
@@ -24,6 +25,7 @@ import {
   FIXTURE_READ_ONLY,
   type RunsFixture,
 } from './fixtures/design/runsFixture';
+import { readGateBoard } from './gateBoards';
 
 /** Read fresh per call, not cached at module scope -- this is the shared
     test seam across every rt-client call site in this file (panes.ts uses
@@ -128,6 +130,20 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
       : fixture.outage
         ? { ok: false, error: FIXTURE_OUTAGE }
         : { ok: true, data: { runs: await fixture.listRuns() } };
+
+  // A gate on an mr: subject reaches its run through origin.runId, so the
+  // linked list is read when the run list misses it.
+  const findGate = async (
+    id: string
+  ): Promise<{ ok: true; gate?: GateRow } | { ok: false; error: string }> => {
+    for (const scope of [{}, { linked: true }]) {
+      const all = await allGates(scope);
+      if (!all.ok) return all;
+      const gate = all.gates.find(g => g.id === id);
+      if (gate) return { ok: true, gate };
+    }
+    return { ok: true };
+  };
 
   return (
     new Hono()
@@ -264,18 +280,58 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
         if (!focusRes.ok) return c.json({ error: focusRes.error }, 502);
         return c.json({ focused: true }, 200);
       })
+      // A board can show a customer's data, so it is served only to this
+      // machine, only while its gate waits on the human, and never cached.
+      .get(
+        '/api/gates/:id/board',
+        validator('query', (value): { path?: string } => {
+          const v = value as { path?: unknown };
+          return { path: typeof v?.path === 'string' ? v.path : undefined };
+        }),
+        async c => {
+          if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+            return c.json({ error: 'forbidden' }, 403);
+          }
+          const { id } = c.req.param();
+          const { path } = c.req.valid('query');
+          if (!path) return c.json({ error: 'no board' }, 404);
+          const image = (bytes: Uint8Array<ArrayBuffer>, mime: string) =>
+            new Response(bytes, {
+              status: 200,
+              headers: {
+                'content-type': mime,
+                'cache-control': 'no-store',
+                'x-content-type-options': 'nosniff',
+              },
+            });
+          if (fixture) {
+            const file = await fixture.boardImage(id, path);
+            if (!file) return c.json({ error: 'no board' }, 404);
+            return image(file.bytes, file.mime);
+          }
+          const found = await findGate(id);
+          if (!found.ok) return c.json({ error: found.error }, 502);
+          const gate = found.gate;
+          const file = gate
+            ? readGateBoard({
+                gate,
+                path,
+                home: homedir(),
+                uid: process.getuid?.() ?? -1,
+              })
+            : null;
+          if (!file) return c.json({ error: 'no board' }, 404);
+          return image(file.bytes, file.mime);
+        }
+      )
       .get('/api/gates/:id/locate', async c => {
         const { id } = c.req.param();
-        const all = await allGates();
-        if (!all.ok) return c.json({ error: all.error }, 502);
-        const row = all.gates.find(g => g.id === id);
+        const found = await findGate(id);
+        if (!found.ok) return c.json({ error: found.error }, 502);
+        const row = found.gate;
         if (!row) return c.json({ error: 'not-found' }, 404);
-        // listAllRunGates already scoped the list to subjectPrefix: 'run:' -- this
-        // re-check guards the daemon contract rather than filtering anything here.
-        if (!row.subject.startsWith('run:')) {
-          return c.json({ error: 'gate is not a run gate' }, 404);
-        }
-        const runId = row.subject.slice('run:'.length);
+        const runId = runIdOfGate(row);
+        if (!runId) return c.json({ error: 'gate is not a run gate' }, 404);
 
         // No repo in hand yet -- the gate names only the run id, so every repo's
         // runs must be searched, same as GET /api/runs does with no `repo` query.
