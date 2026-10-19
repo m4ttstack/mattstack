@@ -329,7 +329,7 @@ const ROWS: readonly SettingDef[] = [
     type: "array",
     scopes: ["user", "machine"],
     default: [
-      "agent", "apps", "bg", "chat", "ci", "cron", "daemon", "deps", "endpoint", "events", "gate", "herd", "home", "intercept", "pane", "plugin", "reconciler", "release", "runs", "secrets", "services", "settings", "setup", "skills", "state", "team", "tools", "uninstall", "verify",
+      "agent", "apps", "bg", "chat", "ci", "cron", "daemon", "deps", "endpoint", "events", "gate", "herd", "home", "intercept", "pane", "plugin", "reconciler", "release", "runs", "secrets", "services", "settings", "setup", "skills", "state", "team", "telemetry", "tools", "uninstall", "verify",
       "settings source-path", "settings schema", "settings test-push", "settings extension",
     ],
     merge: "replace",
