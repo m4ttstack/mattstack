@@ -78,7 +78,8 @@ Never hard-code `main` for the org clone's data: publish, team sync, pack
 sync, `rt team status` and the conversion scripts follow the checkout or
 the marker. `main` is named only where the pointer is read or written.
 `rt team create` starts a new org on its data branch, with the data
-branch's README and the root pointer, and `publishTeam`
+branch's README and the root pointer alone (an older rt never reads it: every
+invite seals the data branch, and a clone made from one never reads `main`), and `publishTeam`
 pushes the pending pointer to `main`, refusing a non-empty origin. An org
 admin's publish from the data branch also brings its README to the current
 words (`DATA_README`). `rt team invite` takes the data branch from

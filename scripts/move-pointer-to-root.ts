@@ -6,7 +6,9 @@
  * deletes the folder file, which rt v2.25.1 and older read alone, so it runs
  * only once the admin confirms every member is on a release that reads the
  * root file. Both commit to `main` through git's plumbing, never touching
- * this clone's files, and both are a dry run until --write.
+ * this clone's files, and both are a dry run until --write. It pushes with
+ * git's own credentials and the clone's credential settings, never rt's
+ * stored forge token.
  */
 import { execFileSync } from "child_process";
 import { mkdtempSync, rmSync } from "fs";
@@ -108,7 +110,7 @@ interface Checked {
 function scratchFor(clone: string, url: string): string {
   const scratch = mkdtempSync(join(tmpdir(), "rt-root-pointer-"));
   gitIn(scratch, ["init", "-q", "--bare"]);
-  const credentials = tryGit(clone, ["config", "--get-regexp", "^credential\\."]) ?? "";
+  const credentials = tryGit(clone, ["config", "--local", "--get-regexp", "^credential\\."]) ?? "";
   for (const line of credentials.split("\n").filter(Boolean)) {
     const at = line.indexOf(" ");
     gitIn(scratch, ["config", "--add", line.slice(0, at), line.slice(at + 1)]);
@@ -196,7 +198,14 @@ function run(opts: Options, clone: string, scratch: string, url: string): void {
     gitIn(scratch, ["push", "-q", url, `${commit}:refs/heads/main`]);
     out.print(out.line("done", opts.phase === "add" ? "Added .mattstack.jsonc to main and pushed it" : "Deleted mattstack/mattstack.jsonc from main and pushed it"));
   } catch (pushErr) {
-    gitIn(scratch, ["push", "-q", "--force", url, `${commit}:refs/heads/${FALLBACK_BRANCH}`]);
+    try {
+      gitIn(scratch, ["push", "-q", "--force", url, `${commit}:refs/heads/${FALLBACK_BRANCH}`]);
+    } catch (fallbackErr) {
+      throw new UserActionableError("pointer-push-failed", "Could not push the change to main or to a branch beside it", {}, {
+        why: "Check that git can push to the org repo from this Mac.",
+        log: `main: ${errorText(pushErr)}\n${FALLBACK_BRANCH}: ${errorText(fallbackErr)}`,
+      });
+    }
     out.print(
       out.line("needs-you", `main did not take the change, so it is on ${FALLBACK_BRANCH}`, "Land it by the repo's own rules, for example through a merge request into main"),
       out.callout("why", errorText(pushErr).split("\n").slice(-2).join(" ")),

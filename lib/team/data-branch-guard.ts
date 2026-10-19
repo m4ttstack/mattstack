@@ -95,8 +95,9 @@ export async function checkMainForOrgData(p: Probes, slug: string, opts: GuardOp
   const origin = await originFor(p, slug, opts);
   if (origin === null) return null;
   try {
-    const main = await readMainBranch(p, origin.remote, origin.token);
-    if (main === null || main.orgFiles.length === 0) return { kind: "clean" };
+    const main = await readMainBranch(p, origin.remote, origin.token, { timeoutMs: ASK_TIMEOUT_MS });
+    // Until main's pointer names a data branch, main still holds the org's data on purpose (a trial move, a pointer waiting on a merge request).
+    if (main === null || main.pointer?.dataBranch == null || main.orgFiles.length === 0) return { kind: "clean" };
     return { kind: "merged", files: main.orgFiles };
   } catch (err) {
     return { kind: "unknown", log: withoutUrls(err instanceof UserActionableError ? (err.log ?? err.message) : String(err)) };
@@ -151,9 +152,10 @@ export async function restoreDataBranch(p: Probes, slug: string, opts: RestoreOp
   if (check?.kind === "present") throw refused("restore-not-needed", `The ${branch} branch is still on the forge, so there is nothing to restore`);
   if (check?.kind !== "gone") throw refused("restore-no-copy", `Your copy of the org has no ${branch} branch, so rt cannot restore it from this Mac`, "Run this on another admin's Mac whose copy has it.");
 
-  const tip = (await localTip(p, dir, `refs/remotes/origin/${branch}`)) ?? readTeamLocal(p, slug).dataBranchTip ?? null;
+  // Either may be the newer: the tracking ref stops moving while a pull is held, and the record lags a copy that fetched without the guard.
+  const tips = [await localTip(p, dir, `refs/remotes/origin/${branch}`), readTeamLocal(p, slug).dataBranchTip ?? null].filter((t): t is string => t !== null);
   let ahead: number | null = null;
-  if (tip !== null) {
+  for (const tip of new Set(tips)) {
     const contains = await p.exec(["git", "merge-base", "--is-ancestor", tip, check.local], { cwd: dir, env: ENV });
     if (contains.code !== 0) {
       throw refused(
@@ -163,7 +165,8 @@ export async function restoreDataBranch(p: Probes, slug: string, opts: RestoreOp
       );
     }
     const counted = await p.exec(["git", "rev-list", "--count", `${tip}..${check.local}`], { cwd: dir, env: ENV });
-    ahead = counted.code === 0 ? Number(counted.stdout.trim()) : null;
+    const past = counted.code === 0 ? Number(counted.stdout.trim()) : null;
+    ahead = past === null ? ahead : ahead === null ? past : Math.min(ahead, past);
   }
   const subject = (await p.exec(["git", "log", "-1", "--format=%s", check.local], { cwd: dir, env: ENV })).stdout.trim();
   const plan: RestorePlan = { branch, sha: check.local, subject, ahead };

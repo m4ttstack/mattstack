@@ -60,6 +60,13 @@ describe("checkMainForOrgData", () => {
     expect(await checkMainForOrgData(w.p, "acme", noToken)).toEqual({ kind: "clean" });
   });
 
+  test("a main still holding a layout 3 org's data, before its pointer lands, is not reported as merged", async () => {
+    const w = world();
+    w.git("push", "-q", "--force", "origin", "refs/heads/main:refs/heads/main");
+    expect(w.atOrigin("ls-tree", "-r", "--name-only", "main")).toContain("mattstack/org/settings.org.jsonc");
+    expect(await checkMainForOrgData(w.p, "acme", noToken)).toEqual({ kind: "clean" });
+  });
+
   test("a main holding the org's files is merged, naming them", async () => {
     const w = world();
     w.git("push", "-q", "--force", "origin", "mattstack:main");
@@ -99,6 +106,19 @@ describe("restoreDataBranch", () => {
   test("a branch the forge still has is refused as nothing to restore", async () => {
     const w = world();
     await expect(restoreDataBranch(w.p, "acme", { ...noToken, push: true, forgeAccessSeams: forge().seams })).rejects.toMatchObject({ code: "restore-not-needed" });
+  });
+
+  test("a copy behind the recorded tip is refused even while its older tracking ref is still there", async () => {
+    const w = world();
+    const older = w.git("rev-parse", "mattstack").trim();
+    writeFileSync(join(w.root, "mattstack", "org", "settings.org.jsonc"), `${w.git("show", "HEAD:mattstack/org/settings.org.jsonc")}\n`);
+    w.git("commit", "-q", "-am", "a teammate's change");
+    w.git("push", "-q", "origin", "mattstack");
+    expect((await checkDataBranch(w.p, "acme", noToken))?.kind).toBe("present");
+    w.git("reset", "-q", "--hard", older);
+    w.git("update-ref", "refs/remotes/origin/mattstack", older);
+    w.deleteOnOrigin();
+    await expect(restoreDataBranch(w.p, "acme", { ...noToken, push: true, forgeAccessSeams: forge().seams })).rejects.toMatchObject({ code: "restore-behind" });
   });
 
   test("a copy behind origin's last known tip is refused, even after a pruning fetch dropped the tracking ref", async () => {

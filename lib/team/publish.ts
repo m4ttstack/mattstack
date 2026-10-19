@@ -22,7 +22,7 @@ import { unpublishedPaths } from "./publish-history.ts";
 import { containsCommit, remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
 import { headHoldsOrgStore } from "./org-layout.ts";
-import { DATA_README, DATA_README_REL, markerState } from "./org-marker.ts";
+import { DATA_BRANCH_WARNING, DATA_README, DATA_README_REL, markerState } from "./org-marker.ts";
 import { assertOriginTakesNewOrg, pendingPointer, publishPointer } from "./org-data-branch.ts";
 import { orgDirUnder } from "../rt-paths.ts";
 import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
@@ -67,7 +67,9 @@ async function commitDataReadme(p: Probes, slug: string, dir: string, branch: st
   if (own.kind !== "org" || own.dataBranch !== branch || !isOrgAdmin(roleFor(p, slug))) return;
   if ((await headHoldsOrgStore(p.exec, dir)) !== true) return;
   const file = join(dir, DATA_README_REL);
-  if (p.readFile(file) === DATA_README) return;
+  const current = p.readFile(file);
+  // An older rt's words still carry the warning; rewriting them would make two admins on different releases flip the file on every publish.
+  if (current !== null && current.includes(DATA_BRANCH_WARNING)) return;
   p.writeFile(file, DATA_README);
   const add = await p.exec(["git", "add", "--", DATA_README_REL], { cwd: dir });
   const commit = add.code === 0 ? await p.exec(["git", "commit", "-q", "-m", "team: say what the data branch is", "--", DATA_README_REL], { cwd: dir }) : add;
@@ -110,7 +112,6 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
 
   const branch = await orgBranch(p, dir);
   const ref = `refs/heads/${branch}`;
-  await commitDataReadme(p, slug, dir, branch);
 
   if (deferredRefusal !== null && remote) throw deferredRefusal;
   if (remote) {
@@ -133,6 +134,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const head = () => remoteHead(p, dir, urls[0]!, ref, opts.token ?? null, opts.tokenRemote ?? activeRemote);
   const base = await head();
   if (!base.ok) throw inspectionFailure();
+  if (deferredRefusal === null) await commitDataReadme(p, slug, dir, branch);
   const pointer = await pendingPointer(p, dir, branch);
   if (pointer !== null) await assertOriginTakesNewOrg(p, dir, pointer, urls[0]!, opts.token ?? null, opts.tokenRemote ?? activeRemote);
   const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base.sha ? `${base.sha}..${ref}` : ref);

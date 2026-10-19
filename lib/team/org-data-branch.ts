@@ -250,7 +250,8 @@ export async function convergeDataBranch(
  * into the team record. Only a copy on the data branch (`known`, as a join
  * cloned it, else the one its own marker names), whose HEAD holds the org
  * store, and that is not this Mac's trial counts; a record naming another
- * branch is never overwritten. True when it wrote.
+ * branch is never overwritten, and the tip only moves forward. True when it
+ * wrote the branch itself.
  */
 export async function rememberDataBranch(p: Probes, dir: string, known?: string): Promise<boolean> {
   const slug = basename(dir);
@@ -263,9 +264,12 @@ export async function rememberDataBranch(p: Probes, dir: string, known?: string)
   if ((await headHoldsOrgStore(p.exec, dir)) !== true) return false;
   const tip = await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`], { cwd: dir, env: ENV });
   const sha = tip.code === 0 && tip.stdout.trim() !== "" ? tip.stdout.trim() : undefined;
-  if (record.dataBranch === branch && (sha === undefined || record.dataBranchTip === sha)) return false;
-  editTeamLocal(p, slug, () => ({ dataBranch: branch, ...(sha !== undefined ? { dataBranchTip: sha } : {}) }));
-  return true;
+  const forward = sha !== undefined && sha !== record.dataBranchTip
+    && (record.dataBranchTip === undefined || (await p.exec(["git", "merge-base", "--is-ancestor", record.dataBranchTip, sha], { cwd: dir, env: ENV })).code === 0);
+  const newBranch = record.dataBranch !== branch;
+  if (!newBranch && !forward) return false;
+  editTeamLocal(p, slug, () => ({ dataBranch: branch, ...(forward ? { dataBranchTip: sha } : {}) }));
+  return newBranch;
 }
 
 /** git's words for a push origin turned away because the branch there holds commits this one lacks. */

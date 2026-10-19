@@ -411,6 +411,26 @@ describe("convergeDataBranch", () => {
     expect(await rememberDataBranch(probes(), clone)).toBe(false);
   });
 
+  test("a recorded tip newer than the tracking ref is never moved back, and a tip-only change is not reported", async () => {
+    await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
+    await rememberDataBranch(probes(), clone);
+    const older = git(clone, "rev-parse", "refs/remotes/origin/mattstack");
+    put(seed, "mattstack/org/settings.org.jsonc", '{ "x": 1 }');
+    git(seed, "checkout", "-q", "mattstack");
+    put(seed, "mattstack/org/settings.org.jsonc", '{ "x": 1 }');
+    git(seed, "commit", "-q", "-am", "newer");
+    git(seed, "push", "-q", "origin", "mattstack");
+    const newer = git(origin, "rev-parse", "mattstack");
+    updateTeamLocal(probes(), "clone", { dataBranchTip: newer });
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+    expect(recorded().dataBranchTip).toBe(newer);
+    git(clone, "fetch", "-q", "origin", "+mattstack:refs/remotes/origin/mattstack");
+    git(clone, "update-ref", "refs/remotes/origin/mattstack", newer);
+    updateTeamLocal(probes(), "clone", { dataBranchTip: older });
+    expect(await rememberDataBranch(probes(), clone)).toBe(false);
+    expect(recorded().dataBranchTip).toBe(newer);
+  });
+
   test("a copy on main or on this Mac's trial branch remembers nothing", async () => {
     expect(await rememberDataBranch(probes(), clone)).toBe(false);
     git(seed, "checkout", "-q", "-b", "trial", "mattstack");

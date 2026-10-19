@@ -37,25 +37,26 @@ export interface MainBranch {
  * yet; a fetch that fails throws, because reading it as "no pointer" would
  * make invite fall back to main and seal the wrong branch.
  */
-export async function readMainBranch(p: Pick<Probes, "exec">, remote: string, token: string | null): Promise<MainBranch | null> {
+export async function readMainBranch(p: Pick<Probes, "exec">, remote: string, token: string | null, opts: { timeoutMs?: number } = {}): Promise<MainBranch | null> {
+  const bound = opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {};
   const scratch = mkdtempSync(join(tmpdir(), "rt-main-pointer-scratch-"));
   const env = { GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" };
   try {
     const init = await p.exec(["git", "init", "-q", "--bare", scratch], { env });
     if (init.code !== 0) throw unreadable(withoutUrls(`${init.stdout}\n${init.stderr}`.trim()));
     const fetch = gitWithToken(["-C", scratch, "fetch", "-q", "--depth", "1", "--filter=blob:none", remote, "main"], token, env, { remote });
-    const fetched = await p.exec(fetch.argv, { env: fetch.env });
+    const fetched = await p.exec(fetch.argv, { env: fetch.env, ...bound });
     if (fetched.code !== 0) {
       const output = withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim());
       if (MISSING_REF.test(output)) return null;
       throw unreadable(output);
     }
-    const listed = await p.exec(["git", "-C", scratch, "ls-tree", "-r", "--name-only", "FETCH_HEAD", "--", "mattstack"], { env });
+    const listed = await p.exec(["git", "-C", scratch, "ls-tree", "-r", "--name-only", "FETCH_HEAD", "--", "mattstack"], { env, ...bound });
     if (listed.code !== 0) throw unreadable(withoutUrls(`${listed.stdout}\n${listed.stderr}`.trim()));
     const orgFiles = listed.stdout.split("\n").filter((path) => path !== "" && path !== ORG_MARKER_REL);
     const shown = await showMarkerAt(async (spec) => {
       const show = gitWithToken(["-C", scratch, "show", spec], token, env, { remote });
-      return p.exec(show.argv, { env: show.env });
+      return p.exec(show.argv, { env: show.env, ...bound });
     }, "FETCH_HEAD");
     if (shown.code !== 0) {
       if (MISSING_PATH_RE.test(shown.stderr)) return { pointer: null, orgFiles };
