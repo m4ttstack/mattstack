@@ -60,7 +60,7 @@ import { startPeerWaker } from "./daemon/peer-waker.ts";
 import { readSwitchboardToken } from "./daemon/handlers/secrets.ts";
 import { readBoardSwitchboardToken } from "./team/board-token.ts";
 import { collectPing, readPingVersions } from "./telemetry/ping.ts";
-import { makeTelemetryTick } from "./telemetry/tick.ts";
+import { startTelemetry } from "./telemetry/start.ts";
 
 import { SystemProcessScanner } from "./daemon/system-process-scanner.ts";
 
@@ -1278,26 +1278,28 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         healthInterval = safeInterval(() => healthSampler.sample(), 5 * 60_000, "health-sample", log);
 
         const telemetryProbes = createRealProbes();
-        const telemetryTick = makeTelemetryTick({
-          enabled: () => getSetting<boolean>("telemetry.enabled").value,
-          versions: () => readPingVersions(telemetryProbes),
-          collect: () => collectPing(telemetryProbes),
-          token: () => readBoardSwitchboardToken(telemetryProbes, () => readSwitchboardToken()),
-          post: async (url, body, token) =>
-            (
-              await telemetryProbes.fetch(url, {
-                method: "POST",
-                headers: { "content-type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                body,
-                timeoutMs: 10_000,
-              })
-            ).status,
-          url: () => `${switchboardUrl()}/telemetry/ping`,
-          now: Date.now,
-          log: loggerHandle.childLogger("telemetry"),
-        });
-        void telemetryTick();
-        telemetryInterval = safeInterval(() => void telemetryTick(), 5 * 60_000, "telemetry", log);
+        const telemetryLog = loggerHandle.childLogger("telemetry");
+        telemetryInterval = startTelemetry(
+          {
+            enabled: () => getSetting<boolean>("telemetry.enabled").value,
+            versions: () => readPingVersions(telemetryProbes),
+            collect: () => collectPing(telemetryProbes),
+            token: () => readBoardSwitchboardToken(telemetryProbes, () => readSwitchboardToken()),
+            post: async (url, body, token) =>
+              (
+                await telemetryProbes.fetch(url, {
+                  method: "POST",
+                  headers: { "content-type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                  body,
+                  timeoutMs: 10_000,
+                })
+              ).status,
+            url: () => `${switchboardUrl()}/telemetry/ping`,
+            now: Date.now,
+            log: telemetryLog,
+          },
+          log,
+        );
 
         // 250ms event-loop drift monitor; also writes the cross-process
         // liveness heartbeat file every ~2s. Both timers unref'd and db-free.
