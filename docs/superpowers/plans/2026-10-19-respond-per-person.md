@@ -306,4 +306,4 @@
 
 ## Follow-up outside this plan
 
-- The claimview pack's respond binding moves to `mr-respond@3` in its own repo, with no mattstack ticket ids. Until then the wrapper's backstop keeps its replies to the person.
+- The team pack's respond binding moves to `mr-respond@3` in its own repo, with no mattstack ticket ids. Until then the wrapper's backstop keeps its replies to the person.
