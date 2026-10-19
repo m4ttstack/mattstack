@@ -146,6 +146,31 @@ describe("run_stage description", () => {
     expect(description).toContain("A start on a stage whose latest attempt is still running refuses");
     for (const move of ["run_enter", "run_next", "run_resolve"]) expect(description).toContain(move);
   });
+
+  test("says a start on a done run needs reopen, and only a done run reopens", () => {
+    const { description, inputSchema } = tool(fakeDeps().deps, "run_stage");
+    expect(description).toContain("reopen: true");
+    expect(description).toContain("Only a done run reopens");
+    expect((inputSchema as { properties: Record<string, unknown> }).properties.reopen).toMatchObject({ type: "boolean" });
+  });
+});
+
+describe("run_stage reopen", () => {
+  test("start passes --reopen only when reopen is true", async () => {
+    const { deps, calls } = fakeDeps();
+    await tool(deps, "run_stage").handler({ runDb: DB, action: "start", stage: "ship", reopen: true }, RUNS_ROOT_ENV);
+    await tool(deps, "run_stage").handler({ runDb: DB, action: "start", stage: "ship", reopen: false }, RUNS_ROOT_ENV);
+    expect(calls.map((c) => c.args)).toEqual([["--stage", "ship", "--reopen"], ["--stage", "ship"]]);
+  });
+
+  test("reopen that is not a boolean, or true on another action, is a field error", async () => {
+    const { deps, calls } = fakeDeps();
+    expect((await tool(deps, "run_stage").handler({ runDb: DB, action: "start", stage: "ship", reopen: "yes" }, RUNS_ROOT_ENV)).error).toBe('"reopen" must be a boolean');
+    expect((await tool(deps, "run_stage").handler({ runDb: DB, action: "done", stage: "ship", reopen: true }, RUNS_ROOT_ENV)).error).toBe('"reopen" goes only with action start');
+    expect(calls).toEqual([]);
+    await tool(deps, "run_stage").handler({ runDb: DB, action: "done", stage: "ship", reopen: false }, RUNS_ROOT_ENV);
+    expect(calls.map((c) => c.verb)).toEqual(["stage-done"]);
+  });
 });
 
 describe("run tools pass runDb as RT_RUN_DB and cwd through", () => {
@@ -535,6 +560,22 @@ describe("run engine tools against a real run store", () => {
     const db = new Database(e.runDb, { readonly: true });
     expect(db.query("SELECT attempt, status FROM stages WHERE name = 'plan'").all()).toEqual([{ attempt: 1, status: "running" }]);
     db.close();
+  });
+
+  test("a done run: run_hold and run_stage start both refuse until reopen, then both work", async () => {
+    const { skillDir, env, deps } = store();
+    const e = (await tool(deps, "run_enter").handler({ flags: FLAGS_DEMO, skillDir }, env)).body as { runDb: string };
+    await tool(deps, "run_field_set").handler({ runDb: e.runDb, key: "plan", value: "done", stage: "plan" }, env);
+    await tool(deps, "run_next").handler({ runDb: e.runDb, stage: "plan" }, env);
+    await tool(deps, "run_next").handler({ runDb: e.runDb, stage: "build" }, env);
+    expect((await tool(deps, "run_resolve").handler({ runDb: e.runDb, stage: "build", next: "done", decidedBy: "pane" }, env)).body).toMatchObject({ applied: "done" });
+
+    const hold = () => tool(deps, "run_hold").handler({ runDb: e.runDb, stage: "build", reason: "redaction", decidedBy: "pane" }, env);
+    const start = (reopen?: boolean) => tool(deps, "run_stage").handler({ runDb: e.runDb, action: "start", stage: "build", ...(reopen === undefined ? {} : { reopen }) }, env);
+    expect((await hold()).error).toContain("this run is done; nothing to hold. Reopen a stage on it first with run_stage (action: start, reopen: true)");
+    expect((await start()).error).toContain("this run is done; nothing to start. Reopen a stage on it first with run_stage (action: start, reopen: true)");
+    expect((await start(true)).ok).toBe(true);
+    expect((await hold()).body).toMatchObject({ ok: true, held: true, at: { stage: "build", attempt: 2, status: "running" } });
   });
 
   test("run_field_set with ifSha256 against a real run: a match writes, a stale hash refuses and keeps the value", async () => {

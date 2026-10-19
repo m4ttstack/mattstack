@@ -1,0 +1,2 @@
+1. Tell the operator that run r9 is still running, so there is nothing to reopen ("this run is still running; nothing to reopen. Resume it with run_enter"), and stop there without improvising a re-capture.
+2. No.

@@ -1,0 +1,3 @@
+1. `run_list {repo: widgets, pipelines}` to find the r9 row (runDb `/runs/widgets/r9/state.db`), then `run_stage {runDb: /runs/widgets/r9/state.db, action: start, stage: ship, reopen: true}`, then, if the reopen is ok, `run_enter {flags, skillDir, resume: r9}` (resume by run id, never runDb), then `run_field_get {runDb, key: waiting-gate}` (plus `gate_reconcile` only if one is armed).
+2. The ship stage file at the position `run_enter` returns (`at`), taking its re-capture route with the operator's ask as the attach consent.
+3. No.

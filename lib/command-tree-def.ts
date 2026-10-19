@@ -497,7 +497,10 @@ const runsSubcommands: Record<string, CommandNode> = {
     description: "Pipeline: start a stage attempt (reads RT_RUN_DB)",
     module: "./commands/runs-write.ts",
     fn: "runsStageStart",
-    args: [{ name: "Stage", flag: "--stage", type: "text", placeholder: "plan", hint: "Stage name" }],
+    args: [
+      { name: "Stage", flag: "--stage", type: "text", placeholder: "plan", hint: "Stage name" },
+      { name: "Reopen", flag: "--reopen", type: "boolean", default: false, hint: "Reopen a done run at this stage" },
+    ],
   },
   "stage-done": {
     description: "Pipeline: finish the latest attempt of a stage (reads RT_RUN_DB)",

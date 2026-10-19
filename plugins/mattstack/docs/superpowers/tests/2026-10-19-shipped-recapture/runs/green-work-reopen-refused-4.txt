@@ -1,0 +1,2 @@
+1. The reopen on run r9 was refused because the run is still running, so there is nothing to reopen; the move it names is to resume it with `run_enter`, and I'm stopping here to report that rather than resuming on my own.
+2. No.

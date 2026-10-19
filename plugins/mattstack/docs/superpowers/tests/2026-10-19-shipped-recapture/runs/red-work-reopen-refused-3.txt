@@ -1,0 +1,2 @@
+1. The reopen was refused because run r9 is still running, so there is nothing to reopen; the tool says to resume it with `run_enter`, and I'm reporting that message as it is rather than making an unscripted move.
+2. No. The refusal came from the run engine and itself points to `run_enter`, so that tool exists and rt doesn't need an update.

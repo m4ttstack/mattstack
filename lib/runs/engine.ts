@@ -5,7 +5,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { join } from "path";
-import { decisionRecord, fieldSet, runStatus, stageEnd, stageStart, type Fail, type Ok } from "./write.ts";
+import { closedRunMove, CONSENT_FIELDS, decisionRecord, fieldSet, runStatus, stageEnd, stageStart, type Fail, type Ok } from "./write.ts";
 
 export type StageStatus = "running" | "done" | "failed" | "redirected";
 export type Position = { stage: string; attempt: number; status: StageStatus; file: string | null };
@@ -20,7 +20,7 @@ export type ManifestStage = {
 };
 export type ManifestInput = { stage: string; name?: string; file?: string; consumes: string[]; produces: string[] };
 
-export const CONSENT_FIELDS: Readonly<Record<string, readonly string[]>> = { ship: ["shipTarget"] };
+export { CONSENT_FIELDS };
 
 type ManifestRow = {
   ordinal: number;
@@ -105,7 +105,7 @@ type Held = Ok<{ held: true; at: Position; scope: string }> | Fail;
 function holdInTx(db: Database, o: { stage: string; reason?: string; decidedBy: string; now?: number }): Held {
   const run = db.query("SELECT status FROM runs LIMIT 1").get() as { status: string } | undefined;
   if (!run) return refuse("this run has no run row");
-  if (run.status !== "running") return refuse(`this run is ${run.status}; nothing to hold`);
+  if (run.status !== "running") return refuse(`this run is ${run.status}; nothing to hold. ${closedRunMove(run.status)}`);
   const at = positionOf(db, o.stage);
   if (!at) return { ok: false, error: `stage ${o.stage} has no row in this run`, code: 3 };
   const reason = o.reason ?? "held";
@@ -310,7 +310,7 @@ export function resolveStage(
       if (!run) return refuse("this run has no run row");
       if (run.status !== "running") {
         if (o.next === "done" && run.status === "done") return { ok: true, applied: "done", status: "done" };
-        return refuse(`this run is ${run.status}; nothing to resolve`);
+        return refuse(`this run is ${run.status}; nothing to resolve. ${closedRunMove(run.status)}`);
       }
 
       const latest = db.query("SELECT attempt, status FROM stages WHERE name = ? ORDER BY attempt DESC LIMIT 1").get(o.stage) as
