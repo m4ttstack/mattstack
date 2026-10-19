@@ -22,7 +22,8 @@ digraph prove_and_tag {
     "Watch the rehearsal run to completion" [shape=box];
     "Rehearsal result?" [shape=diamond];
     "Rehearsal red cause?" [shape=diamond];
-    "gh run rerun <run-id> --failed, an outside red, uncounted" [shape=plaintext];
+    "Rehearsal outside reruns = 6?" [shape=diamond];
+    "gh run rerun <run-id> --failed, an outside red" [shape=plaintext];
     "Rehearsal reruns = 2?" [shape=diamond];
     "gh run rerun <run-id> --failed" [shape=plaintext];
     "Diff stays inside the served-app path?" [shape=diamond];
@@ -46,6 +47,7 @@ digraph prove_and_tag {
     "Walkthrough result?" [shape=diamond];
     "Read the walkthrough failure" [shape=box];
     "Walkthrough failure cause?" [shape=diamond];
+    "Walkthrough outside reruns = 6?" [shape=diamond];
     "Runs of the failing scenario >= 2?" [shape=diamond];
     "STOP: a skipped phase is not green" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "git fetch origin, before the tag" [shape=plaintext];
@@ -60,8 +62,12 @@ digraph prove_and_tag {
     "Off-script gate: rehearsal run wedged" [shape=box];
     "Rehearsal run wedged: gate rounds = 2?" [shape=diamond];
     "Off-script gate: rehearsal still red" [shape=box];
+    "Off-script gate: rehearsal outside red persists" [shape=box];
+    "Rehearsal outside red persists: gate rounds = 2?" [shape=diamond];
     "Rehearsal still red: gate rounds = 2?" [shape=diamond];
     "Off-script gate: walkthrough still red" [shape=box];
+    "Off-script gate: walkthrough outside failure persists" [shape=box];
+    "Walkthrough outside failure persists: gate rounds = 2?" [shape=diamond];
     "Walkthrough still red: gate rounds = 2?" [shape=diamond];
     "Off-script gate: a fix landed after the exercised sha" [shape=box];
     "A fix landed after the exercised sha: gate rounds = 2?" [shape=diamond];
@@ -85,9 +91,17 @@ digraph prove_and_tag {
     "Rehearsal ran another sha: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Rehearsal result?" -> "Off-script gate: rehearsal ran another sha" [label="green at another sha: main moved"];
     "Rehearsal result?" -> "Rehearsal red cause?" [label="red"];
-    "Rehearsal red cause?" -> "gh run rerun <run-id> --failed, an outside red, uncounted" [label="outside: Apple, notary, CloudKit, network or runner"];
+    "Rehearsal red cause?" -> "Rehearsal outside reruns = 6?" [label="outside: Apple, notary, CloudKit, network or runner"];
+    "Rehearsal outside reruns = 6?" -> "gh run rerun <run-id> --failed, an outside red" [label="no"];
+    "Rehearsal outside reruns = 6?" -> "Off-script gate: rehearsal outside red persists" [label="yes: budget spent"];
+    "Off-script gate: rehearsal outside red persists" -> "Diff stays inside the served-app path?" [label="take: Matt names a green run at the exercised sha"];
+    "Off-script gate: rehearsal outside red persists" -> "Rehearsal outside red persists: gate rounds = 2?" [label="iterate: the service is back"];
+    "Off-script gate: rehearsal outside red persists" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: rehearsal outside red persists" -> "Handed back to Matt" [label="hand back"];
+    "Rehearsal outside red persists: gate rounds = 2?" -> "gh run rerun <run-id> --failed, an outside red" [label="no: retry"];
+    "Rehearsal outside red persists: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Rehearsal red cause?" -> "Rehearsal reruns = 2?" [label="ours: our code or config, or unclear"];
-    "gh run rerun <run-id> --failed, an outside red, uncounted" -> "Watch the rehearsal run to completion";
+    "gh run rerun <run-id> --failed, an outside red" -> "Watch the rehearsal run to completion";
     "Off-script gate: rehearsal run wedged" -> "Diff stays inside the served-app path?" [label="take: Matt reports it finished green at the exercised sha"];
     "Off-script gate: rehearsal run wedged" -> "Rehearsal run wedged: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: rehearsal run wedged" -> "Held: release paused, resume point named" [label="hold"];
@@ -132,7 +146,15 @@ digraph prove_and_tag {
     "Walkthrough result?" -> "STOP: a skipped phase is not green" [label="tempted to count a skip as green"];
     "STOP: a skipped phase is not green" -> "Read the walkthrough failure";
     "Read the walkthrough failure" -> "Walkthrough failure cause?";
-    "Walkthrough failure cause?" -> "tart list" [label="outside: VM degradation, network or GitHub; rerun it alone, uncounted"];
+    "Walkthrough failure cause?" -> "Walkthrough outside reruns = 6?" [label="outside: VM degradation, network or GitHub"];
+    "Walkthrough outside reruns = 6?" -> "tart list" [label="no: rerun that scenario alone"];
+    "Walkthrough outside reruns = 6?" -> "Off-script gate: walkthrough outside failure persists" [label="yes: budget spent"];
+    "Off-script gate: walkthrough outside failure persists" -> "git fetch origin, before the tag" [label="take: Matt waives the walkthrough on the record"];
+    "Off-script gate: walkthrough outside failure persists" -> "Walkthrough outside failure persists: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: walkthrough outside failure persists" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: walkthrough outside failure persists" -> "Handed back to Matt" [label="hand back"];
+    "Walkthrough outside failure persists: gate rounds = 2?" -> "tart list" [label="no: retry"];
+    "Walkthrough outside failure persists: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Walkthrough failure cause?" -> "Runs of the failing scenario >= 2?" [label="ours: inside the app, or unclear"];
     "Runs of the failing scenario >= 2?" -> "tart list" [label="no: rerun that scenario"];
     "Off-script gate: walkthrough still red" -> "git fetch origin, before the tag" [label="take: Matt waives the walkthrough on the record"];
@@ -184,12 +206,14 @@ as `GITLAB_TOKEN`), `MATTSTACK_VMTEST_ORG=matts-hasura-demo` and
 `<scratch>` is this session's scratchpad.
 
 Counters: the first dispatch is not a rerun, so `Rehearsal reruns = 2?` is yes after the second
-counted `gh run rerun <run-id> --failed` has also gone red. Only a red of ours is counted: a red
-`Rehearsal red cause?` reads as outside reruns uncounted, as often as the log keeps naming an
-outside cause. `Runs of the failing scenario >= 2?` counts the runs of the scenario that just
-failed for a reason of ours, its first run included, so it is yes from that scenario's second
-such run on, including runs after an iterate; a run that failed for an outside cause is not
-counted, and each of the four scenarios keeps its own count. Every
+counted `gh run rerun <run-id> --failed` has also gone red; it counts only reds of ours. A red
+`Rehearsal red cause?` reads as outside is counted by `Rehearsal outside reruns = 6?` instead,
+which is yes after the sixth outside rerun has also gone red outside. `Runs of the failing
+scenario >= 2?` counts the runs of the scenario that just failed for a reason of ours, its first
+run included, so it is yes from that scenario's second such run on, including runs after an
+iterate. A run that failed for an outside cause is counted by `Walkthrough outside reruns = 6?`
+instead, which is yes after that scenario's sixth outside rerun has also failed outside. Each of
+the four scenarios keeps its own two counts. Every
 `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes once
 Matt has answered iterate twice.
 
@@ -213,7 +237,7 @@ rehearsal to rerun; publish the intermediate release first.
 
 Read the failed step's log (`gh run view <run-id> --log-failed`) before any rerun, and decide
 whose red it is. A job that never started has no step log: read its status and annotations
-(`gh run view <run-id>`) instead. It is outside, and reruns uncounted, only when the failing step's error names a
+(`gh run view <run-id>`) instead. It is outside, and reruns under its own budget, only when the failing step's error names a
 service or machine we do not run:
 
 - `NSURLErrorDomain` code `-1001` (timed out), `-1004` (could not connect) or `-1005` (connection
@@ -226,12 +250,13 @@ service or machine we do not run:
 
 Everything else is ours: a test, an assert, a build, signing or config error, a notarization that
 came back `Invalid` or `Rejected`, a missing secret. An unclear red is ours. When more than one
-step failed and any of them is ours, the red is ours. An outside red keeps rerunning past
-`Rehearsal reruns = 2?`; the first red that points at our code or config takes the counted path
-and, at the budget, its gate.
+step failed and any of them is ours, the red is ours. An outside red never counts against
+`Rehearsal reruns = 2?`: it reruns until `Rehearsal outside reruns = 6?` is spent, and then
+stops at its gate. The first red that points at our code or config takes the counted path and,
+at its budget, its own gate.
 
 Every status names the kind of red and quotes the log line it rests on, for example
-`rehearsal red (outside: stapler NSURLError -1005 after Accepted), rerun uncounted` or
+`rehearsal red (outside: stapler NSURLError -1005 after Accepted), outside rerun 3 of 6` or
 `rehearsal red (ours: check-bundle failed), counted rerun 1 of 2`.
 
 ### Stage the update leg's feed
@@ -340,11 +365,11 @@ history: a failure inside macOS's own UI (the System Settings Full Disk Access t
 that never reaches the app) at a step an earlier run of any scenario passed on the same build the
 same day points at the VM. So does a network or GitHub service failure with the signatures
 `Rehearsal red cause?` lists. Both are outside: `Walkthrough failure cause?` reruns that scenario
-alone, with no second VM up, and the run is not counted toward
-`Runs of the failing scenario >= 2?`, as often as the failure keeps matching. A failure inside
+alone, with no second VM up. The run is not counted toward
+`Runs of the failing scenario >= 2?`; `Walkthrough outside reruns = 6?` counts it instead. A failure inside
 the app, one no earlier run on this build passed, or an unclear one is ours and counted: a
 regression until shown otherwise. Every status names the kind, for example
-`solo red (outside: VM degradation at the FDA toggle), rerun alone, uncounted` or
+`solo red (outside: VM degradation at the FDA toggle), outside rerun 2 of 6` or
 `solo red (ours: assert failed), run 1 of 2`.
 
 When `deck.managed` fails, read `~/.mattstack/deck/logs/agent.log` from the guest-home tarball first:
@@ -392,6 +417,20 @@ it, not iterate. The hold names "re-prepare on the new main" as its resume point
 merges, re-entering the release routes through
 `notes commit on origin/main, a fix for this release merged after it, no tag` to preflight and
 then Prepare.
+
+### Off-script gate: rehearsal outside red persists
+
+Six outside reruns have gone red with an outside cause. Quote the last failure's log line and
+name the service it points at. Take: Matt names a green run at the exercised sha. Iterate: the
+service is back (Matt checked, or says to try again), and the failed jobs rerun, counted by
+`Rehearsal outside red persists: gate rounds = 2?`.
+
+### Off-script gate: walkthrough outside failure persists
+
+Six outside reruns of one scenario have failed with an outside cause. Quote the last run's
+failing phase and why it reads as outside. Take: Matt waives that scenario; record his words with
+the answer. Iterate: Matt fixed the cause (the image, the network), and the scenarios not yet
+green run again, counted by `Walkthrough outside failure persists: gate rounds = 2?`.
 
 ### Off-script gate: walkthrough still red
 

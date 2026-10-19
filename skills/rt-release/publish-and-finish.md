@@ -32,6 +32,10 @@ digraph publish_and_finish {
     "A tag-push run for <tag> listed?" [shape=diamond];
     "rt release verify <tag> --json, rerun after the wait" [shape=plaintext];
     "Publish run failure cause?" [shape=diamond];
+    "Publish outside reruns = 6?" [shape=diamond];
+    "Outside failure inside Create Release?" [shape=diamond];
+    "Off-script gate: publish outside failure persists" [shape=box];
+    "Publish outside failure persists: gate rounds = 2?" [shape=diamond];
     "gh release delete <tag>" [shape=plaintext];
     "gh run rerun <run-id> --failed, after the delete" [shape=plaintext];
     "gh run rerun <run-id> --failed, an outside cause before Create Release" [shape=plaintext];
@@ -114,8 +118,17 @@ digraph publish_and_finish {
     "Publish still pending: gate rounds = 2?" -> "rt release verify <tag> --json, rerun after the wait" [label="no: retry"];
     "Publish still pending: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Verify reruns = 4?" -> "Off-script gate: publish still pending" [label="yes: budget spent"];
-    "Publish run failure cause?" -> "gh release delete <tag>" [label="outside, in Create Release: the asset-upload 500, or a runner or network loss mid-upload"];
-    "Publish run failure cause?" -> "gh run rerun <run-id> --failed, an outside cause before Create Release" [label="outside, before Create Release: Apple, notary, CloudKit, network or runner"];
+    "Publish run failure cause?" -> "Publish outside reruns = 6?" [label="outside: Apple, notary, CloudKit, network, runner or the asset-upload 500"];
+    "Publish outside reruns = 6?" -> "Outside failure inside Create Release?" [label="no"];
+    "Publish outside reruns = 6?" -> "Off-script gate: publish outside failure persists" [label="yes: budget spent"];
+    "Outside failure inside Create Release?" -> "gh release delete <tag>" [label="yes: the asset-upload 500, or a runner or network loss mid-upload"];
+    "Outside failure inside Create Release?" -> "gh run rerun <run-id> --failed, an outside cause before Create Release" [label="no: an earlier step, no release made"];
+    "Off-script gate: publish outside failure persists" -> "rt release verify <tag> --json, rerun after the wait" [label="take: Matt recovered the run by hand"];
+    "Off-script gate: publish outside failure persists" -> "Publish outside failure persists: gate rounds = 2?" [label="iterate: the service is back"];
+    "Off-script gate: publish outside failure persists" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: publish outside failure persists" -> "Handed back to Matt" [label="hand back"];
+    "Publish outside failure persists: gate rounds = 2?" -> "Outside failure inside Create Release?" [label="no: retry"];
+    "Publish outside failure persists: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "gh run rerun <run-id> --failed, an outside cause before Create Release" -> "rt release verify <tag> --json, rerun after the wait";
     "Off-script gate: publish run failed another way" -> "rt release verify <tag> --json, rerun after the wait" [label="take: Matt recovered the run by hand"];
     "Off-script gate: publish run failed another way" -> "Publish run failed another way: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
@@ -219,9 +232,9 @@ release while the public API and mattstack.dev keep serving the previous tag; co
 assets by hand does not publish it, the flip does.
 
 Counters: the first `rt release verify <tag> --json` is not a rerun, so `Verify reruns = 4?` is
-yes after the fourth rerun. `Draft flips = 1?` counts flips done, so it is yes after the first. A
-rerun after an outside failure (`Publish run failure cause?`), a delete-and-rerun included, is
-never counted. `Docs deploy attempts = 2?`
+yes after the fourth rerun. `Draft flips = 1?` counts flips done, so it is yes after the first. `Publish
+outside reruns = 6?` counts the reruns after an outside failure, delete-and-reruns included, so
+it is yes after the sixth has also failed outside. `Docs deploy attempts = 2?`
 counts every deploy run, the first included. `Update-machine runs = 2?` counts every `--yes` run
 in this release, the first included. Every `<origin>: gate rounds = 2?` counts the iterate
 answers received at that gate: it is yes once Matt has answered iterate twice.
@@ -253,12 +266,12 @@ any failed step is ours.
 Where it failed picks the recovery. Create Release is the step that makes the release object, so
 a failure inside it (the asset-upload 500, or a runner or network loss mid-upload) leaves a
 release behind: delete it, which keeps the git tag, then rerun the failed jobs. A failure in any
-earlier step left no release, so the failed jobs rerun with no delete. An outside failure keeps
-rerunning, uncounted, as often as the log keeps naming an outside cause; the first failure that
-points at our code or config takes the gate.
+earlier step left no release, so the failed jobs rerun with no delete. An outside failure reruns until
+`Publish outside reruns = 6?` is spent, then stops at its gate; the first failure that points at
+our code or config takes the publish-run-failed gate.
 
 Every status names the kind and quotes the log line it rests on, for example
-`publish run red (outside: stapler NSURLError -1005 after Accepted), rerun uncounted` or
+`publish run red (outside: stapler NSURLError -1005 after Accepted), outside rerun 1 of 6` or
 `publish run red (ours: Assert release assets are complete)`.
 
 ### Gate: approve the update-machine legs
@@ -326,6 +339,13 @@ again, counted by `Release state wrong after publish: gate rounds = 2?`.
 
 Quote the rows still pending or in error after four reruns (past the releases/latest lag). Take:
 Matt confirms the release is live. Iterate: Matt fixed the cause, and verify runs again.
+
+### Off-script gate: publish outside failure persists
+
+Six outside reruns have failed with an outside cause. Quote the last failure's log line and name
+the service it points at. Take: Matt recovered the run by hand (for example with
+`rt:mattstack-release`). Iterate: the service is back (Matt checked, or says to try again), and
+the recovery runs once more, counted by `Publish outside failure persists: gate rounds = 2?`.
 
 ### Off-script gate: publish run failed another way
 
