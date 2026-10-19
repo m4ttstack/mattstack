@@ -1,0 +1,3 @@
+1. no
+2. 5 (the fifth `waiting` result: that call returns spent 5 of 5, so `exhausted` is true and the edge goes to the gate)
+3. 46 (the 46th pending poll brings `github-polls` to its limit of 46, so the gate opens on a timeout)
