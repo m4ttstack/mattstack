@@ -172,19 +172,16 @@ Scope `clarify`. One sentence naming the candidates with each one's state
 (opened, merged, closed), or quoting the GitLab error when a read failed,
 or saying the search was cut at 200 rows when a read was truncated, then the questions, each its own question:
 
-- `branch`: one option per candidate, or their text
+- `branch` (write-in): one option per candidate, or their text
 - `next`: **Proceed** (recommended) / **Hold**
 
-Selection `{"branch":"<picked>"}`. Their text goes back to "What was
+Selection `{"branch":"<picked>","next":"proceed|hold"}`. Their text goes back to "What was
 given?" and resolves again; the second text answer ends at **Unresolved:
 reported**, naming what was tried.
 
-Hold: when this conversation holds a run's `runDb`, record
-`hold:<run.current_stage>:<attempt>` (`run_decision` with
-`contract` `gate@1`, `scope` `hold:<run.current_stage>:<attempt>`,
-`selection` `{"reason":"<their words>"}`, `decidedBy` `<the answer's
-by>`), then `run_field_set` with `key` `hold`, `value` `<their words>`,
-`stage` `<run.current_stage>`, and end the turn. With no run, Hold ends the
+Hold: when this conversation holds a run's `runDb`, call
+`run_hold {runDb, stage: <run.current_stage>, reason: <their words>,
+decidedBy: <the answer's by>}` and end the turn. With no run, Hold ends the
 turn and makes no `run_*` call.
 
 {{include:spawned-no-run-guard}}
@@ -258,9 +255,7 @@ digraph gate_steps {
 
     trigger_gate_box [label="Trigger: a gate box in the graph above" shape=ellipse];
     holds_rundb [label="This conversation holds a runDb?" shape=diamond];
-    run_field_set [label="run_field_set {runDb, key: gate, value: <scope>, stage}" shape=plaintext];
     publish_answer [label="Publish and answer per the gate protocol" shape=box];
-    run_decision [label="run_decision {runDb, contract: gate@1, scope, selection, decidedBy}" shape=plaintext];
     spawned_pane [label="Spawned pane?" shape=diamond];
     error_line_to_spawner [label="One error line to the spawning surface" shape=box];
     pane_form_only [label="In-pane form only; nothing recorded" shape=box];
@@ -268,11 +263,9 @@ digraph gate_steps {
     answer_back [label="Answer back at the gate box" shape=doublecircle style=filled fillcolor=lightgreen];
 
     trigger_gate_box -> holds_rundb;
-    holds_rundb -> run_field_set [label="yes"];
+    holds_rundb -> publish_answer [label="yes"];
     holds_rundb -> spawned_pane [label="no"];
-    run_field_set -> publish_answer;
-    publish_answer -> run_decision;
-    run_decision -> answer_back;
+    publish_answer -> answer_back;
     spawned_pane -> error_line_to_spawner [label="yes"];
     spawned_pane -> pane_form_only [label="no: a human invoked it"];
     error_line_to_spawner -> gate_path_ended;
@@ -281,6 +274,15 @@ digraph gate_steps {
 ```
 
 ### Publish and answer per the gate protocol
+
+Under the run, every gate tool call passes `runDb` and `stage: <run.current_stage>`, so the
+tools bracket and record the gate: `gate_ask` writes the run's `gate`
+field, and `gate_answer` or `gate_reconcile` records the answers map as the
+scope's `gate@1` decision. Nothing here writes the `gate` field or the
+gate's decision by hand: a second record moves the decision's time. The
+recorded selection is that answers map, keyed by the question ids each gate
+names, `next` included; each `Selection` line names those keys. The hold under **Gate clarify: which branch** is `run_hold`'s
+own record, not the gate's.
 
 If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
 

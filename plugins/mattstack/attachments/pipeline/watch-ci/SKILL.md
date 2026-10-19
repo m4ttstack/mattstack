@@ -114,7 +114,7 @@ digraph watch_ci {
 
     ci_watch [label="ci_watch {mrUrl: <mr>, sha, priorPipelineId?, attend: true}" shape=plaintext];
     ci_watch_state [label="ci_watch state (watch-ci)?" shape=diamond];
-    run_budget_waiting_results [label="run_budget {key: watch-ci:waiting-results:<sha12>, limit: 4, stage}" shape=plaintext];
+    run_budget_waiting_results [label="run_budget {key: watch-ci:waiting-results:<sha12>, limit: 5, stage}" shape=plaintext];
     waiting_results_spent [label="waiting-results spent (watch-ci)?" shape=diamond];
     end_turn_background_watch [label="End the turn: ci_watch runs in the background (watch-ci)" shape=box];
     ci_watch_notification [label="Trigger: the ci_watch task notification (watch-ci)" shape=ellipse];
@@ -122,32 +122,32 @@ digraph watch_ci {
     stop_lease_holder_owns [label="STOP: the lease holder owns every commit, push and retry (watch-ci)" shape=octagon style=filled fillcolor=red fontcolor=white];
     stand_down [label="Stand down: report the holder, or hand it back (watch-ci)" shape=doublecircle];
     gate_lease_unavailable [label="watch-ci off-script gate: lease_unavailable" shape=box];
-    run_budget_watch_errors [label="run_budget {key: watch-ci:ci-watch-errors:<sha12>, limit: 1, stage}" shape=plaintext];
+    run_budget_watch_errors [label="run_budget {key: watch-ci:ci-watch-errors:<sha12>, limit: 2, stage}" shape=plaintext];
     watch_errors_spent [label="ci-watch-errors spent (watch-ci)?" shape=diamond];
     fix_watch_error [label="Fix what the ci_watch error names" shape=box];
     gate_watch_refused [label="watch-ci off-script gate: ci_watch refused" shape=box];
-    run_budget_watch_off_script [label="run_budget {key: watch-ci:ci-watch-off-script, limit: 1, stage}" shape=plaintext];
+    run_budget_watch_off_script [label="run_budget {key: watch-ci:ci-watch-off-script, limit: 2, stage}" shape=plaintext];
     watch_off_script_spent [label="ci-watch-off-script spent (watch-ci)?" shape=diamond];
 
     ci_lease_claim_github [label="ci_lease_claim {mrUrl: <mr>, branch} (GitHub)" shape=plaintext];
     github_claim_result [label="ci_lease_claim result (GitHub)?" shape=diamond];
     stop_hand_rolled_claim [label="STOP: claim the lease only with ci_lease_claim (watch-ci)" shape=octagon style=filled fillcolor=red fontcolor=white];
-    run_budget_claim_errors [label="run_budget {key: watch-ci:github-claim-errors, limit: 1, stage}" shape=plaintext];
+    run_budget_claim_errors [label="run_budget {key: watch-ci:github-claim-errors, limit: 2, stage}" shape=plaintext];
     claim_errors_spent [label="github-claim-errors spent (watch-ci)?" shape=diamond];
     fix_claim_error [label="Fix what the claim error names (GitHub)" shape=box];
     gate_claim_refused [label="watch-ci off-script gate: ci_lease_claim refused (GitHub)" shape=box];
-    run_budget_claim_off_script [label="run_budget {key: watch-ci:github-claim-off-script, limit: 1, stage}" shape=plaintext];
+    run_budget_claim_off_script [label="run_budget {key: watch-ci:github-claim-off-script, limit: 2, stage}" shape=plaintext];
     claim_off_script_spent [label="github-claim-off-script spent (watch-ci)?" shape=diamond];
     gh_pr_checks [label="gh pr checks <mr> (poll)" shape=plaintext];
     checks_exit_code [label="gh pr checks exit (GitHub poll)?" shape=diamond];
-    run_budget_polls [label="run_budget {key: watch-ci:github-polls:<sha12>, limit: 45, stage}" shape=plaintext];
+    run_budget_polls [label="run_budget {key: watch-ci:github-polls:<sha12>, limit: 46, stage}" shape=plaintext];
     polls_spent [label="github-polls spent (watch-ci)?" shape=diamond];
     ci_lease_heartbeat [label="ci_lease_heartbeat {mrUrl} (GitHub poll)" shape=plaintext];
     heartbeat_result [label="Heartbeat result (GitHub poll)?" shape=diamond];
     sleep_between_polls [label="sleep 60 as a background Bash task (GitHub poll)" shape=plaintext];
     gh_pr_view_head_sha [label="gh pr view <mr> --json headRefOid (sha guard)" shape=plaintext];
     checks_match_sha [label="Checks are for the watched sha (GitHub poll)?" shape=diamond];
-    run_budget_sha_waits [label="run_budget {key: watch-ci:github-sha-waits:<sha12>, limit: 5, stage}" shape=plaintext];
+    run_budget_sha_waits [label="run_budget {key: watch-ci:github-sha-waits:<sha12>, limit: 6, stage}" shape=plaintext];
     sha_waits_spent [label="github-sha-waits spent (watch-ci)?" shape=diamond];
     checks_passed_or_failed [label="Checks passed or failed (GitHub poll)?" shape=diamond];
     classify_failing_checks [label="Classify each failing check REAL or INFRA (GitHub)" shape=box];
@@ -160,14 +160,14 @@ digraph watch_ci {
     classify_triage_report [label="Classify the triage report (watch-ci)" shape=box];
     classify_failed_jobs [label="Classify each failure REAL or INFRA from failedJobs (watch-ci)" shape=box];
     only_infra_failures [label="Only INFRA blocking failures, none INHERITED (watch-ci)?" shape=diamond];
-    run_budget_infra_retries [label="run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage}" shape=plaintext];
+    run_budget_infra_retries [label="run_budget {key: watch-ci:infra-retries:<sha12>, limit: 2, stage}" shape=plaintext];
     infra_retries_spent [label="infra-retries spent (watch-ci)?" shape=diamond];
 
     retry_forge_host [label="Retry on which forge (watch-ci)?" shape=diamond];
     mr_retry [label="mr_retry {mrUrl: <mr>, jobId, leaseMrUrl: <mr>} per INFRA job" shape=plaintext];
     mr_retry_result [label="mr_retry result (watch-ci)?" shape=diamond];
     gate_retry_refused [label="watch-ci off-script gate: mr_retry refused" shape=box];
-    run_budget_retry_off_script [label="run_budget {key: watch-ci:retry-off-script, limit: 1, stage}" shape=plaintext];
+    run_budget_retry_off_script [label="run_budget {key: watch-ci:retry-off-script, limit: 2, stage}" shape=plaintext];
     retry_off_script_spent [label="retry-off-script spent (watch-ci)?" shape=diamond];
     ci_lease_claim_retry [label="ci_lease_claim {mrUrl: <mr>, branch} (GitHub retry)" shape=plaintext];
     reclaim_result [label="Re-claim result (GitHub retry)?" shape=diamond];
@@ -180,16 +180,16 @@ digraph watch_ci {
     gh_pr_view_draft [label="gh pr view <mr> --json isDraft (draft check)" shape=plaintext];
     mr_still_draft [label="MR still a draft (watch-ci)?" shape=diamond];
     gate_mark_ready [label="watch-ci gate mark-ready" shape=box];
-    run_budget_mark_ready [label="run_budget {key: watch-ci:mark-ready-iterations, limit: 1, stage}" shape=plaintext];
+    run_budget_mark_ready [label="run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}" shape=plaintext];
     mark_ready_spent [label="mark-ready-iterations spent (watch-ci)?" shape=diamond];
     mark_ready_forge_host [label="Forge host (watch-ci mark-ready)?" shape=diamond];
     mr_ready [label="mr_ready {repoName, iid}" shape=plaintext];
     gh_pr_ready [label="gh pr ready <number>" shape=plaintext];
 
     gate_ci [label="watch-ci gate ci" shape=box];
-    run_budget_ci_gate [label="run_budget {key: watch-ci:ci-gate-iterations, limit: 2}" shape=plaintext];
+    run_budget_ci_gate [label="run_budget {key: watch-ci:ci-gate-iterations, limit: 3}" shape=plaintext];
     ci_gate_spent [label="ci-gate-iterations spent (watch-ci)?" shape=diamond];
-    run_budget_fix_rounds [label="run_budget {key: watch-ci:fix-rounds, limit: 3}" shape=plaintext];
+    run_budget_fix_rounds [label="run_budget {key: watch-ci:fix-rounds, limit: 4}" shape=plaintext];
     fix_rounds_spent [label="fix-rounds spent (watch-ci)?" shape=diamond];
     fix_real_failure [label="Fix the REAL failure, commit" shape=box];
     mr_found_for_push [label="MR found (before git_push)?" shape=diamond];
@@ -204,7 +204,7 @@ digraph watch_ci {
     run_resolve_iterate [label="run_resolve {runDb, stage: watch-ci, next: iterate, attempt: <n>, note, decidedBy} (a new attempt)" shape=plaintext];
     new_attempt_result [label="run_resolve result (watch-ci new attempt)?" shape=diamond];
     mr_found_for_retry [label="MR found (before the retry)?" shape=diamond];
-    run_budget_gate_retries [label="run_budget {key: watch-ci:infra-retries:<sha12>, limit: 1, stage} (ci gate retry)" shape=plaintext];
+    run_budget_gate_retries [label="run_budget {key: watch-ci:infra-retries:<sha12>, limit: 2, stage} (ci gate retry)" shape=plaintext];
     gate_retries_spent [label="infra-retries spent (ci gate retry, watch-ci)?" shape=diamond];
 
     mr_known_at_exit [label="MR known (watch-ci exit)?" shape=diamond];
@@ -640,8 +640,9 @@ lease); the stand-down never does: that lease is someone else's.
 ## Budgets in this verb
 
 Each `run_budget` counts one as its loop is entered. The `spent` diamond
-after it reads `spent > limit`; ignore `remaining` and `exhausted`
-(`spent >= limit`, one round early). A key ending `<sha12>` counts per
+after it is yes when that call returns `exhausted: true`
+(`spent >= limit`: the count that
+reaches `limit` takes yes). A key ending `<sha12>` counts per
 watched commit; one with no `stage` counts run-wide, since a fix push
 starts a new attempt mid-loop.
 
@@ -667,9 +668,9 @@ When nothing is inlined above, the graph's other flows apply.
 
 If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
 
-`<scripts>` is `${CLAUDE_SKILL_DIR}/scripts/` and `<forge>` is
-`${CLAUDE_SKILL_DIR}/parts/forge/scripts/ci-forge.sh`, vendored for the
-fills that name them; this skill calls neither.
+`<scripts>` is `${CLAUDE_SKILL_DIR}/scripts/`. `<scripts>/ci-triage.sh` and
+`<forge> jobs` name a fill's old script calls; nothing is vendored for
+them, and the redirects above send each to its tool.
 
 {{slot:forge}}
 

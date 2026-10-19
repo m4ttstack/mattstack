@@ -1,0 +1,4 @@
+run_field_set {runDb: "/runs/app/r1/state.db", key: "gate", value: "push", stage: "ship"}
+gate_ask {questions: [{id: "push", label: "push", multi: false, options: [{value: true, label: "Push with force-with-lease now"}, {value: false, label: "Leave it unpushed"}]}, {id: "next", label: "next", multi: false, options: [{value: "proceed", label: "Proceed"}, {value: "iterate", label: "Iterate here"}, {value: "hold", label: "Hold"}]}], kind: "push", context: "<the Report the move line: aaa1111 <subject> -> bbb2222 <subject>, not pushed>", runDb: "/runs/app/r1/state.db", stage: "ship"}
+gate_answer {id: "<gate id from gate_ask>", answers: {push: true, next: "proceed"}, runDb: "/runs/app/r1/state.db", stage: "ship"}
+run_decision {runDb: "/runs/app/r1/state.db", contract: "gate@1", scope: "push", selection: {push: true, next: "proceed", note: null}, decidedBy: "pane"}
