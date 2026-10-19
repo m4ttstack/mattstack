@@ -23,7 +23,7 @@ import { getSetting } from "../../settings/resolve.ts";
 import { findRun, listRunRepoDirs } from "../../runs/store.ts";
 import { runsRoot } from "../../runs/paths.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
-import { readEvidence } from "../../../packages/rt-client/src/evidence.ts";
+import { evidenceShots, readEvidence } from "../../../packages/rt-client/src/evidence.ts";
 import { parseTickets, ticketsCorrupt, ticketShots, TICKETS_FIELD } from "../../evidence/tickets-field.ts";
 import { evidenceUploadRefusal, RECORD_REMEDY, ticketCopyRefusal, type RunEvidenceLookup, type TicketFileAccess } from "../evidence-record-check.ts";
 import { redactionUploadRefusal } from "../redaction-record-check.ts";
@@ -133,8 +133,9 @@ function scanRunRecords(readFields: (dbPath: string, keys: readonly string[]) =>
  * A file can be another run's saved ticket image (its original in the
  * session temp root, or a copy recorded into a second run): every run's record is checked,
  * whether or not its work folder survives, and its remembered ticket images
- * whether or not its record still names them. A run with neither is skipped
- * unparsed, and a recorded size gates any hashing. A shot with a recorded
+ * whether or not its record still names them. Eligibility comes from the
+ * parsed record, never a raw-text marker a JSON escape could hide, and a
+ * recorded size gates any hashing. A shot with a recorded
  * sha256 never touches the filesystem; only a legacy shot without one is
  * resolved and probed.
  */
@@ -156,12 +157,13 @@ function ticketCopyAnyRun(
       warn(`ticket copy check: run ${run.runId}'s ${TICKETS_FIELD} field is not valid; its remembered ticket images are unchecked`, { err: null, path: run.runId });
     }
     const tickets = ticketShots(parseTickets(run.tickets ?? null));
-    const mayHoldTicket = run.evidence?.includes('"ticket"') ?? false;
-    if (mayHoldTicket && !isJson(run.evidence!)) {
+    if (run.evidence?.includes('"ticket"') && !isJson(run.evidence)) {
       warn(`ticket copy check: run ${run.runId}'s evidence field is not valid JSON; its ticket images are unchecked`, { err: null, path: run.runId });
     }
-    if (!mayHoldTicket && tickets.length === 0) continue;
-    const refusal = ticketCopyRefusal({ record: readEvidence(run.evidence), tickets, realpath: real, filename, bytes, resolve: files.resolve, probe: files.probe, resolveHashed: false, warn });
+    const record = readEvidence(run.evidence);
+    const recordTickets = evidenceShots(record).some(({ shot }) => shot.source === "ticket");
+    if (!recordTickets && tickets.length === 0) continue;
+    const refusal = ticketCopyRefusal({ record, tickets, realpath: real, filename, bytes, resolve: files.resolve, probe: files.probe, resolveHashed: false, warn });
     if (refusal) return refusal;
   }
   return null;

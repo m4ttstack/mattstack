@@ -30,12 +30,12 @@ export function parseTickets(value: string | null): TicketEntry[] {
   }
 }
 
-/** A stored value that is not the {"v":1,"tickets":[...]} shape: its entries cannot be trusted or read. */
+/** A stored value that is not the {"v":1,"tickets":[...]} shape, or holds an entry parseTickets drops. */
 export function ticketsCorrupt(value: string | null): boolean {
   if (value === null || value === "") return false;
   try {
     const parsed = JSON.parse(value) as { v?: unknown; tickets?: unknown };
-    return parsed?.v !== 1 || !Array.isArray(parsed.tickets);
+    return parsed?.v !== 1 || !Array.isArray(parsed.tickets) || !parsed.tickets.every(isEntry);
   } catch {
     return true;
   }
