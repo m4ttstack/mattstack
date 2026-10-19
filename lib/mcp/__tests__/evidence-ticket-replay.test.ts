@@ -135,7 +135,7 @@ describe("a saved ticket image through the evidence skills' call sequence", () =
     expect(body.uncovered).toEqual([{ case: "t", slot: "before", path: copy, why: "no-cover" }]);
     const board = put(src, "t-board.png", Buffer.concat([PNG, Buffer.from("board")]));
     const res = await record([{ case: "t", label: "Broken state", slot: "before", path: copy, annotated: board, caption: "the badge overflows" }]);
-    expect(res.ok).toBe(true);
+    expect(res.error).toBeUndefined();
     expect(res.body!.written).toBe(true);
     expectMarked(res.body!.value);
     await expectByteCopyRefused();
@@ -228,5 +228,100 @@ describe("a saved ticket image through the evidence skills' call sequence", () =
     const shot = shotIn(res.body!.value);
     expect(shot.source).toBeUndefined();
     expect(shot.sha256).toBeUndefined();
+  });
+});
+
+/**
+ * browser-evidence's import flow: the driver imports the saved ticket image as
+ * <stem>.c1 (re-encoded, so other bytes than the ticket image) beside its
+ * capture sidecar, composes the board <stem>.png from it with its redaction
+ * record and crop, and the board is recorded as the ticket image's cover.
+ */
+const IMPORTED = Buffer.concat([PNG, Buffer.from("re-encoded ticket pixels")]);
+const BOARD = Buffer.concat([PNG, Buffer.from("redacted board")]);
+const CROP = Buffer.concat([PNG, Buffer.from("crop")]);
+const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+
+function importBundle(stem: string, o: { source?: "import" | "live"; capture?: Buffer } = {}) {
+  const dir = join(base, "screenshots");
+  put(dir, `${stem}.c1.png`, o.capture ?? IMPORTED);
+  put(dir, `${stem}.c1.capture.json`, JSON.stringify({ schemaVersion: "capture/1", source: o.source ?? "import", image: `${stem}.c1.png`, origin: "https://tracker.example/CASE-1", format: "png", scale: 1, digest: "d" }));
+  put(dir, `${stem}.spec.json`, JSON.stringify({ panels: [{ capture: `${stem}.c1.capture.json`, marks: [{ redact: { x: 0, y: 0, w: 4, h: 4 } }] }] }));
+  put(dir, `${stem}.redact-1.png`, CROP);
+  put(dir, `${stem}.redactions.json`, JSON.stringify({ schemaVersion: "compose-redactions/1", board: `${stem}.png`, boardSha256: sha(BOARD), redactions: [{ crop: `${stem}.redact-1.png`, sha256: sha(CROP), confirmed: true }] }));
+  return put(dir, `${stem}.png`, BOARD);
+}
+
+const OK_UPLOAD = { ok: true as const, data: { url: "https://gitlab.example.com/acme/app/uploads/x/f.png", markdown: "![f](/uploads/x/f.png)" } };
+
+describe("the import capture of a saved ticket image", () => {
+  const deps2 = () => ({ ...deps(), uploadRoots: () => [src, join(base, "screenshots")] });
+  async function recordWith(images: Array<Record<string, unknown>>): Promise<Recorded> {
+    const def = evidenceToolDefs(deps2()).find((t) => t.name === "evidence_record")!;
+    return (await def.handler({ runDb, stage: "verify", images }, env)) as Recorded;
+  }
+  async function ticketBoard(stem: string) {
+    const original = put(src, `${stem}-ticket.png`, TICKET);
+    const first = await recordWith([{ case: "t", label: "Broken state", slot: "before", path: original, source: "ticket" }]);
+    expect(first.ok).toBe(true);
+    const copy = shotIn(first.body!.value).path as string;
+    rmSync(original);
+    const res = await recordWith([{ case: "t", label: "Broken state", slot: "before", path: copy, annotated: importBundle(stem), caption: "the badge overflows" }]);
+    expect(res.error).toBeUndefined();
+    expect(res.body!.written).toBe(true);
+    return { board: shotIn(res.body!.value).annotated as string };
+  }
+
+  test("a byte copy of the import capture is refused like the ticket image, with and without runId", async () => {
+    const stem = `${runId}-t-before`;
+    await ticketBoard(stem);
+    const copy = put(elsewhere, "capture-copy.png", IMPORTED);
+    expect(await upload(copy)).toEqual(REFUSED("capture-copy.png"));
+    expect(await upload(copy, runId)).toEqual(REFUSED("capture-copy.png"));
+  });
+
+  test("the redacted board composed from it still uploads", async () => {
+    const { board } = await ticketBoard(`${runId}-t-before`);
+    expect(await upload(board, runId)).toEqual(OK_UPLOAD);
+    expect(await upload(board)).toEqual(OK_UPLOAD);
+  });
+
+  test("a byte copy of the import capture recorded later, without source, is a ticket image and cannot be waived", async () => {
+    await ticketBoard(`${runId}-t-before`);
+    const copy = put(src, "capture-again.png", IMPORTED);
+    const res = await recordWith([{ case: "o", label: "Other", slot: "before", path: copy, waiver: "no ui" }]);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("is a ticket image and cannot be waived");
+  });
+
+  test("a byte copy of the import capture waived in the same call as the board is a ticket image and cannot be waived", async () => {
+    const stem = `${runId}-t-before`;
+    const original = put(src, `${stem}-ticket.png`, TICKET);
+    const copy = put(src, "capture-again.png", IMPORTED);
+    const res = await recordWith([
+      { case: "t", label: "Broken state", slot: "before", path: original, source: "ticket", annotated: importBundle(stem), caption: "c" },
+      { case: "o", label: "Other", slot: "before", path: copy, waiver: "no ui" },
+    ]);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("is a ticket image and cannot be waived");
+  });
+
+  test("an import whose source is not a ticket image is unaffected", async () => {
+    const stem = `${runId}-n-before`;
+    const plain = put(src, "plain.png", Buffer.concat([PNG, Buffer.from("a saved design mock")]));
+    const res = await recordWith([{ case: "n", label: "Mock", slot: "before", path: plain, annotated: importBundle(stem), caption: "c" }]);
+    expect(res.body?.written).toBe(true);
+    const copy = put(elsewhere, "capture-copy.png", IMPORTED);
+    expect(await upload(copy)).toEqual(OK_UPLOAD);
+  });
+
+  test("a ticket image annotated directly, with no import, leaves its board's live capture uploadable", async () => {
+    const stem = `${runId}-t-before`;
+    const original = put(src, `${stem}-ticket.png`, TICKET);
+    const live = Buffer.concat([PNG, Buffer.from("a live capture")]);
+    const res = await recordWith([{ case: "t", label: "Broken state", slot: "before", path: original, source: "ticket", annotated: importBundle(stem, { source: "live", capture: live }), caption: "c" }]);
+    expect(res.body?.written).toBe(true);
+    expect(await upload(put(elsewhere, "live-copy.png", live))).toEqual(OK_UPLOAD);
+    await expectByteCopyRefused();
   });
 });

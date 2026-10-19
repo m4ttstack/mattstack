@@ -271,6 +271,31 @@ export function stampTicketBytes(
   return { ok: true };
 }
 
+/**
+ * A ticket image's board composed from an import carries the ticket's pixels
+ * under other bytes, in the import capture beside it: each such capture is
+ * remembered as the ticket image too. The link is the record's own cover, so
+ * an import of anything that is not a ticket image is never marked.
+ */
+export function importedTicketEntries(
+  record: RawRecord,
+  captures: (board: string) => string[],
+  measure: (path: string) => { size: number; sha256: string },
+): { ok: true; entries: TicketEntry[] } | Fail {
+  const entries: TicketEntry[] = [];
+  for (const { case: id, slot, theme, image } of imageAddresses(record)) {
+    if (image.source !== "ticket" || typeof image.annotated !== "string") continue;
+    for (const path of captures(image.annotated)) {
+      try {
+        entries.push({ path, ...measure(path) });
+      } catch (err) {
+        return { ok: false, error: `${where(id, slot, theme)}: the import capture ${path} of the ticket image could not be read to record its size and sha256 (${(err as Error).message}); recapture it` };
+      }
+    }
+  }
+  return { ok: true, entries };
+}
+
 const SHA256 = /^[0-9a-f]{64}$/;
 
 export function ticketEntries(record: RawRecord): TicketEntry[] {

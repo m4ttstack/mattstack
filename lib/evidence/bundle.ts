@@ -65,6 +65,35 @@ export function bundleMembers(dir: string, fileName: string, list: (dir: string)
   return [...names].sort();
 }
 
+/**
+ * The captures in a board's bundle that were not captured live: Fast Browser's
+ * import writes the saved image re-encoded as <x>.png beside <x>.capture.json
+ * with source "import". A sidecar that does not say "live" counts, as in the
+ * redaction check.
+ */
+export function importedCaptures(board: string, list: (dir: string) => string[] = (d) => readdirSync(d), read: (p: string) => string | null = readText): string[] {
+  const dir = dirname(board);
+  let names: string[];
+  try {
+    names = bundleMembers(dir, basename(board), list, read);
+  } catch {
+    return [];
+  }
+  const present = new Set(names);
+  return names.flatMap((name) => {
+    if (!name.endsWith(".capture.json")) return [];
+    const png = `${name.slice(0, -".capture.json".length)}.png`;
+    if (!present.has(png)) return [];
+    let source: unknown;
+    try {
+      source = (JSON.parse(read(join(dir, name)) ?? "null") as { source?: unknown } | null)?.source;
+    } catch {
+      source = undefined;
+    }
+    return source === "live" ? [] : [join(dir, png)];
+  });
+}
+
 export interface CopyRequest {
   src: string;
   destDir: string;

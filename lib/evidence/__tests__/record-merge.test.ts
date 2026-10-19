@@ -3,6 +3,7 @@ import { validateEvidence } from "../../../packages/rt-client/src/evidence.ts";
 import {
   type RawRecord,
   imageAddresses,
+  importedTicketEntries,
   markKnownTickets,
   mergeRecord,
   parseCurrent,
@@ -217,6 +218,27 @@ describe("stampTicketBytes", () => {
   test("an unreadable ticket image refuses, naming where it sits", () => {
     const r = stampTicketBytes(ticket(), [at], () => { throw new Error("ENOENT"); });
     expect(r).toEqual({ ok: false, error: 'case "t" before: the ticket image could not be read to record its size and sha256 (ENOENT); recapture it' });
+  });
+});
+
+describe("importedTicketEntries", () => {
+  const SHA = "e".repeat(64);
+  const record = (before: object, after?: object) => parseCurrent(JSON.stringify({ v: 2, cases: [{ id: "t", label: "T", before, ...(after && { after }) }] }));
+  const captures = (board: string) => (board === "/run/b.png" ? ["/run/b.c1.png"] : []);
+  const measure = (p: string) => ({ size: p.length, sha256: SHA });
+
+  test("remembers the import captures of a ticket image's board, and only a ticket image's", () => {
+    const r = record({ path: "/run/t.png", source: "ticket", annotated: "/run/b.png", caption: "c" }, { path: "/run/p.png", annotated: "/run/b.png", caption: "c" });
+    expect(importedTicketEntries(r, captures, measure)).toEqual({ ok: true, entries: [{ path: "/run/b.c1.png", size: "/run/b.c1.png".length, sha256: SHA }] });
+    const plain = record({ path: "/run/p.png", annotated: "/run/b.png", caption: "c" });
+    expect(importedTicketEntries(plain, captures, measure)).toEqual({ ok: true, entries: [] });
+  });
+  test("an unreadable import capture refuses, naming where it sits", () => {
+    const r = record({ path: "/run/t.png", source: "ticket", annotated: "/run/b.png", caption: "c" });
+    expect(importedTicketEntries(r, captures, () => { throw new Error("EACCES"); })).toEqual({
+      ok: false,
+      error: 'case "t" before: the import capture /run/b.c1.png of the ticket image could not be read to record its size and sha256 (EACCES); recapture it',
+    });
   });
 });
 
