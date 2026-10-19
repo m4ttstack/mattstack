@@ -587,8 +587,24 @@ export function proseOpen(source: GateCtxSource): FitResult {
   return render(structuredClone(source) as Working, "prose", GATE_CTX_LIMIT);
 }
 
+/** The most boards one gate carries: twelve realistic entries (a run-folder
+    path under a long home, a full-sentence claim, a theme) sit near 4 KB. */
+export const BOARDS_PER_GATE = 12;
+
+const isBoards = (w: Working): boolean => isObject(w.context) && w.context["gate-ctx"] === "boards@1";
+
+/** A boards gate the human cannot see in full is never opened: past the
+    cap, or past the budget, it is refused so the site splits it. */
+export function boardsBudgetError(source: GateCtxSource, fit: FitResult): string | null {
+  if (!isBoards(source as Working)) return null;
+  const n = ((source.context as Obj).boards as unknown[]).length;
+  if (n > BOARDS_PER_GATE) return `boards@1: ${n} boards; open at most ${BOARDS_PER_GATE} per gate`;
+  return fit.fits ? null : `boards@1: ${n} boards do not fit the ${GATE_CTX_LIMIT}-byte budget`;
+}
+
 export function fitOpen(source: GateCtxSource, limit: number = GATE_CTX_LIMIT): FitResult {
   const src = structuredClone(source) as Working;
+  if (isBoards(src)) return render(src, "structured", limit);
   if (!structurable(src)) return render(src, "prose", limit);
   const fitted = { ...structuredClone(src), trimmed: [] } as Working;
   trimThread(fitted, "points", limit);

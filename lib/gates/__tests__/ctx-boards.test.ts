@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkSource, fitOpen, GATE_CTX_LIMIT, proseOpen } from "../ctx.ts";
+import { BOARDS_PER_GATE, boardsBudgetError, checkSource, fitOpen, GATE_CTX_LIMIT, proseOpen } from "../ctx.ts";
 
 type Src = Record<string, any>;
 
@@ -102,5 +102,49 @@ describe("boards@1 in the form and the fit", () => {
     expect(fit.mode).toBe("structured");
     expect(fit.bytes).toBeLessThan(GATE_CTX_LIMIT);
     expect(JSON.parse(fit.context!)).toEqual({ "gate-ctx": "boards@1", summary: "Twelve boards.", boards });
+  });
+});
+
+/** A board as a real run records it: a run-folder path under a long home, a
+    60-character claim, a theme. */
+const realistic = (i: number): Src =>
+  board({
+    case: `order-card-delivery-window-${i}`,
+    slot: "after",
+    theme: "dark",
+    path: `/Users/firstname.lastname/.mattstack/work/20261019-050000-cd34-1/evidence/0a1b2c3d4e5f/20261019-050000-cd34-1-order-card-delivery-window-${i}-after-dark.png`,
+    caption: "The delivery window now sits under the order total on the card",
+  });
+
+describe("boards@1 against the shared budget", () => {
+  const many = (n: number) => source({ boards: Array.from({ length: n }, (_, i) => realistic(i)) }) as any;
+
+  test(`${BOARDS_PER_GATE} realistic boards, the most one gate carries, fit structured and open`, () => {
+    const src = many(BOARDS_PER_GATE);
+    const fit = fitOpen(src);
+    expect(fit).toMatchObject({ mode: "structured", fits: true });
+    expect(boardsBudgetError(src, fit)).toBeNull();
+  });
+
+  test("25 boards are refused for the count, still structured, never prose", () => {
+    const src = many(25);
+    const fit = fitOpen(src);
+    expect(fit.mode).toBe("structured");
+    expect(boardsBudgetError(src, fit)).toBe(`boards@1: 25 boards; open at most ${BOARDS_PER_GATE} per gate`);
+  });
+
+  test("40 boards overflow the budget, stay structured, and are refused", () => {
+    const src = many(40);
+    const fit = fitOpen(src);
+    expect(fit).toMatchObject({ mode: "structured", fits: false });
+    expect(JSON.parse(fit.context!)["gate-ctx"]).toBe("boards@1");
+    expect(boardsBudgetError(src, fit)).toBe(`boards@1: 40 boards; open at most ${BOARDS_PER_GATE} per gate`);
+  });
+
+  test("a few boards whose captions alone overflow the budget are refused for the bytes", () => {
+    const src = source({ boards: [board({ caption: "x".repeat(9000) })] }) as any;
+    const fit = fitOpen(src);
+    expect(fit).toMatchObject({ mode: "structured", fits: false });
+    expect(boardsBudgetError(src, fit)).toBe(`boards@1: 1 boards do not fit the ${GATE_CTX_LIMIT}-byte budget`);
   });
 });
