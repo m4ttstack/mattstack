@@ -61,6 +61,9 @@ path. The key is both the discriminant and the version:
   contexts for the whole gate, never a half-structured one.
 - The in-pane form never shows the JSON: flatten each context to prose
   for the form's question text.
+- A `boards@1` gate carries at most 12 boards and always opens
+  structured: `gate_open` refuses one past 12, or one whose boards do not
+  fit the budget, so a site with more opens one gate per 12, in order.
 - A `boards@1` entry carries paths only, never image bytes. The console
   shows each board as a thumbnail and serves only a path an open gate's
   `boards@1` names, inside the screenshots folder or the evidence folders;

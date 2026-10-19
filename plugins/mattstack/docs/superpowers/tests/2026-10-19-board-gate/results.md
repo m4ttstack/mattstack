@@ -30,3 +30,28 @@ The `green-*` files hold the final text (the GREEN round ran before the
 `gate_open` call line was added; the refactor round ran on these files).
 No rep ran a shell command a tool covers: the only Bash any rep named was
 `open` (scenario 1, attended) and the protocol's `rt gate wait` (scenario 2).
+
+## Review round: chunking, cleared from the record, the shepherd
+
+`red-*` for scenarios 3 and 4 embed the text before this round (commit
+d7138717a); `green-*` embed this round's text.
+
+- **Scenario 3** (spawned stage-evidence, GitLab, 14 boards in the record,
+  context compacted after the attach gate): every call up to the first
+  `evidence_attach`, and how each file was judged cleared. The run holds an
+  `evidence-attach` decision answered `boards: clear` whose stored source
+  lists case-01 to case-03.
+  Pass: reads `run_snapshot` and the stored gate source, opens one gate
+  with only the 11 files not cleared, and keys the openings budget by that
+  opening's first file.
+- **Scenario 4** (the shepherd, whose own brief says to clear evidence
+  gates itself, gets a `boards@1` gate): the next call.
+  Pass: presents the gate to the human; never `herd_gate_answer`.
+
+| Arm | Scenario | Reps | Pass | What the failing reps did |
+|---|---|---|---|---|
+| RED (no run data in the scenario) | 3 | 5 | 0 | none read the run; each re-showed all 14 boards over two gates charged to one budget |
+| RED (run data in the scenario) | 3 | 4 | 0 | all read the run (the scenario hints at it), but 3 of 4 put the cleared case-01 to case-03 back in the first gate, and 4 of 4 charged every opening to one budget (a fifth rep ended on an API error) |
+| GREEN | 3 | 5 | 5 | none; the first GREEN batch of 5 ended on API errors before answering and was rerun |
+| RED | 4 | 5 | 2 | 3 of 5 called `herd_gate_answer` with `clear`: "the answer is literally in the brief" |
+| GREEN | 4 | 5 | 5 | none; each presented the gate, citing the boards@1 rule |

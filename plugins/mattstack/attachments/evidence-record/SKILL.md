@@ -190,8 +190,10 @@ refused files.
 digraph attach_evidence {
     attach_evidence [label="Attach the evidence (evidence-record)" shape=ellipse];
     forge_host [label="Forge host?" shape=diamond];
+    run_snapshot_boards [label="run_snapshot {runDb}: this stage pass's boards decisions" shape=plaintext];
+    run_field_get_gate_source [label="run_field_get {key: extra.gate-source.<scope>} per boards decision answered clear" shape=plaintext];
     boards_cleared [label="Every file the upload carries cleared this stage pass?" shape=diamond];
-    run_budget_boards [label="run_budget {runDb, key: evidence:boards-openings, limit: 3, stage}" shape=plaintext];
+    run_budget_boards [label="run_budget {runDb, key: evidence:boards-openings:<first file of this opening>, limit: 3, stage}" shape=plaintext];
     boards_openings_spent [label="boards-openings spent?" shape=diamond];
     gate_evidence_boards [label="Gate evidence-boards (below)" shape=box];
     boards_answer [label="boards answer?" shape=diamond];
@@ -223,14 +225,15 @@ digraph attach_evidence {
     attach_failed [label="Attach failed" shape=doublecircle];
 
     attach_evidence -> forge_host;
-    forge_host -> boards_cleared [label="GitLab"];
-    boards_cleared -> evidence_attach [label="yes: each one answered clear at a boards gate"];
+    forge_host -> run_snapshot_boards [label="GitLab"];
+    run_snapshot_boards -> run_field_get_gate_source -> boards_cleared;
+    boards_cleared -> evidence_attach [label="yes: each one named by a boards gate answered clear"];
     boards_cleared -> run_budget_boards [label="no"];
     run_budget_boards -> boards_openings_spent;
     boards_openings_spent -> gate_evidence_boards [label="no"];
     boards_openings_spent -> attach_held [label="yes: nothing uploaded"];
     gate_evidence_boards -> boards_answer;
-    boards_answer -> evidence_attach [label="proceed + clear"];
+    boards_answer -> run_snapshot_boards [label="proceed + clear: read again for the files still left"];
     boards_answer -> revise_named_boards [label="proceed + hide, or their words"];
     boards_answer -> attach_held [label="hold"];
     revise_named_boards -> boards_revision_outcome;
@@ -263,7 +266,7 @@ digraph attach_evidence {
     needs_rerecord -> rerecord_images [label="yes: size, bytes or missing (a recapture), a new file, or a record or raw-capture refusal"];
     needs_rerecord -> evidence_attach [label="no: timedOutTwice, the human checked the daemon"];
     rerecord_images -> rerecord_outcome;
-    rerecord_outcome -> boards_cleared [label="Recorded"];
+    rerecord_outcome -> run_snapshot_boards [label="Recorded"];
     rerecord_outcome -> attach_held [label="Record held"];
     rerecord_outcome -> attach_failed [label="Record failed"];
     gh_pr_view -> evidence_attach_body -> description_returned;
@@ -278,12 +281,16 @@ digraph attach_evidence {
 ### Every file the upload carries cleared this stage pass?
 
 The files the upload carries are each distinct `annotated` board in the
-record's `value` and each waived image's own `path`. Yes only when every
-one of them, matched by file name (recording copies a bundle into the run
-folder, so a board's folder changes and its name does not), was listed at
-a boards@1 gate this stage pass whose `boards` answer was `clear`: the
-verb's own attach gate or an earlier opening of Gate evidence-boards. A
-board drawn or redrawn since that answer was never cleared.
+record's `value` and each waived image's own `path`. A file is cleared when
+a gate this stage pass (the verb's own attach gate, or an opening of Gate
+evidence-boards) was answered `boards: clear` in `run_snapshot`'s
+decisions, and that gate's stored source, `extra.gate-source.<its scope>`,
+lists the file in its `boards@1`, matched by file name (recording copies a
+bundle into the run folder, so a board's folder changes and its name does
+not). Read both from the run every time, never from what you remember: a
+compaction or a resume leaves no other trace. A board drawn or redrawn
+after that answer was never cleared, and a decision or source you cannot
+read clears nothing. Yes only when every file is cleared.
 
 ### Gate evidence-boards (below)
 
@@ -292,11 +299,16 @@ in this stage pass from 1. Open it with `gate_open` (gate-protocol,
 Structured context): the source's `context` is a `boards@1` object.
 
 - `summary`: one sentence naming the MR and how many files go up.
-- `boards`: one entry per file the upload carries, in the record's case
-  order. `case` and `slot` are the image's (a pair board's slot is
-  `after`); `theme` when the image has one; `path` the absolute path in
-  `value`; `caption` the image's caption, or `Waived: <its waiver>` for a
-  waived capture, which goes up as shot.
+- `boards`: the first 12 files the upload carries that are not cleared,
+  in the record's case order; any more wait for the next opening, which
+  this flow reaches once these are answered `clear`. `case` and `slot` are
+  the image's (a pair board's slot is `after`); `theme` when the image has
+  one; `path` the absolute path in `value`; `caption` the image's caption,
+  or `Waived: <its waiver>` for a waived capture, which goes up as shot.
+
+`gate_open` refuses a `boards@1` source with more than 12 boards. Each
+opening's budget is keyed by its first file's name, so a long upload's
+later openings are not charged to the first.
 
 | Question | Options | Shown when |
 |---|---|---|

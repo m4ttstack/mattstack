@@ -338,7 +338,8 @@ none: ship captures its AFTER, and the description names the gap.
 One sentence above the form: what was captured and where it sits. Once a
 board is drawn, open the gate with `gate_open` (gate-protocol, Structured
 context): the source's `context` is a `boards@1` object whose `summary` is
-that sentence and whose `boards` are every board drawn so far, each browser
+that sentence and whose `boards` are the boards drawn so far, at most 12
+(any more are shown at `Attach the evidence`'s evidence-boards gate), each browser
 case's Board ready board by its absolute path in the screenshots folder
 (the home directory written out, never `~`), with `slot: before`, its
 `theme` when it has one and the brief's claim as `caption`. With no board

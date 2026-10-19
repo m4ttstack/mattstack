@@ -292,6 +292,9 @@ human sees the whole board, not only its crops.
   the stem's when it has one, and its `caption` the brief's claim; each
   crop's `slot` is `crop` and its `caption` names the crop and its board
   (`Crop 1 of the badge board`).
+- At most 12 entries per opening: when the boards and their crops pass 12,
+  open one board (and its crops) per opening, each counting toward that
+  board's `redaction-openings:<stem>`.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
