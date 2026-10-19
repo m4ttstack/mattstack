@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { UserActionableError } from "../../errors.ts";
 import { execWithTimeout } from "../../setup/probes.ts";
 import { childEnv } from "../../subprocess.ts";
-import { readMainPointer } from "../main-pointer.ts";
-import { ORG_MARKER_REL } from "../org-marker.ts";
+import { readMainBranch, readMainPointer } from "../main-pointer.ts";
+import { ORG_MARKER_REL, POINTER_REL } from "../org-marker.ts";
 
 const p = { exec: execWithTimeout };
 const roots: string[] = [];
@@ -28,6 +28,25 @@ function originWith(marker: string | null | undefined): string {
   git(work, "init", "-q", "-b", "main");
   mkdirSync(join(work, "mattstack"), { recursive: true });
   writeFileSync(join(work, marker === null ? "README.md" : ORG_MARKER_REL), marker === null ? "hello\n" : marker);
+  git(work, "add", "-A");
+  git(work, "commit", "-q", "-m", "seed");
+  git(work, "push", "-q", origin, "main");
+  return origin;
+}
+
+/** A bare origin whose main holds exactly `files`. */
+function originWithFiles(files: Record<string, string>): string {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-main-pointer-")));
+  roots.push(root);
+  const origin = join(root, "origin.git");
+  git(root, "init", "-q", "--bare", "-b", "main", origin);
+  const work = join(root, "work");
+  mkdirSync(work);
+  git(work, "init", "-q", "-b", "main");
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(work, path)), { recursive: true });
+    writeFileSync(join(work, path), text);
+  }
   git(work, "add", "-A");
   git(work, "commit", "-q", "-m", "seed");
   git(work, "push", "-q", origin, "main");
@@ -94,6 +113,19 @@ describe("readMainPointer", () => {
     expect(show.argv.some((a) => a.startsWith("credential.https://github.com.helper="))).toBe(true);
     expect(show.env).toMatchObject({ RT_GIT_TOKEN: "private-token", RT_GIT_HOST: "github.com", RT_GIT_USER: "x-access-token", GIT_TERMINAL_PROMPT: "0" });
     expect(JSON.stringify(show.argv)).not.toContain("private-token");
+  });
+
+  test("reads the root pointer, alone or beside the old folder file", async () => {
+    const pointer = (branch: string) => `// header\n{"role":"org","org":"acme","layout":4,"dataBranch":"${branch}"}`;
+    expect(await readMainPointer(p, originWithFiles({ [POINTER_REL]: pointer("mattstack") }), null)).toEqual({ dataBranch: "mattstack", layout: 4 });
+    expect(await readMainPointer(p, originWithFiles({ [POINTER_REL]: pointer("data"), [ORG_MARKER_REL]: pointer("mattstack") }), null)).toEqual({ dataBranch: "data", layout: 4 });
+  });
+
+  test("lists org files main holds besides the folder pointer", async () => {
+    const marker = '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}';
+    expect(await readMainBranch(p, originWithFiles({ [POINTER_REL]: marker, [ORG_MARKER_REL]: marker, "src/app.ts": "x\n" }), null)).toEqual({ pointer: { dataBranch: "mattstack", layout: 4 }, orgFiles: [] });
+    const merged = await readMainBranch(p, originWithFiles({ [POINTER_REL]: marker, [ORG_MARKER_REL]: marker, "mattstack/org/settings.org.jsonc": "{}\n" }), null);
+    expect(merged?.orgFiles).toEqual(["mattstack/org/settings.org.jsonc"]);
   });
 
   test("leaves no scratch folder behind", async () => {

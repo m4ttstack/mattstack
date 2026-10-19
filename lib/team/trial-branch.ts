@@ -5,7 +5,7 @@
  * this Mac only (`trialBranch`).
  */
 
-import { basename, join } from "path";
+import { basename } from "path";
 import { isOrgAdmin } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
 import { UserActionableError } from "../errors.ts";
@@ -16,7 +16,8 @@ import { gitWithToken } from "./git-credential.ts";
 import { applyRoleCone } from "./org-cone.ts";
 import { ENV, heldCopy, moveBlocker, moveCloneToDataBranch, type HeldMove } from "./org-data-branch.ts";
 import { checkedOutBranch } from "./org-branch.ts";
-import { ORG_MARKER_REL, parseMarker } from "./org-marker.ts";
+import { showMarkerAt } from "./org-layout.ts";
+import { markerState, parseMarker } from "./org-marker.ts";
 import { withoutUrls } from "./redact.ts";
 import { roleFor } from "./roles.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
@@ -90,7 +91,7 @@ async function publishedDataBranch(p: Probes, dir: string, token: string | null,
   const fetch = gitWithToken(["fetch", "-q", "origin", `+refs/heads/main:${tracking}`], token, ENV, { remote });
   const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
   if (fetched.code !== 0) throw new UserActionableError("trial-branch-failed", "rt could not read where the org keeps its data", {}, { log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) });
-  const shown = await p.exec(["git", "show", `${tracking}:${ORG_MARKER_REL}`], { cwd: dir, env: ENV });
+  const shown = await showMarkerAt((spec) => p.exec(["git", "show", spec], { cwd: dir, env: ENV }), tracking);
   const marker = shown.code === 0 ? parseMarker(shown.stdout) : null;
   return marker?.kind === "org" ? marker.dataBranch : null;
 }
@@ -126,7 +127,7 @@ export async function useBranch(p: Probes, slug: string, name: string, opts: Tri
   const created = found.stdout.trim() === "";
   const published = await publishedDataBranch(p, dir, token, remote);
   if (created) {
-    const own = parseMarker(p.readFile(join(dir, ORG_MARKER_REL)));
+    const own = markerState(p, dir);
     // The clone's own marker and origin's pointer must both name a data branch: otherwise the org has none to start a new branch from.
     if (published === null || own.kind !== "org" || own.dataBranch === null) {
       throw new UserActionableError("trial-branch-not-moved", "The org has no data branch yet to start a new branch from", {}, { why: "You can switch to a branch the conversion script made, or run rt team pull once the org has moved." });
