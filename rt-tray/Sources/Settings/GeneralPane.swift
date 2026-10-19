@@ -67,7 +67,7 @@ struct GeneralPane: View {
                     .toggleStyle(.switch).controlSize(.small)
                     .disabled(telemetry.inFlight)
                     .accessibilityIdentifier(AXID.settingsTelemetryToggle)
-                Text("Sends your username for each team, a random install id, app, rt and plugin versions, app flavor, macOS version, setup progress, leftover legacy folder names, and your org layouts and team pack versions. Nothing about your repos, files or commands.")
+                Text("Sends your username for each team, a random install id, app, rt and plugin versions, app flavor, macOS version, setup progress, leftover legacy folder names, and your org names and layouts and team packs and their versions. Nothing about your repos, files or commands.")
                     .font(.caption).foregroundStyle(.secondary)
                 if let e = telemetry.error { Text(e).font(.caption).foregroundStyle(.red) }
             }
