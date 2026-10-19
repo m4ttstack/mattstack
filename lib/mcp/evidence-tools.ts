@@ -18,8 +18,8 @@ import { UPLOAD_MAX_BYTES } from "../daemon/upload-guard.ts";
 import { waitForAnswers } from "../endpoint/readiness.ts";
 import { ticketCopyRefusal } from "../daemon/evidence-record-check.ts";
 import { redactionUploadRefusal } from "../daemon/redaction-record-check.ts";
-import { allowedSourceRoots, bundleStem, copyIntoRun, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
-import { imageAddresses, markKnownTickets, mergeRecord, parseCurrent, serializeRecord, stampTicketBytes, ticketEntries, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
+import { allowedSourceRoots, bundleStem, copyIntoRun, importedCaptures, mapKey, sameBytes, type CopyRequest, type CopyResult } from "../evidence/bundle.ts";
+import { imageAddresses, importedTicketEntries, markKnownTickets, mergeRecord, parseCurrent, serializeRecord, stampTicketBytes, ticketEntries, uncoveredImages, type ImageInput, type MergeInput, type RawRecord } from "../evidence/record-merge.ts";
 import { BUCKETS, bucketFor, type Bucket } from "../evidence/refusal-buckets.ts";
 import { appendixProblem, namesHome, renderSection, spliceSection, type FileLink } from "../evidence/section.ts";
 import { addTickets, parseTickets, serializeTickets, ticketShots, TICKETS_FIELD, type TicketEntry } from "../evidence/tickets-field.ts";
@@ -306,6 +306,12 @@ function measureFile(path: string): { size: number; sha256: string } {
   return { size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
+/** A capture over the upload cap can never upload, so there is nothing to refuse and no reason to fail the call reading it. */
+function measureCapture(path: string): { size: number; sha256: string } | null {
+  const size = sizeOf(path);
+  return size !== null && size > UPLOAD_MAX_BYTES ? null : measureFile(path);
+}
+
 function sizeOf(path: string): number | null {
   try {
     const st = statSync(path);
@@ -396,7 +402,17 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   markKnownTickets(merged.record, known, { real: realOr, size: sizeOf, sha256: sha256Or });
   const stamped = stampTicketBytes(merged.record, merge.images ?? [], measureFile);
   if (!stamped.ok) return withCopied(stamped.error);
-  const remembered = await rememberTickets(deps, runDb, stage, [...known, ...ticketEntries(merged.record)], env);
+  // A byte copy of an import capture becomes a ticket image here, and its own board's captures join on the next pass.
+  let imported: TicketEntry[] = [];
+  for (;;) {
+    const scan = importedTicketEntries(merged.record, importedCaptures, measureCapture);
+    if (!scan.ok) return withCopied(scan.error);
+    const next = addTickets(imported, scan.entries);
+    if (!next.changed) break;
+    imported = next.tickets;
+    markKnownTickets(merged.record, imported, { real: realOr, size: sizeOf, sha256: sha256Or });
+  }
+  const remembered = await rememberTickets(deps, runDb, stage, [...known, ...ticketEntries(merged.record), ...imported], env);
   if (remembered) return withCopied(remembered);
   const serialized = serializeRecord(merged.record);
   if (!serialized.ok) return withCopied(serialized.error);
@@ -771,7 +787,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
   return [
     {
       name: "evidence_record",
-      description: "Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A file already there is never rewritten: a bundle that would change one lands whole in a content folder beside it (<case>/<12 hex>/, names unchanged), so a capture the record names keeps its bytes until the record moves. A source must sit under the target repo's checkout or worktrees (pass tree, the run's own worktree root, to name the repo; a tree in another repo is refused), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes the record only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and leaves the record unwritten, so call again with each listed image's cover. Every call, written or not, adds each ticket image it saw to the run's evidence-tickets field, which never shrinks. plan: \"none\" writes {\"plan\":\"none\"} and takes nothing else. Returns {written, encoding, value, uncovered, copied}.",
+      description: "Merge images, case labels or waivers, removals, a transcript or a ticket url into the run's evidence field, and write it in one call. Each image's path and annotated file is copied, with its bundle (board, spec, captures, redaction record and crops), into ~/.mattstack/work/<run id>/evidence/<case>/, and the record stores the copied paths; a transcript is copied to the evidence folder itself. A file already there is never rewritten: a bundle that would change one lands whole in a content folder beside it (<case>/<12 hex>/, names unchanged), so a capture the record names keeps its bytes until the record moves. A source must sit under the target repo's checkout or worktrees (pass tree, the run's own worktree root, to name the repo; a tree in another repo is refused), the Claude Code temp root, ~/.mattstack/evidence, rt.mcp.uploadRoots, a run's evidence folder or ~/.fast-browser/screenshots; anything else is refused before anything is copied. Writes the record only when every image is annotated with a caption or waived (its own waiver or its case's); otherwise returns uncovered and leaves the record unwritten, so call again with each listed image's cover. Every call, written or not, adds each ticket image it saw to the run's evidence-tickets field, which never shrinks, with each import capture (a capture whose sidecar is not live) in the bundle of a ticket image's annotated board, since it holds the ticket's pixels under other bytes. plan: \"none\" writes {\"plan\":\"none\"} and takes nothing else. Returns {written, encoding, value, uncovered, copied}.",
       inputSchema: {
         type: "object",
         properties: {

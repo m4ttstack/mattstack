@@ -3,7 +3,7 @@ import { constants as fsConstants, copyFileSync, linkSync, mkdirSync, mkdtempSyn
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { workRoot } from "../../daemon/upload-guard.ts";
-import { allowedSourceRoots, bundleMembers, bundleStem, CONTENT_DIR, copyIntoRun, mapKey } from "../bundle.ts";
+import { allowedSourceRoots, bundleMembers, bundleStem, CONTENT_DIR, copyIntoRun, importedCaptures, mapKey } from "../bundle.ts";
 
 let base: string;
 let src: string;
@@ -57,6 +57,27 @@ describe("bundleMembers", () => {
     expect(bundleMembers(src, "a.png", () => names, read)).toEqual(
       ["a.c1.capture.json", "a.c1.png", "a.png", "a.spec.json", "b.c1.capture.json", "b.c1.png"].sort(),
     );
+  });
+});
+
+describe("importedCaptures", () => {
+  const sidecar = (source: unknown) => JSON.stringify({ schemaVersion: "capture/1", source, image: "x" });
+  const reader = (files: Record<string, string>) => (p: string) => files[basename(p)] ?? null;
+
+  test("names each capture whose sidecar is not live, the spec's before captures included", () => {
+    const names = ["a.png", "a.c1.png", "a.c1.capture.json", "a.c2.png", "a.c2.capture.json", "a.spec.json", "b.c1.png", "b.c1.capture.json"];
+    const read = reader({
+      "a.spec.json": JSON.stringify({ panels: [{ capture: "b.c1.capture.json" }, { capture: "a.c1.capture.json" }] }),
+      "a.c1.capture.json": sidecar("live"),
+      "a.c2.capture.json": sidecar("import"),
+      "b.c1.capture.json": sidecar("import"),
+    });
+    expect(importedCaptures(join(src, "a.png"), () => names, read)).toEqual([join(src, "a.c2.png"), join(src, "b.c1.png")]);
+  });
+  test("a malformed sidecar counts as not live; a sidecar with no png, or a missing folder, names nothing", () => {
+    expect(importedCaptures(join(src, "a.png"), () => ["a.png", "a.c1.png", "a.c1.capture.json"], reader({ "a.c1.capture.json": "{" }))).toEqual([join(src, "a.c1.png")]);
+    expect(importedCaptures(join(src, "a.png"), () => ["a.png", "a.c1.capture.json"], reader({ "a.c1.capture.json": sidecar("import") }))).toEqual([]);
+    expect(importedCaptures(join(src, "gone", "a.png"), () => { throw new Error("ENOENT"); })).toEqual([]);
   });
 });
 
