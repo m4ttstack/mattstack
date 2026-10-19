@@ -1205,7 +1205,7 @@ function pipelinesFixture(fragment: string | null) {
   const pack = join(root, "pack");
   const ms = join(root, "mattstack-home");
   cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
-  cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "attachments", "model-tiering"), { recursive: true });
+  cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "skills", "model-tiering"), { recursive: true });
   writeFile(join(pack, "attachments", "b", "SKILL.md"), fillSkillMd("b", "evidence-domain@1"));
   const fragmentPath = join(pack, "pack", "skills.jsonc");
   if (fragment !== null) writeFile(fragmentPath, fragment);
@@ -1427,7 +1427,7 @@ describe("skillsBind --pipeline", () => {
     expect(exitCode).toBeUndefined();
 
     for (const verb of ["work", "work-a11y"]) {
-      expect(readFileSync(join(pack, "skills", verb, "SKILL.md"), "utf8")).toContain("slot:tiering binding=mattstack:model-tiering");
+      expect(readFileSync(join(pack, "skills", verb, "SKILL.md"), "utf8")).toContain("Slot tiering is bound to `mattstack:model-tiering`");
     }
   }, 30_000);
 

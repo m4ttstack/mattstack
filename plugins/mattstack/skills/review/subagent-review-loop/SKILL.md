@@ -23,10 +23,9 @@ approves. The reviewer keeps its context across rounds, so round two is
 1. Resolve the target document: the path given, else the spec/plan this
    session just wrote. Confirm it exists before dispatching.
 2. Pick the reviewer's model: if the operator named one ("have a fable
-   subagent review..."), use it. Otherwise read
-   `${CLAUDE_SKILL_DIR}/../../../attachments/model-tiering/SKILL.md` and
-   apply it to choose; adversarial spec review is high-judgment work, so expect it
-   to land on the top tier.
+   subagent review..."), use it. Otherwise invoke
+   `mattstack:model-tiering` and apply it to choose; adversarial spec review
+   is high-judgment work, so expect it to land on the top tier.
 3. Spawn ONE reviewer with the Agent tool on that model, using the
    reviewer prompt described below.
 4. Read the verdict. On "Status: Approved", report and stop.

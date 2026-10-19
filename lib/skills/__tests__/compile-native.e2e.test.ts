@@ -338,7 +338,7 @@ function buildPipelines(): { pack: string; ms: string; manifest: string; args: s
   const pack = join(root, "pack");
   const ms = join(root, "mattstack-home");
   cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
-  cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "attachments", "model-tiering"), { recursive: true });
+  cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "skills", "model-tiering"), { recursive: true });
   const manifest = join(ms, "repos", "my-repo", "skills.jsonc");
   return { pack, ms, manifest, args: ["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest] };
 }
