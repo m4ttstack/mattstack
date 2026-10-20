@@ -303,6 +303,7 @@ import {
   type ReviewStatus,
 } from './review-state.ts';
 import { attachNotes, MAX_NOTE_LEN, readNotes, writeNote } from './row-note.ts';
+import { canonicalReactions } from './slack-emoji.ts';
 import {
   attachOwnerPosts,
   attachOwnerPostsLeft,
@@ -323,7 +324,6 @@ import {
   writeOwnerPostsLeft,
   type ListedChannel,
 } from './slack.ts';
-import { canonicalReactions } from './slack-emoji.ts';
 import {
   beatStillValid,
   boardStateRoot,
@@ -4218,7 +4218,10 @@ const httpServer = Bun.serve({
               ? await unreactFromMR(slackToken, mrUrl, emoji)
               : await reactToMR(slackToken, mrUrl, emoji);
           return new Response(
-            JSON.stringify({ ok: true, reactions: canonical(ref.reactions ?? []) }),
+            JSON.stringify({
+              ok: true,
+              reactions: canonical(ref.reactions ?? []),
+            }),
             {
               headers: { 'content-type': 'application/json' },
             }

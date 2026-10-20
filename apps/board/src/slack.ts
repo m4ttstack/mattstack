@@ -269,7 +269,9 @@ const selfIds = new Map<string, Promise<string | undefined>>();
 function selfUserId(token: string): Promise<string | undefined> {
   let id = selfIds.get(token);
   if (!id) {
-    id = call('auth.test', token, {}).then(d => d.user_id as string | undefined);
+    id = call('auth.test', token, {}).then(
+      d => d.user_id as string | undefined
+    );
     id.catch(() => selfIds.delete(token));
     selfIds.set(token, id);
   }
