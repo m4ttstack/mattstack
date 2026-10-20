@@ -22,7 +22,7 @@ function probes(installed: string | null, releaseBuild: boolean, latest: string,
 describe("devAppNotice", () => {
   test("a release-built dev app behind the newest release gets a notice naming rt dev update", async () => {
     const n = await devAppNotice({ probes: probes("2.22.0", true, "2.23.0"), flavor: "dev", gh: () => ["gh"] });
-    expect(n).toEqual({ id: "dev_app:2.23.0", title: "A newer dev app is ready", message: "mattstack-dev 2.23.0 is out. Run rt dev update to install it." });
+    expect(n).toEqual({ id: "dev_app:2.23.0", version: "2.23.0", title: "A newer dev app is ready", message: "mattstack-dev 2.23.0 is out. Run rt dev update to install it." });
   });
   test("current: no notice", async () => {
     expect(await devAppNotice({ probes: probes("2.23.0", true, "2.23.0"), flavor: "dev", gh: () => ["gh"] })).toBeNull();
