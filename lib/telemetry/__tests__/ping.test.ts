@@ -8,7 +8,7 @@ import { MIGRATION_IDS } from "../../setup/migrations/ids.ts";
 import { rtVersion } from "../../setup/update.ts";
 import { ENGINE_PACK_REF } from "../../skills/installed-plugins.ts";
 import type { PluginListEntry } from "../../skills/sources.ts";
-import { collectPing, readPingVersions } from "../ping.ts";
+import { collectPing, readPingVersions, runningInVirtualMachine } from "../ping.ts";
 
 const HOME = "/h";
 const ORGS = `${HOME}/.mattstack/orgs`;
@@ -243,5 +243,18 @@ describe("readPingVersions", () => {
     const p = fakeProbes({ home: HOME, exec });
     expect((await readPingVersions(p)).appVersion).toBeNull();
     expect(p.calls.exec).toEqual([]);
+  });
+});
+
+describe("runningInVirtualMachine", () => {
+  const answer = (stdout: string, code = 0) => fakeProbes({ home: HOME, exec: () => ({ code, stdout, stderr: "" }) });
+
+  test("kern.hv_vmm_present 1 is a VM", async () => {
+    expect(await runningInVirtualMachine(answer("1\n"))).toBe(true);
+  });
+
+  test("0, or an unreadable answer, is a real Mac", async () => {
+    expect(await runningInVirtualMachine(answer("0\n"))).toBe(false);
+    expect(await runningInVirtualMachine(answer("", 1))).toBe(false);
   });
 });

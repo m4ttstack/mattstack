@@ -69,6 +69,11 @@ async function readAppVersion(p: Probes): Promise<string | null> {
   return execText(p, ["/usr/libexec/PlistBuddy", "-c", "Print CFBundleShortVersionString", join(root, "Contents", "Info.plist")]);
 }
 
+/** `kern.hv_vmm_present` is 1 under a hypervisor; an unreadable answer counts as a real Mac. */
+export async function runningInVirtualMachine(p: Probes): Promise<boolean> {
+  return (await execText(p, ["sysctl", "-n", "kern.hv_vmm_present"])) === "1";
+}
+
 export async function readPingVersions(p: Probes): Promise<PingVersions> {
   return { appVersion: await field("appVersion", null, () => readAppVersion(p)), rtVersion: rtVersion() };
 }

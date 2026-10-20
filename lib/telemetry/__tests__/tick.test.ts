@@ -12,12 +12,13 @@ function fakeLog() {
 }
 
 function harness(overrides: Partial<TickDeps> = {}) {
-  const state = { enabled: true, now: 1_000_000, versions: { appVersion: "2.30.1", rtVersion: "2.30.1" } as PingVersions, status: 200, token: "tok" as string | null };
+  const state = { enabled: true, now: 1_000_000, versions: { appVersion: "2.30.1", rtVersion: "2.30.1" } as PingVersions, status: 200, token: "tok" as string | null, virtualMachine: false };
   const posts: { url: string; body: string; token: string | null }[] = [];
   const collects: number[] = [];
   const { log, calls } = fakeLog();
   const deps: TickDeps = {
     enabled: () => state.enabled,
+    virtualMachine: async () => state.virtualMachine,
     versions: async () => state.versions,
     collect: async () => {
       collects.push(state.now);
@@ -174,5 +175,16 @@ describe("makeTelemetryTick", () => {
     h.state.now += 5 * MIN;
     await h.tick();
     expect(h.posts).toHaveLength(1);
+  });
+
+  test("a VM never sends, and the check runs once", async () => {
+    let checks = 0;
+    const h = harness({ virtualMachine: async () => (checks++, true) });
+    await h.tick();
+    h.state.now += 60 * MIN;
+    await h.tick();
+    expect(h.posts).toHaveLength(0);
+    expect(h.collects).toHaveLength(0);
+    expect(checks).toBe(1);
   });
 });

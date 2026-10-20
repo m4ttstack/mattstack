@@ -12,6 +12,8 @@ const RESEND_AFTER_MS = 50 * 60_000;
 
 export interface TickDeps {
   enabled(): boolean;
+  /** A release rehearsal's clean-room VM would report as a new Mac on every run. */
+  virtualMachine(): Promise<boolean>;
   versions(): Promise<PingVersions>;
   collect(): Promise<TelemetryPing>;
   token(): Promise<string | null>;
@@ -30,9 +32,12 @@ interface LastSent {
 export function makeTelemetryTick(deps: TickDeps): () => Promise<void> {
   let last: LastSent | null = null;
   let inFlight = false;
+  let virtualMachine: boolean | null = null;
 
   async function run(): Promise<void> {
     if (!deps.enabled()) return;
+    virtualMachine ??= await deps.virtualMachine();
+    if (virtualMachine) return;
     const versions = await deps.versions();
     const now = deps.now();
     const unchanged = last !== null && last.versions.appVersion === versions.appVersion && last.versions.rtVersion === versions.rtVersion;
