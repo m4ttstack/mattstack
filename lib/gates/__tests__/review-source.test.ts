@@ -10,6 +10,7 @@ const FIXTURE: Record<string, string> = {
   "findings-v1": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v1.json",
   "findings-v2": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v2.json",
   "findings-v3": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3.json",
+  "findings-v3-drafts": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3-drafts.json",
   extras: "plugins/mattstack/attachments/review/review/tests/fixtures/extras.json",
 };
 type J = Record<string, any>;
@@ -17,6 +18,7 @@ const load = (name: string): J => JSON.parse(readFileSync(join(ROOT, FIXTURE[nam
 const V1 = "findings-v1";
 const V2 = "findings-v2";
 const V3 = "findings-v3";
+const DRAFTS = "findings-v3-drafts";
 const X = "extras";
 
 function mutated(name: string, f: (j: J) => void): J {
@@ -480,6 +482,54 @@ describe("skipped findings: restore:<id> options, none recommended", () => {
     );
     expect(o.questions.filter((q: J) => q.id.startsWith("skipped-")).length).toBe(0);
   });
+});
+
+describe("drafted comments ride whole, board-only", () => {
+  const editable = () => mutated(X, (j) => (j.editable = true));
+  const out = build(load(DRAFTS), editable());
+  const entries = (o: J): J[] =>
+    o.questions.filter((q: J) => q.id.startsWith("findings-")).flatMap((q: J) => q.context.findings);
+
+  test("every finding's comment passes through whole", () => {
+    const want = Object.fromEntries(load(DRAFTS).findings.map((f: J) => [f.id, f.comment]));
+    expect(Object.fromEntries(entries(out).map((e) => [e.id, e.comment]))).toEqual(want);
+  });
+  test("the comment is the entry's last key", () => expect(Object.keys(entries(out)[0]!).at(-1)).toBe("comment"));
+  test("review@1 carries editable and the whole summary comment", () => {
+    expect(out.context.editable).toBe(true);
+    expect(out.context.summaryComment).toBe(load(DRAFTS).summary.comment);
+  });
+  test("without editable the drafts still ride and editable is absent", () => {
+    const o = build(load(DRAFTS), load(X));
+    expect(`${Object.hasOwn(o.context, "editable")}|${o.context.summaryComment === load(DRAFTS).summary.comment}`).toBe("false|true");
+  });
+  test("a v3 file without drafts builds exactly what it did", () => {
+    const o = build(load(V3), load(X));
+    expect(tojson(jqKeys(o.context))).toBe('["findings","gate-ctx","prior","re_review","readiness","reviewer","round","summary"]');
+    expect(entries(o).some((e) => Object.hasOwn(e, "comment"))).toBe(false);
+  });
+  test("the drafts source passes checkSource", () => expect(checkSource(out)).toEqual({ ok: true }));
+
+  const rejects: [string, J, J, string][] = [
+    ["an empty comment", mutated(DRAFTS, (j) => (j.findings[2].comment = "")), load(X), "findings file: findings[2].comment: non-empty string when present"],
+    ["a numeric summary comment", mutated(DRAFTS, (j) => (j.summary.comment = 5)), load(X), "findings file: summary.comment: non-empty string when present"],
+    ["editable as a string", load(DRAFTS), mutated(X, (j) => (j.editable = "yes")), "extras: editable: boolean when present"],
+    [
+      "editable with a finding that has no comment",
+      mutated(DRAFTS, (j) => delete j.findings[4].comment),
+      editable(),
+      "extras: editable: needs a comment on every finding and a summary.comment",
+    ],
+    [
+      "editable without a summary comment",
+      mutated(DRAFTS, (j) => delete j.summary.comment),
+      editable(),
+      "extras: editable: needs a comment on every finding and a summary.comment",
+    ],
+  ];
+  for (const [name, f, x, want] of rejects) test(`${name} names the field`, () => expect(errs(f, x)).toBe(want));
+  test("editable over a file with no findings needs only the summary comment", () =>
+    expect(errs(mutated(DRAFTS, (j) => (j.findings = [])), editable())).toBe(""));
 });
 
 describe("truncation helpers", () => {

@@ -164,6 +164,8 @@ function reviewErrs(c: unknown): string[] {
       () => optional(c, "prior", (v) => isObject(v) && int(at(v, "addressed")) && int(at(v, "still_open"))),
       "prior: {addressed, still_open} integers when present",
     ),
+    ...chk(() => optional(c, "editable", (v) => v === true), "editable: true when present"),
+    ...chk(() => optional(c, "summaryComment", str), "summaryComment: non-empty string when present"),
   ];
 }
 
@@ -212,6 +214,7 @@ function findingsErrs(c: unknown, values: unknown[]): string[] {
         () => optional(e, "disposition", (v) => among(v, ["new", "still-open", "addressed-check"])),
         `findings[${i}].disposition: new|still-open|addressed-check`,
       ),
+      ...chk(() => optional(e, "comment", str), `findings[${i}].comment: non-empty string when present`),
       ...chk(() => contains(values, at(e, "id")), `findings[${i}].id: matches no option value of this question`),
     ]),
     ...values.filter((v) => !contains(ids, v)).map((v) => `option ${tostring(v)}: no findings entry carries its value`),
@@ -315,8 +318,13 @@ export function checkSource(source: unknown): { ok: true } | { ok: false; proble
 export const PANE_PROSE_LIMIT = 8192;
 
 /** Per shape, the fields only the board shows. A name is dropped from the
-    context and from every object in the context's top-level arrays. */
-export const BOARD_ONLY_FIELDS: Record<string, readonly string[]> = {};
+    context and from every object in the context's top-level arrays. A
+    board-only field is never a pane trim target: it is never in the pane,
+    so trimming it cannot shrink the pane. */
+export const BOARD_ONLY_FIELDS: Record<string, readonly string[]> = {
+  "findings@1": ["comment"],
+  "review@1": ["summaryComment"],
+};
 
 export interface RenderedOpen {
   mode: "structured" | "prose";

@@ -17,6 +17,7 @@ const FIXTURE: Record<string, string> = {
   "findings-v1": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v1.json",
   "findings-v2": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v2.json",
   "findings-v3": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3.json",
+  "findings-v3-drafts": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3-drafts.json",
   extras: "plugins/mattstack/attachments/review/review/tests/fixtures/extras.json",
 };
 
@@ -109,6 +110,28 @@ const RS_CASES: RsCase[] = [
       ["extras naming a findings question", '.questions += [{"id": "findings-9", "options": []}]'],
     ] as const
   ).map(([name, x]) => ({ name, findings: "findings-v2", extras: "extras", x })),
+  { name: "v3 drafts", findings: "findings-v3-drafts", extras: "extras" },
+  { name: "v3 drafts editable", findings: "findings-v3-drafts", extras: "extras", x: ".editable = true" },
+  { name: "v3 drafts editable false", findings: "findings-v3-drafts", extras: "extras", x: ".editable = false" },
+  { name: "v3 drafts empty comment", findings: "findings-v3-drafts", extras: "extras", f: '.findings[2].comment = ""' },
+  { name: "v3 drafts numeric summary comment", findings: "findings-v3-drafts", extras: "extras", f: ".summary.comment = 5" },
+  { name: "v3 drafts editable as a string", findings: "findings-v3-drafts", extras: "extras", x: '.editable = "yes"' },
+  {
+    name: "v3 drafts editable with a finding missing its comment",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    f: "del(.findings[4].comment)",
+    x: ".editable = true",
+  },
+  {
+    name: "v3 drafts editable without a summary comment",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    f: "del(.summary.comment)",
+    x: ".editable = true",
+  },
+  { name: "v3 editable with no drafts", findings: "findings-v3", extras: "extras", x: ".editable = true" },
+  { name: "v3 drafts editable over a string summary", findings: "findings-v3-drafts", extras: "extras", f: '.summary = "x"', x: ".editable = true" },
   {
     name: "hostile non-BMP title",
     findings: "findings-v2",
@@ -373,15 +396,19 @@ describe("gate-ctx.sh parity with board-only fields", () => {
   const ENTRIES: Record<string, string[]> = { "findings@1": ["fix", "evidence"], "review@1": ["prior"] };
   const script = join(TMP, "gate-ctx-board-only.sh");
   const original = readFileSync(GC, "utf8");
-  const swapped = original.replace("def board_only: {};", `def board_only: ${JSON.stringify(ENTRIES)};`);
+  const swapped = original.replace(/^def board_only: .*;$/m, `def board_only: ${JSON.stringify(ENTRIES)};`);
   writeFileSync(script, swapped);
 
   test("the script declares its board-only list in one place", () => expect(swapped).not.toBe(original));
+  test("the script's board-only list is the port's", () =>
+    expect(original.match(/^def board_only: (.*);$/m)?.[1]).toBe(JSON.stringify(BOARD_ONLY_FIELDS)));
 
   for (const mode of [["fit"], ["fit", "--limit", "900"], ["prose"]]) {
     test(`review | ${mode.join(" ")}`, () => {
       const text = fixture(REVIEW);
       const src = JSON.parse(text) as GateCtxSource;
+      const real = { ...BOARD_ONLY_FIELDS };
+      for (const k of Object.keys(BOARD_ONLY_FIELDS)) delete BOARD_ONLY_FIELDS[k];
       Object.assign(BOARD_ONLY_FIELDS, ENTRIES);
       try {
         const r = Bun.spawnSync(["sh", script, ...mode], { stdin: Buffer.from(text), env: ENV });
@@ -390,7 +417,8 @@ describe("gate-ctx.sh parity with board-only fields", () => {
         expect(out).toBe(`${tojson(portOpen(src, mode))}\n`);
         expect(out).not.toContain("Fix: ");
       } finally {
-        for (const k of Object.keys(ENTRIES)) delete BOARD_ONLY_FIELDS[k];
+        for (const k of Object.keys(BOARD_ONLY_FIELDS)) delete BOARD_ONLY_FIELDS[k];
+        Object.assign(BOARD_ONLY_FIELDS, real);
       }
     });
   }

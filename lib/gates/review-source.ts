@@ -58,6 +58,7 @@ function findingErrs(e: unknown, i: number, v2: boolean): string[] {
     ...chk(() => optional(e, "fileLabel", str), `${p}.fileLabel: non-empty string when present`),
     ...chk(() => optional(e, "fix", str), `${p}.fix: non-empty string when present`),
     ...chk(() => optional(e, "kind", str), `${p}.kind: non-empty string when present`),
+    ...chk(() => optional(e, "comment", str), `${p}.comment: non-empty string when present`),
   ];
 }
 
@@ -104,6 +105,7 @@ function fileErrs(f: Obj): string[] {
     ),
     ...chk(() => among(at(f, "summary", "readiness"), ["yes", "no", "with-fixes"]), "summary.readiness: yes|no|with-fixes"),
     ...chk(() => str(at(f, "summary", "reasoning")), "summary.reasoning: required non-empty string"),
+    ...chk(() => optional(at(f, "summary"), "comment", str), "summary.comment: non-empty string when present"),
     ...chk(() => Array.isArray(at(f, "findings")), "findings: required array"),
     ...chk(() => optional(f, "re_review", (v) => typeof v === "boolean"), "re_review: boolean when present"),
     ...chk(
@@ -123,7 +125,12 @@ function fileErrs(f: Obj): string[] {
   ];
 }
 
-function extrasErrs(x: Obj): string[] {
+/** An editable gate always has a draft for the poster to fall back to. */
+function hasEveryDraft(f: Obj): boolean {
+  return str(at(f, "summary", "comment")) && entries(f, "findings").every((e) => str(at(e, "comment")));
+}
+
+function extrasErrs(x: Obj, f: Obj): string[] {
   return [
     ...chk(() => str(at(x, "target")), "target: required non-empty string"),
     ...chk(() => optional(x, "reviewer", str), "reviewer: non-empty string when present"),
@@ -140,6 +147,11 @@ function extrasErrs(x: Obj): string[] {
         }),
       "questions: findings-*, thread-* and skipped-* ids are built from the findings file",
     ),
+    ...chk(() => optional(x, "editable", (v) => typeof v === "boolean"), "editable: boolean when present"),
+    ...chk(
+      () => !jqEqual(at(x, "editable"), true) || hasEveryDraft(f),
+      "editable: needs a comment on every finding and a summary.comment",
+    ),
   ];
 }
 
@@ -148,7 +160,7 @@ export function reviewSourceErrors(findings: unknown, extras: unknown): string[]
   if (!isObject(extras)) return ["extras: not a JSON object"];
   return [
     ...fileErrs(findings).map((e) => `findings file: ${e}`),
-    ...extrasErrs(extras).map((e) => `extras: ${e}`),
+    ...extrasErrs(extras, findings).map((e) => `extras: ${e}`),
   ];
 }
 
@@ -248,6 +260,7 @@ function entry(e: Obj): Obj {
     ...(jqHas(e, "file") ? { file: jqHas(e, "line") ? joinLine(e) : e.file } : {}),
     ...pick(e, ["fix", "evidence", "disposition"]),
     ...(kind === "" ? {} : { kind }),
+    ...pick(e, ["comment"]),
   };
 }
 
@@ -337,6 +350,8 @@ export function buildReviewSource(findings: Record<string, unknown>, extras: Rec
     findings: counts,
     ...pick(x, ["round"]),
     ...pick(f, ["re_review", "prior"]),
+    ...(x.editable === true ? { editable: true } : {}),
+    ...(jqHas(f.summary, "comment") ? { summaryComment: f.summary.comment } : {}),
   };
   const threadQs = (entries(f, "threads") as Obj[]).map((t, i) => threadQuestion(t, i + 1));
   const findingQs = chunks(ordered, 4).map((chunk, i) => ({

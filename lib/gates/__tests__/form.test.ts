@@ -81,11 +81,13 @@ describe("flattenContext", () => {
       "gate-ctx": "findings@1",
       findings: [{ id: "f1", severity: "minor", title: "a typo", body: "the word is misspelt", fix: "spell it right" }],
     };
+    const real = BOARD_ONLY_FIELDS["findings@1"];
     beforeEach(() => {
       BOARD_ONLY_FIELDS["findings@1"] = ["fix"];
     });
     afterEach(() => {
-      delete BOARD_ONLY_FIELDS["findings@1"];
+      if (real === undefined) delete BOARD_ONLY_FIELDS["findings@1"];
+      else BOARD_ONLY_FIELDS["findings@1"] = real;
     });
 
     test("the prose omits it", () => {

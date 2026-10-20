@@ -230,5 +230,29 @@ check "changed is required" 'findings file: skipped[0].changed: required boolean
 m=$(mutate '.skipped = []' "$V3"); run "$m" "$X"; rm -f "$m"
 check "an empty skipped list builds no question" 0 "$(q '[.questions[] | select(.id | startswith("skipped-"))] | length')"
 
+# --- drafted comments ride whole into the gate, board-only ---
+D="$DIR/fixtures/findings-v3-drafts.json"
+EX=$(mutate '.editable = true' "$X")
+run "$D" "$EX"
+check "drafts exit 0" 0 "$RC"
+check "every finding's comment passes through whole" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile f "$D" '[.questions[] | select(.id | startswith("findings-")) | .context.findings[] | {(.id): .comment}] | add == ($f[0].findings | map({(.id): .comment}) | add)')"
+check "review@1 carries editable and the whole summary comment" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile f "$D" '.context.editable == true and .context.summaryComment == $f[0].summary.comment')"
+FIT=$(printf '%s' "$OUT" | sh "$GC" fit); FRC=$?
+check "the drafts fit structured and the pane fits untrimmed" '0|structured|true|[]|false' \
+  "$FRC|$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(.pane.fits)|\(.pane.trimmed | tojson)|\(.pane.contextDropped)"')"
+check "no comment reaches the pane" false \
+  "$(printf '%s' "$FIT" | jq --slurpfile f "$D" '[.pane.context, .pane.questions[].context | strings] | join("\n") as $p | any(($f[0].summary.comment, $f[0].findings[].comment); .[:40] as $c | $p | contains($c))')"
+run "$V3" "$X"
+check "a v3 file without drafts carries no draft keys" 'false|false|false' \
+  "$(q '"\(.context | has("editable"))|\(.context | has("summaryComment"))|\(any(.questions[].context.findings?[]?; has("comment")))"')"
+M=$(mutate '.findings[2].comment = ""' "$D"); reject "an empty comment" "$M" "$X" "findings file: findings[2].comment: non-empty string when present"; rm -f "$M"
+M=$(mutate '.summary.comment = 5' "$D"); reject "a numeric summary comment" "$M" "$X" "findings file: summary.comment: non-empty string when present"; rm -f "$M"
+M=$(mutate '.editable = "yes"' "$X"); reject "editable as a string" "$D" "$M" "extras: editable: boolean when present"; rm -f "$M"
+M=$(mutate 'del(.findings[4].comment)' "$D"); reject "editable with a finding missing its comment" "$M" "$EX" "extras: editable: needs a comment on every finding and a summary.comment"; rm -f "$M"
+M=$(mutate 'del(.summary.comment)' "$D"); reject "editable without a summary comment" "$M" "$EX" "extras: editable: needs a comment on every finding and a summary.comment"; rm -f "$M"
+rm -f "$EX"
+
 [ "$fails" -eq 0 ] || { echo "$fails failing"; exit 1; }
 echo "all passing"

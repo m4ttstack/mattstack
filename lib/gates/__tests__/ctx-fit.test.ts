@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type FitResult, fitOpen, PANE_PROSE_LIMIT, proseOpen, type RenderedOpen } from "../ctx.ts";
 import { utf8Bytes } from "../jq.ts";
+import { buildReviewSource } from "../review-source.ts";
 
 const ROOT = join(import.meta.dir, "../../..");
 const FIXTURE: Record<string, string> = {
@@ -352,5 +353,32 @@ Fix: say backoff in the README and name the base interval and the cap it grows t
       }),
     );
     expect(r.context).toBe("Ready to merge: yes -- no issues found.\nNo findings");
+  });
+});
+
+describe("drafted comments are stored whole and never reach the pane", () => {
+  const dir = "plugins/mattstack/attachments/review/review/tests/fixtures";
+  const read = (f: string): Src => JSON.parse(readFileSync(join(ROOT, dir, f), "utf8"));
+  const findings = read("findings-v3-drafts.json");
+  const src = buildReviewSource(findings, { ...read("extras.json"), editable: true }) as Src;
+  const r = fitOpen(src);
+  const comments = [findings.summary.comment, ...findings.findings.map((f: Src) => f.comment)] as string[];
+  const paneText = [r.pane.context ?? "", ...r.pane.questions.map((q) => (typeof q.context === "string" ? q.context : ""))].join("\n");
+
+  test("twelve comments would overflow the pane if they counted", () =>
+    expect(comments.reduce((n, c) => n + utf8Bytes(c), 0) + proseOpen(src).bytes).toBeGreaterThan(PANE_PROSE_LIMIT));
+  test("the stored open is structured with every comment untrimmed", () => {
+    expect(r.mode).toBe("structured");
+    const stored = r.questions.filter((q) => String(q.id).startsWith("findings-")).flatMap((q) => JSON.parse(q.context as string).findings);
+    expect(stored.map((e: Src) => e.comment)).toEqual(src.questions.filter((q) => String(q.id).startsWith("findings-")).flatMap((q) => q.context.findings).map((e: Src) => e.comment));
+    expect(stored.length).toBe(12);
+    expect(JSON.parse(r.context!).summaryComment).toBe(findings.summary.comment);
+  });
+  test("the pane prose fits whole, nothing trimmed or dropped", () => {
+    expect(paneBytes(r.pane)).toBeLessThan(PANE_PROSE_LIMIT);
+    expect(`${r.pane.fits}|${r.pane.trimmed.length}|${r.pane.contextDropped}`).toBe("true|0|false");
+  });
+  test("no comment's text appears in the pane", () => {
+    for (const c of comments) expect(paneText).not.toContain(c.slice(0, 40));
   });
 });

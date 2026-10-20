@@ -370,6 +370,7 @@ const FIXTURE = {
   plan: join(REPO, "plugins/mattstack/attachments/review/receive-review/tests/fixtures/plan-source.json"),
   post: join(REPO, "plugins/mattstack/attachments/review/receive-review/tests/fixtures/post-source.json"),
   findingsV2: join(REPO, "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v2.json"),
+  drafts: join(REPO, "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3-drafts.json"),
   extras: join(REPO, "plugins/mattstack/attachments/review/review/tests/fixtures/extras.json"),
 };
 type Src = { context?: Record<string, any>; questions: Record<string, any>[] };
@@ -443,6 +444,21 @@ describe("gate_open", () => {
     const res = await open({ kind: "review-post", review }, f);
     expect(res.ok).toBe(true);
     expect(f.asks[0]).toMatchObject({ questions: expected.questions, context: expected.context, kind: "review-post" });
+  });
+
+  test("drafted comments are stored whole and never reach formContext or formChunks", async () => {
+    const f = rooted();
+    const drafts = loadJson(FIXTURE.drafts);
+    const review = { findingsPath: copy(FIXTURE.drafts, "findings-v3-drafts.json"), extras: { ...loadJson(FIXTURE.extras), editable: true } };
+    const res = await open({ kind: "review-post", review }, f);
+    expect(res.ok).toBe(true);
+    expect(JSON.parse(f.asks[0]!.context as string)).toMatchObject({ editable: true, summaryComment: drafts.summary.comment });
+    const form = JSON.stringify({ formContext: body(res).formContext, formChunks: body(res).formChunks });
+    expect(body(res).formContext).toBeDefined();
+    for (const c of [drafts.summary.comment, ...drafts.findings.map((d: { comment: string }) => d.comment)]) {
+      expect(JSON.stringify(f.asks[0])).toContain(JSON.stringify(c).slice(1, -1));
+      expect(form).not.toContain(c.slice(0, 40));
+    }
   });
 
   test("a findingsPath outside the read roots is refused with the guard's message and nothing opens", async () => {

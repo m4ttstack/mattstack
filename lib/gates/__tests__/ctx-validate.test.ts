@@ -99,6 +99,9 @@ const rejects: [string, string, (s: Src) => void, string][] = [
   ["entry without a body", REVIEW, (s) => delete s.questions[0].context.findings[1].body, "findings-1: findings[1].body: required non-empty string"],
   ["report-cased severity", REVIEW, (s) => (s.questions[0].context.findings[0].severity = "Critical"), "findings-1: findings[0].severity: critical|important|minor"],
   ["disposition outside the enum", REVIEW, (s) => (s.questions[0].context.findings[2].disposition = "open"), "findings-1: findings[2].disposition: new|still-open|addressed-check"],
+  ["a numeric draft comment", REVIEW, (s) => (s.questions[0].context.findings[1].comment = 5), "findings-1: findings[1].comment: non-empty string when present"],
+  ["an empty summary comment", REVIEW, (s) => (s.context.summaryComment = ""), "gate: summaryComment: non-empty string when present"],
+  ["editable false", REVIEW, (s) => (s.context.editable = false), "gate: editable: true when present"],
   ["null evidence", REVIEW, (s) => (s.questions[0].context.findings[0].evidence = null), "findings-1: findings[0].evidence: non-empty string when present"],
   ["an option with no entry", REVIEW, (s) => s.questions[0].options.push({ value: "f7", label: "[Minor] extra" }), "findings-1: option f7: no findings entry carries its value"],
   [

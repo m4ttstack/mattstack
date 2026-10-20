@@ -107,7 +107,9 @@ def review_errs: [
   chk(optional("reviewer"; str); "reviewer: non-empty string when present"),
   chk(optional("round"; type == "number" and . == floor and . >= 1); "round: integer of at least 1 when present"),
   chk(optional("re_review"; type == "boolean"); "re_review: boolean when present"),
-  chk(optional("prior"; type == "object" and (.addressed | int) and (.still_open | int)); "prior: {addressed, still_open} integers when present")
+  chk(optional("prior"; type == "object" and (.addressed | int) and (.still_open | int)); "prior: {addressed, still_open} integers when present"),
+  chk(optional("editable"; . == true); "editable: true when present"),
+  chk(optional("summaryComment"; str); "summaryComment: non-empty string when present")
 ];
 def findings_errs($values): [
   chk(.findings | type == "array" and length > 0; "findings: required non-empty array"),
@@ -120,6 +122,7 @@ def findings_errs($values): [
     chk(optional("fix"; str); "findings[\($i)].fix: non-empty string when present"),
     chk(optional("evidence"; str); "findings[\($i)].evidence: non-empty string when present"),
     chk(optional("disposition"; among(["new","still-open","addressed-check"])); "findings[\($i)].disposition: new|still-open|addressed-check"),
+    chk(optional("comment"; str); "findings[\($i)].comment: non-empty string when present"),
     chk(.id as $id | $values | index([$id]) != null; "findings[\($i)].id: matches no option value of this question")
   )),
   ([entries("findings")[] | .id?] as $ids
@@ -173,8 +176,9 @@ def plural($n; $one; $many): if $n == 1 then "\($n) \($one)" else "\($n) \($many
 def tier: {"critical":"Critical","important":"Important","minor":"Minor"}[.];
 # Per shape, the fields only the board shows (BOARD_ONLY_FIELDS in
 # lib/gates/ctx.ts). A name is dropped from the context and from every
-# object in the context's top-level arrays.
-def board_only: {};
+# object in the context's top-level arrays. A board-only field is never a
+# pane trim target: it is never in the pane, so trimming it cannot shrink it.
+def board_only: {"findings@1":["comment"],"review@1":["summaryComment"]};
 def without_board_only:
   (board_only[.["gate-ctx"] | strings] // []) as $fs
   | if $fs == [] then .
