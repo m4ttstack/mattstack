@@ -209,17 +209,19 @@ function Host({
   queueIndex = QUEUE.index,
   onPrev = () => {},
   onContinue = () => {},
+  noMr = false,
 }: {
   gate?: GateRow;
   queueIndex?: number;
   onPrev?: () => void;
   onContinue?: () => void;
+  noMr?: boolean;
 }) {
   const form = useGateForm(gate);
   return (
     <ReviewGateSheet
       gate={gate}
-      mr={MR}
+      mr={noMr ? undefined : MR}
       form={form}
       queue={{
         ...QUEUE,
@@ -279,6 +281,7 @@ async function render(
     queueIndex?: number;
     onPrev?: () => void;
     onContinue?: () => void;
+    noMr?: boolean;
   }
 ) {
   await React.act(async () => {
@@ -1244,7 +1247,9 @@ describe('a gate whose poster honors edited drafts', () => {
   };
   const SUMMARY = 'Thanks! One real issue inline, the rest are small.';
 
-  function draftsGate(over: { editable?: boolean } = {}): GateRow {
+  function draftsGate(
+    over: { editable?: boolean; round?: number } = {}
+  ): GateRow {
     const editable = over.editable ?? true;
     return {
       ...GATE,
@@ -1252,6 +1257,7 @@ describe('a gate whose poster honors edited drafts', () => {
       context: j({
         ...REVIEW,
         findings: { critical: 1, important: 2, minor: 1 },
+        ...(over.round !== undefined ? { round: over.round } : {}),
         ...(editable ? { editable: true } : {}),
         summaryComment: SUMMARY,
       }),
@@ -1397,6 +1403,20 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(boxes[0]!.textContent).toContain(SUMMARY);
     expect(boxes[1]!.textContent).toContain(COMMENT.f3);
     expect(card.textContent).toContain('includes 1 finding with no diff line');
+  });
+
+  test('on a later round the round band stays first and the summary card follows it', async () => {
+    await render(draftsGate({ round: 2 }));
+    const main = container.querySelector('.tui-sheet-main')!;
+    expect(main.firstElementChild?.className).toBe('tui-sheet-round');
+    expect(main.children[1]).toBe(main.querySelector('.tui-review-summary')!);
+  });
+
+  test('with no MR the summary card names no target', async () => {
+    await render(draftsGate(), { noMr: true });
+    const card = container.querySelector('.tui-review-summary')!;
+    expect(card.textContent).toContain('Summary comment');
+    expect(card.textContent).not.toContain('posts on');
   });
 
   test('a no-diff-line finding points at the summary instead of carrying a box', async () => {

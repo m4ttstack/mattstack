@@ -2310,10 +2310,12 @@ body {
   color: var(--text-1);
   overflow-wrap: anywhere;
 }
-.tui-thread-card [data-part='markdown'] > * {
+.tui-thread-card [data-part='markdown'] > *,
+.tui-thread-reply [data-part='markdown'] > * {
   margin: 0;
 }
-.tui-thread-card [data-part='markdown'] > * + * {
+.tui-thread-card [data-part='markdown'] > * + *,
+.tui-thread-reply [data-part='markdown'] > * + * {
   margin-top: 6px;
 }
 .tui-thread-points {

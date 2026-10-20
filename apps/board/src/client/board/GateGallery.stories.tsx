@@ -155,6 +155,10 @@ export const ReviewPost = face(
   'Review: post, structured (review@1, findings@1)',
   G.reviewPost
 );
+export const ReviewPostDrafted = face(
+  'Review: post, drafted comments (editable)',
+  G.reviewPostDrafted
+);
 export const ReviewPostVerdictOnly = face(
   'Review: post, prose, verdict only',
   G.reviewPostVerdictOnly

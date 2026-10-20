@@ -235,7 +235,7 @@ function SummaryCard({
   folded,
   form,
 }: {
-  target: string;
+  target?: string;
   draft: string;
   folded: FindingEntry[];
   form: GateFormState;
@@ -252,9 +252,11 @@ function SummaryCard({
         <span className="tui-gate-question-label">Summary comment</span>
         <span className="tui-review-summary-chips">
           {edited && <EditedChip />}
-          <span className="tui-respond-chip" data-hue="accent">
-            posts on {target}
-          </span>
+          {target && (
+            <span className="tui-respond-chip" data-hue="accent">
+              posts on {target}
+            </span>
+          )}
         </span>
       </div>
       <div data-part="summary-line">
@@ -575,16 +577,16 @@ function ReviewGateSheet({
     >
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" ref={mainRef}>
+          {review.round !== undefined && (
+            <RoundHeading round={review.round} summary={roundSummary} />
+          )}
           {drafts && (
             <SummaryCard
-              target={mr ? mrRef(mr) : '!'}
+              target={mr && mrRef(mr)}
               draft={drafts.summary}
               folded={folded}
               form={form}
             />
-          )}
-          {review.round !== undefined && (
-            <RoundHeading round={review.round} summary={roundSummary} />
           )}
           {carryovers.length > 0 && (
             <>

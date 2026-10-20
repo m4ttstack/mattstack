@@ -1100,6 +1100,41 @@ export const reviewPost: GalleryGate = {
   },
 };
 
+const RADAR_COMMENTS: Record<string, string> = {
+  f1: 'Small wording thing: after the provider change a step navigation no longer tears the map down, the provider teardown does. Could this read "can land after the provider tore this map down"? Same wording at useRadarMap.test.tsx:997.',
+  f2: 'Every test here still passes if the guard flips to isDetached.current, which is the one regression this fix is likely to meet. A test where the building step unmounts with the provider alive, and the late model still lands, would pin it.',
+  f3: 'Nit: without this assertion only the not.toThrow half goes vacuous; the not.toHaveBeenCalled half still fails. Maybe say that?',
+  f4: 'The flag checklist items are ticked, but the change adds no flag. Could you mark them N/A with a one-line reason?',
+};
+
+export const reviewPostDrafted: GalleryGate = {
+  mr: MRS.radarLayers,
+  gate: {
+    ...reviewPost.gate,
+    gateId: 'gallery-review-post-drafted',
+    context: ctx({
+      ...(JSON.parse(reviewPost.gate.context!) as Record<string, unknown>),
+      editable: true,
+      summaryComment:
+        'Nice fix! The guard matches the root cause and the new test is red on main. A few small notes inline, nothing blocking.',
+    }),
+    questions: radarReviewQuestions.map((q, i) =>
+      i === 0
+        ? {
+            ...q,
+            context: ctx({
+              'gate-ctx': 'findings@1',
+              findings: RADAR_FINDINGS.map(f => ({
+                ...f,
+                comment: RADAR_COMMENTS[f.id],
+              })),
+            }),
+          }
+        : q
+    ),
+  },
+};
+
 export const reviewPostVerdictOnly: GalleryGate = {
   mr: MRS.scriptFrames,
   gate: {
