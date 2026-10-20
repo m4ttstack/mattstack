@@ -119,35 +119,41 @@ posting happens outside the board wrapper's Compose step:
 word, on GitLab and GitHub. The board wrapper's generic path is out of
 scope (see Non-goals).
 
-## Where the drafts live (Matt's call)
+## Where the drafts live (Matt's call, revised 2026-10-20)
 
-The board reads the drafted text from the **report json**, not from the
-gate context. The board server already reads that file
-(`readReviewReportJson` in `apps/board/src/review-state.ts`, used in
-`server.ts`). This keeps the drafts out of the gate's shared 8192-byte
-context budget (`GATE_CTX_LIMIT` in `lib/gates/ctx.ts`), so nothing gets
-trimmed and a big review keeps its sheet.
+The full drafts ride **in the gate**, untrimmed. The gate is the one
+source of truth for what was asked and answered, and the drafts are what
+the human approves.
 
-The gate context carries only short previews of each draft, for surfaces
-without the board's renderer (the pane's native form, herd relays). Those
-surfaces still post the full draft from the report json. Previews never
-post.
-
-Today `readReviewReportJson` is keyed by MR URL for the board's own
-reviews. The standalone verb's `run:` gates need their report found the
-same way. How is the builder's call.
+- **No size limit on what a gate stores.** Today the daemon caps a gate's
+  context at 8192 bytes, and every gate builder trims to fit that cap.
+  Nobody recorded a reason for the number. This work removes the cap for
+  every gate kind, so a big review keeps all its comments whole.
+- **Board-only fields.** The one place size matters is the Claude Code
+  pane, which renders a gate as prose in its native form. Drafted
+  comments and the drafted summary are marked board-only. The pane's
+  prose leaves them out, so the pane keeps titles, reasoning and the
+  verdict. Answering in the pane still posts the drafts word for word.
+- **A pane budget.** The size budget moves to the pane's prose alone. It
+  never applies to what the daemon stores or what the board draws.
+- The poster reads the drafts from the same gate source it opened the
+  gate with. It never reads a second copy that could drift.
 
 ## Where the change lands
 
+- **Gate storage and the pane budget.** The daemon stops rejecting and
+  dropping oversized context (`lib/daemon/handlers/gate.ts`), and so do
+  the CLI and board callers. The fitter in `lib/gates/ctx.ts` and its jq
+  twin become the pane-prose fitter only. Skill and tool text that tells
+  agents about the 8192-byte budget is updated to match.
 - **Report json.** Each finding gains a drafted comment string. The
   summary gains a drafted string for the summary line. The builder picks
   the field names and whether this is a new report `version`.
-- **Gate context.** `lib/gates/review-source.ts` adds a short preview per
-  finding and for the summary line. `lib/gates/ctx.ts` validates it and
-  prints it in its prose ("Will post as comment: …", like `carryover@1`
-  prints its reply). The fitter may trim previews. The builder decides
-  whether this stays `@1` with an optional field or bumps to `@2`. Old
-  gates without the field must still render.
+- **Gate context.** `lib/gates/review-source.ts` carries the full drafts
+  into `findings@1` and `review@1`. `lib/gates/ctx.ts` validates them and
+  marks them board-only. The builder decides whether this stays `@1` with
+  an optional field or bumps to `@2`. Old gates without the field must
+  still render.
 - **"This gate's poster honors edits" signal.** Edit boxes show only when
   the gate says its poster will post edits word for word. Both posters
   set it once updated. A gate without it renders as today. The builder
@@ -159,7 +165,7 @@ same way. How is the builder's call.
   summary line needs its own slot. Only edited entries need to ride. An
   absent entry means "post the draft". The builder picks the shape.
 - **Board.** `apps/board/src/client/board/ReviewGateSheet.tsx` renders the
-  summary card and the per-finding boxes from the report json drafts. It
+  summary card and the per-finding boxes from the gate's drafts. It
   reuses respond's editable reply pieces (`RespondSheet.tsx`
   `editableReply`, `EditedChip`, `sheet-payload.ts`'s text handling)
   rather than building new ones. Add a gallery story for the new face in
@@ -196,7 +202,8 @@ same way. How is the builder's call.
 - The same holds for a `mattstack:review` run on GitLab and on GitHub,
   answered from the board.
 - A review with 12 findings keeps the full review sheet, with every
-  comment box showing.
+  comment box showing its whole draft.
+- No drafted comment ever appears in the Claude Code pane's form.
 - A gate without the "poster honors edits" signal (an old gate, or a
   pack not yet recompiled) renders as today and posts as today.
 - Board gallery has a story for the new face. Capture baselines are
