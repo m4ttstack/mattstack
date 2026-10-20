@@ -66,8 +66,19 @@ describe("hasQuestionForm", () => {
   });
 
   test("a footer far above the bottom of the screen is not a form", () => {
-    const tail = Array.from({ length: 12 }, (_, i) => `  output line ${i + 1}`).join("\n");
+    const tail = Array.from({ length: 40 }, (_, i) => `  output line ${i + 1}`).join("\n");
     expect(hasQuestionForm(`${fixture("question-form-single.txt")}\n${tail}\n`)).toBe(false);
+  });
+
+  test("transcript text quoting the footer above an idle prompt is not a form", () => {
+    const quoted = "⏺ The detector now matches this footer:\n  Enter to select · ↑/↓ to navigate · Esc to cancel\n\n";
+    expect(hasQuestionForm(`${quoted}${fixture("pane-footer-1-shell.txt").split("\n").slice(6).join("\n")}`)).toBe(false);
+  });
+
+  test("a form above a long agents panel reads as a form", () => {
+    const agents = Array.from({ length: 10 }, (_, i) => `  ◯ general-purpose  Task ${i + 1}   12s · ↓ 1k tokens`).join("\n");
+    const panel = `  ⏵⏵ auto mode on · 10 shells\n\n  ⏺ main\n${agents}\n`;
+    expect(hasQuestionForm(`${fixture("question-form-single.txt")}\n${panel}`)).toBe(true);
   });
 
   test("an empty screen is not a form", () => {
