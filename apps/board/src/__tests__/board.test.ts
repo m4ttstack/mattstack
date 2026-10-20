@@ -62,6 +62,7 @@ const config: BoardConfig = {
     multiItem: '- {title}: {url}',
     autoResolveIntervalMinutes: 0,
     emoji: DEFAULT_SLACK_EMOJI,
+    emojiAliases: {},
   },
   switchboard: { url: '' },
   tabs: IMPLICIT_TABS,
