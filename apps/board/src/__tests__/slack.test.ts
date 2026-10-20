@@ -15,6 +15,7 @@ import {
   readOwnerPosts,
   readOwnerPostsLeft,
   readSlackRefs,
+  refreshOwnerPosts,
   slackIndexPath,
   slackSweepTargets,
   sweepSlackRefs,
@@ -524,6 +525,45 @@ describe('findOwnerPost', () => {
   });
 });
 
+describe('refreshOwnerPosts', () => {
+  let api: ReturnType<typeof mockSlackApi>;
+  afterEach(() => api.restore());
+
+  test('reads the reactions on a code owner post, then skips it until it goes stale', async () => {
+    api = mockSlackApi({
+      'acme-channel': [msg('100.5', `can someone look at ${URL_A}`)],
+    });
+    await findOwnerPost('tok', 'acme-channel', URL_A, 1000, db);
+    api.restore();
+    api = mockSlackApi({
+      'acme-channel': [
+        {
+          ...msg('100.5', `can someone look at ${URL_A}`),
+          reactions: [{ name: 'white_check_mark' }],
+        } as SlackMessage,
+      ],
+    });
+    await refreshOwnerPosts('tok', [URL_A], {
+      retryAfter: 2000,
+      now: 3000,
+      gapMs: 0,
+      db,
+    });
+    expect(readOwnerPosts(URL_A, db)['acme-channel']).toMatchObject({
+      reactions: ['white_check_mark'],
+      checkedAt: 3000,
+    });
+    api.calls.length = 0;
+    await refreshOwnerPosts('tok', [URL_A], {
+      retryAfter: 2000,
+      now: 4000,
+      gapMs: 0,
+      db,
+    });
+    expect(api.calls).toEqual([]);
+  });
+});
+
 describe('owner posts left', () => {
   test('an MR never posted through the dialog has no record', () => {
     expect(readOwnerPostsLeft(URL_A, db)).toBeUndefined();
@@ -610,5 +650,26 @@ describe('verifyFoundRefs', () => {
       }
     );
     expect(out.removed).toBe(1);
+  });
+
+  test('picks up reactions added in Slack since the ref was found', async () => {
+    const ref = await found();
+    expect(ref.reactions).toEqual([]);
+    api = mockSlackApi({
+      'code-review': [
+        {
+          ...msg('100.1', `please review ${URL_A}`),
+          reactions: [{ name: 'eyes' }, { name: 'white_check_mark' }],
+        } as SlackMessage,
+      ],
+    });
+    await verifyFoundRefs('tok', [{ ref, channel: 'code-review' }], {
+      gapMs: 0,
+      db,
+    });
+    expect(readSlackRefs(db).get(URL_A)?.reactions).toEqual([
+      'eyes',
+      'white_check_mark',
+    ]);
   });
 });

@@ -449,6 +449,9 @@ export interface OwnerPost {
   ts: string;
   permalink: string;
   postedAt: number;
+  /** Absent until the sweep first reads the message. */
+  reactions?: string[];
+  checkedAt?: number;
 }
 
 /** An MR's posts to its Code Owners' channels, by channel name. Kept apart
@@ -549,6 +552,34 @@ export function attachOwnerPostsLeft<T extends { webUrl?: string | null }>(
     const left = mr.webUrl ? readOwnerPostsLeft(mr.webUrl, db) : undefined;
     return left ? { ...mr, ownerPostsLeft: left } : mr;
   });
+}
+
+/** Each MR with its Code Owner channel posts, oldest first, so the row can
+    open any of them and not just the team thread. */
+export function attachOwnerPosts<T extends { webUrl?: string | null }>(
+  mrs: T[],
+  db: Database = getStateDb()
+): Array<T & { ownerPosts?: OwnerPostLink[] }> {
+  return mrs.map(mr => {
+    if (!mr.webUrl) return mr;
+    const posts = Object.entries(readOwnerPosts(mr.webUrl, db))
+      .filter(([, post]) => !!post.permalink)
+      .map(([channel, post]) => ({
+        channel,
+        permalink: post.permalink,
+        postedAt: post.postedAt,
+        ...(post.reactions ? { reactions: post.reactions } : {}),
+      }))
+      .sort((a, b) => a.postedAt - b.postedAt);
+    return posts.length ? { ...mr, ownerPosts: posts } : mr;
+  });
+}
+
+export interface OwnerPostLink {
+  channel: string;
+  permalink: string;
+  postedAt: number;
+  reactions?: string[];
 }
 
 export function writeOwnerPostsLeft(
@@ -795,11 +826,12 @@ export async function sweepSlackRefs(
 
 /** Whether a found ref's message is gone: absent from the channel, or the
     tombstone Slack leaves for a deleted message that still has replies. */
-async function messageDeleted(
+/** The message as Slack has it now: null once it is gone or a tombstone. */
+async function liveMessage(
   token: string,
   channelId: string,
   ts: string
-): Promise<boolean> {
+): Promise<{ reactions: string[] } | null> {
   const data = await call('conversations.history', token, {
     channel: channelId,
     oldest: ts,
@@ -808,9 +840,61 @@ async function messageDeleted(
     limit: '1',
   });
   const found = (
-    data.messages as Array<{ ts: string; subtype?: string; text?: string }>
+    data.messages as Array<{
+      ts: string;
+      subtype?: string;
+      reactions?: Array<{ name: string }>;
+    }>
   ).find(m => m.ts === ts);
-  return !found || found.subtype === 'tombstone';
+  if (!found || found.subtype === 'tombstone') return null;
+  return { reactions: (found.reactions ?? []).map(r => r.name) };
+}
+
+/**
+ * Re-read the reactions on each MR's Code Owner posts not checked since
+ * `retryAfter` (all of them with `force`). A post Slack no longer has is left
+ * as it is; a failed read is collected, not thrown.
+ */
+export async function refreshOwnerPosts(
+  token: string,
+  mrUrls: string[],
+  opts: {
+    retryAfter: number;
+    force?: boolean;
+    gapMs?: number;
+    now?: number;
+    db?: Database;
+  }
+): Promise<{ errors: string[] }> {
+  const gapMs = opts.gapMs ?? 250;
+  const now = opts.now ?? Date.now();
+  const db = opts.db ?? getStateDb();
+  const errors: string[] = [];
+  for (const mrUrl of mrUrls) {
+    const posts = readOwnerPosts(mrUrl, db);
+    let changed = false;
+    for (const [channel, post] of Object.entries(posts)) {
+      if (!opts.force && (post.checkedAt ?? 0) >= opts.retryAfter) continue;
+      try {
+        const live = await liveMessage(token, post.channelId, post.ts);
+        if (live) {
+          posts[channel] = {
+            ...post,
+            reactions: live.reactions,
+            checkedAt: now,
+          };
+          changed = true;
+        }
+      } catch (err) {
+        errors.push(
+          `#${channel} ${mrUrl}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      if (gapMs > 0) await new Promise(r => setTimeout(r, gapMs));
+    }
+    if (changed) setKvValue('owner-posts', mrUrl, posts, db);
+  }
+  return { errors };
 }
 
 /**
@@ -833,7 +917,8 @@ export async function verifyFoundRefs(
     const ts = ref.parentTs ?? ref.messageTs;
     if (ref.status !== 'found' || !ref.channelId || !ts) continue;
     try {
-      if (await messageDeleted(token, ref.channelId, ts)) {
+      const live = await liveMessage(token, ref.channelId, ts);
+      if (!live) {
         const index = readIndex(channel, db);
         if (index)
           writeIndex(
@@ -851,7 +936,17 @@ export async function verifyFoundRefs(
           db
         );
         removed++;
-      } else writeSlackRef({ ...ref, checkedAt: now }, db);
+      } else
+        writeSlackRef(
+          {
+            ...ref,
+            // A multi-MR ref's reactions sit on its own reply, not the
+            // parent read here.
+            ...(ts === ref.messageTs ? { reactions: live.reactions } : {}),
+            checkedAt: now,
+          },
+          db
+        );
     } catch (err) {
       errors.push(
         `!${ref.iid}: ${err instanceof Error ? err.message : String(err)}`

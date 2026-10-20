@@ -29,6 +29,7 @@ import {
   SEAT_HINT,
 } from './format.ts';
 import { laneDismissed } from './row-status.ts';
+import { slackPosts } from './slack-posts.ts';
 
 export type Lane = 'review' | 'respond' | 'doctor';
 export type Section =
@@ -73,6 +74,7 @@ export type ActionRequest =
   | { kind: 'copy' }
   | { kind: 'note' }
   | { kind: 'open'; url: string }
+  | { kind: 'slack-posts' }
   | { kind: 'view-report'; lane: 'review' | 'respond' }
   | { kind: 'dismiss'; lane: Lane }
   | { kind: 'stand-down'; on: boolean };
@@ -680,15 +682,28 @@ export function rowActions(
         );
       }
     }
+    const posts = slackPosts(mrx);
     slack.push(
-      item(
-        'slack',
-        'open-slack-post',
-        'open MR post in slack',
-        SLACK,
-        { kind: 'open', url: (found && s.permalink) || '' },
-        block(!found ? 'no thread' : !s.permalink && 'no link yet')
-      )
+      posts.length > 1
+        ? item(
+            'slack',
+            'open-slack-post',
+            'open MR post in slack…',
+            SLACK,
+            { kind: 'slack-posts' },
+            { hint: `${posts.length} posts` }
+          )
+        : item(
+            'slack',
+            'open-slack-post',
+            'open MR post in slack',
+            SLACK,
+            { kind: 'open', url: posts[0]?.permalink ?? '' },
+            block(
+              posts.length === 0 &&
+                (found && !s.permalink ? 'no link yet' : 'no thread')
+            )
+          )
     );
     if (own) {
       // The author leads with posting while anything is left to post. In a

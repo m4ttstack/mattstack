@@ -23,3 +23,24 @@ export function slackLadder<M extends { emoji: string; stage: SlackStage }>(
   }
   return { posted: true, mark };
 }
+
+/** The furthest mark across several posts, and how many posts reached it. */
+export function furthestAcross<M extends { emoji: string; stage: SlackStage }>(
+  posts: ReadonlyArray<{ reactions?: string[] }>,
+  marks: ReadonlyArray<M>
+): { mark: M | null; count: number } {
+  let mark: M | null = null;
+  let count = 0;
+  for (const post of posts) {
+    const { mark: m } = slackLadder(
+      { status: 'found', posted: true, reactions: post.reactions ?? [] },
+      marks
+    );
+    if (!m) continue;
+    if (!mark || RUNG[m.stage] > RUNG[mark.stage]) {
+      mark = m;
+      count = 1;
+    } else if (m.stage === mark.stage) count++;
+  }
+  return { mark, count };
+}

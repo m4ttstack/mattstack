@@ -435,6 +435,8 @@ export interface RowHandlers {
   copy: (mr: BoardMR) => void;
   note: (mr: BoardMR) => void;
   open: (url: string) => void;
+  /** Opens the chooser for an MR posted to several channels. */
+  slackPosts: (mr: BoardMR) => void;
   viewReport: (mr: BoardMR, lane: 'review' | 'respond') => void;
   dismiss: (mr: BoardMR, lane: Lane) => void;
   standDown: (mr: BoardMR, on: boolean) => void;
@@ -457,6 +459,9 @@ export function dispatchRowAction(
       return undefined;
     case 'open':
       if (req.url) h.open(req.url);
+      return undefined;
+    case 'slack-posts':
+      h.slackPosts(mr);
       return undefined;
     case 'view-report':
       h.viewReport(mr, req.lane);

@@ -176,6 +176,13 @@ export type BoardMRWithReview = BoardMR & {
   /** Channels the last "post to slack" offered and did not post to. Absent
       when the MR was never posted through the dialog. */
   ownerPostsLeft?: string[];
+  /** The MR's posts to Code Owner channels, oldest first. */
+  ownerPosts?: Array<{
+    channel: string;
+    permalink: string;
+    postedAt: number;
+    reactions?: string[];
+  }>;
   /** The other teams that own a Code Owner section on this MR, on the seat's
       own MRs once the server has read its approval rules. */
   ownerTeams?: OwnerTeam[];
@@ -340,6 +347,10 @@ export interface RowMenuState {
     MR. */
 export interface RowContext {
   local: boolean;
+  /** Opens the chooser for an MR posted to several Slack channels. */
+  onOpenSlackPosts?: (mr: BoardMRWithReview) => void;
+  /** The MR whose Slack posts chooser is open, by web URL. */
+  slackPostsOpen?: string | null;
   /** The board's own seat (`BoardData.defaultMember`): rows this user
       authored word their standing state as the author's move, every other
       row as the reviewer's. Null when the board is set to "all". */
