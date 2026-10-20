@@ -2568,12 +2568,11 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     describe("fullscreen default (RT-513)", () => {
-      const tui = () => JSON.parse(readFileSync0())?.tui;
-      const readFileSync0 = () => lastProbes.readFile(settingsPath())!;
-      let lastProbes: ReturnType<typeof fakeProbes>;
+      let current: ReturnType<typeof fakeProbes>;
+      const tui = () => JSON.parse(current.readFile(settingsPath())!)?.tui;
       const setup = (files: Record<string, string> = {}) => {
-        lastProbes = fakeProbes({ home, env: {}, files });
-        return lastProbes;
+        current = fakeProbes({ home, env: {}, files });
+        return current;
       };
 
       test("no tui key -> fullscreen written on apply", async () => {
@@ -2629,6 +2628,28 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const outcome = await claudePermissionsStep.run(makeCtx(p, { update: true }).ctx);
         expect(tui()).toBe("fullscreen");
         expect(outcome.state).toBe("done");
+      });
+
+      test("only tui seeded -> detail does not claim permissions were added", async () => {
+        const p = setup({ [settingsPath()]: JSON.stringify({ permissions: { defaultMode: "auto", allow: BASE_PERMISSIONS }, crossSessionInbound: "accept" }) });
+        const outcome = await claudePermissionsStep.run(makeCtx(p, { update: true }).ctx);
+        expect(outcome.detail).not.toContain("baseline");
+      });
+
+      test("the recorded key is the CLAUDE_CONFIG_DIR path, trailing slash dropped", async () => {
+        const p = fakeProbes({ home, env: { CLAUDE_CONFIG_DIR: `${home}/alt/` } });
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        expect(readSetupState(p).claudeFullscreenDirs).toEqual([`${home}/alt`]);
+      });
+
+      test("an apply run after the member removed it seeds it again", async () => {
+        const p = setup();
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        const settings = JSON.parse(p.readFile(settingsPath())!);
+        delete settings.tui;
+        p.writeFile(settingsPath(), JSON.stringify(settings));
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        expect(tui()).toBe("fullscreen");
       });
 
       test("the done detail says what was set and how to change it back", async () => {
