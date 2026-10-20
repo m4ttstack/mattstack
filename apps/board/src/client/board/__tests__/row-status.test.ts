@@ -1830,16 +1830,67 @@ describe('merge from the row', () => {
 
   test('no merge while GitLab would refuse it: conflicts, a disabled button, or no approval', () => {
     const cases: Over[] = [
-      {
-        ...blockedBy({ hasConflicts: true }),
-        mergeButton: { visible: true, disabled: true, loading: false },
-      },
       { mergeButton: { visible: true, disabled: true, loading: false } },
       { mergeButton: { visible: false, disabled: false, loading: false } },
       unapproved(0, 1),
     ];
     for (const over of cases)
       expect(verbs(mine({ ...reviewDone, ...over }))).toEqual(['read-review']);
+  });
+
+  test('a needed rebase leads over a finished review, which folds into the rest', () => {
+    const s = rowStatus(
+      mine({
+        ...reviewDone,
+        ...blockedBy({ hasConflicts: true }),
+        mergeButton: { visible: true, disabled: true, loading: false },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.line).toMatchObject({ word: 'needs a rebase' });
+    expect(s.line.verbs.map(v => v.kind)).toEqual(['call-doctor']);
+    expect(s.more.map(l => l.word)).toEqual(['review ready']);
+  });
+
+  test('a finished review or response gives the line back once it is stale', () => {
+    const old = NOW - 3 * 3600_000;
+    const s = rowStatus(
+      mine({
+        review: { ...reviewDone.review, updatedAt: old },
+        respond: {
+          status: 'done',
+          posted: 3,
+          threads: 3,
+          reportReady: true,
+          updatedAt: old,
+        },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.line.word).toBe('ready to merge');
+    expect(s.more).toEqual([]);
+  });
+
+  test('a stale response the reviewer came back to keeps its line', () => {
+    const line = rowStatus(
+      mine({
+        respond: {
+          status: 'done',
+          posted: 3,
+          threads: 3,
+          updatedAt: NOW - 3 * 3600_000,
+        },
+        threadSummary: { awaiting: 2 },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    ).line;
+    expect(line.word).toBe('replies posted');
   });
 
   test('a merge in flight spins in place of every other line, with nothing to click', () => {
