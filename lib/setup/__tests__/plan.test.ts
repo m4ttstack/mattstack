@@ -14,6 +14,7 @@ import type { SecretPresence } from "../validators/accounts.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { rowsToChecks } from "../../../commands/verify.ts";
 
 function fakeSecrets(stored: Record<string, string> = {}): SecretPresence {
   return {
@@ -570,10 +571,11 @@ describe("a join asks for the team's Slack and repos whether or not the app rela
       expect(note.required).toBe(false);
       expect(note.status).toBe("skipped");
       expect(plan.requiredMissing).not.toContain("accounts.after-install");
+      expect(plan.requiredMissing.filter((id) => id.startsWith("account."))).toEqual([]);
     });
   });
 
-  test("once the team is cloned: Slack and a repo Install left for the member both block Finish, never Install, and the note is gone", async () => {
+  test("once the team is cloned: Slack and a repo Install left for the member both block Finish, and the note is gone", async () => {
     await withTeamHome(async () => {
       const teamPath = sharedStorePath("acme");
       mkdirSync(dirname(teamPath), { recursive: true });
@@ -585,14 +587,17 @@ describe("a join asks for the team's Slack and repos whether or not the app rela
       writeIntent(p, joinIntent());
       markDeferred(p, "github.com/acme/widgets");
 
-      for (const mode of ["plan", "status"] as const) {
-        const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode, orgs: ["acme"], waived: [] });
-        const ids = plan.groups.flatMap((g) => g.rows.map((r) => r.id));
-        expect(ids).not.toContain("accounts.after-install");
-        expect(plan.finishBlockedBy).toContain("account.slack");
-        expect(plan.finishBlockedBy).toContain("repos.place:github.com/acme/widgets");
-        expect(plan.requiredMissing).not.toContain("account.slack");
-      }
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: ["acme"], waived: [] });
+      const ids = plan.groups.flatMap((g) => g.rows.map((r) => r.id));
+      expect(ids).not.toContain("accounts.after-install");
+      expect(plan.finishBlockedBy).toContain("account.slack");
+      expect(plan.finishBlockedBy).toContain("repos.place:github.com/acme/widgets");
+
+      const status = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: [] });
+      const slack = status.groups.flatMap((g) => g.rows).find((r) => r.id === "account.slack")!;
+      expect(slack.finishGated).toBeUndefined();
+      expect(status.requiredMissing).toContain("account.slack");
+      expect(rowsToChecks(status, { ci: false }).find((c) => c.name === "account.slack")).toMatchObject({ status: "fail", severity: "critical" });
     });
   });
 });

@@ -5,9 +5,9 @@ import { join } from "path";
 import { getDef, validateValue } from "../../settings/registry.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
-import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finishBlockers, row } from "../contract.ts";
+import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finalizePlan, finishBlockers, row, type Action, type Row } from "../contract.ts";
 import { UserActionableError } from "../../errors.ts";
-import { WAIVED_SETTING_KEY, applyFinishGate, readWaived, realWaiverStore, unwaiveRow, waiveRow } from "../finish-gate.ts";
+import { WAIVED_SETTING_KEY, applyFinishGate, gateTeamAccounts, readWaived, realWaiverStore, unwaiveRow, waiveRow } from "../finish-gate.ts";
 
 let home: string;
 let prevHome: string | undefined;
@@ -116,6 +116,7 @@ describe("waiveRow / unwaiveRow", () => {
     expect(unwaiveRow("account.slack", store)).toEqual({ waived: [], changed: false });
     expect(() => waiveRow("account.slack", store)).toThrow(UserActionableError);
     expect(() => unwaiveRow("account.board-peering", store)).toThrow(UserActionableError);
+    expect(() => unwaiveRow("account.gitlab", store)).toThrow(UserActionableError);
     expect(writes).toEqual([]);
   });
 
@@ -155,5 +156,38 @@ describe("non-waivable finish gates", () => {
     const store = { ids: [] as string[], read() { return this.ids; }, write(ids: string[]) { this.ids = ids; } };
     expect(() => waiveRow("skills.writing-style", store)).toThrow(UserActionableError);
     expect(store.ids).toEqual([]);
+  });
+});
+
+describe("gateTeamAccounts", () => {
+  const OAUTH: Action = { type: "oauth", label: "Connect", integration: "slack", verb: ["setup", "slack", "connect"] };
+  const account = (id: string, over: Partial<Row> = {}): Row =>
+    row({ id, kind: "account", title: id, why: "x", required: true, status: "missing", detail: "d", action: OAUTH, ...over });
+  const gate = (r: Row, mode: "plan" | "status" = "plan") => gateTeamAccounts([{ id: "accounts", title: "Accounts", rows: [r] }], mode)[0]!.rows[0]!;
+
+  test("plan mode: an unconnected Slack or Linear row blocks Finish, cannot be skipped, and still blocks Install", () => {
+    for (const id of ["account.slack", "account.linear"]) {
+      const gated = gate(account(id));
+      expect(gated.finishGated).toBe(true);
+      expect(gated.waivable).toBe(false);
+      const plan = finalizePlan({ slug: "acme", name: "Acme", mode: "join" }, [{ id: "accounts", title: "Accounts", rows: [gated] }]);
+      expect(plan.finishBlockedBy).toEqual([id]);
+      expect(plan.requiredMissing).toEqual([id]);
+    }
+  });
+
+  test("status mode, which rt verify and the update run read, leaves the row alone", () => {
+    expect(gate(account("account.slack"), "status").finishGated).toBeUndefined();
+  });
+
+  test("an error row, a row with no Connect, and an optional row never strand Finish", () => {
+    expect(gate(account("account.slack", { status: "error" })).finishGated).toBeUndefined();
+    expect(gate(account("account.slack", { action: null })).finishGated).toBeUndefined();
+    expect(gate(account("account.slack", { action: { type: "run", label: "Re-check", verb: ["team", "pull"] } })).finishGated).toBeUndefined();
+    expect(gate(account("account.slack", { required: false })).finishGated).toBeUndefined();
+  });
+
+  test("the forge and pack accounts are not gated", () => {
+    for (const id of ["account.github", "account.gitlab", "account.sdm"]) expect(gate(account(id)).finishGated).toBeUndefined();
   });
 });
