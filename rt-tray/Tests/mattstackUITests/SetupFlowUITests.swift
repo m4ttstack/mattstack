@@ -415,6 +415,7 @@ final class SetupFlowUITests: XCTestCase {
             el("setup.checklist.continue").click()
             waitForPageTurn(from: before)
             waitFor("setup.checklist.page.accounts")
+            shootWindow("join-accounts-before-install-folded-\(scheme)")
             if el("setup.checklist.noAction.toggle").exists { el("setup.checklist.noAction.toggle").click() }
             shootWindow("join-accounts-before-install-\(scheme)")
             pageThroughChecklistFromHere()

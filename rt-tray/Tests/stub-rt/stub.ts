@@ -222,15 +222,13 @@ function plan(): unknown {
     : [];
   if (scenario === "join-team-accounts") {
     if (stateGet("applied")) {
-      const slack = slackRow();
-      accounts.push(slack);
-      gated.push(slack);
+      accounts.push(slackRow());
     } else {
       accounts.push(AFTER_INSTALL_ROW);
     }
   }
   const requiredMissing = [...mac, ...accounts, ...access, ...tools].filter((r) => r.required && r.status !== "ready").map((r) => r.id);
-  const finishBlockedBy = gated.filter((r) => r.status !== "ready" && !r.waived).map((r) => r.id);
+  const finishBlockedBy = [...accounts, ...gated].filter((r) => "finishGated" in r && r.status !== "ready" && !(r as { waived?: boolean }).waived).map((r) => r.id);
   return {
     team: scenario === "solo" ? { slug: "", name: "", mode: "none" } : { slug: "acme", name: "Acme", mode },
     groups: [

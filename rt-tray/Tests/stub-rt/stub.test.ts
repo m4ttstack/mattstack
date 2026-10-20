@@ -423,6 +423,7 @@ test("join-team-accounts: the after-install note before Install, then Slack bloc
   await run("join-team-accounts", ["setup", "apply", "--json"], "", dir);
   const after = (await run("join-team-accounts", ["setup", "plan", "--json"], "", dir)).lines[0];
   expect(ids(after)).not.toContain("accounts.after-install");
+  expect(ids(after).filter((id) => id === "account.slack")).toHaveLength(1);
   expect(after.finishBlockedBy).toEqual(["account.slack"]);
   expect(after.requiredMissing).toContain("account.slack");
 });
