@@ -512,16 +512,22 @@ export function lanesClearedByExecutor(
   };
 }
 
-/** The session id a gone executor may claim this row through: only an
-    in-flight lane's. A finished or failed lane keeps its sessionId for
-    resume, but its pane dying afterwards is ordinary teardown, and wearing
-    an "executor gone" strip for it would be noise. */
-function activeLaneSessionId(mr: OrphanJoinRow): string | undefined {
-  if (REVIEW_IN_FLIGHT.has(mr.review?.status ?? '') && mr.review?.sessionId)
-    return mr.review.sessionId;
-  if (RESPOND_IN_FLIGHT.has(mr.respond?.status ?? '') && mr.respond?.sessionId)
-    return mr.respond.sessionId;
-  return undefined;
+/** The row's in-flight review and respond lanes. A finished or failed lane
+    keeps its sessionId for resume, but its pane dying afterwards is
+    ordinary teardown, and wearing an "executor gone" strip for it would be
+    noise. */
+function inFlightLanes(mr: OrphanJoinRow): ClearableLane[] {
+  const lanes: ClearableLane[] = [];
+  if (mr.review && REVIEW_IN_FLIGHT.has(mr.review.status ?? ''))
+    lanes.push(mr.review);
+  if (mr.respond && RESPOND_IN_FLIGHT.has(mr.respond.status ?? ''))
+    lanes.push(mr.respond);
+  return lanes;
+}
+
+function ownsLane(executor: ExecutorView, lane: ClearableLane): boolean {
+  if (lane.agentId && executor.agentId === lane.agentId) return true;
+  return !!lane.sessionId && executor.sessionId === lane.sessionId;
 }
 
 /** A pane that closed after its lane reached done/error is ordinary
@@ -603,20 +609,24 @@ export function joinExecutorOrphans<T extends OrphanJoinRow>(
     const candidates = mr.webUrl
       ? (bySubject.get(`mr:${mr.webUrl}`) ?? [])
       : [];
-    const sessionId = activeLaneSessionId(mr);
+    const lanes = inFlightLanes(mr);
     // Several dead panes can share one MR's subject (a relaunch after an
-    // earlier death). Only the one owning the row's in-flight lane lets the
-    // client read the lane as interrupted, so the session match outranks
-    // subject recency; without one, the most recently gone speaks.
+    // earlier death). While a lane is in flight only the pane that owns it
+    // may attach, since an attached pane reads as that lane's interruption:
+    // a launching lane with no pane ids yet owns none. With no lane in
+    // flight, the most recently gone speaks.
     const match =
-      (sessionId
-        ? (candidates.find(e => e.sessionId === sessionId) ??
-          bySessionId.get(sessionId))
-        : undefined) ??
-      candidates.reduce<ExecutorView | undefined>(
-        (best, e) => (!best || e.since > best.since ? e : best),
-        undefined
-      );
+      lanes.length > 0
+        ? (candidates.find(e => lanes.some(lane => ownsLane(e, lane))) ??
+          lanes
+            .map(lane =>
+              lane.sessionId ? bySessionId.get(lane.sessionId) : undefined
+            )
+            .find(e => e !== undefined))
+        : candidates.reduce<ExecutorView | undefined>(
+            (best, e) => (!best || e.since > best.since ? e : best),
+            undefined
+          );
     if (!match || matched.has(match)) return mr;
     matched.add(match);
     return { ...mr, orphan: match };
