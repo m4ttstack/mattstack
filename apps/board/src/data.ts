@@ -481,6 +481,9 @@ interface ClearableLane {
   agentId?: string;
   sessionId?: string | null;
   status?: string;
+  runStartedAt?: number;
+  startedAt?: number;
+  reopenedAt?: number;
 }
 
 /**
@@ -525,7 +528,24 @@ function inFlightLanes(mr: OrphanJoinRow): ClearableLane[] {
   return lanes;
 }
 
+/** When the lane's current run began: a fresh launch, a re-review or a
+    reopen each stamp one of these. */
+function laneRunStart(lane: ClearableLane): number {
+  return Math.max(
+    lane.runStartedAt ?? 0,
+    lane.startedAt ?? 0,
+    lane.reopenedAt ?? 0
+  );
+}
+
+/** A sweep that saw the pane closed before this run began predates a resume
+    into that same, still open pane; the next sweep reports it live. */
+function interruptsLane(executor: ExecutorView, lane: ClearableLane): boolean {
+  return executor.since >= laneRunStart(lane);
+}
+
 function ownsLane(executor: ExecutorView, lane: ClearableLane): boolean {
+  if (!interruptsLane(executor, lane)) return false;
   if (lane.agentId && executor.agentId === lane.agentId) return true;
   return !!lane.sessionId && executor.sessionId === lane.sessionId;
 }
@@ -619,9 +639,12 @@ export function joinExecutorOrphans<T extends OrphanJoinRow>(
       lanes.length > 0
         ? (candidates.find(e => lanes.some(lane => ownsLane(e, lane))) ??
           lanes
-            .map(lane =>
-              lane.sessionId ? bySessionId.get(lane.sessionId) : undefined
-            )
+            .map(lane => {
+              const e = lane.sessionId
+                ? bySessionId.get(lane.sessionId)
+                : undefined;
+              return e && interruptsLane(e, lane) ? e : undefined;
+            })
             .find(e => e !== undefined))
         : candidates.reduce<ExecutorView | undefined>(
             (best, e) => (!best || e.since > best.since ? e : best),
