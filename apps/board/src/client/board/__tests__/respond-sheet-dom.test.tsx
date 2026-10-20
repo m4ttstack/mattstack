@@ -946,6 +946,20 @@ test('the sheet names the person the live respond run answers, by the name the b
   expect(contextLead()).toBe('John Ward reviewed your merge request');
 });
 
+test("a parked gate from an earlier run names its own reviewer, not the live run's person", async () => {
+  await render(planGate(), {
+    ...MR,
+    respond: {
+      status: 'triaging',
+      person: 'priya',
+      responseRound: 1,
+      startedAt: Date.now(),
+    },
+  } as unknown as BoardMRWithReview);
+  expect(listTitle()).toBe('Respond to 2 threads from renee');
+  expect(contextLead()).toBe('renee reviewed your merge request');
+});
+
 test('a post sheet names the live run person too, and falls back to the handle', async () => {
   await render(perThreadPostGate(), respondingTo('john'));
   expect(listTitle()).toBe('Post replies on 2 threads from john');

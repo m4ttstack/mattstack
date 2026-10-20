@@ -699,7 +699,7 @@ function RespondSheetBody({
         ? proseItems.map(item => item.label)
         : mainQs.map(q => q.prompt)
   );
-  const person = respondPerson(ctx, mr);
+  const person = respondPerson(ctx, gate.openedAt, mr);
   const personTag = (
     <PersonTag id={person} name={personName(person, mr, people)} />
   );

@@ -120,14 +120,18 @@ export function personName(
   );
 }
 
-/** The person a respond gate answers: the live respond run's person, which
-    a gate from before per-person responses does not carry, else the gate's
-    reviewer. */
+/** The person a respond gate answers: the live respond run's person when
+    the gate opened during that run, else the gate's own reviewer (a parked
+    gate from an earlier run, or a run launched without a person). */
 export function respondPerson(
   ctx: PlanCtx | PostCtx,
+  openedAt: number,
   mr?: BoardMRWithReview
 ): string {
-  return mr?.respond?.person || ctx.reviewer;
+  const run = mr?.respond;
+  return run?.person && openedAt >= (run.startedAt ?? 0)
+    ? run.person
+    : ctx.reviewer;
 }
 
 /** The label a respond gate gives a plain Overview comment's question. */
