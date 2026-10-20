@@ -44,6 +44,7 @@ enum AXID {
     static let checklistNoActionToggle = "setup.checklist.noAction.toggle"
     static let progress = "setup.window.progress"
     static func checklistRow(_ id: String) -> String { "setup.checklist.row.\(id)" }
+    static func checklistNote(_ id: String) -> String { "setup.checklist.note.\(id)" }
     static func checklistRowAction(_ id: String) -> String { "setup.checklist.row.\(id).action" }
     static func checklistRowStatus(_ id: String) -> String { "setup.checklist.row.\(id).status" }
     static func checklistRowError(_ id: String) -> String { "setup.checklist.row.\(id).error" }

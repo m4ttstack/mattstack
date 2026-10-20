@@ -134,10 +134,10 @@ export const AFTER_INSTALL_ROW = row({
   id: "accounts.after-install",
   kind: "info",
   title: "Your team's accounts and repos",
-  why: "Install joins your team first, then rt can see what your team uses.",
+  why: "Install joins your team first, then mattstack can see what your team uses.",
   required: false,
   status: "skipped",
-  detail: "rt asks for these after Install, before you finish",
+  detail: "mattstack asks for these after Install, before you finish",
 });
 
 const INSTALL_SATISFIED_IDS = new Set(["perm.login-items", "tool.daemon", "tool.plugins"]);
