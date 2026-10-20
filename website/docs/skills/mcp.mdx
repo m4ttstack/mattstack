@@ -32,7 +32,7 @@ The full list, with every tool's description and input schema, is the [MCP tools
 | Tool | What it does |
 | --- | --- |
 | `gate_ask` | Open a decision gate with daemon-side ceremony (subject resolution, presentation, nudge). Returns the gate id and presentation. |
-| `gate_open` | Build a gate from a structured source (or a review's findings), check it, fit its context to the 8 KB budget, then open it the way `gate_ask` does. A source with problems is refused, one line per problem, and nothing opens. |
+| `gate_open` | Build a gate from a structured source (or a review's findings), check it, store its context whole and fit the pane form's prose to its 8 KB budget, then open it the way `gate_ask` does. A source with problems is refused, one line per problem, and nothing opens. |
 | `gate_answer` | Answer an open gate's questions as this pane. Values must match option values verbatim; nuance goes in a `note` field. A question opened with `writeIn: true` may take `{writeIn}`, the human's own words, instead. Under a run, the answer is recorded as the stage's decision. |
 | `gate_reconcile` | The one call on every return to a gate: a finished `rt gate wait`, a doorbell push, or words typed at a held gate. Reads the gate and, when it was answered under a run, records the answer as the stage's decision. It never invents an answer for a closed gate. |
 | `gate_record` | Record a decision on a run that no gate tool recorded when it was answered, such as a review's post decision after the skill acted on it. It records only; the skill acts. |

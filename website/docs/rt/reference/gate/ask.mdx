@@ -20,7 +20,7 @@ rt gate ask [flags]
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--questions` | text |  | JSON array of questions (&#123;value,label&#125; option objects preferred; bare strings accepted) |
-| `--context` | text |  | Optional decision context; over 8KB it is omitted, never an error |
+| `--context` | text |  | Optional decision context, stored whole |
 | `--kind` | text |  | Gate kind (default question) |
 | `--subject` | text |  | Explicit subject; omitted, the daemon resolves this session's run, else its agent record's subject |
 | [`--json`](/rt/guides/common-flags) | boolean | `false` | Accepted for symmetry; output is always JSON |

@@ -8,9 +8,8 @@ answers" and "Off-script step".
 Gate 1 (`respond-plan`), Gate 2 (`respond-post`) and every off-script gate
 (`respond-escalation`) take this step after their open. Any open, `gate
 open` or `open-gate.sh`, prints one
-JSON line, `{"gateId": "...", "presentation": "form"}` or `"wait"`, with
-`"contextOmitted": true` added when the daemon dropped the question
-contexts. Keep both: `Presentation (respond gate)?` reads `presentation`,
+JSON line, `{"gateId": "...", "presentation": "form"}` or `"wait"`. Keep
+both: `Presentation (respond gate)?` reads `presentation`,
 and `End the turn: holding at gate <gateId> (respond)` names `gateId`. The
 step writes no status. The gate box that entered reads the outcome:
 
@@ -111,11 +110,12 @@ or neither?`; a multi-select with the gate's labels and descriptions,
   from that hand-back: print `formContext` as one pane line before the
   first form call, and take each thread's prose context from its
   `formChunks` entry's `text` (the lines after its label). A file the
-  domain skill fitted takes it from the `gate-ctx.sh` it handed back, in
-  `prose` mode on the source file beside it (`sh <gate-ctx.sh> prose <
-  <dir>/respond-plan.source.json`, or `respond-post.source.json` for Gate
-  2): each thread's prose context from that output, and its `.context` as
-  one pane line before the first form call. A Gate 2 prose
+  domain skill fitted takes it from the file's own `pane` key, never from
+  its stored `.questions[].context`: each thread's prose context from its
+  `.pane.questions[]` entry, and `.pane.context` as one pane line before
+  the first form call. When the file reads `pane.fits: false`, leave whole
+  question contexts out of the form, largest first (ties to the earliest
+  question), until the pane prose is under 8192 UTF-8 bytes. A Gate 2 prose
   line reads `<file> FIX · <sha>: <text>` or `<file> REPLY: <text>`. Leave
   Gate 2's pane-only `next` question out.
 - **Another surface won.** A JSON line printed by `gate answer`, or a

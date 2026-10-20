@@ -672,7 +672,7 @@ unreadable-input error, nothing to fix.
   wrote `gate` and stored the source as `extra.gate-source.post`.
 - **Handed back:** nothing opened; the open is at `outPath` in
   `gate-ctx.sh fit`'s shape, its source beside it, `droppedContexts`
-  naming any context over the shared budget.
+  naming any context the pane form left out for its budget.
 - **Refused:** nothing opened, one problem per line. A line naming a field
   in the extras or the report json is a field to fix; a refusal no field
   fix can mend (a file it cannot read or parse, a path outside the read
@@ -709,8 +709,9 @@ Enter gate-protocol at `Trigger: a site opened its gate with gate_open`
 with the result and walk on from `paneAction?`. On a review gate neither
 `gate_answer` nor `gate_reconcile` records: keep the gate's `id` and
 answers map for Compose; the `gate_record` after posting is the record.
-With `fits: false` or `contextDropped: true` the gate stays open as it is:
-carry on.
+`fits: false` or `contextDropped: true` means only the pane form left
+some context out; the gate stores every context whole and stays open as
+it is: carry on.
 
 ### Gate review-post, legacy: tiers, outcome and next
 

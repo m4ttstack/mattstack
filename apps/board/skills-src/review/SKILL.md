@@ -975,9 +975,8 @@ carrier:
   so `--context` carries only the tier-counts line; the `tiers` question
   carries the finding titles in its own `context`. On a re-review a first
   line `Round <n> · <k> earlier threads` sits above it.
-- **Either way,** `--context` fits inside the gate's 8192 UTF-8 byte
-  budget; an oversized one is dropped loudly by the daemon, not by you:
-  never pre-trim it yourself.
+- **Either way,** the gate stores `--context` whole at any size: never
+  pre-trim it yourself.
 
 A fitted open file carries its own `.context` (the review's structured
 summary); `open-gate.sh` opens it as it stands.
@@ -1578,15 +1577,16 @@ nuance in the `{value, note}` form. Five things stay specific to
    back. Left alone, its answer is an explicit empty array.
 
 - **Fitted files.** A gate opened from a fitted file never shows its JSON
-  in the form: run the `gate-ctx.sh`
-  whose path the domain skill handed back with the open file,
-  in `prose` mode on the source file beside it
-  (the open file's name with `.open.json` swapped for `.source.json`: `sh
-  <gate-ctx.sh> prose < <dir>/review-post.source.json`), print its
-  `.context` as one pane line before the form call, and make each
-  `thread-N`, `findings-N` and `skipped-N` question's form text its
-  label, a newline, then its prose `context`. Options keep the gate's
-  labels and descriptions.
+  in the form: take the form's prose from the open file's own `pane` key
+  (the `gate-ctx.sh fit` output the domain skill handed back), never from
+  its stored `.questions[].context`. Print `.pane.context` as one pane line
+  before the form call, and make each `thread-N`, `findings-N` and
+  `skipped-N` question's form text its label, a newline, then the prose
+  `context` of its `.pane.questions[]` entry. When the file reads
+  `pane.fits: false`, leave whole question contexts out of the form,
+  largest first (ties to the earliest question), until the pane prose is
+  under 8192 UTF-8 bytes. Options keep the gate's labels and
+  descriptions.
 - **Hand-built thread and skipped questions.** Their `context` is prose
   already: the form text is the label, a newline, then that `context` as
   written.
@@ -1724,9 +1724,8 @@ plus the hand back row's description:
 
 `--context` is what the box's section names: for a refused call, the
 errors verbatim (the first refusal and the one after the fix) with the
-call that was refused. Never send an empty context. It fits inside the gate's 8192 UTF-8 byte budget like
-`review-post`'s; an oversized one is dropped loudly by the daemon, so
-never pre-trim it yourself. A nonzero open exit is not itself an
+call that was refused. Never send an empty context. The gate stores it
+whole at any size, like `review-post`'s, so never pre-trim it yourself. A nonzero open exit is not itself an
 off-script origin: it is `Off-script gate unavailable (review)`.
 
 ### review-escalation: take the review gate step
@@ -1788,10 +1787,10 @@ shape with its options unticked. Open it with:
 "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh" <status-bin> <state> review-post <open-file>
 ```
 
-A `fits: false` file is still over the shared context budget; the script
-drops whole question contexts, largest first, until it fits, so the file
-goes in untouched: never rebuilt, re-ordered, trimmed, or hand-edited.
-Nothing below is built for it.
+The gate stores every context in the file whole; only its `pane` key,
+the pane form's prose, is fitted to a budget. The file goes in untouched:
+never rebuilt, re-ordered, trimmed, or hand-edited, even when it reads
+`pane.fits: false`. Nothing below is built for it.
 
 **The json sibling.** Otherwise build the questions yourself from the json
 sibling of `--report`: swap the trailing `.md` for `.json`, or append

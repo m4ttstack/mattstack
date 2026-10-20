@@ -291,8 +291,8 @@ The open prints one JSON line, `{"gateId": "...", "presentation":
 names `gateId`.
 
 `--context` carries the situation line the escalation composes, with any
-quoted errors. When it would exceed 8192 UTF-8 bytes, omit `--context`
-entirely rather than trimming it.
+quoted errors. The gate stores it whole at any size: never trim or omit
+it for length.
 
 `Escalations opened this run = 3?` counts enumerable and off-script
 escalations together; a resumed pane counts from zero. Each dead end

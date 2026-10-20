@@ -6,6 +6,6 @@ rt gate ask \
   --context "All tests pass. The deploy window closes in 30 minutes."
 ```
 
-Options can be bare strings or objects with `value`, `label`, `recommended`, and `description` fields. An option marked `recommended: true` gets a "(Recommended)" badge in the UI. Each question can also carry its own `context` field for material specific to that choice (shares an 8 KB budget with the gate-level context).
+Options can be bare strings or objects with `value`, `label`, `recommended`, and `description` fields. An option marked `recommended: true` gets a "(Recommended)" badge in the UI. Each question can also carry its own `context` field for material specific to that choice (stored whole, like the gate-level context).
 
 See the [gates guide](/skills/gates) for the full lifecycle and delivery mechanics.

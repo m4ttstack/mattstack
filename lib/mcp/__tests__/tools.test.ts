@@ -160,10 +160,20 @@ describe("mcpTools", () => {
 
     // RT-177: the description is where a caller learns not to self-censor the
     // context, which is what produced the bare form in the board.
-    test("description tells callers to always pass context and that oversize is reported back", () => {
+    test("description tells callers to always pass context and that it is stored whole", () => {
       const tool = mcpTools().find((t) => t.name === "gate_ask")!;
-      expect(tool.description).toContain("contextOmitted");
       expect(tool.description.toLowerCase()).toContain("always");
+      expect(tool.description).toContain("stored whole");
+      expect(tool.description).not.toContain("contextOmitted");
+      expect(tool.description).not.toContain("8192");
+    });
+
+    test("no gate tool text describes a storage budget", () => {
+      for (const t of mcpTools().filter((x) => x.name.startsWith("gate_"))) {
+        const text = JSON.stringify(t);
+        expect(text).not.toContain("contextOmitted");
+        expect(text).not.toMatch(/shared 8192|8192-byte context budget/);
+      }
     });
 
     test("a context far past the old 8192-byte cap reaches the daemon verbatim", async () => {

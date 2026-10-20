@@ -282,10 +282,6 @@ Context, quoted and never trimmed:
 |---|---|
 | Publish this MR chain? | `take: approve and publish`: I run gitq publish with these drafts, pushing new branches and opening or updating their MRs. `iterate: revise the drafts`: I rewrite the titles and descriptions with your note and ask again. `hold: leave it with you`: this run ends with nothing pushed and writes no status. `hand back: do not publish`: nothing is pushed and I mark the run failed as declined at the publish gate; pick this to sync first yourself. |
 
-When `gate_ask` returns `contextOmitted: true`, the drafts did not reach
-the human through the gate, so write every title and description in the
-pane before ending the turn.
-
 Three revision rounds spend the budget: the next iterate answer is written
 as an error ("publish drafts not settled after 3 rounds") and reported.
 

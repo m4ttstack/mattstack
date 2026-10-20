@@ -133,9 +133,8 @@ const CEREMONY_ORIGIN_KEYS: ReadonlySet<string> = new Set(["presentation", "pane
 const ORIGIN_FIELD_CAP_BYTES = 1024;
 
 /** Returns an error message on an invalid origin, null when it validates.
-    Each string field is capped like label/context: the row and the
-    gate/opened payload carry origin verbatim to every surface, so an
-    unbounded field defeats the "at-most-8KB payload growth" budget. */
+    Each string field is capped like a label: the row and the gate/opened
+    payload carry origin verbatim to every surface. */
 function invalidOrigin(v: unknown): string | null {
   if (!isPlainObject(v)) return "origin must be an object of string fields with presentation form|wait";
   for (const [key, val] of Object.entries(v)) {
