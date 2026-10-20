@@ -132,7 +132,28 @@ describe('state db', () => {
     expect(again.query('SELECT COUNT(*) AS n FROM agent_states').get()).toEqual(
       { n: 1 }
     );
-    expect(SCHEMA_VERSION).toBe(4);
+    expect(SCHEMA_VERSION).toBe(5);
+  });
+
+  test('v5 adds respond_rounds, and a v4 db upgrades in place with its rows intact', () => {
+    const p = tempDbPath();
+    const db = openStateDb(p);
+    db.run(
+      "INSERT INTO agent_states (lane, mr_url, state, handle, updated_at) VALUES ('respond', 'u', '{}', 'h', 1)"
+    );
+    db.run('DROP TABLE respond_rounds');
+    db.run('PRAGMA user_version = 4');
+    db.close();
+    closeStateDb();
+    const again = openStateDb(p);
+    expect(
+      again
+        .query("SELECT name FROM sqlite_master WHERE name = 'respond_rounds'")
+        .get()
+    ).not.toBeNull();
+    expect(again.query('SELECT COUNT(*) AS n FROM agent_states').get()).toEqual(
+      { n: 1 }
+    );
   });
 });
 

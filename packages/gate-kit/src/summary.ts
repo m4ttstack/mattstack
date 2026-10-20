@@ -79,12 +79,14 @@ function verbCounts(values: string[], edited = 0): string | null {
 }
 
 /** A respond-post thread question: a multi of exactly `post:<id>` and
-    `resolve:<id>`. Its answers add up across threads on the chip. */
+    `resolve:<id>`, or `post:<id>` alone on an Overview comment, which GitLab
+    cannot resolve. Its answers add up across threads on the chip. */
 function isPostPair(q: GateQuestion): boolean {
-  if (!q.multi || q.options.length !== 2) return false;
+  if (!q.multi || q.options.length < 1 || q.options.length > 2) return false;
   const values = q.options.map(o => (typeof o === 'string' ? o : o.value));
   const post = values.find(v => v.startsWith('post:'));
-  return post !== undefined && values.includes(`resolve:${post.slice(5)}`);
+  if (post === undefined || post === 'post:') return false;
+  return values.length === 1 || values.includes(`resolve:${post.slice(5)}`);
 }
 
 /** "2 posted (1 edited), 1 resolved, 1 held" across a respond-post gate's

@@ -107,11 +107,15 @@ or neither?`; a multi-select with the gate's labels and descriptions,
   makes a `reply:` pick a reply override; at Gate 2 the report's finalized
   reply posts.
 - **Fitted files.** A gate opened from a fitted file never shows its JSON
-  in the form. Run the `gate-ctx.sh` the domain skill fitted it with in
+  in the form. A file this wrapper fitted with `gate_open` takes its prose
+  from that hand-back: print `formContext` as one pane line before the
+  first form call, and take each thread's prose context from its
+  `formChunks` entry's `text` (the lines after its label). A file the
+  domain skill fitted takes it from the `gate-ctx.sh` it handed back, in
   `prose` mode on the source file beside it (`sh <gate-ctx.sh> prose <
   <dir>/respond-plan.source.json`, or `respond-post.source.json` for Gate
-  2), take each thread's prose context from that output, and print its
-  `.context` as one pane line before the first form call. A Gate 2 prose
+  2): each thread's prose context from that output, and its `.context` as
+  one pane line before the first form call. A Gate 2 prose
   line reads `<file> FIX · <sha>: <text>` or `<file> REPLY: <text>`. Leave
   Gate 2's pane-only `next` question out.
 - **Another surface won.** A JSON line printed by `gate answer`, or a

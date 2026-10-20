@@ -106,9 +106,16 @@ function threadErrs(c: unknown): string[] {
   ];
 }
 
-function optionPairErrs(c: unknown, values: unknown[]): string[] {
+// `postAlone`: an Overview comment's discussion cannot be resolved, so its
+// reply may offer post without resolve.
+function optionPairErrs(c: unknown, values: unknown[], postAlone = false): string[] {
   const t = at(c, "thread");
   if (!str(t)) return [];
+  if (postAlone)
+    return chk(
+      () => jqEqual(jqSort(values), [`post:${t}`]) || jqEqual(jqSort(values), [`post:${t}`, `resolve:${t}`]),
+      `options: exactly post:${t}, or post:${t} and resolve:${t}`,
+    );
   return chk(
     () => jqEqual(jqSort(values), [`post:${t}`, `resolve:${t}`]),
     `options: exactly post:${t} and resolve:${t}`,
@@ -123,7 +130,7 @@ function replyErrs(c: unknown, values: unknown[]): string[] {
     ...chk(() => str(at(c, "text")), "text: required non-empty string"),
     ...chk(() => optional(c, "sha", str), "sha: non-empty string when present"),
     ...chk(() => jqEqual(at(c, "verb"), "fix") || !jqHas(c, "sha"), "sha: only a fix carries sha"),
-    ...optionPairErrs(c, values),
+    ...optionPairErrs(c, values, jqEqual(at(c, "file"), "Overview comment")),
   ];
 }
 

@@ -417,6 +417,27 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
   );
 });
 
+test('a respond launch carries the picked or request person', async () => {
+  const { deps, events } = fakeDeps();
+  const h = {} as RowHandlers;
+  await dispatchRowAction(
+    { kind: 'launch', flow: 'respond' },
+    mr(7),
+    { pick: 'john' },
+    deps,
+    h
+  );
+  await dispatchRowAction(
+    { kind: 'launch', flow: 'respond', person: 'priya' },
+    mr(8),
+    {},
+    deps,
+    h
+  );
+  expect(events).toContain('launch respond !7 {"person":"john"}');
+  expect(events).toContain('launch respond !8 {"person":"priya"}');
+});
+
 test('an ask carries its note to /nudge', async () => {
   const { deps, events } = fakeDeps();
   await runOne(

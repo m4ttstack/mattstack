@@ -49,3 +49,15 @@ test('a mix of first runs and redos starts them, and says how many had one', () 
     confirmLabel: 'Start 3 reviews',
   });
 });
+
+test('a response redo for one person names them and the round it starts', () => {
+  expect(redoCopy('respond', 1, 1, { name: 'John', round: 3 })).toEqual({
+    title: 'Redo response to John?',
+    body: ['John has nothing open.', 'This starts round 3 anyway.'],
+    confirmLabel: 'Redo response to John',
+  });
+});
+
+test('no person leaves the copy unchanged', () => {
+  expect(redoCopy('respond', 1, 1, undefined)).toEqual(redoCopy('respond', 1));
+});

@@ -153,6 +153,7 @@ function QuestionCard({
         <div className="tui-thread-card">
           <ReplyChoiceBody
             entry={{ ...reply, text: replyText ?? reply.text }}
+            showFile={reply.file !== q.prompt}
           />
         </div>
       ) : (

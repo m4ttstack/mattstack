@@ -104,6 +104,34 @@ describe('answeredGateSummary chip', () => {
     expect(chip).toBe('respond !87 · 1 posted, 2 resolved, 2 held · by board');
   });
 
+  const overviewPost = (n: number, t: string): GateQuestion => ({
+    id: `thread-${n}`,
+    label: 'Overview comment',
+    multi: true,
+    options: [{ value: `post:${t}`, label: 'Post' }],
+  });
+  const withOverview = (answers: Record<string, string[]>) =>
+    answeredGateSummary({
+      subject:
+        'mr:https://gitlab.example.invalid/group/proj/-/merge_requests/87',
+      kind: 'respond-post',
+      status: 'answered',
+      questions: [postThread(1, 'T1'), overviewPost(2, 'N1')],
+      answer: { answers, by: 'board', answeredAt: 1 },
+    }).chip;
+
+  test('an Overview comment question offering post alone adds up with the threads', () => {
+    expect(
+      withOverview({
+        'thread-1': ['post:T1', 'resolve:T1'],
+        'thread-2': ['post:N1'],
+      })
+    ).toBe('respond !87 · 2 posted, 1 resolved · by board');
+    expect(withOverview({ 'thread-1': ['post:T1'], 'thread-2': [] })).toBe(
+      'respond !87 · 1 posted, 1 held · by board'
+    );
+  });
+
   test('an edited posted thread counts on the chip and carries its text in the detail', () => {
     const { chip, detail } = answeredGateSummary(EDITED_POST_ROW);
     expect(chip).toBe(

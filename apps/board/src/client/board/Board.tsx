@@ -110,7 +110,7 @@ import {
   viewStateForMr,
 } from './deep-link.ts';
 import { DraftModal } from './DraftModal.tsx';
-import { draftKey, mrLine } from './format.ts';
+import { draftKey, mrLine, respondChoices } from './format.ts';
 import {
   useBoardData,
   useLaunchAction,
@@ -634,7 +634,7 @@ export function Board() {
   // status line's verbs and the decision queue all launch through it.
   const launch = useCallback(
     (flow: LaunchFlow, mr: BoardMR, opts: LaunchOpts = {}) => {
-      const { note, intent, quiet } = opts;
+      const { note, intent, quiet, person } = opts;
       switch (flow) {
         case 'review':
           return launchReview(mr, { tabId: state.tab }, note, intent, quiet);
@@ -655,7 +655,13 @@ export function Board() {
             quiet
           );
         case 'respond':
-          return respondAction(mr, { tabId: state.tab }, note, intent, quiet);
+          return respondAction(
+            mr,
+            { tabId: state.tab, ...(person ? { person } : {}) },
+            note,
+            intent,
+            quiet
+          );
         case 'resume-respond':
           return resumeRespondAction(
             mr,
@@ -714,8 +720,12 @@ export function Board() {
     [guardedLaunch]
   );
   const handleRespond = useCallback(
-    (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') =>
-      void launch('respond', mr, { note, intent }),
+    (
+      mr: BoardMR,
+      note?: string,
+      intent?: 'launch' | 'focus',
+      person?: string
+    ) => void launch('respond', mr, { note, intent, person }),
     [launch]
   );
   const handleDoctor = useCallback(
@@ -1071,12 +1081,22 @@ export function Board() {
   const runRowAction = useCallback(
     (action: RowAction, mr: BoardMR, opts: RunOpts) => {
       const req = action.request;
-      if (action.redo) {
-        const lane = action.redo;
+      // A person picked from the respond list who has nothing open is a
+      // redo too, though the item itself is not one.
+      const answered =
+        req.kind === 'launch' && req.flow === 'respond'
+          ? respondChoices(mr).find(
+              c => c.username === (opts.pick ?? req.person)
+            )
+          : undefined;
+      const redoLane = action.redo ?? (answered?.open === 0 ? 'respond' : null);
+      if (redoLane) {
+        const lane = redoLane;
         setPendingRedo({
           lane,
           count: 1,
           prior: 1,
+          who: answered && { name: answered.name, round: answered.nextRound },
           run: () =>
             void dispatchRowAction(
               req,

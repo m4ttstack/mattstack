@@ -53,8 +53,13 @@ import {
   ThreadOutcome,
 } from './RespondCards.tsx';
 import {
+  gateRounds,
+  itemMix,
+  itemNoun,
+  leadVerb,
+  personName,
   RespondCtxFacts,
-  reviewerName,
+  respondPerson,
   subjectRef,
 } from './RespondGateHeader.tsx';
 import { sheetAnswers } from './sheet-payload.ts';
@@ -291,6 +296,9 @@ function ResponseRows({
   form: GateFormState;
   plan?: RowThread[] | null;
 }) {
+  // A resolve chip's slot is kept on every row once any row can resolve, so
+  // every row's text starts at one edge.
+  const resolveSlot = picks.some(p => p.resolve);
   const offered: SheetRow[] = mainQs.flatMap(q => {
     const v = form.selections[q.name];
     const pick = picks.find(p => p.name === q.name);
@@ -300,7 +308,13 @@ function ResponseRows({
         picked.has(pick.post)
           ? { text: 'post', intent: 'ok' }
           : { text: 'hold', intent: 'muted' },
-        picked.has(pick.resolve) ? { text: 'resolve', intent: 'accent' } : null,
+        ...(resolveSlot
+          ? [
+              pick.resolve && picked.has(pick.resolve)
+                ? ({ text: 'resolve', intent: 'accent' } as const)
+                : null,
+            ]
+          : []),
       ];
       return [{ key: q.name, text: pick.label, chips }];
     }
@@ -350,7 +364,7 @@ function ResponseRows({
           {
             key: `with-step:${j.threadId}`,
             text: j.label,
-            chips: picks.length > 0 ? [post, null] : [post],
+            chips: resolveSlot ? [post, null] : [post],
           },
         ];
       })
@@ -678,6 +692,17 @@ function RespondSheetBody({
         }))
       : null;
   const listCount = postThreads?.length ?? picks.length + stepThreads.length;
+  const mix = itemMix(
+    postThreads
+      ? postThreads.map(j => j.label)
+      : perThread
+        ? proseItems.map(item => item.label)
+        : mainQs.map(q => q.prompt)
+  );
+  const person = respondPerson(ctx, gate.openedAt, mr);
+  const personTag = (
+    <PersonTag id={person} name={personName(person, mr, people)} />
+  );
   const dockPick = dockQs
     .map(q => {
       const v = form.selections[q.name];
@@ -727,34 +752,20 @@ function RespondSheetBody({
   return (
     <div className="tui-sheet-body">
       <section className="tui-sheet-main">
-        {ctx.round !== undefined && <RoundHeading round={ctx.round} />}
+        <RoundHeading {...gateRounds(ctx, mr?.respond?.responseRound)} />
         <div className="tui-sheet-list-head">
           <span className="tui-sheet-list-title">
             {postThreads || perThread ? (
               <>
-                Post replies on {listCount}{' '}
-                {listCount === 1 ? 'thread' : 'threads'}
-                {frame === undefined && (
-                  <>
-                    {' '}
-                    from{' '}
-                    <PersonTag
-                      id={ctx.reviewer}
-                      name={reviewerName(ctx.reviewer, mr, people)}
-                    />
-                  </>
-                )}
+                Post replies on {listCount} {itemNoun(listCount, mix)}
+                {frame === undefined && <> from {personTag}</>}
               </>
             ) : repliesQ ? (
               repliesQ.prompt
             ) : (
               <>
-                Respond to {mainQs.length}{' '}
-                {mainQs.length === 1 ? 'thread' : 'threads'} from{' '}
-                <PersonTag
-                  id={ctx.reviewer}
-                  name={reviewerName(ctx.reviewer, mr, people)}
-                />
+                Respond to {mainQs.length} {itemNoun(mainQs.length, mix)} from{' '}
+                {personTag}
               </>
             )}
           </span>
@@ -926,16 +937,18 @@ function RespondSheetBody({
                   decision context
                 </span>
                 {frame === undefined ? (
-                  <PersonLead
-                    id={ctx.reviewer}
-                    name={reviewerName(ctx.reviewer, mr, people)}
-                  >
-                    reviewed your {forgeNoun(mr, gate.subject)}
+                  <PersonLead id={person} name={personName(person, mr, people)}>
+                    {leadVerb(mix)} your {forgeNoun(mr, gate.subject)}
                   </PersonLead>
                 ) : (
                   frame && <p className="tui-sheet-context-meta">{frame}</p>
                 )}
-                <RespondCtxFacts ctx={ctx} posting={railPosting} />
+                <RespondCtxFacts
+                  ctx={ctx}
+                  mix={mix}
+                  posting={railPosting}
+                  responseRound={mr?.respond?.responseRound}
+                />
               </div>
               {mr && <MrStatusCard mr={mr} />}
             </div>

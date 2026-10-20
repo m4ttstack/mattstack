@@ -7,9 +7,11 @@ import {
   firstReviewTargets,
   laneInterrupted,
   respondAskTarget,
-  respondItemLabel,
+  respondChoiceLabel,
+  respondChoices,
   reviewLogged,
   reviewMenuItems,
+  roundSuffix,
   rowTitle,
 } from '../client/board/format.ts';
 import { statusReasons } from '../client/board/row-status.ts';
@@ -139,12 +141,32 @@ test('reviewLogged: an approval, a reviewer thread, or a reviewer state counts; 
   ).toBe(false);
 });
 
-test('respondItemLabel: focus while alive, redo once interrupted or done', () => {
-  expect(respondItemLabel(undefined)).toBe('respond');
-  expect(respondItemLabel('error')).toBe('respond');
-  expect(respondItemLabel('implementing')).toBe('focus response');
-  expect(respondItemLabel('implementing', true)).toBe('redo response');
-  expect(respondItemLabel('done')).toBe('redo response');
+test('roundSuffix shows the counter from round 2 on', () => {
+  expect(roundSuffix(0)).toBe('');
+  expect(roundSuffix(1)).toBe('');
+  expect(roundSuffix(2)).toBe(' (round 2)');
+});
+
+test('respondChoices: open people, then redo-only people, by name', () => {
+  const choices = respondChoices({
+    respondTargets: [
+      { username: 'priya', name: 'Priya', openThreads: 0, openComments: 2 },
+      { username: 'john', name: 'John', openThreads: 1, openComments: 0 },
+      { username: 'sam', name: 'Sam', openThreads: 0, openComments: 0 },
+    ],
+    respondRounds: { john: 1, darryl: 2, sam: 1 },
+  });
+  expect(choices.map(c => [c.username, c.nextRound, c.open])).toEqual([
+    ['darryl', 3, 0],
+    ['john', 2, 1],
+    ['priya', 1, 2],
+    ['sam', 2, 0],
+  ]);
+  expect(respondChoiceLabel(choices[0]!)).toBe(
+    'redo response to darryl (round 3)'
+  );
+  expect(respondChoiceLabel(choices[2]!)).toBe('respond to Priya');
+  expect(respondChoices({})).toEqual([]);
 });
 
 test('doctorItemLabel: focus while alive, redo once interrupted or done, honest at the api tier', () => {

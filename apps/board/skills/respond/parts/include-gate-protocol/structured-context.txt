@@ -33,8 +33,10 @@ path. The key is both the discriminant and the version:
   ordinal is its position among the gate's `thread-*` questions. The
   planned fix is not in the context: it is the `fix` option's
   `description`. A `reply@1` question is `multi`, with exactly two
-  options, `post:<thread>` and `resolve:<thread>`, picked independently;
-  its `label` is the thread's `file:line`. A `replies@1` entry joins its
+  options, `post:<thread>` and `resolve:<thread>`, picked independently,
+  except an Overview comment's: its `file` is exactly `Overview comment`
+  and it offers `post:<thread>` alone, since GitLab cannot resolve it;
+  its `label` is the thread's `file:line` (`Overview comment` for one). A `replies@1` entry joins its
   checkbox option by `thread` == option value.
 - A `findings@1` entry joins its option ONE TO ONE: `id` == the option's
   `value`, every option with exactly one entry and every entry with one

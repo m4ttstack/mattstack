@@ -46,7 +46,13 @@ export interface MenuEnv {
 
 export const ROSTER = ['pat', 'kim', 'jo'];
 
+/** One person with feedback open: what an own MR needs for the respond item. */
+export const JOHN_OPEN = [
+  { username: 'john', name: 'John', openThreads: 1, openComments: 0 },
+];
+
 export const ownIdle = mrx(1418, {
+  respondTargets: JOHN_OPEN,
   mergeButton: { visible: true, disabled: false, loading: false },
   behindTarget: 3,
   autoMergeButton: { visible: true, isActive: false },

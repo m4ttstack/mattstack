@@ -1,0 +1,73 @@
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import type { Database } from 'bun:sqlite';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+
+import {
+  attachRespondRounds,
+  deleteRespondRound,
+  readRespondRounds,
+  recordRespondRound,
+} from '../respond-rounds.ts';
+import { openStateDb } from '../state/db.ts';
+
+let dir: string;
+let db: Database;
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'rr-'));
+  db = openStateDb(join(dir, 'state.db'));
+});
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
+
+const URL_A = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
+const URL_B = 'https://gitlab.com/acme/webapp/-/merge_requests/4822';
+
+describe('respond rounds', () => {
+  test('first round for a person is 1, then 2', () => {
+    expect(recordRespondRound(URL_A, 'john', 1, db)).toBe(1);
+    expect(recordRespondRound(URL_A, 'john', 2, db)).toBe(2);
+  });
+
+  test('rounds are per person', () => {
+    recordRespondRound(URL_A, 'john', 1, db);
+    recordRespondRound(URL_A, 'john', 2, db);
+    recordRespondRound(URL_A, 'darryl', 3, db);
+    expect(readRespondRounds(db).get(URL_A)).toEqual({ john: 2, darryl: 1 });
+  });
+
+  test('rounds for one MR do not advance another', () => {
+    recordRespondRound(URL_A, 'john', 1, db);
+    recordRespondRound(URL_A, 'john', 2, db);
+    expect(recordRespondRound(URL_B, 'john', 3, db)).toBe(1);
+    expect(readRespondRounds(db).get(URL_B)).toEqual({ john: 1 });
+  });
+
+  test('deleting the latest round rolls the person back to the one before', () => {
+    recordRespondRound(URL_A, 'john', 1, db);
+    const round = recordRespondRound(URL_A, 'john', 2, db);
+    recordRespondRound(URL_A, 'darryl', 3, db);
+    deleteRespondRound(URL_A, 'john', round, db);
+    expect(readRespondRounds(db).get(URL_A)).toEqual({ john: 1, darryl: 1 });
+    expect(recordRespondRound(URL_A, 'john', 4, db)).toBe(2);
+  });
+
+  test("deleting a person's only round removes them from the MR", () => {
+    const round = recordRespondRound(URL_A, 'john', 1, db);
+    deleteRespondRound(URL_A, 'john', round, db);
+    expect(readRespondRounds(db).get(URL_A)).toBeUndefined();
+  });
+
+  test('attachRespondRounds sets rounds by webUrl and leaves others untouched', () => {
+    const rounds = new Map([[URL_A, { john: 2 }]]);
+    const a = { webUrl: URL_A };
+    const b = { webUrl: URL_B };
+    const none = { webUrl: null };
+    const out = attachRespondRounds([a, b, none], rounds);
+    expect(out[0]).toEqual({ webUrl: URL_A, respondRounds: { john: 2 } });
+    expect(out[1]).toBe(b);
+    expect(out[2]).toBe(none);
+  });
+});

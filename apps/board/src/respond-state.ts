@@ -37,6 +37,11 @@ export interface RespondState {
       gone, can recover it instead of guessing 1. Absent on a state written
       before this field existed. */
   round?: number;
+  /** Username this run answers; absent on rows written before per-person
+      responses. */
+  person?: string;
+  /** This person's response round for this run, from recordRespondRound. */
+  responseRound?: number;
   /** The herdr tab the pane runs in; not a board tab (see boardTabId). */
   tabId?: string;
   /** The board tab the launch came from, "" for one with none (a peer's ask).
@@ -105,9 +110,21 @@ export function respondReportPath(handle: string): string {
   return reportPathForHandle(handle);
 }
 
+/** A respond write. `person`, `responseRound` and `gateId` also take null,
+    which removes them: a fresh launch must not inherit the person a prior
+    run answered, nor a parked gate that would resume it. */
+export type RespondPatch = Partial<
+  Omit<RespondState, 'person' | 'responseRound' | 'gateId'>
+> & {
+  status: RespondStatus;
+  person?: string | null;
+  responseRound?: number | null;
+  gateId?: string | null;
+};
+
 export function writeRespondState(
   handle: string,
-  patch: Partial<RespondState> & { status: RespondStatus },
+  patch: RespondPatch,
   now: number = Date.now(),
   db: Database = getStateDb()
 ): RespondState {
@@ -127,13 +144,15 @@ export function writeRespondState(
     threads: patch.threads,
     held: patch.held,
     round: patch.round,
+    person: patch.person ?? undefined,
+    responseRound: patch.responseRound ?? undefined,
     tabId: patch.tabId,
     boardTabId: patch.boardTabId,
     workspaceId: patch.workspaceId,
     sessionId: patch.sessionId,
     agentId: patch.agentId,
     paneId: patch.paneId,
-    gateId: patch.gateId,
+    gateId: patch.gateId ?? undefined,
     gateKind: patch.gateKind,
     resumedGateId: patch.resumedGateId,
     reopenedAt: patch.reopenedAt,
@@ -150,11 +169,13 @@ export function writeRespondState(
     kind-generic ones (`--resumed-gate`/`--resumed-gate-kind`) -- mirrors
     doctorResumeDispatchFields (doctor-state.ts). `round` rides the resume
     prompt as `--round <n>` so the fresh pane's wrapper can recover the round
-    its own conversation would otherwise have known from delegating it. */
+    its own conversation would otherwise have known from delegating it.
+    `person` rides as `--person <username>` so a resumed `revise` still
+    answers only that person. */
 export function respondResumeDispatchFields(
-  state: Pick<RespondState, 'round'> | undefined
-): { round?: number } {
-  return { round: state?.round };
+  state: Pick<RespondState, 'round' | 'person'> | undefined
+): { round?: number; person?: string } {
+  return { round: state?.round, person: state?.person };
 }
 
 /** The extra fields a FRESH respond launch's dispatch prompt carries: when a
@@ -165,9 +186,15 @@ export function respondResumeDispatchFields(
     prior round (no prior run, or one that predates this field) omits the
     flag, same as respondResumeDispatchFields. */
 export function respondFreshDispatchFields(
-  state: Pick<RespondState, 'round'> | undefined
-): { round?: number } {
-  return { round: state?.round !== undefined ? state.round + 1 : undefined };
+  state: Pick<RespondState, 'round'> | undefined,
+  responseRound?: number,
+  person?: string
+): { round?: number; person?: string } {
+  if (responseRound !== undefined) return { round: responseRound, person };
+  return {
+    round: state?.round !== undefined ? state.round + 1 : undefined,
+    person,
+  };
 }
 
 export function readRespondStates(
@@ -199,10 +226,16 @@ export function attachResponds<T extends { webUrl?: string | null }>(
 
 export function parseRespondRequestBody(
   body: unknown
-): { mrUrl: string; iid: number } | null {
+): { mrUrl: string; iid: number; person?: string } | null {
   if (!body || typeof body !== 'object') return null;
-  const { mrUrl, iid } = body as { mrUrl?: unknown; iid?: unknown };
+  const { mrUrl, iid, person } = body as {
+    mrUrl?: unknown;
+    iid?: unknown;
+    person?: unknown;
+  };
   if (typeof mrUrl !== 'string' || !mrUrl) return null;
   if (typeof iid !== 'number' || !Number.isFinite(iid)) return null;
-  return { mrUrl, iid };
+  if (person === undefined) return { mrUrl, iid };
+  if (typeof person !== 'string' || !person) return null;
+  return { mrUrl, iid, person };
 }

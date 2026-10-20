@@ -77,7 +77,21 @@ test('a reply context naming another thread is not trusted', () => {
   expect(pick?.reply).toBeUndefined();
 });
 
-test('anything but a multi with exactly post:<id> and resolve:<id> is not a pick', () => {
+test('a question offering post alone is a pick with no resolve, as on an Overview comment', () => {
+  const [pick] = postPicks([
+    threadQ(1, 'N1', 'reply', {
+      label: 'Overview comment',
+      options: [{ value: 'post:N1', label: 'Post (Recommended)' }],
+    }),
+  ]);
+  expect(pick?.threadId).toBe('N1');
+  expect(pick?.post).toBe('post:N1');
+  expect(pick?.resolve).toBeUndefined();
+  expect(pick?.defaults).toEqual(['post:N1']);
+  expect(pick?.reply?.text).toBe('reply for N1');
+});
+
+test('anything but a multi with exactly post:<id>, or post:<id> and resolve:<id>, is not a pick', () => {
   const pair = threadQ(1, 'T1', 'fix');
   expect(postPicks([{ ...pair, multi: false }])).toEqual([]);
   expect(
@@ -86,6 +100,8 @@ test('anything but a multi with exactly post:<id> and resolve:<id> is not a pick
   expect(postPicks([{ ...pair, options: ['post:T1', 'resolve:T2'] }])).toEqual(
     []
   );
+  expect(postPicks([{ ...pair, options: ['resolve:T1'] }])).toEqual([]);
+  expect(postPicks([{ ...pair, options: ['post:T1', 'skip:T1'] }])).toEqual([]);
   expect(
     postPicks([
       {
@@ -110,6 +126,16 @@ test('the tally counts threads posting and threads resolving, independently', ()
     posting: 0,
     resolving: 0,
   });
+});
+
+test('the tally counts a post-only pick as posting, never resolving', () => {
+  const picks = postPicks([
+    threadQ(1, 'T1', 'fix'),
+    threadQ(2, 'N1', 'reply', { options: ['post:N1'] }),
+  ]);
+  expect(
+    postTally(picks, { 'thread-1': ['resolve:T1'], 'thread-2': ['post:N1'] })
+  ).toEqual({ posting: 1, resolving: 1 });
 });
 
 const pick = (name: string, id: string, text: string): PostPick => ({

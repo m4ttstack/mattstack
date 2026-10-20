@@ -13,17 +13,19 @@ function plural(n: number, one: string, many: string): string {
 }
 
 /** `posting`, when given, replaces a post gate's offered reply count with
-    the number its submit will post, so the rail agrees with the sheet. */
+    the number its submit will post, so the rail agrees with the sheet.
+    `mix` names a plan gate's items the way its heading does. */
 export function headerChips(
   ctx: PlanCtx | PostCtx,
-  posting?: number
+  posting?: number,
+  mix: ItemMix = 'threads'
 ): HeaderChip[] {
   const chips: HeaderChip[] = [];
   if (ctx.shape === 'plan@1') {
     const { total, blocking } = ctx.threads;
     chips.push({
       key: 'threads',
-      text: plural(total, 'thread', 'threads'),
+      text: `${total} ${itemNoun(total, mix)}`,
       hue: 'grey',
     });
     chips.push(
@@ -55,11 +57,30 @@ export function headerChips(
   return chips;
 }
 
-/** The review round and the adjudication, the context's prose facts; they
-    read as a meta line rather than chips. */
-export function headerMeta(ctx: PlanCtx | PostCtx): string[] {
+/** The round a gate shows. Given the person's response round, the
+    wrapper's own round only shows as the revises past it. */
+export function gateRounds(
+  ctx: PlanCtx | PostCtx,
+  responseRound?: number
+): { round?: number; revise?: number } {
+  if (responseRound === undefined) return { round: ctx.round };
+  const revise =
+    ctx.round !== undefined && ctx.round > responseRound
+      ? ctx.round - responseRound
+      : undefined;
+  return { round: responseRound >= 2 ? responseRound : undefined, revise };
+}
+
+/** The round and the adjudication, the context's prose facts; they read as
+    a meta line rather than chips. */
+export function headerMeta(
+  ctx: PlanCtx | PostCtx,
+  responseRound?: number
+): string[] {
+  const { round, revise } = gateRounds(ctx, responseRound);
   return [
-    ctx.round !== undefined ? `round ${ctx.round}` : undefined,
+    round !== undefined ? `round ${round}` : undefined,
+    revise !== undefined ? `revise ${revise}` : undefined,
     ctx.adjudication,
   ].filter((m): m is string => Boolean(m));
 }
@@ -82,19 +103,62 @@ export function reviewerName(
 }
 
 /** A person's full name for a handle: the team roster first, then the MR's
-    author, then its assigned reviewers and approvers, else the handle. */
+    author, then its assigned reviewers and approvers, then the people it
+    can respond to, else the handle. */
 export function personName(
   handle: string,
   mr?: BoardMRWithReview,
   people?: ReadonlyMap<string, string>
 ): string {
+  const known = reviewerName(handle, mr, people);
   return (
     people?.get(handle) ??
     (mr?.author?.username === handle
       ? mr.author.name || undefined
       : undefined) ??
-    reviewerName(handle, mr, people)
+    (known !== handle ? known : undefined) ??
+    mr?.respondTargets?.find(t => t.username === handle)?.name ??
+    handle
   );
+}
+
+/** The person a respond gate answers: the live respond run's person when
+    the gate opened during that run, else the gate's own reviewer (a parked
+    gate from an earlier run, or a run launched without a person). */
+export function respondPerson(
+  ctx: PlanCtx | PostCtx,
+  openedAt: number,
+  mr?: BoardMRWithReview
+): string {
+  const run = mr?.respond;
+  return run?.person && openedAt >= (run.startedAt ?? 0)
+    ? run.person
+    : ctx.reviewer;
+}
+
+/** The label a respond gate gives a plain Overview comment's question. */
+export const OVERVIEW_LABEL = 'Overview comment';
+
+/** Whether a respond gate's items are review threads, Overview comments,
+    or both, judged by their question labels. */
+export type ItemMix = 'threads' | 'comments' | 'mixed';
+
+export function itemMix(labels: readonly string[]): ItemMix {
+  const comments = labels.filter(l => l === OVERVIEW_LABEL).length;
+  if (comments === 0) return 'threads';
+  return comments === labels.length ? 'comments' : 'mixed';
+}
+
+export function itemNoun(n: number, mix: ItemMix): string {
+  if (mix === 'mixed') return 'threads and comments';
+  const one = mix === 'comments' ? 'comment' : 'thread';
+  return n === 1 ? one : `${one}s`;
+}
+
+/** The decision context's verb: a person who left only Overview comments
+    commented; anyone with a review thread reviewed. */
+export function leadVerb(mix: ItemMix): string {
+  return mix === 'comments' ? 'commented on' : 'reviewed';
 }
 
 /** `!<n>` from an `mr:<url>` subject: the object line's stand-in when the
@@ -110,19 +174,27 @@ export function subjectRef(subject: string): string {
 export function RespondCtxFacts({
   ctx,
   posting,
+  responseRound,
+  mix,
 }: {
   ctx: PlanCtx | PostCtx;
+  /** How the gate's items read; see `itemMix`. */
+  mix?: ItemMix;
+  /** The person's response round off the MR's respond lane; see
+      `headerMeta`. */
+  responseRound?: number;
   /** A post gate's reply count as its submit will post it; see
       `headerChips`. */
   posting?: number;
 }) {
+  const meta = headerMeta(ctx, responseRound);
   return (
     <>
-      {headerMeta(ctx).length > 0 && (
-        <p className="tui-sheet-context-meta">{headerMeta(ctx).join(' · ')}</p>
+      {meta.length > 0 && (
+        <p className="tui-sheet-context-meta">{meta.join(' · ')}</p>
       )}
       <div className="tui-respond-chips">
-        {headerChips(ctx, posting).map(chip => (
+        {headerChips(ctx, posting, mix).map(chip => (
           <span
             key={chip.key}
             className="tui-respond-chip"

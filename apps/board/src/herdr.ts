@@ -197,12 +197,15 @@ export interface SkillPromptOpts {
       so a resumed pane that must branch on which gate woke it reads this
       flag. Present exactly when `resumedGate` is. */
   resumedGateKind?: string;
-  /** Respond only: the round the wrapper was on the last time its state was
-      written (see respond-state.ts's `round` field) -- rides a resume prompt
-      as `--round <n>` alongside `--resumed-gate` so the fresh pane's
-      conversation, having lost its own memory of the round, can recover it
-      instead of guessing 1. Absent on a normal (non-resume) launch. */
+  /** Respond only: `--round <n>`. On a resume it is the in-run round the
+      wrapper was on (see respond-state.ts's `round` field), so the fresh pane
+      can recover it instead of guessing 1. On a fresh launch for a person it
+      is that person's response round. Absent on a fresh launch with no prior
+      in-run round and no person. */
   round?: number;
+  /** Respond only: the username this response answers, as `--person <username>`
+      right after `--round`. */
+  person?: string;
 }
 
 /** The trailing paragraph a launch note becomes. The framing tells the wrapper
@@ -257,6 +260,7 @@ function dispatchArgs(o: SkillPromptOpts, skillPath?: string | null): string {
   flag('--resumed-gate', o.resumedGate);
   flag('--resumed-gate-kind', o.resumedGateKind);
   flag('--round', o.round !== undefined ? String(o.round) : undefined);
+  flag('--person', o.person);
   flag('--skill-path', skillPath);
   if (o.reReview) parts.push('--re-review');
   flag('--tier', o.tier);
@@ -405,13 +409,14 @@ export interface LaunchPaneOpts {
   fixClasses?: string[];
   /** Doctor only: absolute path to the board's draft-writer CLI. */
   draftBin?: string;
-  /** Respond only: this fresh launch follows a prior run that recorded a
-      round on this MR (see respond-state.ts's respondFreshDispatchFields) --
-      rides the dispatch prompt as `--round <n>` so the new run's wrapper
-      delegates at that round instead of defaulting to round 1. Absent on the
-      MR's first-ever respond run, or one whose prior state predates the
-      round field. */
+  /** Respond only: rides the dispatch prompt as `--round <n>` (see
+      respond-state.ts's respondFreshDispatchFields). With a person it is that
+      person's response round; without one, one more than the prior in-run
+      round. Absent on the MR's first respond run with no person, or when the
+      prior state predates the round field. */
   round?: number;
+  /** Respond only: the person this launch answers; rides as `--person`. */
+  person?: string;
 }
 
 /** Tab label for an MR pane: the MR id, the author beside it when known, and an
@@ -545,6 +550,7 @@ export async function launchRespond(
       skill: opts.skill,
       note: opts.note,
       round: opts.round,
+      person: opts.person,
     },
     resolvePath
   );

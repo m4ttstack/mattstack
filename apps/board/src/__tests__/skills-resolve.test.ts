@@ -10,7 +10,11 @@ import { describe, expect, test } from 'bun:test';
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const wrappers = [
   { dir: 'review', name: 'board:review', slots: { review: 'mr-review@2' } },
-  { dir: 'respond', name: 'board:respond', slots: { respond: 'mr-respond@2' } },
+  {
+    dir: 'respond',
+    name: 'board:respond',
+    slots: { respond: 'mr-respond@3 mr-respond@2' },
+  },
   {
     dir: 'doctor',
     name: 'board:doctor',
@@ -35,7 +39,8 @@ const fixtureSkill = (name: string, provides: string) => {
   return name;
 };
 fixtureSkill('fake:review', 'mr-review@2');
-fixtureSkill('fake:respond', 'mr-respond@2');
+fixtureSkill('fake:respond', 'mr-respond@3');
+fixtureSkill('fake:respond-v2', 'mr-respond@2');
 fixtureSkill('fake:doctor', 'mr-doctor@2');
 fixtureSkill('fake:doctor-api', 'mr-doctor-api@2');
 fixtureSkill('fake:wrong-contract', 'review-domain@1');
@@ -58,6 +63,11 @@ const mismatchManifest = join(fix, 'mismatch.jsonc');
 writeFileSync(
   mismatchManifest,
   `{ "version": 1, "bindings": { "board:review": { "review": "fake:wrong-contract" } } }\n`
+);
+const respondV2Manifest = join(fix, 'respond-v2.jsonc');
+writeFileSync(
+  respondV2Manifest,
+  `{ "version": 1, "bindings": { "board:respond": { "respond": "fake:respond-v2" } } }\n`
 );
 const missingManifest = join(fix, 'does-not-exist.jsonc');
 
@@ -127,7 +137,7 @@ describe('wrapper skill slot resolution', () => {
         expect(out.skill).toBe(w.name);
         for (const [slot, contract] of Object.entries(w.slots)) {
           expect(out.resolved[slot].binding).toBe(`fake:${slot}`);
-          expect(out.resolved[slot].contract).toBe(contract);
+          expect(out.resolved[slot].contract).toBe(contract.split(' ')[0]);
           expect(out.resolved[slot].path).toBe(join(skillsDir, `fake:${slot}`));
         }
       });
@@ -148,6 +158,13 @@ describe('wrapper skill slot resolution', () => {
       });
     });
   }
+
+  test('the respond slot still resolves a skill providing mr-respond@2', () => {
+    const { exitCode, out } = resolve('respond', respondV2Manifest);
+    expect(exitCode).toBe(0);
+    expect(out.resolved.respond.binding).toBe('fake:respond-v2');
+    expect(out.resolved.respond.contract).toBe('mr-respond@2');
+  });
 
   test('a binding whose provides does not match the contract fails loud', () => {
     const { exitCode, out } = resolve('review', mismatchManifest);

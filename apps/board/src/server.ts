@@ -266,6 +266,12 @@ import {
 } from './peer/runtime.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
+  attachRespondRounds,
+  deleteRespondRound,
+  readRespondRounds,
+  recordRespondRound,
+} from './respond-rounds.ts';
+import {
   attachResponds,
   parseRespondRequestBody,
   pruneRespondStates,
@@ -279,6 +285,7 @@ import {
   type RespondState,
   type RespondStatus,
 } from './respond-state.ts';
+import { respondTargets } from './respond-targets.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
 import { dropRounds, latestRounds } from './review-rounds.ts';
 import {
@@ -893,8 +900,14 @@ async function enrichReviewerComments(mrs: BoardMR[]): Promise<void> {
             m.author.username,
             roster
           );
-          if (ownedHere(m))
+          if (ownedHere(m)) {
             m.reviewerLatches = reviewerLatches(detail, m.author.username);
+            m.respondTargets = respondTargets(
+              detail,
+              m.author.username,
+              config.botUsernames
+            );
+          }
         } catch {
           // Keep the coarse fallback (unresolvedThreads) for this MR.
         }
@@ -1806,12 +1819,15 @@ const httpServer = Bun.serve({
                   attachSlack(
                     attachGates(
                       attachDoctors(
-                        attachResponds(
-                          attachReviews(
-                            withSlackChannel(mrs),
-                            readReviewStates()
+                        attachRespondRounds(
+                          attachResponds(
+                            attachReviews(
+                              withSlackChannel(mrs),
+                              readReviewStates()
+                            ),
+                            readRespondStates()
                           ),
-                          readRespondStates()
+                          readRespondRounds()
                         ),
                         readDoctorStates()
                       ),
@@ -1907,9 +1923,12 @@ const httpServer = Bun.serve({
         const reconciler = await fetchReconcilerView();
         const decision = decisionGates(
           attachDoctors(
-            attachResponds(
-              attachReviews(snapshot.mrs, reviews, latestRounds()),
-              responds
+            attachRespondRounds(
+              attachResponds(
+                attachReviews(snapshot.mrs, reviews, latestRounds()),
+                responds
+              ),
+              readRespondRounds()
             ),
             doctors
           ),
@@ -2508,9 +2527,10 @@ const httpServer = Bun.serve({
         }
         const parsed = parseRespondRequestBody(body);
         if (!parsed)
-          return new Response('expected { mrUrl: string, iid: number }', {
-            status: 400,
-          });
+          return new Response(
+            'expected { mrUrl: string, iid: number, person?: string }',
+            { status: 400 }
+          );
         const resume = (body as { resume?: unknown })?.resume === true;
         const focusOnly = (body as { focus?: unknown })?.focus === true;
         const boardTabId = requestBoardTab(body);
@@ -2568,6 +2588,15 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
+        const { person } = parsed;
+        if (
+          person &&
+          !mr.respondTargets?.some(t => t.username === person) &&
+          !Object.hasOwn(readRespondRounds().get(parsed.mrUrl) ?? {}, person)
+        )
+          return new Response(`person "${person}" has no feedback on this MR`, {
+            status: 400,
+          });
         {
           const dedup = await dedupInFlight(
             existing,
@@ -2581,6 +2610,9 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        const responseRound = person
+          ? recordRespondRound(parsed.mrUrl, person)
+          : undefined;
         const statePath = respondFilePath(parsed.mrUrl);
         writeRespondState(statePath, {
           mrUrl: parsed.mrUrl,
@@ -2588,6 +2620,10 @@ const httpServer = Bun.serve({
           status: 'queued',
           boardTabId: boardTabId ?? '',
           noPack: !launchPack(boardTabId),
+          person: person ?? null,
+          responseRound: responseRound ?? null,
+          gateId: null,
+          startedAt: Date.now(),
         });
         void launchRespond({
           mrUrl: parsed.mrUrl,
@@ -2600,11 +2636,15 @@ const httpServer = Bun.serve({
           pack: launchPack(boardTabId),
           author,
           ...loadAgentSettings(),
-          ...respondFreshDispatchFields(existing),
+          ...respondFreshDispatchFields(existing, responseRound, person),
           note,
         })
           .then(result => {
-            if (result.focusedExisting) return;
+            if (result.focusedExisting) {
+              if (person && responseRound !== undefined)
+                deleteRespondRound(parsed.mrUrl, person, responseRound);
+              return;
+            }
             writeRespondState(statePath, {
               status: 'queued',
               tabId: result.tabId,
@@ -2617,6 +2657,8 @@ const httpServer = Bun.serve({
             console.error(
               `respond launch failed: ${err instanceof Error ? err.message : err}`
             );
+            if (person && responseRound !== undefined)
+              deleteRespondRound(parsed.mrUrl, person, responseRound);
             writeRespondState(statePath, {
               status: 'error',
               message: launchErrorMessage('respond', err),
