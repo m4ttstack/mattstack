@@ -3,6 +3,7 @@ import {
   busyEnv,
   failedEnv,
   failedLanes,
+  JOHN_OPEN,
   mrx,
   ownBusy,
   ownEnv,
@@ -28,6 +29,7 @@ export const MENU_STATES: Record<
 > = {
   'own fresh': {
     mr: mrx(2001, {
+      respondTargets: JOHN_OPEN,
       mergeButton: { visible: true, disabled: false, loading: false },
       autoMergeButton: { visible: true, isActive: false },
       behindTarget: 0,
@@ -50,6 +52,7 @@ export const MENU_STATES: Record<
     mr: mrx(2003, {
       blockers: { any: true, pipelineFailing: true, hasConflicts: true },
       reviews: { isApproved: false, required: 0, given: 1, reviewers: [] },
+      respondTargets: JOHN_OPEN,
       respond: { status: 'error', sessionId: 'resp-8' },
       slack: FOUND,
     }),
@@ -57,7 +60,12 @@ export const MENU_STATES: Record<
   },
   'own no thread': { mr: ownIdle, env: ownEnv },
   'own draft': {
-    mr: mrx(2004, { isDraft: true, behindTarget: 0, slack: FOUND }),
+    mr: mrx(2004, {
+      respondTargets: JOHN_OPEN,
+      isDraft: true,
+      behindTarget: 0,
+      slack: FOUND,
+    }),
     env: ownEnv,
   },
   'own busy draft': { mr: ownBusy, env: busyEnv },

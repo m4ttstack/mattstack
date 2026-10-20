@@ -19,6 +19,7 @@ import type { PlanCtx, PostCtx } from '../gate-ctx.ts';
 import {
   headerChips,
   headerMeta,
+  personName,
   reviewerName,
 } from '../RespondGateHeader.tsx';
 
@@ -133,6 +134,39 @@ async function renderModal(row: GateRow, mr?: BoardMRWithReview) {
 
 const $ = (selector: string) => document.body.querySelector(selector);
 
+const planAtRound = (round: number) =>
+  gate({ context: JSON.stringify({ ...JSON.parse(PLAN), round }) });
+const withRespond = (respond: Record<string, unknown>) =>
+  ({ ...MR, respond }) as unknown as BoardMRWithReview;
+
+test('the sheet heading splits the wrapper round like the header: response round, then revises', async () => {
+  await renderModal(
+    planAtRound(3),
+    withRespond({ status: 'triaging', person: 'john', responseRound: 2 })
+  );
+  expect($('.tui-sheet-round-n')!.textContent).toBe('Round 2 \u00b7 revise 1');
+  expect($('.tui-sheet-context-meta')!.textContent).toContain(
+    'round 2 \u00b7 revise 1'
+  );
+});
+
+test('the sheet heading stays out of a first round with no revises, and shows revises alone', async () => {
+  const first = withRespond({
+    status: 'triaging',
+    person: 'john',
+    responseRound: 1,
+  });
+  await renderModal(planAtRound(1), first);
+  expect($('.tui-sheet-round-n')).toBeNull();
+  await renderModal(planAtRound(2), first);
+  expect($('.tui-sheet-round-n')!.textContent).toBe('Revise 1');
+});
+
+test('the sheet heading reads the wrapper round when no response round is known', async () => {
+  await renderModal(planAtRound(3), withRespond({ status: 'triaging' }));
+  expect($('.tui-sheet-round-n')!.textContent).toBe('Round 3');
+});
+
 test('an open plan@1 gate opens the respond sheet: threads left; MR card, decision context, status and responses right', async () => {
   await renderModal(gate({}), MR);
   expect($('.tui-respond-sheet')).not.toBeNull();
@@ -232,6 +266,20 @@ test('the reviewer reads by full name from the roster, else the MR reviewers, el
     reviewerName('renee', withReviewer, new Map([['renee', 'R. Park']]))
   ).toBe('R. Park');
   expect(reviewerName('renee', MR)).toBe('renee');
+});
+
+test('a person reads by full name from the respond targets once the roster and reviewers miss', () => {
+  const withTargets = {
+    ...MR,
+    respondTargets: [
+      { username: 'john', name: 'John Ward', openThreads: 0, openComments: 2 },
+    ],
+  } as unknown as BoardMRWithReview;
+  expect(personName('john', withTargets)).toBe('John Ward');
+  expect(personName('john', withTargets, new Map([['john', 'J. Ward']]))).toBe(
+    'J. Ward'
+  );
+  expect(personName('john', MR)).toBe('john');
 });
 
 test('a GitHub MR says pull request', async () => {
@@ -389,6 +437,29 @@ test('plan chips: threads and blocking; the round and adjudication ride the meta
     ['1 blocking', 'amber'],
   ]);
   expect(headerMeta(ctx)).toEqual(['round 2', 'both valid']);
+});
+
+test('headerMeta with a response round: round from 2, revise counts the wrapper round past it', () => {
+  const adj = 'both valid';
+  expect(headerMeta(plan({ adjudication: adj, round: 4 }), 2)).toEqual([
+    'round 2',
+    'revise 2',
+    adj,
+  ]);
+  expect(headerMeta(plan({ adjudication: adj, round: 1 }), 1)).toEqual([adj]);
+  expect(headerMeta(plan({ adjudication: adj, round: 3 }), 3)).toEqual([
+    'round 3',
+    adj,
+  ]);
+  expect(headerMeta(plan({ adjudication: adj }), 2)).toEqual(['round 2', adj]);
+});
+
+test('plan chips name the items the way the heading does', () => {
+  const ctx = plan({ threads: { total: 1, blocking: 0 } });
+  expect(headerChips(ctx, undefined, 'comments')[0]!.text).toBe('1 comment');
+  expect(headerChips(plan(), undefined, 'mixed')[0]!.text).toBe(
+    '2 threads and comments'
+  );
 });
 
 test('plan chips: zero blocking reads grey "all non-blocking"; one thread is singular', () => {

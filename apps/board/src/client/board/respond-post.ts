@@ -6,32 +6,34 @@ import {
 } from '@mattstack/gate-kit';
 import { parseGateCtx, type ReplyEntry } from './gate-ctx.ts';
 
-/** One respond-post thread question: a multi whose two options post the
+/** One respond-post thread question: a multi whose options post the
     thread's reply and resolve the thread, picked independently. */
 export interface PostPick {
   name: string;
   threadId: string;
-  /** The question label: the thread's file:line. */
+  /** The question label: the thread's file:line, or `Overview comment`. */
   label: string;
   /** Absent when the question's context fell back to prose. */
   reply?: ReplyEntry;
   post: string;
-  resolve: string;
+  /** Absent on an Overview comment: GitLab cannot resolve its discussion. */
+  resolve?: string;
   /** The recommended option values, which a fresh gate starts with. */
   defaults: string[];
 }
 
-/** The gate's per-thread questions, recognized by their option pair
-    `post:<id>` / `resolve:<id>` rather than by context, so a thread whose
+/** The gate's per-thread questions, recognized by their options, `post:<id>`
+    alone or with `resolve:<id>`, rather than by context, so a thread whose
     context was dropped to prose keeps its controls. */
 export function postPicks(questions: GateQuestion[]): PostPick[] {
   return questions.flatMap(q => {
-    if (!q.multi || q.options.length !== 2) return [];
+    if (!q.multi || q.options.length < 1 || q.options.length > 2) return [];
     const values = q.options.map(optionValue);
     const post = values.find(v => v.startsWith('post:'));
     const threadId = post?.slice('post:'.length);
-    const resolve = `resolve:${threadId}`;
-    if (!post || !threadId || !values.includes(resolve)) return [];
+    if (!post || !threadId) return [];
+    const resolve = values.length === 2 ? `resolve:${threadId}` : undefined;
+    if (resolve !== undefined && !values.includes(resolve)) return [];
     const ctx = parseGateCtx(q.context);
     const reply =
       ctx?.shape === 'reply@1' && ctx.thread === threadId ? ctx : undefined;
@@ -42,7 +44,7 @@ export function postPicks(questions: GateQuestion[]): PostPick[] {
         label: q.label,
         ...(reply ? { reply } : {}),
         post,
-        resolve,
+        ...(resolve ? { resolve } : {}),
         defaults: q.options
           .filter(o => optionDisplayFor(o).recommended)
           .map(optionValue),
@@ -152,7 +154,7 @@ export function postTally(
     const v = selections[p.name];
     const picked = Array.isArray(v) ? v : [];
     if (picked.includes(p.post)) posting++;
-    if (picked.includes(p.resolve)) resolving++;
+    if (p.resolve && picked.includes(p.resolve)) resolving++;
   }
   return { posting, resolving };
 }

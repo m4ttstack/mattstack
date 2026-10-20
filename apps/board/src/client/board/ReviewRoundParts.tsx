@@ -38,7 +38,7 @@ export function isResolving(
   selections: GateSelections
 ): boolean {
   const v = selections[pick.name];
-  return Array.isArray(v) && v.includes(pick.resolve);
+  return !!pick.resolve && Array.isArray(v) && v.includes(pick.resolve);
 }
 
 /** The trimmed edit each posting reply sends; null while one is empty. */

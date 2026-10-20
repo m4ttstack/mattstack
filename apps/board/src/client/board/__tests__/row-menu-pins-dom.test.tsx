@@ -34,7 +34,7 @@ test('own idle MR, local, slack thread not found, gitlab buttons up', async () =
       "post to slack",
       "---",
       "# agent actions",
-      "respond",
+      "respond to John",
       "rebase locally",
       "---",
       "request review from…",
@@ -48,7 +48,7 @@ test('own idle MR, local, slack thread not found, gitlab buttons up', async () =
   expect(await clickEach(ownIdle, ownEnv)).toMatchInlineSnapshot(`
     [
       "post to slack → post-slack",
-      "respond → launch:respond",
+      "respond to John → launch:respond",
       "rebase locally → launch:rebase-local",
       "request review from… → (nothing) (stays open)",
       "review → launch:review",

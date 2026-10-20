@@ -18,6 +18,8 @@ export interface LaunchOpts {
   note?: string;
   intent?: 'launch' | 'focus';
   quiet?: boolean;
+  /** The person a response answers. */
+  person?: string;
 }
 
 export interface RunnerDeps {
@@ -276,7 +278,11 @@ export async function runOne(
   note?: string
 ): Promise<ActionResult | undefined> {
   if (req.kind === 'launch')
-    return deps.launch(req.flow, mr, { note, intent: req.intent });
+    return deps.launch(req.flow, mr, {
+      note,
+      intent: req.intent,
+      person: req.person,
+    });
   const url = mr.webUrl;
   if (!url) return undefined;
   const spec = postSpec(req);
@@ -466,6 +472,13 @@ export function dispatchRowAction(
       return undefined;
     case 'ask':
       return runOne({ ...req, reviewer: opts.pick ?? req.reviewer }, mr, deps);
+    case 'launch':
+      return runOne(
+        { ...req, person: opts.pick ?? req.person },
+        mr,
+        deps,
+        opts.note
+      );
     default:
       return runOne(req, mr, deps, opts.note);
   }

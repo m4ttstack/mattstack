@@ -325,18 +325,23 @@ function ThreadOutcome({
 
 /** A respond-post reply option's label: where the reply lands, whether it
     rides a pushed fix, and the full text that will be posted. `children`
-    joins the label row (the recommended chip). */
+    joins the label row (the recommended chip). `showFile` is false where
+    the card's head already names the file. */
 function ReplyChoiceBody({
   entry,
+  showFile = true,
   children,
 }: {
   entry: ReplyEntry;
+  showFile?: boolean;
   children?: ReactNode;
 }) {
   return (
     <>
       <span className="tui-gate-choice-label-row">
-        <span className="tui-reply-choice-file">{entry.file}</span>
+        {showFile && (
+          <span className="tui-reply-choice-file">{entry.file}</span>
+        )}
         <span
           className="tui-respond-pill"
           data-hue={entry.verb === 'fix' ? 'green' : 'grey'}
@@ -362,9 +367,10 @@ function ReplyChoiceBody({
   );
 }
 
-/** A per-thread post question's controls, one compact row of two ticks:
-    post the reply, and, independently, resolve the thread. Unticking post
-    holds the reply back. What each does rides the tooltip. */
+/** A per-thread post question's controls, one compact row of ticks: post
+    the reply, and, independently, resolve the thread when the question
+    offers it (an Overview comment does not). Unticking post holds the reply
+    back. What each does rides the tooltip. */
 function PostResolveChoice({
   pick,
   form,
@@ -375,7 +381,6 @@ function PostResolveChoice({
   const current = form.selections[pick.name];
   const picked = new Set(Array.isArray(current) ? current : []);
   const posting = picked.has(pick.post);
-  const resolving = picked.has(pick.resolve);
   const ticks = [
     {
       value: 'post',
@@ -386,15 +391,19 @@ function PostResolveChoice({
         ? 'post this reply to the thread'
         : 'held back; nothing is posted',
     },
-    {
-      value: 'resolve',
-      option: pick.resolve,
-      on: resolving,
-      text: 'Resolve thread',
-      hint: posting
-        ? 'resolve the thread once the reply posts'
-        : 'resolve the thread without replying',
-    },
+    ...(pick.resolve
+      ? [
+          {
+            value: 'resolve',
+            option: pick.resolve,
+            on: picked.has(pick.resolve),
+            text: 'Resolve thread',
+            hint: posting
+              ? 'resolve the thread once the reply posts'
+              : 'resolve the thread without replying',
+          },
+        ]
+      : []),
   ];
   return (
     <div className="tui-post-controls">

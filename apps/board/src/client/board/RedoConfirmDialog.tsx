@@ -6,6 +6,8 @@ export interface PendingRedo {
   lane: Lane;
   count: number;
   prior: number;
+  /** The person a redo answers, for a response to one person. */
+  who?: { name: string; round: number };
   run: () => void;
 }
 
@@ -19,7 +21,7 @@ export function RedoConfirmDialog({
   onDone: () => void;
 }) {
   const copy = pending
-    ? redoCopy(pending.lane, pending.count, pending.prior)
+    ? redoCopy(pending.lane, pending.count, pending.prior, pending.who)
     : null;
   return (
     <ConfirmDialog

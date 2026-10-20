@@ -26,7 +26,7 @@ export type GeneralComment = CommentNote;
 /** Integration linkback notes (e.g. Linear's `<!-- linear-linkback --> <details>…`)
     are non-resolvable notes but not real comments — an automated HTML blob, not
     something a human wrote. Drop them from the general-comments list. */
-function isAutomatedNote(body: string): boolean {
+export function isAutomatedNote(body: string): boolean {
   return /^\s*<!--[^>]*linkback/i.test(body);
 }
 
@@ -47,7 +47,7 @@ export function isBotUsername(username: string | null | undefined): boolean {
 
 /** A note author is a bot if config lists their username or display name (the
     escape hatch for named integration bots), or the username-heuristic flags it. */
-function isBotAuthor(
+export function isBotAuthor(
   author: { username?: string | null; name?: string | null } | null | undefined,
   configBots: Set<string>
 ): boolean {

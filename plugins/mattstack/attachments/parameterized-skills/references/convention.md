@@ -43,7 +43,7 @@ metadata:
 - `slot-<name>`: one key per slot named in `slots`. Value grammar:
 
   ```
-  <requirement> <contract>@<major> -- <one-line contract description>
+  <requirement> <contract>@<major> [<contract>@<major> ...] -- <one-line contract description>
   ```
 
   - `<requirement>` is `required` or `optional`.
@@ -52,9 +52,13 @@ metadata:
     shipping plugin's semver: a release that breaks a contract bumps the
     plugin major and the contract major together. There are no per-skill
     versions (decision deferred, recorded 2026-08).
+  - Several tokens before ` -- ` mean the slot accepts any of them,
+    preferred first (a wrapper that still takes an older major while
+    bound skills move to the new one). The resolved `contract` is the
+    first listed token the bound skill provides.
   - The prose after ` -- ` is the human half of the contract: what the
     inner skill must actually provide. The machine checks only the
-    `<contract>@<major>` token.
+    `<contract>@<major>` tokens.
 
 ## provides declaration (inner SKILL.md)
 

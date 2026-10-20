@@ -388,6 +388,50 @@ test('an answered respond plan keeps its reviewer in the rail and its thread car
   expect(document.body.textContent).not.toContain('gate-ctx');
 });
 
+const answeredPlan = (round: number) =>
+  shipped({
+    kind: 'respond-plan',
+    subject: 'mr:https://gitlab.example.com/acme/webapp/-/merge_requests/1235',
+    context: j({
+      'gate-ctx': 'plan@1',
+      reviewer: 'renee',
+      round,
+      threads: { total: 1, blocking: 0 },
+      adjudication: 'both valid',
+    }),
+    questions: [
+      {
+        id: 'thread-1',
+        label: 'queue/enqueue.ts:88',
+        multi: false,
+        options: ['reply:t1', 'skip:t1'],
+      },
+    ],
+    answers: { 'thread-1': 'reply:t1' },
+  });
+
+test("an answered respond gate on an MR whose current response is another person's shows no round meta", async () => {
+  await render(answeredPlan(1), {
+    ...MR,
+    respond: {
+      status: 'triaging',
+      person: 'john',
+      responseRound: 3,
+    },
+  } as unknown as BoardMRWithReview);
+  expect($('.tui-sheet-context-meta')?.textContent).toBe('both valid');
+});
+
+test('an answered respond gate on a legacy respond row keeps its round meta', async () => {
+  await render(answeredPlan(2), {
+    ...MR,
+    respond: { status: 'done' },
+  } as unknown as BoardMRWithReview);
+  expect($('.tui-sheet-context-meta')?.textContent).toBe(
+    'round 2 · both valid'
+  );
+});
+
 test('an answered per-thread post shows the reply as posted, edited text included', async () => {
   await render(
     shipped({
@@ -424,6 +468,142 @@ test('an answered per-thread post shows the reply as posted, edited text include
   expect(
     ($('.tui-sheet-main input[value="post:t1"]') as HTMLInputElement).checked
   ).toBe(true);
+});
+
+const replyQ = (
+  n: number,
+  thread: string,
+  label: string,
+  resolvable = true
+) => ({
+  id: `thread-${n}`,
+  label,
+  multi: true,
+  context: j({
+    'gate-ctx': 'reply@1',
+    thread,
+    file: label,
+    verb: 'reply',
+    text: `reply ${n}`,
+  }),
+  options: [
+    { value: `post:${thread}`, label: 'Post' },
+    ...(resolvable ? [{ value: `resolve:${thread}`, label: 'Resolve' }] : []),
+  ],
+});
+
+const answeredPost = (
+  questions: ReturnType<typeof replyQ>[],
+  answers: Record<string, string[]>
+) =>
+  shipped({
+    kind: 'respond-post',
+    subject: 'mr:https://gitlab.example.com/acme/webapp/-/merge_requests/1235',
+    context: j({
+      'gate-ctx': 'post@1',
+      reviewer: 'john',
+      replies: questions.length,
+      fixes: [],
+    }),
+    questions,
+    answers,
+  });
+
+test('an answered respond post names each thread once and docks what was picked per thread', async () => {
+  await render(
+    answeredPost(
+      [
+        replyQ(1, 't1', 'queue/enqueue.ts:88'),
+        replyQ(2, 't2', 'queue/retry.ts:12'),
+        replyQ(3, 't3', 'queue/backoff.ts:4'),
+        replyQ(4, 'n1', 'Overview comment', false),
+      ],
+      {
+        'thread-1': ['post:t1', 'resolve:t1'],
+        'thread-2': ['post:t2'],
+        'thread-3': [],
+        'thread-4': ['post:n1'],
+      }
+    ),
+    MR
+  );
+  for (const card of $$('.tui-sheet-main .tui-gate-question')) {
+    const label = card.querySelector('.tui-gate-question-label')!.textContent!;
+    expect(card.textContent!.split(label)).toHaveLength(2);
+  }
+  expect(
+    $$('.tui-sheet-dock .tui-sheet-card-row').map(r => [
+      r.querySelector('.tui-sheet-card-chip')?.textContent,
+      r.querySelector('.tui-sheet-card-text')?.textContent,
+    ])
+  ).toEqual([
+    ['post · resolve', 'queue/enqueue.ts:88'],
+    ['post', 'queue/retry.ts:12'],
+    ['hold', 'queue/backoff.ts:4'],
+    ['post', 'Overview comment'],
+  ]);
+});
+
+const dockChips = () =>
+  $$('.tui-sheet-dock .tui-sheet-card-row').map(
+    r => r.querySelector('.tui-sheet-card-chip')?.textContent
+  );
+
+test('a per-thread question with no recorded answer reads none, not hold', async () => {
+  await render(
+    answeredPost(
+      [replyQ(1, 't1', 'queue/enqueue.ts:88'), replyQ(2, 't2', 'a.ts:1')],
+      { 'thread-1': ['post:t1'] }
+    ),
+    MR
+  );
+  expect(dockChips()).toEqual(['post', 'none']);
+});
+
+test('a read-only checkbox carries the check glyph its picked state shows', async () => {
+  await render(
+    answeredPost([replyQ(1, 't1', 'queue/enqueue.ts:88')], {
+      'thread-1': ['post:t1'],
+    }),
+    MR
+  );
+  const box = (v: string) =>
+    $(`.tui-sheet-main input[value="${v}"]`) as HTMLInputElement;
+  for (const v of ['post:t1', 'resolve:t1']) {
+    expect(box(v).parentElement!.className).toBe('tui-check');
+    expect(box(v).nextElementSibling!.className).toBe('tui-check-tick');
+  }
+  expect(box('post:t1').hasAttribute('data-checked')).toBe(true);
+  expect(box('resolve:t1').hasAttribute('data-checked')).toBe(false);
+});
+
+test('post and resolve chips are only for respond-post and review-post gates', async () => {
+  await render(
+    shipped({
+      questions: [replyQ(1, 't1', 'queue/enqueue.ts:88')],
+      answers: { 'thread-1': ['post:t1', 'resolve:t1'] },
+    }),
+    MR
+  );
+  expect(dockChips()).toEqual(['2 picked']);
+});
+
+test('an answered respond gate leads with the person by full name, and says commented when they only commented', async () => {
+  const withTargets = {
+    ...MR,
+    respondTargets: [
+      { username: 'john', name: 'John Ward', openThreads: 0, openComments: 1 },
+    ],
+  } as unknown as BoardMRWithReview;
+  await render(
+    answeredPost([replyQ(1, 'n1', 'Overview comment', false)], {
+      'thread-1': ['post:n1'],
+    }),
+    withTargets
+  );
+  expect(text('.tui-sheet-context-card .tui-id-card-lead')).toBe(
+    'John Ward commented on your merge request'
+  );
 });
 
 test('an answered review gate reads its summary as prose in the rail', async () => {

@@ -5,8 +5,9 @@ status contract and the shared sections the sections here name in quotes
 ("Off-script step", "Gate 1 and Gate 2 shapes", "Reading answers", "Reply
 overrides", "Counts and the badge"); "Gate step" is in `gate-step.md`.
 
-Adjudicate every unresolved human thread, through the domain skill or on the
-generic path, write the verdict table and drafts to `--report`, and open Gate 1
+Adjudicate every unresolved human thread (only the `--person`'s threads and
+Overview comments when the launch names one), through the domain skill or on
+the generic path, write the verdict table and drafts to `--report`, and open Gate 1
 and wait for its answer.
 
 ```dot
@@ -20,6 +21,8 @@ digraph respond_triage_and_gate_1 {
     "Which triage call refused (resumed)?" [shape=diamond];
     "Delegate adjudication to the domain skill" [shape=box];
     "Domain adjudication result?" [shape=diamond];
+    "Drop verdict rows outside the --person's feedback" [shape=box];
+    "Backstop entered on a revise round?" [shape=diamond];
     "mr_view {mrUrl} (respond source branch)" [shape=plaintext];
     "mr_view result (respond)?" [shape=diamond];
     "STOP: MR reads go through mr_view (respond)" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -36,7 +39,13 @@ digraph respond_triage_and_gate_1 {
     "<status-bin> respond-status <state> drafting --round <n>" [shape=plaintext];
     "Fitted respond-plan open file handed back?" [shape=diamond];
     "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [shape=plaintext];
-    "Build the Gate 1 questions" [shape=box];
+    "Build the Gate 1 source" [shape=box];
+    "Refit the handed Gate 1 source" [shape=box];
+    "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}" [shape=plaintext];
+    "respond-plan gate_open result?" [shape=diamond];
+    "Fixed the Gate 1 source once already?" [shape=diamond];
+    "Fix the Gate 1 source the gate_open refusal names" [shape=box];
+    "Build the Gate 1 questions as prose (plain open)" [shape=box];
     "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]" [shape=plaintext];
     "respond-plan open exit?" [shape=diamond];
     "Gate 1 context dropped?" [shape=diamond];
@@ -56,7 +65,7 @@ digraph respond_triage_and_gate_1 {
     "Triage gate gone: continue at Respond gate gone" [shape=doublecircle];
     "Held at a triage off-script gate: continue at Held" [shape=doublecircle];
 
-    "Trigger: revise brought a new round (from Implement the plan)" -> "Write the verdict table and drafts to --report";
+    "Trigger: revise brought a new round (from Implement the plan)" -> "Drop verdict rows outside the --person's feedback";
     "Trigger: a fresh run with a domain skill (from Launch and resume)" -> "Delegate adjudication to the domain skill";
     "Trigger: a fresh generic run with the style loaded (from Launch and resume)" -> "mr_view {mrUrl} (respond source branch)";
     "Trigger: a resumed triage escalation (from Launch and resume)" -> "Which triage call refused (resumed)?";
@@ -66,7 +75,10 @@ digraph respond_triage_and_gate_1 {
     "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="fetch mr_threads iterate at round 1"];
     "Which triage call refused (resumed)?" -> "Adjudicate each unresolved thread" [label="fetch mr_threads take: the threads from its note"];
     "Delegate adjudication to the domain skill" -> "Domain adjudication result?";
-    "Domain adjudication result?" -> "Unresolved human threads = 0?" [label="a verdict table handed back"];
+    "Domain adjudication result?" -> "Drop verdict rows outside the --person's feedback" [label="a verdict table handed back"];
+    "Drop verdict rows outside the --person's feedback" -> "Backstop entered on a revise round?";
+    "Backstop entered on a revise round?" -> "Write the verdict table and drafts to --report" [label="yes: the new round's table"];
+    "Backstop entered on a revise round?" -> "Unresolved human threads = 0?" [label="no: the domain skill's first table"];
     "Domain adjudication result?" -> "Triage error: continue at the error write" [label="failed"];
     "mr_view {mrUrl} (respond source branch)" -> "mr_view result (respond)?";
     "mr_view result (respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="ok: keep sourceBranch"];
@@ -89,9 +101,18 @@ digraph respond_triage_and_gate_1 {
     "Unresolved human threads = 0?" -> "Write the verdict table and drafts to --report" [label="no"];
     "Write the verdict table and drafts to --report" -> "<status-bin> respond-status <state> drafting --round <n>";
     "<status-bin> respond-status <state> drafting --round <n>" -> "Fitted respond-plan open file handed back?";
-    "Fitted respond-plan open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="yes"];
-    "Fitted respond-plan open file handed back?" -> "Build the Gate 1 questions" [label="no"];
-    "Build the Gate 1 questions" -> "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]";
+    "Fitted respond-plan open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="yes, kept whole, its reviewer the --person or no --person"];
+    "Fitted respond-plan open file handed back?" -> "Refit the handed Gate 1 source" [label="yes, but a row dropped or its reviewer is someone else"];
+    "Fitted respond-plan open file handed back?" -> "Build the Gate 1 source" [label="no"];
+    "Build the Gate 1 source" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}";
+    "Refit the handed Gate 1 source" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}";
+    "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}" -> "respond-plan gate_open result?";
+    "respond-plan gate_open result?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="handed back: open outPath"];
+    "respond-plan gate_open result?" -> "Fixed the Gate 1 source once already?" [label="refused"];
+    "Fixed the Gate 1 source once already?" -> "Fix the Gate 1 source the gate_open refusal names" [label="no"];
+    "Fixed the Gate 1 source once already?" -> "Build the Gate 1 questions as prose (plain open)" [label="yes"];
+    "Fix the Gate 1 source the gate_open refusal names" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}";
+    "Build the Gate 1 questions as prose (plain open)" -> "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]";
     "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" -> "respond-plan open exit?";
     "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]" -> "respond-plan open exit?";
     "respond-plan open exit?" -> "Gate 1 context dropped?" [label="0"];
@@ -131,7 +152,7 @@ If a rule in the domain skill asks for a move this graph marks STOP, take the of
 
 Here that means the STOP's redirect: the move passes the same fix-once counter and goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
-Tell the domain skill these four things:
+Tell the domain skill these five things:
 
 - the MR url;
 - the `--report <path>`;
@@ -140,7 +161,12 @@ Tell the domain skill these four things:
   the board started for an MR with a prior recorded round, such as a
   further round of review), in which case `<n>` is this run's round;
 - that this wrapper owns both gates, so it opens neither: it hands back
-  instead, including the path of each fitted open file it builds.
+  instead, including the path of each fitted open file it builds;
+- the person, when the launch carries `--person <username>`: answer only
+  that person's feedback, the unresolved resolvable threads whose first
+  note is theirs plus their open Overview comments, and nothing else on
+  the MR. Without `--person`, say nothing here: every unresolved human
+  thread is in scope.
 
 Pass the operator note along as context when the launch carries one.
 
@@ -153,6 +179,25 @@ changes, and the absolute path of a fitted Gate 1 open file when it built
 one. It never presents a gate or decides what gets implemented or posted.
 A verdict table with no rows is zero unresolved threads. A failure it
 reports is `error` with its message.
+
+### Drop verdict rows outside the --person's feedback
+
+The backstop for a domain skill bound before the person reached it: it may
+hand back rows for everyone. It runs on the domain skill's first table
+and on every new round's table after a `revise`, on either path (a generic
+round's table already holds only the person's rows, so nothing drops). Without `--person`, keep every row and move
+on. With `--person <username>`, keep a row only when its thread's first
+note is that person's (a resolvable thread they started, or their Overview
+comment), as the domain skill's row or its `--report` entry names it. A
+row that names no author is dropped too: only a row shown to be the
+person's goes on. Drop every other row from the verdict table, from `--report` and from any
+fitted Gate 1 open file it handed back (a file that held a dropped row is
+no longer the gate: `Refit the handed Gate 1 source` rebuilds it from the
+kept rows). Say in the pane which rows were dropped, one line each with the
+thread id, its `<file>:<line>` (or `Overview comment`) and its author, for
+example `dropped d-102 src/cache.ts:88 (darryl): outside --person john`.
+Nothing outside the person's feedback reaches Gate 1, so nothing outside
+it can post.
 
 ### Fix what the mr_view error names (respond)
 
@@ -181,6 +226,22 @@ gives the title and description for context. From the `mr_threads`
 result keep the unresolved threads a human opened: no resolved threads,
 no system notes, no bot threads.
 
+With `--person <username>`, keep only that person's feedback:
+
+- the unresolved resolvable threads whose first note is theirs;
+- their Overview comments (`resolvable: false` in `mr_threads`) that are
+  still open: the MR author has not replied on that comment's discussion
+  and has not left an Overview comment of their own after it.
+
+Every other thread and comment on the MR is out of scope, however much it
+seems to need an answer. An Overview comment's row is keyed by its
+discussion `id` like any thread, its location reads `Overview comment` in
+place of `<file>:<line>`, and its reply goes through `mr_reply_thread` on
+that discussion id: as a live note rather than a draft review, when it
+posts, on that comment's own discussion (GitLab's "Reply to comment",
+then "Add comment now"). It cannot be resolved, so its Gate 2 question
+offers `post:` alone.
+
 Judge each thread on its merits and pick one verdict:
 
 - **fix:** the reviewer is right and the code should change. Draft the fix
@@ -192,7 +253,9 @@ Judge each thread on its merits and pick one verdict:
 Honor the operator note (for example "push back on the naming comment",
 "only handle thread 2"). Zero unresolved threads is not an error:
 `Unresolved human threads = 0?` writes `done "no unresolved threads"
---posted 0 --threads 0` and neither gate opens.
+--posted 0 --threads 0` and neither gate opens. With `--person`, the
+message names the person instead: `done "no open feedback from <person>"
+--posted 0 --threads 0`, on either path.
 
 ### Write the verdict table and drafts to --report
 
@@ -225,18 +288,38 @@ gate unavailable, a spent round budget, a resumed round-2 iterate)
 delete any earlier `source-branch:` line, so the push check finds no
 branch and holds every fixed thread.
 
-### Build the Gate 1 questions
+### Build the Gate 1 source
 
-No fitted open file came back, so build Gate 1 yourself: one single-select
-question per unresolved thread, in verdict-table order, plus one
-`code-changes` question, exactly as "Gate 1 and Gate 2 shapes" draws them.
-Each thread's reviewer quote and draft ride its own question's `context`;
-`--context` carries only the shared frame (the MR and the round, one or
-two lines). Send every context whole under the byte budget ("Byte
-budget" in SKILL.md): the daemon drops an oversized one, not you, and the
-open's `"contextOmitted": true` is `Gate 1 context dropped?` answering
-yes. The open prints one JSON line
-(see "Gate step" in `gate-step.md`); keep `gateId` and `presentation`.
+No fitted open file came back, so build Gate 1 yourself: write
+`<dir>/respond-plan.source.json` as "Gate context" in SKILL.md draws it,
+a plan@1 gate context and one single-select question per unresolved
+thread, in verdict-table order, each with its thread@1 context, plus one
+`code-changes` question, exactly as "Gate 1 and Gate 2 shapes" draws
+them. Every context goes in whole ("Byte budget" in SKILL.md). The open
+that follows prints one JSON line (see "Gate step" in `gate-step.md`);
+keep `gateId` and `presentation`.
+
+### Refit the handed Gate 1 source
+
+The domain skill's fitted file is no longer the gate: triage dropped a
+row from it, or `--person` is set and its source's gate `reviewer` is
+someone else (the board names whoever `reviewer` says). Write
+`<dir>/respond-plan.source.json` from its source as "Gate context" in
+SKILL.md describes a refit: the kept questions renumbered, the thread
+counts recomputed, `round` this run's round, `reviewer` the `--person`.
+
+### Fix the Gate 1 source the gate_open refusal names
+
+Fix exactly the question and field each refusal line names in
+`<dir>/respond-plan.source.json`, never by shortening a reply, then fit
+again, once.
+
+### Build the Gate 1 questions as prose (plain open)
+
+`gate_open` refused the source twice. Build the same questions with each
+thread's reviewer quote and draft as its prose `context`, and `--context`
+the shared frame (the MR and the round, one or two lines). The board then
+shows its generic respond face; the gate works the same.
 
 ### Write gate-1-context: dropped into --report
 

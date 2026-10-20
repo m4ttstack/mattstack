@@ -12,9 +12,19 @@ const NOUN: Record<Lane, [one: string, many: string]> = {
 export function redoCopy(
   lane: Lane,
   count: number,
-  prior = count
+  prior = count,
+  who?: { name: string; round: number }
 ): { title: string; body: [string, string]; confirmLabel: string } {
   const [one, many] = NOUN[lane];
+  if (who)
+    return {
+      title: `Redo ${one} to ${who.name}?`,
+      body: [
+        `${who.name} has nothing open.`,
+        `This starts round ${who.round} anyway.`,
+      ],
+      confirmLabel: `Redo ${one} to ${who.name}`,
+    };
   if (count === 1)
     return {
       title: `Redo ${one}?`,

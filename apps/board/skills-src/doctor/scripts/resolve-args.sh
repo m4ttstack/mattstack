@@ -202,7 +202,6 @@ else
 
     REQUIREMENT=${DECL%% *}
     REST=${DECL#* }
-    CONTRACT_FULL=${REST%% *}
     case "$REQUIREMENT" in
       required|optional) : ;;
       *)
@@ -210,22 +209,40 @@ else
         continue
         ;;
     esac
-    case "$CONTRACT_FULL" in
-      *@*)
-        CONTRACT=${CONTRACT_FULL%@*}
-        MAJOR=${CONTRACT_FULL#*@}
-        ;;
-      *)
-        err "$SLOT" slot-decl-invalid "slot-$SLOT contract must be <name>@<major>, got \"$CONTRACT_FULL\""
-        continue
-        ;;
+    # Every token before " -- " is a contract the slot accepts, preferred
+    # first; a declaration without " -- " keeps only its first token.
+    case "$REST" in
+      *' -- '*) CONTRACT_TOKENS=${REST%% -- *} ;;
+      *) CONTRACT_TOKENS=${REST%% *} ;;
     esac
-    case "$MAJOR" in
-      ''|*[!0-9]*)
-        err "$SLOT" slot-decl-invalid "slot-$SLOT contract major must be an integer, got \"$MAJOR\""
-        continue
-        ;;
-    esac
+    CONTRACTS=""
+    DECL_OK=yes
+    set -f
+    for CONTRACT_FULL in $CONTRACT_TOKENS; do
+      case "$CONTRACT_FULL" in
+        *@*) MAJOR=${CONTRACT_FULL#*@} ;;
+        *)
+          err "$SLOT" slot-decl-invalid "slot-$SLOT contract must be <name>@<major>, got \"$CONTRACT_FULL\""
+          DECL_OK=no
+          break
+          ;;
+      esac
+      case "$MAJOR" in
+        ''|*[!0-9]*)
+          err "$SLOT" slot-decl-invalid "slot-$SLOT contract major must be an integer, got \"$MAJOR\""
+          DECL_OK=no
+          break
+          ;;
+      esac
+      CONTRACTS="${CONTRACTS:+$CONTRACTS }$CONTRACT_FULL"
+    done
+    set +f
+    if [ "$DECL_OK" = yes ] && [ -z "$CONTRACTS" ]; then
+      err "$SLOT" slot-decl-invalid "slot-$SLOT names no <name>@<major> contract before \" -- \""
+      DECL_OK=no
+    fi
+    [ "$DECL_OK" = yes ] || continue
+    NEEDS=$(printf '%s' "$CONTRACTS" | sed 's/ / or /g')
 
     BINDING=$(printf '%s' "$BINDINGS_JSON" | jq -r --arg slot "$SLOT" '.[$slot] // empty')
     if [ -z "$BINDING" ]; then
@@ -293,20 +310,24 @@ else
     # Trust-but-declare fulfillment check (v1).
     PROVIDES=$(fm_meta "$INNER_DIR/SKILL.md" provides)
     if [ -z "$PROVIDES" ]; then
-      err "$SLOT" provides-missing "\"$BINDING\" declares no metadata.provides (slot \"$SLOT\" needs $CONTRACT@$MAJOR)"
+      err "$SLOT" provides-missing "\"$BINDING\" declares no metadata.provides (slot \"$SLOT\" needs $NEEDS)"
       continue
     fi
-    MATCH=no
-    for P in $PROVIDES; do
-      [ "$P" = "$CONTRACT@$MAJOR" ] && MATCH=yes
+    MATCH=""
+    set -f
+    for C in $CONTRACTS; do
+      for P in $PROVIDES; do
+        [ -z "$MATCH" ] && [ "$P" = "$C" ] && MATCH=$C
+      done
     done
-    if [ "$MATCH" = no ]; then
-      err "$SLOT" provides-mismatch "slot \"$SLOT\" needs $CONTRACT@$MAJOR but \"$BINDING\" provides \"$PROVIDES\""
+    set +f
+    if [ -z "$MATCH" ]; then
+      err "$SLOT" provides-mismatch "slot \"$SLOT\" needs $NEEDS but \"$BINDING\" provides \"$PROVIDES\""
       continue
     fi
 
     jq -n --arg slot "$SLOT" --arg binding "$BINDING" \
-      --arg contract "$CONTRACT@$MAJOR" --arg source "$SOURCE" --arg path "$INNER_DIR" \
+      --arg contract "$MATCH" --arg source "$SOURCE" --arg path "$INNER_DIR" \
       '{slot: $slot, binding: $binding, contract: $contract, source: $source, path: $path}' >> "$RES_FILE"
   done
   IFS=$OLD_IFS

@@ -103,7 +103,15 @@ export function updateByHandle(
         !('message' in next)
       )
         delete (prev as { message?: unknown }).message;
-      const merged = { ...prev, ...next, updatedAt: now };
+      const merged: Record<string, unknown> = {
+        ...prev,
+        ...next,
+        updatedAt: now,
+      };
+      // A key patched to null is removed: undefined means "leave it", so null
+      // is the only way a write can drop a field a prior cycle set.
+      for (const [k, v] of Object.entries(next as Record<string, unknown>))
+        if (v === null) delete merged[k];
       db.query(
         'UPDATE agent_states SET state = ?, updated_at = ?, pruned_at = NULL WHERE lane = ? AND mr_url = ?'
       ).run(JSON.stringify(merged), now, row.lane, row.mr_url);

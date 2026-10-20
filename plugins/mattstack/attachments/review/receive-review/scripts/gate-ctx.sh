@@ -71,7 +71,9 @@ def reply_errs($values): [
   chk(optional("sha"; str); "sha: non-empty string when present"),
   chk(.verb == "fix" or (has("sha") | not); "sha: only a fix carries sha"),
   (if .thread | str then .thread as $t
-     | chk(($values | sort) == ["post:\($t)", "resolve:\($t)"]; "options: exactly post:\($t) and resolve:\($t)")
+     | if .file == "Overview comment"
+       then chk(($values | sort) as $s | $s == ["post:\($t)"] or $s == ["post:\($t)", "resolve:\($t)"]; "options: exactly post:\($t), or post:\($t) and resolve:\($t)")
+       else chk(($values | sort) == ["post:\($t)", "resolve:\($t)"]; "options: exactly post:\($t) and resolve:\($t)") end
    else empty end)
 ];
 def carryover_errs($values): [

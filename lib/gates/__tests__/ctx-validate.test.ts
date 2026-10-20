@@ -51,6 +51,26 @@ const rejects: [string, string, (s: Src) => void, string][] = [
     },
     "thread-1: options: exactly post:T1 and resolve:T1",
   ],
+  ["resolve alone on a reply", POST, (s) => s.questions[0].options.shift(), "thread-1: options: exactly post:T1 and resolve:T1"],
+  ["post alone on a reply that is not an Overview comment", POST, (s) => s.questions[0].options.pop(), "thread-1: options: exactly post:T1 and resolve:T1"],
+  [
+    "resolve alone on an Overview comment",
+    POST,
+    (s) => {
+      s.questions[0].context.file = "Overview comment";
+      s.questions[0].options.shift();
+    },
+    "thread-1: options: exactly post:T1, or post:T1 and resolve:T1",
+  ],
+  [
+    "a post-only carryover",
+    POST,
+    (s) => {
+      s.questions[0].context = { "gate-ctx": "carryover@1", thread: "T1", round: 1, call: "fixed", original: "permanent failures re-enqueue forever", reply: "Confirmed, thanks." };
+      s.questions[0].options = ["post:T1"];
+    },
+    "thread-1: options: exactly post:T1 and resolve:T1",
+  ],
   ["post without a replies count", POST, (s) => delete s.context.replies, "gate: replies: required integer"],
   ["sha on a plain reply", POST, (s) => (s.questions[1].context.sha = "x"), "thread-2: sha: only a fix carries sha"],
   ["a reply without text", POST, (s) => delete s.questions[0].context.text, "thread-1: text: required non-empty string"],
@@ -128,6 +148,13 @@ describe("checkSource accepts", () => {
     const s = mutated(PLAN, (s) => {
       s.questions[0].context.extra = { x: 1 };
       s.context.future = "later";
+    });
+    expect(checkSource(s)).toEqual({ ok: true });
+  });
+  test("a post-only reply on an Overview comment", () => {
+    const s = mutated(POST, (s) => {
+      s.questions[0].context.file = "Overview comment";
+      s.questions[0].options.pop();
     });
     expect(checkSource(s)).toEqual({ ok: true });
   });

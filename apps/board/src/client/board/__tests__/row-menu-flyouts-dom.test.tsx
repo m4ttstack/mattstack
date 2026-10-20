@@ -24,7 +24,7 @@ test('an own MR shows the short top level, flyouts last', async () => {
     'post to slack',
     '---',
     '# agent actions',
-    'respond',
+    'respond to John',
     'rebase locally',
     '---',
     'request review from…',

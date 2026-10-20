@@ -989,3 +989,165 @@ test("a stale pane from another run never reads as the doctor's", () => {
       ?.label
   ).toBe('redo doctor');
 });
+
+const person = (
+  username: string,
+  name: string,
+  openThreads: number,
+  openComments: number
+) => ({ username, name, openThreads, openComments });
+
+const respondRows = (over: Record<string, unknown>) => {
+  const mr = mrx(2100, over);
+  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
+  return {
+    respond: actions.find(a => a.key === 'respond'),
+    focus: actions.find(a => a.key === 'focus-respond'),
+    resume: actions.find(a => a.key === 'resume-respond'),
+    all: actions,
+  };
+};
+
+test('one person with feedback: the item names them and launches for them', () => {
+  const { respond, all } = respondRows({
+    respondTargets: [person('john', 'John', 2, 1)],
+  });
+  expect(respond).toMatchObject({
+    label: 'respond to John',
+    request: { kind: 'launch', flow: 'respond', person: 'john' },
+    notable: true,
+  });
+  expect(respond?.pick).toBeUndefined();
+  expect(respond?.redo).toBeUndefined();
+  expect(all.filter(a => a.key.includes('respond')).every(a => !a.bulk)).toBe(
+    true
+  );
+});
+
+test('a person on a later round shows the round on the item', () => {
+  const { respond } = respondRows({
+    respondTargets: [person('john', 'John', 1, 0)],
+    respondRounds: { john: 2 },
+  });
+  expect(respond?.label).toBe('respond to John (round 3)');
+  expect(respond?.request).toMatchObject({ person: 'john' });
+});
+
+test('one person with nothing open is a redo that names the next round', () => {
+  const { respond } = respondRows({ respondRounds: { john: 1 } });
+  expect(respond).toMatchObject({
+    label: 'redo response to john (round 2)',
+    redo: 'respond',
+    request: { kind: 'launch', flow: 'respond', person: 'john' },
+  });
+});
+
+test('several people: one picker item, an option per person, sorted by name', () => {
+  const { respond } = respondRows({
+    respondTargets: [
+      person('priya', 'Priya', 0, 2),
+      person('john', 'John', 3, 2),
+    ],
+    respondRounds: { john: 1, darryl: 2 },
+  });
+  expect(respond?.label).toBe('respond to…');
+  expect(respond?.request).toEqual({ kind: 'launch', flow: 'respond' });
+  expect(respond?.bulk).toBeUndefined();
+  expect(respond?.pick).toEqual({
+    title: 'respond to',
+    aria: 'respond',
+    options: [
+      {
+        value: 'darryl',
+        label: 'darryl',
+        hint: 'round 3 · nothing open · redo',
+      },
+      {
+        value: 'john',
+        label: 'John',
+        hint: 'round 2 · 3 threads · 2 comments',
+      },
+      { value: 'priya', label: 'Priya', hint: '2 comments' },
+    ],
+  });
+});
+
+test('picker hints drop a zero part and singularise one', () => {
+  const { respond } = respondRows({
+    respondTargets: [
+      person('john', 'John', 1, 0),
+      person('priya', 'Priya', 0, 1),
+    ],
+  });
+  expect(respond?.pick?.options.map(o => o.hint)).toEqual([
+    '1 thread',
+    '1 comment',
+  ]);
+});
+
+test('a running response names its person and round', () => {
+  const { focus, respond } = respondRows({
+    respondTargets: [person('darryl', 'Darryl', 1, 0)],
+    respond: {
+      status: 'implementing',
+      sessionId: 's1',
+      person: 'darryl',
+      responseRound: 2,
+    },
+  });
+  expect(respond).toBeUndefined();
+  expect(focus).toMatchObject({
+    label: 'focus response to Darryl (round 2)',
+    request: { kind: 'launch', flow: 'respond', intent: 'focus' },
+  });
+});
+
+test('a running first-round response shows no round', () => {
+  const { focus } = respondRows({
+    respond: { status: 'queued', person: 'darryl', responseRound: 1 },
+  });
+  expect(focus?.label).toBe('focus response to darryl');
+});
+
+test('the resume item names the person and round of the parked response', () => {
+  const { resume } = respondRows({
+    respond: {
+      status: 'done',
+      sessionId: 's1',
+      person: 'darryl',
+      responseRound: 3,
+    },
+  });
+  expect(resume?.label).toBe('resume response to darryl (round 3)');
+});
+
+test('no choices and no respond state: no respond item', () => {
+  const { respond, focus } = respondRows({ respondTargets: [] });
+  expect(respond).toBeUndefined();
+  expect(focus).toBeUndefined();
+});
+
+test('discussions never read: a plain respond item launches for everyone', () => {
+  const fresh = respondRows({});
+  expect(fresh.respond).toMatchObject({
+    label: 'respond',
+    request: { kind: 'launch', flow: 'respond' },
+  });
+  expect(fresh.respond?.request).not.toHaveProperty('person');
+  const errored = respondRows({ respond: { status: 'error' } });
+  expect(errored.respond?.label).toBe('respond');
+});
+
+test("legacy state with no person keeps today's wording", () => {
+  const running = respondRows({
+    respond: { status: 'implementing', sessionId: 's1' },
+  });
+  expect(running.focus?.label).toBe('focus response');
+  expect(running.resume?.label).toBe('resume response');
+  const done = respondRows({ respond: { status: 'done', sessionId: 's1' } });
+  expect(done.respond).toMatchObject({
+    label: 'redo response',
+    redo: 'respond',
+    request: { kind: 'launch', flow: 'respond' },
+  });
+});

@@ -196,7 +196,7 @@ What the graph cannot show:
   recommendation, `gate-1` and `gate-2` fields and draft or finalized
   reply), the `source-branch:` line, any `gate-1-context: dropped` or
   `respond-post-held:` line, and the `gate-1-answer:` and `gate-2-answer:`
-  lines. From the launch: `--round`. Nothing else survives the earlier
+  lines. From the launch: `--round` and `--person`. Nothing else survives the earlier
   pane. On a `respond-post` resume, the Gate 2 threads and their finalized
   replies come from `--report` and the picks from the resumed wait; a
   thread answer's `text` replaces that thread's report reply. On an

@@ -971,6 +971,10 @@ plus `next`. Its id is `thread-<n>` by 1-based position among the offered
 threads, its label the thread's `file:line`, its options exactly
 `post:<threadId>` and `resolve:<threadId>`, thread id VERBATIM, bare verb
 as the label.
+An Overview comment (a `resolvable: false` row) is labelled `Overview
+comment`, its `reply@1` `file` is exactly `Overview comment`, and it
+offers `post:<threadId>` alone: GitLab cannot resolve it, and that `file`
+is the only one a post-alone `reply@1` question is accepted with.
 
 | Field | Filled from |
 |---|---|

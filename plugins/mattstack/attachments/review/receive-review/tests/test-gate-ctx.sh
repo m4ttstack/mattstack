@@ -47,6 +47,9 @@ check "unknown keys pass through" '{"x":1}|later' \
 M=$(mutate '.questions[0].context.reply = {"kind": "none"}' "$PLAN"); run "$M" fit; rm -f "$M"
 check "reply.kind none needs no text" 0 "$RC"
 
+M=$(mutate '.questions[0].context.file = "Overview comment" | .questions[0].options |= .[:1]' "$POST"); run "$M" fit; rm -f "$M"
+check "a post-only reply on an Overview comment" 0 "$RC"
+
 # --- over budget: points from the longest thread, then notes, never reply.text ---
 run "$PLAN" fit --limit 1000
 check "trim drops the longest thread's points first" '["thread-1:points"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
@@ -179,6 +182,10 @@ reject "points as a string" '.questions[0].context.claim.points = "one"' "$PLAN"
 reject "reply joins no option" '.questions[0].context.thread = "TX"' "$POST" "thread-1: options: exactly post:TX and resolve:TX"
 reject "a third option on a reply" '.questions[1].options += ["skip:T2"]' "$POST" "thread-2: options: exactly post:T2 and resolve:T2"
 reject "a carryover question without exactly post and resolve" '.questions[0].context = {"gate-ctx": "carryover@1", "thread": "T1", "round": 1, "call": "fixed", "original": "permanent failures re-enqueue forever", "reply": "Confirmed, thanks."} | .questions[0].options = ["post:T1", "skip:T1"]' "$POST" "thread-1: options: exactly post:T1 and resolve:T1"
+reject "resolve alone on a reply" '.questions[0].options |= .[1:]' "$POST" "thread-1: options: exactly post:T1 and resolve:T1"
+reject "post alone on a reply that is not an Overview comment" '.questions[0].options |= .[:1]' "$POST" "thread-1: options: exactly post:T1 and resolve:T1"
+reject "resolve alone on an Overview comment" '.questions[0].context.file = "Overview comment" | .questions[0].options |= .[1:]' "$POST" "thread-1: options: exactly post:T1, or post:T1 and resolve:T1"
+reject "a post-only carryover" '.questions[0].context = {"gate-ctx": "carryover@1", "thread": "T1", "round": 1, "call": "fixed", "original": "permanent failures re-enqueue forever", "reply": "Confirmed, thanks."} | .questions[0].options = ["post:T1"]' "$POST" "thread-1: options: exactly post:T1 and resolve:T1"
 reject "post without a replies count" 'del(.context.replies)' "$POST" "gate: replies: required integer"
 reject "sha on a plain reply" '.questions[1].context.sha = "x"' "$POST" "thread-2: sha: only a fix carries sha"
 reject "a reply without text" 'del(.questions[0].context.text)' "$POST" "thread-1: text: required non-empty string"

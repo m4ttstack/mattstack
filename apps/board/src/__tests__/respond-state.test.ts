@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
+  parseRespondRequestBody,
   pruneRespondStates,
   readRespondReport,
   readRespondStates,
@@ -150,6 +151,19 @@ describe('respondResumeDispatchFields', () => {
   });
 });
 
+describe('respondResumeDispatchFields person', () => {
+  test('carries the person from state onto the resume dispatch', () => {
+    expect(respondResumeDispatchFields({ round: 2, person: 'john' })).toEqual({
+      round: 2,
+      person: 'john',
+    });
+  });
+
+  test('a legacy state with no person resumes with person omitted', () => {
+    expect(respondResumeDispatchFields({ round: 2 }).person).toBeUndefined();
+  });
+});
+
 describe('respondFreshDispatchFields', () => {
   test('a prior round on file bumps to the next round for the fresh launch', () => {
     expect(respondFreshDispatchFields({ round: 2 })).toEqual({ round: 3 });
@@ -165,6 +179,44 @@ describe('respondFreshDispatchFields', () => {
     expect(respondFreshDispatchFields({ round: undefined })).toEqual({
       round: undefined,
     });
+  });
+});
+
+describe('respondFreshDispatchFields with a person round', () => {
+  test('a given response round wins over the prior run round', () => {
+    expect(respondFreshDispatchFields({ round: 4 }, 2)).toEqual({ round: 2 });
+  });
+
+  test('no response round keeps the prior-round fallback', () => {
+    expect(respondFreshDispatchFields({ round: 4 })).toEqual({ round: 5 });
+  });
+
+  test('the launch person rides beside the round', () => {
+    expect(respondFreshDispatchFields({ round: 4 }, 2, 'john')).toEqual({
+      round: 2,
+      person: 'john',
+    });
+  });
+});
+
+describe('writeRespondState person', () => {
+  test('person and responseRound round-trip', () => {
+    const handle = respondFilePath(URL_A);
+    writeRespondState(
+      handle,
+      {
+        mrUrl: URL_A,
+        iid: 1,
+        status: 'drafting',
+        person: 'john',
+        responseRound: 2,
+      },
+      1000,
+      db
+    );
+    const state = readRespondStates(db).get(URL_A);
+    expect(state?.person).toBe('john');
+    expect(state?.responseRound).toBe(2);
   });
 });
 
@@ -287,5 +339,21 @@ describe('pruneRespondStates', () => {
     expect(readRespondReport(URL_A, db)).toBe('# adjudication A');
     expect(readRespondStates(db).has(OTHER)).toBe(false);
     expect(readRespondReport(OTHER, db)).toBeNull();
+  });
+});
+
+describe('parseRespondRequestBody person', () => {
+  const base = { mrUrl: URL_A, iid: 4821 };
+  test('accepts a person and omits it when absent', () => {
+    expect(parseRespondRequestBody({ ...base, person: 'john' })).toEqual({
+      ...base,
+      person: 'john',
+    });
+    expect(parseRespondRequestBody(base)).toEqual(base);
+  });
+  test('refuses a person that is not a non-empty string', () => {
+    expect(parseRespondRequestBody({ ...base, person: 7 })).toBeNull();
+    expect(parseRespondRequestBody({ ...base, person: '' })).toBeNull();
+    expect(parseRespondRequestBody({ ...base, person: null })).toBeNull();
   });
 });

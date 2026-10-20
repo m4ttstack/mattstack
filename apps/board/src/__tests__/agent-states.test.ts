@@ -55,6 +55,23 @@ describe('agent states', () => {
     });
   });
 
+  test('a field patched to null is removed, and undefined leaves it alone', () => {
+    const d = db();
+    const h = mintHandle('review', URL, '/tmp/fake-root');
+    insertAgentState(
+      'review',
+      URL,
+      7,
+      { mrUrl: URL, iid: 7, status: 'queued', tabId: 't1', startedAt: 1 },
+      h,
+      d
+    );
+    updateByHandle(h, { status: 'reviewing', tabId: undefined }, 2, d);
+    expect(readStates('review', d).get(URL)).toMatchObject({ tabId: 't1' });
+    updateByHandle(h, { status: 'reviewing', tabId: null }, 3, d);
+    expect(readStates('review', d).get(URL)).not.toHaveProperty('tabId');
+  });
+
   test('a status change drops the old message unless the write brings its own', () => {
     const d = db();
     const h = mintHandle('review', URL, '/tmp/fake-root');

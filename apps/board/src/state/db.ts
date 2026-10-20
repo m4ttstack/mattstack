@@ -8,7 +8,7 @@ import { getKvValue } from './kv-blob.ts';
 import { importLegacyState } from './legacy-import.ts';
 
 export type DbFlavor = 'server' | 'cli';
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const BUSY_TIMEOUT_MS: Record<DbFlavor, number> = { server: 250, cli: 5000 };
 const MIGRATION_BUSY_TIMEOUT_MS = 5000;
@@ -114,6 +114,16 @@ CREATE TABLE IF NOT EXISTS review_rounds (
 );
 `;
 
+const V5_SCHEMA = `
+CREATE TABLE IF NOT EXISTS respond_rounds (
+  mr_url     TEXT NOT NULL,
+  person     TEXT NOT NULL,
+  round      INTEGER NOT NULL,
+  started_at INTEGER NOT NULL,
+  PRIMARY KEY (mr_url, person, round)
+);
+`;
+
 type Migration = (db: Database) => void;
 const MIGRATIONS: Migration[] = [
   db => db.run(V1_SCHEMA),
@@ -141,6 +151,9 @@ const MIGRATIONS: Migration[] = [
   // the reviewer chose not to post, the commit reviewed, and the threads
   // confirmed fixed but left for the author to resolve.
   db => db.run(V4_SCHEMA),
+  // v5: one row per response round to one person, so each person's round
+  // count survives the MR's single respond lane being rewritten per launch.
+  db => db.run(V5_SCHEMA),
 ];
 
 // SCHEMA_VERSION is the public constant other modules reason about;
