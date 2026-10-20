@@ -40,8 +40,8 @@ const rejects: [string, string, (s: Src) => void, string][] = [
   ["unknown version", PLAN, (s) => (s.questions[0].context["gate-ctx"] = "thread@2"), "thread-1: gate-ctx must be one of thread@1, reply@1, findings@1, carryover@1, skipped@1"],
   ["null optional", PLAN, (s) => (s.context.round = null), "gate: round: integer when present"],
   ["points as a string", PLAN, (s) => (s.questions[0].context.claim.points = "one"), "thread-1: claim.points: array of strings when present"],
-  ["reply joins no option", POST, (s) => (s.questions[0].context.thread = "TX"), "thread-1: options: exactly post:TX and resolve:TX"],
-  ["a third option on a reply", POST, (s) => s.questions[1].options.push("skip:T2"), "thread-2: options: exactly post:T2 and resolve:T2"],
+  ["reply joins no option", POST, (s) => (s.questions[0].context.thread = "TX"), "thread-1: options: exactly post:TX, or post:TX and resolve:TX"],
+  ["a third option on a reply", POST, (s) => s.questions[1].options.push("skip:T2"), "thread-2: options: exactly post:T2, or post:T2 and resolve:T2"],
   [
     "a carryover question without exactly post and resolve",
     POST,
@@ -49,8 +49,9 @@ const rejects: [string, string, (s: Src) => void, string][] = [
       s.questions[0].context = { "gate-ctx": "carryover@1", thread: "T1", round: 1, call: "fixed", original: "permanent failures re-enqueue forever", reply: "Confirmed, thanks." };
       s.questions[0].options = ["post:T1", "skip:T1"];
     },
-    "thread-1: options: exactly post:T1 and resolve:T1",
+    "thread-1: options: exactly post:T1, or post:T1 and resolve:T1",
   ],
+  ["resolve alone on a reply", POST, (s) => s.questions[0].options.shift(), "thread-1: options: exactly post:T1, or post:T1 and resolve:T1"],
   ["post without a replies count", POST, (s) => delete s.context.replies, "gate: replies: required integer"],
   ["sha on a plain reply", POST, (s) => (s.questions[1].context.sha = "x"), "thread-2: sha: only a fix carries sha"],
   ["a reply without text", POST, (s) => delete s.questions[0].context.text, "thread-1: text: required non-empty string"],
@@ -128,6 +129,16 @@ describe("checkSource accepts", () => {
     const s = mutated(PLAN, (s) => {
       s.questions[0].context.extra = { x: 1 };
       s.context.future = "later";
+    });
+    expect(checkSource(s)).toEqual({ ok: true });
+  });
+  test("a post-only reply, as on an Overview comment", () => {
+    expect(checkSource(mutated(POST, (s) => s.questions[0].options.pop()))).toEqual({ ok: true });
+  });
+  test("a post-only carryover", () => {
+    const s = mutated(POST, (s) => {
+      s.questions[0].context = { "gate-ctx": "carryover@1", thread: "T1", round: 1, call: "fixed", original: "permanent failures re-enqueue forever", reply: "Confirmed, thanks." };
+      s.questions[0].options = ["post:T1"];
     });
     expect(checkSource(s)).toEqual({ ok: true });
   });

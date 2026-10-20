@@ -110,8 +110,8 @@ function optionPairErrs(c: unknown, values: unknown[]): string[] {
   const t = at(c, "thread");
   if (!str(t)) return [];
   return chk(
-    () => jqEqual(jqSort(values), [`post:${t}`, `resolve:${t}`]),
-    `options: exactly post:${t} and resolve:${t}`,
+    () => jqEqual(jqSort(values), [`post:${t}`]) || jqEqual(jqSort(values), [`post:${t}`, `resolve:${t}`]),
+    `options: exactly post:${t}, or post:${t} and resolve:${t}`,
   );
 }
 

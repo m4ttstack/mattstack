@@ -231,6 +231,13 @@ const GC_MUTATIONS: [string, string, Mutation | undefined][] = [
     POST,
     '.questions[0].context = {"gate-ctx": "carryover@1", "thread": "T1", "round": 1, "call": "fixed", "original": "permanent failures re-enqueue forever", "reply": "Confirmed, thanks."} | .questions[0].options = ["post:T1", "skip:T1"]',
   ],
+  ["resolve alone on a reply", POST, ".questions[0].options |= .[1:]"],
+  ["a post-only reply", POST, ".questions[0].options |= .[:1]"],
+  [
+    "a post-only carryover",
+    POST,
+    '.questions[0].context = {"gate-ctx": "carryover@1", "thread": "T1", "round": 1, "call": "fixed", "original": "permanent failures re-enqueue forever", "reply": "Confirmed, thanks."} | .questions[0].options = ["post:T1"]',
+  ],
   ["post without a replies count", POST, "del(.context.replies)"],
   ["sha on a plain reply", POST, '.questions[1].context.sha = "x"'],
   ["a reply without text", POST, "del(.questions[0].context.text)"],
