@@ -302,6 +302,7 @@ function fastBrowserRow(probe: FastBrowserProbe, solo: boolean): Row {
   return row({ ...base, status: "ready", detail: "Ready" });
 }
 
+/** Install runs Fast Browser's setup and the default connection is manual, so only an unpaired auto-mode Mac sees these. */
 const PAIRING_STEPS = [
   "Click the Fast Browser icon in Chrome and copy its reconnect token",
   "Run: fast-browser configure --connection auto, then paste the token into the Keychain prompt",
@@ -313,7 +314,7 @@ const FAST_BROWSER_LOAD_STEPS: Action = {
   type: "steps",
   label: "Show steps…",
   // The app renders an inline [text](https://…) link in a step as linked text.
-  steps: [`Install Fast Browser from the [Chrome Web Store](${FAST_BROWSER_WEB_STORE_URL})`, ...PAIRING_STEPS],
+  steps: [`Install Fast Browser from the [Chrome Web Store](${FAST_BROWSER_WEB_STORE_URL})`],
 };
 const FAST_BROWSER_PAIR_STEPS: Action = { type: "steps", label: "Show steps…", steps: PAIRING_STEPS };
 /** doctor warns extension-installed when macOS privacy keeps it out of Chrome's profile; its remedy names a terminal, so the app says it in its own words. */

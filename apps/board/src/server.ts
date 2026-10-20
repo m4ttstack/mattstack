@@ -323,6 +323,7 @@ import {
   writeOwnerPostsLeft,
   type ListedChannel,
 } from './slack.ts';
+import { canonicalReactions } from './slack-emoji.ts';
 import {
   beatStillValid,
   boardStateRoot,
@@ -953,6 +954,14 @@ function requireOwnMr(mr: BoardMR): Response | null {
 /** Every per-row join the board serves. The full snapshot and the member
     refresh both go through here: the client replaces a member's rows
     wholesale on each 15s poll, so a join made on only one path blinks out. */
+function canonical(reactions: string[]): string[] {
+  return canonicalReactions(
+    reactions,
+    config.slack.emoji,
+    config.slack.emojiAliases
+  );
+}
+
 async function withRowState(mrs: BoardMR[]) {
   const reconciler = await fetchReconcilerView();
   const doctorTabsMemo = new Map<string, string[]>();
@@ -995,6 +1004,16 @@ async function withRowState(mrs: BoardMR[]) {
     readMemory()
   ).map(mr => ({
     ...mr,
+    ...(mr.slack
+      ? { slack: { ...mr.slack, reactions: canonical(mr.slack.reactions) } }
+      : {}),
+    ...(mr.ownerPosts
+      ? {
+          ownerPosts: mr.ownerPosts.map(p =>
+            p.reactions ? { ...p, reactions: canonical(p.reactions) } : p
+          ),
+        }
+      : {}),
     gates: joinGateExecutors(mr.gates, reconciler.executors),
     doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
   }));
@@ -4199,7 +4218,7 @@ const httpServer = Bun.serve({
               ? await unreactFromMR(slackToken, mrUrl, emoji)
               : await reactToMR(slackToken, mrUrl, emoji);
           return new Response(
-            JSON.stringify({ ok: true, reactions: ref.reactions ?? [] }),
+            JSON.stringify({ ok: true, reactions: canonical(ref.reactions ?? []) }),
             {
               headers: { 'content-type': 'application/json' },
             }
