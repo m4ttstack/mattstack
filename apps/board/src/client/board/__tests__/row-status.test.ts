@@ -1869,6 +1869,21 @@ describe('merge from the row', () => {
     expect(s.more.map(l => l.word)).toEqual(['pat approved']);
   });
 
+  test("a peer's finished review on my mergeable MR: merge leads, the review one hover away", () => {
+    const peerDone = {
+      peerReviews: [{ reviewer: 'pat', status: 'done', outcome: 'approve' }],
+    } as never;
+    expect(verbs(mine(peerDone))).toEqual(['merge', 'view-peer']);
+    expect(
+      verbs(
+        mine({
+          ...(peerDone as Over),
+          mergeButton: { visible: true, disabled: true, loading: false },
+        })
+      )
+    ).toEqual(['view-peer']);
+  });
+
   test('a finished review or response gives the line back once it is stale', () => {
     const old = NOW - 3 * 3600_000;
     const s = rowStatus(
