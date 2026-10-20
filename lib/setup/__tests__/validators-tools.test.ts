@@ -496,15 +496,14 @@ describe("toolRows - tool.fast-browser-extension", () => {
     expect((r.action as { steps: string[] }).steps.join(" ")).not.toContain("terminal");
   });
 
-  test("extension-loaded check fails -> needs-you with steps that end in pairing", async () => {
+  // Install already runs Fast Browser's setup and the default connection is
+  // manual, so pairing belongs only to the auto-mode "not paired yet" row.
+  test("extension-loaded check fails -> needs-you with only the Web Store install step", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
-    expect(r.action?.type).toBe("steps");
-    const steps = (r.action as { steps: string[] }).steps;
-    expect(steps[0]).toContain(WEB_STORE_URL);
-    expect(steps.join(" ")).toContain("reconnect token");
+    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: [`Install Fast Browser from the [Chrome Web Store](${WEB_STORE_URL})`] });
   });
 
   // The extension ships on the Chrome Web Store; doctor's remedy for a missing
@@ -516,7 +515,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     const steps = (r.action as { steps: string[] }).steps;
     expect(steps[0]).toBe(`Install Fast Browser from the [Chrome Web Store](${WEB_STORE_URL})`);
     expect(steps.join(" ")).not.toMatch(/Developer mode|Load unpacked/);
-    expect(steps.join(" ")).toContain("reconnect token");
+    expect(steps.join(" ")).not.toMatch(/fast-browser configure|reconnect token/);
   });
 
   // extension-loaded passes when no managed extension is loaded at all and
@@ -581,8 +580,11 @@ describe("toolRows - tool.fast-browser-extension", () => {
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("not paired");
     const steps = (r.action as { steps: string[] }).steps;
-    expect(steps.join(" ")).not.toContain("chrome://extensions");
-    expect(steps.join(" ")).toContain("reconnect token");
+    expect(steps).toEqual([
+      "Click the Fast Browser icon in Chrome and copy its reconnect token",
+      "Run: fast-browser configure --connection auto, then paste the token into the Keychain prompt",
+      "Run: fast-browser doctor",
+    ]);
   });
 
   test("real fully healthy envelope -> ready (C2: both Fast Browser rows read ready)", async () => {
