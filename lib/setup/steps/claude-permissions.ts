@@ -16,17 +16,27 @@ import { join } from "path";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { missingCrossSessionInbound, missingDefaultMode, missingPermissions, readClaudeSettings, withPermissions, writeClaudeSettings } from "../claude-permissions.ts";
 import type { Probes } from "../probes.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
+
+/** Pane automation is built against Claude Code's fullscreen mode, where the input docks to the bottom row. */
+const SEEDED_TUI = "fullscreen";
 
 export interface DirPermissionsOutcome {
   path: string;
   wrote: boolean;
+  /** True when this call added `tui` to the file. */
+  seededTui?: boolean;
   failed?: { detail: string; remedy: string };
 }
 
 /** One config dir's worth of read -> union -> write, exported so multi-dir behavior is testable without an ApplyContext. */
-export function applyBaselinePermissions(p: Pick<Probes, "readFile" | "exists" | "mkdirp" | "writeFile" | "rename" | "chmod" | "removeFile" | "fileMode" | "readlink">, dir: string): DirPermissionsOutcome {
+export function applyBaselinePermissions(
+  p: Pick<Probes, "readFile" | "exists" | "mkdirp" | "writeFile" | "rename" | "chmod" | "removeFile" | "fileMode" | "readlink">,
+  dir: string,
+  seedTui = true,
+): DirPermissionsOutcome {
   const path = join(dir, "settings.json");
   const read = readClaudeSettings(p, path);
   if (!read.ok && read.reason === "unparsable") {
@@ -39,24 +49,37 @@ export function applyBaselinePermissions(p: Pick<Probes, "readFile" | "exists" |
   // file is there, and the write below replaces whatever is at the path.
   const settings = read.ok ? read.settings : {};
   const toAdd = missingPermissions(settings);
-  if (toAdd.length === 0 && !missingDefaultMode(settings) && !missingCrossSessionInbound(settings)) return { path, wrote: false };
+  const seededTui = seedTui && settings.tui === undefined;
+  if (toAdd.length === 0 && !missingDefaultMode(settings) && !missingCrossSessionInbound(settings) && !seededTui) return { path, wrote: false };
 
-  writeClaudeSettings(p, path, withPermissions(settings, toAdd));
-  return { path, wrote: true };
+  const next = withPermissions(settings, toAdd);
+  writeClaudeSettings(p, path, seededTui ? { ...next, tui: SEEDED_TUI } : next);
+  return { path, wrote: true, seededTui };
 }
 
 async function claudePermissionsRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
+  const fullscreen: string[] = [];
+  // An update run never re-seeds a dir rt already set: the key being gone
+  // then means the member removed it.
+  const alreadySeeded = ctx.update ? new Set(readSetupState(ctx.p).claudeFullscreenDirs) : new Set<string>();
 
   for (const dir of claudeConfigDirs(ctx.p, [])) {
-    const outcome = applyBaselinePermissions(ctx.p, dir);
+    const outcome = applyBaselinePermissions(ctx.p, dir, !alreadySeeded.has(dir));
     if (outcome.failed) return { state: "failed", detail: outcome.failed.detail, remedy: outcome.failed.remedy };
     if (outcome.wrote) written.push(outcome.path);
+    if (outcome.seededTui) fullscreen.push(dir);
   }
 
+  if (fullscreen.length > 0) {
+    updateSetupState(ctx.p, (s) => ({ ...s, claudeFullscreenDirs: [...s.claudeFullscreenDirs, ...fullscreen] }));
+  }
   if (written.length === 0) return { state: "skipped", detail: "Baseline permissions already present" };
   ctx.log("claude.permissions", `added baseline permissions to ${written.join(", ")}`);
-  return { state: "done", detail: `Added baseline permissions to ${written.length} Claude config folder${written.length === 1 ? "" : "s"}` };
+  const folders = `${written.length} Claude config folder${written.length === 1 ? "" : "s"}`;
+  const detail = `Added baseline permissions to ${folders}`;
+  if (fullscreen.length === 0) return { state: "done", detail };
+  return { state: "done", detail: `${detail} and set Claude Code to fullscreen. To change it back, set "tui" in settings.json to "default".` };
 }
 
 export async function installClaudePermissions(ctx: ApplyContext): Promise<StepOutcome> {
