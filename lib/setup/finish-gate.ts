@@ -7,7 +7,7 @@
 
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
-import { FINISH_GATED_ROW_IDS, isFinishGatedRowId, WAIVABLE_ROW_IDS, type Group } from "./contract.ts";
+import { FINISH_GATED_ACCOUNT_IDS, FINISH_GATED_ROW_IDS, isFinishGatedRowId, WAIVABLE_ROW_IDS, type Group, type Row } from "./contract.ts";
 import { logCliEvent } from "../cli-logger.ts";
 import { UserActionableError } from "../errors.ts";
 import type { SettingsReader } from "./team-settings.ts";
@@ -52,6 +52,21 @@ export function applyFinishGate(groups: Group[], mode: "plan" | "status", waived
   }));
 }
 
+/**
+ * Plan mode only, which is what the wizard reads: `rt verify` and the
+ * update run read status mode and keep reporting these rows as failures.
+ * Only a row the member can clear with its own Connect is gated; an `error`
+ * row (no network, an unreadable secrets store) would strand Finish.
+ */
+export function gateTeamAccounts(groups: Group[], mode: "plan" | "status"): Group[] {
+  if (mode !== "plan") return groups;
+  const clearable = (r: Row) => r.status === "ready" || (r.status !== "error" && (r.action?.type === "oauth" || r.action?.type === "connect"));
+  return groups.map((g) => ({
+    ...g,
+    rows: g.rows.map((r) => (FINISH_GATED_ACCOUNT_IDS.includes(r.id) && r.required && clearable(r) ? { ...r, finishGated: true, waivable: false } : r)),
+  }));
+}
+
 export interface WaiverStore {
   read: () => string[];
   write: (ids: string[]) => void;
@@ -64,7 +79,7 @@ export function realWaiverStore(): WaiverStore {
 
 function assertFinishGated(id: string): void {
   if (isFinishGatedRowId(id)) return;
-  throw new UserActionableError("not-finish-gated", `${id} is not a row that blocks Finish. Rows that do: ${FINISH_GATED_ROW_IDS.join(", ")}`);
+  throw new UserActionableError("not-finish-gated", `${id} is not a row that blocks Finish. Rows that do: ${[...FINISH_GATED_ROW_IDS, ...FINISH_GATED_ACCOUNT_IDS].join(", ")}, and each repos.place row`);
 }
 
 function assertWaivable(id: string): void {
