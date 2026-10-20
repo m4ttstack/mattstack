@@ -190,4 +190,37 @@ describe("setupFinish", () => {
     await setupFinish([], {}, d, a);
     expect(a.order).toEqual(["update", "herdr"]);
   });
+
+  test("a notification that throws never fails the Finish", async () => {
+    const d = deps();
+    const a = {
+      ...after(undefined, async () => ({ state: "failed", bin: "/bin/herdr", detail: "nope" }) as HerdrStartResult),
+      notify: () => {
+        throw new Error("disk full");
+      },
+    };
+    await setupFinish([], {}, d, a);
+    expect(isSetupFinished(readSetupState(d.probes))).toBe(true);
+    expect(a.warnings).toEqual(["herdr did not start: nope. Run rt herdr start to try again"]);
+  });
+
+  test("--json: a herdr that will not start leaves stdout as the one envelope and the warning in the log", async () => {
+    const d = { ...deps(), json: realJson };
+    const a = {
+      ...after(undefined, async () => ({ state: "failed", bin: "/bin/herdr", detail: "json herdr boom" }) as HerdrStartResult),
+      warn: REAL_AFTER_FINISH.warn,
+    };
+    const cap = capturePlain();
+    try {
+      await setupFinish(["--json"], {}, d, a);
+      const lines = cap.stdout().trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({ contract: 1, ok: true });
+      expect(cap.stderr()).toBe("");
+    } finally {
+      cap.restore();
+    }
+    const log = readdirSync(logsDir()).filter((f) => f.startsWith("cli.")).map((f) => readFileSync(`${logsDir()}/${f}`, "utf8")).join("");
+    expect(log).toContain("herdr did not start: json herdr boom");
+  });
 });

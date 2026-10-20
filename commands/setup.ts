@@ -610,7 +610,12 @@ async function startHerdrAfterFinish(json: boolean, after: AfterFinish): Promise
     detail = `${err instanceof Error ? err.message : String(err)}. ${HERDR_RETRY}`;
   }
   after.warn(json, "herdr did not start", detail);
-  after.notify("herdr did not start", detail);
+  // The --json envelope is already on stdout, so a throw here would turn a recorded Finish into a failed exit.
+  try {
+    after.notify("herdr did not start", detail);
+  } catch (err) {
+    logCliEvent("warn", "setup", `The herdr notification was not posted: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
