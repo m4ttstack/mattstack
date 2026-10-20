@@ -814,6 +814,16 @@ const ROWS: readonly SettingDef[] = [
     description: "herdr workspace label that rt pane spawn opens new agent tabs in; created when missing.",
   },
   {
+    key: "chat.autoSignIn",
+    type: "boolean",
+    scopes: ALL_SCOPES,
+    default: false,
+    merge: "replace",
+    repoScoped: true,
+    repoOnly: true,
+    description: "Sign every new Claude Code session in a herdr pane in to rt chat and its repo room as it starts. Headless runs never sign in.",
+  },
+  {
     key: "chat.push.provider",
     type: "string",
     scopes: ["user"],

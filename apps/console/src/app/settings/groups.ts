@@ -106,7 +106,7 @@ export const GROUPS: Group[] = [
     id: 'chat',
     label: 'Chat',
     tier: 'apps',
-    blurb: 'rt chat handles, the viewer, and push alerts.',
+    blurb: 'rt chat handles, auto sign-in, the viewer, and push alerts.',
     match: prefix('chat.'),
   },
   {

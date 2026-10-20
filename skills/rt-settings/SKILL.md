@@ -135,7 +135,7 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
 8. A `repoOnly` key (`rt.roles`, `rt.intercepts`, `rt.worktrees`,
    `rt.worktreeReadyApproval`, `rt.hooks`, `rt.sync`, `rt.branchNaming`,
    `rt.presets`, `rt.variations`, `rt.dopplerTemplate`, `rt.ignoredMrs`,
-   `board.codeowners`)
+   `board.codeowners`, `chat.autoSignIn`)
    lives only in repo sections: every write names the repo (`--repo`,
    `repoIdentity`), and a global value is refused on read and write. The
    same value for several repos is one write per repo; a convention for
