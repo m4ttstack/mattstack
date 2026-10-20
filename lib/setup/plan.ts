@@ -16,7 +16,7 @@ import { regroupTools } from "./regroup.ts";
 import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type OrgRef } from "./contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { activeTeamFor } from "../team/active-team.ts";
-import { applyFinishGate, readWaived } from "./finish-gate.ts";
+import { applyFinishGate, gateTeamAccounts, readWaived } from "./finish-gate.ts";
 import { readIntent, orgRefFromIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
 import { createRealProbes, type Probes } from "./probes.ts";
@@ -129,6 +129,17 @@ async function buildGroup(id: GroupId, build: () => Promise<Row[]>): Promise<Gro
   }
 }
 
+/** A joiner's plan before Install has no team clone, so the team's own accounts and repos cannot be listed yet; they come back blocking Finish. */
+export const AFTER_INSTALL_ROW = row({
+  id: "accounts.after-install",
+  kind: "info",
+  title: "Your team's accounts and repos",
+  why: "Install joins your team first, then mattstack can see what your team uses.",
+  required: false,
+  status: "skipped",
+  detail: "mattstack asks for these after Install, before you finish",
+});
+
 const INSTALL_SATISFIED_IDS = new Set(["perm.login-items", "tool.daemon", "tool.plugins"]);
 
 /**
@@ -187,7 +198,8 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
         forgeAccess: () => forgeAccessRow(i.p, team.slug),
       }) : [];
       const adminSecrets = i.orgs.includes(team.slug) ? await adminSecretsRowSafe(i.p, team.slug, i.secrets) : null;
-      return [...accounts, ...org, ...(adminSecrets ? [adminSecrets] : [])];
+      const afterInstall = intent?.mode === "join" && !i.orgs.includes(team.slug) ? [AFTER_INSTALL_ROW] : [];
+      return [...accounts, ...afterInstall, ...org, ...(adminSecrets ? [adminSecrets] : [])];
     }),
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
@@ -200,7 +212,7 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
   ]);
 
   const waived = i.waived ?? readWaived();
-  return finalizePlan(team, regroupTools(applyFinishGate(applyInstallSatisfiedFlip(groups, i.mode), i.mode, waived)), i.p.now(), waived);
+  return finalizePlan(team, regroupTools(applyFinishGate(gateTeamAccounts(applyInstallSatisfiedFlip(groups, i.mode), i.mode), i.mode, waived)), i.p.now(), waived);
 }
 
 /**

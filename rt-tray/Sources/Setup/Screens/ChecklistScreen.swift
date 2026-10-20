@@ -132,12 +132,16 @@ struct ChecklistScreen: View {
     }
 
     private func pageBody(_ id: String?) -> some View {
-        let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy)
+        let notes = model.groups.first(where: { $0.id == id })?.rows.filter(PageNote.isNote) ?? []
+        let layout = ChecklistLayout.make(PageNote.withoutNotes(model.groups), finishBlockedBy: model.finishBlockedBy)
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if model.fdaNeedsRelaunch { relaunchBanner }
                 if let section = layout.sections.first(where: { $0.id == id }) {
                     Text(PageLead.text(for: section)).font(.callout).foregroundStyle(.secondary)
+                }
+                ForEach(notes, id: \.id) { PageNoteView(row: $0) }
+                if let section = layout.sections.first(where: { $0.id == id }) {
                     ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity) { perform($0) }
                         .id(section.id)
                 }
@@ -443,6 +447,34 @@ struct RowWaitingCaption: View {
         }
         .font(.caption)
         .accessibilityIdentifier(AXID.checklistRowWaiting(rowId))
+    }
+}
+
+/// A row that only tells the person something (an info row with nothing to check or press) reads as a
+/// line on its page; folded under No action needed, a joiner would never open it.
+enum PageNote {
+    static func isNote(_ row: PlanRow) -> Bool { row.kind == .info && row.status == .skipped && row.action == nil }
+
+    static func withoutNotes(_ groups: [PlanGroup]) -> [PlanGroup] {
+        groups.map { PlanGroup(id: $0.id, title: $0.title, rows: $0.rows.filter { !isNote($0) }) }
+    }
+}
+
+struct PageNoteView: View {
+    let row: PlanRow
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title).fontWeight(.medium)
+                if let detail = row.detail { Text(detail).foregroundStyle(.secondary) }
+            }
+        } icon: {
+            Image(systemName: "info.circle").foregroundStyle(.secondary)
+        }
+        .font(.callout)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(AXID.checklistNote(row.id))
     }
 }
 
