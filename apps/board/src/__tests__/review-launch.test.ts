@@ -501,6 +501,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
           focusedExisting: false,
         };
       },
+      readRespondStates: () => readRespondStates(db),
       respondFilePath: mrUrl => respondFilePath(mrUrl),
       writeRespondState: (path, patch, now) =>
         writeRespondState(path, patch, now, db),
@@ -571,6 +572,34 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       'workspaceId',
     ])
       expect(duringLaunch?.[key]).toBeUndefined();
+  });
+
+  test("a launch that only focused the last run's open tab keeps that run's pane", async () => {
+    const lastPane = {
+      sessionId: 'sess-old',
+      agentId: 'ag-old',
+      paneId: 'w0:p1',
+      tabId: 'w0:t1',
+      workspaceId: 'w0',
+    };
+    writeRespondState(
+      respondFilePath(URL_A),
+      { mrUrl: URL_A, iid: IID, status: 'error', ...lastPane },
+      1000,
+      db
+    );
+    const io = makeRespondIo({
+      launchRespond: async () => ({
+        agentId: '',
+        sessionId: '',
+        paneId: '',
+        tabId: '',
+        workspaceId: '',
+        focusedExisting: true,
+      }),
+    });
+    await launchRespondAsk(URL_A, IID, ASK_CTX, io, noSkillPath);
+    expect(readRespondStates(db).get(URL_A)).toMatchObject(lastPane);
   });
 
   test('threads the pack through to the respond launch', async () => {

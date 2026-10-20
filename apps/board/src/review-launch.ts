@@ -16,7 +16,11 @@ import {
   packForLaunch,
   resolveLaunchSkill,
 } from './manifest-bindings.ts';
-import { respondFilePath, writeRespondState } from './respond-state.ts';
+import {
+  readRespondStates,
+  respondFilePath,
+  writeRespondState,
+} from './respond-state.ts';
 import {
   readReviewStates,
   reviewFilePath,
@@ -24,7 +28,7 @@ import {
   writeReviewState,
 } from './review-state.ts';
 import { resolveSkillPath } from './skill-path.ts';
-import { FRESH_RUN_PANE } from './state/index.ts';
+import { FRESH_RUN_PANE, lastRunPane } from './state/index.ts';
 
 /** How the re-review actually started. Callers that only want the board's
     optimistic response ignore this; triage awaits it to learn whether the pane
@@ -259,15 +263,18 @@ export async function launchReReview(
       note: ctx.note,
       pack,
     });
-    if (!result.focusedExisting) {
-      io.writeReviewState(statePath, {
-        status: 'queued',
-        tabId: result.tabId,
-        workspaceId: result.workspaceId,
-        agentId: result.agentId,
-        paneId: result.paneId,
-      });
-    }
+    io.writeReviewState(
+      statePath,
+      result.focusedExisting
+        ? { status: 'queued', ...lastRunPane(existing) }
+        : {
+            status: 'queued',
+            tabId: result.tabId,
+            workspaceId: result.workspaceId,
+            agentId: result.agentId,
+            paneId: result.paneId,
+          }
+    );
     return { kind: 'launched' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -282,12 +289,14 @@ export async function launchReReview(
 
 /** Seams for the respond-ask launcher, mirroring ReReviewIo. */
 export interface RespondAskIo {
+  readRespondStates: typeof readRespondStates;
   launchRespond: typeof launchRespond;
   respondFilePath: typeof respondFilePath;
   writeRespondState: typeof writeRespondState;
 }
 
 export const defaultRespondAskIo: RespondAskIo = {
+  readRespondStates,
   launchRespond,
   respondFilePath,
   writeRespondState,
@@ -304,6 +313,7 @@ export async function launchRespondAsk(
   io: RespondAskIo = defaultRespondAskIo,
   resolvePath: SkillPathResolver = resolveSkillPath
 ): Promise<ReReviewLaunch> {
+  const existing = io.readRespondStates().get(mrUrl);
   const statePath = io.respondFilePath(mrUrl);
   io.writeRespondState(statePath, {
     mrUrl,
@@ -333,15 +343,18 @@ export async function launchRespondAsk(
       undefined,
       resolvePath
     );
-    if (!result.focusedExisting) {
-      io.writeRespondState(statePath, {
-        status: 'queued',
-        tabId: result.tabId,
-        workspaceId: result.workspaceId,
-        agentId: result.agentId,
-        paneId: result.paneId,
-      });
-    }
+    io.writeRespondState(
+      statePath,
+      result.focusedExisting
+        ? { status: 'queued', ...lastRunPane(existing) }
+        : {
+            status: 'queued',
+            tabId: result.tabId,
+            workspaceId: result.workspaceId,
+            agentId: result.agentId,
+            paneId: result.paneId,
+          }
+    );
     return { kind: 'launched' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

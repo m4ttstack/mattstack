@@ -56,6 +56,20 @@ export const FRESH_RUN_PANE = {
   workspaceId: null,
 } as const;
 
+/** The pane a lane's last run had, to write back when a fresh launch only
+    focused that run's still-open tab and so started no pane of its own. */
+export function lastRunPane(
+  state: { [K in keyof typeof FRESH_RUN_PANE]?: string } | undefined
+): { [K in keyof typeof FRESH_RUN_PANE]: string | null } {
+  return {
+    agentId: state?.agentId ?? null,
+    sessionId: state?.sessionId ?? null,
+    paneId: state?.paneId ?? null,
+    tabId: state?.tabId ?? null,
+    workspaceId: state?.workspaceId ?? null,
+  };
+}
+
 /** A lane write whose pane keys also take null, which removes them. */
 export type PaneClearable<S> = Omit<Partial<S>, keyof typeof FRESH_RUN_PANE> & {
   [K in keyof typeof FRESH_RUN_PANE]?: string | null;

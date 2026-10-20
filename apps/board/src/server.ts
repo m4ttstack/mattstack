@@ -332,6 +332,7 @@ import {
   FRESH_RUN_PANE,
   getKvValue,
   getStateDb,
+  lastRunPane,
   LEASE_BEAT_MS,
   persistOrWarn,
   renewWriterLease,
@@ -2463,7 +2464,13 @@ const httpServer = Bun.serve({
           note,
         })
           .then(result => {
-            if (result.focusedExisting) return;
+            if (result.focusedExisting) {
+              writeReviewState(statePath, {
+                status: 'queued',
+                ...lastRunPane(existing),
+              });
+              return;
+            }
             // A fresh review starts the round ledger over, once its pane is
             // up: the old rounds belong to the run it replaces.
             dropRounds(parsed.mrUrl);
@@ -2631,6 +2638,10 @@ const httpServer = Bun.serve({
             if (result.focusedExisting) {
               if (person && responseRound !== undefined)
                 deleteRespondRound(parsed.mrUrl, person, responseRound);
+              writeRespondState(statePath, {
+                status: 'queued',
+                ...lastRunPane(existing),
+              });
               return;
             }
             writeRespondState(statePath, {

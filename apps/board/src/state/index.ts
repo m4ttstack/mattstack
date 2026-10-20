@@ -33,6 +33,7 @@ export {
 export {
   type Lane,
   FRESH_RUN_PANE,
+  lastRunPane,
   type PaneClearable,
   mintHandle,
   reportPathForHandle,
