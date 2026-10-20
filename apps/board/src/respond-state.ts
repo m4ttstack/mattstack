@@ -10,6 +10,7 @@ import {
   readStates,
   reportPathForHandle,
   updateByHandle,
+  type PaneClearable,
 } from './state/index.ts';
 
 /**
@@ -113,7 +114,7 @@ export function respondReportPath(handle: string): string {
 /** A respond write. `person`, `responseRound` and `gateId` also take null,
     which removes them: a fresh launch must not inherit the person a prior
     run answered, nor a parked gate that would resume it. */
-export type RespondPatch = Partial<
+export type RespondPatch = PaneClearable<
   Omit<RespondState, 'person' | 'responseRound' | 'gateId'>
 > & {
   status: RespondStatus;
@@ -146,12 +147,12 @@ export function writeRespondState(
     round: patch.round,
     person: patch.person ?? undefined,
     responseRound: patch.responseRound ?? undefined,
-    tabId: patch.tabId,
+    tabId: patch.tabId ?? undefined,
     boardTabId: patch.boardTabId,
-    workspaceId: patch.workspaceId,
-    sessionId: patch.sessionId,
-    agentId: patch.agentId,
-    paneId: patch.paneId,
+    workspaceId: patch.workspaceId ?? undefined,
+    sessionId: patch.sessionId ?? undefined,
+    agentId: patch.agentId ?? undefined,
+    paneId: patch.paneId ?? undefined,
     gateId: patch.gateId ?? undefined,
     gateKind: patch.gateKind,
     resumedGateId: patch.resumedGateId,
