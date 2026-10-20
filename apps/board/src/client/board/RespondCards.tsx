@@ -362,9 +362,10 @@ function ReplyChoiceBody({
   );
 }
 
-/** A per-thread post question's controls, one compact row of two ticks:
-    post the reply, and, independently, resolve the thread. Unticking post
-    holds the reply back. What each does rides the tooltip. */
+/** A per-thread post question's controls, one compact row of ticks: post
+    the reply, and, independently, resolve the thread when the question
+    offers it (an Overview comment does not). Unticking post holds the reply
+    back. What each does rides the tooltip. */
 function PostResolveChoice({
   pick,
   form,
@@ -375,7 +376,6 @@ function PostResolveChoice({
   const current = form.selections[pick.name];
   const picked = new Set(Array.isArray(current) ? current : []);
   const posting = picked.has(pick.post);
-  const resolving = picked.has(pick.resolve);
   const ticks = [
     {
       value: 'post',
@@ -386,15 +386,19 @@ function PostResolveChoice({
         ? 'post this reply to the thread'
         : 'held back; nothing is posted',
     },
-    {
-      value: 'resolve',
-      option: pick.resolve,
-      on: resolving,
-      text: 'Resolve thread',
-      hint: posting
-        ? 'resolve the thread once the reply posts'
-        : 'resolve the thread without replying',
-    },
+    ...(pick.resolve
+      ? [
+          {
+            value: 'resolve',
+            option: pick.resolve,
+            on: picked.has(pick.resolve),
+            text: 'Resolve thread',
+            hint: posting
+              ? 'resolve the thread once the reply posts'
+              : 'resolve the thread without replying',
+          },
+        ]
+      : []),
   ];
   return (
     <div className="tui-post-controls">

@@ -292,6 +292,9 @@ function ResponseRows({
   form: GateFormState;
   plan?: RowThread[] | null;
 }) {
+  // A resolve chip's slot is kept on every row once any row can resolve, so
+  // every row's text starts at one edge.
+  const resolveSlot = picks.some(p => p.resolve);
   const offered: SheetRow[] = mainQs.flatMap(q => {
     const v = form.selections[q.name];
     const pick = picks.find(p => p.name === q.name);
@@ -301,7 +304,13 @@ function ResponseRows({
         picked.has(pick.post)
           ? { text: 'post', intent: 'ok' }
           : { text: 'hold', intent: 'muted' },
-        picked.has(pick.resolve) ? { text: 'resolve', intent: 'accent' } : null,
+        ...(resolveSlot
+          ? [
+              pick.resolve && picked.has(pick.resolve)
+                ? ({ text: 'resolve', intent: 'accent' } as const)
+                : null,
+            ]
+          : []),
       ];
       return [{ key: q.name, text: pick.label, chips }];
     }
@@ -351,7 +360,7 @@ function ResponseRows({
           {
             key: `with-step:${j.threadId}`,
             text: j.label,
-            chips: picks.length > 0 ? [post, null] : [post],
+            chips: resolveSlot ? [post, null] : [post],
           },
         ];
       })
