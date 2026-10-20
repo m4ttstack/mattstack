@@ -74,6 +74,10 @@ export interface Candidate {
   spin?: boolean | 'cloud';
   /** The lane's launch ran the generic skill because no pack was chosen. */
   noPack?: true;
+  /** A finished run's note: a repair the MR needs outranks it. */
+  settled?: true;
+  /** The author's repair (a rebase, a ci fix), which outranks settled notes. */
+  repair?: true;
   verbs: Verb[];
 }
 
@@ -418,12 +422,16 @@ function reviewLine(
           : canMerge(mr, self)
             ? [MERGE]
             : [];
-      return {
-        tone: 'go',
-        word: 'review ready',
-        detail: verdict === statusPhrase(mr).text ? undefined : verdict,
-        verbs: [...lead, ...read],
-      };
+      return settled(
+        {
+          tone: 'go',
+          word: 'review ready',
+          detail: verdict === statusPhrase(mr).text ? undefined : verdict,
+          verbs: [...lead, ...read],
+        },
+        r.updatedAt,
+        now
+      );
     }
     case 'error':
       return {
@@ -560,6 +568,7 @@ function respondDoneLine(
 
 function respondLine(
   mr: BoardMRWithReview,
+  now: number,
   interrupted: Lane | null,
   self: string | null
 ): Candidate | null {
@@ -608,8 +617,12 @@ function respondLine(
         who
       );
     case 'done': {
-      const line = respondDoneLine(mr, self);
-      return line.word.startsWith('responded to ') ? line : withWho(line, who);
+      const done = respondDoneLine(mr, self);
+      const line = done.word.startsWith('responded to ')
+        ? done
+        : withWho(done, who);
+      // A warn line still has a move on it (resume, the reviewer came back).
+      return line.tone === 'warn' ? line : settled(line, r.updatedAt, now);
     }
   }
 }
@@ -624,15 +637,26 @@ export function laneDismissed(
   return lane?.dismissedAt !== undefined;
 }
 
-/** How long a finished doctor run keeps the status line. Long enough to read
-    what the run did on the next glance at the board, short enough that
+/** How long a finished run keeps the status line. Long enough to read what
+    the run did on the next glance at the board, short enough that
     yesterday's run is not still standing in front of what the MR needs. */
-const DOCTOR_DONE_TTL = 2 * 3600_000;
+const DONE_TTL = 2 * 3600_000;
+
+/** A finished run's line, or null once it is stale. An unstamped run (none
+    is written today) is shown rather than guessed at. */
+function settled(
+  line: Candidate,
+  updatedAt: number | undefined,
+  now: number
+): Candidate | null {
+  if (updatedAt !== undefined && now - updatedAt > DONE_TTL) return null;
+  return { ...line, settled: true };
+}
 
 function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   // Stood down (row menu's "never diagnose this stack"): this outranks
   // whatever the doctor's own status says and never expires the way a
-  // finished run does (DOCTOR_DONE_TTL), since the mute stays in force
+  // finished run does (DONE_TTL), since the mute stays in force
   // until the operator flips it back -- see triage/run.ts's isStoodDown
   // and POST /triage/stand-down.
   if (mr.standDown)
@@ -657,20 +681,18 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
             : { kind: 'focus', label: 'focus', domain: 'doctor' },
         ],
       };
-    case 'done': {
-      // A finished doctor is a note, not an achievement: quiet, not go, and
-      // it stops speaking once it is stale so the row goes back to saying
-      // what the MR needs. An unstamped row (nothing writes one today) is
-      // shown rather than guessed at.
-      if (d.updatedAt !== undefined && now - d.updatedAt > DOCTOR_DONE_TTL)
-        return null;
-      return {
-        tone: 'quiet',
-        word: DOCTOR_LABEL[d.status],
-        detail: d.message || undefined,
-        verbs: [{ kind: 'dismiss', label: 'dismiss', domain: 'doctor' }],
-      };
-    }
+    case 'done':
+      // A finished doctor is a note, not an achievement: quiet, not go.
+      return settled(
+        {
+          tone: 'quiet',
+          word: DOCTOR_LABEL[d.status],
+          detail: d.message || undefined,
+          verbs: [{ kind: 'dismiss', label: 'dismiss', domain: 'doctor' }],
+        },
+        d.updatedAt,
+        now
+      );
     case 'error':
       return {
         tone: 'bad',
@@ -741,6 +763,7 @@ function peerLines(
       out.push({
         tone: 'go',
         word: `${p.reviewer} ${verdictWord(p.outcome, 'reviewed')}`,
+        settled: true,
         verbs: [{ kind: 'view-peer', label: 'view ↗' }],
       });
     }
@@ -806,6 +829,7 @@ function authorLine(mr: BoardMRWithReview, self: string): Candidate {
     return {
       tone: 'quiet',
       word: `needs ${repair}`,
+      repair: true,
       verbs: [{ kind: 'call-doctor', label: 'call doctor' }],
     };
   }
@@ -953,7 +977,7 @@ export function candidateLines(
     ...gateLines(mr),
     orphanLine(mr, now, interrupted),
     packless(reviewLine(mr, now, interrupted, self), mr.review),
-    packless(respondLine(mr, interrupted, self), mr.respond),
+    packless(respondLine(mr, now, interrupted, self), mr.respond),
     // A stand-down outranks the doctor's row and is no launch of its own.
     mr.standDown
       ? doctorLine(mr, now)
@@ -962,10 +986,13 @@ export function candidateLines(
     ...peerLines(mr, now, self),
   ].filter((l): l is Candidate => l !== null);
   const mine = isOwnMr(mr, self);
-  if (lines.length > 0) return mine ? lines : lines.map(withoutAuthorVerbs);
-  return [
-    mine && self !== null ? authorLine(mr, self) : reviewerLine(mr, self),
-  ];
+  if (lines.length === 0)
+    return [
+      mine && self !== null ? authorLine(mr, self) : reviewerLine(mr, self),
+    ];
+  if (!mine) return lines.map(withoutAuthorVerbs);
+  const standing = self !== null ? authorLine(mr, self) : null;
+  return standing?.repair ? [...lines, standing] : lines;
 }
 
 const TONE_RANK: Record<Tone, number> = {
@@ -979,7 +1006,8 @@ const TONE_RANK: Record<Tone, number> = {
 
 /** The single status line a row shows: the hottest candidate, with ties
     settled by source order (gates before lanes before peers), so a decision
-    always outranks the lane it came from. */
+    always outranks the lane it came from. A repair the MR needs outranks
+    every finished run's note. */
 export function rowStatus(
   mr: BoardMRWithReview,
   now: number,
@@ -987,12 +1015,12 @@ export function rowStatus(
   self: string | null
 ): RowStatus {
   const lines = candidateLines(mr, now, draftResolved, self);
+  const repairs = lines.some(l => l.repair);
+  const rank = (l: Candidate): number =>
+    repairs && l.settled ? TONE_RANK.clear + 1 : TONE_RANK[l.tone];
   const ranked = lines
     .map((line, index) => ({ line, index }))
-    .sort(
-      (a, b) =>
-        TONE_RANK[a.line.tone] - TONE_RANK[b.line.tone] || a.index - b.index
-    );
+    .sort((a, b) => rank(a.line) - rank(b.line) || a.index - b.index);
   const [first, ...rest] = ranked;
   const line = first!.line;
   return {
