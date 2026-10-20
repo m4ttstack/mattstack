@@ -19,6 +19,8 @@ export interface SetupState {
   forcedLinks: string[];
   /** Ids of one-time migrations that completed (done or skipped) on this machine; a failed one is never recorded, so it runs again. */
   migrations: string[];
+  /** Claude config dirs where rt added `"tui": "fullscreen"`; an update run leaves these alone even when the key is gone. */
+  claudeFullscreenDirs: string[];
   lastApplyAt?: string;
   /** The rt version the last `rt setup update` run stamped, whatever its outcome. */
   lastUpdate?: { version: string; at: string };
@@ -38,7 +40,7 @@ export interface PendingMarketplaceMove {
   plugins: { id: string; scope: string; enabled: boolean; projectPath?: string }[];
 }
 
-const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };
+const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [], claudeFullscreenDirs: [] };
 
 export function setupStatePath(home: string): string {
   return join(home, ".mattstack", "rt", "setup-state.json");
@@ -126,6 +128,7 @@ export function updateSetupState(p: StateWriteProbes, patch: (s: SetupState) => 
     extensionEditors: [...new Set(patched.extensionEditors)],
     forcedLinks: [...new Set(patched.forcedLinks)],
     migrations: [...new Set(patched.migrations)],
+    claudeFullscreenDirs: [...new Set(patched.claudeFullscreenDirs)],
   };
   const path = setupStatePath(p.home);
   p.mkdirp(dirname(path));
