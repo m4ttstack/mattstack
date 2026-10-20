@@ -130,6 +130,11 @@ function AnsweredSheetBody({
       ),
     [gate.kind, gate.questions]
   );
+  const mix = itemMix(
+    gate.questions
+      .filter(q => /^thread-/.test(q.id) || picksByName.has(q.id))
+      .map(q => q.label)
+  );
   const rows = gate.questions.map(q => {
     const d = display.get(q.id);
     const a = recorded.get(q.id);
@@ -281,17 +286,7 @@ function AnsweredSheetBody({
                       id={respondCtx.reviewer}
                       name={personName(respondCtx.reviewer, mr, people)}
                     >
-                      {leadVerb(
-                        itemMix(
-                          gate.questions
-                            .filter(
-                              q =>
-                                /^thread-/.test(q.id) || picksByName.has(q.id)
-                            )
-                            .map(q => q.label)
-                        )
-                      )}{' '}
-                      your {forgeNoun(mr, gate.subject)}
+                      {leadVerb(mix)} your {forgeNoun(mr, gate.subject)}
                     </PersonLead>
                     <RespondCtxFacts
                       ctx={
@@ -299,6 +294,7 @@ function AnsweredSheetBody({
                           ? { ...respondCtx, round: undefined }
                           : respondCtx
                       }
+                      mix={mix}
                     />
                   </>
                 )}

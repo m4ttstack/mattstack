@@ -945,6 +945,7 @@ function RespondSheetBody({
                 )}
                 <RespondCtxFacts
                   ctx={ctx}
+                  mix={mix}
                   posting={railPosting}
                   responseRound={mr?.respond?.responseRound}
                 />

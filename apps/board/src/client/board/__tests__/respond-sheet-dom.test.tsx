@@ -918,6 +918,7 @@ test('someone who only commented: the heading counts comments and the lead says 
   await render(commentsOnlyPlanGate());
   expect(listTitle()).toBe('Respond to 2 comments from renee');
   expect(contextLead()).toBe('renee commented on your merge request');
+  expect($('[data-chip="threads"]')!.textContent).toBe('2 comments');
 });
 
 test('one Overview comment beside a thread reads as threads and comments, reviewed', async () => {
@@ -925,6 +926,9 @@ test('one Overview comment beside a thread reads as threads and comments, review
   gate.questions[1] = { ...gate.questions[1]!, label: 'Overview comment' };
   await render(gate);
   expect(listTitle()).toBe('Respond to 2 threads and comments from renee');
+  expect($('[data-chip="threads"]')!.textContent).toBe(
+    '2 threads and comments'
+  );
   expect(contextLead()).toBe('renee reviewed your merge request');
 });
 

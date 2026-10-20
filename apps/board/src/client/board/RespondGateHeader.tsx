@@ -13,17 +13,19 @@ function plural(n: number, one: string, many: string): string {
 }
 
 /** `posting`, when given, replaces a post gate's offered reply count with
-    the number its submit will post, so the rail agrees with the sheet. */
+    the number its submit will post, so the rail agrees with the sheet.
+    `mix` names a plan gate's items the way its heading does. */
 export function headerChips(
   ctx: PlanCtx | PostCtx,
-  posting?: number
+  posting?: number,
+  mix: ItemMix = 'threads'
 ): HeaderChip[] {
   const chips: HeaderChip[] = [];
   if (ctx.shape === 'plan@1') {
     const { total, blocking } = ctx.threads;
     chips.push({
       key: 'threads',
-      text: plural(total, 'thread', 'threads'),
+      text: `${total} ${itemNoun(total, mix)}`,
       hue: 'grey',
     });
     chips.push(
@@ -173,8 +175,11 @@ export function RespondCtxFacts({
   ctx,
   posting,
   responseRound,
+  mix,
 }: {
   ctx: PlanCtx | PostCtx;
+  /** How the gate's items read; see `itemMix`. */
+  mix?: ItemMix;
   /** The person's response round off the MR's respond lane; see
       `headerMeta`. */
   responseRound?: number;
@@ -189,7 +194,7 @@ export function RespondCtxFacts({
         <p className="tui-sheet-context-meta">{meta.join(' · ')}</p>
       )}
       <div className="tui-respond-chips">
-        {headerChips(ctx, posting).map(chip => (
+        {headerChips(ctx, posting, mix).map(chip => (
           <span
             key={chip.key}
             className="tui-respond-chip"

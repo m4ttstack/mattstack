@@ -454,6 +454,14 @@ test('headerMeta with a response round: round from 2, revise counts the wrapper 
   expect(headerMeta(plan({ adjudication: adj }), 2)).toEqual(['round 2', adj]);
 });
 
+test('plan chips name the items the way the heading does', () => {
+  const ctx = plan({ threads: { total: 1, blocking: 0 } });
+  expect(headerChips(ctx, undefined, 'comments')[0]!.text).toBe('1 comment');
+  expect(headerChips(plan(), undefined, 'mixed')[0]!.text).toBe(
+    '2 threads and comments'
+  );
+});
+
 test('plan chips: zero blocking reads grey "all non-blocking"; one thread is singular', () => {
   expect(chips(plan({ threads: { total: 1, blocking: 0 } }))).toEqual([
     ['1 thread', 'grey'],
