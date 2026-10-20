@@ -470,7 +470,12 @@ test('an answered per-thread post shows the reply as posted, edited text include
   ).toBe(true);
 });
 
-const replyQ = (n: number, thread: string, label: string, resolvable = true) => ({
+const replyQ = (
+  n: number,
+  thread: string,
+  label: string,
+  resolvable = true
+) => ({
   id: `thread-${n}`,
   label,
   multi: true,

@@ -101,9 +101,7 @@ test('anything but a multi with exactly post:<id>, or post:<id> and resolve:<id>
     []
   );
   expect(postPicks([{ ...pair, options: ['resolve:T1'] }])).toEqual([]);
-  expect(postPicks([{ ...pair, options: ['post:T1', 'skip:T1'] }])).toEqual(
-    []
-  );
+  expect(postPicks([{ ...pair, options: ['post:T1', 'skip:T1'] }])).toEqual([]);
   expect(
     postPicks([
       {
