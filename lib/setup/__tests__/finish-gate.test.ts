@@ -111,6 +111,14 @@ describe("waiveRow / unwaiveRow", () => {
     expect(writes).toEqual([]);
   });
 
+  test("a team-declared account row gates Finish but cannot be skipped", () => {
+    const { store, writes } = fakeStore();
+    expect(unwaiveRow("account.slack", store)).toEqual({ waived: [], changed: false });
+    expect(() => waiveRow("account.slack", store)).toThrow(UserActionableError);
+    expect(() => unwaiveRow("account.board-peering", store)).toThrow(UserActionableError);
+    expect(writes).toEqual([]);
+  });
+
   test("the real store round-trips through the machine scope", () => {
     const store = realWaiverStore();
     waiveRow("tool.fast-browser-extension", store);

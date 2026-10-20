@@ -129,6 +129,17 @@ async function buildGroup(id: GroupId, build: () => Promise<Row[]>): Promise<Gro
   }
 }
 
+/** A joiner's plan before Install has no team clone, so the team's own accounts and repos cannot be listed yet; they come back blocking Finish. */
+const AFTER_INSTALL_ROW = row({
+  id: "accounts.after-install",
+  kind: "info",
+  title: "Your team's accounts and repos",
+  why: "Install joins your team first, then rt can see what your team uses.",
+  required: false,
+  status: "skipped",
+  detail: "rt asks for these after Install, before you finish",
+});
+
 const INSTALL_SATISFIED_IDS = new Set(["perm.login-items", "tool.daemon", "tool.plugins"]);
 
 /**
@@ -187,7 +198,8 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
         forgeAccess: () => forgeAccessRow(i.p, team.slug),
       }) : [];
       const adminSecrets = i.orgs.includes(team.slug) ? await adminSecretsRowSafe(i.p, team.slug, i.secrets) : null;
-      return [...accounts, ...org, ...(adminSecrets ? [adminSecrets] : [])];
+      const afterInstall = intent?.mode === "join" && !i.orgs.includes(team.slug) ? [AFTER_INSTALL_ROW] : [];
+      return [...accounts, ...afterInstall, ...org, ...(adminSecrets ? [adminSecrets] : [])];
     }),
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {

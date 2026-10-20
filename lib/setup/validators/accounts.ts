@@ -448,6 +448,20 @@ function slackAppRow(required: boolean): Row {
   });
 }
 
+/**
+ * A joiner's plan before Install has no team clone to read, so the rows the
+ * team declares (Slack, Linear, a pack's accounts) first appear after
+ * Install. They block Finish instead of Install, so the member is asked for
+ * them whether or not the app was relaunched in between (RT-510). The forge
+ * row keeps blocking Install, which clones the team with it; a row with no
+ * action the member could press blocks nothing.
+ */
+function gateTeamDeclared(r: Row, forgeRowId: string | null): Row {
+  if (!r.required || r.id === forgeRowId) return r;
+  if (r.status !== "ready" && r.action === null) return r;
+  return { ...r, finishGated: true, waivable: false };
+}
+
 export async function accountRows(
   p: Probes,
   team: TeamSnapshot,
@@ -467,10 +481,11 @@ export async function accountRows(
 
   const idRows = await Promise.all(declared.map((entry) => accountRowForSafe(p, entry, team, secrets, intent, overrides)));
 
+  const forgeRowId = team.integrations.forge ? `account.${team.integrations.forge.provider}` : null;
   const rows: Row[] = [];
   declared.forEach((entry, i) => {
     if (entry.id === "slack" && slackAppNeeded) rows.push(slackAppRow(slackAppRequired));
-    rows.push(idRows[i]!);
+    rows.push(gateTeamDeclared(idRows[i]!, forgeRowId));
   });
   const peering = solo ? null : await boardPeeringRowSafe(p, secrets, team);
   if (peering) rows.push(peering);

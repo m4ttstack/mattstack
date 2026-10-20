@@ -137,8 +137,12 @@ export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-exten
 /** One `repos.place:<identity>` row per tracked repo, so those ids cannot be enumerated above. */
 export const REPO_PLACE_ROW_PREFIX = "repos.place:";
 
+const ACCOUNT_INTEGRATIONS: readonly Integration[] = ["github", "gitlab", "linear", "slack", "sdm", "doppler", "ldcli"];
+
+/** A team-declared `account.<integration>` row other than the forge's also gates Finish (`gateTeamDeclared` in validators/accounts.ts). */
 export function isFinishGatedRowId(id: string): boolean {
-  return FINISH_GATED_ROW_IDS.includes(id) || id.startsWith(REPO_PLACE_ROW_PREFIX);
+  if (FINISH_GATED_ROW_IDS.includes(id) || id.startsWith(REPO_PLACE_ROW_PREFIX)) return true;
+  return id.startsWith("account.") && (ACCOUNT_INTEGRATIONS as readonly string[]).includes(id.slice("account.".length));
 }
 
 /** The finish-gated rows `rt setup waive` may skip; the gate honors a stored waiver only for these. */
@@ -146,7 +150,8 @@ export const WAIVABLE_ROW_IDS: readonly string[] = ["tool.fast-browser-extension
 
 /**
  * Action types the app's Done screen can act on; a finish-gated row must only carry these (parity with DoneActions in rt-tray).
- * A deferred `repos.place:*` row is finish-gated and carries `place-repo`, which the summary runs through the checklist dispatcher, not `DoneActions`.
+ * A deferred `repos.place:*` row is finish-gated and carries `place-repo`, and a team-declared account row carries its connect or oauth action;
+ * the summary runs both through the checklist dispatcher, not `DoneActions`.
  */
 export const DONE_ACTION_TYPES = ["open-url", "steps", "run", "choose"] as const;
 
