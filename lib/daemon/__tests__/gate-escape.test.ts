@@ -112,6 +112,13 @@ describe("createPaneStatusProbe", () => {
     });
     expect(reads).toEqual(["wE2:p8"]);
   });
+  test("a form with rows under it (input not docked to the pane bottom) reads blocked", async () => {
+    const probe = createPaneStatusProbe({
+      snapshot: async () => [pane({ paneRef: "wE2:p8", agentStatus: "idle" })],
+      readScreen: async () => "│ Pick one\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n\n  ⏵⏵ auto mode on (shift+tab to cycle)\n\n\n",
+    });
+    expect((await probe({ paneId: "wE2:p8" }))?.status).toBe("blocked");
+  });
   test("no form on screen keeps herdr's status, and an unreadable screen falls back to it", async () => {
     const idle = createPaneStatusProbe({
       snapshot: async () => [pane({ agentStatus: "idle" })],

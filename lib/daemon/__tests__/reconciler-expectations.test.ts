@@ -114,6 +114,20 @@ describe("reconciler expectations: leave-blocked", () => {
     expect(emitted).toHaveLength(0); // dropped: nothing more happens on the stale gate
   });
 
+  test("a form with rows under it on a pane herdr reads idle is retried with Escape, then marked stuck", async () => {
+    const gate = makeGate();
+    reconciler.expect({ gateId: gate.id, hints: HINTS, expect: "leave-blocked", deadlineSweeps: 1, retriesLeft: 1 });
+    panesValue = [buildPane({ agentStatus: "idle" })];
+    screenValue = "│ Pick one\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n\n  ⏵⏵ auto mode on (shift+tab to cycle)\n\n\n";
+
+    await reconciler.sweep();
+    expect(injectCalls).toEqual([HINTS]);
+    expect(store.get(gate.id)!.delivery).toBeNull();
+
+    await reconciler.sweep();
+    expect(store.get(gate.id)!.delivery).toMatchObject({ outcome: "stuck" });
+  });
+
   test("a pane that consumed the answer and then closed is confirmed, not stuck", async () => {
     const gate = makeGate();
     store.answer(gate.id, { q: "a" }, "board");

@@ -39,8 +39,8 @@ export function createEscapeInjector(deps: {
   };
 }
 
-/** `lastLine` is the line the form test judged, present when the screen was
-    readable, so a skipped Escape can say why in the log. */
+/** `lastLine` is the screen's last non-blank line, present when the screen
+    was readable, so a skipped Escape shows what the pane's bottom held. */
 export type PaneStatusProbe = (
   hints: PaneHints,
 ) => Promise<{ paneRef: string; status: LivePane["agentStatus"]; lastLine?: string } | null>;
