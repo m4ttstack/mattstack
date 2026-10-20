@@ -47,7 +47,7 @@ Pipeline runs record their stages, fields and decisions through these tools. `ru
 | Tool | What it does |
 | --- | --- |
 | `run_start` | Start a run from the skill's compiled run-start flags and its own directory; returns `runDb`. |
-| `run_stage` | Record a stage transition: `start`, `done`, `fail` or `redirect`. |
+| `run_stage` | Record a stage transition: `start`, `done`, `fail` or `redirect`. `start` refuses a stage that is already running and names the tool to use instead. |
 | `run_field_set` | Write one run field. |
 | `run_field_get` | Read one run field; errors when it is not set. |
 | `run_decision` | Record a decision; `selection` is a JSON object. |
@@ -129,7 +129,7 @@ rt settings set rt.mcp.uploadRoots '["/Users/you/Screenshots"]' --scope machine
 
 - An evidence board that hides part of an image, until its redactions are confirmed.
 - An imported capture; upload its evidence board instead.
-- A ticket image a run saved, at its own path or as a copy of the same bytes anywhere.
+- A ticket image any run saved, at its own path, as a copy of the same bytes anywhere, or as an imported capture of it, with or without `runId`.
 
 ### Git
 
