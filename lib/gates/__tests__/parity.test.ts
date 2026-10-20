@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkSource, fitOpen, proseOpen, type GateCtxSource } from "../ctx.ts";
+import { BOARD_ONLY_FIELDS, checkSource, fitOpen, proseOpen, type GateCtxSource } from "../ctx.ts";
 import { tojson } from "../jq.ts";
 import { buildReviewSource, reviewSourceErrors } from "../review-source.ts";
 
@@ -297,7 +297,8 @@ const MODES: Mode[] = [
   { name: "fit", args: () => ["fit"] },
   { name: "fit --limit 900", args: () => ["fit", "--limit", "900"] },
   { name: "fit --limit 300", args: () => ["fit", "--limit", "300"] },
-  { name: "fit --limit <its own structured bytes>", args: (s) => ["fit", "--limit", String(fitOpen(s).bytes)] },
+  { name: "fit --limit <its own prose bytes>", args: (s) => ["fit", "--limit", String(proseOpen(s).bytes)] },
+  { name: "fit --limit 2000", args: () => ["fit", "--limit", "2000"] },
   { name: "prose", args: () => ["prose"] },
 ];
 
@@ -355,5 +356,32 @@ describe("gate-ctx.sh parity", () => {
         }
       });
     }
+  }
+});
+
+describe("gate-ctx.sh parity with board-only fields", () => {
+  const ENTRIES: Record<string, string[]> = { "findings@1": ["fix", "evidence"], "review@1": ["prior"] };
+  const script = join(TMP, "gate-ctx-board-only.sh");
+  const original = readFileSync(GC, "utf8");
+  const swapped = original.replace("def board_only: {};", `def board_only: ${JSON.stringify(ENTRIES)};`);
+  writeFileSync(script, swapped);
+
+  test("the script declares its board-only list in one place", () => expect(swapped).not.toBe(original));
+
+  for (const mode of [["fit"], ["fit", "--limit", "900"], ["prose"]]) {
+    test(`review | ${mode.join(" ")}`, () => {
+      const text = fixture(REVIEW);
+      const src = JSON.parse(text) as GateCtxSource;
+      Object.assign(BOARD_ONLY_FIELDS, ENTRIES);
+      try {
+        const r = Bun.spawnSync(["sh", script, ...mode], { stdin: Buffer.from(text), env: ENV });
+        expect(r.exitCode).toBe(0);
+        const out = r.stdout.toString();
+        expect(out).toBe(`${tojson(portOpen(src, mode))}\n`);
+        expect(out).not.toContain("Fix: ");
+      } finally {
+        for (const k of Object.keys(ENTRIES)) delete BOARD_ONLY_FIELDS[k];
+      }
+    });
   }
 });

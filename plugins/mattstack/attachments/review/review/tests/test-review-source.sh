@@ -87,7 +87,7 @@ check "v1 exits 0" 0 "$RC"
 check "legacy findings questions carry no context" '[false,false]' "$(q '[.questions[] | has("context")] | tojson')"
 check "legacy options keep the degraded recipe" '[Critical] permanent failures re-enqueue forever|queue/worker.ts · drop non-retryable jobs in the worker'"'"'s catch block · kind:suggestion' \
   "$(q '.questions[0].options[0] | "\(.label)|\(.description)"')"
-check "legacy fits as whole-gate prose" 'prose|[]' "$(printf '%s' "$OUT" | sh "$GC" fit | jq -r '"\(.mode)|\(.trimmed | tojson)"')"
+check "legacy is stored as whole-gate prose" 'prose|[]' "$(printf '%s' "$OUT" | sh "$GC" fit | jq -r '"\(.mode)|\(.pane.trimmed | tojson)"')"
 
 # --- contract violations: exit 1, one stderr line per problem ---
 reject() { # name findings-file extras-file expected-stderr
@@ -148,42 +148,50 @@ Checked: worker.ts:40 returns before enqueue for non-retryable errors
 Will post as reply: Confirmed, thanks.' \
   "$(printf '%s' "$OUT" | sh "$GC" prose | jq -r '.questions[0].context')"
 
-# many long threads: carryover contexts are trimmed before the gate falls to prose
+# many long threads: the pane prose trims carryover parts, the stored open stays whole
+# pane_threads: each thread-* question's pane prose card, read back by its line prefixes.
+PANE_THREADS='def pane_threads: [.pane.questions[] | select(.id | startswith("thread-"))
+  | (.context | split("\n")) as $l
+  | {id, original: ([$l[] | select(startswith("You wrote: ")) | .[11:]] | first),
+     authorReply: ([$l[] | select(startswith("Author replied: ")) | .[16:]] | first),
+     note: any($l[]; startswith("Checked: "))}];'
 m=$(mutate '.threads = [range(7) as $i | {discussionId: "t\($i)", file: "queue/worker.ts", line: (10 + $i), round: 1, call: "fixed", original: ("o" * 280), authorReply: ("a" * 640), note: ("n" * 60), reply: ("r" * 60)}]' "$V3")
 run "$m" "$X"; rm -f "$m"
-check "seven 1.1 KB threads overflow the gate untrimmed" true \
-  "$(q '[.context, .questions[].context | select(. != null) | tojson | utf8bytelength] | add > 8192')"
+check "seven 1.1 KB threads overflow the pane budget untrimmed" true \
+  "$(printf '%s' "$OUT" | sh "$GC" prose | jq '.bytes > 8192')"
 FIT=$(printf '%s' "$OUT" | sh "$GC" fit); FRC=$?
-check "seven long threads still fit structured" '0|structured|true' "$FRC|$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(.fits)"')"
+check "seven long threads are stored structured and the pane prose fits" '0|structured|true' "$FRC|$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(.pane.fits)"')"
+check "the stored thread contexts stay whole" true \
+  "$(printf '%s' "$FIT" | jq --argjson s "$OUT" '[.questions[] | select(.id | startswith("thread-")) | .context | fromjson] == [$s.questions[] | select(.id | startswith("thread-")) | .context]')"
 check "every note goes before any author reply shrinks" true \
-  "$(printf '%s' "$FIT" | jq '[.trimmed[] | split(":")[1]] | (.[:7] | all(. == "note")) and (.[7:] | length > 0 and all(. == "authorReply"))')"
+  "$(printf '%s' "$FIT" | jq '[.pane.trimmed[] | split(":")[1]] | (.[:7] | all(. == "note")) and (.[7:] | length > 0 and all(. == "authorReply"))')"
 check "every author reply stays: shrunk ones are shorter and keep both ends" true \
-  "$(printf '%s' "$FIT" | jq '[.trimmed[] | select(endswith(":authorReply")) | split(":")[0]] as $shrunk
-    | [.questions[] | select(.id | startswith("thread-")) | {id, c: (.context | fromjson)}]
-    | all(.[]; .c | has("authorReply") and (.authorReply | length > 0))
-      and all(.[] | select(.id as $id | $shrunk | index($id)); .c.authorReply | length < 640 and startswith("a") and endswith("a") and contains(" ... "))')"
+  "$(printf '%s' "$FIT" | jq "$PANE_THREADS"'[.pane.trimmed[] | select(endswith(":authorReply")) | split(":")[0]] as $shrunk
+    | pane_threads
+    | all(.[]; .authorReply | type == "string" and length > 0)
+      and all(.[] | select(.id as $id | $shrunk | index($id)); .authorReply | length < 640 and startswith("a") and endswith("a") and contains(" ... "))')"
 check "a shrunk thread keeps its original whole and drops only its note" 'false|true' \
-  "$(printf '%s' "$FIT" | jq -r '([.trimmed[] | select(endswith(":authorReply"))][0] | split(":")[0]) as $id | .questions[] | select(.id == $id) | .context | fromjson | "\(has("note"))|\(.original | length == 280)"')"
+  "$(printf '%s' "$FIT" | jq -r "$PANE_THREADS"'([.pane.trimmed[] | select(endswith(":authorReply"))][0] | split(":")[0]) as $id | pane_threads[] | select(.id == $id) | "\(.note)|\(.original | length == 280)"')"
 check "the findings keep their fix and evidence" '[]' \
-  "$(printf '%s' "$FIT" | jq -c '[.trimmed[] | select(startswith("findings-"))]')"
+  "$(printf '%s' "$FIT" | jq -c '[.pane.trimmed[] | select(startswith("findings-"))]')"
 
 m=$(mutate '.threads = [range(7) as $i | {discussionId: "t\($i)", round: 1, call: "not-fixed", original: "o", authorReply: ("a" * 2400), reply: "r"}]' "$V3")
 run "$m" "$X"; rm -f "$m"
 FIT=$(printf '%s' "$OUT" | sh "$GC" fit)
 check "a reply shrunk more than once carries one marker and is named once" 'structured|true|true' \
-  "$(printf '%s' "$FIT" | jq -r '[.questions[] | select(.id | startswith("thread-")) | .context | fromjson | .authorReply] as $r
-    | "\(.mode)|\(any($r[]; length < 1200) and all($r[] | select(length < 2400); [match(" \\.\\.\\. "; "g")] | length == 1))|\(.trimmed | length == (unique | length))"')"
+  "$(printf '%s' "$FIT" | jq -r "$PANE_THREADS"'[pane_threads[] | .authorReply] as $r
+    | "\(.mode)|\(any($r[]; length < 1200) and all($r[] | select(length < 2400); [match(" \\.\\.\\. "; "g")] | length == 1))|\(.pane.trimmed | length == (unique | length))"')"
 
 m=$(mutate '.threads = [range(7) as $i | {discussionId: "t\($i)", round: 1, call: "not-fixed", original: ("o" * 1100), authorReply: "a", note: "n", reply: "r"}]' "$V3")
 run "$m" "$X"; rm -f "$m"
 FIT=$(printf '%s' "$OUT" | sh "$GC" fit)
 check "long originals are middle-truncated once notes are gone and replies are short" 'structured|true|true' \
-  "$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(any(.trimmed[]; test(":original$")))|\(all(.questions[] | select(.id | startswith("thread-")) | .context | fromjson; .authorReply == "a"))"')"
+  "$(printf '%s' "$FIT" | jq -r "$PANE_THREADS"'"\(.mode)|\(any(.pane.trimmed[]; test(":original$")))|\(all(pane_threads[]; .authorReply == "a"))"')"
 check "a truncated original keeps both ends and is never empty" true \
-  "$(printf '%s' "$FIT" | jq '[.questions[] | select(.id | startswith("thread-")) | .context | fromjson | .original]
+  "$(printf '%s' "$FIT" | jq "$PANE_THREADS"'[pane_threads[] | .original]
     | all(.[]; length > 0 and startswith("o") and endswith("o")) and any(.[]; contains(" ... "))')"
 check "each original is named once" true \
-  "$(printf '%s' "$FIT" | jq '[.trimmed[] | select(endswith(":original"))] | length == (unique | length)')"
+  "$(printf '%s' "$FIT" | jq '[.pane.trimmed[] | select(endswith(":original"))] | length == (unique | length)')"
 
 # contract violations
 m=$(mutate '.threads[0].call = "still-open"' "$V3"); run "$m" "$X"; rm -f "$m"

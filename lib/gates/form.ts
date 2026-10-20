@@ -1,6 +1,6 @@
 import type { GateQuestion } from "../../packages/rt-client/src/commands.ts";
 import { type GateOptionObject, normalizeGateOptions } from "../../packages/rt-client/src/gate-options.ts";
-import { GATE_SHAPES, QUESTION_SHAPES, contextShapeErrors, proseContext } from "./ctx.ts";
+import { GATE_SHAPES, QUESTION_SHAPES, contextShapeErrors, proseContext, withoutBoardOnly } from "./ctx.ts";
 import { isObject, utf8Bytes } from "./jq.ts";
 import { endTrunc, midTrunc } from "./review-source.ts";
 
@@ -51,7 +51,9 @@ export function flattenContext(
     where.level === "gate"
       ? contextShapeErrors(parsed, "context", GATE_SHAPES, [])
       : contextShapeErrors(parsed, "context", QUESTION_SHAPES, where.values);
-  return errs.length === 0 ? proseContext(parsed) : context;
+  if (errs.length === 0) return proseContext(parsed);
+  const pane = withoutBoardOnly(parsed);
+  return pane === parsed ? context : JSON.stringify(pane);
 }
 
 export interface FormQuestion {

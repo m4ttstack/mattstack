@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type FitResult, fitOpen, proseOpen } from "../ctx.ts";
+import { type FitResult, fitOpen, PANE_PROSE_LIMIT, proseOpen, type RenderedOpen } from "../ctx.ts";
 import { utf8Bytes } from "../jq.ts";
 
 const ROOT = join(import.meta.dir, "../../..");
@@ -22,20 +22,54 @@ function mutated(fixture: string, f: (s: Src) => void): Src {
   return s;
 }
 
-const parsed = (r: FitResult, i: number): any => JSON.parse(r.questions[i]!.context as string);
-const qctx = (r: FitResult, i: number): string => r.questions[i]!.context as string;
+const parsed = (r: RenderedOpen, i: number): any => JSON.parse(r.questions[i]!.context as string);
+const qctx = (r: RenderedOpen, i: number): string => r.questions[i]!.context as string;
 const contextOrNull = (q: Record<string, unknown>): unknown => q.context ?? null;
 const dropEntryFields = (s: Src, fields: string[]): Src => {
   for (const q of s.questions) for (const e of q.context?.findings ?? []) for (const f of fields) delete e[f];
   return s;
 };
 
+const paneBytes = (p: FitResult["pane"]): number =>
+  (p.context === undefined ? 0 : utf8Bytes(p.context)) +
+  p.questions.reduce((n, q) => n + (typeof q.context === "string" ? utf8Bytes(q.context) : 0), 0);
+
+describe("the pane budget: what is stored stays whole, the pane prose is fitted", () => {
+  const big = (): Src =>
+    mutated(PLAN, (s) => {
+      s.questions[0].context.claim.points = Array.from({ length: 40 }, (_, i) => `point ${i}: ${"p".repeat(1100)}`);
+    });
+  const src = big();
+  const out = fitOpen(big());
+
+  test("the source carries 40 KB of structured context", () =>
+    expect(utf8Bytes(JSON.stringify(src.questions[0].context))).toBeGreaterThan(40 * 1024));
+  test("the stored open is structured and untrimmed", () => {
+    expect(out.mode).toBe("structured");
+    expect(JSON.parse(out.context!)).toEqual(src.context);
+    expect(out.questions.map((q) => (q.context ? JSON.parse(q.context as string) : null))).toEqual(
+      src.questions.map(contextOrNull),
+    );
+  });
+  test("the pane prose is within PANE_PROSE_LIMIT", () => {
+    expect(out.pane.fits).toBe(true);
+    expect(paneBytes(out.pane)).toBeLessThan(PANE_PROSE_LIMIT);
+  });
+  test("the pane prose names what it trimmed", () => expect(out.pane.trimmed).toEqual(["thread-1:points"]));
+  test("the pane prose keeps the reply direction whole", () =>
+    expect(out.pane.questions[0]!.context as string).toContain(src.questions[0].context.reply.text));
+  test("an open under the budget has the untrimmed prose as its pane", () => {
+    const prose = proseOpen(load(PLAN));
+    expect(fitOpen(load(PLAN)).pane).toEqual({ context: prose.context, questions: prose.questions, fits: true, trimmed: [] });
+  });
+});
+
 describe("structured, under budget: contexts round-trip exactly", () => {
   const src = load(PLAN);
   const out = fitOpen(load(PLAN));
 
   test("plan fit is structured", () => expect(out.mode).toBe("structured"));
-  test("plan fit trims nothing", () => expect(out.trimmed).toEqual([]));
+  test("plan fit trims nothing", () => expect(out.pane.trimmed).toEqual([]));
   test("gate context round-trips", () => expect(JSON.parse(out.context!)).toEqual(src.context));
   test("question contexts round-trip", () => {
     const got = out.questions.map((q) => {
@@ -46,11 +80,11 @@ describe("structured, under budget: contexts round-trip exactly", () => {
   });
   test("options untouched", () =>
     expect(out.questions.map((q) => q.options)).toEqual(src.questions.map((q: Src) => q.options)));
-  test("bytes is the shared-budget total", () => {
+  test("bytes is the stored total", () => {
     const qs = out.questions.filter((q) => q.context != null).map((q) => utf8Bytes(q.context as string));
     expect(out.bytes).toBe(utf8Bytes(out.context!) + qs.reduce((a, b) => a + b, 0));
   });
-  test("structured open fits", () => expect(out.fits).toBe(true));
+  test("the pane prose fits", () => expect(out.pane.fits).toBe(true));
 
   test("post fit is structured", () => expect(fitOpen(load(POST)).mode).toBe("structured"));
   test("reply contexts round-trip", () => {
@@ -72,55 +106,51 @@ describe("structured, under budget: contexts round-trip exactly", () => {
   test("reply.kind none needs no text", () =>
     expect(fitOpen(mutated(PLAN, (s) => (s.questions[0].context.reply = { kind: "none" }))).mode).toBe("structured"));
 
-  test("output keys are in the script's order", () =>
-    expect(Object.keys(out)).toEqual(["mode", "trimmed", "context", "questions", "bytes", "fits"]));
+  test("output keys are in the script's order", () => {
+    expect(Object.keys(out)).toEqual(["mode", "context", "questions", "bytes", "pane"]);
+    expect(Object.keys(out.pane)).toEqual(["context", "questions", "fits", "trimmed"]);
+  });
 });
 
-describe("over budget: points from the longest thread, then notes, never reply.text", () => {
+describe("pane over budget: points from the longest thread, then notes, never reply.text", () => {
+  const FULL = proseOpen(load(PLAN)).bytes;
+  const NOPOINTS = proseOpen(mutated(PLAN, (s) => delete s.questions[0].context.claim.points)).bytes;
+  const pq = (r: FitResult, i: number): string => r.pane.questions[i]!.context as string;
+
   test("trim drops the longest thread's points first", () => {
-    const r = fitOpen(load(PLAN), 1000);
-    expect(r.trimmed).toEqual(["thread-1:points"]);
-    const c = parsed(r, 0);
-    expect(c.claim.points).toBeUndefined();
-    expect(c.claim.summary.length).toBeGreaterThan(0);
-    expect(r.bytes).toBeLessThan(1000);
+    const r = fitOpen(load(PLAN), FULL);
+    expect(r.pane.trimmed).toEqual(["thread-1:points"]);
+    expect(pq(r, 0)).not.toContain("- permanent failures carry retryable");
+    expect(pq(r, 0)).toStartWith("[BLOCKING] renee: the retry queue");
+    expect(paneBytes(r.pane)).toBeLessThan(FULL);
   });
 
   test("notes go after every thread's points", () => {
-    const r = fitOpen(load(PLAN), 900);
-    expect(r.trimmed).toEqual(["thread-1:points", "thread-2:note"]);
+    const r = fitOpen(load(PLAN), NOPOINTS);
+    expect(r.pane.trimmed).toEqual(["thread-1:points", "thread-2:note"]);
     const s = load(PLAN);
-    expect([parsed(r, 0).reply.text, parsed(r, 1).reply.text]).toEqual([
-      s.questions[0].context.reply.text,
-      s.questions[1].context.reply.text,
-    ]);
+    expect(pq(r, 0)).toContain(s.questions[0].context.reply.text);
+    expect(pq(r, 1)).toContain(s.questions[1].context.reply.text);
   });
 
-  describe("no fit falls back to prose for the whole gate", () => {
-    const r = fitOpen(load(PLAN), 700);
-    const s = load(PLAN);
-    test("mode is prose", () => expect(r.mode).toBe("prose"));
-    test("prose fallback flattens the gate context", () =>
-      expect(r.context!.split(" · ")[0]).toBe("Responding to renee's review"));
-    test("prose fallback keeps every reply text whole", () => {
-      expect(qctx(r, 0)).toContain(s.questions[0].context.reply.text);
-      expect(qctx(r, 1)).toContain(s.questions[1].context.reply.text);
-    });
-    test("prose fallback flattens the trimmed source when the full prose is over", () =>
-      expect(r.trimmed).toEqual(["thread-1:points", "thread-2:note", "thread-1:note"]));
-    test("prose fallback fits", () => expect(r.fits && r.bytes < 700).toBe(true));
-  });
+  test("the pane prose flattens the gate context", () =>
+    expect(fitOpen(load(PLAN), NOPOINTS).pane.context!.split(" · ")[0]).toBe("Responding to renee's review"));
 
   test("untrimmed prose wins when it fits", () => {
     const r = fitOpen(
       mutated(PLAN, (s) => delete s.questions[0].context.claim.points),
-      700,
+      NOPOINTS + 1,
     );
-    expect(`${JSON.stringify(r.trimmed)}|${/confirmed against the checkout/.test(qctx(r, 0))}`).toBe("[]|true");
+    expect(`${JSON.stringify(r.pane.trimmed)}|${/confirmed against the checkout/.test(pq(r, 0))}`).toBe("[]|true");
   });
 
   test("an open no prose can fit reports that it does not fit", () =>
-    expect(fitOpen(load(PLAN), 300).fits).toBe(false));
+    expect(fitOpen(load(PLAN), 300).pane.fits).toBe(false));
+
+  test("the stored open stays structured and whole at any limit", () => {
+    const r = fitOpen(load(PLAN), 300);
+    expect(r).toMatchObject({ mode: "structured", context: fitOpen(load(PLAN)).context, questions: fitOpen(load(PLAN)).questions });
+  });
 });
 
 describe("prose flattening: exact text", () => {
@@ -161,7 +191,6 @@ Will post as reply: the wait is a fixed 30s delay (queue/retry.ts:14), so the RE
 describe("review-post: review@1 gate, findings@1 per findings-* question", () => {
   const src = load(REVIEW);
   const out = fitOpen(load(REVIEW));
-  const FULL = out.bytes;
 
   test("review fit is structured", () => expect(out.mode).toBe("structured"));
   test("review contexts round-trip", () => {
@@ -186,53 +215,56 @@ describe("review-post: review@1 gate, findings@1 per findings-* question", () =>
     expect(r.mode).toBe("structured");
   });
 
+  const PROSE = proseOpen(load(REVIEW)).bytes;
   test("trim drops the largest evidence first", () =>
-    expect(fitOpen(load(REVIEW), FULL).trimmed).toEqual(["findings-1:f2:evidence"]));
+    expect(fitOpen(load(REVIEW), PROSE).pane.trimmed).toEqual(["findings-1:f2:evidence"]));
 
-  const NOEV = fitOpen(dropEntryFields(load(REVIEW), ["evidence"])).bytes;
+  const NOEV = proseOpen(dropEntryFields(load(REVIEW), ["evidence"])).bytes;
   test("every evidence goes, largest first, before any fix", () =>
-    expect(fitOpen(load(REVIEW), NOEV + 1).trimmed).toEqual([
+    expect(fitOpen(load(REVIEW), NOEV + 1).pane.trimmed).toEqual([
       "findings-1:f2:evidence",
       "findings-2:f5:evidence",
       "findings-1:f4:evidence",
     ]));
   const atNoev = fitOpen(load(REVIEW), NOEV);
   test("then the largest fix", () =>
-    expect(atNoev.trimmed).toEqual([
+    expect(atNoev.pane.trimmed).toEqual([
       "findings-1:f2:evidence",
       "findings-2:f5:evidence",
       "findings-1:f4:evidence",
       "findings-1:f3:fix",
     ]));
   describe("at the bytes left after the largest fix", () => {
-    const r = fitOpen(load(REVIEW), atNoev.bytes);
-    test("equal fixes go in position order", () => expect(r.trimmed[4]).toBe("findings-1:f4:fix"));
+    const r = fitOpen(load(REVIEW), paneBytes(atNoev.pane));
+    test("equal fixes go in position order", () => expect(r.pane.trimmed[4]).toBe("findings-1:f4:fix"));
     test("trimmed entries keep title, file and body", () => {
-      const pick = (fs: Src[]) => fs.map(({ title, file, body }) => ({ title, file, body }));
-      expect([...pick(parsed(r, 0).findings), ...pick(parsed(r, 1).findings)]).toEqual([
-        ...pick(src.questions[0].context.findings),
-        ...pick(src.questions[1].context.findings),
-      ]);
+      const p = (r.pane.questions[0]!.context as string) + (r.pane.questions[1]!.context as string);
+      for (const q of src.questions.slice(0, 2))
+        for (const f of q.context.findings) for (const k of ["title", "file", "body"]) if (f[k]) expect(p).toContain(f[k]);
     });
+    test("the stored open keeps every fix and evidence", () => expect(r.questions).toEqual(out.questions));
   });
 
-  describe("a review that cannot fit structured goes prose for the whole gate", () => {
-    const MIN = fitOpen(dropEntryFields(load(REVIEW), ["evidence", "fix"])).bytes;
-    const r = fitOpen(load(REVIEW), MIN);
-    test("mode and fits", () => expect(`${r.mode}|${r.fits}`).toBe("prose|true"));
-    test("prose keeps every body whole", () => {
-      const p = qctx(r, 0) + qctx(r, 1);
+  describe("a review whose smallest prose is at the limit", () => {
+    const MIN = proseOpen(dropEntryFields(load(REVIEW), ["evidence", "fix"])).bytes;
+    test("fits one byte over it with every body whole", () => {
+      const r = fitOpen(load(REVIEW), MIN + 1);
+      expect(r.pane.fits).toBe(true);
+      const p = (r.pane.questions[0]!.context as string) + (r.pane.questions[1]!.context as string);
       for (const q of src.questions.slice(0, 2)) for (const f of q.context.findings) expect(p).toContain(f.body);
     });
+    test("does not fit at it, and is still stored structured", () =>
+      expect(`${fitOpen(load(REVIEW), MIN).mode}|${fitOpen(load(REVIEW), MIN).pane.fits}`).toBe("structured|false"));
   });
 
-  describe("findings questions without contexts (a legacy findings file) fit as prose", () => {
+  describe("findings questions without contexts (a legacy findings file) are stored as prose", () => {
     const r = fitOpen(
       mutated(REVIEW, (s) => {
         for (const q of s.questions) if (q.id.startsWith("findings-")) delete q.context;
       }),
     );
-    test("mode, trimmed and fits", () => expect(`${r.mode}|${JSON.stringify(r.trimmed)}|${r.fits}`).toBe("prose|[]|true"));
+    test("mode, trimmed and fits", () =>
+      expect(`${r.mode}|${JSON.stringify(r.pane.trimmed)}|${r.pane.fits}`).toBe("prose|[]|true"));
     test("the legacy open carries no question contexts", () =>
       expect(r.questions.map((q) => "context" in q)).toEqual([false, false, false]));
   });

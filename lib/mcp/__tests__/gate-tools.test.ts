@@ -557,11 +557,41 @@ describe("gate_open", () => {
     expect(f.log).toEqual([]);
   });
 
-  test("an open that does not fit also saves the dropped fact", async () => {
+  test("an open whose pane prose does not fit also saves the dropped fact", async () => {
     const f = rooted();
     const res = await open({ kind: "respond-plan", source: bigAdjudication(), ...RUN }, f);
-    expect(body(res)).toMatchObject({ mode: "prose", fits: false, contextDropped: true });
+    expect(body(res)).toMatchObject({ mode: "structured", fits: false, contextDropped: true });
     expect(f.log.slice(3)).toEqual(["field set extra.context-dropped.respond-plan g1 --stage s", sourceLine("respond-plan", "g1", bigAdjudication())]);
+  });
+
+  describe("the pane budget", () => {
+    const bigPoints = (): Src => {
+      const s = plan();
+      s.questions[0]!.context.claim.points = Array.from({ length: 40 }, (_, i) => `point ${i}: ${"p".repeat(1000)}`);
+      return s;
+    };
+
+    test("an over-budget source is stored untrimmed and the form view is the fitted pane prose", async () => {
+      const f = rooted();
+      const fit = fitOpen(bigPoints());
+      const res = await open({ kind: "respond-plan", source: bigPoints() }, f);
+      expect(res.ok).toBe(true);
+      expect(JSON.parse((f.asks[0]!.questions as { context: string }[])[0]!.context)).toEqual(bigPoints().questions[0]!.context);
+      expect(f.asks[0]).toMatchObject({ questions: fit.questions, context: fit.context });
+      expect(body(res)).toMatchObject({ mode: "structured", fits: true, trimmed: ["thread-1:points"], contextDropped: false, formContext: fit.pane.context });
+      const chunks = body(res).formChunks as { text: string }[][];
+      expect(chunks[0]![0]!.text).toBe(`queue/enqueue.ts:88\n${fit.pane.questions[0]!.context as string}`);
+    });
+
+    test("a pane prose over budget even trimmed still opens the stored gate whole, its form view dropped", async () => {
+      const f = rooted();
+      const res = await open({ kind: "respond-plan", source: bigAdjudication() }, f);
+      expect(res.ok).toBe(true);
+      expect(JSON.parse(f.asks[0]!.context as string)).toEqual(bigAdjudication().context);
+      expect(body(res).formContext).toBeUndefined();
+      const texts = (body(res).formChunks as { text: string }[][]).flat().map((c) => c.text);
+      expect(texts.some((t) => t.includes("x".repeat(100)))).toBe(false);
+    });
   });
 
   test("a failed gate-source write returns the open gate with runErrors", async () => {
@@ -585,25 +615,28 @@ describe("gate_open", () => {
       expect((body(res).formChunks as { text: string }[][])[0]![0]!.text).toStartWith("queue/enqueue.ts:88\n[BLOCKING] renee:");
     });
 
-    test("over budget drops whole question contexts, largest first", async () => {
+    test("pane prose over budget drops whole question contexts from the form view only, largest first", async () => {
       const s = plan();
       s.questions[0]!.context.claim.summary = "y".repeat(9 * 1024);
+      const fit = fitOpen(s);
       const res = await open({ kind: "respond-plan", source: s, handBack: true });
       const o = body(res).open as { context?: string; questions: { id: string; context?: string }[] };
       expect(body(res)).toMatchObject({ fits: false, contextDropped: true, droppedContexts: ["thread-1"] });
-      expect(o.context).toBe(fitOpen(s).context!);
-      expect(o.questions[0]!.context).toBeUndefined();
-      expect(o.questions[1]!.context).toBe(fitOpen(s).questions[1]!.context as string);
+      expect(o.context).toBe(fit.context!);
+      expect(o.questions[0]!.context).toBe(fit.questions[0]!.context as string);
+      const chunk = (body(res).formChunks as { text: string }[][])[0]!;
+      expect(chunk[0]!.text).toBe("queue/enqueue.ts:88");
+      expect(chunk[1]!.text).toEndWith(fit.pane.questions[1]!.context as string);
     });
 
-    test("a gate context alone over budget drops every question context, then the gate context, and still returns the open", async () => {
+    test("a gate context alone over budget drops every form view context, and the open stays whole", async () => {
       const res = await open({ kind: "respond-plan", source: bigAdjudication(), handBack: true });
       expect(res.ok).toBe(true);
+      const fit = fitOpen(bigAdjudication());
       const o = body(res).open as { context?: string; questions: { id: string; context?: string }[] };
       expect((body(res).droppedContexts as string[]).toSorted()).toEqual(["thread-1", "thread-2"]);
-      expect(o.context).toBeUndefined();
-      expect(o.questions.map((q) => q.id)).toEqual(["thread-1", "thread-2", "code-changes"]);
-      expect(o.questions.every((q) => q.context === undefined)).toBe(true);
+      expect(o).toEqual({ context: fit.context, questions: fit.questions as never });
+      expect(body(res).formContext).toBeUndefined();
       expect(body(res).contextDropped).toBe(true);
     });
 
@@ -612,8 +645,18 @@ describe("gate_open", () => {
       const res = await open({ kind: "respond-plan", source: plan(), handBack: true, outPath: out });
       expect(body(res).outPath).toBe(out);
       const file = readFileSync(out, "utf8");
-      expect(Object.keys(JSON.parse(file))).toEqual(["mode", "trimmed", "context", "questions", "bytes", "fits"]);
+      expect(Object.keys(JSON.parse(file))).toEqual(["mode", "context", "questions", "bytes", "pane"]);
       expect(JSON.parse(file)).toEqual(JSON.parse(JSON.stringify(fitOpen(plan()))));
+    });
+
+    test("outPath on an over-budget open holds the whole open and the dropped pane", async () => {
+      const out = join(tmp, "open-big.json");
+      await open({ kind: "respond-plan", source: bigAdjudication(), handBack: true, outPath: out });
+      const file = JSON.parse(readFileSync(out, "utf8"));
+      const fit = fitOpen(bigAdjudication());
+      expect(file.context).toBe(fit.context);
+      expect(file.pane.context).toBeUndefined();
+      expect(file.pane.fits).toBe(false);
     });
 
     test("an outPath outside the temp roots is refused and nothing is written", async () => {

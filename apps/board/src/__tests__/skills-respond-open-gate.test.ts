@@ -12,7 +12,6 @@ const script = join(
   'scripts',
   'open-gate.sh'
 );
-const BUDGET = 8192;
 
 type Question = {
   id: string;
@@ -64,7 +63,6 @@ const flag = (argv: string[], name: string) => {
 };
 const sentQuestions = (argv: string[]) =>
   JSON.parse(flag(argv, '--questions') ?? 'null') as Question[];
-const bytes = (s: string) => Buffer.byteLength(s, 'utf8');
 
 const thread = (i: number, context: string): Question => ({
   id: `thread-${i}`,
@@ -134,42 +132,13 @@ describe('open-gate.sh', () => {
     expect(sentQuestions(r.argv[0]!)).toEqual([reply(1), reply(2)]);
   });
 
-  test('over budget: drops whole contexts largest-first, ties to the earliest, until under', () => {
-    const prose = (i: number, size: number) =>
-      `thread ${i}: ${'x'.repeat(size)}`.slice(0, size);
-    const sizes = [900, 700, 900, 800, 850, 850, 850, 850, 850, 800];
-    const questions = sizes.map((s, i) => thread(i + 1, prose(i + 1, s)));
-    const context = 'Responding to ada · 10 threads';
-    const total = bytes(context) + sizes.reduce((sum, s) => sum + s, 0);
-    expect(total).toBeGreaterThanOrEqual(BUDGET);
-
+  test('a file of any size opens as is, every context whole', () => {
+    const questions = [1, 2, 3].map(i => thread(i, 'y'.repeat(20000 + i)));
+    const context = `Responding to ada · ${'z'.repeat(40000)}`;
     const r = run({ context, questions: [...questions, codeChanges] });
     expect(r.exitCode).toBe(0);
-    const sent = sentQuestions(r.argv[0]!);
-    const dropped = sent
-      .filter(q => q.id.startsWith('thread-') && !('context' in q))
-      .map(q => q.id);
-    expect(dropped).toEqual(['thread-1']);
-    expect(sent[2]!.context).toBe(questions[2]!.context);
-    expect(
-      bytes(flag(r.argv[0]!, '--context')!) +
-        sent.reduce((sum, q) => sum + bytes(q.context ?? ''), 0)
-    ).toBeLessThan(BUDGET);
-    expect(sent.map(q => q.id)).toEqual([
-      ...questions.map(q => q.id),
-      'code-changes',
-    ]);
-    expect(sent.map(q => q.options)).toEqual([
-      ...questions.map(q => q.options),
-      codeChanges.options,
-    ]);
-  });
-
-  test('keeps dropping until the total is under budget', () => {
-    const questions = [1, 2, 3].map(i => thread(i, 'y'.repeat(5000 + i)));
-    const r = run({ context: 'ctx', questions });
-    const sent = sentQuestions(r.argv[0]!);
-    expect(sent.map(q => 'context' in q)).toEqual([true, false, false]);
+    expect(sentQuestions(r.argv[0]!)).toEqual([...questions, codeChanges]);
+    expect(flag(r.argv[0]!, '--context')).toBe(context);
   });
 
   test('a file with no gate context opens without --context', () => {

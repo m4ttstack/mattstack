@@ -310,15 +310,30 @@ export function checkSource(source: unknown): { ok: true } | { ok: false; proble
   return problems.length === 0 ? { ok: true } : { ok: false, problems };
 }
 
-export const GATE_CTX_LIMIT = 8192;
+/** The budget for the prose a Claude Code pane's form renders. What a gate
+    stores and what the board draws have no budget. */
+export const PANE_PROSE_LIMIT = 8192;
 
-export interface FitResult {
+/** Per shape, the fields only the board shows. A name is dropped from the
+    context and from every object in the context's top-level arrays. */
+export const BOARD_ONLY_FIELDS: Record<string, readonly string[]> = {};
+
+export interface RenderedOpen {
   mode: "structured" | "prose";
-  trimmed: string[];
   context?: string;
   questions: Record<string, unknown>[];
   bytes: number;
+}
+
+export interface PaneProse {
+  context?: string;
+  questions: Record<string, unknown>[];
   fits: boolean;
+  trimmed: string[];
+}
+
+export interface FitResult extends RenderedOpen {
+  pane: PaneProse;
 }
 
 type Obj = Record<string, any>;
@@ -445,8 +460,19 @@ function replyProse(c: Obj): string {
   return `${s(c.file)} ${verb}: ${s(c.text)}`;
 }
 
+export function withoutBoardOnly(ctx: Record<string, unknown>): Record<string, unknown> {
+  const shape = ctx["gate-ctx"];
+  const fields = typeof shape === "string" && Object.hasOwn(BOARD_ONLY_FIELDS, shape) ? BOARD_ONLY_FIELDS[shape]! : [];
+  if (fields.length === 0) return ctx;
+  const omit = (o: Record<string, unknown>): Record<string, unknown> =>
+    Object.fromEntries(Object.entries(o).filter(([k]) => !fields.includes(k)));
+  return Object.fromEntries(
+    Object.entries(omit(ctx)).map(([k, v]) => [k, Array.isArray(v) ? v.map((e) => (isObject(e) ? omit(e) : e)) : v]),
+  );
+}
+
 export function proseContext(ctx: Record<string, unknown>): string {
-  const c = ctx as Obj;
+  const c = withoutBoardOnly(ctx) as Obj;
   switch (c["gate-ctx"]) {
     case "plan@1":
       return planProse(c);
@@ -472,9 +498,11 @@ export function proseContext(ctx: Record<string, unknown>): string {
 const jsonBytes = (v: unknown): number => utf8Bytes(tojson(v));
 const shapeOf = (q: Obj): unknown => (isObject(q.context) ? q.context["gate-ctx"] : null);
 
-function ctxBytes(w: Working): number {
-  let n = has(w, "context") ? jsonBytes(w.context) : 0;
-  for (const q of w.questions) if (has(q, "context")) n += jsonBytes(q.context);
+const proseBytes = (c: Obj): number => utf8Bytes(proseContext(c));
+
+function paneBytes(w: Working): number {
+  let n = has(w, "context") ? proseBytes(w.context!) : 0;
+  for (const q of w.questions) if (has(q, "context")) n += proseBytes(q.context);
   return n;
 }
 
@@ -487,7 +515,7 @@ type Candidate = { i: number; b: number };
 
 function trimUntil(w: Working, limit: number, candidates: () => Candidate[], cut: (i: number) => void): void {
   for (;;) {
-    if (ctxBytes(w) < limit) return;
+    if (paneBytes(w) < limit) return;
     const c = largest(candidates());
     if (c === undefined) return;
     cut(c.i);
@@ -560,7 +588,7 @@ function trimEntries(w: Working, f: string, limit: number): void {
         : [],
     );
   for (;;) {
-    if (ctxBytes(w) < limit) return;
+    if (paneBytes(w) < limit) return;
     const c = largest(candidates());
     if (c === undefined) return;
     const q = w.questions[c.i]!;
@@ -577,18 +605,17 @@ function structurable(w: Working): boolean {
     .every((q) => shapeOf(q) === "findings@1");
 }
 
-function render(w: Working, mode: FitResult["mode"], limit: number): FitResult {
+function render(w: Working, mode: RenderedOpen["mode"]): RenderedOpen {
   const flat = (c: Obj): string => (mode === "prose" ? proseContext(c) : tojson(c));
-  const trimmed = (truthy(w.trimmed) ? w.trimmed : []) as string[];
   const context = has(w, "context") ? { context: flat(w.context!) } : {};
   const questions = w.questions.map((q) => (has(q, "context") ? { ...q, context: flat(q.context) } : q));
   let bytes = context.context === undefined ? 0 : utf8Bytes(context.context);
   for (const q of questions) if (has(q, "context")) bytes += utf8Bytes(q.context as string);
-  return { mode, trimmed, ...context, questions, bytes, fits: bytes < limit };
+  return { mode, ...context, questions, bytes };
 }
 
-export function proseOpen(source: GateCtxSource): FitResult {
-  return render(structuredClone(source) as Working, "prose", GATE_CTX_LIMIT);
+export function proseOpen(source: GateCtxSource): RenderedOpen {
+  return render(structuredClone(source) as Working, "prose");
 }
 
 /** The most boards one gate carries: twelve realistic entries (a run-folder
@@ -598,18 +625,15 @@ export const BOARDS_PER_GATE = 12;
 const isBoards = (w: Working): boolean => isObject(w.context) && w.context["gate-ctx"] === "boards@1";
 
 /** A boards gate the human cannot see in full is never opened: past the
-    cap, or past the budget, it is refused so the site splits it. */
+    cap, or past the pane budget, it is refused so the site splits it. */
 export function boardsBudgetError(source: GateCtxSource, fit: FitResult): string | null {
   if (!isBoards(source as Working)) return null;
   const n = ((source.context as Obj).boards as unknown[]).length;
   if (n > BOARDS_PER_GATE) return `boards@1: ${n} boards; open at most ${BOARDS_PER_GATE} per gate`;
-  return fit.fits ? null : `boards@1: ${n} boards do not fit the ${GATE_CTX_LIMIT}-byte budget`;
+  return fit.pane.fits ? null : `boards@1: ${n} boards do not fit the ${PANE_PROSE_LIMIT}-byte budget`;
 }
 
-export function fitOpen(source: GateCtxSource, limit: number = GATE_CTX_LIMIT): FitResult {
-  const src = structuredClone(source) as Working;
-  if (isBoards(src)) return render(src, "structured", limit);
-  if (!structurable(src)) return render(src, "prose", limit);
+function fitPane(src: Working, limit: number): PaneProse {
   const fitted = { ...structuredClone(src), trimmed: [] } as Working;
   trimThread(fitted, "points", limit);
   trimThread(fitted, "note", limit);
@@ -618,7 +642,13 @@ export function fitOpen(source: GateCtxSource, limit: number = GATE_CTX_LIMIT): 
   shortenCarry(fitted, "original", limit);
   trimEntries(fitted, "evidence", limit);
   trimEntries(fitted, "fix", limit);
-  if (ctxBytes(fitted) < limit) return render(fitted, "structured", limit);
-  const full = render(src, "prose", limit);
-  return full.bytes < limit ? full : render(fitted, "prose", limit);
+  const prose = render(fitted, "prose");
+  const context = prose.context === undefined ? {} : { context: prose.context };
+  return { ...context, questions: prose.questions, fits: prose.bytes < limit, trimmed: trimmedList(fitted) };
+}
+
+/** The stored open is the source whole; `limit` budgets only `pane`. */
+export function fitOpen(source: GateCtxSource, limit: number = PANE_PROSE_LIMIT): FitResult {
+  const src = structuredClone(source) as Working;
+  return { ...render(src, structurable(src) ? "structured" : "prose"), pane: fitPane(src, limit) };
 }

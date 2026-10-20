@@ -10,7 +10,7 @@
 import { readFileSync, writeFileSync } from "fs";
 import { gateAnswer, gateAsk, gateWait } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion, GateRow } from "../../packages/rt-client/src/index.ts";
-import { boardsBudgetError, checkSource, fitOpen, GATE_CTX_LIMIT, proseOpen, type FitResult, type GateCtxSource } from "../gates/ctx.ts";
+import { boardsBudgetError, checkSource, fitOpen, PANE_PROSE_LIMIT, type FitResult, type GateCtxSource, type PaneProse } from "../gates/ctx.ts";
 import { dropContextsToFit, flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
 import { isObject, tojson, utf8Bytes } from "../gates/jq.ts";
 import { buildReviewSource, reviewSourceErrors } from "../gates/review-source.ts";
@@ -234,7 +234,9 @@ export async function askGate(
     }
   }
 
-  const formContext = extra.formContext ?? (typeof input.context === "string" ? flattenContext(input.context, { level: "gate" }) : undefined);
+  const formContext = "formContext" in extra
+    ? extra.formContext
+    : typeof input.context === "string" ? flattenContext(input.context, { level: "gate" }) : undefined;
   const result: Record<string, unknown> = { ...data, paneAction, formChunks: shaped ? formChunks(questions, extra.proseById) : [] };
   if (formContext !== undefined) result.formContext = formContext;
   if (truncated.length > 0) result.labelsTruncated = truncated;
@@ -446,11 +448,28 @@ export function resolveSource(input: Record<string, unknown>, deps: GateToolDeps
   return reviewSource(input.review, deps);
 }
 
-function proseByQuestion(source: GateCtxSource): { formContext?: string; proseById: Record<string, string> } {
-  const prose = proseOpen(source);
+interface PaneForm {
+  formContext?: string;
+  /** Every question, "" where the pane shows no context, so formChunks never falls back to the stored one. */
+  proseById: Record<string, string>;
+  dropped: string[];
+  pane: PaneProse;
+}
+
+/** The pane's form view: the fitted pane prose, with whole contexts dropped
+    when even trimmed prose is over budget. The stored open is never touched. */
+function paneForm(fit: FitResult): PaneForm {
+  const fitted = { questions: fit.pane.questions as unknown as GateQuestion[], ...(fit.pane.context !== undefined ? { context: fit.pane.context } : {}) };
+  const { open, dropped } = dropContextsToFit(fitted, PANE_PROSE_LIMIT);
   const proseById: Record<string, string> = {};
-  for (const q of prose.questions) if (typeof q.context === "string") proseById[String(q.id)] = q.context;
-  return { formContext: prose.context, proseById };
+  for (const q of open.questions) proseById[String(q.id)] = typeof q.context === "string" ? q.context : "";
+  const pane: PaneProse = {
+    ...(open.context !== undefined ? { context: open.context } : {}),
+    questions: open.questions as unknown as Record<string, unknown>[],
+    fits: fit.pane.fits,
+    trimmed: fit.pane.trimmed,
+  };
+  return { ...(open.context !== undefined ? { formContext: open.context } : {}), proseById, dropped, pane };
 }
 
 async function handBack(
@@ -461,20 +480,17 @@ async function handBack(
   scope: string,
   deps: GateToolDeps,
 ): Promise<ToolResult> {
-  const fitted = { questions: fit.questions as unknown as GateQuestion[], ...(fit.context !== undefined ? { context: fit.context } : {}) };
-  const { open: afterDrops, dropped } = dropContextsToFit(fitted, GATE_CTX_LIMIT);
-  const shaped = wellFormed(afterDrops.questions);
-  const { questions, truncated } = shaped
-    ? truncateOptionText(afterDrops.questions)
-    : { questions: afterDrops.questions, truncated: [] as TruncatedText[] };
-  const open = { ...afterDrops, questions };
-  const { formContext, proseById } = proseByQuestion(source);
+  const stored = fit.questions as unknown as GateQuestion[];
+  const shaped = wellFormed(stored);
+  const { questions, truncated } = shaped ? truncateOptionText(stored) : { questions: stored, truncated: [] as TruncatedText[] };
+  const open = { ...(fit.context !== undefined ? { context: fit.context } : {}), questions };
+  const { formContext, proseById, dropped, pane } = paneForm(fit);
   const result: Record<string, unknown> = {
     open,
     mode: fit.mode,
-    fits: fit.fits,
-    trimmed: fit.trimmed,
-    contextDropped: !fit.fits,
+    fits: fit.pane.fits,
+    trimmed: fit.pane.trimmed,
+    contextDropped: !fit.pane.fits,
     droppedContexts: dropped,
     ...(formContext !== undefined ? { formContext } : {}),
     formChunks: shaped ? formChunks(questions, proseById) : [],
@@ -484,7 +500,7 @@ async function handBack(
   if (typeof input.outPath === "string") {
     let bytes = open.context === undefined ? 0 : utf8Bytes(open.context);
     for (const q of open.questions) if (typeof q.context === "string") bytes += utf8Bytes(q.context);
-    const file = { mode: fit.mode, trimmed: fit.trimmed, ...(open.context !== undefined ? { context: open.context } : {}), questions: open.questions, bytes, fits: fit.fits };
+    const file = { mode: fit.mode, ...(open.context !== undefined ? { context: open.context } : {}), questions: open.questions, bytes, pane };
     try {
       deps.writeFile(input.outPath, `${tojson(file)}\n`);
     } catch (e) {
@@ -530,12 +546,12 @@ export async function openGate(input: Record<string, unknown>, env: NodeJS.Proce
   const scope = typeof input.scope === "string" ? input.scope : kind;
   if (handingBack) return handBack(input, source, fit, run, scope, deps);
 
-  const { formContext, proseById } = proseByQuestion(source);
+  const { formContext, proseById } = paneForm(fit);
   const askInput: Record<string, unknown> = { questions: fit.questions, kind: input.kind };
   if (fit.context !== undefined) askInput.context = fit.context;
   if (input.subject !== undefined) askInput.subject = input.subject;
   if (input.scope !== undefined) askInput.scope = input.scope;
-  const asked = await askGate(askInput, env, deps, { run, proseById, formContext, contextDropped: !fit.fits });
+  const asked = await askGate(askInput, env, deps, { run, proseById, formContext, contextDropped: !fit.pane.fits });
   if (!asked.ok) return asked;
 
   const data = asked.body as Record<string, unknown>;
@@ -547,9 +563,9 @@ export async function openGate(input: Record<string, unknown>, env: NodeJS.Proce
   const result: Record<string, unknown> = {
     ...data,
     mode: fit.mode,
-    fits: fit.fits,
-    trimmed: fit.trimmed,
-    contextDropped: !fit.fits,
+    fits: fit.pane.fits,
+    trimmed: fit.pane.trimmed,
+    contextDropped: !fit.pane.fits,
   };
   if (runErrors.length > 0) result.runErrors = runErrors;
   return ok(result);

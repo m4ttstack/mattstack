@@ -19,21 +19,27 @@ run() { # stdin-file args... -> sets OUT, ERR, RC
 mutate() { # jq-filter fixture -> path of a mutated copy
   m=$(mktemp); jq "$1" "$2" > "$m"; echo "$m"
 }
+PANE_BYTES='(.pane.context // "" | utf8bytelength) + ([.pane.questions[] | .context // empty | utf8bytelength] | add // 0)'
 
 # --- structured, under budget: contexts round-trip exactly ---
 run "$PLAN" fit
 check "plan fit exits 0" 0 "$RC"
 check "plan fit is structured" structured "$(printf '%s' "$OUT" | jq -r .mode)"
-check "plan fit trims nothing" '[]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
+check "output keys" '["mode","context","questions","bytes","pane"]|["context","questions","fits","trimmed"]' \
+  "$(printf '%s' "$OUT" | jq -r '"\(keys_unsorted | tojson)|\(.pane | keys_unsorted | tojson)"')"
+check "plan fit trims nothing" '[]' "$(printf '%s' "$OUT" | jq -c .pane.trimmed)"
 check "gate context round-trips" true \
   "$(printf '%s' "$OUT" | jq --slurpfile s "$PLAN" '(.context | fromjson) == $s[0].context')"
 check "question contexts round-trip" true \
   "$(printf '%s' "$OUT" | jq --slurpfile s "$PLAN" '[.questions[] | .context // null | if . then fromjson else . end] == [$s[0].questions[] | .context // null]')"
 check "options untouched" true \
   "$(printf '%s' "$OUT" | jq --slurpfile s "$PLAN" '[.questions[].options] == [$s[0].questions[].options]')"
-check "bytes is the shared-budget total" true \
+check "bytes is the stored total" true \
   "$(printf '%s' "$OUT" | jq '.bytes == ((.context | utf8bytelength) + ([.questions[] | .context // empty | utf8bytelength] | add))')"
-check "structured open fits" true "$(printf '%s' "$OUT" | jq .fits)"
+check "the pane prose fits" true "$(printf '%s' "$OUT" | jq .pane.fits)"
+PROSE_PLAN=$(sh "$GC" prose < "$PLAN")
+check "an open under the budget has the untrimmed prose as its pane" true \
+  "$(printf '%s' "$OUT" | jq --argjson p "$PROSE_PLAN" '(.pane.context == $p.context) and (.pane.questions == $p.questions)')"
 
 run "$POST" fit
 check "post fit is structured" structured "$(printf '%s' "$OUT" | jq -r .mode)"
@@ -50,33 +56,31 @@ check "reply.kind none needs no text" 0 "$RC"
 M=$(mutate '.questions[0].context.file = "Overview comment" | .questions[0].options |= .[:1]' "$POST"); run "$M" fit; rm -f "$M"
 check "a post-only reply on an Overview comment" 0 "$RC"
 
-# --- over budget: points from the longest thread, then notes, never reply.text ---
-run "$PLAN" fit --limit 1000
-check "trim drops the longest thread's points first" '["thread-1:points"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
-check "trimmed thread keeps its summary" true \
-  "$(printf '%s' "$OUT" | jq '.questions[0].context | fromjson | (.claim | has("points") | not) and (.claim.summary | length > 0)')"
-check "trimmed open fits" true "$(printf '%s' "$OUT" | jq '.bytes < 1000')"
+# --- pane over budget: points from the longest thread, then notes, never reply.text ---
+FULL=$(printf '%s' "$PROSE_PLAN" | jq .bytes)
+run "$PLAN" fit --limit "$FULL"
+check "trim drops the longest thread's points first" '["thread-1:points"]' "$(printf '%s' "$OUT" | jq -c .pane.trimmed)"
+check "trimmed thread keeps its summary and loses its points" true \
+  "$(printf '%s' "$OUT" | jq '.pane.questions[0].context | startswith("[BLOCKING] renee: the retry queue") and (contains("- permanent failures") | not)')"
+check "trimmed pane prose fits" true "$(printf '%s' "$OUT" | jq --argjson l "$FULL" "($PANE_BYTES) < \$l and .pane.fits")"
+check "the stored open stays whole" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile s "$PLAN" '[.questions[] | .context // null | if . then fromjson else . end] == [$s[0].questions[] | .context // null]')"
 
-run "$PLAN" fit --limit 900
-check "notes go after every thread's points" '["thread-1:points","thread-2:note"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
+NOPOINTS=$(jq 'del(.questions[0].context.claim.points)' "$PLAN" | sh "$GC" prose | jq .bytes)
+run "$PLAN" fit --limit "$NOPOINTS"
+check "notes go after every thread's points" '["thread-1:points","thread-2:note"]' "$(printf '%s' "$OUT" | jq -c .pane.trimmed)"
 check "reply texts survive trimming" true \
-  "$(printf '%s' "$OUT" | jq --slurpfile s "$PLAN" '[.questions[0,1].context | fromjson | .reply.text] == [$s[0].questions[0,1].context.reply.text]')"
+  "$(printf '%s' "$OUT" | jq --slurpfile s "$PLAN" '[.pane.questions[0,1].context] as $p | [$s[0].questions[0,1].context.reply.text] | to_entries | all(.value as $t | $p[.key] | contains($t))')"
+check "the pane prose flattens the gate context" "Responding to renee's review" \
+  "$(printf '%s' "$OUT" | jq -r '.pane.context | split(" · ")[0]')"
 
-run "$PLAN" fit --limit 700
-check "no fit falls back to prose for the whole gate" prose "$(printf '%s' "$OUT" | jq -r .mode)"
-check "prose fallback flattens the gate context" "Responding to renee's review" \
-  "$(printf '%s' "$OUT" | jq -r '.context | split(" · ")[0]')"
-check "prose fallback keeps every reply text whole" true \
-  "$(printf '%s' "$OUT" | jq --slurpfile s "$PLAN" '[.questions[0,1].context] as $p | [$s[0].questions[0,1].context.reply.text] | to_entries | all(.value as $t | $p[.key] | contains($t))')"
-check "prose fallback flattens the trimmed source when the full prose is over" '["thread-1:points","thread-2:note","thread-1:note"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
-check "prose fallback fits" true "$(printf '%s' "$OUT" | jq '.fits and .bytes < 700')"
-
-M=$(mutate 'del(.questions[0].context.claim.points)' "$PLAN"); run "$M" fit --limit 700; rm -f "$M"
-check "untrimmed prose wins when it fits" '[]|true' "$(printf '%s' "$OUT" | jq -r '(.trimmed | tojson) + "|" + (.questions[0].context | test("confirmed against the checkout") | tostring)')"
+M=$(mutate 'del(.questions[0].context.claim.points)' "$PLAN"); run "$M" fit --limit $((NOPOINTS + 1)); rm -f "$M"
+check "untrimmed prose wins when it fits" '[]|true' "$(printf '%s' "$OUT" | jq -r '(.pane.trimmed | tojson) + "|" + (.pane.questions[0].context | test("confirmed against the checkout") | tostring)')"
 
 run "$PLAN" fit --limit 300
 check "an open no prose can fit still exits 0" 0 "$RC"
-check "and reports that it does not fit" false "$(printf '%s' "$OUT" | jq .fits)"
+check "and reports that it does not fit" false "$(printf '%s' "$OUT" | jq .pane.fits)"
+check "and is still stored structured" structured "$(printf '%s' "$OUT" | jq -r .mode)"
 
 # --- prose flattening: exact text ---
 run "$PLAN" prose
@@ -113,32 +117,34 @@ check "review contexts round-trip" true \
   "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '((.context | fromjson) == $s[0].context) and ([.questions[] | .context // null | if . then fromjson else . end] == [$s[0].questions[] | .context // null])')"
 check "review options untouched" true \
   "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '[.questions[].options] == [$s[0].questions[].options]')"
-FULL=$(printf '%s' "$OUT" | jq .bytes)
+FULL=$(sh "$GC" prose < "$REVIEW" | jq .bytes)
 
 M=$(mutate 'del(.questions[0].context.findings[2].disposition, .questions[0].context.findings[3].fix) | .context = {"gate-ctx": "review@1", "readiness": "yes", "summary": "clean enough.", "findings": {}}' "$REVIEW"); run "$M" fit; rm -f "$M"
 check "optional review and entry fields may all be absent" 0 "$RC"
 
 # evidence goes largest first, across every findings-* question, then fix the same way
 run "$REVIEW" fit --limit "$FULL"
-check "trim drops the largest evidence first" '["findings-1:f2:evidence"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
-NOEV=$(jq 'del(.questions[].context.findings?[]?.evidence)' "$REVIEW" | sh "$GC" fit | jq .bytes)
+check "trim drops the largest evidence first" '["findings-1:f2:evidence"]' "$(printf '%s' "$OUT" | jq -c .pane.trimmed)"
+NOEV=$(jq 'del(.questions[].context.findings?[]?.evidence)' "$REVIEW" | sh "$GC" prose | jq .bytes)
 run "$REVIEW" fit --limit $((NOEV + 1))
-check "every evidence goes, largest first, before any fix" '["findings-1:f2:evidence","findings-2:f5:evidence","findings-1:f4:evidence"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
+check "every evidence goes, largest first, before any fix" '["findings-1:f2:evidence","findings-2:f5:evidence","findings-1:f4:evidence"]' "$(printf '%s' "$OUT" | jq -c .pane.trimmed)"
 run "$REVIEW" fit --limit "$NOEV"
-check "then the largest fix" '["findings-1:f2:evidence","findings-2:f5:evidence","findings-1:f4:evidence","findings-1:f3:fix"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
-B=$(printf '%s' "$OUT" | jq .bytes); run "$REVIEW" fit --limit "$B"
-check "equal fixes go in position order" '"findings-1:f4:fix"' "$(printf '%s' "$OUT" | jq -c '.trimmed[4]')"
-check "trimmed entries keep title, file and body" true \
-  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '[.questions[0,1].context | fromjson | .findings[] | {title, file, body}] == [$s[0].questions[0,1].context.findings[] | {title, file, body}]')"
+check "then the largest fix" '["findings-1:f2:evidence","findings-2:f5:evidence","findings-1:f4:evidence","findings-1:f3:fix"]' "$(printf '%s' "$OUT" | jq -c .pane.trimmed)"
+B=$(printf '%s' "$OUT" | jq "$PANE_BYTES"); run "$REVIEW" fit --limit "$B"
+check "equal fixes go in position order" '"findings-1:f4:fix"' "$(printf '%s' "$OUT" | jq -c '.pane.trimmed[4]')"
+check "the stored open keeps every fix and evidence" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '[.questions[0,1].context | fromjson] == [$s[0].questions[0,1].context]')"
 
-MIN=$(jq 'del(.questions[].context.findings?[]?.evidence, .questions[].context.findings?[]?.fix)' "$REVIEW" | sh "$GC" fit | jq .bytes)
+MIN=$(jq 'del(.questions[].context.findings?[]?.evidence, .questions[].context.findings?[]?.fix)' "$REVIEW" | sh "$GC" prose | jq .bytes)
+run "$REVIEW" fit --limit $((MIN + 1))
+check "a review's smallest pane prose fits one byte over it" 'structured|true' "$(printf '%s' "$OUT" | jq -r '"\(.mode)|\(.pane.fits)"')"
+check "the pane prose keeps every body whole" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '(.pane.questions[0].context + .pane.questions[1].context) as $p | [$s[0].questions[0,1].context.findings[].body] | all(. as $b | $p | contains($b))')"
 run "$REVIEW" fit --limit "$MIN"
-check "a review that cannot fit structured goes prose for the whole gate" 'prose|true' "$(printf '%s' "$OUT" | jq -r '"\(.mode)|\(.fits)"')"
-check "prose keeps every body whole" true \
-  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '(.questions[0].context + .questions[1].context) as $p | [$s[0].questions[0,1].context.findings[].body] | all(. as $b | $p | contains($b))')"
+check "and does not fit at it" false "$(printf '%s' "$OUT" | jq .pane.fits)"
 
 M=$(mutate '(.questions[] | select(.id | startswith("findings-"))) |= del(.context)' "$REVIEW"); run "$M" fit; rm -f "$M"
-check "findings questions without contexts (a legacy findings file) fit as prose" 'prose|[]|true' "$(printf '%s' "$OUT" | jq -r '"\(.mode)|\(.trimmed | tojson)|\(.fits)"')"
+check "findings questions without contexts (a legacy findings file) are stored as prose" 'prose|[]|true' "$(printf '%s' "$OUT" | jq -r '"\(.mode)|\(.pane.trimmed | tojson)|\(.pane.fits)"')"
 check "the legacy open carries no question contexts" '[false,false,false]' "$(printf '%s' "$OUT" | jq -c '[.questions[] | has("context")]')"
 M=$(mutate 'del(.questions[1].context)' "$REVIEW"); run "$M" fit; rm -f "$M"
 check "one findings question without a context sends the whole gate prose" prose "$(printf '%s' "$OUT" | jq -r .mode)"

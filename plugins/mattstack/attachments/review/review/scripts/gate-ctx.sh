@@ -1,15 +1,21 @@
 #!/bin/sh
-# gate-ctx.sh -- validate, size-fit, and flatten a gate-ctx@1 gate open.
+# gate-ctx.sh -- validate and flatten a gate-ctx@1 gate open, and fit its
+# pane prose to the pane budget.
 #   gate-ctx.sh fit [--limit <bytes>] < source.json
 #   gate-ctx.sh prose < source.json
 # source.json: {"context": <plan@1, post@1 or review@1>, "questions":
 # [<question, its "context" a thread@1, reply@1, carryover@1, findings@1 or
 # skipped@1 object when it has one>]}.
-# stdout: {"mode","bytes","fits","trimmed","context","questions"}, every context
+# fit stdout: {"mode","context","questions","bytes","pane"}. "context" and
+# "questions" are the open to store, whole and untrimmed, every context
 # already a string, ready for --context and each question's context field.
-# "fits": false means even the smallest prose is over the limit. A review@1
-# gate fits structured only when every findings-* question carries a
-# findings@1 context; otherwise (a legacy findings file) it fits as prose.
+# A review@1 gate is stored structured only when every findings-* question
+# carries a findings@1 context; otherwise (a legacy findings file) it is
+# stored as prose. "pane": {"context","questions","fits","trimmed"} is the
+# prose a pane's form shows, trimmed to the limit (PANE_PROSE_LIMIT UTF-8
+# bytes) and never carrying a board-only field; "fits": false means even
+# the smallest pane prose is over it. prose stdout: the untrimmed
+# prose open, {"mode","context","questions","bytes"}.
 # Exit 0 = ok. Exit 1 = contract violation (one line per problem on
 # stderr). Exit 2 = usage.
 set -u
@@ -17,7 +23,8 @@ set -u
 usage() { echo "usage: gate-ctx.sh fit [--limit <bytes>] | gate-ctx.sh prose  (source JSON on stdin)" >&2; exit 2; }
 
 MODE=${1:-}
-LIMIT=8192
+PANE_PROSE_LIMIT=8192
+LIMIT=$PANE_PROSE_LIMIT
 case "$MODE" in
   fit)
     if [ $# -eq 3 ] && [ "$2" = "--limit" ]; then LIMIT=$3
@@ -161,8 +168,19 @@ def errors:
 def sev: {"blocking":"BLOCKING","non-blocking":"NON-BLOCKING","question":"QUESTION","none":"NO ASK"}[.];
 def plural($n; $one; $many): if $n == 1 then "\($n) \($one)" else "\($n) \($many)" end;
 def tier: {"critical":"Critical","important":"Important","minor":"Minor"}[.];
+# Per shape, the fields only the board shows (BOARD_ONLY_FIELDS in
+# lib/gates/ctx.ts). A name is dropped from the context and from every
+# object in the context's top-level arrays.
+def board_only: {};
+def without_board_only:
+  (board_only[.["gate-ctx"] | strings] // []) as $fs
+  | if $fs == [] then .
+    else del(.[$fs[]])
+      | map_values(if type == "array" then map(if type == "object" then del(.[$fs[]]) else . end) else . end)
+    end;
 def prose:
-  if .["gate-ctx"] == "plan@1" then
+  without_board_only
+  | if .["gate-ctx"] == "plan@1" then
     ["Responding to \(.reviewer)'s review",
      (if has("round") then "round \(.round)" else empty end),
      "\(plural(.threads.total; "thread"; "threads")), \(.threads.blocking // 0) blocking",
@@ -215,15 +233,15 @@ def prose:
     "\(.file) " + (if .verb == "fix" then "FIX" + (if has("sha") then " · \(.sha)" else "" end) else "REPLY" end) + ": \(.text)"
   end;
 
-def ctx_bytes: (if has("context") then .context | tojson | utf8bytelength else 0 end)
-  + ([.questions[] | select(has("context")) | .context | tojson | utf8bytelength] | add // 0);
+def pane_bytes: (if has("context") then .context | prose | utf8bytelength else 0 end)
+  + ([.questions[] | select(has("context")) | .context | prose | utf8bytelength] | add // 0);
 def has_field($f): if $f == "points" then .claim | has("points") else .verdict | has("note") end;
 def drop_field($f): if $f == "points" then del(.claim.points) else del(.verdict.note) end;
 def candidates($f): [.questions | to_entries[]
   | select(.value.context["gate-ctx"]? == "thread@1" and (.value.context | has_field($f)))
   | {i: .key, b: (.value.context | tojson | utf8bytelength)}];
 def trim($f; $limit):
-  until(ctx_bytes < $limit or (candidates($f) | length == 0);
+  until(pane_bytes < $limit or (candidates($f) | length == 0);
     (candidates($f) | sort_by(-.b, .i) | first.i) as $i
     | .questions[$i].context |= drop_field($f)
     | .trimmed += ["\(.questions[$i].id):\($f)"]);
@@ -231,7 +249,7 @@ def carry_candidates($f): [.questions | to_entries[]
   | select(.value.context["gate-ctx"]? == "carryover@1" and (.value.context | has($f)))
   | {i: .key, b: (.value.context | tojson | utf8bytelength)}];
 def trim_carry($f; $limit):
-  until(ctx_bytes < $limit or (carry_candidates($f) | length == 0);
+  until(pane_bytes < $limit or (carry_candidates($f) | length == 0);
     (carry_candidates($f) | sort_by(-.b, .i) | first.i) as $i
     | .questions[$i].context |= del(.[$f])
     | .trimmed += ["\(.questions[$i].id):\($f)"]);
@@ -244,7 +262,7 @@ def middle: length as $n | ($n / 4 | floor) as $k | .[:$k] + " ... " + .[$n - $k
 # Shortens, never deletes: carryover@1 reads an absent authorReply as
 # "the author never replied", and original is required.
 def shorten_carry($f; $limit):
-  until(ctx_bytes < $limit or (long_carry($f) | length == 0);
+  until(pane_bytes < $limit or (long_carry($f) | length == 0);
     (long_carry($f) | sort_by(-.b, .i) | first.i) as $i
     | .questions[$i].context[$f] |= middle
     | "\(.questions[$i].id):\($f)" as $tag
@@ -254,32 +272,32 @@ def entry_candidates($f): [.questions | to_entries[] | .key as $i
   | .value.context.findings | to_entries[] | select(.value | has($f))
   | {i: $i, j: .key, b: (.value[$f] | tojson | utf8bytelength)}];
 def trim_entries($f; $limit):
-  until(ctx_bytes < $limit or (entry_candidates($f) | length == 0);
+  until(pane_bytes < $limit or (entry_candidates($f) | length == 0);
     (entry_candidates($f) | sort_by(-.b, .i, .j) | first) as $c
     | .trimmed += ["\(.questions[$c.i].id):\(.questions[$c.i].context.findings[$c.j].id):\($f)"]
     | .questions[$c.i].context.findings[$c.j] |= del(.[$f]));
 def structurable: (.context["gate-ctx"]? != "review@1")
   or all(.questions[] | select(.id | tostring | startswith("findings-")); .context["gate-ctx"]? == "findings@1");
 
-def render($mode; $flatten):
-  {mode: $mode, trimmed: (.trimmed // [])}
-  + (if has("context") then {context: (.context | if $flatten then prose else tojson end)} else {} end)
-  + {questions: [.questions[] | if has("context") then .context |= (if $flatten then prose else tojson end) else . end]}
+def render($mode):
+  {mode: $mode}
+  + (if has("context") then {context: (.context | if $mode == "prose" then prose else tojson end)} else {} end)
+  + {questions: [.questions[] | if has("context") then .context |= (if $mode == "prose" then prose else tojson end) else . end]}
   | .bytes = ((if has("context") then .context | utf8bytelength else 0 end)
       + ([.questions[] | select(has("context")) | .context | utf8bytelength] | add // 0));
 
+def pane($limit):
+  (.trimmed = [] | trim("points"; $limit) | trim("note"; $limit)
+    | trim_carry("note"; $limit) | shorten_carry("authorReply"; $limit) | shorten_carry("original"; $limit)
+    | trim_entries("evidence"; $limit) | trim_entries("fix"; $limit)) as $fitted
+  | ($fitted | render("prose")) as $p
+  | (if $p | has("context") then {context: $p.context} else {} end)
+    + {questions: $p.questions, fits: ($p.bytes < $limit), trimmed: $fitted.trimmed};
+
 def main($mode; $limit):
-  if $mode == "prose" or (structurable | not) then render("prose"; true)
-  else . as $src
-    | (.trimmed = [] | trim("points"; $limit) | trim("note"; $limit)
-        | trim_carry("note"; $limit) | shorten_carry("authorReply"; $limit) | shorten_carry("original"; $limit)
-        | trim_entries("evidence"; $limit) | trim_entries("fix"; $limit)) as $fitted
-    | if ($fitted | ctx_bytes) < $limit then $fitted | render("structured"; false)
-      else ($src | render("prose"; true)) as $full
-        | if $full.bytes < $limit then $full else $fitted | render("prose"; true) end
-      end
-  end
-  | .fits = (.bytes < $limit);
+  if $mode == "prose" then render("prose")
+  else (if structurable then render("structured") else render("prose") end) + {pane: pane($limit)}
+  end;
 JQ
 )
 
