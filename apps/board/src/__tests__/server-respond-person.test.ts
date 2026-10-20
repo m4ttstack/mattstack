@@ -104,6 +104,22 @@ const DISCUSSIONS: Record<number, unknown[]> = {
       notes: [glanceNote(1, 'bob')],
     },
   ],
+  11: [
+    {
+      id: 't11-bob',
+      resolvable: true,
+      resolved: false,
+      notes: [glanceNote(1, 'bob')],
+    },
+  ],
+  12: [
+    {
+      id: 't12-bob',
+      resolvable: true,
+      resolved: false,
+      notes: [glanceNote(1, 'bob')],
+    },
+  ],
 };
 
 const PORT = 47969;
@@ -179,9 +195,13 @@ const prs = [
   fakePr(host, 8, ALICE),
   fakePr(host, 9, ALICE),
   fakePr(host, 10, ALICE),
+  fakePr(host, 11, ALICE),
+  fakePr(host, 12, ALICE),
 ];
 /** The daemon refuses agent:start for this MR, so its launch fails. */
 const FAILING_IID = 10;
+/** The daemon finds this MR's pane already open and focuses it instead. */
+const ALREADY_OPEN_IID = 11;
 const daemonSeen: Array<{ cmd: string; body: unknown }> = [];
 const rtDir = join(home, '.mattstack', 'rt');
 mkdirSync(rtDir, { recursive: true });
@@ -207,6 +227,14 @@ const daemon = Bun.serve({
         },
       });
     }
+    if (
+      cmd === 'agent:start' &&
+      JSON.stringify(body).includes(`merge_requests/${ALREADY_OPEN_IID}`)
+    )
+      return Response.json({
+        ok: false,
+        error: 'tab already open; focused it',
+      });
     if (cmd === 'agent:start')
       return JSON.stringify(body).includes(`merge_requests/${FAILING_IID}`)
         ? Response.json({ ok: false, error: 'herdr is not running' })
@@ -362,6 +390,27 @@ describe('/respond for a person', () => {
     expect(launches(10)).toHaveLength(1);
     expect(readRespondStates(db).get(url(10))?.status).toBe('error');
     expect(rounds(10)).toEqual({});
+  }, 15_000);
+
+  test('a launch that focuses an already open pane takes back its round', async () => {
+    const res = await post({ mrUrl: url(11), iid: 11, person: 'bob' });
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 300));
+    expect(launches(11)).toHaveLength(1);
+    expect(rounds(11)).toEqual({});
+  }, 15_000);
+
+  test('a fresh launch drops the gate the last run parked', async () => {
+    writeRespondState(
+      respondFilePath(url(12)),
+      { mrUrl: url(12), iid: 12, status: 'done', gateId: 'g-old' },
+      1000,
+      db
+    );
+    const res = await post({ mrUrl: url(12), iid: 12, person: 'bob' });
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 300));
+    expect(readRespondStates(db).get(url(12))?.gateId).toBeUndefined();
   }, 15_000);
 
   test('a launch for everyone forgets the person the last run answered', async () => {

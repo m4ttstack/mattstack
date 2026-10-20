@@ -110,15 +110,16 @@ export function respondReportPath(handle: string): string {
   return reportPathForHandle(handle);
 }
 
-/** A respond write. `person` and `responseRound` also take null, which
-    removes them: a fresh launch for everyone must not inherit the person a
-    prior run answered. */
+/** A respond write. `person`, `responseRound` and `gateId` also take null,
+    which removes them: a fresh launch must not inherit the person a prior
+    run answered, nor a parked gate that would resume it. */
 export type RespondPatch = Partial<
-  Omit<RespondState, 'person' | 'responseRound'>
+  Omit<RespondState, 'person' | 'responseRound' | 'gateId'>
 > & {
   status: RespondStatus;
   person?: string | null;
   responseRound?: number | null;
+  gateId?: string | null;
 };
 
 export function writeRespondState(
@@ -151,7 +152,7 @@ export function writeRespondState(
     sessionId: patch.sessionId,
     agentId: patch.agentId,
     paneId: patch.paneId,
-    gateId: patch.gateId,
+    gateId: patch.gateId ?? undefined,
     gateKind: patch.gateKind,
     resumedGateId: patch.resumedGateId,
     reopenedAt: patch.reopenedAt,

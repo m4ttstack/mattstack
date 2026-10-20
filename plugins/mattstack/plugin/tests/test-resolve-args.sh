@@ -171,6 +171,18 @@ check slot_decl_invalid 1 '
   and .errors[0].code == "slot-decl-invalid"
   and (.errors[0].message | contains("sometimes"))'
 
+# --- case: no-contract -- a declaration naming no contract is invalid ---
+mkdir -p "$WORK/wrapper-nocontract/scripts"
+sed 's|required tiering@1 --|required  --|' "$FIX/wrapper/SKILL.md" > "$WORK/wrapper-nocontract/SKILL.md"
+cp "$CANONICAL" "$WORK/wrapper-nocontract/scripts/resolve-args.sh"
+chmod +x "$WORK/wrapper-nocontract/scripts/resolve-args.sh"
+OUT=$("$WORK/wrapper-nocontract/scripts/resolve-args.sh" --manifest "$FIX/manifests/bound.jsonc" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+STATUS=$?
+check no_contract 1 '
+  .ok == false
+  and .errors[0].code == "slot-decl-invalid"
+  and (.errors[0].message | contains("names no"))'
+
 # --- case: multi-contract -- a slot listing two contracts takes either ---
 mkdir -p "$WORK/wrapper-multi/scripts"
 sed 's|required tiering@1 --|required tiering@2 tiering@1 --|' "$FIX/wrapper/SKILL.md" > "$WORK/wrapper-multi/SKILL.md"

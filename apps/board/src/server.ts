@@ -2622,6 +2622,7 @@ const httpServer = Bun.serve({
           noPack: !launchPack(boardTabId),
           person: person ?? null,
           responseRound: responseRound ?? null,
+          gateId: null,
         });
         void launchRespond({
           mrUrl: parsed.mrUrl,
@@ -2638,7 +2639,11 @@ const httpServer = Bun.serve({
           note,
         })
           .then(result => {
-            if (result.focusedExisting) return;
+            if (result.focusedExisting) {
+              if (person && responseRound !== undefined)
+                deleteRespondRound(parsed.mrUrl, person, responseRound);
+              return;
+            }
             writeRespondState(statePath, {
               status: 'queued',
               tabId: result.tabId,

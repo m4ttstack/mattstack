@@ -1127,6 +1127,17 @@ test('no choices and no respond state: no respond item', () => {
   expect(focus).toBeUndefined();
 });
 
+test('discussions never read: a plain respond item launches for everyone', () => {
+  const fresh = respondRows({});
+  expect(fresh.respond).toMatchObject({
+    label: 'respond',
+    request: { kind: 'launch', flow: 'respond' },
+  });
+  expect(fresh.respond?.request).not.toHaveProperty('person');
+  const errored = respondRows({ respond: { status: 'error' } });
+  expect(errored.respond?.label).toBe('respond');
+});
+
 test("legacy state with no person keeps today's wording", () => {
   const running = respondRows({
     respond: { status: 'implementing', sessionId: 's1' },

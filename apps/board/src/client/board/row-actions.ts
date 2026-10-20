@@ -329,7 +329,18 @@ export function rowActions(
               },
             }
           );
-        if (r && (r.status === 'done' || interrupted))
+        const redo = !!r && (r.status === 'done' || interrupted);
+        // No discussions read (no rtRepo, or the read failed): nobody to
+        // pick, so launch for everyone as the board did before persons.
+        if (mrx.respondTargets === undefined && !redo)
+          return agentItem(
+            'respond',
+            'respond',
+            'respond',
+            { kind: 'launch', flow: 'respond' },
+            { notable: true }
+          );
+        if (redo)
           return agentItem(
             'respond',
             'respond',

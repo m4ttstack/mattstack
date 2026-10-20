@@ -237,6 +237,10 @@ else
       CONTRACTS="${CONTRACTS:+$CONTRACTS }$CONTRACT_FULL"
     done
     set +f
+    if [ "$DECL_OK" = yes ] && [ -z "$CONTRACTS" ]; then
+      err "$SLOT" slot-decl-invalid "slot-$SLOT names no <name>@<major> contract before \" -- \""
+      DECL_OK=no
+    fi
     [ "$DECL_OK" = yes ] || continue
     NEEDS=$(printf '%s' "$CONTRACTS" | sed 's/ / or /g')
 
