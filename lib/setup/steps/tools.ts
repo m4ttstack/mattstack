@@ -138,24 +138,29 @@ const DAEMON_START_WINDOW_MS = 20_000;
 const DAEMON_POLL_INTERVAL_MS = 250;
 const DAEMON_POLL_ATTEMPTS = DAEMON_START_WINDOW_MS / DAEMON_POLL_INTERVAL_MS + 1;
 
-/** Exported so a test can drive the wait with an instant fake sleep instead of the real 20s worst case. */
+/** Exported so a test can drive the wait with an instant fake sleep and clock instead of the real 20s worst case. */
 export async function waitForDaemonUp(
   p: Pick<Probes, "daemon">,
-  opts: { attempts?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  opts: { attempts?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number } = {},
 ): Promise<boolean> {
   const attempts = opts.attempts ?? DAEMON_POLL_ATTEMPTS;
   const intervalMs = opts.intervalMs ?? DAEMON_POLL_INTERVAL_MS;
   const sleep = opts.sleep ?? realSleep;
+  const now = opts.now ?? (() => performance.now());
+  const deadline = now() + DAEMON_START_WINDOW_MS;
 
   for (let i = 0; i < attempts; i++) {
-    if (await daemonAnswers(p)) return true;
-    if (i < attempts - 1) await sleep(intervalMs);
+    const left = deadline - now();
+    if (left <= 0) return false;
+    if (await daemonAnswers(p, left)) return true;
+    const leftAfterPing = deadline - now();
+    if (i < attempts - 1 && leftAfterPing > 0) await sleep(Math.min(intervalMs, leftAfterPing));
   }
   return false;
 }
 
-async function daemonAnswers(p: Pick<Probes, "daemon">): Promise<boolean> {
-  const res = await p.daemon("ping");
+async function daemonAnswers(p: Pick<Probes, "daemon">, timeoutMs?: number): Promise<boolean> {
+  const res = await p.daemon("ping", undefined, timeoutMs);
   return res?.ok === true;
 }
 

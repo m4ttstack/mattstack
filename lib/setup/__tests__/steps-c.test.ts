@@ -30,6 +30,7 @@ import {
   fastbrowserSetupStep,
   herdrIntegrationStep,
   servicesStartRun,
+  waitForDaemonUp,
   servicesStartStep,
   snapshotPushStep,
 } from "../steps/tools.ts";
@@ -1943,6 +1944,22 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
       expect(outcome.state).toBe("failed");
       expect(waited).toBe(20_000);
+    });
+
+    test("pings that hang still end the wait at the 20s window, and no ping outlives what is left of it", async () => {
+      let clock = 0;
+      const timeouts: (number | undefined)[] = [];
+      const p = {
+        daemon: async (_cmd: string, _payload?: Record<string, unknown>, timeoutMs?: number) => {
+          timeouts.push(timeoutMs);
+          clock += timeoutMs ?? 5_000;
+          return null;
+        },
+      };
+      const up = await waitForDaemonUp(p, { sleep: async (ms) => void (clock += ms), now: () => clock });
+      expect(up).toBe(false);
+      expect(clock).toBeLessThanOrEqual(20_000);
+      expect(timeouts.every((t) => t !== undefined && t > 0 && t <= 20_000)).toBe(true);
     });
 
     test("registered and approved but never answers -> its own detail, pointing at rt daemon status and logs, never Login Items", async () => {
