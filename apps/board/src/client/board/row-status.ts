@@ -763,6 +763,7 @@ function peerLines(
       out.push({
         tone: 'go',
         word: `${p.reviewer} ${verdictWord(p.outcome, 'reviewed')}`,
+        settled: true,
         verbs: [{ kind: 'view-peer', label: 'view ↗' }],
       });
     }
