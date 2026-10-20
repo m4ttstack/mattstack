@@ -70,6 +70,10 @@ export interface ReviewCtx {
   round?: number;
   re_review: boolean;
   prior?: { addressed: number; still_open: number };
+  /** The poster posts the edited text, else the draft, so the sheet may
+      offer the drafts for editing. */
+  editable?: boolean;
+  summaryComment?: string;
 }
 
 export interface FindingEntry {
@@ -82,6 +86,8 @@ export interface FindingEntry {
   evidence?: string;
   disposition?: Disposition;
   kind?: string;
+  /** The whole drafted comment that posts for this finding. */
+  comment?: string;
 }
 
 export interface FindingsCtx {
@@ -290,6 +296,8 @@ function readReview(o: Obj): ReviewCtx {
   const reviewer = optStr(o.reviewer);
   const round = optRound(o.round);
   const prior = o.prior === undefined ? undefined : obj(o.prior);
+  const editable = optFlag(o.editable);
+  const summaryComment = optStr(o.summaryComment);
   return {
     shape: 'review@1',
     ...(reviewer !== undefined ? { reviewer } : {}),
@@ -310,6 +318,8 @@ function readReview(o: Obj): ReviewCtx {
           },
         }
       : {}),
+    ...(editable ? { editable } : {}),
+    ...(summaryComment !== undefined ? { summaryComment } : {}),
   };
 }
 
@@ -319,6 +329,7 @@ function readFinding(v: unknown): FindingEntry {
   const fix = optStr(e.fix);
   const evidence = optStr(e.evidence);
   const kind = optStr(e.kind);
+  const comment = optStr(e.comment);
   const disposition =
     e.disposition === undefined
       ? undefined
@@ -333,6 +344,7 @@ function readFinding(v: unknown): FindingEntry {
     ...(evidence !== undefined ? { evidence } : {}),
     ...(disposition !== undefined ? { disposition } : {}),
     ...(kind !== undefined ? { kind } : {}),
+    ...(comment !== undefined ? { comment } : {}),
   };
 }
 

@@ -1234,3 +1234,208 @@ describe('a later round', () => {
     });
   });
 });
+
+describe('a gate whose poster honors edited drafts', () => {
+  const COMMENT = {
+    f1: 'Hi! The query on line 42 splices user input straight into SQL. Could we bind it as a parameter instead?\n\nA test with a quote in the name would pin it.',
+    f2: 'Small one: the response can be null here when the upstream times out.',
+    f3: 'The error copy in this MR mixes two styles; the guide picks the short one.',
+    f4: 'Nit: this import is unused now.',
+  };
+  const SUMMARY = 'Thanks! One real issue inline, the rest are small.';
+
+  function draftsGate(over: { editable?: boolean } = {}): GateRow {
+    const editable = over.editable ?? true;
+    return {
+      ...GATE,
+      gateId: 'g-review-drafts',
+      context: j({
+        ...REVIEW,
+        findings: { critical: 1, important: 2, minor: 1 },
+        ...(editable ? { editable: true } : {}),
+        summaryComment: SUMMARY,
+      }),
+      questions: [
+        {
+          ...GATE.questions[0]!,
+          context: findingsCtx(
+            { ...E.f1, comment: COMMENT.f1 },
+            { ...E.f2, comment: COMMENT.f2 },
+            entry(
+              'f3',
+              'important',
+              'Inconsistent error wording',
+              undefined,
+              'align with the style guide',
+              { comment: COMMENT.f3 }
+            ),
+            { ...E.f4, comment: COMMENT.f4 }
+          ),
+        },
+        GATE.questions[2]!,
+      ],
+    };
+  }
+
+  const itemFor = (title: string): Element => {
+    const item = [...container.querySelectorAll('.tui-review-finding')].find(
+      r => r.querySelector('.tui-review-finding-title')?.textContent === title
+    );
+    if (!item) throw new Error(`no finding titled "${title}"`);
+    return item;
+  };
+
+  async function edit(scope: Element, text: string) {
+    await React.act(async () =>
+      scope
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label$=": edit comment"]'
+        )!
+        .click()
+    );
+    const box = scope.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label$=": comment"]'
+    )!;
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value'
+      )!.set!.call(box, text);
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  const answers = () =>
+    (
+      posts.find(p => p.url === '/gate/answer')!.body as {
+        answers: Record<string, unknown>;
+      }
+    ).answers;
+
+  const submitButton = () =>
+    container.querySelector('.tui-sheet-submit') as HTMLButtonElement;
+
+  test('each ticked anchored finding shows its whole draft as the comment, with no fix line', async () => {
+    await render(draftsGate());
+    const box = itemFor('SQL built from unsanitized input').querySelector(
+      '.tui-thread-reply'
+    )!;
+    expect(box.querySelector('.tui-thread-reply-k')?.textContent).toBe(
+      'will post as comment'
+    );
+    expect(box.textContent).toContain(
+      'Could we bind it as a parameter instead?'
+    );
+    expect(box.textContent).toContain(
+      'A test with a quote in the name would pin it.'
+    );
+    expect(container.querySelector('.tui-review-finding-fix')).toBeNull();
+  });
+
+  test('unticking hides the box, and re-ticking brings back the earlier edit', async () => {
+    await render(draftsGate());
+    await edit(itemFor('Unused import'), 'Drop this import, please.');
+    await click(checkboxForTitle('Unused import'));
+    expect(
+      itemFor('Unused import').querySelector('.tui-thread-reply')
+    ).toBeNull();
+    expect(itemFor('Unused import').hasAttribute('data-off')).toBe(true);
+    await click(checkboxForTitle('Unused import'));
+    const item = itemFor('Unused import');
+    expect(item.querySelector('.tui-thread-reply')?.textContent).toContain(
+      'Drop this import, please.'
+    );
+    expect(item.querySelector('.tui-thread-edited')).not.toBeNull();
+  });
+
+  test('an edited comment rides its chunk answer as texts', async () => {
+    await render(draftsGate());
+    await edit(itemFor('Unused import'), ' Drop this import, please. ');
+    await click(submitButton());
+    expect(answers()).toEqual({
+      'findings-1': {
+        value: ['f1', 'f2', 'f3', 'f4'],
+        texts: { f4: 'Drop this import, please.' },
+      },
+      outcome: 'approve',
+    });
+  });
+
+  test('an edited summary line rides the outcome as text', async () => {
+    await render(draftsGate());
+    await edit(
+      container.querySelector(
+        '.tui-review-summary [data-part="summary-line"]'
+      )!,
+      'New summary.'
+    );
+    await click(submitButton());
+    expect(answers().outcome).toEqual({
+      value: 'approve',
+      text: 'New summary.',
+    });
+  });
+
+  test('a blank comment disables submit', async () => {
+    await render(draftsGate());
+    await edit(itemFor('Unused import'), '   ');
+    expect(submitButton().disabled).toBe(true);
+  });
+
+  test('the summary card comes first in the main column with the line and each ticked no-diff-line finding', async () => {
+    await render(draftsGate());
+    const main = container.querySelector('.tui-sheet-main')!;
+    const card = main.querySelector('.tui-review-summary')!;
+    expect(main.firstElementChild).toBe(card);
+    expect(card.textContent).toContain('Summary comment');
+    expect(card.textContent).toContain('posts on !31');
+    const boxes = card.querySelectorAll('.tui-thread-reply');
+    expect(boxes.length).toBe(2);
+    expect(boxes[0]!.querySelector('.tui-thread-reply-k')?.textContent).toBe(
+      'will post as the review summary'
+    );
+    expect(boxes[0]!.textContent).toContain(SUMMARY);
+    expect(boxes[1]!.textContent).toContain(COMMENT.f3);
+    expect(card.textContent).toContain('includes 1 finding with no diff line');
+  });
+
+  test('a no-diff-line finding points at the summary instead of carrying a box', async () => {
+    await render(draftsGate());
+    const item = itemFor('Inconsistent error wording');
+    expect(item.querySelector('.tui-thread-reply')).toBeNull();
+    expect(item.textContent).toContain(
+      'No diff line, so this posts in the summary comment above'
+    );
+  });
+
+  test('unticking the no-diff-line finding drops it and the hint from the summary card', async () => {
+    await render(draftsGate());
+    await click(checkboxForTitle('Inconsistent error wording'));
+    const card = container.querySelector('.tui-review-summary')!;
+    expect(card.querySelectorAll('.tui-thread-reply').length).toBe(1);
+    expect(card.textContent).not.toContain(COMMENT.f3);
+    expect(card.textContent).not.toContain('no diff line');
+  });
+
+  test('the submit label counts the comments and the summary', async () => {
+    await render(draftsGate());
+    expect(submitButton().textContent).toBe(
+      'post 3 comments + summary · approve'
+    );
+    await click(checkboxForTitle('Unused import'));
+    await click(checkboxForTitle('Missing null check on response'));
+    expect(submitButton().textContent).toBe(
+      'post 1 comment + summary · approve'
+    );
+  });
+
+  test('without editable the sheet is the one it was: fix lines, no boxes, no summary card', async () => {
+    await render(draftsGate({ editable: false }));
+    expect(container.querySelector('.tui-review-summary')).toBeNull();
+    expect(container.querySelector('.tui-thread-reply')).toBeNull();
+    expect(container.querySelectorAll('.tui-review-finding-fix').length).toBe(
+      4
+    );
+    expect(submitButton().textContent).toBe('post 4 · approve');
+  });
+});

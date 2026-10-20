@@ -26,6 +26,15 @@ import {
 } from './icons.tsx';
 import { MrCard } from './MrCard.tsx';
 import { mrRef } from './MrLinks.tsx';
+import { editedText } from './respond-post.ts';
+import { EditableReply, EditedChip } from './RespondCards.tsx';
+import {
+  attachDraftEdits,
+  commentKey,
+  draftEdits,
+  hasDiffLine,
+  SUMMARY_KEY,
+} from './review-drafts.ts';
 import {
   readinessProse,
   readReviewGate,
@@ -202,6 +211,88 @@ function severityGroups(
   ).filter(([, items]) => items.length > 0);
 }
 
+/** The drafts the poster falls back to, or null when the gate does not
+    promise to post edits or any draft is missing: the sheet then offers
+    no editing at all. */
+function readDrafts(
+  review: { editable?: boolean; summaryComment?: string } | undefined,
+  findings: FindingEntry[]
+): { findings: Map<string, string>; summary: string } | null {
+  if (!review?.editable || review.summaryComment === undefined) return null;
+  const map = new Map<string, string>();
+  for (const f of findings) {
+    if (f.comment === undefined) return null;
+    map.set(f.id, f.comment);
+  }
+  return { findings: map, summary: review.summaryComment };
+}
+
+/** The review's summary note as it will post (`joinSummary`): the summary
+    line, then each ticked finding with no diff line, each its own box. */
+function SummaryCard({
+  target,
+  draft,
+  folded,
+  form,
+}: {
+  target: string;
+  draft: string;
+  folded: FindingEntry[];
+  form: GateFormState;
+}) {
+  const edited =
+    editedText(SUMMARY_KEY, draft, form.texts) ||
+    folded.some(f => editedText(commentKey(f.id), f.comment!, form.texts));
+  return (
+    <section
+      className="tui-gate-question tui-review-summary"
+      aria-label="Summary comment"
+    >
+      <div className="tui-gate-question-head">
+        <span className="tui-gate-question-label">Summary comment</span>
+        <span className="tui-review-summary-chips">
+          {edited && <EditedChip />}
+          <span className="tui-respond-chip" data-hue="accent">
+            posts on {target}
+          </span>
+        </span>
+      </div>
+      <div data-part="summary-line">
+        <EditableReply
+          label="Summary comment"
+          noun="comment"
+          heading="will post as the review summary"
+          draft={draft}
+          value={form.texts[SUMMARY_KEY]}
+          canEdit
+          onChange={t => form.setText(SUMMARY_KEY, t)}
+          onReset={() => form.clearText(SUMMARY_KEY)}
+        />
+      </div>
+      {folded.map(f => (
+        <div data-part="folded" key={f.id}>
+          <EditableReply
+            label={f.title}
+            noun="comment"
+            heading={`in the summary · ${f.title}`}
+            draft={f.comment!}
+            value={form.texts[commentKey(f.id)]}
+            canEdit
+            onChange={t => form.setText(commentKey(f.id), t)}
+            onReset={() => form.clearText(commentKey(f.id))}
+          />
+        </div>
+      ))}
+      {folded.length > 0 && (
+        <p className="tui-review-summary-hint">
+          includes {folded.length}{' '}
+          {folded.length === 1 ? 'finding' : 'findings'} with no diff line
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** The full-screen sheet a `review-post` gate opens (design doc §4). Header
     carries queue chrome; the main column is the findings and the optional
     record cluster; the rail is the MR card, decision context and checks,
@@ -322,6 +413,17 @@ function ReviewGateSheet({
   ).length;
   const replyTexts = carryoverTexts(carryovers, form.selections, form.texts);
   const postingFindings = selectedFindings.size + selectedSkipped.size;
+  const drafts = useMemo(
+    () => readDrafts(data?.review, findings),
+    [data, findings]
+  );
+  const edits = drafts
+    ? draftEdits(drafts, selectedFindings, form.texts)
+    : { texts: {} };
+  const folded = drafts
+    ? findings.filter(f => selectedFindings.has(f.id) && !hasDiffLine(f))
+    : [];
+  const postingComments = postingFindings - folded.length;
   const selectedOutcome = outcomeName
     ? form.selections[outcomeName]
     : undefined;
@@ -391,7 +493,7 @@ function ReviewGateSheet({
 
   const submit = () => {
     if (!outcomeName || typeof selectedOutcome !== 'string') return;
-    if (replyTexts === null) return;
+    if (replyTexts === null || edits === null) return;
     const trimmedNote = outcomeNote.trim();
     const threadAnswers: GateAnswers = {};
     for (const c of carryovers) {
@@ -411,13 +513,14 @@ function ReviewGateSheet({
     };
     void form.submit({ answers }, submitted => {
       const multis = pickMultis(submitted);
-      return {
+      const split: GateAnswers = {
         ...Object.fromEntries(
           Object.entries(multis).filter(([id]) => !groups.has(id))
         ),
         ...splitChunkSelections(groups, gate.questions, multis),
         ...singles(submitted),
       };
+      return drafts ? attachDraftEdits(split, gate.questions, edits) : split;
     });
   };
 
@@ -472,6 +575,14 @@ function ReviewGateSheet({
     >
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" ref={mainRef}>
+          {drafts && (
+            <SummaryCard
+              target={mr ? mrRef(mr) : '!'}
+              draft={drafts.summary}
+              folded={folded}
+              form={form}
+            />
+          )}
           {review.round !== undefined && (
             <RoundHeading round={review.round} summary={roundSummary} />
           )}
@@ -556,7 +667,12 @@ function ReviewGateSheet({
                       </div>
                       {items.map(f => {
                         const checked = selectedFindings.has(f.id);
-                        return (
+                        const key = commentKey(f.id);
+                        const edited =
+                          drafts !== null &&
+                          checked &&
+                          editedText(key, f.comment!, form.texts);
+                        const row = (
                           <label className="tui-review-finding-row" key={f.id}>
                             <input
                               type="checkbox"
@@ -603,6 +719,7 @@ function ReviewGateSheet({
                                       {DISPOSITION[f.disposition].text}
                                     </span>
                                   )}
+                                {edited && <EditedChip />}
                               </span>
                               {f.file && <FindingAnchor file={f.file} />}
                               <span className="tui-review-finding-text">
@@ -610,13 +727,45 @@ function ReviewGateSheet({
                                   {f.body}
                                 </Markdown>
                               </span>
-                              {f.fix && (
+                              {f.fix && !drafts && (
                                 <span className="tui-review-finding-fix">
                                   {f.fix}
                                 </span>
                               )}
                             </span>
                           </label>
+                        );
+                        if (!drafts) return row;
+                        // The box sits outside the label: inside it, a
+                        // click on the comment would toggle the finding.
+                        return (
+                          <div
+                            className="tui-review-finding"
+                            data-off={checked ? undefined : ''}
+                            key={f.id}
+                          >
+                            {row}
+                            {checked && (
+                              <div className="tui-review-finding-draft">
+                                {hasDiffLine(f) ? (
+                                  <EditableReply
+                                    label={f.title}
+                                    noun="comment"
+                                    draft={f.comment!}
+                                    value={form.texts[key]}
+                                    canEdit
+                                    onChange={t => form.setText(key, t)}
+                                    onReset={() => form.clearText(key)}
+                                  />
+                                ) : (
+                                  <p className="tui-review-finding-pointer">
+                                    No diff line, so this posts in the summary
+                                    comment above
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
@@ -848,26 +997,38 @@ function ReviewGateSheet({
                     disabled={
                       form.busy ||
                       typeof selectedOutcome !== 'string' ||
-                      replyTexts === null
+                      replyTexts === null ||
+                      edits === null
                     }
                     onClick={submit}
                   >
                     {form.busy
                       ? 'submitting…'
-                      : findingsQuestion === undefined &&
-                          !skippedQuestion &&
-                          carryovers.length === 0
-                        ? (outcomeText ?? 'submit')
-                        : [
-                            findingsQuestion || skippedQuestion
-                              ? `post ${postingFindings}`
-                              : null,
+                      : drafts
+                        ? [
+                            postingComments > 0
+                              ? `post ${postingComments} ${postingComments === 1 ? 'comment' : 'comments'} + summary`
+                              : 'post summary',
                             replying > 0 ? `reply ${replying}` : null,
                             resolving > 0 ? `resolve ${resolving}` : null,
                             outcomeText || null,
                           ]
                             .filter(Boolean)
-                            .join(' · ')}
+                            .join(' · ')
+                        : findingsQuestion === undefined &&
+                            !skippedQuestion &&
+                            carryovers.length === 0
+                          ? (outcomeText ?? 'submit')
+                          : [
+                              findingsQuestion || skippedQuestion
+                                ? `post ${postingFindings}`
+                                : null,
+                              replying > 0 ? `reply ${replying}` : null,
+                              resolving > 0 ? `resolve ${resolving}` : null,
+                              outcomeText || null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
                   </Button>
                   {form.failed && (
                     <span className="tui-gate-error">

@@ -4084,6 +4084,39 @@ a.tui-id-card-ref:focus-visible {
   font-weight: 600;
   color: var(--text-accent);
 }
+/* A finding whose comment the sheet can edit: the row, then its comment
+   box set in to the body's left edge (the checkbox plus the row gap). */
+.tui-review-finding {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tui-review-finding-draft {
+  margin-left: 25px;
+  max-width: 140ch;
+}
+.tui-review-finding[data-off]
+  :is(.tui-review-finding-title, .tui-review-finding-text) {
+  color: var(--text-3);
+}
+.tui-review-finding-pointer {
+  margin: 0;
+  font-size: var(--gate-font-meta);
+  color: var(--text-3);
+}
+.tui-review-summary {
+  margin-bottom: 18px;
+}
+.tui-review-summary-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tui-review-summary-hint {
+  margin: 0;
+  font-size: var(--gate-font-meta);
+  color: var(--text-3);
+}
 
 /* Hairline above the record cluster, spanning the left column. */
 .tui-review-divider {
