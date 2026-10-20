@@ -52,6 +52,31 @@ function Choices({
           : current === choice.value;
         const chip = choice.recommended ? <RecommendedChip /> : null;
         const custom = renderLabel?.(choice.value, chip);
+        const input = (
+          <input
+            type={q.multiple ? 'checkbox' : 'radio'}
+            className="tui-gate-choice-input"
+            data-type={q.multiple ? 'checkbox' : 'radio'}
+            data-checked={checked ? '' : undefined}
+            name={q.name}
+            value={choice.value}
+            checked={checked}
+            disabled={disabled}
+            onClick={() => {
+              if (!q.multiple && q.writeIn && checked)
+                form.setSingle(q.name, '');
+            }}
+            onChange={e =>
+              q.multiple
+                ? form.toggleMulti(
+                    q.name,
+                    choice.value,
+                    e.currentTarget.checked
+                  )
+                : form.setSingle(q.name, choice.value)
+            }
+          />
+        );
         return (
           <label
             className="tui-gate-choice"
@@ -59,29 +84,14 @@ function Choices({
             data-recommended={choice.recommended ? 'true' : undefined}
             key={choice.value}
           >
-            <input
-              type={q.multiple ? 'checkbox' : 'radio'}
-              className="tui-gate-choice-input"
-              data-type={q.multiple ? 'checkbox' : 'radio'}
-              data-checked={checked ? '' : undefined}
-              name={q.name}
-              value={choice.value}
-              checked={checked}
-              disabled={disabled}
-              onClick={() => {
-                if (!q.multiple && q.writeIn && checked)
-                  form.setSingle(q.name, '');
-              }}
-              onChange={e =>
-                q.multiple
-                  ? form.toggleMulti(
-                      q.name,
-                      choice.value,
-                      e.currentTarget.checked
-                    )
-                  : form.setSingle(q.name, choice.value)
-              }
-            />
+            {q.multiple ? (
+              <span className="tui-check">
+                {input}
+                <span className="tui-check-tick" aria-hidden="true" />
+              </span>
+            ) : (
+              input
+            )}
             <span className="tui-gate-choice-label">
               {custom ?? (
                 <>

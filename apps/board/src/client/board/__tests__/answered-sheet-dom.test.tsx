@@ -560,6 +560,23 @@ test('a per-thread question with no recorded answer reads none, not hold', async
   expect(dockChips()).toEqual(['post', 'none']);
 });
 
+test('a read-only checkbox carries the check glyph its picked state shows', async () => {
+  await render(
+    answeredPost([replyQ(1, 't1', 'queue/enqueue.ts:88')], {
+      'thread-1': ['post:t1'],
+    }),
+    MR
+  );
+  const box = (v: string) =>
+    $(`.tui-sheet-main input[value="${v}"]`) as HTMLInputElement;
+  for (const v of ['post:t1', 'resolve:t1']) {
+    expect(box(v).parentElement!.className).toBe('tui-check');
+    expect(box(v).nextElementSibling!.className).toBe('tui-check-tick');
+  }
+  expect(box('post:t1').hasAttribute('data-checked')).toBe(true);
+  expect(box('resolve:t1').hasAttribute('data-checked')).toBe(false);
+});
+
 test('post and resolve chips are only for respond-post and review-post gates', async () => {
   await render(
     shipped({

@@ -2144,7 +2144,7 @@ body {
   color: var(--text-2);
   border-style: dashed;
 }
-.tui-gate-choice:has(> input:focus-visible) {
+.tui-gate-choice:has(input:focus-visible) {
   outline: 2px solid var(--fill-accent);
   outline-offset: 1px;
 }
@@ -2175,6 +2175,12 @@ body {
 .tui-gate-choice-input[data-checked] {
   border-color: var(--fill-accent);
   background: var(--fill-accent);
+}
+/* A picked radio keeps a dot inside its ring and a picked checkbox its tick
+   (.tui-check), so a pick reads as picked without the row's tint, read-only
+   or not. */
+.tui-gate-choice-input[data-type='radio'][data-checked] {
+  box-shadow: inset 0 0 0 3px var(--on-fill-accent);
 }
 .tui-gate-choice-input:focus-visible {
   outline: 2px solid var(--fill-accent);
@@ -4596,6 +4602,13 @@ a.tui-id-card-ref:focus-visible {
      it stays under a third of the screen and its rows scroll instead. */
   :is(.tui-respond-sheet, .tui-answered-sheet) .tui-sheet-dock {
     max-height: min(50%, 32dvh);
+    gap: 8px;
+  }
+  /* Two rows and the top of a third, which shows the list scrolls. */
+  :is(.tui-respond-sheet, .tui-answered-sheet)
+    .tui-sheet-dock
+    > .tui-sheet-card-list {
+    max-height: calc(2lh + 16px);
   }
   /* Past the cap only the summary rows (or the verdict's choices) give way,
      scrolling inside the panel down to a floor of one line of rows, or a
