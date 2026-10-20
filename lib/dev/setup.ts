@@ -176,7 +176,20 @@ export async function registerApps(s: DevSeams, dir: string, io: { sub(text: str
   if (!answered) throw new UserActionableError("dev-deck-silent", "The dev app's deck did not answer", {}, { next: "rt dev update" });
   for (const app of REGISTERED_APPS) {
     io.sub(`Registering ${app}`);
-    const r = await s.probes.exec([DEV_DECK, "register", "--dir", `${dir}/apps/${app}`], { timeoutMs: 120_000 });
+    let r = await registerOnce(s, dir, app);
+    for (let i = 1; i < REGISTER_TRIES && r.code !== 0 && DROPPED_CONNECTION.test(`${r.stderr}${r.stdout}`); i++) {
+      await s.swap.sleep(REGISTER_RETRY_PAUSE_MS);
+      r = await registerOnce(s, dir, app);
+    }
     if (r.code !== 0) throw new UserActionableError("dev-register-failed", `deck could not serve ${app} from your clone`, {}, { log: r.stderr || r.stdout, next: "rt dev update" });
   }
+}
+
+/** Deck answers `list` before it has finished settling, then may drop the next connection. */
+const DROPPED_CONNECTION = /ECONNRESET|ECONNREFUSED/;
+const REGISTER_TRIES = 4;
+const REGISTER_RETRY_PAUSE_MS = 2000;
+
+function registerOnce(s: DevSeams, dir: string, app: string) {
+  return s.probes.exec([DEV_DECK, "register", "--dir", `${dir}/apps/${app}`], { timeoutMs: 120_000 });
 }

@@ -7,12 +7,12 @@ import { isSetupFinished, markSetupFinished, parseSetupState, readSetupState, up
 describe("readSetupState", () => {
   test("defaults to empty arrays when the state file is absent", () => {
     const p = fakeProbes();
-    expect(readSetupState(p)).toEqual({ v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] });
+    expect(readSetupState(p)).toEqual({ v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [], claudeFullscreenDirs: [] });
   });
 
   test("defaults to empty arrays when the state file is unparseable", () => {
     const p = fakeProbes({ files: { "/fake-home/.mattstack/rt/setup-state.json": "not json" } });
-    expect(readSetupState(p)).toEqual({ v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] });
+    expect(readSetupState(p)).toEqual({ v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [], claudeFullscreenDirs: [] });
   });
 
   test("backfills migrations to [] for a state file written before the field existed", () => {
@@ -129,7 +129,7 @@ describe("setup finished", () => {
   test("a state file that is not an object reads as empty", () => {
     for (const raw of ["null", "[]", "42", '"x"']) {
       const p = fakeProbes({ files: { [STATE]: raw } });
-      expect(readSetupState(p)).toEqual({ v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] });
+      expect(readSetupState(p)).toEqual({ v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [], claudeFullscreenDirs: [] });
     }
   });
 
