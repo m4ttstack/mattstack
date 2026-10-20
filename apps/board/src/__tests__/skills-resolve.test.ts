@@ -10,7 +10,11 @@ import { describe, expect, test } from 'bun:test';
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const wrappers = [
   { dir: 'review', name: 'board:review', slots: { review: 'mr-review@2' } },
-  { dir: 'respond', name: 'board:respond', slots: { respond: 'mr-respond@3 mr-respond@2' } },
+  {
+    dir: 'respond',
+    name: 'board:respond',
+    slots: { respond: 'mr-respond@3 mr-respond@2' },
+  },
   {
     dir: 'doctor',
     name: 'board:doctor',
