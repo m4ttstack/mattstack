@@ -14,6 +14,7 @@ import {
   reportPathForHandle,
   resurrectState,
   updateByHandle,
+  type PaneClearable,
 } from './state/index.ts';
 
 export type ReviewStatus = 'queued' | 'reviewing' | 'done' | 'error';
@@ -150,7 +151,7 @@ const RUN_STARTS: ReadonlySet<ReviewStatus> = new Set(['queued', 'reviewing']);
     the row by and the caller is doing something wrong. */
 export function writeReviewState(
   handle: string,
-  patch: Partial<ReviewState> & { status: ReviewStatus },
+  patch: PaneClearable<ReviewState> & { status: ReviewStatus },
   now: number = Date.now(),
   db: Database = getStateDb()
 ): ReviewState {
@@ -174,13 +175,13 @@ export function writeReviewState(
     iid: stamped.iid,
     status: stamped.status,
     message: stamped.message,
-    tabId: stamped.tabId,
+    tabId: stamped.tabId ?? undefined,
     boardTabId: stamped.boardTabId,
-    workspaceId: stamped.workspaceId,
+    workspaceId: stamped.workspaceId ?? undefined,
     outcome: stamped.outcome,
-    sessionId: stamped.sessionId,
-    agentId: stamped.agentId,
-    paneId: stamped.paneId,
+    sessionId: stamped.sessionId ?? undefined,
+    agentId: stamped.agentId ?? undefined,
+    paneId: stamped.paneId ?? undefined,
     gateId: stamped.gateId,
     gateKind: stamped.gateKind,
     resumedGateId: stamped.resumedGateId,

@@ -161,6 +161,23 @@ export async function launchInWorkspace(
 }
 
 /**
+ * Focuses the pane already running this agent session, if one is, and
+ * returns where it is. A second `--resume` of a running session splits it
+ * across two panes, and whoever tracks the new one loses the pane doing the
+ * work.
+ */
+export async function focusLiveSession(
+  sessionId: string,
+  runner: HerdrRunner = defaultHerdrRunner(),
+): Promise<Omit<LaunchOutcome, "focusedExisting"> | null> {
+  const list = await herdrJson(runner, ["pane", "list"]);
+  const pane = (list?.result?.panes ?? []).find((p: any) => p?.agent_session?.value === sessionId);
+  if (!pane?.pane_id || !pane.tab_id || !pane.workspace_id) return null;
+  await runHerdr(runner, ["tab", "focus", pane.tab_id]);
+  return { workspaceId: pane.workspace_id, tabId: pane.tab_id, paneId: pane.pane_id };
+}
+
+/**
  * Polls herdr's own agent-session report until it surfaces codex's real
  * session id, or the timeout elapses. herdr's per-CLI SessionStart hook
  * (installed by `herdr integration install codex`) reports the id to herdr

@@ -44,6 +44,37 @@ function definedFields(patch: object): object {
   );
 }
 
+/** Spread into a fresh launch's first write so the new run inherits none of
+    the last run's pane (null removes a key, see updateByHandle). A stale
+    agentId or sessionId lets the pane that died with that run claim this
+    one as its interruption (see joinExecutorOrphans). */
+export const FRESH_RUN_PANE = {
+  agentId: null,
+  sessionId: null,
+  paneId: null,
+  tabId: null,
+  workspaceId: null,
+} as const;
+
+/** The pane a lane's last run had, to write back when a fresh launch only
+    focused that run's still-open tab and so started no pane of its own. */
+export function lastRunPane(
+  state: { [K in keyof typeof FRESH_RUN_PANE]?: string } | undefined
+): { [K in keyof typeof FRESH_RUN_PANE]: string | null } {
+  return {
+    agentId: state?.agentId ?? null,
+    sessionId: state?.sessionId ?? null,
+    paneId: state?.paneId ?? null,
+    tabId: state?.tabId ?? null,
+    workspaceId: state?.workspaceId ?? null,
+  };
+}
+
+/** A lane write whose pane keys also take null, which removes them. */
+export type PaneClearable<S> = Omit<Partial<S>, keyof typeof FRESH_RUN_PANE> & {
+  [K in keyof typeof FRESH_RUN_PANE]?: string | null;
+};
+
 export function insertAgentState(
   lane: Lane,
   mrUrl: string,
