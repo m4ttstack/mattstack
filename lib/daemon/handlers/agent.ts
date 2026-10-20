@@ -34,6 +34,7 @@ import { cswapAccountNumbers } from "../../cswap.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
 import { defaultHerdrRunner, focusLiveSession, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
+import { injectIntoPane } from "../inject.ts";
 import { HERDR_NOT_INSTALLED, type HerdrStartResult } from "../../herdr/start.ts";
 import { acceptTrustOnPane, cwdPath, type TrustOutcome } from "../trust-accept.ts";
 import { repoLabel } from "../../repo-label.ts";
@@ -765,9 +766,16 @@ export function createAgentHandlers(opts: {
           // herdr not up yet has no pane to duplicate; launch starts it below.
           const live = await focusLiveSession(rec.sessionId, opts.herdrRunner ?? defaultHerdrRunner()).catch(() => null);
           if (live) {
+            if (payload.prompt !== undefined) {
+              const sent = await injectIntoPane({ paneId: live.paneId, text: payload.prompt, herdr: opts.herdr });
+              if (!sent.ok) return { ok: false, error: `session already open in pane ${live.paneId}; sending it the prompt failed: ${sent.error}` };
+              if (sent.data.delivered === "refused") {
+                return { ok: false, error: `session already open in pane ${live.paneId}, which would not take the prompt (${sent.data.reason})` };
+              }
+              markAgentResumed(rec.id, Date.now(), db);
+            }
             updateAgentPane(rec.id, live, db);
-            const message = `session already open; focused it (pane ${live.paneId})`;
-            return { ok: false, error: message, failure: { code: "session-live", message } };
+            return { ok: true, data: withName(getAgent(rec.id, db) ?? { ...rec, ...live }, db) };
           }
         }
         let bgSocket: string | undefined;

@@ -418,33 +418,78 @@ test("agent:resume herdr uses ↺ tab label and --resume, overwrites pane ids", 
   expect(resumed.data.lastResumedAt).toBeGreaterThan(0);
 });
 
-test("agent:resume of a session still running in a pane focuses that pane and opens none", async () => {
-  const calls: string[][] = [];
-  let sessionId = "";
+function liveSessionRunner(calls: string[][], session: () => string): HerdrRunner {
   const base = okRunner(calls);
-  const runner: HerdrRunner = async (args) => {
+  return async (args) => {
     if (args[0] === "pane" && args[1] === "list") {
       calls.push(args);
-      const panes = [{ pane_id: "w2:p1", tab_id: "w2:t1", workspace_id: "w2", agent_session: { value: sessionId } }];
+      const panes = [{ pane_id: "w2:p1", tab_id: "w2:t1", workspace_id: "w2", agent_session: { value: session() } }];
       return { stdout: JSON.stringify({ result: { panes } }), exitCode: 0 };
     }
     return base(args);
   };
-  const h = fresh({ runner });
+}
+
+function claudePaneHerdr(status: string, prompts: unknown[]) {
+  return async (method: string, params: any) => {
+    if (method === "agent.get") return { ok: true, result: { agent: { agent: "claude", agent_status: status } } };
+    if (method === "agent.prompt") {
+      prompts.push(params);
+      return { ok: true, result: {} };
+    }
+    return { ok: false, code: "unsupported", message: method };
+  };
+}
+
+test("agent:resume of a session still running in a pane focuses that pane and opens none", async () => {
+  const calls: string[][] = [];
+  let sessionId = "";
+  const h = fresh({ runner: liveSessionRunner(calls, () => sessionId) });
   const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", label: "job8" });
   if (!started.ok) throw new Error("unreachable");
   sessionId = started.data.sessionId!;
   calls.length = 0;
   const resumed = await h["agent:resume"]({ id: started.data.id });
-  expect(resumed.ok).toBe(false);
-  if (resumed.ok) throw new Error("unreachable");
-  expect(resumed.error).toMatch(/already open; focused it/);
-  expect(resumed.failure?.code).toBe("session-live");
+  expect(resumed.ok).toBe(true);
+  if (!resumed.ok) throw new Error("unreachable");
+  expect(resumed.data).toMatchObject({ paneId: "w2:p1", tabId: "w2:t1", workspaceId: "w2" });
   expect(calls).toContainEqual(["tab", "focus", "w2:t1"]);
   expect(calls.some((c) => c[0] === "pane" && c[1] === "run")).toBe(false);
   const rec = await h["agent:get"]({ id: started.data.id });
   if (!rec.ok) throw new Error("unreachable");
   expect(rec.data).toMatchObject({ paneId: "w2:p1", tabId: "w2:t1", workspaceId: "w2" });
+});
+
+test("agent:resume with a prompt sends it to the pane already running the session", async () => {
+  const calls: string[][] = [];
+  const prompts: any[] = [];
+  let sessionId = "";
+  const h = fresh({ runner: liveSessionRunner(calls, () => sessionId), herdr: claudePaneHerdr("idle", prompts) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", label: "job9" });
+  if (!started.ok) throw new Error("unreachable");
+  sessionId = started.data.sessionId!;
+  calls.length = 0;
+  const resumed = await h["agent:resume"]({ id: started.data.id, prompt: "re-review please" });
+  expect(resumed.ok).toBe(true);
+  if (!resumed.ok) throw new Error("unreachable");
+  expect(prompts.map((p) => [p.target, p.text])).toEqual([["w2:p1", "re-review please"]]);
+  expect(calls.some((c) => c[0] === "pane" && c[1] === "run")).toBe(false);
+  expect(resumed.data).toMatchObject({ paneId: "w2:p1", tabId: "w2:t1" });
+  expect(resumed.data.lastResumedAt).toBeGreaterThan(0);
+});
+
+test("agent:resume with a prompt fails when the live pane is at a prompt of its own", async () => {
+  const prompts: unknown[] = [];
+  let sessionId = "";
+  const h = fresh({ runner: liveSessionRunner([], () => sessionId), herdr: claudePaneHerdr("blocked", prompts) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", label: "job10" });
+  if (!started.ok) throw new Error("unreachable");
+  sessionId = started.data.sessionId!;
+  const resumed = await h["agent:resume"]({ id: started.data.id, prompt: "re-review please" });
+  expect(resumed.ok).toBe(false);
+  if (resumed.ok) throw new Error("unreachable");
+  expect(resumed.error).toContain("would not take the prompt (at a prompt)");
+  expect(prompts).toEqual([]);
 });
 
 test("agent:resume headless without prompt is refused; unknown id errors", async () => {
