@@ -628,6 +628,67 @@ describe('composite rows', () => {
     );
   });
 
+  it('a list of names draws its title and tags, and adding or removing a tag writes the list', async () => {
+    const slack = def('board.slack', {
+      type: 'object',
+      scopes: ['team'],
+      merge: 'deep',
+      effective: {
+        scope: 'team',
+        file: '/t',
+        value: { emojiAliases: { approved: ['mr-approved'] } },
+        authored: { emojiAliases: { approved: ['mr-approved'] } },
+      },
+    });
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        def: slack,
+        rows: [
+          {
+            scope: 'team',
+            file: '/t',
+            present: true,
+            value: { emojiAliases: { approved: ['mr-approved'] } },
+          },
+        ],
+      }),
+    }));
+    const s = store();
+    renderWithProviders(
+      <SettingRow def={slack} store={s} subhead={null} query="" />
+    );
+    await openForm('board.slack');
+    await userEvent.click(screen.getByRole('button', { name: /more fields/ }));
+    expect(screen.getByText('Also counts as approved')).toBeInTheDocument();
+    const approved = screen.getByRole('group', {
+      name: 'board.slack.emojiAliases.approved',
+    });
+    const add = within(approved).getByRole('button', {
+      name: 'add to board.slack.emojiAliases.approved',
+    });
+    await waitFor(() => expect(add).toBeEnabled());
+    await userEvent.click(add);
+    await userEvent.type(
+      within(approved).getByRole('textbox'),
+      'approved_stamp{Enter}'
+    );
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('board.slack', 'team', {
+        emojiAliases: { approved: ['mr-approved', 'approved_stamp'] },
+      })
+    );
+    await userEvent.click(
+      within(approved).getByRole('button', { name: 'remove mr-approved' })
+    );
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('board.slack', 'team', {
+        emojiAliases: { approved: [] },
+      })
+    );
+  });
+
   it('emptying a number leaf clears that field from the target layer', async () => {
     vi.stubGlobal('fetch', async () => ({
       ok: true,

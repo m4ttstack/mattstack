@@ -253,11 +253,15 @@ function AddInlineTags({ def, row }: { def: SettingDefWire; row: Row }) {
   return (
     <Stack gap={4}>
       <InlineTags
-        def={def}
-        row={row}
+        label={def.key}
+        unset={def.effective.value === undefined}
+        disabled={
+          row.status === 'saving' ||
+          explained.loading ||
+          explained.error !== null
+        }
         list={own}
         inherited={inherited}
-        ready={!explained.loading && explained.error === null}
         save={value =>
           row.save(value).then(ok => {
             explained.refresh();
@@ -389,22 +393,21 @@ const TAG_STYLES = {
 /** A short list edited in place: each item a tag with its own x, and a
     separate + that opens a field for the next one. */
 function InlineTags({
-  def,
-  row,
+  label,
+  unset,
+  disabled: saving,
   list,
   inherited = [],
-  ready = true,
-  save = row.save,
+  save,
 }: {
-  def: SettingDefWire;
-  row: Row;
+  label: string;
+  unset: boolean;
+  disabled: boolean;
   list: string[];
   inherited?: Inherited[];
-  ready?: boolean;
-  save?: (value: unknown) => Promise<boolean>;
+  save: (value: unknown) => Promise<boolean>;
 }) {
   const { text } = useSchemeColors();
-  const saving = row.status === 'saving' || !ready;
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
   const plus = useRef<HTMLButtonElement>(null);
@@ -432,7 +435,7 @@ function InlineTags({
     <Group gap={6} wrap="wrap">
       {list.length === 0 && inherited.length === 0 && !adding && (
         <Text fz={12} c={text.muted}>
-          {def.effective.value === undefined ? 'unset' : 'none'}
+          {unset ? 'unset' : 'none'}
         </Text>
       )}
       {inherited.map(entry => (
@@ -464,7 +467,7 @@ function InlineTags({
       ))}
       {adding ? (
         <TextInput
-          aria-label={def.key}
+          aria-label={label}
           size="sm"
           w={120}
           styles={{
@@ -503,7 +506,7 @@ function InlineTags({
           size={TAG_HEIGHT}
           radius={4}
           c={text.muted}
-          aria-label={`add to ${def.key}`}
+          aria-label={`add to ${label}`}
           disabled={saving}
           onClick={() => {
             cancelled.current = false;
@@ -630,6 +633,21 @@ function LeafInput({
   onSave: (v: unknown) => void;
 }) {
   const { text } = useSchemeColors();
+  if (typeof type === 'object' && 'list' in type)
+    return (
+      <Group role="group" aria-label={label}>
+        <InlineTags
+          label={label}
+          unset={value === undefined}
+          disabled={disabled}
+          list={Array.isArray(value) ? value : []}
+          save={async v => {
+            onSave(v);
+            return true;
+          }}
+        />
+      </Group>
+    );
   if (typeof type === 'object' && 'enumSet' in type) {
     const on = Array.isArray(value) ? value : (type.whenUnset ?? []);
     return (
@@ -736,6 +754,10 @@ function isEnumSet(type: LeafType): boolean {
   return typeof type === 'object' && 'enumSet' in type;
 }
 
+function titleOf(type: LeafType): string | undefined {
+  return typeof type === 'object' && 'list' in type ? type.title : undefined;
+}
+
 function LeavesBody({
   def,
   row,
@@ -796,8 +818,11 @@ function LeavesBody({
             key={path}
             top={isEnumSet(shape.fields[path]!)}
             label={
-              <Text fz={12} ff="monospace">
-                {path}
+              <Text
+                fz={12}
+                ff={titleOf(shape.fields[path]!) ? undefined : 'monospace'}
+              >
+                {titleOf(shape.fields[path]!) ?? path}
               </Text>
             }
             source={
@@ -1096,7 +1121,13 @@ export function compositeParts(
           def.merge === 'add' ? (
             <AddInlineTags def={def} row={row} />
           ) : (
-            <InlineTags def={def} row={row} list={list} />
+            <InlineTags
+              label={def.key}
+              unset={value === undefined}
+              disabled={row.status === 'saving'}
+              list={list}
+              save={row.save}
+            />
           ),
         body: null,
         toolbar: <LiveHeader row={row} onJson={onEditJson} />,
