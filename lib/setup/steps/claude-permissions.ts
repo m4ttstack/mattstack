@@ -92,7 +92,7 @@ async function claudePermissionsRun(ctx: ApplyContext): Promise<StepOutcome> {
   const folders = `${written.length} Claude config folder${written.length === 1 ? "" : "s"}`;
   const parts: string[] = [];
   if (permissionsAdded) parts.push(`Added baseline permissions to ${folders}`);
-  if (fullscreen.length > 0) parts.push(`Set Claude Code to fullscreen in ${fullscreen.length === written.length ? folders : `${fullscreen.length} of them`}. To change it back, set "tui" in settings.json to "default"`);
+  if (fullscreen.length > 0) parts.push(`Set Claude Code to fullscreen in ${fullscreen.length === written.length ? folders : `${fullscreen.length} of them`}. To change it back, remove the "tui" line from settings.json`);
   return { state: "done", detail: parts.join(". ") };
 }
 
