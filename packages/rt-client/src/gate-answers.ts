@@ -18,14 +18,25 @@ export function unwrapGateAnswerValue(raw: unknown): unknown {
   return raw;
 }
 
+function textsError(qid: string, texts: unknown, value: unknown): string | null {
+  if (!texts || typeof texts !== "object" || Array.isArray(texts)) return `question ${qid} texts must be an object`;
+  if (!Array.isArray(value)) return `question ${qid} texts needs an array value`;
+  for (const [id, t] of Object.entries(texts)) {
+    if (typeof t !== "string" || t.trim() === "") return `question ${qid} texts must be non-empty strings`;
+    if (!value.includes(id)) return `question ${qid} texts key must be one of its values: ${id}`;
+  }
+  return null;
+}
+
 function wrapperFieldError(qid: string, raw: unknown): string | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || !("value" in (raw as Record<string, unknown>))) {
     return null;
   }
-  const { note, text } = raw as Record<string, unknown>;
+  const { note, text, texts, value } = raw as Record<string, unknown>;
   if (note !== undefined && typeof note !== "string") return `question ${qid} note must be a string`;
   if (text !== undefined && typeof text !== "string") return `question ${qid} text must be a string`;
   if (typeof text === "string" && text.trim() === "") return `question ${qid} text must not be empty`;
+  if (texts !== undefined) return textsError(qid, texts, value);
   return null;
 }
 
