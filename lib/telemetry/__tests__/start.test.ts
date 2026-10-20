@@ -26,6 +26,7 @@ describe("startTelemetry", () => {
     const calls = { enabled: 0, collect: 0, post: 0 };
     const d: TickDeps = {
       enabled: () => (calls.enabled++, true),
+      virtualMachine: async () => false,
       versions: async () => ({ appVersion: null, rtVersion: "1" }),
       collect: async () => (calls.collect++, {} as never),
       token: async () => null,

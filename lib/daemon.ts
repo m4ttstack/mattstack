@@ -60,7 +60,7 @@ import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secr
 import { startPeerWaker } from "./daemon/peer-waker.ts";
 import { readSwitchboardToken } from "./daemon/handlers/secrets.ts";
 import { readBoardSwitchboardToken } from "./team/board-token.ts";
-import { collectPing, readPingVersions } from "./telemetry/ping.ts";
+import { collectPing, readPingVersions, runningInVirtualMachine } from "./telemetry/ping.ts";
 import { startTelemetry } from "./telemetry/start.ts";
 
 import { SystemProcessScanner } from "./daemon/system-process-scanner.ts";
@@ -1289,6 +1289,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         telemetryInterval = startTelemetry(
           {
             enabled: () => getSetting<boolean>("telemetry.enabled").value,
+            virtualMachine: () => runningInVirtualMachine(telemetryProbes),
             versions: () => readPingVersions(telemetryProbes),
             collect: () => collectPing(telemetryProbes),
             token: () => readBoardSwitchboardToken(telemetryProbes, () => readSwitchboardToken()),

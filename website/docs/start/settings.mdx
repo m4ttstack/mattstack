@@ -62,7 +62,7 @@ While it is on, the rt daemon sends one small report when it starts, about every
 - the names of any leftover legacy folders
 - your org names and layouts, and your team packs and their versions
 
-It never sends your repos, files, paths or commands. Test runs and CI never send it. The report goes to the mattstack switchboard relay, where only the mattstack admin can read it. A failed report is silent and is retried on the next 5-minute check.
+It never sends your repos, files, paths or commands. Test runs, CI and virtual machines never send it. The report goes to the mattstack switchboard relay, where only the mattstack admin can read it. A failed report is silent and is retried on the next 5-minute check.
 
 The admin reads it with `rt telemetry open`, which opens the page in your browser with the key from `rt secrets set rt switchboardTelemetryToken`.
 
