@@ -83,6 +83,18 @@ final class SetupFlowUITests: XCTestCase {
         waitForExpectations(timeout: timeout)
     }
 
+    /// `pageThroughChecklist` without its first-page wait, for a test that already turned a page.
+    private func pageThroughChecklistFromHere() {
+        for _ in 0..<12 {
+            waitUntilEnabled("setup.checklist.continue")
+            let isLast = el("setup.checklist.continue").label == "Install"
+            let before = el("setup.window.progress").value as? String ?? ""
+            el("setup.checklist.continue").click()
+            if isLast { return }
+            waitForPageTurn(from: before)
+        }
+    }
+
     /// Presses the wizard's primary button until it has pressed Install.
     /// Each press must be enabled: a page that blocks is a test failure here,
     /// since every stub scenario that calls this is installable.
@@ -380,6 +392,37 @@ final class SetupFlowUITests: XCTestCase {
             XCTAssertTrue(el("setup.team.screen").exists, "the note shows before Continue, on the Team screen")
             XCTAssertFalse(el("setup.checklist.screen").exists)
             shootWindow("team-join-note-\(scheme)")
+            app.terminate()
+        }
+    }
+
+    /// A joiner's Accounts page says the team's accounts come after Install,
+    /// and the summary then holds Finish until Slack is connected.
+    func testJoinTeamAccountsLightAndDark() {
+        for scheme in ["Light", "Dark"] {
+            prepare("join-team-accounts")
+            app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
+            app.launch()
+            waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
+            waitFor("setup.team.screen")
+            el("setup.team.card.join").click()
+            el("setup.team.join.code").click()
+            el("setup.team.join.code").typeText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ-2345-6789-ABCD-EFGH")
+            el("setup.team.continue").click()
+            waitFor("setup.checklist.page.mac")
+            waitUntilEnabled("setup.checklist.continue")
+            let before = el("setup.window.progress").value as? String ?? ""
+            el("setup.checklist.continue").click()
+            waitForPageTurn(from: before)
+            waitFor("setup.checklist.page.accounts")
+            if el("setup.checklist.noAction.toggle").exists { el("setup.checklist.noAction.toggle").click() }
+            shootWindow("join-accounts-before-install-\(scheme)")
+            pageThroughChecklistFromHere()
+            waitFor("setup.done.screen", 60)
+            waitFor("setup.done.beforeYouFinish.account.slack", 30)
+            XCTAssertFalse(el("setup.done.continue").isEnabled, "Finish waits on Slack")
+            XCTAssertFalse(el("setup.done.skip.account.slack").exists, "Slack cannot be skipped")
+            shootWindow("join-summary-slack-blocks-finish-\(scheme)")
             app.terminate()
         }
     }

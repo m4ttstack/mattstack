@@ -130,7 +130,7 @@ async function buildGroup(id: GroupId, build: () => Promise<Row[]>): Promise<Gro
 }
 
 /** A joiner's plan before Install has no team clone, so the team's own accounts and repos cannot be listed yet; they come back blocking Finish. */
-const AFTER_INSTALL_ROW = row({
+export const AFTER_INSTALL_ROW = row({
   id: "accounts.after-install",
   kind: "info",
   title: "Your team's accounts and repos",

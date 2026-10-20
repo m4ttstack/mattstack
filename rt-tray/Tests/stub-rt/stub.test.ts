@@ -412,3 +412,17 @@ test("clone-partial scenario: the first apply reports repos.clone partial and fi
   const retry = (await run("clone-partial", ["setup", "apply", "--from", "repos.clone", "--json"], "", stateDir)).lines;
   expect(retry).toContainEqual(expect.objectContaining({ event: "step", id: "repos.clone", state: "done" }));
 });
+
+test("join-team-accounts: the after-install note before Install, then Slack blocks Finish", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const before = (await run("join-team-accounts", ["setup", "plan", "--json"], "", dir)).lines[0];
+  const ids = (p: { groups: { rows: { id: string }[] }[] }) => p.groups.flatMap((g) => g.rows.map((r) => r.id));
+  expect(ids(before)).toContain("accounts.after-install");
+  expect(ids(before)).not.toContain("account.slack");
+  expect(before.canInstall).toBe(true);
+  await run("join-team-accounts", ["setup", "apply", "--json"], "", dir);
+  const after = (await run("join-team-accounts", ["setup", "plan", "--json"], "", dir)).lines[0];
+  expect(ids(after)).not.toContain("accounts.after-install");
+  expect(after.finishBlockedBy).toEqual(["account.slack"]);
+  expect(after.requiredMissing).toContain("account.slack");
+});

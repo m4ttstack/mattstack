@@ -11,6 +11,7 @@ import {
   listWritingStyles, parsePluginEntries, readSkillInventory, type SkillInventory,
 } from "../../../lib/skills/writing-style-sources.ts";
 import { writingStyleRow as buildWritingStyleRow } from "../../../lib/setup/validators/writing-style.ts";
+import { AFTER_INSTALL_ROW } from "../../../lib/setup/plan.ts";
 
 const scenario = process.env.RT_STUB_SCENARIO ?? "join-happy";
 const stateDir = process.env.RT_STUB_STATE_DIR ?? join(import.meta.dir, ".state", scenario);
@@ -152,6 +153,18 @@ function writingStyleRow() {
   };
 }
 
+// The join-team-accounts scenario: before Install a joiner's plan cannot see
+// the team's accounts yet; after it, Slack blocks Finish the way rt gates it.
+function slackRow() {
+  return {
+    ...row("account.slack", "account", "Slack", "Lets the board post review requests and read the marks your team leaves on them.", true,
+           "missing", "No Slack account connected yet. If Slack rejects the redirect, add http://localhost:11234/callback in the app's OAuth settings",
+           { type: "oauth", label: "Connect", integration: "slack", verb: ["setup", "slack", "connect"] }),
+    finishGated: true,
+    waivable: false,
+  };
+}
+
 function plan(): unknown {
   const fdaCalls = stateBump("plan-calls");
   const fdaGranted = scenario !== "perm-denied-then-granted" || fdaCalls >= 3;
@@ -199,7 +212,7 @@ function plan(): unknown {
   // Scenarios other than perm-denied-then-granted are installable out of the box so
   // flows can reach Install without connecting anything; perm-denied-then-granted
   // gates only on perm.fda so the second plan() call can flip canInstall to true.
-  const installableScenario = ["join-happy", "create-happy", "apply-fail-retry", "clone-partial", "restore", "uninstall", "perm-denied-then-granted", "finish-gate", "writing-style"].includes(scenario);
+  const installableScenario = ["join-happy", "create-happy", "apply-fail-retry", "clone-partial", "restore", "uninstall", "perm-denied-then-granted", "finish-gate", "writing-style", "join-team-accounts"].includes(scenario);
   // accounts[0] and tools[1] are the fixed literal elements built above — non-null
   // is safe, not a runtime guess.
   if (installableScenario) { accounts[0]!.status = "ready"; accounts[0]!.detail = "token can see group acme"; tools[1]!.status = "ready"; tools[1]!.detail = "extension loaded"; }
@@ -207,6 +220,15 @@ function plan(): unknown {
     scenario === "finish-gate" ? [extensionRow()]
     : scenario === "writing-style" ? [REAL_WRITING_STYLE ? realWritingStyleRow() : writingStyleRow()]
     : [];
+  if (scenario === "join-team-accounts") {
+    if (stateGet("applied")) {
+      const slack = slackRow();
+      accounts.push(slack);
+      gated.push(slack);
+    } else {
+      accounts.push(AFTER_INSTALL_ROW);
+    }
+  }
   const requiredMissing = [...mac, ...accounts, ...access, ...tools].filter((r) => r.required && r.status !== "ready").map((r) => r.id);
   const finishBlockedBy = gated.filter((r) => r.status !== "ready" && !r.waived).map((r) => r.id);
   return {
@@ -286,6 +308,7 @@ async function apply() {
     }
     line({ event: "step", id, state: "done", detail: kind === "rt" ? "ok" : "done by the app" });
   }
+  stateSet("applied", 1);
   line({ event: "done", ok: true, failedStep: null });
 }
 
