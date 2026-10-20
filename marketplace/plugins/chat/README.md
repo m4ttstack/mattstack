@@ -32,6 +32,13 @@ once you're signed in.
   (3s timeout). Reminds an already-signed-in session that it is active
   after Claude Code recreates the process. Never fires on a fresh start or
   `/clear`... a session file existing is what makes that safe.
+- **SessionStart, matcher `startup`**: `auto-sign-in.sh` (10s timeout).
+  Signs a new session in, repo room included, when `chat.autoSignIn` is on
+  for its repo (`rt settings set chat.autoSignIn true --scope user --repo
+  <repo>`), then tells the agent it is signed in. Only an interactive
+  session in a herdr pane qualifies (`CLAUDE_CODE_ENTRYPOINT=cli` and
+  `HERDR_PANE_ID` set), so a `claude -p` run started inside a pane never
+  signs in.
 
 Every hook reads `.session_id` from stdin, resolves the session file at
 `~/.mattstack/rt/chat/sessions/<id>.json`, and exits 0 silently the moment
@@ -47,6 +54,7 @@ feeds canned JSON on stdin:
 ```bash
 plugins/chat/hooks/tests/test-session-end.sh
 plugins/chat/hooks/tests/test-session-start.sh
+plugins/chat/hooks/tests/test-auto-sign-in.sh
 ```
 
 ## Install

@@ -13,6 +13,16 @@
     ],
     "SessionStart": [
       {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/auto-sign-in.sh\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "resume|compact|fork",
         "hooks": [
           {

@@ -38,6 +38,7 @@ const NO_SCHEMA_YET: readonly string[] = [
   "board.triage.doctorSkill",
   "board.triageMaxConcurrent",
   "boxscore.defaultRange",
+  "chat.autoSignIn",
   "chat.handle",
   "chat.herdrWorkspace",
   "chat.humanHandle",

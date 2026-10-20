@@ -190,6 +190,7 @@ describe("settings/registry", () => {
       const repoOnly = allDefs().filter((d) => d.repoOnly).map((d) => d.key).sort();
       expect(repoOnly).toEqual([
         "board.codeowners",
+        "chat.autoSignIn",
         "rt.branchNaming",
         "rt.dopplerTemplate",
         "rt.hooks",
@@ -368,6 +369,7 @@ describe("settings/registry", () => {
         "chat.humanHandle",
         "chat.viewerUrl",
         "chat.herdrWorkspace",
+        "chat.autoSignIn",
         "chat.push.provider",
         "chat.push.target",
         "agent.provider",
@@ -411,7 +413,7 @@ describe("settings/registry", () => {
         "rt.branchNaming",
         "telemetry.enabled",
       ];
-      expect(suiteKeys).toHaveLength(96);
+      expect(suiteKeys).toHaveLength(97);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
