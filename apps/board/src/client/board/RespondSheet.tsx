@@ -54,8 +54,12 @@ import {
 } from './RespondCards.tsx';
 import {
   gateRounds,
+  itemMix,
+  itemNoun,
+  leadVerb,
+  personName,
   RespondCtxFacts,
-  reviewerName,
+  respondPerson,
   subjectRef,
 } from './RespondGateHeader.tsx';
 import { sheetAnswers } from './sheet-payload.ts';
@@ -688,6 +692,17 @@ function RespondSheetBody({
         }))
       : null;
   const listCount = postThreads?.length ?? picks.length + stepThreads.length;
+  const mix = itemMix(
+    postThreads
+      ? postThreads.map(j => j.label)
+      : perThread
+        ? proseItems.map(item => item.label)
+        : mainQs.map(q => q.prompt)
+  );
+  const person = respondPerson(ctx, mr);
+  const personTag = (
+    <PersonTag id={person} name={personName(person, mr, people)} />
+  );
   const dockPick = dockQs
     .map(q => {
       const v = form.selections[q.name];
@@ -742,29 +757,15 @@ function RespondSheetBody({
           <span className="tui-sheet-list-title">
             {postThreads || perThread ? (
               <>
-                Post replies on {listCount}{' '}
-                {listCount === 1 ? 'thread' : 'threads'}
-                {frame === undefined && (
-                  <>
-                    {' '}
-                    from{' '}
-                    <PersonTag
-                      id={ctx.reviewer}
-                      name={reviewerName(ctx.reviewer, mr, people)}
-                    />
-                  </>
-                )}
+                Post replies on {listCount} {itemNoun(listCount, mix)}
+                {frame === undefined && <> from {personTag}</>}
               </>
             ) : repliesQ ? (
               repliesQ.prompt
             ) : (
               <>
-                Respond to {mainQs.length}{' '}
-                {mainQs.length === 1 ? 'thread' : 'threads'} from{' '}
-                <PersonTag
-                  id={ctx.reviewer}
-                  name={reviewerName(ctx.reviewer, mr, people)}
-                />
+                Respond to {mainQs.length} {itemNoun(mainQs.length, mix)} from{' '}
+                {personTag}
               </>
             )}
           </span>
@@ -936,11 +937,8 @@ function RespondSheetBody({
                   decision context
                 </span>
                 {frame === undefined ? (
-                  <PersonLead
-                    id={ctx.reviewer}
-                    name={reviewerName(ctx.reviewer, mr, people)}
-                  >
-                    reviewed your {forgeNoun(mr, gate.subject)}
+                  <PersonLead id={person} name={personName(person, mr, people)}>
+                    {leadVerb(mix)} your {forgeNoun(mr, gate.subject)}
                   </PersonLead>
                 ) : (
                   frame && <p className="tui-sheet-context-meta">{frame}</p>

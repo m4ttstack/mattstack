@@ -101,19 +101,58 @@ export function reviewerName(
 }
 
 /** A person's full name for a handle: the team roster first, then the MR's
-    author, then its assigned reviewers and approvers, else the handle. */
+    author, then its assigned reviewers and approvers, then the people it
+    can respond to, else the handle. */
 export function personName(
   handle: string,
   mr?: BoardMRWithReview,
   people?: ReadonlyMap<string, string>
 ): string {
+  const known = reviewerName(handle, mr, people);
   return (
     people?.get(handle) ??
     (mr?.author?.username === handle
       ? mr.author.name || undefined
       : undefined) ??
-    reviewerName(handle, mr, people)
+    (known !== handle ? known : undefined) ??
+    mr?.respondTargets?.find(t => t.username === handle)?.name ??
+    handle
   );
+}
+
+/** The person a respond gate answers: the live respond run's person, which
+    a gate from before per-person responses does not carry, else the gate's
+    reviewer. */
+export function respondPerson(
+  ctx: PlanCtx | PostCtx,
+  mr?: BoardMRWithReview
+): string {
+  return mr?.respond?.person || ctx.reviewer;
+}
+
+/** The label a respond gate gives a plain Overview comment's question. */
+export const OVERVIEW_LABEL = 'Overview comment';
+
+/** Whether a respond gate's items are review threads, Overview comments,
+    or both, judged by their question labels. */
+export type ItemMix = 'threads' | 'comments' | 'mixed';
+
+export function itemMix(labels: readonly string[]): ItemMix {
+  const comments = labels.filter(l => l === OVERVIEW_LABEL).length;
+  if (comments === 0) return 'threads';
+  return comments === labels.length ? 'comments' : 'mixed';
+}
+
+export function itemNoun(n: number, mix: ItemMix): string {
+  if (mix === 'mixed') return 'threads and comments';
+  const one = mix === 'comments' ? 'comment' : 'thread';
+  return n === 1 ? one : `${one}s`;
+}
+
+/** The decision context's verb: a person who left only Overview comments
+    commented; anyone with a review thread reviewed. */
+export function leadVerb(mix: ItemMix): string {
+  return mix === 'comments' ? 'commented on' : 'reviewed';
 }
 
 /** `!<n>` from an `mr:<url>` subject: the object line's stand-in when the

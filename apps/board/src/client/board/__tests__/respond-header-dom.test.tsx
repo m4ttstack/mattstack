@@ -19,6 +19,7 @@ import type { PlanCtx, PostCtx } from '../gate-ctx.ts';
 import {
   headerChips,
   headerMeta,
+  personName,
   reviewerName,
 } from '../RespondGateHeader.tsx';
 
@@ -265,6 +266,20 @@ test('the reviewer reads by full name from the roster, else the MR reviewers, el
     reviewerName('renee', withReviewer, new Map([['renee', 'R. Park']]))
   ).toBe('R. Park');
   expect(reviewerName('renee', MR)).toBe('renee');
+});
+
+test('a person reads by full name from the respond targets once the roster and reviewers miss', () => {
+  const withTargets = {
+    ...MR,
+    respondTargets: [
+      { username: 'john', name: 'John Ward', openThreads: 0, openComments: 2 },
+    ],
+  } as unknown as BoardMRWithReview;
+  expect(personName('john', withTargets)).toBe('John Ward');
+  expect(personName('john', withTargets, new Map([['john', 'J. Ward']]))).toBe(
+    'J. Ward'
+  );
+  expect(personName('john', MR)).toBe('john');
 });
 
 test('a GitHub MR says pull request', async () => {

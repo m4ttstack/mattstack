@@ -824,6 +824,134 @@ test('a held thread stays held after leaving the per-thread post step and coming
   expect(submit().textContent).toBe('post 2 · resolve 1');
 });
 
+/** A per-thread post gate that also answers an Overview comment: its
+    question offers post alone, since that discussion cannot be resolved. */
+function overviewPostGate(): GateRow {
+  const gate = perThreadPostGate();
+  return {
+    ...gate,
+    gateId: 'g-post-overview',
+    questions: [
+      ...gate.questions,
+      {
+        id: 'thread-3',
+        label: 'Overview comment',
+        multi: true,
+        context: JSON.stringify({
+          'gate-ctx': 'reply@1',
+          thread: 'n1',
+          file: 'Overview comment',
+          verb: 'reply',
+          text: 'Good catch, the follow-up is linked now.',
+        }),
+        options: [{ value: 'post:n1', label: 'Post (Recommended)' }],
+      },
+    ],
+  };
+}
+
+const dockRowTexts = () =>
+  [
+    ...document.body.querySelectorAll(
+      '[data-card="responses"] .tui-sheet-card-row'
+    ),
+  ].map(r => r.textContent);
+
+test('an Overview comment reply offers post and no resolve, starts posting, and counts like any reply', async () => {
+  await render(overviewPostGate());
+  const card = postCards()[2]!;
+  expect(card.getAttribute('aria-label')).toBe('Overview comment');
+  expect(control(card, 'post')!.checked).toBe(true);
+  expect(control(card, 'resolve')).toBeNull();
+  expect($('.tui-sheet-list-tally')!.textContent).toBe('3 of 3 posting');
+  expect(submit().textContent).toBe('post 3 · resolve 1');
+  expect(dockRowTexts()).toEqual([
+    'postresolvea.ts:1',
+    'postb.ts:2',
+    'postOverview comment',
+  ]);
+  await clickSubmit();
+  expect(answer()).toEqual({
+    gateId: 'g-post-overview',
+    answers: {
+      'thread-1': ['post:r1', 'resolve:r1'],
+      'thread-2': ['post:r2'],
+      'thread-3': ['post:n1'],
+    },
+  });
+});
+
+test('holding an Overview comment reply posts nothing for it', async () => {
+  await render(overviewPostGate());
+  await holdReply(postCards()[2]!);
+  expect(submit().textContent).toBe('post 2 · resolve 1');
+  expect(dockRowTexts()[2]).toBe('holdOverview comment');
+  await clickSubmit();
+  expect(
+    (answer() as { answers: Record<string, unknown> }).answers['thread-3']
+  ).toEqual([]);
+});
+
+const listTitle = () => $('.tui-sheet-list-title')!.textContent;
+const contextLead = () =>
+  $('.tui-sheet-context-card .tui-id-card-lead')!.textContent;
+
+test('a post sheet mixing threads and Overview comments says both in its heading', async () => {
+  await render(overviewPostGate());
+  expect(listTitle()).toBe('Post replies on 3 threads and comments from renee');
+  expect(contextLead()).toBe('renee reviewed your merge request');
+});
+
+/** A plan gate whose every item is one of the person's Overview comments. */
+function commentsOnlyPlanGate(): GateRow {
+  const gate = planGate();
+  return {
+    ...gate,
+    gateId: 'g-plan-comments',
+    questions: gate.questions.map(q =>
+      q.id.startsWith('thread-') ? { ...q, label: 'Overview comment' } : q
+    ),
+  };
+}
+
+test('someone who only commented: the heading counts comments and the lead says commented', async () => {
+  await render(commentsOnlyPlanGate());
+  expect(listTitle()).toBe('Respond to 2 comments from renee');
+  expect(contextLead()).toBe('renee commented on your merge request');
+});
+
+test('one Overview comment beside a thread reads as threads and comments, reviewed', async () => {
+  const gate = planGate();
+  gate.questions[1] = { ...gate.questions[1]!, label: 'Overview comment' };
+  await render(gate);
+  expect(listTitle()).toBe('Respond to 2 threads and comments from renee');
+  expect(contextLead()).toBe('renee reviewed your merge request');
+});
+
+const respondingTo = (person: string, respondTargets: unknown[] = []) =>
+  ({
+    ...MR,
+    respond: { status: 'triaging', person, responseRound: 1 },
+    respondTargets,
+  }) as unknown as BoardMRWithReview;
+
+test('the sheet names the person the live respond run answers, by the name the board knows', async () => {
+  await render(
+    planGate(),
+    respondingTo('john', [
+      { username: 'john', name: 'John Ward', openThreads: 2, openComments: 0 },
+    ])
+  );
+  expect(listTitle()).toBe('Respond to 2 threads from John Ward');
+  expect(contextLead()).toBe('John Ward reviewed your merge request');
+});
+
+test('a post sheet names the live run person too, and falls back to the handle', async () => {
+  await render(perThreadPostGate(), respondingTo('john'));
+  expect(listTitle()).toBe('Post replies on 2 threads from john');
+  expect(contextLead()).toBe('john reviewed your merge request');
+});
+
 const seedTexts = (
   texts: Record<string, string>,
   selections?: Record<string, string[]>
