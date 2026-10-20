@@ -1857,32 +1857,56 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
   // ─── services.start ──────────────────────────────────────────────────────
 
   describe("services.start", () => {
-    test("tray 200, daemon answers immediately -> done", async () => {
-      const p = fakeProbes({
-        home,
-        tray: fakeTray({ "POST /daemon/start": () => ({ status: 200, json: {} }) }),
-        daemon: async () => ({ ok: true }),
-      });
-      const { ctx } = makeCtx(p);
-      expect(await servicesStartStep.run(ctx)).toEqual({ state: "done", detail: "The daemon is running" });
+    const startOk = { "POST /daemon/start": () => ({ status: 200, json: {} }) };
+    const withLoginItems = (status: string) => ({
+      ...startOk,
+      "GET /permissions": () => ({ status: 200, json: { fda: { status: "granted" }, notifications: { status: "authorized" }, loginItems: { status } } }),
+    });
+    const neverUp = async () => ({ ok: false });
+
+    test("daemon already answers -> done without asking the app to start it, so a Retry never restarts a healthy daemon", async () => {
+      const p = fakeProbes({ home, tray: fakeTray(startOk), daemon: async () => ({ ok: true }) });
+      expect(await servicesStartStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "The daemon is running" });
+      expect(p.calls.tray).toEqual([]);
     });
 
-    test("idempotent re-run: two independent starts each hit the tray and poll the daemon again — nothing memoized between runs", async () => {
+    test("idempotent re-run: each run pings again and neither calls the app while the daemon answers — nothing memoized between runs", async () => {
       let pings = 0;
       const p = fakeProbes({
         home,
-        tray: fakeTray({ "POST /daemon/start": () => ({ status: 200, json: {} }) }),
+        tray: fakeTray(startOk),
         daemon: async () => {
           pings++;
           return { ok: true };
         },
       });
       expect(await servicesStartStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "The daemon is running" });
-      expect(p.calls.tray).toEqual(["/daemon/start"]);
       expect(pings).toBe(1);
       expect(await servicesStartStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "The daemon is running" });
-      expect(p.calls.tray).toEqual(["/daemon/start", "/daemon/start"]);
       expect(pings).toBe(2);
+      expect(p.calls.tray).toEqual([]);
+    });
+
+    test("daemon down -> asks the app to start it once, then done when the ping answers", async () => {
+      let pings = 0;
+      const p = fakeProbes({ home, tray: fakeTray(startOk), daemon: async () => ({ ok: ++pings > 1 }) });
+      expect(await servicesStartRun(makeCtx(p).ctx, async () => {})).toEqual({ state: "done", detail: "The daemon is running" });
+      expect(p.calls.tray).toEqual(["/daemon/start"]);
+    });
+
+    test("a cold start that takes about 10s passes on the first try, and the wait stops as soon as the ping answers", async () => {
+      let waited = 0;
+      let pings = 0;
+      const p = fakeProbes({
+        home,
+        tray: fakeTray(startOk),
+        daemon: async () => ({ ok: pings++ > 0 && waited >= 10_000 }),
+      });
+      const sleep = async (ms: number) => {
+        waited += ms;
+      };
+      expect(await servicesStartRun(makeCtx(p).ctx, sleep)).toEqual({ state: "done", detail: "The daemon is running" });
+      expect(waited).toBe(10_000);
     });
 
     test("tray unreachable + nonInteractive -> skipped", async () => {
@@ -1911,20 +1935,52 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(outcome).toEqual({ state: "failed", detail: "mattstack.app answered 404 when asked to start the daemon", remedy: "Open mattstack.app" });
     });
 
-    test("tray 200 but the daemon never comes up -> failed after exhausting the poll (fast sleep)", async () => {
-      let pings = 0;
-      const p = fakeProbes({
-        home,
-        tray: fakeTray({ "POST /daemon/start": () => ({ status: 200, json: {} }) }),
-        daemon: async () => {
-          pings += 1;
-          return { ok: false };
-        },
+    test("the daemon never answers -> gives up after about 20s of polling, not 3s", async () => {
+      let waited = 0;
+      const p = fakeProbes({ home, tray: fakeTray(withLoginItems("enabled")), daemon: neverUp });
+      const outcome = await servicesStartRun(makeCtx(p).ctx, async (ms) => {
+        waited += ms;
       });
-      const { ctx } = makeCtx(p);
-      const outcome = await servicesStartRun(ctx, async () => {});
-      expect(outcome).toEqual({ state: "failed", detail: "The daemon did not start", remedy: "Approve the background item in Login Items, then Retry" });
-      expect(pings).toBe(12);
+      expect(outcome.state).toBe("failed");
+      expect(waited).toBe(20_000);
+    });
+
+    test("registered and approved but never answers -> its own detail, pointing at rt daemon status and logs, never Login Items", async () => {
+      const p = fakeProbes({ home, tray: fakeTray(withLoginItems("enabled")), daemon: neverUp });
+      expect(await servicesStartRun(makeCtx(p).ctx, async () => {})).toEqual({
+        state: "failed",
+        detail: "The daemon is registered but did not answer",
+        remedy: "Check rt daemon status and rt daemon logs, then Retry",
+      });
+    });
+
+    test("waiting for approval -> the Login Items remedy", async () => {
+      const p = fakeProbes({ home, tray: fakeTray(withLoginItems("requiresApproval")), daemon: neverUp });
+      expect(await servicesStartRun(makeCtx(p).ctx, async () => {})).toEqual({
+        state: "failed",
+        detail: "The daemon is waiting for approval in Login Items",
+        remedy: "Approve the background item in Login Items, then Retry",
+      });
+    });
+
+    for (const status of ["notRegistered", "notFound"]) {
+      test(`${status} -> names the missing registration, not Login Items approval`, async () => {
+        const p = fakeProbes({ home, tray: fakeTray(withLoginItems(status)), daemon: neverUp });
+        expect(await servicesStartRun(makeCtx(p).ctx, async () => {})).toEqual({
+          state: "failed",
+          detail: "The daemon is not registered",
+          remedy: "Run Register services, then Retry",
+        });
+      });
+    }
+
+    test("permissions unreadable -> the daemon remedy, never a guess at Login Items", async () => {
+      const p = fakeProbes({ home, tray: fakeTray(startOk), daemon: neverUp });
+      expect(await servicesStartRun(makeCtx(p).ctx, async () => {})).toEqual({
+        state: "failed",
+        detail: "The daemon did not start",
+        remedy: "Check rt daemon status and rt daemon logs, then Retry",
+      });
     });
   });
 
