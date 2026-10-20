@@ -88,28 +88,3 @@ export function paneActionFor(presentation: "form" | "wait", o: { herdr: boolean
   return presentation === "wait" && (o.herdr || o.spawned) ? "wait" : "form";
 }
 
-type Open = { context?: string; questions: GateQuestion[] };
-
-export function dropContextsToFit(open: Open, limit: number): { open: Open; dropped: string[] } {
-  const questions = open.questions.map((q) => ({ ...q }));
-  let context = open.context;
-  const bytesOf = (s: string | undefined): number => (s === undefined ? 0 : utf8Bytes(s));
-  let total = bytesOf(context) + questions.reduce((n, q) => n + bytesOf(q.context), 0);
-  const dropped: string[] = [];
-
-  const order = questions
-    .map((q, i) => ({ i, bytes: bytesOf(q.context) }))
-    .filter((e) => questions[e.i]!.context !== undefined)
-    .sort((a, b) => b.bytes - a.bytes || a.i - b.i);
-  for (const { i, bytes } of order) {
-    if (total < limit) break;
-    delete questions[i]!.context;
-    total -= bytes;
-    dropped.push(questions[i]!.id);
-  }
-  if (total >= limit && context !== undefined) context = undefined;
-
-  const next: Open = { questions };
-  if (context !== undefined) next.context = context;
-  return { open: next, dropped };
-}

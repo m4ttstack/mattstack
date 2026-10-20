@@ -11,11 +11,14 @@
 # already a string, ready for --context and each question's context field.
 # A review@1 gate is stored structured only when every findings-* question
 # carries a findings@1 context; otherwise (a legacy findings file) it is
-# stored as prose. "pane": {"context","questions","fits","trimmed"} is the
-# prose a pane's form shows, trimmed to the limit (PANE_PROSE_LIMIT UTF-8
-# bytes) and never carrying a board-only field; "fits": false means even
-# the smallest pane prose is over it. prose stdout: the untrimmed
-# prose open, {"mode","context","questions","bytes"}.
+# stored as prose. "pane": {"context","questions","fits","trimmed",
+# "contextDropped","droppedContexts"} is the prose a pane's form shows as
+# it stands, fitted to the limit (PANE_PROSE_LIMIT UTF-8 bytes) and never
+# carrying a board-only field: optional parts trimmed first, then whole
+# question contexts left out, largest first, then the gate context.
+# "contextDropped": true when any context was left out; "droppedContexts"
+# names those questions. prose stdout: the untrimmed prose open,
+# {"mode","context","questions","bytes"}.
 # Exit 0 = ok. Exit 1 = contract violation (one line per problem on
 # stderr). Exit 2 = usage.
 set -u
@@ -286,13 +289,29 @@ def render($mode):
   | .bytes = ((if has("context") then .context | utf8bytelength else 0 end)
       + ([.questions[] | select(has("context")) | .context | utf8bytelength] | add // 0));
 
+def str_bytes: if type == "string" then utf8bytelength else 0 end;
+def open_bytes: (.context | str_bytes) + ([.questions[] | .context | str_bytes] | add // 0);
+# Whole question contexts leave the pane largest first (ties to the earliest
+# question), then the gate context, until it is under the limit.
+def drop_contexts($limit):
+  ([.questions | to_entries[] | select(.value | has("context"))
+    | {i: .key, b: (.value.context | str_bytes)}] | sort_by(-.b, .i)) as $order
+  | reduce $order[] as $c (. + {dropped: [], total: open_bytes};
+      if .total < $limit then .
+      else .questions[$c.i] |= del(.context) | .total -= $c.b | .dropped += [.questions[$c.i].id]
+      end)
+  | (if .total >= $limit then del(.context) else . end)
+  | del(.total);
 def pane($limit):
   (.trimmed = [] | trim("points"; $limit) | trim("note"; $limit)
     | trim_carry("note"; $limit) | shorten_carry("authorReply"; $limit) | shorten_carry("original"; $limit)
     | trim_entries("evidence"; $limit) | trim_entries("fix"; $limit)) as $fitted
   | ($fitted | render("prose")) as $p
-  | (if $p | has("context") then {context: $p.context} else {} end)
-    + {questions: $p.questions, fits: ($p.bytes < $limit), trimmed: $fitted.trimmed};
+  | ($p | drop_contexts($limit)) as $d
+  | (if $d | has("context") then {context: $d.context} else {} end)
+    + {questions: $d.questions, fits: ($d | open_bytes < $limit), trimmed: $fitted.trimmed,
+       contextDropped: (($d.dropped | length > 0) or (($p | has("context")) and ($d | has("context") | not))),
+       droppedContexts: $d.dropped};
 
 def main($mode; $limit):
   if $mode == "prose" then render("prose")

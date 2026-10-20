@@ -121,7 +121,7 @@ describe("boards@1 against the pane budget", () => {
   test(`${BOARDS_PER_GATE} realistic boards, the most one gate carries, fit structured and open`, () => {
     const src = many(BOARDS_PER_GATE);
     const fit = fitOpen(src);
-    expect(fit).toMatchObject({ mode: "structured", pane: { fits: true } });
+    expect(fit).toMatchObject({ mode: "structured", pane: { fits: true, contextDropped: false } });
     expect(boardsBudgetError(src, fit)).toBeNull();
   });
 
@@ -135,7 +135,7 @@ describe("boards@1 against the pane budget", () => {
   test("40 boards overflow the budget, stay structured, and are refused", () => {
     const src = many(40);
     const fit = fitOpen(src);
-    expect(fit).toMatchObject({ mode: "structured", pane: { fits: false } });
+    expect(fit).toMatchObject({ mode: "structured", pane: { fits: true, contextDropped: true } });
     expect(JSON.parse(fit.context!)["gate-ctx"]).toBe("boards@1");
     expect(boardsBudgetError(src, fit)).toBe(`boards@1: 40 boards; open at most ${BOARDS_PER_GATE} per gate`);
   });
@@ -143,7 +143,7 @@ describe("boards@1 against the pane budget", () => {
   test("a few boards whose captions alone overflow the budget are refused for the bytes", () => {
     const src = source({ boards: [board({ caption: "x".repeat(9000) })] }) as any;
     const fit = fitOpen(src);
-    expect(fit).toMatchObject({ mode: "structured", pane: { fits: false } });
+    expect(fit).toMatchObject({ mode: "structured", pane: { fits: true, contextDropped: true } });
     expect(boardsBudgetError(src, fit)).toBe(`boards@1: 1 boards do not fit the ${PANE_PROSE_LIMIT}-byte budget`);
   });
 });

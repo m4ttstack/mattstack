@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
-import { BOARD_ONLY_FIELDS, proseContext } from "../ctx.ts";
+import { BOARD_ONLY_FIELDS, dropContextsToFit, proseContext } from "../ctx.ts";
 import {
   DESCRIPTION_CAP_BYTES,
   LABEL_CAP_BYTES,
-  dropContextsToFit,
   flattenContext,
   formChunks,
   paneActionFor,

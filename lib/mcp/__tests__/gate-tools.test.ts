@@ -560,7 +560,7 @@ describe("gate_open", () => {
   test("an open whose pane prose does not fit also saves the dropped fact", async () => {
     const f = rooted();
     const res = await open({ kind: "respond-plan", source: bigAdjudication(), ...RUN }, f);
-    expect(body(res)).toMatchObject({ mode: "structured", fits: false, contextDropped: true });
+    expect(body(res)).toMatchObject({ mode: "structured", fits: true, contextDropped: true });
     expect(f.log.slice(3)).toEqual(["field set extra.context-dropped.respond-plan g1 --stage s", sourceLine("respond-plan", "g1", bigAdjudication())]);
   });
 
@@ -621,7 +621,7 @@ describe("gate_open", () => {
       const fit = fitOpen(s);
       const res = await open({ kind: "respond-plan", source: s, handBack: true });
       const o = body(res).open as { context?: string; questions: { id: string; context?: string }[] };
-      expect(body(res)).toMatchObject({ fits: false, contextDropped: true, droppedContexts: ["thread-1"] });
+      expect(body(res)).toMatchObject({ fits: true, contextDropped: true, droppedContexts: ["thread-1"] });
       expect(o.context).toBe(fit.context!);
       expect(o.questions[0]!.context).toBe(fit.questions[0]!.context as string);
       const chunk = (body(res).formChunks as { text: string }[][])[0]!;
@@ -656,7 +656,7 @@ describe("gate_open", () => {
       const fit = fitOpen(bigAdjudication());
       expect(file.context).toBe(fit.context);
       expect(file.pane.context).toBeUndefined();
-      expect(file.pane.fits).toBe(false);
+      expect(`${file.pane.fits}|${file.pane.contextDropped}`).toBe("true|true");
     });
 
     test("an outPath outside the temp roots is refused and nothing is written", async () => {

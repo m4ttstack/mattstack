@@ -25,7 +25,7 @@ PANE_BYTES='(.pane.context // "" | utf8bytelength) + ([.pane.questions[] | .cont
 run "$PLAN" fit
 check "plan fit exits 0" 0 "$RC"
 check "plan fit is structured" structured "$(printf '%s' "$OUT" | jq -r .mode)"
-check "output keys" '["mode","context","questions","bytes","pane"]|["context","questions","fits","trimmed"]' \
+check "output keys" '["mode","context","questions","bytes","pane"]|["context","questions","fits","trimmed","contextDropped","droppedContexts"]' \
   "$(printf '%s' "$OUT" | jq -r '"\(keys_unsorted | tojson)|\(.pane | keys_unsorted | tojson)"')"
 check "plan fit trims nothing" '[]' "$(printf '%s' "$OUT" | jq -c .pane.trimmed)"
 check "gate context round-trips" true \
@@ -79,7 +79,12 @@ check "untrimmed prose wins when it fits" '[]|true' "$(printf '%s' "$OUT" | jq -
 
 run "$PLAN" fit --limit 300
 check "an open no prose can fit still exits 0" 0 "$RC"
-check "and reports that it does not fit" false "$(printf '%s' "$OUT" | jq .pane.fits)"
+check "and leaves whole question contexts out of the pane, then fits" 'true|true|["thread-2","thread-1"]' \
+  "$(printf '%s' "$OUT" | jq -r '"\(.pane.contextDropped)|\(.pane.fits)|\(.pane.droppedContexts | tojson)"')"
+check "the dropped questions carry no pane context" '[]' \
+  "$(printf '%s' "$OUT" | jq -c '[.pane.questions[] | select(has("context")) | .id]')"
+check "and the stored open keeps every context" 2 \
+  "$(printf '%s' "$OUT" | jq '[.questions[] | select(has("context"))] | length')"
 check "and is still stored structured" structured "$(printf '%s' "$OUT" | jq -r .mode)"
 
 # --- prose flattening: exact text ---
@@ -141,7 +146,7 @@ check "a review's smallest pane prose fits one byte over it" 'structured|true' "
 check "the pane prose keeps every body whole" true \
   "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '(.pane.questions[0].context + .pane.questions[1].context) as $p | [$s[0].questions[0,1].context.findings[].body] | all(. as $b | $p | contains($b))')"
 run "$REVIEW" fit --limit "$MIN"
-check "and does not fit at it" false "$(printf '%s' "$OUT" | jq .pane.fits)"
+check "and at it the pane leaves a whole context out" 'true|true' "$(printf '%s' "$OUT" | jq -r '"\(.pane.contextDropped)|\(.pane.fits)"')"
 
 M=$(mutate '(.questions[] | select(.id | startswith("findings-"))) |= del(.context)' "$REVIEW"); run "$M" fit; rm -f "$M"
 check "findings questions without contexts (a legacy findings file) are stored as prose" 'prose|[]|true' "$(printf '%s' "$OUT" | jq -r '"\(.mode)|\(.pane.trimmed | tojson)|\(.pane.fits)"')"

@@ -282,6 +282,14 @@ const GC_MUTATIONS: [string, string, Mutation | undefined][] = [
   ["hostile DEL in claim.summary", PLAN, (j) => (j.questions[0].context.claim.summary = "a\u007fb")],
   ["hostile non-BMP finding title", REVIEW, (j) => (j.questions[0].context.findings[0].title = big(60, "𝄞"))],
   ["hostile ideographic-space reply.text", PLAN, (j) => (j.questions[0].context.reply.text = "　")],
+  [
+    "twin threads with long replies (a pane drop tie)",
+    PLAN,
+    (j) => {
+      j.questions[0].context.reply.text = big(3000, "r");
+      j.questions[1].context = structuredClone(j.questions[0].context);
+    },
+  ],
 ];
 
 const GC_CASES: GcCase[] = [
@@ -299,6 +307,8 @@ const MODES: Mode[] = [
   { name: "fit --limit 300", args: () => ["fit", "--limit", "300"] },
   { name: "fit --limit <its own prose bytes>", args: (s) => ["fit", "--limit", String(proseOpen(s).bytes)] },
   { name: "fit --limit 2000", args: () => ["fit", "--limit", "2000"] },
+  { name: "fit --limit 5000", args: () => ["fit", "--limit", "5000"] },
+  { name: "fit --limit 1 (every context leaves the pane)", args: () => ["fit", "--limit", "1"] },
   { name: "prose", args: () => ["prose"] },
 ];
 

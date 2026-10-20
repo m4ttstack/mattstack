@@ -1586,10 +1586,9 @@ nuance in the `{value, note}` form. Five things stay specific to
   its stored `.questions[].context`. Print `.pane.context` as one pane line
   before the form call, and make each `thread-N`, `findings-N` and
   `skipped-N` question's form text its label, a newline, then the prose
-  `context` of its `.pane.questions[]` entry. When the file reads
-  `pane.fits: false`, leave whole question contexts out of the form,
-  largest first (ties to the earliest question), until the pane prose is
-  under 8192 UTF-8 bytes. Options keep the gate's labels and
+  `context` of its `.pane.questions[]` entry (just the label when the
+  entry has none). The `pane` is already fitted to the pane budget:
+  render it as it stands. Options keep the gate's labels and
   descriptions.
 - **Hand-built thread and skipped questions.** Their `context` is prose
   already: the form text is the label, a newline, then that `context` as
@@ -1729,8 +1728,9 @@ plus the hand back row's description:
 `--context` is what the box's section names: for a refused call, the
 errors verbatim (the first refusal and the one after the fix) with the
 call that was refused. Never send an empty context. The gate stores it
-whole at any size, like `review-post`'s, so never pre-trim it yourself. A nonzero open exit is not itself an
-off-script origin: it is `Off-script gate unavailable (review)`.
+whole at any size, like `review-post`'s, so never pre-trim it yourself.
+A nonzero open exit is not itself an off-script origin: it is
+`Off-script gate unavailable (review)`.
 
 ### review-escalation: take the review gate step
 
@@ -1793,8 +1793,8 @@ shape with its options unticked. Open it with:
 
 The gate stores every context in the file whole; only its `pane` key,
 the pane form's prose, is fitted to a budget. The file goes in untouched:
-never rebuilt, re-ordered, trimmed, or hand-edited, even when it reads
-`pane.fits: false`. Nothing below is built for it.
+never rebuilt, re-ordered, trimmed, or hand-edited, even when its `pane`
+left a context out. Nothing below is built for it.
 
 **The json sibling.** Otherwise build the questions yourself from the json
 sibling of `--report`: swap the trailing `.md` for `.json`, or append

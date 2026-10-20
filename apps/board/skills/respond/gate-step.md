@@ -112,10 +112,10 @@ or neither?`; a multi-select with the gate's labels and descriptions,
   `formChunks` entry's `text` (the lines after its label). A file the
   domain skill fitted takes it from the file's own `pane` key, never from
   its stored `.questions[].context`: each thread's prose context from its
-  `.pane.questions[]` entry, and `.pane.context` as one pane line before
-  the first form call. When the file reads `pane.fits: false`, leave whole
-  question contexts out of the form, largest first (ties to the earliest
-  question), until the pane prose is under 8192 UTF-8 bytes. A Gate 2 prose
+  `.pane.questions[]` entry (none when the entry has no `context`), and
+  `.pane.context`, when present, as one pane line before the first form
+  call. The `pane` is already fitted to the pane budget: render it as it
+  stands. A Gate 2 prose
   line reads `<file> FIX · <sha>: <text>` or `<file> REPLY: <text>`. Leave
   Gate 2's pane-only `next` question out.
 - **Another surface won.** A JSON line printed by `gate answer`, or a

@@ -330,6 +330,10 @@ export interface PaneProse {
   questions: Record<string, unknown>[];
   fits: boolean;
   trimmed: string[];
+  /** A question context or the gate context was left out of the pane. */
+  contextDropped: boolean;
+  /** The questions whose context was left out, in drop order. */
+  droppedContexts: string[];
 }
 
 export interface FitResult extends RenderedOpen {
@@ -630,7 +634,7 @@ export function boardsBudgetError(source: GateCtxSource, fit: FitResult): string
   if (!isBoards(source as Working)) return null;
   const n = ((source.context as Obj).boards as unknown[]).length;
   if (n > BOARDS_PER_GATE) return `boards@1: ${n} boards; open at most ${BOARDS_PER_GATE} per gate`;
-  return fit.pane.fits ? null : `boards@1: ${n} boards do not fit the ${PANE_PROSE_LIMIT}-byte budget`;
+  return !fit.pane.contextDropped ? null : `boards@1: ${n} boards do not fit the ${PANE_PROSE_LIMIT}-byte budget`;
 }
 
 function fitPane(src: Working, limit: number): PaneProse {
@@ -643,8 +647,45 @@ function fitPane(src: Working, limit: number): PaneProse {
   trimEntries(fitted, "evidence", limit);
   trimEntries(fitted, "fix", limit);
   const prose = render(fitted, "prose");
-  const context = prose.context === undefined ? {} : { context: prose.context };
-  return { ...context, questions: prose.questions, fits: prose.bytes < limit, trimmed: trimmedList(fitted) };
+  const { open, dropped } = dropContextsToFit(prose, limit);
+  const context = open.context === undefined ? {} : { context: open.context };
+  return {
+    ...context,
+    questions: open.questions,
+    fits: openBytes(open) < limit,
+    trimmed: trimmedList(fitted),
+    contextDropped: dropped.length > 0 || open.context !== prose.context,
+    droppedContexts: dropped,
+  };
+}
+
+type PaneOpen<Q> = { context?: string; questions: Q[] };
+const strBytes = (v: unknown): number => (typeof v === "string" ? utf8Bytes(v) : 0);
+const openBytes = <Q extends { context?: unknown }>(o: PaneOpen<Q>): number =>
+  strBytes(o.context) + o.questions.reduce((n, q) => n + strBytes(q.context), 0);
+
+/** Whole question contexts leave the pane largest first (ties to the
+    earliest question), then the gate context, until it is under `limit`. */
+export function dropContextsToFit<Q extends { id: string; context?: unknown }>(
+  open: PaneOpen<Q>,
+  limit: number,
+): { open: PaneOpen<Q>; dropped: string[] } {
+  const questions = open.questions.map((q) => ({ ...q }));
+  let context = open.context;
+  let total = openBytes(open);
+  const dropped: string[] = [];
+  const order = questions
+    .map((q, i) => ({ i, bytes: strBytes(q.context) }))
+    .filter((e) => questions[e.i]!.context !== undefined)
+    .sort((a, b) => b.bytes - a.bytes || a.i - b.i);
+  for (const { i, bytes } of order) {
+    if (total < limit) break;
+    delete questions[i]!.context;
+    total -= bytes;
+    dropped.push(questions[i]!.id);
+  }
+  if (total >= limit && context !== undefined) context = undefined;
+  return { open: context === undefined ? { questions } : { context, questions }, dropped };
 }
 
 /** The stored open is the source whole; `limit` budgets only `pane`. */

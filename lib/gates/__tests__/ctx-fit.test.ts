@@ -60,7 +60,14 @@ describe("the pane budget: what is stored stays whole, the pane prose is fitted"
     expect(out.pane.questions[0]!.context as string).toContain(src.questions[0].context.reply.text));
   test("an open under the budget has the untrimmed prose as its pane", () => {
     const prose = proseOpen(load(PLAN));
-    expect(fitOpen(load(PLAN)).pane).toEqual({ context: prose.context, questions: prose.questions, fits: true, trimmed: [] });
+    expect(fitOpen(load(PLAN)).pane).toEqual({
+      context: prose.context,
+      questions: prose.questions,
+      fits: true,
+      trimmed: [],
+      contextDropped: false,
+      droppedContexts: [],
+    });
   });
 });
 
@@ -108,7 +115,7 @@ describe("structured, under budget: contexts round-trip exactly", () => {
 
   test("output keys are in the script's order", () => {
     expect(Object.keys(out)).toEqual(["mode", "context", "questions", "bytes", "pane"]);
-    expect(Object.keys(out.pane)).toEqual(["context", "questions", "fits", "trimmed"]);
+    expect(Object.keys(out.pane)).toEqual(["context", "questions", "fits", "trimmed", "contextDropped", "droppedContexts"]);
   });
 });
 
@@ -144,8 +151,38 @@ describe("pane over budget: points from the longest thread, then notes, never re
     expect(`${JSON.stringify(r.pane.trimmed)}|${/confirmed against the checkout/.test(pq(r, 0))}`).toBe("[]|true");
   });
 
-  test("an open no prose can fit reports that it does not fit", () =>
-    expect(fitOpen(load(PLAN), 300).pane.fits).toBe(false));
+  describe("an open no trimmed prose can fit drops whole question contexts from the pane", () => {
+    const r = fitOpen(load(PLAN), 300);
+    const withContext = load(PLAN).questions.filter((q) => q.context !== undefined);
+    test("it fits after the drops and says it dropped", () =>
+      expect(`${r.pane.fits}|${r.pane.contextDropped}|${paneBytes(r.pane) < 300}`).toBe("true|true|true"));
+    test("each dropped question has no pane context; the rest keep theirs", () => {
+      for (const q of withContext) {
+        const pane = r.pane.questions.find((p) => p.id === q.id)!;
+        expect(pane.context === undefined).toBe(r.pane.droppedContexts.includes(q.id));
+      }
+    });
+    test("the largest pane context goes first", () => {
+      const long = mutated(PLAN, (s) => (s.questions[1].context.reply.text = "r".repeat(3000)));
+      expect(fitOpen(long, 2000).pane.droppedContexts).toEqual(["thread-2"]);
+    });
+    test("equal pane contexts go in position order", () => {
+      const twins = mutated(PLAN, (s) => {
+        s.questions[0].context.reply.text = "r".repeat(3000);
+        s.questions[1].context = structuredClone(s.questions[0].context);
+      });
+      expect(fitOpen(twins, 5000).pane.droppedContexts).toEqual(["thread-1"]);
+    });
+    test("the stored open keeps every context", () =>
+      expect(r.questions.every((q, i) => (q.context === undefined) === (load(PLAN).questions[i].context === undefined))).toBe(true));
+  });
+
+  test("past every question context, the gate context leaves the pane too", () => {
+    const r = fitOpen(load(PLAN), 1);
+    expect(`${r.pane.context === undefined}|${r.pane.contextDropped}|${r.pane.fits}`).toBe("true|true|true");
+    expect(r.pane.questions.every((q) => q.context === undefined)).toBe(true);
+    expect(r.context).toBeDefined();
+  });
 
   test("the stored open stays structured and whole at any limit", () => {
     const r = fitOpen(load(PLAN), 300);
@@ -253,8 +290,10 @@ describe("review-post: review@1 gate, findings@1 per findings-* question", () =>
       const p = (r.pane.questions[0]!.context as string) + (r.pane.questions[1]!.context as string);
       for (const q of src.questions.slice(0, 2)) for (const f of q.context.findings) expect(p).toContain(f.body);
     });
-    test("does not fit at it, and is still stored structured", () =>
-      expect(`${fitOpen(load(REVIEW), MIN).mode}|${fitOpen(load(REVIEW), MIN).pane.fits}`).toBe("structured|false"));
+    test("at it the pane drops a whole context, and the open is still stored structured", () => {
+      const r = fitOpen(load(REVIEW), MIN);
+      expect(`${r.mode}|${r.pane.contextDropped}|${r.pane.droppedContexts.length > 0}`).toBe("structured|true|true");
+    });
   });
 
   describe("findings questions without contexts (a legacy findings file) are stored as prose", () => {

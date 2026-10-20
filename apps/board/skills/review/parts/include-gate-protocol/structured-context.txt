@@ -62,9 +62,12 @@ path. The key is both the discriminant and the version:
   `verdict.note` the same way, and never trims `reply.text`, the reply
   is the thing being approved. In a `findings@1` open it drops
   `evidence` from the entry where it is largest first, then `fix` the
-  same way, whole fields only, never `title`, `file`, or `body`. Fields
-  only the board shows never reach the pane prose. Build the pane form
-  from the fit's `pane` key, never from the stored contexts.
+  same way, whole fields only, never `title`, `file`, or `body`. Still
+  over, it leaves whole question contexts out, largest first, then the
+  gate context, and says so (`contextDropped`, `droppedContexts`). Fields
+  only the board shows never reach the pane prose. Render the pane form
+  from the fit's `pane` key as it stands, never from the stored
+  contexts.
 - A `boards@1` gate carries at most 12 boards and always opens
   structured: `gate_open` refuses one past 12, or one whose boards do not
   fit the pane prose budget, so a site with more opens one gate per 12,

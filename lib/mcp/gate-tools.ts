@@ -10,8 +10,8 @@
 import { readFileSync, writeFileSync } from "fs";
 import { gateAnswer, gateAsk, gateWait } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion, GateRow } from "../../packages/rt-client/src/index.ts";
-import { boardsBudgetError, checkSource, fitOpen, PANE_PROSE_LIMIT, type FitResult, type GateCtxSource, type PaneProse } from "../gates/ctx.ts";
-import { dropContextsToFit, flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
+import { boardsBudgetError, checkSource, fitOpen, type FitResult, type GateCtxSource } from "../gates/ctx.ts";
+import { flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
 import { isObject, tojson, utf8Bytes } from "../gates/jq.ts";
 import { buildReviewSource, reviewSourceErrors } from "../gates/review-source.ts";
 import {
@@ -452,24 +452,13 @@ interface PaneForm {
   formContext?: string;
   /** Every question, "" where the pane shows no context, so formChunks never falls back to the stored one. */
   proseById: Record<string, string>;
-  dropped: string[];
-  pane: PaneProse;
 }
 
-/** The pane's form view: the fitted pane prose, with whole contexts dropped
-    when even trimmed prose is over budget. The stored open is never touched. */
+/** The pane's form view is the fit's pane prose as it stands. The stored open is never touched. */
 function paneForm(fit: FitResult): PaneForm {
-  const fitted = { questions: fit.pane.questions as unknown as GateQuestion[], ...(fit.pane.context !== undefined ? { context: fit.pane.context } : {}) };
-  const { open, dropped } = dropContextsToFit(fitted, PANE_PROSE_LIMIT);
   const proseById: Record<string, string> = {};
-  for (const q of open.questions) proseById[String(q.id)] = typeof q.context === "string" ? q.context : "";
-  const pane: PaneProse = {
-    ...(open.context !== undefined ? { context: open.context } : {}),
-    questions: open.questions as unknown as Record<string, unknown>[],
-    fits: fit.pane.fits,
-    trimmed: fit.pane.trimmed,
-  };
-  return { ...(open.context !== undefined ? { formContext: open.context } : {}), proseById, dropped, pane };
+  for (const q of fit.pane.questions) proseById[String(q.id)] = typeof q.context === "string" ? q.context : "";
+  return { ...(fit.pane.context !== undefined ? { formContext: fit.pane.context } : {}), proseById };
 }
 
 async function handBack(
@@ -484,14 +473,14 @@ async function handBack(
   const shaped = wellFormed(stored);
   const { questions, truncated } = shaped ? truncateOptionText(stored) : { questions: stored, truncated: [] as TruncatedText[] };
   const open = { ...(fit.context !== undefined ? { context: fit.context } : {}), questions };
-  const { formContext, proseById, dropped, pane } = paneForm(fit);
+  const { formContext, proseById } = paneForm(fit);
   const result: Record<string, unknown> = {
     open,
     mode: fit.mode,
     fits: fit.pane.fits,
     trimmed: fit.pane.trimmed,
-    contextDropped: !fit.pane.fits,
-    droppedContexts: dropped,
+    contextDropped: fit.pane.contextDropped,
+    droppedContexts: fit.pane.droppedContexts,
     ...(formContext !== undefined ? { formContext } : {}),
     formChunks: shaped ? formChunks(questions, proseById) : [],
   };
@@ -500,7 +489,7 @@ async function handBack(
   if (typeof input.outPath === "string") {
     let bytes = open.context === undefined ? 0 : utf8Bytes(open.context);
     for (const q of open.questions) if (typeof q.context === "string") bytes += utf8Bytes(q.context);
-    const file = { mode: fit.mode, ...(open.context !== undefined ? { context: open.context } : {}), questions: open.questions, bytes, pane };
+    const file = { mode: fit.mode, ...(open.context !== undefined ? { context: open.context } : {}), questions: open.questions, bytes, pane: fit.pane };
     try {
       deps.writeFile(input.outPath, `${tojson(file)}\n`);
     } catch (e) {
@@ -551,7 +540,7 @@ export async function openGate(input: Record<string, unknown>, env: NodeJS.Proce
   if (fit.context !== undefined) askInput.context = fit.context;
   if (input.subject !== undefined) askInput.subject = input.subject;
   if (input.scope !== undefined) askInput.scope = input.scope;
-  const asked = await askGate(askInput, env, deps, { run, proseById, formContext, contextDropped: !fit.pane.fits });
+  const asked = await askGate(askInput, env, deps, { run, proseById, formContext, contextDropped: fit.pane.contextDropped });
   if (!asked.ok) return asked;
 
   const data = asked.body as Record<string, unknown>;
@@ -565,7 +554,7 @@ export async function openGate(input: Record<string, unknown>, env: NodeJS.Proce
     mode: fit.mode,
     fits: fit.pane.fits,
     trimmed: fit.pane.trimmed,
-    contextDropped: !fit.pane.fits,
+    contextDropped: fit.pane.contextDropped,
   };
   if (runErrors.length > 0) result.runErrors = runErrors;
   return ok(result);
@@ -700,7 +689,7 @@ export async function recordGate(input: Record<string, unknown>, env: NodeJS.Pro
   return ok(await recordAnswered(run, data.row, { ...o, source: given ?? ownCards, upsert: true }));
 }
 
-const GATE_OPEN_DESCRIPTION = "Build and validate a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. A boards@1 source with more than 12 boards, or one whose boards do not fit the pane prose budget, is refused. The gate stores the context whole and untrimmed (structured, or prose for a legacy findings file); only the prose a Claude Code pane's form shows has a budget (8192 UTF-8 bytes), trimmed optional parts first, and board-only fields never reach it. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: \"post\" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits and trimmed (of the pane prose), contextDropped (fits false: the pane form left some context out), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}: open is the whole stored open with option text truncated as gate_ask does; formContext and formChunks are the pane prose, dropping whole question contexts largest first (then the gate context) when even trimmed pane prose is over budget. outPath also writes the open, in gate-ctx.sh fit's output shape (its pane key the pane prose), to a temp-root file.";
+const GATE_OPEN_DESCRIPTION = "Build and validate a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. A boards@1 source with more than 12 boards, or one whose boards do not fit the pane prose budget, is refused. The gate stores the context whole and untrimmed (structured, or prose for a legacy findings file); only the prose a Claude Code pane's form shows has a budget (8192 UTF-8 bytes): optional parts are trimmed first, then whole question contexts are left out largest first, then the gate context, and board-only fields never reach it. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: \"post\" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits and trimmed (of the pane prose), contextDropped (the pane form left some context out), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}: open is the whole stored open with option text truncated as gate_ask does; formContext and formChunks are the fitted pane prose, droppedContexts the questions it left out. outPath also writes the open, in gate-ctx.sh fit's output shape (its pane key the pane prose), to a temp-root file.";
 
 const GATE_RECONCILE_DESCRIPTION = "The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: \"answered\", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the scope whose extra.gate-source.<scope> names this gate, else the gate's kind) with the answer's by as the decider, unless the gate is stale (the scope's extra.gate-source.<scope> names a later gate), a decision on that scope already landed since the gate opened (alreadyReconciled), or record is false (the default on a review gate, which records its review shape with gate_record); it clears waiting-gate when it names this gate. closed: returns {status: \"closed\", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: \"open\"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.";
 
