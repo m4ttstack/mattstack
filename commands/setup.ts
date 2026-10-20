@@ -386,9 +386,20 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     return;
   }
   if (decision.kind === "current") {
-    await announceDevApp(deps);
     if (json) emit({ event: "done", ok: true, skipped: "current" });
     else out.print(out.line("skipped", "Nothing to update", `already applied for ${decision.version}`));
+    // A run holding the lock announces at its end; asking here too would post twice and race its state write.
+    let held = false;
+    try {
+      if (deps.devAppNotice) {
+        held = deps.updateLock?.acquire() ?? false;
+        if (held || !deps.updateLock) await announceDevApp(deps);
+      }
+    } catch (err) {
+      logCliEvent("warn", "setup.update", `dev app notice skipped: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      if (held) deps.updateLock?.release();
+    }
     return;
   }
 
