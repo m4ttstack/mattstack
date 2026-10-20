@@ -115,6 +115,8 @@ function ThreadCard({
     reply and the decision on it read as one place. */
 function EditableReply({
   label,
+  noun = 'reply',
+  heading,
   draft,
   value,
   canEdit,
@@ -123,6 +125,8 @@ function EditableReply({
   controls,
 }: {
   label: string;
+  noun?: 'reply' | 'comment';
+  heading?: string;
   draft: string;
   value: string | undefined;
   canEdit: boolean;
@@ -166,10 +170,10 @@ function EditableReply({
     >
       <span className="tui-thread-reply-k">
         {canEdit
-          ? 'will post as reply'
+          ? (heading ?? `will post as ${noun}`)
           : controls
-            ? 'drafted reply · not posting'
-            : 'drafted reply'}
+            ? `drafted ${noun} · not posting`
+            : `drafted ${noun}`}
       </span>
       {open ? (
         <textarea
@@ -177,7 +181,7 @@ function EditableReply({
           className="tui-thread-reply-input"
           rows={1}
           value={text}
-          aria-label={`${label}: reply`}
+          aria-label={`${label}: ${noun}`}
           aria-describedby={empty ? emptyHint : undefined}
           onChange={e => onChange(e.currentTarget.value)}
           onKeyDown={e => {
@@ -196,7 +200,7 @@ function EditableReply({
       )}
       {empty && (
         <span className="tui-gate-error" id={emptyHint}>
-          the reply is empty
+          the {noun} is empty
         </span>
       )}
       {(canEdit || controls) && (
@@ -252,7 +256,7 @@ function EditableReply({
               intent="muted"
               size="sm"
               className="tui-thread-reply-action"
-              aria-label={`${label}: edit reply`}
+              aria-label={`${label}: edit ${noun}`}
               onClick={() => setEditing(true)}
             >
               edit

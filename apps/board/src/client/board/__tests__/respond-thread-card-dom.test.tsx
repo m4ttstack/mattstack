@@ -12,6 +12,7 @@ import { createRoot, type Root } from 'react-dom/client';
 
 import type { GateRow } from '../../../gates/store.ts';
 import { DecisionQueueModal } from '../DecisionQueueModal.tsx';
+import { EditableReply } from '../RespondCards.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
 
@@ -277,4 +278,45 @@ test('a thread context missing a required field renders as prose', async () => {
     container.querySelector('.tui-gate-question[data-gate-ctx]')
   ).toBeNull();
   expect(container.querySelector('.tui-gate-question-context')).not.toBeNull();
+});
+
+test('EditableReply with noun comment speaks comment', async () => {
+  await React.act(async () => {
+    root.render(
+      <EditableReply
+        label="finding 1"
+        noun="comment"
+        draft="tighten this"
+        value={undefined}
+        canEdit
+        onChange={() => {}}
+        onReset={() => {}}
+      />
+    );
+  });
+  expect(container.querySelector('.tui-thread-reply-k')!.textContent).toBe(
+    'will post as comment'
+  );
+  expect(
+    container.querySelector('button[aria-label$="edit comment"]')
+  ).not.toBeNull();
+});
+
+test('EditableReply heading replaces the will-post label', async () => {
+  await React.act(async () => {
+    root.render(
+      <EditableReply
+        label="finding 1"
+        heading="inline comment"
+        draft="x"
+        value={undefined}
+        canEdit
+        onChange={() => {}}
+        onReset={() => {}}
+      />
+    );
+  });
+  expect(container.querySelector('.tui-thread-reply-k')!.textContent).toBe(
+    'inline comment'
+  );
 });
