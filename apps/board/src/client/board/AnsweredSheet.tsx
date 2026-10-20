@@ -15,10 +15,12 @@ import { AnsweredChip, type GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun } from './MrLinks.tsx';
 import { PersonLead, PersonTag } from './PersonLead.tsx';
+import { postPicks } from './respond-post.ts';
 import {
+  itemMix,
+  leadVerb,
   personName,
   RespondCtxFacts,
-  reviewerName,
 } from './RespondGateHeader.tsx';
 import {
   DELIVERY_STUCK_MESSAGE,
@@ -118,18 +120,36 @@ function AnsweredSheetBody({
     gate.answeredAt !== undefined
       ? `answered ${ago(new Date(gate.answeredAt).toISOString(), Date.now())} ago`
       : null;
+  const picksByName = useMemo(
+    () => new Map(postPicks(gate.questions).map(p => [p.name, p])),
+    [gate.questions]
+  );
   const rows = gate.questions.map(q => {
     const d = display.get(q.id);
     const a = recorded.get(q.id);
     const value = a?.value;
+    const pick = picksByName.get(q.id);
+    const picked = Array.isArray(value) ? value : [];
     const chip: RowChip =
       a?.writeIn !== undefined
         ? { text: 'wrote in', intent: 'accent', title: a.writeIn }
-        : d
-          ? pickChip(d, value)
-          : typeof value === 'string' && value
-            ? { text: 'answered', intent: 'accent', title: value }
-            : { text: 'none', intent: 'muted' };
+        : pick
+          ? {
+              text: [
+                picked.includes(pick.post) ? 'post' : 'hold',
+                pick.resolve && picked.includes(pick.resolve)
+                  ? 'resolve'
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · '),
+              intent: picked.includes(pick.post) ? 'ok' : 'muted',
+            }
+          : d
+            ? pickChip(d, value)
+            : typeof value === 'string' && value
+              ? { text: 'answered', intent: 'accent', title: value }
+              : { text: 'none', intent: 'muted' };
     return { key: q.id, text: q.label, title: q.label, chips: [chip] };
   });
 
@@ -251,9 +271,19 @@ function AnsweredSheetBody({
                   <>
                     <PersonLead
                       id={respondCtx.reviewer}
-                      name={reviewerName(respondCtx.reviewer, mr, people)}
+                      name={personName(respondCtx.reviewer, mr, people)}
                     >
-                      reviewed your {forgeNoun(mr, gate.subject)}
+                      {leadVerb(
+                        itemMix(
+                          gate.questions
+                            .filter(
+                              q =>
+                                /^thread-/.test(q.id) || picksByName.has(q.id)
+                            )
+                            .map(q => q.label)
+                        )
+                      )}{' '}
+                      your {forgeNoun(mr, gate.subject)}
                     </PersonLead>
                     <RespondCtxFacts
                       ctx={

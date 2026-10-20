@@ -325,18 +325,23 @@ function ThreadOutcome({
 
 /** A respond-post reply option's label: where the reply lands, whether it
     rides a pushed fix, and the full text that will be posted. `children`
-    joins the label row (the recommended chip). */
+    joins the label row (the recommended chip). `showFile` is false where
+    the card's head already names the file. */
 function ReplyChoiceBody({
   entry,
+  showFile = true,
   children,
 }: {
   entry: ReplyEntry;
+  showFile?: boolean;
   children?: ReactNode;
 }) {
   return (
     <>
       <span className="tui-gate-choice-label-row">
-        <span className="tui-reply-choice-file">{entry.file}</span>
+        {showFile && (
+          <span className="tui-reply-choice-file">{entry.file}</span>
+        )}
         <span
           className="tui-respond-pill"
           data-hue={entry.verb === 'fix' ? 'green' : 'grey'}

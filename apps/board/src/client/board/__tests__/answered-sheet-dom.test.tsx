@@ -470,6 +470,93 @@ test('an answered per-thread post shows the reply as posted, edited text include
   ).toBe(true);
 });
 
+const replyQ = (n: number, thread: string, label: string, resolvable = true) => ({
+  id: `thread-${n}`,
+  label,
+  multi: true,
+  context: j({
+    'gate-ctx': 'reply@1',
+    thread,
+    file: label,
+    verb: 'reply',
+    text: `reply ${n}`,
+  }),
+  options: [
+    { value: `post:${thread}`, label: 'Post' },
+    ...(resolvable ? [{ value: `resolve:${thread}`, label: 'Resolve' }] : []),
+  ],
+});
+
+const answeredPost = (
+  questions: ReturnType<typeof replyQ>[],
+  answers: Record<string, string[]>
+) =>
+  shipped({
+    kind: 'respond-post',
+    subject: 'mr:https://gitlab.example.com/acme/webapp/-/merge_requests/1235',
+    context: j({
+      'gate-ctx': 'post@1',
+      reviewer: 'john',
+      replies: questions.length,
+      fixes: [],
+    }),
+    questions,
+    answers,
+  });
+
+test('an answered respond post names each thread once and docks what was picked per thread', async () => {
+  await render(
+    answeredPost(
+      [
+        replyQ(1, 't1', 'queue/enqueue.ts:88'),
+        replyQ(2, 't2', 'queue/retry.ts:12'),
+        replyQ(3, 't3', 'queue/backoff.ts:4'),
+        replyQ(4, 'n1', 'Overview comment', false),
+      ],
+      {
+        'thread-1': ['post:t1', 'resolve:t1'],
+        'thread-2': ['post:t2'],
+        'thread-3': [],
+        'thread-4': ['post:n1'],
+      }
+    ),
+    MR
+  );
+  for (const card of $$('.tui-sheet-main .tui-gate-question')) {
+    const label = card.querySelector('.tui-gate-question-label')!.textContent!;
+    expect(card.textContent!.split(label)).toHaveLength(2);
+  }
+  expect(
+    $$('.tui-sheet-dock .tui-sheet-card-row').map(r => [
+      r.querySelector('.tui-sheet-card-chip')?.textContent,
+      r.querySelector('.tui-sheet-card-text')?.textContent,
+    ])
+  ).toEqual([
+    ['post · resolve', 'queue/enqueue.ts:88'],
+    ['post', 'queue/retry.ts:12'],
+    ['hold', 'queue/backoff.ts:4'],
+    ['post', 'Overview comment'],
+  ]);
+});
+
+test('an answered respond gate leads with the person by full name, and says commented when they only commented', async () => {
+  const withTargets = {
+    ...MR,
+    respondTargets: [
+      { username: 'john', name: 'John Ward', openThreads: 0, openComments: 1 },
+    ],
+  } as unknown as BoardMRWithReview;
+  await render(
+    answeredPost([replyQ(1, 'n1', 'Overview comment', false)], {
+      'thread-1': ['post:n1'],
+    }),
+    withTargets
+  );
+  expect(text('.tui-sheet-context-card .tui-id-card-lead')).toBe(
+    'John Ward commented on your merge request'
+  );
+});
+
 test('an answered review gate reads its summary as prose in the rail', async () => {
   await render(
     shipped({
