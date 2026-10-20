@@ -303,6 +303,7 @@ import {
   type ReviewStatus,
 } from './review-state.ts';
 import { attachNotes, MAX_NOTE_LEN, readNotes, writeNote } from './row-note.ts';
+import { canonicalReactions } from './slack-emoji.ts';
 import {
   attachOwnerPosts,
   attachOwnerPostsLeft,
@@ -323,12 +324,12 @@ import {
   writeOwnerPostsLeft,
   type ListedChannel,
 } from './slack.ts';
-import { canonicalReactions } from './slack-emoji.ts';
 import {
   beatStillValid,
   boardStateRoot,
   claimWriterLease,
   dismissByHandle,
+  FRESH_RUN_PANE,
   getKvValue,
   getStateDb,
   LEASE_BEAT_MS,
@@ -2438,6 +2439,7 @@ const httpServer = Bun.serve({
           iid: parsed.iid,
           status: 'queued',
           runStartedAt: Date.now(),
+          ...FRESH_RUN_PANE,
           boardTabId: tabId ?? '',
           noPack: !launchPack(tabId),
         });
@@ -2603,6 +2605,7 @@ const httpServer = Bun.serve({
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
           status: 'queued',
+          ...FRESH_RUN_PANE,
           boardTabId: boardTabId ?? '',
           noPack: !launchPack(boardTabId),
           person: person ?? null,
@@ -4218,7 +4221,10 @@ const httpServer = Bun.serve({
               ? await unreactFromMR(slackToken, mrUrl, emoji)
               : await reactToMR(slackToken, mrUrl, emoji);
           return new Response(
-            JSON.stringify({ ok: true, reactions: canonical(ref.reactions ?? []) }),
+            JSON.stringify({
+              ok: true,
+              reactions: canonical(ref.reactions ?? []),
+            }),
             {
               headers: { 'content-type': 'application/json' },
             }

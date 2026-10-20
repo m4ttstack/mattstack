@@ -24,6 +24,7 @@ import {
   writeReviewState,
 } from './review-state.ts';
 import { resolveSkillPath } from './skill-path.ts';
+import { FRESH_RUN_PANE } from './state/index.ts';
 
 /** How the re-review actually started. Callers that only want the board's
     optimistic response ignore this; triage awaits it to learn whether the pane
@@ -238,6 +239,7 @@ export async function launchReReview(
     iid,
     status: 'queued',
     runStartedAt: Date.now(),
+    ...FRESH_RUN_PANE,
     ...lane,
   });
   try {
@@ -307,6 +309,7 @@ export async function launchRespondAsk(
     mrUrl,
     iid,
     status: 'queued',
+    ...FRESH_RUN_PANE,
     boardTabId: '',
     noPack: !ctx.pack,
   });

@@ -32,6 +32,8 @@ export {
 
 export {
   type Lane,
+  FRESH_RUN_PANE,
+  type PaneClearable,
   mintHandle,
   reportPathForHandle,
   insertAgentState,

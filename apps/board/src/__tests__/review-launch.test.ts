@@ -537,6 +537,42 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     expect(readRespondStates(db).get(URL_A)?.boardTabId).toBe('');
   });
 
+  test("the launching row carries none of the last run's pane", async () => {
+    writeRespondState(
+      respondFilePath(URL_A),
+      {
+        mrUrl: URL_A,
+        iid: IID,
+        status: 'done',
+        sessionId: 'sess-old',
+        agentId: 'ag-old',
+        paneId: 'w0:p1',
+        tabId: 'w0:t1',
+        workspaceId: 'w0',
+      },
+      1000,
+      db
+    );
+    let duringLaunch: Record<string, unknown> | undefined;
+    const base = makeRespondIo();
+    const io = makeRespondIo({
+      launchRespond: async (opts, launchIo) => {
+        duringLaunch = { ...readRespondStates(db).get(URL_A) };
+        return base.launchRespond(opts, launchIo);
+      },
+    });
+    await launchRespondAsk(URL_A, IID, ASK_CTX, io, noSkillPath);
+    expect(duringLaunch).toMatchObject({ status: 'queued' });
+    for (const key of [
+      'sessionId',
+      'agentId',
+      'paneId',
+      'tabId',
+      'workspaceId',
+    ])
+      expect(duringLaunch?.[key]).toBeUndefined();
+  });
+
   test('threads the pack through to the respond launch', async () => {
     await launchRespondAsk(
       URL_A,
