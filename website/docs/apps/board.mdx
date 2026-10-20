@@ -199,7 +199,7 @@ For rebasing your branch in a local checkout instead, see **rebase locally** und
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="slack" /> | open MR post in slack | Opens the MR's Slack post in a new browser tab. Greyed "no thread" until the thread is found. |
+| <BoardIcon name="slack" /> | open MR post in slack | Opens the MR's Slack post in a new browser tab. Reads "open MR post in slack…" when the MR was posted to more than one channel. It then opens a list of the posts, team thread first. Code owners posts follow, oldest first. Each shows the furthest review reaction it reached. Greyed "no thread" until the thread is found. |
 | <BoardIcon name="slack" /> | post to slack | Posts your MR for review in Slack. See [Post to slack](#post-to-slack). It sits at the top of the menu until the MR is posted. Reads "post to other codeowners…", still at the top, while other teams' code owners are left to ask. |
 | <BoardIcon name="copy" /> | copy for slack | Copies one line, the MR's title and link, to the clipboard. The copy drops a `Draft: ` prefix and a leading ticket id from the title; a post keeps them. Nothing is sent. Always offered. |
 

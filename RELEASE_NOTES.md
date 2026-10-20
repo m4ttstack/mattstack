@@ -17,6 +17,7 @@ Evidence boards go to you before upload, the board responds to one reviewer at a
 ### Board
 
 - Respond answers one person at a time: their open review threads and Overview comments, with a round count per person. The row menu reads "respond to dev2 (round 2)", or opens a list of people when more than one has something open, and the lane line and decision header name the person. Overview comments get a reply, never a resolve. [Respond](https://docs.mattstack.dev/apps/board#respond) has the details (#892)
+- An MR posted to several Slack channels lists each post, team thread first, from the row's Slack marks and "open MR post in slack…", so you can open a code owners post too. The row shows how many posts there are and the furthest review reaction any channel reached, and the board keeps re-reading reactions on every post instead of reading them once
 
 ### Pipeline runs
 
