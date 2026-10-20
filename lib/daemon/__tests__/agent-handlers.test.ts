@@ -418,6 +418,35 @@ test("agent:resume herdr uses ↺ tab label and --resume, overwrites pane ids", 
   expect(resumed.data.lastResumedAt).toBeGreaterThan(0);
 });
 
+test("agent:resume of a session still running in a pane focuses that pane and opens none", async () => {
+  const calls: string[][] = [];
+  let sessionId = "";
+  const base = okRunner(calls);
+  const runner: HerdrRunner = async (args) => {
+    if (args[0] === "pane" && args[1] === "list") {
+      calls.push(args);
+      const panes = [{ pane_id: "w2:p1", tab_id: "w2:t1", workspace_id: "w2", agent_session: { value: sessionId } }];
+      return { stdout: JSON.stringify({ result: { panes } }), exitCode: 0 };
+    }
+    return base(args);
+  };
+  const h = fresh({ runner });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", label: "job8" });
+  if (!started.ok) throw new Error("unreachable");
+  sessionId = started.data.sessionId!;
+  calls.length = 0;
+  const resumed = await h["agent:resume"]({ id: started.data.id });
+  expect(resumed.ok).toBe(false);
+  if (resumed.ok) throw new Error("unreachable");
+  expect(resumed.error).toMatch(/already open; focused it/);
+  expect(resumed.failure?.code).toBe("session-live");
+  expect(calls).toContainEqual(["tab", "focus", "w2:t1"]);
+  expect(calls.some((c) => c[0] === "pane" && c[1] === "run")).toBe(false);
+  const rec = await h["agent:get"]({ id: started.data.id });
+  if (!rec.ok) throw new Error("unreachable");
+  expect(rec.data).toMatchObject({ paneId: "w2:p1", tabId: "w2:t1", workspaceId: "w2" });
+});
+
 test("agent:resume headless without prompt is refused; unknown id errors", async () => {
   const h = fresh({ runner: okRunner([]) });
   const missing = await h["agent:resume"]({ id: "ag-ffffffff" });

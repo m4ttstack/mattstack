@@ -32,7 +32,7 @@ import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, 
 import { locateTranscript as defaultLocateTranscript, type TranscriptHit } from "../../agent-adopt.ts";
 import { cswapAccountNumbers } from "../../cswap.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
-import { defaultHerdrRunner, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
+import { defaultHerdrRunner, focusLiveSession, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { HERDR_NOT_INSTALLED, type HerdrStartResult } from "../../herdr/start.ts";
 import { acceptTrustOnPane, cwdPath, type TrustOutcome } from "../trust-accept.ts";
@@ -761,6 +761,15 @@ export function createAgentHandlers(opts: {
         return { ok: false, error: "bg launches require the rt daemon (rt daemon start)" };
       }
       try {
+        if (surface === "herdr" && !wasBg && rec.sessionId) {
+          // herdr not up yet has no pane to duplicate; launch starts it below.
+          const live = await focusLiveSession(rec.sessionId, opts.herdrRunner ?? defaultHerdrRunner()).catch(() => null);
+          if (live) {
+            updateAgentPane(rec.id, live, db);
+            const message = `session already open; focused it (pane ${live.paneId})`;
+            return { ok: false, error: message, failure: { code: "session-live", message } };
+          }
+        }
         let bgSocket: string | undefined;
         if (wasBg) {
           const ensured = await opts.bg!.ensure();

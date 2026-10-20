@@ -398,6 +398,8 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
     const handlers = routedHandlers;
     if (!handlers) return { ok: false, error: "daemon handlers not ready yet" };
     const res = await handlers["agent:resume"]!({ id: agentId }) as CommandResult<"agent:resume">;
+    // A session still running in a pane needs no relaunch: resume focused it.
+    if (!res.ok && res.failure?.code === "session-live") return { ok: true };
     return res.ok ? { ok: true } : { ok: false, error: res.error };
   };
 
