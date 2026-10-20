@@ -15,6 +15,7 @@ import type { ApplyContext } from "../apply.ts";
 import { fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "./plugins.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { hasRemote } from "../home-git.ts";
+import { fetchPermissions } from "../permissions.ts";
 import type { Probes } from "../probes.ts";
 import { readSetupState } from "../state.ts";
 import { claudeConfigDirs, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
@@ -132,27 +133,59 @@ export const extensionInstallStep: StepDef = {
 
 // ─── services.start ──────────────────────────────────────────────────────────
 
-const DAEMON_POLL_ATTEMPTS = 12;
+/** A cold start on a fresh Mac can take well over 3s; the window covers it with room to spare. */
+const DAEMON_START_WINDOW_MS = 20_000;
 const DAEMON_POLL_INTERVAL_MS = 250;
+const DAEMON_POLL_ATTEMPTS = DAEMON_START_WINDOW_MS / DAEMON_POLL_INTERVAL_MS + 1;
 
-/** Exported so a test can drive the wait with an instant fake sleep instead of the real 3s worst case. */
+/** Exported so a test can drive the wait with an instant fake sleep and clock instead of the real 20s worst case. */
 export async function waitForDaemonUp(
   p: Pick<Probes, "daemon">,
-  opts: { attempts?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  opts: { attempts?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number } = {},
 ): Promise<boolean> {
   const attempts = opts.attempts ?? DAEMON_POLL_ATTEMPTS;
   const intervalMs = opts.intervalMs ?? DAEMON_POLL_INTERVAL_MS;
   const sleep = opts.sleep ?? realSleep;
+  const now = opts.now ?? (() => performance.now());
+  const deadline = now() + DAEMON_START_WINDOW_MS;
 
   for (let i = 0; i < attempts; i++) {
-    const res = await p.daemon("ping");
-    if (res?.ok) return true;
-    if (i < attempts - 1) await sleep(intervalMs);
+    const left = deadline - now();
+    if (left <= 0) return false;
+    if (await daemonAnswers(p, left)) return true;
+    const leftAfterPing = deadline - now();
+    if (i < attempts - 1 && leftAfterPing > 0) await sleep(Math.min(intervalMs, leftAfterPing));
   }
   return false;
 }
 
+async function daemonAnswers(p: Pick<Probes, "daemon">, timeoutMs?: number): Promise<boolean> {
+  const res = await p.daemon("ping", undefined, timeoutMs);
+  return res?.ok === true;
+}
+
+const DAEMON_REMEDY = "Check rt daemon status and rt daemon logs, then Retry";
+
+/** Names what is wrong from the app's Login Items reading; Login Items is only blamed when the item is actually waiting for approval. */
+async function daemonDidNotStart(ctx: ApplyContext): Promise<StepOutcome> {
+  const permissions = await fetchPermissions(ctx.p.tray);
+  switch (permissions?.loginItems.status) {
+    case "enabled":
+      return { state: "failed", detail: "The daemon is registered but did not answer", remedy: DAEMON_REMEDY };
+    case "requiresApproval":
+      return { state: "failed", detail: "The daemon is waiting for approval in Login Items", remedy: "Approve the background item in Login Items, then Retry" };
+    case "notRegistered":
+    case "notFound":
+      return { state: "failed", detail: "The daemon is not registered", remedy: "Run Register services, then Retry" };
+    default:
+      return { state: "failed", detail: "The daemon did not start", remedy: DAEMON_REMEDY };
+  }
+}
+
 export async function servicesStartRun(ctx: ApplyContext, sleep?: (ms: number) => Promise<void>): Promise<StepOutcome> {
+  // The app's start kills an already-registered daemon before starting it, so a daemon that answers must never be asked to start.
+  if (await daemonAnswers(ctx.p)) return { state: "done", detail: "The daemon is running" };
+
   const res = await ctx.p.tray("/daemon/start", { method: "POST" });
 
   // status 0 is the transport-level "no socket, nobody home" case (see
@@ -169,9 +202,8 @@ export async function servicesStartRun(ctx: ApplyContext, sleep?: (ms: number) =
     return { state: "failed", detail: `mattstack.app answered ${res.status} when asked to start the daemon`, remedy: "Open mattstack.app" };
   }
 
-  const up = await waitForDaemonUp(ctx.p, { sleep });
-  if (up) return { state: "done", detail: "The daemon is running" };
-  return { state: "failed", detail: "The daemon did not start", remedy: "Approve the background item in Login Items, then Retry" };
+  if (await waitForDaemonUp(ctx.p, { sleep })) return { state: "done", detail: "The daemon is running" };
+  return daemonDidNotStart(ctx);
 }
 
 async function servicesStartRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

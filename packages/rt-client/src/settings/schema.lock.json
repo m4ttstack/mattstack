@@ -141,6 +141,35 @@
             }
           },
           "additionalProperties": {}
+        },
+        "emojiAliases": {
+          "title": "Other teams' emoji",
+          "description": "Emoji other channels use for the same marks, e.g. mr-approved for approved.",
+          "type": "object",
+          "properties": {
+            "looking": {
+              "title": "Also counts as looking",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "commented": {
+              "title": "Also counts as commented",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "approved": {
+              "title": "Also counts as approved",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": {}
         }
       },
       "additionalProperties": {}
