@@ -1,0 +1,211 @@
+# Review gate shows the comments it will post
+
+Status: draft, awaiting Matt's approval
+Mock: `docs/apps/design/board/board.pen`, board "B15 · Review gate drafts its comments" (option A is the chosen one)
+
+## Why
+
+A new user asked to edit the review comments before they go onto someone
+else's MR. Today they can't. The `review-post` gate lists each finding
+(title, anchor, the reviewer's reasoning, a one-line fix) and the verdict,
+but the comment that actually posts is written after the gate. The wrapper
+composes each body at `Compose the submitted review (review)` in
+`apps/board/skills-src/review/SKILL.md`, in the writing-style voice. The
+human never sees that text. The only lever is a note on the answer, which
+the agent reads as a steer.
+
+Respond already works the way people expect. `respond-post` shows each
+drafted reply in a "Will post as reply" box with an edit button, and an
+edited reply posts as written. Review should feel the same.
+
+## Goals
+
+- The review drafts every comment body, and the summary note, before the
+  gate opens, in the loaded writing-style voice.
+- In the board, every ticked finding shows the comment that will post, in
+  an editable box. The summary comment is editable too.
+- What's in the box is what posts, character for character. The post step
+  stops writing comments.
+- It stays one gate: `review-post`.
+
+## Non-goals
+
+- No change to the respond flow.
+- No change to the board wrapper's generic path (a review with no domain
+  skill). It writes Markdown only and keeps its tier-level questions, so
+  it gets no comment boxes.
+- No change to how findings are found, tiered, chunked or ordered.
+- No editor on surfaces other than the board (the pane's native form, herd
+  relays). They show the drafted text and post it unedited.
+- No change to re-review carryover replies or restored skipped findings.
+  Carryover replies are already drafted and editable. Restored findings
+  post their recorded text.
+
+## Anti-goals
+
+- The board shows one text and a different one posts. Every surface reads
+  the same drafted string, so this can't happen.
+- A second gate, or a "preview" step after the verdict.
+- The rail gets more crowded. The summary goes in the main column.
+
+## The gate, as it looks (option A)
+
+Use B15's "A · gate" frame as the picture. Main column, top to bottom:
+
+1. **Summary comment card**, above "Post which findings". Its header says
+   "Summary comment" with a "posts on !iid" pill. Its body is the same teal
+   "Will post as the review summary" box respond uses, with an `edit`
+   button. Under it is a hint like "includes 1 finding with no diff line"
+   when that applies.
+2. **Finding cards**, same order and checkbox as today. Each one keeps its
+   title, kind pill, anchor and the reviewer's reasoning. Below that is a
+   teal "Will post as comment" box with the drafted body and `edit`.
+   - The "→ fix" line goes away, because the comment says what to change.
+   - An edited comment shows an "edited" chip, like respond's.
+   - Editing opens a text box in place, with `done` and `revert to draft`.
+   - **Unticked finding: the comment box is hidden**, and the card dims.
+     An edit made before unticking is kept and comes back on re-tick.
+   - A finding with no diff line has no box of its own. It shows a pointer
+     ("No diff line, so this posts in the summary comment above"). Its
+     comment appears in the summary card instead (see below).
+3. Full report disclosure, unchanged.
+
+Rail: unchanged. The post button counts what will go out:
+`post 3 comments + summary · Approve`.
+
+Below 720px the sheet stacks as today. The summary card stays first.
+
+## How the summary card is built
+
+The summary that posts is made of two parts:
+
+- **The summary line.** One editable box with the review's opening note.
+- **Folded-in findings.** Each ticked finding with no diff line, as its own
+  editable comment, listed under the summary line inside the same card.
+  Unticking such a finding drops it from the card and from what posts.
+
+This keeps "untick removes it" true without trying to cut text out of a
+free-form summary someone may have edited. (My call. The mock draws the
+summary as one box. The builder should draw the folded findings as
+separate boxes inside the card.)
+
+The 100-comment cap still applies. An anchored finding the cap pushes
+into the summary posts its inline draft word for word. (My call.)
+
+When GitLab rejects an anchor (`badAnchors` from `mr_review_submit`),
+the finding moves into the summary note as today. Its body stays word
+for word, and only its `file:line` is added. This is the one change the
+post step may make to text the human saw. (My call.)
+
+## Which paths change (Matt's calls)
+
+Today, per-finding review gates come from two places, and in both the
+posting happens outside the board wrapper's Compose step:
+
+1. **The shared review engine** in the mattstack plugin
+   (`plugins/mattstack/attachments/review-core-body-tail/SKILL.md`).
+   Domain skills under the `mr-review@2` slot compile from it. It writes
+   the json report (version 3), builds the fitted gate file, and does the
+   posting when the wrapper hands it the answer
+   (`Hand the answer to the domain skill to post` in the board wrapper).
+2. **The standalone `mattstack:review` verb**
+   (`plugins/mattstack/attachments/review/review/SKILL.md`). It builds
+   its gate through the same `lib/gates/review-source.ts`, opens the same
+   `review-post` kind, and posts on GitLab (its own Compose step) and on
+   GitHub (`gh pr review`). Its `run:` gates reach the board through
+   `src/gates/ingest.ts`.
+
+**Both are in scope.** Both draft before the gate and post edits word for
+word, on GitLab and GitHub. The board wrapper's generic path is out of
+scope (see Non-goals).
+
+## Where the drafts live (Matt's call)
+
+The board reads the drafted text from the **report json**, not from the
+gate context. The board server already reads that file
+(`readReviewReportJson` in `apps/board/src/review-state.ts`, used in
+`server.ts`). This keeps the drafts out of the gate's shared 8192-byte
+context budget (`GATE_CTX_LIMIT` in `lib/gates/ctx.ts`), so nothing gets
+trimmed and a big review keeps its sheet.
+
+The gate context carries only short previews of each draft, for surfaces
+without the board's renderer (the pane's native form, herd relays). Those
+surfaces still post the full draft from the report json. Previews never
+post.
+
+Today `readReviewReportJson` is keyed by MR URL for the board's own
+reviews. The standalone verb's `run:` gates need their report found the
+same way. How is the builder's call.
+
+## Where the change lands
+
+- **Report json.** Each finding gains a drafted comment string. The
+  summary gains a drafted string for the summary line. The builder picks
+  the field names and whether this is a new report `version`.
+- **Gate context.** `lib/gates/review-source.ts` adds a short preview per
+  finding and for the summary line. `lib/gates/ctx.ts` validates it and
+  prints it in its prose ("Will post as comment: …", like `carryover@1`
+  prints its reply). The fitter may trim previews. The builder decides
+  whether this stays `@1` with an optional field or bumps to `@2`. Old
+  gates without the field must still render.
+- **"This gate's poster honors edits" signal.** Edit boxes show only when
+  the gate says its poster will post edits word for word. Both posters
+  set it once updated. A gate without it renders as today. The builder
+  picks the field, but it lives in the gate, never in a guess about which
+  skill ran.
+- **Answer payload.** Edited text rides back on the answer, like a
+  carryover thread's `text` does. A findings chunk holds up to four
+  findings, so the answer needs per-finding text keyed by finding id. The
+  summary line needs its own slot. Only edited entries need to ride. An
+  absent entry means "post the draft". The builder picks the shape.
+- **Board.** `apps/board/src/client/board/ReviewGateSheet.tsx` renders the
+  summary card and the per-finding boxes from the report json drafts. It
+  reuses respond's editable reply pieces (`RespondSheet.tsx`
+  `editableReply`, `EditedChip`, `sheet-payload.ts`'s text handling)
+  rather than building new ones. Add a gallery story for the new face in
+  `gate-gallery.fixtures.ts` / `GateGallery.stories.tsx`, with invented
+  data.
+- **Shared review engine.** It drafts every comment and the summary line,
+  in the loaded writing-style voice, into the report before the gate. Its
+  posting step takes the edited text from the answer, else the draft, and
+  never rewrites either. A note on the answer no longer changes wording.
+  It needs a plugin version bump and pack recompiles
+  (`mattstack:editing-skills`).
+- **Standalone `mattstack:review` verb.** It makes the same change: draft
+  before the gate, then post edit-or-draft word for word, on GitLab and
+  GitHub. On GitHub the summary line is the `gh pr review` body.
+- **Board wrapper** (`apps/board/skills-src/review/SKILL.md`, then
+  `bun run skills:expand:board`). `Hand the answer to the domain skill to
+  post` passes the edited texts through. Resumed panes hand over the same
+  answer, so a parked-gate resume posts the text the gate showed. Its
+  generic path and its Compose step are unchanged.
+
+## Acceptance
+
+- A fresh review on a board-tracked MR opens one `review-post` gate. Each
+  anchored finding shows its drafted comment, and the summary card shows
+  the summary line and any no-diff-line findings.
+- Editing a finding's comment and approving posts that exact text as the
+  inline comment, on GitLab. Same for the summary line.
+- Not editing posts the drafted text, unchanged.
+- Unticking a finding hides its box. Nothing for it posts, and if it had
+  no diff line, it is gone from the summary.
+- Answering from the pane's native form posts the same drafted text the
+  board would have shown.
+- A parked gate answered later posts the text the gate showed.
+- The same holds for a `mattstack:review` run on GitLab and on GitHub,
+  answered from the board.
+- A review with 12 findings keeps the full review sheet, with every
+  comment box showing.
+- A gate without the "poster honors edits" signal (an old gate, or a
+  pack not yet recompiled) renders as today and posts as today.
+- Board gallery has a story for the new face. Capture baselines are
+  regenerated on purpose (`bun run capture:baseline` in `apps/board`).
+
+## Left to the builder
+
+- Field names, report version, gate-ctx shape versioning.
+- The answer payload shape for per-finding edited text.
+- Component structure inside `ReviewGateSheet.tsx`.
+- How the editable box handles very long comments (respond-post's
+  long-replies story is the model).
