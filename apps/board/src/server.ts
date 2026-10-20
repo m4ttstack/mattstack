@@ -2623,6 +2623,7 @@ const httpServer = Bun.serve({
           person: person ?? null,
           responseRound: responseRound ?? null,
           gateId: null,
+          startedAt: Date.now(),
         });
         void launchRespond({
           mrUrl: parsed.mrUrl,

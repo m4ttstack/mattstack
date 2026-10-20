@@ -411,6 +411,7 @@ describe('/respond for a person', () => {
     expect(res.status).toBe(200);
     await new Promise(r => setTimeout(r, 300));
     expect(readRespondStates(db).get(url(12))?.gateId).toBeUndefined();
+    expect(readRespondStates(db).get(url(12))?.startedAt).toBeGreaterThan(1000);
   }, 15_000);
 
   test('a launch for everyone forgets the person the last run answered', async () => {
