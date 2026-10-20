@@ -630,7 +630,7 @@ function LeafInput({
   value: unknown;
   placeholder?: string;
   disabled: boolean;
-  onSave: (v: unknown) => void;
+  onSave: (v: unknown) => Promise<boolean>;
 }) {
   const { text } = useSchemeColors();
   if (typeof type === 'object' && 'list' in type)
@@ -641,10 +641,7 @@ function LeafInput({
           unset={value === undefined}
           disabled={disabled}
           list={Array.isArray(value) ? value : []}
-          save={async v => {
-            onSave(v);
-            return true;
-          }}
+          save={v => onSave(Array.isArray(v) && v.length === 0 ? undefined : v)}
         />
       </Group>
     );
@@ -754,6 +751,10 @@ function isEnumSet(type: LeafType): boolean {
   return typeof type === 'object' && 'enumSet' in type;
 }
 
+function isList(type: LeafType): boolean {
+  return typeof type === 'object' && 'list' in type;
+}
+
 function titleOf(type: LeafType): string | undefined {
   return typeof type === 'object' && 'list' in type ? type.title : undefined;
 }
@@ -816,7 +817,7 @@ function LeavesBody({
         return (
           <FieldRow
             key={path}
-            top={isEnumSet(shape.fields[path]!)}
+            top={isEnumSet(shape.fields[path]!) || isList(shape.fields[path]!)}
             label={
               <Text
                 fz={12}
@@ -836,7 +837,13 @@ function LeavesBody({
             }
           >
             <LeafInput
-              key={`${JSON.stringify(value) ?? ''}:${resets}`}
+              // A list leaf is controlled by its value; remounting it on
+              // each save would close its open field and drop focus.
+              key={
+                isList(shape.fields[path]!)
+                  ? `${resets}`
+                  : `${JSON.stringify(value) ?? ''}:${resets}`
+              }
               label={`${def.key}.${path}`}
               type={shape.fields[path]!}
               value={value}
@@ -847,17 +854,19 @@ function LeavesBody({
                 // that layer anyway; the inherited value still applies.
                 if (v === undefined && source !== target) {
                   setResets(n => n + 1);
-                  return;
+                  return Promise.resolve(true);
                 }
                 const next = leafWrite(explained.rows, target, path, v);
                 const write =
                   Object.keys(next).length === 0
                     ? row.clear(target)
                     : row.save(next);
-                void write.then(ok => {
-                  if (!ok) return;
-                  setStaleRows(explained.rows);
-                  refresh();
+                return write.then(ok => {
+                  if (ok) {
+                    setStaleRows(explained.rows);
+                    refresh();
+                  }
+                  return ok;
                 });
               }}
             />

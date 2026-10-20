@@ -2,6 +2,7 @@ import '../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
+import { rowKind } from '@mattstack/settings-kit/shapes';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -679,14 +680,84 @@ describe('composite rows', () => {
         emojiAliases: { approved: ['mr-approved', 'approved_stamp'] },
       })
     );
+    await waitFor(() =>
+      expect(within(approved).getByRole('textbox')).toHaveFocus()
+    );
+    await userEvent.keyboard('{Escape}');
     await userEvent.click(
       within(approved).getByRole('button', { name: 'remove mr-approved' })
     );
     await waitFor(() =>
       expect(s.set).toHaveBeenCalledWith('board.slack', 'team', {
-        emojiAliases: { approved: [] },
+        emojiAliases: {},
       })
     );
+  });
+
+  it('a refused list leaf save keeps the typed name', async () => {
+    const slack = def('board.slack', {
+      type: 'object',
+      scopes: ['team'],
+      merge: 'deep',
+      effective: {
+        scope: 'team',
+        file: '/t',
+        value: { reviewKind: 'review' },
+        authored: { reviewKind: 'review' },
+      },
+    });
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        def: slack,
+        rows: [
+          {
+            scope: 'team',
+            file: '/t',
+            present: true,
+            value: { reviewKind: 'review' },
+          },
+        ],
+      }),
+    }));
+    const s = store();
+    s.set.mockResolvedValue('refused');
+    renderWithProviders(
+      <SettingRow def={slack} store={s} subhead={null} query="" />
+    );
+    await openForm('board.slack');
+    await userEvent.click(screen.getByRole('button', { name: /more fields/ }));
+    const looking = screen.getByRole('group', {
+      name: 'board.slack.emojiAliases.looking',
+    });
+    const add = within(looking).getByRole('button', {
+      name: 'add to board.slack.emojiAliases.looking',
+    });
+    await waitFor(() => expect(add).toBeEnabled());
+    await userEvent.click(add);
+    await userEvent.type(within(looking).getByRole('textbox'), 'eyes2{Enter}');
+    await waitFor(() => expect(s.set).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(within(looking).getByRole('textbox')).toHaveValue('eyes2')
+    );
+  });
+
+  it('a plain object of string lists is a form of list leaves', () => {
+    expect(
+      rowKind(
+        def('rt.ignoredMrs', {
+          type: 'object',
+          schema: {
+            type: 'object',
+            properties: {
+              targetBranches: { type: 'array', items: { type: 'string' } },
+              authors: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        })
+      )
+    ).toBe('leaves');
   });
 
   it('emptying a number leaf clears that field from the target layer', async () => {
