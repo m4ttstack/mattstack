@@ -25,6 +25,9 @@ export const LEGACY_SHAPES = {
       reviewKind: "string", singleTemplate: "string", multiHeader: "string", multiItem: "string",
       autoResolveIntervalMinutes: "number",
       "emoji.looking": "string", "emoji.commented": "string", "emoji.approved": "string",
+      "emojiAliases.looking": { list: "string", title: "Also counts as looking" },
+      "emojiAliases.commented": { list: "string", title: "Also counts as commented" },
+      "emojiAliases.approved": { list: "string", title: "Also counts as approved" },
     },
     fallbacks: {
       "emoji.looking": DEFAULT_SLACK_EMOJI.looking,

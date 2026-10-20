@@ -4,7 +4,7 @@ import type { SettingDefWire } from "../server.ts";
 import { LEGACY_SHAPES } from "./shapes-legacy-fixture.ts";
 import {
   addToList, checkValue, ENUMS, filterDefs, getLeaf, isSet, matchesSchema, parseScalar,
-  recognize, rowKind, setLeaf, SHAPES, summarize, targetScope, type CompositeShape,
+  matchesShape, recognize, rowKind, setLeaf, SHAPES, summarize, targetScope, type CompositeShape,
 } from "../shapes.ts";
 
 function def(over: Partial<SettingDefWire> & { key: string }): SettingDefWire {
@@ -55,14 +55,34 @@ describe("recognize", () => {
     expect(recognize({ type: "object", properties: { a: { type: "array", items: { enum: ["x", "y"] } } } })).toEqual({ kind: "leaves", fields: { a: { enumSet: ["x", "y"] } }, placeholders: {} });
   });
 
-  test("a list of free strings inside an object is still json", () => {
-    expect(recognize({ type: "object", properties: { a: { type: "array", items: { type: "string" } } } }).kind).toBe("json");
+  test("a list of free strings inside an object is a list leaf titled from the schema", () => {
+    expect(recognize({ type: "object", properties: { a: { type: "array", items: { type: "string" }, title: "Names" }, b: { type: "array", items: { type: "string" } } } })).toEqual({
+      kind: "leaves", fields: { a: { list: "string", title: "Names" }, b: { list: "string" } }, placeholders: {},
+    });
+    const r = recognize(schemaOf("board.slack"));
+    if (r.kind !== "leaves") throw new Error(`board.slack: ${r.kind}`);
+    expect(r.fields["emojiAliases.approved"]).toEqual({ list: "string", title: "Also counts as approved" });
+  });
+
+  test("a list of objects or numbers inside an object is still json", () => {
+    expect(recognize({ type: "object", properties: { a: { type: "array", items: { type: "object", properties: { b: { type: "string" } } } } } }).kind).toBe("json");
+    expect(recognize({ type: "object", properties: { a: { type: "array", items: { type: "number" } } } }).kind).toBe("json");
   });
 
   test("anything deeper is json", () => {
     expect(recognize({ type: "object", properties: { a: { type: "object", properties: { b: { type: "array", items: { type: "object" } } } } } }).kind).toBe("json");
     expect(recognize(schemaOf("deck.apps")).kind).toBe("json");
     expect(recognize(undefined).kind).toBe("json");
+  });
+});
+
+describe("matchesShape", () => {
+  test("a list leaf takes an array of strings or nothing", () => {
+    const shape: CompositeShape = { kind: "leaves", fields: { "aliases.approved": { list: "string" } } };
+    expect(matchesShape(shape, { aliases: { approved: ["mr-approved"] } })).toBe(true);
+    expect(matchesShape(shape, {})).toBe(true);
+    expect(matchesShape(shape, { aliases: { approved: "mr-approved" } })).toBe(false);
+    expect(matchesShape(shape, { aliases: { approved: [1] } })).toBe(false);
   });
 });
 
