@@ -100,6 +100,17 @@ restored): no inline threads, post only the summary. Under Approve with nothing 
 the issue list and just approve with a brief note; on GitLab that note is
 the `summary` of the one submitted review, with the approve outcome.
 
+**Drafted reviews.** When the report json carries drafts (`summary` has a
+`comment`, which a gate's `editable: true` requires), nothing is composed
+here. The summary is exactly the caller's joined summary: the summary
+line, then each selected finding with no diff line, its text, each
+preceded by one blank line. Write no Strengths, Assessment or issue list
+around it. Every comment posts the human's edit, else its draft, word for
+word. The json is the test, never the extras: a board's posting pane
+never sees the extras. A restored finding that lives in the summary
+follows the joined summary, with its recorded `file:line` and text; with
+nothing selected, the note is the summary line alone.
+
 ## Posting mechanics by disposition
 
 Comment and Approve execute everywhere. Request changes executes only on
@@ -119,7 +130,8 @@ disposition is Approve.
 A comment whose line is outside the diff cannot be placed. The call says
 which ones and posts nothing: move each named finding into the summary's
 issue list, exactly as a finding with no `file` anchor, and make the call
-again, once.
+again, once. In a drafted review it is appended to the summary instead,
+its `file:line` alone on a line and then its body word for word.
 
 A review that posted but whose approval was refused is posted. The
 approval is then settled on its own, through the caller's approval gate;
@@ -133,6 +145,10 @@ strip "nothing blocking," "LGTM," and "good to merge" from the summary.
 Either leave the merge decision to the author or say plainly that approval
 is being withheld pending the noted items. Only an approving disposition may
 carry an unqualified all-clear.
+
+The rule shapes text while it is being written: the summary composed
+here, or a drafted summary line before the gate. Text a human saw on the
+gate, edited or not, posts as it stands; this rule never rewrites it.
 
 ## Close HARD-GATE
 
@@ -158,6 +174,8 @@ left as a bare id or number. Required every time, on every disposition.
 | "GitLab has no Request changes here, I'll just post a plain Comment" | Post a blocking-framed Comment: its Assessment names what blocks the merge and says approval is withheld. |
 | "The selection looked stale, I'll re-ask to be sure" | Not this part's call. A decided selection is trusted as handed; re-deciding belongs to the caller, not the executor. |
 | "I'll post the inline comments first, then the summary" | On GitLab the review is one call. Comments posted one by one never become a submitted review, and the reviewer never reads as having reviewed. |
+| "The drafted summary says twelve notes but eleven are selected, I'll fix the count" | Text the human saw on the gate posts as it stands. Never reword, recount or restyle a draft or an edit. |
+| "I'll put the unanchored finding under a heading in the summary" | In a drafted review the summary is the summary line, then each folded text after one blank line, and nothing else. |
 | "The approval failed, I'll run the whole review again" | The review is already up. The approval is settled on its own, through the caller's approval gate; a second submit posts every finding twice. |
 
 ## Quick reference
@@ -168,7 +186,7 @@ left as a bare id or number. Required every time, on every disposition.
 | No decided selection arrived | Stop; name it a caller bug. Never ask a question here. |
 | Posting inline threads | Selected findings only (legacy: whole selected levels), plus restored findings with their recorded text (one with `changed` true goes in the summary instead); deselected findings drop, no side door. |
 | A selected finding carries no `file` anchor | It rides in the summary comment; never invent a line for it. |
-| Posting the summary | One comment, scoped to what was selected; an unanchorable selected finding lives here. |
+| Posting the summary | One comment, scoped to what was selected; an unanchorable selected finding lives here. Drafted review: exactly the caller's joined summary, composing nothing. |
 | Disposition is Approve | GitLab: outcome approve on the one submit. GitHub: gh pr review --approve. |
 | Disposition is Request changes on a forge without it (GitLab) | Blocking-framed Comment: the Assessment names what blocks the merge and says approval is withheld. |
 | Disposition carries no approval | Strip all-clear language from the summary; state the decision is deferred or withheld. |
