@@ -35,10 +35,10 @@ describe("registerApps retries a dropped connection", () => {
   });
 
   test("a register that keeps dropping the connection fails after the retry budget with the last output", async () => {
-    const { seams, registers } = seamsWith([reset]);
+    const { seams, registers, sleeps } = seamsWith([reset]);
     await expect(registerApps(seams, DIR, io)).rejects.toMatchObject({ code: "dev-register-failed", log: expect.stringContaining("ECONNRESET") });
-    expect(registers.length).toBeGreaterThan(1);
-    expect(registers.length).toBeLessThanOrEqual(5);
+    expect(registers).toHaveLength(4);
+    expect(sleeps).toEqual([2000, 2000, 2000]);
   });
 
   test("a register that fails for another reason fails on the first try", async () => {
