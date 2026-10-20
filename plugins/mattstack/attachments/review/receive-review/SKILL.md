@@ -968,9 +968,11 @@ none makes a new one the same way, never `mktemp -d`), as
 
 ONE multi-select question per offered thread, in verdict-table order,
 plus `next`. Its id is `thread-<n>` by 1-based position among the offered
-threads, its label the thread's `file:line`, its options exactly
+threads, its label the thread's `file:line`, its options
 `post:<threadId>` and `resolve:<threadId>`, thread id VERBATIM, bare verb
 as the label.
+An Overview comment (a `resolvable: false` row) offers `post:<threadId>`
+alone: GitLab cannot resolve it.
 
 | Field | Filled from |
 |---|---|
