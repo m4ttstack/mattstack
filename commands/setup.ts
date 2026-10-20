@@ -31,6 +31,7 @@ import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } fr
 import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
+import { HERDR_NOT_INSTALLED, startHerdr, type HerdrStartResult } from "../lib/herdr/start.ts";
 import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type PlacementMode, type StepId } from "../lib/setup/contract.ts";
 import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/setup/emit.ts";
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
@@ -573,7 +574,10 @@ export type FinishDeps = IntentDeps;
 
 export interface AfterFinish {
   update(opts: { json: boolean }): Promise<void>;
+  startHerdr(): Promise<HerdrStartResult>;
   warn(json: boolean, title: string, detail: string): void;
+  /** The setup window has closed by the time this runs, so a notification is the only place the app shows it. */
+  notify(title: string, message: string): void;
 }
 
 /** The update run Finish starts. In `--json` it prints nothing, so `rt setup finish --json` stays one envelope, and a needs-you item never turns the Finish into an exit 2: the run notifies on its own. */
@@ -584,8 +588,30 @@ export async function updateAfterFinish(opts: { json: boolean }, deps: ApplyDeps
 
 export const REAL_AFTER_FINISH: AfterFinish = {
   update: (opts) => updateAfterFinish(opts),
+  startHerdr,
   warn: warnLine,
+  notify: (title, message) => notifyEnabled(SETUP_UPDATE_CATEGORY, title, message, undefined, undefined, "setup-finish-herdr"),
 };
+
+const HERDR_RETRY = "Run rt herdr start to try again";
+
+/** The tray's launch-time herdr start skips a Mac whose setup is still open, so a fresh join has nothing else to start it. */
+async function startHerdrAfterFinish(json: boolean, after: AfterFinish): Promise<void> {
+  let detail: string;
+  try {
+    const result = await after.startHerdr();
+    if (result.state === "running") return;
+    if (result.state === "started") {
+      if (!json) out.print(out.line("done", "Started herdr"));
+      return;
+    }
+    detail = result.state === "not-installed" ? HERDR_NOT_INSTALLED : `${result.detail}. ${HERDR_RETRY}`;
+  } catch (err) {
+    detail = `${err instanceof Error ? err.message : String(err)}. ${HERDR_RETRY}`;
+  }
+  after.warn(json, "herdr did not start", detail);
+  after.notify("herdr did not start", detail);
+}
 
 /** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
 export async function setupFinish(args: string[], _ctx: CommandContext = {}, deps: FinishDeps = realIntentDeps(), after: AfterFinish = REAL_AFTER_FINISH): Promise<void> {
@@ -601,6 +627,7 @@ export async function setupFinish(args: string[], _ctx: CommandContext = {}, dep
   } catch (err) {
     after.warn(json, "The update after Finish did not finish", err instanceof Error ? err.message : String(err));
   }
+  await startHerdrAfterFinish(json, after);
 }
 
 // ─── repo-root (`rt setup repo-root set`) ──────────────────────────────────

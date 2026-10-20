@@ -6,6 +6,7 @@ import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import { isSetupFinished, readSetupState } from "../../lib/setup/state.ts";
 import { capturePlain, realJson } from "./helpers/json-line.ts";
+import type { HerdrStartResult } from "../../lib/herdr/start.ts";
 
 function deps(): FinishDeps & { probes: ReturnType<typeof fakeProbes>; lines: string[] } {
   const lines: string[] = [];
@@ -19,17 +20,30 @@ function deps(): FinishDeps & { probes: ReturnType<typeof fakeProbes>; lines: st
   };
 }
 
-function after(run: AfterFinish["update"] = async () => {}): AfterFinish & { calls: boolean[]; warnings: string[] } {
+function after(
+  run: AfterFinish["update"] = async () => {},
+  herdr: AfterFinish["startHerdr"] = async () => ({ state: "running", bin: "/bin/herdr" }),
+): AfterFinish & { calls: boolean[]; warnings: string[]; notified: string[]; order: string[] } {
   const calls: boolean[] = [];
   const warnings: string[] = [];
+  const notified: string[] = [];
+  const order: string[] = [];
   return {
     update: async (opts) => {
+      order.push("update");
       calls.push(opts.json);
       await run(opts);
     },
+    startHerdr: async () => {
+      order.push("herdr");
+      return herdr();
+    },
     warn: (_json, title, detail) => warnings.push(`${title}: ${detail}`),
+    notify: (title, message) => notified.push(`${title}: ${message}`),
     calls,
     warnings,
+    notified,
+    order,
   };
 }
 
@@ -108,5 +122,72 @@ describe("setupFinish", () => {
     } finally {
       cap.restore();
     }
+  });
+
+  test("starts herdr after the update run, so a fresh join lands with herdr up", async () => {
+    const d = deps();
+    let finishedWhenHerdrStarted = false;
+    const a = after(undefined, async () => {
+      finishedWhenHerdrStarted = isSetupFinished(readSetupState(d.probes));
+      return { state: "started", bin: "/bin/herdr" };
+    });
+    await setupFinish(["--json"], {}, d, a);
+    expect(a.order).toEqual(["update", "herdr"]);
+    expect(finishedWhenHerdrStarted).toBe(true);
+    expect(a.warnings).toEqual([]);
+    expect(a.notified).toEqual([]);
+    expect(d.lines).toHaveLength(1);
+  });
+
+  test("human mode: a started herdr is reported", async () => {
+    const d = deps();
+    const a = after(undefined, async () => ({ state: "started", bin: "/bin/herdr" }));
+    const cap = capturePlain();
+    try {
+      await setupFinish([], {}, d, a);
+      expect(cap.stdout()).toBe("[ok] Setup is finished on this Mac\n[ok] Started herdr\n");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("a herdr that will not start is reported with a remedy, and Finish still stands", async () => {
+    const d = deps();
+    const failed: HerdrStartResult = { state: "failed", bin: "/bin/herdr", detail: "herdr server did not answer within 10s" };
+    const a = after(undefined, async () => failed);
+    await setupFinish(["--json"], {}, d, a);
+    expect(isSetupFinished(readSetupState(d.probes))).toBe(true);
+    const expected = "herdr did not start: herdr server did not answer within 10s. Run rt herdr start to try again";
+    expect(a.warnings).toEqual([expected]);
+    expect(a.notified).toEqual([expected]);
+    expect(d.lines).toHaveLength(1);
+  });
+
+  test("a missing herdr is reported with the install remedy", async () => {
+    const d = deps();
+    const a = after(undefined, async () => ({ state: "not-installed", bin: "/bin/herdr" }));
+    await setupFinish([], {}, d, a);
+    const expected = "herdr did not start: herdr isn't installed. Open mattstack Setup to install it";
+    expect(a.warnings).toEqual([expected]);
+    expect(a.notified).toEqual([expected]);
+  });
+
+  test("a herdr start that throws is reported, never fails the Finish", async () => {
+    const d = deps();
+    const a = after(undefined, async () => {
+      throw new Error("spawn boom");
+    });
+    await setupFinish([], {}, d, a);
+    expect(isSetupFinished(readSetupState(d.probes))).toBe(true);
+    expect(a.warnings).toEqual(["herdr did not start: spawn boom. Run rt herdr start to try again"]);
+  });
+
+  test("herdr still starts when the update run throws", async () => {
+    const d = deps();
+    const a = after(async () => {
+      throw new Error("boom");
+    });
+    await setupFinish([], {}, d, a);
+    expect(a.order).toEqual(["update", "herdr"]);
   });
 });
