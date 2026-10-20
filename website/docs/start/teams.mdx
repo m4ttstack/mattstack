@@ -176,7 +176,7 @@ While you have outstanding invites, the daemon checks each one for a reply every
 
 ## How changes travel
 
-The daemon keeps each Mac's clone in step with the org repo. It pulls on a timer, and on an admin's or owner's Mac it also commits and pushes the changes that Mac's role owns, such as a `rt settings set --scope org` or `--scope team` write, with no hand commit. It does this only on the org's data branch, or on a [trial branch](#trying-a-change-on-a-branch) you chose; on any other branch the **Org branch** row in setup status says it is paused. Packs are the exception: the pack's author commits and pushes a pack's edits, and `rt skills sync` brings the installed copies current. A member's Mac only pulls, so its clone never drifts from the org's.
+The daemon keeps each Mac's clone in step with the org repo. It pulls on a timer, and on an admin's or owner's Mac it also commits and pushes the changes that Mac's role owns, such as a `rt settings set --scope org` or `--scope team` write, with no hand commit. It does this only on the org's data branch, or on a [trial branch](#trying-a-change-on-a-branch) you chose; on any other branch the **Org branch** row in setup status says it is paused. Packs are the exception: the pack's author commits and pushes a pack's edits, and `rt skills sync` brings the installed copies current. The daemon never publishes a pack. When pack edits sit unpublished for hours, it saves a copy on that Mac, and the **Unpublished packs** row in setup status names the pack and how to publish or throw away the edits. A member's Mac only pulls, so its clone never drifts from the org's.
 
 ## Trying a change on a branch
 
