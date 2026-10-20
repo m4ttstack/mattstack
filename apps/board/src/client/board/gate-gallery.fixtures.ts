@@ -213,8 +213,8 @@ const FLAG_FILES = {
   t1: 'apps/web/src/hooks/useFlagClient.tsx:56',
   t2: 'apps/web/src/hooks/useFlagClient.tsx:61',
   t3: 'apps/web/src/hooks/useFlagClient.test.ts:23',
-  t4: 'MR-level note (ACME-4410, ACME-4411)',
-  t5: 'MR-level note (re-review)',
+  t4: 'Overview comment',
+  t5: 'General thread',
 };
 
 const flagOrigin = {
@@ -450,6 +450,12 @@ const codeChangesRecommended = question(
   ]
 );
 
+/** A thread question as another person left it. */
+const authoredBy = (q: GateQuestion, author: string): GateQuestion => ({
+  ...q,
+  context: ctx({ ...JSON.parse(q.context ?? '{}'), author }),
+});
+
 /** John's second response, one revise in: the header reads "round 2 · revise 1". */
 export const respondPlanSecondRound: GalleryGate = {
   mr: {
@@ -460,6 +466,14 @@ export const respondPlanSecondRound: GalleryGate = {
       person: 'john',
       responseRound: 2,
     },
+    respondTargets: [
+      {
+        username: 'john',
+        name: 'John Okafor',
+        openThreads: 2,
+        openComments: 0,
+      },
+    ],
   } as BoardMRWithReview,
   gate: {
     ...respondPlan.gate,
@@ -471,7 +485,107 @@ export const respondPlanSecondRound: GalleryGate = {
       threads: { total: 2, blocking: 1 },
       adjudication: 'both valid · fresh-context adjudicated',
     }),
-    questions: respondPlan.gate.questions?.slice(0, 2),
+    questions: respondPlan.gate.questions
+      ?.slice(0, 2)
+      .map(q => authoredBy(q, 'john')),
+  },
+};
+
+const LINK_NOTES = {
+  n1: '6c1d0e4b9a2f47d8b3e5a1c07f9d2e6b8a4c3f10',
+  n2: 'f2a9c4e1d7b3058a6e1c9d4b2f7a3e5c8d0b1a96',
+};
+
+/** Priya left two Overview comments and no review: the sheet counts
+    comments and says she commented. */
+export const respondPlanCommentsOnly: GalleryGate = {
+  mr: {
+    ...MRS.expiredLinks,
+    respond: {
+      status: 'triaging',
+      sessionId: 'gallery-resp-priya',
+      person: 'priya',
+      responseRound: 1,
+    },
+    respondTargets: [
+      {
+        username: 'priya',
+        name: 'Priya Raman',
+        openThreads: 0,
+        openComments: 2,
+      },
+    ],
+  } as BoardMRWithReview,
+  gate: {
+    gateId: 'gallery-respond-plan-comments',
+    subject: mrSubject(760),
+    kind: 'respond-plan',
+    label: 'respond gate !760',
+    status: 'open',
+    openedAt: minutesAgo(4),
+    meta: { label: 'respond gate !760' },
+    domain: 'respond',
+    origin: { presentation: 'form', surface: 'board', paneId: 'w31:p2' },
+    context: ctx({
+      'gate-ctx': 'plan@1',
+      reviewer: 'priya',
+      round: 1,
+      threads: { total: 2, blocking: 0 },
+      adjudication: 'one valid, one no ask',
+    }),
+    questions: [
+      planThread(
+        1,
+        LINK_NOTES.n1,
+        'Overview comment',
+        'fix',
+        {
+          reply: REPLY_ONLY,
+          fix: 'point the expired page at the help centre instead of the old support inbox',
+          skip: NO_REPLY,
+        },
+        ctx({
+          'gate-ctx': 'thread@1',
+          author: 'priya',
+          severity: 'non-blocking',
+          claim: {
+            summary:
+              'the expired page still tells people to email the old support inbox; can it link the help centre article instead?',
+          },
+          verdict: {
+            call: 'valid',
+            note: 'the inbox was retired last quarter and forwards nowhere',
+          },
+          reply: {
+            kind: 'direction',
+            text: 'say the page now links the help centre article.',
+          },
+        })
+      ),
+      planThread(
+        2,
+        LINK_NOTES.n2,
+        'Overview comment',
+        'reply',
+        {
+          reply: REPLY_ONLY,
+          fix: "implement the reviewer's ask as written",
+          skip: NO_REPLY,
+        },
+        ctx({
+          'gate-ctx': 'thread@1',
+          author: 'priya',
+          severity: 'none',
+          claim: {
+            summary:
+              'nice, this should close out the expired-link reports support keeps forwarding',
+          },
+          verdict: { call: 'no-ask', note: 'a thank-you; no change asked' },
+          reply: { kind: 'verbatim', text: 'Thanks, that was the hope!' },
+        })
+      ),
+      codeChangesRecommended,
+    ],
   },
 };
 
@@ -651,6 +765,15 @@ const postThread = (
 
 const RESOLVE = 'resolve the thread';
 
+/** An Overview comment's question: GitLab cannot resolve its discussion,
+    so it offers post alone. */
+const postOnly = (q: GateQuestion): GateQuestion => ({
+  ...q,
+  options: q.options.filter(
+    o => !(typeof o === 'string' ? o : o.value).startsWith('resolve:')
+  ),
+});
+
 export const respondPost: GalleryGate = {
   mr: MRS.flagTargeting,
   gate: {
@@ -685,10 +808,12 @@ export const respondPost: GalleryGate = {
         sha: '77bf2129',
         text: 'switched both to spread `requireActual` in 77bf2129. the spread drops `__esModule` though, so i set it back explicitly or `config` still resolves to the wrong object.',
       }),
-      postThread(4, FLAG_THREADS.t4, FLAG_FILES.t4, true, RESOLVE, {
-        verb: 'fix',
-        text: '👍 linked both from the description.',
-      }),
+      postOnly(
+        postThread(4, FLAG_THREADS.t4, FLAG_FILES.t4, false, RESOLVE, {
+          verb: 'fix',
+          text: '👍 linked both from the description.',
+        })
+      ),
       postThread(5, FLAG_THREADS.t5, FLAG_FILES.t5, false, RESOLVE, {
         verb: 'reply',
         text: 'Ready for another look!',
@@ -2260,7 +2385,11 @@ export const answeredRespondPost: GalleryGate = {
     answers: Object.fromEntries(
       Object.values(FLAG_THREADS).map((thread, i) => [
         `thread-${i + 1}`,
-        [`post:${thread}`, `resolve:${thread}`],
+        thread === FLAG_THREADS.t1 || thread === FLAG_THREADS.t2
+          ? [`post:${thread}`, `resolve:${thread}`]
+          : thread === FLAG_THREADS.t3
+            ? []
+            : [`post:${thread}`],
       ])
     ),
     answeredBy: 'board',

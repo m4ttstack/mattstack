@@ -120,6 +120,10 @@ export const RespondPlanSecondRound = face(
   'Respond: plan, second response with a revise',
   G.respondPlanSecondRound
 );
+export const RespondPlanCommentsOnly = face(
+  'Respond: plan, a person who only left Overview comments',
+  G.respondPlanCommentsOnly
+);
 export const RespondPlanTwoThreads = face(
   'Respond: plan, structured, two threads',
   G.respondPlanTwoThreads
