@@ -19,7 +19,13 @@ export interface EnumSetLeaf {
   whenUnset?: readonly string[];
 }
 
-export type LeafType = ScalarLeaf | EnumSetLeaf;
+/** A free list of names (emoji, usernames): `title` is the schema's own. */
+export interface StringListLeaf {
+  list: "string";
+  title?: string;
+}
+
+export type LeafType = ScalarLeaf | EnumSetLeaf | StringListLeaf;
 
 export type CompositeShape =
   | { kind: "stringList" }
@@ -58,6 +64,11 @@ function enumSetOf(s: JsonSchema): EnumSetLeaf | null {
   return leaf;
 }
 
+function stringListOf(s: JsonSchema): StringListLeaf | null {
+  if (s.type !== "array" || (s.items as JsonSchema | undefined)?.type !== "string") return null;
+  return typeof s.title === "string" ? { list: "string", title: s.title } : { list: "string" };
+}
+
 function leafOf(s: JsonSchema): ScalarLeaf | null {
   if (Array.isArray(s.enum) && s.enum.every((e) => typeof e === "string")) return { enum: s.enum as string[] };
   if (s.type === "string" || s.type === "number" || s.type === "boolean") return s.type;
@@ -84,7 +95,7 @@ function leafPaths(props: Record<string, JsonSchema>, prefix = ""): { fields: Re
   const fields: Record<string, LeafType> = {};
   const placeholders: Record<string, string> = {};
   for (const [k, v] of Object.entries(props)) {
-    const leaf = leafOf(v) ?? enumSetOf(v);
+    const leaf = leafOf(v) ?? enumSetOf(v) ?? stringListOf(v);
     if (leaf) {
       fields[prefix + k] = leaf;
       if (typeof v.placeholder === "string") placeholders[prefix + k] = v.placeholder;
@@ -332,6 +343,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function matchesLeaf(type: LeafType, v: unknown): boolean {
   if (typeof type === "string") return typeof v === type;
+  if ("list" in type) return Array.isArray(v) && v.every((x) => typeof x === "string");
   if ("enumSet" in type) return Array.isArray(v) && v.every((x) => typeof x === "string" && type.enumSet.includes(x));
   return typeof v === "string" && type.enum.includes(v);
 }
