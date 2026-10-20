@@ -514,7 +514,7 @@ const ROWS: readonly SettingDef[] = [
     key: "board.slack",
     type: "object",
     scopes: ["team"],
-    default: { reviewKind: "review", singleTemplate: "{title}: {url}", multiHeader: "{count} MR's ready for review :pray:", multiItem: "- {title}: {url}", autoResolveIntervalMinutes: 15, emoji: { looking: "eyes", commented: "speech_balloon", approved: "white_check_mark" } },
+    default: { reviewKind: "review", singleTemplate: "{title}: {url}", multiHeader: "{count} MR's ready for review :pray:", multiItem: "- {title}: {url}", autoResolveIntervalMinutes: 15, emoji: { looking: "eyes", commented: "speech_balloon", approved: "white_check_mark" }, emojiAliases: {} },
     merge: "deep",
     description: "The board's Slack posting config (app id, client id, templates, callback port, reviewKind). The team's review channel is in mattstack.directory. Client secrets stay out of this store.",
   },
