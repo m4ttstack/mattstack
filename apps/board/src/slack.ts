@@ -257,7 +257,42 @@ export async function syncIndex(
   return index;
 }
 
-/** Current reaction emoji names on a message. */
+interface ReactedMessage {
+  ts: string;
+  reply_count?: number;
+  reactions?: Array<{ name: string }>;
+}
+
+const selfIds = new Map<string, Promise<string | undefined>>();
+
+/** The token's own Slack user id, read once per token. */
+function selfUserId(token: string): Promise<string | undefined> {
+  let id = selfIds.get(token);
+  if (!id) {
+    id = call('auth.test', token, {}).then(d => d.user_id as string | undefined);
+    id.catch(() => selfIds.delete(token));
+    selfIds.set(token, id);
+  }
+  return id;
+}
+
+/** A message's reaction names, plus those on the token user's own replies in
+    its thread: a nudge like "need review here" is where reviewers react. */
+async function signalReactions(
+  token: string,
+  channelId: string,
+  message: ReactedMessage
+): Promise<string[]> {
+  const names = (message.reactions ?? []).map(r => r.name);
+  if (!message.reply_count) return names;
+  const self = await selfUserId(token);
+  if (!self) return names;
+  for (const reply of await threadReplies(token, channelId, message.ts))
+    if (reply.user === self) names.push(...reply.reactions);
+  return [...new Set(names)];
+}
+
+/** Current reaction emoji names on a message and its token user's replies. */
 export async function messageReactions(
   token: string,
   channelId: string,
@@ -267,10 +302,8 @@ export async function messageReactions(
     channel: channelId,
     timestamp: ts,
   });
-  const reactions = (
-    (data.message as { reactions?: Array<{ name: string }> })?.reactions ?? []
-  ).map(r => r.name);
-  return reactions;
+  const message = data.message as ReactedMessage | undefined;
+  return message ? signalReactions(token, channelId, message) : [];
 }
 
 /** Add a reaction; treats an already-reacted response as success. */
@@ -318,15 +351,27 @@ async function threadReplies(
   token: string,
   channelId: string,
   parentTs: string
-): Promise<SlackMessage[]> {
+): Promise<Array<SlackMessage & { reactions: string[] }>> {
   const data = await call('conversations.replies', token, {
     channel: channelId,
     ts: parentTs,
     limit: '200',
   });
-  return (data.messages as Array<{ ts: string; user?: string; text?: string }>)
+  return (
+    data.messages as Array<{
+      ts: string;
+      user?: string;
+      text?: string;
+      reactions?: Array<{ name: string }>;
+    }>
+  )
     .filter(m => m.ts !== parentTs)
-    .map(m => ({ ts: m.ts, user: m.user ?? '', text: m.text ?? '' }));
+    .map(m => ({
+      ts: m.ts,
+      user: m.user ?? '',
+      text: m.text ?? '',
+      reactions: (m.reactions ?? []).map(r => r.name),
+    }));
 }
 
 /** Post a reply in a thread; returns the reply's ts. */
@@ -824,9 +869,8 @@ export async function sweepSlackRefs(
   return { resolved, failed: errors.length, errors };
 }
 
-/** Whether a found ref's message is gone: absent from the channel, or the
-    tombstone Slack leaves for a deleted message that still has replies. */
-/** The message as Slack has it now: null once it is gone or a tombstone. */
+/** The message as Slack has it now: null once it is gone, or the tombstone
+    Slack leaves for a deleted message that still has replies. */
 async function liveMessage(
   token: string,
   channelId: string,
@@ -840,14 +884,10 @@ async function liveMessage(
     limit: '1',
   });
   const found = (
-    data.messages as Array<{
-      ts: string;
-      subtype?: string;
-      reactions?: Array<{ name: string }>;
-    }>
+    data.messages as Array<ReactedMessage & { subtype?: string }>
   ).find(m => m.ts === ts);
   if (!found || found.subtype === 'tombstone') return null;
-  return { reactions: (found.reactions ?? []).map(r => r.name) };
+  return { reactions: await signalReactions(token, channelId, found) };
 }
 
 /**

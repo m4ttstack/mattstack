@@ -264,7 +264,10 @@ describe('attachSlack', () => {
 
 /** Counting stand-in for slack.com: answers just enough of the API for a
     sweep and records which methods were hit. */
-function mockSlackApi(messagesByChannel: Record<string, SlackMessage[]>): {
+function mockSlackApi(
+  messagesByChannel: Record<string, SlackMessage[]>,
+  repliesByTs: Record<string, object[]> = {}
+): {
   calls: string[];
   restore: () => void;
 } {
@@ -288,7 +291,9 @@ function mockSlackApi(messagesByChannel: Record<string, SlackMessage[]>): {
     calls.push(method);
     switch (method) {
       case 'auth.test':
-        return ok({ url: 'https://mockteam.slack.com/' });
+        return ok({ url: 'https://mockteam.slack.com/', user_id: 'U_SELF' });
+      case 'conversations.replies':
+        return ok({ messages: repliesByTs[params.ts!] ?? [] });
       case 'conversations.list':
         return ok({
           channels: Object.entries(ids).map(([name, id]) => ({ id, name })),
@@ -670,6 +675,36 @@ describe('verifyFoundRefs', () => {
     expect(readSlackRefs(db).get(URL_A)?.reactions).toEqual([
       'eyes',
       'white_check_mark',
+    ]);
+  });
+
+  test("counts reactions on the token user's own replies, not anyone else's", async () => {
+    const ref = await found();
+    api = mockSlackApi(
+      {
+        'code-review': [
+          {
+            ...msg('100.1', `please review ${URL_A}`),
+            reply_count: 2,
+            reactions: [{ name: 'eyes' }],
+          } as SlackMessage,
+        ],
+      },
+      {
+        '100.1': [
+          { ts: '100.1', user: 'U1' },
+          { ts: '100.2', user: 'U_SELF', reactions: [{ name: 'mr-approved' }] },
+          { ts: '100.3', user: 'U2', reactions: [{ name: 'tada' }] },
+        ],
+      }
+    );
+    await verifyFoundRefs('tok', [{ ref, channel: 'code-review' }], {
+      gapMs: 0,
+      db,
+    });
+    expect(readSlackRefs(db).get(URL_A)?.reactions).toEqual([
+      'eyes',
+      'mr-approved',
     ]);
   });
 });

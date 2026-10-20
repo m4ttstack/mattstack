@@ -333,6 +333,24 @@ describe('slack emoji config', () => {
       )
     ).toThrow(/slack.emoji.commented/);
   });
+
+  test('aliases are lists per role, colons stripped', () => {
+    const cfg = parseConfig(
+      JSON.stringify({
+        ...base,
+        slack: { emojiAliases: { approved: [':mr-approved:'] } },
+      })
+    );
+    expect(cfg.slack.emojiAliases).toEqual({ approved: ['mr-approved'] });
+    expect(() =>
+      parseConfig(
+        JSON.stringify({
+          ...base,
+          slack: { emojiAliases: { looking: 'eyestalks' } },
+        })
+      )
+    ).toThrow(/slack.emojiAliases.looking/);
+  });
 });
 
 describe('switchboard config', () => {

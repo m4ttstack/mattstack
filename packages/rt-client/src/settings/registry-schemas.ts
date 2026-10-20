@@ -264,6 +264,11 @@ export const SCHEMAS = {
       commented: z.string().optional().meta({ placeholder: "speech_balloon" }),
       approved: z.string().optional().meta({ placeholder: "white_check_mark" }),
     }).optional(),
+    emojiAliases: z.looseObject({
+      looking: z.array(z.string()).optional().meta({ title: "Also counts as looking" }),
+      commented: z.array(z.string()).optional().meta({ title: "Also counts as commented" }),
+      approved: z.array(z.string()).optional().meta({ title: "Also counts as approved" }),
+    }).optional().meta({ title: "Other teams' emoji", description: "Emoji other channels use for the same marks, e.g. mr-approved for approved." }),
   }),
   "board.tabs": z.array(tab).min(1).meta({ uniqueBy: "id" }),
   "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional() }),

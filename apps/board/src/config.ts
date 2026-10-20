@@ -23,7 +23,11 @@ import {
   type BoardSecretsDeps,
 } from './board-secrets.ts';
 import { shellSingleQuote } from './shell-quote.ts';
-import { DEFAULT_SLACK_EMOJI, type SlackEmojiConfig } from './slack-emoji.ts';
+import {
+  DEFAULT_SLACK_EMOJI,
+  type SlackEmojiAliases,
+  type SlackEmojiConfig,
+} from './slack-emoji.ts';
 
 /** A bare "host/path" config value (not a full remote URL) never matches
     identityFromRemote's URL/scp-like parsing — it has no scheme and no
@@ -250,6 +254,7 @@ export interface SlackConfig {
       Set to 0 to disable the sweeper (client can still resolve on-demand). */
   autoResolveIntervalMinutes: number;
   emoji: SlackEmojiConfig;
+  emojiAliases: SlackEmojiAliases;
 }
 
 const DEFAULT_SLACK: SlackConfig = {
@@ -259,6 +264,7 @@ const DEFAULT_SLACK: SlackConfig = {
   multiItem: '- {title}: {url}',
   autoResolveIntervalMinutes: 15,
   emoji: DEFAULT_SLACK_EMOJI,
+  emojiAliases: {},
 };
 
 /** Parse and validate a board config's JSON. `source` names where a malformed value came from in every thrown message: the store reader passes a settings-store label, the fixture server its file. */
@@ -504,6 +510,7 @@ function parseSlack(raw: unknown, source: string): SlackConfig {
     autoResolveIntervalMinutes:
       s.autoResolveIntervalMinutes ?? DEFAULT_SLACK.autoResolveIntervalMinutes,
     emoji: parseSlackEmoji(s.emoji, source),
+    emojiAliases: parseEmojiAliases(s.emojiAliases, source),
   };
 }
 
@@ -529,6 +536,26 @@ function parseSlackEmoji(raw: unknown, source: string): SlackEmojiConfig {
         `${source} "slack.emoji.${role}" must be a non-empty emoji name`
       );
     out[role] = name;
+  }
+  return out;
+}
+
+/** Names are accepted with or without colons, like `slack.emoji`. */
+function parseEmojiAliases(raw: unknown, source: string): SlackEmojiAliases {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`${source} "slack.emojiAliases" must be an object`);
+  }
+  const out: SlackEmojiAliases = {};
+  for (const role of ['looking', 'commented', 'approved'] as const) {
+    const names = (raw as SlackEmojiAliases)[role];
+    if (names === undefined) continue;
+    if (!Array.isArray(names) || names.some(n => typeof n !== 'string')) {
+      throw new Error(
+        `${source} "slack.emojiAliases.${role}" must be a list of Slack emoji names`
+      );
+    }
+    out[role] = names.map(n => n.trim().replace(/^:|:$/g, '')).filter(Boolean);
   }
   return out;
 }

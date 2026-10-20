@@ -293,6 +293,7 @@ describe('loadConfig: store values get the normalization and validation parseCon
       multiItem: '- {title}: {url}',
       autoResolveIntervalMinutes: 15,
       emoji: DEFAULT_SLACK_EMOJI,
+      emojiAliases: {},
     });
   });
 
