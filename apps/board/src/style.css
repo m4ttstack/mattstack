@@ -4559,6 +4559,13 @@ a.tui-id-card-ref:focus-visible {
     overflow-y: visible;
     padding: 18px 16px 14px;
   }
+  /* The round band bleeds to the main column's edges, so its negative
+     margins track the stacked padding; wider, it pushes the page sideways. */
+  .tui-sheet-round {
+    top: -18px;
+    margin: -18px -16px 20px;
+    padding: 12px 16px;
+  }
   .tui-sheet-rail {
     display: contents;
   }
@@ -4583,6 +4590,12 @@ a.tui-id-card-ref:focus-visible {
   .tui-sheet-lost {
     background: var(--surface-wash-fg-4-card);
     border-top: 1px solid var(--border-soft);
+  }
+  /* A respond or answered dock lists a row per thread, so on a phone-height
+     screen half the scroller is most of what is left to read the threads:
+     it stays under a third of the screen and its rows scroll instead. */
+  :is(.tui-respond-sheet, .tui-answered-sheet) .tui-sheet-dock {
+    max-height: min(50%, 32dvh);
   }
   /* Past the cap only the summary rows (or the verdict's choices) give way,
      scrolling inside the panel down to a floor of one line of rows, or a
