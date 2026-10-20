@@ -576,3 +576,106 @@ test('the slack marks are a button onto the post, and plain marks without one', 
   expect(plain.tagName).toBe('SPAN');
   expect(plain.getAttribute('title')).toBe('posted in slack');
 });
+
+test('with several posts the slack marks show the count and open the chooser', async () => {
+  const chosen: number[] = [];
+  await render(
+    [
+      mr({
+        slack: {
+          status: 'found',
+          reactions: [],
+          posted: true,
+          permalink: 'https://slack.test/p/1',
+        },
+        ownerPosts: [
+          {
+            channel: 'pod-acme',
+            permalink: 'https://slack.test/p/2',
+            postedAt: 1,
+          },
+        ],
+      }),
+    ],
+    ctx({ onOpenSlackPosts: m => chosen.push(m.iid) })
+  );
+  const marks = container.querySelector<HTMLButtonElement>('.tui-row-marks')!;
+  expect(marks.querySelector('.tui-slack-count')!.textContent).toBe('2');
+  expect(marks.getAttribute('title')).toBe('open in slack · 2 posts');
+  await React.act(async () => marks.click());
+  expect(chosen).toEqual([1418]);
+  expect(marks.hasAttribute('data-active')).toBe(false);
+});
+
+test('with several posts the mark is the furthest any channel reached, with how many reached it', async () => {
+  await render(
+    [
+      mr({
+        slack: {
+          status: 'found',
+          reactions: ['eyes'],
+          posted: true,
+          permalink: 'https://slack.test/p/1',
+        },
+        ownerPosts: [
+          {
+            channel: 'pod-acme',
+            permalink: 'https://slack.test/p/2',
+            postedAt: 1,
+            reactions: ['white_check_mark'],
+          },
+          {
+            channel: 'pod-billing',
+            permalink: 'https://slack.test/p/3',
+            postedAt: 2,
+            reactions: ['eyes', 'white_check_mark'],
+          },
+        ],
+      }),
+    ],
+    ctx({ onOpenSlackPosts: () => {} })
+  );
+  const marks = container.querySelector('.tui-row-marks')!;
+  const stage = marks.querySelector('[data-slack-stage]')!;
+  expect(stage.getAttribute('data-slack-stage')).toBe('approved');
+  expect(stage.getAttribute('title')).toContain('2 of 3 channels');
+  expect(
+    [...marks.querySelectorAll('.tui-slack-count')].map(n => n.textContent)
+  ).toEqual(['2', '3']);
+});
+
+test('the slack marks stay active while their chooser is open', async () => {
+  await render(
+    [
+      mr({
+        slack: {
+          status: 'found',
+          reactions: [],
+          posted: true,
+          permalink: 'https://slack.test/p/1',
+        },
+      }),
+    ],
+    ctx({ slackPostsOpen: URL })
+  );
+  expect(
+    container.querySelector('.tui-row-marks')!.hasAttribute('data-active')
+  ).toBe(true);
+});
+
+test('a code owner post alone still shows the marks, opening that post', async () => {
+  await render([
+    mr({
+      ownerPosts: [
+        {
+          channel: 'pod-acme',
+          permalink: 'https://slack.test/p/2',
+          postedAt: 1,
+        },
+      ],
+    }),
+  ]);
+  const marks = container.querySelector('.tui-row-marks')!;
+  expect(marks.tagName).toBe('BUTTON');
+  expect(marks.querySelector('.tui-slack-count')).toBeNull();
+});

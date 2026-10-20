@@ -150,6 +150,8 @@ import {
   startSlackPost,
   type SlackRefBody,
 } from './slack-post-flow.ts';
+import { slackPosts } from './slack-posts.ts';
+import { SlackPostsModal } from './SlackPostsModal.tsx';
 import { useStaleTabTitle } from './stale-tab-title.ts';
 import { TabBar } from './TabBar.tsx';
 import { turnSummary } from './turn-summary.ts';
@@ -473,6 +475,9 @@ export function Board() {
     preview: SlackPostPreview;
     only?: string;
   } | null>(null);
+  const [slackPostsFor, setSlackPostsFor] = useState<BoardMRWithReview | null>(
+    null
+  );
   const [draftResolved, setDraftResolved] = useState<
     ReadonlyMap<string, 'posted' | 'dismissed'>
   >(new Map());
@@ -1054,6 +1059,7 @@ export function Board() {
       copy: handleCopy,
       note: mr => setNoteEditing(mr.webUrl ?? null),
       open: url => window.open(url, '_blank', 'noopener'),
+      slackPosts: mr => setSlackPostsFor(mr as BoardMRWithReview),
       viewReport: (mr, lane) =>
         (lane === 'review' ? setReviewModal : setRespondModal)(
           mr as BoardMRWithReview
@@ -1539,6 +1545,8 @@ export function Board() {
     noteEditing,
     onEditNote: setNoteEditing,
     onSaveNote: handleSaveNote,
+    onOpenSlackPosts: setSlackPostsFor,
+    slackPostsOpen: slackPostsFor?.webUrl ?? null,
   };
   const actionEnv: ActionEnv = {
     local: data.local,
@@ -2133,6 +2141,15 @@ export function Board() {
               load();
             }}
             onClose={() => setOwnersPost(null)}
+          />
+        )}
+
+        {slackPostsFor && (
+          <SlackPostsModal
+            mr={slackPostsFor}
+            posts={slackPosts(slackPostsFor)}
+            onOpen={url => window.open(url, '_blank', 'noopener')}
+            onClose={() => setSlackPostsFor(null)}
           />
         )}
 

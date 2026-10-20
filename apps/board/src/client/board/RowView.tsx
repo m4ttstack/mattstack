@@ -23,7 +23,8 @@ import { MemberInvadr } from './MemberInvadr.tsx';
 import { mrRef } from './MrLinks.tsx';
 import { rowStatus, statusPhrase, statusReasons } from './row-status.ts';
 import { RowNote } from './RowNote.tsx';
-import { slackLadder } from './slack-ladder.ts';
+import { furthestAcross, slackLadder } from './slack-ladder.ts';
+import { slackPosts } from './slack-posts.ts';
 import { StatusDot } from './StatusDot.tsx';
 import { StatusLine } from './StatusLine.tsx';
 import {
@@ -87,24 +88,47 @@ function StatusPhrase({ mr }: { mr: BoardMR }) {
 /** Line 0's Slack ladder: the furthest reaction as the emoji Slack shows
     for it, then the brand-colored logo once the MR is posted. Nothing
     renders before that. */
-function SlackMarks({ mr }: { mr: BoardMRWithReview }) {
-  const { posted, mark } = slackLadder(mr.slack, getSlackMarks());
-  if (!posted) return null;
-  const permalink = mr.slack?.permalink;
+function SlackMarks({
+  mr,
+  onChoose,
+  open,
+}: {
+  mr: BoardMRWithReview;
+  onChoose?: (mr: BoardMRWithReview) => void;
+  /** Its chooser is open. */
+  open?: boolean;
+}) {
+  const team = slackLadder(mr.slack, getSlackMarks());
+  const posts = slackPosts(mr);
+  if (!team.posted && posts.length === 0) return null;
+  const several = posts.length > 1 && !!onChoose;
+  // With several posts the mark is the furthest any channel reached, and
+  // its count says how many channels reached it.
+  const across = several ? furthestAcross(posts, getSlackMarks()) : null;
+  const mark = across ? across.mark : team.mark;
+  const markTitle =
+    mark && across
+      ? `${mark.title} · ${across.count} of ${posts.length} channels`
+      : mark?.title;
+  const permalink = posts[0]?.permalink;
   const marks = (
     <>
       {mark && (
         <span
           className="tui-mark"
           data-slack-stage={mark.stage}
-          title={mark.title}
+          title={markTitle}
         >
           {mark.glyph}
         </span>
       )}
+      {mark && across && (
+        <span className="tui-slack-count">{across.count}</span>
+      )}
       <span className="tui-mark" data-slack-logo="" aria-hidden>
         <SlackLogo />
       </span>
+      {several && <span className="tui-slack-count">{posts.length}</span>}
     </>
   );
   // With a permalink the marks are the way into the thread, so they wear the
@@ -120,10 +144,17 @@ function SlackMarks({ mr }: { mr: BoardMRWithReview }) {
     <button
       type="button"
       className="tui-row-marks tui-copy-inline"
-      title={mark ? `${mark.title} · open in slack` : 'open in slack'}
+      data-active={open ? '' : undefined}
+      title={[
+        markTitle,
+        several ? `open in slack · ${posts.length} posts` : 'open in slack',
+      ]
+        .filter(Boolean)
+        .join(' · ')}
       onClick={e => {
         e.stopPropagation();
-        window.open(permalink, '_blank', 'noopener');
+        if (several) onChoose!(mr);
+        else window.open(permalink, '_blank', 'noopener');
       }}
     >
       {marks}
@@ -278,7 +309,11 @@ function RowView({
                 </span>
               )}
             </span>
-            <SlackMarks mr={mr} />
+            <SlackMarks
+              mr={mr}
+              onChoose={ctx.onOpenSlackPosts}
+              open={!!url && ctx.slackPostsOpen === url}
+            />
             <StatusPhrase mr={mr} />
           </div>
           <div className="tui-row-1">

@@ -607,6 +607,13 @@ body {
   font-size: 13px;
   line-height: 1;
 }
+.tui-slack-count {
+  margin-left: -2px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1;
+  color: var(--text-2);
+}
 .tui-phrase {
   flex-shrink: 0;
   white-space: nowrap;
@@ -991,6 +998,17 @@ body {
   opacity: 1;
   color: var(--text-1);
   background: color-mix(in srgb, var(--muted-text) 12%, transparent);
+}
+/* The marks hold up to three glyphs, so their hover box gets more air than
+   a lone icon's; the negative margin keeps the row from shifting. */
+.tui-row-marks.tui-copy-inline {
+  padding: 6px 8px;
+  margin: -4px -3px;
+}
+.tui-row-marks.tui-copy-inline:active,
+.tui-row-marks.tui-copy-inline[data-active] {
+  opacity: 1;
+  background: color-mix(in srgb, var(--muted-text) 22%, transparent);
 }
 .tui-copy-inline[data-copied] {
   opacity: 1;
@@ -2838,6 +2856,13 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-owners-modal a {
   color: var(--text-accent-small);
+}
+/* A short pick-one list, so it sits a little above mid-window instead of
+   the kit's top-pinned spot: centred in the top 80%, its middle lands at 40%. */
+.tui-slack-posts-overlay {
+  align-items: center;
+  padding-top: 0;
+  padding-bottom: 20vh;
 }
 .tui-owners-sections {
   margin-left: 0.6rem;

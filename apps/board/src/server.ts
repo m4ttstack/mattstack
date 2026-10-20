@@ -134,7 +134,7 @@ import {
   GateCache,
   isRowAnswerable,
 } from './gates/cache.ts';
-import { decisionBadge, decisionGates } from './gates/decision.ts';
+import { decisionBadge } from './gates/decision.ts';
 import {
   executeSweepAction,
   type ExecuteSweepActionIo,
@@ -144,6 +144,7 @@ import {
   type FocusLane,
 } from './gates/focus-target.ts';
 import {
+  buildQueueExtras,
   GateResync,
   ingestRelayFrame,
   installBoardBridgeRule,
@@ -303,6 +304,7 @@ import {
 } from './review-state.ts';
 import { attachNotes, MAX_NOTE_LEN, readNotes, writeNote } from './row-note.ts';
 import {
+  attachOwnerPosts,
   attachOwnerPostsLeft,
   attachSlack,
   findOwnerPost,
@@ -312,6 +314,7 @@ import {
   reactToMR,
   readOwnerPosts,
   readSlackRefs,
+  refreshOwnerPosts,
   resolveSlackRef,
   slackSweepTargets,
   sweepSlackRefs,
@@ -947,6 +950,57 @@ function requireOwnMr(mr: BoardMR): Response | null {
 }
 
 /** Each MR with the channel `/slack/post` would send it to. */
+/** Every per-row join the board serves. The full snapshot and the member
+    refresh both go through here: the client replaces a member's rows
+    wholesale on each 15s poll, so a join made on only one path blinks out. */
+async function withRowState(mrs: BoardMR[]) {
+  const reconciler = await fetchReconcilerView();
+  const doctorTabsMemo = new Map<string, string[]>();
+  const withReviewState = attachDoctors(
+    attachRespondRounds(
+      attachResponds(
+        attachReviews(mrs, readReviewStates(), latestRounds()),
+        readRespondStates()
+      ),
+      readRespondRounds()
+    ),
+    readDoctorStates()
+  );
+  const rows = attachStandDown(
+    attachPeerState(
+      attachOwnerTeams(
+        attachNotes(
+          attachDrafts(
+            attachOwnerPosts(
+              attachOwnerPostsLeft(
+                attachSlack(
+                  withSlackChannel(
+                    attachGates(
+                      withReviewState,
+                      gateCache,
+                      runMrs.links(gateCache.rows())
+                    )
+                  ),
+                  readSlackRefs()
+                )
+              )
+            ),
+            heldDraftsByMr(readDrafts())
+          ),
+          readNotes()
+        ),
+        { ...config, posts: mrUrl => readOwnerPosts(mrUrl) }
+      )
+    ),
+    readMemory()
+  ).map(mr => ({
+    ...mr,
+    gates: joinGateExecutors(mr.gates, reconciler.executors),
+    doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
+  }));
+  return joinExecutorOrphans(rows, reconciler.executors);
+}
+
 function withSlackChannel<T extends BoardMR>(
   mrs: T[]
 ): Array<T & { slackChannel: string }> {
@@ -1808,52 +1862,9 @@ const httpServer = Bun.serve({
         void refreshMemberNames();
         try {
           const mrs = await fetchMemberMRs(u);
-          const runLinks = runMrs.links(gateCache.rows());
-          // Peer state too: a scoped refresh replaces that member's rows
-          // wholesale on the client, so anything left off here would blink out
-          // of the UI every 15s.
-          const withState = attachStandDown(
-            attachPeerState(
-              attachNotes(
-                attachDrafts(
-                  attachSlack(
-                    attachGates(
-                      attachDoctors(
-                        attachRespondRounds(
-                          attachResponds(
-                            attachReviews(
-                              withSlackChannel(mrs),
-                              readReviewStates()
-                            ),
-                            readRespondStates()
-                          ),
-                          readRespondRounds()
-                        ),
-                        readDoctorStates()
-                      ),
-                      gateCache,
-                      runLinks
-                    ),
-                    readSlackRefs()
-                  ),
-                  heldDraftsByMr(readDrafts())
-                ),
-                readNotes()
-              )
-            ),
-            readMemory()
-          );
-          // Reconciler joins too, for the same wholesale-replace reason: rows
-          // served here without `orphan`/`executor` made the interrupted
-          // badge and orphan strip blink out on every 15s member poll.
-          const reconciler = await fetchReconcilerView();
-          const { mrs: withOrphans } = joinExecutorOrphans(
-            withState.map(mr => ({
-              ...mr,
-              gates: joinGateExecutors(mr.gates, reconciler.executors),
-            })),
-            reconciler.executors
-          );
+          // A scoped refresh replaces that member's rows wholesale on the
+          // client, so it carries every join the full snapshot does.
+          const { mrs: withOrphans } = await withRowState(mrs);
           return new Response(
             JSON.stringify({ mrs: withOrphans, fetchedAt: Date.now() }),
             {
@@ -1915,52 +1926,7 @@ const httpServer = Bun.serve({
           pruneNudges(onBoard);
         }
         if (!snapshot.fetchError) refreshOwnerTeamsInBackground(snapshot.mrs);
-        const doctorTabsMemo = new Map<string, string[]>();
-        const reviews = readReviewStates();
-        const responds = readRespondStates();
-        const doctors = readDoctorStates();
-        const slackRefs = readSlackRefs();
-        const reconciler = await fetchReconcilerView();
-        const decision = decisionGates(
-          attachDoctors(
-            attachRespondRounds(
-              attachResponds(
-                attachReviews(snapshot.mrs, reviews, latestRounds()),
-                responds
-              ),
-              readRespondRounds()
-            ),
-            doctors
-          ),
-          visible,
-          gateCache,
-          runMrs
-        );
-        const mrsWithGates = attachStandDown(
-          attachPeerState(
-            attachOwnerTeams(
-              attachNotes(
-                attachDrafts(
-                  attachOwnerPostsLeft(
-                    attachSlack(withSlackChannel(decision.mrs), slackRefs)
-                  ),
-                  heldDraftsByMr(readDrafts())
-                ),
-                readNotes()
-              ),
-              { ...config, posts: mrUrl => readOwnerPosts(mrUrl) }
-            )
-          ),
-          readMemory()
-        ).map(mr => ({
-          ...mr,
-          gates: joinGateExecutors(mr.gates, reconciler.executors),
-          doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
-        }));
-        const { mrs: mrsWithOrphans, orphans } = joinExecutorOrphans(
-          mrsWithGates,
-          reconciler.executors
-        );
+        const { mrs: mrsWithOrphans, orphans } = await withRowState(visibleMrs);
         return new Response(
           JSON.stringify({
             title: config.title,
@@ -1983,7 +1949,7 @@ const httpServer = Bun.serve({
                     .length,
             })),
             mrs: mrsWithOrphans,
-            queueExtras: decision.queueExtras,
+            queueExtras: buildQueueExtras(gateCache.rows()),
             orphans,
             // Enrolled peer usernames from the relay, when peering knows them.
             // Absent means unknown, and the pickers fall back to the roster.
@@ -4301,6 +4267,12 @@ async function sweepOnce(
   });
   const verified = await verifyFoundRefs(slackToken, stale);
   for (const e of verified.errors) console.error(`slack verify ${e}`);
+  const owners = await refreshOwnerPosts(
+    slackToken,
+    snapshot.mrs.flatMap(mr => (mr.webUrl ? [mr.webUrl] : [])),
+    { retryAfter, force }
+  );
+  for (const e of owners.errors) console.error(`owner post check ${e}`);
   return { resolved: result.resolved, failed: result.failed };
 }
 
