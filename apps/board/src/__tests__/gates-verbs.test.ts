@@ -881,10 +881,11 @@ describe('gateOpen W4 (origin, nudge, presentation, context)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test('oversize context is sent verbatim, not dropped, and the open still succeeds', async () => {
+  test('a 40,000-byte context is sent verbatim with no warning, and the open still succeeds', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gate-verbs-w4-'));
     const db = openStateDb(dbPathForRoot(dir), 'cli');
-    const oversized = 'x'.repeat(8193);
+    const oversized = 'x'.repeat(40_000);
+    const warn = spyOn(console, 'error').mockImplementation(() => {});
     const { io, calls } = fakeIo({
       openResult: {
         ok: true,
@@ -900,11 +901,13 @@ describe('gateOpen W4 (origin, nudge, presentation, context)', () => {
       context: oversized,
     });
     expect(calls.gateAsk[0]!.context).toBe(oversized);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
     rmSync(dir, { recursive: true, force: true });
   });
 });
 
-describe('gateOpen relays contextOmitted', () => {
+describe('gateOpen result', () => {
   const QS = JSON.stringify([
     {
       id: 'outcome',
@@ -948,13 +951,6 @@ describe('gateOpen relays contextOmitted', () => {
     rmSync(dir, { recursive: true, force: true });
     return result;
   }
-
-  test('a daemon that dropped the contexts says so in the printed result', async () => {
-    const result = await openWith({ contextOmitted: true });
-    expect(JSON.stringify(result)).toBe(
-      '{"gateId":"g-om","presentation":"form","contextOmitted":true}'
-    );
-  });
 
   test('a daemon that kept the contexts adds nothing', async () => {
     const result = await openWith({});
@@ -1163,8 +1159,8 @@ describe('presentation parity (BOARD-31)', () => {
     rmSync(panedDir, { recursive: true, force: true });
   });
 
-  test('delta 2: oversized context is sent verbatim, the gate still opens, and the byte-cap warning still fires', async () => {
-    const oversized = 'x'.repeat(8193);
+  test('delta 2: a 40,000-byte context is sent verbatim, the gate still opens, and nothing is warned', async () => {
+    const oversized = 'x'.repeat(40_000);
     const { io, calls } = fakeIo({
       openResult: {
         ok: true,
@@ -1191,8 +1187,7 @@ describe('presentation parity (BOARD-31)', () => {
       expect(JSON.stringify(result)).toBe(
         '{"gateId":"gate-oversized","presentation":"form"}'
       );
-      expect(errorSpy).toHaveBeenCalledTimes(1);
-      expect(errorSpy.mock.calls[0]![0]).toContain('8192');
+      expect(errorSpy).not.toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
     }

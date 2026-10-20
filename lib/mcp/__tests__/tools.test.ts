@@ -166,25 +166,27 @@ describe("mcpTools", () => {
       expect(tool.description.toLowerCase()).toContain("always");
     });
 
-    // Contract pin: the daemon's field must not be filtered out of the body
-    // on its way to the caller, which is the only place it can act on it.
-    test("contextOmitted rides the tool result so the caller learns immediately", async () => {
+    test("a context far past the old 8192-byte cap reaches the daemon verbatim", async () => {
+      const sent: unknown[] = [];
       mock.module("../../../packages/rt-client/src/transport.ts", () => ({
         ...realTransport,
-        rtCommand: async (cmd: string) => {
+        rtCommand: async (cmd: string, payload: unknown) => {
           if (cmd === "gate:ask") {
-            return { ok: true, data: { id: "g1", presentation: "form", subject: "mr:x", supersededId: null, contextOmitted: true } };
+            sent.push(payload);
+            return { ok: true, data: { id: "g1", presentation: "form", subject: "mr:x", supersededId: null } };
           }
           throw new Error(`unexpected rtCommand("${cmd}")`);
         },
       }));
       const tool = mcpTools().find((t) => t.name === "gate_ask")!;
+      const context = "x".repeat(40_000);
       const res = await tool.handler(
-        { questions: [{ id: "q1", label: "Proceed?", multi: false, options: ["yes", "no"] }], subject: "mr:x", context: "x" },
+        { questions: [{ id: "q1", label: "Proceed?", multi: false, options: ["yes", "no"] }], subject: "mr:x", context },
         {} as NodeJS.ProcessEnv,
       );
       expect(res.ok).toBe(true);
-      expect((res.body as { contextOmitted?: boolean }).contextOmitted).toBe(true);
+      expect((sent[0] as { context: string }).context).toBe(context);
+      expect((res.body as { contextOmitted?: boolean }).contextOmitted).toBeUndefined();
     });
 
     test("sessionId and paneId come from env; subject comes from input only, never RT_GATE_SUBJECT", async () => {

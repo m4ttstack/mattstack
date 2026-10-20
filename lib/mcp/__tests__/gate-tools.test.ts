@@ -14,7 +14,7 @@ const ENV = { RT_RUNS_ROOT: "/runs", CLAUDE_CODE_SESSION_ID: "sess-1", HERDR_PAN
 const HERDR = { ...ENV, HERDR_ENV: "1" } as NodeJS.ProcessEnv;
 
 type Field = { key: string; value: string; at: number };
-type AskData = { id: string; presentation: "form" | "wait"; subject: string; supersededId: string | null; contextOmitted?: true };
+type AskData = { id: string; presentation: "form" | "wait"; subject: string; supersededId: string | null };
 
 interface FakeOpts {
   spawnedBy?: string | null;
@@ -172,12 +172,6 @@ describe("askGate with a run", () => {
     const res = await askGate({ ...ASK, ...RUN }, HERDR, f.deps);
     expect(f.log).toEqual(["snapshot", "field set gate respond-plan --stage s", "ask", "field set waiting-gate g1 --stage s"]);
     expect(body(res).paneAction).toBe("wait");
-  });
-
-  test("contextOmitted saves the dropped fact under the scope after waiting-gate", async () => {
-    const f = fake({ askData: { presentation: "wait", contextOmitted: true } });
-    await askGate({ ...ASK, ...RUN }, HERDR, f.deps);
-    expect(f.log.slice(3)).toEqual(["field set waiting-gate g1 --stage s", "field set extra.context-dropped.respond-plan g1 --stage s"]);
   });
 
   test("a caller-reported contextDropped saves the fact on a form gate", async () => {
@@ -568,11 +562,6 @@ describe("gate_open", () => {
     const res = await open({ kind: "respond-plan", source: bigAdjudication(), ...RUN }, f);
     expect(body(res)).toMatchObject({ mode: "prose", fits: false, contextDropped: true });
     expect(f.log.slice(3)).toEqual(["field set extra.context-dropped.respond-plan g1 --stage s", sourceLine("respond-plan", "g1", bigAdjudication())]);
-  });
-
-  test("a daemon contextOmitted reports contextDropped", async () => {
-    const res = await open({ kind: "respond-plan", source: plan() }, rooted({ askData: { contextOmitted: true } }));
-    expect(body(res)).toMatchObject({ fits: true, contextDropped: true });
   });
 
   test("a failed gate-source write returns the open gate with runErrors", async () => {

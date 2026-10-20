@@ -227,7 +227,7 @@ export async function askGate(
   if (run) {
     const writes: [string, string][] = [];
     if (paneAction === "wait") writes.push(["waiting-gate", data.id]);
-    if (extra.contextDropped === true || data.contextOmitted === true) writes.push([`extra.context-dropped.${scope}`, data.id]);
+    if (extra.contextDropped === true) writes.push([`extra.context-dropped.${scope}`, data.id]);
     for (const [key, value] of writes) {
       const failed = await run.field(key, value);
       if (failed) runErrors.push(failed);
@@ -549,7 +549,7 @@ export async function openGate(input: Record<string, unknown>, env: NodeJS.Proce
     mode: fit.mode,
     fits: fit.fits,
     trimmed: fit.trimmed,
-    contextDropped: !fit.fits || data.contextOmitted === true,
+    contextDropped: !fit.fits,
   };
   if (runErrors.length > 0) result.runErrors = runErrors;
   return ok(result);
