@@ -584,6 +584,30 @@ describe('joinExecutorOrphans', () => {
     expect(orphans).toEqual([]);
   });
 
+  test("an in-flight lane ignores its own pane's closed reading from before the run started", () => {
+    const owner = executorView({
+      agentId: 'ag-live',
+      state: 'gone',
+      subject: 'mr:https://gitlab.com/acme/webapp/-/merge_requests/15',
+      sessionId: 'sess-live',
+      since: 1000,
+    });
+    const mrs = [
+      {
+        webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/15',
+        review: {
+          status: 'reviewing',
+          agentId: 'ag-live',
+          sessionId: 'sess-live',
+          runStartedAt: 2000,
+        },
+      },
+    ];
+    expect(joinExecutorOrphans(mrs, [owner]).mrs[0]?.orphan).toBeUndefined();
+    const later = { ...owner, since: 2500 };
+    expect(joinExecutorOrphans(mrs, [later]).mrs[0]?.orphan).toEqual(later);
+  });
+
   test('subject match wins over a sessionId match on a different row', () => {
     const executor = executorView({
       state: 'gone',
