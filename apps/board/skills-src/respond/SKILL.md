@@ -173,7 +173,8 @@ Overview comments when the launch names one), through the domain skill or on
 the generic path, write the verdict table and drafts to `--report`, and open Gate 1
 (`respond-plan`) from a fitted open file, the domain skill's or one fitted
 here with `gate_open` (a source `gate_open` keeps refusing opens plain,
-through `<status-bin> gate open`), then wait for its answer.
+through `<status-bin> gate open <state> --kind respond-plan`), then wait for
+its answer.
 Read `triage.md` now and follow its graph; its sections are there.
 
 ### Implement the plan (implement.md)
@@ -186,7 +187,8 @@ Read `implement.md` now and follow its graph; its sections are there.
 ### Gate 2 and posting (post.md)
 
 When there are threads to offer, open Gate 2 (`respond-post`) from a
-fitted open file, the domain skill's or one fitted here, push the fixes with
+fitted open file, the domain skill's or one fitted here (or plain, through
+`<status-bin> gate open <state> --kind respond-post`), push the fixes with
 `git_push` after the two checks, then post and resolve as the answer picks,
 the reply-only threads included.
 Read `post.md` now and follow its graph; its sections are there.
