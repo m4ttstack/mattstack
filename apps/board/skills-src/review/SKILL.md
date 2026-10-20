@@ -486,9 +486,13 @@ What the graph cannot show:
   outcome is `approve`; approval has no read, so a resumed pane approves
   again unless `--report` marks it approved by hand ("Escalation marks"),
   and a refusal saying this account already approved counts as approved.
-  Read each answer's `value` (an answer may be a `{value, note}` object); a
-  note is the human's steer on the wording of what posts. No review posts
-  twice: a resumed pane reads what is already up with `mr_threads {mrUrl,
+  Read each answer's `value` (an answer may be a `{value, note}` object,
+  plus `texts` on a `findings-N` answer or `text` on the `outcome` answer
+  when the human edited a drafted comment). When the gate's `review@1`
+  context carries `editable: true`, the domain skill posts the edits, else
+  its drafts, word for word, and a note never changes posted text; on any
+  other gate a note is the human's steer on the wording of what posts.
+  No review posts twice: a resumed pane reads what is already up with `mr_threads {mrUrl,
   refresh: true} (review posted already)` before anything posts.
 - **Escalation marks.** An off-script take at a posting origin, or at the
   Posted already read, writes a mark line into `--report` before the walk
@@ -1006,7 +1010,9 @@ to `--report`:
 
 `review-post-answer: <{answers, by, answeredAt} as one-line JSON>`
 
-It is the whole answer envelope, not just `answers`. When `--report`
+It is the whole answer envelope, not just `answers`, so each answer's
+`texts` or `text` (the human's edits to drafted comments) rides in it
+as answered. When `--report`
 already ends in a `review-post-answer:` line, replace it; never write a
 second. `answeredAt` is always epoch milliseconds, as the wait returns
 it. When the answer came with no `answeredAt` (this pane's own `gate
@@ -1116,7 +1122,11 @@ path, so it executes the posting:
   no findings to post. `replies` is built from the `thread-N` answers by
   the rule in `Compose the submitted review (review)`, each drafted
   `reply` read from the json sibling's `threads`; it is empty when the
-  gate carried no `thread-N` question.
+  gate carried no `thread-N` question. Add `texts` when any `findings-N`
+  answer carries one: the union of those answers' `texts` maps, keyed by
+  finding id. Add `summaryText` when the `outcome` answer carries a
+  `text`: that `text` verbatim. Leave either key out when no answer
+  carries it.
 - **Tier fallback:** `{tiers, outcome}`, plus `replies` built the same
   way when the gate carried `thread-N` questions.
 
