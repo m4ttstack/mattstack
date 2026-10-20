@@ -137,8 +137,11 @@ export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-exten
 /** One `repos.place:<identity>` row per tracked repo, so those ids cannot be enumerated above. */
 export const REPO_PLACE_ROW_PREFIX = "repos.place:";
 
+/** Account rows the team's own settings declare, so a joiner's pre-Install plan cannot list them yet; `gateTeamAccounts` in finish-gate.ts. */
+export const FINISH_GATED_ACCOUNT_IDS: readonly string[] = ["account.slack", "account.linear"];
+
 export function isFinishGatedRowId(id: string): boolean {
-  return FINISH_GATED_ROW_IDS.includes(id) || id.startsWith(REPO_PLACE_ROW_PREFIX);
+  return FINISH_GATED_ROW_IDS.includes(id) || FINISH_GATED_ACCOUNT_IDS.includes(id) || id.startsWith(REPO_PLACE_ROW_PREFIX);
 }
 
 /** The finish-gated rows `rt setup waive` may skip; the gate honors a stored waiver only for these. */
@@ -146,7 +149,8 @@ export const WAIVABLE_ROW_IDS: readonly string[] = ["tool.fast-browser-extension
 
 /**
  * Action types the app's Done screen can act on; a finish-gated row must only carry these (parity with DoneActions in rt-tray).
- * A deferred `repos.place:*` row is finish-gated and carries `place-repo`, which the summary runs through the checklist dispatcher, not `DoneActions`.
+ * A deferred `repos.place:*` row is finish-gated and carries `place-repo`, and a gated account row carries its connect or oauth action;
+ * the summary runs both through the checklist dispatcher, not `DoneActions`.
  */
 export const DONE_ACTION_TYPES = ["open-url", "steps", "run", "choose"] as const;
 
@@ -233,8 +237,12 @@ export function finishBlockers(groups: Group[], waived: readonly string[] = []):
   );
 }
 
-/** Install enables only when every required row is ready; requiredMissing lists the others in group order. A finish-gated row is Finish's concern whatever its `required` reads, so it never lands here. */
+/**
+ * Install enables only when every required row is ready; requiredMissing lists the others in group order. A finish-gated row is Finish's
+ * concern whatever its `required` reads, so it never lands here, except a gated account row: Install steps such as `linear.mcp` read it.
+ */
 export function finalizePlan(team: OrgRef, groups: Group[], now: Date = new Date(), waived: readonly string[] = []): Plan {
-  const requiredMissing = groups.flatMap((g) => g.rows.filter((r) => r.required && !r.finishGated && r.status !== "ready").map((r) => r.id));
+  const blocksInstall = (r: Row) => r.required && r.status !== "ready" && (!r.finishGated || FINISH_GATED_ACCOUNT_IDS.includes(r.id));
+  const requiredMissing = groups.flatMap((g) => g.rows.filter(blocksInstall).map((r) => r.id));
   return envelope({ team, groups, canInstall: requiredMissing.length === 0, requiredMissing, finishBlockedBy: finishBlockers(groups, waived) }, now);
 }

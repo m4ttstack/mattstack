@@ -174,7 +174,7 @@ export interface ApplyDeps {
   migrations?: MigrationDef[];
   /** Posts the update run's needs-you notification; defaults to the preference-gated notifier. */
   notify?: (category: string, title: string, message: string, id: string) => void;
-  /** Looks for a newer dev app after an update run; absent means no check. Never touches the exit code or the stamp. */
+  /** Looks for a newer dev app on every launch whose setup has finished, stamped or not; absent means no check. Never touches the exit code or the update stamp. */
   devAppNotice?: () => Promise<DevAppNotice | null>;
   /** Single flight for `rt setup update`; absent means the run is not guarded. */
   updateLock?: UpdateLock;
@@ -346,6 +346,18 @@ async function finishIfClear(deps: ApplyDeps, json: boolean): Promise<void> {
   }
 }
 
+/** Runs on a stamped launch too: a dev app released after the stamp would otherwise never be announced. */
+async function announceDevApp(deps: ApplyDeps): Promise<void> {
+  try {
+    const notice = await deps.devAppNotice?.();
+    if (!notice || readSetupState(deps.probes).devAppAnnounced === notice.version) return;
+    (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notice.title, notice.message, notice.id);
+    updateSetupState(deps.probes, (st) => ({ ...st, devAppAnnounced: notice.version }));
+  } catch (err) {
+    logCliEvent("warn", "setup.update", `dev app notice skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /**
  * `rt setup update [--force] [--json]`: the app runs this at every launch;
  * by hand it re-applies after an update. Every decision is rt's: a Mac whose
@@ -376,6 +388,18 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
   if (decision.kind === "current") {
     if (json) emit({ event: "done", ok: true, skipped: "current" });
     else out.print(out.line("skipped", "Nothing to update", `already applied for ${decision.version}`));
+    // A run holding the lock announces at its end; asking here too would post twice and race its state write.
+    let held = false;
+    try {
+      if (deps.devAppNotice) {
+        held = deps.updateLock?.acquire() ?? false;
+        if (held || !deps.updateLock) await announceDevApp(deps);
+      }
+    } catch (err) {
+      logCliEvent("warn", "setup.update", `dev app notice skipped: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      if (held) deps.updateLock?.release();
+    }
     return;
   }
 
@@ -423,12 +447,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     const notification = updateNotification(version, result.outcomes);
     if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
 
-    try {
-      const devNotice = await deps.devAppNotice?.();
-      if (devNotice) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, devNotice.title, devNotice.message, devNotice.id);
-    } catch (err) {
-      logCliEvent("warn", "setup.update", `dev app notice skipped: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await announceDevApp(deps);
 
     needsAttention = notification !== null;
   } finally {

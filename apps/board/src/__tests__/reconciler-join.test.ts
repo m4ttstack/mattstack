@@ -526,6 +526,64 @@ describe('joinExecutorOrphans', () => {
     expect(orphans).toEqual([stale]);
   });
 
+  test("a launching lane claims no earlier run's closed pane", () => {
+    // A fresh respond is queued before its pane ids land,
+    // and the pane a parked gate closed earlier sits gone on the same
+    // subject. Attaching it read the new run as "response interrupted",
+    // and resuming that duplicated the live pane.
+    const earlier = executorView({
+      agentId: 'ag-parked',
+      state: 'gone',
+      subject: 'mr:https://gitlab.com/acme/webapp/-/merge_requests/12',
+      sessionId: 'sess-parked',
+    });
+    const mrs = [
+      {
+        webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/12',
+        respond: { status: 'queued' },
+      },
+    ];
+    const { mrs: joined, orphans } = joinExecutorOrphans(mrs, [earlier]);
+    expect(joined[0]?.orphan).toBeUndefined();
+    expect(orphans).toEqual([earlier]);
+  });
+
+  test("an in-flight lane owned by a new agent claims no earlier run's closed pane", () => {
+    const earlier = executorView({
+      agentId: 'ag-parked',
+      state: 'gone',
+      subject: 'mr:https://gitlab.com/acme/webapp/-/merge_requests/13',
+      sessionId: 'sess-parked',
+    });
+    const mrs = [
+      {
+        webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/13',
+        review: { status: 'queued', agentId: 'ag-new' },
+      },
+    ];
+    const { mrs: joined, orphans } = joinExecutorOrphans(mrs, [earlier]);
+    expect(joined[0]?.orphan).toBeUndefined();
+    expect(orphans).toEqual([earlier]);
+  });
+
+  test('an in-flight lane claims its own closed pane by agentId', () => {
+    const owner = executorView({
+      agentId: 'ag-new',
+      state: 'gone',
+      subject: 'mr:https://gitlab.com/acme/webapp/-/merge_requests/14',
+      sessionId: 'sess-new',
+    });
+    const mrs = [
+      {
+        webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/14',
+        respond: { status: 'queued', agentId: 'ag-new' },
+      },
+    ];
+    const { mrs: joined, orphans } = joinExecutorOrphans(mrs, [owner]);
+    expect(joined[0]?.orphan).toEqual(owner);
+    expect(orphans).toEqual([]);
+  });
+
   test('subject match wins over a sessionId match on a different row', () => {
     const executor = executorView({
       state: 'gone',

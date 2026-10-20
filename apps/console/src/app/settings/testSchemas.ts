@@ -40,6 +40,51 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
     ],
     additionalProperties: {},
   },
+  'board.slack': {
+    $schema: D,
+    type: 'object',
+    properties: {
+      reviewKind: { type: 'string' },
+      singleTemplate: { type: 'string' },
+      multiHeader: { type: 'string' },
+      multiItem: { type: 'string' },
+      autoResolveIntervalMinutes: { type: 'number' },
+      emoji: {
+        type: 'object',
+        properties: {
+          looking: { placeholder: 'eyes', type: 'string' },
+          commented: { placeholder: 'speech_balloon', type: 'string' },
+          approved: { placeholder: 'white_check_mark', type: 'string' },
+        },
+        additionalProperties: {},
+      },
+      emojiAliases: {
+        title: "Other teams' emoji",
+        description:
+          'Emoji other channels use for the same marks, e.g. mr-approved for approved.',
+        type: 'object',
+        properties: {
+          looking: {
+            title: 'Also counts as looking',
+            type: 'array',
+            items: { type: 'string' },
+          },
+          commented: {
+            title: 'Also counts as commented',
+            type: 'array',
+            items: { type: 'string' },
+          },
+          approved: {
+            title: 'Also counts as approved',
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+        additionalProperties: {},
+      },
+    },
+    additionalProperties: {},
+  },
   'board.turn': {
     $schema: D,
     type: 'object',
@@ -261,6 +306,7 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
 /** Keys whose registry def merges deep, so their wire def carries a layer
     schema. */
 export const DEEP_KEYS = new Set([
+  'board.slack',
   'rt.homeSnapshot',
   'rt.runaway',
   'rt.cron',

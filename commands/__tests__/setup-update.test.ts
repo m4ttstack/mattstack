@@ -206,7 +206,7 @@ describe("rt setup update", () => {
   test("a newer dev app posts its notice under its own id and leaves the exit code alone", async () => {
     const deps = updateDeps({
       probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
-      devAppNotice: async () => ({ id: "dev_app:2.23.0", title: "t", message: "m" }),
+      devAppNotice: async () => ({ id: "dev_app:2.23.0", version: "2.23.0", title: "t", message: "m" }),
     });
     await run(deps, []);
     expect(deps.exitCodes).toEqual([]);
@@ -228,11 +228,77 @@ describe("rt setup update", () => {
     const deps = updateDeps({
       probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
       steps: [updateStep("verify", { state: "needs-you", detail: "to connect: Slack" })],
-      devAppNotice: async () => ({ id: "dev_app:2.23.0", title: "t", message: "m" }),
+      devAppNotice: async () => ({ id: "dev_app:2.23.0", version: "2.23.0", title: "t", message: "m" }),
     });
     await run(deps, []);
     expect(deps.exitCodes).toEqual([2]);
     expect(deps.notifications.map((n) => n.id)).toEqual(["setup_update:2.15.0", "dev_app:2.23.0"]);
+  });
+
+  test("a Mac already stamped for this version still hears about a dev app released since", async () => {
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, finishedAt: "x", lastUpdate: { version: "2.15.0", at: "x" } }) } }),
+      steps: [neverRunsStep("path.link")],
+      devAppNotice: async () => ({ id: "dev_app:2.23.0", version: "2.23.0", title: "t", message: "m" }),
+    });
+    await run(deps, ["--json"]);
+    expect(jsonEvents(deps.lines)).toEqual([{ event: "done", ok: true, skipped: "current" }]);
+    expect(deps.notifications).toEqual([{ category: "setup_update", title: "t", message: "m", id: "dev_app:2.23.0" }]);
+    expect(readSetupState(deps.probes).devAppAnnounced).toBe("2.23.0");
+  });
+
+  test("a dev app version is announced once across launches, and a newer one is announced again", async () => {
+    const probes = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, finishedAt: "x", lastUpdate: { version: "2.15.0", at: "x" } }) } });
+    let newest = "2.23.0";
+    const launch = () => updateDeps({ probes, steps: [neverRunsStep("path.link")], devAppNotice: async () => ({ id: `dev_app:${newest}`, version: newest, title: "t", message: "m" }) });
+    const first = launch();
+    await run(first, ["--json"]);
+    const second = launch();
+    await run(second, ["--json"]);
+    newest = "2.24.0";
+    const third = launch();
+    await run(third, ["--json"]);
+    expect([first, second, third].map((d) => d.notifications.map((n) => n.id))).toEqual([["dev_app:2.23.0"], [], ["dev_app:2.24.0"]]);
+  });
+
+  test("a run does not repeat a dev app version already announced", async () => {
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, finishedAt: "x", devAppAnnounced: "2.23.0" }) } }),
+      devAppNotice: async () => ({ id: "dev_app:2.23.0", version: "2.23.0", title: "t", message: "m" }),
+    });
+    await run(deps, ["--json"]);
+    expect(deps.notifications).toEqual([]);
+  });
+
+  test("a stamped launch whose dev app notice throws still ends skipped:current with exit 0", async () => {
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, finishedAt: "x", lastUpdate: { version: "2.15.0", at: "x" } }) } }),
+      steps: [neverRunsStep("path.link")],
+      devAppNotice: async () => { throw new Error("offline"); },
+    });
+    await run(deps, ["--json"]);
+    expect(jsonEvents(deps.lines)).toEqual([{ event: "done", ok: true, skipped: "current" }]);
+    expect(deps.exitCodes).toEqual([]);
+    expect(deps.notifications).toEqual([]);
+  });
+
+  test("a stamped launch answers before it asks about a dev app", async () => {
+    let doneBeforeAsk = false;
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, finishedAt: "x", lastUpdate: { version: "2.15.0", at: "x" } }) } }),
+      steps: [neverRunsStep("path.link")],
+      devAppNotice: async () => { doneBeforeAsk = deps.lines.length === 1; return null; },
+    });
+    await run(deps, ["--json"]);
+    expect(doneBeforeAsk).toBe(true);
+  });
+
+  test("a Mac that has not finished setup is not told about a dev app", async () => {
+    let asked = false;
+    const deps = updateDeps({ steps: [neverRunsStep("path.link")], devAppNotice: async () => { asked = true; return { id: "dev_app:2.23.0", version: "2.23.0", title: "t", message: "m" }; } });
+    await run(deps, ["--json"]);
+    expect(asked).toBe(false);
+    expect(deps.notifications).toEqual([]);
   });
 
   test("a needs-you item for a person ends in a needs-you summary and exits 2 after it", async () => {
@@ -362,12 +428,41 @@ describe("rt setup update", () => {
       };
     }
 
+    test("a stamped launch leaves the dev app notice to a run that holds the lock", async () => {
+      const { lock } = fakeLock(false);
+      let asked = false;
+      const deps = updateDeps({
+        probes: fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, finishedAt: "x", lastUpdate: { version: "2.15.0", at: "x" } }) } }),
+        steps: [neverRunsStep("path.link")],
+        updateLock: lock,
+        devAppNotice: async () => { asked = true; return { id: "dev_app:2.23.0", version: "2.23.0", title: "t", message: "m" }; },
+      });
+      await run(deps, ["--json"]);
+      expect(asked).toBe(false);
+      expect(deps.notifications).toEqual([]);
+    });
+
+    test("a stamped launch announces under the lock and releases it", async () => {
+      const { lock, order } = fakeLock(true);
+      const deps = updateDeps({
+        probes: fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, finishedAt: "x", lastUpdate: { version: "2.15.0", at: "x" } }) } }),
+        steps: [neverRunsStep("path.link")],
+        updateLock: lock,
+        devAppNotice: async () => { order.push("ask"); return { id: "dev_app:2.23.0", version: "2.23.0", title: "t", message: "m" }; },
+      });
+      await run(deps, ["--json"]);
+      expect(order).toEqual(["acquire", "ask", "release"]);
+      expect(deps.notifications.map((n) => n.id)).toEqual(["dev_app:2.23.0"]);
+    });
+
     test("a held lock: a single done skipped:running, exit 0, nothing runs, no stamp", async () => {
       const { lock, order } = fakeLock(false);
-      const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [neverRunsStep("path.link")], updateLock: lock });
+      let asked = false;
+      const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [neverRunsStep("path.link")], updateLock: lock, devAppNotice: async () => { asked = true; return null; } });
       await run(deps, ["--json"]);
       expect(jsonEvents(deps.lines)).toEqual([{ event: "done", ok: true, skipped: "running" }]);
       expect(deps.exitCodes).toEqual([]);
+      expect(asked).toBe(false);
       expect(readSetupState(deps.probes).lastUpdate).toBeUndefined();
       expect(order).toEqual(["acquire"]);
     });

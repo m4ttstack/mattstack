@@ -14,6 +14,7 @@ import type { SecretPresence } from "../validators/accounts.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { rowsToChecks } from "../../../commands/verify.ts";
 
 function fakeSecrets(stored: Record<string, string> = {}): SecretPresence {
   return {
@@ -214,7 +215,8 @@ describe("composePlan", () => {
       expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(true);
       expect(tools.find((r) => r.id === "tool.fast-browser-extension")!.finishGated).toBe(true);
       const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
-      expect(accounts.map((r) => [r.id, r.required])).toEqual(intent.mode === "restore" ? [] : [["account.github", true]]);
+      const expected = { restore: [], create: [["account.github", true]], join: [["account.github", true], ["accounts.after-install", false]] }[intent.mode as "restore" | "create" | "join"];
+      expect(accounts.map((r) => [r.id, r.required])).toEqual(expected);
       if (isJoin) expect(tools.some((r) => r.id.startsWith("team."))).toBe(true);
     }
   });
@@ -539,4 +541,63 @@ test("a saved old invite leaves the plan renderable until join refuses it", () =
   const pointer = { ...intent.join!.pointer, v: 1, teams: undefined };
   intent.join!.pointer = pointer as unknown as NonNullable<SetupIntent["join"]>["pointer"];
   expect(pendingJoinTeam(intent, [])).toBeNull();
+});
+
+describe("a join asks for the team's Slack and repos whether or not the app relaunched (RT-510)", () => {
+  async function withTeamHome(fn: (home: string) => Promise<void>): Promise<void> {
+    const prevHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "rt-plan-rt510-"));
+    closeStateDb();
+    process.env.HOME = home;
+    try {
+      await fn(home);
+    } finally {
+      closeStateDb();
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  test("before Install clones the team: no Slack or repo rows yet, and a note says they come once Install has the team", async () => {
+    await withTeamHome(async () => {
+      const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+      writeIntent(p, joinIntent());
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [], waived: [] });
+      const ids = plan.groups.flatMap((g) => g.rows.map((r) => r.id));
+      expect(ids).not.toContain("account.slack");
+      expect(ids.some((id) => id.startsWith("repos.place:"))).toBe(false);
+      const note = plan.groups.find((g) => g.id === "accounts")!.rows.find((r) => r.id === "accounts.after-install")!;
+      expect(note.kind).toBe("info");
+      expect(note.required).toBe(false);
+      expect(note.status).toBe("skipped");
+      expect(plan.requiredMissing).not.toContain("accounts.after-install");
+      expect(plan.requiredMissing.filter((id) => id.startsWith("account."))).toEqual([]);
+    });
+  });
+
+  test("once the team is cloned: Slack and a repo Install left for the member both block Finish, and the note is gone", async () => {
+    await withTeamHome(async () => {
+      const teamPath = sharedStorePath("acme");
+      mkdirSync(dirname(teamPath), { recursive: true });
+      writeFileSync(teamPath, JSON.stringify({
+        "mattstack.integrations": { slack: { clientId: "abc" } },
+        "mattstack.tracking": { repos: { "github.com/acme/widgets": {} } },
+      }));
+      const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+      writeIntent(p, joinIntent());
+      markDeferred(p, "github.com/acme/widgets");
+
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: ["acme"], waived: [] });
+      const ids = plan.groups.flatMap((g) => g.rows.map((r) => r.id));
+      expect(ids).not.toContain("accounts.after-install");
+      expect(plan.finishBlockedBy).toContain("account.slack");
+      expect(plan.finishBlockedBy).toContain("repos.place:github.com/acme/widgets");
+
+      const status = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: [] });
+      const slack = status.groups.flatMap((g) => g.rows).find((r) => r.id === "account.slack")!;
+      expect(slack.finishGated).toBeUndefined();
+      expect(status.requiredMissing).toContain("account.slack");
+      expect(rowsToChecks(status, { ci: false }).find((c) => c.name === "account.slack")).toMatchObject({ status: "fail", severity: "critical" });
+    });
+  });
 });

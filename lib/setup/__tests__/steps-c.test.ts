@@ -2577,16 +2577,16 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const { ctx } = makeCtx(p);
       expect((await claudePermissionsStep.run(ctx)).state).toBe("done");
       const written = JSON.parse(p.readFile(settingsPath())!);
-      expect(written).toEqual({ permissions: { allow: BASE_PERMISSIONS, deny: ["WebFetch"], defaultMode: "auto" }, model: "sonnet", crossSessionInbound: "accept" });
+      expect(written).toEqual({ permissions: { allow: BASE_PERMISSIONS, deny: ["WebFetch"], defaultMode: "auto" }, model: "sonnet", crossSessionInbound: "accept", tui: "fullscreen" });
     });
 
-    test("absent file -> created at 0600, containing only the permissions block and crossSessionInbound", async () => {
+    test("absent file -> created at 0600, containing the permissions block, crossSessionInbound and tui", async () => {
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p);
       const outcome = await claudePermissionsStep.run(ctx);
       expect(outcome.state).toBe("done");
       const written = JSON.parse(p.readFile(settingsPath())!);
-      expect(written).toEqual({ crossSessionInbound: "accept", permissions: { defaultMode: "auto", allow: BASE_PERMISSIONS } });
+      expect(written).toEqual({ crossSessionInbound: "accept", tui: "fullscreen", permissions: { defaultMode: "auto", allow: BASE_PERMISSIONS } });
       expect(p.calls.modes[settingsPath()]).toBe(0o600);
     });
 
@@ -2638,6 +2638,99 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(b.wrote).toBe(true);
       expect(JSON.parse(p.readFile(`${home}/.claude/settings.json`)!).permissions.allow).toEqual(BASE_PERMISSIONS);
       expect(JSON.parse(p.readFile(`${home}/alt-claude/settings.json`)!).permissions.allow).toEqual(BASE_PERMISSIONS);
+    });
+
+    describe("fullscreen default (RT-513)", () => {
+      let current: ReturnType<typeof fakeProbes>;
+      const tui = () => JSON.parse(current.readFile(settingsPath())!)?.tui;
+      const setup = (files: Record<string, string> = {}) => {
+        current = fakeProbes({ home, env: {}, files });
+        return current;
+      };
+
+      test("no tui key -> fullscreen written on apply", async () => {
+        const p = setup({ [settingsPath()]: JSON.stringify({ model: "sonnet" }) });
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        expect(tui()).toBe("fullscreen");
+      });
+
+      test("every config dir gets it", () => {
+        const p = setup();
+        applyBaselinePermissions(p, `${home}/.claude`);
+        applyBaselinePermissions(p, `${home}/alt-claude`);
+        expect(JSON.parse(p.readFile(`${home}/alt-claude/settings.json`)!).tui).toBe("fullscreen");
+        expect(JSON.parse(p.readFile(`${home}/.claude/settings.json`)!).tui).toBe("fullscreen");
+      });
+
+      test.each(["default", "fullscreen", "custom", 7])("existing tui %p is left untouched on apply and update", async (value) => {
+        const raw = JSON.stringify({ tui: value, permissions: { defaultMode: "auto", allow: BASE_PERMISSIONS }, crossSessionInbound: "accept" });
+        const p = setup({ [settingsPath()]: raw });
+        expect(await claudePermissionsStep.run(makeCtx(p).ctx)).toEqual({ state: "skipped", detail: "Baseline permissions already present" });
+        expect(await claudePermissionsStep.run(makeCtx(p, { update: true }).ctx)).toEqual({ state: "skipped", detail: "Baseline permissions already present" });
+        expect(p.readFile(settingsPath())).toBe(raw);
+      });
+
+      test("setup-state records the dir rt set it in", async () => {
+        const p = setup();
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        expect(readSetupState(p).claudeFullscreenDirs).toEqual([`${home}/.claude`]);
+      });
+
+      test("an update run does not put it back after the member removed it", async () => {
+        const p = setup();
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        const settings = JSON.parse(p.readFile(settingsPath())!);
+        delete settings.tui;
+        p.writeFile(settingsPath(), JSON.stringify(settings));
+        await claudePermissionsStep.run(makeCtx(p, { update: true }).ctx);
+        expect(tui()).toBeUndefined();
+      });
+
+      test("an update run does not overwrite a value the member changed it to", async () => {
+        const p = setup();
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        const settings = JSON.parse(p.readFile(settingsPath())!);
+        settings.tui = "default";
+        p.writeFile(settingsPath(), JSON.stringify(settings));
+        await claudePermissionsStep.run(makeCtx(p, { update: true }).ctx);
+        expect(tui()).toBe("default");
+      });
+
+      test("an update run seeds a dir rt has no record of", async () => {
+        const p = setup({ [settingsPath()]: JSON.stringify({ permissions: { defaultMode: "auto", allow: BASE_PERMISSIONS }, crossSessionInbound: "accept" }) });
+        const outcome = await claudePermissionsStep.run(makeCtx(p, { update: true }).ctx);
+        expect(tui()).toBe("fullscreen");
+        expect(outcome.state).toBe("done");
+      });
+
+      test("only tui seeded -> detail does not claim permissions were added", async () => {
+        const p = setup({ [settingsPath()]: JSON.stringify({ permissions: { defaultMode: "auto", allow: BASE_PERMISSIONS }, crossSessionInbound: "accept" }) });
+        const outcome = await claudePermissionsStep.run(makeCtx(p, { update: true }).ctx);
+        expect(outcome.detail).not.toContain("baseline");
+      });
+
+      test("the recorded key is the CLAUDE_CONFIG_DIR path, trailing slash dropped", async () => {
+        const p = fakeProbes({ home, env: { CLAUDE_CONFIG_DIR: `${home}/alt/` } });
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        expect(readSetupState(p).claudeFullscreenDirs).toEqual([`${home}/alt`]);
+      });
+
+      test("an apply run after the member removed it seeds it again", async () => {
+        const p = setup();
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        const settings = JSON.parse(p.readFile(settingsPath())!);
+        delete settings.tui;
+        p.writeFile(settingsPath(), JSON.stringify(settings));
+        await claudePermissionsStep.run(makeCtx(p).ctx);
+        expect(tui()).toBe("fullscreen");
+      });
+
+      test("the done detail says what was set and how to change it back", async () => {
+        const p = setup();
+        const outcome = await claudePermissionsStep.run(makeCtx(p).ctx);
+        expect(outcome.detail).toContain("fullscreen");
+        expect(outcome.detail).toContain('"tui"');
+      });
     });
 
     test("CLAUDE_CONFIG_DIR is honored", async () => {

@@ -5,6 +5,7 @@ import { compareVersions } from "./tools.ts";
 
 export interface DevAppNotice {
   id: string;
+  version: string;
   title: string;
   message: string;
 }
@@ -23,5 +24,5 @@ export async function devAppNotice(s: { probes: Probes; flavor: Flavor; gh(): st
     return null;
   }
   if (!newest || compareVersions(newest, installed.version) <= 0) return null;
-  return { id: `dev_app:${newest}`, title: "A newer dev app is ready", message: `mattstack-dev ${newest} is out. Run rt dev update to install it.` };
+  return { id: `dev_app:${newest}`, version: newest, title: "A newer dev app is ready", message: `mattstack-dev ${newest} is out. Run rt dev update to install it.` };
 }
