@@ -666,7 +666,7 @@ const openBytes = <Q extends { context?: unknown }>(o: PaneOpen<Q>): number =>
 
 /** Whole question contexts leave the pane largest first (ties to the
     earliest question), then the gate context, until it is under `limit`. */
-export function dropContextsToFit<Q extends { id: string; context?: unknown }>(
+export function dropContextsToFit<Q extends { id?: unknown; context?: unknown }>(
   open: PaneOpen<Q>,
   limit: number,
 ): { open: PaneOpen<Q>; dropped: string[] } {
@@ -682,7 +682,7 @@ export function dropContextsToFit<Q extends { id: string; context?: unknown }>(
     if (total < limit) break;
     delete questions[i]!.context;
     total -= bytes;
-    dropped.push(questions[i]!.id);
+    dropped.push(String(questions[i]!.id));
   }
   if (total >= limit && context !== undefined) context = undefined;
   return { open: context === undefined ? { questions } : { context, questions }, dropped };
