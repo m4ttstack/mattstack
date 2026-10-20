@@ -544,6 +544,33 @@ test('an answered respond post names each thread once and docks what was picked 
   ]);
 });
 
+const dockChips = () =>
+  $$('.tui-sheet-dock .tui-sheet-card-row').map(
+    r => r.querySelector('.tui-sheet-card-chip')?.textContent
+  );
+
+test('a per-thread question with no recorded answer reads none, not hold', async () => {
+  await render(
+    answeredPost(
+      [replyQ(1, 't1', 'queue/enqueue.ts:88'), replyQ(2, 't2', 'a.ts:1')],
+      { 'thread-1': ['post:t1'] }
+    ),
+    MR
+  );
+  expect(dockChips()).toEqual(['post', 'none']);
+});
+
+test('post and resolve chips are only for respond-post and review-post gates', async () => {
+  await render(
+    shipped({
+      questions: [replyQ(1, 't1', 'queue/enqueue.ts:88')],
+      answers: { 'thread-1': ['post:t1', 'resolve:t1'] },
+    }),
+    MR
+  );
+  expect(dockChips()).toEqual(['2 picked']);
+});
+
 test('an answered respond gate leads with the person by full name, and says commented when they only commented', async () => {
   const withTargets = {
     ...MR,

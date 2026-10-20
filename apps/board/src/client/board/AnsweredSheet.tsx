@@ -120,9 +120,15 @@ function AnsweredSheetBody({
     gate.answeredAt !== undefined
       ? `answered ${ago(new Date(gate.answeredAt).toISOString(), Date.now())} ago`
       : null;
+  // Only these kinds carry per-thread post and resolve questions.
   const picksByName = useMemo(
-    () => new Map(postPicks(gate.questions).map(p => [p.name, p])),
-    [gate.questions]
+    () =>
+      new Map(
+        gate.kind === 'respond-post' || gate.kind === 'review-post'
+          ? postPicks(gate.questions).map(p => [p.name, p])
+          : []
+      ),
+    [gate.kind, gate.questions]
   );
   const rows = gate.questions.map(q => {
     const d = display.get(q.id);
@@ -133,23 +139,25 @@ function AnsweredSheetBody({
     const chip: RowChip =
       a?.writeIn !== undefined
         ? { text: 'wrote in', intent: 'accent', title: a.writeIn }
-        : pick
-          ? {
-              text: [
-                picked.includes(pick.post) ? 'post' : 'hold',
-                pick.resolve && picked.includes(pick.resolve)
-                  ? 'resolve'
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(' · '),
-              intent: picked.includes(pick.post) ? 'ok' : 'muted',
-            }
-          : d
-            ? pickChip(d, value)
-            : typeof value === 'string' && value
-              ? { text: 'answered', intent: 'accent', title: value }
-              : { text: 'none', intent: 'muted' };
+        : pick && value === undefined
+          ? { text: 'none', intent: 'muted' }
+          : pick
+            ? {
+                text: [
+                  picked.includes(pick.post) ? 'post' : 'hold',
+                  pick.resolve && picked.includes(pick.resolve)
+                    ? 'resolve'
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
+                intent: picked.includes(pick.post) ? 'ok' : 'muted',
+              }
+            : d
+              ? pickChip(d, value)
+              : typeof value === 'string' && value
+                ? { text: 'answered', intent: 'accent', title: value }
+                : { text: 'none', intent: 'muted' };
     return { key: q.id, text: q.label, title: q.label, chips: [chip] };
   });
 
