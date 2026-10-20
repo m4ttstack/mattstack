@@ -20,7 +20,13 @@ digraph respond_gate_2_and_posting {
     "<status-bin> respond-status <state> drafting (before Gate 2)" [shape=plaintext];
     "Fitted respond-post open file handed back?" [shape=diamond];
     "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [shape=plaintext];
-    "Build the Gate 2 questions" [shape=box];
+    "Build the Gate 2 source" [shape=box];
+    "Refit the handed Gate 2 source" [shape=box];
+    "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}" [shape=plaintext];
+    "respond-post gate_open result?" [shape=diamond];
+    "Fixed the Gate 2 source once already?" [shape=diamond];
+    "Fix the Gate 2 source the gate_open refusal names" [shape=box];
+    "Build the Gate 2 questions as prose (plain open)" [shape=box];
     "<status-bin> gate open <state> --kind respond-post --questions <json> [--context <text>]" [shape=plaintext];
     "respond-post open exit?" [shape=diamond];
     "Gate 2: take the respond gate step" [shape=box];
@@ -77,9 +83,18 @@ digraph respond_gate_2_and_posting {
     "Domain skill resolved (reply-only)?" -> "Posting finished: continue at the done write" [label="yes: it posted them on {plan}"];
     "Domain skill resolved (reply-only)?" -> "Record the Gate 2 picks in --report" [label="no: post the reply-only threads"];
     "<status-bin> respond-status <state> drafting (before Gate 2)" -> "Fitted respond-post open file handed back?";
-    "Fitted respond-post open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="yes"];
-    "Fitted respond-post open file handed back?" -> "Build the Gate 2 questions" [label="no"];
-    "Build the Gate 2 questions" -> "<status-bin> gate open <state> --kind respond-post --questions <json> [--context <text>]";
+    "Fitted respond-post open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="yes, its reviewer the --person or no --person"];
+    "Fitted respond-post open file handed back?" -> "Refit the handed Gate 2 source" [label="yes, but its reviewer is someone else"];
+    "Fitted respond-post open file handed back?" -> "Build the Gate 2 source" [label="no"];
+    "Build the Gate 2 source" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}";
+    "Refit the handed Gate 2 source" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}";
+    "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}" -> "respond-post gate_open result?";
+    "respond-post gate_open result?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="handed back: open outPath"];
+    "respond-post gate_open result?" -> "Fixed the Gate 2 source once already?" [label="refused"];
+    "Fixed the Gate 2 source once already?" -> "Fix the Gate 2 source the gate_open refusal names" [label="no"];
+    "Fixed the Gate 2 source once already?" -> "Build the Gate 2 questions as prose (plain open)" [label="yes"];
+    "Fix the Gate 2 source the gate_open refusal names" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}";
+    "Build the Gate 2 questions as prose (plain open)" -> "<status-bin> gate open <state> --kind respond-post --questions <json> [--context <text>]";
     "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" -> "respond-post open exit?";
     "<status-bin> gate open <state> --kind respond-post --questions <json> [--context <text>]" -> "respond-post open exit?";
     "respond-post open exit?" -> "Gate 2: take the respond gate step" [label="0"];
@@ -223,16 +238,38 @@ reply` thread, or an answer value names one (a gate opened before this
   an escalation resume the picks themselves come from the rows' `gate-2:`
   fields and the `gate-2-answer:` line, never from memory.
 
-### Build the Gate 2 questions
+### Build the Gate 2 source
 
 No fitted open file came back, so build Gate 2 yourself from the finalized
-replies: one multi-select question per offered thread (each fixed thread
-and each reply override, in verdict-table order; never a reply-only,
-`skip:`, unfixed or posted-already thread), exactly as "Gate 1 and Gate 2
-shapes" draws them, an Overview comment's question with `post:` alone. Each thread's `<file>:<line>` and finalized reply ride
-its own question's `context`; `--context` carries only the shared frame,
-under the same byte budget. The open prints one JSON line (see "Gate
-step" in `gate-step.md`); keep `gateId` and `presentation`.
+replies: write `<dir>/respond-post.source.json` as "Gate context" in
+SKILL.md draws it, a post@1 gate context and one multi-select question
+per offered thread (each fixed thread and each reply override, in
+verdict-table order; never a reply-only, `skip:`, unfixed or
+posted-already thread), each with its reply@1 context, exactly as "Gate 1
+and Gate 2 shapes" draws them, an Overview comment's question with
+`post:` alone. Every context goes in whole, under the same byte budget.
+The open that follows prints one JSON line (see "Gate step" in
+`gate-step.md`); keep `gateId` and `presentation`.
+
+### Refit the handed Gate 2 source
+
+`--person` is set and the domain skill's fitted file names someone else
+as its gate `reviewer` (the board names whoever `reviewer` says). Write
+`<dir>/respond-post.source.json` from its source with `reviewer` the
+`--person` and nothing else changed ("Gate context" in SKILL.md).
+
+### Fix the Gate 2 source the gate_open refusal names
+
+Fix exactly the question and field each refusal line names in
+`<dir>/respond-post.source.json`, never by shortening a reply, then fit
+again, once.
+
+### Build the Gate 2 questions as prose (plain open)
+
+`gate_open` refused the source twice. Build the same questions with each
+thread's `<file>:<line>` and finalized reply as its prose `context`, and
+`--context` the shared frame. The board then shows its generic respond
+face; the gate works the same.
 
 ### Gate 2: take the respond gate step
 

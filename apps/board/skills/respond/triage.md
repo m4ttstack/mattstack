@@ -39,7 +39,13 @@ digraph respond_triage_and_gate_1 {
     "<status-bin> respond-status <state> drafting --round <n>" [shape=plaintext];
     "Fitted respond-plan open file handed back?" [shape=diamond];
     "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [shape=plaintext];
-    "Build the Gate 1 questions" [shape=box];
+    "Build the Gate 1 source" [shape=box];
+    "Refit the handed Gate 1 source" [shape=box];
+    "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}" [shape=plaintext];
+    "respond-plan gate_open result?" [shape=diamond];
+    "Fixed the Gate 1 source once already?" [shape=diamond];
+    "Fix the Gate 1 source the gate_open refusal names" [shape=box];
+    "Build the Gate 1 questions as prose (plain open)" [shape=box];
     "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]" [shape=plaintext];
     "respond-plan open exit?" [shape=diamond];
     "Gate 1 context dropped?" [shape=diamond];
@@ -95,9 +101,18 @@ digraph respond_triage_and_gate_1 {
     "Unresolved human threads = 0?" -> "Write the verdict table and drafts to --report" [label="no"];
     "Write the verdict table and drafts to --report" -> "<status-bin> respond-status <state> drafting --round <n>";
     "<status-bin> respond-status <state> drafting --round <n>" -> "Fitted respond-plan open file handed back?";
-    "Fitted respond-plan open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="yes"];
-    "Fitted respond-plan open file handed back?" -> "Build the Gate 1 questions" [label="no"];
-    "Build the Gate 1 questions" -> "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]";
+    "Fitted respond-plan open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="yes, kept whole, its reviewer the --person or no --person"];
+    "Fitted respond-plan open file handed back?" -> "Refit the handed Gate 1 source" [label="yes, but a row dropped or its reviewer is someone else"];
+    "Fitted respond-plan open file handed back?" -> "Build the Gate 1 source" [label="no"];
+    "Build the Gate 1 source" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}";
+    "Refit the handed Gate 1 source" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}";
+    "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}" -> "respond-plan gate_open result?";
+    "respond-plan gate_open result?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="handed back: open outPath"];
+    "respond-plan gate_open result?" -> "Fixed the Gate 1 source once already?" [label="refused"];
+    "Fixed the Gate 1 source once already?" -> "Fix the Gate 1 source the gate_open refusal names" [label="no"];
+    "Fixed the Gate 1 source once already?" -> "Build the Gate 1 questions as prose (plain open)" [label="yes"];
+    "Fix the Gate 1 source the gate_open refusal names" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}";
+    "Build the Gate 1 questions as prose (plain open)" -> "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]";
     "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" -> "respond-plan open exit?";
     "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]" -> "respond-plan open exit?";
     "respond-plan open exit?" -> "Gate 1 context dropped?" [label="0"];
@@ -177,8 +192,8 @@ comment), as the domain skill's row or its `--report` entry names it. A
 row that names no author is dropped too: only a row shown to be the
 person's goes on. Drop every other row from the verdict table, from `--report` and from any
 fitted Gate 1 open file it handed back (a file that held a dropped row is
-no longer the gate: build the Gate 1 questions yourself from the kept
-rows). Say in the pane which rows were dropped, one line each with the
+no longer the gate: `Refit the handed Gate 1 source` rebuilds it from the
+kept rows). Say in the pane which rows were dropped, one line each with the
 thread id, its `<file>:<line>` (or `Overview comment`) and its author, for
 example `dropped d-102 src/cache.ts:88 (darryl): outside --person john`.
 Nothing outside the person's feedback reaches Gate 1, so nothing outside
@@ -273,18 +288,38 @@ gate unavailable, a spent round budget, a resumed round-2 iterate)
 delete any earlier `source-branch:` line, so the push check finds no
 branch and holds every fixed thread.
 
-### Build the Gate 1 questions
+### Build the Gate 1 source
 
-No fitted open file came back, so build Gate 1 yourself: one single-select
-question per unresolved thread, in verdict-table order, plus one
-`code-changes` question, exactly as "Gate 1 and Gate 2 shapes" draws them.
-Each thread's reviewer quote and draft ride its own question's `context`;
-`--context` carries only the shared frame (the MR and the round, one or
-two lines). Send every context whole under the byte budget ("Byte
-budget" in SKILL.md): the daemon drops an oversized one, not you, and the
-open's `"contextOmitted": true` is `Gate 1 context dropped?` answering
-yes. The open prints one JSON line
-(see "Gate step" in `gate-step.md`); keep `gateId` and `presentation`.
+No fitted open file came back, so build Gate 1 yourself: write
+`<dir>/respond-plan.source.json` as "Gate context" in SKILL.md draws it,
+a plan@1 gate context and one single-select question per unresolved
+thread, in verdict-table order, each with its thread@1 context, plus one
+`code-changes` question, exactly as "Gate 1 and Gate 2 shapes" draws
+them. Every context goes in whole ("Byte budget" in SKILL.md). The open
+that follows prints one JSON line (see "Gate step" in `gate-step.md`);
+keep `gateId` and `presentation`.
+
+### Refit the handed Gate 1 source
+
+The domain skill's fitted file is no longer the gate: triage dropped a
+row from it, or `--person` is set and its source's gate `reviewer` is
+someone else (the board names whoever `reviewer` says). Write
+`<dir>/respond-plan.source.json` from its source as "Gate context" in
+SKILL.md describes a refit: the kept questions renumbered, the thread
+counts recomputed, `reviewer` the `--person`.
+
+### Fix the Gate 1 source the gate_open refusal names
+
+Fix exactly the question and field each refusal line names in
+`<dir>/respond-plan.source.json`, never by shortening a reply, then fit
+again, once.
+
+### Build the Gate 1 questions as prose (plain open)
+
+`gate_open` refused the source twice. Build the same questions with each
+thread's reviewer quote and draft as its prose `context`, and `--context`
+the shared frame (the MR and the round, one or two lines). The board then
+shows its generic respond face; the gate works the same.
 
 ### Write gate-1-context: dropped into --report
 

@@ -19,7 +19,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-552 -->
+<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-622 -->
 # mr-board respond runner
 
 The mr-board spawned this pane to process the review feedback on ONE of your own
@@ -175,8 +175,8 @@ Read `launch.md` now and follow its graph; its sections are there.
 Adjudicate every unresolved human thread (only the `--person`'s threads and
 Overview comments when the launch names one), through the domain skill or on
 the generic path, write the verdict table and drafts to `--report`, and open Gate 1
-with `<status-bin> gate open <state> --kind respond-plan` (or its fitted open
-file), then wait for its answer.
+(`respond-plan`) from a fitted open file, the domain skill's or one fitted
+here with `gate_open`, then wait for its answer.
 Read `triage.md` now and follow its graph; its sections are there.
 
 ### Implement the plan (implement.md)
@@ -188,8 +188,8 @@ Read `implement.md` now and follow its graph; its sections are there.
 
 ### Gate 2 and posting (post.md)
 
-When there are threads to offer, open Gate 2 with `<status-bin> gate open
-<state> --kind respond-post` (or its fitted open file), push the fixes with
+When there are threads to offer, open Gate 2 (`respond-post`) from a
+fitted open file, the domain skill's or one fitted here, push the fixes with
 `git_push` after the two checks, then post and resolve as the answer picks,
 the reply-only threads included.
 Read `post.md` now and follow its graph; its sections are there.
@@ -340,14 +340,84 @@ answers; the order is fixed and the flow's first diamonds draw it:
 either gate: `gate-ctx.sh fit` output whose `.questions` already have the
 shape below, each thread's structured context on its question (and, for
 Gate 1, the planned fix on its `fix` option). That file IS the gate: open
-it with `open-gate.sh` and the gate's kind, never rebuilt, re-ordered,
-trimmed or hand-edited. The script prints the same JSON line as `gate
+it with `open-gate.sh` and the gate's kind, never re-ordered, trimmed or
+hand-edited. Two cases refit it from the source beside it instead
+("Gate context"): triage dropped a row from it, or `--person` is set and
+the source's gate `reviewer` is someone else. The script prints the same JSON line as `gate
 open`, with `"contextOmitted": true` added when the daemon dropped the
 question contexts, and exits with its status. A `fits: false` file is
 still over the shared context budget; the script drops whole question
 contexts, largest first, until it fits, so the file goes in untouched. A
 Gate 2 file ends with a pane-only `next` navigation question this wrapper
 does not ask; the script drops it.
+
+**Gate context.** A gate this wrapper builds or refits itself carries the
+structured context the board draws its respond face from (the person,
+the round, the chips, a card per thread). Make one scratch directory,
+`<dir>`, inside this session's scratchpad (the Claude Code temp root, the
+only place `gate_open` reads `sourcePath` and writes `outPath`), never
+`mktemp -d`, and spell its path out literally. Write the gate's source
+there as `<dir>/respond-plan.source.json` (Gate 1) or
+`<dir>/respond-post.source.json` (Gate 2): `{"context": <gate context>,
+"questions": [...]}`, the questions exactly as drawn below, each thread
+question's `context` its structured object. Fit it with `gate_open {kind:
+<the gate's kind>, sourcePath: <the source>, handBack: true, outPath:
+<dir>/<the gate's kind>.open.json}`, then open `outPath` with
+`open-gate.sh` like any fitted file. Only `gate_open` fits: never shorten
+a reply or hand-edit the open to make it fit. The hand-back's
+`formContext` and `formChunks` are its pane form's prose.
+
+| Field | Filled from |
+|---|---|
+| gate `reviewer` | the `--person`; without one, the author with the most rows, ties to the first to appear |
+| gate `round` | this run's round, the `<n>` of its `drafting --round <n>` |
+| plan@1 `threads` | `total`: the thread-question count; `blocking`: how many carry severity `blocking` |
+| plan@1 `adjudication` | `<count> <verdict>` per verdict (fix, reply, skip) in first-appearance order, comma-joined |
+| post@1 `replies` | the offered-thread count |
+| post@1 `fixes` | one `{"sha": <short sha>}` per commit that fixed an offered thread; the key omitted when there is none |
+| thread@1 `author` | the username on the thread's first note |
+| thread@1 `severity` | the reviewer's own words, never the verdict: an explicit softener (nit, optional, non-blocking, minor, suggestion) is `non-blocking`; a question that asks for no change is `question`; no ask at all is `none`; any other change request is `blocking` |
+| thread@1 `claim` | `summary`: the reviewer's ask in one or two sentences, their wording where it fits; `points`: their supporting specifics, one per string, the key omitted when there are none |
+| thread@1 `verdict` | `call`: `valid` for fix; for reply, `pushback` when it disagrees, `needs-clarification` when it asks the reviewer something, `valid-low-value` when it agrees and changes nothing; `no-ask` for skip. `note`: the one-line reason |
+| thread@1 `reply` | fix: `{"kind": "direction", "text": <the fix direction>}`; reply: `{"kind": "verbatim", "text": <the drafted reply>}`; skip: `{"kind": "none"}` |
+| reply@1 | `thread` the thread id, `file` its `<file>:<line>` (or `Overview comment`), `verb` `fix` with `sha` its commit's short sha for a fixed thread, `reply` with no `sha` for an override, `text` the exact finalized reply |
+
+Gate 1's source:
+
+```json
+{"context": {"gate-ctx": "plan@1", "reviewer": "<username>", "round": 2,
+             "threads": {"total": 2, "blocking": 1}, "adjudication": "1 fix, 1 reply"},
+ "questions": [
+   {"id": "thread-1", "label": "<file>:<line>", "multi": false,
+    "context": {"gate-ctx": "thread@1", "author": "<username>", "severity": "blocking",
+                "claim": {"summary": "<the ask>"},
+                "verdict": {"call": "valid", "note": "<the reason>"},
+                "reply": {"kind": "direction", "text": "<the fix direction>"}},
+    "options": ["... the reply/fix/skip triple drawn below"]},
+   {"id": "code-changes", "...": "as drawn below, no context"}
+ ]}
+```
+
+Gate 2's source has `{"gate-ctx": "post@1", "reviewer": "<username>",
+"round": 2, "replies": 2, "fixes": [{"sha": "<short sha>"}]}` as its
+context, and each offered thread's question context is `{"gate-ctx":
+"reply@1", "thread": "<threadId>", "file": "<file>:<line>", "verb": "fix",
+"sha": "<short sha>", "text": "<the finalized reply>"}`, an Overview
+comment's question included (its options stay `post:<threadId>` alone).
+
+A refit starts from the fitted file's source (beside it, `.open.json`
+swapped for `.source.json`): copy it to `<dir>`, delete every dropped
+row's question and renumber the thread questions `thread-<n>` in order,
+set `threads.total` and `threads.blocking` to the kept questions, delete
+`adjudication` when a row dropped (its tally counted that row), and set
+the gate `reviewer` to the `--person`; change nothing else. With no source
+beside the file, build the source from the kept rows instead.
+
+A `gate_open` refusal lists one problem per line. Fix each line it names
+in the source and fit again, once. A second refusal falls back to the
+plain open: the questions as drawn below, each `context` the thread's
+material as prose, the shared frame as `--context`, through `<status-bin>
+gate open`.
 
 **Gate 1 (`respond-plan`).** ONE single-select question per unresolved
 thread, in verdict-table order, plus one `code-changes` question. A thread
@@ -359,12 +429,12 @@ ones):
 ```json
 [
   {"id": "thread-1", "label": "<file>:<line>", "multi": false,
-   "context": "<this thread's reviewer comment quoted verbatim, then the drafted reply or fix summary for it>",
+   "context": "<this thread's thread@1 object (Gate context); on the plain open, its reviewer comment quoted verbatim, then the drafted reply or fix summary>",
    "options": [{"value": "reply:<threadId>", "label": "Reply only", "description": "Post the drafted reply and change no code."},
                {"value": "fix:<threadId>", "label": "Fix the code", "description": "Implement the proposed fix, then offer its reply at Gate 2."},
                {"value": "skip:<threadId>", "label": "Skip this thread", "description": "Post nothing and change nothing for this thread."}]},
   {"id": "thread-2", "label": "<file>:<line>", "multi": false,
-   "context": "<thread 2's own quote + draft>",
+   "context": "<thread 2's own context>",
    "options": ["... the next thread's reply/fix/skip triple, its own id and context verbatim; one such question per thread"]},
   {"id": "code-changes", "label": "Approve the proposed code changes?", "multi": false,
    "options": [{"value": "approve", "label": "Approve the changes", "description": "Implement every thread answered fix this round."},
@@ -401,11 +471,11 @@ gets `post:<threadId>` alone: GitLab cannot resolve it.
 ```json
 [
   {"id": "thread-1", "label": "<file>:<line>", "multi": true,
-   "context": "<this thread's file:line, then the reply text that will post>",
+   "context": "<this thread's reply@1 object (Gate context); on the plain open, its file:line, then the reply text that will post>",
    "options": [{"value": "post:<threadId>", "label": "Post this reply", "recommended": true, "description": "Post this reply to the thread."},
                {"value": "resolve:<threadId>", "label": "Resolve the thread", "recommended": true, "description": "Resolve the thread after its reply."}]},
   {"id": "thread-2", "label": "<file>:<line>", "multi": true,
-   "context": "<thread 2's file:line and reply>",
+   "context": "<thread 2's own context>",
    "options": [{"value": "post:<threadId>", "label": "Post this reply", "recommended": true, "description": "Post this reply to the thread."},
                {"value": "resolve:<threadId>", "label": "Resolve the thread", "description": "Resolve the thread after its reply."}]}
 ]
@@ -424,12 +494,12 @@ a value string.
 
 **Byte budget.** Each thread's material rides its own question's `context`,
 so every surface shows the quote and draft WITH the question it belongs
-to. `--context` carries only what is shared across threads (the MR and
-round, one or two lines). `--context` plus every question `context` share
-one 8192 UTF-8 byte budget. Send them whole: an oversized context is
-dropped loudly by the daemon, not by you, and the open's output then
-carries `"contextOmitted": true`. Never pre-trim or drop a context
-yourself.
+to. The gate context (plan@1 or post@1; on the plain open, `--context`)
+carries only what is shared across threads. It and every question
+`context` share one 8192 UTF-8 byte budget. Send them whole: `gate_open`
+and the daemon fit or drop an oversized context loudly, not you, and the
+open's output then carries `"contextOmitted": true` or the file `fits:
+false`. Never pre-trim or drop a context yourself.
 
 **Legacy Gate 2 shape.** A Gate 2 opened before this shape (a `replies`
 multi, or its `replies-1`, `replies-2`, ... chunks, of bare thread ids plus
