@@ -17,7 +17,9 @@ export const DEFAULT_SLACK_EMOJI: SlackEmojiConfig = {
 
 /** Other emoji that count as a role's mark, for channels that mark reviews
     their own way (e.g. `mr-approved` for approved). */
-export type SlackEmojiAliases = Partial<Record<keyof SlackEmojiConfig, string[]>>;
+export type SlackEmojiAliases = Partial<
+  Record<keyof SlackEmojiConfig, string[]>
+>;
 
 /** Reactions with each alias swapped for its role's emoji, duplicates dropped. */
 export function canonicalReactions(
