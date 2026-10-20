@@ -34,6 +34,42 @@ describe("hasQuestionForm", () => {
     expect(hasQuestionForm(`${fixture("question-form-single.txt")}\n⏺ User answered Claude's questions:\n`)).toBe(false);
   });
 
+  // BOARD-57: a pane whose Claude Code input is not docked to the bottom of
+  // the terminal leaves rows under the form, so the footer is not the last
+  // screen line.
+  // Claude Code's default inline renderer draws the form right under the
+  // transcript with blank rows below it; fullscreen ("tui": "fullscreen")
+  // docks it to the bottom row. Both must read as a form.
+  test("a form drawn by the default inline renderer reads as a form", () => {
+    expect(hasQuestionForm(fixture("question-form-inline.txt"))).toBe(true);
+  });
+
+  test("a form whose input is not docked to the pane bottom reads as a form", () => {
+    const below = "  ⏵⏵ auto mode on (shift+tab to cycle)\n  O 5.5 [high] | claude | board-57\n";
+    expect(hasQuestionForm(`${fixture("question-form-single.txt")}\n${below}\n\n\n`)).toBe(true);
+  });
+
+  test("a footer wrapped by a narrow pane reads as a form", () => {
+    const narrow = fixture("question-form-multi.txt").replace(
+      /Enter to select · (.+) to navigate · Esc to cancel/,
+      "Enter to select · $1 to\nnavigate · Esc to cancel",
+    );
+    expect(hasQuestionForm(narrow)).toBe(true);
+  });
+
+  test("the vim-mode footer with no Esc hint reads as a form", () => {
+    const vim = fixture("question-form-single.txt").replace(
+      "Enter to select · ↑/↓ to navigate · Esc to cancel",
+      "-- INSERT -- · Enter to select · ↑/↓ to navigate · ctrl+g to edit in Zed",
+    );
+    expect(hasQuestionForm(vim)).toBe(true);
+  });
+
+  test("a footer far above the bottom of the screen is not a form", () => {
+    const tail = Array.from({ length: 12 }, (_, i) => `  output line ${i + 1}`).join("\n");
+    expect(hasQuestionForm(`${fixture("question-form-single.txt")}\n${tail}\n`)).toBe(false);
+  });
+
   test("an empty screen is not a form", () => {
     expect(hasQuestionForm("")).toBe(false);
   });
