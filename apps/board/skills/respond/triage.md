@@ -306,7 +306,7 @@ row from it, or `--person` is set and its source's gate `reviewer` is
 someone else (the board names whoever `reviewer` says). Write
 `<dir>/respond-plan.source.json` from its source as "Gate context" in
 SKILL.md describes a refit: the kept questions renumbered, the thread
-counts recomputed, `reviewer` the `--person`.
+counts recomputed, `round` this run's round, `reviewer` the `--person`.
 
 ### Fix the Gate 1 source the gate_open refusal names
 

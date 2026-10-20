@@ -91,6 +91,7 @@ digraph respond_gate_2_and_posting {
     "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}" -> "respond-post gate_open result?";
     "respond-post gate_open result?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="handed back: open outPath"];
     "respond-post gate_open result?" -> "Fixed the Gate 2 source once already?" [label="refused"];
+    "respond-post gate_open result?" -> "Build the Gate 2 questions as prose (plain open)" [label="refused over an Overview comment's options"];
     "Fixed the Gate 2 source once already?" -> "Fix the Gate 2 source the gate_open refusal names" [label="no"];
     "Fixed the Gate 2 source once already?" -> "Build the Gate 2 questions as prose (plain open)" [label="yes"];
     "Fix the Gate 2 source the gate_open refusal names" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}";
@@ -256,17 +257,21 @@ The open that follows prints one JSON line (see "Gate step" in
 `--person` is set and the domain skill's fitted file names someone else
 as its gate `reviewer` (the board names whoever `reviewer` says). Write
 `<dir>/respond-post.source.json` from its source with `reviewer` the
-`--person` and nothing else changed ("Gate context" in SKILL.md).
+`--person`, `round` this run's round, and nothing else changed ("Gate
+context" in SKILL.md).
 
 ### Fix the Gate 2 source the gate_open refusal names
 
 Fix exactly the question and field each refusal line names in
-`<dir>/respond-post.source.json`, never by shortening a reply, then fit
-again, once.
+`<dir>/respond-post.source.json`, never by shortening a reply or by
+adding `resolve:` to an Overview comment's question, then fit again,
+once.
 
 ### Build the Gate 2 questions as prose (plain open)
 
-`gate_open` refused the source twice. Build the same questions with each
+`gate_open` refused the source twice, or refused an Overview comment's
+`post:`-alone options (never fixed by adding `resolve:`; "Gate context"
+in SKILL.md). Build the same questions with each
 thread's `<file>:<line>` and finalized reply as its prose `context`, and
 `--context` the shared frame. The board then shows its generic respond
 face; the gate works the same.

@@ -172,7 +172,8 @@ Adjudicate every unresolved human thread (only the `--person`'s threads and
 Overview comments when the launch names one), through the domain skill or on
 the generic path, write the verdict table and drafts to `--report`, and open Gate 1
 (`respond-plan`) from a fitted open file, the domain skill's or one fitted
-here with `gate_open`, then wait for its answer.
+here with `gate_open` (a source `gate_open` keeps refusing opens plain,
+through `<status-bin> gate open`), then wait for its answer.
 Read `triage.md` now and follow its graph; its sections are there.
 
 ### Implement the plan (implement.md)
@@ -376,7 +377,7 @@ a reply or hand-edit the open to make it fit. The hand-back's
 | thread@1 `claim` | `summary`: the reviewer's ask in one or two sentences, their wording where it fits; `points`: their supporting specifics, one per string, the key omitted when there are none |
 | thread@1 `verdict` | `call`: `valid` for fix; for reply, `pushback` when it disagrees, `needs-clarification` when it asks the reviewer something, `valid-low-value` when it agrees and changes nothing; `no-ask` for skip. `note`: the one-line reason |
 | thread@1 `reply` | fix: `{"kind": "direction", "text": <the fix direction>}`; reply: `{"kind": "verbatim", "text": <the drafted reply>}`; skip: `{"kind": "none"}` |
-| reply@1 | `thread` the thread id, `file` its `<file>:<line>` (or `Overview comment`), `verb` `fix` with `sha` its commit's short sha for a fixed thread, `reply` with no `sha` for an override, `text` the exact finalized reply |
+| reply@1 | `thread` the thread id, `file` its `<file>:<line>`, or exactly `Overview comment` for an Overview comment's row, `verb` `fix` with `sha` its commit's short sha for a fixed thread, `reply` with no `sha` for an override, `text` the exact finalized reply |
 
 Gate 1's source:
 
@@ -399,18 +400,26 @@ Gate 2's source has `{"gate-ctx": "post@1", "reviewer": "<username>",
 context, and each offered thread's question context is `{"gate-ctx":
 "reply@1", "thread": "<threadId>", "file": "<file>:<line>", "verb": "fix",
 "sha": "<short sha>", "text": "<the finalized reply>"}`, an Overview
-comment's question included (its options stay `post:<threadId>` alone).
+comment's question included: its `file` is exactly `Overview comment`,
+the one `file` that lets a reply@1 question offer `post:<threadId>`
+alone, and its options stay that one.
 
 A refit starts from the fitted file's source (beside it, `.open.json`
 swapped for `.source.json`): copy it to `<dir>`, delete every dropped
 row's question and renumber the thread questions `thread-<n>` in order,
 set `threads.total` and `threads.blocking` to the kept questions, delete
-`adjudication` when a row dropped (its tally counted that row), and set
-the gate `reviewer` to the `--person`; change nothing else. With no source
+`adjudication` when a row dropped (its tally counted that row), set the
+gate `round` to this run's round (the `<n>` of its `drafting --round
+<n>`, as a self-built gate has), and set the gate `reviewer` to the
+`--person`; change nothing else. With no source
 beside the file, build the source from the kept rows instead.
 
 A `gate_open` refusal lists one problem per line. Fix each line it names
-in the source and fit again, once. A second refusal falls back to the
+in the source and fit again, once. A refusal line about an Overview
+comment's options (such as `options: exactly post:<t> and resolve:<t>`
+from an rt that predates post-alone Overview replies) is never fixed by
+adding `resolve:`, since GitLab cannot resolve that comment: it goes
+straight to the plain open. A second refusal also falls back to the
 plain open: the questions as drawn below, each `context` the thread's
 material as prose, the shared frame as `--context`, through `<status-bin>
 gate open`.
