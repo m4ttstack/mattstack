@@ -1,5 +1,6 @@
 import type { BoardMRWithReview, OrgTeam, OwnerTeam } from '../types.ts';
 import { askOutstanding, firstReviewTargets } from './format.ts';
+import type { People } from './people.ts';
 
 export interface AskPerson {
   username: string;
@@ -30,7 +31,7 @@ export interface AskPickerEnv {
   peers?: readonly string[];
   teams: readonly OrgTeam[];
   ownTeam: string | null;
-  names?: ReadonlyMap<string, string>;
+  people: People;
   /** The repo posts review requests to Code Owner channels. */
   canPostOwners?: boolean;
 }
@@ -50,14 +51,9 @@ export function askPickerModel(
   const enrolled = env.peers ? new Set(env.peers) : null;
   const askable = (username: string) =>
     !engaged.has(username) && (!enrolled || enrolled.has(username));
-  const teamNames = new Map(
-    env.teams.flatMap(t =>
-      t.members.flatMap(m => (m.name ? [[m.username, m.name] as const] : []))
-    )
-  );
   const person = (username: string): AskPerson => ({
     username,
-    name: env.names?.get(username) ?? teamNames.get(username) ?? username,
+    name: env.people.full(username),
   });
   const byName = (a: AskPerson, b: AskPerson) => a.name.localeCompare(b.name);
   const peopleOf = (team: string) =>

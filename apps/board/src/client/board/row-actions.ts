@@ -22,12 +22,12 @@ import {
   respondAskTarget,
   respondChoiceLabel,
   respondChoices,
-  respondPersonName,
   reviewLogged,
   reviewMenuItems,
   roundSuffix,
   SEAT_HINT,
 } from './format.ts';
+import { boardPeople, NO_PEOPLE, type People } from './people.ts';
 import { laneDismissed } from './row-status.ts';
 import { slackPosts } from './slack-posts.ts';
 
@@ -119,9 +119,9 @@ export interface RowAction extends MenuEntry {
 }
 
 /** A pick option for a teammate's agent: the username stays the payload. */
-function peerOption(env: ActionEnv, value: string) {
-  const name = env.names?.get(value);
-  return name ? { value, label: name } : { value };
+function peerOption(people: People, value: string) {
+  const name = people.full(value);
+  return name !== value ? { value, label: name } : { value };
 }
 
 export interface ActionEnv {
@@ -139,8 +139,9 @@ export interface ActionEnv {
   /** The board's seat; null on an "all" board. */
   self: string | null;
   roster: string[];
-  /** Full names by username, for labels that read as a person. */
-  names?: ReadonlyMap<string, string>;
+  /** Everyone the board knows; absent, a row names only its own MR's
+      people and the org's teams. */
+  people?: People;
   /** Enrolled peer usernames when the relay has said; undefined = unknown. */
   peers?: string[];
   /** Every team of the org roster; absent on older servers. */
@@ -213,6 +214,9 @@ export function rowActions(
   mrx: BoardMRWithReview,
   env: ActionEnv
 ): RowAction[] {
+  const people =
+    env.people ??
+    boardPeople({ allMembers: [], mrs: [mrx], teams: env.teams ?? [] });
   const own = isOwnMr(mrx, env.self);
   const top: RowAction[] = [];
   const agent: RowAction[] = [];
@@ -289,9 +293,7 @@ export function rowActions(
       const running =
         !!r && r.status !== 'done' && r.status !== 'error' && !interrupted;
       const aboutPerson = (who: string | undefined, round?: number) =>
-        who
-          ? ` to ${respondPersonName(mrx, who)}${roundSuffix(round ?? 0)}`
-          : '';
+        who ? ` to ${people.short(who)}${roundSuffix(round ?? 0)}` : '';
       const choices = respondChoices(mrx);
       const respondItem = (): RowAction | null => {
         if (running)
@@ -457,7 +459,7 @@ export function rowActions(
         item(
           'agent',
           `nudge-${peer.reviewer}`,
-          `ask ${peer.reviewer}'s agent to re-review`,
+          `ask ${people.short(peer.reviewer)}'s agent to re-review`,
           AGENT_CLOUD,
           { kind: 'ask', ask: 're-review', reviewer: peer.reviewer }
         )
@@ -467,7 +469,7 @@ export function rowActions(
         item(
           'agent',
           `latch-${latch.reviewer}`,
-          `ask ${latch.reviewer}'s agent to re-review`,
+          `ask ${people.short(latch.reviewer)}'s agent to re-review`,
           AGENT_CLOUD,
           {
             kind: 'resolve-latch',
@@ -483,7 +485,7 @@ export function rowActions(
       peers: env.peers,
       teams: env.teams ?? [],
       ownTeam: env.ownTeam ?? null,
-      names: env.names,
+      people,
       canPostOwners:
         env.slackEnabled &&
         !!mrx.rtRepo &&
@@ -504,7 +506,9 @@ export function rowActions(
                     pick: {
                       title: 'request review from',
                       aria: 'request review',
-                      options: askTargets.map(value => peerOption(env, value)),
+                      options: askTargets.map(value =>
+                        peerOption(people, value)
+                      ),
                     },
                     bulk: 'request review from…',
                   }
@@ -999,7 +1003,9 @@ export function bulkActions(
     if (g.first.pick) {
       entry.pick = {
         ...g.first.pick,
-        options: [...g.picks.keys()].map(value => peerOption(env, value)),
+        options: [...g.picks.keys()].map(value =>
+          peerOption(env.people ?? NO_PEOPLE, value)
+        ),
       };
       entry.pickTargets = g.picks;
     }

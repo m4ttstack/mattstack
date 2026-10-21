@@ -11,6 +11,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { GateRow } from '../../../gates/store.ts';
 import type { BoardMRWithReview } from '../../types.ts';
 import { DecisionQueueModal } from '../DecisionQueueModal.tsx';
+import { people, PeopleProvider, type People } from '../people.ts';
 import {
   DELIVERY_STUCK_MESSAGE,
   EXECUTION_UNASSIGNED_MESSAGE,
@@ -138,28 +139,25 @@ afterEach(async () => {
   container.remove();
 });
 
-async function render(
-  row: GateRow,
-  mr?: BoardMRWithReview,
-  people?: ReadonlyMap<string, string>
-) {
+async function render(row: GateRow, mr?: BoardMRWithReview, board?: People) {
   await React.act(async () => {
     root.render(
-      <DecisionQueueModal
-        gate={row}
-        mr={mr}
-        people={people}
-        position={1}
-        states={['active']}
-        onClose={() => {}}
-        onNext={() => {}}
-        onBack={() => {}}
-        onFocusPane={() => {}}
-        onAnswered={() => {}}
-        onContinue={() => {
-          continues++;
-        }}
-      />
+      <PeopleProvider value={board ?? null}>
+        <DecisionQueueModal
+          gate={row}
+          mr={mr}
+          position={1}
+          states={['active']}
+          onClose={() => {}}
+          onNext={() => {}}
+          onBack={() => {}}
+          onFocusPane={() => {}}
+          onAnswered={() => {}}
+          onContinue={() => {
+            continues++;
+          }}
+        />
+      </PeopleProvider>
     );
   });
 }
@@ -183,8 +181,8 @@ test('an answered gate shows every question read-only with its recorded pick, be
   await render(shipped(), MR);
   expect($('.tui-answered-sheet .tui-sheet-body')).not.toBeNull();
   expect($('.tui-triage-sheet-body')).toBeNull();
-  expect(text('.tui-sheet-list-title')).toBe('Answered by Joel Vasquez');
-  expect(text('.tui-sheet-list-title .tui-person-name')).toBe('Joel Vasquez');
+  expect(text('.tui-sheet-list-title')).toBe('Answered by Joel');
+  expect(text('.tui-sheet-list-title .tui-person-name')).toBe('Joel');
   expect($('.tui-sheet-list-title .tui-person-avatar')).not.toBeNull();
   expect(text('.tui-sheet-list-tally')).toBe('answered 2m ago');
   const cards = $$('.tui-sheet-main .tui-gate-question');
@@ -243,14 +241,14 @@ test('with no recorded author the head reads plain "Answered"; the board and the
   expect(text('.tui-sheet-list-title')).toBe('Answered in the pane');
 });
 
-test('the answerer reads by roster name, else by handle', async () => {
+test('the answerer reads by first name, else by handle', async () => {
   await render(
     shipped({ answeredBy: 'rpark' }),
     undefined,
-    new Map([['rpark', 'Renee Park']])
+    people([{ username: 'rpark', name: 'Renee Park' }])
   );
-  expect(text('.tui-sheet-list-title')).toBe('Answered by Renee Park');
-  expect(text('.tui-sheet-list-title .tui-person-name')).toBe('Renee Park');
+  expect(text('.tui-sheet-list-title')).toBe('Answered by Renee');
+  expect(text('.tui-sheet-list-title .tui-person-name')).toBe('Renee');
   await render(shipped({ answeredBy: 'kim' }));
   expect(text('.tui-sheet-list-title')).toBe('Answered by kim');
   expect(text('.tui-sheet-list-title .tui-person-name')).toBe('kim');
@@ -588,7 +586,7 @@ test('post and resolve chips are only for respond-post and review-post gates', a
   expect(dockChips()).toEqual(['2 picked']);
 });
 
-test('an answered respond gate leads with the person by full name, and says commented when they only commented', async () => {
+test('an answered respond gate leads with the person by first name, and says commented when they only commented', async () => {
   const withTargets = {
     ...MR,
     respondTargets: [
@@ -602,7 +600,7 @@ test('an answered respond gate leads with the person by full name, and says comm
     withTargets
   );
   expect(text('.tui-sheet-context-card .tui-id-card-lead')).toBe(
-    'John Ward commented on your merge request'
+    'John commented on your merge request'
   );
 });
 
