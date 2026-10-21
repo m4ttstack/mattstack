@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fro
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
-import { claudeHookCommand, hookResultBlocks, hookStatusBlocks, hookInstallCommand, hookStatusCommand, hookUninstallCommand, hookRepoIdentity, parseHookStdin, priorClaudeHookAnswer, recordClaudeHookAnswer, shouldOfferClaudeHook } from "../worktree-hook.ts";
+import { claudeHookCommand, enableWorktreesOnThisMac, hookResultBlocks, hookStatusBlocks, hookInstallCommand, hookStatusCommand, hookUninstallCommand, hookRepoIdentity, parseHookStdin, priorClaudeHookAnswer, recordClaudeHookAnswer, shouldOfferClaudeHook } from "../worktree-hook.ts";
 import { loadWorktreeAppConfig } from "../../lib/worktree/config.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
@@ -98,6 +98,16 @@ describe("recordClaudeHookAnswer", () => {
     expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     const machine = JSON.parse(readFileSync(machineSettingsPath(), "utf8").replace(/^\/\/.*\n/, ""));
     expect(machine["rt.worktreeApp"]).toEqual({ claudeHook: "declined" });
+  });
+
+  test("enabling worktrees keeps this machine's other answers", () => {
+    recordClaudeHookAnswer("installed");
+
+    enableWorktreesOnThisMac();
+
+    const machine = JSON.parse(readFileSync(machineSettingsPath(), "utf8").replace(/^\/\/.*\n/, ""));
+    expect(machine["rt.worktreeApp"]).toEqual({ claudeHook: "installed", enabled: true });
+    expect(loadWorktreeAppConfig().enabled).toBe(true);
   });
 
   test("an unowned machine that answered the offer still follows a later team opt-in", () => {

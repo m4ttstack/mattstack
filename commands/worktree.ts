@@ -391,6 +391,10 @@ type MergeCleanupOffRow = { repo: string; path: string } & MergeCleanupGap;
 
 function mergeCleanupOffBlocks(gap: MergeCleanupOffRow): Block[] {
   const title = `Merged worktrees are not cleaned up in ${repoLabel(gap.repo)}`;
+  if (gap.reason === "app-off") return lineWithNext("warn", title, "worktrees are off on this Mac", out.cmd("rt worktree enable"));
+  if (gap.reason === "tracking-off") {
+    return lineWithNext("warn", title, "you turned off tracking for this repo on this Mac", out.cmd(`rt settings set rt.worktreeMergeCleanupNotice false --scope user --repo ${shellQuote(repoLabelFull(gap.repo))}`));
+  }
   if (gap.reason === "no-branches-grant") {
     const mode = gap.mode === "off" ? "poll" : gap.mode;
     return lineWithNext(
@@ -782,6 +786,17 @@ export function restoreBlocks(d: WorktreeRestoreData, repoArg?: string): Block[]
       : []),
     ...(d.submodulesFailed?.length ? submodulesFailedBlocks(d.submodulesFailed) : []),
   ];
+}
+
+// ─── enable ──────────────────────────────────────────────────────────────────
+
+/** Merges `enabled: true` into this Mac's own value, so its other fields (killProcesses, claudeHook) survive. */
+export async function worktreeEnable(args: string[], _ctx: unknown): Promise<void> {
+  const json = args.includes("--json");
+  const { enableWorktreesOnThisMac } = await import("./worktree-hook.ts");
+  enableWorktreesOnThisMac();
+  if (json) { out.json({ enabled: true }, 2); return; }
+  out.print(out.line("done", "Worktrees are on for this Mac", "rt now manages worktrees and cleans up merged ones"));
 }
 
 // ─── list ────────────────────────────────────────────────────────────────────

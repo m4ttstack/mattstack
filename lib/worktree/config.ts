@@ -479,7 +479,7 @@ export async function worktreeReadyHeld(repoName: string, repoPath: string): Pro
 const APP_SETTING_KEY = "rt.worktreeApp";
 
 /** The exact command a dormant machine's operator runs to opt in. */
-export const WORKTREE_APP_ENABLE_COMMAND = 'rt settings set rt.worktreeApp \'{"enabled":true}\' --scope machine';
+export const WORKTREE_APP_ENABLE_COMMAND = "rt worktree enable";
 
 /**
  * The resolved `rt.worktreeApp`. A pool is on only when the value says

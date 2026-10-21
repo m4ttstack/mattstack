@@ -8,11 +8,14 @@
 import { forgeTokenFor, type Forge } from "../enrich.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { deriveRepoIdentity } from "../settings/identity.ts";
-import { grants, type CacheKind, type RepoTracking, type TrackingMode } from "../repo-tracking.ts";
+import { grants, loadMachineRepoTrackingRaw, type CacheKind, type RepoTracking, type TrackingMode } from "../repo-tracking.ts";
+import { loadWorktreeAppConfig } from "./config.ts";
 import { runCapture } from "../subprocess.ts";
 
 /** `mode`/`caches` are the grant the repo has now, so a fix can add `branches` without dropping the rest. */
 export type MergeCleanupGap =
+  | { reason: "app-off"; forge: Forge }
+  | { reason: "tracking-off"; forge: Forge }
   | { reason: "no-branches-grant"; forge: Forge; mode: TrackingMode | "off"; caches: CacheKind[] }
   | { reason: "no-token"; forge: Forge };
 
@@ -28,6 +31,9 @@ export async function mergeCleanupGap(
   const remoteUrl = remote.exitCode === 0 ? remote.stdout.trim() || undefined : undefined;
   const forge = await forgeTokenFor(remoteUrl, secrets ?? {});
   if (!forge) return null;
+  // The merge reactor never runs with worktrees off, so tracking alone would fix nothing.
+  if (!loadWorktreeAppConfig().enabled) return { reason: "app-off", forge: forge.forge };
+  if (optedOut(repoName)) return { reason: "tracking-off", forge: forge.forge };
   if (tracking) {
     const g = grants(tracking, repoName);
     if (!g.caches.has("branches")) return { reason: "no-branches-grant", forge: forge.forge, mode: g.mode, caches: [...g.caches] };
@@ -40,4 +46,14 @@ async function noticeWanted(repoPath: string): Promise<boolean> {
   const derived = await deriveRepoIdentity(repoPath);
   if (derived.kind !== "remote") return true;
   return getSetting<boolean>("rt.worktreeMergeCleanupNotice", { repoIdentity: derived.id }).value !== false;
+}
+
+/** An explicit `{mode: "off"}` is this Mac's own choice, often against a team grant; offering to track would quietly undo it. */
+function optedOut(repoName: string): boolean {
+  try {
+    const entry = loadMachineRepoTrackingRaw()[repoName];
+    return typeof entry === "object" && entry !== null && (entry as { mode?: unknown }).mode === "off";
+  } catch {
+    return false;
+  }
 }

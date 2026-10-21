@@ -45,6 +45,10 @@ export function claudeSettingsPath(): string {
 // every member's machine.
 const WORKTREE_APP_SETTING_KEY = "rt.worktreeApp";
 
+export function enableWorktreesOnThisMac(): void {
+  setSetting(WORKTREE_APP_SETTING_KEY, { ...(machineWorktreeAppValue() ?? {}), enabled: true }, "machine");
+}
+
 function machineWorktreeAppValue(): Record<string, unknown> | undefined {
   const row = explainSetting(WORKTREE_APP_SETTING_KEY).find((r) => r.scope === "machine");
   if (!row?.present || row.invalid !== undefined) return undefined;
