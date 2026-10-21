@@ -159,7 +159,8 @@ async function openQueue(container: HTMLElement) {
   await React.act(async () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
-  const openButton = (container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined);
+  const openButton =
+    container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
   if (!openButton) throw new Error('no decision queue button rendered');
   await React.act(async () => {
     (openButton as HTMLElement).click();
@@ -190,8 +191,11 @@ test('decision banner count includes queueExtras', async () => {
     await React.act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
-    const openButton = (container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined);
-    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe('1 decision is waiting on you');
+    const openButton =
+      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
+    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe(
+      '1 decision is waiting on you'
+    );
   } finally {
     await React.act(async () => root.unmount());
     container.remove();

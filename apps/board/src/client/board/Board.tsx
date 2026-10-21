@@ -89,7 +89,6 @@ import {
   ThemeControl,
   TURN_SETTINGS_LABEL,
 } from './Controls.tsx';
-import { DecisionBanner } from './DecisionBanner.tsx';
 import type { QueueEntry } from './decision-queue.ts';
 import {
   bannerCopy,
@@ -97,6 +96,7 @@ import {
   gateReadOnlyReason,
   useDecisionQueue,
 } from './decision-queue.ts';
+import { DecisionBanner } from './DecisionBanner.tsx';
 import {
   DecisionQueueComplete,
   DecisionQueueModal,

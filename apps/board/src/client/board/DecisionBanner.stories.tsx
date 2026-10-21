@@ -37,9 +37,7 @@ const meta = {
   component: DecisionBanner,
   decorators: [
     (Story, context) => (
-      <BoardStage
-        scheme={context.globals.scheme === 'dark' ? 'dark' : 'light'}
-      >
+      <BoardStage scheme={context.globals.scheme === 'dark' ? 'dark' : 'light'}>
         <div style={{ maxWidth: 818 }}>
           <Story />
         </div>

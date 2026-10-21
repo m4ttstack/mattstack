@@ -174,7 +174,9 @@ async function answerThenClose(finish: () => Promise<void>) {
   });
   await settle();
   try {
-    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe('1 decision is waiting on you');
+    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe(
+      '1 decision is waiting on you'
+    );
 
     await click(queueButton(container));
     const sheet = document.body.querySelector('.tui-gate-sheet')!;

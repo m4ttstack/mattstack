@@ -242,7 +242,8 @@ async function openQueue(container: HTMLElement): Promise<Element> {
   await React.act(async () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
-  const openButton = (container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined) as HTMLElement;
+  const openButton = (container.querySelector<HTMLElement>('.tui-dq-open') ??
+    undefined) as HTMLElement;
   await React.act(async () => {
     openButton.click();
   });
@@ -311,9 +312,12 @@ test('decision queue: header entry opens, next gate advances, close dismisses', 
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    const openButton = (container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined);
+    const openButton =
+      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
     expect(openButton).not.toBeUndefined();
-    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe('2 decisions are waiting on you');
+    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe(
+      '2 decisions are waiting on you'
+    );
 
     await React.act(async () => {
       (openButton as HTMLElement).click();
@@ -367,7 +371,8 @@ test('decision queue: a gate-less snapshot (server warm-up) does not complete th
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    const openButton = (container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined);
+    const openButton =
+      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
     await React.act(async () => {
       (openButton as HTMLElement).click();
     });
@@ -427,7 +432,8 @@ test('decision queue: paging to the next gate does not bleed its selection into 
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    const openButton = (container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined);
+    const openButton =
+      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
     await React.act(async () => {
       (openButton as HTMLElement).click();
     });
@@ -588,8 +594,11 @@ test('the queue counts gates on rows an author filter hides, visible rows first'
       await new Promise(resolve => setTimeout(resolve, 0));
     });
     expect(container.querySelectorAll('.tui-row')).toHaveLength(1);
-    const openButton = (container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined);
-    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe('2 decisions are waiting on you');
+    const openButton =
+      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
+    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe(
+      '2 decisions are waiting on you'
+    );
 
     await React.act(async () => {
       (openButton as HTMLElement).click();
