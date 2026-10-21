@@ -100,3 +100,68 @@ describe("logins:fill", () => {
     expect(text).toContain("fast-browser");
   });
 });
+
+describe("logins:has", () => {
+  function setupHas(keys: string[]) {
+    const logged: unknown[] = [];
+    const log = { info: (...a: unknown[]) => logged.push(a), debug: (...a: unknown[]) => logged.push(a), warn: (...a: unknown[]) => logged.push(a) };
+    let lists = 0;
+    const h = createLoginsHandlers({ log } as any, {
+      apiToken: () => TOKEN,
+      listKeys: async () => { lists++; return keys; },
+      readLogin: async () => { throw new Error("logins:has must never read a login"); },
+    })["logins:has"];
+    return { h, logged, lists: () => lists };
+  }
+
+  test("missing or wrong token is ok:false and lists nothing", async () => {
+    const s = setupHas(["login.example.com"]);
+    expect(await s.h({ origin: ORIGIN })).toEqual({ ok: false, error: "missing-token" });
+    expect(await s.h({ token: "nope", origin: ORIGIN })).toEqual({ ok: false, error: "bad-token" });
+    expect(s.lists()).toBe(0);
+  });
+
+  test("a saved origin returns its two names", async () => {
+    const s = setupHas(["login.example.com"]);
+    expect(await s.h({ token: TOKEN, origin: ORIGIN })).toEqual({
+      ok: true,
+      data: {
+        origin: ORIGIN,
+        fields: { email: "devlogin:login.example.com:email", password: "devlogin:login.example.com:password" },
+      },
+    });
+  });
+
+  test("http localhost with a port uses rt's key", async () => {
+    const s = setupHas(["localhost_5001_http"]);
+    expect(await s.h({ token: TOKEN, origin: "http://localhost:5001" })).toEqual({
+      ok: true,
+      data: {
+        origin: "http://localhost:5001",
+        fields: { email: "devlogin:localhost_5001_http:email", password: "devlogin:localhost_5001_http:password" },
+      },
+    });
+  });
+
+  test("an unsaved origin is none", async () => {
+    const s = setupHas([]);
+    expect(await s.h({ token: TOKEN, origin: ORIGIN })).toEqual({ ok: true, data: { none: true } });
+  });
+
+  test.each([
+    "http://[::1]:3000",
+    "https://a_b.example.com",
+    "not a url",
+    "https://login.example.com/path",
+  ])("an origin rt cannot hold (%s) is none", async (origin) => {
+    const s = setupHas(["login.example.com"]);
+    expect(await s.h({ token: TOKEN, origin })).toEqual({ ok: true, data: { none: true } });
+  });
+
+  test("never reads a login value", async () => {
+    const s = setupHas(["login.example.com"]);
+    const res = await s.h({ token: TOKEN, origin: ORIGIN });
+    expect(res).toMatchObject({ ok: true, data: { origin: ORIGIN } });
+    expect(JSON.stringify(s.logged)).toContain("logins:has");
+  });
+});
