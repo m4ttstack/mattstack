@@ -168,6 +168,9 @@ describe("forge:file-diff on GitHub", () => {
         { filename: "logo.png", status: "modified", additions: 0, deletions: 0, changes: 0 },
         { filename: "src/moved.ts", previous_filename: "src/was.ts", status: "renamed", additions: 0, deletions: 0, changes: 0 },
         { filename: "gone.ts", status: "removed", patch: "@@ -1 +0,0 @@\n-x" },
+        { filename: "src/__init__.py", status: "added", additions: 0, deletions: 0, changes: 0 },
+        { filename: "assets/icon.PNG", status: "added", additions: 0, deletions: 0, changes: 0 },
+        { filename: "bin/run.sh", status: "changed", additions: 0, deletions: 0, changes: 0 },
       ]),
     });
     const h = handlers({ [GH_REPO]: { forge: "github", projectPath: "acme/radar", rest } });
@@ -177,6 +180,9 @@ describe("forge:file-diff on GitHub", () => {
     expect(await file("logo.png")).toMatchObject({ tooLarge: false, binary: true, diff: null });
     expect(await file("src/moved.ts")).toMatchObject({ renamed: true, tooLarge: false, binary: false, diff: "" });
     expect(await file("gone.ts")).toMatchObject({ deletedFile: true, oldPath: "gone.ts" });
+    expect(await file("src/__init__.py")).toMatchObject({ newFile: true, tooLarge: false, binary: false, diff: "" });
+    expect(await file("assets/icon.PNG")).toMatchObject({ newFile: true, tooLarge: false, binary: true, diff: null });
+    expect(await file("bin/run.sh")).toMatchObject({ tooLarge: false, binary: false, diff: "" });
   });
 
   test("a PR past GitHub's page cap is marked truncated", async () => {
@@ -291,6 +297,17 @@ describe("the forge a repo's diff is read from", () => {
     await resolve("/tmp/gh", gitlab);
     await resolve("/tmp/gh", gitlab);
     expect(originReads).toEqual(["/tmp/gh"]);
+  });
+
+  test("an origin that could not be read is asked again, so a GitHub checkout is not pinned to GitLab", async () => {
+    const answers: Array<string | undefined> = [undefined, "git@github.com:acme/radar.git"];
+    const resolve = createFileDiffContextResolver({
+      originUrl: async () => answers.shift(),
+      githubToken: async () => "ghs_fake",
+      githubRest: () => async () => json({}),
+    });
+    expect((await resolve("/tmp/gh", gitlab)).forge).toBe("gitlab");
+    expect((await resolve("/tmp/gh", gitlab)).forge).toBe("github");
   });
 });
 

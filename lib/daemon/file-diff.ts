@@ -114,18 +114,36 @@ interface GitHubFileRow {
   additions?: number; deletions?: number; changes?: number;
 }
 
+/** Extensions GitHub's file list cannot tell from an empty file: it sends
+    no patch and counts no lines for both. */
+const BINARY_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "tif", "tiff", "avif", "heic", "psd",
+  "pdf", "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "jar", "war",
+  "woff", "woff2", "ttf", "otf", "eot",
+  "mp3", "mp4", "mov", "wav", "ogg", "webm", "m4a", "flac",
+  "so", "dylib", "dll", "exe", "bin", "o", "a", "class", "wasm", "pyc",
+  "sqlite", "db", "keystore", "p12",
+]);
+
+function binaryByName(path: string): boolean {
+  const ext = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase();
+  return ext !== undefined && BINARY_EXTENSIONS.has(ext);
+}
+
 /**
- * GitHub leaves `patch` out for a binary file and for a text diff too big
- * to send. A binary file counts no line changes; a held-back text diff
- * still counts them; a pure rename has neither and no diff to show.
+ * GitHub leaves `patch` out for a binary file, for a text diff too big to
+ * send, and for a change with no lines at all. A held-back text diff still
+ * counts its lines. With none counted: a modified file is binary; a rename
+ * or a mode-only ("changed") file has no diff to show; an added or removed
+ * file is empty unless its name says binary.
  */
 function githubFile(row: GitHubFileRow, prUrl: string | null): ForgeFileDiff {
   const newPath = row.filename ?? "";
   const hasPatch = typeof row.patch === "string";
   const lineChanges = row.changes ?? (row.additions ?? 0) + (row.deletions ?? 0);
-  const pureRename = !hasPatch && row.status === "renamed" && lineChanges === 0;
-  const binary = !hasPatch && !pureRename && lineChanges === 0;
-  const tooLarge = !hasPatch && !pureRename && !binary;
+  const noLines = !hasPatch && lineChanges === 0;
+  const binary = noLines && (row.status === "modified" || ((row.status === "added" || row.status === "removed") && binaryByName(newPath)));
+  const tooLarge = !hasPatch && lineChanges > 0;
   return {
     oldPath: row.previous_filename ?? newPath,
     newPath,
@@ -134,7 +152,7 @@ function githubFile(row: GitHubFileRow, prUrl: string | null): ForgeFileDiff {
     deletedFile: row.status === "removed",
     binary,
     tooLarge,
-    diff: hasPatch ? row.patch! : pureRename ? "" : null,
+    diff: hasPatch ? row.patch! : noLines && !binary ? "" : null,
     webUrl: prUrl ? `${prUrl}/files#diff-${createHash("sha256").update(newPath).digest("hex")}` : null,
   };
 }
@@ -231,9 +249,18 @@ export function createFileDiffContextResolver(deps: FileDiffContextDeps = realCo
   const originOf = (repoPath: string) => {
     let p = origins.get(repoPath);
     if (!p) {
-      p = deps.originUrl(repoPath);
+      // Only a found origin is kept: a failed read asks again next time.
+      p = deps.originUrl(repoPath).then(
+        (url) => {
+          if (url === undefined) origins.delete(repoPath);
+          return url;
+        },
+        (err: unknown) => {
+          origins.delete(repoPath);
+          throw err;
+        },
+      );
       origins.set(repoPath, p);
-      p.catch(() => origins.delete(repoPath));
     }
     return p;
   };
