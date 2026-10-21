@@ -74,6 +74,21 @@ function holdOf(rec: TreeRecord, deps: TriageDeps): TriageHold | null {
   return null;
 }
 
+/**
+ * Commits on neither the default branch nor the remote branch. Excluding both
+ * keeps a squash merge's history and a rebase's picked-up main commits out of
+ * the count; including the local branch tip counts work stranded there behind
+ * a detached HEAD. A failed count falls back to `ahead`, never to 0.
+ */
+async function unpushedCount(path: string, branch: string | null, defaultRef: string, remoteBranchExists: boolean, ahead: number): Promise<number> {
+  const tips = ["HEAD"];
+  if (branch && (await runGit(path, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`])).exitCode === 0) tips.push(`refs/heads/${branch}`);
+  const not = [defaultRef, ...(remoteBranchExists && branch ? [`refs/remotes/origin/${branch}`] : [])];
+  const r = await runGit(path, ["rev-list", "--count", ...tips, "--not", ...not]);
+  const n = Number(r.stdout.trim());
+  return r.exitCode === 0 && Number.isFinite(n) ? n : ahead;
+}
+
 export async function collectFacts(repo: string, repoPath: string, rec: TreeRecord, deps: TriageDeps): Promise<TriageFacts> {
   const entry = cacheEntry(repo, rec.branch, deps.cacheEntries);
   const mrRaw = entry?.mr ?? null;
@@ -95,10 +110,9 @@ export async function collectFacts(repo: string, repoPath: string, rec: TreeReco
   const fetch = deps.fetch ? (sha: string) => deps.fetch!(rec.path, sha) : undefined;
   const containment = await containmentOf(rec.path, rec.branch, mrRaw ? { state: mrRaw.state, sha: mrRaw.sha } : null, fetch);
   const remoteBranchExists = rec.branch ? await remoteRefExists(rec.path, rec.branch) : false;
-  const ahead = Number((await runGit(rec.path, ["rev-list", "--count", `refs/remotes/${await remoteDefaultRef(rec.path)}..HEAD`])).stdout.trim()) || 0;
-  const unpushed = remoteBranchExists
-    ? Number((await runGit(rec.path, ["rev-list", "--count", `refs/remotes/origin/${rec.branch}..HEAD`])).stdout.trim()) || 0
-    : ahead;
+  const defaultRef = `refs/remotes/${await remoteDefaultRef(rec.path)}`;
+  const ahead = Number((await runGit(rec.path, ["rev-list", "--count", `${defaultRef}..HEAD`])).stdout.trim()) || 0;
+  const unpushed = await unpushedCount(rec.path, rec.branch, defaultRef, remoteBranchExists, ahead);
   return {
     repo, tree: rec.name, path: rec.path, branch: rec.branch, broken: null, mr, ticket, remoteBranchExists, ahead, unpushed, containment, dirt,
     fingerprint: { headSha: (await headSha(rec.path)) ?? "", dirtHash: dirtHash(dirt.files), mrState: mr?.state ?? null },
