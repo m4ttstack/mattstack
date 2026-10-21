@@ -68,6 +68,7 @@ const NO_SCHEMA_YET: readonly string[] = [
   "rt.logRetentionDays",
   "rt.runsPruneDays",
   "rt.ui.background",
+  "rt.worktreeMergeCleanupNotice",
   "rt.worktreeReadyApproval",
   "skills.writingStyle",
   "telemetry.enabled",

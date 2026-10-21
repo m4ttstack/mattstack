@@ -1609,16 +1609,73 @@ body {
   background: var(--card);
   box-shadow: var(--shadow-card);
 }
-/* Pending-decision callout above the roster: renders as the kit's filled
-   accent button (Sidebar.tsx), the same accent blue the rest of the chrome
-   speaks. Sized/weighted up from the kit's md button so it reads as a
-   banner rather than another roster row. */
-.tui-dq-open {
-  width: 100%;
-  margin-bottom: 6px;
-  font-weight: 600;
+/* Decision queue banner above the header (DecisionBanner.tsx): an accent
+   wash over the card so it reads as owed work, not another panel. */
+.tui-dq-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px 12px 16px;
+  border: 1px solid
+    color-mix(in srgb, var(--fill-accent) 35%, var(--border-soft));
+  border-radius: 8px;
+  background:
+    linear-gradient(var(--surface-wash-accent-7), var(--surface-wash-accent-7)),
+    var(--card);
+}
+.tui-dq-banner-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: light-dark(
+    var(--surface-wash-accent-14),
+    color-mix(in srgb, var(--fill-accent) 34%, transparent)
+  );
+  color: var(--text-accent);
+}
+.tui-dq-banner-copy {
+  flex: 1;
+  min-width: 0;
+}
+.tui-dq-banner-copy p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  box-shadow: 0 1px 6px color-mix(in srgb, var(--fill-accent) 45%, transparent);
+}
+.tui-dq-banner-title {
+  color: var(--text-1);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.tui-dq-banner-detail {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.tui-dq-open {
+  flex-shrink: 0;
+  gap: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .tui-dq-banner {
+    flex-wrap: wrap;
+  }
+  .tui-dq-banner-copy {
+    flex-basis: calc(100% - 44px);
+  }
+  .tui-dq-banner-copy p {
+    white-space: normal;
+  }
+  .tui-dq-open {
+    width: 100%;
+  }
 }
 
 /* Roster header: the All row plus a manage-roster gear beside it. */

@@ -1,6 +1,6 @@
 /** DOM-level test for the decision queue wired into Board.tsx: a real
     happy-dom document and a real Board render, covering the header entry
-    point (`decision queue · N`) through open, next gate, and close, and the
+    point (the banner's start button) through open, next gate, and close, and the
     row's own way in (the status line's answer verb on a stuck or unassigned
     gate) -- the wiring a component-level test of the queue hook or the
     modal alone can't exercise, since it depends on Board's own entries
@@ -242,9 +242,8 @@ async function openQueue(container: HTMLElement): Promise<Element> {
   await React.act(async () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
-  const openButton = [...container.querySelectorAll('button')].find(b =>
-    b.textContent?.trim().startsWith('decision queue')
-  ) as HTMLElement;
+  const openButton = (container.querySelector<HTMLElement>('.tui-dq-open') ??
+    undefined) as HTMLElement;
   await React.act(async () => {
     openButton.click();
   });
@@ -313,11 +312,16 @@ test('decision queue: header entry opens, next gate advances, close dismisses', 
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    const openButton = [...container.querySelectorAll('button')].find(b =>
-      b.textContent?.trim().startsWith('decision queue')
-    );
+    const openButton =
+      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
     expect(openButton).not.toBeUndefined();
-    expect(openButton?.textContent?.trim()).toBe('decision queue · 2');
+    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe(
+      '2 decisions are waiting on you'
+    );
+    // The banner names the gate its button opens.
+    expect(
+      container.querySelector('.tui-dq-banner-detail')?.textContent
+    ).toContain('first mr title');
 
     await React.act(async () => {
       (openButton as HTMLElement).click();
@@ -371,9 +375,8 @@ test('decision queue: a gate-less snapshot (server warm-up) does not complete th
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    const openButton = [...container.querySelectorAll('button')].find(b =>
-      b.textContent?.trim().startsWith('decision queue')
-    );
+    const openButton =
+      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
     await React.act(async () => {
       (openButton as HTMLElement).click();
     });
@@ -433,9 +436,8 @@ test('decision queue: paging to the next gate does not bleed its selection into 
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    const openButton = [...container.querySelectorAll('button')].find(b =>
-      b.textContent?.trim().startsWith('decision queue')
-    );
+    const openButton =
+      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
     await React.act(async () => {
       (openButton as HTMLElement).click();
     });
@@ -596,10 +598,11 @@ test('the queue counts gates on rows an author filter hides, visible rows first'
       await new Promise(resolve => setTimeout(resolve, 0));
     });
     expect(container.querySelectorAll('.tui-row')).toHaveLength(1);
-    const openButton = [...container.querySelectorAll('button')].find(b =>
-      b.textContent?.trim().startsWith('decision queue')
+    const openButton =
+      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
+    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe(
+      '2 decisions are waiting on you'
     );
-    expect(openButton?.textContent?.trim()).toBe('decision queue · 2');
 
     await React.act(async () => {
       (openButton as HTMLElement).click();
