@@ -98,7 +98,7 @@ describe('the review scripts and the review sheet agree', () => {
         'utf8'
       )
     ) as {
-      summary: { comment: string };
+      summary: { comments: Record<string, string> };
       findings: Array<{ id: string; comment: string }>;
     };
     const gate = readReviewGate(
@@ -107,7 +107,7 @@ describe('the review scripts and the review sheet agree', () => {
     rmSync(dir, { recursive: true, force: true });
     expect(gate).not.toBeNull();
     expect(gate!.review.editable).toBe(true);
-    expect(gate!.review.summaryComment).toBe(report.summary.comment);
+    expect(gate!.review.summaryComments).toEqual(report.summary.comments);
     expect(gate!.findings.size).toBe(12);
     for (const f of report.findings)
       expect(gate!.findings.get(f.id)?.comment).toBe(f.comment);

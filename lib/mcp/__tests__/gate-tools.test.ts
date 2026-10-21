@@ -452,10 +452,10 @@ describe("gate_open", () => {
     const review = { findingsPath: copy(FIXTURE.drafts, "findings-v3-drafts.json"), extras: { ...loadJson(FIXTURE.extras), editable: true } };
     const res = await open({ kind: "review-post", review }, f);
     expect(res.ok).toBe(true);
-    expect(JSON.parse(f.asks[0]!.context as string)).toMatchObject({ editable: true, summaryComment: drafts.summary.comment });
+    expect(JSON.parse(f.asks[0]!.context as string)).toMatchObject({ editable: true, summaryComments: drafts.summary.comments });
     const form = JSON.stringify({ formContext: body(res).formContext, formChunks: body(res).formChunks });
     expect(body(res).formContext).toBeDefined();
-    for (const c of [drafts.summary.comment, ...drafts.findings.map((d: { comment: string }) => d.comment)]) {
+    for (const c of [...(Object.values(drafts.summary.comments) as string[]), ...drafts.findings.map((d: { comment: string }) => d.comment)]) {
       expect(JSON.stringify(f.asks[0])).toContain(JSON.stringify(c).slice(1, -1));
       expect(form).not.toContain(c.slice(0, 40));
     }

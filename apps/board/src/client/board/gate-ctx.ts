@@ -74,6 +74,8 @@ export interface ReviewCtx {
       offer the drafts for editing. */
   editable?: boolean;
   summaryComment?: string;
+  /** The drafted summary line per outcome option value. */
+  summaryComments?: Record<string, string>;
 }
 
 export interface FindingEntry {
@@ -194,6 +196,11 @@ function optCount(v: unknown): number {
   return v === undefined ? 0 : count(v);
 }
 
+function optStrMap(v: unknown): Record<string, string> | undefined {
+  if (v === undefined) return undefined;
+  return Object.fromEntries(Object.entries(obj(v)).map(([k, s]) => [k, str(s)]));
+}
+
 function optFlag(v: unknown): boolean {
   if (v === undefined) return false;
   return typeof v === 'boolean' ? v : reject();
@@ -298,6 +305,7 @@ function readReview(o: Obj): ReviewCtx {
   const prior = o.prior === undefined ? undefined : obj(o.prior);
   const editable = optFlag(o.editable);
   const summaryComment = optStr(o.summaryComment);
+  const summaryComments = optStrMap(o.summaryComments);
   return {
     shape: 'review@1',
     ...(reviewer !== undefined ? { reviewer } : {}),
@@ -320,6 +328,7 @@ function readReview(o: Obj): ReviewCtx {
       : {}),
     ...(editable ? { editable } : {}),
     ...(summaryComment !== undefined ? { summaryComment } : {}),
+    ...(summaryComments !== undefined ? { summaryComments } : {}),
   };
 }
 

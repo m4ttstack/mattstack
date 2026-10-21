@@ -13,6 +13,7 @@ import {
 import {
   JqError,
   asciiLower,
+  hasNonSpace,
   isObject,
   isSpace,
   jqEqual,
@@ -27,6 +28,8 @@ type Obj = Record<string, any>;
 
 const TIERS = ["Critical", "Important", "Minor"];
 const str = (v: unknown): boolean => typeof v === "string" && v.length > 0;
+const nonBlank = (v: unknown): boolean => typeof v === "string" && hasNonSpace(v);
+const arrayOrEmpty = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const structured = (f: unknown): boolean => jqEqual(at(f, "version"), 2) || jqEqual(at(f, "version"), 3);
 
 /** jq's `.[]`: elements or values, an error on anything else. */
@@ -105,7 +108,10 @@ function fileErrs(f: Obj): string[] {
     ),
     ...chk(() => among(at(f, "summary", "readiness"), ["yes", "no", "with-fixes"]), "summary.readiness: yes|no|with-fixes"),
     ...chk(() => str(at(f, "summary", "reasoning")), "summary.reasoning: required non-empty string"),
-    ...chk(() => optional(at(f, "summary"), "comment", str), "summary.comment: non-empty string when present"),
+    ...chk(
+      () => optional(at(f, "summary"), "comments", (v) => isObject(v) && Object.values(v).every(nonBlank)),
+      "summary.comments: object of non-blank strings when present",
+    ),
     ...chk(() => Array.isArray(at(f, "findings")), "findings: required array"),
     ...chk(() => optional(f, "re_review", (v) => typeof v === "boolean"), "re_review: boolean when present"),
     ...chk(
@@ -125,9 +131,26 @@ function fileErrs(f: Obj): string[] {
   ];
 }
 
-/** An editable gate always has a draft for the poster to fall back to. */
-function hasEveryDraft(f: Obj): boolean {
-  return str(at(f, "summary", "comment")) && entries(f, "findings").every((e) => str(at(e, "comment")));
+/** An editable gate always has a draft for the poster to fall back to,
+    and a summary line for whichever verdict is picked. */
+function draftErrs(x: Obj, f: Obj): string[] {
+  if (!jqEqual(at(x, "editable"), true)) return [];
+  const outcome = arrayOrEmpty(at(x, "questions")).filter((q) => isObject(q) && at(q, "id") === "outcome");
+  const values = outcome.length ? arrayOrEmpty(at(outcome[0], "options")).map((o) => (isObject(o) ? at(o, "value") : o)) : [];
+  return [
+    ...chk(() => entries(f, "findings").every((e) => str(at(e, "comment"))), "editable: needs a comment on every finding"),
+    ...(outcome.length === 0
+      ? ["editable: needs an outcome question for summary.comments to follow"]
+      : chk(() => {
+          const c = at(f, "summary", "comments");
+          const want = new Set(values);
+          return (
+            isObject(c) &&
+            Object.keys(c).length === want.size &&
+            [...want].every((v) => typeof v === "string" && Object.hasOwn(c, v))
+          );
+        }, `editable: summary.comments needs exactly one line per outcome option: ${values.map(tostring).join(", ")}`)),
+  ];
 }
 
 function extrasErrs(x: Obj, f: Obj): string[] {
@@ -148,10 +171,7 @@ function extrasErrs(x: Obj, f: Obj): string[] {
       "questions: findings-*, thread-* and skipped-* ids are built from the findings file",
     ),
     ...chk(() => optional(x, "editable", (v) => typeof v === "boolean"), "editable: boolean when present"),
-    ...chk(
-      () => !jqEqual(at(x, "editable"), true) || hasEveryDraft(f),
-      "editable: needs a comment on every finding and a summary.comment",
-    ),
+    ...draftErrs(x, f),
   ];
 }
 
@@ -351,7 +371,7 @@ export function buildReviewSource(findings: Record<string, unknown>, extras: Rec
     ...pick(x, ["round"]),
     ...pick(f, ["re_review", "prior"]),
     ...(x.editable === true ? { editable: true } : {}),
-    ...(jqHas(f.summary, "comment") ? { summaryComment: f.summary.comment } : {}),
+    ...(jqHas(f.summary, "comments") ? { summaryComments: f.summary.comments } : {}),
   };
   const threadQs = (entries(f, "threads") as Obj[]).map((t, i) => threadQuestion(t, i + 1));
   const findingQs = chunks(ordered, 4).map((chunk, i) => ({

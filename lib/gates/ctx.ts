@@ -165,7 +165,10 @@ function reviewErrs(c: unknown): string[] {
       "prior: {addressed, still_open} integers when present",
     ),
     ...chk(() => optional(c, "editable", (v) => v === true), "editable: true when present"),
-    ...chk(() => optional(c, "summaryComment", str), "summaryComment: non-empty string when present"),
+    ...chk(
+      () => optional(c, "summaryComments", (v) => isObject(v) && Object.values(v).every(str)),
+      "summaryComments: object of non-blank strings when present",
+    ),
   ];
 }
 
@@ -323,7 +326,7 @@ export const PANE_PROSE_LIMIT = 8192;
     so trimming it cannot shrink the pane. */
 export const BOARD_ONLY_FIELDS: Record<string, readonly string[]> = {
   "findings@1": ["comment"],
-  "review@1": ["summaryComment"],
+  "review@1": ["summaryComments"],
 };
 
 export interface RenderedOpen {

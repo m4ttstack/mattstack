@@ -109,7 +109,7 @@ def review_errs: [
   chk(optional("re_review"; type == "boolean"); "re_review: boolean when present"),
   chk(optional("prior"; type == "object" and (.addressed | int) and (.still_open | int)); "prior: {addressed, still_open} integers when present"),
   chk(optional("editable"; . == true); "editable: true when present"),
-  chk(optional("summaryComment"; str); "summaryComment: non-empty string when present")
+  chk(optional("summaryComments"; type == "object" and all(.[]; str)); "summaryComments: object of non-blank strings when present")
 ];
 def findings_errs($values): [
   chk(.findings | type == "array" and length > 0; "findings: required non-empty array"),
@@ -178,7 +178,7 @@ def tier: {"critical":"Critical","important":"Important","minor":"Minor"}[.];
 # lib/gates/ctx.ts). A name is dropped from the context and from every
 # object in the context's top-level arrays. A board-only field is never a
 # pane trim target: it is never in the pane, so trimming it cannot shrink it.
-def board_only: {"findings@1":["comment"],"review@1":["summaryComment"]};
+def board_only: {"findings@1":["comment"],"review@1":["summaryComments"]};
 def without_board_only:
   (board_only[.["gate-ctx"] | strings] // []) as $fs
   | if $fs == [] then .

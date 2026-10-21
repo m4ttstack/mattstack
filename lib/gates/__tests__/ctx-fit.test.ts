@@ -362,7 +362,7 @@ describe("drafted comments are stored whole and never reach the pane", () => {
   const findings = read("findings-v3-drafts.json");
   const src = buildReviewSource(findings, { ...read("extras.json"), editable: true }) as Src;
   const r = fitOpen(src);
-  const comments = [findings.summary.comment, ...findings.findings.map((f: Src) => f.comment)] as string[];
+  const comments = [...Object.values(findings.summary.comments), ...findings.findings.map((f: Src) => f.comment)] as string[];
   const paneText = [r.pane.context ?? "", ...r.pane.questions.map((q) => (typeof q.context === "string" ? q.context : ""))].join("\n");
 
   test("twelve comments would overflow the pane if they counted", () =>
@@ -372,7 +372,7 @@ describe("drafted comments are stored whole and never reach the pane", () => {
     const stored = r.questions.filter((q) => String(q.id).startsWith("findings-")).flatMap((q) => JSON.parse(q.context as string).findings);
     expect(stored.map((e: Src) => e.comment)).toEqual(src.questions.filter((q) => String(q.id).startsWith("findings-")).flatMap((q) => q.context.findings).map((e: Src) => e.comment));
     expect(stored.length).toBe(12);
-    expect(JSON.parse(r.context!).summaryComment).toBe(findings.summary.comment);
+    expect(JSON.parse(r.context!).summaryComments).toEqual(findings.summary.comments);
   });
   test("the pane prose fits whole, nothing trimmed or dropped", () => {
     expect(paneBytes(r.pane)).toBeLessThan(PANE_PROSE_LIMIT);

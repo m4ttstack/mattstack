@@ -237,21 +237,27 @@ run "$D" "$EX"
 check "drafts exit 0" 0 "$RC"
 check "every finding's comment passes through whole" true \
   "$(printf '%s' "$OUT" | jq --slurpfile f "$D" '[.questions[] | select(.id | startswith("findings-")) | .context.findings[] | {(.id): .comment}] | add == ($f[0].findings | map({(.id): .comment}) | add)')"
-check "review@1 carries editable and the whole summary comment" true \
-  "$(printf '%s' "$OUT" | jq --slurpfile f "$D" '.context.editable == true and .context.summaryComment == $f[0].summary.comment')"
+check "review@1 carries editable and every verdict's summary draft whole" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile f "$D" '.context.editable == true and .context.summaryComments == $f[0].summary.comments')"
+check "the summary drafts are review@1's last key" summaryComments "$(q '.context | keys_unsorted | last')"
 FIT=$(printf '%s' "$OUT" | sh "$GC" fit); FRC=$?
 check "the drafts fit structured and the pane fits untrimmed" '0|structured|true|[]|false' \
   "$FRC|$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(.pane.fits)|\(.pane.trimmed | tojson)|\(.pane.contextDropped)"')"
 check "no comment reaches the pane" false \
-  "$(printf '%s' "$FIT" | jq --slurpfile f "$D" '[.pane.context, .pane.questions[].context | strings] | join("\n") as $p | any(($f[0].summary.comment, $f[0].findings[].comment); .[:40] as $c | $p | contains($c))')"
+  "$(printf '%s' "$FIT" | jq --slurpfile f "$D" '[.pane.context, .pane.questions[].context | strings] | join("\n") as $p | any(($f[0].summary.comments[], $f[0].findings[].comment); .[:40] as $c | $p | contains($c))')"
 run "$V3" "$X"
 check "a v3 file without drafts carries no draft keys" 'false|false|false' \
-  "$(q '"\(.context | has("editable"))|\(.context | has("summaryComment"))|\(any(.questions[].context.findings?[]?; has("comment")))"')"
+  "$(q '"\(.context | has("editable"))|\(.context | has("summaryComments"))|\(any(.questions[].context.findings?[]?; has("comment")))"')"
 M=$(mutate '.findings[2].comment = ""' "$D"); reject "an empty comment" "$M" "$X" "findings file: findings[2].comment: non-empty string when present"; rm -f "$M"
-M=$(mutate '.summary.comment = 5' "$D"); reject "a numeric summary comment" "$M" "$X" "findings file: summary.comment: non-empty string when present"; rm -f "$M"
+M=$(mutate '.summary.comments.approve = 5' "$D"); reject "a numeric summary draft" "$M" "$X" "findings file: summary.comments: object of non-blank strings when present"; rm -f "$M"
+M=$(mutate '.summary.comments.comment = " \n "' "$D"); reject "a blank summary draft" "$M" "$X" "findings file: summary.comments: object of non-blank strings when present"; rm -f "$M"
 M=$(mutate '.editable = "yes"' "$X"); reject "editable as a string" "$D" "$M" "extras: editable: boolean when present"; rm -f "$M"
-M=$(mutate 'del(.findings[4].comment)' "$D"); reject "editable with a finding missing its comment" "$M" "$EX" "extras: editable: needs a comment on every finding and a summary.comment"; rm -f "$M"
-M=$(mutate 'del(.summary.comment)' "$D"); reject "editable without a summary comment" "$M" "$EX" "extras: editable: needs a comment on every finding and a summary.comment"; rm -f "$M"
+M=$(mutate 'del(.findings[4].comment)' "$D"); reject "editable with a finding missing its comment" "$M" "$EX" "extras: editable: needs a comment on every finding"; rm -f "$M"
+LINES="extras: editable: summary.comments needs exactly one line per outcome option: comment, approve"
+M=$(mutate 'del(.summary.comments)' "$D"); reject "editable without summary drafts" "$M" "$EX" "$LINES"; rm -f "$M"
+M=$(mutate 'del(.summary.comments.approve)' "$D"); reject "editable missing a verdict's draft" "$M" "$EX" "$LINES"; rm -f "$M"
+M=$(mutate '.summary.comments.request_changes = "Needs work."' "$D"); reject "editable with a draft for no verdict" "$M" "$EX" "$LINES"; rm -f "$M"
+M=$(mutate '.questions = [{"id": "next", "label": "Next", "multi": false, "options": ["proceed"]}]' "$EX"); reject "editable with no outcome question" "$D" "$M" "extras: editable: needs an outcome question for summary.comments to follow"; rm -f "$M"
 rm -f "$EX"
 
 [ "$fails" -eq 0 ] || { echo "$fails failing"; exit 1; }

@@ -495,13 +495,15 @@ describe("drafted comments ride whole, board-only", () => {
     expect(Object.fromEntries(entries(out).map((e) => [e.id, e.comment]))).toEqual(want);
   });
   test("the comment is the entry's last key", () => expect(Object.keys(entries(out)[0]!).at(-1)).toBe("comment"));
-  test("review@1 carries editable and the whole summary comment", () => {
+  test("review@1 carries editable and every verdict's summary draft whole", () => {
     expect(out.context.editable).toBe(true);
-    expect(out.context.summaryComment).toBe(load(DRAFTS).summary.comment);
+    expect(out.context.summaryComments).toEqual(load(DRAFTS).summary.comments);
   });
+  test("the summary drafts are review@1's last key", () => expect(Object.keys(out.context).at(-1)).toBe("summaryComments"));
   test("without editable the drafts still ride and editable is absent", () => {
     const o = build(load(DRAFTS), load(X));
-    expect(`${Object.hasOwn(o.context, "editable")}|${o.context.summaryComment === load(DRAFTS).summary.comment}`).toBe("false|true");
+    expect(Object.hasOwn(o.context, "editable")).toBe(false);
+    expect(o.context.summaryComments).toEqual(load(DRAFTS).summary.comments);
   });
   test("a v3 file without drafts builds exactly what it did", () => {
     const o = build(load(V3), load(X));
@@ -510,25 +512,36 @@ describe("drafted comments ride whole, board-only", () => {
   });
   test("the drafts source passes checkSource", () => expect(checkSource(out)).toEqual({ ok: true }));
 
+  const LINES = "extras: editable: summary.comments needs exactly one line per outcome option: comment, approve";
   const rejects: [string, J, J, string][] = [
     ["an empty comment", mutated(DRAFTS, (j) => (j.findings[2].comment = "")), load(X), "findings file: findings[2].comment: non-empty string when present"],
-    ["a numeric summary comment", mutated(DRAFTS, (j) => (j.summary.comment = 5)), load(X), "findings file: summary.comment: non-empty string when present"],
+    ["summary drafts as a string", mutated(DRAFTS, (j) => (j.summary.comments = "hi")), load(X), "findings file: summary.comments: object of non-blank strings when present"],
+    ["a numeric summary draft", mutated(DRAFTS, (j) => (j.summary.comments.approve = 5)), load(X), "findings file: summary.comments: object of non-blank strings when present"],
+    ["a blank summary draft", mutated(DRAFTS, (j) => (j.summary.comments.comment = " \n ")), load(X), "findings file: summary.comments: object of non-blank strings when present"],
     ["editable as a string", load(DRAFTS), mutated(X, (j) => (j.editable = "yes")), "extras: editable: boolean when present"],
     [
       "editable with a finding that has no comment",
       mutated(DRAFTS, (j) => delete j.findings[4].comment),
       editable(),
-      "extras: editable: needs a comment on every finding and a summary.comment",
+      "extras: editable: needs a comment on every finding",
     ],
+    ["editable without summary drafts", mutated(DRAFTS, (j) => delete j.summary.comments), editable(), LINES],
+    ["editable missing a verdict's draft", mutated(DRAFTS, (j) => delete j.summary.comments.approve), editable(), LINES],
+    ["editable with a draft for no verdict", mutated(DRAFTS, (j) => (j.summary.comments.request_changes = "Needs work.")), editable(), LINES],
     [
-      "editable without a summary comment",
-      mutated(DRAFTS, (j) => delete j.summary.comment),
-      editable(),
-      "extras: editable: needs a comment on every finding and a summary.comment",
+      "editable with no outcome question",
+      load(DRAFTS),
+      mutated(X, (j) => {
+        j.editable = true;
+        j.questions = [{ id: "next", label: "Next", multi: false, options: ["proceed"] }];
+      }),
+      "extras: editable: needs an outcome question for summary.comments to follow",
     ],
   ];
   for (const [name, f, x, want] of rejects) test(`${name} names the field`, () => expect(errs(f, x)).toBe(want));
-  test("editable over a file with no findings needs only the summary comment", () =>
+  test("a draft for no verdict is fine when the gate is not editable", () =>
+    expect(errs(mutated(DRAFTS, (j) => (j.summary.comments.request_changes = "Needs work.")), load(X))).toBe(""));
+  test("editable over a file with no findings needs only the summary drafts", () =>
     expect(errs(mutated(DRAFTS, (j) => (j.findings = [])), editable())).toBe(""));
 });
 
