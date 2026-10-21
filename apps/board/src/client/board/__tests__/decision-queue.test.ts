@@ -269,11 +269,9 @@ test('bannerCopy counts the queue and names the gate that opens first', () => {
   expect(bannerCopy([first, entry('g2', 2), entry('g3', 3)], now)).toEqual({
     title: '3 decisions are waiting on you',
     detail: 'Next: !1374 · attribute panel summaries · waiting 2h',
-    action: 'Start deciding',
   });
   expect(bannerCopy([first], now)).toEqual({
     title: '1 decision is waiting on you',
     detail: '!1374 · attribute panel summaries · waiting 2h',
-    action: 'Decide',
   });
 });

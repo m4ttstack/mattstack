@@ -61,7 +61,6 @@ export const Several: Story = {
     copy: {
       title: '6 decisions are waiting on you',
       detail: 'Next: !1374 · attribute panel summaries · waiting 2h',
-      action: 'Start deciding',
     },
   },
 };
@@ -71,7 +70,6 @@ export const One: Story = {
     copy: {
       title: '1 decision is waiting on you',
       detail: '!1374 · attribute panel summaries · waiting 2h',
-      action: 'Decide',
     },
   },
 };
@@ -81,7 +79,6 @@ export const AgentAsking: Story = {
     copy: {
       title: '3 decisions are waiting on you',
       detail: 'Next: api-lane wants to run migrations on staging · waiting 1m',
-      action: 'Start deciding',
     },
   },
 };

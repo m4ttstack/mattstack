@@ -1667,6 +1667,9 @@ body {
   .tui-dq-banner-copy {
     flex-basis: calc(100% - 44px);
   }
+  .tui-dq-banner-copy p {
+    white-space: normal;
+  }
   .tui-dq-open {
     width: 100%;
   }

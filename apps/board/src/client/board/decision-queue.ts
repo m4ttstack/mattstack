@@ -107,7 +107,6 @@ export function entryPeek(entry: QueueEntry): string {
 export interface BannerCopy {
   title: string;
   detail: string;
-  action: string;
 }
 
 /** The board banner's words for a non-empty queue. `entries[0]` is the gate
@@ -117,11 +116,10 @@ export function bannerCopy(entries: QueueEntry[], now: number): BannerCopy {
   const waited = ago(new Date(first.gate.openedAt).toISOString(), now);
   const item = `${entryPeek(first)} · waiting ${waited}`;
   return entries.length === 1
-    ? { title: '1 decision is waiting on you', detail: item, action: 'Decide' }
+    ? { title: '1 decision is waiting on you', detail: item }
     : {
         title: `${entries.length} decisions are waiting on you`,
         detail: `Next: ${item}`,
-        action: 'Start deciding',
       };
 }
 

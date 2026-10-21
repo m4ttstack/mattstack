@@ -28,7 +28,7 @@ function DecisionBanner({
         intent="accent"
         onClick={onStart}
       >
-        {copy.action}
+        Open queue
         <Icon d={ARROW} />
       </Button>
     </section>
