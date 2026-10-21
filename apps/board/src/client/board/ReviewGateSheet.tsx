@@ -243,12 +243,14 @@ function readDrafts(
 function SummaryCard({
   target,
   outcome,
+  verdictLabel,
   draft,
   folded,
   form,
 }: {
   target?: string;
   outcome: string;
+  verdictLabel: string;
   draft: string;
   folded: FindingEntry[];
   form: GateFormState;
@@ -278,7 +280,7 @@ function SummaryCard({
           key={key}
           label="Summary comment"
           noun="comment"
-          heading="will post as the review summary"
+          heading={`will post as the review summary · ${verdictLabel}`}
           draft={draft}
           value={form.texts[key]}
           canEdit
@@ -603,6 +605,7 @@ function ReviewGateSheet({
             <SummaryCard
               target={mr && mrRef(mr)}
               outcome={verdict}
+              verdictLabel={outcomeText.toLowerCase()}
               draft={summaryDraft}
               folded={folded}
               form={form}

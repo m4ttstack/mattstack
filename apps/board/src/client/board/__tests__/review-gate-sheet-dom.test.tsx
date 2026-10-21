@@ -1409,6 +1409,15 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(summaryLine().textContent).not.toContain(SUMMARY);
   });
 
+  test('the summary heading names the selected verdict and follows it', async () => {
+    await render(draftsGate());
+    const heading = () =>
+      summaryLine().querySelector('.tui-thread-reply-k')?.textContent;
+    expect(heading()).toBe('will post as the review summary · approve');
+    await pickVerdict('comment');
+    expect(heading()).toBe('will post as the review summary · comment');
+  });
+
   test('each verdict keeps its own edit: switching away and back restores it', async () => {
     await render(draftsGate());
     await edit(summaryLine(), 'Approve, edited.');
@@ -1524,7 +1533,7 @@ describe('a gate whose poster honors edited drafts', () => {
     const boxes = card.querySelectorAll('.tui-thread-reply');
     expect(boxes.length).toBe(2);
     expect(boxes[0]!.querySelector('.tui-thread-reply-k')?.textContent).toBe(
-      'will post as the review summary'
+      'will post as the review summary · approve'
     );
     expect(boxes[0]!.textContent).toContain(SUMMARY);
     expect(boxes[1]!.textContent).toContain(COMMENT.f3);
