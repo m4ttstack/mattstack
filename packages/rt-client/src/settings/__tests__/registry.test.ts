@@ -417,7 +417,7 @@ describe("settings/registry", () => {
         "telemetry.enabled",
         "rt.evidence.foldScreenshots",
       ];
-      expect(suiteKeys).toHaveLength(98);
+      expect(suiteKeys).toHaveLength(99);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
