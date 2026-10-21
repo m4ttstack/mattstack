@@ -16,6 +16,7 @@ import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
+import { TEAM_MARKERS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
 
 const realInitFsForTests: MaterializeFs = {
   exists: existsSync,
@@ -1729,6 +1730,206 @@ describe("base pack attachments", () => {
 
     expect(errors).toEqual([]);
     expect(readFileSync(join(packDir, "attachments", "data", "compiled.json"), "utf8")).toBe(data);
+  });
+
+  describe("team values in base text", () => {
+    const DOMAIN_WITH_TEAM = DOMAIN_SKILL_MD + "Linear team: {{team.linear-team}}.\n";
+    const CI_NOTES_MD = "---\nname: ci-notes\ndescription: CI notes\n---\nExtra jobs:\n{{team.section:ci-extra}}\n";
+    const TWO_VERBS = JSON.stringify({ verbs: {
+      "watch-ci": { engine: "watch-ci", description: "Use when watching or triaging CI." },
+      "triage-ci": { engine: "watch-ci", description: "Use when sorting CI failures." },
+    } });
+    const TITLE = "The widgets pack is missing values the acme-base pack asks for";
+
+    function seedTeamValues(opts: { domainBody?: string; ciNotes?: boolean } = {}) {
+      const seeded = seedBaseAndTeam({
+        domainBody: opts.domainBody ?? DOMAIN_WITH_TEAM,
+        baseFiles: opts.ciNotes === false ? {} : { "attachments/ci-notes/SKILL.md": CI_NOTES_MD },
+      });
+      writeFile(join(seeded.packDir, "pack", "stubs.jsonc"), TWO_VERBS);
+      const setValues = (params: Record<string, string>, sections: Record<string, string> = {}) => {
+        writeFile(join(seeded.packDir, "pack", "params.jsonc"), JSON.stringify({ version: 1, params }));
+        for (const [name, text] of Object.entries(sections)) writeFile(join(seeded.packDir, "pack", "sections", `${name}.md`), text);
+      };
+      const run = (argv: string[]) => runSkillsCapturing([...argv, "--team", "widgets", "--pack-dir", seeded.packDir, "--mattstack-dir", seeded.mattstackDir]);
+      return { ...seeded, setValues, run };
+    }
+
+    function filesUnder(dir: string): Record<string, string> {
+      const files: Record<string, string> = {};
+      for (const side of ["skills", "attachments"]) {
+        const root = join(dir, side);
+        if (!existsSync(root)) continue;
+        for (const rel of readdirSync(root, { recursive: true }) as string[]) {
+          const abs = join(root, rel);
+          if (statSync(abs).isFile()) files[`${side}/${rel}`] = readFileSync(abs, "utf8");
+        }
+      }
+      return files;
+    }
+
+    test("compile refuses with every missing value listed and writes nothing", async () => {
+      const { packDir, mattstackDir, compile, setValues } = seedTeamValues();
+
+      const { exitCode, errors } = await compile();
+
+      expect(exitCode).toBe(1);
+      expect(errors[0]).toBe(TITLE);
+      expect(errors).toContain("  pack/params.jsonc: linear-team (acme-base:watch-ci-domain)");
+      expect(errors).toContain("  pack/sections/ci-extra.md (acme-base:attachments/ci-notes/SKILL.md)");
+      expect(errors.join("\n")).toContain("rt skills compile --pack widgets");
+      expect(existsSync(join(packDir, "skills"))).toBe(false);
+      expect(existsSync(join(packDir, "attachments", "ci-notes"))).toBe(false);
+      expect(existsSync(join(packDir, "attachments", "review-kit"))).toBe(false);
+      expect(existsSync(join(packDir, "pack", "requires.json"))).toBe(false);
+
+      const viaSync = await compilePackAll({ packDir, mattstackDir });
+      expect(viaSync.ok).toBe(false);
+      expect(viaSync.errors[0]).toBe(TITLE);
+      expect(viaSync.written).toEqual([]);
+      expect(viaSync.missing).toEqual([
+        { kind: "param", name: "linear-team", file: "pack/params.jsonc", askedBy: ["acme-base:watch-ci-domain"] },
+        { kind: "section", name: "ci-extra", file: "pack/sections/ci-extra.md", askedBy: ["acme-base:attachments/ci-notes/SKILL.md"] },
+      ]);
+
+      setValues({ "linear-team": "Widgets" }, { "ci-extra": "- lint\n- e2e\n" });
+      expect((await compilePackAll({ packDir, mattstackDir })).ok).toBe(true);
+      expect(readFileSync(join(packDir, "skills", "triage-ci", "SKILL.md"), "utf8")).toContain("Linear team: Widgets.");
+      expect(readFileSync(join(packDir, "attachments", "ci-notes", "SKILL.md"), "utf8")).toContain("Extra jobs:\n- lint\n- e2e\n");
+      expect(JSON.parse(readFileSync(join(packDir, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: TEAM_MARKERS_MIN_ENGINE });
+    });
+
+    test("--json carries missing beside the verb rows and exits 1", async () => {
+      const { packDir, compile } = seedTeamValues();
+
+      const { exitCode } = await compile("--json");
+
+      expect(exitCode).toBeUndefined();
+      expect(process.exitCode).toBe(1);
+      const payload = JSON.parse(io.lines().at(-1)!);
+      expect(payload.written).toBe(false);
+      expect(payload.missing.map((m: { kind: string; name: string }) => `${m.kind}:${m.name}`)).toEqual(["param:linear-team", "section:ci-extra"]);
+      expect(existsSync(join(packDir, "skills"))).toBe(false);
+    });
+
+    test("check lists missing values as a compile error and drops the stale rows a hole would cause", async () => {
+      const { packDir, mattstackDir, compile, setValues } = seedTeamValues();
+      setValues({ "linear-team": "Widgets" }, { "ci-extra": "- lint\n" });
+      expect((await compile()).errors).toEqual([]);
+
+      setValues({});
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.drift).toBe(true);
+      expect(payload.compileErrors).toContain(TITLE);
+      expect(payload.verbs.filter((row) => row.status === "stale")).toEqual([]);
+      expect(payload.attachments.filter((row) => row.status === "stale")).toEqual([]);
+    });
+
+    test("check reports a params edit as drift", async () => {
+      const { packDir, mattstackDir, compile, setValues } = seedTeamValues();
+      setValues({ "linear-team": "Widgets" }, { "ci-extra": "- lint\n" });
+      expect((await compile()).errors).toEqual([]);
+      expect((await checkPack({ packDir, mattstackDir })).drift).toBe(false);
+
+      setValues({ "linear-team": "Gadgets" });
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.drift).toBe(true);
+      expect(payload.verbs.find((row) => row.name === "watch-ci")?.status).toBe("stale");
+      expect(payload.compileErrors).toEqual([]);
+    });
+
+    test("preview, anatomy and composition refuse on missing values", async () => {
+      const { run } = seedTeamValues();
+
+      for (const argv of [["compile", "--preview", "--verb", "watch-ci"], ["anatomy", "--skill", "watch-ci"], ["composition"]]) {
+        const { exitCode, stderr } = await run(argv);
+        expect({ argv, exitCode, title: stderr.split("\n")[0]!.replace(/^\[failed\] /, "") }).toEqual({ argv, exitCode: 1, title: TITLE });
+      }
+      expect(io.stdout()).not.toContain("Linear team:");
+    });
+
+    test("unused key warns on a full compile", async () => {
+      const { compile, setValues } = seedTeamValues();
+      setValues({ "linear-team": "Widgets", "old-key": "x" }, { "ci-extra": "- lint\n" });
+
+      expect((await compile()).errors).toEqual([]);
+      expect(io.stdout()).toContain("pack/params.jsonc: old-key is not asked for by any base text this pack compiles");
+
+      io.clear();
+      await compile("--json", "--dry-run");
+      expect(JSON.parse(io.lines().at(-1)!).unusedParams).toEqual(["old-key"]);
+    });
+
+    test("unused key does not warn under --verb", async () => {
+      const { compile, setValues } = seedTeamValues();
+      setValues({ "linear-team": "Widgets", "old-key": "x" }, { "ci-extra": "- lint\n" });
+
+      expect((await compile("--verb", "watch-ci")).errors).toEqual([]);
+      expect(io.stdout()).not.toContain("old-key");
+
+      io.clear();
+      await compile("--json", "--dry-run", "--verb", "watch-ci");
+      expect(JSON.parse(io.lines().at(-1)!)).not.toHaveProperty("unusedParams");
+    });
+
+    test("a pack with no params and no markers compiles byte-identical to one whose base uses only an optional marker", async () => {
+      const plain = seedTeamValues({ domainBody: DOMAIN_SKILL_MD, ciNotes: false });
+      const optional = seedTeamValues({ domainBody: DOMAIN_SKILL_MD.replace("for details.", "for details.{{team.note?}}"), ciNotes: false });
+
+      expect((await plain.compile()).errors).toEqual([]);
+      expect((await optional.compile()).errors).toEqual([]);
+
+      const files = filesUnder(plain.packDir);
+      expect(Object.keys(files).length).toBeGreaterThan(0);
+      expect(filesUnder(optional.packDir)).toEqual(files);
+      expect(existsSync(join(plain.packDir, "pack", "requires.json"))).toBe(false);
+    });
+
+    test("a team marker in a stage fill's allowed-tools refuses a scoped orchestrator compile before it reaches the orchestrator's frontmatter", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-native-")));
+      cpSync(join(import.meta.dir, "..", "..", "lib", "skills", "__tests__", "fixtures", "compile-native"), root, { recursive: true });
+      const fill = join(root, "pack", "attachments", "plan-policy", "SKILL.md");
+      writeFile(fill, readFileSync(fill, "utf8").replace("metadata:", 'allowed-tools:\n  - "Read({{team.x}})"\nmetadata:'));
+      const ms = join(root, "mattstack-home");
+      const flags = ["--pack-dir", join(root, "pack"), "--mattstack-dir", ms, "--manifest", join(ms, "repos", "my-repo", "skills.jsonc")];
+
+      const { exitCode, stderr } = await runSkillsCapturing(["compile", ...flags, "--verb", "work", "--dry-run"]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("team markers only resolve in a body, not frontmatter");
+    });
+
+    test("requiredness follows each emitted target: a stage copy overridden to a team fill does not need the base fill's values", async () => {
+      const { packDir, mattstackDir, setValues } = seedTeamValues({ ciNotes: false });
+      writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"), slottedStageMd("{{slot:domain}}"));
+      writeFile(join(packDir, "attachments", "own-domain", "SKILL.md"), DOMAIN_SKILL_MD.replace("name: watch-ci-domain", "name: own-domain"));
+      const manifestPath = join(mattstackDir, "widgets-pipelines.jsonc");
+      writeFile(manifestPath, JSON.stringify({
+        pipelines: {
+          feature: ["mattstack:stage-plan"],
+          lite: { stages: ["mattstack:stage-plan"], bindings: { "mattstack:stage-plan": { domain: "widgets:own-domain" } } },
+        },
+        bindings: {
+          "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" },
+          "mattstack:stage-plan": { domain: "acme-base:watch-ci-domain" },
+        },
+      }));
+      const compile = (verb: string) => runExpectingCleanExit(() =>
+        skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", verb]));
+
+      expect((await compile("stage-plan--lite")).errors).toEqual([]);
+      expect(existsSync(join(packDir, "attachments", "stage-plan--lite", "SKILL.md"))).toBe(true);
+
+      const refused = await compile("stage-plan");
+      expect(refused.exitCode).toBe(1);
+      expect(refused.errors[0]).toBe(TITLE);
+      expect(refused.errors).toContain("  pack/params.jsonc: linear-team (acme-base:watch-ci-domain)");
+
+      setValues({ "linear-team": "Widgets" });
+      expect((await compile("stage-plan")).errors).toEqual([]);
+    });
   });
 });
 

@@ -8,6 +8,7 @@ import { validateSlug } from "../secrets/store.ts";
 import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
+import type { MissingMarker } from "./team-params.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
 import { readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
@@ -335,7 +336,7 @@ export type InitDeps = {
   claude: ((args: string[]) => Promise<RunResult>) | null;
   registerRepo(repoDir: string): Promise<string>;
   materialize(repoName: string, pack: string): Promise<{ ok: boolean; detail: string }>;
-  compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[] }>;
+  compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[]; missing?: MissingMarker[] }>;
   check(packDir: string, manifestPath: string): Promise<{ drift: boolean }>;
   /** `paths` are relative to the org clone. */
   sharePack(zone: ZoneInfo, paths: string[]): Promise<PackShare>;
