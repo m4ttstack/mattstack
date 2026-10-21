@@ -582,7 +582,7 @@ export interface WorktreeListData {
   /** Repos with claimed trees whose merge-driven cleanup cannot run: no `branches` tracking grant, or no token for the remote's forge. */
   mergeCleanupOff?: Array<
     { repo: string; path: string; forge: "github" | "gitlab" } & (
-      | { reason: "app-off" }
+      | { reason: "app-off"; machineOff?: true }
       | { reason: "tracking-off" }
       | { reason: "no-branches-grant"; mode: "live" | "poll" | "off"; caches: Array<"branches" | "project-mrs" | "discussions"> }
       | { reason: "no-token" }
@@ -657,7 +657,7 @@ export interface WorktreeTriageData {
   rows: TriageRow[];
   banners: Array<
     { repo: string; path: string; forge: "github" | "gitlab" } & (
-      | { reason: "app-off" }
+      | { reason: "app-off"; machineOff?: true }
       | { reason: "tracking-off" }
       | { reason: "no-branches-grant"; mode: "live" | "poll" | "off"; caches: Array<"branches" | "project-mrs" | "discussions"> }
       | { reason: "no-token" }

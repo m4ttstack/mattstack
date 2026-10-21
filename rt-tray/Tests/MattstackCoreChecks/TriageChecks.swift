@@ -196,6 +196,9 @@ let triageChecks: [Check] = [
         c.expectEqual(optedOut.text, "Merged worktrees in o/r won't clean up on their own: you turned off tracking for this repo on this Mac.")
         c.expectEqual(optedOut.enableCleanupArgs, nil)
         c.expectEqual(optedOut.enableWorktreesArgs, nil)
+        let macOff = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"app-off","forge":"github","machineOff":true}"#.utf8))
+        c.expectEqual(macOff.text, "Merged worktrees in o/r won't clean up on their own: you turned worktrees off on this Mac.")
+        c.expectEqual(macOff.enableWorktreesArgs, nil)
     },
     Check("hiding a cleanup banner writes this repo's user-scope opt-out") { c in
         let b = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"no-branches-grant","forge":"github"}"#.utf8))

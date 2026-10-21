@@ -391,10 +391,13 @@ type MergeCleanupOffRow = { repo: string; path: string } & MergeCleanupGap;
 
 function mergeCleanupOffBlocks(gap: MergeCleanupOffRow): Block[] {
   const title = `Merged worktrees are not cleaned up in ${repoLabel(gap.repo)}`;
-  if (gap.reason === "app-off") return lineWithNext("warn", title, "worktrees are off on this Mac", out.cmd("rt worktree enable"));
-  if (gap.reason === "tracking-off") {
-    return lineWithNext("warn", title, "you turned off tracking for this repo on this Mac", out.cmd(`rt settings set rt.worktreeMergeCleanupNotice false --scope user --repo ${shellQuote(repoLabelFull(gap.repo))}`));
+  const hideCmd = out.cmd(`rt settings set rt.worktreeMergeCleanupNotice false --scope user --repo ${shellQuote(repoLabelFull(gap.repo))}`);
+  if (gap.reason === "app-off") {
+    return gap.machineOff
+      ? lineWithNext("warn", title, "you turned worktrees off on this Mac", hideCmd)
+      : lineWithNext("warn", title, "worktrees are off on this Mac", out.cmd("rt worktree enable"));
   }
+  if (gap.reason === "tracking-off") return lineWithNext("warn", title, "you turned off tracking for this repo on this Mac", hideCmd);
   if (gap.reason === "no-branches-grant") {
     const mode = gap.mode === "off" ? "poll" : gap.mode;
     return lineWithNext(
@@ -796,7 +799,7 @@ export async function worktreeEnable(args: string[], _ctx: unknown): Promise<voi
   const { enableWorktreesOnThisMac } = await import("./worktree-hook.ts");
   enableWorktreesOnThisMac();
   if (json) { out.json({ enabled: true }, 2); return; }
-  out.print(out.line("done", "Worktrees are on for this Mac", "rt now manages worktrees and cleans up merged ones"));
+  out.print(out.line("done", "Worktrees are on for this Mac", "spare worktrees a repo's settings ask for start building now"));
 }
 
 // ─── list ────────────────────────────────────────────────────────────────────

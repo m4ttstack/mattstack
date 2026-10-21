@@ -110,6 +110,15 @@ describe("recordClaudeHookAnswer", () => {
     expect(loadWorktreeAppConfig().enabled).toBe(true);
   });
 
+  test("enabling refuses a machine value it cannot read rather than replacing it", () => {
+    mkdirSync(dirname(machineSettingsPath()), { recursive: true });
+    writeFileSync(machineSettingsPath(), JSON.stringify({ "rt.worktreeApp": "on" }));
+
+    expect(() => enableWorktreesOnThisMac()).toThrow("This Mac's worktree setting can't be read, so rt left it alone");
+    const machine = JSON.parse(readFileSync(machineSettingsPath(), "utf8"));
+    expect(machine["rt.worktreeApp"]).toBe("on");
+  });
+
   test("an unowned machine that answered the offer still follows a later team opt-in", () => {
     recordClaudeHookAnswer("declined");
     const team = sharedStorePath("acme");

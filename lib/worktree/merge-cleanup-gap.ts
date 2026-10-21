@@ -10,11 +10,12 @@ import { getSetting } from "../settings/resolve.ts";
 import { deriveRepoIdentity } from "../settings/identity.ts";
 import { grants, loadMachineRepoTrackingRaw, type CacheKind, type RepoTracking, type TrackingMode } from "../repo-tracking.ts";
 import { loadWorktreeAppConfig } from "./config.ts";
+import { explainSetting } from "../settings/resolve.ts";
 import { runCapture } from "../subprocess.ts";
 
 /** `mode`/`caches` are the grant the repo has now, so a fix can add `branches` without dropping the rest. */
 export type MergeCleanupGap =
-  | { reason: "app-off"; forge: Forge }
+  | { reason: "app-off"; forge: Forge; machineOff?: true }
   | { reason: "tracking-off"; forge: Forge }
   | { reason: "no-branches-grant"; forge: Forge; mode: TrackingMode | "off"; caches: CacheKind[] }
   | { reason: "no-token"; forge: Forge };
@@ -25,6 +26,7 @@ export async function mergeCleanupGap(
   repoPath: string,
   tracking: RepoTracking | null,
   secrets: { gitlabToken?: string; githubToken?: string } | null,
+  machineTrackingRaw: Record<string, unknown> = loadMachineRepoTrackingRaw(),
 ): Promise<MergeCleanupGap | null> {
   if (!(await noticeWanted(repoPath))) return null;
   const remote = await runCapture(["git", "config", "--get", "remote.origin.url"], { cwd: repoPath, timeoutMs: 5000 });
@@ -32,8 +34,10 @@ export async function mergeCleanupGap(
   const forge = await forgeTokenFor(remoteUrl, secrets ?? {});
   if (!forge) return null;
   // The merge reactor never runs with worktrees off, so tracking alone would fix nothing.
-  if (!loadWorktreeAppConfig().enabled) return { reason: "app-off", forge: forge.forge };
-  if (optedOut(repoName)) return { reason: "tracking-off", forge: forge.forge };
+  if (!loadWorktreeAppConfig().enabled) {
+    return machineSaysOff() ? { reason: "app-off", forge: forge.forge, machineOff: true } : { reason: "app-off", forge: forge.forge };
+  }
+  if (optedOut(machineTrackingRaw[repoName])) return { reason: "tracking-off", forge: forge.forge };
   if (tracking) {
     const g = grants(tracking, repoName);
     if (!g.caches.has("branches")) return { reason: "no-branches-grant", forge: forge.forge, mode: g.mode, caches: [...g.caches] };
@@ -49,11 +53,13 @@ async function noticeWanted(repoPath: string): Promise<boolean> {
 }
 
 /** An explicit `{mode: "off"}` is this Mac's own choice, often against a team grant; offering to track would quietly undo it. */
-function optedOut(repoName: string): boolean {
-  try {
-    const entry = loadMachineRepoTrackingRaw()[repoName];
-    return typeof entry === "object" && entry !== null && (entry as { mode?: unknown }).mode === "off";
-  } catch {
-    return false;
-  }
+function optedOut(entry: unknown): boolean {
+  return typeof entry === "object" && entry !== null && (entry as { mode?: unknown }).mode === "off";
+}
+
+/** A machine `enabled: false` is how a Mac opts out of worktrees; the banner must not offer to undo it. */
+function machineSaysOff(): boolean {
+  const row = explainSetting("rt.worktreeApp").find((r) => r.scope === "machine");
+  const value = row?.present && row.invalid === undefined ? row.value : undefined;
+  return typeof value === "object" && value !== null && (value as { enabled?: unknown }).enabled === false;
 }
