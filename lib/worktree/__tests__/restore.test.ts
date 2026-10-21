@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
 import * as fsSync from "fs";
+import * as fsPromises from "fs/promises";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -160,6 +161,28 @@ describe("restoreTree", () => {
     await waitFor(() => !existsSync(trashPath));
   });
 
+  test("ready steps are queued for the caller, never run before restore returns", async () => {
+    await disposeATree();
+    setSetting("rt.worktrees", { ready: [{ run: "touch ready-ran" }] }, "machine", { repoIdentity: IDENTITY });
+
+    const result = await restoreTree(restoreDeps(), "tree-a");
+    if (!result.ok) throw new Error(`expected ok, got ${result.reason}`);
+
+    expect(result.readySteps.map((s) => s.run)).toEqual(["touch ready-ran"]);
+    expect(existsSync(join(result.path, "ready-ran"))).toBe(false);
+    expect(loadRegistry(repoName)[0]!.readyPendingAt).toBeString();
+  });
+
+  test("a repo with no ready steps leaves nothing pending", async () => {
+    await disposeATree();
+
+    const result = await restoreTree(restoreDeps(), "tree-a");
+    if (!result.ok) throw new Error(`expected ok, got ${result.reason}`);
+
+    expect(result.readySteps).toEqual([]);
+    expect(loadRegistry(repoName)[0]!.readyPendingAt).toBeUndefined();
+  });
+
   describe("a tree with a submodule", () => {
     const allowFile = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "protocol.file.allow", GIT_CONFIG_VALUE_0: "always" };
     const saved: Record<string, string | undefined> = {};
@@ -299,7 +322,7 @@ describe("restoreTree", () => {
     const cfg = await loadWorktreeRepoConfig(repoName, repo);
     const expectedPath = join(cfg.root, "tree-a");
 
-    const cpSpy = spyOn(fsSync, "cpSync").mockImplementation(() => {
+    const cpSpy = spyOn(fsPromises, "cp").mockImplementation(async () => {
       throw new Error("forced copy failure");
     });
     let result;

@@ -44,6 +44,7 @@ import type { EnrichedBranch } from "../lib/enrich.ts";
 import type { Block, PickRow, PickSegment, RenderStatus, Segment } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import type { RestorableEntry } from "../lib/worktree/restore.ts";
+import type { WorktreeRestoreData } from "../packages/rt-client/src/commands.ts";
 import type { PickHandle } from "../lib/ui/pick.ts";
 
 // Provision and create both do a targeted `git fetch` / cold clone (up to
@@ -759,18 +760,38 @@ export async function worktreeRestore(args: string[], _ctx: unknown): Promise<vo
     }
   }
 
-  const res = await queryDaemon("worktree:restore", { repoName, tree: treeName }, RESTORE_TIMEOUT_MS);
+  const query = () => queryDaemon("worktree:restore", { repoName, tree: treeName }, RESTORE_TIMEOUT_MS);
+  const res = parsed.json ? await query() : await restoreWithProgress(treeName, query);
   const ok = requireQueryResult(parsed.json, res);
 
   if (parsed.json) { out.json(ok.data, 2); return; }
 
-  const d = ok.data as { restored: boolean; path: string; tree: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: string[] };
-  out.print(
-    out.line("done", `${d.tree} restored`, d.path),
-    ...(d.readyFailed ? [setupFailedLine(d.failedStep)] : []),
-    ...(d.submodulesFailed?.length ? submodulesFailedBlocks(d.submodulesFailed) : []),
-  );
+  out.print(...restoreBlocks(ok.data as WorktreeRestoreData));
   await maybeOfferClaudeHook(parsed.json);
+}
+
+/** Copying a large tree back can take a minute, so the wait gets a progress line rather than a blank screen. */
+async function restoreWithProgress(treeName: string, query: () => Promise<DaemonResponse | null>): Promise<DaemonResponse | null> {
+  const { createStepRunner } = await import("../lib/rt-render.ts");
+  let res: DaemonResponse | null = null;
+  try {
+    // The step always erases itself: the result line carries the path, which only the reply knows.
+    await createStepRunner().run(`Restoring ${treeName}…`, async () => {
+      res = await query();
+      throw new Error("settled");
+    }, { failSilently: true });
+  } catch { /* res carries the outcome */ }
+  return res;
+}
+
+export function restoreBlocks(d: WorktreeRestoreData): Block[] {
+  return [
+    out.line("done", `${d.tree} restored`, d.path),
+    ...(d.readyPending
+      ? lineWithNext("running", "Still setting up in the background", d.readySteps?.join(", ") || undefined, out.cmd(`rt worktree await-ready ${d.tree}`))
+      : []),
+    ...(d.submodulesFailed?.length ? submodulesFailedBlocks(d.submodulesFailed) : []),
+  ];
 }
 
 // ─── list ────────────────────────────────────────────────────────────────────
