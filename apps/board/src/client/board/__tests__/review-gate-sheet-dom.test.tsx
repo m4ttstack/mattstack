@@ -1611,7 +1611,9 @@ describe('a gate whose poster honors edited drafts', () => {
       'Inconsistent error wording',
     ])
       await click(checkboxForTitle(t));
-    await click(container.querySelector<HTMLElement>('.tui-review-skipped-head')!);
+    await click(
+      container.querySelector<HTMLElement>('.tui-review-skipped-head')!
+    );
     await click(
       container.querySelector<HTMLInputElement>(
         '.tui-review-skipped-row input[type="checkbox"]'

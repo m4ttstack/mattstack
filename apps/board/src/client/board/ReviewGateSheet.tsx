@@ -450,8 +450,7 @@ function ReviewGateSheet({
         ([value, e]) => selectedSkipped.has(value) && !hasDiffLine(e)
       ).length
     : 0;
-  const postingComments =
-    postingFindings - folded.length - restoredWithoutLine;
+  const postingComments = postingFindings - folded.length - restoredWithoutLine;
   const outcomeText =
     outcomeQuestion && typeof selectedOutcome === 'string'
       ? displayForValue(selectedOutcome, outcomeQuestion.options).text
