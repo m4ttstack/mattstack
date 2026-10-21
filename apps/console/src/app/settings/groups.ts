@@ -63,6 +63,13 @@ export const GROUPS: Group[] = [
     match: prefix('ci.'),
   },
   {
+    id: 'mrs',
+    label: 'Merge requests',
+    tier: 'rt',
+    blurb: 'How rt lays out the MR and PR descriptions it writes.',
+    match: prefix('rt.evidence.'),
+  },
+  {
     id: 'notifications',
     label: 'Notifications & gates',
     tier: 'rt',

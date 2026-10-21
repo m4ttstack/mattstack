@@ -182,10 +182,10 @@ describe("settings/registry", () => {
       }
     });
 
-    test("repoOnly implies repoScoped, and every repo-scoped key but rt.gitStatus is repo-only", () => {
+    test("repoOnly implies repoScoped, and every repo-scoped key but rt.gitStatus and rt.evidence.foldScreenshots is repo-only", () => {
       for (const def of allDefs()) {
         if (def.repoOnly) expect(def.repoScoped, `${def.key}: repoOnly needs repoScoped`).toBe(true);
-        if (def.repoScoped && def.key !== "rt.gitStatus") expect(def.repoOnly, `${def.key}: repoScoped needs repoOnly`).toBe(true);
+        if (def.repoScoped && def.key !== "rt.gitStatus" && def.key !== "rt.evidence.foldScreenshots") expect(def.repoOnly, `${def.key}: repoScoped needs repoOnly`).toBe(true);
       }
       const repoOnly = allDefs().filter((d) => d.repoOnly).map((d) => d.key).sort();
       expect(repoOnly).toEqual([
@@ -205,6 +205,7 @@ describe("settings/registry", () => {
         "rt.worktrees",
       ]);
       expect(getDef("rt.gitStatus")?.repoOnly).toBeUndefined();
+      expect(getDef("rt.evidence.foldScreenshots")?.repoOnly).toBeUndefined();
     });
 
     test("rt.repoIdentityOverrides is machine-only", () => {
@@ -414,8 +415,9 @@ describe("settings/registry", () => {
         "rt.hooks",
         "rt.branchNaming",
         "telemetry.enabled",
+        "rt.evidence.foldScreenshots",
       ];
-      expect(suiteKeys).toHaveLength(98);
+      expect(suiteKeys).toHaveLength(99);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

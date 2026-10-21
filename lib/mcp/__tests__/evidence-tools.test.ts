@@ -9,6 +9,7 @@ import { UPLOAD_MAX_BYTES } from "../../daemon/upload-guard.ts";
 import { runStart } from "../../runs/start.ts";
 import { valueSha256 } from "../../runs/write.ts";
 import { spliceSection } from "../../evidence/section.ts";
+import { setSetting } from "../../settings/write.ts";
 import { parseUploads, serializeUploads, sha256Of } from "../../evidence/uploads-field.ts";
 import { evidenceToolDefs, MR_UPLOAD_TIMEOUT_MS, realEvidenceToolDeps, uploadEach, type EvidenceToolDeps } from "../evidence-tools.ts";
 import { err, ok, type ToolResult } from "../shared.ts";
@@ -70,7 +71,8 @@ const noGuard: TreeGuardDeps = {
   ignoredBy: () => false,
 };
 
-function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fieldSetError?: string; guard?: TreeGuardDeps; repoRoots?: (id: string) => string[]; live?: string } = {}) {
+function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fieldSetError?: string; guard?: TreeGuardDeps; repoRoots?: (id: string) => string[]; live?: string; fold?: boolean } = {}) {
+  const foldAsked: Array<string | null> = [];
   const fields = new Map(Object.entries(o.fields ?? {}));
   const calls: Call[] = [];
   const runCalls: Array<{ name: string; input: Record<string, unknown> }> = [];
@@ -128,8 +130,12 @@ function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fie
     fetch: (() => Promise.reject(new Error("no fetch in tests"))) as unknown as typeof fetch,
     sleep: async () => {},
     now: () => 1_700_000_000_000,
+    foldScreenshots: (repo) => {
+      foldAsked.push(repo);
+      return o.fold ?? false;
+    },
   };
-  return { deps, calls, runCalls, fields, state };
+  return { deps, calls, runCalls, fields, state, foldAsked };
 }
 
 const tool = (deps: EvidenceToolDeps, name: string) => evidenceToolDefs(deps).find((t) => t.name === name)!;
@@ -1035,6 +1041,66 @@ describe("evidence_attach", () => {
     expect(body.section).toContain("- Before and after: badge.png (attached separately)");
     expect(body.section).not.toContain(board);
     expect(JSON.stringify(res.body)).toContain("gh pr edit 12");
+  });
+
+  test("fold reads the setting for the GitLab repo and folds the written section", async () => {
+    const { evidence } = boardRecord();
+    const { deps, state, foldAsked } = makeDeps({ fields: { evidence }, live: "## Verification Evidence\n\nold\n", fold: true });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(foldAsked).toEqual(["gitlab.com/acme/web"]);
+    expect(body.descriptionWritten).toBe(true);
+    expect(state.live).toContain("<details>\n<summary>");
+    expect(state.live).toContain("</details>");
+  });
+
+  test("fold reads the setting for the GitHub repo from the PR url and folds the section", async () => {
+    const { evidence } = boardRecord();
+    const { deps, foldAsked } = makeDeps({ fields: { evidence }, fold: true });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "https://github.com/acme/web/pull/12" }, env)).body as AttachBody;
+    expect(foldAsked).toEqual(["github.com/acme/web"]);
+    expect(body.section).toContain("<details>");
+    expect(body.section).toContain("badge.png (attached separately)");
+  });
+
+  test("fold normalizes every GitHub repoName shape to the clone's identity", async () => {
+    const { evidence } = boardRecord();
+    for (const repoName of ["github.com/acme/web.git", "remote:GitHub.com%2Facme%2Fweb", "github.com/acme/web/", "remote:github.com/acme/web"]) {
+      const { deps, foldAsked } = makeDeps({ fields: { evidence } });
+      await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName }, env);
+      expect(foldAsked, repoName).toEqual(["github.com/acme/web"]);
+    }
+  });
+
+  test("fold takes a GitHub repo resolveRepo found from a label as its identity", async () => {
+    const { evidence } = boardRecord();
+    const { deps, foldAsked } = makeDeps({ fields: { evidence } });
+    const gh = { ...deps, resolveRepo: async () => ({ ok: true as const, identity: "remote:github.com%2Facme%2Fweb", iid: undefined }) };
+    const body = (await tool(gh, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "web" }, env)).body as AttachBody;
+    expect(body.forge).toBe("github");
+    expect(foldAsked).toEqual(["github.com/acme/web"]);
+  });
+
+  test("a path identity reads the global value, never a repo section", async () => {
+    const { evidence } = boardRecord();
+    const { deps, foldAsked } = makeDeps({ fields: { evidence } });
+    const local = { ...deps, resolveRepo: async () => ({ ok: true as const, identity: "path:%2Ftmp%2Fweb", iid: undefined }) };
+    await tool(local, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "web" }, env);
+    expect(foldAsked).toEqual([null]);
+  });
+
+  test("the real setting read honors a repo override over the default", () => {
+    setSetting("rt.evidence.foldScreenshots", false, "user", { repoIdentity: "gitlab.com/acme/web" });
+    expect(realEvidenceToolDeps.foldScreenshots("gitlab.com/acme/web")).toBe(false);
+    expect(realEvidenceToolDeps.foldScreenshots("gitlab.com/acme/other")).toBe(true);
+    expect(realEvidenceToolDeps.foldScreenshots(null)).toBe(true);
+  });
+
+  test("fold reads the GitHub repo from a serialized repoName", async () => {
+    const { evidence } = boardRecord();
+    const { deps, foldAsked } = makeDeps({ fields: { evidence } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "remote:github.com%2Facme%2Fweb" }, env)).body as AttachBody;
+    expect(foldAsked).toEqual(["github.com/acme/web"]);
+    expect(body.section).not.toContain("<details>");
   });
 
   test("a caption naming the home directory refuses the description write and says why", async () => {

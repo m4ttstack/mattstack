@@ -46,12 +46,16 @@ function linkText(l: FileLink, alt: string): string {
   return url === undefined ? l.markdown : `![${alt}](${url})`;
 }
 
-function renderEntry(e: Entry, link: (path: string) => FileLink): string {
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** Inside a fold, a caption or waiver carrying a raw `</details>` would close it early, so its tags print as text. */
+function renderEntry(e: Entry, link: (path: string) => FileLink, fold = false): string {
+  const text = fold ? escapeHtml : (s: string) => s;
   const themes = EVIDENCE_THEMES.filter((t) => e.themes.includes(t));
   const label = `${cap(e.slots.join(" and "))}${themes.length ? ` (${themes.join(" and ")})` : ""}`;
   const lines = [`- ${label}: ${linkText(link(e.key), e.slots.join(" and "))}`];
-  if (e.caption) lines.push(`  Caption: ${e.caption}`);
-  if (e.waiver) lines.push(`  Waived: ${e.waiver}`);
+  if (e.caption) lines.push(`  Caption: ${text(e.caption)}`);
+  if (e.waiver) lines.push(`  Waived: ${text(e.waiver)}`);
   return lines.join("\n");
 }
 
@@ -78,6 +82,12 @@ export function namesHome(text: string, homes: string[]): boolean {
     .some((h) => new RegExp(`${h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!${NAME_CONTINUES})`).test(text));
 }
 
+/** GitLab and GitHub both render markdown inside `<details>` only past a blank line after `</summary>`, and neither renders markdown inside `<summary>`. A waiver shows in the summary so a skim still sees it. */
+function folded(label: string, body: string, count: number, waived: boolean): string {
+  const noun = count === 1 ? "screenshot" : "screenshots";
+  return `<details>\n<summary><b>${escapeHtml(label)}</b> (${count} ${noun}${waived ? ", waived" : ""})</summary>\n\n${body}\n\n</details>`;
+}
+
 function linksOf(line: string): string[] {
   return (line.match(/[^\s()[\]]+/g) ?? []).filter((t) => t.startsWith("/") || /^https?:\/\//.test(t));
 }
@@ -85,7 +95,7 @@ function linksOf(line: string): string[] {
 export function renderSection(
   record: EvidenceRecord,
   link: (path: string) => FileLink,
-  o: { coveredUrls?: Set<string>; appendix?: string },
+  o: { coveredUrls?: Set<string>; appendix?: string; fold?: boolean },
 ): string {
   const blocks: string[] = [];
   const covered = new Set<string>(o.coveredUrls);
@@ -98,9 +108,15 @@ export function renderSection(
           if (shot.annotated) covered.add(shot.annotated);
         }
       }
-      const head = [`**${oneLine(c.label)}**`];
-      if (c.waiver) head.push(`Waived: ${oneLine(c.waiver)}`);
-      blocks.push(entries.length ? [...head, entries.map((e) => renderEntry(e, link)).join("\n")].join("\n\n") : head.join("\n\n"));
+      const fold = o.fold === true && entries.length > 0;
+      const waiver = c.waiver ? [`Waived: ${fold ? escapeHtml(oneLine(c.waiver)) : oneLine(c.waiver)}`] : [];
+      const list = entries.map((e) => renderEntry(e, link, fold)).join("\n");
+      if (fold) {
+        blocks.push(folded(oneLine(c.label), [...waiver, list].join("\n\n"), entries.length, c.waiver !== undefined || entries.some((e) => e.waiver)));
+        continue;
+      }
+      const head = [`**${oneLine(c.label)}**`, ...waiver];
+      blocks.push(entries.length ? [...head, list].join("\n\n") : head.join("\n\n"));
     }
     if (record.transcript) blocks.push(`Transcript: ${basename(oneLine(record.transcript))} (kept locally)`);
     if (record.url) blocks.push(`Ticket: ${oneLine(record.url)}`);

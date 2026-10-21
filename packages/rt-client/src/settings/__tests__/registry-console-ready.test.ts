@@ -71,6 +71,7 @@ const NO_SCHEMA_YET: readonly string[] = [
   "rt.worktreeMergeCleanupNotice",
   "rt.worktreeReadyApproval",
   "skills.writingStyle",
+  "rt.evidence.foldScreenshots",
   "telemetry.enabled",
 ];
 /** Keys with an object property that has no title or description yet. Shrink only. */
