@@ -418,6 +418,59 @@ test('a new revision keeps the snippet and an open modal mounted, then shows the
   expect(fullDiffLink('Retry loop lacks backoff')).toBe(link);
 });
 
+test('under StrictMode a first-load failure ends at the inline error and forge link', async () => {
+  const failing: DiffSource = {
+    fetchFileDiff: async () => {
+      throw new Error('GitLab answered 500 for this diff.');
+    },
+    loadView: () => import('../DiffView.tsx'),
+  };
+  await React.act(async () => {
+    root.render(
+      <React.StrictMode>
+        <Host diffs={failing} />
+      </React.StrictMode>
+    );
+    await new Promise(r => setTimeout(r, 0));
+  });
+  const code = codeOf('Retry loop lacks backoff');
+  expect(code.querySelector('[role="status"]')!.textContent).toBe(
+    'GitLab answered 500 for this diff.'
+  );
+  expect(
+    code.querySelector<HTMLAnchorElement>('a[href]')!.textContent
+  ).toContain('open on GitLab');
+});
+
+test('under StrictMode a revision change during the first fetch still settles', async () => {
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>(r => (release = r));
+  const slow: DiffSource = {
+    fetchFileDiff: async req => {
+      await gate;
+      return req.file === RETRY.path ? RETRY : null;
+    },
+    loadView: () => import('../DiffView.tsx'),
+  };
+  const at = (updatedAt: string) =>
+    ({ ...MR, updatedAt }) as unknown as BoardMRWithReview;
+  const draw = (mr: BoardMRWithReview) =>
+    React.act(async () => {
+      root.render(
+        <React.StrictMode>
+          <Host diffs={slow} mr={mr} />
+        </React.StrictMode>
+      );
+    });
+  await draw(at('2026-09-17T01:00:00.000Z'));
+  await draw(at('2026-09-17T02:00:00.000Z'));
+  await React.act(async () => {
+    release!();
+    await new Promise(r => setTimeout(r, 0));
+  });
+  expect(fullDiffLink('Retry loop lacks backoff')).toBeDefined();
+});
+
 test('selecting text inside the snippet does not open the full diff', async () => {
   await render({ ...source, fetchFileDiff: async () => RETRY });
   const snippet = codeOf('Retry loop lacks backoff').querySelector<HTMLElement>(

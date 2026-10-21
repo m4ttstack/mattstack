@@ -219,10 +219,10 @@ export function useFileDiff(
 ): DiffState {
   const source = useContext(DiffSourceContext);
   const [state, setState] = useState<DiffState>({ status: 'loading' });
-  const asked = useRef('');
+  const ready = useRef('');
   useEffect(() => {
     if (!mr) {
-      asked.current = '';
+      ready.current = '';
       setState({ status: 'none' });
       return;
     }
@@ -230,17 +230,21 @@ export function useFileDiff(
     // A new revision of the same file refreshes in place: the last diff
     // stays on screen (and an open full-diff modal stays mounted).
     const subject = `${mr}\n${file}`;
-    const refresh = asked.current === subject;
-    asked.current = subject;
-    if (!refresh) setState({ status: 'loading' });
+    const refresh = ready.current === subject;
+    if (!refresh) {
+      ready.current = '';
+      setState({ status: 'loading' });
+    }
     void fetchOnce(source, mr, file, revision).then(got => {
       if (!live) return;
       if ('error' in got) {
         if (!refresh) setState({ status: 'error', message: got.error });
-      } else
+      } else {
+        ready.current = got.diff ? subject : '';
         setState(
           got.diff ? { status: 'ready', diff: got.diff } : { status: 'none' }
         );
+      }
     });
     return () => {
       live = false;
