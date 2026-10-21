@@ -1031,14 +1031,8 @@ describe('a later round', () => {
   }
 
   async function editReply(scope: Element, call: string, text: string) {
-    const card = cardFor(scope, call);
-    await React.act(async () =>
-      card
-        .querySelector<HTMLButtonElement>('button[aria-label$=": edit reply"]')!
-        .click()
-    );
-    const box = card.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label$=": reply"]'
+    const box = cardFor(scope, call).querySelector<HTMLTextAreaElement>(
+      'textarea.tui-composer-input'
     )!;
     await React.act(async () => {
       Object.getOwnPropertyDescriptor(

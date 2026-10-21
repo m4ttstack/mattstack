@@ -6,12 +6,9 @@ import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { CarryoverCall, SkippedEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { SearchCheckIcon } from './icons.tsx';
+import { CommentComposer } from './CommentComposer.tsx';
 import { editedText, sendableTexts } from './respond-post.ts';
-import {
-  EditableReply,
-  EditedChip,
-  PostResolveChoice,
-} from './RespondCards.tsx';
+import { EditedChip, PostResolveChoice } from './RespondCards.tsx';
 import { SEVERITY_LABEL, type CarryoverPick } from './review-gate.ts';
 
 /** Every label names who has to act; none says "open" or "unresolved". */
@@ -158,8 +155,11 @@ export function CarryoverCard({
             <span className="tui-carry-check-note">{carry.note}</span>
           </div>
         )}
-        <EditableReply
-          label={pick.label}
+        <CommentComposer
+          label={`Reply on ${pick.label}`}
+          noun="reply"
+          kicker="will post as reply"
+          heldKicker="drafted reply · not posting"
           draft={carry.reply}
           value={posting ? form.texts[pick.name] : undefined}
           canEdit={posting}

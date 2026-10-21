@@ -1,7 +1,6 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
-import { Button, Markdown } from '@mattstack/tui-kit';
-import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
+import { Markdown } from '@mattstack/tui-kit';
 import type {
   ReplyEntry,
   Severity,
@@ -103,170 +102,6 @@ function ThreadCard({
         </div>
       )}
       {children}
-    </div>
-  );
-}
-
-/** A reply the developer may rewrite before it posts: the draft at rest,
-    an auto-growing box while editing. `value` is the edit, absent when
-    there is none; `canEdit` is false while the thread will not post this
-    reply (held, or picked fix or skip), which also closes an open box.
-    `controls`, when given, sit at the right of the box's footer, so the
-    reply and the decision on it read as one place. */
-function EditableReply({
-  label,
-  noun = 'reply',
-  heading,
-  draft,
-  value,
-  canEdit,
-  onChange,
-  onReset,
-  controls,
-}: {
-  label: string;
-  noun?: 'reply' | 'comment';
-  heading?: string;
-  draft: string;
-  value: string | undefined;
-  canEdit: boolean;
-  onChange: (text: string) => void;
-  onReset: () => void;
-  controls?: ReactNode;
-}) {
-  const [editing, setEditing] = useState(false);
-  if (editing && !canEdit) setEditing(false);
-  const open = editing && canEdit;
-  const text = value ?? draft;
-  const edited = value !== undefined && value.trim() !== draft.trim();
-  const empty = canEdit && value !== undefined && value.trim() === '';
-  const ref = useAutoGrowTextarea([open, text]);
-  const emptyHint = useId();
-  const editRef = useRef<HTMLButtonElement | null>(null);
-  // Closing unmounts whatever held focus, which would drop it to the body,
-  // outside the sheet's Tab trap; a close the user asked for hands it back
-  // to the edit button instead. A hold closes the box without moving focus.
-  const refocus = useRef(false);
-  const close = () => {
-    refocus.current = true;
-    setEditing(false);
-  };
-  useEffect(() => {
-    if (!open) {
-      if (refocus.current) editRef.current?.focus();
-      refocus.current = false;
-      return;
-    }
-    const el = ref.current;
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-  }, [open, ref]);
-  return (
-    <div
-      className="tui-thread-reply"
-      data-kind="verbatim"
-      data-held={controls && !canEdit ? '' : undefined}
-    >
-      <span className="tui-thread-reply-k">
-        {canEdit
-          ? (heading ?? `will post as ${noun}`)
-          : controls
-            ? `drafted ${noun} · not posting`
-            : `drafted ${noun}`}
-      </span>
-      {open ? (
-        <textarea
-          ref={ref}
-          className="tui-thread-reply-input"
-          rows={1}
-          value={text}
-          aria-label={`${label}: ${noun}`}
-          aria-describedby={empty ? emptyHint : undefined}
-          onChange={e => onChange(e.currentTarget.value)}
-          onKeyDown={e => {
-            if (e.key === 'Escape') {
-              e.stopPropagation();
-              close();
-            }
-          }}
-        />
-      ) : (
-        <div className="tui-thread-reply-text">
-          <Markdown unstyled linkTargetBlank>
-            {text}
-          </Markdown>
-        </div>
-      )}
-      {empty && (
-        <span className="tui-gate-error" id={emptyHint}>
-          the {noun} is empty
-        </span>
-      )}
-      {(canEdit || controls) && (
-        <div className="tui-thread-reply-actions">
-          {!canEdit ? (
-            <Button
-              type="button"
-              variant="light"
-              intent="muted"
-              size="sm"
-              className="tui-thread-reply-placeholder"
-              aria-hidden="true"
-              tabIndex={-1}
-              disabled
-            >
-              edit
-            </Button>
-          ) : open ? (
-            <>
-              <Button
-                type="button"
-                variant="light"
-                intent="accent"
-                size="sm"
-                className="tui-thread-reply-action"
-                aria-label={`${label}: done editing`}
-                onClick={close}
-              >
-                done
-              </Button>
-              {edited && (
-                <Button
-                  type="button"
-                  variant="light"
-                  intent="muted"
-                  size="sm"
-                  className="tui-thread-reply-action"
-                  aria-label={`${label}: reset to draft`}
-                  onClick={() => {
-                    onReset();
-                    ref.current?.focus();
-                  }}
-                >
-                  reset to draft
-                </Button>
-              )}
-            </>
-          ) : (
-            <Button
-              ref={editRef}
-              type="button"
-              variant="light"
-              intent="muted"
-              size="sm"
-              className="tui-thread-reply-action"
-              aria-label={`${label}: edit ${noun}`}
-              onClick={() => setEditing(true)}
-            >
-              edit
-            </Button>
-          )}
-          {controls && (
-            <div className="tui-thread-reply-controls">{controls}</div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -442,7 +277,6 @@ function PostResolveChoice({
 }
 
 export {
-  EditableReply,
   EditedChip,
   PostResolveChoice,
   ReplyBlock,

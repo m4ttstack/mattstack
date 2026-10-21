@@ -21,6 +21,7 @@ import type { GateRow } from '../../gates/store.ts';
 import { approvalSlots } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
+import { CommentComposer } from './CommentComposer.tsx';
 import type { GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
@@ -43,7 +44,6 @@ import {
   type PostPick,
 } from './respond-post.ts';
 import {
-  EditableReply,
   EditedChip,
   PostResolveChoice,
   ReplyBlock,
@@ -628,8 +628,11 @@ function RespondSheetBody({
   const editableReply = (p: PostPick) => {
     const live = postingPick(p);
     return (
-      <EditableReply
-        label={p.label}
+      <CommentComposer
+        label={`Reply on ${p.label}`}
+        noun="reply"
+        kicker="will post as reply"
+        heldKicker="drafted reply · not posting"
         draft={p.reply!.text}
         value={live ? form.texts[p.name] : undefined}
         canEdit={live}
@@ -870,8 +873,11 @@ function RespondSheetBody({
                     </div>
                     {qctx?.shape === 'thread@1' && pr ? (
                       <ThreadCard ctx={{ ...qctx, reply: { kind: 'none' } }}>
-                        <EditableReply
-                          label={q.prompt}
+                        <CommentComposer
+                          label={`Reply on ${q.prompt}`}
+                          noun="reply"
+                          kicker="will post as reply"
+                          heldKicker="drafted reply"
                           draft={pr.draft}
                           value={replying ? form.texts[q.name] : undefined}
                           canEdit={replying}

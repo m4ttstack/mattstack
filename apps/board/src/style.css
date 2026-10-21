@@ -2459,55 +2459,11 @@ body {
   text-transform: uppercase;
   color: var(--text-ok-small);
 }
-.tui-thread-reply[data-kind='direction'] .tui-thread-reply-k,
-.tui-thread-reply[data-held] .tui-thread-reply-k {
+.tui-thread-reply[data-kind='direction'] .tui-thread-reply-k {
   color: var(--text-2);
 }
 .tui-thread-reply-text {
   font-size: 14px;
-}
-/* Held: the reply stays readable but stops looking like it will post. */
-.tui-thread-reply[data-held] {
-  background: color-mix(in srgb, var(--fg) 5%, transparent);
-}
-.tui-thread-reply[data-held] .tui-thread-reply-text {
-  color: var(--text-2);
-}
-/* The margins undo the padding plus border, so the words sit exactly where
-   the resting reply drew them and opening the box moves nothing. */
-.tui-thread-reply-input {
-  width: calc(100% + 18px);
-  box-sizing: border-box;
-  margin: -4px -9px;
-  padding: 3px 8px;
-  font: inherit;
-  color: var(--text-1);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  resize: none;
-  overflow: hidden;
-}
-/* Drawn over the border, inside the box: outside it, the ring would crowd
-   the label above and the reply fill's edge. */
-.tui-thread-reply-input:focus-visible {
-  outline: 2px solid var(--fill-accent);
-  outline-offset: -2px;
-}
-.tui-thread-reply-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 2px;
-}
-.tui-thread-reply-controls {
-  margin-left: auto;
-}
-/* Holds the edit button's place while the reply is held, so holding and
-   posting never change the card's height. */
-.tui-thread-reply-placeholder {
-  visibility: hidden;
 }
 /* A respond-post reply option carries the full reply text, so the box
    tops its checkbox against the first line instead of centring it. */
@@ -4130,7 +4086,7 @@ a.tui-id-card-ref:focus-visible {
 .tui-composer {
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in srgb, var(--fill-ok) 45%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--fill-ok) 55%, var(--card));
   border-radius: 8px;
   background: var(--card);
   overflow: hidden;
@@ -4148,9 +4104,9 @@ a.tui-id-card-ref:focus-visible {
   gap: 12px;
   min-height: 28px;
   padding: 4px 12px;
-  background: color-mix(in srgb, var(--fill-ok) 12%, var(--card));
+  background: color-mix(in srgb, var(--fill-ok) 16%, var(--card));
   border-bottom: 1px solid
-    color-mix(in srgb, var(--fill-ok) 30%, var(--card));
+    color-mix(in srgb, var(--fill-ok) 35%, var(--card));
 }
 .tui-composer-k {
   flex: 1;
