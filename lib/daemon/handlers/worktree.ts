@@ -834,13 +834,20 @@ export function createWorktreeHandlers(
       if (!outcome.ok) return { ok: false, error: outcome.reason };
 
       opts.kick();
+      // Not awaited: installs can run for minutes, and the settle lands in the
+      // registry and on the event bus the same way provision's does.
+      if (outcome.readySteps.length > 0) {
+        startReadyTask({ repoName, path: outcome.path, steps: outcome.readySteps, emit: opts.emit, log: ctx.log });
+      }
       return {
         ok: true,
         data: {
           restored: true,
           path: outcome.path,
           tree: outcome.tree.name,
-          ...(outcome.readyFailed ? { readyFailed: true, failedStep: outcome.failedStep } : {}),
+          ...(outcome.readySteps.length > 0
+            ? { readyPending: true as const, readySteps: outcome.readySteps.map((s) => s.run) }
+            : {}),
           ...(outcome.submodulesFailed ? { submodulesFailed: outcome.submodulesFailed } : {}),
         },
       };

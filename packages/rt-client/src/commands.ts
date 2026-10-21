@@ -627,7 +627,7 @@ export interface WorktreeDisposeData {
   recoverable: Array<{ tree: string; path: string; until: string }>;
 }
 export interface WorktreeRestoreData {
-  restored: true; path: string; tree: string; readyFailed?: true; failedStep?: string;
+  restored: true; path: string; tree: string; readyPending?: true; readySteps?: string[]; submodulesFailed?: string[];
 }
 export interface WorktreeFreshenData { ran: string[] }
 export interface WorktreeAdoptData {

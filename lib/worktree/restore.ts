@@ -9,13 +9,12 @@
  * built on that name and this restore is not the tree that owns it anymore.
  */
 
-import { cpSync, existsSync, lstatSync } from "fs";
+import { existsSync, lstatSync } from "fs";
 import { legacyWorktreePoolRoots } from "../rt-paths.ts";
-import { readdir } from "fs/promises";
+import { cp, readdir } from "fs/promises";
 import { basename, join, sep } from "path";
 import { loadRegistry, saveRegistry, type TreeRecord } from "./registry.ts";
-import { loadWorktreeRepoConfig, evaluateReadyGate, type WorktreeRepoConfig } from "./config.ts";
-import { runReadySteps } from "./ready.ts";
+import { loadWorktreeRepoConfig, evaluateReadyGate, type ReadyStep, type WorktreeRepoConfig } from "./config.ts";
 import { branchExistsLocalAsync, runGit, MUTATING_TIMEOUT_MS } from "./git-async.ts";
 import {
   readDisposalManifest,
@@ -32,7 +31,7 @@ export interface RestoreDeps {
 }
 
 export type RestoreResult =
-  | { ok: true; tree: TreeRecord; path: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: string[] }
+  | { ok: true; tree: TreeRecord; path: string; readySteps: ReadyStep[]; submodulesFailed?: string[] }
   | {
       ok: false;
       reason:
@@ -249,7 +248,7 @@ async function copyRetainedContent(entryPath: string, destPath: string, submodul
     if (entry === ".git" || entry === "manifest.json") continue;
     try {
       // Without verbatimSymlinks a relative link is rewritten to an absolute path into the entry, which is reaped next.
-      cpSync(join(entryPath, entry), join(destPath, entry), { recursive: true, force: true, filter, verbatimSymlinks: true });
+      await cp(join(entryPath, entry), join(destPath, entry), { recursive: true, force: true, filter, verbatimSymlinks: true });
     } catch (err) {
       return { ok: false, err: String(err) };
     }
@@ -297,6 +296,12 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
     return { ok: false, reason: "copy-failed", detail: copied.err };
   }
 
+  const { steps: readySteps, held } = await evaluateReadyGate(cfg, repoName, repoPath);
+  if (held) {
+    log.warn({ repo: repoName, tree: treeName }, "worktree restore: team `ready` steps held pending approval; run `rt worktree ready-approve`");
+    emit("worktree:ready-held", { repo: repoName, tree: treeName, path });
+  }
+
   const rec: TreeRecord = {
     name: treeName,
     path,
@@ -305,6 +310,8 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
     branch: manifest.branch,
     createdAt: new Date().toISOString(),
     claimedAt: new Date().toISOString(),
+    // The caller starts the settle task; this marker is what restart recovery keys on.
+    ...(readySteps.length > 0 ? { readyPendingAt: new Date().toISOString() } : {}),
   };
   const trees = loadRegistry(repoName);
   trees.push(rec);
@@ -317,13 +324,6 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
   // clearing its retention immediately rather than waiting on RETENTION_MS.
   await reapTrashDir(found.path, log);
 
-  const { steps: readySteps, held } = await evaluateReadyGate(cfg, repoName, repoPath);
-  if (held) {
-    log.warn({ repo: repoName, tree: treeName }, "worktree restore: team `ready` steps held pending approval; run `rt worktree ready-approve`");
-    emit("worktree:ready-held", { repo: repoName, tree: treeName, path });
-  }
-  const readyResult = await runReadySteps(path, readySteps);
-
   emit("worktree:restored", { repo: repoName, tree: treeName, path, branch: manifest.branch });
   log.info({ repo: repoName, tree: treeName, path }, "worktree restored");
 
@@ -331,7 +331,7 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
     ok: true,
     tree: rec,
     path,
-    ...(readyResult.ok ? {} : { readyFailed: true, failedStep: readyResult.failedStep }),
+    readySteps,
     ...(submodules.failed.length > 0 ? { submodulesFailed: submodules.failed } : {}),
   };
 }

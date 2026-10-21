@@ -347,7 +347,7 @@ digraph rt_worktree_finish {
     "Tree listed as recoverable?" -> "STOP: recovery goes through rt worktree restore; git plumbing is off-script" [label="tempted to recover with git plumbing"];
     "STOP: recovery goes through rt worktree restore; git plumbing is off-script" -> "Restore off-script rounds = 2?";
     "rt worktree restore <tree>" -> "rt worktree restore result?";
-    "rt worktree restore result?" -> "Tree, branch and retained files restored" [label="restored, or restored with a submodules or ready-step warning: relay its remedy to Matt"];
+    "rt worktree restore result?" -> "Tree, branch and retained files restored" [label="restored: relay any submodules remedy to Matt; readyPending means await-ready before the first dependency command"];
     "rt worktree restore result?" -> "Restore off-script rounds = 2?" [label="failed"];
     "Restore off-script rounds = 2?" -> "Restore failed: attended session?" [label="no: open the gate"];
     "Restore off-script rounds = 2?" -> "Handed back: Matt takes over the recovery" [label="yes: budget spent"];
@@ -388,10 +388,12 @@ dispose succeeds; that is the choice this gate hands to Matt.
 `rt worktree restore --list` shows what is recoverable, and `rt worktree
 restore <tree>` rebuilds the tree, its branch and its retained untracked
 files (symlinks copied as they were), and sets its submodules up again. A
-restore that ends `restored` can still carry `submodulesFailed` or
-`readyFailed`: the CLI prints the remedy (move the named folders aside,
-then `git submodule update --init --recursive`), which you relay to Matt
-rather than run. Both default to the current directory's repo; pass `--repo <repo>`
+restore that ends `restored` can still carry `submodulesFailed`: the CLI
+prints the remedy (move the named folders aside, then `git submodule update
+--init --recursive`), which you relay to Matt rather than run. Its setup
+steps run in the background, reported as `readyPending` exactly as after
+provision, so the restored tree takes the same await-ready before its first
+dependency command (see Next command needs dependencies?). Both default to the current directory's repo; pass `--repo <repo>`
 for a tree from another repo. Reach for them before any git plumbing. When the tree is not listed
 or the restore fails, quote what rt said and propose one named recovery
 move (for example, a branch from a named reflog entry). Take: Matt approves
