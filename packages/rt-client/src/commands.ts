@@ -1045,8 +1045,8 @@ export interface Commands {
       picks up run linkage from the session's own running run; else its
       single running run as `run:<id>`; else its agent record's recorded
       subject, or `agent:<id>` when it has none), computes
-      presentation via gatePresentation, supplies nudge/origin, and omits an
-      oversized context instead of rejecting it. `meta` and `agent` forward
+      presentation via gatePresentation, supplies nudge/origin, and stores
+      every context whole. `meta` and `agent` forward
       to gate:open verbatim; `origin` passthrough fields fill gaps in the
       ceremony's own origin (presentation, paneId, runId, run-derived
       worktree always win over a caller-supplied value for the same key).
