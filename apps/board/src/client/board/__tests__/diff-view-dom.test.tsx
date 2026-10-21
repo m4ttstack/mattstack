@@ -108,3 +108,44 @@ test('a fence language is only ever an own property of the format table', async 
   expect(fenceLanguage('toString')).toBeUndefined();
   expect(fenceLanguage('ts')).toBe('typescript');
 });
+
+test('every code view on the page shares one scheme observer, released on unmount', async () => {
+  const { CodeBlock } = await import('../DiffView.tsx');
+  const proto = MutationObserver.prototype;
+  const { observe, disconnect } = proto;
+  const schemeWatchers = new Set<MutationObserver>();
+  proto.observe = function (target, options) {
+    if (
+      target === document.documentElement &&
+      options?.attributeFilter?.includes('class')
+    )
+      schemeWatchers.add(this);
+    return observe.call(this, target, options);
+  };
+  proto.disconnect = function () {
+    schemeWatchers.delete(this);
+    return disconnect.call(this);
+  };
+  try {
+    await React.act(async () => {
+      root.render(
+        <>
+          {['a', 'b', 'c'].map(k => (
+            <CodeBlock
+              key={k}
+              lang="ts"
+              code={`const ${k} = 1;`}
+              fallback={<pre data-fallback="" />}
+            />
+          ))}
+        </>
+      );
+    });
+    expect(schemeWatchers.size).toBe(1);
+    await React.act(async () => root.render(<></>));
+    expect(schemeWatchers.size).toBe(0);
+  } finally {
+    proto.observe = observe;
+    proto.disconnect = disconnect;
+  }
+});
