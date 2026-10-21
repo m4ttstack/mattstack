@@ -30,7 +30,7 @@ edited reply posts as written. Review should feel the same.
 
 ## Non-goals
 
-- No change to the respond flow.
+- No change to how respond behaves. Its reply boxes only take the shared comment field (see Field style).
 - No change to the board wrapper's generic path (a review with no domain
   skill). It writes Markdown only and keeps its tier-level questions, so
   it gets no comment boxes.
@@ -60,7 +60,7 @@ SUMMARY"; "posts as you" on its right) joined to a white text area with
 ink text. An edited field shows "edited · reset" in place of "posts as
 you". A folded finding's field carries "× remove" in its strip. This
 supersedes the teal display boxes and `edit`/`done`/`revert to draft`
-buttons described below. Respond keeps its own reply boxes.
+buttons described below. Respond uses the same component for its replies, so every gate with editable comments edits the same way.
 
 Use B15's "A · gate" frame as the picture. Main column, top to bottom:
 
