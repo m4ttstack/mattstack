@@ -5,7 +5,7 @@ import { childEnv } from "../subprocess.ts";
 export type Containment = "in-default" | "on-remote" | "in-merged-mr" | "patch-identical" | "none";
 
 const FETCH_TIMEOUT_MS = 60_000;
-const PATCH_ID_TIMEOUT_MS = 30_000;
+const PATCH_ID_TIMEOUT_MS = 60_000;
 const KILL_GRACE_MS = 2_000;
 
 async function fetchSha(treePath: string, sha: string): Promise<boolean> {
@@ -17,33 +17,34 @@ async function hasObject(treePath: string, sha: string): Promise<boolean> {
   return (await runGit(treePath, ["cat-file", "-e", `${sha}^{commit}`])).exitCode === 0;
 }
 
-async function runPatchId(treePath: string, input: string): Promise<string | null> {
-  const spawn = () =>
-    Bun.spawn(["git", "patch-id", "--stable"], { cwd: treePath, env: childEnv(), stdin: "pipe", stdout: "pipe", stderr: "ignore" });
-  let proc: ReturnType<typeof spawn>;
+/**
+ * Stable patch-ids of `range`, one per commit. `git log -p` streams straight
+ * into `git patch-id`: a range that brings a default branch's history along
+ * runs to tens of MB, and holding it as a string on every 10s triage poll
+ * churned the daemon's allocator until its RSS read in the gigabytes.
+ */
+async function patchIds(treePath: string, range: string): Promise<Set<string> | null> {
+  let log: ReturnType<typeof Bun.spawn> | undefined;
+  let pid: ReturnType<typeof Bun.spawn> | undefined;
+  const signal = (sig: "SIGTERM" | "SIGKILL") => {
+    for (const p of [log, pid]) { try { p?.kill(sig); } catch { /* already exited */ } }
+  };
   try {
-    proc = spawn();
+    log = Bun.spawn(["git", "log", "-p", "--no-merges", "--format=commit %H", range], {
+      cwd: treePath, env: childEnv(), stdout: "pipe", stderr: "ignore",
+    });
+    pid = Bun.spawn(["git", "patch-id", "--stable"], {
+      cwd: treePath, env: childEnv(), stdin: log.stdout as ReadableStream, stdout: "pipe", stderr: "ignore",
+    });
   } catch {
+    signal("SIGKILL");
     return null;
   }
-  const signal = (sig: "SIGTERM" | "SIGKILL") => {
-    try { proc.kill(sig); } catch { /* already exited */ }
-  };
 
-  // stdout drains while stdin is written; dispose holds the tree lock, hence the deadline.
-  const reading = Promise.all([new Response(proc.stdout).text(), proc.exited]).catch(() => null);
-  const run = (async () => {
-    try {
-      await proc.stdin.write(input);
-      await proc.stdin.end();
-    } catch {
-      signal("SIGKILL");
-      return null;
-    }
-    const settled = await reading;
-    return settled && settled[1] === 0 ? settled[0] : null;
-  })();
-
+  // Dispose holds the tree lock while this runs, hence the deadline.
+  const run = Promise.all([new Response(pid.stdout as ReadableStream).text(), log.exited, pid.exited])
+    .then(([out, logCode, pidCode]) => (logCode === 0 && pidCode === 0 ? out : null))
+    .catch(() => null);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<null>((resolve) => {
     timer = setTimeout(() => {
@@ -52,18 +53,12 @@ async function runPatchId(treePath: string, input: string): Promise<string | nul
       resolve(null);
     }, PATCH_ID_TIMEOUT_MS);
   });
+  let out: string | null;
   try {
-    return await Promise.race([run, deadline]);
+    out = await Promise.race([run, deadline]);
   } finally {
     clearTimeout(timer);
   }
-}
-
-/** Stable patch-ids of `range`, one per commit. */
-async function patchIds(treePath: string, range: string): Promise<Set<string> | null> {
-  const log = await runGit(treePath, ["log", "-p", "--no-merges", "--format=commit %H", range]);
-  if (log.exitCode !== 0) return null;
-  const out = await runPatchId(treePath, log.stdout);
   if (out === null) return null;
   return new Set(out.split("\n").filter(Boolean).map((l) => l.split(" ")[0]!));
 }
@@ -100,16 +95,56 @@ export async function patchIdenticalToMr(
   tip = "HEAD",
 ): Promise<boolean> {
   if (!(await haveCommit(treePath, mrSha, fetch))) return false;
-  const localMerges = await runGit(treePath, ["rev-list", "--merges", `${defaultRef}..${tip}`]);
-  if (localMerges.exitCode !== 0 || localMerges.stdout.trim().length > 0) return false;
-  const mrBase = await runGit(treePath, ["merge-base", tip, mrSha]);
-  if (mrBase.exitCode !== 0) return false;
-  const local = await patchIds(treePath, `${defaultRef}..${tip}`);
+  const resolved = await runGit(treePath, ["rev-parse", `${tip}^{commit}`, `${defaultRef}^{commit}`]);
+  if (resolved.exitCode !== 0) return false;
+  const [tipSha, defaultSha] = resolved.stdout.trim().split("\n");
+  if (!tipSha || !defaultSha) return false;
+  const key = `${tipSha}|${defaultSha}|${mrSha}`;
+  const known = patchIdenticalMemo.get(key);
+  if (known !== undefined) return known;
+
+  // Only the resolved commits from here on: HEAD can move while this runs, and
+  // a verdict about the new HEAD must never be remembered under the old one.
+  const verdict = await comparePatchIds(treePath, mrSha, defaultSha, tipSha);
+  if (verdict !== null) remember(key, verdict);
+  return verdict ?? false;
+}
+
+/** null when git could not answer (a timeout, a failed spawn): fail closed, but never remembered. */
+async function comparePatchIds(treePath: string, mrSha: string, defaultSha: string, tipSha: string): Promise<boolean | null> {
+  const localMerges = await runGit(treePath, ["rev-list", "--merges", `${defaultSha}..${tipSha}`]);
+  if (localMerges.exitCode !== 0) return null;
+  if (localMerges.stdout.trim().length > 0) return false;
+  const mrBase = await runGit(treePath, ["merge-base", tipSha, mrSha]);
+  // Exit 1 is "no common ancestor", a fact about the commits; anything else is git failing to answer.
+  if (mrBase.exitCode !== 0) return mrBase.exitCode === 1 ? false : null;
+  const local = await patchIds(treePath, `${defaultSha}..${tipSha}`);
   const merged = await patchIds(treePath, `${mrBase.stdout.trim()}..${mrSha}`);
-  if (!local || !merged || local.size === 0) return false;
+  if (!local || !merged) return null;
+  if (local.size === 0) return false;
   for (const id of local) if (!merged.has(id)) return false;
   return true;
 }
+
+/**
+ * Keyed by the resolved tip, default-branch and MR commits, which fix the
+ * answer: the tray asks every 10s, and each fresh answer re-reads every patch
+ * in the MR's range.
+ */
+const patchIdenticalMemo = new Map<string, boolean>();
+const PATCH_MEMO_MAX = 256;
+
+function remember(key: string, verdict: boolean): void {
+  if (patchIdenticalMemo.size >= PATCH_MEMO_MAX) patchIdenticalMemo.delete(patchIdenticalMemo.keys().next().value!);
+  patchIdenticalMemo.set(key, verdict);
+}
+
+export const __test__ = {
+  memoSize: () => patchIdenticalMemo.size,
+  remember,
+  clearMemo: () => patchIdenticalMemo.clear(),
+  PATCH_MEMO_MAX,
+};
 
 type MrHead = { state?: string | null; sha?: string | null };
 
