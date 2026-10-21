@@ -89,8 +89,10 @@ import {
   ThemeControl,
   TURN_SETTINGS_LABEL,
 } from './Controls.tsx';
+import { DecisionBanner } from './DecisionBanner.tsx';
 import type { QueueEntry } from './decision-queue.ts';
 import {
+  bannerCopy,
   decidedEntries,
   gateReadOnlyReason,
   useDecisionQueue,
@@ -1315,7 +1317,7 @@ export function Board() {
   // board order (group order, the group's own sort, stack nesting: exactly
   // what `boardView.groups` renders), then the rows the current tab or
   // filter hides, in the same sort. A decision is owed whichever author is
-  // picked, so the queue button never vanishes behind a filter.
+  // picked, so the queue banner never vanishes behind a filter.
   const queueEntries = useMemo(() => {
     if (!boardView) return [];
     const out: QueueEntry[] = [];
@@ -1680,14 +1682,15 @@ export function Board() {
             note={inferredNote}
             empty={rosterEmpty}
             dimEmpty={tabDimsEmpty(activeTab)}
-            queue={
-              queueEntries.length > 0
-                ? { count: queueEntries.length, open: queue.openAtStart }
-                : null
-            }
           />
 
           <div className="tui-main">
+            {queueEntries.length > 0 && (
+              <DecisionBanner
+                copy={bannerCopy(queueEntries, now)}
+                onStart={queue.openAtStart}
+              />
+            )}
             <header className="tui-header">
               {/* Mobile-only: burger opens the drawer with roster + controls. */}
               <button
@@ -1952,17 +1955,6 @@ export function Board() {
                 note={inferredNote}
                 empty={rosterEmpty}
                 dimEmpty={tabDimsEmpty(activeTab)}
-                queue={
-                  queueEntries.length > 0
-                    ? {
-                        count: queueEntries.length,
-                        open: () => {
-                          setMenuOpen(false);
-                          queue.openAtStart();
-                        },
-                      }
-                    : null
-                }
               />
               <div className="tui-drawer-controls">
                 <Controls {...controlProps} stacked />

@@ -1,7 +1,7 @@
 /** Answering the last queued gate and closing the recap leaves the board
     showing the answer: the board re-pulls its data after the answer lands,
     or after continuing past an answer that lost to another surface, so the
-    sidebar's queue button goes and nothing reopens the gate. No SSE frame
+    queue banner goes and nothing reopens the gate. No SSE frame
     fires here, so the re-pull has to come from the answer itself. */
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
@@ -174,7 +174,7 @@ async function answerThenClose(finish: () => Promise<void>) {
   });
   await settle();
   try {
-    expect(queueButton(container)?.textContent).toContain('decision queue · 1');
+    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe('1 decision is waiting on you');
 
     await click(queueButton(container));
     const sheet = document.body.querySelector('.tui-gate-sheet')!;
