@@ -24,15 +24,18 @@ async function hasObject(treePath: string, sha: string): Promise<boolean> {
  * churned the daemon's allocator until its RSS read in the gigabytes.
  */
 async function patchIds(treePath: string, range: string): Promise<Set<string> | null> {
-  const opts = { cwd: treePath, env: childEnv(), stderr: "ignore" } as const;
   let log: ReturnType<typeof Bun.spawn> | undefined;
   let pid: ReturnType<typeof Bun.spawn> | undefined;
   const signal = (sig: "SIGTERM" | "SIGKILL") => {
     for (const p of [log, pid]) { try { p?.kill(sig); } catch { /* already exited */ } }
   };
   try {
-    log = Bun.spawn(["git", "log", "-p", "--no-merges", "--format=commit %H", range], { ...opts, stdout: "pipe" });
-    pid = Bun.spawn(["git", "patch-id", "--stable"], { ...opts, stdin: log.stdout as ReadableStream, stdout: "pipe" });
+    log = Bun.spawn(["git", "log", "-p", "--no-merges", "--format=commit %H", range], {
+      cwd: treePath, env: childEnv(), stdout: "pipe", stderr: "ignore",
+    });
+    pid = Bun.spawn(["git", "patch-id", "--stable"], {
+      cwd: treePath, env: childEnv(), stdin: log.stdout as ReadableStream, stdout: "pipe", stderr: "ignore",
+    });
   } catch {
     signal("SIGKILL");
     return null;
@@ -94,23 +97,28 @@ export async function patchIdenticalToMr(
   if (!(await haveCommit(treePath, mrSha, fetch))) return false;
   const resolved = await runGit(treePath, ["rev-parse", `${tip}^{commit}`, `${defaultRef}^{commit}`]);
   if (resolved.exitCode !== 0) return false;
-  const key = `${resolved.stdout.trim().split("\n").join("|")}|${mrSha}`;
+  const [tipSha, defaultSha] = resolved.stdout.trim().split("\n");
+  if (!tipSha || !defaultSha) return false;
+  const key = `${tipSha}|${defaultSha}|${mrSha}`;
   const known = patchIdenticalMemo.get(key);
   if (known !== undefined) return known;
 
-  const verdict = await comparePatchIds(treePath, mrSha, defaultRef, tip);
+  // Only the resolved commits from here on: HEAD can move while this runs, and
+  // a verdict about the new HEAD must never be remembered under the old one.
+  const verdict = await comparePatchIds(treePath, mrSha, defaultSha, tipSha);
   if (verdict !== null) remember(key, verdict);
   return verdict ?? false;
 }
 
 /** null when git could not answer (a timeout, a failed spawn): fail closed, but never remembered. */
-async function comparePatchIds(treePath: string, mrSha: string, defaultRef: string, tip: string): Promise<boolean | null> {
-  const localMerges = await runGit(treePath, ["rev-list", "--merges", `${defaultRef}..${tip}`]);
+async function comparePatchIds(treePath: string, mrSha: string, defaultSha: string, tipSha: string): Promise<boolean | null> {
+  const localMerges = await runGit(treePath, ["rev-list", "--merges", `${defaultSha}..${tipSha}`]);
   if (localMerges.exitCode !== 0) return null;
   if (localMerges.stdout.trim().length > 0) return false;
-  const mrBase = await runGit(treePath, ["merge-base", tip, mrSha]);
-  if (mrBase.exitCode !== 0) return false;
-  const local = await patchIds(treePath, `${defaultRef}..${tip}`);
+  const mrBase = await runGit(treePath, ["merge-base", tipSha, mrSha]);
+  // Exit 1 is "no common ancestor", a fact about the commits; anything else is git failing to answer.
+  if (mrBase.exitCode !== 0) return mrBase.exitCode === 1 ? false : null;
+  const local = await patchIds(treePath, `${defaultSha}..${tipSha}`);
   const merged = await patchIds(treePath, `${mrBase.stdout.trim()}..${mrSha}`);
   if (!local || !merged) return null;
   if (local.size === 0) return false;

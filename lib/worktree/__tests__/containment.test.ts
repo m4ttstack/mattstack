@@ -192,32 +192,68 @@ describe("patchIdenticalToMr over an MR range that carries other history", () =>
     sh("git checkout -q feat", repo);
   });
 
-  test("git's patches go straight from git log into patch-id, never through a string", async () => {
+  const ask = () => patchIdenticalToMr(repo, mrSha, "origin/main", async () => false);
+
+  /** Runs `fn` with every Bun.spawn seen first by `onSpawn`; returns each patch-id spawn's stdin. */
+  async function watchingSpawns(fn: () => Promise<void>, onSpawn: (cmd: string[]) => void = () => {}): Promise<unknown[]> {
     const realSpawn = Bun.spawn;
     const patchIdStdin: unknown[] = [];
     const spy = spyOn(Bun, "spawn").mockImplementation(((cmd: string[], opts: any) => {
+      onSpawn(cmd);
       if (cmd[1] === "patch-id") patchIdStdin.push(opts?.stdin);
       return realSpawn(cmd, opts);
     }) as typeof Bun.spawn);
     try {
-      expect(await patchIdenticalToMr(repo, mrSha, "origin/main", async () => false)).toBe(true);
+      await fn();
     } finally {
       spy.mockRestore();
     }
+    return patchIdStdin;
+  }
+
+  test("git's patches go straight from git log into patch-id, never through a string", async () => {
+    const patchIdStdin = await watchingSpawns(async () => { expect(await ask()).toBe(true); });
     expect(patchIdStdin).toHaveLength(2);
     for (const stdin of patchIdStdin) expect(stdin).toBeInstanceOf(ReadableStream);
   });
 
   test("a repeated question about the same commits is answered from memory", async () => {
-    expect(await patchIdenticalToMr(repo, mrSha, "origin/main", async () => false)).toBe(true);
-    expect(__test__.memoSize()).toBe(1);
-    expect(await patchIdenticalToMr(repo, mrSha, "origin/main", async () => false)).toBe(true);
-    expect(__test__.memoSize()).toBe(1);
+    expect(await ask()).toBe(true);
+    const again = await watchingSpawns(async () => { expect(await ask()).toBe(true); });
+    expect(again).toHaveLength(0);
 
     // A new local commit is a new question.
     commit(repo, "b.txt", "b\n");
-    expect(await patchIdenticalToMr(repo, mrSha, "origin/main", async () => false)).toBe(false);
-    expect(__test__.memoSize()).toBe(2);
+    const fresh = await watchingSpawns(async () => { expect(await ask()).toBe(false); });
+    expect(fresh).toHaveLength(2);
+  });
+
+  test("an answer git could not give is never remembered", async () => {
+    await watchingSpawns(async () => { expect(await ask()).toBe(false); }, (cmd) => {
+      if (cmd[1] === "patch-id") throw new Error("spawn failed");
+    });
+    expect(__test__.memoSize()).toBe(0);
+
+    const retried = await watchingSpawns(async () => { expect(await ask()).toBe(true); });
+    expect(retried).toHaveLength(2);
+    expect(__test__.memoSize()).toBe(1);
+  });
+
+  test("HEAD moving mid-check never files the new HEAD's verdict under the old one", async () => {
+    // HEAD starts one unmerged commit past the work the MR carries.
+    const merged = sh("git rev-parse HEAD", repo);
+    const unmerged = commit(repo, "b.txt", "b\n");
+    let moved = false;
+    await watchingSpawns(async () => { expect(await ask()).toBe(false); }, (cmd) => {
+      if (!moved && cmd.includes("rev-list")) {
+        moved = true;
+        sh(`git reset -q --hard ${merged}`, repo);
+      }
+    });
+    expect(moved).toBe(true);
+
+    sh(`git reset -q --hard ${unmerged}`, repo);
+    expect(await ask()).toBe(false);
   });
 });
 
