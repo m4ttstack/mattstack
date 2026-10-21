@@ -25,25 +25,27 @@ export interface DiffPin {
 }
 
 /** Syntax colours by board role, not a theme's own palette: comments and
-    punctuation take the muted text steps, and each token kind its hue's
-    small-text step (the code is 12px), so every pair clears its bar on the
-    card and on the added, removed and anchored line washes in both
-    schemes. */
+    punctuation take the muted text steps, and each token kind the most
+    saturated step that clears 4.5 on the card and on the added, removed
+    and anchored line washes in both schemes. Only bad, purple and accent
+    clear at their body step on the light washes (ok, cyan, warn and gold
+    measure 3.8 to 4.2), so those three carry keywords, names and
+    constants, and strings and parameters take a small step. */
 const CODE_THEME = 'board-code';
 registerCustomCSSVariableTheme(CODE_THEME, {
   foreground: 'var(--text-1)',
   background: 'var(--card)',
   'token-comment': 'var(--text-3)',
   'token-punctuation': 'var(--text-2)',
-  'token-keyword': 'var(--text-purple-small)',
+  'token-keyword': 'var(--text-bad)',
   'token-string': 'var(--text-ok-small)',
   'token-string-expression': 'var(--text-ok-small)',
-  'token-constant': 'var(--text-cyan-small)',
-  'token-function': 'var(--text-accent-small)',
+  'token-constant': 'var(--text-accent)',
+  'token-function': 'var(--text-purple)',
   'token-parameter': 'var(--text-warn-small)',
-  'token-link': 'var(--text-accent-small)',
+  'token-link': 'var(--text-accent)',
   'token-inserted': 'var(--text-ok-small)',
-  'token-deleted': 'var(--text-bad-small)',
+  'token-deleted': 'var(--text-bad)',
   'token-changed': 'var(--text-warn-small)',
 });
 
