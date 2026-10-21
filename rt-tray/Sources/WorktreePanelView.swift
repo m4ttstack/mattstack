@@ -184,7 +184,18 @@ struct WorktreePanelView: View {
                     ForEach(rows) { row(for: $0) }
                 }
             }
-            if !controller.isLoading && controller.rows.isEmpty {
+            if controller.isLoading && controller.rows.isEmpty {
+                HStack(spacing: 10) {
+                    if isSnapshot {
+                        Image(systemName: "circle.dotted").foregroundStyle(WT.textTertiary)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text("Checking every repo's worktrees. This can take a few seconds.")
+                        .foregroundStyle(WT.textSecondary)
+                }
+                .padding(24)
+            } else if controller.rows.isEmpty {
                 Text("Nothing stuck. Every merged worktree was cleaned up.")
                     .foregroundStyle(WT.textSecondary).padding(24)
             }
@@ -219,14 +230,7 @@ struct WorktreePanelView: View {
         }
     }
 
-    private var headline: String {
-        let n = controller.counts?.needsDecision ?? 0
-        switch n {
-        case 0: return "Nothing needs a decision"
-        case 1: return "1 worktree needs a decision"
-        default: return "\(n) worktrees need a decision"
-        }
-    }
+    private var headline: String { TriageMenu.headline(controller.counts) }
 
     private var footer: some View {
         HStack(spacing: 6) {

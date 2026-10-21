@@ -134,6 +134,16 @@ public enum TriageMenu {
         guard let n = counts?.needsDecision, n > 0 else { return nil }
         return n
     }
+
+    /// Nil counts mean the first query has not landed: saying "nothing" then would be a false all-clear.
+    public static func headline(_ counts: TriageCounts?) -> String {
+        guard let n = counts?.needsDecision else { return "Checking worktrees…" }
+        switch n {
+        case 0: return "Nothing needs a decision"
+        case 1: return "1 worktree needs a decision"
+        default: return "\(n) worktrees need a decision"
+        }
+    }
 }
 
 extension TriageFingerprint {

@@ -35,6 +35,12 @@ let triageChecks: [Check] = [
         c.expectEqual(TriageMenu.badge(TriageCounts(needsDecision: 0, safe: 0, waiting: 3, kept: 1)), nil)
         c.expectEqual(TriageMenu.badge(nil), nil)
     },
+    Check("window headline reads as checking until the first counts land") { c in
+        c.expectEqual(TriageMenu.headline(nil), "Checking worktrees…")
+        c.expectEqual(TriageMenu.headline(TriageCounts(needsDecision: 0, safe: 0, waiting: 0, kept: 0)), "Nothing needs a decision")
+        c.expectEqual(TriageMenu.headline(TriageCounts(needsDecision: 1, safe: 0, waiting: 0, kept: 0)), "1 worktree needs a decision")
+        c.expectEqual(TriageMenu.headline(TriageCounts(needsDecision: 3, safe: 0, waiting: 0, kept: 0)), "3 worktrees need a decision")
+    },
     Check("a worktree_triage banner click opens the worktree panel") { c in
         c.expectEqual(NotificationClick.bannerRoute(category: NotificationClick.worktreeTriageCategory, url: nil, paneId: nil), .showWorktreePanel)
         c.expectEqual(NotificationClick.Route.showWorktreePanel.suppressesActivationShow, false)
