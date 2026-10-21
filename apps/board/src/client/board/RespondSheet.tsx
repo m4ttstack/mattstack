@@ -20,8 +20,8 @@ import { Button, Chip } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { approvalSlots } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
-import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import { CommentComposer } from './CommentComposer.tsx';
+import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
@@ -34,8 +34,6 @@ import {
   type StepReply,
 } from './respond-join.ts';
 import {
-  editedText,
-  isEdited,
   planReplies,
   planTexts,
   postPicks,
@@ -44,7 +42,6 @@ import {
   type PostPick,
 } from './respond-post.ts';
 import {
-  EditedChip,
   PostResolveChoice,
   ReplyBlock,
   ReplyChoiceBody,
@@ -136,12 +133,10 @@ function PostChoice({
     step. */
 function PostStepCard({
   j,
-  edited = false,
   reply,
   children,
 }: {
   j: JoinedThread;
-  edited?: boolean;
   reply?: ReactNode;
   children: ReactNode;
 }) {
@@ -162,9 +157,9 @@ function PostStepCard({
             <ThreadOutcome verb={j.reply?.verb ?? j.decided!} held={!j.reply} />
           )
         )}
-        {(edited || j.replyOnly?.edited) && <EditedChip />}
       </div>
       <ThreadCard
+        replyEdited={Boolean(j.replyOnly?.edited)}
         ctx={{
           ...j.thread,
           reply:
@@ -217,11 +212,10 @@ function StepReplyCard({ s }: { s: StepReply }) {
       <div className="tui-gate-question-head">
         <span className="tui-gate-question-label">{s.label}</span>
         <ThreadOutcome verb="reply" withStep />
-        {s.edited && <EditedChip />}
       </div>
       <div className="tui-thread-card">
         {s.text !== undefined ? (
-          <ReplyBlock text={s.text} />
+          <ReplyBlock text={s.text} edited={s.edited} />
         ) : (
           <p className="tui-thread-nothing">
             Approved at Gate 1; posts with this step.
@@ -790,11 +784,6 @@ function RespondSheetBody({
                   <PostStepCard
                     key={j.threadId}
                     j={j}
-                    edited={
-                      pick
-                        ? postingPick(pick) && isEdited(pick, form.texts)
-                        : false
-                    }
                     reply={pick?.reply ? editableReply(pick) : undefined}
                   >
                     {pick && !pick.reply && (
@@ -824,9 +813,6 @@ function RespondSheetBody({
                     <div className="tui-gate-question-head">
                       <span className="tui-gate-question-label">{p.label}</span>
                       {p.reply && <ThreadOutcome verb={p.reply.verb} />}
-                      {postingPick(p) && isEdited(p, form.texts) && (
-                        <EditedChip />
-                      )}
                     </div>
                     {p.reply ? (
                       <div className="tui-thread-card">{editableReply(p)}</div>
@@ -865,11 +851,6 @@ function RespondSheetBody({
                       {qctx?.shape === 'thread@1' && (
                         <SeverityPill severity={qctx.severity} />
                       )}
-                      {pr &&
-                        replying &&
-                        editedText(q.name, pr.draft, form.texts) && (
-                          <EditedChip />
-                        )}
                     </div>
                     {qctx?.shape === 'thread@1' && pr ? (
                       <ThreadCard ctx={{ ...qctx, reply: { kind: 'none' } }}>

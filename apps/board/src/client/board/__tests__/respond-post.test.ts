@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { GateQuestion } from '@mattstack/gate-kit';
 import {
-  isEdited,
+  editedText,
   planReplies,
   planTexts,
   postPicks,
@@ -183,11 +183,14 @@ test('postTexts is null when a posting thread was emptied, never when a held one
   ).toEqual({});
 });
 
-test('isEdited ignores surrounding whitespace', () => {
-  const p = pick('thread-1', 'T1', 'draft');
-  expect(isEdited(p, {})).toBe(false);
-  expect(isEdited(p, { 'thread-1': ' draft\n' })).toBe(false);
-  expect(isEdited(p, { 'thread-1': 'draft, edited' })).toBe(true);
+test('editedText ignores surrounding whitespace', () => {
+  expect(editedText('thread-1', 'draft', {})).toBe(false);
+  expect(editedText('thread-1', 'draft', { 'thread-1': ' draft\n' })).toBe(
+    false
+  );
+  expect(editedText('thread-1', 'draft', { 'thread-1': 'draft, edited' })).toBe(
+    true
+  );
 });
 
 const planQ = (

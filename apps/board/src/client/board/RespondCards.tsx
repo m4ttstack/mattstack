@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { Markdown } from '@mattstack/tui-kit';
+import { CommentFrame } from './CommentComposer.tsx';
 import type {
   ReplyEntry,
   Severity,
@@ -37,16 +38,21 @@ function SeverityPill({ severity }: { severity: Severity }) {
   );
 }
 
-function ReplyBlock({ text }: { text: string }) {
+function ReplyBlock({
+  text,
+  edited = false,
+}: {
+  text: string;
+  edited?: boolean;
+}) {
   return (
-    <div className="tui-thread-reply" data-kind="verbatim">
-      <span className="tui-thread-reply-k">will post as reply</span>
-      <div className="tui-thread-reply-text">
-        <Markdown unstyled linkTargetBlank>
-          {text}
-        </Markdown>
-      </div>
-    </div>
+    <CommentFrame
+      kind="verbatim"
+      kicker="will post as reply"
+      meta={edited ? 'edited at Gate 1' : 'posts as you'}
+      edited={edited}
+      text={text}
+    />
   );
 }
 
@@ -57,9 +63,12 @@ function ReplyBlock({ text }: { text: string }) {
     caller that draws the reply itself puts it. */
 function ThreadCard({
   ctx,
+  replyEdited = false,
   children,
 }: {
   ctx: ThreadCtx;
+  /** The verbatim reply was edited at Gate 1. */
+  replyEdited?: boolean;
   children?: ReactNode;
 }) {
   const { claim, verdict, reply } = ctx;
@@ -90,32 +99,19 @@ function ThreadCard({
           <span className="tui-thread-verdict-note">· {verdict.note}</span>
         )}
       </div>
-      {reply.kind === 'verbatim' && <ReplyBlock text={reply.text} />}
+      {reply.kind === 'verbatim' && (
+        <ReplyBlock text={reply.text} edited={replyEdited} />
+      )}
       {reply.kind === 'direction' && (
-        <div className="tui-thread-reply" data-kind="direction">
-          <span className="tui-thread-reply-k">reply direction</span>
-          <div className="tui-thread-reply-text">
-            <Markdown unstyled linkTargetBlank>
-              {reply.text}
-            </Markdown>
-          </div>
-        </div>
+        <CommentFrame
+          kind="direction"
+          kicker="reply direction"
+          held
+          text={reply.text}
+        />
       )}
       {children}
     </div>
-  );
-}
-
-/** A thread card head's mark that its reply no longer reads as drafted. */
-function EditedChip() {
-  return (
-    <span
-      className="tui-respond-chip tui-thread-edited"
-      data-hue="grey"
-      data-chip="edited"
-    >
-      edited
-    </span>
   );
 }
 
@@ -277,7 +273,6 @@ function PostResolveChoice({
 }
 
 export {
-  EditedChip,
   PostResolveChoice,
   ReplyBlock,
   ReplyChoiceBody,

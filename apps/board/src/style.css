@@ -2310,12 +2310,10 @@ body {
   color: var(--text-1);
   overflow-wrap: anywhere;
 }
-.tui-thread-card [data-part='markdown'] > *,
-.tui-thread-reply [data-part='markdown'] > * {
+.tui-thread-card [data-part='markdown'] > * {
   margin: 0;
 }
-.tui-thread-card [data-part='markdown'] > * + *,
-.tui-thread-reply [data-part='markdown'] > * + * {
+.tui-thread-card [data-part='markdown'] > * + * {
   margin-top: 6px;
 }
 .tui-thread-points {
@@ -2342,9 +2340,8 @@ body {
   text-transform: uppercase;
   color: var(--text-2);
 }
-/* The post step's outcome chip holds the card head's right edge; the
-   edited mark rides beside it at the same size. */
-.tui-respond-chip:is(.tui-thread-outcome, .tui-thread-edited) {
+/* The post step's outcome chip holds the card head's right edge. */
+.tui-respond-chip.tui-thread-outcome {
   flex-shrink: 0;
   padding: 4px 12px;
   font-size: 13px;
@@ -2438,32 +2435,6 @@ body {
 }
 .tui-thread-verdict-note {
   color: var(--text-2);
-}
-/* The reply box: green when it holds the exact text that will be posted,
-   neutral when it only holds the intent of a reply. */
-.tui-thread-reply {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--fill-ok) 12%, transparent);
-}
-.tui-thread-reply[data-kind='direction'] {
-  background: color-mix(in srgb, var(--fg) 5%, transparent);
-}
-.tui-thread-reply-k {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-ok-small);
-}
-.tui-thread-reply[data-kind='direction'] .tui-thread-reply-k {
-  color: var(--text-2);
-}
-.tui-thread-reply-text {
-  font-size: 14px;
 }
 /* A respond-post reply option carries the full reply text, so the box
    tops its checkbox against the first line instead of centring it. */
@@ -4105,8 +4076,7 @@ a.tui-id-card-ref:focus-visible {
   min-height: 28px;
   padding: 4px 12px;
   background: color-mix(in srgb, var(--fill-ok) 16%, var(--card));
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--fill-ok) 35%, var(--card));
+  border-bottom: 1px solid color-mix(in srgb, var(--fill-ok) 35%, var(--card));
 }
 .tui-composer-k {
   flex: 1;
@@ -4157,6 +4127,14 @@ a.tui-id-card-ref:focus-visible {
   resize: none;
   overflow: hidden;
 }
+.tui-composer-text {
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* The frame's border carries focus, so the field draws no ring of its own. */
 .tui-composer-input:focus,
 .tui-composer-input:focus-visible {
@@ -4174,7 +4152,8 @@ a.tui-id-card-ref:focus-visible {
   background: color-mix(in srgb, var(--fg) 5%, var(--card));
   border-bottom-color: var(--border-soft);
 }
-.tui-composer[data-held] :is(.tui-composer-k, .tui-composer-input) {
+.tui-composer[data-held]
+  :is(.tui-composer-k, .tui-composer-input, .tui-composer-text) {
   color: var(--text-2);
 }
 .tui-composer-foot {

@@ -39,11 +39,16 @@ function CommentComposer({
   const empty = canEdit && value !== undefined && value.trim() === '';
   const ref = useAutoGrowTextarea([text]);
   const emptyHint = useId();
+  const kickerId = useId();
   return (
     <div className="tui-composer-wrap">
-      <div className="tui-composer" data-held={canEdit ? undefined : ''}>
+      <div
+        className="tui-composer"
+        data-held={canEdit ? undefined : ''}
+        data-edited={edited ? '' : undefined}
+      >
         <div className="tui-composer-strip">
-          <span className="tui-composer-k">
+          <span className="tui-composer-k" id={kickerId}>
             {canEdit ? kicker : (heldKicker ?? kicker)}
           </span>
           {canEdit && (
@@ -88,8 +93,15 @@ function CommentComposer({
           readOnly={!canEdit}
           aria-label={label}
           aria-invalid={empty || undefined}
-          aria-describedby={empty ? emptyHint : undefined}
+          aria-describedby={!canEdit ? kickerId : empty ? emptyHint : undefined}
           onChange={e => onChange(e.currentTarget.value)}
+          onKeyDown={e => {
+            // The first Escape only leaves the field; the sheet's own
+            // Escape closes it once focus is elsewhere.
+            if (e.key !== 'Escape') return;
+            e.stopPropagation();
+            e.currentTarget.blur();
+          }}
         />
       </div>
       {empty && (
@@ -102,4 +114,38 @@ function CommentComposer({
   );
 }
 
-export { CommentComposer };
+/** A reply that posts as it stands, in the composer's frame: read-only
+    text under the strip. `held` mutes it, for a reply direction or a reply
+    that only carries intent. */
+function CommentFrame({
+  kicker,
+  meta,
+  held = false,
+  edited = false,
+  kind,
+  text,
+}: {
+  kicker: string;
+  meta?: string;
+  held?: boolean;
+  edited?: boolean;
+  kind?: string;
+  text: string;
+}) {
+  return (
+    <div
+      className="tui-composer"
+      data-held={held ? '' : undefined}
+      data-edited={edited ? '' : undefined}
+      data-kind={kind}
+    >
+      <div className="tui-composer-strip">
+        <span className="tui-composer-k">{kicker}</span>
+        {meta && <span className="tui-composer-meta">{meta}</span>}
+      </div>
+      <div className="tui-composer-text">{text}</div>
+    </div>
+  );
+}
+
+export { CommentComposer, CommentFrame };

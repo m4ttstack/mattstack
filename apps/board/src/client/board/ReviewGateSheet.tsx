@@ -15,10 +15,10 @@ import {
 import { Button, Chip, Markdown } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import type { BoardMRWithReview } from '../types.ts';
+import { CommentComposer } from './CommentComposer.tsx';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
-import { CommentComposer } from './CommentComposer.tsx';
 import { GateSheet, type GateSheetQueue } from './GateSheet.tsx';
 import {
   CircleCheckFilledIcon,
@@ -27,8 +27,6 @@ import {
 } from './icons.tsx';
 import { MrCard } from './MrCard.tsx';
 import { mrRef } from './MrLinks.tsx';
-import { editedText } from './respond-post.ts';
-import { EditedChip } from './RespondCards.tsx';
 import {
   attachDraftEdits,
   commentKey,
@@ -259,9 +257,6 @@ function SummaryCard({
   onRemove: (f: FindingEntry) => void;
 }) {
   const key = summaryKey(outcome);
-  const edited =
-    editedText(key, draft, form.texts) ||
-    folded.some(f => editedText(commentKey(f.id), f.comment!, form.texts));
   return (
     <section
       className="tui-gate-question tui-review-summary"
@@ -270,7 +265,6 @@ function SummaryCard({
       <div className="tui-gate-question-head">
         <span className="tui-gate-question-label">Summary comment</span>
         <span className="tui-review-summary-chips">
-          {edited && <EditedChip />}
           {target && (
             <span className="tui-respond-chip" data-hue="accent">
               posts on {target}
@@ -281,7 +275,7 @@ function SummaryCard({
       <div data-part="summary-line">
         <CommentComposer
           key={key}
-          label="Summary comment"
+          label="Summary line"
           noun="comment"
           kicker={`will post as the summary · ${verdictLabel}`}
           draft={draft}
@@ -706,10 +700,6 @@ function ReviewGateSheet({
                       {items.map(f => {
                         const checked = selectedFindings.has(f.id);
                         const key = commentKey(f.id);
-                        const edited =
-                          drafts !== null &&
-                          checked &&
-                          editedText(key, f.comment!, form.texts);
                         const row = (
                           <label className="tui-review-finding-row" key={f.id}>
                             <input
@@ -757,7 +747,6 @@ function ReviewGateSheet({
                                       {DISPOSITION[f.disposition].text}
                                     </span>
                                   )}
-                                {edited && <EditedChip />}
                               </span>
                               {f.file && <FindingAnchor file={f.file} />}
                               <span className="tui-review-finding-text">

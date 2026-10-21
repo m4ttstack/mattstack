@@ -230,13 +230,14 @@ function Host({
         states: [...QUEUE.states],
         onPrev,
       }}
-      onClose={() => {}}
+      onClose={() => sheetCloses++}
       onContinue={onContinue}
       onFocusPane={() => {}}
     />
   );
 }
 
+let sheetCloses = 0;
 let root: Root;
 let container: HTMLElement;
 let posts: Array<{ url: string; body: unknown }>;
@@ -1330,9 +1331,7 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(box.querySelector('.tui-composer-k')?.textContent).toBe(
       'will post as comment'
     );
-    expect(valueOf(box)).toContain(
-      'Could we bind it as a parameter instead?'
-    );
+    expect(valueOf(box)).toContain('Could we bind it as a parameter instead?');
     expect(valueOf(box)).toContain(
       'A test with a quote in the name would pin it.'
     );
@@ -1343,16 +1342,14 @@ describe('a gate whose poster honors edited drafts', () => {
     await render(draftsGate());
     await edit(itemFor('Unused import'), 'Drop this import, please.');
     await click(checkboxForTitle('Unused import'));
-    expect(
-      itemFor('Unused import').querySelector('.tui-composer')
-    ).toBeNull();
+    expect(itemFor('Unused import').querySelector('.tui-composer')).toBeNull();
     expect(itemFor('Unused import').hasAttribute('data-off')).toBe(true);
     await click(checkboxForTitle('Unused import'));
     const item = itemFor('Unused import');
     expect(valueOf(item.querySelector('.tui-composer'))).toContain(
       'Drop this import, please.'
     );
-    expect(item.querySelector('.tui-thread-edited')).not.toBeNull();
+    expect(item.querySelector('.tui-composer[data-edited]')).not.toBeNull();
   });
 
   test('an edited comment rides its chunk answer as texts', async () => {
@@ -1417,12 +1414,12 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(valueOf(summaryLine())).toContain(SUMMARY_COMMENT);
     expect(valueOf(summaryLine())).not.toContain('Approve, edited.');
     expect(
-      container.querySelector('.tui-review-summary .tui-thread-edited')
+      container.querySelector('.tui-review-summary .tui-composer[data-edited]')
     ).toBeNull();
     await pickVerdict('approve');
     expect(valueOf(summaryLine())).toContain('Approve, edited.');
     expect(
-      container.querySelector('.tui-review-summary .tui-thread-edited')
+      container.querySelector('.tui-review-summary .tui-composer[data-edited]')
     ).not.toBeNull();
   });
 
@@ -1581,14 +1578,16 @@ describe('a gate whose poster honors edited drafts', () => {
 
   test('every comment is a framed text area ready to type into, named for what it edits', async () => {
     await render(draftsGate());
-    expect(container.querySelector('button[aria-label$="edit comment"]')).toBeNull();
+    expect(
+      container.querySelector('button[aria-label$="edit comment"]')
+    ).toBeNull();
     const labels = [
       ...container.querySelectorAll<HTMLTextAreaElement>(
         'textarea.tui-composer-input'
       ),
     ].map(t => t.getAttribute('aria-label'));
     expect(labels).toEqual([
-      'Summary comment',
+      'Summary line',
       'Summary comment: Inconsistent error wording',
       'Comment on SQL built from unsanitized input',
       'Comment on Missing null check on response',
@@ -1608,7 +1607,7 @@ describe('a gate whose poster honors edited drafts', () => {
     );
     expect(valueOf(item().querySelector('.tui-composer'))).toBe(COMMENT.f4);
     expect(metaOf(item())).toBe('posts as you');
-    expect(item().querySelector('.tui-thread-edited')).toBeNull();
+    expect(item().querySelector('.tui-composer[data-edited]')).toBeNull();
   });
 
   test('a folded finding sits in the summary under its own strip, and remove unticks it', async () => {
@@ -1628,6 +1627,41 @@ describe('a gate whose poster honors edited drafts', () => {
       (checkboxForTitle('Inconsistent error wording') as HTMLInputElement)
         .checked
     ).toBe(false);
+    expect(document.activeElement).toBe(
+      checkboxForTitle('Inconsistent error wording')
+    );
+  });
+
+  test('Escape in a field leaves the field, not the sheet; a second Escape reaches the sheet', async () => {
+    await render(draftsGate());
+    sheetCloses = 0;
+    const box = itemFor('Unused import').querySelector<HTMLTextAreaElement>(
+      'textarea.tui-composer-input'
+    )!;
+    const esc = (el: Element) =>
+      React.act(async () => {
+        el.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+        );
+      });
+    box.focus();
+    // The sheet's Escape listener sits on the document; counting what reaches
+    // it keeps the test free of the layer stack other files leave behind.
+    let reached = 0;
+    const onDoc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') reached++;
+    };
+    document.addEventListener('keydown', onDoc);
+    try {
+      await esc(box);
+      expect(document.activeElement).not.toBe(box);
+      expect(reached).toBe(0);
+      expect(sheetCloses).toBe(0);
+      await esc(document.body);
+      expect(reached).toBe(1);
+    } finally {
+      document.removeEventListener('keydown', onDoc);
+    }
   });
 
   test('without editable the sheet is the one it was: fix lines, no boxes, no summary card', async () => {

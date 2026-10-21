@@ -1056,12 +1056,12 @@ test('a changed reply shows the edited chip and posts; reset to draft clears bot
     replyBox(reply)!,
     'The delay is fixed by design; see retry.ts.'
   );
-  expect(reply.querySelector('[data-chip="edited"]')).not.toBeNull();
+  expect(reply.querySelector('.tui-composer[data-edited]')).not.toBeNull();
   expect(reply.querySelector('.tui-composer-meta')!.textContent).toBe(
     'edited·reset'
   );
   await React.act(async () => button(reply, 'reset')!.click());
-  expect(reply.querySelector('[data-chip="edited"]')).toBeNull();
+  expect(reply.querySelector('.tui-composer[data-edited]')).toBeNull();
   expect(replyBox(reply)!.value).toBe('The delay is fixed by design.');
   expect(document.activeElement).toBe(replyBox(reply));
 });
@@ -1110,7 +1110,7 @@ test('the dock reset restores the picks but keeps an edited reply', async () => 
   await click($('.tui-sheet-reset'));
   const again = postCards()[1]!;
   expect(control(again, 'post')!.checked).toBe(true);
-  expect(again.querySelector('[data-chip="edited"]')).not.toBeNull();
+  expect(again.querySelector('.tui-composer[data-edited]')).not.toBeNull();
   expect(replyBox(again)!.value).toBe('Kept on purpose.');
   await clickSubmit();
   expect(
@@ -1145,13 +1145,53 @@ test('the reply controls are named by their thread', async () => {
   expect(replyBox(reply)!.hasAttribute('aria-describedby')).toBe(false);
 });
 
-test("the edited chip is grey, never the fix chip's accent", async () => {
+test('an edit is marked in the reply strip only, never in the card head', async () => {
   await render(perThreadPostGate(), withFixPlan());
   const fix = postCards()[0]!;
   await typeInto(replyBox(fix)!, 'Fixed, and bounded.');
+  expect(fix.querySelector('.tui-composer[data-edited]')).not.toBeNull();
   expect(
-    fix.querySelector('[data-chip="edited"]')!.getAttribute('data-hue')
-  ).toBe('grey');
+    fix.querySelector('.tui-gate-question-head')!.textContent
+  ).not.toContain('edited');
+});
+
+test('Escape in a field leaves the field, not the sheet; a second Escape reaches the sheet', async () => {
+  await render(perThreadPostGate(), withFixPlan());
+  const box = replyBox(postCards()[1]!)!;
+  const esc = (el: Element) =>
+    React.act(async () => {
+      el.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
+    });
+  box.focus();
+  // The sheet's Escape listener sits on the document; counting what reaches
+  // it keeps the test free of the layer stack other files leave behind.
+  let reached = 0;
+  const onDoc = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') reached++;
+  };
+  document.addEventListener('keydown', onDoc);
+  try {
+    await esc(box);
+    expect(document.activeElement).not.toBe(box);
+    expect(reached).toBe(0);
+    expect(closes).toBe(0);
+    await esc(document.body);
+    expect(reached).toBe(1);
+  } finally {
+    document.removeEventListener('keydown', onDoc);
+  }
+});
+
+test('a held reply names its held strip to assistive tech', async () => {
+  await render(perThreadPostGate(), withFixPlan());
+  const reply = postCards()[1]!;
+  await holdReply(reply);
+  const id = replyBox(reply)!.getAttribute('aria-describedby');
+  expect(id && document.getElementById(id)?.textContent).toBe(
+    'drafted reply · not posting'
+  );
 });
 
 test('a card whose reply did not fit the gate offers no edit', async () => {
@@ -1169,13 +1209,13 @@ test('a card whose reply did not fit the gate offers no edit', async () => {
   expect(replyBox(fit!)!.readOnly).toBe(false);
 });
 
-test('without its plan gate, an edited reply still carries its chip', async () => {
+test('without its plan gate, an edited reply is still marked edited', async () => {
   await render(perThreadPostGate());
   const reply = postCards()[1]!;
   await typeInto(replyBox(reply)!, 'Kept on purpose.');
-  expect(
-    reply.querySelector('.tui-gate-question-head [data-chip="edited"]')
-  ).not.toBeNull();
+  expect(reply.querySelector('.tui-composer-meta')!.textContent).toBe(
+    'edited·reset'
+  );
 });
 
 const planCards = () => [
@@ -1190,7 +1230,7 @@ test('a reply pick on the plan sheet can be edited and answers with its text', a
   await pick('reply:t2');
   const card = planCards()[0]!;
   await typeInto(replyBox(card)!, 'fixed in the next push, with a test.');
-  expect(card.querySelector('[data-chip="edited"]')).not.toBeNull();
+  expect(card.querySelector('.tui-composer[data-edited]')).not.toBeNull();
   await clickSubmit();
   expect(answer()).toEqual({
     gateId: 'g-plan',
@@ -1248,7 +1288,7 @@ test('the plan dock waits for every thread to be picked before saying what comes
 });
 
 const caption = (card: HTMLElement) =>
-  card.querySelector('.tui-composer-k, .tui-thread-reply-k')!.textContent;
+  card.querySelector('.tui-composer-k')!.textContent;
 
 test('a plan card shows only what will post: a fix pick shows the draft, and reply brings the edit back', async () => {
   await render(planGate());
@@ -1260,16 +1300,12 @@ test('a plan card shows only what will post: a fix pick shows the draft, and rep
   await typeInto(replyBox(card)!, 'fixed in the next push, with a test.');
   await pick('fix:t1');
   expect(caption(card)).toBe('drafted reply');
-  expect(replyBox(card)!.value).toBe(
-    'fixed, with a test.'
-  );
-  expect(card.querySelector('[data-chip="edited"]')).toBeNull();
+  expect(replyBox(card)!.value).toBe('fixed, with a test.');
+  expect(card.querySelector('.tui-composer[data-edited]')).toBeNull();
   await pick('reply:t1');
   expect(caption(card)).toBe('will post as reply');
-  expect(replyBox(card)!.value).toBe(
-    'fixed in the next push, with a test.'
-  );
-  expect(card.querySelector('[data-chip="edited"]')).not.toBeNull();
+  expect(replyBox(card)!.value).toBe('fixed in the next push, with a test.');
+  expect(card.querySelector('.tui-composer[data-edited]')).not.toBeNull();
 });
 
 test('a held post-step reply is captioned as a draft, not as posting', async () => {
@@ -1373,28 +1409,22 @@ test('a held post card shows the draft without the chip; post brings the edit ba
   const reply = postCards()[1]!;
   await editThenHold(reply);
   expect(caption(reply)).toBe('drafted reply · not posting');
-  expect(replyBox(reply)!.value).toBe(
-    'The delay is fixed by design.'
-  );
-  expect(reply.querySelector('[data-chip="edited"]')).toBeNull();
+  expect(replyBox(reply)!.value).toBe('The delay is fixed by design.');
+  expect(reply.querySelector('.tui-composer[data-edited]')).toBeNull();
   await React.act(async () => control(reply, 'post')!.click());
   expect(caption(reply)).toBe('will post as reply');
-  expect(replyBox(reply)!.value).toBe(
-    'Kept on purpose.'
-  );
-  expect(reply.querySelector('[data-chip="edited"]')).not.toBeNull();
+  expect(replyBox(reply)!.value).toBe('Kept on purpose.');
+  expect(reply.querySelector('.tui-composer[data-edited]')).not.toBeNull();
 });
 
 test('without its plan gate, a held post card also shows the draft without the chip', async () => {
   await render(perThreadPostGate());
   const reply = postCards()[1]!;
   await editThenHold(reply);
-  expect(replyBox(reply)!.value).toBe(
-    'The delay is fixed by design.'
-  );
-  expect(reply.querySelector('[data-chip="edited"]')).toBeNull();
+  expect(replyBox(reply)!.value).toBe('The delay is fixed by design.');
+  expect(reply.querySelector('.tui-composer[data-edited]')).toBeNull();
   await React.act(async () => control(reply, 'post')!.click());
-  expect(reply.querySelector('[data-chip="edited"]')).not.toBeNull();
+  expect(reply.querySelector('.tui-composer[data-edited]')).not.toBeNull();
 });
 
 const dockNext = () => $('.tui-sheet-dock-next')!.textContent;
@@ -1448,36 +1478,34 @@ test('a reply-only thread Gate 2 does not offer posts with this step: its draft,
   const card = postCards()[3]!;
   expect(outcomeOf(card)).toBe('reply · posts with this step');
   expect(caption(card)).toBe('will post as reply');
-  expect(card.querySelector('.tui-thread-reply-text')!.textContent).toBe(
+  expect(card.querySelector('.tui-composer-text')!.textContent).toBe(
     'fixed, with a test.'
   );
   expect(card.querySelector('input')).toBeNull();
-  expect(card.querySelector('[data-chip="edited"]')).toBeNull();
+  expect(card.querySelector('.tui-composer[data-edited]')).toBeNull();
   expect(card.textContent).not.toContain('Nothing to post');
 });
 
-test('a reply-only thread edited at Gate 1 shows its edit and the edited chip', async () => {
+test('a reply-only thread edited at Gate 1 shows its edit, marked in its strip', async () => {
   await render(
     perThreadPostGate(),
     withFixPlan('fixed in the next push, with a test.')
   );
   const card = postCards()[3]!;
   expect(outcomeOf(card)).toBe('reply · posts with this step');
-  expect(card.querySelector('.tui-thread-reply-text')!.textContent).toBe(
+  expect(card.querySelector('.tui-composer-text')!.textContent).toBe(
     'fixed in the next push, with a test.'
   );
-  expect(
-    card.querySelector('[data-chip="edited"]')!.getAttribute('data-hue')
-  ).toBe('grey');
+  expect(card.querySelector('.tui-composer-meta')!.textContent).toBe(
+    'edited at Gate 1'
+  );
 });
 
 test('a reply override is offered at Gate 2 with its redraft and its controls', async () => {
   await render(perThreadPostGate(), withFixPlan());
   const card = postCards()[1]!;
   expect(outcomeOf(card)).toBe('reply only');
-  expect(replyBox(card)!.value).toBe(
-    'The delay is fixed by design.'
-  );
+  expect(replyBox(card)!.value).toBe('The delay is fixed by design.');
   expect(control(card, 'post')!.checked).toBe(true);
   expect(control(card, 'resolve')!.checked).toBe(false);
 });
@@ -1617,7 +1645,7 @@ test('a prose-flattened post sheet shows the Gate 1 reply-only thread as a card,
   ]);
   const replyOnly = cards[1]!;
   expect(outcomeOf(replyOnly)).toBe('reply · posts with this step');
-  expect(replyOnly.querySelector('.tui-thread-reply-text')!.textContent).toBe(
+  expect(replyOnly.querySelector('.tui-composer-text')!.textContent).toBe(
     'fixed, with a test.'
   );
   expect(replyOnly.querySelector('input')).toBeNull();
@@ -1638,10 +1666,10 @@ test('with the plan context flattened too, the reply-only card shows the Gate 1 
   );
   const edited = postCards()[1]!;
   expect(outcomeOf(edited)).toBe('reply · posts with this step');
-  expect(edited.querySelector('.tui-thread-reply-text')!.textContent).toBe(
+  expect(edited.querySelector('.tui-composer-text')!.textContent).toBe(
     'kept on purpose.'
   );
-  expect(edited.querySelector('[data-chip="edited"]')).not.toBeNull();
+  expect(edited.querySelector('.tui-composer[data-edited]')).not.toBeNull();
   await React.act(async () => root.unmount());
   root = createRoot(container);
   await renderProseWithReplyOnly({
@@ -1651,7 +1679,7 @@ test('with the plan context flattened too, the reply-only card shows the Gate 1 
   expect(bare.textContent).toContain(
     'Approved at Gate 1; posts with this step.'
   );
-  expect(bare.querySelector('[data-chip="edited"]')).toBeNull();
+  expect(bare.querySelector('.tui-composer[data-edited]')).toBeNull();
   expect(bare.querySelector('input')).toBeNull();
 });
 

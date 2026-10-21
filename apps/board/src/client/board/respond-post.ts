@@ -64,13 +64,6 @@ export function editedText(
   return edit !== undefined && edit.trim() !== draft.trim();
 }
 
-export function isEdited(
-  pick: PostPick,
-  texts: Record<string, string>
-): boolean {
-  return editedText(pick.name, pick.reply?.text ?? '', texts);
-}
-
 /** The trimmed edit each active item sends, keyed by question id. Null when
     an active item's edit is empty: an empty reply cannot post. */
 export function sendableTexts(
