@@ -3,7 +3,7 @@ import SwiftUI
 import MattstackCore
 
 /// `rt-tray --render-worktree-snapshots <fixtures-dir> <out-dir>` renders the
-/// Worktrees panel, the Review window (collapsed, expanded) and the interaction states from fixture
+/// Worktrees panel (loaded, loading, failed), the Review window (collapsed, expanded) and the interaction states from fixture
 /// JSON, light and dark, then returns true so the caller exits before any
 /// window, status item, socket or daemon work exists. DEBUG builds only.
 enum WorktreeSnapshot {
@@ -28,6 +28,9 @@ enum WorktreeSnapshot {
         }
         let diff = read("worktree-triage-diff.json", as: [TriageDiffFile].self)
         let panel = load("worktree-triage-panel.json"), catalog = load("worktree-triage-catalog.json")
+        let bannerJSON = #"[{"repo":"remote:github.com%2Facme%2Fwidgets","reason":"no-branches-grant","forge":"github","mode":"off","caches":[]},{"repo":"remote:gitlab.com%2Facme%2Fapp","reason":"no-token","forge":"gitlab"}]"#
+        let banners = (try? JSONDecoder().decode([TriageBanner].self, from: Data(bannerJSON.utf8))) ?? []
+        let withBanners = TriageData(rows: panel.rows, banners: banners, counts: panel.counts)
         let look = catalog.rows.first { $0.group == "look" }!
         let voldemort = panel.rows.first { $0.tree == "voldemort" }!
         for scheme in [ColorScheme.light, .dark] {
@@ -35,6 +38,14 @@ enum WorktreeSnapshot {
             let appearance: NSAppearance.Name = scheme == .dark ? .darkAqua : .aqua
             SnapshotRenderer.renderImage(content(WorktreePanelView(controller: WorktreePanelController(fixture: panel), isSnapshot: true),
                    width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("panel-\(tag).png"))
+            SnapshotRenderer.renderImage(content(WorktreePanelView(controller: WorktreePanelController(), isSnapshot: true),
+                   width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("panel-loading-\(tag).png"))
+            SnapshotRenderer.renderImage(content(WorktreePanelView(controller: WorktreePanelController(fixture: withBanners), isSnapshot: true),
+                   width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("panel-banners-\(tag).png"))
+            let failed = WorktreePanelController()
+            failed.isLoading = false
+            SnapshotRenderer.renderImage(content(WorktreePanelView(controller: failed, isSnapshot: true),
+                   width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("panel-failed-\(tag).png"))
             SnapshotRenderer.renderImage(content(WorktreePanelView(controller: WorktreePanelController(fixture: catalog), keptOpen: true, isSnapshot: true),
                    width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("state-catalog-\(tag).png"))
             SnapshotRenderer.renderImage(content(WorktreeReviewSheet(row: look, controller: WorktreePanelController(fixture: catalog),
@@ -47,7 +58,7 @@ enum WorktreeSnapshot {
             SnapshotRenderer.renderImage(content(InteractionStatesSnapshot(row: voldemort),
                    width: 1180, scheme), appearance: appearance, to: out.appendingPathComponent("interaction-states-\(tag).png"))
         }
-        print("wrote 10 snapshots to \(out.path)")
+        print("wrote 16 snapshots to \(out.path)")
         return true
         #else
         return false

@@ -9,7 +9,7 @@ describe("buildRelocationAnnouncement", () => {
       .toEqual({ sessionId: "s1", paneId: "7", tool: "EnterWorktree", path: "/pool/t1", cwd: "/repo" });
   });
   test("a bg pane's id rides in ref space", () => {
-    expect(buildRelocationAnnouncement(hook("EnterWorktree", { path: "/pool/t1" }), { HERDR_PANE_ID: "w1:p1", HERDR_SESSION: "bg" } as NodeJS.ProcessEnv)?.paneId)
+    expect(buildRelocationAnnouncement(hook("EnterWorktree", { path: "/pool/t1" }), { HERDR_PANE_ID: "w1:p1", HERDR_SESSION: "mattstack-bg" } as NodeJS.ProcessEnv)?.paneId)
       .toBe("bg:w1:p1");
   });
   test("EnterWorktree by name carries no path", () => {

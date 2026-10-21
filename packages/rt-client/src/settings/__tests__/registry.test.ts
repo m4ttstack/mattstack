@@ -200,6 +200,7 @@ describe("settings/registry", () => {
         "rt.roles",
         "rt.sync",
         "rt.variations",
+        "rt.worktreeMergeCleanupNotice",
         "rt.worktreeReadyApproval",
         "rt.worktrees",
       ]);
@@ -371,6 +372,7 @@ describe("settings/registry", () => {
         "chat.viewerUrl",
         "chat.herdrWorkspace",
         "chat.autoSignIn",
+        "rt.worktreeMergeCleanupNotice",
         "chat.push.provider",
         "chat.push.target",
         "agent.provider",

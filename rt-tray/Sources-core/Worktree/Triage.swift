@@ -73,14 +73,46 @@ public struct TriageBanner: Decodable, Sendable {
     public let repo: String
     public let reason: String
     public let forge: String?
+    /// The grant the repo has now, so turning cleanup on adds `branches` without dropping the rest.
+    public let mode: String?
+    public let caches: [String]?
 
     public var repoLabel: String { RepoIdentity.label(repo) }
+
+    /// `owner/name` for a remote repo: a bare name alone can read as a tool, not a repo.
+    public var repoName: String {
+        guard let id = RepoIdentity(wire: repo), id.kind == .remote else { return repoLabel }
+        return id.id.split(separator: "/").dropFirst().joined(separator: "/")
+    }
+
+    private var forgeName: String { forge == "github" ? "GitHub" : "GitLab" }
+
+    public var text: String {
+        reason == "no-token"
+            ? "Merged worktrees in \(repoName) won't clean up on their own: rt has no \(forgeName) token."
+            : "Merged worktrees in \(repoName) won't clean up on their own: rt isn't checking that repo's \(RepoIdentity.changeNoun(repo))s."
+    }
+
+    /// Live watching needs a GitLab remote, so GitHub always polls, whatever mode a team declared.
+    public var enableCleanupArgs: [String]? {
+        guard reason == "no-branches-grant" else { return nil }
+        let current = forge == "gitlab" && mode != "poll" ? "live" : "poll"
+        let kept = (caches ?? []).filter { $0 != "branches" }
+        return ["daemon", "track", repo, current, (["branches"] + kept).joined(separator: ",")]
+    }
+
+    public var hideArgs: [String] {
+        ["settings", "set", "rt.worktreeMergeCleanupNotice", "false", "--scope", "user", "--repo", repo]
+    }
 }
 
 public struct TriageData: Decodable, Sendable {
     public let rows: [TriageRow]
     public let banners: [TriageBanner]
     public let counts: TriageCounts
+    public init(rows: [TriageRow], banners: [TriageBanner], counts: TriageCounts) {
+        self.rows = rows; self.banners = banners; self.counts = counts
+    }
 }
 
 public struct TriagePayload: Decodable, Sendable {
@@ -133,6 +165,14 @@ public enum TriageMenu {
     public static func badge(_ counts: TriageCounts?) -> Int? {
         guard let n = counts?.needsDecision, n > 0 else { return nil }
         return n
+    }
+
+    public static func headline(_ counts: TriageCounts) -> String {
+        switch counts.needsDecision {
+        case 0: return "Nothing needs a decision"
+        case 1: return "1 worktree needs a decision"
+        case let n: return "\(n) worktrees need a decision"
+        }
     }
 }
 

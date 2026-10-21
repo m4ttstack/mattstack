@@ -20240,7 +20240,7 @@
                             {
                               "type": "frame",
                               "id": "nEs4Z",
-                              "name": "Current checkout (selected)",
+                              "name": "Use my checkout (selected)",
                               "fill": "#FFFFFF",
                               "cornerRadius": 5,
                               "effect": {
@@ -20273,7 +20273,7 @@
                             {
                               "type": "frame",
                               "id": "K6fu2",
-                              "name": "New checkout",
+                              "name": "Clone a new one",
                               "fill": "#00000000",
                               "cornerRadius": 5,
                               "padding": [
@@ -20334,7 +20334,7 @@
                         {
                           "type": "frame",
                           "id": "vVCoP",
-                          "name": "Locate button",
+                          "name": "Choose… button",
                           "fill": "#FFFFFF",
                           "cornerRadius": 6,
                           "stroke": "#D1D1D6",
@@ -20375,6 +20375,7 @@
                   "id": "i0yS1",
                   "name": "Repo acme-api",
                   "width": "fill_container",
+                  "stroke": "#E3E3E6",
                   "layout": "vertical",
                   "gap": 8,
                   "padding": [
@@ -20439,7 +20440,7 @@
                             {
                               "type": "frame",
                               "id": "JxNmf",
-                              "name": "Current checkout",
+                              "name": "Use my checkout",
                               "fill": "#00000000",
                               "cornerRadius": 5,
                               "padding": [
@@ -20462,7 +20463,7 @@
                             {
                               "type": "frame",
                               "id": "Vpjon",
-                              "name": "New checkout (selected)",
+                              "name": "Clone a new one (selected)",
                               "fill": "#FFFFFF",
                               "cornerRadius": 5,
                               "effect": {
@@ -20533,7 +20534,7 @@
                         {
                           "type": "frame",
                           "id": "jrtXy",
-                          "name": "Choose location button",
+                          "name": "Choose… button",
                           "fill": "#FFFFFF",
                           "cornerRadius": 6,
                           "stroke": "#D1D1D6",
@@ -20603,7 +20604,7 @@
                 {
                   "type": "text",
                   "id": "Y7wmS5",
-                  "name": "Status",
+                  "name": "2 required items left on",
                   "fill": "#6E6E73",
                   "content": "Every repo has a place. Install clones acme-api.",
                   "fontFamily": "Inter",

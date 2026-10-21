@@ -5,7 +5,7 @@ import type { GateRow } from '../../gates/store.ts';
 import { isOwnMr } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import type { TriageGateState } from './DecisionQueueModal.tsx';
-import { cleanTitle } from './format.ts';
+import { ago, cleanTitle } from './format.ts';
 
 /** Why the queue shows this gate read-only, or null when the seat can
     answer it: a respond or doctor gate is its MR author's decision, and the
@@ -98,6 +98,36 @@ export function markAnswered(
   };
 }
 
+export function entryPeek(entry: QueueEntry): string {
+  return entry.mr
+    ? `!${entry.mr.iid} · ${cleanTitle(entry.mr.title)}`
+    : entry.gate.label;
+}
+
+export interface BannerCopy {
+  title: string;
+  detail: string;
+}
+
+/** The board banner's words for a non-empty queue. `entries[0]` is the gate
+    `openAtStart` opens, so the banner names the gate its button lands on. */
+export function bannerCopy(entries: QueueEntry[], now: number): BannerCopy {
+  const first = entries[0]!;
+  const opened = first.gate.openedAt;
+  const waited = !Number.isFinite(opened)
+    ? null
+    : now - opened < 60_000
+      ? 'just opened'
+      : `waiting ${ago(new Date(opened).toISOString(), now)}`;
+  const item = waited ? `${entryPeek(first)} · ${waited}` : entryPeek(first);
+  return entries.length === 1
+    ? { title: '1 decision is waiting on you', detail: item }
+    : {
+        title: `${entries.length} decisions are waiting on you`,
+        detail: `Next: ${item}`,
+      };
+}
+
 export function queueView(
   session: QueueSession,
   entries: QueueEntry[]
@@ -114,11 +144,7 @@ export function queueView(
     active,
     position,
     states,
-    nextPeek: nextEntry
-      ? nextEntry.mr
-        ? `!${nextEntry.mr.iid} · ${cleanTitle(nextEntry.mr.title)}`
-        : nextEntry.gate.label
-      : undefined,
+    nextPeek: nextEntry ? entryPeek(nextEntry) : undefined,
     canBack: backTo(session, entries, session.activeId) !== null,
     canNext: nextId !== null,
     complete: session.activeId === null && session.order.length > 0,

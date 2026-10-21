@@ -136,13 +136,17 @@ struct WorktreePanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            if isSnapshot {
-                content
+            if controller.counts == nil {
+                unloaded
             } else {
-                ScrollView { content }
+                header
+                if isSnapshot {
+                    content
+                } else {
+                    ScrollView { content }
+                }
+                footer
             }
-            footer
         }
         .frame(minWidth: 640, minHeight: isSnapshot ? 0 : 420)
         .background(WT.window)
@@ -175,7 +179,7 @@ struct WorktreePanelView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(controller.banners, id: \.repo) { TriageBannerView(banner: $0) }
+            ForEach(controller.banners, id: \.repo) { TriageBannerView(banner: $0, controller: controller) }
             ForEach(TriageSection.sections(controller.rows), id: \.0) { section, rows in
                 if section == .kept {
                     keptDisclosure(rows)
@@ -184,13 +188,34 @@ struct WorktreePanelView: View {
                     ForEach(rows) { row(for: $0) }
                 }
             }
-            if !controller.isLoading && controller.rows.isEmpty {
+            if controller.rows.isEmpty {
                 Text("Nothing stuck. Every merged worktree was cleaned up.")
                     .foregroundStyle(WT.textSecondary).padding(24)
             }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 4)
+    }
+
+    /// Nothing has loaded yet, so there is no headline to state: a bare loader, or the failure, centred.
+    private var unloaded: some View {
+        VStack(spacing: 12) {
+            if controller.isLoading {
+                if isSnapshot {
+                    Image(systemName: "circle.dotted").font(.system(size: 22)).foregroundStyle(WT.textTertiary)
+                } else {
+                    ProgressView()
+                }
+                Text("Checking worktrees…").foregroundStyle(WT.textSecondary)
+            } else {
+                Text("Couldn't check worktrees").font(.system(size: 15, weight: .semibold)).foregroundStyle(WT.text)
+                if let status = controller.status { Text(status.text).foregroundStyle(WT.textSecondary) }
+                Text("Trying again every 10 seconds.").foregroundStyle(WT.textTertiary)
+            }
+        }
+        .font(.system(size: 13.5))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minHeight: isSnapshot ? 240 : 0)
     }
 
     private var header: some View {
@@ -219,14 +244,7 @@ struct WorktreePanelView: View {
         }
     }
 
-    private var headline: String {
-        let n = controller.counts?.needsDecision ?? 0
-        switch n {
-        case 0: return "Nothing needs a decision"
-        case 1: return "1 worktree needs a decision"
-        default: return "\(n) worktrees need a decision"
-        }
-    }
+    private var headline: String { TriageMenu.headline(controller.counts ?? TriageCounts(needsDecision: 0, safe: 0, waiting: 0, kept: 0)) }
 
     private var footer: some View {
         HStack(spacing: 6) {
@@ -330,23 +348,32 @@ struct TriageSectionLabel: View {
 
 struct TriageBannerView: View {
     let banner: TriageBanner
+    @ObservedObject var controller: WorktreePanelController
 
-    private var forgeName: String { banner.forge == "github" ? "GitHub" : "GitLab" }
-    private var why: String {
-        banner.reason == "no-token" ? "no \(forgeName) token." : "branch \(RepoIdentity.changeNoun(banner.repo)) checks are off for it."
-    }
+    private var busy: Bool { controller.bannerBusy.contains(banner.repo) }
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "powerplug").foregroundStyle(WT.amber)
-            Text("Merged worktrees aren't cleaned up in \(banner.repoLabel): \(why)")
+            Text(banner.text)
                 .foregroundStyle(WT.amber)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
-            Button(banner.reason == "no-token" ? "Connect \(forgeName)" : "Open settings") {
-                NotificationCenter.default.post(name: .rtShowSettings, object: nil)
+            Button("Not for this repo") { controller.hideBanner(banner) }
+                .buttonStyle(TriageButtonStyle())
+                .help("Stop showing this for \(banner.repoName). Its merged worktrees stay for you to dispose.")
+            if banner.reason == "no-token" {
+                Button("Connect \(banner.forge == "github" ? "GitHub" : "GitLab")") {
+                    NotificationCenter.default.post(name: .rtShowSettingsAccounts, object: nil)
+                }
+                .buttonStyle(TriageButtonStyle())
+            } else {
+                Button("Clean these up automatically") { controller.enableCleanup(banner) }
+                    .buttonStyle(TriageButtonStyle())
+                    .help("rt starts checking \(banner.repoName)'s \(RepoIdentity.changeNoun(banner.repo))s on this Mac, so a worktree is disposed once its \(RepoIdentity.changeNoun(banner.repo)) merges.")
             }
-            .buttonStyle(TriageButtonStyle())
         }
+        .disabled(busy)
         .font(.system(size: 13))
         .padding(.leading, 14).padding(.trailing, 10).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 8).fill(WT.amberFill))

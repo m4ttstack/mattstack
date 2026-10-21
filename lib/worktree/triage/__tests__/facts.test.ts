@@ -77,6 +77,23 @@ describe("collectFacts", () => {
     expect([f.containment, f.ahead]).toEqual(["none", 1]);
   });
 
+  test("unpushed counts only what the remote branch lacks, not a squash-merged branch's whole history", async () => {
+    const rec = tree("echo");
+    writeFileSync(join(rec.path, "extra.txt"), "x\n");
+    sh(`git add -A && git ${GIT_ID} commit -q -m extra`, rec.path);
+    const f = await collectFacts(repoName, repo, rec, deps());
+    expect([f.ahead, f.unpushed]).toEqual([2, 1]);
+  });
+
+  test("a branch rebased onto a newer main counts its own commits, not the main commits it picked up", async () => {
+    const rec = tree("foxtrot");
+    for (const n of [1, 2, 3]) sh(`git ${GIT_ID} commit -q --allow-empty -m main-${n}`, repo);
+    sh("git push -q origin main && git fetch -q origin", repo);
+    sh(`git ${GIT_ID} rebase -q origin/main`, rec.path);
+    const f = await collectFacts(repoName, repo, rec, deps());
+    expect(f.unpushed).toBe(1);
+  });
+
   test("a tree whose directory vanished is broken", async () => {
     const rec = tree("charlie");
     rmSync(rec.path, { recursive: true, force: true });

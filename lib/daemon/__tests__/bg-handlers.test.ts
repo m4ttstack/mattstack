@@ -13,7 +13,7 @@ import { createBgHandlers } from "../handlers/bg.ts";
 import type { BgService, ParityReport } from "../bg-service.ts";
 
 const log = pino({ level: "silent" });
-const SOCKET = "/h/.config/herdr/sessions/bg/herdr.sock";
+const SOCKET = "/h/.config/herdr/sessions/mattstack-bg/herdr.sock";
 
 let dirs: string[] = [];
 beforeEach(() => { dirs = []; });
