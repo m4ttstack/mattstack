@@ -134,6 +134,14 @@ public enum TriageMenu {
         guard let n = counts?.needsDecision, n > 0 else { return nil }
         return n
     }
+
+    public static func headline(_ counts: TriageCounts) -> String {
+        switch counts.needsDecision {
+        case 0: return "Nothing needs a decision"
+        case 1: return "1 worktree needs a decision"
+        case let n: return "\(n) worktrees need a decision"
+        }
+    }
 }
 
 extension TriageFingerprint {
