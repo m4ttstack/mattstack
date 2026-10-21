@@ -139,14 +139,35 @@ test('Shift-Tab is left to the browser, so it leaves the field', async () => {
   expect(latest).toBeUndefined();
 });
 
-test('Escape in the field hands focus to the sheet', async () => {
+test("Escape in the field moves focus to the field's own Write tab, inside the sheet", async () => {
   await React.act(async () => root.render(<Host draft="ab" />));
   const el = box()!;
   el.focus();
   await key(el, { key: 'Escape' });
-  expect(document.activeElement).toBe(
-    container.querySelector('[role="dialog"]')
+  expect(document.activeElement).toBe(tab('Write'));
+  expect(
+    container.querySelector('[role="dialog"]')!.contains(document.activeElement)
+  ).toBe(true);
+});
+
+test('reset while in Preview goes back to Write and focuses the field', async () => {
+  await React.act(async () => root.render(<Host draft="ab" />));
+  const el = box()!;
+  el.focus();
+  el.setSelectionRange(1, 1);
+  await key(el, { key: 'Tab' });
+  await React.act(async () => tab('Preview').click());
+  expect(box()).toBeNull();
+  await React.act(async () =>
+    container
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="Comment on finding 1: reset to draft"]'
+      )!
+      .click()
   );
+  expect(tab('Write').getAttribute('aria-selected')).toBe('true');
+  expect(box()!.value).toBe('ab');
+  expect(document.activeElement).toBe(box());
 });
 
 test('a read-only held field takes no Tab', async () => {
@@ -167,4 +188,19 @@ test('a read-only held field takes no Tab', async () => {
   const el = box()!;
   await key(el, { key: 'Tab' });
   expect(latest).toBeUndefined();
+});
+
+test('a strip needs a kicker or a where: the types refuse neither', () => {
+  const bare = (
+    // @ts-expect-error neither kicker nor where names the strip
+    <CommentComposer
+      label="Comment on finding 1"
+      noun="comment"
+      draft="d"
+      value={undefined}
+      onChange={() => {}}
+      onReset={() => {}}
+    />
+  );
+  expect(bare).toBeDefined();
 });

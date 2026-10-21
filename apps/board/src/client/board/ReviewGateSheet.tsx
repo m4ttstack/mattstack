@@ -462,6 +462,96 @@ function ReviewGateSheet({
     };
   }, [findings.length, report]);
 
+  /** A severity group's findings: drafted cards set in under the group's
+      heading, or the plain rows of a review the board doesn't edit. */
+  const findingRows = (items: FindingEntry[]) => {
+    const rows = items.map(f => {
+      const checked = selectedFindings.has(f.id);
+      const pills = (
+        <>
+          {f.kind && (
+            <span className="tui-respond-pill" data-kind={f.kind}>
+              {f.kind}
+            </span>
+          )}
+          {f.disposition &&
+            !(f.disposition === 'new' && carryovers.length > 0) && (
+              <span
+                className="tui-respond-pill"
+                data-hue={DISPOSITION[f.disposition].hue}
+                data-disposition={f.disposition}
+              >
+                {DISPOSITION[f.disposition].text}
+              </span>
+            )}
+        </>
+      );
+      const tick = (
+        <input
+          type="checkbox"
+          className="tui-gate-choice-input"
+          data-type="checkbox"
+          data-checked={checked ? '' : undefined}
+          checked={checked}
+          aria-labelledby={`tui-review-finding-title-${f.id}`}
+          onChange={e =>
+            findingsName &&
+            form.toggleMulti(findingsName, f.id, e.currentTarget.checked)
+          }
+        />
+      );
+      const title = (
+        <span
+          className="tui-review-finding-title"
+          id={`tui-review-finding-title-${f.id}`}
+        >
+          {f.title}
+        </span>
+      );
+      // The card's sections sit outside the label:
+      // inside it, a click on the comment would toggle
+      // the finding.
+      if (drafts)
+        return (
+          <FindingCard
+            key={f.id}
+            finding={f}
+            checked={checked}
+            form={form}
+            mrUrl={mr?.webUrl ?? undefined}
+            mrRef={mr && mrRef(mr)}
+            pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
+            head={
+              <label className="tui-review-finding-row tui-review-card-head">
+                {tick}
+                {title}
+                {pills}
+              </label>
+            }
+          />
+        );
+      return (
+        <label className="tui-review-finding-row" key={f.id}>
+          {tick}
+          <span className="tui-review-finding-body">
+            <span className="tui-review-finding-line1">
+              {title}
+              {pills}
+            </span>
+            {f.file && <FindingAnchor file={f.file} />}
+            <span className="tui-review-finding-text">
+              <Markdown unstyled linkTargetBlank>
+                {f.body}
+              </Markdown>
+            </span>
+            {f.fix && <span className="tui-review-finding-fix">{f.fix}</span>}
+          </span>
+        </label>
+      );
+    });
+    return drafts ? <div className="tui-review-tier-items">{rows}</div> : rows;
+  };
+
   const toggleTier = (items: FindingEntry[], on: boolean) => {
     if (!findingsName) return;
     for (const f of items) form.toggleMulti(findingsName, f.id, on);
@@ -634,118 +724,7 @@ function ReviewGateSheet({
                           </button>
                         </span>
                       </div>
-                      {(() => {
-                        const rows = items.map(f => {
-                          const checked = selectedFindings.has(f.id);
-                          const pills = (
-                            <>
-                              {f.kind && (
-                                <span
-                                  className="tui-respond-pill"
-                                  data-kind={f.kind}
-                                >
-                                  {f.kind}
-                                </span>
-                              )}
-                              {f.disposition &&
-                                !(
-                                  f.disposition === 'new' &&
-                                  carryovers.length > 0
-                                ) && (
-                                  <span
-                                    className="tui-respond-pill"
-                                    data-hue={DISPOSITION[f.disposition].hue}
-                                    data-disposition={f.disposition}
-                                  >
-                                    {DISPOSITION[f.disposition].text}
-                                  </span>
-                                )}
-                            </>
-                          );
-                          const tick = (
-                            <input
-                              type="checkbox"
-                              className="tui-gate-choice-input"
-                              data-type="checkbox"
-                              data-checked={checked ? '' : undefined}
-                              checked={checked}
-                              aria-labelledby={`tui-review-finding-title-${f.id}`}
-                              onChange={e =>
-                                findingsName &&
-                                form.toggleMulti(
-                                  findingsName,
-                                  f.id,
-                                  e.currentTarget.checked
-                                )
-                              }
-                            />
-                          );
-                          const title = (
-                            <span
-                              className="tui-review-finding-title"
-                              id={`tui-review-finding-title-${f.id}`}
-                            >
-                              {f.title}
-                            </span>
-                          );
-                          // The card's sections sit outside the label:
-                          // inside it, a click on the comment would toggle
-                          // the finding.
-                          if (drafts)
-                            return (
-                              <FindingCard
-                                key={f.id}
-                                finding={f}
-                                checked={checked}
-                                form={form}
-                                mrUrl={mr?.webUrl ?? undefined}
-                                mrRef={mr && mrRef(mr)}
-                                pins={
-                                  f.file
-                                    ? (pinsByFile.get(anchorPath(f.file)) ?? [])
-                                    : []
-                                }
-                                head={
-                                  <label className="tui-review-finding-row tui-review-card-head">
-                                    {tick}
-                                    {title}
-                                    {pills}
-                                  </label>
-                                }
-                              />
-                            );
-                          return (
-                            <label
-                              className="tui-review-finding-row"
-                              key={f.id}
-                            >
-                              {tick}
-                              <span className="tui-review-finding-body">
-                                <span className="tui-review-finding-line1">
-                                  {title}
-                                  {pills}
-                                </span>
-                                {f.file && <FindingAnchor file={f.file} />}
-                                <span className="tui-review-finding-text">
-                                  <Markdown unstyled linkTargetBlank>
-                                    {f.body}
-                                  </Markdown>
-                                </span>
-                                {f.fix && (
-                                  <span className="tui-review-finding-fix">
-                                    {f.fix}
-                                  </span>
-                                )}
-                              </span>
-                            </label>
-                          );
-                        });
-                        return drafts ? (
-                          <div className="tui-review-tier-items">{rows}</div>
-                        ) : (
-                          rows
-                        );
-                      })()}
+                      {findingRows(items)}
                     </div>
                   );
                 })}

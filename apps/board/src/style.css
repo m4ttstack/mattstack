@@ -4180,6 +4180,11 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-1);
   overflow-wrap: anywhere;
 }
+/* The anchor's line reads like the file name in a finding's anchor. */
+.tui-review-code-line {
+  font-weight: 500;
+  color: var(--text-accent-small);
+}
 .tui-review-code-hint {
   margin-left: auto;
   font-size: 11px;

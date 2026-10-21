@@ -1338,7 +1338,7 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(
       sectionOf(item, 'The Code')!.querySelector('.tui-review-code-path')!
         .textContent
-    ).toBe('lib/db/query.ts');
+    ).toBe('lib/db/query.ts:42');
     expect(sectionOf(item, 'Agent Finding')!.textContent).toContain(
       'SQL built from unsanitized input: the full finding text, never truncated.'
     );
@@ -1715,6 +1715,45 @@ describe('a gate whose poster honors edited drafts', () => {
     );
   });
 
+  test('reset to draft from Preview goes back to Write and focuses the field', async () => {
+    await render(draftsGate());
+    const item = () => itemFor('Unused import');
+    await edit(item(), 'Drop this import, please.');
+    const tabOf = (name: string) =>
+      [...item().querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+        t => t.textContent === name
+      )!;
+    await click(tabOf('Preview'));
+    expect(item().querySelector('textarea')).toBeNull();
+    await click(
+      item().querySelector<HTMLButtonElement>('button.tui-composer-act')!
+    );
+    const box = sectionOf(item(), 'Comment')!.querySelector('textarea')!;
+    expect(box.value).toBe(COMMENT.f4);
+    expect(tabOf('Write').getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(box);
+  });
+
+  test('reset on the summary line from Preview goes back to Write and focuses it', async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), 'Approve, edited.');
+    const summary = () => container.querySelector('.tui-review-summary')!;
+    const tabOf = (name: string) =>
+      [...summary().querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+        t => t.textContent === name
+      )!;
+    await click(tabOf('Preview'));
+    await click(
+      summary().querySelector<HTMLButtonElement>(
+        'button[aria-label="Summary line: reset to draft"]'
+      )!
+    );
+    expect(document.activeElement).toBe(
+      summaryLine().querySelector('textarea')
+    );
+    expect(valueOf(summaryLine())).toBe(SUMMARY);
+  });
+
   test('a folded finding sits in the summary under its own strip, and remove unticks it', async () => {
     await render(draftsGate());
     const folded = () =>
@@ -1759,7 +1798,13 @@ describe('a gate whose poster honors edited drafts', () => {
     document.addEventListener('keydown', onDoc);
     try {
       await esc(box);
-      expect(document.activeElement).toBe(box.closest('[role="dialog"]'));
+      expect(document.activeElement?.getAttribute('role')).toBe('tab');
+      expect(document.activeElement?.textContent).toBe('Write');
+      expect(
+        box
+          .closest('[data-section="comment"]')!
+          .contains(document.activeElement)
+      ).toBe(true);
       expect(reached).toBe(0);
       expect(sheetCloses).toBe(0);
       await esc(document.body);

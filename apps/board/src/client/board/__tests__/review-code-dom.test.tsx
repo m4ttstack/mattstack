@@ -200,8 +200,9 @@ test('without a diff source the code section is the file header alone', async ()
   await render();
   const code = codeOf('Retry loop lacks backoff');
   expect(code.querySelector('.tui-review-code-path')!.textContent).toBe(
-    'lib/retry.ts'
+    'lib/retry.ts:12'
   );
+  expect(code.querySelector('.tui-review-code-line')!.textContent).toBe(':12');
   expect(fullDiffLink('Retry loop lacks backoff')).toBeUndefined();
   expect(
     code.querySelector('.tui-review-code')!.hasAttribute('data-openable')

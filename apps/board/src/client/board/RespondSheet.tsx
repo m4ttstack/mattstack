@@ -628,7 +628,6 @@ function RespondSheetBody({
       <CommentComposer
         label={`Reply on ${p.label}`}
         noun="reply"
-        kicker="will post as reply"
         heldKicker="drafted reply · not posting"
         {...(framed
           ? {
@@ -636,7 +635,7 @@ function RespondSheetBody({
               status: <StripOutcome verb={p.reply!.verb} />,
               heldMeta: 'not posting',
             }
-          : {})}
+          : { kicker: 'will post as reply' })}
         draft={p.reply!.text}
         value={live ? form.texts[p.name] : undefined}
         canEdit={live}

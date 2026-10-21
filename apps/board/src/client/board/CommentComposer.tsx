@@ -8,12 +8,37 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { flushSync } from 'react-dom';
 
 import { Markdown } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import { postedText } from './respond-post.ts';
 
 type FieldMode = 'write' | 'preview';
+
+/** The selected tab of the Write/Preview pair nearest `el`: the field's own,
+    found by walking out to the first ancestor that holds a tab list. */
+function fieldTab(el: HTMLElement): HTMLElement | null {
+  for (
+    let at: HTMLElement | null = el.parentElement;
+    at && at.getAttribute('role') !== 'dialog';
+    at = at.parentElement
+  ) {
+    const tab = at.querySelector<HTMLElement>(
+      '[role="tablist"] [role="tab"][aria-selected="true"]'
+    );
+    if (tab) return tab;
+  }
+  return null;
+}
+
+/** Runs a reset that also returns its field to Write, then focuses the
+    field's text area, which Preview had unmounted. */
+function resetToWrite(button: HTMLElement, scope: string, reset: () => void) {
+  const part = button.closest(scope);
+  flushSync(reset);
+  part?.querySelector('textarea')?.focus();
+}
 
 /** Write and Preview over one comment field. */
 function FieldTabs({
@@ -104,11 +129,12 @@ function CommentField({
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
     if (e.key === 'Escape') {
-      // The first Escape only leaves the field, for the sheet itself: a blur
-      // would drop focus to the body, outside the sheet's Tab trap. The
-      // sheet's own Escape closes it on the next press.
+      // The first Escape only leaves the field, landing on its own Write
+      // tab so the keyboard carries on from here: a blur would drop focus
+      // to the body, outside the sheet's Tab trap. The sheet's own Escape
+      // closes it on the next press.
       e.stopPropagation();
-      el.closest<HTMLElement>('[role="dialog"]')?.focus();
+      (fieldTab(el) ?? el.closest<HTMLElement>('[role="dialog"]'))?.focus();
       return;
     }
     if (
@@ -198,6 +224,12 @@ function StripWhere({ where }: { where: string }) {
     `canEdit` false shows the draft read-only under a grey strip, for a
     reply this gate will not post. `where` names the thread in the strip
     in place of `kicker`; `status` sits beside it. */
+/** The strip names either the thread (`where`, with an optional `status`)
+    or what the text posts as (`kicker`); one of the two, never neither. */
+type StripLead =
+  | { where: string; status?: ReactNode; kicker?: string }
+  | { where?: undefined; status?: undefined; kicker: string };
+
 function CommentComposer({
   label,
   kicker,
@@ -213,13 +245,10 @@ function CommentComposer({
   onReset,
   onRemove,
   controls,
-}: {
+}: StripLead & {
   label: string;
-  kicker?: string;
   heldKicker?: string;
   heldMeta?: string;
-  where?: string;
-  status?: ReactNode;
   noun: 'reply' | 'comment';
   draft: string;
   value: string | undefined;
@@ -261,13 +290,12 @@ function CommentComposer({
                     type="button"
                     className="tui-composer-act"
                     aria-label={`${label}: reset to draft`}
-                    onClick={e => {
-                      onReset();
-                      e.currentTarget
-                        .closest('.tui-composer')
-                        ?.querySelector('textarea')
-                        ?.focus();
-                    }}
+                    onClick={e =>
+                      resetToWrite(e.currentTarget, '.tui-composer', () => {
+                        onReset();
+                        setMode('write');
+                      })
+                    }
                   >
                     reset
                   </button>
@@ -360,6 +388,7 @@ function CommentFrame({
 }
 
 export {
+  resetToWrite,
   CommentComposer,
   CommentField,
   CommentFrame,

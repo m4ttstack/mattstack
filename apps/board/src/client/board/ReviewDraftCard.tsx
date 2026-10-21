@@ -15,6 +15,7 @@ import {
   CommentField,
   commentState,
   FieldTabs,
+  resetToWrite,
   type FieldMode,
 } from './CommentComposer.tsx';
 import {
@@ -283,7 +284,12 @@ function CodeSection({
       >
         <div className="tui-review-code-file">
           <FileGlyph />
-          <span className="tui-review-code-path">{path}</span>
+          <span className="tui-review-code-path">
+            {path}
+            {line !== undefined && (
+              <span className="tui-review-code-line">:{line}</span>
+            )}
+          </span>
           {diff && (
             <span className="tui-review-code-hint" aria-hidden="true">
               click to expand
@@ -339,13 +345,9 @@ function DraftMeta({
         type="button"
         className="tui-composer-act"
         aria-label={`${label}: reset to draft`}
-        onClick={e => {
-          onReset();
-          e.currentTarget
-            .closest('[data-draft-part]')
-            ?.querySelector('textarea')
-            ?.focus();
-        }}
+        onClick={e =>
+          resetToWrite(e.currentTarget, '[data-draft-part]', onReset)
+        }
       >
         {resetText}
       </button>
@@ -415,7 +417,10 @@ function CommentSection({
             edited={edited}
             label={label}
             unedited="drafted by the agent"
-            onReset={() => form.clearText(key)}
+            onReset={() => {
+              form.clearText(key);
+              setMode('write');
+            }}
           />
         )}
       </SectionHead>
@@ -503,11 +508,13 @@ function FoldedPart({
   finding: f,
   form,
   mode,
+  onWrite,
   onRemove,
 }: {
   finding: FindingEntry;
   form: GateFormState;
   mode: FieldMode;
+  onWrite: () => void;
   onRemove: () => void;
 }) {
   const key = commentKey(f.id);
@@ -526,7 +533,10 @@ function FoldedPart({
           edited={edited}
           label={label}
           resetText="reset"
-          onReset={() => form.clearText(key)}
+          onReset={() => {
+            form.clearText(key);
+            onWrite();
+          }}
         />
         <button
           type="button"
@@ -583,7 +593,10 @@ export function RailSummary({
           edited={edited}
           label="Summary line"
           resetText="reset"
-          onReset={() => form.clearText(key)}
+          onReset={() => {
+            form.clearText(key);
+            setMode('write');
+          }}
         />
         <FieldTabs label="Summary comment" mode={mode} onMode={setMode} />
       </div>
@@ -608,6 +621,7 @@ export function RailSummary({
             finding={f}
             form={form}
             mode={mode}
+            onWrite={() => setMode('write')}
             onRemove={() => onRemove(f)}
           />
         ))}
