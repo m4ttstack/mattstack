@@ -1300,6 +1300,97 @@ export const reviewPostDraftedGitHub: GalleryGate = {
   diffs: githubRadarDiffs,
 };
 
+/** A drafted comment that uses the Markdown comments lean on: inline code,
+    a list, a quote, a link, a ts fence and a suggestion. */
+const RICH_RADAR_COMMENT = [
+  'Small wording thing: after the provider change, a step navigation no longer tears the map down; `useProviderTeardown` does.',
+  '',
+  '- the comment here says otherwise',
+  '- the same wording is in `useRadarMap.test.tsx:997`',
+  '',
+  '> can land after a step navigation tore this map down',
+  '',
+  'The [teardown notes](https://docs.example.com/radar/teardown) have the right order:',
+  '',
+  '```ts',
+  'useProviderTeardown(provider, () => {',
+  '  isDetached.current = true; // set before the layer engine nulls world',
+  '  mapRef.current = null;',
+  '});',
+  '```',
+  '',
+  'Could it read like this?',
+  '',
+  '```suggestion:-0+0',
+  '    // tore this map down, so drop it here.',
+  '    // A late model can land after the provider tore this map down.',
+  '```',
+].join('\n');
+
+/** The code renderer with no forge diffs, for a sheet that only previews
+    comments. */
+const previewOnly: DiffSource = {
+  fetchFileDiff: async () => null,
+  loadView: () => import('./DiffView.tsx'),
+};
+
+export const reviewPostDraftedRich: GalleryGate = {
+  ...reviewPostDrafted,
+  gate: {
+    ...reviewPostDrafted.gate,
+    gateId: 'gallery-review-post-rich',
+    questions: reviewPostDrafted.gate.questions.map((q, i) =>
+      i === 0
+        ? {
+            ...q,
+            context: ctx({
+              'gate-ctx': 'findings@1',
+              findings: RADAR_FINDINGS.map(f => ({
+                ...f,
+                comment:
+                  f.id === 'f1' ? RICH_RADAR_COMMENT : RADAR_COMMENTS[f.id],
+              })),
+            }),
+          }
+        : q
+    ),
+  },
+};
+
+const RICH_REPLY = [
+  'switched both to spread `requireActual` in 77bf2129. the spread drops `__esModule` though, so:',
+  '',
+  '1. spread the real module',
+  '2. set `__esModule` back explicitly',
+  '',
+  '```ts',
+  "jest.mock('./config', () => ({",
+  "  ...jest.requireActual('./config'),",
+  '  __esModule: true,',
+  '}));',
+  '```',
+  '',
+  '> or `config` still resolves to the wrong object',
+].join('\n');
+
+export const respondPostRich: GalleryGate = {
+  ...respondPost,
+  diffs: previewOnly,
+  gate: {
+    ...respondPost.gate,
+    gateId: 'gallery-respond-post-rich',
+    questions: respondPost.gate.questions.map(q =>
+      q.id === 'thread-3'
+        ? postThread(3, FLAG_THREADS.t3, FLAG_FILES.t3, true, RESOLVE, {
+            verb: 'fix',
+            sha: '77bf2129',
+            text: RICH_REPLY,
+          })
+        : q
+    ),
+  },
+};
+
 export const reviewPostVerdictOnly: GalleryGate = {
   mr: MRS.scriptFrames,
   gate: {
