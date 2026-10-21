@@ -43,6 +43,7 @@ import * as out from "../lib/ui/out.ts";
 import type { EnrichedBranch } from "../lib/enrich.ts";
 import type { Block, PickRow, PickSegment, RenderStatus, Segment } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
+import { withTransientStep } from "../lib/ui/transient-step.ts";
 import type { RestorableEntry } from "../lib/worktree/restore.ts";
 import type { WorktreeRestoreData } from "../packages/rt-client/src/commands.ts";
 import type { PickHandle } from "../lib/ui/pick.ts";
@@ -761,34 +762,22 @@ export async function worktreeRestore(args: string[], _ctx: unknown): Promise<vo
   }
 
   const query = () => queryDaemon("worktree:restore", { repoName, tree: treeName }, RESTORE_TIMEOUT_MS);
-  const res = parsed.json ? await query() : await restoreWithProgress(treeName, query);
+  const res = parsed.json ? await query() : await withTransientStep(`Restoring ${treeName}…`, query);
   const ok = requireQueryResult(parsed.json, res);
 
   if (parsed.json) { out.json(ok.data, 2); return; }
 
-  out.print(...restoreBlocks(ok.data as WorktreeRestoreData));
+  out.print(...restoreBlocks(ok.data as WorktreeRestoreData, parsed.repoName ? repoLabelFull(repoName) : undefined));
   await maybeOfferClaudeHook(parsed.json);
 }
 
-/** Copying a large tree back can take a minute, so the wait gets a progress line rather than a blank screen. */
-async function restoreWithProgress(treeName: string, query: () => Promise<DaemonResponse | null>): Promise<DaemonResponse | null> {
-  const { createStepRunner } = await import("../lib/rt-render.ts");
-  let res: DaemonResponse | null = null;
-  try {
-    // The step always erases itself: the result line carries the path, which only the reply knows.
-    await createStepRunner().run(`Restoring ${treeName}…`, async () => {
-      res = await query();
-      throw new Error("settled");
-    }, { failSilently: true });
-  } catch { /* res carries the outcome */ }
-  return res;
-}
-
-export function restoreBlocks(d: WorktreeRestoreData): Block[] {
+/** `repoArg` is set when the restore named its repo, so the printed wait command resolves the same one from any directory. */
+export function restoreBlocks(d: WorktreeRestoreData, repoArg?: string): Block[] {
+  const awaitCmd = `rt worktree await-ready ${d.tree}${repoArg ? ` --repo ${shellQuote(repoArg)}` : ""}`;
   return [
     out.line("done", `${d.tree} restored`, d.path),
     ...(d.readyPending
-      ? lineWithNext("running", "Still setting up in the background", d.readySteps?.join(", ") || undefined, out.cmd(`rt worktree await-ready ${d.tree}`))
+      ? lineWithNext("running", "Still setting up in the background", d.readySteps?.join(", ") || undefined, out.cmd(awaitCmd))
       : []),
     ...(d.submodulesFailed?.length ? submodulesFailedBlocks(d.submodulesFailed) : []),
   ];

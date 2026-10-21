@@ -14,6 +14,15 @@ describe("restoreBlocks", () => {
     expect(text).toContain("rt worktree await-ready lupin");
   });
 
+  test("a restore that named its repo names it in the wait command too", () => {
+    const text = renderPlain(restoreBlocks(
+      { restored: true, path: "/pool/lupin", tree: "lupin", readyPending: true, readySteps: ["pnpm install"] },
+      "gitlab.com/acme/app",
+    ));
+
+    expect(text).toContain("rt worktree await-ready lupin --repo gitlab.com/acme/app");
+  });
+
   test("a restore with nothing to set up prints only its result line", () => {
     const text = renderPlain(restoreBlocks({ restored: true, path: "/pool/lupin", tree: "lupin" }));
 
