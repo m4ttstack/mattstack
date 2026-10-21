@@ -43,6 +43,9 @@ const reactSingleton: BunPlugin = {
 export interface ClientBundle {
   appJs: string;
   appCss: string;
+  /** Code-split chunks by file name (`chunk-<hash>.js`), served at the
+      root beside /app.js, which imports them by relative path. */
+  chunks: Record<string, string>;
 }
 
 /**
@@ -50,11 +53,17 @@ export interface ClientBundle {
  * serves the result from memory; scripts/build-client.ts calls it at build
  * time so the compiled binary can embed the outputs instead (a standalone
  * binary has no source tree to bundle from).
+ *
+ * Split, so a lazy import (the diff renderer and its highlighter's grammars)
+ * stays out of app.js and loads as chunks only when something renders it.
  */
 export async function buildClientBundle(): Promise<ClientBundle> {
   const build = await Bun.build({
     entrypoints: [join(import.meta.dir, 'client', 'main.tsx')],
     target: 'browser',
+    format: 'esm',
+    splitting: true,
+    naming: { chunk: 'chunk-[hash].[ext]' },
     minify: true,
     plugins: [reactSingleton],
   });
@@ -63,12 +72,12 @@ export async function buildClientBundle(): Promise<ClientBundle> {
     throw new Error('client bundle failed');
   }
   // The client entry imports the kit's theme.css + canvas.css, so the bundle is
-  // now a JS chunk *and* a CSS chunk. Discriminate on `kind`, not on the file
-  // extension: Bun tags each output ("entry-point" / "asset" / "chunk" /
-  // "sourcemap"), so turning on sourcemaps some day adds a `kind: "sourcemap"`
-  // output that these counts correctly ignore, while a real regression -- a
-  // second entry point, or a code-split chunk the shell does not serve -- still
-  // trips the assertion instead of sliding through an extension match.
+  // a JS entry, its JS chunks *and* a CSS asset. Discriminate on `kind`, not on
+  // the file extension: Bun tags each output ("entry-point" / "asset" / "chunk"
+  // / "sourcemap"), so turning on sourcemaps some day adds a `kind:
+  // "sourcemap"` output that these counts correctly ignore, while a real
+  // regression -- a second entry point, a CSS chunk, or an asset the shell does
+  // not serve -- still trips an assertion instead of sliding through.
   //
   // The CSS assertion is the load-bearing one: zero CSS outputs means those two
   // imports silently vanished, which would boot the board with no token block at
@@ -78,6 +87,14 @@ export async function buildClientBundle(): Promise<ClientBundle> {
   const cssOutputs = build.outputs.filter(
     o => o.kind === 'asset' && o.path.endsWith('.css')
   );
+  const chunkOutputs = build.outputs.filter(o => o.kind === 'chunk');
+  const unserved = build.outputs.filter(
+    o =>
+      o.kind !== 'sourcemap' &&
+      !jsOutputs.includes(o) &&
+      !cssOutputs.includes(o) &&
+      !(o.kind === 'chunk' && /^\.\/chunk-[a-z0-9]+\.js$/.test(o.path))
+  );
   if (jsOutputs.length !== 1)
     throw new Error(
       `expected 1 JS entry-point output, got ${jsOutputs.length}`
@@ -86,8 +103,15 @@ export async function buildClientBundle(): Promise<ClientBundle> {
     throw new Error(
       `expected 1 CSS asset output (tui-kit theme + canvas), got ${cssOutputs.length}`
     );
+  if (unserved.length > 0)
+    throw new Error(
+      `client bundle emitted outputs the server does not serve: ${unserved.map(o => `${o.kind} ${o.path}`).join(', ')}`
+    );
+  const chunks: Record<string, string> = {};
+  for (const o of chunkOutputs) chunks[o.path.slice(2)] = await o.text();
   return {
     appJs: await jsOutputs[0]!.text(),
     appCss: await cssOutputs[0]!.text(),
+    chunks,
   };
 }

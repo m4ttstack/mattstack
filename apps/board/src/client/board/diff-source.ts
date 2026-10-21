@@ -25,11 +25,8 @@ export interface FileDiff {
 export interface DiffSource {
   /** Null when the forge has no diff for the file, or none can be fetched. */
   fetchFileDiff(req: { mr: string; file: string }): Promise<FileDiff | null>;
-  /** Loads the renderer: `() => import('./DiffView.tsx')`. A source
-      without it shows file headers only. The board's Bun client bundle
-      does no code splitting, so it inlines what this imports: about 11 MB
-      of renderer and grammars in app.js, against about 550 KB on first use
-      plus one grammar per language once splitting is on. */
+  /** Loads the renderer: `() => import('./DiffView.tsx')`, a code-split
+      chunk. A source without it shows file headers only. */
   loadView?: () => Promise<typeof import('./DiffView.tsx')>;
 }
 

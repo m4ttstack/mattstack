@@ -44,7 +44,12 @@ import {
 } from './agent-status/feed.ts';
 import { IS_COMPILED } from './app-root.ts';
 import { SnapshotCache } from './cache.ts';
-import { getClientAssets, watchClientAssets } from './client-assets.ts';
+import {
+  clientChunkResponse,
+  getClientAssets,
+  watchClientAssets,
+  withEarlierChunks,
+} from './client-assets.ts';
 import type { ExecutorView } from './client/types.ts';
 import {
   closeOnDone,
@@ -1659,7 +1664,7 @@ let clientAssets = await getClientAssets();
 if (!IS_COMPILED) {
   watchClientAssets({
     onBundle: assets => {
-      clientAssets = assets;
+      clientAssets = withEarlierChunks(clientAssets, assets);
       sseReload();
     },
     onStyle: sseReload,
@@ -1824,6 +1829,8 @@ const httpServer = Bun.serve({
           headers: { 'content-type': 'text/javascript; charset=utf-8' },
         });
     }
+    const chunk = clientChunkResponse(pathname, clientAssets.chunks);
+    if (chunk) return chunk;
     // Board's settings are edited in console's embedded settings page, which
     // writes the store without passing through this process: the modal
     // posts here after each write so the running config picks it up.

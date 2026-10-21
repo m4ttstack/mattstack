@@ -5,8 +5,11 @@
 // to the server before it boots.
 import appCss from '../dist/client/app.css' with { type: 'text' };
 import appJs from '../dist/client/app.js.txt' with { type: 'text' };
+// A file import, not text: a text import holding any non-Latin-1 character
+// embeds as UTF-16, which would double the ~12 MB of chunks in the binary.
+import chunksPath from '../dist/client/chunks.json.txt' with { type: 'file' };
 import pkg from '../package.json';
-import { injectClientAssets } from './client-assets.ts';
+import { injectClientAssets, parseChunkManifest } from './client-assets.ts';
 import { runSubcommand } from './subcommands.ts';
 
 // Bare semver, nothing else: the mattstack bundle gate compares this output
@@ -45,5 +48,9 @@ if (await runSubcommand(Bun.argv)) {
   }
 }
 
-injectClientAssets({ appJs, appCss });
+injectClientAssets({
+  appJs,
+  appCss,
+  chunks: parseChunkManifest(await Bun.file(chunksPath).text()),
+});
 await import('./server.ts');
