@@ -272,6 +272,15 @@ const ROWS: readonly SettingDef[] = [
     description: "Mission-control git badge sweep. sweep gates the daemon sweep and fetchIntervalSec (the background fetch cadence, 0 disables fetching) are both read per repo, so a per-repo override of either takes effect (a repo override of { sweep: false } opts that repo out). sweepIntervalSec, the minimum seconds between sweeps, is read only from the global config by the sweep tick; a per-repo override of sweepIntervalSec has no effect.",
   },
   {
+    key: "rt.evidence.foldScreenshots",
+    type: "boolean",
+    scopes: ALL_SCOPES,
+    default: true,
+    merge: "replace",
+    repoScoped: true,
+    description: "Fold each case's screenshots in the evidence section rt writes into an MR or PR description, behind a summary that names the case, so reviewers scroll past them to the approvals and pipeline.",
+  },
+  {
     key: "rt.logLevel",
     type: "string",
     scopes: ["machine", "user"],

@@ -78,6 +78,14 @@ export function namesHome(text: string, homes: string[]): boolean {
     .some((h) => new RegExp(`${h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!${NAME_CONTINUES})`).test(text));
 }
 
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** GitLab and GitHub both render markdown inside `<details>` only past a blank line after `</summary>`, and neither renders markdown inside `<summary>`. */
+function folded(label: string, body: string, count: number): string {
+  const noun = count === 1 ? "screenshot" : "screenshots";
+  return `<details>\n<summary><b>${escapeHtml(label)}</b> (${count} ${noun})</summary>\n\n${body}\n\n</details>`;
+}
+
 function linksOf(line: string): string[] {
   return (line.match(/[^\s()[\]]+/g) ?? []).filter((t) => t.startsWith("/") || /^https?:\/\//.test(t));
 }
@@ -85,7 +93,7 @@ function linksOf(line: string): string[] {
 export function renderSection(
   record: EvidenceRecord,
   link: (path: string) => FileLink,
-  o: { coveredUrls?: Set<string>; appendix?: string },
+  o: { coveredUrls?: Set<string>; appendix?: string; fold?: boolean },
 ): string {
   const blocks: string[] = [];
   const covered = new Set<string>(o.coveredUrls);
@@ -98,9 +106,14 @@ export function renderSection(
           if (shot.annotated) covered.add(shot.annotated);
         }
       }
-      const head = [`**${oneLine(c.label)}**`];
-      if (c.waiver) head.push(`Waived: ${oneLine(c.waiver)}`);
-      blocks.push(entries.length ? [...head, entries.map((e) => renderEntry(e, link)).join("\n")].join("\n\n") : head.join("\n\n"));
+      const waiver = c.waiver ? [`Waived: ${oneLine(c.waiver)}`] : [];
+      const list = entries.map((e) => renderEntry(e, link)).join("\n");
+      if (o.fold && entries.length) {
+        blocks.push(folded(oneLine(c.label), [...waiver, list].join("\n\n"), entries.length));
+        continue;
+      }
+      const head = [`**${oneLine(c.label)}**`, ...waiver];
+      blocks.push(entries.length ? [...head, list].join("\n\n") : head.join("\n\n"));
     }
     if (record.transcript) blocks.push(`Transcript: ${basename(oneLine(record.transcript))} (kept locally)`);
     if (record.url) blocks.push(`Ticket: ${oneLine(record.url)}`);

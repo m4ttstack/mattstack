@@ -70,6 +70,7 @@ const NO_SCHEMA_YET: readonly string[] = [
   "rt.ui.background",
   "rt.worktreeReadyApproval",
   "skills.writingStyle",
+  "rt.evidence.foldScreenshots",
   "telemetry.enabled",
 ];
 /** Keys with an object property that has no title or description yet. Shrink only. */

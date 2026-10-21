@@ -70,7 +70,8 @@ const noGuard: TreeGuardDeps = {
   ignoredBy: () => false,
 };
 
-function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fieldSetError?: string; guard?: TreeGuardDeps; repoRoots?: (id: string) => string[]; live?: string } = {}) {
+function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fieldSetError?: string; guard?: TreeGuardDeps; repoRoots?: (id: string) => string[]; live?: string; fold?: boolean } = {}) {
+  const foldAsked: Array<string | null> = [];
   const fields = new Map(Object.entries(o.fields ?? {}));
   const calls: Call[] = [];
   const runCalls: Array<{ name: string; input: Record<string, unknown> }> = [];
@@ -128,8 +129,12 @@ function makeDeps(o: { fields?: Record<string, string>; respond?: Responder; fie
     fetch: (() => Promise.reject(new Error("no fetch in tests"))) as unknown as typeof fetch,
     sleep: async () => {},
     now: () => 1_700_000_000_000,
+    foldScreenshots: (repo) => {
+      foldAsked.push(repo);
+      return o.fold ?? false;
+    },
   };
-  return { deps, calls, runCalls, fields, state };
+  return { deps, calls, runCalls, fields, state, foldAsked };
 }
 
 const tool = (deps: EvidenceToolDeps, name: string) => evidenceToolDefs(deps).find((t) => t.name === name)!;
@@ -1035,6 +1040,33 @@ describe("evidence_attach", () => {
     expect(body.section).toContain("- Before and after: badge.png (attached separately)");
     expect(body.section).not.toContain(board);
     expect(JSON.stringify(res.body)).toContain("gh pr edit 12");
+  });
+
+  test("fold reads the setting for the GitLab repo and folds the written section", async () => {
+    const { evidence } = boardRecord();
+    const { deps, state, foldAsked } = makeDeps({ fields: { evidence }, live: "## Verification Evidence\n\nold\n", fold: true });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: MR_URL }, env)).body as AttachBody;
+    expect(foldAsked).toEqual(["gitlab.com/acme/web"]);
+    expect(body.descriptionWritten).toBe(true);
+    expect(state.live).toContain("<details>\n<summary>");
+    expect(state.live).toContain("</details>");
+  });
+
+  test("fold reads the setting for the GitHub repo from the PR url and folds the section", async () => {
+    const { evidence } = boardRecord();
+    const { deps, foldAsked } = makeDeps({ fields: { evidence }, fold: true });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, mrUrl: "https://github.com/acme/web/pull/12" }, env)).body as AttachBody;
+    expect(foldAsked).toEqual(["github.com/acme/web"]);
+    expect(body.section).toContain("<details>");
+    expect(body.section).toContain("badge.png (attached separately)");
+  });
+
+  test("fold reads the GitHub repo from a serialized repoName", async () => {
+    const { evidence } = boardRecord();
+    const { deps, foldAsked } = makeDeps({ fields: { evidence } });
+    const body = (await tool(deps, "evidence_attach").handler({ runDb, stage: "ship", heading: HEADING, repoName: "remote:github.com%2Facme%2Fweb" }, env)).body as AttachBody;
+    expect(foldAsked).toEqual(["github.com/acme/web"]);
+    expect(body.section).not.toContain("<details>");
   });
 
   test("a caption naming the home directory refuses the description write and says why", async () => {

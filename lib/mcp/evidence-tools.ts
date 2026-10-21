@@ -52,6 +52,8 @@ export interface EvidenceToolDeps {
   fetch: typeof fetch;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
+  /** `repo` is the raw `host/path` identity; null reads the global value. */
+  foldScreenshots: (repo: string | null) => boolean;
 }
 
 let runTools: McpToolDef[] | undefined;
@@ -86,6 +88,7 @@ export const realEvidenceToolDeps: EvidenceToolDeps = {
   fetch,
   sleep: (ms) => Bun.sleep(ms),
   now: () => Date.now(),
+  foldScreenshots: (repo) => getSetting<boolean>("rt.evidence.foldScreenshots", { repoIdentity: repo }).value,
 };
 
 export type UploadOne = { path: string; ok: true; url: string; markdown: string } | { path: string; ok: false; error: string; timedOut: boolean };
@@ -428,7 +431,7 @@ async function evidenceRecord(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
 type Refused = Record<Bucket, Array<{ path: string; error: string }>>;
 type Uploaded = { path: string; url: string; markdown: string; reused: boolean };
 type Target =
-  | { forge: "github"; mr: string | null; number: number | null }
+  | { forge: "github"; mr: string | null; number: number | null; repo: string | null }
   | { forge: "gitlab"; identity: string; iid: number | undefined; mr: string | null };
 
 const ghMove = (n: number | null) => {
@@ -440,6 +443,17 @@ function prNumber(url: unknown, iid: unknown): number | null {
   const m = typeof url === "string" ? /\/pull\/(\d+)/.exec(url) : null;
   if (m) return Number(m[1]);
   return typeof iid === "number" && Number.isInteger(iid) && iid > 0 ? iid : null;
+}
+
+/** The raw `host/path` a repo-scoped setting is keyed on, from a PR url or a github.com repoName. */
+function githubRepo(url: string | null, repoName: unknown): string | null {
+  const m = url ? /^https?:\/\/(?:www\.)?github\.com\/([^/]+\/[^/]+)/i.exec(url) : null;
+  if (m) return `github.com/${m[1]}`;
+  if (typeof repoName !== "string") return null;
+  const parsed = parseIdentity(repoName.trim());
+  if (parsed?.kind === "remote") return parsed.id;
+  const m2 = /^(?:remote:)?github\.com\/([^/]+\/[^/]+)$/i.exec(repoName.trim().replace(/%2f/gi, "/"));
+  return m2 ? `github.com/${m2[1]}` : null;
 }
 
 function githubUrl(v: unknown): string | null {
@@ -465,15 +479,16 @@ async function resolveAttachTarget(deps: EvidenceToolDeps, input: Obj, mrField: 
     loneIid !== undefined && named !== loneIid
       ? { error: `iid ${String(loneIid)} does not match the run's mr field ${String(mrUrl).trim()}; pass mrUrl, or repoName with iid` }
       : null;
-  const github = (): Target | { error: string } => {
+  const github = (identity?: string): Target | { error: string } => {
     const url = githubUrl(mrUrl) ?? githubUrl(fieldFallback);
     const number = prNumber(url, input.iid);
-    return iidMismatch(number) ?? { forge: "github", mr: url, number };
+    const repo = (identity === undefined ? undefined : parseIdentity(identity)?.id) ?? githubRepo(url, input.repoName);
+    return iidMismatch(number) ?? { forge: "github", mr: url, number, repo };
   };
   if (refuseGithubTarget({ repoName: input.repoName, mrUrl }, "evidence_attach", "") !== null) return github();
   const target = await deps.resolveRepo(explicit ? { repoName: input.repoName, iid: input.iid, mrUrl: input.mrUrl } : { mrUrl });
   if (!target.ok) return { error: target.error };
-  if (githubRefusal(target.identity, "evidence_attach", "") !== null) return github();
+  if (githubRefusal(target.identity, "evidence_attach", "") !== null) return github(target.identity);
   const mismatch = iidMismatch(target.iid);
   if (mismatch) return mismatch;
   if (target.iid === undefined && fieldFallback !== undefined) {
@@ -609,9 +624,11 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const description = typeof input.description === "string" ? input.description : undefined;
   const splice = (text: string, section: string) => spliceSection(text, heading, section, input.before as string | undefined);
   const appendix = typeof input.appendix === "string" ? input.appendix : undefined;
+  const repo = target.forge === "github" ? target.repo : parseIdentity(target.identity)?.id ?? null;
+  const fold = deps.foldScreenshots(repo);
 
   if (target.forge === "github") {
-    const section = isEmptyRecord(record) ? "" : renderSection(record, (path) => ({ local: path }), { appendix });
+    const section = isEmptyRecord(record) ? "" : renderSection(record, (path) => ({ local: path }), { appendix, fold });
     if (namesHome(section, homesOf(deps))) {
       return ok({ forge: "github", mr: target.mr, uploaded, refused, timedOutTwice, linked, section, descriptionWritten: false, notWritten: "github", writeErrors: [HOME_IN_SECTION] });
     }
@@ -686,7 +703,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const empty = isEmptyRecord(record);
   const blocked = !linkRefused && (timedOutTwice.length > 0 || BUCKETS.some((b) => refused[b].length > 0));
   const shown = blocked || notStarted.length ? withoutFiles(record, linkRefused ? new Set(notStarted) : unsent) : record;
-  const section = empty ? "" : renderSection(shown, link, { coveredUrls: coveredUrls(record, merged), appendix });
+  const section = empty ? "" : renderSection(shown, link, { coveredUrls: coveredUrls(record, merged), appendix, fold });
 
   let notWritten: "no-mr" | "refused" | "unchanged" | undefined;
   let descriptionOut: string | undefined;
@@ -832,7 +849,7 @@ export function evidenceToolDefs(deps: EvidenceToolDeps = realEvidenceToolDeps):
     },
     {
       name: "evidence_attach",
-      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section; and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as \"<file name> (attached separately)\" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section names each file as attached separately and next names the gh move. A section that names a path in your home directory (a caption, label, waiver, ticket or appendix carrying one) is never written, nor next given, and writeErrors says so. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
+      description: `Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section (each case folded behind a summary when rt.evidence.foldScreenshots is on for the repo); and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as \"<file name> (attached separately)\" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub nothing uploads and nothing is written: the section names each file as attached separately and next names the gh move. A section that names a path in your home directory (a caption, label, waiver, ticket or appendix carrying one) is never written, nor next given, and writeErrors says so. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?}. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
