@@ -1632,7 +1632,10 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: var(--surface-wash-accent-14);
+  background: light-dark(
+    var(--surface-wash-accent-14),
+    color-mix(in srgb, var(--fill-accent) 34%, transparent)
+  );
   color: var(--text-accent);
 }
 .tui-dq-banner-copy {
