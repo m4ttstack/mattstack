@@ -133,7 +133,7 @@ test("pane send from inside a bg pane sends callerPane as a bg: ref", async () =
   const origPane = process.env.HERDR_PANE_ID;
   const origSession = process.env.HERDR_SESSION;
   process.env.HERDR_PANE_ID = "w1:p1";
-  process.env.HERDR_SESSION = "bg";
+  process.env.HERDR_SESSION = "mattstack-bg";
   try {
     await runVerb(paneSend, ["w1:p2", "--text", "standup in 5"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w1:p2", text: "standup in 5", callerPane: "bg:w1:p1" } });
@@ -240,7 +240,7 @@ test("pane send self from a bg pane targets the bg: ref", async () => {
   const origPane = process.env.HERDR_PANE_ID;
   const origSession = process.env.HERDR_SESSION;
   process.env.HERDR_PANE_ID = "w1:p1";
-  process.env.HERDR_SESSION = "bg";
+  process.env.HERDR_SESSION = "mattstack-bg";
   try {
     await runVerb(paneSend, ["self", "--text", "/cd /repos/acme"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "bg:w1:p1", text: "/cd /repos/acme" } });

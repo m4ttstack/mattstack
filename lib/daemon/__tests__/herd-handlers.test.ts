@@ -2238,7 +2238,7 @@ describe("hidden verbs", () => {
     const run = hx.herdrCalls.find((c) => c[1] === "pane" && c[2] === "run")!;
     expect(run[3]).toBe("wv:p9");
     expect(run[4]).toContain("terminal attach term-7 --takeover");
-    expect(run[4]).toContain("HERDR_SESSION=bg");
+    expect(run[4]).toContain("HERDR_SESSION=mattstack-bg");
   });
 
   test("attend on a visible herd is a no-op with a message", async () => {

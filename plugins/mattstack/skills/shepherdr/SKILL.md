@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.32.11 + mattstack:model-tiering@0.32.11 + mattstack:execution-strategy@0.32.11 + mattstack:cswap-accounts@0.32.11"
+  compiled: "mattstack@0.32.12 + mattstack:model-tiering@0.32.12 + mattstack:execution-strategy@0.32.12 + mattstack:cswap-accounts@0.32.12"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.32.11 path=attachments/orchestration/shepherdr/SKILL.md lines=13-862 -->
+<!-- part: step source=mattstack:shepherdr version=0.32.12 path=attachments/orchestration/shepherdr/SKILL.md lines=13-862 -->
 
 # shepherdr
 
@@ -27,13 +27,13 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-Slot tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@0.32.11) -- invoke that skill when this flow needs it.
+Slot tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@0.32.12) -- invoke that skill when this flow needs it.
 
 ## Strategy
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.32.11 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.32.12 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -145,7 +145,7 @@ When nothing is inlined above, every engine default stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.32.11 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.32.12 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -487,7 +487,7 @@ part carries the strategy TABLE.
 **Hidden mode.** For a herd out of sight ("invisible", "background",
 "headless", "don't clutter my UI"), pass `hidden: true` to `herd_start`.
 Worker panes live on the daemon's shared background herdr server (session
-`bg`) as `bg:<pane>` refs; nothing else changes. `herd_attend {job, herd}`
+`mattstack-bg`) as `bg:<pane>` refs; nothing else changes. `herd_attend {job, herd}`
 opens a tab on one worker (the user detaches with `ctrl+b q`; close the
 tab afterwards). At wrap-up, offer the Bash command
 `rt herd stop --hidden` (no tool runs it); never run it unprompted. The <!-- mcp-lint: allow -->
@@ -996,7 +996,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.32.11 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.32.12 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait

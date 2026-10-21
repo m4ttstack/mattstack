@@ -18,8 +18,9 @@ import { resolveHerdrBin, defaultHerdrRunner, launchInWorkspace, type HerdrRunne
 import { runCapture } from "../subprocess.ts";
 import { herdrServerEnv, loginShellEnv } from "../herdr/login-env.ts";
 import { spawnDetached } from "../herdr/start.ts";
+import { BG_SESSION } from "../herdr/bg-session.ts";
 
-export const BG_SESSION = "bg";
+export { BG_SESSION };
 
 export function bgSocketPath(home: string = process.env.HOME ?? homedir()): string {
   return join(home, ".config", "herdr", "sessions", BG_SESSION, "herdr.sock");

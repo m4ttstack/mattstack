@@ -23,13 +23,13 @@ function silent(warns?: unknown[][]): Logger {
 
 describe("bg service", () => {
   test("socket path is the named-session socket under the config dir", () => {
-    expect(bgSocketPath("/h")).toBe("/h/.config/herdr/sessions/bg/herdr.sock");
+    expect(bgSocketPath("/h")).toBe("/h/.config/herdr/sessions/mattstack-bg/herdr.sock");
   });
 
   test("ensure returns immediately when the server is already up", async () => {
     const spawned: string[][] = [];
     const s = createBgService({ log, home: "/h", available: async () => true, spawn: (argv) => { spawned.push(argv); } });
-    expect(await s.ensure()).toEqual({ socket: "/h/.config/herdr/sessions/bg/herdr.sock", started: false });
+    expect(await s.ensure()).toEqual({ socket: "/h/.config/herdr/sessions/mattstack-bg/herdr.sock", started: false });
     expect(spawned).toEqual([]);
   });
 
@@ -47,7 +47,7 @@ describe("bg service", () => {
         probePane: matchingProbe,
       });
       const result = await s.ensure();
-      expect(result).toEqual({ socket: "/h/.config/herdr/sessions/bg/herdr.sock", started: true });
+      expect(result).toEqual({ socket: "/h/.config/herdr/sessions/mattstack-bg/herdr.sock", started: true });
     } finally {
       if (prior === undefined) delete process.env.HERDR_SOCKET_PATH;
       else process.env.HERDR_SOCKET_PATH = prior;
@@ -55,7 +55,7 @@ describe("bg service", () => {
     expect(spawned[0]!.argv).toEqual([expect.stringMatching(/herdr$/), "server"]);
     expect(spawned[0]!.cwd).toBe("/h");
     const env = spawned[0]!.env;
-    expect(env.HERDR_SESSION).toBe("bg");
+    expect(env.HERDR_SESSION).toBe("mattstack-bg");
     expect(env.HERDR_MACOS_SERVER_CONTEXT).toBe("user");
     expect("HERDR_SOCKET_PATH" in env).toBe(false);
     expect("RT_BATCH" in env).toBe(false);
@@ -78,7 +78,7 @@ describe("bg service", () => {
     });
     const [a, b] = await Promise.all([s.ensure(), s.ensure()]);
     expect(spawned).toHaveLength(1);
-    expect(a).toEqual({ socket: "/h/.config/herdr/sessions/bg/herdr.sock", started: true });
+    expect(a).toEqual({ socket: "/h/.config/herdr/sessions/mattstack-bg/herdr.sock", started: true });
     expect(b).toEqual(a);
   });
 
@@ -109,7 +109,7 @@ describe("bg service", () => {
       loginEnv: quietLogin,
       probePane: matchingProbe,
     });
-    expect(await s.ensure()).toEqual({ socket: "/h/.config/herdr/sessions/bg/herdr.sock", started: true });
+    expect(await s.ensure()).toEqual({ socket: "/h/.config/herdr/sessions/mattstack-bg/herdr.sock", started: true });
     expect(spawned).toHaveLength(1);
     up = false;
     await expect(s.ensure()).rejects.toThrow(/did not come up/);
@@ -132,11 +132,11 @@ describe("bg service", () => {
     expect(spawned).toHaveLength(2);
   });
 
-  test("stop runs `herdr session stop bg` without HERDR_SOCKET_PATH", async () => {
+  test("stop runs `herdr session stop mattstack-bg` without HERDR_SOCKET_PATH", async () => {
     const runs: Array<{ argv: string[]; env: Record<string, string> }> = [];
     const s = createBgService({ log, home: "/h", run: async (argv, env) => { runs.push({ argv, env }); return { exitCode: 0, stdout: "" }; } });
     await s.stop();
-    expect(runs[0]!.argv.slice(-3)).toEqual(["session", "stop", "bg"]);
+    expect(runs[0]!.argv.slice(-3)).toEqual(["session", "stop", "mattstack-bg"]);
     expect("HERDR_SOCKET_PATH" in runs[0]!.env).toBe(false);
   });
 
@@ -193,7 +193,7 @@ describe("bg service", () => {
       },
     });
     await s.ensure();
-    expect(probes).toEqual(["/h/.config/herdr/sessions/bg/herdr.sock", null]);
+    expect(probes).toEqual(["/h/.config/herdr/sessions/mattstack-bg/herdr.sock", null]);
     const parity = s.lastParity();
     expect(parity?.ok).toBe(false);
     expect(parity?.drift.some((d) => d.startsWith("bun:"))).toBe(true);
@@ -226,7 +226,7 @@ describe("bg service", () => {
       probePane: async () => { throw new Error("herdr not found"); },
     });
     const result = await s.ensure();
-    expect(result).toEqual({ socket: "/h/.config/herdr/sessions/bg/herdr.sock", started: true });
+    expect(result).toEqual({ socket: "/h/.config/herdr/sessions/mattstack-bg/herdr.sock", started: true });
     expect(s.lastParity()).toBeNull();
     expect(warns.some((a) => String(a[1] ?? "").includes("parity probe failed"))).toBe(true);
   });
