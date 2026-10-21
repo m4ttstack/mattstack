@@ -133,7 +133,9 @@ A comment whose line is outside the diff cannot be placed. The call says
 which ones and posts nothing: move each named finding into the summary's
 issue list, exactly as a finding with no `file` anchor, and make the call
 again, once. In a drafted review it is appended to the summary instead,
-its `file:line` alone on a line and then its body word for word.
+its `file:line` alone on a line and then its text word for word: the
+human's edit, else its draft, the same text its comment would have
+posted, never the finding's `body`.
 
 A review that posted but whose approval was refused is posted. The
 approval is then settled on its own, through the caller's approval gate;
