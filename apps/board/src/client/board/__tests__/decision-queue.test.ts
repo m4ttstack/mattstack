@@ -275,3 +275,15 @@ test('bannerCopy counts the queue and names the gate that opens first', () => {
     detail: '!1374 · attribute panel summaries · waiting 2h',
   });
 });
+
+test('bannerCopy leaves out the wait when openedAt is missing, and says just opened under a minute', () => {
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  expect(bannerCopy([entry('g1', 1)], now).detail).toBe('!1 · fix the thing');
+  const fresh: QueueEntry = {
+    gate: { gateId: 'g1', status: 'open', openedAt: now - 20_000 } as GateRow,
+    mr: { iid: 1, title: 'fix the thing' } as BoardMRWithReview,
+  };
+  expect(bannerCopy([fresh], now).detail).toBe(
+    '!1 · fix the thing · just opened'
+  );
+});

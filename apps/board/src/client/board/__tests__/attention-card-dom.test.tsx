@@ -191,8 +191,6 @@ test('decision banner count includes queueExtras', async () => {
     await React.act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
-    const openButton =
-      container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
     expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe(
       '1 decision is waiting on you'
     );

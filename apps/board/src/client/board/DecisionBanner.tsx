@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 import { Button, Icon } from '@mattstack/tui-kit';
 import type { BannerCopy } from './decision-queue.ts';
 
@@ -12,13 +14,16 @@ function DecisionBanner({
   copy: BannerCopy;
   onStart: () => void;
 }) {
+  const titleId = useId();
   return (
-    <section className="tui-dq-banner" aria-label="decision queue">
+    <section className="tui-dq-banner" aria-labelledby={titleId}>
       <span className="tui-dq-banner-icon">
         <Icon d={INBOX} width="16" height="16" />
       </span>
       <div className="tui-dq-banner-copy">
-        <p className="tui-dq-banner-title">{copy.title}</p>
+        <p id={titleId} className="tui-dq-banner-title">
+          {copy.title}
+        </p>
         <p className="tui-dq-banner-detail">{copy.detail}</p>
       </div>
       <Button

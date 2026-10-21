@@ -318,6 +318,10 @@ test('decision queue: header entry opens, next gate advances, close dismisses', 
     expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe(
       '2 decisions are waiting on you'
     );
+    // The banner names the gate its button opens.
+    expect(
+      container.querySelector('.tui-dq-banner-detail')?.textContent
+    ).toContain('first mr title');
 
     await React.act(async () => {
       (openButton as HTMLElement).click();

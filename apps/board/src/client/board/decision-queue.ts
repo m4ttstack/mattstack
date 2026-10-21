@@ -113,8 +113,13 @@ export interface BannerCopy {
     `openAtStart` opens, so the banner names the gate its button lands on. */
 export function bannerCopy(entries: QueueEntry[], now: number): BannerCopy {
   const first = entries[0]!;
-  const waited = ago(new Date(first.gate.openedAt).toISOString(), now);
-  const item = `${entryPeek(first)} · waiting ${waited}`;
+  const opened = first.gate.openedAt;
+  const waited = !Number.isFinite(opened)
+    ? null
+    : now - opened < 60_000
+      ? 'just opened'
+      : `waiting ${ago(new Date(opened).toISOString(), now)}`;
+  const item = waited ? `${entryPeek(first)} · ${waited}` : entryPeek(first);
   return entries.length === 1
     ? { title: '1 decision is waiting on you', detail: item }
     : {
