@@ -128,8 +128,10 @@ export interface ForgeFileDiff {
   /** The file in the MR's diff on the forge. */
   webUrl: string | null;
 }
-/** `file` is null when the MR's diff does not touch that path. */
-export interface ForgeFileDiffData { forge: "gitlab" | "github"; headSha: string; file: ForgeFileDiff | null }
+/** `file` is null when the listing did not reach that path; `truncated` says a
+    page or byte cap stopped the listing first, so null need not mean the diff
+    leaves the path alone. */
+export interface ForgeFileDiffData { forge: "gitlab" | "github"; headSha: string; truncated: boolean; file: ForgeFileDiff | null }
 export interface PipelineListRow { id: number; status: string; ref: string | null; sha: string | null; source: string | null; webUrl: string | null; createdAt: string | null }
 
 /** A null entry means GitLab has no open MR with that source branch. */

@@ -43,7 +43,7 @@ import { ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
-import { createFileDiffReader, defaultFileDiffContext, type FileDiffContext } from "../file-diff.ts";
+import { createFileDiffContextResolver, createFileDiffReader, type FileDiffContext } from "../file-diff.ts";
 import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, targetSummary, type RestMrRow } from "../forge-reads.ts";
 
 type ActionName =
@@ -160,8 +160,9 @@ export function createMRHandlers(
     ?? ((provider: any, projectPath: string, iid: number) =>
         provider.fetchSingleMR(projectPath, iid, getCurrentUserId()));
   const retryDelayMs = overrides.retryDelayMs ?? RETRY_WRITEBACK_DELAY_MS;
+  const resolveFileDiffContext = createFileDiffContextResolver();
   const fileDiffContext = overrides.fileDiffContext
-    ?? ((repoName: string) => defaultFileDiffContext(ctx.repoIndex()[repoName], () => contextFor(repoName)));
+    ?? ((repoName: string) => resolveFileDiffContext(ctx.repoIndex()[repoName], () => contextFor(repoName)));
   const readFileDiff = createFileDiffReader();
 
   function contextFor(repoName: string) {
