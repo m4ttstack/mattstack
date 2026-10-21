@@ -17,6 +17,8 @@ export interface TriageFacts {
   mr: { iid: number; state: "opened" | "merged" | "closed"; title: string; at: string | null; url: string | null } | null;
   ticket: { identifier: string; title: string; stateName: string | null; url: string | null } | null;
   remoteBranchExists: boolean; ahead: number;
+  /** Commits the remote branch lacks; `ahead` counts past main, which a squash merge never catches up. */
+  unpushed: number;
   containment: Containment; dirt: DirtClass; fingerprint: Fingerprint;
   kept: KeepRecord | null; hold: TriageHold | null;
 }
@@ -36,7 +38,7 @@ function pushOf(f: TriageFacts): TriageRow["push"] {
   if (f.containment === "in-default") return { kind: "in-main" };
   if (f.containment === "on-remote") return { kind: "pushed" };
   if (f.containment === "patch-identical" || f.containment === "in-merged-mr") return { kind: f.remoteBranchExists ? "pushed" : "remote-deleted" };
-  return { kind: "unpushed", ahead: f.ahead };
+  return { kind: "unpushed", ahead: f.unpushed };
 }
 
 function groupOf(f: TriageFacts): TriageGroup {

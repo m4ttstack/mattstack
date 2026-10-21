@@ -86,7 +86,7 @@ export async function collectFacts(repo: string, repoPath: string, rec: TreeReco
   const broken = brokenKind(rec);
   if (broken) {
     return {
-      repo, tree: rec.name, path: rec.path, branch: rec.branch, broken, mr, ticket, remoteBranchExists: false, ahead: 0,
+      repo, tree: rec.name, path: rec.path, branch: rec.branch, broken, mr, ticket, remoteBranchExists: false, ahead: 0, unpushed: 0,
       containment: "none", dirt: empty, fingerprint: { headSha: "", dirtHash: dirtHash([]), mrState: mr?.state ?? null }, kept: rec.kept ?? null, hold: null,
     };
   }
@@ -96,8 +96,11 @@ export async function collectFacts(repo: string, repoPath: string, rec: TreeReco
   const containment = await containmentOf(rec.path, rec.branch, mrRaw ? { state: mrRaw.state, sha: mrRaw.sha } : null, fetch);
   const remoteBranchExists = rec.branch ? await remoteRefExists(rec.path, rec.branch) : false;
   const ahead = Number((await runGit(rec.path, ["rev-list", "--count", `refs/remotes/${await remoteDefaultRef(rec.path)}..HEAD`])).stdout.trim()) || 0;
+  const unpushed = remoteBranchExists
+    ? Number((await runGit(rec.path, ["rev-list", "--count", `refs/remotes/origin/${rec.branch}..HEAD`])).stdout.trim()) || 0
+    : ahead;
   return {
-    repo, tree: rec.name, path: rec.path, branch: rec.branch, broken: null, mr, ticket, remoteBranchExists, ahead, containment, dirt,
+    repo, tree: rec.name, path: rec.path, branch: rec.branch, broken: null, mr, ticket, remoteBranchExists, ahead, unpushed, containment, dirt,
     fingerprint: { headSha: (await headSha(rec.path)) ?? "", dirtHash: dirtHash(dirt.files), mrState: mr?.state ?? null },
     kept: rec.kept ?? null, hold: holdOf(rec, deps),
   };
