@@ -158,10 +158,25 @@ describe("logins:has", () => {
     expect(await s.h({ token: TOKEN, origin })).toEqual({ ok: true, data: { none: true } });
   });
 
-  test("never reads a login value", async () => {
+  test.each([
+    ["missing", undefined],
+    ["a number", 42],
+    ["an object", { href: ORIGIN }],
+  ])("a %s origin is none", async (_l, origin) => {
+    const s = setupHas(["login.example.com", "undefined"]);
+    expect(await s.h({ token: TOKEN, origin })).toEqual({ ok: true, data: { none: true } });
+  });
+
+  test("never reads a login value and logs only the normalized origin", async () => {
     const s = setupHas(["login.example.com"]);
     const res = await s.h({ token: TOKEN, origin: ORIGIN });
     expect(res).toMatchObject({ ok: true, data: { origin: ORIGIN } });
-    expect(JSON.stringify(s.logged)).toContain("logins:has");
+    await s.h({ token: TOKEN, origin: "attacker <script> string" });
+    const text = JSON.stringify([res, s.logged]);
+    expect(text).not.toContain(CANARY);
+    expect(text).not.toContain(EMAIL);
+    expect(text).not.toContain("attacker");
+    expect(text).toContain("logins:has");
+    expect(text).toContain("invalid");
   });
 });

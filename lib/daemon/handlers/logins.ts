@@ -78,12 +78,12 @@ export function createLoginsHandlers(
       if (!tokenOk(p.token, apiToken())) return { ok: false as const, error: "bad-token" };
       let normalized: { origin: string; key: string } | null = null;
       try {
-        normalized = normalizeOrigin(String(p.origin));
+        if (typeof p.origin === "string") normalized = normalizeOrigin(p.origin);
       } catch {
         normalized = null;
       }
       const saved = normalized !== null && (await listKeys()).includes(normalized.key);
-      ctx.log.debug({ origin: p.origin, outcome: saved ? "saved" : "none" }, "logins:has");
+      ctx.log.debug({ origin: normalized?.origin ?? "invalid", outcome: saved ? "saved" : "none" }, "logins:has");
       if (!normalized || !saved) return { ok: true as const, data: { none: true as const } };
       return {
         ok: true as const,
