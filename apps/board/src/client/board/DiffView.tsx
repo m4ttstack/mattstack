@@ -230,9 +230,11 @@ const KNOWN_LANGS = new Set<string>(
     or undefined for one it does not know. */
 export function fenceLanguage(lang: string): string | undefined {
   const key = lang.toLowerCase();
-  return (
-    EXTENSION_TO_FILE_FORMAT[key] ?? (KNOWN_LANGS.has(key) ? key : undefined)
-  );
+  const mapped = Object.hasOwn(EXTENSION_TO_FILE_FORMAT, key)
+    ? EXTENSION_TO_FILE_FORMAT[key]
+    : undefined;
+  if (typeof mapped === 'string') return mapped;
+  return KNOWN_LANGS.has(key) ? key : undefined;
 }
 
 const CODE_CSS = `${BOARD_CSS}

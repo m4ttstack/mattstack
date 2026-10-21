@@ -123,15 +123,16 @@ export function windowPatch(
     const before = hunk.lines.slice(0, from);
     const olds = kept.filter(l => l.old !== undefined);
     const news = kept.filter(l => l.new !== undefined);
-    // A side with no lines in the window names the line it follows.
+    // A side with no lines in the window names the line it follows; an
+    // empty range at the top of the file stays at 0.
     const oldStart =
       olds[0]?.old ??
       before.findLast(l => l.old !== undefined)?.old ??
-      hunk.oldStart - 1;
+      Math.max(0, hunk.oldStart - 1);
     const newStart =
       news[0]?.new ??
       before.findLast(l => l.new !== undefined)?.new ??
-      hunk.newStart - 1;
+      Math.max(0, hunk.newStart - 1);
     const header = `@@ -${oldStart},${olds.length} +${newStart},${news.length} @@`;
     return [
       `--- a/${diff.path}`,
@@ -166,21 +167,27 @@ type DiffState =
 
 type Fetched = { diff: FileDiff | null } | { error: string };
 
-/** One fetch per file per source, shared by every finding on that file. */
+/** One fetch per file per MR revision per source, shared by every finding
+    on that file. */
 const fetched = new WeakMap<DiffSource, Map<string, Promise<Fetched>>>();
 
 function fetchOnce(
   source: DiffSource,
   mr: string,
-  file: string
+  file: string,
+  revision: string
 ): Promise<Fetched> {
   let bySource = fetched.get(source);
   if (!bySource) fetched.set(source, (bySource = new Map()));
-  const key = `${mr}\n${file}`;
+  const key = `${mr}\n${revision}\n${file}`;
   let p = bySource.get(key);
   if (!p) {
     p = source.fetchFileDiff({ mr, file }).then(
-      diff => ({ diff }),
+      diff => {
+        // "No diff" is shared only while in flight, never remembered.
+        if (diff === null) bySource.delete(key);
+        return { diff };
+      },
       (err: unknown) => {
         // A failed fetch is asked again the next time a card mounts.
         bySource.delete(key);
@@ -197,8 +204,13 @@ function fetchOnce(
   return p;
 }
 
-/** A file's diff from the sheet's source, or `none` with no MR to ask. */
-export function useFileDiff(mr: string | undefined, file: string): DiffState {
+/** A file's diff from the sheet's source, or `none` with no MR to ask. A
+    new `revision` (the MR's last update) asks the source again. */
+export function useFileDiff(
+  mr: string | undefined,
+  file: string,
+  revision = ''
+): DiffState {
   const source = useContext(DiffSourceContext);
   const [state, setState] = useState<DiffState>({ status: 'loading' });
   useEffect(() => {
@@ -208,7 +220,7 @@ export function useFileDiff(mr: string | undefined, file: string): DiffState {
     }
     let live = true;
     setState({ status: 'loading' });
-    void fetchOnce(source, mr, file).then(got => {
+    void fetchOnce(source, mr, file, revision).then(got => {
       if (!live) return;
       if ('error' in got) setState({ status: 'error', message: got.error });
       else
@@ -219,7 +231,7 @@ export function useFileDiff(mr: string | undefined, file: string): DiffState {
     return () => {
       live = false;
     };
-  }, [source, mr, file]);
+  }, [source, mr, file, revision]);
   return state;
 }
 

@@ -520,6 +520,7 @@ function ReviewGateSheet({
             form={form}
             mrUrl={mr?.webUrl ?? undefined}
             mrRef={mr && mrRef(mr)}
+            mrRevision={mr?.updatedAt ?? undefined}
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
             head={
               <label className="tui-review-finding-row tui-review-card-head">

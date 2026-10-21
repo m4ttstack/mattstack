@@ -105,6 +105,14 @@ describe('windowPatch', () => {
     expect(windowPatch(added, 15)!.split('\n')[2]).toBe('@@ -11,0 +12,7 @@');
   });
 
+  test('a new file keeps its zero old range at 0,0', () => {
+    const created = {
+      ...DIFF,
+      patch: ['@@ -0,0 +1,3 @@', '+a', '+b', '+c', ''].join('\n'),
+    };
+    expect(windowPatch(created, 2)!.split('\n')[2]).toBe('@@ -0,0 +1,3 @@');
+  });
+
   test('an anchor outside every hunk has no window', () => {
     expect(windowPatch(DIFF, 40)).toBeNull();
   });

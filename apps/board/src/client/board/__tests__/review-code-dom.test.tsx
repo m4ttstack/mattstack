@@ -144,12 +144,18 @@ afterEach(async () => {
   container.remove();
 });
 
-function Host({ diffs }: { diffs?: DiffSource }) {
+function Host({
+  diffs,
+  mr = MR,
+}: {
+  diffs?: DiffSource;
+  mr?: BoardMRWithReview;
+}) {
   const form = useGateForm(GATE);
   const sheet = (
     <ReviewGateSheet
       gate={GATE}
-      mr={MR}
+      mr={mr}
       form={form}
       queue={{
         index: 0,
@@ -174,9 +180,9 @@ function Host({ diffs }: { diffs?: DiffSource }) {
   );
 }
 
-async function render(diffs?: DiffSource) {
+async function render(diffs?: DiffSource, mr?: BoardMRWithReview) {
   await React.act(async () => {
-    root.render(<Host diffs={diffs} />);
+    root.render(<Host diffs={diffs} mr={mr} />);
     await new Promise(r => setTimeout(r, 0));
   });
 }
@@ -344,4 +350,39 @@ test("a diff that fails to load keeps the header, says why, and links to the MR'
   expect(
     code.querySelector('.tui-review-code')!.hasAttribute('data-openable')
   ).toBe(false);
+});
+
+test('the same MR and file at a new revision is fetched again', async () => {
+  const calls: string[] = [];
+  const fresh: DiffSource = {
+    fetchFileDiff: async req => {
+      calls.push(req.file);
+      return req.file === RETRY.path ? RETRY : null;
+    },
+    loadView: () => import('../DiffView.tsx'),
+  };
+  const at = (updatedAt: string) =>
+    ({ ...MR, updatedAt }) as unknown as BoardMRWithReview;
+  await render(fresh, at('2026-09-17T01:00:00.000Z'));
+  expect(calls).toHaveLength(1);
+  await render(fresh, at('2026-09-17T01:00:00.000Z'));
+  expect(calls).toHaveLength(1);
+  await render(fresh, at('2026-09-17T02:00:00.000Z'));
+  expect(calls).toHaveLength(2);
+});
+
+test('a file with no diff is asked about again on the next mount', async () => {
+  let n = 0;
+  const none: DiffSource = {
+    fetchFileDiff: async () => {
+      n++;
+      return null;
+    },
+    loadView: () => import('../DiffView.tsx'),
+  };
+  await render(none);
+  await React.act(async () => root.unmount());
+  root = createRoot(container);
+  await render(none);
+  expect(n).toBe(2);
 });

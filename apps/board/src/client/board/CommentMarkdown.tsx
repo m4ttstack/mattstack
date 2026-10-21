@@ -1,4 +1,4 @@
-import { Suspense, type ReactNode } from 'react';
+import { Component, Suspense, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -36,6 +36,21 @@ function PlainCode({ code }: { code: string }) {
   );
 }
 
+/** Keeps a highlighter chunk that fails to load from throwing past
+    Suspense and taking the whole sheet (and its unsaved edits) down. */
+class HighlightBoundary extends Component<
+  { fallback: ReactNode; children: ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  override render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
 /** A fenced code block: a labelled block, highlighted once the sheet's
     source brings the highlighter and the language is one it knows, and a
     plain block otherwise. A `suggestion` fence is the forge's suggested
@@ -54,9 +69,11 @@ function CodeFence({ lang, code }: { lang?: string; code: string }) {
         {suggestion ? 'Suggested change' : (lang ?? 'code')}
       </div>
       {Highlighted && lang && !suggestion ? (
-        <Suspense fallback={plain}>
-          <Highlighted lang={lang} code={code} fallback={plain} />
-        </Suspense>
+        <HighlightBoundary fallback={plain}>
+          <Suspense fallback={plain}>
+            <Highlighted lang={lang} code={code} fallback={plain} />
+          </Suspense>
+        </HighlightBoundary>
       ) : (
         plain
       )}

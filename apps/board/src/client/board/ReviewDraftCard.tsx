@@ -251,18 +251,20 @@ function changesLink(
 function CodeSection({
   mrUrl,
   mrRef,
+  mrRevision,
   finding,
   pins,
 }: {
   mrUrl?: string;
   mrRef?: string;
+  mrRevision?: string;
   finding: FindingEntry;
   pins: FilePin[];
 }) {
   const file = finding.file!;
   const path = anchorPath(file);
   const line = anchorLine(file);
-  const state = useFileDiff(mrUrl, path);
+  const state = useFileDiff(mrUrl, path, mrRevision);
   const DiffView = useDiffView();
   const fetchedDiff = state.status === 'ready' ? state.diff : null;
   const heldBack =
@@ -510,6 +512,7 @@ export function FindingCard({
   form,
   mrUrl,
   mrRef,
+  mrRevision,
   pins,
 }: {
   finding: FindingEntry;
@@ -518,6 +521,7 @@ export function FindingCard({
   form: GateFormState;
   mrUrl?: string;
   mrRef?: string;
+  mrRevision?: string;
   pins: FilePin[];
 }) {
   return (
@@ -529,7 +533,13 @@ export function FindingCard({
       {checked && (
         <>
           {f.file && (
-            <CodeSection mrUrl={mrUrl} mrRef={mrRef} finding={f} pins={pins} />
+            <CodeSection
+              mrUrl={mrUrl}
+              mrRef={mrRef}
+              mrRevision={mrRevision}
+              finding={f}
+              pins={pins}
+            />
           )}
           <section
             className="tui-review-section"

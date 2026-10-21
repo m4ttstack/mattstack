@@ -100,3 +100,11 @@ test('a mounted view waits again when its language changes to one not loaded yet
   expect(container.textContent).toBe('waiting');
   expect(await until('ready')).toBe(true);
 });
+
+test('a fence language is only ever an own property of the format table', async () => {
+  const { fenceLanguage } = await import('../DiffView.tsx');
+  expect(fenceLanguage('constructor')).toBeUndefined();
+  expect(fenceLanguage('__proto__')).toBeUndefined();
+  expect(fenceLanguage('toString')).toBeUndefined();
+  expect(fenceLanguage('ts')).toBe('typescript');
+});
