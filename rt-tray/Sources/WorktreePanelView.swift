@@ -179,7 +179,7 @@ struct WorktreePanelView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(controller.banners, id: \.repo) { TriageBannerView(banner: $0) }
+            ForEach(controller.banners, id: \.repo) { TriageBannerView(banner: $0, controller: controller) }
             ForEach(TriageSection.sections(controller.rows), id: \.0) { section, rows in
                 if section == .kept {
                     keptDisclosure(rows)
@@ -348,23 +348,32 @@ struct TriageSectionLabel: View {
 
 struct TriageBannerView: View {
     let banner: TriageBanner
+    @ObservedObject var controller: WorktreePanelController
 
-    private var forgeName: String { banner.forge == "github" ? "GitHub" : "GitLab" }
-    private var why: String {
-        banner.reason == "no-token" ? "no \(forgeName) token." : "branch \(RepoIdentity.changeNoun(banner.repo)) checks are off for it."
-    }
+    private var busy: Bool { controller.bannerBusy.contains(banner.repo) }
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "powerplug").foregroundStyle(WT.amber)
-            Text("Merged worktrees aren't cleaned up in \(banner.repoLabel): \(why)")
+            Text(banner.text)
                 .foregroundStyle(WT.amber)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
-            Button(banner.reason == "no-token" ? "Connect \(forgeName)" : "Open settings") {
-                NotificationCenter.default.post(name: .rtShowSettings, object: nil)
+            Button("Not for this repo") { controller.hideBanner(banner) }
+                .buttonStyle(TriageButtonStyle())
+                .help("Stop showing this for \(banner.repoName). Its merged worktrees stay for you to dispose.")
+            if banner.reason == "no-token" {
+                Button("Connect \(banner.forge == "github" ? "GitHub" : "GitLab")") {
+                    NotificationCenter.default.post(name: .rtShowSettingsAccounts, object: nil)
+                }
+                .buttonStyle(TriageButtonStyle())
+            } else {
+                Button("Clean these up automatically") { controller.enableCleanup(banner) }
+                    .buttonStyle(TriageButtonStyle())
+                    .help("rt starts checking \(banner.repoName)'s \(RepoIdentity.changeNoun(banner.repo))s and disposes a worktree once its \(RepoIdentity.changeNoun(banner.repo)) merges.")
             }
-            .buttonStyle(TriageButtonStyle())
         }
+        .disabled(busy)
         .font(.system(size: 13))
         .padding(.leading, 14).padding(.trailing, 10).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 8).fill(WT.amberFill))

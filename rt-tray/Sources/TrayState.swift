@@ -77,6 +77,7 @@ extension Notification.Name {
     static let rtShowSetupStatus = Notification.Name("rtShowSetupStatus")
     static let rtResumeSetup     = Notification.Name("rtResumeSetup")
     static let rtShowSettings    = Notification.Name("rtShowSettings")
+    static let rtShowSettingsAccounts = Notification.Name("rtShowSettingsAccounts")
     static let rtShowUninstall   = Notification.Name("rtShowUninstall")
     static let showMattstackWindow = Notification.Name("showMattstackWindow")
     static let rtDevRestartIntoStaged = Notification.Name("rtDevRestartIntoStaged")

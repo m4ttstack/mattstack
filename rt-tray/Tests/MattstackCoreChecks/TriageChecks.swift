@@ -170,4 +170,23 @@ let triageChecks: [Check] = [
         let banner = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:gitlab.com%2Fm4ttstack%2Fapp-kit","reason":"no-token","forge":"gitlab"}"#.utf8))
         c.expectEqual(banner.repoLabel, "app-kit")
     },
+    Check("a cleanup banner names the repo by owner and name, and says what is off") { c in
+        let off = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Facme%2Fwidgets","reason":"no-branches-grant","forge":"github","mode":"off","caches":[]}"#.utf8))
+        c.expectEqual(off.text, "Merged worktrees in acme/widgets won't clean up on their own: rt isn't checking that repo's PRs.")
+        let token = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:gitlab.com%2Facme%2Fapp","reason":"no-token","forge":"gitlab"}"#.utf8))
+        c.expectEqual(token.text, "Merged worktrees in acme/app won't clean up on their own: rt has no GitLab token.")
+        c.expectEqual(token.enableCleanupArgs, nil)
+    },
+    Check("turning cleanup on adds branches and keeps the grant the repo has") { c in
+        let untracked = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"no-branches-grant","forge":"github","mode":"off","caches":[]}"#.utf8))
+        c.expectEqual(untracked.enableCleanupArgs, ["daemon", "track", "remote:github.com%2Fo%2Fr", "poll", "branches"])
+        let gl = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:gitlab.com%2Fo%2Fr","reason":"no-branches-grant","forge":"gitlab","mode":"off","caches":[]}"#.utf8))
+        c.expectEqual(gl.enableCleanupArgs?[3], "live")
+        let partial = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:gitlab.com%2Fo%2Fr","reason":"no-branches-grant","forge":"gitlab","mode":"poll","caches":["project-mrs"]}"#.utf8))
+        c.expectEqual(partial.enableCleanupArgs, ["daemon", "track", "remote:gitlab.com%2Fo%2Fr", "poll", "branches,project-mrs"])
+    },
+    Check("hiding a cleanup banner writes this repo's user-scope opt-out") { c in
+        let b = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"no-branches-grant","forge":"github"}"#.utf8))
+        c.expectEqual(b.hideArgs, ["settings", "set", "rt.worktrees", #"{"mergeCleanupNotice":false}"#, "--scope", "user", "--repo", "remote:github.com%2Fo%2Fr"])
+    },
 ]

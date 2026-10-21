@@ -64,10 +64,42 @@ final class WorktreePanelController: ObservableObject {
     /// A finished action keeps its row busy until a query started after it lands.
     private var settling = TriageSettleLedger<() -> Void>()
     private let fixture: TriageData?
+    private let rt: RtRunning?
+    /// Repos whose banner action is running, so its buttons cannot fire twice.
+    @Published var bannerBusy: Set<String> = []
 
-    init(fixture: TriageData? = nil) {
+    init(fixture: TriageData? = nil, rt: RtRunning? = nil) {
         self.fixture = fixture
+        self.rt = rt
         if let f = fixture { rows = f.rows; counts = f.counts; banners = f.banners; isLoading = false }
+    }
+
+    func enableCleanup(_ banner: TriageBanner) {
+        guard let args = banner.enableCleanupArgs else { return }
+        runBanner(banner, args, done: "rt now checks \(banner.repoName)'s merges, so its merged worktrees clean up on their own")
+    }
+
+    func hideBanner(_ banner: TriageBanner) {
+        runBanner(banner, banner.hideArgs, done: "Hidden for \(banner.repoName)")
+    }
+
+    private func runBanner(_ banner: TriageBanner, _ args: [String], done: String) {
+        guard let rt, !bannerBusy.contains(banner.repo) else { return }
+        bannerBusy.insert(banner.repo)
+        Task {
+            defer { bannerBusy.remove(banner.repo) }
+            do {
+                let r = try await rt.run(args, stdin: nil)
+                if r.exitCode == 0 {
+                    setStatus(done, isError: false)
+                    refresh(force: true)
+                } else {
+                    setStatus(r.userError?.message ?? r.failureCopy(verb: args.prefix(2).joined(separator: " ")), isError: true)
+                }
+            } catch {
+                setStatus((error as? RtClientError)?.copy ?? "rt failed to start.", isError: true)
+            }
+        }
     }
 
     func startPolling() {
