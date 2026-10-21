@@ -76,17 +76,20 @@ export function people(known: Iterable<KnownPerson>): People {
 export const NO_PEOPLE: People = people([]);
 
 /** Everyone the board's data names, roster first so its spelling wins. */
-export function boardPeople(
-  data: Pick<BoardData, 'allMembers' | 'mrs'> &
-    Partial<Pick<BoardData, 'teams' | 'asks'>>
-): People {
+export function boardPeople(data: {
+  allMembers: readonly KnownPerson[];
+  mrs: readonly BoardData['mrs'][number][];
+  teams?: BoardData['teams'];
+  asks?: BoardData['asks'];
+}): People {
   function* sightings(): Generator<KnownPerson> {
     yield* data.allMembers;
     for (const team of data.teams ?? []) yield* team.members;
     for (const mr of data.mrs) {
-      yield mr.author;
-      yield* mr.reviews.reviewers;
-      yield* mr.reviews.approvedBy;
+      // Hand-built snapshots (stories, tests) leave any of these off.
+      if (mr.author) yield mr.author;
+      yield* mr.reviews?.reviewers ?? [];
+      yield* mr.reviews?.approvedBy ?? [];
       yield* mr.respondTargets ?? [];
       if (mr.sentNudge)
         yield {
@@ -103,6 +106,19 @@ export function boardPeople(
   return people(sightings());
 }
 
-export const PeopleContext = createContext<People>(NO_PEOPLE);
+/** The people one MR names, for a row read without the board around it. */
+export const mrPeople = (mr: BoardData['mrs'][number]): People =>
+  boardPeople({ allMembers: [], mrs: [mr] });
 
-export const usePeople = (): People => useContext(PeopleContext);
+const PeopleContext = createContext<People | null>(null);
+
+export const PeopleProvider = PeopleContext.Provider;
+
+/** The board's people; undefined outside a board (a story, a test). */
+export const useBoardPeople = (): People | undefined =>
+  useContext(PeopleContext) ?? undefined;
+
+/** The board's people; outside a board, the people the given MR names. */
+export function usePeople(mr?: BoardData['mrs'][number]): People {
+  return useBoardPeople() ?? (mr ? mrPeople(mr) : NO_PEOPLE);
+}

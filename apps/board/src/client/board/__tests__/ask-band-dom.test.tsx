@@ -43,6 +43,7 @@ const mrWith = (sent?: Partial<SentNudgeInfo>): BoardMRWithReview =>
           sentNudge: {
             display: 'requested',
             reviewer: 'grace',
+            reviewerName: 'Grace Hopper',
             sentAt: NOW - 60_000,
             ...sent,
           },

@@ -28,10 +28,10 @@ import {
   RESPOND_ACTIVE,
   respondChoiceLabel,
   respondChoices,
-  respondPersonName,
   roundSuffix,
 } from './format.ts';
 import { parseGateCtx } from './gate-ctx.ts';
+import { mrPeople, type People } from './people.ts';
 
 type Tone = 'bad' | 'warn' | 'work' | 'go' | 'quiet' | 'clear';
 
@@ -467,10 +467,10 @@ function respondVerb(mr: BoardMRWithReview): Verb | null {
 
 /** The person the MR's latest response answered, named for the line; null
     for a run that predates per-person responses. */
-function respondWho(mr: BoardMRWithReview): string | null {
+function respondWho(mr: BoardMRWithReview, people: People): string | null {
   const r = mr.respond;
   if (!r?.person) return null;
-  return `${respondPersonName(mr, r.person)}${roundSuffix(r.responseRound ?? 0)}`;
+  return `${people.short(r.person)}${roundSuffix(r.responseRound ?? 0)}`;
 }
 
 /** Done and error lines keep their words; the detail leads with who. */
@@ -484,7 +484,8 @@ function withWho(line: Candidate, who: string | null): Candidate {
 
 function respondDoneLine(
   mr: BoardMRWithReview,
-  self: string | null
+  self: string | null,
+  people: People
 ): Candidate {
   const r = mr.respond!;
   const threads = r.threads ?? 0;
@@ -510,7 +511,7 @@ function respondDoneLine(
         const again: Verb = r.person
           ? {
               kind: 'restart-respond',
-              label: `respond to ${respondPersonName(mr, r.person)}${roundSuffix(
+              label: `respond to ${people.short(r.person)}${roundSuffix(
                 (mr.respondRounds?.[r.person] ?? r.responseRound ?? 0) + 1
               )}`,
               person: r.person,
@@ -523,7 +524,7 @@ function respondDoneLine(
           verbs: [again, ...read],
         };
       }
-      const who = respondWho(mr);
+      const who = respondWho(mr, people);
       return {
         tone: 'go',
         word: who ? `responded to ${who}` : 'replies posted',
@@ -570,11 +571,12 @@ function respondLine(
   mr: BoardMRWithReview,
   now: number,
   interrupted: Lane | null,
-  self: string | null
+  self: string | null,
+  people: People
 ): Candidate | null {
   const r = mr.respond;
   if (!r || interrupted === 'respond' || laneDismissed(r)) return null;
-  const who = respondWho(mr);
+  const who = respondWho(mr, people);
   const working = (word: string, phase: string): Candidate => ({
     tone: 'work',
     word: who ? `responding to ${who}` : word,
@@ -617,7 +619,7 @@ function respondLine(
         who
       );
     case 'done': {
-      const done = respondDoneLine(mr, self);
+      const done = respondDoneLine(mr, self, people);
       const line = done.word.startsWith('responded to ')
         ? done
         : withWho(done, who);
@@ -726,7 +728,8 @@ function draftLines(mr: BoardMRWithReview, resolved: Resolved): Candidate[] {
 function peerLines(
   mr: BoardMRWithReview,
   now: number,
-  self: string | null
+  self: string | null,
+  people: People
 ): Candidate[] {
   const out: Candidate[] = [];
   const mine = isOwnMr(mr, self);
@@ -745,7 +748,7 @@ function peerLines(
       if (live)
         out.push({
           tone: 'quiet',
-          word: `${p.reviewer} is reviewing`,
+          word: `${people.short(p.reviewer)} is reviewing`,
           spin: 'cloud',
           verbs: [{ kind: 'view-peer', label: 'view ↗' }],
         });
@@ -755,14 +758,14 @@ function peerLines(
       if (p.reviewer === askInFlight) continue;
       out.push({
         tone: 'work',
-        word: `${p.reviewer} is reviewing…`,
+        word: `${people.short(p.reviewer)} is reviewing…`,
         spin: true,
         verbs: [{ kind: 'view-peer', label: 'view ↗' }],
       });
     } else if (p.status === 'done') {
       out.push({
         tone: 'go',
-        word: `${p.reviewer} ${verdictWord(p.outcome, 'reviewed')}`,
+        word: `${people.short(p.reviewer)} ${verdictWord(p.outcome, 'reviewed')}`,
         settled: true,
         verbs: [
           ...(canMerge(mr, self) ? [MERGE] : []),
@@ -771,7 +774,7 @@ function peerLines(
       });
     }
   }
-  const humans = activeReviewers(mr);
+  const humans = activeReviewers(mr).map(u => people.short(u));
   if (humans.length) {
     out.push({
       tone: 'quiet',
@@ -802,10 +805,10 @@ function approvalsDetail(mr: BoardMRWithReview): string | undefined {
 /** A reviewer's line on an unapproved MR. The pill already says "needs
     review", so the line carries the one fact the pill lacks: who has
     approved so far. */
-function approvalsSoFar(mr: BoardMRWithReview): string {
+function approvalsSoFar(mr: BoardMRWithReview, people: People): string {
   const names = mr.reviews.reviewers
     .filter(r => r.reviewState === 'APPROVED')
-    .map(r => r.name || r.username);
+    .map(r => people.short(r.username));
   if (names.length) return `${names.join(', ')} approved`;
   return (
     approvalsDetail(mr) ??
@@ -885,7 +888,11 @@ function authorLine(mr: BoardMRWithReview, self: string): Candidate {
     threads or a push reset their approval) or the author's (everything
     else). Only an approved, unblocked MR with nothing awaiting anyone earns
     the sun. */
-function reviewerLine(mr: BoardMRWithReview, self: string | null): Candidate {
+function reviewerLine(
+  mr: BoardMRWithReview,
+  self: string | null,
+  people: People
+): Candidate {
   const b = mr.blockers;
   const awaiting = mr.threadSummary?.awaiting ?? 0;
   if (hasChangesRequested(mr))
@@ -911,7 +918,7 @@ function reviewerLine(mr: BoardMRWithReview, self: string | null): Candidate {
     }
   }
   if (!mr.reviews.isApproved) {
-    return { tone: 'quiet', word: approvalsSoFar(mr), verbs: [review] };
+    return { tone: 'quiet', word: approvalsSoFar(mr, people), verbs: [review] };
   }
   if (b.pipelineRunning) return CI_RUNNING;
   if (b.any) {
@@ -972,7 +979,8 @@ export function candidateLines(
   mr: BoardMRWithReview,
   now: number,
   draftResolved: Resolved,
-  self: string | null
+  self: string | null,
+  people: People = mrPeople(mr)
 ): Candidate[] {
   if (mr.mergeButton.loading) return [MERGING];
   const interrupted = interruptedLane(mr);
@@ -980,18 +988,20 @@ export function candidateLines(
     ...gateLines(mr),
     orphanLine(mr, now, interrupted),
     packless(reviewLine(mr, now, interrupted, self), mr.review),
-    packless(respondLine(mr, now, interrupted, self), mr.respond),
+    packless(respondLine(mr, now, interrupted, self, people), mr.respond),
     // A stand-down outranks the doctor's row and is no launch of its own.
     mr.standDown
       ? doctorLine(mr, now)
       : packless(doctorLine(mr, now), mr.doctor),
     ...draftLines(mr, draftResolved),
-    ...peerLines(mr, now, self),
+    ...peerLines(mr, now, self, people),
   ].filter((l): l is Candidate => l !== null);
   const mine = isOwnMr(mr, self);
   if (lines.length === 0)
     return [
-      mine && self !== null ? authorLine(mr, self) : reviewerLine(mr, self),
+      mine && self !== null
+        ? authorLine(mr, self)
+        : reviewerLine(mr, self, people),
     ];
   if (!mine) return lines.map(withoutAuthorVerbs);
   const standing = self !== null ? authorLine(mr, self) : null;
@@ -1015,9 +1025,10 @@ export function rowStatus(
   mr: BoardMRWithReview,
   now: number,
   draftResolved: Resolved,
-  self: string | null
+  self: string | null,
+  people: People = mrPeople(mr)
 ): RowStatus {
-  const lines = candidateLines(mr, now, draftResolved, self);
+  const lines = candidateLines(mr, now, draftResolved, self, people);
   const repairs = lines.some(l => l.repair);
   const rank = (l: Candidate): number =>
     repairs && l.settled ? TONE_RANK.clear + 1 : TONE_RANK[l.tone];

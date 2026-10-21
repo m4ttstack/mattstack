@@ -11,6 +11,7 @@ import '../../style.css';
 import type { BoardMRWithReview, OrgTeam } from '../types.ts';
 import { askPickerModel } from './ask-picker.ts';
 import { AskPicker } from './AskPicker.tsx';
+import { boardPeople } from './people.ts';
 
 const stage = (
   Story: () => ReactNode,
@@ -88,6 +89,7 @@ const env = {
   teams,
   ownTeam: 'checkout',
   canPostOwners: true,
+  people: boardPeople({ allMembers: [], mrs: [], teams }),
 };
 
 const mr = (ownerTeams: BoardMRWithReview['ownerTeams']) =>

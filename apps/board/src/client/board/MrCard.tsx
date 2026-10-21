@@ -1,17 +1,19 @@
 import type { BoardMRWithReview } from '../types.ts';
 import { ago, cleanTitle } from './format.ts';
 import { MrLinks, mrRef, onGitHub } from './MrLinks.tsx';
+import { usePeople } from './people.ts';
 import { PersonLead } from './PersonLead.tsx';
 
 /** A review gate's identity card: the invader, the author and where the MR
     merges, and its links share the top line; the title, the age and diff
     size, and the branch each take the card's full width below it. */
 export function MrCard({ mr }: { mr: BoardMRWithReview }) {
+  const people = usePeople(mr);
   return (
     <div className="tui-id-card tui-mr-card">
       <PersonLead
         id={mr.author.username}
-        name={mr.author.name || mr.author.username}
+        name={people.short(mr.author.username)}
         trailing={<MrLinks mr={mr} />}
       >
         opened <MrRef mr={mr} /> into {mr.targetBranch}

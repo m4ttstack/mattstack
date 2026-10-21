@@ -136,6 +136,19 @@ describe('boardPeople', () => {
     ]);
   });
 
+  test("the roster's spelling beats an MR's", () => {
+    const data = {
+      allMembers: [{ username: 'renee', name: 'Renee Park' }],
+      mrs: [
+        {
+          author: user('renee', 'R. Park'),
+          reviews: { reviewers: [], approvedBy: [] },
+        },
+      ],
+    } as unknown as BoardData;
+    expect(boardPeople(data).full('renee')).toBe('Renee Park');
+  });
+
   test('a clash anywhere on the board qualifies every row', () => {
     const data = {
       allMembers: [
