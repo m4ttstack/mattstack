@@ -805,6 +805,14 @@ export interface Commands {
       | { origin: string; kind: "email" | "password"; value: string }
       | { refused: "unknown" | "mismatch" | "limited"; until?: number };
   };
+  /**
+   * Socket-only: whether a saved dev login exists for a page origin. Answers
+   * with the two placeholder names, never a stored value or email.
+   */
+  "logins:has": {
+    payload: { token?: string; client?: string; pid?: number; origin?: string };
+    data: { origin: string; fields: { email: string; password: string } } | { none: true };
+  };
   "events:emit": { payload: { topic: string; payload?: unknown }; data: { id: number } };
   "events:wait": { payload: { pattern: string; after?: number; waitMs?: number }; data: { events: EventsBusEvent[]; cursor: number } };
   "events:list": { payload: { pattern: string; after?: number; limit?: number }; data: { events: EventsBusEvent[]; cursor: number } };
@@ -1211,6 +1219,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "secrets:forge-token",
   "secrets:read",
   "logins:fill",
+  "logins:has",
   "events:emit",
   "events:wait",
   "events:list",
