@@ -4448,9 +4448,13 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-accent-small);
   background: none;
   border: none;
-  text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
+}
+@media (hover: hover) {
+  .tui-composer-act:hover {
+    text-decoration: underline;
+  }
 }
 .tui-composer-act:focus-visible {
   outline: 2px solid var(--fill-ok);
@@ -4565,6 +4569,12 @@ a.tui-id-card-ref:focus-visible {
   line-height: 1.5;
   color: var(--text-1);
   overflow-wrap: anywhere;
+}
+/* The Markdown recipe sets its own type on its root; the preview reads at
+   the field's size so the card doesn't change height between tabs. */
+.tui-field-preview [data-part='markdown'] {
+  font-size: inherit;
+  line-height: inherit;
 }
 .tui-field-preview [data-part='markdown'] > :first-child {
   margin-top: 0;
