@@ -4192,6 +4192,13 @@ a.tui-id-card-ref:focus-visible {
   opacity: 0;
   transition: opacity 120ms;
 }
+/* A file whose diff the forge holds back: the header, then why. */
+.tui-review-code-held {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
 @media (hover: hover) {
   .tui-review-code[data-openable]:hover {
     border-color: var(--fill-accent);

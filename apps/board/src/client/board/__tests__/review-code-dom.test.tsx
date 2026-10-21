@@ -280,3 +280,66 @@ test('Tab stays inside the full diff', async () => {
   expect(ev.defaultPrevented).toBe(true);
   expect(document.activeElement).toBe(focusable[0]!);
 });
+
+test('a diff the forge holds back shows the header, why, and the file on the forge', async () => {
+  await render({
+    fetchFileDiff: async () => ({ ...RETRY, patch: '', tooLarge: true }),
+    loadView: () => import('../DiffView.tsx'),
+  });
+  const code = codeOf('Retry loop lacks backoff');
+  expect(code.querySelector('.tui-review-code-path')!.textContent).toBe(
+    'lib/retry.ts:12'
+  );
+  expect(code.querySelector('.tui-review-code-held')!.textContent).toBe(
+    'Too large to show here.'
+  );
+  const open = code.querySelector<HTMLAnchorElement>('a[href]')!;
+  expect(open.textContent).toContain('open on GitLab');
+  expect(open.getAttribute('href')).toBe(RETRY.webUrl!);
+  expect(fullDiffLink('Retry loop lacks backoff')).toBeUndefined();
+  expect(
+    code.querySelector('.tui-review-code')!.hasAttribute('data-openable')
+  ).toBe(false);
+});
+
+test('a GitHub file links to GitHub', async () => {
+  await render({
+    fetchFileDiff: async () => ({
+      ...RETRY,
+      forge: 'github',
+      webUrl: 'https://github.com/acme/widgets/pull/31/files#diff-1',
+      patch: '',
+      binary: true,
+    }),
+    loadView: () => import('../DiffView.tsx'),
+  });
+  const code = codeOf('Retry loop lacks backoff');
+  expect(code.querySelector('a[href]')!.textContent).toContain(
+    'open on GitHub'
+  );
+  expect(code.querySelector('.tui-review-code-held')!.textContent).toBe(
+    'A binary file, with no diff to show here.'
+  );
+});
+
+test('a diff that fails to load keeps the header, and the full diff says why', async () => {
+  await render({
+    fetchFileDiff: async () => {
+      throw new Error('GitLab answered 500 for this diff.');
+    },
+    loadView: () => import('../DiffView.tsx'),
+  });
+  const code = codeOf('Retry loop lacks backoff');
+  expect(code.querySelector('.tui-review-code-path')!.textContent).toBe(
+    'lib/retry.ts:12'
+  );
+  await React.act(async () =>
+    fullDiffLink('Retry loop lacks backoff')!.click()
+  );
+  const modal = dialog()!;
+  expect(modal.getAttribute('aria-label')).toBe('Full diff of lib/retry.ts');
+  expect(modal.querySelector('[role="alert"]')!.textContent).toBe(
+    'GitLab answered 500 for this diff.'
+  );
+  expect(modal.textContent).not.toContain('fetched from');
+});

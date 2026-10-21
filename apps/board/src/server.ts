@@ -30,6 +30,7 @@ import {
   rtCommand,
   setSetting,
   subscribe,
+  type ForgeFileDiffData,
   type ForgeGetData,
   type GateRow,
 } from '@mattstack/rt-client';
@@ -130,6 +131,7 @@ import {
   writeDraft,
 } from './draft-state.ts';
 import faviconSvg from './favicon.svg' with { type: 'text' };
+import { fileDiffRoute } from './file-diff-route.ts';
 import { shiftPeerReviews } from './fixture-peer-reviews.ts';
 import { focusPane } from './focus-pane.ts';
 import { answerGate } from './gates/answer.ts';
@@ -1860,6 +1862,28 @@ const httpServer = Bun.serve({
         return settingsRes;
       }
     }
+
+    // The review sheet's file diffs come through the daemon's own forge
+    // access, so they need none of the board's tokens below.
+    if (pathname === '/review/file-diff')
+      return fileDiffRoute(req, {
+        isLocal: r => isLocalRequest(r, server),
+        findMr: async mrUrl => {
+          const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
+          return mr ? { iid: mr.iid, webUrl: mrUrl } : null;
+        },
+        repoFor: mr => {
+          const projectPath = projectPathFromWebUrl(
+            mr.webUrl,
+            config.gitlabHost
+          );
+          return projectPath ? daemonRepoField(config, projectPath) : null;
+        },
+        readDiff: payload =>
+          rtCommand<ForgeFileDiffData>('forge:file-diff', payload, {
+            timeoutMs: 30_000,
+          }),
+      });
 
     // Resolved once per request, off the memoized getters above -- cheap
     // after the first daemon round trip, and every branch below expects a

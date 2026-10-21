@@ -18,12 +18,17 @@ export interface FileDiff {
   forge: 'gitlab' | 'github';
   /** The file in the MR on the forge. */
   webUrl?: string;
+  /** The forge holds the diff back (too large, or binary): there is no
+      patch to draw, only the file to open on the forge. */
+  tooLarge?: boolean;
+  binary?: boolean;
 }
 
 /** Where the review sheet gets a file's diff, and the renderer that
     draws it. */
 export interface DiffSource {
-  /** Null when the forge has no diff for the file, or none can be fetched. */
+  /** Null when the forge has no diff for the file; rejects, with a short
+      message for the person, when the diff could not be fetched. */
   fetchFileDiff(req: { mr: string; file: string }): Promise<FileDiff | null>;
   /** Loads the renderer: `() => import('./DiffView.tsx')`, a code-split
       chunk. A source without it shows file headers only. */
@@ -154,25 +159,37 @@ export function diffStats(diff: FileDiff): {
 type DiffState =
   | { status: 'loading' }
   | { status: 'none' }
-  | { status: 'ready'; diff: FileDiff };
+  | { status: 'ready'; diff: FileDiff }
+  | { status: 'error'; message: string };
+
+type Fetched = { diff: FileDiff | null } | { error: string };
 
 /** One fetch per file per source, shared by every finding on that file. */
-const fetched = new WeakMap<
-  DiffSource,
-  Map<string, Promise<FileDiff | null>>
->();
+const fetched = new WeakMap<DiffSource, Map<string, Promise<Fetched>>>();
 
 function fetchOnce(
   source: DiffSource,
   mr: string,
   file: string
-): Promise<FileDiff | null> {
+): Promise<Fetched> {
   let bySource = fetched.get(source);
   if (!bySource) fetched.set(source, (bySource = new Map()));
   const key = `${mr}\n${file}`;
   let p = bySource.get(key);
   if (!p) {
-    p = source.fetchFileDiff({ mr, file }).catch(() => null);
+    p = source.fetchFileDiff({ mr, file }).then(
+      diff => ({ diff }),
+      (err: unknown) => {
+        // A failed fetch is asked again the next time a card mounts.
+        bySource.delete(key);
+        return {
+          error:
+            err instanceof Error && err.message
+              ? err.message
+              : 'The diff could not be loaded.',
+        };
+      }
+    );
     bySource.set(key, p);
   }
   return p;
@@ -189,8 +206,13 @@ export function useFileDiff(mr: string | undefined, file: string): DiffState {
     }
     let live = true;
     setState({ status: 'loading' });
-    void fetchOnce(source, mr, file).then(diff => {
-      if (live) setState(diff ? { status: 'ready', diff } : { status: 'none' });
+    void fetchOnce(source, mr, file).then(got => {
+      if (!live) return;
+      if ('error' in got) setState({ status: 'error', message: got.error });
+      else
+        setState(
+          got.diff ? { status: 'ready', diff: got.diff } : { status: 'none' }
+        );
     });
     return () => {
       live = false;

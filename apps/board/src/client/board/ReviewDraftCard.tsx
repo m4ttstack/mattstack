@@ -88,39 +88,48 @@ function SectionHead({
 }
 
 /** The whole file's diff over the sheet: hunk headers, every finding on
-    the file pinned at its line, the one opened from marked. Escape closes
+    the file pinned at its line, the one opened from marked. With `error`
+    instead of a diff, the frame holds that short message. Escape closes
     it and focus goes back to `returnTo`. */
 function FullDiffModal({
   view: DiffView,
   diff,
+  error,
+  path,
   mrRef,
   pins,
   current,
   returnTo,
   onClose,
 }: {
-  view: NonNullable<ReturnType<typeof useDiffView>>;
-  diff: FileDiff;
+  path: string;
   mrRef?: string;
   pins: FilePin[];
   current: string;
   returnTo: HTMLElement | null;
   onClose: () => void;
-}) {
+} & (
+  | {
+      view: NonNullable<ReturnType<typeof useDiffView>>;
+      diff: FileDiff;
+      error?: undefined;
+    }
+  | { view?: undefined; diff?: undefined; error: string }
+)) {
   const root = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     root.current?.focus();
     return () => returnTo?.focus({ preventScroll: true });
   }, [returnTo]);
-  const stats = useMemo(() => diffStats(diff), [diff]);
-  const patch = useMemo(() => filePatch(diff), [diff]);
+  const stats = useMemo(() => (diff ? diffStats(diff) : null), [diff]);
+  const patch = useMemo(() => (diff ? filePatch(diff) : ''), [diff]);
   const byId = useMemo(() => new Map(pins.map(p => [p.id, p])), [pins]);
   const diffPins = useMemo<DiffPin[]>(
     () => pins.map(p => ({ id: p.id, line: p.line })),
     [pins]
   );
   const anchor = byId.get(current)?.line;
-  const forge = FORGE_NAME[diff.forge];
+  const forge = diff ? FORGE_NAME[diff.forge] : null;
   // The sheet behind has its own Tab trap and Escape: this keeps Tab in
   // the modal, and Escape closes only the modal, never the sheet too.
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -155,7 +164,7 @@ function FullDiffModal({
       ref={root}
       tabIndex={-1}
       className="tui-diff-modal"
-      ariaLabel={`Full diff of ${diff.path}`}
+      ariaLabel={`Full diff of ${path}`}
       onClose={onClose}
       onKeyDown={onKeyDown}
       title={
@@ -163,20 +172,20 @@ function FullDiffModal({
           <span className="tui-diff-modal-lead">
             <span className="tui-diff-modal-path">
               <FileGlyph />
-              {diff.path}
+              {path}
             </span>
             <span className="tui-diff-modal-sub">
               {[
                 mrRef,
-                `+${stats.additions} −${stats.deletions}`,
+                stats && `+${stats.additions} −${stats.deletions}`,
                 findings,
-                `fetched from ${forge}`,
+                forge && `fetched from ${forge}`,
               ]
                 .filter(Boolean)
                 .join(' · ')}
             </span>
           </span>
-          {diff.webUrl && (
+          {diff?.webUrl && (
             <a
               className="tui-review-section-link"
               href={diff.webUrl}
@@ -191,40 +200,46 @@ function FullDiffModal({
       }
     >
       <div className="tui-diff-modal-body">
-        <DiffBoundary
-          fallback={
-            <p className="tui-diff-note">The diff could not be drawn.</p>
-          }
-        >
-          <Suspense
-            fallback={<p className="tui-diff-note">Loading the diff…</p>}
+        {error !== undefined || !DiffView ? (
+          <p className="tui-diff-note" role="alert">
+            {error}
+          </p>
+        ) : (
+          <DiffBoundary
+            fallback={
+              <p className="tui-diff-note">The diff could not be drawn.</p>
+            }
           >
-            <DiffView
-              patch={patch}
-              anchor={anchor}
-              pins={diffPins}
-              renderPin={pin => {
-                const p = byId.get(pin.id);
-                return (
-                  p && (
-                    <div
-                      className="tui-diff-pin"
-                      data-current={p.id === current || undefined}
-                    >
-                      <AgentGlyph />
-                      <span className="tui-diff-pin-title">{p.title}</span>
-                      {p.id === current && (
-                        <span className="tui-diff-pin-here">
-                          · you came from here
-                        </span>
-                      )}
-                    </div>
-                  )
-                );
-              }}
-            />
-          </Suspense>
-        </DiffBoundary>
+            <Suspense
+              fallback={<p className="tui-diff-note">Loading the diff…</p>}
+            >
+              <DiffView
+                patch={patch}
+                anchor={anchor}
+                pins={diffPins}
+                renderPin={pin => {
+                  const p = byId.get(pin.id);
+                  return (
+                    p && (
+                      <div
+                        className="tui-diff-pin"
+                        data-current={p.id === current || undefined}
+                      >
+                        <AgentGlyph />
+                        <span className="tui-diff-pin-title">{p.title}</span>
+                        {p.id === current && (
+                          <span className="tui-diff-pin-here">
+                            · you came from here
+                          </span>
+                        )}
+                      </div>
+                    )
+                  );
+                }}
+              />
+            </Suspense>
+          </DiffBoundary>
+        )}
       </div>
     </Modal>
   );
@@ -250,7 +265,19 @@ function CodeSection({
   const line = anchorLine(file);
   const state = useFileDiff(mrUrl, path);
   const DiffView = useDiffView();
-  const diff = state.status === 'ready' && DiffView ? state.diff : null;
+  const fetchedDiff = state.status === 'ready' ? state.diff : null;
+  const heldBack =
+    fetchedDiff !== null &&
+    (fetchedDiff.tooLarge === true ||
+      fetchedDiff.binary === true ||
+      fetchedDiff.patch.trim() === '');
+  const diff = fetchedDiff && !heldBack && DiffView ? fetchedDiff : null;
+  const error = state.status === 'error' && DiffView ? state.message : null;
+  const openable = diff !== null || error !== null;
+  const forgeLink =
+    heldBack && fetchedDiff.webUrl
+      ? { href: fetchedDiff.webUrl, forge: FORGE_NAME[fetchedDiff.forge] }
+      : null;
   const snippet = useMemo(
     () => (diff && line !== undefined ? windowPatch(diff, line) : null),
     [diff, line]
@@ -264,7 +291,18 @@ function CodeSection({
       aria-label="The Code"
     >
       <SectionHead icon={<CodeGlyph />} name="The Code" hue="muted">
-        {diff && (
+        {forgeLink && (
+          <a
+            className="tui-review-section-link"
+            href={forgeLink.href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            open on {forgeLink.forge}
+            <ArrowOutGlyph />
+          </a>
+        )}
+        {openable && (
           <button
             ref={link}
             type="button"
@@ -279,8 +317,8 @@ function CodeSection({
       </SectionHead>
       <div
         className="tui-review-code"
-        data-openable={diff ? '' : undefined}
-        onClick={diff ? () => setOpen(true) : undefined}
+        data-openable={openable ? '' : undefined}
+        onClick={openable ? () => setOpen(true) : undefined}
       >
         <div className="tui-review-code-file">
           <FileGlyph />
@@ -290,12 +328,19 @@ function CodeSection({
               <span className="tui-review-code-line">:{line}</span>
             )}
           </span>
-          {diff && (
+          {openable && (
             <span className="tui-review-code-hint" aria-hidden="true">
               click to expand
             </span>
           )}
         </div>
+        {heldBack && (fetchedDiff.tooLarge || fetchedDiff.binary) && (
+          <p className="tui-review-code-held">
+            {fetchedDiff.binary
+              ? 'A binary file, with no diff to show here.'
+              : 'Too large to show here.'}
+          </p>
+        )}
         {snippet && DiffView && (
           <DiffBoundary>
             <Suspense fallback={null}>
@@ -304,10 +349,22 @@ function CodeSection({
           </DiffBoundary>
         )}
       </div>
+      {open && error !== null && (
+        <FullDiffModal
+          error={error}
+          path={path}
+          mrRef={mrRef}
+          pins={pins}
+          current={finding.id}
+          returnTo={link.current}
+          onClose={() => setOpen(false)}
+        />
+      )}
       {open && diff && DiffView && (
         <FullDiffModal
           view={DiffView}
           diff={diff}
+          path={diff.path}
           mrRef={mrRef}
           pins={pins}
           current={finding.id}
