@@ -25,6 +25,7 @@ export const TEAM_MARKERS_MIN_ENGINE = "0.32.15";
 
 const PARAMS_FILE = "pack/params.jsonc";
 const TEAM_MARKER_RE = /\{\{team\.(section:)?([^}\s?]*)(\?)?\}\}/g;
+const TEAM_OPENER_RE = /\{\{\s*team\./;
 const NAME_RE = /^[a-z][a-z0-9-]*$/;
 
 export function newTeamContext(values: TeamValues, basePlugins: ReadonlySet<string>): TeamContext {
@@ -32,7 +33,7 @@ export function newTeamContext(values: TeamValues, basePlugins: ReadonlySet<stri
 }
 
 export function hasTeamMarker(text: string): boolean {
-  return text.includes("{{team.");
+  return TEAM_OPENER_RE.test(text);
 }
 
 export function readTeamValues(packDir: string, plugin: string, version: string): TeamValues {
@@ -83,6 +84,8 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
     const fail = (raw: string, why: string): never => {
       throw new Error(`${where}: ${raw} ${why} (line ${i + 1})`);
     };
+    const stray = line.replace(TEAM_MARKER_RE, "").match(/\{\{\s*team\.[^}]*(\}\}?|$)/);
+    if (stray) fail(stray[0], "is not a well-formed team marker");
     let removeLine = false;
     let sectionText: string | null = null;
 

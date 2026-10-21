@@ -126,6 +126,12 @@ describe("team-params", () => {
     expect(() => resolveTeamMarkers("{{team.Bad_Key}}", ctx(), { where, sectionSeams: true })).toThrow(new RegExp(`${where}.*line 1`));
   });
 
+  test.each(["{{team.foo bar}}", "{{team.x?y}}", "{{team.section: x}}", "{{ team.x }}", "{{team.x}"])("refuses malformed marker %s", (raw) => {
+    const team = ctx({ x: "v" });
+    expect(() => resolveTeamMarkers(`a\n${raw}`, team, { where, sectionSeams: true })).toThrow(new RegExp(`${where}.*line 2`));
+    expect(hasTeamMarker(raw)).toBe(true);
+  });
+
   test("hasTeamMarker", () => {
     expect(hasTeamMarker("a {{team.x}}")).toBe(true);
     expect(hasTeamMarker("a {{slot:x}}")).toBe(false);
