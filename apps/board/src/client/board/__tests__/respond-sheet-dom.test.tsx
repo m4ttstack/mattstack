@@ -1174,7 +1174,7 @@ test('Escape in a field leaves the field, not the sheet; a second Escape reaches
   document.addEventListener('keydown', onDoc);
   try {
     await esc(box);
-    expect(document.activeElement).not.toBe(box);
+    expect(document.activeElement).toBe(box.closest('[role="dialog"]'));
     expect(reached).toBe(0);
     expect(closes).toBe(0);
     await esc(document.body);

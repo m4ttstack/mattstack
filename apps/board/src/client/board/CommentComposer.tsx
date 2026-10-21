@@ -96,11 +96,12 @@ function CommentComposer({
           aria-describedby={!canEdit ? kickerId : empty ? emptyHint : undefined}
           onChange={e => onChange(e.currentTarget.value)}
           onKeyDown={e => {
-            // The first Escape only leaves the field; the sheet's own
-            // Escape closes it once focus is elsewhere.
+            // The first Escape only leaves the field, for the sheet itself:
+            // a blur would drop focus to the body, outside the sheet's Tab
+            // trap. The sheet's own Escape closes it on the next press.
             if (e.key !== 'Escape') return;
             e.stopPropagation();
-            e.currentTarget.blur();
+            e.currentTarget.closest<HTMLElement>('[role="dialog"]')?.focus();
           }}
         />
       </div>
