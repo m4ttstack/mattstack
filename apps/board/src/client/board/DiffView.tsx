@@ -53,53 +53,6 @@ registerCustomCSSVariableTheme(CODE_THEME, {
   'token-changed': 'var(--text-warn-small)',
 });
 
-/** The mappings the colour-options story compares, each at the contrast
-    bar its size sets in the authoring guide: at 12px and under every hue
-    takes its `-small` step (7.0); at 13px the body step (4.5) wherever
-    that clears every line wash, else the small step. Red-keyword is the
-    board's own mapping; purple-keyword moves keywords to purple, names to
-    accent and constants to cyan, keeping red for removed signs. */
-function mappedTheme(
-  name: string,
-  mapping: 'red' | 'purple',
-  body: boolean
-): string {
-  const hue = (h: string, bodyClears: boolean) =>
-    `var(--text-${h}${body && bodyClears ? '' : '-small'})`;
-  const red = mapping === 'red';
-  registerCustomCSSVariableTheme(name, {
-    foreground: 'var(--text-1)',
-    background: 'var(--card)',
-    'token-comment': 'var(--text-3)',
-    'token-punctuation': 'var(--text-2)',
-    'token-keyword': red ? hue('bad', true) : hue('purple', true),
-    'token-string': hue('ok', false),
-    'token-string-expression': hue('ok', false),
-    'token-constant': red ? hue('accent', true) : hue('cyan', false),
-    'token-function': red ? hue('purple', true) : hue('accent', true),
-    'token-parameter': hue('warn', false),
-    'token-link': hue('accent', true),
-    'token-inserted': hue('ok', false),
-    'token-deleted': hue('bad', true),
-    'token-changed': hue('warn', false),
-  });
-  return name;
-}
-
-export type DiffColours =
-  | 'board'
-  | 'red-small'
-  | 'purple-small'
-  | 'red-body'
-  | 'purple-body';
-const COLOUR_THEMES: Record<DiffColours, string> = {
-  board: CODE_THEME,
-  'red-small': mappedTheme('board-code-red-small', 'red', false),
-  'purple-small': mappedTheme('board-code-purple-small', 'purple', false),
-  'red-body': mappedTheme('board-code-red-body', 'red', true),
-  'purple-body': mappedTheme('board-code-purple-body', 'purple', true),
-};
-
 /** A comment's fenced code is 13px on the card alone, so every token kind
     takes its hue's body text step, which clears 4.5 there in both
     schemes. The hues per kind match the diff's. */
@@ -209,18 +162,14 @@ export default function DiffView({
   pins,
   renderPin,
   separators = 'metadata',
-  colours = 'board',
-  fontSize,
 }: {
   patch: string;
   anchor?: number;
   pins?: DiffPin[];
   renderPin?: (pin: DiffPin) => ReactNode;
   separators?: 'metadata' | 'simple';
-  colours?: DiffColours;
-  fontSize?: number;
 }) {
-  const theme = COLOUR_THEMES[colours];
+  const theme = CODE_THEME;
   const [ref, dark] = useBoardDark();
   const ready = useHighlighterReady(
     theme,
@@ -257,13 +206,7 @@ export default function DiffView({
     [anchor]
   );
   return (
-    <div
-      ref={ref}
-      className="tui-diff"
-      style={
-        fontSize ? ({ '--diffs-font-size': `${fontSize}px` } as object) : undefined
-      }
-    >
+    <div ref={ref} className="tui-diff">
       {ready && (
         <PatchDiff<DiffPin>
           patch={patch}

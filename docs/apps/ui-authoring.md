@@ -237,6 +237,11 @@ Accepted pair outside the Button matrix: the kit's `Kbd variant="on-fill"`
 cap on a filled button, 3.14:1, signed off by Matt 2026-10-09
 (`KNOWN_KBD_CONTRAST_DEBT` in the same ledger file).
 
+Accepted pairs for board diff and code-fence syntax hues at 12px on the
+body steps: lowest measured 4.58 light and 5.69 dark against the 7.0
+small-hue bar, signed off by Matt 2026-10-21
+(`KNOWN_CODE_SYNTAX_CONTRAST_DEBT` in the same ledger file).
+
 ## Type
 
 - Font weights follow radix-ui/themes: 400 regular, 500 medium, 700
