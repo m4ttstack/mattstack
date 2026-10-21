@@ -77,3 +77,26 @@ test('a diff draws its lines on first mount', async () => {
   });
   expect(await drawnLines()).toBeGreaterThan(0);
 });
+
+test('a mounted view waits again when its language changes to one not loaded yet', async () => {
+  const { useHighlighterReady } = await import('../DiffView.tsx');
+  function Probe({ lang }: { lang: 'typescript' | 'rust' }) {
+    return (
+      <p>{useHighlighterReady('board-code', lang) ? 'ready' : 'waiting'}</p>
+    );
+  }
+  const until = async (text: string) => {
+    for (let i = 0; i < 60; i++) {
+      if (container.textContent === text) return true;
+      await React.act(async () => {
+        await new Promise(r => setTimeout(r, 50));
+      });
+    }
+    return container.textContent === text;
+  };
+  await React.act(async () => root.render(<Probe lang="typescript" />));
+  expect(await until('ready')).toBe(true);
+  await React.act(async () => root.render(<Probe lang="rust" />));
+  expect(container.textContent).toBe('waiting');
+  expect(await until('ready')).toBe(true);
+});

@@ -322,7 +322,7 @@ test('a GitHub file links to GitHub', async () => {
   );
 });
 
-test('a diff that fails to load keeps the header, and the full diff says why', async () => {
+test("a diff that fails to load keeps the header, says why, and links to the MR's changes", async () => {
   await render({
     fetchFileDiff: async () => {
       throw new Error('GitLab answered 500 for this diff.');
@@ -333,13 +333,15 @@ test('a diff that fails to load keeps the header, and the full diff says why', a
   expect(code.querySelector('.tui-review-code-path')!.textContent).toBe(
     'lib/retry.ts:12'
   );
-  await React.act(async () =>
-    fullDiffLink('Retry loop lacks backoff')!.click()
-  );
-  const modal = dialog()!;
-  expect(modal.getAttribute('aria-label')).toBe('Full diff of lib/retry.ts');
-  expect(modal.querySelector('[role="alert"]')!.textContent).toBe(
+  expect(code.querySelector('[role="alert"]')!.textContent).toBe(
     'GitLab answered 500 for this diff.'
   );
-  expect(modal.textContent).not.toContain('fetched from');
+  const open = code.querySelector<HTMLAnchorElement>('a[href]')!;
+  expect(open.textContent).toContain('open on GitLab');
+  expect(open.getAttribute('href')).toBe(`${MR.webUrl}/diffs`);
+  expect(fullDiffLink('Retry loop lacks backoff')).toBeUndefined();
+  expect(code.querySelector('.tui-review-code-hint')).toBeNull();
+  expect(
+    code.querySelector('.tui-review-code')!.hasAttribute('data-openable')
+  ).toBe(false);
 });

@@ -44,9 +44,14 @@ export interface ClientBundle {
   appJs: string;
   appCss: string;
   /** Code-split chunks by file name (`chunk-<hash>.js`), served at the
-      root beside /app.js, which imports them by relative path. */
-  chunks: Record<string, string>;
+      root beside /app.js, which imports them by relative path. The
+      compiled entry hands a loader instead, read on the first chunk
+      request. */
+  chunks: ClientChunks;
 }
+
+export type ClientChunks =
+  Record<string, string> | (() => Record<string, string>);
 
 /**
  * Bundle the React client from source. The dev server calls this at boot and
@@ -57,7 +62,9 @@ export interface ClientBundle {
  * Split, so a lazy import (the diff renderer and its highlighter's grammars)
  * stays out of app.js and loads as chunks only when something renders it.
  */
-export async function buildClientBundle(): Promise<ClientBundle> {
+export async function buildClientBundle(): Promise<
+  ClientBundle & { chunks: Record<string, string> }
+> {
   const build = await Bun.build({
     entrypoints: [join(import.meta.dir, 'client', 'main.tsx')],
     target: 'browser',

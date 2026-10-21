@@ -70,7 +70,9 @@ export async function fileDiffRoute(
     );
   const res = await deps.readDiff({ repoName, iid: mr.iid, path: file });
   if (!res.ok || !res.data) return json({ error: shortError(res.error) }, 502);
-  const { forge, file: diff } = res.data;
+  const { forge, file: diff, truncated } = res.data;
+  if (!diff && truncated)
+    return json({ error: "This MR's diff is too long to search here." }, 413);
   if (!diff) return json({ error: "This file is not in the MR's diff." }, 404);
   const body: FileDiffBody = {
     path: diff.newPath,

@@ -205,18 +205,6 @@ export const ReviewPostDraftedHeldBack = face(
   'Review: post, drafted, a diff too large to show and one that failed',
   G.reviewPostDraftedHeldBack
 );
-export const ReviewPostDraftedDiffFailed: Story = {
-  ...face(
-    'Review: post, drafted, the full diff of a file that failed to load',
-    G.reviewPostDraftedHeldBack
-  ),
-  play: async ({ canvasElement }) => {
-    const [open] = await within(canvasElement).findAllByRole('button', {
-      name: /view full diff/,
-    });
-    await userEvent.click(open!);
-  },
-};
 export const ReviewPostDraftedGitHub = face(
   'Review: post, drafted, GitHub with three verdicts',
   G.reviewPostDraftedGitHub

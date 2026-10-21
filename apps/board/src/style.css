@@ -4231,10 +4231,6 @@ a.tui-id-card-ref:focus-visible {
 .tui-diff-modal:focus {
   outline: none;
 }
-/* No diff to scroll: the frame fits its one line. */
-.tui-diff-modal-error {
-  height: auto;
-}
 .tui-diff-modal [data-part='modal-head'] {
   gap: 16px;
   padding: 12px 16px;

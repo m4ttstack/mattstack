@@ -5,16 +5,17 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   clientChunkResponse,
+  lazyChunks,
   parseChunkManifest,
   withEarlierChunks,
   writeClientBundle,
 } from '../client-assets.ts';
-import { buildClientBundle, type ClientBundle } from '../client-bundle.ts';
+import { buildClientBundle } from '../client-bundle.ts';
 
 const CHUNK_REF = /chunk-[a-z0-9]+\.js/g;
 
 describe('the split client bundle', () => {
-  let bundle: ClientBundle;
+  let bundle: Awaited<ReturnType<typeof buildClientBundle>>;
 
   test('builds an entry with the diff renderer left out as chunks', async () => {
     bundle = await buildClientBundle();
@@ -50,6 +51,21 @@ describe('the split client bundle', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+test('embedded chunks are parsed on the first chunk request, once', async () => {
+  let loads = 0;
+  const chunks = lazyChunks(() => {
+    loads++;
+    return { 'chunk-abc123.js': 'export const a = 1;' };
+  });
+  expect(clientChunkResponse('/app.js', chunks)).toBeNull();
+  expect(loads).toBe(0);
+  expect(await clientChunkResponse('/chunk-abc123.js', chunks)!.text()).toBe(
+    'export const a = 1;'
+  );
+  expect(clientChunkResponse('/chunk-ffff.js', chunks)!.status).toBe(404);
+  expect(loads).toBe(1);
 });
 
 describe('clientChunkResponse', () => {

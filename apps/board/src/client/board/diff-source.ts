@@ -35,8 +35,10 @@ export interface DiffSource {
   loadView?: () => Promise<typeof import('./DiffView.tsx')>;
 }
 
-/** The board's source until its server serves MR diffs: no file has a
-    diff, so a finding's code section shows only the file's header. */
+/** The context's default, for a sheet rendered with no source provided
+    (tests, stories without diffs): no file has a diff, so a finding's code
+    section shows only the file's header. The live board provides
+    `boardDiffSource`. */
 export const noDiffSource: DiffSource = {
   fetchFileDiff: async () => null,
 };

@@ -16,6 +16,7 @@ const diffData = (
 ): ForgeFileDiffData => ({
   forge: 'gitlab',
   headSha: 'head812',
+  truncated: false,
   file: file && {
     oldPath: 'src/radar.ts',
     newPath: 'src/radar.ts',
@@ -126,6 +127,17 @@ describe('GET /review/file-diff', () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({
       error: "This file is not in the MR's diff.",
+    });
+  });
+
+  test('a file the capped listing never reached says the diff was too long', async () => {
+    const res = await route({
+      ok: true,
+      data: { ...diffData(null), truncated: true },
+    }).get(url());
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      error: "This MR's diff is too long to search here.",
     });
   });
 

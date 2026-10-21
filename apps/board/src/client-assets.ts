@@ -1,20 +1,37 @@
 import { mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs';
 import { join } from 'path';
 
-import { buildClientBundle, type ClientBundle } from './client-bundle.ts';
+import {
+  buildClientBundle,
+  type ClientBundle,
+  type ClientChunks,
+} from './client-bundle.ts';
 
 const CHUNK_PATH = /^\/(chunk-[a-z0-9]+\.js)$/;
+
+function chunkMap(chunks: ClientChunks): Record<string, string> {
+  return typeof chunks === 'function' ? chunks() : chunks;
+}
+
+/** A chunk map read the first time a chunk is asked for, then kept. */
+export function lazyChunks(
+  load: () => Record<string, string>
+): () => Record<string, string> {
+  let map: Record<string, string> | null = null;
+  return () => (map ??= load());
+}
 
 /** A request for one of the bundle's code-split chunks: the chunk, cached
     for good since its name is its content hash, or a 404. Null for every
     other path. */
 export function clientChunkResponse(
   pathname: string,
-  chunks: Record<string, string>
+  chunks: ClientChunks
 ): Response | null {
   const name = CHUNK_PATH.exec(pathname)?.[1];
   if (!name) return null;
-  const text = Object.hasOwn(chunks, name) ? chunks[name] : undefined;
+  const map = chunkMap(chunks);
+  const text = Object.hasOwn(map, name) ? map[name] : undefined;
   if (text === undefined) return new Response('unknown chunk', { status: 404 });
   return new Response(text, {
     headers: {
@@ -31,7 +48,10 @@ export function withEarlierChunks(
   prev: ClientBundle,
   next: ClientBundle
 ): ClientBundle {
-  return { ...next, chunks: { ...prev.chunks, ...next.chunks } };
+  return {
+    ...next,
+    chunks: { ...chunkMap(prev.chunks), ...chunkMap(next.chunks) },
+  };
 }
 
 /** Writes the bundle where src/compiled.ts text-imports it. .txt, not .js:
@@ -44,7 +64,10 @@ export function writeClientBundle(outDir: string, bundle: ClientBundle): void {
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, 'app.js.txt'), bundle.appJs);
   writeFileSync(join(outDir, 'app.css'), bundle.appCss);
-  writeFileSync(join(outDir, 'chunks.json.txt'), JSON.stringify(bundle.chunks));
+  writeFileSync(
+    join(outDir, 'chunks.json.txt'),
+    JSON.stringify(chunkMap(bundle.chunks))
+  );
 }
 
 /** The chunk map writeClientBundle embedded, as the compiled entry reads it. */

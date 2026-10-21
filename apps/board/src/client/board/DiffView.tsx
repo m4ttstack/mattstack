@@ -173,20 +173,25 @@ function useBoardDark(): [RefObject<HTMLDivElement | null>, boolean] {
     renderer mounts only once it does: mounted earlier, under the board's
     StrictMode, its first draw stays an empty block until some later
     option change redraws it. */
-function useHighlighterReady(theme: string, lang: SupportedLanguages): boolean {
-  const loaded = () => getHighlighterIfLoaded({ theme, lang }) != null;
-  const [ready, setReady] = useState(loaded);
+export function useHighlighterReady(
+  theme: string,
+  lang: SupportedLanguages
+): boolean {
+  const key = `${theme}\n${lang}`;
+  const [settled, setSettled] = useState<string | null>(null);
+  const ready =
+    settled === key || getHighlighterIfLoaded({ theme, lang }) != null;
   useEffect(() => {
     if (ready) return;
     let live = true;
     const settle = () => {
-      if (live) setReady(true);
+      if (live) setSettled(key);
     };
     preloadHighlighter({ themes: [theme], langs: [lang] }).then(settle, settle);
     return () => {
       live = false;
     };
-  }, [theme, lang, ready]);
+  }, [theme, lang, key, ready]);
   return ready;
 }
 
