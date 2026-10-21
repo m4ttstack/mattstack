@@ -4120,6 +4120,112 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-3);
 }
 
+/* A comment that posts under the developer's name: a teal strip saying
+   where it posts, joined to the text area under one border. */
+.tui-composer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tui-composer {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--fill-ok) 45%, var(--card));
+  border-radius: 8px;
+  background: var(--card);
+  overflow: hidden;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.tui-composer:focus-within {
+  border-color: var(--fill-ok);
+  box-shadow: 0 0 0 1px var(--fill-ok);
+}
+.tui-composer-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  padding: 4px 12px;
+  background: color-mix(in srgb, var(--fill-ok) 12%, var(--card));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--fill-ok) 30%, var(--card));
+}
+.tui-composer-k {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-ok-small);
+  overflow-wrap: anywhere;
+}
+.tui-composer-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-ok-small);
+}
+.tui-composer-act {
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--text-ok-small);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.tui-composer-act:focus-visible {
+  outline: 2px solid var(--fill-ok);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.tui-composer-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  background: transparent;
+  border: none;
+  resize: none;
+  overflow: hidden;
+}
+/* The frame's border carries focus, so the field draws no ring of its own. */
+.tui-composer-input:focus,
+.tui-composer-input:focus-visible {
+  outline: none;
+}
+/* Held: the reply stays readable but stops looking like it will post. */
+.tui-composer[data-held] {
+  border-color: var(--border);
+}
+.tui-composer[data-held]:focus-within {
+  border-color: var(--border);
+  box-shadow: none;
+}
+.tui-composer[data-held] .tui-composer-strip {
+  background: color-mix(in srgb, var(--fg) 5%, var(--card));
+  border-bottom-color: var(--border-soft);
+}
+.tui-composer[data-held] :is(.tui-composer-k, .tui-composer-input) {
+  color: var(--text-2);
+}
+.tui-composer-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* Hairline above the record cluster, spanning the left column. */
 .tui-review-divider {
   margin: 22px 0 0;

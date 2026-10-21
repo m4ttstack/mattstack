@@ -18,6 +18,7 @@ import type { BoardMRWithReview } from '../types.ts';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
+import { CommentComposer } from './CommentComposer.tsx';
 import { GateSheet, type GateSheetQueue } from './GateSheet.tsx';
 import {
   CircleCheckFilledIcon,
@@ -27,7 +28,7 @@ import {
 import { MrCard } from './MrCard.tsx';
 import { mrRef } from './MrLinks.tsx';
 import { editedText } from './respond-post.ts';
-import { EditableReply, EditedChip } from './RespondCards.tsx';
+import { EditedChip } from './RespondCards.tsx';
 import {
   attachDraftEdits,
   commentKey,
@@ -247,6 +248,7 @@ function SummaryCard({
   draft,
   folded,
   form,
+  onRemove,
 }: {
   target?: string;
   outcome: string;
@@ -254,6 +256,7 @@ function SummaryCard({
   draft: string;
   folded: FindingEntry[];
   form: GateFormState;
+  onRemove: (f: FindingEntry) => void;
 }) {
   const key = summaryKey(outcome);
   const edited =
@@ -276,29 +279,28 @@ function SummaryCard({
         </span>
       </div>
       <div data-part="summary-line">
-        <EditableReply
+        <CommentComposer
           key={key}
           label="Summary comment"
           noun="comment"
-          heading={`will post as the review summary · ${verdictLabel}`}
+          kicker={`will post as the summary · ${verdictLabel}`}
           draft={draft}
           value={form.texts[key]}
-          canEdit
           onChange={t => form.setText(key, t)}
           onReset={() => form.clearText(key)}
         />
       </div>
       {folded.map(f => (
         <div data-part="folded" key={f.id}>
-          <EditableReply
-            label={f.title}
+          <CommentComposer
+            label={`Summary comment: ${f.title}`}
             noun="comment"
-            heading={`in the summary · ${f.title}`}
+            kicker={`added to the summary · ${f.title}`}
             draft={f.comment!}
             value={form.texts[commentKey(f.id)]}
-            canEdit
             onChange={t => form.setText(commentKey(f.id), t)}
             onReset={() => form.clearText(commentKey(f.id))}
+            onRemove={() => onRemove(f)}
           />
         </div>
       ))}
@@ -609,6 +611,17 @@ function ReviewGateSheet({
               draft={summaryDraft}
               folded={folded}
               form={form}
+              onRemove={f => {
+                if (!findingsName) return;
+                form.toggleMulti(findingsName, f.id, false);
+                // The strip's button unmounts with the folded box, which
+                // would drop focus outside the sheet's Tab trap.
+                document
+                  .querySelector<HTMLInputElement>(
+                    `input[aria-labelledby="tui-review-finding-title-${CSS.escape(f.id)}"]`
+                  )
+                  ?.focus();
+              }}
             />
           )}
           {carryovers.length > 0 && (
@@ -773,12 +786,12 @@ function ReviewGateSheet({
                             {checked && (
                               <div className="tui-review-finding-draft">
                                 {hasDiffLine(f) ? (
-                                  <EditableReply
-                                    label={f.title}
+                                  <CommentComposer
+                                    label={`Comment on ${f.title}`}
                                     noun="comment"
+                                    kicker="will post as comment"
                                     draft={f.comment!}
                                     value={form.texts[key]}
-                                    canEdit
                                     onChange={t => form.setText(key, t)}
                                     onReset={() => form.clearText(key)}
                                   />
