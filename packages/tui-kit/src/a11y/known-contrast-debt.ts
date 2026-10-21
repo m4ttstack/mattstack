@@ -463,3 +463,48 @@ export const KNOWN_KBD_CONTRAST_DEBT: readonly KbdContrastDebtEntry[] = [
       "value. A hint cap inside a labelled button; the label carries the meaning.",
   },
 ];
+
+export interface CodeSyntaxContrastDebtEntry {
+  surface: string;
+  fontSize: string;
+  scheme: ContrastScheme;
+  measuredRatio: number;
+  bar: number;
+  signedOffBy: string;
+  signedOffOn: string;
+  reason: string;
+}
+
+/**
+ * Board diff and code-fence syntax hues. No matrix test enumerates them, so
+ * this is a record, not an allowlist: a worse value or a new pair needs its
+ * own sign-off and its own entry.
+ */
+export const KNOWN_CODE_SYNTAX_CONTRAST_DEBT: readonly CodeSyntaxContrastDebtEntry[] =
+  [
+    {
+      surface: "board review gate diff and snippet theme (12px; Preview fences are 13px and meet their bar)",
+      fontSize: "12px",
+      scheme: "light",
+      measuredRatio: 4.58,
+      bar: 7.0,
+      signedOffBy: "Matt",
+      signedOffOn: "2026-10-21",
+      reason:
+        "Syntax hue text on the board-role body steps at 12px, under the 7.0 " +
+        "small-hue bar; lowest measured pair. Red keywords, accent constants " +
+        "and purple names keep their body step; ok and warn take the small step.",
+    },
+    {
+      surface: "board review gate diff and snippet theme (12px; Preview fences are 13px and meet their bar)",
+      fontSize: "12px",
+      scheme: "dark",
+      measuredRatio: 5.69,
+      bar: 7.0,
+      signedOffBy: "Matt",
+      signedOffOn: "2026-10-21",
+      reason:
+        "Syntax hue text on the board-role body steps at 12px, under the 7.0 " +
+        "small-hue bar; lowest measured pair. Same mapping as light.",
+    },
+  ];

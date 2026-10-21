@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
-import { Button, Markdown } from '@mattstack/tui-kit';
-import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
+import { Markdown } from '@mattstack/tui-kit';
+import { CommentFrame } from './CommentComposer.tsx';
 import type {
   ReplyEntry,
   Severity,
@@ -38,16 +38,21 @@ function SeverityPill({ severity }: { severity: Severity }) {
   );
 }
 
-function ReplyBlock({ text }: { text: string }) {
+function ReplyBlock({
+  text,
+  edited = false,
+}: {
+  text: string;
+  edited?: boolean;
+}) {
   return (
-    <div className="tui-thread-reply" data-kind="verbatim">
-      <span className="tui-thread-reply-k">will post as reply</span>
-      <div className="tui-thread-reply-text">
-        <Markdown unstyled linkTargetBlank>
-          {text}
-        </Markdown>
-      </div>
-    </div>
+    <CommentFrame
+      kind="verbatim"
+      kicker="will post as reply"
+      meta={edited ? 'edited at Gate 1' : 'posts as you'}
+      edited={edited}
+      text={text}
+    />
   );
 }
 
@@ -58,9 +63,12 @@ function ReplyBlock({ text }: { text: string }) {
     caller that draws the reply itself puts it. */
 function ThreadCard({
   ctx,
+  replyEdited = false,
   children,
 }: {
   ctx: ThreadCtx;
+  /** The verbatim reply was edited at Gate 1. */
+  replyEdited?: boolean;
   children?: ReactNode;
 }) {
   const { claim, verdict, reply } = ctx;
@@ -91,192 +99,19 @@ function ThreadCard({
           <span className="tui-thread-verdict-note">· {verdict.note}</span>
         )}
       </div>
-      {reply.kind === 'verbatim' && <ReplyBlock text={reply.text} />}
+      {reply.kind === 'verbatim' && (
+        <ReplyBlock text={reply.text} edited={replyEdited} />
+      )}
       {reply.kind === 'direction' && (
-        <div className="tui-thread-reply" data-kind="direction">
-          <span className="tui-thread-reply-k">reply direction</span>
-          <div className="tui-thread-reply-text">
-            <Markdown unstyled linkTargetBlank>
-              {reply.text}
-            </Markdown>
-          </div>
-        </div>
+        <CommentFrame
+          kind="direction"
+          kicker="reply direction"
+          held
+          text={reply.text}
+        />
       )}
       {children}
     </div>
-  );
-}
-
-/** A reply the developer may rewrite before it posts: the draft at rest,
-    an auto-growing box while editing. `value` is the edit, absent when
-    there is none; `canEdit` is false while the thread will not post this
-    reply (held, or picked fix or skip), which also closes an open box.
-    `controls`, when given, sit at the right of the box's footer, so the
-    reply and the decision on it read as one place. */
-function EditableReply({
-  label,
-  draft,
-  value,
-  canEdit,
-  onChange,
-  onReset,
-  controls,
-}: {
-  label: string;
-  draft: string;
-  value: string | undefined;
-  canEdit: boolean;
-  onChange: (text: string) => void;
-  onReset: () => void;
-  controls?: ReactNode;
-}) {
-  const [editing, setEditing] = useState(false);
-  if (editing && !canEdit) setEditing(false);
-  const open = editing && canEdit;
-  const text = value ?? draft;
-  const edited = value !== undefined && value.trim() !== draft.trim();
-  const empty = canEdit && value !== undefined && value.trim() === '';
-  const ref = useAutoGrowTextarea([open, text]);
-  const emptyHint = useId();
-  const editRef = useRef<HTMLButtonElement | null>(null);
-  // Closing unmounts whatever held focus, which would drop it to the body,
-  // outside the sheet's Tab trap; a close the user asked for hands it back
-  // to the edit button instead. A hold closes the box without moving focus.
-  const refocus = useRef(false);
-  const close = () => {
-    refocus.current = true;
-    setEditing(false);
-  };
-  useEffect(() => {
-    if (!open) {
-      if (refocus.current) editRef.current?.focus();
-      refocus.current = false;
-      return;
-    }
-    const el = ref.current;
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-  }, [open, ref]);
-  return (
-    <div
-      className="tui-thread-reply"
-      data-kind="verbatim"
-      data-held={controls && !canEdit ? '' : undefined}
-    >
-      <span className="tui-thread-reply-k">
-        {canEdit
-          ? 'will post as reply'
-          : controls
-            ? 'drafted reply · not posting'
-            : 'drafted reply'}
-      </span>
-      {open ? (
-        <textarea
-          ref={ref}
-          className="tui-thread-reply-input"
-          rows={1}
-          value={text}
-          aria-label={`${label}: reply`}
-          aria-describedby={empty ? emptyHint : undefined}
-          onChange={e => onChange(e.currentTarget.value)}
-          onKeyDown={e => {
-            if (e.key === 'Escape') {
-              e.stopPropagation();
-              close();
-            }
-          }}
-        />
-      ) : (
-        <div className="tui-thread-reply-text">
-          <Markdown unstyled linkTargetBlank>
-            {text}
-          </Markdown>
-        </div>
-      )}
-      {empty && (
-        <span className="tui-gate-error" id={emptyHint}>
-          the reply is empty
-        </span>
-      )}
-      {(canEdit || controls) && (
-        <div className="tui-thread-reply-actions">
-          {!canEdit ? (
-            <Button
-              type="button"
-              variant="light"
-              intent="muted"
-              size="sm"
-              className="tui-thread-reply-placeholder"
-              aria-hidden="true"
-              tabIndex={-1}
-              disabled
-            >
-              edit
-            </Button>
-          ) : open ? (
-            <>
-              <Button
-                type="button"
-                variant="light"
-                intent="accent"
-                size="sm"
-                className="tui-thread-reply-action"
-                aria-label={`${label}: done editing`}
-                onClick={close}
-              >
-                done
-              </Button>
-              {edited && (
-                <Button
-                  type="button"
-                  variant="light"
-                  intent="muted"
-                  size="sm"
-                  className="tui-thread-reply-action"
-                  aria-label={`${label}: reset to draft`}
-                  onClick={() => {
-                    onReset();
-                    ref.current?.focus();
-                  }}
-                >
-                  reset to draft
-                </Button>
-              )}
-            </>
-          ) : (
-            <Button
-              ref={editRef}
-              type="button"
-              variant="light"
-              intent="muted"
-              size="sm"
-              className="tui-thread-reply-action"
-              aria-label={`${label}: edit reply`}
-              onClick={() => setEditing(true)}
-            >
-              edit
-            </Button>
-          )}
-          {controls && (
-            <div className="tui-thread-reply-controls">{controls}</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** A thread card head's mark that its reply no longer reads as drafted. */
-function EditedChip() {
-  return (
-    <span
-      className="tui-respond-chip tui-thread-edited"
-      data-hue="grey"
-      data-chip="edited"
-    >
-      edited
-    </span>
   );
 }
 
@@ -319,6 +154,16 @@ function ThreadOutcome({
       data-outcome={heldBack ? `${verb}-held` : verb}
     >
       {heldBack ? `${verb} held` : OUTCOME_TEXT[verb]}
+    </span>
+  );
+}
+
+/** A thread's outcome inside its composer strip, for a thread whose
+    composer is its whole card. */
+function StripOutcome({ verb }: { verb: 'reply' | 'fix' | 'skip' }) {
+  return (
+    <span className="tui-composer-status" data-outcome={verb}>
+      {OUTCOME_TEXT[verb]}
     </span>
   );
 }
@@ -367,10 +212,10 @@ function ReplyChoiceBody({
   );
 }
 
-/** A per-thread post question's controls, one compact row of ticks: post
-    the reply, and, independently, resolve the thread when the question
-    offers it (an Overview comment does not). Unticking post holds the reply
-    back. What each does rides the tooltip. */
+/** A per-thread post question's controls, plain checkboxes in one row:
+    post the reply, and, independently, resolve the thread when the
+    question offers it (an Overview comment does not). Unticking post holds
+    the reply back. What each does rides the tooltip. */
 function PostResolveChoice({
   pick,
   form,
@@ -411,6 +256,7 @@ function PostResolveChoice({
         <label
           className="tui-post-tick"
           data-checked={t.on || undefined}
+          data-quiet={(t.value === 'resolve' && !posting && !t.on) || undefined}
           title={t.hint}
           key={t.value}
         >
@@ -438,12 +284,11 @@ function PostResolveChoice({
 }
 
 export {
-  EditableReply,
-  EditedChip,
   PostResolveChoice,
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
+  StripOutcome,
   ThreadCard,
   ThreadOutcome,
 };

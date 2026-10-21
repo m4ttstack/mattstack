@@ -486,9 +486,13 @@ What the graph cannot show:
   outcome is `approve`; approval has no read, so a resumed pane approves
   again unless `--report` marks it approved by hand ("Escalation marks"),
   and a refusal saying this account already approved counts as approved.
-  Read each answer's `value` (an answer may be a `{value, note}` object); a
-  note is the human's steer on the wording of what posts. No review posts
-  twice: a resumed pane reads what is already up with `mr_threads {mrUrl,
+  Read each answer's `value` (an answer may be a `{value, note}` object,
+  plus `texts` on a `findings-N` answer or `text` on the `outcome` answer
+  when the human edited a drafted comment). When the gate's `review@1`
+  context carries `editable: true`, the domain skill posts the edits, else
+  its drafts, word for word, and a note never changes posted text; on any
+  other gate a note is the human's steer on the wording of what posts.
+  No review posts twice: a resumed pane reads what is already up with `mr_threads {mrUrl,
   refresh: true} (review posted already)` before anything posts.
 - **Escalation marks.** An off-script take at a posting origin, or at the
   Posted already read, writes a mark line into `--report` before the walk
@@ -975,9 +979,8 @@ carrier:
   so `--context` carries only the tier-counts line; the `tiers` question
   carries the finding titles in its own `context`. On a re-review a first
   line `Round <n> · <k> earlier threads` sits above it.
-- **Either way,** `--context` fits inside the gate's 8192 UTF-8 byte
-  budget; an oversized one is dropped loudly by the daemon, not by you:
-  never pre-trim it yourself.
+- **Either way,** the gate stores `--context` whole at any size: never
+  pre-trim it yourself.
 
 A fitted open file carries its own `.context` (the review's structured
 summary); `open-gate.sh` opens it as it stands.
@@ -1007,7 +1010,9 @@ to `--report`:
 
 `review-post-answer: <{answers, by, answeredAt} as one-line JSON>`
 
-It is the whole answer envelope, not just `answers`. When `--report`
+It is the whole answer envelope, not just `answers`, so each answer's
+`texts` or `text` (the human's edits to drafted comments) rides in it
+as answered. When `--report`
 already ends in a `review-post-answer:` line, replace it; never write a
 second. `answeredAt` is always epoch milliseconds, as the wait returns
 it. When the answer came with no `answeredAt` (this pane's own `gate
@@ -1117,7 +1122,11 @@ path, so it executes the posting:
   no findings to post. `replies` is built from the `thread-N` answers by
   the rule in `Compose the submitted review (review)`, each drafted
   `reply` read from the json sibling's `threads`; it is empty when the
-  gate carried no `thread-N` question.
+  gate carried no `thread-N` question. Add `texts` when any `findings-N`
+  answer carries one: the union of those answers' `texts` maps, keyed by
+  finding id. Add `summaryText` when the `outcome` answer carries a
+  `text`: that `text` verbatim. Leave either key out when no answer
+  carries it.
 - **Tier fallback:** `{tiers, outcome}`, plus `replies` built the same
   way when the gate carried `thread-N` questions.
 
@@ -1578,15 +1587,15 @@ nuance in the `{value, note}` form. Five things stay specific to
    back. Left alone, its answer is an explicit empty array.
 
 - **Fitted files.** A gate opened from a fitted file never shows its JSON
-  in the form: run the `gate-ctx.sh`
-  whose path the domain skill handed back with the open file,
-  in `prose` mode on the source file beside it
-  (the open file's name with `.open.json` swapped for `.source.json`: `sh
-  <gate-ctx.sh> prose < <dir>/review-post.source.json`), print its
-  `.context` as one pane line before the form call, and make each
-  `thread-N`, `findings-N` and `skipped-N` question's form text its
-  label, a newline, then its prose `context`. Options keep the gate's
-  labels and descriptions.
+  in the form: take the form's prose from the open file's own `pane` key
+  (the `gate-ctx.sh fit` output the domain skill handed back), never from
+  its stored `.questions[].context`. Print `.pane.context` as one pane line
+  before the form call, and make each `thread-N`, `findings-N` and
+  `skipped-N` question's form text its label, a newline, then the prose
+  `context` of its `.pane.questions[]` entry (just the label when the
+  entry has none). The `pane` is already fitted to the pane budget:
+  render it as it stands. Options keep the gate's labels and
+  descriptions.
 - **Hand-built thread and skipped questions.** Their `context` is prose
   already: the form text is the label, a newline, then that `context` as
   written.
@@ -1724,10 +1733,10 @@ plus the hand back row's description:
 
 `--context` is what the box's section names: for a refused call, the
 errors verbatim (the first refusal and the one after the fix) with the
-call that was refused. Never send an empty context. It fits inside the gate's 8192 UTF-8 byte budget like
-`review-post`'s; an oversized one is dropped loudly by the daemon, so
-never pre-trim it yourself. A nonzero open exit is not itself an
-off-script origin: it is `Off-script gate unavailable (review)`.
+call that was refused. Never send an empty context. The gate stores it
+whole at any size, like `review-post`'s, so never pre-trim it yourself.
+A nonzero open exit is not itself an off-script origin: it is
+`Off-script gate unavailable (review)`.
 
 ### review-escalation: take the review gate step
 
@@ -1788,10 +1797,10 @@ shape with its options unticked. Open it with:
 "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh" <status-bin> <state> review-post <open-file>
 ```
 
-A `fits: false` file is still over the shared context budget; the script
-drops whole question contexts, largest first, until it fits, so the file
-goes in untouched: never rebuilt, re-ordered, trimmed, or hand-edited.
-Nothing below is built for it.
+The gate stores every context in the file whole; only its `pane` key,
+the pane form's prose, is fitted to a budget. The file goes in untouched:
+never rebuilt, re-ordered, trimmed, or hand-edited, even when its `pane`
+left a context out. Nothing below is built for it.
 
 **The json sibling.** Otherwise build the questions yourself from the json
 sibling of `--report`: swap the trailing `.md` for `.json`, or append

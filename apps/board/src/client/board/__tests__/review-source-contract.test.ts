@@ -1,3 +1,5 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
@@ -9,12 +11,15 @@ const REVIEW = join(ROOT, 'plugins/mattstack/attachments/review/review');
 
 /** The questions a real re-review opens: the engine's own scripts run over
     its own fixture. */
-function fittedGate(fixture: string) {
+function fittedGate(
+  fixture: string,
+  extras = join(REVIEW, 'tests/fixtures/extras.json')
+) {
   const source = Bun.spawnSync([
     'sh',
     join(REVIEW, 'scripts/review-source.sh'),
     join(REVIEW, 'tests/fixtures', fixture),
-    join(REVIEW, 'tests/fixtures/extras.json'),
+    extras,
   ]);
   expect(source.exitCode).toBe(0);
   const fit = Bun.spawnSync(
@@ -78,6 +83,34 @@ describe('the review scripts and the review sheet agree', () => {
       file: 'queue/retry.ts:3',
       changed: true,
     });
+  });
+
+  test('a twelve-finding drafted review opens as a sheet with every draft whole', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'review-drafts-'));
+    const extras = join(dir, 'extras.json');
+    const base = JSON.parse(
+      readFileSync(join(REVIEW, 'tests/fixtures/extras.json'), 'utf8')
+    ) as Record<string, unknown>;
+    writeFileSync(extras, JSON.stringify({ ...base, editable: true }));
+    const report = JSON.parse(
+      readFileSync(
+        join(REVIEW, 'tests/fixtures/findings-v3-drafts.json'),
+        'utf8'
+      )
+    ) as {
+      summary: { comments: Record<string, string> };
+      findings: Array<{ id: string; comment: string }>;
+    };
+    const gate = readReviewGate(
+      fittedGate('findings-v3-drafts.json', extras) as never
+    );
+    rmSync(dir, { recursive: true, force: true });
+    expect(gate).not.toBeNull();
+    expect(gate!.review.editable).toBe(true);
+    expect(gate!.review.summaryComments).toEqual(report.summary.comments);
+    expect(gate!.findings.size).toBe(12);
+    for (const f of report.findings)
+      expect(gate!.findings.get(f.id)?.comment).toBe(f.comment);
   });
 
   test('a v2 first review still opens with no earlier threads', () => {

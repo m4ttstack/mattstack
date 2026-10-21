@@ -78,11 +78,6 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 const LABEL_CAP_BYTES = 200;
 const DESCRIPTION_CAP_BYTES = 1024;
-/** One budget for the gate-level context plus every question's own
-    context: a row grows by at most this much prose however many questions
-    it carries. Labels and descriptions are capped per field instead, since
-    they are structural and the caller authors them by hand. */
-const CONTEXT_CAP_BYTES = 8192;
 
 function isValidOption(o: unknown): boolean {
   if (typeof o === "string") return true;
@@ -116,12 +111,6 @@ function oversizedOptionText(questions: GateQuestion[]): string | null {
   return null;
 }
 
-const questionContextBytes = (questions: GateQuestion[]): number =>
-  questions.reduce((n, q) => n + (typeof q.context === "string" ? Buffer.byteLength(q.context, "utf8") : 0), 0);
-
-const withoutQuestionContexts = (questions: GateQuestion[]): GateQuestion[] =>
-  questions.map(({ context: _dropped, ...q }) => q);
-
 const ORIGIN_STRING_KEYS: ReadonlySet<string> = new Set(["paneId", "tabId", "runId", "worktree", "surface"]);
 
 /** Kinds whose gates legitimately carry no context: a milestone's artifact IS
@@ -134,7 +123,7 @@ const EXEMPT_CONTEXT_KINDS: ReadonlySet<string> = new Set(["milestone", "pane-at
 const MISSING_CONTEXT_ERROR =
   "context is required for a human-owned gate: pass --context with the material the reader can decide from alone " +
   "(the plan section under decision, the failing output, the brief's own words), quoted rather than summarized. " +
-  "Never skip it for size: an oversized context is dropped server-side and reported back as contextOmitted.";
+  "Never skip it for size: the gate stores context whole.";
 
 /** gate:ask's own derived fields; a caller-supplied origin passthrough must
     never override them (would let a raw payload impersonate a pane or run
@@ -144,9 +133,8 @@ const CEREMONY_ORIGIN_KEYS: ReadonlySet<string> = new Set(["presentation", "pane
 const ORIGIN_FIELD_CAP_BYTES = 1024;
 
 /** Returns an error message on an invalid origin, null when it validates.
-    Each string field is capped like label/context: the row and the
-    gate/opened payload carry origin verbatim to every surface, so an
-    unbounded field defeats the "at-most-8KB payload growth" budget. */
+    Each string field is capped like a label: the row and the gate/opened
+    payload carry origin verbatim to every surface. */
 function invalidOrigin(v: unknown): string | null {
   if (!isPlainObject(v)) return "origin must be an object of string fields with presentation form|wait";
   for (const [key, val] of Object.entries(v)) {
@@ -501,10 +489,6 @@ export function createGateHandlers(
       if (payload?.context !== undefined && typeof payload.context !== "string") {
         return { ok: false as const, error: "context must be a string" };
       }
-      const gateContextBytes = payload?.context === undefined ? 0 : Buffer.byteLength(payload.context, "utf8");
-      if (gateContextBytes + questionContextBytes(questions) > CONTEXT_CAP_BYTES) {
-        return { ok: false as const, error: `context exceeds ${CONTEXT_CAP_BYTES} bytes (gate context plus question contexts share the budget)` };
-      }
       if (payload?.origin !== undefined) {
         const originError = invalidOrigin(payload.origin);
         if (originError) return { ok: false as const, error: originError };
@@ -791,31 +775,11 @@ export function createGateHandlers(
       ? questions.filter((q) => q.options.length > GATE_FORM_OPTION_CAP)
       : [];
 
-    // Omitted rather than rejected: unlike gate:open's hard CONTEXT_CAP_BYTES
-    // reject, an oversized context here must not fail the whole ask, since
-    // the caller did not author the context string by hand. The omission is
-    // reported back, though -- the silent drop is what taught callers that
-    // big context was risky and bare forms were safe. Question contexts go
-    // first (they are supplementary), the gate context only if it is over
-    // the budget by itself; contextOmitted covers either drop.
-    let context = typeof payload?.context === "string" ? payload.context : undefined;
-    let storedQuestions = questions;
-    const gateContextBytes = context === undefined ? 0 : Buffer.byteLength(context, "utf8");
-    const contextOmitted = gateContextBytes + questionContextBytes(questions) > CONTEXT_CAP_BYTES;
-    if (contextOmitted) {
-      storedQuestions = withoutQuestionContexts(questions);
-      if (gateContextBytes > CONTEXT_CAP_BYTES) context = undefined;
-    }
+    const context = typeof payload?.context === "string" ? payload.context : undefined;
 
     const kind = typeof payload?.kind === "string" && payload.kind.trim() ? payload.kind.trim() : "question";
     const ownerIsHuman = deriveOwner(resolved.runId ? { runId: resolved.runId } : undefined, runSpawnedBy) === "human";
-    // Only a dropped GATE context exempts the guard: that drop is the size
-    // cap eating the one thing a human-owned gate needs. A drop of question
-    // contexts alone (contextOmitted true, gate context absent because the
-    // caller never sent one) must not read as "context omitted for size" --
-    // it is just no context, same as never having one.
-    const gateContextOmitted = gateContextBytes > CONTEXT_CAP_BYTES;
-    if (ownerIsHuman && !EXEMPT_CONTEXT_KINDS.has(kind) && !gateContextOmitted && !context?.trim()) {
+    if (ownerIsHuman && !EXEMPT_CONTEXT_KINDS.has(kind) && !context?.trim()) {
       return { ok: false as const, error: MISSING_CONTEXT_ERROR };
     }
 
@@ -833,7 +797,7 @@ export function createGateHandlers(
     const opened = await handlers["gate:open"]({
       subject: resolved.subject,
       kind,
-      questions: storedQuestions,
+      questions,
       ...(isPlainObject(payload?.meta) ? { meta: payload!.meta } : {}),
       ...(typeof payload?.agent === "string" && payload.agent.trim() ? { agent: payload.agent } : {}),
       ...(context !== undefined ? { context } : {}),
@@ -846,7 +810,6 @@ export function createGateHandlers(
       ok: true as const,
       data: {
         id: opened.data.id, presentation, subject: resolved.subject, supersededId: opened.data.supersededId,
-        ...(contextOmitted ? { contextOmitted: true as const } : {}),
         ...(overCap.length > 0 ? {
           formCapExceeded: overCap.map((q) => ({ question: q.id, options: q.options.length })),
           formCapAdvisory: FORM_CAP_ADVISORY,

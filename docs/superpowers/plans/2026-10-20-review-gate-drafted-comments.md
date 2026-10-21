@@ -337,3 +337,55 @@
   - The pane side is pinned by Task 4's `gate_open` `formContext`/`formChunks` test, so no manual pane check is needed.
   - Screenshot light and dark.
 - [ ] **Step 4: Commit** `board: review wrapper hands drafted-comment edits to the poster`.
+
+---
+
+## Addendum (2026-10-20): the summary line follows the verdict
+
+Matt's calls: one drafted summary line per verdict, swapped by the selected verdict; each verdict keeps its own edit. Lands on this branch. Nothing here has shipped, so `summary.comment` and `review@1.summaryComment` are replaced, not kept beside the new fields.
+
+### Task 11: Per-verdict summary drafts ride into the gate
+
+**Files:** `lib/gates/review-source.ts`, `lib/gates/ctx.ts` (`reviewErrs`, `BOARD_ONLY_FIELDS`), `review-source.sh` and both `gate-ctx.sh` copies, `findings-v3-drafts.json`, plus every test that names `summaryComment` or `summary.comment` (`lib/gates/__tests__/*`, `lib/mcp/__tests__/gate-tools.test.ts`, both shell suites, `apps/board/src/client/board/__tests__/review-source-contract.test.ts`, board fixtures).
+
+**Interfaces:**
+- Report: `summary.comments?: Record<string, string>`, keyed by outcome option value, every value non-blank. Replaces `summary.comment`.
+- `reviewSourceErrors`: `editable: true` requires a `comment` on every finding and a `summary.comments` entry for every option value of the extras' `outcome` question; no key outside those values.
+- `review@1.summaryComments?: Record<string, string>`, board-only. Replaces `summaryComment`. `BOARD_ONLY_FIELDS["review@1"] = ["summaryComments"]`.
+- Fixture: `summary.comments` with `approve` (may say it is ready to merge) and `comment` (says no such thing).
+
+- [ ] **Step 1:** Rewrite the Task 4 cases for the new shape; add: a missing verdict key is refused, an extra key is refused, a blank value is refused; no `summaryComments` text in the pane prose or `formContext`/`formChunks`.
+- [ ] **Step 2:** Run `bun test lib/gates lib/mcp/__tests__/gate-tools.test.ts` and both shell suites. Expected: FAIL.
+- [ ] **Step 3:** Implement in TS, then jq (key order matching). Keep the two `gate-ctx.sh` copies byte-identical.
+- [ ] **Step 4:** Run the Step 2 tests, `parity.test.ts`, the board contract test, `bunx tsc --noEmit`. Expected: PASS.
+- [ ] **Step 5:** Commit `gates: one summary draft per verdict, board-only`.
+
+### Task 12: The summary box follows the selected verdict
+
+**Files:** `apps/board/src/client/board/gate-ctx.ts` (`ReviewCtx`), `review-drafts.ts`, `ReviewGateSheet.tsx`, `gate-gallery.fixtures.ts`, `tests/fixture/data.json`, the review-sheet baselines.
+
+**Interfaces:**
+- `ReviewCtx.summaryComments?: Record<string, string>`; drafts mode needs an entry for every outcome option.
+- Form text keys `summary:<outcomeValue>`, one per verdict.
+- `draftEdits` takes the selected outcome and returns only that verdict's summary edit; an unselected verdict's edit stays in form state and never rides.
+
+- [ ] **Step 1: Failing tests.** The box shows the selected verdict's draft; switching verdict swaps it; an edit under Approve, a switch to Comment and back restores the Approve edit; submitting under Comment sends no Approve edit, and `outcome.text` is the Comment edit only when it differs from the Comment draft.
+- [ ] **Step 2:** Run `cd apps/board && bun test src/client/board/__tests__/review-drafts.test.ts src/client/board/__tests__/review-gate-sheet-dom.test.tsx`. Expected: FAIL.
+- [ ] **Step 3:** Implement, update the gallery and capture fixtures, re-baseline only the review-sheet shots.
+- [ ] **Step 4:** Run those tests, `review-gate.test.ts`, `bun run board:typecheck`. Fast Browser light and dark: switch the verdict and confirm the swap reads right. Expected: PASS.
+- [ ] **Step 5:** Commit `board: the summary box follows the selected verdict`.
+
+### Task 13: The review verb drafts a summary line per verdict
+
+**Before editing:** load `superpowers:writing-skills`, `mattstack:editing-skills`, `mattstack:process-digraphs`.
+
+**Files:** `plugins/mattstack/attachments/review/review/SKILL.md` (drafting step, extras `editable` row, Compose, GitHub body), `review-posting/SKILL.md`, `review-core-body-tail/SKILL.md` (field docs), `apps/board/skills-src/review/SKILL.md` if it names the field, regenerated `apps/board/skills/`, the Task 9 scenario files.
+
+- Drafting writes `summary.comments` with one line per outcome option the gate will offer. Only the `approve` line may say the MR is ready to merge.
+- Compose: the summary line is the `outcome` answer's `text`, else `summary.comments[<picked outcome>]`; the join rule is unchanged.
+
+- [ ] **Step 1: RED.** A scenario picks `comment` on a readiness `yes` review; record which line posts today.
+- [ ] **Step 2:** Edit the skill text.
+- [ ] **Step 3: GREEN.** Picking `comment` posts the Comment line with no all-clear; picking `approve` posts the Approve line; an edit posts word for word. GitLab and GitHub.
+- [ ] **Step 4:** Run certify, the digraph check, `bun run skills:check:board`, the drift test, `bun scripts/ci/plugin-version-bumped.ts`. Expected: PASS.
+- [ ] **Step 5:** Commit `mattstack: review drafts a summary line per verdict`.

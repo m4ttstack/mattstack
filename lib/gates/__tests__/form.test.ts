@@ -1,10 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
-import { proseContext } from "../ctx.ts";
+import { BOARD_ONLY_FIELDS, dropContextsToFit, proseContext } from "../ctx.ts";
 import {
   DESCRIPTION_CAP_BYTES,
   LABEL_CAP_BYTES,
-  dropContextsToFit,
   flattenContext,
   formChunks,
   paneActionFor,
@@ -75,6 +74,37 @@ describe("flattenContext", () => {
     expect(flattenContext("just words", { level: "gate" })).toBe("just words");
     expect(flattenContext("[1]", { level: "gate" })).toBe("[1]");
     expect(flattenContext(undefined, { level: "gate" })).toBeUndefined();
+  });
+
+  describe("with a board-only field", () => {
+    const FINDINGS = {
+      "gate-ctx": "findings@1",
+      findings: [{ id: "f1", severity: "minor", title: "a typo", body: "the word is misspelt", fix: "spell it right" }],
+    };
+    const real = BOARD_ONLY_FIELDS["findings@1"];
+    beforeEach(() => {
+      BOARD_ONLY_FIELDS["findings@1"] = ["fix"];
+    });
+    afterEach(() => {
+      if (real === undefined) delete BOARD_ONLY_FIELDS["findings@1"];
+      else BOARD_ONLY_FIELDS["findings@1"] = real;
+    });
+
+    test("the prose omits it", () => {
+      const prose = flattenContext(JSON.stringify(FINDINGS), { level: "question", values: ["f1"] })!;
+      expect(prose).toBe("[MINOR] a typo\nthe word is misspelt");
+    });
+
+    test("a context kept raw omits it too", () => {
+      const raw = flattenContext(JSON.stringify(FINDINGS), { level: "question", values: [] })!;
+      expect(raw).not.toContain("spell it right");
+      expect(JSON.parse(raw).findings[0].title).toBe("a typo");
+    });
+
+    test("form chunks omit it", () => {
+      const first = formChunks([q("q1", { context: JSON.stringify(FINDINGS), options: ["f1"] })])[0]![0]!;
+      expect(first.text).not.toContain("spell it right");
+    });
   });
 
   test("a gate-level call refuses a question-level shape", () => {

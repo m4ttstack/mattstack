@@ -18,6 +18,7 @@
  *   project:labels           - a project's labels, optionally searched (GitLab providers only)
  *   pipeline:list            - pipelines for a branch, a commit or an MR (GitLab providers only)
  *   forge:get                - one guarded GET against GitLab's REST API (GitLab providers only)
+ *   forge:file-diff          - one file's diff in an MR or PR, from the repo's own forge (GitLab or GitHub)
  *
  * Every handler routes by `{ repoName, iid }`. If no provider can be built
  * for the repo (missing token, unparseable remote), the handler returns
@@ -42,6 +43,7 @@ import { ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
+import { createFileDiffContextResolver, createFileDiffReader, type FileDiffContext } from "../file-diff.ts";
 import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, targetSummary, type RestMrRow } from "../forge-reads.ts";
 
 type ActionName =
@@ -122,6 +124,7 @@ export interface MRHandlerOverrides {
   writeback?:   (repoName: string, projectPath: string, pr: PullRequest) => void;
   fetchSingle?: (provider: any, projectPath: string, iid: number) => Promise<PullRequest | null>;
   retryDelayMs?: number;
+  fileDiffContext?: (repoName: string) => Promise<FileDiffContext>;
 }
 
 // "mr:action" keeps its pre-existing flat `{ok:true}` wire reply (no `data`)
@@ -146,6 +149,7 @@ export function createMRHandlers(
   & { "project:labels": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"project:labels">> }
   & { "pipeline:list": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"pipeline:list">> }
   & { "forge:get": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"forge:get">> }
+  & { "forge:file-diff": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"forge:file-diff">> }
   & HandlerMap {
   const getContext = overrides.getContext
     ?? ((repoName: string) => getRepoContext(repoName, ctx.repoIndex()[repoName]));
@@ -156,6 +160,10 @@ export function createMRHandlers(
     ?? ((provider: any, projectPath: string, iid: number) =>
         provider.fetchSingleMR(projectPath, iid, getCurrentUserId()));
   const retryDelayMs = overrides.retryDelayMs ?? RETRY_WRITEBACK_DELAY_MS;
+  const resolveFileDiffContext = createFileDiffContextResolver();
+  const fileDiffContext = overrides.fileDiffContext
+    ?? ((repoName: string) => resolveFileDiffContext(ctx.repoIndex()[repoName], () => contextFor(repoName)));
+  const readFileDiff = createFileDiffReader();
 
   function contextFor(repoName: string) {
     return getContext(repoName);
@@ -606,6 +614,19 @@ export function createMRHandlers(
         return await forgeGet(provider, projectPath, {
           path: p.path, query: p.query as Record<string, string | number | boolean> | undefined, page: p.page as number | undefined, perPage: p.perPage as number | undefined,
         });
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "forge:file-diff": async (payload) => {
+      const p = (payload ?? {}) as Record<string, unknown>;
+      if (!(typeof p.iid === "number" && Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
+      if (typeof p.path !== "string" || p.path === "") return { ok: false, error: '"path" must be a non-empty string' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        return await readFileDiff(decoded.repo, await fileDiffContext(decoded.repo), p.iid, p.path);
       } catch (err) {
         return { ok: false, error: String(err) };
       }

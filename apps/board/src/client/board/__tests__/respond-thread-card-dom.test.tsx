@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
 import { createRoot, type Root } from 'react-dom/client';
 
 import type { GateRow } from '../../../gates/store.ts';
+import { CommentComposer } from '../CommentComposer.tsx';
 import { DecisionQueueModal } from '../DecisionQueueModal.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -140,10 +141,10 @@ test('a thread@1 question renders claim, points, verdict and reply, never the ra
   expect(card.querySelector('.tui-thread-verdict-note')!.textContent).toBe(
     '· confirmed against the checkout'
   );
-  expect(card.querySelector('.tui-thread-reply-k')!.textContent).toBe(
+  expect(card.querySelector('.tui-composer-k')!.textContent).toBe(
     'will post as reply'
   );
-  expect(card.querySelector('.tui-thread-reply-text')!.textContent).toContain(
+  expect(card.querySelector('.tui-composer-text')!.textContent).toContain(
     'enqueue() now drops non-retryable jobs'
   );
   expect(container.querySelector('.tui-gate-question-context')).toBeNull();
@@ -244,19 +245,19 @@ test('reply kinds: verbatim and direction label their box, none renders no box',
   );
   const cards = [...container.querySelectorAll('.tui-thread-card')];
   expect(
-    cards[0]!.querySelector('.tui-thread-reply')!.getAttribute('data-kind')
+    cards[0]!.querySelector('.tui-composer')!.getAttribute('data-kind')
   ).toBe('verbatim');
-  expect(cards[0]!.querySelector('.tui-thread-reply-k')!.textContent).toBe(
+  expect(cards[0]!.querySelector('.tui-composer-k')!.textContent).toBe(
     'will post as reply'
   );
   expect(
-    cards[1]!.querySelector('.tui-thread-reply')!.getAttribute('data-kind')
+    cards[1]!.querySelector('.tui-composer')!.getAttribute('data-kind')
   ).toBe('direction');
-  expect(cards[1]!.querySelector('.tui-thread-reply-k')!.textContent).toBe(
+  expect(cards[1]!.querySelector('.tui-composer-k')!.textContent).toBe(
     'reply direction'
   );
   expect(cards[1]!.textContent).toContain('Explain the retry contract');
-  expect(cards[2]!.querySelector('.tui-thread-reply')).toBeNull();
+  expect(cards[2]!.querySelector('.tui-composer')).toBeNull();
 });
 
 test("the fix option's description renders as its choice subtitle", async () => {
@@ -277,4 +278,90 @@ test('a thread context missing a required field renders as prose', async () => {
     container.querySelector('.tui-gate-question[data-gate-ctx]')
   ).toBeNull();
   expect(container.querySelector('.tui-gate-question-context')).not.toBeNull();
+});
+
+test('CommentComposer is a framed text area seeded with the draft', async () => {
+  await React.act(async () => {
+    root.render(
+      <CommentComposer
+        label="Comment on finding 1"
+        noun="comment"
+        kicker="will post as comment"
+        draft="tighten this"
+        value={undefined}
+        onChange={() => {}}
+        onReset={() => {}}
+      />
+    );
+  });
+  expect(container.querySelector('.tui-composer-k')!.textContent).toBe(
+    'will post as comment'
+  );
+  expect(container.querySelector('.tui-composer-meta')!.textContent).toBe(
+    'posts as you'
+  );
+  const box = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Comment on finding 1"]'
+  )!;
+  expect(box.value).toBe('tighten this');
+  expect(box.readOnly).toBe(false);
+});
+
+test('CommentComposer says edited, offers reset, and names an empty edit', async () => {
+  let resets = 0;
+  const draw = (value: string) =>
+    root.render(
+      <CommentComposer
+        label="Reply on a.ts:1"
+        noun="reply"
+        kicker="will post as reply"
+        draft="x"
+        value={value}
+        onChange={() => {}}
+        onReset={() => resets++}
+      />
+    );
+  await React.act(async () => draw('y'));
+  expect(container.querySelector('.tui-composer-meta')!.textContent).toBe(
+    'edited·reset'
+  );
+  await React.act(async () =>
+    container
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="Reply on a.ts:1: reset to draft"]'
+      )!
+      .click()
+  );
+  expect(resets).toBe(1);
+  await React.act(async () => draw('  '));
+  const box = container.querySelector('textarea')!;
+  const hint = box.getAttribute('aria-describedby');
+  expect(hint && document.getElementById(hint)?.textContent).toBe(
+    'the reply is empty'
+  );
+});
+
+test('a held CommentComposer shows the draft read-only under its held strip', async () => {
+  await React.act(async () => {
+    root.render(
+      <CommentComposer
+        label="Reply on a.ts:1"
+        noun="reply"
+        kicker="will post as reply"
+        heldKicker="drafted reply · not posting"
+        draft="the draft"
+        value="an edit"
+        canEdit={false}
+        onChange={() => {}}
+        onReset={() => {}}
+      />
+    );
+  });
+  expect(container.querySelector('.tui-composer-k')!.textContent).toBe(
+    'drafted reply · not posting'
+  );
+  expect(container.querySelector('.tui-composer-meta')).toBeNull();
+  const box = container.querySelector('textarea')!;
+  expect(box.value).toBe('the draft');
+  expect(box.readOnly).toBe(true);
 });

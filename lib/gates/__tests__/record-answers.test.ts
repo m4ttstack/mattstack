@@ -20,6 +20,9 @@ describe("normalizeAnswers", () => {
     expect(normalizeAnswers({ q: { value: ["a"], note: "n" } })).toEqual({ q: { value: ["a"], note: "n" } });
     expect(normalizeAnswers({ q: { value: "a", note: "n", text: "" } })).toEqual({ q: { value: "a", note: "n" } });
   });
+  test("keeps texts and does not collapse a texts-only wrapper", () => {
+    expect(normalizeAnswers({ q: { value: ["a", "b"], texts: { a: "E" } } })).toEqual({ q: { value: ["a", "b"], texts: { a: "E" } } });
+  });
   test("leaves write-ins and bare values alone", () => {
     expect(normalizeAnswers({ q: { writeIn: "w" }, r: "x", s: ["y"] })).toEqual({ q: { writeIn: "w" }, r: "x", s: ["y"] });
   });

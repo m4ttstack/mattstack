@@ -25,10 +25,11 @@ export function normalizeAnswers(a: AnswersMap): AnswersMap {
       out[q] = v;
       continue;
     }
-    const obj: { value: string | string[]; note?: string; text?: string } = { value: v.value };
+    const obj: { value: string | string[]; note?: string; text?: string; texts?: Record<string, string> } = { value: v.value };
     if (v.note) obj.note = v.note;
     if (v.text) obj.text = v.text;
-    out[q] = obj.note || obj.text ? obj : v.value;
+    if (v.texts && Object.keys(v.texts).length > 0) obj.texts = v.texts;
+    out[q] = obj.note || obj.text || obj.texts ? obj : v.value;
   }
   return out;
 }

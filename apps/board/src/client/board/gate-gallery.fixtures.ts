@@ -1,5 +1,6 @@
 import type { GateAnswers, GateQuestion, GateRow } from '../../gates/store.ts';
 import type { BoardMRWithReview } from '../types.ts';
+import type { DiffSource, FileDiff } from './diff-source.ts';
 
 /**
  * One gate per kind and variant the rt daemon has actually opened, rebuilt
@@ -13,6 +14,8 @@ import type { BoardMRWithReview } from '../types.ts';
 export interface GalleryGate {
   gate: GateRow;
   mr?: BoardMRWithReview;
+  /** Where a drafted review's code sections get their diffs. */
+  diffs?: DiffSource;
 }
 
 export const PEOPLE: ReadonlyMap<string, string> = new Map([
@@ -1097,6 +1100,314 @@ export const reviewPost: GalleryGate = {
       findings: { minor: 4 },
     }),
     questions: radarReviewQuestions,
+  },
+};
+
+const RADAR_COMMENTS: Record<string, string> = {
+  f1: 'Small wording thing: after the provider change a step navigation no longer tears the map down, the provider teardown does. Could this read "can land after the provider tore this map down"? Same wording at useRadarMap.test.tsx:997.',
+  f2: 'Every test here still passes if the guard flips to isDetached.current, which is the one regression this fix is likely to meet. A test where the building step unmounts with the provider alive, and the late model still lands, would pin it.',
+  f3: 'Nit: without this assertion only the not.toThrow half goes vacuous; the not.toHaveBeenCalled half still fails. Maybe say that?',
+  f4: 'The flag checklist items are ticked, but the change adds no flag. Could you mark them N/A with a one-line reason?',
+};
+
+export const reviewPostDrafted: GalleryGate = {
+  mr: MRS.radarLayers,
+  diffs: {
+    fetchFileDiff: q => radarDiffs.fetchFileDiff(q),
+    loadView: () => import('./DiffView.tsx'),
+  },
+  gate: {
+    ...reviewPost.gate,
+    gateId: 'gallery-review-post-drafted',
+    context: ctx({
+      ...(JSON.parse(reviewPost.gate.context!) as Record<string, unknown>),
+      editable: true,
+      summaryComments: {
+        approve:
+          'Nice fix! The guard matches the root cause and the new test is red on main. A few small notes inline, nothing blocking. Approving, this is ready to merge.',
+        comment:
+          'Nice fix! The guard matches the root cause and the new test is red on main. A few small notes inline; I will come back for the merge call once they are in.',
+      },
+    }),
+    questions: radarReviewQuestions.map((q, i) =>
+      i === 0
+        ? {
+            ...q,
+            context: ctx({
+              'gate-ctx': 'findings@1',
+              findings: RADAR_FINDINGS.map(f => ({
+                ...f,
+                comment: RADAR_COMMENTS[f.id],
+              })),
+            }),
+          }
+        : q
+    ),
+  },
+};
+
+// Invented code for the radar review's two files, as GitLab's MR diffs API
+// returns them: per-file hunks with no file headers.
+const RADAR_HOOK_PATCH = `@@ -98,11 +98,12 @@ export function useRadarMap(provider: RadarProvider) {
+ export function useRadarMap(provider: RadarProvider) {
+   const mapRef = useRef<RadarMap | null>(null);
+   const layers = useLayers();
++  const isDetached = useRef(false);
+
+   useEffect(() => {
+-    if (!provider) return;
++    if (!provider || isDetached.current) return;
+     mapRef.current = provider.attach();
+     return () => {
+       mapRef.current = null;
+     };
+   }, [provider]);
+@@ -112,9 +113,16 @@ export function useRadarMap(provider: RadarProvider) {
+
+   const onModel = (model: RadarModel) => {
+     const ready = layers.ready();
+     if (!ready) return;
++    if (mapRef.current === null) return;
++    // A late model can land after a step navigation
++    // tore this map down, so drop it here.
+     layers.add(model);
+   };
++  useProviderTeardown(provider, () => {
++    isDetached.current = true;
++    mapRef.current = null;
++  });
+
+   return { onModel };
+ }
+`;
+
+const RADAR_TEST_PATCH = `@@ -993,6 +993,26 @@ describe('useRadarMap', () => {
+     expect(layers.add).toHaveBeenCalledTimes(2);
+   });
+
++  it('drops a model that lands after teardown', () => {
++    const held = holdModelLoads();
++    const { rerender, unmount } = render(tree('legend'));
++    rerender(tree('tracks'));
++    provider.teardown();
++    unmount();
++    held.release();
++    expect(() => flush()).not.toThrow();
++    expect(layers.add).not.toHaveBeenCalled();
++  });
++
++  it('marks the map removed on teardown', () => {
++    const { unmount } = renderHook(() => useRadarMap(provider));
++    provider.teardown();
++    unmount();
++    expect(layers.add).not.toHaveBeenCalled();
++    // Without this the test goes vacuous.
++    expect(map.removed).toBe(true);
++  });
++
+   it('keeps rendering the 3d layer after the step that built the map unmounts', () => {
+     const { rerender } = render(tree('legend'));
+     rerender(tree('tracks'));
+`;
+
+const RADAR_DIFFS: Record<string, FileDiff> = {
+  'packages/radar-map/src/layers/hooks/useRadarMap.ts': {
+    path: 'packages/radar-map/src/layers/hooks/useRadarMap.ts',
+    patch: RADAR_HOOK_PATCH,
+    forge: 'gitlab',
+    webUrl: `${FORGE}/812/diffs#useRadarMap.ts`,
+  },
+  'packages/radar-map/src/layers/hooks/useRadarMap.test.tsx': {
+    path: 'packages/radar-map/src/layers/hooks/useRadarMap.test.tsx',
+    patch: RADAR_TEST_PATCH,
+    forge: 'gitlab',
+    webUrl: `${FORGE}/812/diffs#useRadarMap.test.tsx`,
+  },
+};
+
+/** A diff source over the radar review's invented files. */
+export const radarDiffs: DiffSource = {
+  fetchFileDiff: async ({ file }) => RADAR_DIFFS[file] ?? null,
+  loadView: () => import('./DiffView.tsx'),
+};
+
+/** The same review where GitLab holds the hook's diff back as too large
+    and the test file's diff fails to load. */
+export const reviewPostDraftedHeldBack: GalleryGate = {
+  mr: MRS.radarLayers,
+  diffs: {
+    fetchFileDiff: async ({ file }) => {
+      const d = RADAR_DIFFS[file];
+      if (!d) return null;
+      if (file.endsWith('.test.tsx'))
+        throw new Error('GitLab answered 502 for this diff.');
+      return { ...d, patch: '', tooLarge: true };
+    },
+    loadView: () => import('./DiffView.tsx'),
+  },
+  gate: {
+    ...reviewPostDrafted.gate,
+    gateId: 'gallery-review-post-drafted-held-back',
+  },
+};
+
+const GITHUB_PR = 'https://github.example.com/acme/radar/pull/58';
+
+/** The same files as GitHub's PR files API returns them. */
+const githubRadarDiffs: DiffSource = {
+  fetchFileDiff: async ({ file }) => {
+    const d = RADAR_DIFFS[file];
+    return d ? { ...d, forge: 'github', webUrl: `${GITHUB_PR}/files` } : null;
+  },
+  loadView: () => import('./DiffView.tsx'),
+};
+
+const GITHUB_SUMMARIES = {
+  approve:
+    'Nice fix, the guard matches the root cause. A couple of small notes inline, nothing blocking.',
+  comment:
+    'Nice fix, the guard matches the root cause. A couple of notes inline; I will come back once they are in.',
+  request_changes:
+    'The guard is right, but the test gap in useRadarMap.test.tsx needs closing before this merges. Details inline.',
+};
+
+/** A GitHub PR whose review offers all three of GitHub's verdicts. */
+export const reviewPostDraftedGitHub: GalleryGate = {
+  mr: {
+    ...MRS.radarLayers,
+    iid: 58,
+    provider: 'github',
+    webUrl: GITHUB_PR,
+  } as BoardMRWithReview,
+  gate: {
+    ...reviewPostDrafted.gate,
+    gateId: 'gallery-review-post-github',
+    subject: `mr:${GITHUB_PR}`,
+    label: 'review gate #58',
+    meta: { label: 'review gate #58' },
+    context: ctx({
+      ...(JSON.parse(reviewPostDrafted.gate.context!) as Record<
+        string,
+        unknown
+      >),
+      readiness: 'with-fixes',
+      summaryComments: GITHUB_SUMMARIES,
+    }),
+    questions: [
+      {
+        ...reviewPostDrafted.gate.questions[0]!,
+        label: 'Post which findings to #58?',
+      },
+      question('outcome', 'Verdict on #58: ready with fixes', false, [
+        opt(
+          'request_changes',
+          'Request changes (recommended)',
+          'post the picked findings and block the merge until they are addressed'
+        ),
+        opt(
+          'comment',
+          'Comment',
+          'post the picked findings and leave the merge decision open'
+        ),
+        opt(
+          'approve',
+          'Approve',
+          'post the picked findings as non-blocking notes, then approve the PR'
+        ),
+      ]),
+    ],
+  },
+  diffs: githubRadarDiffs,
+};
+
+/** A drafted comment that uses the Markdown comments lean on: inline code,
+    a list, a quote, a link, a ts fence and a suggestion. */
+const RICH_RADAR_COMMENT = [
+  'Small wording thing: after the provider change, a step navigation no longer tears the map down; `useProviderTeardown` does.',
+  '',
+  '- the comment here says otherwise',
+  '- the same wording is in `useRadarMap.test.tsx:997`',
+  '',
+  '> can land after a step navigation tore this map down',
+  '',
+  'The [teardown notes](https://docs.example.com/radar/teardown) have the right order:',
+  '',
+  '```ts',
+  'useProviderTeardown(provider, () => {',
+  '  isDetached.current = true; // set before the layer engine nulls world',
+  '  mapRef.current = null;',
+  '});',
+  '```',
+  '',
+  'Could it read like this?',
+  '',
+  '```suggestion:-0+0',
+  '    // tore this map down, so drop it here.',
+  '    // A late model can land after the provider tore this map down.',
+  '```',
+].join('\n');
+
+/** The code renderer with no forge diffs, for a sheet that only previews
+    comments. */
+const previewOnly: DiffSource = {
+  fetchFileDiff: async () => null,
+  loadView: () => import('./DiffView.tsx'),
+};
+
+export const reviewPostDraftedRich: GalleryGate = {
+  ...reviewPostDrafted,
+  gate: {
+    ...reviewPostDrafted.gate,
+    gateId: 'gallery-review-post-rich',
+    questions: reviewPostDrafted.gate.questions.map((q, i) =>
+      i === 0
+        ? {
+            ...q,
+            context: ctx({
+              'gate-ctx': 'findings@1',
+              findings: RADAR_FINDINGS.map(f => ({
+                ...f,
+                comment:
+                  f.id === 'f1' ? RICH_RADAR_COMMENT : RADAR_COMMENTS[f.id],
+              })),
+            }),
+          }
+        : q
+    ),
+  },
+};
+
+const RICH_REPLY = [
+  'switched both to spread `requireActual` in 77bf2129. the spread drops `__esModule` though, so:',
+  '',
+  '1. spread the real module',
+  '2. set `__esModule` back explicitly',
+  '',
+  '```ts',
+  "jest.mock('./config', () => ({",
+  "  ...jest.requireActual('./config'),",
+  '  __esModule: true,',
+  '}));',
+  '```',
+  '',
+  '> or `config` still resolves to the wrong object',
+].join('\n');
+
+export const respondPostRich: GalleryGate = {
+  ...respondPost,
+  diffs: previewOnly,
+  gate: {
+    ...respondPost.gate,
+    gateId: 'gallery-respond-post-rich',
+    questions: respondPost.gate.questions.map(q =>
+      q.id === 'thread-3'
+        ? postThread(3, FLAG_THREADS.t3, FLAG_FILES.t3, true, RESOLVE, {
+            verb: 'fix',
+            sha: '77bf2129',
+            text: RICH_REPLY,
+          })
+        : q
+    ),
   },
 };
 

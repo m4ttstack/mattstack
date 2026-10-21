@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkSource, fitOpen, proseOpen } from "../ctx.ts";
+import { checkSource, type FitResult, fitOpen, PANE_PROSE_LIMIT, proseOpen } from "../ctx.ts";
 import { jqKeys, tojson, utf8Bytes } from "../jq.ts";
 import { buildReviewSource, endTrunc, midTrunc, reviewSourceErrors } from "../review-source.ts";
 
@@ -10,6 +10,7 @@ const FIXTURE: Record<string, string> = {
   "findings-v1": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v1.json",
   "findings-v2": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v2.json",
   "findings-v3": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3.json",
+  "findings-v3-drafts": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3-drafts.json",
   extras: "plugins/mattstack/attachments/review/review/tests/fixtures/extras.json",
 };
 type J = Record<string, any>;
@@ -17,6 +18,7 @@ const load = (name: string): J => JSON.parse(readFileSync(join(ROOT, FIXTURE[nam
 const V1 = "findings-v1";
 const V2 = "findings-v2";
 const V3 = "findings-v3";
+const DRAFTS = "findings-v3-drafts";
 const X = "extras";
 
 function mutated(name: string, f: (j: J) => void): J {
@@ -40,6 +42,14 @@ const fit = (out: J) => {
 const threadContexts = (r: { questions: J[] }): J[] =>
   r.questions.filter((q) => String(q.id).startsWith("thread-")).map((q) => JSON.parse(q.context));
 const occurrences = (s: string, sub: string): number => s.split(sub).length - 1;
+const paneThreads = (r: FitResult): { id: string; original: string; authorReply?: string; note: boolean }[] =>
+  r.pane.questions
+    .filter((q) => String(q.id).startsWith("thread-"))
+    .map((q) => {
+      const lines = (q.context as string).split("\n");
+      const after = (p: string): string | undefined => lines.find((l) => l.startsWith(p))?.slice(p.length);
+      return { id: String(q.id), original: after("You wrote: ")!, authorReply: after("Author replied: "), note: after("Checked: ") !== undefined };
+    });
 
 describe("version 2: structured source", () => {
   const out = build(load(V2), load(X));
@@ -167,9 +177,9 @@ describe("legacy (no version): no findings contexts, so fit goes prose", () => {
     expect(degraded(out.questions[0].options[0])).toBe(
       "[Critical] permanent failures re-enqueue forever|queue/worker.ts · drop non-retryable jobs in the worker's catch block · kind:suggestion",
     ));
-  test("legacy fits as whole-gate prose", () => {
+  test("legacy is stored as whole-gate prose", () => {
     const r = fit(out);
-    expect(`${r.mode}|${tojson(r.trimmed)}`).toBe("prose|[]");
+    expect(`${r.mode}|${tojson(r.pane.trimmed)}`).toBe("prose|[]");
   });
 });
 
@@ -212,6 +222,22 @@ describe("contract violations: one line per problem", () => {
       }),
       load(X),
       "findings file: findings[0].disposition: new|still-open|addressed-check",
+    ],
+    [
+      "line below 1",
+      mutated(V2, (j) => {
+        j.findings[0].line = 0;
+      }),
+      load(X),
+      "findings file: findings[0].line: integer of at least 1 when present",
+    ],
+    [
+      "negative line",
+      mutated(V2, (j) => {
+        j.findings[0].line = -3;
+      }),
+      load(X),
+      "findings file: findings[0].line: integer of at least 1 when present",
     ],
     [
       "spaced readiness",
@@ -293,7 +319,7 @@ describe("version 3: earlier threads become thread-N questions", () => {
       "queue/worker.ts:40 · round 1 · fixed by author\nYou wrote: permanent failures re-enqueue forever\nAuthor replied: dropped in the catch block now\nChecked: worker.ts:40 returns before enqueue for non-retryable errors\nWill post as reply: Confirmed, thanks.",
     ));
 
-  describe("many long threads: carryover contexts are trimmed before the gate falls to prose", () => {
+  describe("many long threads: the pane prose trims carryover parts, the stored open stays whole", () => {
     const long = build(
       mutated(V3, (j) => {
         j.threads = Array.from({ length: 7 }, (_, i) => ({
@@ -310,37 +336,34 @@ describe("version 3: earlier threads become thread-N questions", () => {
       }),
       load(X),
     );
-    test("seven 1.1 KB threads overflow the gate untrimmed", () => {
-      const total = [long.context, ...long.questions.map((q: J) => q.context)]
-        .filter((c) => c != null)
-        .reduce((n: number, c: unknown) => n + utf8Bytes(tojson(c)), 0);
-      expect(total > 8192).toBe(true);
-    });
+    test("seven 1.1 KB threads overflow the pane prose untrimmed", () =>
+      expect(proseOpen(long as any).bytes).toBeGreaterThan(PANE_PROSE_LIMIT));
     const r = fit(long);
-    test("seven long threads still fit structured", () => expect(`${r.mode}|${r.fits}`).toBe("structured|true"));
+    test("seven long threads are stored structured and whole, and the pane prose fits", () => {
+      expect(`${r.mode}|${r.pane.fits}`).toBe("structured|true");
+      expect(threadContexts(r)).toEqual(long.questions.filter((q: J) => q.id.startsWith("thread-")).map((q: J) => q.context));
+    });
     test("every note goes before any author reply shrinks", () => {
-      const fields = r.trimmed.map((t) => t.split(":")[1]);
+      const fields = r.pane.trimmed.map((t) => t.split(":")[1]);
       expect(fields.slice(0, 7).every((f) => f === "note")).toBe(true);
       expect(fields.slice(7).length > 0 && fields.slice(7).every((f) => f === "authorReply")).toBe(true);
     });
     test("every author reply stays: shrunk ones are shorter and keep both ends", () => {
-      const shrunk = r.trimmed.filter((t) => t.endsWith(":authorReply")).map((t) => t.split(":")[0]);
-      const threads = r.questions
-        .filter((q) => String(q.id).startsWith("thread-"))
-        .map((q) => ({ id: q.id as string, c: JSON.parse(q.context as string) }));
-      expect(threads.every((t) => typeof t.c.authorReply === "string" && t.c.authorReply.length > 0)).toBe(true);
+      const shrunk = r.pane.trimmed.filter((t) => t.endsWith(":authorReply")).map((t) => t.split(":")[0]);
+      const threads = paneThreads(r);
+      expect(threads.every((t) => typeof t.authorReply === "string" && t.authorReply.length > 0)).toBe(true);
       for (const t of threads.filter((t) => shrunk.includes(t.id))) {
-        const a: string = t.c.authorReply;
+        const a = t.authorReply!;
         expect(a.length < 640 && a.startsWith("a") && a.endsWith("a") && a.includes(" ... ")).toBe(true);
       }
     });
     test("a shrunk thread keeps its original whole and drops only its note", () => {
-      const id = r.trimmed.filter((t) => t.endsWith(":authorReply"))[0]!.split(":")[0];
-      const c = JSON.parse(r.questions.find((q) => q.id === id)!.context as string);
-      expect(`${Object.hasOwn(c, "note")}|${c.original.length === 280}`).toBe("false|true");
+      const id = r.pane.trimmed.filter((t) => t.endsWith(":authorReply"))[0]!.split(":")[0];
+      const t = paneThreads(r).find((t) => t.id === id)!;
+      expect(`${t.note}|${t.original.length === 280}`).toBe("false|true");
     });
     test("the findings keep their fix and evidence", () =>
-      expect(r.trimmed.filter((t) => t.startsWith("findings-"))).toEqual([]));
+      expect(r.pane.trimmed.filter((t) => t.startsWith("findings-"))).toEqual([]));
   });
 
   test("a reply shrunk more than once carries one marker and is named once", () => {
@@ -358,11 +381,11 @@ describe("version 3: earlier threads become thread-N questions", () => {
       load(X),
     );
     const r = fit(o);
-    const replies: string[] = threadContexts(r).map((c) => c.authorReply);
+    const replies = paneThreads(r).map((t) => t.authorReply!);
     const oneMarker =
       replies.some((a) => a.length < 1200) &&
       replies.filter((a) => a.length < 2400).every((a) => occurrences(a, " ... ") === 1);
-    expect(`${r.mode}|${oneMarker}|${r.trimmed.length === new Set(r.trimmed).size}`).toBe("structured|true|true");
+    expect(`${r.mode}|${oneMarker}|${r.pane.trimmed.length === new Set(r.pane.trimmed).size}`).toBe("structured|true|true");
   });
 
   describe("long originals", () => {
@@ -383,15 +406,15 @@ describe("version 3: earlier threads become thread-N questions", () => {
     const r = fit(o);
     test("long originals are middle-truncated once notes are gone and replies are short", () =>
       expect(
-        `${r.mode}|${r.trimmed.some((t) => /:original$/.test(t))}|${threadContexts(r).every((c) => c.authorReply === "a")}`,
+        `${r.mode}|${r.pane.trimmed.some((t) => /:original$/.test(t))}|${paneThreads(r).every((t) => t.authorReply === "a")}`,
       ).toBe("structured|true|true"));
     test("a truncated original keeps both ends and is never empty", () => {
-      const originals: string[] = threadContexts(r).map((c) => c.original);
+      const originals = paneThreads(r).map((t) => t.original);
       expect(originals.every((s) => s.length > 0 && s.startsWith("o") && s.endsWith("o"))).toBe(true);
       expect(originals.some((s) => s.includes(" ... "))).toBe(true);
     });
     test("each original is named once", () => {
-      const named = r.trimmed.filter((t) => t.endsWith(":original"));
+      const named = r.pane.trimmed.filter((t) => t.endsWith(":original"));
       expect(named.length).toBe(new Set(named).size);
     });
   });
@@ -474,6 +497,79 @@ describe("skipped findings: restore:<id> options, none recommended", () => {
       load(X),
     );
     expect(o.questions.filter((q: J) => q.id.startsWith("skipped-")).length).toBe(0);
+  });
+});
+
+describe("drafted comments ride whole, board-only", () => {
+  const editable = () => mutated(X, (j) => (j.editable = true));
+  const out = build(load(DRAFTS), editable());
+  const entries = (o: J): J[] =>
+    o.questions.filter((q: J) => q.id.startsWith("findings-")).flatMap((q: J) => q.context.findings);
+
+  test("every finding's comment passes through whole", () => {
+    const want = Object.fromEntries(load(DRAFTS).findings.map((f: J) => [f.id, f.comment]));
+    expect(Object.fromEntries(entries(out).map((e) => [e.id, e.comment]))).toEqual(want);
+  });
+  test("the comment is the entry's last key", () => expect(Object.keys(entries(out)[0]!).at(-1)).toBe("comment"));
+  test("review@1 carries editable and every verdict's summary draft whole", () => {
+    expect(out.context.editable).toBe(true);
+    expect(out.context.summaryComments).toEqual(load(DRAFTS).summary.comments);
+  });
+  test("the summary drafts are review@1's last key", () => expect(Object.keys(out.context).at(-1)).toBe("summaryComments"));
+  test("without editable the drafts still ride and editable is absent", () => {
+    const o = build(load(DRAFTS), load(X));
+    expect(Object.hasOwn(o.context, "editable")).toBe(false);
+    expect(o.context.summaryComments).toEqual(load(DRAFTS).summary.comments);
+  });
+  test("a v3 file without drafts builds exactly what it did", () => {
+    const o = build(load(V3), load(X));
+    expect(tojson(jqKeys(o.context))).toBe('["findings","gate-ctx","prior","re_review","readiness","reviewer","round","summary"]');
+    expect(entries(o).some((e) => Object.hasOwn(e, "comment"))).toBe(false);
+  });
+  test("the drafts source passes checkSource", () => expect(checkSource(out)).toEqual({ ok: true }));
+
+  const LINES = "extras: editable: summary.comments needs exactly one line per outcome option: comment, approve";
+  const rejects: [string, J, J, string][] = [
+    ["an empty comment", mutated(DRAFTS, (j) => (j.findings[2].comment = "")), load(X), "findings file: findings[2].comment: non-empty string when present"],
+    ["a blank comment", mutated(DRAFTS, (j) => (j.findings[2].comment = " \t ")), load(X), "findings file: findings[2].comment: non-empty string when present"],
+    ["summary drafts as a string", mutated(DRAFTS, (j) => (j.summary.comments = "hi")), load(X), "findings file: summary.comments: object of non-blank strings when present"],
+    ["a numeric summary draft", mutated(DRAFTS, (j) => (j.summary.comments.approve = 5)), load(X), "findings file: summary.comments: object of non-blank strings when present"],
+    ["a blank summary draft", mutated(DRAFTS, (j) => (j.summary.comments.comment = " \n ")), load(X), "findings file: summary.comments: object of non-blank strings when present"],
+    ["editable as a string", load(DRAFTS), mutated(X, (j) => (j.editable = "yes")), "extras: editable: boolean when present"],
+    [
+      "editable with a finding that has no comment",
+      mutated(DRAFTS, (j) => delete j.findings[4].comment),
+      editable(),
+      "extras: editable: needs a comment on every finding",
+    ],
+    ["editable without summary drafts", mutated(DRAFTS, (j) => delete j.summary.comments), editable(), LINES],
+    ["editable missing a verdict's draft", mutated(DRAFTS, (j) => delete j.summary.comments.approve), editable(), LINES],
+    ["editable with a draft for no verdict", mutated(DRAFTS, (j) => (j.summary.comments.request_changes = "Needs work.")), editable(), LINES],
+    [
+      "editable with no outcome question",
+      load(DRAFTS),
+      mutated(X, (j) => {
+        j.editable = true;
+        j.questions = [{ id: "next", label: "Next", multi: false, options: ["proceed"] }];
+      }),
+      "extras: editable: needs an outcome question for summary.comments to follow",
+    ],
+  ];
+  for (const [name, f, x, want] of rejects) test(`${name} names the field`, () => expect(errs(f, x)).toBe(want));
+  test("a draft for no verdict is fine when the gate is not editable", () =>
+    expect(errs(mutated(DRAFTS, (j) => (j.summary.comments.request_changes = "Needs work.")), load(X))).toBe(""));
+  test("editable over a file with no findings needs only the summary drafts", () =>
+    expect(errs(mutated(DRAFTS, (j) => (j.findings = [])), editable())).toBe(""));
+  test("a three-verdict GitHub gate carries all three summary drafts", () => {
+    const f = mutated(DRAFTS, (j) => (j.summary.comments.request_changes = "Two of these need a fix before this merges."));
+    const x = mutated(X, (j) => {
+      j.editable = true;
+      j.questions[0].options.push({ value: "request_changes", label: "request changes", description: "post the picked findings and request changes" });
+    });
+    expect(errs(f, x)).toBe("");
+    const o = build(f, x);
+    expect(Object.keys(o.context.summaryComments).sort()).toEqual(["approve", "comment", "request_changes"]);
+    expect(checkSource(o)).toEqual({ ok: true });
   });
 });
 

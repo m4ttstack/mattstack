@@ -13,6 +13,7 @@ import {
 import {
   JqError,
   asciiLower,
+  hasNonSpace,
   isObject,
   isSpace,
   jqEqual,
@@ -27,6 +28,8 @@ type Obj = Record<string, any>;
 
 const TIERS = ["Critical", "Important", "Minor"];
 const str = (v: unknown): boolean => typeof v === "string" && v.length > 0;
+const nonBlank = (v: unknown): boolean => typeof v === "string" && hasNonSpace(v);
+const arrayOrEmpty = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const structured = (f: unknown): boolean => jqEqual(at(f, "version"), 2) || jqEqual(at(f, "version"), 3);
 
 /** jq's `.[]`: elements or values, an error on anything else. */
@@ -54,10 +57,11 @@ function findingErrs(e: unknown, i: number, v2: boolean): string[] {
       `${p}.disposition: new|still-open|addressed-check`,
     ),
     ...chk(() => optional(e, "file", str), `${p}.file: non-empty string when present`),
-    ...chk(() => optional(e, "line", int), `${p}.line: integer when present`),
+    ...chk(() => optional(e, "line", atLeastOne), `${p}.line: integer of at least 1 when present`),
     ...chk(() => optional(e, "fileLabel", str), `${p}.fileLabel: non-empty string when present`),
     ...chk(() => optional(e, "fix", str), `${p}.fix: non-empty string when present`),
     ...chk(() => optional(e, "kind", str), `${p}.kind: non-empty string when present`),
+    ...chk(() => optional(e, "comment", nonBlank), `${p}.comment: non-empty string when present`),
   ];
 }
 
@@ -104,6 +108,10 @@ function fileErrs(f: Obj): string[] {
     ),
     ...chk(() => among(at(f, "summary", "readiness"), ["yes", "no", "with-fixes"]), "summary.readiness: yes|no|with-fixes"),
     ...chk(() => str(at(f, "summary", "reasoning")), "summary.reasoning: required non-empty string"),
+    ...chk(
+      () => optional(at(f, "summary"), "comments", (v) => isObject(v) && Object.values(v).every(nonBlank)),
+      "summary.comments: object of non-blank strings when present",
+    ),
     ...chk(() => Array.isArray(at(f, "findings")), "findings: required array"),
     ...chk(() => optional(f, "re_review", (v) => typeof v === "boolean"), "re_review: boolean when present"),
     ...chk(
@@ -123,7 +131,29 @@ function fileErrs(f: Obj): string[] {
   ];
 }
 
-function extrasErrs(x: Obj): string[] {
+/** An editable gate always has a draft for the poster to fall back to,
+    and a summary line for whichever verdict is picked. */
+function draftErrs(x: Obj, f: Obj): string[] {
+  if (!jqEqual(at(x, "editable"), true)) return [];
+  const outcome = arrayOrEmpty(at(x, "questions")).filter((q) => isObject(q) && at(q, "id") === "outcome");
+  const values = outcome.length ? arrayOrEmpty(at(outcome[0], "options")).map((o) => (isObject(o) ? at(o, "value") : o)) : [];
+  return [
+    ...chk(() => entries(f, "findings").every((e) => nonBlank(at(e, "comment"))), "editable: needs a comment on every finding"),
+    ...(outcome.length === 0
+      ? ["editable: needs an outcome question for summary.comments to follow"]
+      : chk(() => {
+          const c = at(f, "summary", "comments");
+          const want = new Set(values);
+          return (
+            isObject(c) &&
+            Object.keys(c).length === want.size &&
+            [...want].every((v) => typeof v === "string" && Object.hasOwn(c, v))
+          );
+        }, `editable: summary.comments needs exactly one line per outcome option: ${values.map(tostring).join(", ")}`)),
+  ];
+}
+
+function extrasErrs(x: Obj, f: Obj): string[] {
   return [
     ...chk(() => str(at(x, "target")), "target: required non-empty string"),
     ...chk(() => optional(x, "reviewer", str), "reviewer: non-empty string when present"),
@@ -140,6 +170,8 @@ function extrasErrs(x: Obj): string[] {
         }),
       "questions: findings-*, thread-* and skipped-* ids are built from the findings file",
     ),
+    ...chk(() => optional(x, "editable", (v) => typeof v === "boolean"), "editable: boolean when present"),
+    ...draftErrs(x, f),
   ];
 }
 
@@ -148,7 +180,7 @@ export function reviewSourceErrors(findings: unknown, extras: unknown): string[]
   if (!isObject(extras)) return ["extras: not a JSON object"];
   return [
     ...fileErrs(findings).map((e) => `findings file: ${e}`),
-    ...extrasErrs(extras).map((e) => `extras: ${e}`),
+    ...extrasErrs(extras, findings).map((e) => `extras: ${e}`),
   ];
 }
 
@@ -248,6 +280,7 @@ function entry(e: Obj): Obj {
     ...(jqHas(e, "file") ? { file: jqHas(e, "line") ? joinLine(e) : e.file } : {}),
     ...pick(e, ["fix", "evidence", "disposition"]),
     ...(kind === "" ? {} : { kind }),
+    ...pick(e, ["comment"]),
   };
 }
 
@@ -337,6 +370,8 @@ export function buildReviewSource(findings: Record<string, unknown>, extras: Rec
     findings: counts,
     ...pick(x, ["round"]),
     ...pick(f, ["re_review", "prior"]),
+    ...(x.editable === true ? { editable: true } : {}),
+    ...(jqHas(f.summary, "comments") ? { summaryComments: f.summary.comments } : {}),
   };
   const threadQs = (entries(f, "threads") as Obj[]).map((t, i) => threadQuestion(t, i + 1));
   const findingQs = chunks(ordered, 4).map((chunk, i) => ({

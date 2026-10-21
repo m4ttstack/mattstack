@@ -117,7 +117,7 @@ digraph respond_triage_and_gate_1 {
     "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]" -> "respond-plan open exit?";
     "respond-plan open exit?" -> "Gate 1 context dropped?" [label="0"];
     "respond-plan open exit?" -> "Ask Gate 1 as native forms (degraded)" [label="nonzero: the daemon is down"];
-    "Gate 1 context dropped?" -> "Write gate-1-context: dropped into --report" [label="yes: fits false, or contextOmitted"];
+    "Gate 1 context dropped?" -> "Write gate-1-context: dropped into --report" [label="yes: the open file's pane reads contextDropped true"];
     "Gate 1 context dropped?" -> "Gate 1: take the respond gate step" [label="no"];
     "Write gate-1-context: dropped into --report" -> "Gate 1: take the respond gate step";
     "Gate 1: take the respond gate step" -> "Gate 1 step outcome?";
@@ -323,11 +323,11 @@ shows its generic respond face; the gate works the same.
 
 ### Write gate-1-context: dropped into --report
 
-The open came from a `fits: false` file, or its output carried
-`"contextOmitted": true`. Write one
+The open came from a file whose `pane` reads `contextDropped: true`, so
+the pane form left question contexts out. Write one
 line, `gate-1-context: dropped`, into `--report` right after the open and
 before waiting on any answer. A resumed pane has no other way to know
-those cards never showed their drafts, and the line turns every `reply:`
+those pane cards never showed their drafts, and the line turns every `reply:`
 answer with no `text` into a reply override.
 
 ### Gate 1: take the respond gate step

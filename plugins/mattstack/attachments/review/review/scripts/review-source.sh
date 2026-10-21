@@ -2,8 +2,10 @@
 # review-source.sh -- build the review-post gate source from a report's
 # findings json, ready for gate-ctx.sh fit.
 #   review-source.sh <findings.json> <extras.json>
-# extras.json: {"target": "!87", "reviewer"?, "round"?, "questions": [<the
-# questions that follow the findings, outcome first>]}.
+# extras.json: {"target": "!87", "reviewer"?, "round"?, "editable"?,
+# "questions": [<the questions that follow the findings, outcome first>]}.
+# editable true needs a comment on every finding and a summary.comments
+# line for exactly the option values of the extras' outcome question.
 # stdout: {"context": <review@1>, "questions": [thread-1.., findings-1..,
 # skipped-1.., extras questions]}. Findings go Critical, Important, Minor
 # (report order within a tier), four options per findings-N question;
@@ -23,6 +25,8 @@ LIB=$(cat <<'JQ'
 def ok(f): [try f catch false] | length > 0 and all;
 def chk(f; $msg): if ok(f) then empty else $msg end;
 def str: type == "string" and length > 0;
+def non_blank: type == "string" and test("\\S");
+def array_or_empty: if type == "array" then . else [] end;
 def int: type == "number" and . == floor and . >= 0;
 def optional($k; f): (has($k) | not) or (.[$k] | f);
 def among($xs): . as $v | $xs | index([$v]) != null;
@@ -36,6 +40,7 @@ def file_errs: [
   chk(optional("version"; . == 2 or . == 3); "version: 2 or 3 when present (absent is a legacy file)"),
   chk(.summary.readiness | among(["yes","no","with-fixes"]); "summary.readiness: yes|no|with-fixes"),
   chk(.summary.reasoning | str; "summary.reasoning: required non-empty string"),
+  chk(.summary | optional("comments"; type == "object" and all(.[]; non_blank)); "summary.comments: object of non-blank strings when present"),
   chk(.findings | type == "array"; "findings: required array"),
   chk(optional("re_review"; type == "boolean"); "re_review: boolean when present"),
   chk(optional("prior"; type == "object" and (.addressed | int) and (.still_open | int)); "prior: {addressed, still_open} integers when present"),
@@ -48,10 +53,11 @@ def file_errs: [
       chk(optional("evidence"; str); "findings[\($i)].evidence: non-empty string when present"),
       chk(optional("disposition"; among(["new","still-open","addressed-check"])); "findings[\($i)].disposition: new|still-open|addressed-check"),
       chk(optional("file"; str); "findings[\($i)].file: non-empty string when present"),
-      chk(optional("line"; int); "findings[\($i)].line: integer when present"),
+      chk(optional("line"; pos); "findings[\($i)].line: integer of at least 1 when present"),
       chk(optional("fileLabel"; str); "findings[\($i)].fileLabel: non-empty string when present"),
       chk(optional("fix"; str); "findings[\($i)].fix: non-empty string when present"),
-      chk(optional("kind"; str); "findings[\($i)].kind: non-empty string when present")
+      chk(optional("kind"; str); "findings[\($i)].kind: non-empty string when present"),
+      chk(optional("comment"; non_blank); "findings[\($i)].comment: non-empty string when present")
     )),
   chk(optional("threads"; type == "array"); "threads: array when present"),
   (threads | to_entries[] | .key as $i | .value | (
@@ -79,12 +85,24 @@ def file_errs: [
   ([skips[] | .id?] | group_by(.) | map(select(length > 1) | .[0])[] | "skipped: id \(.) appears more than once"),
   ([entries[] | .id?] | group_by(.) | map(select(length > 1) | .[0])[] | "findings: id \(.) appears more than once")
 ];
-def extras_errs: [
+def draft_errs($f):
+  if .editable != true then empty
+  else
+    chk(all($f | entries[]; .comment | non_blank); "editable: needs a comment on every finding"),
+    ([.questions | array_or_empty | .[] | select(type == "object" and .id == "outcome")] as $o
+     | if ($o | length) == 0 then "editable: needs an outcome question for summary.comments to follow"
+       else [$o[0].options | array_or_empty | .[] | if type == "object" then .value else . end] as $v
+         | chk($f.summary.comments | type == "object" and keys == ($v | unique); "editable: summary.comments needs exactly one line per outcome option: \($v | map(tostring) | join(", "))")
+       end)
+  end;
+def extras_errs($f): [
   chk(.target | str; "target: required non-empty string"),
   chk(optional("reviewer"; str); "reviewer: non-empty string when present"),
   chk(optional("round"; type == "number" and . == floor and . >= 1); "round: integer of at least 1 when present"),
   chk(.questions | type == "array" and length > 0 and all(.[]; type == "object" and (.id | str)); "questions: required non-empty array of questions with an id"),
-  chk(all(.questions[]; .id | (startswith("findings-") or startswith("thread-") or startswith("skipped-")) | not); "questions: findings-*, thread-* and skipped-* ids are built from the findings file")
+  chk(all(.questions[]; .id | (startswith("findings-") or startswith("thread-") or startswith("skipped-")) | not); "questions: findings-*, thread-* and skipped-* ids are built from the findings file"),
+  chk(optional("editable"; type == "boolean"); "editable: boolean when present"),
+  draft_errs($f)
 ];
 
 def mid_trunc($max):
@@ -114,7 +132,8 @@ def option: {value: .id, label: opt_label} + (opt_description as $d | if $d then
 def entry: {id, severity: (.tier | ascii_downcase), title, body}
   + (if has("file") then {file: (if has("line") then "\(.file):\(.line)" else .file end)} else {} end)
   + with_entries(select(.key == "fix" or .key == "evidence" or .key == "disposition"))
-  + (kind_word | if . == "" then {} else {kind: .} end);
+  + (kind_word | if . == "" then {} else {kind: .} end)
+  + with_entries(select(.key == "comment"));
 def rank: {"Critical": 0, "Important": 1, "Minor": 2}[.tier];
 def thread_anchor: if has("file") and has("line") then "\(.file):\(.line)" elif has("file") then .file else null end;
 def settled: .call == "fixed" or .call == "pushback-accepted";
@@ -145,7 +164,9 @@ def build($x):
       + {readiness: .summary.readiness, summary: .summary.reasoning,
          findings: ($ordered | group_by(rank) | map({key: (.[0].tier | ascii_downcase), value: length}) | from_entries)}
       + ($x | with_entries(select(.key == "round")))
-      + with_entries(select(.key == "re_review" or .key == "prior"))),
+      + with_entries(select(.key == "re_review" or .key == "prior"))
+      + (if $x.editable == true then {editable: true} else {} end)
+      + (if .summary | has("comments") then {summaryComments: .summary.comments} else {} end)),
      questions: ((threads | to_entries | map(.key as $i | .value | thread_question($i + 1)))
        + ([range(0; $ordered | length; 4) as $i | $ordered[$i:$i + 4]] | to_entries
        | map({id: "findings-\(.key + 1)", label: "Post which findings to \($x.target)?", multi: true}
@@ -160,7 +181,7 @@ JQ
 )
 
 ERRS=$(jq -r "$LIB"' file_errs[] | "findings file: \(.)"' "$1" 2>/dev/null) || { echo "review-source: $1 is not a JSON object" >&2; exit 1; }
-XERRS=$(jq -r "$LIB"' extras_errs[] | "extras: \(.)"' "$2" 2>/dev/null) || { echo "review-source: $2 is not a JSON object" >&2; exit 1; }
+XERRS=$(jq -r --slurpfile f "$1" "$LIB"' extras_errs($f[0])[] | "extras: \(.)"' "$2" 2>/dev/null) || { echo "review-source: $2 is not a JSON object" >&2; exit 1; }
 ALL=$(printf '%s\n%s\n' "$ERRS" "$XERRS" | sed '/^$/d')
 if [ -n "$ALL" ]; then printf '%s\n' "$ALL" >&2; exit 1; fi
 jq -c --slurpfile x "$2" "$LIB"' build($x[0])' "$1"

@@ -302,3 +302,11 @@ export function answeredGateSummary(row: GateSummaryInput): GateSummary {
     detail,
   };
 }
+
+/** The review summary that posts: the summary line, then each folded-in
+    finding's comment in gate order, one blank line apart. The poster and
+    the board's summary card both build it this way, so the text the
+    reviewer saw is the text that posts, character for character. */
+export function joinSummary(line: string, folded: string[]): string {
+  return [line, ...folded].join('\n\n');
+}

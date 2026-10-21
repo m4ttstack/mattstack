@@ -30,7 +30,7 @@ edited reply posts as written. Review should feel the same.
 
 ## Non-goals
 
-- No change to the respond flow.
+- No change to how respond behaves. Its reply boxes only take the shared comment field (see Field style).
 - No change to the board wrapper's generic path (a review with no domain
   skill). It writes Markdown only and keeps its tier-level questions, so
   it gets no comment boxes.
@@ -49,6 +49,18 @@ edited reply posts as written. Review should feel the same.
 - The rail gets more crowded. The summary goes in the main column.
 
 ## The gate, as it looks (option A)
+
+**Field style (Matt's call, 2026-10-20, mock B17 "V4 · Framed composer").**
+Every editable comment in the review sheet (the summary line, each folded
+finding, each anchored finding's comment) is an always-editable,
+auto-growing text area (`useAutoGrowTextarea`), never a display box with
+an `edit` button. Each field is framed like a small comment composer: a
+teal strip across the top ("WILL POST AS COMMENT", "WILL POST AS THE
+SUMMARY"; "posts as you" on its right) joined to a white text area with
+ink text. An edited field shows "edited · reset" in place of "posts as
+you". A folded finding's field carries "× remove" in its strip. This
+supersedes the teal display boxes and `edit`/`done`/`revert to draft`
+buttons described below. Respond uses the same component for its replies, so every gate with editable comments edits the same way.
 
 Use B15's "A · gate" frame as the picture. Main column, top to bottom:
 
@@ -83,6 +95,15 @@ The summary that posts is made of two parts:
 - **Folded-in findings.** Each ticked finding with no diff line, as its own
   editable comment, listed under the summary line inside the same card.
   Unticking such a finding drops it from the card and from what posts.
+
+**The summary line follows the verdict (Matt's call, 2026-10-20).** The
+review drafts one summary line per verdict the gate offers (`approve`,
+`comment`, and `request_changes` on GitHub). The box shows the draft for
+the selected verdict and swaps when the verdict changes. Each verdict keeps
+its own edit: switching away and back brings the earlier edit back, like
+unticking a finding. Only the selected verdict's line posts. So an
+all-clear written for Approve can never post under a Comment, from the
+board or from the pane.
 
 This keeps "untick removes it" true without trying to cut text out of a
 free-form summary someone may have edited. (My call. The mock draws the

@@ -93,4 +93,24 @@ describe("advertised URLs use the resolved bind port, not the compile-time defau
     const notFound = await (await fetch(`http://127.0.0.1:${port}/nope`)).json() as { docs: string };
     expect(notFound.docs).toBe(`http://localhost:${port}/`);
   });
+
+  test("a POST over 1 MiB to a REST route gets 413 with the CORS headers and never reaches handleCommand", async () => {
+    const probe = Bun.serve({ port: 0, fetch: () => new Response() });
+    const port = probe.port;
+    probe.stop(true);
+    setSetting("rt.apiPort", port, "user");
+    const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
+    const calls: string[] = [];
+    server = await startApiServer({ handleCommand: async (cmd) => { calls.push(cmd); return { ok: true }; }, log });
+
+    const origin = "http://off-allowlist.example";
+    const res = await fetch(`http://127.0.0.1:${port}/api/refresh`, {
+      method: "POST",
+      headers: { Origin: origin, "X-RT-Token": getApiToken() },
+      body: JSON.stringify({ x: "x".repeat(2 * 1024 * 1024) }),
+    });
+    expect(res.status).toBe(413);
+    expect(res.headers.get("access-control-allow-origin")).toBe(origin);
+    expect(calls).toEqual([]);
+  });
 });

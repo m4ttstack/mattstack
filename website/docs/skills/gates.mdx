@@ -48,7 +48,7 @@ An option with `recommended: true` gets a "(Recommended)" suffix in the daemon's
 
 ### Per-question context
 
-Each question can carry its own `context` field for material specific to that choice. The gate-level `--context` plus all per-question contexts share a single 8 KB budget. When the combined size exceeds the budget, question contexts are dropped first, then the gate context. The response reports `contextOmitted: true` when anything was dropped.
+Each question can carry its own `context` field for material specific to that choice. The gate stores the gate-level `--context` and every per-question context whole, at any size, and the board shows them in full. Only the prose a Claude Code pane's form shows has a budget (8 KB), so a long context can be shortened there and nowhere else.
 
 ```json
 [
@@ -101,7 +101,7 @@ When a gate was opened by a herd worker, only the owning shepherd's session (or 
 
 ## Gates in a pipeline run
 
-A pipeline's skills ask their questions through the gate tools on the [MCP server](/skills/mcp), not the CLI. A stage opens its gate with `gate_ask`, or with `gate_open` from a structured source that the tool fits to the 8 KB budget. When the gate is answered, the answer is recorded on the run as a decision in that stage, so the run's story in [console](/apps/console) shows it. A gate superseded by a later one at the same point records nothing. The gate tools only open, read and record; the skill decides what happens next.
+A pipeline's skills ask their questions through the gate tools on the [MCP server](/skills/mcp), not the CLI. A stage opens its gate with `gate_ask`, or with `gate_open` from a structured source, which the tool stores whole while fitting the pane form's prose to its 8 KB budget. When the gate is answered, the answer is recorded on the run as a decision in that stage, so the run's story in [console](/apps/console) shows it. A gate superseded by a later one at the same point records nothing. The gate tools only open, read and record; the skill decides what happens next.
 
 ## Delivery
 

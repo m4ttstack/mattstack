@@ -68,7 +68,7 @@ const gateSubcommands: Record<string, CommandNode> = {
       { name: "Agent", flag: "--agent", type: "text", placeholder: "ag-1a2b3c4d", hint: "Optional opening agent id" },
       { name: "Pane", flag: "--pane", type: "text", placeholder: "w7A:pY", hint: "Optional herdr pane id: focus/resume reference, and the remote-answer Escape's fallback target when origin.paneId is absent (the doorbell itself binds to --nudge)" },
       { name: "Nudge", flag: "--nudge", type: "text", placeholder: "{\"session\":\"...\"}", hint: "Optional JSON nudge target; required for a form-presentation origin" },
-      { name: "Context", flag: "--context", type: "text", placeholder: "the material the decision is about", hint: "Optional verbatim decision context (raw text, 8KB cap)" },
+      { name: "Context", flag: "--context", type: "text", placeholder: "the material the decision is about", hint: "Optional verbatim decision context (raw text, stored whole)" },
       { name: "Origin", flag: "--origin", type: "text", placeholder: "{\"paneId\":\"w7A:pY\",\"presentation\":\"form\"}", hint: "Optional JSON origin; presentation form|wait, and paneId names the pane the remote-answer Escape is injected into" },
     ],
   },
@@ -79,7 +79,7 @@ const gateSubcommands: Record<string, CommandNode> = {
     omitBehavior: { exempt: "agent-facing; questions are free-form JSON, identity comes from env" },
     args: [
       { name: "Questions", flag: "--questions", type: "text", placeholder: "[{\"id\":\"q1\",\"label\":\"...\",\"multi\":false,\"options\":[\"yes\",\"no\"]}]", hint: "JSON array of questions ({value,label} option objects preferred; bare strings accepted)" },
-      { name: "Context", flag: "--context", type: "text", placeholder: "the material the decision is about", hint: "Optional decision context; over 8KB it is omitted, never an error" },
+      { name: "Context", flag: "--context", type: "text", placeholder: "the material the decision is about", hint: "Optional decision context, stored whole" },
       { name: "Kind", flag: "--kind", type: "text", placeholder: "question", hint: "Gate kind (default question)" },
       { name: "Subject", flag: "--subject", type: "text", placeholder: "run:abc123", hint: "Explicit subject; omitted, the daemon resolves this session's run, else its agent record's subject" },
       { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Accepted for symmetry; output is always JSON" },

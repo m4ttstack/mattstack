@@ -47,6 +47,21 @@ describe("validateGateAnswers", () => {
   test("text-form values validate by inner value", () => {
     expect(validateGateAnswers([multi], { tiers: { value: ["a"], text: "edited reply" } })).toBeNull();
   });
+  test("texts map keyed by chosen ids validates", () => {
+    expect(validateGateAnswers([multi], { tiers: { value: ["a", "b"], texts: { a: "Edited" } } })).toBeNull();
+  });
+  test("texts key outside value is refused", () => {
+    expect(validateGateAnswers([multi], { tiers: { value: ["a"], texts: { b: "x" } } })).toBe("question tiers texts key must be one of its values: b");
+  });
+  test("blank texts entry is refused", () => {
+    expect(validateGateAnswers([multi], { tiers: { value: ["a"], texts: { a: "  " } } })).toBe("question tiers texts must be non-empty strings");
+  });
+  test("texts on a single value is refused", () => {
+    expect(validateGateAnswers([single], { verdict: { value: "yes", texts: { yes: "x" } } })).toBe("question verdict texts needs an array value");
+  });
+  test("texts must be an object", () => {
+    expect(validateGateAnswers([multi], { tiers: { value: ["a"], texts: ["a"] } })).toBe("question tiers texts must be an object");
+  });
   test("text rides beside a note", () => {
     expect(validateGateAnswers([single], { verdict: { value: "yes", note: "n", text: "t" } })).toBeNull();
   });
