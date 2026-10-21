@@ -25,7 +25,7 @@ function fieldTab(el: HTMLElement): HTMLElement | null {
     at = at.parentElement
   ) {
     const tab = at.querySelector<HTMLElement>(
-      '[role="tablist"] [role="tab"][aria-selected="true"]'
+      '.tui-field-tabs [aria-pressed="true"]'
     );
     if (tab) return tab;
   }
@@ -51,18 +51,13 @@ function FieldTabs({
   onMode: (mode: FieldMode) => void;
 }) {
   return (
-    <span
-      className="tui-field-tabs"
-      role="tablist"
-      aria-label={`${label}: view`}
-    >
+    <span className="tui-field-tabs" role="group" aria-label={`${label}: view`}>
       {(['write', 'preview'] as const).map(m => (
         <button
           key={m}
           type="button"
-          role="tab"
           className="tui-field-tab"
-          aria-selected={mode === m}
+          aria-pressed={mode === m}
           onClick={() => onMode(m)}
         >
           {m === 'write' ? 'Write' : 'Preview'}
@@ -159,7 +154,7 @@ function CommentField({
     return (
       <div
         className="tui-field-preview"
-        role="tabpanel"
+        role="region"
         aria-label={`${label}: preview`}
         style={
           height.current !== null

@@ -55,3 +55,17 @@ test('a highlighter that fails to load leaves the plain code block', async () =>
   );
   expect(container.textContent).toContain('before');
 });
+
+test('a Markdown image is a link, never a remote fetch', async () => {
+  await React.act(async () => {
+    root.render(
+      <CommentMarkdown>
+        {'![a chart](https://example.com/c.png)'}
+      </CommentMarkdown>
+    );
+  });
+  expect(container.querySelector('img')).toBeNull();
+  const a = container.querySelector('a')!;
+  expect(a.getAttribute('href')).toBe('https://example.com/c.png');
+  expect(a.textContent).toBe('a chart');
+});

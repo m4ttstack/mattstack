@@ -4571,7 +4571,7 @@ a.tui-id-card-ref:focus-visible {
     color: var(--text-1);
   }
 }
-.tui-field-tab[aria-selected='true'] {
+.tui-field-tab[aria-pressed='true'] {
   font-weight: 500;
   color: var(--text-1);
   background: color-mix(in srgb, var(--fg) 7%, transparent);

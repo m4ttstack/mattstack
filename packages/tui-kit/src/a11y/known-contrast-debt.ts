@@ -483,7 +483,7 @@ export interface CodeSyntaxContrastDebtEntry {
 export const KNOWN_CODE_SYNTAX_CONTRAST_DEBT: readonly CodeSyntaxContrastDebtEntry[] =
   [
     {
-      surface: "board review gate code view and Preview fences",
+      surface: "board review gate diff and snippet theme (12px; Preview fences are 13px and meet their bar)",
       fontSize: "12px",
       scheme: "light",
       measuredRatio: 4.58,
@@ -496,7 +496,7 @@ export const KNOWN_CODE_SYNTAX_CONTRAST_DEBT: readonly CodeSyntaxContrastDebtEnt
         "and purple names keep their body step; ok and warn take the small step.",
     },
     {
-      surface: "board review gate code view and Preview fences",
+      surface: "board review gate diff and snippet theme (12px; Preview fences are 13px and meet their bar)",
       fontSize: "12px",
       scheme: "dark",
       measuredRatio: 5.69,

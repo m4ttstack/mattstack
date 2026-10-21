@@ -3,6 +3,7 @@ import {
   lazy,
   useContext,
   useEffect,
+  useRef,
   useState,
   type LazyExoticComponent,
 } from 'react';
@@ -168,8 +169,11 @@ type DiffState =
 type Fetched = { diff: FileDiff | null } | { error: string };
 
 /** One fetch per file per MR revision per source, shared by every finding
-    on that file. */
-const fetched = new WeakMap<DiffSource, Map<string, Promise<Fetched>>>();
+    on that file. Only the latest revision of a file is kept. */
+const fetched = new WeakMap<
+  DiffSource,
+  Map<string, { revision: string; p: Promise<Fetched> }>
+>();
 
 function fetchOnce(
   source: DiffSource,
@@ -179,28 +183,30 @@ function fetchOnce(
 ): Promise<Fetched> {
   let bySource = fetched.get(source);
   if (!bySource) fetched.set(source, (bySource = new Map()));
-  const key = `${mr}\n${revision}\n${file}`;
-  let p = bySource.get(key);
-  if (!p) {
-    p = source.fetchFileDiff({ mr, file }).then(
-      diff => {
-        // "No diff" is shared only while in flight, never remembered.
-        if (diff === null) bySource.delete(key);
-        return { diff };
-      },
-      (err: unknown) => {
-        // A failed fetch is asked again the next time a card mounts.
-        bySource.delete(key);
-        return {
-          error:
-            err instanceof Error && err.message
-              ? err.message
-              : 'The diff could not be loaded.',
-        };
-      }
-    );
-    bySource.set(key, p);
-  }
+  const key = `${mr}\n${file}`;
+  const held = bySource.get(key);
+  if (held && held.revision === revision) return held.p;
+  const forget = () => {
+    if (bySource.get(key)?.p === p) bySource.delete(key);
+  };
+  const p: Promise<Fetched> = source.fetchFileDiff({ mr, file }).then(
+    diff => {
+      // "No diff" is shared only while in flight, never remembered.
+      if (diff === null) forget();
+      return { diff };
+    },
+    (err: unknown) => {
+      // A failed fetch is asked again the next time a card mounts.
+      forget();
+      return {
+        error:
+          err instanceof Error && err.message
+            ? err.message
+            : 'The diff could not be loaded.',
+      };
+    }
+  );
+  bySource.set(key, { revision, p });
   return p;
 }
 
@@ -213,17 +219,25 @@ export function useFileDiff(
 ): DiffState {
   const source = useContext(DiffSourceContext);
   const [state, setState] = useState<DiffState>({ status: 'loading' });
+  const asked = useRef('');
   useEffect(() => {
     if (!mr) {
+      asked.current = '';
       setState({ status: 'none' });
       return;
     }
     let live = true;
-    setState({ status: 'loading' });
+    // A new revision of the same file refreshes in place: the last diff
+    // stays on screen (and an open full-diff modal stays mounted).
+    const subject = `${mr}\n${file}`;
+    const refresh = asked.current === subject;
+    asked.current = subject;
+    if (!refresh) setState({ status: 'loading' });
     void fetchOnce(source, mr, file, revision).then(got => {
       if (!live) return;
-      if ('error' in got) setState({ status: 'error', message: got.error });
-      else
+      if ('error' in got) {
+        if (!refresh) setState({ status: 'error', message: got.error });
+      } else
         setState(
           got.diff ? { status: 'ready', diff: got.diff } : { status: 'none' }
         );

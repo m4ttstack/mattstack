@@ -339,7 +339,7 @@ test("a diff that fails to load keeps the header, says why, and links to the MR'
   expect(code.querySelector('.tui-review-code-path')!.textContent).toBe(
     'lib/retry.ts:12'
   );
-  const alert = code.querySelector('[role="alert"]')!;
+  const alert = code.querySelector('[role="status"]')!;
   expect(alert.textContent).toBe('GitLab answered 500 for this diff.');
   expect(alert.getAttribute('data-tone')).toBe('error');
   const open = code.querySelector<HTMLAnchorElement>('a[href]')!;
@@ -385,4 +385,52 @@ test('a file with no diff is asked about again on the next mount', async () => {
   root = createRoot(container);
   await render(none);
   expect(n).toBe(2);
+});
+
+test('a new revision keeps the snippet and an open modal mounted, then shows the new patch', async () => {
+  let patch = RETRY.patch;
+  let fetches = 0;
+  const live: DiffSource = {
+    fetchFileDiff: async req => {
+      fetches++;
+      return req.file === RETRY.path ? { ...RETRY, patch } : null;
+    },
+    loadView: () => import('../DiffView.tsx'),
+  };
+  const at = (updatedAt: string) =>
+    ({ ...MR, updatedAt }) as unknown as BoardMRWithReview;
+  await render(live, at('2026-09-17T01:00:00.000Z'));
+  await React.act(async () =>
+    fullDiffLink('Retry loop lacks backoff')!.click()
+  );
+  const modal = dialog()!;
+  expect(modal).not.toBeNull();
+  patch = RETRY.patch.replace('tries++;', 'attempts++;');
+  const link = fullDiffLink('Retry loop lacks backoff');
+  await React.act(async () => {
+    root.render(<Host diffs={live} mr={at('2026-09-17T02:00:00.000Z')} />);
+    expect(dialog()).toBe(modal);
+    expect(fullDiffLink('Retry loop lacks backoff')).toBe(link);
+    await new Promise(r => setTimeout(r, 0));
+  });
+  expect(fetches).toBe(2);
+  expect(dialog()).toBe(modal);
+  expect(fullDiffLink('Retry loop lacks backoff')).toBe(link);
+});
+
+test('selecting text inside the snippet does not open the full diff', async () => {
+  await render({ ...source, fetchFileDiff: async () => RETRY });
+  const snippet = codeOf('Retry loop lacks backoff').querySelector<HTMLElement>(
+    '.tui-review-code'
+  )!;
+  const range = document.createRange();
+  range.selectNodeContents(snippet.querySelector('.tui-review-code-path')!);
+  const picked = window.getSelection()!;
+  picked.removeAllRanges();
+  picked.addRange(range);
+  await React.act(async () => snippet.click());
+  expect(dialog()).toBeNull();
+  picked.removeAllRanges();
+  await React.act(async () => snippet.click());
+  expect(dialog()).not.toBeNull();
 });

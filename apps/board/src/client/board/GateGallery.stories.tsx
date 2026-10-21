@@ -148,7 +148,7 @@ export const RespondPost = face(
 export const RespondPostRichPreview: Story = {
   ...face('Respond: post, a rich reply in Preview', G.respondPostRich),
   play: async ({ canvasElement }) => {
-    const tabs = await within(canvasElement).findAllByRole('tab', {
+    const tabs = await within(canvasElement).findAllByRole('button', {
       name: 'Preview',
     });
     await userEvent.click(tabs[2]!);
@@ -189,7 +189,7 @@ export const ReviewPostDraftedFullDiff: Story = {
 export const ReviewPostDraftedPreview: Story = {
   ...face('Review: post, drafted, a comment in Preview', G.reviewPostDrafted),
   play: async ({ canvasElement }) => {
-    const [preview] = await within(canvasElement).findAllByRole('tab', {
+    const [preview] = await within(canvasElement).findAllByRole('button', {
       name: 'Preview',
     });
     await userEvent.click(preview!);
@@ -201,7 +201,7 @@ export const ReviewPostDraftedRichPreview: Story = {
     G.reviewPostDraftedRich
   ),
   play: async ({ canvasElement }) => {
-    const [preview] = await within(canvasElement).findAllByRole('tab', {
+    const [preview] = await within(canvasElement).findAllByRole('button', {
       name: 'Preview',
     });
     await userEvent.click(preview!);

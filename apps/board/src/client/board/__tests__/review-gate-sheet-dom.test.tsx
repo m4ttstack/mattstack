@@ -1720,7 +1720,7 @@ describe('a gate whose poster honors edited drafts', () => {
     const item = () => itemFor('Unused import');
     await edit(item(), 'Drop this import, please.');
     const tabOf = (name: string) =>
-      [...item().querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+      [...item().querySelectorAll<HTMLButtonElement>('.tui-field-tab')].find(
         t => t.textContent === name
       )!;
     await click(tabOf('Preview'));
@@ -1730,7 +1730,7 @@ describe('a gate whose poster honors edited drafts', () => {
     );
     const box = sectionOf(item(), 'Comment')!.querySelector('textarea')!;
     expect(box.value).toBe(COMMENT.f4);
-    expect(tabOf('Write').getAttribute('aria-selected')).toBe('true');
+    expect(tabOf('Write').getAttribute('aria-pressed')).toBe('true');
     expect(document.activeElement).toBe(box);
   });
 
@@ -1739,7 +1739,7 @@ describe('a gate whose poster honors edited drafts', () => {
     await edit(summaryLine(), 'Approve, edited.');
     const summary = () => container.querySelector('.tui-review-summary')!;
     const tabOf = (name: string) =>
-      [...summary().querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+      [...summary().querySelectorAll<HTMLButtonElement>('.tui-field-tab')].find(
         t => t.textContent === name
       )!;
     await click(tabOf('Preview'));
@@ -1798,7 +1798,7 @@ describe('a gate whose poster honors edited drafts', () => {
     document.addEventListener('keydown', onDoc);
     try {
       await esc(box);
-      expect(document.activeElement?.getAttribute('role')).toBe('tab');
+      expect(document.activeElement?.className).toBe('tui-field-tab');
       expect(document.activeElement?.textContent).toBe('Write');
       expect(
         box

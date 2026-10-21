@@ -60,7 +60,7 @@ function Host({ draft }: { draft: string }) {
 const box = () =>
   container.querySelector<HTMLTextAreaElement>('textarea.tui-composer-input');
 const tab = (name: string) =>
-  [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+  [...container.querySelectorAll<HTMLButtonElement>('.tui-field-tab')].find(
     b => b.textContent === name
   )!;
 const key = (el: Element, init: KeyboardEventInit) =>
@@ -70,12 +70,12 @@ const key = (el: Element, init: KeyboardEventInit) =>
 
 test('the tabs are Write and Preview, with Write selected', async () => {
   await React.act(async () => root.render(<Host draft="hello" />));
-  const list = container.querySelector('[role="tablist"]')!;
+  const list = container.querySelector('.tui-field-tabs')!;
   expect(list.getAttribute('aria-label')).toBe('Comment on finding 1: view');
   expect(
-    [...list.querySelectorAll('[role="tab"]')].map(t => [
+    [...list.querySelectorAll('.tui-field-tab')].map(t => [
       t.textContent,
-      t.getAttribute('aria-selected'),
+      t.getAttribute('aria-pressed'),
     ])
   ).toEqual([
     ['Write', 'true'],
@@ -90,7 +90,7 @@ test('Preview renders the text as Markdown, and Write brings the field back', as
   );
   await React.act(async () => tab('Preview').click());
   expect(box()).toBeNull();
-  const preview = container.querySelector('[role="tabpanel"]')!;
+  const preview = container.querySelector('.tui-field-preview')!;
   expect(preview.getAttribute('aria-label')).toBe(
     'Comment on finding 1: preview'
   );
@@ -98,7 +98,7 @@ test('Preview renders the text as Markdown, and Write brings the field back', as
   expect([...preview.querySelectorAll('li')].map(li => li.textContent)).toEqual(
     ['one', 'two']
   );
-  expect(tab('Preview').getAttribute('aria-selected')).toBe('true');
+  expect(tab('Preview').getAttribute('aria-pressed')).toBe('true');
   await React.act(async () => tab('Write').click());
   expect(box()!.value).toBe('Use `requireActual` here:\n\n- one\n- two');
 });
@@ -166,7 +166,7 @@ test('reset while in Preview goes back to Write and focuses the field', async ()
       )!
       .click()
   );
-  expect(tab('Write').getAttribute('aria-selected')).toBe('true');
+  expect(tab('Write').getAttribute('aria-pressed')).toBe('true');
   expect(box()!.value).toBe('ab');
   expect(document.activeElement).toBe(box());
 });
@@ -241,7 +241,7 @@ async function preview(draft: string, diffs?: DiffSource) {
     )
   );
   await React.act(async () => tab('Preview').click());
-  return container.querySelector<HTMLElement>('[role="tabpanel"]')!;
+  return container.querySelector<HTMLElement>('.tui-field-preview')!;
 }
 
 test('Preview reads like the comment will: inline code, task list, quote, table', async () => {

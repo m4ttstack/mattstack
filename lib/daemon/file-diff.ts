@@ -195,6 +195,7 @@ export function createFileDiffReader(opts: { now?: () => number } = {}) {
   return async function readFileDiff(repo: string, ctx: FileDiffContext, iid: number, path: string): Promise<Result> {
     const head = ctx.forge === "gitlab" ? await gitlabHead(ctx, iid) : await githubHead(ctx, iid);
     if (!head.ok) return head;
+    for (const [k, e] of cache) if (now() - e.at > CACHE_TTL_MS) cache.delete(k);
     const key = `${repo}\n${iid}\n${head.headSha}`;
     let entry = cache.get(key);
     if (!entry || now() - entry.at > CACHE_TTL_MS) {

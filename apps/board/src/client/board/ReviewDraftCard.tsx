@@ -192,6 +192,7 @@ function FullDiffModal({
     >
       <div className="tui-diff-modal-body">
         <DiffBoundary
+          key={diff.patch}
           fallback={
             <p className="tui-diff-note">The diff could not be drawn.</p>
           }
@@ -321,7 +322,20 @@ function CodeSection({
       <div
         className="tui-review-code"
         data-openable={openable ? '' : undefined}
-        onClick={openable ? () => setOpen(true) : undefined}
+        onClick={
+          openable
+            ? e => {
+                const picked = window.getSelection();
+                if (
+                  picked &&
+                  !picked.isCollapsed &&
+                  e.currentTarget.contains(picked.anchorNode)
+                )
+                  return;
+                setOpen(true);
+              }
+            : undefined
+        }
       >
         <div className="tui-review-code-file">
           <FileGlyph />
@@ -345,12 +359,12 @@ function CodeSection({
           </p>
         )}
         {error !== null && (
-          <p className="tui-review-code-held" data-tone="error" role="alert">
+          <p className="tui-review-code-held" data-tone="error" role="status">
             {error}
           </p>
         )}
         {snippet && DiffView && (
-          <DiffBoundary>
+          <DiffBoundary key={snippet}>
             <Suspense fallback={null}>
               <DiffView patch={snippet} anchor={line} separators="simple" />
             </Suspense>

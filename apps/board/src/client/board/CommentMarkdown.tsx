@@ -82,6 +82,15 @@ function CodeFence({ lang, code }: { lang?: string; code: string }) {
 }
 
 const COMPONENTS: Components = {
+  img: ({ node: _node, src, alt }) => (
+    <a
+      href={typeof src === 'string' ? src : undefined}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {alt || src}
+    </a>
+  ),
   a: ({ node: _node, ...props }) => (
     <a {...props} target="_blank" rel="noopener noreferrer" />
   ),

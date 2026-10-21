@@ -1216,7 +1216,7 @@ test('Escape in a field leaves the field, not the sheet; a second Escape reaches
   document.addEventListener('keydown', onDoc);
   try {
     await esc(box);
-    expect(document.activeElement?.getAttribute('role')).toBe('tab');
+    expect(document.activeElement?.className).toBe('tui-field-tab');
     expect(document.activeElement?.textContent).toBe('Write');
     expect(box.closest('.tui-composer')!.contains(document.activeElement)).toBe(
       true
