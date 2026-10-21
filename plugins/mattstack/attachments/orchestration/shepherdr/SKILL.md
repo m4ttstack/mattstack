@@ -329,7 +329,7 @@ part carries the strategy TABLE.
 **Hidden mode.** For a herd out of sight ("invisible", "background",
 "headless", "don't clutter my UI"), pass `hidden: true` to `herd_start`.
 Worker panes live on the daemon's shared background herdr server (session
-`bg`) as `bg:<pane>` refs; nothing else changes. `herd_attend {job, herd}`
+`mattstack-bg`) as `bg:<pane>` refs; nothing else changes. `herd_attend {job, herd}`
 opens a tab on one worker (the user detaches with `ctrl+b q`; close the
 tab afterwards). At wrap-up, offer the Bash command
 `rt herd stop --hidden` (no tool runs it); never run it unprompted. The <!-- mcp-lint: allow -->
