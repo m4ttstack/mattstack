@@ -135,9 +135,9 @@ public enum TriageMenu {
         return n
     }
 
-    /// Nil counts mean the first query has not landed: saying "nothing" then would be a false all-clear.
-    public static func headline(_ counts: TriageCounts?) -> String {
-        guard let n = counts?.needsDecision else { return "Checking worktrees…" }
+    /// Nil counts mean no query has landed yet: saying "nothing" then would be a false all-clear.
+    public static func headline(_ counts: TriageCounts?, loading: Bool) -> String {
+        guard let n = counts?.needsDecision else { return loading ? "Checking worktrees…" : "Couldn't check worktrees" }
         switch n {
         case 0: return "Nothing needs a decision"
         case 1: return "1 worktree needs a decision"

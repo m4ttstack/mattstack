@@ -3,7 +3,7 @@ import SwiftUI
 import MattstackCore
 
 /// `rt-tray --render-worktree-snapshots <fixtures-dir> <out-dir>` renders the
-/// Worktrees panel (loaded and loading), the Review window (collapsed, expanded) and the interaction states from fixture
+/// Worktrees panel (loaded, loading, failed), the Review window (collapsed, expanded) and the interaction states from fixture
 /// JSON, light and dark, then returns true so the caller exits before any
 /// window, status item, socket or daemon work exists. DEBUG builds only.
 enum WorktreeSnapshot {
@@ -37,6 +37,10 @@ enum WorktreeSnapshot {
                    width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("panel-\(tag).png"))
             SnapshotRenderer.renderImage(content(WorktreePanelView(controller: WorktreePanelController(), isSnapshot: true),
                    width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("panel-loading-\(tag).png"))
+            let failed = WorktreePanelController()
+            failed.isLoading = false
+            SnapshotRenderer.renderImage(content(WorktreePanelView(controller: failed, isSnapshot: true),
+                   width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("panel-failed-\(tag).png"))
             SnapshotRenderer.renderImage(content(WorktreePanelView(controller: WorktreePanelController(fixture: catalog), keptOpen: true, isSnapshot: true),
                    width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("state-catalog-\(tag).png"))
             SnapshotRenderer.renderImage(content(WorktreeReviewSheet(row: look, controller: WorktreePanelController(fixture: catalog),
@@ -49,7 +53,7 @@ enum WorktreeSnapshot {
             SnapshotRenderer.renderImage(content(InteractionStatesSnapshot(row: voldemort),
                    width: 1180, scheme), appearance: appearance, to: out.appendingPathComponent("interaction-states-\(tag).png"))
         }
-        print("wrote 12 snapshots to \(out.path)")
+        print("wrote 14 snapshots to \(out.path)")
         return true
         #else
         return false

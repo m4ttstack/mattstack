@@ -195,6 +195,9 @@ struct WorktreePanelView: View {
                         .foregroundStyle(WT.textSecondary)
                 }
                 .padding(24)
+            } else if controller.counts == nil {
+                Text("Couldn't load worktrees. Trying again every 10 seconds.")
+                    .foregroundStyle(WT.textSecondary).padding(24)
             } else if controller.rows.isEmpty {
                 Text("Nothing stuck. Every merged worktree was cleaned up.")
                     .foregroundStyle(WT.textSecondary).padding(24)
@@ -230,7 +233,7 @@ struct WorktreePanelView: View {
         }
     }
 
-    private var headline: String { TriageMenu.headline(controller.counts) }
+    private var headline: String { TriageMenu.headline(controller.counts, loading: controller.isLoading) }
 
     private var footer: some View {
         HStack(spacing: 6) {
