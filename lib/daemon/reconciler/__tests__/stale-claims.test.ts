@@ -59,7 +59,7 @@ function claimedTree(
 }
 
 function cfgWith(staleClaimDays: number): WorktreeRepoConfig {
-  return { onDeck: 0, root: "/unused", branchFormat: "<ticket>-<slug>", ready: [], staleClaimDays, junk: DEFAULT_JUNK_GLOBS };
+  return { onDeck: 0, root: "/unused", branchFormat: "<ticket>-<slug>", ready: [], staleClaimDays, junk: DEFAULT_JUNK_GLOBS, mergeCleanupNotice: true };
 }
 
 describe("stale-claim sweep", () => {

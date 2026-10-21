@@ -129,6 +129,9 @@ export const SCHEMAS = {
     branchFormat: z.string().optional(),
     staleClaimDays: z.number().optional(),
     junk: z.array(z.string()).optional(),
+    mergeCleanupNotice: z.boolean().optional().meta({
+      description: "false stops the notice that merged worktrees in this repo are not cleaned up on their own.",
+    }),
   }),
   "rt.ignoredMrs": z.looseObject({ targetBranches: z.array(z.string()).optional(), authors: z.array(z.string()).optional() }),
   "rt.repoIdentityOverrides": stringMap.meta({ labels: { key: "remote URL", value: "identity" } }),

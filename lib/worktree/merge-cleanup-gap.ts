@@ -6,6 +6,7 @@
  */
 
 import { forgeTokenFor, type Forge } from "../enrich.ts";
+import { loadWorktreeRepoConfig } from "./config.ts";
 import { grants, type CacheKind, type RepoTracking, type TrackingMode } from "../repo-tracking.ts";
 import { runCapture } from "../subprocess.ts";
 
@@ -21,6 +22,7 @@ export async function mergeCleanupGap(
   tracking: RepoTracking | null,
   secrets: { gitlabToken?: string; githubToken?: string } | null,
 ): Promise<MergeCleanupGap | null> {
+  if (!(await loadWorktreeRepoConfig(repoName, repoPath)).mergeCleanupNotice) return null;
   const remote = await runCapture(["git", "config", "--get", "remote.origin.url"], { cwd: repoPath, timeoutMs: 5000 });
   const remoteUrl = remote.exitCode === 0 ? remote.stdout.trim() || undefined : undefined;
   const forge = await forgeTokenFor(remoteUrl, secrets ?? {});

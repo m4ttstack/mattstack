@@ -48,7 +48,7 @@ const ROWS: readonly SettingDef[] = [
     repoScoped: true,
     repoOnly: true,
     migrated: true,
-    description: "Per-repo worktree pool config (onDeck size, ready steps, name pool, staleClaimDays, junk (untracked globs a merged tree may discard on dispose)); root/branchFormat/ready computed-or-empty in the reader.",
+    description: "Per-repo worktree pool config (onDeck size, ready steps, name pool, staleClaimDays, junk (untracked globs a merged tree may discard on dispose), mergeCleanupNotice (false hides the notice that merged trees are not cleaned up on their own)); root/branchFormat/ready computed-or-empty in the reader.",
   },
   {
     key: "rt.worktreeApp",
