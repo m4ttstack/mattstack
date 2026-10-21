@@ -506,6 +506,22 @@ describe("team markers in copied base attachments", () => {
     ]);
   });
 
+  test("with no team context a marker in a copied md body is an error", () => {
+    put(join(kit(), "SKILL.md"), "---\nname: review-kit\n---\nfine\nTeam {{team.linear-team}}\n");
+    expect(plan({ ship: "skills" }, null).errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: {{team.linear-team}} -- team markers only resolve in base pack text (line 5)",
+    ]);
+  });
+
+  test("with no team context the frontmatter and non-md refusals still fire", () => {
+    put(join(kit(), "SKILL.md"), "---\nname: review-kit\ndescription: for {{team.x}}\n---\nBody\n");
+    put(join(kit(), "scripts", "x.sh"), "echo {{team.x}}\n");
+    expect(plan({ ship: "skills" }, null).errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: {{team.x}} -- team markers only resolve in a body, not frontmatter (line 3)",
+      "acme-base:attachments/review-kit/scripts/x.sh: {{team.x}} -- team markers only resolve in .md files (line 1)",
+    ]);
+  });
+
   test("unknown non-team markers still pass through", () => {
     put(join(kit(), "SKILL.md"), "Use {{ticket.id}} and {{team.linear-team}}.\n");
     const result = plan({ ship: "skills" }, teamWith({ "linear-team": "Widgets" }));

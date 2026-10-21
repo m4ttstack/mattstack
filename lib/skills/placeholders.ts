@@ -155,7 +155,12 @@ function resolveAttachmentTeamMarkers(text: string, opts: AttachmentRenderOpts):
     const raw = head.split("\n")[headAt]!.match(TEAM_OPENER_LINE_RE)![0];
     throw new Error(`${opts.where}: ${raw} -- team markers only resolve in a body, not frontmatter (line ${headAt + 1})`);
   }
-  if (!opts.team) return text;
+  if (!opts.team) {
+    const lines = text.split("\n");
+    const at = lines.findIndex((line) => hasTeamMarker(line));
+    const raw = lines[at]!.match(TEAM_OPENER_LINE_RE)![0];
+    throw new Error(`${opts.where}: ${raw} -- team markers only resolve in base pack text (line ${at + 1})`);
+  }
   return head + resolveTeamMarkers(text.slice(head.length), opts.team, { where: opts.where, sectionSeams: false, startLine: lineCount(head) + 1 });
 }
 
