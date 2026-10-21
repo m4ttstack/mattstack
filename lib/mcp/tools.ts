@@ -100,6 +100,7 @@ const ANSWER_VALUE_SCHEMA = {
         value: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
         note: { type: "string" },
         text: { type: "string", pattern: "\\S", description: "Replacement for text the gate offered (an edited reply), used in its place. Comments go in note, never here." },
+        texts: { type: "object", additionalProperties: { type: "string", pattern: "\\S" }, description: "Replacement text for what a multi-select question's picked options offered (an edited drafted comment), keyed by a picked option value. Comments go in note, never here." },
       },
       required: ["value"],
       additionalProperties: false,

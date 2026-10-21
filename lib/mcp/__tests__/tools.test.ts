@@ -131,8 +131,19 @@ describe("mcpTools", () => {
       properties: { answers: { additionalProperties: { oneOf: Array<{ type: string; properties?: Record<string, unknown> }> } } };
     };
     const objectForm = schema.properties.answers.additionalProperties.oneOf.find((b) => b.type === "object")!;
-    expect(Object.keys(objectForm.properties!)).toEqual(["value", "note", "text"]);
+    expect(Object.keys(objectForm.properties!)).toEqual(["value", "note", "text", "texts"]);
     expect(objectForm.properties!.text).toMatchObject({ type: "string", pattern: "\\S" });
+  });
+
+  test("gate_answer and herd_gate_answer accept texts, a map of non-blank strings", () => {
+    for (const name of ["gate_answer", "herd_gate_answer"]) {
+      const tool = mcpTools().find((t) => t.name === name)!;
+      const schema = tool.inputSchema as {
+        properties: { answers: { additionalProperties: { oneOf: Array<{ type: string; properties?: Record<string, unknown> }> } } };
+      };
+      const objectForm = schema.properties.answers.additionalProperties.oneOf.find((b) => b.type === "object" && b.properties?.value)!;
+      expect(objectForm.properties!.texts, name).toMatchObject({ type: "object", additionalProperties: { type: "string", pattern: "\\S" } });
+    }
   });
 
   describe("gate_ask", () => {

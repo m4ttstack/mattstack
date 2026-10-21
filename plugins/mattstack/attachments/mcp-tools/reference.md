@@ -55,6 +55,14 @@ Answer an open gate's questions as this pane. Answer values must be option VALUE
                 "type": "string",
                 "pattern": "\\S",
                 "description": "Replacement for text the gate offered (an edited reply), used in its place. Comments go in note, never here."
+              },
+              "texts": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "description": "Replacement text for what a multi-select question's picked options offered (an edited drafted comment), keyed by a picked option value. Comments go in note, never here."
               }
             },
             "required": [
@@ -2835,6 +2843,14 @@ Answer one of this herd's open or parked gates as the shepherd. Answer values mu
                 "type": "string",
                 "pattern": "\\S",
                 "description": "Replacement for text the gate offered (an edited reply), used in its place. Comments go in note, never here."
+              },
+              "texts": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "description": "Replacement text for what a multi-select question's picked options offered (an edited drafted comment), keyed by a picked option value. Comments go in note, never here."
               }
             },
             "required": [
