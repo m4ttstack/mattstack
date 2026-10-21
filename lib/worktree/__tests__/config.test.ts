@@ -77,7 +77,6 @@ describe("worktree config", () => {
         ready: [],
         staleClaimDays: 7,
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
       });
     });
 
@@ -123,7 +122,6 @@ describe("worktree config", () => {
         ],
         staleClaimDays: 3,
         junk: ["custom/**"],
-        mergeCleanupNotice: false,
       };
       writeStore(machineSettingsPath(), { repos: { [IDENTITY]: { "rt.worktrees": declared } } });
 
@@ -168,7 +166,6 @@ describe("worktree config", () => {
         ready: [{ run: "pnpm install", when: "changed:pnpm-lock.yaml" }], // team-only field
         staleClaimDays: 7, // nobody declared it, reader default
         junk: DEFAULT_JUNK_GLOBS, // nobody declared it, reader default
-        mergeCleanupNotice: true,
       });
     });
 
@@ -250,7 +247,6 @@ describe("worktree config", () => {
         ready: [],
         staleClaimDays: 7,
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
       });
     });
   });
@@ -414,7 +410,6 @@ describe("worktree config", () => {
         root: join(repoPath, ".worktrees"),
         branchFormat: "<ticket>-<slug>",
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
         ready: [{ run: "node scripts/gen-types.js", when: "changed:db/schema/**" }],
       };
       expect(resolveReadySteps(cfg, repoPath)).toEqual([
@@ -433,7 +428,6 @@ describe("worktree config", () => {
         root: join(repoPath, ".worktrees"),
         branchFormat: "<ticket>-<slug>",
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
         ready: [
           { run: "pnpm install --side-effects-cache", when: "changed:pnpm-lock.yaml" },
           { run: "pnpm genTypes", when: "changed:db/schema/**" },
@@ -452,7 +446,6 @@ describe("worktree config", () => {
         root: join(repoPath, ".worktrees"),
         branchFormat: "<ticket>-<slug>",
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
         ready: [{ run: "pnpm lint" }],
       };
       expect(resolveReadySteps(cfg, repoPath)).toEqual([
@@ -469,7 +462,6 @@ describe("worktree config", () => {
         root: join(repoPath, ".worktrees"),
         branchFormat: "<ticket>-<slug>",
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
         ready: [{ run: "echo hi" }],
       };
       expect(resolveReadySteps(cfg, repoPath)).toEqual(cfg.ready);
@@ -485,7 +477,6 @@ describe("worktree config", () => {
         root: join(repoPath, ".worktrees"),
         branchFormat: "<ticket>-<slug>",
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
         ready: [{ run: "SKIP_GEN_TYPES=1 pnpm install --side-effects-cache" }],
       };
       expect(resolveReadySteps(cfg, repoPath)).toEqual(cfg.ready);
@@ -501,7 +492,6 @@ describe("worktree config", () => {
         root: join(repoPath, ".worktrees"),
         branchFormat: "<ticket>-<slug>",
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
         ready: [{ run: "env FOO=bar pnpm install" }],
       };
       expect(resolveReadySteps(cfg, repoPath)).toEqual(cfg.ready);
@@ -517,7 +507,6 @@ describe("worktree config", () => {
         root: join(repoPath, ".worktrees"),
         branchFormat: "<ticket>-<slug>",
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
         ready: [{ run: "env -i PATH=/usr/bin pnpm install" }],
       };
       expect(resolveReadySteps(cfg, repoPath)).toEqual(cfg.ready);
@@ -533,7 +522,6 @@ describe("worktree config", () => {
         root: join(repoPath, ".worktrees"),
         branchFormat: "<ticket>-<slug>",
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
         ready: [{ run: "pnpm installer" }],
       };
       expect(resolveReadySteps(cfg, repoPath)).toEqual([
@@ -552,7 +540,6 @@ describe("worktree config", () => {
         root: join(repoPath, ".worktrees"),
         branchFormat: "<ticket>-<slug>",
         junk: DEFAULT_JUNK_GLOBS,
-        mergeCleanupNotice: true,
         ready: [{ run: "SKIP_X=1 pnpm lint" }],
       };
       expect(resolveReadySteps(cfg, repoPath)).toEqual([

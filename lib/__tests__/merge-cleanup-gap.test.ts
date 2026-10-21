@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 import { mkdtempSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { setSetting } from "../settings/write.ts";
+import { setSetting, unsetSetting } from "../settings/write.ts";
 import { mergeCleanupGap } from "../worktree/merge-cleanup-gap.ts";
 
 const repoName = "remote:github.com%2Fo%2Fr";
@@ -30,11 +30,11 @@ describe("mergeCleanupGap", () => {
   });
 
   test("a repo set not to raise the notice has no gap", async () => {
-    setSetting("rt.worktrees", { mergeCleanupNotice: false }, "machine", { repoIdentity: "github.com/o/r" });
+    setSetting("rt.worktreeMergeCleanupNotice", false, "user", { repoIdentity: "github.com/o/r" });
     try {
       expect(await mergeCleanupGap(repoName, repo, {}, {})).toBeNull();
     } finally {
-      setSetting("rt.worktrees", {}, "machine", { repoIdentity: "github.com/o/r" });
+      unsetSetting("rt.worktreeMergeCleanupNotice", "user", { repoIdentity: "github.com/o/r" });
     }
   });
 

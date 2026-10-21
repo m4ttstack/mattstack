@@ -1994,10 +1994,6 @@
           "items": {
             "type": "string"
           }
-        },
-        "mergeCleanupNotice": {
-          "description": "false stops the notice that merged worktrees in this repo are not cleaned up on their own.",
-          "type": "boolean"
         }
       },
       "additionalProperties": {}

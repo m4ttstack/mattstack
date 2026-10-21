@@ -91,7 +91,6 @@ export interface WorktreeRepoConfig {
   ready: ReadyStep[]; // declared domain steps ONLY (implicit install prepended at resolve time)
   staleClaimDays: number; // default 7; 0 disables the stale-claim sweep
   junk: string[]; // default DEFAULT_JUNK_GLOBS; untracked globs a triage dispose may discard
-  mergeCleanupNotice: boolean; // default true; false hides "merged trees aren't cleaned up" for this repo
 }
 
 /** Untracked build-output shapes a merged tree may discard on dispose without asking. */
@@ -240,7 +239,6 @@ export async function loadWorktreeRepoConfig(
     ready: sanitizeReady(declared.ready),
     staleClaimDays: sanitizeStaleClaimDays(declared.staleClaimDays),
     junk: sanitizeJunk(declared.junk),
-    mergeCleanupNotice: declared.mergeCleanupNotice !== false,
   };
   const namePool = sanitizeNamePool(declared.namePool);
   if (namePool) cfg.namePool = namePool;
