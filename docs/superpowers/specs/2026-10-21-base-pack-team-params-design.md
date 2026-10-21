@@ -72,9 +72,22 @@ only its facts and blocks.
 | `{{team.section:<name>?}}` | the same, or nothing | nothing |
 
 `<key>` and `<name>` match `^[a-z][a-z0-9-]*$`. `team.section` is reserved:
-no param may be named `section`. These match the existing
-`PLACEHOLDER_RE` in `lib/skills/placeholders.ts` (kind `team.<key>`, or kind
-`team.section` with an argument), so no new tokenizer is needed.
+no param may be named `section`. The existing `PLACEHOLDER_RE` in
+`lib/skills/placeholders.ts` matches `{{team.section:<name>?}}` (the
+argument allows `?`) but not `{{team.<key>?}}` (the kind charset has no
+`?`), so team markers get their own pass with their own pattern, run
+before any other substitution.
+
+Markers do not nest. A value is prose: `{{team.gates-fill}}` may sit inside
+a plain path in text (`../../attachments/{{team.gates-fill}}/SKILL.md`)
+but never inside another marker's argument (`{{pack.path:{{team.x}}...}}`
+is a refusal). A param value or section may not contain `{{`, so expanded
+text is never substituted again.
+
+Markers resolve in a base file's body only. A `{{team.*}}` marker in a
+fill's or attachment's frontmatter is a refusal (inlined fills only
+substitute the body, so a frontmatter marker would otherwise ship as
+written).
 
 ### `pack/params.jsonc`
 
@@ -98,10 +111,11 @@ no param may be named `section`. These match the existing
 ### `pack/sections/<name>.md`
 
 Plain markdown, inserted verbatim at the marker with its trailing newline
-trimmed. It follows the same rules as the text around it after insertion:
-it may not contain `{{` (the stray-brace check already refuses that), and
-the internal-roster and reference lints apply to it. The mcp lint covers
-`pack/sections/*.md` the way it covers fills.
+trimmed. It may not contain `{{`; the team pass checks that itself, since
+copied attachments have no stray-brace check today. Inside an inlined fill
+the internal-roster and reference lints then apply to it as to the text
+around it. The mcp lint covers `pack/sections/*.md` the way it covers
+fills.
 
 A section that is present but empty (whitespace only) counts as missing.
 
@@ -121,6 +135,22 @@ A section that is present but empty (whitespace only) counts as missing.
 3. **Resolution keys on the team pack being compiled**, not on which base
    its `extends` names: today any org base can bind fills, so the team pack
    is the only stable owner of the values.
+
+## Which markers a pack must supply
+
+A marker is required for a team pack when it sits in base text that pack's
+compile actually emits: the base fills its effective bindings resolve to
+(after the team's own bindings shadow any base fill), in the verbs and
+stages its roster and pipelines compile, plus the `.md` attachments the
+base copies into it. A marker in a base fill the team has overridden, or
+in a stage it does not run, is not required. `rt skills compile --verb x`
+checks only what x emits. "A key the base never asks for" means a key no
+emitted marker names.
+
+When a base edit adds a new required marker, every extending team's next
+compile or sync refuses until that team adds the value. That is intended
+(Matt, 2026-10-21): the refusal is loud and names the fix, so no base-side
+check or optional-first rule is added.
 
 ## Refusals
 
@@ -145,26 +175,34 @@ files that ask for it).
   or sections edit already shows as drift once compile reads those files.
 - `rt skills sync` already scopes `pack/` into what it stages.
 - A compiled verb's seam markers and `compiled:` metadata keep naming the
-  base fill (`acme-base:<fill>@org`). The anatomy and composition views
-  count a slot's lines from its source span; inserted sections change the
-  line count, so those views must count from the resolved text, not the
-  source span.
+  base fill (`acme-base:<fill>@org`).
+- An inserted section gets its own seam marker in the compiled file, in
+  the existing five-token shape:
+  `<!-- part: section source=<team pack>:pack/sections/<name>.md version=<team pack version> path=pack/sections/<name>.md lines=1-<n> -->`.
+  So `drift.ts` `partExtents`, `partsOnDisk`, the anatomy and composition
+  views and the console's `parseSeam` keep walking compiled files by seam
+  `lines=` counts. Each would otherwise cut a slot short when a multi-line
+  section makes it longer than its source span. Value markers are single
+  line and need nothing.
 
 ## Init
 
 `rt skills init` gains `--extends <base>`:
 
 1. Init writes `"extends": "<base>"` into the new fragment.
-2. It scans the base's bound fills and its copied `.md` attachments for
-   required markers and writes `pack/params.jsonc` with each required key
-   set to `""`, and an empty `pack/sections/<name>.md` for each required
-   section.
-3. When anything was seeded, it stops before compile with a needs-you
-   refusal (`params-missing`) listing the keys and sections, each with the
-   base file that asks for it. Re-running init after filling them in is
-   refused today (`pack-exists` only fires after a compile, which did not
-   happen), so the author runs `rt skills compile --pack <team>` to finish.
-4. With no required markers, init runs as it does today.
+2. After materialize (which writes the bindings that decide which base
+   fills apply), it finds the required markers as defined above and writes
+   `pack/params.jsonc` with each required key set to `""`, and an empty
+   `pack/sections/<name>.md` for each required section. Files that already
+   exist are left alone, as `renderPackFiles` does today.
+3. When any required value is still missing, it stops before compile with
+   a needs-you refusal (`params-missing`) listing the keys and sections,
+   each with the base file that asks for it.
+4. The author fills them in and runs the same `rt skills init` again. Init
+   resumes: `pack-exists` only fires once a pack has compiled, existing
+   files are not rewritten, and with nothing missing it carries on through
+   compile, check, the engine-floor admit, install and publish as usual.
+5. With no required markers, init runs as it does today.
 
 Without `--extends`, init is unchanged. Adding `extends` to an existing
 pack by hand is still allowed; its first compile then refuses with the
@@ -174,10 +212,14 @@ list above.
 
 A pack whose base text uses `{{team.*}}` needs an engine that resolves it.
 On an older rt, an inlined base fill refuses compile on the unknown marker
-(loud), but a copied attachment would pass the marker through (silent). So
-the release that ships this raises `minEngine` in
-`plugins/mattstack/pack/requires.json` to its own version, and the docs say
-an org adopts markers only once every member's app has it.
+(loud), but a copied attachment would pass the marker through (silent).
+
+The floor is raised only where it is needed: when a team pack's emitted
+base text uses any `{{team.*}}` marker, compile writes that pack's
+`pack/requires.json` `minEngine` as the higher of the mattstack floor and
+the release that ships this feature. Packs in orgs that never use markers
+keep today's floor. The mattstack plugin's own floor is not raised. The
+docs say an org adopts markers once every member's app has the release.
 
 ## Docs and skills to update
 
@@ -208,12 +250,15 @@ examples stay purity-clean.
 ## My calls (not discussed; check them)
 
 - `init` gets the base through a new `--extends <base>` flag; init has no
-  way to learn a base today.
+  way to learn a base today. Re-running init resumes after the stop.
+- "Required" means emitted by this pack's compile (effective bindings,
+  roster and pipelines), for both init and compile.
 - An unused param key warns instead of refusing.
 - Empty strings and whitespace-only sections count as missing.
-- A `{{team.*}}` marker outside base text, or in a copied non-`.md` file,
-  is a refusal rather than pass-through.
-- The release raises the engine floor to its own version.
+- A `{{team.*}}` marker outside base text, in a copied non-`.md` file, in
+  frontmatter, or nested in another marker is a refusal.
+- An inserted section gets its own five-token seam marker.
+- The engine floor rises only for packs whose base text uses markers.
 
 ## Left to the builder
 
