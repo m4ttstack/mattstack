@@ -57,7 +57,7 @@ def file_errs: [
       chk(optional("fileLabel"; str); "findings[\($i)].fileLabel: non-empty string when present"),
       chk(optional("fix"; str); "findings[\($i)].fix: non-empty string when present"),
       chk(optional("kind"; str); "findings[\($i)].kind: non-empty string when present"),
-      chk(optional("comment"; str); "findings[\($i)].comment: non-empty string when present")
+      chk(optional("comment"; non_blank); "findings[\($i)].comment: non-empty string when present")
     )),
   chk(optional("threads"; type == "array"); "threads: array when present"),
   (threads | to_entries[] | .key as $i | .value | (
@@ -88,7 +88,7 @@ def file_errs: [
 def draft_errs($f):
   if .editable != true then empty
   else
-    chk(all($f | entries[]; .comment | str); "editable: needs a comment on every finding"),
+    chk(all($f | entries[]; .comment | non_blank); "editable: needs a comment on every finding"),
     ([.questions | array_or_empty | .[] | select(type == "object" and .id == "outcome")] as $o
      | if ($o | length) == 0 then "editable: needs an outcome question for summary.comments to follow"
        else [$o[0].options | array_or_empty | .[] | if type == "object" then .value else . end] as $v

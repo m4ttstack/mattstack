@@ -249,6 +249,7 @@ run "$V3" "$X"
 check "a v3 file without drafts carries no draft keys" 'false|false|false' \
   "$(q '"\(.context | has("editable"))|\(.context | has("summaryComments"))|\(any(.questions[].context.findings?[]?; has("comment")))"')"
 M=$(mutate '.findings[2].comment = ""' "$D"); reject "an empty comment" "$M" "$X" "findings file: findings[2].comment: non-empty string when present"; rm -f "$M"
+M=$(mutate '.findings[2].comment = " \t "' "$D"); reject "a blank comment" "$M" "$X" "findings file: findings[2].comment: non-empty string when present"; rm -f "$M"
 M=$(mutate '.summary.comments.approve = 5' "$D"); reject "a numeric summary draft" "$M" "$X" "findings file: summary.comments: object of non-blank strings when present"; rm -f "$M"
 M=$(mutate '.summary.comments.comment = " \n "' "$D"); reject "a blank summary draft" "$M" "$X" "findings file: summary.comments: object of non-blank strings when present"; rm -f "$M"
 M=$(mutate '.editable = "yes"' "$X"); reject "editable as a string" "$D" "$M" "extras: editable: boolean when present"; rm -f "$M"

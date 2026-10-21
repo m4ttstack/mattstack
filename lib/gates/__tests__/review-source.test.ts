@@ -515,6 +515,7 @@ describe("drafted comments ride whole, board-only", () => {
   const LINES = "extras: editable: summary.comments needs exactly one line per outcome option: comment, approve";
   const rejects: [string, J, J, string][] = [
     ["an empty comment", mutated(DRAFTS, (j) => (j.findings[2].comment = "")), load(X), "findings file: findings[2].comment: non-empty string when present"],
+    ["a blank comment", mutated(DRAFTS, (j) => (j.findings[2].comment = " \t ")), load(X), "findings file: findings[2].comment: non-empty string when present"],
     ["summary drafts as a string", mutated(DRAFTS, (j) => (j.summary.comments = "hi")), load(X), "findings file: summary.comments: object of non-blank strings when present"],
     ["a numeric summary draft", mutated(DRAFTS, (j) => (j.summary.comments.approve = 5)), load(X), "findings file: summary.comments: object of non-blank strings when present"],
     ["a blank summary draft", mutated(DRAFTS, (j) => (j.summary.comments.comment = " \n ")), load(X), "findings file: summary.comments: object of non-blank strings when present"],
@@ -543,6 +544,17 @@ describe("drafted comments ride whole, board-only", () => {
     expect(errs(mutated(DRAFTS, (j) => (j.summary.comments.request_changes = "Needs work.")), load(X))).toBe(""));
   test("editable over a file with no findings needs only the summary drafts", () =>
     expect(errs(mutated(DRAFTS, (j) => (j.findings = [])), editable())).toBe(""));
+  test("a three-verdict GitHub gate carries all three summary drafts", () => {
+    const f = mutated(DRAFTS, (j) => (j.summary.comments.request_changes = "Two of these need a fix before this merges."));
+    const x = mutated(X, (j) => {
+      j.editable = true;
+      j.questions[0].options.push({ value: "request_changes", label: "request changes", description: "post the picked findings and request changes" });
+    });
+    expect(errs(f, x)).toBe("");
+    const o = build(f, x);
+    expect(Object.keys(o.context.summaryComments).sort()).toEqual(["approve", "comment", "request_changes"]);
+    expect(checkSource(o)).toEqual({ ok: true });
+  });
 });
 
 describe("truncation helpers", () => {

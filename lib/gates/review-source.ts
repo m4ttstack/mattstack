@@ -61,7 +61,7 @@ function findingErrs(e: unknown, i: number, v2: boolean): string[] {
     ...chk(() => optional(e, "fileLabel", str), `${p}.fileLabel: non-empty string when present`),
     ...chk(() => optional(e, "fix", str), `${p}.fix: non-empty string when present`),
     ...chk(() => optional(e, "kind", str), `${p}.kind: non-empty string when present`),
-    ...chk(() => optional(e, "comment", str), `${p}.comment: non-empty string when present`),
+    ...chk(() => optional(e, "comment", nonBlank), `${p}.comment: non-empty string when present`),
   ];
 }
 
@@ -138,7 +138,7 @@ function draftErrs(x: Obj, f: Obj): string[] {
   const outcome = arrayOrEmpty(at(x, "questions")).filter((q) => isObject(q) && at(q, "id") === "outcome");
   const values = outcome.length ? arrayOrEmpty(at(outcome[0], "options")).map((o) => (isObject(o) ? at(o, "value") : o)) : [];
   return [
-    ...chk(() => entries(f, "findings").every((e) => str(at(e, "comment"))), "editable: needs a comment on every finding"),
+    ...chk(() => entries(f, "findings").every((e) => nonBlank(at(e, "comment"))), "editable: needs a comment on every finding"),
     ...(outcome.length === 0
       ? ["editable: needs an outcome question for summary.comments to follow"]
       : chk(() => {
