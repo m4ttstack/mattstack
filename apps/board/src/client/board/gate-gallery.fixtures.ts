@@ -1115,8 +1115,12 @@ export const reviewPostDrafted: GalleryGate = {
     context: ctx({
       ...(JSON.parse(reviewPost.gate.context!) as Record<string, unknown>),
       editable: true,
-      summaryComment:
-        'Nice fix! The guard matches the root cause and the new test is red on main. A few small notes inline, nothing blocking.',
+      summaryComments: {
+        approve:
+          'Nice fix! The guard matches the root cause and the new test is red on main. A few small notes inline, nothing blocking. Approving, this is ready to merge.',
+        comment:
+          'Nice fix! The guard matches the root cause and the new test is red on main. A few small notes inline; I will come back for the merge call once they are in.',
+      },
     }),
     questions: radarReviewQuestions.map((q, i) =>
       i === 0

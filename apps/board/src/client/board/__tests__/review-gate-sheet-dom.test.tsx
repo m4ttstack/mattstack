@@ -1246,9 +1246,15 @@ describe('a gate whose poster honors edited drafts', () => {
     f4: 'Nit: this import is unused now.',
   };
   const SUMMARY = 'Thanks! One real issue inline, the rest are small.';
+  const SUMMARY_COMMENT =
+    'Thanks! One real issue inline; holding the merge call until it lands.';
 
   function draftsGate(
-    over: { editable?: boolean; round?: number } = {}
+    over: {
+      editable?: boolean;
+      round?: number;
+      summaryComments?: Record<string, string>;
+    } = {}
   ): GateRow {
     const editable = over.editable ?? true;
     return {
@@ -1259,7 +1265,10 @@ describe('a gate whose poster honors edited drafts', () => {
         findings: { critical: 1, important: 2, minor: 1 },
         ...(over.round !== undefined ? { round: over.round } : {}),
         ...(editable ? { editable: true } : {}),
-        summaryComment: SUMMARY,
+        summaryComments: over.summaryComments ?? {
+          approve: SUMMARY,
+          comment: SUMMARY_COMMENT,
+        },
       }),
       questions: [
         {
@@ -1380,6 +1389,82 @@ describe('a gate whose poster honors edited drafts', () => {
       value: 'approve',
       text: 'New summary.',
     });
+  });
+
+  const summaryLine = () =>
+    container.querySelector('.tui-review-summary [data-part="summary-line"]')!;
+
+  const pickVerdict = async (value: string) =>
+    click(
+      [...container.querySelectorAll('input[type=radio]')].find(
+        i => (i as HTMLInputElement).value === value
+      )!
+    );
+
+  test("the summary box shows the selected verdict's draft and swaps with the verdict", async () => {
+    await render(draftsGate());
+    expect(summaryLine().textContent).toContain(SUMMARY);
+    await pickVerdict('comment');
+    expect(summaryLine().textContent).toContain(SUMMARY_COMMENT);
+    expect(summaryLine().textContent).not.toContain(SUMMARY);
+  });
+
+  test('each verdict keeps its own edit: switching away and back restores it', async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), 'Approve, edited.');
+    await pickVerdict('comment');
+    expect(summaryLine().textContent).toContain(SUMMARY_COMMENT);
+    expect(summaryLine().textContent).not.toContain('Approve, edited.');
+    expect(
+      container.querySelector('.tui-review-summary .tui-thread-edited')
+    ).toBeNull();
+    await pickVerdict('approve');
+    expect(summaryLine().textContent).toContain('Approve, edited.');
+    expect(
+      container.querySelector('.tui-review-summary .tui-thread-edited')
+    ).not.toBeNull();
+  });
+
+  test('submitting under comment sends no approve edit', async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), 'Approve, edited.');
+    await pickVerdict('comment');
+    await click(submitButton());
+    expect(answers().outcome).toBe('comment');
+  });
+
+  test("the comment verdict's edit rides as text only when it differs from the comment draft", async () => {
+    await render(draftsGate());
+    await pickVerdict('comment');
+    await edit(summaryLine(), `  ${SUMMARY_COMMENT}\n`);
+    await click(submitButton());
+    expect(answers().outcome).toBe('comment');
+  });
+
+  test("the comment verdict's changed edit rides as text", async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), 'Approve, edited.');
+    await pickVerdict('comment');
+    await edit(summaryLine(), ' Comment, edited. ');
+    await click(submitButton());
+    expect(answers().outcome).toEqual({
+      value: 'comment',
+      text: 'Comment, edited.',
+    });
+  });
+
+  test('a blank summary edit blocks submit only while its verdict is selected', async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), '   ');
+    expect(submitButton().disabled).toBe(true);
+    await pickVerdict('comment');
+    expect(submitButton().disabled).toBe(false);
+  });
+
+  test('a summary draft missing for a verdict leaves the sheet read-only', async () => {
+    await render(draftsGate({ summaryComments: { approve: SUMMARY } }));
+    expect(container.querySelector('.tui-review-summary')).toBeNull();
+    expect(container.querySelector('.tui-thread-reply')).toBeNull();
   });
 
   test('a blank comment disables submit', async () => {

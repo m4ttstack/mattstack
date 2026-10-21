@@ -7,7 +7,7 @@ import {
   commentKey,
   draftEdits,
   hasDiffLine,
-  SUMMARY_KEY,
+  summaryKey,
 } from '../review-drafts.ts';
 
 const DRAFTS = {
@@ -16,7 +16,7 @@ const DRAFTS = {
     ['f2', 'Draft two.'],
     ['f5', 'Draft five.'],
   ]),
-  summary: 'Summary draft.',
+  summaries: { approve: 'Approve draft.', comment: 'Comment draft.' },
 };
 
 const QUESTIONS: GateQuestion[] = [
@@ -52,42 +52,101 @@ describe('draftEdits', () => {
 
   test('an edit that matches its draft once trimmed is dropped', () => {
     expect(
-      draftEdits(DRAFTS, ticked, {
-        [commentKey('f1')]: '  Draft one.\n',
-        [SUMMARY_KEY]: 'Summary draft. ',
-      })
+      draftEdits(
+        DRAFTS,
+        ticked,
+        {
+          [commentKey('f1')]: '  Draft one.\n',
+          [summaryKey('approve')]: 'Approve draft. ',
+        },
+        'approve'
+      )
     ).toEqual({ texts: {} });
   });
 
   test('a changed edit rides trimmed, keyed by finding id', () => {
     expect(
-      draftEdits(DRAFTS, ticked, {
-        [commentKey('f2')]: ' New two. ',
-        [SUMMARY_KEY]: 'New summary.',
-      })
+      draftEdits(
+        DRAFTS,
+        ticked,
+        {
+          [commentKey('f2')]: ' New two. ',
+          [summaryKey('approve')]: 'New summary.',
+        },
+        'approve'
+      )
     ).toEqual({ texts: { f2: 'New two.' }, summary: 'New summary.' });
   });
 
   test("an unticked finding's edit is dropped", () => {
     expect(
-      draftEdits(DRAFTS, new Set(['f1']), { [commentKey('f2')]: 'New two.' })
+      draftEdits(
+        DRAFTS,
+        new Set(['f1']),
+        { [commentKey('f2')]: 'New two.' },
+        'approve'
+      )
     ).toEqual({ texts: {} });
   });
 
   test("an unticked finding's blank edit does not block submit", () => {
     expect(
-      draftEdits(DRAFTS, new Set(['f1']), { [commentKey('f2')]: '  ' })
+      draftEdits(
+        DRAFTS,
+        new Set(['f1']),
+        { [commentKey('f2')]: '  ' },
+        'approve'
+      )
     ).toEqual({ texts: {} });
   });
 
   test('a blank ticked edit gives null', () => {
     expect(
-      draftEdits(DRAFTS, ticked, { [commentKey('f1')]: ' \n ' })
+      draftEdits(DRAFTS, ticked, { [commentKey('f1')]: ' \n ' }, 'approve')
     ).toBeNull();
   });
 
-  test('a blank summary edit gives null', () => {
-    expect(draftEdits(DRAFTS, ticked, { [SUMMARY_KEY]: '' })).toBeNull();
+  test("a blank edit of the selected verdict's summary gives null", () => {
+    expect(
+      draftEdits(DRAFTS, ticked, { [summaryKey('approve')]: '' }, 'approve')
+    ).toBeNull();
+  });
+
+  test("only the selected verdict's summary edit rides", () => {
+    expect(
+      draftEdits(
+        DRAFTS,
+        ticked,
+        {
+          [summaryKey('approve')]: 'Approve edit.',
+          [summaryKey('comment')]: 'Comment edit.',
+        },
+        'comment'
+      )
+    ).toEqual({ texts: {}, summary: 'Comment edit.' });
+  });
+
+  test("an unselected verdict's blank summary edit does not block submit", () => {
+    expect(
+      draftEdits(DRAFTS, ticked, { [summaryKey('approve')]: '  ' }, 'comment')
+    ).toEqual({ texts: {} });
+  });
+
+  test("a summary edit that matches the selected verdict's draft is dropped", () => {
+    expect(
+      draftEdits(
+        DRAFTS,
+        ticked,
+        { [summaryKey('comment')]: ' Comment draft.\n' },
+        'comment'
+      )
+    ).toEqual({ texts: {} });
+  });
+
+  test('with no verdict picked no summary edit rides', () => {
+    expect(
+      draftEdits(DRAFTS, ticked, { [summaryKey('approve')]: 'New.' }, undefined)
+    ).toEqual({ texts: {} });
   });
 });
 

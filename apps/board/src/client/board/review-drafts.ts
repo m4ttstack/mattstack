@@ -2,9 +2,10 @@ import type { GateAnswers, GateQuestion } from '@mattstack/gate-kit';
 import type { FindingEntry } from './gate-ctx.ts';
 import { isFindingsQuestion } from './review-gate.ts';
 
-/** Form text keys: one per finding's comment, one for the summary line. */
+/** Form text keys: one per finding's comment, one summary line per
+    verdict, so each verdict keeps its own edit. */
 export const commentKey = (findingId: string) => `comment:${findingId}`;
-export const SUMMARY_KEY = 'summary';
+export const summaryKey = (outcome: string) => `summary:${outcome}`;
 
 /** An inline comment needs both a file and a line; the gate joins them as
     `file:line`, so a bare file (or none) posts in the summary instead. */
@@ -18,12 +19,14 @@ export interface DraftEdits {
 }
 
 /** The trimmed edits that differ from their drafts, for ticked findings
-    only, keyed by finding id. Null when a ticked finding's edit, or the
-    summary edit, is blank: an empty comment cannot post. */
+    only, keyed by finding id, plus the selected verdict's summary edit.
+    Null when a ticked finding's edit, or the selected verdict's summary
+    edit, is blank: an empty comment cannot post. */
 export function draftEdits(
-  drafts: { findings: Map<string, string>; summary?: string },
+  drafts: { findings: Map<string, string>; summaries: Record<string, string> },
   ticked: Set<string>,
-  texts: Record<string, string>
+  texts: Record<string, string>,
+  outcome: string | undefined
 ): DraftEdits | null {
   const out: DraftEdits = { texts: {} };
   for (const [id, draft] of drafts.findings) {
@@ -34,11 +37,14 @@ export function draftEdits(
     if (trimmed === '') return null;
     if (trimmed !== draft.trim()) out.texts[id] = trimmed;
   }
-  const summaryEdit = texts[SUMMARY_KEY];
-  if (summaryEdit !== undefined && drafts.summary !== undefined) {
+  const summaryDraft =
+    outcome !== undefined ? drafts.summaries[outcome] : undefined;
+  const summaryEdit =
+    outcome !== undefined ? texts[summaryKey(outcome)] : undefined;
+  if (summaryEdit !== undefined && summaryDraft !== undefined) {
     const trimmed = summaryEdit.trim();
     if (trimmed === '') return null;
-    if (trimmed !== drafts.summary.trim()) out.summary = trimmed;
+    if (trimmed !== summaryDraft.trim()) out.summary = trimmed;
   }
   return out;
 }

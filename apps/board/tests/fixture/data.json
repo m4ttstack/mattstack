@@ -1583,7 +1583,7 @@
           "status": "open",
           "openedAt": 1755603000000,
           "domain": "review",
-          "context": "{\"gate-ctx\":\"review@1\",\"reviewer\":\"pat\",\"readiness\":\"with-fixes\",\"summary\":\"The separator still renders for a label-only tab, and nothing in the suite exercises that shape; the rest is housekeeping.\",\"findings\":{\"important\":2,\"minor\":3},\"round\":2,\"re_review\":true,\"prior\":{\"addressed\":2,\"still_open\":1},\"editable\":true,\"summaryComment\":\"Thanks for the quick turnaround! One real fix left on the separator check; the rest are small.\"}",
+          "context": "{\"gate-ctx\":\"review@1\",\"reviewer\":\"pat\",\"readiness\":\"with-fixes\",\"summary\":\"The separator still renders for a label-only tab, and nothing in the suite exercises that shape; the rest is housekeeping.\",\"findings\":{\"important\":2,\"minor\":3},\"round\":2,\"re_review\":true,\"prior\":{\"addressed\":2,\"still_open\":1},\"editable\":true,\"summaryComments\":{\"comment\":\"Thanks for the quick turnaround! One real fix left on the separator check; the rest are small.\",\"approve\":\"Thanks for the quick turnaround! Approving so you are not blocked; please fix the separator check before you merge. The rest are small.\"}}",
           "origin": {
             "paneId": "pane-1271",
             "tabId": "w16:t1",

@@ -73,7 +73,6 @@ export interface ReviewCtx {
   /** The poster posts the edited text, else the draft, so the sheet may
       offer the drafts for editing. */
   editable?: boolean;
-  summaryComment?: string;
   /** The drafted summary line per outcome option value. */
   summaryComments?: Record<string, string>;
 }
@@ -198,7 +197,9 @@ function optCount(v: unknown): number {
 
 function optStrMap(v: unknown): Record<string, string> | undefined {
   if (v === undefined) return undefined;
-  return Object.fromEntries(Object.entries(obj(v)).map(([k, s]) => [k, str(s)]));
+  return Object.fromEntries(
+    Object.entries(obj(v)).map(([k, s]) => [k, str(s)])
+  );
 }
 
 function optFlag(v: unknown): boolean {
@@ -304,7 +305,6 @@ function readReview(o: Obj): ReviewCtx {
   const round = optRound(o.round);
   const prior = o.prior === undefined ? undefined : obj(o.prior);
   const editable = optFlag(o.editable);
-  const summaryComment = optStr(o.summaryComment);
   const summaryComments = optStrMap(o.summaryComments);
   return {
     shape: 'review@1',
@@ -327,7 +327,6 @@ function readReview(o: Obj): ReviewCtx {
         }
       : {}),
     ...(editable ? { editable } : {}),
-    ...(summaryComment !== undefined ? { summaryComment } : {}),
     ...(summaryComments !== undefined ? { summaryComments } : {}),
   };
 }

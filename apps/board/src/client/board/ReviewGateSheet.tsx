@@ -33,7 +33,7 @@ import {
   commentKey,
   draftEdits,
   hasDiffLine,
-  SUMMARY_KEY,
+  summaryKey,
 } from './review-drafts.ts';
 import {
   readinessProse,
@@ -212,36 +212,49 @@ function severityGroups(
 }
 
 /** The drafts the poster falls back to, or null when the gate does not
-    promise to post edits or any draft is missing: the sheet then offers
-    no editing at all. */
+    promise to post edits or any draft is missing (a finding's comment, or
+    the summary line for any verdict): the sheet then offers no editing at
+    all. */
 function readDrafts(
-  review: { editable?: boolean; summaryComment?: string } | undefined,
-  findings: FindingEntry[]
-): { findings: Map<string, string>; summary: string } | null {
-  if (!review?.editable || review.summaryComment === undefined) return null;
+  review:
+    | { editable?: boolean; summaryComments?: Record<string, string> }
+    | undefined,
+  findings: FindingEntry[],
+  outcome: GateQuestion | undefined
+): {
+  findings: Map<string, string>;
+  summaries: Record<string, string>;
+} | null {
+  const summaries = review?.summaryComments;
+  if (!review?.editable || !summaries || !outcome) return null;
+  if (outcome.options.some(o => summaries[optionValue(o)] === undefined))
+    return null;
   const map = new Map<string, string>();
   for (const f of findings) {
     if (f.comment === undefined) return null;
     map.set(f.id, f.comment);
   }
-  return { findings: map, summary: review.summaryComment };
+  return { findings: map, summaries };
 }
 
 /** The review's summary note as it will post (`joinSummary`): the summary
     line, then each ticked finding with no diff line, each its own box. */
 function SummaryCard({
   target,
+  outcome,
   draft,
   folded,
   form,
 }: {
   target?: string;
+  outcome: string;
   draft: string;
   folded: FindingEntry[];
   form: GateFormState;
 }) {
+  const key = summaryKey(outcome);
   const edited =
-    editedText(SUMMARY_KEY, draft, form.texts) ||
+    editedText(key, draft, form.texts) ||
     folded.some(f => editedText(commentKey(f.id), f.comment!, form.texts));
   return (
     <section
@@ -261,14 +274,15 @@ function SummaryCard({
       </div>
       <div data-part="summary-line">
         <EditableReply
+          key={key}
           label="Summary comment"
           noun="comment"
           heading="will post as the review summary"
           draft={draft}
-          value={form.texts[SUMMARY_KEY]}
+          value={form.texts[key]}
           canEdit
-          onChange={t => form.setText(SUMMARY_KEY, t)}
-          onReset={() => form.clearText(SUMMARY_KEY)}
+          onChange={t => form.setText(key, t)}
+          onReset={() => form.clearText(key)}
         />
       </div>
       {folded.map(f => (
@@ -416,19 +430,23 @@ function ReviewGateSheet({
   const replyTexts = carryoverTexts(carryovers, form.selections, form.texts);
   const postingFindings = selectedFindings.size + selectedSkipped.size;
   const drafts = useMemo(
-    () => readDrafts(data?.review, findings),
-    [data, findings]
+    () => readDrafts(data?.review, findings, outcomeQuestion),
+    [data, findings, outcomeQuestion]
   );
+  const selectedOutcome = outcomeName
+    ? form.selections[outcomeName]
+    : undefined;
+  const verdict =
+    typeof selectedOutcome === 'string' ? selectedOutcome : undefined;
+  const summaryDraft =
+    drafts && verdict !== undefined ? drafts.summaries[verdict] : undefined;
   const edits = drafts
-    ? draftEdits(drafts, selectedFindings, form.texts)
+    ? draftEdits(drafts, selectedFindings, form.texts, verdict)
     : { texts: {} };
   const folded = drafts
     ? findings.filter(f => selectedFindings.has(f.id) && !hasDiffLine(f))
     : [];
   const postingComments = postingFindings - folded.length;
-  const selectedOutcome = outcomeName
-    ? form.selections[outcomeName]
-    : undefined;
   const outcomeText =
     outcomeQuestion && typeof selectedOutcome === 'string'
       ? displayForValue(selectedOutcome, outcomeQuestion.options).text
@@ -580,10 +598,11 @@ function ReviewGateSheet({
           {review.round !== undefined && (
             <RoundHeading round={review.round} summary={roundSummary} />
           )}
-          {drafts && (
+          {verdict !== undefined && summaryDraft !== undefined && (
             <SummaryCard
               target={mr && mrRef(mr)}
-              draft={drafts.summary}
+              outcome={verdict}
+              draft={summaryDraft}
               folded={folded}
               form={form}
             />
