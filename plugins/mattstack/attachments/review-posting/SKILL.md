@@ -100,11 +100,13 @@ restored): no inline threads, post only the summary. Under Approve with nothing 
 the issue list and just approve with a brief note; on GitLab that note is
 the `summary` of the one submitted review, with the approve outcome.
 
-**Drafted reviews.** When the report json carries drafts (`summary` has a
-`comment`, which a gate's `editable: true` requires), nothing is composed
-here. The summary is exactly the caller's joined summary: the summary
-line, then each selected finding with no diff line, its text, each
-preceded by one blank line. Write no Strengths, Assessment or issue list
+**Drafted reviews.** When the report json carries drafts (`summary` has
+`comments`, one line per verdict, which a gate's `editable: true`
+requires), nothing is composed here. The summary is exactly the caller's
+joined summary: the summary line (the human's edit, else the line drafted
+for the chosen disposition), then each selected finding with no diff
+line, its text, each preceded by one blank line. Write no Strengths,
+Assessment or issue list
 around it. Every comment posts the human's edit, else its draft, word for
 word. The json is the test, never the extras: a board's posting pane
 never sees the extras. A restored finding that lives in the summary
@@ -147,8 +149,9 @@ is being withheld pending the noted items. Only an approving disposition may
 carry an unqualified all-clear.
 
 The rule shapes text while it is being written: the summary composed
-here, or a drafted summary line before the gate. Text a human saw on the
-gate, edited or not, posts as it stands; this rule never rewrites it.
+here, or each drafted summary line before the gate, by its own verdict.
+Text a human saw on the gate, edited or not, posts as it stands; this
+rule never rewrites it.
 
 ## Close HARD-GATE
 

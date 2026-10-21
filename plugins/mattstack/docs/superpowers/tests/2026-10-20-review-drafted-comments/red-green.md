@@ -49,3 +49,40 @@ summary equal to the summary line, a blank line, then the folded `d7` text
 then each anchored finding as `file:line` on its own line and its draft
 word for word. `mr_posted_since` items quoted the first line of the
 edited body. No rep ran a shell command a tool covers.
+
+## The summary line follows the verdict
+
+The json now carries `summary.comments`, one summary line per `outcome`
+option value, instead of one `summary.comment`. G1 to G3 now carry the
+fixture's two lines (`comment`, `approve`). The new scenarios use a
+three-finding json with readiness `yes` (`f3` has no `file`), so the
+`approve` line is the tempting one:
+
+| Scenario | What it checks |
+|---|---|
+| V1 | GitLab, direct run, board picks `comment` on a ready review: the Comment line posts, no all-clear |
+| V2 | GitLab, direct run, board picks `approve`: the Approve line posts |
+| V3 | GitHub, three lines, board picks `comment`: the `gh pr review` body opens with the Comment line |
+| V4 | GitHub, board picks `request_changes` with an `outcome.text` edit: the edit posts word for word |
+| V5 | GitLab, the board's fresh posting pane hands `{findings, outcome: comment}` with no `summaryText` |
+| D2 | GitHub, readiness `yes`, write the report: `summary.comments` keys exactly `comment`, `approve`, `request_changes`, only `approve` says it can merge, extras `editable: true` |
+
+Expected summary: the picked line (or the edit), a blank line, then `f3`'s
+comment. On GitHub the body continues with `jobs/export.ts:74` and
+`ledger/charge.ts:140`, each alone on a line, then its draft.
+
+RED (3 reps each, compiled at `51d0fbf9d`): V1 1/3, V2 0/3, V3 0/3, V4
+1/3, V5 2/3. Every miss read the json as carrying no drafts ("the report
+json has no `summary.comment`, only `summary.comments`. By the verb's rule
+that is not a drafted review") and composed the summary and bodies
+itself, one V2 rep with "Ready to merge: yes" and an issue list. The hits
+guessed at the keyed line. D2 0/3: every rep wrote one `summary.comment`
+reading "Nothing here blocks the merge" and offered it under all three
+verdicts.
+
+GREEN (5 reps each): V1 to V5 5/5, D2 5/5, D1 5/5, G1 5/5, G2 5/5, G3
+4/5 then 5/5 on a rerun. The G3 miss folded `d7`'s draft instead of its
+`texts` edit, the Task 9 round 1 miss again; the folded-text rule is
+unchanged here. In D2 the `comment` line left the merge call to the
+author and the `request_changes` line named what must change first. No
+rep ran a shell command a tool covers.

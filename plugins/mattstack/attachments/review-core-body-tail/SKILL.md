@@ -45,10 +45,12 @@ draft exactly (never re-judged). It is version 3 of this file:
   never paraphrased.
 - Drafted comments, only when the caller asks for drafts (the review verb
   asks; with no such ask, as in self-review, neither key is written):
-  `comment` on every finding and `summary.comment`, each the exact text
+  `comment` on every finding and `summary.comments`, each the exact text
   that posts, written in the loaded writing-style voice. A finding's
-  `comment` is its whole comment; `summary.comment` is the review's whole
-  summary line. Both are optional and additive, so the file stays
+  `comment` is its whole comment. `summary.comments` maps each verdict
+  the caller's gate offers (the option values of its `outcome`
+  question, which the caller names) to the review's whole summary line
+  for that verdict. Both are optional and additive, so the file stays
   version 3 and a file without them reads as before.
 - Re-review passes only (the caller framed the review as a re-review):
   `re_review: true`, and `threads`: one entry per earlier thread the
