@@ -53,7 +53,7 @@ def file_errs: [
       chk(optional("evidence"; str); "findings[\($i)].evidence: non-empty string when present"),
       chk(optional("disposition"; among(["new","still-open","addressed-check"])); "findings[\($i)].disposition: new|still-open|addressed-check"),
       chk(optional("file"; str); "findings[\($i)].file: non-empty string when present"),
-      chk(optional("line"; int); "findings[\($i)].line: integer when present"),
+      chk(optional("line"; pos); "findings[\($i)].line: integer of at least 1 when present"),
       chk(optional("fileLabel"; str); "findings[\($i)].fileLabel: non-empty string when present"),
       chk(optional("fix"; str); "findings[\($i)].fix: non-empty string when present"),
       chk(optional("kind"; str); "findings[\($i)].kind: non-empty string when present"),

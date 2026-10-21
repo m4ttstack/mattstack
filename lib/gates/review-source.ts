@@ -57,7 +57,7 @@ function findingErrs(e: unknown, i: number, v2: boolean): string[] {
       `${p}.disposition: new|still-open|addressed-check`,
     ),
     ...chk(() => optional(e, "file", str), `${p}.file: non-empty string when present`),
-    ...chk(() => optional(e, "line", int), `${p}.line: integer when present`),
+    ...chk(() => optional(e, "line", atLeastOne), `${p}.line: integer of at least 1 when present`),
     ...chk(() => optional(e, "fileLabel", str), `${p}.fileLabel: non-empty string when present`),
     ...chk(() => optional(e, "fix", str), `${p}.fix: non-empty string when present`),
     ...chk(() => optional(e, "kind", str), `${p}.kind: non-empty string when present`),

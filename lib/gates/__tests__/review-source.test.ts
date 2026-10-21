@@ -224,6 +224,22 @@ describe("contract violations: one line per problem", () => {
       "findings file: findings[0].disposition: new|still-open|addressed-check",
     ],
     [
+      "line below 1",
+      mutated(V2, (j) => {
+        j.findings[0].line = 0;
+      }),
+      load(X),
+      "findings file: findings[0].line: integer of at least 1 when present",
+    ],
+    [
+      "negative line",
+      mutated(V2, (j) => {
+        j.findings[0].line = -3;
+      }),
+      load(X),
+      "findings file: findings[0].line: integer of at least 1 when present",
+    ],
+    [
       "spaced readiness",
       mutated(V2, (j) => {
         j.summary.readiness = "with fixes";

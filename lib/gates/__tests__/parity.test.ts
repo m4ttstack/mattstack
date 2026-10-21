@@ -77,6 +77,8 @@ const RS_CASES: RsCase[] = [
       ["v2 lowercase tier", "findings-v2", '.findings[0].tier = "minor"'],
       ["v2 duplicate id", "findings-v2", '.findings[1].id = "f1"'],
       ["v2 disposition outside the enum", "findings-v2", '.findings[0].disposition = "open"'],
+      ["v2 line below 1", "findings-v2", ".findings[0].line = 0"],
+      ["v2 negative line", "findings-v2", ".findings[0].line = -3"],
       ["v2 spaced readiness", "findings-v2", '.summary.readiness = "with fixes"'],
       [
         "v3 seven long threads",

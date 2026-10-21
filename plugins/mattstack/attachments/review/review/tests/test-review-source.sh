@@ -100,6 +100,8 @@ M=$(mutate '.version = 4' "$V2"); reject "unknown version" "$M" "$X" "findings f
 M=$(mutate '.findings[0].tier = "minor"' "$V2"); reject "lowercase tier" "$M" "$X" "findings file: findings[0].tier: Critical|Important|Minor"; rm -f "$M"
 M=$(mutate '.findings[1].id = "f1"' "$V2"); reject "duplicate id" "$M" "$X" "findings file: findings: id f1 appears more than once"; rm -f "$M"
 M=$(mutate '.findings[0].disposition = "open"' "$V2"); reject "disposition outside the enum" "$M" "$X" "findings file: findings[0].disposition: new|still-open|addressed-check"; rm -f "$M"
+M=$(mutate '.findings[0].line = 0' "$V2"); reject "line below 1" "$M" "$X" "findings file: findings[0].line: integer of at least 1 when present"; rm -f "$M"
+M=$(mutate '.findings[0].line = -3' "$V2"); reject "negative line" "$M" "$X" "findings file: findings[0].line: integer of at least 1 when present"; rm -f "$M"
 M=$(mutate '.summary.readiness = "with fixes"' "$V2"); reject "spaced readiness" "$M" "$X" "findings file: summary.readiness: yes|no|with-fixes"; rm -f "$M"
 M=$(mutate 'del(.target)' "$X"); reject "extras without a target" "$V2" "$M" "extras: target: required non-empty string"; rm -f "$M"
 M=$(mutate '.round = 0' "$X"); reject "round below 1" "$V2" "$M" "extras: round: integer of at least 1 when present"; rm -f "$M"
