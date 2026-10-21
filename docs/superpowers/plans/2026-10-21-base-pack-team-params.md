@@ -161,7 +161,7 @@
   - `unused key does not warn under --verb`.
   - `a pack with no params and no markers compiles byte-identical` (Review Focus 3): compile before and after this feature on the fixture gives equal files.
   - `requiredness follows each emitted target` (Review Focus 4): a stage copy whose pipeline override is a team fill does not require that base fill's markers, and the default stage does.
-  - `unused key warns`.
+  - `unused key warns on a full compile`.
   - `floor rises only with team markers`: `skills-floor.test.ts`, both cases.
   - `check reports a params edit as drift`: compile, edit `pack/params.jsonc`, run check, and the verb is stale.
 - [ ] **Step 2: Run** the three test files. Expected: new tests FAIL.
