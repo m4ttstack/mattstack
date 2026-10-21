@@ -72,6 +72,7 @@ afterEach(() => {
 
 const deps = (): EvidenceToolDeps => ({
   ...realEvidenceToolDeps,
+  foldScreenshots: () => false,
   guard: noGuard,
   home: () => home,
   uid: () => null,
