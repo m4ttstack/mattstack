@@ -3,7 +3,7 @@ import { mkdirSync } from "fs";
 import type { Server } from "bun";
 import { startSocketServer } from "../socket-server.ts";
 import { DAEMON_SOCK_PATH, RT_DIR } from "../../daemon-config.ts";
-import { MAX_REQUEST_BODY_SIZE } from "../request-limits.ts";
+import { GATE_REQUEST_LIMIT_BYTES, MAX_REQUEST_BODY_SIZE } from "../request-limits.ts";
 
 type HandleCommand = (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
 
@@ -108,4 +108,56 @@ describe("startSocketServer: request body size cap", () => {
       expect(calls).toEqual([]);
     });
   });
+
+  test("a gate:open body of about 5 MB reaches handleCommand", async () => {
+    const calls: string[] = [];
+    const handleCommand: HandleCommand = async (cmd) => {
+      calls.push(cmd);
+      return { ok: true };
+    };
+    await withSocketServer(handleCommand, async () => {
+      const res = await fetch("http://localhost/gate:open", {
+        unix: DAEMON_SOCK_PATH,
+        method: "POST",
+        body: JSON.stringify({ context: "x".repeat(5 * 1024 * 1024) }),
+      });
+      expect(res.status).toBe(200);
+      expect(calls).toEqual(["gate:open"]);
+    });
+  });
+
+  test("a gate:ask body over GATE_REQUEST_LIMIT_BYTES is refused with 413 before handleCommand runs", async () => {
+    const calls: string[] = [];
+    const handleCommand: HandleCommand = async (cmd) => {
+      calls.push(cmd);
+      return { ok: true };
+    };
+    await withSocketServer(handleCommand, async () => {
+      const res = await fetch("http://localhost/gate:ask", {
+        unix: DAEMON_SOCK_PATH,
+        method: "POST",
+        body: JSON.stringify({ context: "x".repeat(GATE_REQUEST_LIMIT_BYTES + 1024 * 1024) }),
+      });
+      expect(res.status).toBe(413);
+      expect(calls).toEqual([]);
+    });
+  });
+
+  test("a non-gate request of 2 MiB is still refused with 413", async () => {
+    const calls: string[] = [];
+    const handleCommand: HandleCommand = async (cmd) => {
+      calls.push(cmd);
+      return { ok: true };
+    };
+    await withSocketServer(handleCommand, async () => {
+      const res = await fetch("http://localhost/cache:refresh", {
+        unix: DAEMON_SOCK_PATH,
+        method: "POST",
+        body: JSON.stringify({ x: "x".repeat(2 * 1024 * 1024) }),
+      });
+      expect(res.status).toBe(413);
+      expect(calls).toEqual([]);
+    });
+  });
+
 });

@@ -10,7 +10,7 @@ import type { Server } from "bun";
 import type { Logger } from "pino";
 import { DAEMON_SOCK_PATH } from "../daemon-config.ts";
 import { deriveFailure } from "./failure.ts";
-import { MAX_REQUEST_BODY_SIZE } from "./request-limits.ts";
+import { GATE_REQUEST_LIMIT_BYTES, readCommandBody } from "./request-limits.ts";
 
 export function startSocketServer(opts: {
   handleCommand: (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
@@ -37,7 +37,7 @@ export function startSocketServer(opts: {
     // on how long an idle connection may sit before Bun kills it — it never
     // holds connections open on its own.
     idleTimeout: 255,
-    maxRequestBodySize: MAX_REQUEST_BODY_SIZE,
+    maxRequestBodySize: GATE_REQUEST_LIMIT_BYTES,
     async fetch(req: Request) {
       try {
         const url = new URL(req.url);
@@ -45,7 +45,9 @@ export function startSocketServer(opts: {
 
         let payload: any = {};
         if (req.method === "POST") {
-          try { payload = await req.json(); } catch { /* empty body is fine */ }
+          const body = await readCommandBody(req, cmd);
+          if ("refused" in body) return body.refused;
+          payload = body.payload;
         }
 
         const client = req.headers.get("x-rt-client");

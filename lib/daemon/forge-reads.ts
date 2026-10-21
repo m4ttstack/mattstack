@@ -220,7 +220,7 @@ const headerNumber = (res: Response, name: string): number | null => {
 };
 
 /** Stops pulling once more than the cap has arrived, so a huge response never sits in memory. */
-async function readCapped(res: Response, max = FORGE_GET_MAX_BYTES): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+export async function readCapped(res: Response, max = FORGE_GET_MAX_BYTES): Promise<{ bytes: Uint8Array; truncated: boolean }> {
   if (!res.body) return { bytes: new Uint8Array(0), truncated: false };
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];

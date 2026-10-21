@@ -16,6 +16,7 @@ import {
   DecisionQueueModal,
   type TriageGateState,
 } from './DecisionQueueModal.tsx';
+import { DiffSourceContext, noDiffSource } from './diff-source.ts';
 import * as G from './gate-gallery.fixtures.ts';
 import { boardPeople, PeopleProvider } from './people.ts';
 
@@ -90,23 +91,25 @@ function Face({
   });
   return (
     <PeopleProvider value={people}>
-      <DecisionQueueModal
-        gate={entry.gate}
-        mr={entry.mr}
-        position={position}
-        states={pips(position, total)}
-        nextPeek={
-          position < total
-            ? '!739 · sensors summary chip shows a count'
-            : undefined
-        }
-        onClose={noop}
-        onNext={noop}
-        onBack={noop}
-        onFocusPane={noop}
-        onAnswered={noop}
-        onContinue={noop}
-      />
+      <DiffSourceContext.Provider value={entry.diffs ?? noDiffSource}>
+        <DecisionQueueModal
+          gate={entry.gate}
+          mr={entry.mr}
+          position={position}
+          states={pips(position, total)}
+          nextPeek={
+            position < total
+              ? '!739 · sensors summary chip shows a count'
+              : undefined
+          }
+          onClose={noop}
+          onNext={noop}
+          onBack={noop}
+          onFocusPane={noop}
+          onAnswered={noop}
+          onContinue={noop}
+        />
+      </DiffSourceContext.Provider>
     </PeopleProvider>
   );
 }
@@ -142,6 +145,15 @@ export const RespondPost = face(
   'Respond: post, structured (post@1, reply@1)',
   G.respondPost
 );
+export const RespondPostRichPreview: Story = {
+  ...face('Respond: post, a rich reply in Preview', G.respondPostRich),
+  play: async ({ canvasElement }) => {
+    const tabs = await within(canvasElement).findAllByRole('button', {
+      name: 'Preview',
+    });
+    await userEvent.click(tabs[2]!);
+  },
+};
 export const RespondPostLongReplies = face(
   'Respond: post, long replies, no fixes',
   G.respondPostLongReplies
@@ -160,6 +172,48 @@ export const RespondPostNoContext = face(
 export const ReviewPost = face(
   'Review: post, structured (review@1, findings@1)',
   G.reviewPost
+);
+export const ReviewPostDrafted = face(
+  'Review: post, drafted comments (editable)',
+  G.reviewPostDrafted
+);
+export const ReviewPostDraftedFullDiff: Story = {
+  ...face('Review: post, drafted, full file diff open', G.reviewPostDrafted),
+  play: async ({ canvasElement }) => {
+    const [open] = await within(canvasElement).findAllByRole('button', {
+      name: /view full diff/,
+    });
+    await userEvent.click(open!);
+  },
+};
+export const ReviewPostDraftedPreview: Story = {
+  ...face('Review: post, drafted, a comment in Preview', G.reviewPostDrafted),
+  play: async ({ canvasElement }) => {
+    const [preview] = await within(canvasElement).findAllByRole('button', {
+      name: 'Preview',
+    });
+    await userEvent.click(preview!);
+  },
+};
+export const ReviewPostDraftedRichPreview: Story = {
+  ...face(
+    'Review: post, drafted, a rich comment in Preview',
+    G.reviewPostDraftedRich
+  ),
+  play: async ({ canvasElement }) => {
+    const [preview] = await within(canvasElement).findAllByRole('button', {
+      name: 'Preview',
+    });
+    await userEvent.click(preview!);
+  },
+};
+export const ReviewPostDraftedHeldBack = face(
+  'Review: post, drafted, a diff too large to show and one that failed',
+  G.reviewPostDraftedHeldBack
+);
+export const ReviewPostDraftedGitHub = face(
+  'Review: post, drafted, GitHub with three verdicts',
+  G.reviewPostDraftedGitHub
 );
 export const ReviewPostVerdictOnly = face(
   'Review: post, prose, verdict only',

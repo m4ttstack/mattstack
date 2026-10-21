@@ -292,10 +292,9 @@ hand back row's label (its first letter lowercased) and the description
 
 `--context` quotes both errors verbatim (the first refusal and the one
 after the fix) with the call that was refused. Never send an empty
-context. It shares the gate's 8192 UTF-8 byte budget like Gate 1's and
-Gate 2's; an oversized one is dropped loudly by the daemon, so never
-pre-trim it yourself. A nonzero open exit is not itself an off-script
-origin: it is `Off-script gate unavailable (respond)`.
+context. The gate stores it whole at any size, like Gate 1's and Gate
+2's, so never pre-trim it yourself. A nonzero open exit is not itself
+an off-script origin: it is `Off-script gate unavailable (respond)`.
 
 ### respond-escalation: take the respond gate step
 
@@ -343,10 +342,11 @@ it with `open-gate.sh` and the gate's kind, never re-ordered, trimmed or
 hand-edited. Two cases refit it from the source beside it instead
 ("Gate context"): triage dropped a row from it, or `--person` is set and
 the source's gate `reviewer` is someone else. The script prints the same JSON line as `gate
-open`, with `"contextOmitted": true` added when the daemon dropped the
-question contexts, and exits with its status. A `fits: false` file is
-still over the shared context budget; the script drops whole question
-contexts, largest first, until it fits, so the file goes in untouched. A
+open` and exits with its status. The gate stores every context whole; the
+file's `pane` key is the prose the pane form shows, already fitted to the
+pane budget (see "Fitted files" in `gate-step.md`), and a file whose `pane`
+reads `contextDropped: true` left some question context out of the pane
+form. The file goes in untouched. A
 Gate 2 file ends with a pane-only `next` navigation question this wrapper
 does not ask; the script drops it.
 
@@ -503,10 +503,11 @@ a value string.
 so every surface shows the quote and draft WITH the question it belongs
 to. The gate context (plan@1 or post@1; on the plain open, `--context`)
 carries only what is shared across threads. It and every question
-`context` share one 8192 UTF-8 byte budget. Send them whole: `gate_open`
-and the daemon fit or drop an oversized context loudly, not you, and the
-open's output then carries `"contextOmitted": true` or the file `fits:
-false`. Never pre-trim or drop a context yourself.
+`context` are stored whole, with no size limit. Only the pane form's
+prose has a budget (8192 UTF-8 bytes): `gate_open` fits it into the open
+file's `pane` key, not you, and the `pane` then reads `contextDropped:
+true` when it left a whole context out. Never pre-trim or drop a context
+yourself.
 
 **Legacy Gate 2 shape.** A Gate 2 opened before this shape (a `replies`
 multi, or its `replies-1`, `replies-2`, ... chunks, of bare thread ids plus
@@ -551,9 +552,9 @@ A card did not show its reply when:
 
 - the verdict table recommended `fix` or `skip` (the card showed a fix
   direction or nothing);
-- its question context never reached the gate: the open was a `fits:
-  false` file or its output flagged `contextOmitted` (then count every
-  question's context as dropped);
+- its question context never reached the pane form: the open file's
+  `pane` reads `contextDropped: true` (then count every question's
+  context as dropped);
 - on a resume, `--report` carries the line `gate-1-context: dropped`
   (count every question's context as dropped).
 

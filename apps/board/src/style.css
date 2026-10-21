@@ -2397,9 +2397,8 @@ body {
   text-transform: uppercase;
   color: var(--text-2);
 }
-/* The post step's outcome chip holds the card head's right edge; the
-   edited mark rides beside it at the same size. */
-.tui-respond-chip:is(.tui-thread-outcome, .tui-thread-edited) {
+/* The post step's outcome chip holds the card head's right edge. */
+.tui-respond-chip.tui-thread-outcome {
   flex-shrink: 0;
   padding: 4px 12px;
   font-size: 13px;
@@ -2420,41 +2419,32 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 18px;
 }
 .tui-post-tick {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--card);
   font-size: 13px;
-  font-weight: 500;
   color: var(--text-1);
   cursor: pointer;
   user-select: none;
-  transition:
-    background-color 120ms,
-    border-color 120ms;
 }
-.tui-post-tick:hover {
-  background: color-mix(in srgb, var(--fg) 4%, var(--card));
-}
-.tui-post-tick[data-checked] {
-  border-color: var(--fill-accent);
-  background: color-mix(in srgb, var(--fill-accent) 10%, var(--card));
+/* Resolving without a reply is the rarer call, so while the reply is held
+   its tick steps back. */
+.tui-post-tick[data-quiet] {
+  color: var(--text-2);
 }
 .tui-post-tick:has(input:focus-visible) {
   outline: 2px solid var(--fill-accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 .tui-post-tick .tui-gate-choice-input {
   width: 14px;
   height: 14px;
 }
-/* The resolve tick is painted with the on-fill token through a mask, so it
+/* The tick is painted with the on-fill token through a mask, so it
    follows the fill it sits on in either scheme. */
 .tui-check {
   position: relative;
@@ -2493,76 +2483,6 @@ body {
 }
 .tui-thread-verdict-note {
   color: var(--text-2);
-}
-/* The reply box: green when it holds the exact text that will be posted,
-   neutral when it only holds the intent of a reply. */
-.tui-thread-reply {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--fill-ok) 12%, transparent);
-}
-.tui-thread-reply[data-kind='direction'] {
-  background: color-mix(in srgb, var(--fg) 5%, transparent);
-}
-.tui-thread-reply-k {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-ok-small);
-}
-.tui-thread-reply[data-kind='direction'] .tui-thread-reply-k,
-.tui-thread-reply[data-held] .tui-thread-reply-k {
-  color: var(--text-2);
-}
-.tui-thread-reply-text {
-  font-size: 14px;
-}
-/* Held: the reply stays readable but stops looking like it will post. */
-.tui-thread-reply[data-held] {
-  background: color-mix(in srgb, var(--fg) 5%, transparent);
-}
-.tui-thread-reply[data-held] .tui-thread-reply-text {
-  color: var(--text-2);
-}
-/* The margins undo the padding plus border, so the words sit exactly where
-   the resting reply drew them and opening the box moves nothing. */
-.tui-thread-reply-input {
-  width: calc(100% + 18px);
-  box-sizing: border-box;
-  margin: -4px -9px;
-  padding: 3px 8px;
-  font: inherit;
-  color: var(--text-1);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  resize: none;
-  overflow: hidden;
-}
-/* Drawn over the border, inside the box: outside it, the ring would crowd
-   the label above and the reply fill's edge. */
-.tui-thread-reply-input:focus-visible {
-  outline: 2px solid var(--fill-accent);
-  outline-offset: -2px;
-}
-.tui-thread-reply-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 2px;
-}
-.tui-thread-reply-controls {
-  margin-left: auto;
-}
-/* Holds the edit button's place while the reply is held, so holding and
-   posting never change the card's height. */
-.tui-thread-reply-placeholder {
-  visibility: hidden;
 }
 /* A respond-post reply option carries the full reply text, so the box
    tops its checkbox against the first line instead of centring it. */
@@ -4140,6 +4060,719 @@ a.tui-id-card-ref:focus-visible {
   content: '→' / '';
   font-weight: 600;
   color: var(--text-accent);
+}
+/* A finding whose comment the board posts is one card: its header, then
+   The Code, the agent's finding and the comment, each under its own label.
+   Unticked, only the header stays. */
+.tui-review-find-list[data-drafts] .tui-review-tier-pill {
+  padding: 3px 10px;
+  font-size: 13px;
+}
+.tui-review-tier-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 16px;
+}
+.tui-review-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+.tui-review-card[data-off] {
+  border-color: var(--border-soft);
+}
+.tui-review-finding[data-off] .tui-review-finding-title {
+  color: var(--text-3);
+}
+.tui-review-finding-row.tui-review-card-head {
+  align-items: center;
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 7px;
+}
+.tui-review-card:not([data-off]) .tui-review-card-head {
+  border-radius: 7px 7px 0 0;
+}
+.tui-review-card-head .tui-gate-choice-input {
+  margin-top: 0;
+}
+.tui-review-card-head .tui-review-finding-title {
+  font-size: 14px;
+}
+.tui-review-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.tui-review-section[data-section='code'] {
+  padding-top: 2px;
+  border-top: none;
+}
+.tui-review-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 20px;
+}
+.tui-review-section-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.tui-review-section-name[data-hue='accent'] {
+  color: var(--text-accent);
+}
+.tui-review-section-name[data-hue='ok'] {
+  color: var(--text-ok);
+}
+.tui-review-section-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tui-review-section-body {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+  max-width: 140ch;
+}
+.tui-review-section-body [data-part='markdown'] > * {
+  margin: 0;
+}
+.tui-review-section-body [data-part='markdown'] > * + * {
+  margin-top: 6px;
+}
+.tui-review-section-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.tui-review-section-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-accent-small);
+  text-decoration: none;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .tui-review-section-link:hover {
+    text-decoration: underline;
+  }
+}
+.tui-review-section-link:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* The comment that posts: a plain field the agent drafted, teal once it
+   takes focus or an edit, with the Markdown note and the tabs under it. */
+.tui-review-comment-field {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  overflow: hidden;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.tui-review-section[data-edited] .tui-review-comment-field {
+  border-color: color-mix(in srgb, var(--fill-ok) 55%, var(--card));
+}
+.tui-review-comment-field:focus-within {
+  border-color: var(--fill-ok);
+  box-shadow: 0 0 0 1px var(--fill-ok);
+}
+.tui-review-comment-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+/* The Code: the file's header over the diff lines around the anchor.
+   Once the forge's diff is in, the whole snippet opens the full diff. */
+.tui-review-code {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: border-color 120ms;
+}
+.tui-review-code[data-openable] {
+  cursor: pointer;
+}
+.tui-review-code-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--surface-wash-fg-4-card);
+  color: var(--text-3);
+}
+.tui-review-code-file:not(:last-child) {
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-review-code-path {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+/* The anchor's line reads like the file name in a finding's anchor. */
+.tui-review-code-line {
+  font-weight: 500;
+  color: var(--text-accent-small);
+}
+.tui-review-code-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-accent-small);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+/* A file whose diff the forge holds back: the header, then why. */
+.tui-review-code-held {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+/* A diff that failed to load reads as a failure: body size, so the bad
+   hue's body step (at 12px it would have to be the near-black small
+   step). */
+.tui-review-code-held[data-tone='error'] {
+  font-size: 13px;
+  color: var(--text-bad);
+}
+@media (hover: hover) {
+  .tui-review-code[data-openable]:hover {
+    border-color: var(--fill-accent);
+  }
+  .tui-review-code[data-openable]:hover .tui-review-code-hint {
+    opacity: 1;
+  }
+}
+/* The diff draws in a shadow root; these reach it as inherited custom
+   properties. */
+.tui-diff {
+  --diffs-font-family: var(--font-mono);
+  --diffs-header-font-family: var(--font-sans);
+  --diffs-font-size: 12px;
+  --diffs-line-height: 1.6;
+  --diffs-min-number-column-width: 4ch;
+}
+/* The full file diff over the sheet. */
+.tui-diff-modal {
+  width: 96vw;
+  max-width: 1100px;
+  height: 90vh;
+  max-height: 90vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--card);
+}
+.tui-diff-modal:focus {
+  outline: none;
+}
+.tui-diff-modal [data-part='modal-head'] {
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-diff-modal [data-part='modal-title'] {
+  flex: 1;
+  min-width: 0;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-1);
+}
+.tui-diff-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.tui-diff-modal-lead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.tui-diff-modal-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.tui-diff-modal-sub {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tui-diff-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.tui-diff-note {
+  margin: 0;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+/* A finding pinned under its line; the one the modal opened from in
+   accent. */
+.tui-diff-pin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 12px 6px 0;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.tui-diff-pin[data-current] {
+  border-color: color-mix(in srgb, var(--fill-accent) 55%, var(--card));
+  background: color-mix(in srgb, var(--fill-accent) 8%, var(--card));
+  color: var(--text-accent-small);
+}
+.tui-diff-pin-title {
+  font-weight: 500;
+  color: var(--text-1);
+}
+.tui-diff-pin-here {
+  color: var(--text-3);
+}
+/* The review's summary in the rail: one field for the summary line, then
+   each folded finding as its own part. */
+.tui-review-summary {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  overflow: hidden;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.tui-review-summary:focus-within {
+  border-color: var(--fill-ok);
+  box-shadow: 0 0 0 1px var(--fill-ok);
+}
+.tui-review-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  background: var(--surface-wash-fg-4-card);
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-review-summary-k {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.tui-review-summary-head .tui-field-tabs {
+  margin-left: 0;
+}
+.tui-review-summary-body {
+  max-height: 38vh;
+  overflow-y: auto;
+}
+.tui-review-summary-part[data-part='folded'] {
+  border-top: 1px solid var(--border-soft);
+}
+.tui-review-summary-part-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.tui-review-summary-part-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tui-review-summary :is(.tui-composer-input, .tui-field-preview) {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.tui-review-summary .tui-gate-error,
+.tui-review-section .tui-gate-error {
+  padding: 0 12px 8px;
+}
+
+/* A comment that posts under the developer's name: a teal strip saying
+   where it posts, joined to the text area under one border. */
+.tui-composer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tui-composer {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--fill-ok) 55%, var(--card));
+  border-radius: 8px;
+  background: var(--card);
+  overflow: hidden;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.tui-composer:focus-within {
+  border-color: var(--fill-ok);
+  box-shadow: 0 0 0 1px var(--fill-ok);
+}
+.tui-composer-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  padding: 6px 14px;
+  background: color-mix(in srgb, var(--fill-ok) 16%, var(--card));
+  border-bottom: 1px solid color-mix(in srgb, var(--fill-ok) 35%, var(--card));
+}
+.tui-composer-k {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-ok-small);
+  overflow-wrap: anywhere;
+}
+.tui-composer-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-ok-small);
+}
+/* A composer that is its thread's whole card names the thread in its
+   strip: the diff line in mono, or the thread's plain name. */
+.tui-composer-lead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  flex: 1;
+  min-width: 0;
+}
+.tui-composer-where {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-ok-small);
+  overflow-wrap: anywhere;
+}
+.tui-composer-where[data-mono] {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.tui-composer-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--fill-ok) 45%, var(--card));
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-ok-small);
+}
+.tui-composer-edited {
+  color: var(--text-warn-small);
+}
+.tui-composer-act {
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--text-accent-small);
+  background: none;
+  border: none;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .tui-composer-act:hover {
+    text-decoration: underline;
+  }
+}
+.tui-composer-act:focus-visible {
+  outline: 2px solid var(--fill-ok);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.tui-composer-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  background: transparent;
+  border: none;
+  resize: none;
+  overflow: hidden;
+}
+.tui-composer-text {
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The frame's border carries focus, so the field draws no ring of its own. */
+.tui-composer-input:focus,
+.tui-composer-input:focus-visible {
+  outline: none;
+}
+/* Held: the reply stays readable but stops looking like it will post. */
+.tui-composer[data-held] {
+  border-color: var(--border);
+}
+.tui-composer[data-held]:focus-within {
+  border-color: var(--border);
+  box-shadow: none;
+}
+.tui-composer[data-held] .tui-composer-strip {
+  background: color-mix(in srgb, var(--fg) 5%, var(--card));
+  border-bottom-color: var(--border-soft);
+}
+.tui-composer[data-held]
+  :is(
+    .tui-composer-k,
+    .tui-composer-where,
+    .tui-composer-meta,
+    .tui-composer-input,
+    .tui-composer-text
+  ) {
+  color: var(--text-2);
+}
+/* Inside the frame, under the field: the card's own ticks on the left,
+   Write and Preview on the right. */
+.tui-composer-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  min-height: 34px;
+  padding: 5px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+/* A thread whose composer is its whole card: the frame is the card. */
+.tui-gate-question[data-frame='composer'] {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+/* Write and Preview: two quiet text tabs, the current one inked on a
+   faint wash. They exist only because Preview does. */
+.tui-field-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.tui-field-tab {
+  padding: 2px 7px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .tui-field-tab:hover {
+    color: var(--text-1);
+  }
+}
+.tui-field-tab[aria-pressed='true'] {
+  font-weight: 500;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+.tui-field-tab:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 1px;
+}
+.tui-field-preview {
+  box-sizing: border-box;
+  min-height: var(--field-h, auto);
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+/* A comment as it reads on the MR: the Markdown subset review comments
+   use, at the field's own size, so switching tabs keeps the card still. */
+.tui-md-comment > :first-child {
+  margin-top: 0;
+}
+.tui-md-comment > :last-child {
+  margin-bottom: 0;
+}
+.tui-md-comment :is(p, ul, ol, blockquote, table, .tui-md-code) {
+  margin: 0 0 8px;
+}
+.tui-md-comment :is(h1, h2, h3, h4, h5, h6) {
+  margin: 12px 0 6px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.tui-md-comment h1 {
+  font-size: 16px;
+}
+.tui-md-comment h2 {
+  font-size: 15px;
+}
+.tui-md-comment :is(h3, h4, h5, h6) {
+  font-size: 14px;
+}
+.tui-md-comment :is(ul, ol) {
+  padding-left: 22px;
+}
+.tui-md-comment li + li {
+  margin-top: 2px;
+}
+.tui-md-comment li > :is(ul, ol) {
+  margin: 2px 0 0;
+}
+.tui-md-comment .contains-task-list {
+  padding-left: 2px;
+  list-style: none;
+}
+.tui-md-comment .task-list-item input {
+  margin: 0 6px 0 0;
+  vertical-align: -1px;
+  accent-color: var(--fill-accent);
+}
+.tui-md-comment a {
+  color: var(--text-accent);
+  text-underline-offset: 2px;
+}
+.tui-md-comment :not(pre) > code {
+  padding: 1px 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: var(--surface-wash-fg-4-card);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+.tui-md-comment blockquote {
+  padding: 0 0 0 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-2);
+}
+.tui-md-comment table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tui-md-comment :is(th, td) {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.tui-md-comment th {
+  font-weight: 500;
+  background: var(--surface-wash-fg-4-card);
+}
+.tui-md-comment hr {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+}
+/* A fenced block: its language over the code, on a quiet wash; a
+   suggestion reads as the change it proposes. */
+.tui-md-code {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-wash-fg-4-card);
+  overflow: hidden;
+}
+.tui-md-code-head {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.tui-md-code-body {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--card);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tui-md-code-hl {
+  padding: 2px 0;
+  background: var(--card);
+}
+.tui-md-code[data-suggestion] {
+  border-color: color-mix(in srgb, var(--fill-ok) 45%, var(--card));
+  background: color-mix(in srgb, var(--fill-ok) 7%, var(--card));
+}
+.tui-md-code[data-suggestion] .tui-md-code-head {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  color: var(--text-ok-small);
+  border-bottom-color: color-mix(in srgb, var(--fill-ok) 30%, var(--card));
+}
+.tui-md-code[data-suggestion] .tui-md-code-body {
+  border-left: 3px solid var(--fill-ok);
+  background: color-mix(in srgb, var(--fill-ok) 7%, var(--card));
+}
+.tui-field-preview-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-3);
 }
 
 /* Hairline above the record cluster, spanning the left column. */

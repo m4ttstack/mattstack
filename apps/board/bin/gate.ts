@@ -8,6 +8,7 @@ import {
   gateOpen,
   gateWait,
   parseWaitMaxMs,
+  readGateOpenFile,
   type GateVerbIo,
 } from '../src/gates/verbs.ts';
 
@@ -31,13 +32,22 @@ const [verb, statePath, ...rest] = process.argv.slice(2);
 try {
   if (verb === 'open') {
     const kind = flag(rest, '--kind');
-    const questions = flag(rest, '--questions');
-    if (!statePath || !kind || !questions)
+    const openFile = flag(rest, '--open-file');
+    const inline = flag(rest, '--questions');
+    if (
+      !statePath ||
+      !kind ||
+      (openFile === undefined) === (inline === undefined) ||
+      (openFile !== undefined && flag(rest, '--context') !== undefined)
+    )
       throw new Error(
-        'usage: gate open <state> --kind <k> --questions <json> [--context <text>]'
+        'usage: gate open <state> --kind <k> (--questions <json> [--context <text>] | --open-file <path>)'
       );
-    const result = await gateOpen(statePath, kind, questions, io, {
-      context: flag(rest, '--context'),
+    const { questionsJson, context } = openFile
+      ? readGateOpenFile(openFile)
+      : { questionsJson: inline!, context: flag(rest, '--context') };
+    const result = await gateOpen(statePath, kind, questionsJson, io, {
+      context,
       sessionId: process.env.CLAUDE_CODE_SESSION_ID,
       worktree: process.cwd(),
     });

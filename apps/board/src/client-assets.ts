@@ -1,7 +1,87 @@
-import { watch, type FSWatcher } from 'fs';
+import { mkdirSync, watch, writeFileSync, type FSWatcher } from 'fs';
 import { join } from 'path';
 
-import { buildClientBundle, type ClientBundle } from './client-bundle.ts';
+import {
+  buildClientBundle,
+  type ClientBundle,
+  type ClientChunks,
+} from './client-bundle.ts';
+
+const CHUNK_PATH = /^\/(chunk-[a-z0-9]+\.js)$/;
+
+function chunkMap(chunks: ClientChunks): Record<string, string> {
+  return typeof chunks === 'function' ? chunks() : chunks;
+}
+
+/** A chunk map read the first time a chunk is asked for, then kept. */
+export function lazyChunks(
+  load: () => Record<string, string>
+): () => Record<string, string> {
+  let map: Record<string, string> | null = null;
+  return () => (map ??= load());
+}
+
+/** A request for one of the bundle's code-split chunks: the chunk, cached
+    for good since its name is its content hash, or a 404. Null for every
+    other path. */
+export function clientChunkResponse(
+  pathname: string,
+  chunks: ClientChunks
+): Response | null {
+  const name = CHUNK_PATH.exec(pathname)?.[1];
+  if (!name) return null;
+  const map = chunkMap(chunks);
+  const text = Object.hasOwn(map, name) ? map[name] : undefined;
+  if (text === undefined) return new Response('unknown chunk', { status: 404 });
+  return new Response(text, {
+    headers: {
+      'content-type': 'text/javascript; charset=utf-8',
+      'cache-control': 'public, max-age=31536000, immutable',
+    },
+  });
+}
+
+/** A dev rebuild's bundle, still holding the chunks the one before it
+    emitted: a page loaded before the rebuild imports those names until it
+    reloads. */
+export function withEarlierChunks(
+  prev: ClientBundle,
+  next: ClientBundle
+): ClientBundle {
+  return {
+    ...next,
+    chunks: { ...chunkMap(prev.chunks), ...chunkMap(next.chunks) },
+  };
+}
+
+/** Writes the bundle where src/compiled.ts text-imports it. .txt, not .js:
+    tsc treats a REAL .js file on disk as a resolvable module and tries to
+    typecheck its exports, bypassing the "*.js" ambient wildcard; .txt always
+    falls through to asset-text.d.ts's "*.txt" rule. The chunks ride as one
+    JSON text file, so the compiled entry embeds every chunk with one import
+    whatever the chunk count. */
+export function writeClientBundle(outDir: string, bundle: ClientBundle): void {
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, 'app.js.txt'), bundle.appJs);
+  writeFileSync(join(outDir, 'app.css'), bundle.appCss);
+  writeFileSync(
+    join(outDir, 'chunks.json.txt'),
+    JSON.stringify(chunkMap(bundle.chunks))
+  );
+}
+
+/** The chunk map writeClientBundle embedded, as the compiled entry reads it. */
+export function parseChunkManifest(text: string): Record<string, string> {
+  const parsed: unknown = JSON.parse(text);
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    Object.values(parsed).some(v => typeof v !== 'string')
+  )
+    throw new Error('embedded client chunks are not a name to text map');
+  return parsed as Record<string, string>;
+}
 
 let injected: ClientBundle | null = null;
 

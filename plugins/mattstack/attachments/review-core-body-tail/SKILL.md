@@ -43,6 +43,15 @@ draft exactly (never re-judged). It is version 3 of this file:
 - `evidence` on a finding whenever the run produced output that backs it
   (a failing test's lines, a command's result): that output verbatim,
   never paraphrased.
+- Drafted comments, only when the caller asks for drafts (the review verb
+  asks; with no such ask, as in self-review, neither key is written):
+  `comment` on every finding and `summary.comments`, each the exact text
+  that posts, written in the loaded writing-style voice. A finding's
+  `comment` is its whole comment. `summary.comments` maps each verdict
+  the caller's gate offers (the option values of its `outcome`
+  question, which the caller names) to the review's whole summary line
+  for that verdict. Both are optional and additive, so the file stays
+  version 3 and a file without them reads as before.
 - Re-review passes only (the caller framed the review as a re-review):
   `re_review: true`, and `threads`: one entry per earlier thread the
   caller handed in, in the order given, never one the caller did not
@@ -118,4 +127,4 @@ draft exactly (never re-judged). It is version 3 of this file:
 | Inputs in hand | Print REVIEW DEPTH / EVIDENCE CHECK and provider lines. |
 | Criteria bound | Its triage lines into the block, its addendum into the dispatch. |
 | About to judge the diff | Don't. The review dispatch flow (the dispatch step), reviewer shape, full payload. |
-| Draft assembled | Buckets, `file:line`-what-why-fix, assessment word; return it; write the json sibling (version 3, every body in full) when a report path exists. |
+| Draft assembled | Buckets, `file:line`-what-why-fix, assessment word; return it; write the json sibling (version 3, every body in full; `comment` drafts only when the caller asks for them) when a report path exists. |

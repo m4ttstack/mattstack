@@ -15,6 +15,7 @@ import {
 import { Button, Chip, Markdown } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import type { BoardMRWithReview } from '../types.ts';
+import { anchorLine, anchorPath } from './diff-source.ts';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
@@ -27,12 +28,19 @@ import {
 import { MrCard } from './MrCard.tsx';
 import { mrRef } from './MrLinks.tsx';
 import {
+  attachDraftEdits,
+  draftEdits,
+  findOutcomeQuestion,
+  hasDiffLine,
+} from './review-drafts.ts';
+import {
   readinessProse,
   readReviewGate,
   reviewMeta,
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
+import { FindingCard, RailSummary, type FilePin } from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
   carryoverTally,
@@ -202,6 +210,32 @@ function severityGroups(
   ).filter(([, items]) => items.length > 0);
 }
 
+/** The drafts the poster falls back to, or null when the gate does not
+    promise to post edits or any draft is missing (a finding's comment, or
+    the summary line for any verdict): the sheet then offers no editing at
+    all. */
+function readDrafts(
+  review:
+    | { editable?: boolean; summaryComments?: Record<string, string> }
+    | undefined,
+  findings: FindingEntry[],
+  outcome: GateQuestion | undefined
+): {
+  findings: Map<string, string>;
+  summaries: Record<string, string>;
+} | null {
+  const summaries = review?.summaryComments;
+  if (!review?.editable || !summaries || !outcome) return null;
+  if (outcome.options.some(o => summaries[optionValue(o)] === undefined))
+    return null;
+  const map = new Map<string, string>();
+  for (const f of findings) {
+    if (f.comment === undefined) return null;
+    map.set(f.id, f.comment);
+  }
+  return { findings: map, summaries };
+}
+
 /** The full-screen sheet a `review-post` gate opens (design doc §4). Header
     carries queue chrome; the main column is the findings and the optional
     record cluster; the rail is the MR card, decision context and checks,
@@ -241,7 +275,7 @@ function ReviewGateSheet({
     [questions]
   );
   const outcomeQuestion = useMemo<GateQuestion | undefined>(
-    () => questions.find(q => !q.multi),
+    () => findOutcomeQuestion(questions),
     [questions]
   );
   const findingsName = findingsQuestion?.id;
@@ -322,9 +356,53 @@ function ReviewGateSheet({
   ).length;
   const replyTexts = carryoverTexts(carryovers, form.selections, form.texts);
   const postingFindings = selectedFindings.size + selectedSkipped.size;
+  const drafts = useMemo(
+    () => readDrafts(data?.review, findings, outcomeQuestion),
+    [data, findings, outcomeQuestion]
+  );
   const selectedOutcome = outcomeName
     ? form.selections[outcomeName]
     : undefined;
+  const verdict =
+    typeof selectedOutcome === 'string' ? selectedOutcome : undefined;
+  const summaryDraft =
+    drafts && verdict !== undefined ? drafts.summaries[verdict] : undefined;
+  const edits = drafts
+    ? draftEdits(drafts, selectedFindings, form.texts, verdict)
+    : { texts: {} };
+  const folded = drafts
+    ? findings.filter(f => selectedFindings.has(f.id) && !hasDiffLine(f))
+    : [];
+  const restoredWithoutLine = drafts
+    ? skippedEntries.filter(
+        ([value, e]) => selectedSkipped.has(value) && !hasDiffLine(e)
+      ).length
+    : 0;
+  const postingComments = postingFindings - folded.length - restoredWithoutLine;
+  const pinsByFile = useMemo(() => {
+    const out = new Map<string, FilePin[]>();
+    for (const f of findings) {
+      const line = f.file !== undefined ? anchorLine(f.file) : undefined;
+      if (f.file === undefined || line === undefined) continue;
+      const path = anchorPath(f.file);
+      out.set(path, [
+        ...(out.get(path) ?? []),
+        { id: f.id, title: f.title, line },
+      ]);
+    }
+    return out;
+  }, [findings]);
+  const removeFolded = (f: FindingEntry) => {
+    if (!findingsName) return;
+    form.toggleMulti(findingsName, f.id, false);
+    // The part's button unmounts with it, which would drop focus outside
+    // the sheet's Tab trap.
+    document
+      .querySelector<HTMLInputElement>(
+        `input[aria-labelledby="tui-review-finding-title-${CSS.escape(f.id)}"]`
+      )
+      ?.focus();
+  };
   const outcomeText =
     outcomeQuestion && typeof selectedOutcome === 'string'
       ? displayForValue(selectedOutcome, outcomeQuestion.options).text
@@ -378,11 +456,110 @@ function ReviewGateSheet({
     measure();
     el.addEventListener('scroll', measure);
     window.addEventListener('resize', measure);
+    // Cards grow after mount (the code view loads lazily), moving rows across the fold.
+    const resized =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(measure);
+    const list = el.querySelector('.tui-review-find-list');
+    if (resized && list) resized.observe(list);
     return () => {
       el.removeEventListener('scroll', measure);
       window.removeEventListener('resize', measure);
+      resized?.disconnect();
     };
   }, [findings.length, report]);
+
+  /** A severity group's findings: drafted cards set in under the group's
+      heading, or the plain rows of a review the board doesn't edit. */
+  const findingRows = (items: FindingEntry[]) => {
+    const rows = items.map(f => {
+      const checked = selectedFindings.has(f.id);
+      const pills = (
+        <>
+          {f.kind && (
+            <span className="tui-respond-pill" data-kind={f.kind}>
+              {f.kind}
+            </span>
+          )}
+          {f.disposition &&
+            !(f.disposition === 'new' && carryovers.length > 0) && (
+              <span
+                className="tui-respond-pill"
+                data-hue={DISPOSITION[f.disposition].hue}
+                data-disposition={f.disposition}
+              >
+                {DISPOSITION[f.disposition].text}
+              </span>
+            )}
+        </>
+      );
+      const tick = (
+        <input
+          type="checkbox"
+          className="tui-gate-choice-input"
+          data-type="checkbox"
+          data-checked={checked ? '' : undefined}
+          checked={checked}
+          aria-labelledby={`tui-review-finding-title-${f.id}`}
+          onChange={e =>
+            findingsName &&
+            form.toggleMulti(findingsName, f.id, e.currentTarget.checked)
+          }
+        />
+      );
+      const title = (
+        <span
+          className="tui-review-finding-title"
+          id={`tui-review-finding-title-${f.id}`}
+        >
+          {f.title}
+        </span>
+      );
+      // The card's sections sit outside the label:
+      // inside it, a click on the comment would toggle
+      // the finding.
+      if (drafts)
+        return (
+          <FindingCard
+            key={f.id}
+            finding={f}
+            checked={checked}
+            form={form}
+            mrUrl={mr?.webUrl ?? undefined}
+            mrRef={mr && mrRef(mr)}
+            mrRevision={mr?.updatedAt ?? undefined}
+            pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
+            head={
+              <label className="tui-review-finding-row tui-review-card-head">
+                {tick}
+                {title}
+                {pills}
+              </label>
+            }
+          />
+        );
+      return (
+        <label className="tui-review-finding-row" key={f.id}>
+          {tick}
+          <span className="tui-review-finding-body">
+            <span className="tui-review-finding-line1">
+              {title}
+              {pills}
+            </span>
+            {f.file && <FindingAnchor file={f.file} />}
+            <span className="tui-review-finding-text">
+              <Markdown unstyled linkTargetBlank>
+                {f.body}
+              </Markdown>
+            </span>
+            {f.fix && <span className="tui-review-finding-fix">{f.fix}</span>}
+          </span>
+        </label>
+      );
+    });
+    return drafts ? <div className="tui-review-tier-items">{rows}</div> : rows;
+  };
 
   const toggleTier = (items: FindingEntry[], on: boolean) => {
     if (!findingsName) return;
@@ -391,7 +568,7 @@ function ReviewGateSheet({
 
   const submit = () => {
     if (!outcomeName || typeof selectedOutcome !== 'string') return;
-    if (replyTexts === null) return;
+    if (replyTexts === null || edits === null) return;
     const trimmedNote = outcomeNote.trim();
     const threadAnswers: GateAnswers = {};
     for (const c of carryovers) {
@@ -411,13 +588,14 @@ function ReviewGateSheet({
     };
     void form.submit({ answers }, submitted => {
       const multis = pickMultis(submitted);
-      return {
+      const split: GateAnswers = {
         ...Object.fromEntries(
           Object.entries(multis).filter(([id]) => !groups.has(id))
         ),
         ...splitChunkSelections(groups, gate.questions, multis),
         ...singles(submitted),
       };
+      return drafts ? attachDraftEdits(split, gate.questions, edits) : split;
     });
   };
 
@@ -516,6 +694,7 @@ function ReviewGateSheet({
               <div
                 className="tui-review-find-list"
                 data-at-end={atEnd || undefined}
+                data-drafts={drafts ? '' : undefined}
               >
                 {tierGroups.map(([tier, items]) => {
                   const allOn = items.every(f => selectedFindings.has(f.id));
@@ -554,71 +733,7 @@ function ReviewGateSheet({
                           </button>
                         </span>
                       </div>
-                      {items.map(f => {
-                        const checked = selectedFindings.has(f.id);
-                        return (
-                          <label className="tui-review-finding-row" key={f.id}>
-                            <input
-                              type="checkbox"
-                              className="tui-gate-choice-input"
-                              data-type="checkbox"
-                              data-checked={checked ? '' : undefined}
-                              checked={checked}
-                              aria-labelledby={`tui-review-finding-title-${f.id}`}
-                              onChange={e =>
-                                findingsName &&
-                                form.toggleMulti(
-                                  findingsName,
-                                  f.id,
-                                  e.currentTarget.checked
-                                )
-                              }
-                            />
-                            <span className="tui-review-finding-body">
-                              <span className="tui-review-finding-line1">
-                                <span
-                                  className="tui-review-finding-title"
-                                  id={`tui-review-finding-title-${f.id}`}
-                                >
-                                  {f.title}
-                                </span>
-                                {f.kind && (
-                                  <span
-                                    className="tui-respond-pill"
-                                    data-kind={f.kind}
-                                  >
-                                    {f.kind}
-                                  </span>
-                                )}
-                                {f.disposition &&
-                                  !(
-                                    f.disposition === 'new' &&
-                                    carryovers.length > 0
-                                  ) && (
-                                    <span
-                                      className="tui-respond-pill"
-                                      data-hue={DISPOSITION[f.disposition].hue}
-                                      data-disposition={f.disposition}
-                                    >
-                                      {DISPOSITION[f.disposition].text}
-                                    </span>
-                                  )}
-                              </span>
-                              {f.file && <FindingAnchor file={f.file} />}
-                              <span className="tui-review-finding-text">
-                                <Markdown unstyled linkTargetBlank>
-                                  {f.body}
-                                </Markdown>
-                              </span>
-                              {f.fix && (
-                                <span className="tui-review-finding-fix">
-                                  {f.fix}
-                                </span>
-                              )}
-                            </span>
-                          </label>
-                        );
-                      })}
+                      {findingRows(items)}
                     </div>
                   );
                 })}
@@ -762,7 +877,9 @@ function ReviewGateSheet({
                 <div className="tui-sheet-dock" ref={reserveDock}>
                   <div className="tui-sheet-dock-head">
                     <h3 className="tui-sheet-dock-heading">
-                      Verdict on {mr ? mrRef(mr) : '!'}
+                      {drafts
+                        ? `Finish your review${mr ? ` on ${mrRef(mr)}` : ''}`
+                        : `Verdict on ${mr ? mrRef(mr) : '!'}`}
                     </h3>
                     <button
                       type="button"
@@ -772,6 +889,16 @@ function ReviewGateSheet({
                       reset
                     </button>
                   </div>
+                  {verdict !== undefined && summaryDraft !== undefined && (
+                    <RailSummary
+                      outcome={verdict}
+                      verdictLabel={outcomeText.toLowerCase()}
+                      draft={summaryDraft}
+                      folded={folded}
+                      form={form}
+                      onRemove={removeFolded}
+                    />
+                  )}
                   <div
                     className="tui-gate-choices"
                     role="radiogroup"
@@ -848,26 +975,38 @@ function ReviewGateSheet({
                     disabled={
                       form.busy ||
                       typeof selectedOutcome !== 'string' ||
-                      replyTexts === null
+                      replyTexts === null ||
+                      edits === null
                     }
                     onClick={submit}
                   >
                     {form.busy
                       ? 'submitting…'
-                      : findingsQuestion === undefined &&
-                          !skippedQuestion &&
-                          carryovers.length === 0
-                        ? (outcomeText ?? 'submit')
-                        : [
-                            findingsQuestion || skippedQuestion
-                              ? `post ${postingFindings}`
-                              : null,
+                      : drafts
+                        ? [
+                            postingComments > 0
+                              ? `post ${postingComments} ${postingComments === 1 ? 'comment' : 'comments'} + summary`
+                              : 'post summary',
                             replying > 0 ? `reply ${replying}` : null,
                             resolving > 0 ? `resolve ${resolving}` : null,
                             outcomeText || null,
                           ]
                             .filter(Boolean)
-                            .join(' · ')}
+                            .join(' · ')
+                        : findingsQuestion === undefined &&
+                            !skippedQuestion &&
+                            carryovers.length === 0
+                          ? (outcomeText ?? 'submit')
+                          : [
+                              findingsQuestion || skippedQuestion
+                                ? `post ${postingFindings}`
+                                : null,
+                              replying > 0 ? `reply ${replying}` : null,
+                              resolving > 0 ? `resolve ${resolving}` : null,
+                              outcomeText || null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
                   </Button>
                   {form.failed && (
                     <span className="tui-gate-error">

@@ -87,7 +87,7 @@ check "v1 exits 0" 0 "$RC"
 check "legacy findings questions carry no context" '[false,false]' "$(q '[.questions[] | has("context")] | tojson')"
 check "legacy options keep the degraded recipe" '[Critical] permanent failures re-enqueue forever|queue/worker.ts · drop non-retryable jobs in the worker'"'"'s catch block · kind:suggestion' \
   "$(q '.questions[0].options[0] | "\(.label)|\(.description)"')"
-check "legacy fits as whole-gate prose" 'prose|[]' "$(printf '%s' "$OUT" | sh "$GC" fit | jq -r '"\(.mode)|\(.trimmed | tojson)"')"
+check "legacy is stored as whole-gate prose" 'prose|[]' "$(printf '%s' "$OUT" | sh "$GC" fit | jq -r '"\(.mode)|\(.pane.trimmed | tojson)"')"
 
 # --- contract violations: exit 1, one stderr line per problem ---
 reject() { # name findings-file extras-file expected-stderr
@@ -100,6 +100,8 @@ M=$(mutate '.version = 4' "$V2"); reject "unknown version" "$M" "$X" "findings f
 M=$(mutate '.findings[0].tier = "minor"' "$V2"); reject "lowercase tier" "$M" "$X" "findings file: findings[0].tier: Critical|Important|Minor"; rm -f "$M"
 M=$(mutate '.findings[1].id = "f1"' "$V2"); reject "duplicate id" "$M" "$X" "findings file: findings: id f1 appears more than once"; rm -f "$M"
 M=$(mutate '.findings[0].disposition = "open"' "$V2"); reject "disposition outside the enum" "$M" "$X" "findings file: findings[0].disposition: new|still-open|addressed-check"; rm -f "$M"
+M=$(mutate '.findings[0].line = 0' "$V2"); reject "line below 1" "$M" "$X" "findings file: findings[0].line: integer of at least 1 when present"; rm -f "$M"
+M=$(mutate '.findings[0].line = -3' "$V2"); reject "negative line" "$M" "$X" "findings file: findings[0].line: integer of at least 1 when present"; rm -f "$M"
 M=$(mutate '.summary.readiness = "with fixes"' "$V2"); reject "spaced readiness" "$M" "$X" "findings file: summary.readiness: yes|no|with-fixes"; rm -f "$M"
 M=$(mutate 'del(.target)' "$X"); reject "extras without a target" "$V2" "$M" "extras: target: required non-empty string"; rm -f "$M"
 M=$(mutate '.round = 0' "$X"); reject "round below 1" "$V2" "$M" "extras: round: integer of at least 1 when present"; rm -f "$M"
@@ -148,42 +150,50 @@ Checked: worker.ts:40 returns before enqueue for non-retryable errors
 Will post as reply: Confirmed, thanks.' \
   "$(printf '%s' "$OUT" | sh "$GC" prose | jq -r '.questions[0].context')"
 
-# many long threads: carryover contexts are trimmed before the gate falls to prose
+# many long threads: the pane prose trims carryover parts, the stored open stays whole
+# pane_threads: each thread-* question's pane prose card, read back by its line prefixes.
+PANE_THREADS='def pane_threads: [.pane.questions[] | select(.id | startswith("thread-"))
+  | (.context | split("\n")) as $l
+  | {id, original: ([$l[] | select(startswith("You wrote: ")) | .[11:]] | first),
+     authorReply: ([$l[] | select(startswith("Author replied: ")) | .[16:]] | first),
+     note: any($l[]; startswith("Checked: "))}];'
 m=$(mutate '.threads = [range(7) as $i | {discussionId: "t\($i)", file: "queue/worker.ts", line: (10 + $i), round: 1, call: "fixed", original: ("o" * 280), authorReply: ("a" * 640), note: ("n" * 60), reply: ("r" * 60)}]' "$V3")
 run "$m" "$X"; rm -f "$m"
-check "seven 1.1 KB threads overflow the gate untrimmed" true \
-  "$(q '[.context, .questions[].context | select(. != null) | tojson | utf8bytelength] | add > 8192')"
+check "seven 1.1 KB threads overflow the pane budget untrimmed" true \
+  "$(printf '%s' "$OUT" | sh "$GC" prose | jq '.bytes > 8192')"
 FIT=$(printf '%s' "$OUT" | sh "$GC" fit); FRC=$?
-check "seven long threads still fit structured" '0|structured|true' "$FRC|$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(.fits)"')"
+check "seven long threads are stored structured and the pane prose fits" '0|structured|true' "$FRC|$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(.pane.fits)"')"
+check "the stored thread contexts stay whole" true \
+  "$(printf '%s' "$FIT" | jq --argjson s "$OUT" '[.questions[] | select(.id | startswith("thread-")) | .context | fromjson] == [$s.questions[] | select(.id | startswith("thread-")) | .context]')"
 check "every note goes before any author reply shrinks" true \
-  "$(printf '%s' "$FIT" | jq '[.trimmed[] | split(":")[1]] | (.[:7] | all(. == "note")) and (.[7:] | length > 0 and all(. == "authorReply"))')"
+  "$(printf '%s' "$FIT" | jq '[.pane.trimmed[] | split(":")[1]] | (.[:7] | all(. == "note")) and (.[7:] | length > 0 and all(. == "authorReply"))')"
 check "every author reply stays: shrunk ones are shorter and keep both ends" true \
-  "$(printf '%s' "$FIT" | jq '[.trimmed[] | select(endswith(":authorReply")) | split(":")[0]] as $shrunk
-    | [.questions[] | select(.id | startswith("thread-")) | {id, c: (.context | fromjson)}]
-    | all(.[]; .c | has("authorReply") and (.authorReply | length > 0))
-      and all(.[] | select(.id as $id | $shrunk | index($id)); .c.authorReply | length < 640 and startswith("a") and endswith("a") and contains(" ... "))')"
+  "$(printf '%s' "$FIT" | jq "$PANE_THREADS"'[.pane.trimmed[] | select(endswith(":authorReply")) | split(":")[0]] as $shrunk
+    | pane_threads
+    | all(.[]; .authorReply | type == "string" and length > 0)
+      and all(.[] | select(.id as $id | $shrunk | index($id)); .authorReply | length < 640 and startswith("a") and endswith("a") and contains(" ... "))')"
 check "a shrunk thread keeps its original whole and drops only its note" 'false|true' \
-  "$(printf '%s' "$FIT" | jq -r '([.trimmed[] | select(endswith(":authorReply"))][0] | split(":")[0]) as $id | .questions[] | select(.id == $id) | .context | fromjson | "\(has("note"))|\(.original | length == 280)"')"
+  "$(printf '%s' "$FIT" | jq -r "$PANE_THREADS"'([.pane.trimmed[] | select(endswith(":authorReply"))][0] | split(":")[0]) as $id | pane_threads[] | select(.id == $id) | "\(.note)|\(.original | length == 280)"')"
 check "the findings keep their fix and evidence" '[]' \
-  "$(printf '%s' "$FIT" | jq -c '[.trimmed[] | select(startswith("findings-"))]')"
+  "$(printf '%s' "$FIT" | jq -c '[.pane.trimmed[] | select(startswith("findings-"))]')"
 
 m=$(mutate '.threads = [range(7) as $i | {discussionId: "t\($i)", round: 1, call: "not-fixed", original: "o", authorReply: ("a" * 2400), reply: "r"}]' "$V3")
 run "$m" "$X"; rm -f "$m"
 FIT=$(printf '%s' "$OUT" | sh "$GC" fit)
 check "a reply shrunk more than once carries one marker and is named once" 'structured|true|true' \
-  "$(printf '%s' "$FIT" | jq -r '[.questions[] | select(.id | startswith("thread-")) | .context | fromjson | .authorReply] as $r
-    | "\(.mode)|\(any($r[]; length < 1200) and all($r[] | select(length < 2400); [match(" \\.\\.\\. "; "g")] | length == 1))|\(.trimmed | length == (unique | length))"')"
+  "$(printf '%s' "$FIT" | jq -r "$PANE_THREADS"'[pane_threads[] | .authorReply] as $r
+    | "\(.mode)|\(any($r[]; length < 1200) and all($r[] | select(length < 2400); [match(" \\.\\.\\. "; "g")] | length == 1))|\(.pane.trimmed | length == (unique | length))"')"
 
 m=$(mutate '.threads = [range(7) as $i | {discussionId: "t\($i)", round: 1, call: "not-fixed", original: ("o" * 1100), authorReply: "a", note: "n", reply: "r"}]' "$V3")
 run "$m" "$X"; rm -f "$m"
 FIT=$(printf '%s' "$OUT" | sh "$GC" fit)
 check "long originals are middle-truncated once notes are gone and replies are short" 'structured|true|true' \
-  "$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(any(.trimmed[]; test(":original$")))|\(all(.questions[] | select(.id | startswith("thread-")) | .context | fromjson; .authorReply == "a"))"')"
+  "$(printf '%s' "$FIT" | jq -r "$PANE_THREADS"'"\(.mode)|\(any(.pane.trimmed[]; test(":original$")))|\(all(pane_threads[]; .authorReply == "a"))"')"
 check "a truncated original keeps both ends and is never empty" true \
-  "$(printf '%s' "$FIT" | jq '[.questions[] | select(.id | startswith("thread-")) | .context | fromjson | .original]
+  "$(printf '%s' "$FIT" | jq "$PANE_THREADS"'[pane_threads[] | .original]
     | all(.[]; length > 0 and startswith("o") and endswith("o")) and any(.[]; contains(" ... "))')"
 check "each original is named once" true \
-  "$(printf '%s' "$FIT" | jq '[.trimmed[] | select(endswith(":original"))] | length == (unique | length)')"
+  "$(printf '%s' "$FIT" | jq '[.pane.trimmed[] | select(endswith(":original"))] | length == (unique | length)')"
 
 # contract violations
 m=$(mutate '.threads[0].call = "still-open"' "$V3"); run "$m" "$X"; rm -f "$m"
@@ -221,6 +231,37 @@ m=$(mutate 'del(.skipped[0].changed)' "$V3"); run "$m" "$X"; rm -f "$m"
 check "changed is required" 'findings file: skipped[0].changed: required boolean' "$ERR"
 m=$(mutate '.skipped = []' "$V3"); run "$m" "$X"; rm -f "$m"
 check "an empty skipped list builds no question" 0 "$(q '[.questions[] | select(.id | startswith("skipped-"))] | length')"
+
+# --- drafted comments ride whole into the gate, board-only ---
+D="$DIR/fixtures/findings-v3-drafts.json"
+EX=$(mutate '.editable = true' "$X")
+run "$D" "$EX"
+check "drafts exit 0" 0 "$RC"
+check "every finding's comment passes through whole" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile f "$D" '[.questions[] | select(.id | startswith("findings-")) | .context.findings[] | {(.id): .comment}] | add == ($f[0].findings | map({(.id): .comment}) | add)')"
+check "review@1 carries editable and every verdict's summary draft whole" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile f "$D" '.context.editable == true and .context.summaryComments == $f[0].summary.comments')"
+check "the summary drafts are review@1's last key" summaryComments "$(q '.context | keys_unsorted | last')"
+FIT=$(printf '%s' "$OUT" | sh "$GC" fit); FRC=$?
+check "the drafts fit structured and the pane fits untrimmed" '0|structured|true|[]|false' \
+  "$FRC|$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(.pane.fits)|\(.pane.trimmed | tojson)|\(.pane.contextDropped)"')"
+check "no comment reaches the pane" false \
+  "$(printf '%s' "$FIT" | jq --slurpfile f "$D" '[.pane.context, .pane.questions[].context | strings] | join("\n") as $p | any(($f[0].summary.comments[], $f[0].findings[].comment); .[:40] as $c | $p | contains($c))')"
+run "$V3" "$X"
+check "a v3 file without drafts carries no draft keys" 'false|false|false' \
+  "$(q '"\(.context | has("editable"))|\(.context | has("summaryComments"))|\(any(.questions[].context.findings?[]?; has("comment")))"')"
+M=$(mutate '.findings[2].comment = ""' "$D"); reject "an empty comment" "$M" "$X" "findings file: findings[2].comment: non-empty string when present"; rm -f "$M"
+M=$(mutate '.findings[2].comment = " \t "' "$D"); reject "a blank comment" "$M" "$X" "findings file: findings[2].comment: non-empty string when present"; rm -f "$M"
+M=$(mutate '.summary.comments.approve = 5' "$D"); reject "a numeric summary draft" "$M" "$X" "findings file: summary.comments: object of non-blank strings when present"; rm -f "$M"
+M=$(mutate '.summary.comments.comment = " \n "' "$D"); reject "a blank summary draft" "$M" "$X" "findings file: summary.comments: object of non-blank strings when present"; rm -f "$M"
+M=$(mutate '.editable = "yes"' "$X"); reject "editable as a string" "$D" "$M" "extras: editable: boolean when present"; rm -f "$M"
+M=$(mutate 'del(.findings[4].comment)' "$D"); reject "editable with a finding missing its comment" "$M" "$EX" "extras: editable: needs a comment on every finding"; rm -f "$M"
+LINES="extras: editable: summary.comments needs exactly one line per outcome option: comment, approve"
+M=$(mutate 'del(.summary.comments)' "$D"); reject "editable without summary drafts" "$M" "$EX" "$LINES"; rm -f "$M"
+M=$(mutate 'del(.summary.comments.approve)' "$D"); reject "editable missing a verdict's draft" "$M" "$EX" "$LINES"; rm -f "$M"
+M=$(mutate '.summary.comments.request_changes = "Needs work."' "$D"); reject "editable with a draft for no verdict" "$M" "$EX" "$LINES"; rm -f "$M"
+M=$(mutate '.questions = [{"id": "next", "label": "Next", "multi": false, "options": ["proceed"]}]' "$EX"); reject "editable with no outcome question" "$D" "$M" "extras: editable: needs an outcome question for summary.comments to follow"; rm -f "$M"
+rm -f "$EX"
 
 [ "$fails" -eq 0 ] || { echo "$fails failing"; exit 1; }
 echo "all passing"

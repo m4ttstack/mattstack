@@ -46,20 +46,12 @@ describe("buildGateAskPayload", () => {
   });
 });
 
-// RT-177: the 8192-byte drop was silent, so a caller shipped a bare form and
-// only the human at the other end found out.
 describe("gateAskOutput", () => {
   const data = { id: "g1", presentation: "form" as const, subject: "mr:x", supersededId: null };
 
-  test("a normal ask prints no contextOmitted key", () => {
+  test("a normal ask prints the four fields and no omitted key", () => {
     expect(gateAskOutput(data)).toEqual({
       ok: true, id: "g1", presentation: "form", subject: "mr:x", supersededId: null,
-    });
-  });
-
-  test("an omitted context is printed on stdout, where agents parse", () => {
-    expect(gateAskOutput({ ...data, contextOmitted: true })).toEqual({
-      ok: true, id: "g1", presentation: "form", subject: "mr:x", supersededId: null, contextOmitted: true,
     });
   });
 });

@@ -41,7 +41,7 @@ export { resolveAnswerOutcome } from './conflict';
 export type { AnswerOutcome } from './conflict';
 export { domainForKind, GATE_KINDS } from './kinds';
 export type { GateDomain } from './kinds';
-export { answeredGateSummary } from './summary';
+export { answeredGateSummary, joinSummary } from './summary';
 export type {
   GateSummary,
   GateSummaryDetailRow,

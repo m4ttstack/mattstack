@@ -472,9 +472,12 @@ itself names one.
 Yes when the caller hands a decided selection (`{findings, outcome}`, or
 legacy `{tiers, outcome}`) together with the `--report` the human decided
 it on: the review already ran in an earlier pane, a board's fresh pane or
-a resume of this run included. Go straight to posting. Compose reads each
-selected finding's text, anchor and tier from the report's json sibling
-(the report itself for a legacy selection) as written. Print no depth
+a resume of this run included. Go straight to posting. The selection may
+carry `texts` (`{<finding id>: <text>}`, the human's edits) and
+`summaryText` (the summary line's edit); Compose takes them as it takes
+the gate answers' `texts` and the `outcome` answer's `text`. Compose reads
+each selected finding's draft, anchor and tier from the report's json
+sibling (the report itself for a legacy selection) as written. Print no depth
 block, fetch, diff, provision or dispatch nothing, and never rewrite the
 report or its json: a second pass forms new findings whose ids and
 anchors are not the ones the human picked. A selected finding id the json
@@ -615,7 +618,32 @@ already-written json.
 ### Write the review report and its json sibling
 
 The review flow's "Structured findings file", written after verification
-so the json mirrors the verified draft.
+and any demotion so the json mirrors the verified draft. This verb asks
+for drafts: the json also carries every comment that will post, drafted
+here, before any gate opens.
+
+1. Load the writing style (Writing style, below) first, unless this run
+   already loaded it.
+2. Each finding's `comment`: its whole comment as it will post, in that
+   voice, saying what is wrong, why it matters and what to change. A
+   demoted finding's comment says it is unverified, as its `body` does.
+3. `summary.comments`: one summary line per verdict the gate will offer,
+   keyed by the option values of the extras' `outcome` question:
+   `{"comment": "...", "approve": "..."}`, plus `request_changes` only
+   when this verb runs the gate on GitHub. Exactly those keys, never one
+   more or one fewer. Each value is the whole summary line for that
+   verdict, in that voice, with the strengths and the assessment said as
+   the reviewer wants them. None holds an issue list: each ticked finding
+   with no diff line joins it at post time (Compose).
+4. Write each line for its own verdict, whatever readiness says, so
+   review-posting's tacit-approval rule shapes every line now. The
+   `approve` line is the only one that may say the MR is ready to merge,
+   good to merge, LGTM or nothing blocking. The `comment` line leaves the merge
+   call to the author, or says approval is withheld pending the notes.
+   The `request_changes` line says what must change before it merges.
+
+These drafts are the text that posts. Once a gate is built from the json,
+nothing rewrites it; an iterate drafts again only for the new gate.
 
 ### Write review-post.extras.json
 
@@ -625,6 +653,7 @@ path out literally from then on. Write `<dir>/review-post.extras.json`:
 
 ```json
 {"target": "!87", "reviewer": "<the reviewer the caller names>", "round": 2,
+ "editable": true,
  "questions": [
    {"id": "outcome", "label": "Verdict on !87: <readiness clause>", "multi": false,
     "options": [{"value": "comment", "label": "comment (recommended)", "description": "<what picking it does for this review>"},
@@ -638,8 +667,9 @@ path out literally from then on. Write `<dir>/review-post.extras.json`:
 |---|---|
 | `target` | `!<iid>` or `#<number>`, as the forge writes it |
 | `reviewer`, `round` | only when the caller supplies them (a re-review's caller supplies `round`); else omit the key |
+| `editable` | `true` when the report json carries a `comment` on every finding and `summary.comments` with exactly one line per `outcome` option value (this verb's own drafts); else omit the key. It tells the board this poster posts the edited text, else the draft, word for word |
 | `outcome` label | `Verdict on <target>: ` plus a clause composed from the json's `summary`, never a field verbatim: readiness `yes` reads "ready to merge"; `with-fixes` or `no` reads "not ready" or "ready once <the gist of the reasoning>" |
-| `outcome` options | `comment` and `approve`, each described by what picking it does; `request_changes` only when this verb runs the gate on GitHub (rt's GitLab tools have none). The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment` |
+| `outcome` options | `comment` and `approve`, each described by what picking it does; `request_changes` only when this verb runs the gate on GitHub (rt's GitLab tools have none). The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment`. The question's id is always `outcome`, and its option values are exactly the keys of the json's `summary.comments` |
 | `next` | only when this verb runs the gate; a caller that owns the gates navigates itself |
 
 Direct, the object is `gate_open`'s inline `extras`, the report json (or
@@ -672,7 +702,7 @@ unreadable-input error, nothing to fix.
   wrote `gate` and stored the source as `extra.gate-source.post`.
 - **Handed back:** nothing opened; the open is at `outPath` in
   `gate-ctx.sh fit`'s shape, its source beside it, `droppedContexts`
-  naming any context over the shared budget.
+  naming any context the pane form left out for its budget.
 - **Refused:** nothing opened, one problem per line. A line naming a field
   in the extras or the report json is a field to fix; a refusal no field
   fix can mend (a file it cannot read or parse, a path outside the read
@@ -709,8 +739,8 @@ Enter gate-protocol at `Trigger: a site opened its gate with gate_open`
 with the result and walk on from `paneAction?`. On a review gate neither
 `gate_answer` nor `gate_reconcile` records: keep the gate's `id` and
 answers map for Compose; the `gate_record` after posting is the record.
-With `fits: false` or `contextDropped: true` the gate stays open as it is:
-carry on.
+`contextDropped: true` means only the pane form left some context out;
+the gate stores every context whole and stays open as it is: carry on.
 
 ### Gate review-post, legacy: tiers, outcome and next
 
@@ -732,14 +762,50 @@ gate.
 ### Compose the submitted review: comments, summary, outcome
 
 One call carries the whole review. Selected findings: the union of the
-`findings-<n>` answers (`{value, note}` unwraps to its value), a legacy
-`tiers` answer's whole tiers, or the caller's selection (each finding
-as the report json it was decided on writes it). `comments`: one
-`{body, path, line}` per selected finding with both `file` and `line`,
-`body` its tier, title and what to change. `summary`: the review-posting
-summary, its issue list holding each selected finding without both.
-`outcome`: `comment` or `approve`. At most 100 comments and replies in all;
-past that, the lowest-tier anchored findings go to the issue list.
+`findings-<n>` answers (`{value, note, texts}` unwraps to its value), a
+legacy `tiers` answer's whole tiers, or the caller's selection (each
+finding as the report json it was decided on writes it). `outcome`: the
+picked option's value, `comment` or `approve` (or `request_changes` on
+GitHub).
+
+**The json carries drafts** (its `summary` has `comments`): every text
+below is taken as it stands, never written here. On GitHub the same texts
+and the same summary build the `gh pr review` body (the paragraph after
+review-posting, below).
+
+- A finding's text: the `texts` entry at its id (from any `findings-<n>`
+  answer, or the caller's `texts`), else its `comment` in the report json
+  the selection was decided on. That json holds what the gate showed on
+  both paths: a board's fresh posting pane has only that json, and nothing
+  rewrites it after the gate opens.
+- The summary line: the `outcome` answer's `text` (the caller's
+  `summaryText`), else `summary.comments[<the picked outcome value>]`,
+  the line drafted for that verdict. Never another verdict's line, even
+  when readiness or the recommendation points elsewhere: an `approve`
+  line never posts under a Comment.
+- `comments`: one `{body, path, line}` per selected finding with both
+  `file` and `line`, `body` its text.
+- `summary`: the board's `joinSummary` rule. It is the summary line, then
+  the text of each selected finding without both `file` and `line`, in
+  gate order (Critical, Important, Minor; json order within a tier), each
+  preceded by one blank line. A folded finding's text is the `texts` entry
+  at its id (a `findings-<n>` answer's `texts`, or the caller's `texts`),
+  else its `comment` in the report json. A folded finding the human
+  edited posts the edit, never the draft: copy it from `texts`, not from
+  the json. Nothing else is added: no heading, label, anchor, bullet or
+  issue list. So the summary posts exactly as the board's summary card
+  showed it.
+- At most 100 comments and replies in all. Past that, the lowest-tier
+  anchored findings go into the summary after the joined part, each
+  preceded by one blank line, their text word for word.
+- No text is reworded, trimmed, restyled or put into the voice here, and
+  an answer's `note` never changes posted text.
+
+**The json carries no drafts** (an older report, or a pack not yet
+recompiled): `body` is the finding's tier, title and what to change, and
+`summary` is the review-posting summary, its issue list holding each
+selected finding without both `file` and `line`. Past 100 comments and
+replies, the lowest-tier anchored findings go to the issue list.
 
 `replies`: one per `thread-<n>` answer that picked anything,
 `discussionId` from the value after `post:` or `resolve:`, `resolve` true
@@ -752,7 +818,10 @@ review-posting says for restored findings, its text the caller's record
 verbatim, never rewritten: the caller's `restored` entry (`title`, then
 `body`) when it decided the selection, else the handed skipped entry
 (`title`, then `excerpt`). Its `changed` is the `restored` entry's, else
-the report json's `skipped` entry's.
+the report json's `skipped` entry's. When the json carries drafts, a
+restored finding that posts in the summary is never one of the joined
+findings: it follows the joined part, preceded by one blank line, with its
+recorded `file:line` and text.
 
 ### This review already on the MR?
 
@@ -763,9 +832,10 @@ since a submit can land after the run's last record:
 
 `mr_posted_since {mrUrl, since: <the snapshot's run.started_at>, items}`
 
-`items`: `{id: "summary", contains: <the summary's first line>}`, then per
-comment `{id: <finding id>, contains: <its body's first line>, path,
-line}`. All `posted` is yes, some is partly, none is no; never judge it
+`items`: `{id: "summary", contains: <the first line of the summary Compose
+built>}`, then per comment `{id: <finding id>, contains: <the first line
+of the body Compose built for it>, path, line}`: the text this submit
+sends, edit or draft, never the json's other fields. All `posted` is yes, some is partly, none is no; never judge it
 from a thread read, and a read error holds, quoting it. The latest hold's
 reason adds what the read cannot show: a review it names as posted by the
 human is posted, and on an approve, an approval it does not name as landed
@@ -777,8 +847,13 @@ the human finishes the review in the forge UI; no is submit.
 ### Move the bad-anchor findings into the summary
 
 `badAnchors` names comments by `index`, zero-based in the `comments` sent;
-nothing posted. Move each into the summary's issue list, its `file:line` in
-the text, and call again with the rest unchanged.
+nothing posted. When the json carries drafts, append each to the summary,
+preceded by one blank line: its `file:line` alone on a line, then the text
+its comment carried, word for word: the `texts` entry at its id, else its
+`comment` in the report json, never its `body`. That `file:line` is the one
+change the post step makes to text the human saw. With no drafts, move each into the summary's issue
+list, its `file:line` in the text. Then call again with the rest
+unchanged.
 
 ### Make the recorded review move once
 
@@ -870,8 +945,9 @@ already on the MR?` reads on a resume.
   (2), Important (1); 3 findings.", skipping empty levels, counted on the
   demoted draft before any selection.
 - A caller's decided selection is `{findings, outcome}` or legacy
-  `{tiers, outcome}` (plus `replies` and `restored: [{id, title, body,
-  file, line, changed}]` on a re-review), with the decider to use. Posting
+  `{tiers, outcome}` (plus `texts` and `summaryText` when the human edited
+  drafts, and `replies` and `restored: [{id, title, body, file, line,
+  changed}]` on a re-review), with the decider to use. Posting
   gets it as `{findings: <ids>, disposition: <outcome>}` (legacy `{levels:
   <tiers>, disposition: <outcome>}`), restored findings selected, never
   deselected.
@@ -937,4 +1013,10 @@ close's link, or `published: false` with the reason and nothing posted.
 The daemon places each comment, so never hand-build a position payload or
 post a finding with `mr_comment_inline`. GitHub has no inline mechanism:
 every selected finding rides in the one `gh pr review` body with its
-`file:line`.
+`file:line`. When the json carries drafts, that body is built from
+Compose's texts (edit, else draft) and adds no wording: the joined summary
+exactly as Compose builds it, then each selected finding with both `file`
+and `line`, in gate order, preceded by one blank line, as its `file:line`
+alone on a line and then its text word for word. A restored finding
+follows them the same way, with its recorded anchor and text. The same
+body is what `gh pr comment` posts on a take.

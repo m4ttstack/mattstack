@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import type { Database } from 'bun:sqlite';
 
 import type { Commands, RtResponse } from '@mattstack/rt-client';
@@ -99,15 +99,39 @@ function readGateVerbState(statePath: string, db: Database): GateVerbState {
   return row;
 }
 
-const CONTEXT_CAP_BYTES = 8192;
+export interface GateOpenFile {
+  questionsJson: string;
+  context?: string;
+}
+
+/** Reads `gate open --open-file`: `{"questions": [...], "context"?: <string>}`.
+    The file carries what `--questions`/`--context` would, so a gate of any
+    size opens without its content riding argv (macOS caps argv near 1 MB). */
+export function readGateOpenFile(path: string): GateOpenFile {
+  const open = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  if (
+    typeof open !== 'object' ||
+    open === null ||
+    !Array.isArray((open as { questions?: unknown }).questions)
+  ) {
+    throw new Error(`${path}: open file needs a "questions" array`);
+  }
+  const { questions, context } = open as {
+    questions: unknown[];
+    context?: unknown;
+  };
+  if (context !== undefined && typeof context !== 'string') {
+    throw new Error(`${path}: open file "context" must be a string`);
+  }
+  return context === undefined
+    ? { questionsJson: JSON.stringify(questions) }
+    : { questionsJson: JSON.stringify(questions), context };
+}
+
 export type GatePresentation = 'form' | 'wait';
 export interface GateOpenResult {
   gateId: string;
   presentation: GatePresentation;
-  /** Present only when the daemon dropped the question contexts (and the
-      gate context, when that alone was over budget) to fit its byte budget:
-      the human sees the gate without them. */
-  contextOmitted?: true;
 }
 
 /** Opens the facility gate for one wrapper round and persists the returned
@@ -137,16 +161,6 @@ export async function gateOpen(
   const domain = domainForKind(kind);
   if (!domain) throw new Error(`gate open: unrecognized kind "${kind}"`);
 
-  const context = extras.context;
-  if (
-    context !== undefined &&
-    Buffer.byteLength(context, 'utf8') > CONTEXT_CAP_BYTES
-  ) {
-    console.error(
-      `gate open: context exceeds ${CONTEXT_CAP_BYTES} bytes; the daemon will drop it`
-    );
-  }
-
   const origin: NonNullable<Commands['gate:ask']['payload']['origin']> = {
     surface: 'board',
   };
@@ -165,7 +179,7 @@ export async function gateOpen(
   };
   if (state.paneId) payload.paneId = state.paneId;
   if (extras.sessionId) payload.sessionId = extras.sessionId;
-  if (context !== undefined) payload.context = context;
+  if (extras.context !== undefined) payload.context = extras.context;
 
   const res = await io.gateAsk(payload);
   if (!res.ok || !res.data)
@@ -209,7 +223,6 @@ export async function gateOpen(
   return {
     gateId: res.data.id,
     presentation: res.data.presentation,
-    ...(res.data.contextOmitted ? { contextOmitted: true as const } : {}),
   };
 }
 

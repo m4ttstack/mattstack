@@ -17,6 +17,6 @@ test('board:review allows and names its vendored open-gate.sh', () => {
     '"${CLAUDE_SKILL_DIR}/scripts/open-gate.sh" <status-bin> <state> review-post <open-file>'
   );
   expect(skill).toContain(
-    'whose path the domain skill handed back with the open file'
+    "take the form's prose from the open file's own `pane` key"
   );
 });

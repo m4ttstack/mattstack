@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkSource, fitOpen, proseOpen, type GateCtxSource } from "../ctx.ts";
+import { BOARD_ONLY_FIELDS, checkSource, fitOpen, proseOpen, type GateCtxSource } from "../ctx.ts";
 import { tojson } from "../jq.ts";
 import { buildReviewSource, reviewSourceErrors } from "../review-source.ts";
 
@@ -17,6 +17,7 @@ const FIXTURE: Record<string, string> = {
   "findings-v1": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v1.json",
   "findings-v2": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v2.json",
   "findings-v3": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3.json",
+  "findings-v3-drafts": "plugins/mattstack/attachments/review/review/tests/fixtures/findings-v3-drafts.json",
   extras: "plugins/mattstack/attachments/review/review/tests/fixtures/extras.json",
 };
 
@@ -76,6 +77,8 @@ const RS_CASES: RsCase[] = [
       ["v2 lowercase tier", "findings-v2", '.findings[0].tier = "minor"'],
       ["v2 duplicate id", "findings-v2", '.findings[1].id = "f1"'],
       ["v2 disposition outside the enum", "findings-v2", '.findings[0].disposition = "open"'],
+      ["v2 line below 1", "findings-v2", ".findings[0].line = 0"],
+      ["v2 negative line", "findings-v2", ".findings[0].line = -3"],
       ["v2 spaced readiness", "findings-v2", '.summary.readiness = "with fixes"'],
       [
         "v3 seven long threads",
@@ -109,6 +112,78 @@ const RS_CASES: RsCase[] = [
       ["extras naming a findings question", '.questions += [{"id": "findings-9", "options": []}]'],
     ] as const
   ).map(([name, x]) => ({ name, findings: "findings-v2", extras: "extras", x })),
+  { name: "v3 drafts", findings: "findings-v3-drafts", extras: "extras" },
+  { name: "v3 drafts editable", findings: "findings-v3-drafts", extras: "extras", x: ".editable = true" },
+  { name: "v3 drafts editable false", findings: "findings-v3-drafts", extras: "extras", x: ".editable = false" },
+  { name: "v3 drafts empty comment", findings: "findings-v3-drafts", extras: "extras", f: '.findings[2].comment = ""' },
+  { name: "v3 drafts blank comment", findings: "findings-v3-drafts", extras: "extras", f: '.findings[2].comment = " \\t "' },
+  {
+    name: "v3 drafts editable with a blank comment",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    f: '.findings[4].comment = " \\n "',
+    x: ".editable = true",
+  },
+  {
+    name: "v3 drafts editable with three verdicts",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    f: '.summary.comments.request_changes = "Two of these need a fix before this merges."',
+    x: '.editable = true | .questions[0].options += [{"value": "request_changes", "label": "request changes", "description": "post the picked findings and request changes"}]',
+  },
+  { name: "v3 drafts numeric summary draft", findings: "findings-v3-drafts", extras: "extras", f: ".summary.comments.approve = 5" },
+  { name: "v3 drafts blank summary draft", findings: "findings-v3-drafts", extras: "extras", f: '.summary.comments.comment = " \\n "' },
+  { name: "v3 drafts summary drafts as an array", findings: "findings-v3-drafts", extras: "extras", f: '.summary.comments = ["x"]' },
+  { name: "v3 drafts with a draft for no verdict", findings: "findings-v3-drafts", extras: "extras", f: '.summary.comments.request_changes = "Needs work."' },
+  { name: "v3 drafts editable as a string", findings: "findings-v3-drafts", extras: "extras", x: '.editable = "yes"' },
+  {
+    name: "v3 drafts editable with a finding missing its comment",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    f: "del(.findings[4].comment)",
+    x: ".editable = true",
+  },
+  {
+    name: "v3 drafts editable without summary drafts",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    f: "del(.summary.comments)",
+    x: ".editable = true",
+  },
+  {
+    name: "v3 drafts editable missing a verdict's draft",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    f: "del(.summary.comments.approve)",
+    x: ".editable = true",
+  },
+  {
+    name: "v3 drafts editable with a draft for no verdict",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    f: '.summary.comments.request_changes = "Needs work."',
+    x: ".editable = true",
+  },
+  {
+    name: "v3 drafts editable with no outcome question",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    x: '.editable = true | .questions = [{"id": "next", "label": "Next", "multi": false, "options": ["proceed"]}]',
+  },
+  {
+    name: "v3 drafts editable with a non-string outcome value",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    x: '.editable = true | .questions[0].options += [{"value": 7, "label": "seven"}]',
+  },
+  {
+    name: "v3 drafts editable with string outcome options",
+    findings: "findings-v3-drafts",
+    extras: "extras",
+    x: '.editable = true | .questions[0].options = ["approve", "comment"]',
+  },
+  { name: "v3 editable with no drafts", findings: "findings-v3", extras: "extras", x: ".editable = true" },
+  { name: "v3 drafts editable over a string summary", findings: "findings-v3-drafts", extras: "extras", f: '.summary = "x"', x: ".editable = true" },
   {
     name: "hostile non-BMP title",
     findings: "findings-v2",
@@ -282,6 +357,14 @@ const GC_MUTATIONS: [string, string, Mutation | undefined][] = [
   ["hostile DEL in claim.summary", PLAN, (j) => (j.questions[0].context.claim.summary = "a\u007fb")],
   ["hostile non-BMP finding title", REVIEW, (j) => (j.questions[0].context.findings[0].title = big(60, "𝄞"))],
   ["hostile ideographic-space reply.text", PLAN, (j) => (j.questions[0].context.reply.text = "　")],
+  [
+    "twin threads with long replies (a pane drop tie)",
+    PLAN,
+    (j) => {
+      j.questions[0].context.reply.text = big(3000, "r");
+      j.questions[1].context = structuredClone(j.questions[0].context);
+    },
+  ],
 ];
 
 const GC_CASES: GcCase[] = [
@@ -297,7 +380,10 @@ const MODES: Mode[] = [
   { name: "fit", args: () => ["fit"] },
   { name: "fit --limit 900", args: () => ["fit", "--limit", "900"] },
   { name: "fit --limit 300", args: () => ["fit", "--limit", "300"] },
-  { name: "fit --limit <its own structured bytes>", args: (s) => ["fit", "--limit", String(fitOpen(s).bytes)] },
+  { name: "fit --limit <its own prose bytes>", args: (s) => ["fit", "--limit", String(proseOpen(s).bytes)] },
+  { name: "fit --limit 2000", args: () => ["fit", "--limit", "2000"] },
+  { name: "fit --limit 5000", args: () => ["fit", "--limit", "5000"] },
+  { name: "fit --limit 1 (every context leaves the pane)", args: () => ["fit", "--limit", "1"] },
   { name: "prose", args: () => ["prose"] },
 ];
 
@@ -355,5 +441,37 @@ describe("gate-ctx.sh parity", () => {
         }
       });
     }
+  }
+});
+
+describe("gate-ctx.sh parity with board-only fields", () => {
+  const ENTRIES: Record<string, string[]> = { "findings@1": ["fix", "evidence"], "review@1": ["prior"] };
+  const script = join(TMP, "gate-ctx-board-only.sh");
+  const original = readFileSync(GC, "utf8");
+  const swapped = original.replace(/^def board_only: .*;$/m, `def board_only: ${JSON.stringify(ENTRIES)};`);
+  writeFileSync(script, swapped);
+
+  test("the script declares its board-only list in one place", () => expect(swapped).not.toBe(original));
+  test("the script's board-only list is the port's", () =>
+    expect(original.match(/^def board_only: (.*);$/m)?.[1]).toBe(JSON.stringify(BOARD_ONLY_FIELDS)));
+
+  for (const mode of [["fit"], ["fit", "--limit", "900"], ["prose"]]) {
+    test(`review | ${mode.join(" ")}`, () => {
+      const text = fixture(REVIEW);
+      const src = JSON.parse(text) as GateCtxSource;
+      const real = { ...BOARD_ONLY_FIELDS };
+      for (const k of Object.keys(BOARD_ONLY_FIELDS)) delete BOARD_ONLY_FIELDS[k];
+      Object.assign(BOARD_ONLY_FIELDS, ENTRIES);
+      try {
+        const r = Bun.spawnSync(["sh", script, ...mode], { stdin: Buffer.from(text), env: ENV });
+        expect(r.exitCode).toBe(0);
+        const out = r.stdout.toString();
+        expect(out).toBe(`${tojson(portOpen(src, mode))}\n`);
+        expect(out).not.toContain("Fix: ");
+      } finally {
+        for (const k of Object.keys(BOARD_ONLY_FIELDS)) delete BOARD_ONLY_FIELDS[k];
+        Object.assign(BOARD_ONLY_FIELDS, real);
+      }
+    });
   }
 });

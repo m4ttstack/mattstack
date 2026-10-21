@@ -30,6 +30,7 @@ import {
   rtCommand,
   setSetting,
   subscribe,
+  type ForgeFileDiffData,
   type ForgeGetData,
   type GateRow,
 } from '@mattstack/rt-client';
@@ -44,7 +45,12 @@ import {
 } from './agent-status/feed.ts';
 import { IS_COMPILED } from './app-root.ts';
 import { SnapshotCache } from './cache.ts';
-import { getClientAssets, watchClientAssets } from './client-assets.ts';
+import {
+  clientChunkResponse,
+  getClientAssets,
+  watchClientAssets,
+  withEarlierChunks,
+} from './client-assets.ts';
 import type { ExecutorView } from './client/types.ts';
 import {
   closeOnDone,
@@ -125,6 +131,7 @@ import {
   writeDraft,
 } from './draft-state.ts';
 import faviconSvg from './favicon.svg' with { type: 'text' };
+import { fileDiffRoute } from './file-diff-route.ts';
 import { shiftPeerReviews } from './fixture-peer-reviews.ts';
 import { focusPane } from './focus-pane.ts';
 import { answerGate } from './gates/answer.ts';
@@ -1659,7 +1666,7 @@ let clientAssets = await getClientAssets();
 if (!IS_COMPILED) {
   watchClientAssets({
     onBundle: assets => {
-      clientAssets = assets;
+      clientAssets = withEarlierChunks(clientAssets, assets);
       sseReload();
     },
     onStyle: sseReload,
@@ -1824,6 +1831,8 @@ const httpServer = Bun.serve({
           headers: { 'content-type': 'text/javascript; charset=utf-8' },
         });
     }
+    const chunk = clientChunkResponse(pathname, clientAssets.chunks);
+    if (chunk) return chunk;
     // Board's settings are edited in console's embedded settings page, which
     // writes the store without passing through this process: the modal
     // posts here after each write so the running config picks it up.
@@ -1853,6 +1862,28 @@ const httpServer = Bun.serve({
         return settingsRes;
       }
     }
+
+    // The review sheet's file diffs come through the daemon's own forge
+    // access, so they need none of the board's tokens below.
+    if (pathname === '/review/file-diff')
+      return fileDiffRoute(req, {
+        isLocal: r => isLocalRequest(r, server),
+        findMr: async mrUrl => {
+          const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
+          return mr ? { iid: mr.iid, webUrl: mrUrl } : null;
+        },
+        repoFor: mr => {
+          const projectPath = projectPathFromWebUrl(
+            mr.webUrl,
+            config.gitlabHost
+          );
+          return projectPath ? daemonRepoField(config, projectPath) : null;
+        },
+        readDiff: payload =>
+          rtCommand<ForgeFileDiffData>('forge:file-diff', payload, {
+            timeoutMs: 30_000,
+          }),
+      });
 
     // Resolved once per request, off the memoized getters above -- cheap
     // after the first daemon round trip, and every branch below expects a

@@ -108,7 +108,7 @@ describe("gate:ask", () => {
     expect(res.error).toBe("no subject: pass --subject, or run under a recorded run/agent session");
   });
 
-  test("(e) context of 9000 bytes -> gate opens, row.context omitted (null)", async () => {
+  test("(e) context of 9000 bytes -> gate opens, row.context stored whole", async () => {
     const { handlers, store } = harness({
       resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }),
     });
@@ -119,7 +119,7 @@ describe("gate:ask", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const row = store.get(res.data.id)!;
-    expect(row.context).toBeNull();
+    expect(row.context).toBe(bigContext);
   });
 
   test("(f) response shape {id, presentation, subject, supersededId}", async () => {
@@ -167,20 +167,20 @@ describe("gate:ask", () => {
     expect(res).toEqual({ ok: false, error: "invalid questions" });
   });
 
-  test("(j) multibyte context just over the cap (4097 'é' chars, 8194 bytes) is omitted; the gate still opens", async () => {
+  test("(j) multibyte context past the old 8192-byte cap (4097 'é' chars) is stored whole", async () => {
     const { handlers, store } = harness({
       resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }),
     });
+    const context = "é".repeat(4097);
     const res = await handlers["gate:ask"]({
-      questions: twoOptionQuestion(), subject: "mr:https://x/1", context: "é".repeat(4097),
+      questions: twoOptionQuestion(), subject: "mr:https://x/1", context,
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const row = store.get(res.data.id)!;
-    expect(row.context).toBeNull();
+    expect(store.get(res.data.id)!.context).toBe(context);
   });
 
-  test("(k) multibyte context just under the cap (4096 'é' chars, 8192 bytes) keeps its context", async () => {
+  test("(k) multibyte context of 4096 'é' chars (8192 bytes) keeps its context", async () => {
     const { handlers, store } = harness({
       resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }),
     });
@@ -420,7 +420,7 @@ describe("gate:ask context enforcement", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(store.get(res.data.id)!.context).toBe(CTX);
-    expect(res.data.contextOmitted).toBeUndefined();
+    expect("contextOmitted" in res.data).toBe(false);
   });
 
   test("a herd-owned run gate is not refused: the shepherd reads the registry, not a bare form", async () => {
@@ -444,15 +444,14 @@ describe("gate:ask context enforcement", () => {
     expect(res.ok).toBe(true);
   });
 
-  test("an oversized context is still dropped, but the response says so", async () => {
+  test("an oversized context is stored whole and the response carries no omitted flag", async () => {
     const { handlers, store } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:x" }) });
-    const res = await handlers["gate:ask"]({
-      questions: twoOptionQuestion(), subject: "mr:x", context: "x".repeat(9000),
-    });
+    const context = "x".repeat(40_000);
+    const res = await handlers["gate:ask"]({ questions: twoOptionQuestion(), subject: "mr:x", context });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.contextOmitted).toBe(true);
-    expect(store.get(res.data.id)!.context).toBeNull();
+    expect("contextOmitted" in res.data).toBe(false);
+    expect(store.get(res.data.id)!.context).toBe(context);
   });
 });
 
@@ -517,7 +516,7 @@ describe("gate:ask structured question context (RT-184)", () => {
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.contextOmitted).toBeUndefined();
+    expect("contextOmitted" in res.data).toBe(false);
     const row = store.get(res.data.id)!;
     expect(row.context).toBe(CTX);
     expect(row.questions).toEqual([{
@@ -526,58 +525,38 @@ describe("gate:ask structured question context (RT-184)", () => {
     }]);
   });
 
-  test("under the shared 8192-byte budget nothing is dropped", async () => {
+  test("a 40,000-byte gate context and three 20,000-byte question contexts are stored byte for byte", async () => {
     const { handlers, store } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:x" }) });
-    const res = await handlers["gate:ask"]({ subject: "mr:x", context: "g".repeat(4096), questions: withContexts(2048, 2048) });
+    const gate = "g".repeat(40_000);
+    const questions: GateQuestion[] = ["a", "b", "c"].map((id) => ({
+      id, label: id, multi: false, options: ["yes", "no"], context: id.repeat(20_000),
+    }));
+    const res = await handlers["gate:ask"]({ subject: "mr:x", context: gate, questions });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.contextOmitted).toBeUndefined();
+    expect("contextOmitted" in res.data).toBe(false);
     const row = store.get(res.data.id)!;
-    expect(row.context).toBe("g".repeat(4096));
-    expect(row.questions[0]!.context).toBe("x".repeat(2048));
-    expect(row.questions[1]!.context).toBe("y".repeat(2048));
+    expect(row.context).toBe(gate);
+    expect(row.questions.map((q) => q.context)).toEqual(questions.map((q) => q.context));
   });
 
-  test("over the shared budget, question contexts are dropped first and the gate context kept, reported as contextOmitted", async () => {
+  test("question contexts alone, with no gate context, are stored whole on an exempt kind", async () => {
     const { handlers, store } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:x" }) });
-    const res = await handlers["gate:ask"]({ subject: "mr:x", context: "g".repeat(4096), questions: withContexts(2048, 2049) });
+    const res = await handlers["gate:ask"]({ subject: "mr:x", kind: "milestone", questions: withContexts(9000, 9000) });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.contextOmitted).toBe(true);
     const row = store.get(res.data.id)!;
-    expect(row.context).toBe("g".repeat(4096));
-    expect(Object.keys(row.questions[0]!)).not.toContain("context");
-    expect(Object.keys(row.questions[1]!)).not.toContain("context");
+    expect(row.questions[0]!.context).toBe("x".repeat(9000));
+    expect(row.questions[1]!.context).toBe("y".repeat(9000));
   });
 
-  test("a gate context that is over budget on its own drops question contexts too", async () => {
-    const { handlers, store } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:x" }) });
-    const res = await handlers["gate:ask"]({ subject: "mr:x", context: "g".repeat(9000), questions: withContexts(10, 10) });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.data.contextOmitted).toBe(true);
-    const row = store.get(res.data.id)!;
-    expect(row.context).toBeNull();
-    expect(Object.keys(row.questions[0]!)).not.toContain("context");
-  });
-
-  test("question contexts alone over budget are dropped and reported, with no gate context to keep", async () => {
-    const { handlers, store } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:x" }) });
-    const res = await handlers["gate:ask"]({ subject: "mr:x", kind: "milestone", questions: withContexts(4096, 4097) });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.data.contextOmitted).toBe(true);
-    const row = store.get(res.data.id)!;
-    expect(Object.keys(row.questions[0]!)).not.toContain("context");
-  });
-
-  test("a human-owned, non-exempt gate with no gate context is still refused when only question contexts overflow the budget", async () => {
+  test("a human-owned, non-exempt gate with no gate context is refused even when question contexts are large", async () => {
     const { handlers } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:x" }) });
-    const res = await handlers["gate:ask"]({ subject: "mr:x", questions: withContexts(4096, 4097) });
+    const res = await handlers["gate:ask"]({ subject: "mr:x", questions: withContexts(9000, 9000) });
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error).toContain("context");
     expect(res.error).toContain("decide from alone");
+    expect(res.error).not.toContain("contextOmitted");
   });
 
   test("an oversized option description is a hard reject, not a drop: the caller authored it", async () => {

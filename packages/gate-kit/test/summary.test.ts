@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   answeredGateSummary,
+  joinSummary,
   type GateSummaryInput,
 } from '@mattstack/gate-kit';
 import type { GateQuestion } from '@mattstack/rt-client';
@@ -607,5 +608,14 @@ describe('answeredGateSummary outcome', () => {
       answer: null,
     });
     expect(outcome).toBe('superseded');
+  });
+});
+
+describe('joinSummary', () => {
+  test('puts each folded finding after the line, one blank line apart', () => {
+    expect(joinSummary('Line.', ['A.', 'B.'])).toBe('Line.\n\nA.\n\nB.');
+  });
+  test('with nothing folded it is the line alone', () => {
+    expect(joinSummary('Line.', [])).toBe('Line.');
   });
 });

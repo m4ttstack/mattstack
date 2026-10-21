@@ -158,22 +158,26 @@ describe("rt gate ask CLI e2e", () => {
     expect(parsed.error).toContain("decide from alone");
   }, 30_000);
 
-  test("an oversized --context still opens the gate, and the envelope says contextOmitted", async () => {
+  test("an oversized --context is stored whole, and the envelope carries no omitted flag", async () => {
     const questions = JSON.stringify([{ id: "q", label: "Pick", multi: false, options: ["a", "b"] }]);
+    const context = "x".repeat(9000);
     const res = await finished(runRt(
-      ["gate", "ask", "--questions", questions, "--subject", "mr:e2e-big", "--context", "x".repeat(9000)],
+      ["gate", "ask", "--questions", questions, "--subject", "mr:e2e-big", "--context", context],
       home,
       { HERDR_PANE_ID: "pane-7", CLAUDE_CODE_SESSION_ID: "sess-7-big" },
     ));
     expect(res.exitCode).toBe(0);
+    const parsed = JSON.parse(res.stdout) as { id: string };
     expect(JSON.parse(res.stdout)).toEqual({
       ok: true,
       id: expect.any(String),
       presentation: "form",
       subject: "mr:e2e-big",
       supersededId: null,
-      contextOmitted: true,
     });
+    const listed = await finished(runRt(["gate", "list", "--json", "--subject-prefix", "mr:e2e-big"], home));
+    const { gates } = JSON.parse(listed.stdout) as { gates: Array<{ id: string; context: string | null }> };
+    expect(gates.find((g) => g.id === parsed.id)!.context).toBe(context);
   }, 30_000);
 
   // RT-184: the per-option explanations and per-question context the pane's
@@ -189,8 +193,7 @@ describe("rt gate ask CLI e2e", () => {
       { HERDR_PANE_ID: "pane-8", CLAUDE_CODE_SESSION_ID: "sess-8-structured" },
     ));
     expect(asked.exitCode).toBe(0);
-    const { id, contextOmitted } = JSON.parse(asked.stdout) as { id: string; contextOmitted?: true };
-    expect(contextOmitted).toBeUndefined();
+    const { id } = JSON.parse(asked.stdout) as { id: string };
 
     const listed = await finished(runRt(["gate", "list", "--json", "--subject-prefix", "mr:e2e-structured"], home));
     expect(listed.exitCode).toBe(0);
@@ -203,10 +206,12 @@ describe("rt gate ask CLI e2e", () => {
     }]);
   }, 30_000);
 
-  test("question contexts over the shared budget are dropped, the gate context kept, and the envelope says contextOmitted", async () => {
+  test("question contexts past the old shared budget are stored whole beside the gate context", async () => {
+    const x = "x".repeat(20_000);
+    const y = "y".repeat(20_000);
     const questions = JSON.stringify([
-      { id: "q", label: "Pick", multi: false, options: ["a", "b"], context: "x".repeat(4096) },
-      { id: "m", label: "Pick many", multi: true, options: ["a", "b"], context: "y".repeat(4097) },
+      { id: "q", label: "Pick", multi: false, options: ["a", "b"], context: x },
+      { id: "m", label: "Pick many", multi: true, options: ["a", "b"], context: y },
     ]);
     const asked = await finished(runRt(
       ["gate", "ask", "--questions", questions, "--subject", "mr:e2e-budget", "--context", "kept"],
@@ -215,13 +220,13 @@ describe("rt gate ask CLI e2e", () => {
     ));
     expect(asked.exitCode).toBe(0);
     const parsed = JSON.parse(asked.stdout) as { id: string; contextOmitted?: true };
-    expect(parsed.contextOmitted).toBe(true);
+    expect(parsed.contextOmitted).toBeUndefined();
 
     const listed = await finished(runRt(["gate", "list", "--json", "--subject-prefix", "mr:e2e-budget"], home));
-    const { gates } = JSON.parse(listed.stdout) as { gates: Array<{ id: string; context: string | null; questions: Array<Record<string, unknown>> }> };
+    const { gates } = JSON.parse(listed.stdout) as { gates: Array<{ id: string; context: string | null; questions: Array<{ context?: string }> }> };
     const row = gates.find((g) => g.id === parsed.id)!;
     expect(row.context).toBe("kept");
-    expect(row.questions.map((q) => "context" in q)).toEqual([false, false]);
+    expect(row.questions.map((q) => q.context)).toEqual([x, y]);
   }, 30_000);
 
   test("missing --questions: ok:false usage refusal, exit 1, no daemon contact", async () => {

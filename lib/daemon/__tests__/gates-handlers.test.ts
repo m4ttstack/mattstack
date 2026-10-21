@@ -694,22 +694,18 @@ describe("gate:open W4 fields", () => {
     expect((over as { error: string }).error).toContain("200 bytes");
   });
 
-  test("rejects context over 8192 bytes, naming the cap; accepts one at the cap", async () => {
-    const { handlers } = harness();
-    const over = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions: qs(), context: "x".repeat(8193) });
-    expect(over.ok).toBe(false);
-    expect((over as { error: string }).error).toContain("8192 bytes");
-    const at = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", context: "x".repeat(8192), questions: qs() });
-    expect(at.ok).toBe(true);
-  });
-
-  test("context cap is byte-based, not char-based: a 2-byte char at 4096 reps (8192 bytes) is accepted, 4097 reps (8194 bytes) is rejected", async () => {
-    const { handlers } = harness();
-    const at = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions: qs(), context: "é".repeat(4096) });
-    expect(at.ok).toBe(true);
-    const over = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions: qs(), context: "é".repeat(4097) });
-    expect(over.ok).toBe(false);
-    expect((over as { error: string }).error).toContain("8192 bytes");
+  test("stores a 40,000-byte gate context and three 20,000-byte question contexts byte for byte", async () => {
+    const { handlers, store } = harness();
+    const gate = "g".repeat(40_000);
+    const questions: GateQuestion[] = ["a", "b", "c"].map((id) => ({
+      id, label: id, multi: false, options: ["x", "y"], context: id.repeat(20_000),
+    }));
+    const res = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions, context: gate });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = store.get(res.data.id)!;
+    expect(row.context).toBe(gate);
+    expect(row.questions.map((q) => q.context)).toEqual(questions.map((q) => q.context));
   });
 
   test("stores context and origin, serves them on the row AND the opened event payload", async () => {
@@ -833,29 +829,6 @@ describe("gate:open structured question context (RT-184)", () => {
     expect((over as { error: string }).error).toContain('"q"');
     const at = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions: withDescription("x".repeat(1024)) });
     expect(at.ok).toBe(true);
-  });
-
-  test("gate context and question contexts share one 8192-byte budget: over it is rejected naming the cap, at it is accepted", async () => {
-    const { handlers } = harness();
-    const withContexts = (a: number, b: number): GateQuestion[] => [
-      { id: "q", label: "Pick", multi: false, options: ["a", "b"], context: "x".repeat(a) },
-      { id: "m", label: "Pick many", multi: true, options: ["a", "b"], context: "x".repeat(b) },
-    ];
-    const over = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions: withContexts(2048, 2049), context: "x".repeat(4096) });
-    expect(over.ok).toBe(false);
-    expect((over as { error: string }).error).toContain("8192 bytes");
-    const at = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions: withContexts(2048, 2048), context: "x".repeat(4096) });
-    expect(at.ok).toBe(true);
-  });
-
-  test("question contexts alone can exceed the budget: no gate context, 8193 bytes across questions is rejected", async () => {
-    const { handlers } = harness();
-    const r = await handlers["gate:open"]({
-      subject: "run:r1", kind: "clarify",
-      questions: [{ id: "q", label: "Pick", multi: false, options: ["a", "b"], context: "x".repeat(8193) }],
-    });
-    expect(r.ok).toBe(false);
-    expect((r as { error: string }).error).toContain("8192 bytes");
   });
 });
 

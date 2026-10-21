@@ -76,6 +76,7 @@ export interface UnwrappedGateAnswer {
   value?: string | string[];
   note?: string;
   text?: string;
+  texts?: Record<string, string>;
   writeIn?: string;
 }
 
@@ -101,6 +102,7 @@ export function unwrapGateAnswer(raw: GateAnswerValue): UnwrappedGateAnswer {
       value,
       note: raw.note,
       ...(raw.text !== undefined ? { text: raw.text } : {}),
+      ...(raw.texts !== undefined ? { texts: raw.texts } : {}),
     };
   }
   return { value };

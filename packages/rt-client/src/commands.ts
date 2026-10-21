@@ -112,6 +112,26 @@ export interface MrListLiveFilters {
 export interface ProjectLabel { name: string; description: string | null; color: string | null }
 /** `body` is parsed JSON, or raw text when GitLab did not answer JSON or the body was cut at the size cap. */
 export interface ForgeGetData { status: number; body: unknown; truncated: boolean; nextPage: number | null; totalPages: number | null }
+/** One file of an MR or PR's diff, the same shape whichever forge it came from. */
+export interface ForgeFileDiff {
+  oldPath: string;
+  newPath: string;
+  renamed: boolean;
+  newFile: boolean;
+  deletedFile: boolean;
+  /** No text diff: GitLab's "Binary files ... differ". */
+  binary: boolean;
+  /** The forge holds the diff back: GitLab's too_large or collapsed, or a GitHub file with no patch. */
+  tooLarge: boolean;
+  /** The file's unified hunks with no file headers; null when binary or too large. */
+  diff: string | null;
+  /** The file in the MR's diff on the forge. */
+  webUrl: string | null;
+}
+/** `file` is null when the listing did not reach that path; `truncated` says a
+    page or byte cap stopped the listing first, so null need not mean the diff
+    leaves the path alone. */
+export interface ForgeFileDiffData { forge: "gitlab" | "github"; headSha: string; truncated: boolean; file: ForgeFileDiff | null }
 export interface PipelineListRow { id: number; status: string; ref: string | null; sha: string | null; source: string | null; webUrl: string | null; createdAt: string | null }
 
 /** A null entry means GitLab has no open MR with that source branch. */
@@ -195,7 +215,7 @@ export { gateOptionValue, gateOptionLabel } from "./gate-options.ts";
     `overridden`: the answer went past the herd-owner guard. The console
     sets it on every answer it sends; it says nothing about whether the
     answer matched the recommended option. */
-export interface GateAnswer { answers: Record<string, string | string[] | { value: string | string[]; note?: string; text?: string } | GateWriteIn>; by: string; answeredAt: number; overridden?: boolean; session?: string }
+export interface GateAnswer { answers: Record<string, string | string[] | { value: string | string[]; note?: string; text?: string; texts?: Record<string, string> } | GateWriteIn>; by: string; answeredAt: number; overridden?: boolean; session?: string }
 export interface GateRow {
   id: string; subject: string; kind: string;
   questions: GateQuestion[]; meta: Record<string, unknown> | null;
@@ -1034,6 +1054,8 @@ export interface Commands {
   "project:labels": { payload: { repoName: string; search?: string }; data: { labels: ProjectLabel[] } };
   "pipeline:list": { payload: { repoName: string; ref?: string; sha?: string; iid?: number; limit?: number }; data: { pipelines: PipelineListRow[] } };
   "forge:get": { payload: { repoName: string; path: string; query?: Record<string, string | number | boolean>; page?: number; perPage?: number }; data: ForgeGetData };
+  /** One file's diff in an MR (GitLab) or PR (GitHub), read through the repo's own forge; iid is the MR iid or PR number. */
+  "forge:file-diff": { payload: { repoName: string; iid: number; path: string }; data: ForgeFileDiffData };
 
   "endpoint:claim": { payload: { repo: string; worktree: string; role: string; pid?: number }; data: EndpointClaimData };
   "endpoint:lookup": { payload: { repo: string; worktree: string; role: string }; data: EndpointLookupData };
@@ -1057,8 +1079,8 @@ export interface Commands {
       picks up run linkage from the session's own running run; else its
       single running run as `run:<id>`; else its agent record's recorded
       subject, or `agent:<id>` when it has none), computes
-      presentation via gatePresentation, supplies nudge/origin, and omits an
-      oversized context instead of rejecting it. `meta` and `agent` forward
+      presentation via gatePresentation, supplies nudge/origin, and stores
+      every context whole. `meta` and `agent` forward
       to gate:open verbatim; `origin` passthrough fields fill gaps in the
       ceremony's own origin (presentation, paneId, runId, run-derived
       worktree always win over a caller-supplied value for the same key).
@@ -1076,17 +1098,13 @@ export interface Commands {
       agent?: string;
       origin?: { surface?: string; tabId?: string; worktree?: string };
     };
-    /** `contextOmitted` appears only when the gate context plus every
-        question's `context` exceeded their shared 8192-byte budget: the
-        gate still opened, but question contexts were dropped, and the gate
-        context too when it was over the budget on its own.
-        `formCapExceeded`/`formCapAdvisory` appear only when the pane could
+    /** `formCapExceeded`/`formCapAdvisory` appear only when the pane could
         have presented an in-pane form and one or more questions exceeded
         its 4-option cap, which is the one thing that forced this gate to
         `wait`: the gate still opens, and the advisory names the structural
         fix so the caller can re-author. */
     data: {
-      id: string; presentation: "form" | "wait"; subject: string; supersededId: string | null; contextOmitted?: true;
+      id: string; presentation: "form" | "wait"; subject: string; supersededId: string | null;
       formCapExceeded?: Array<{ question: string; options: number }>;
       formCapAdvisory?: string;
     };
@@ -1301,6 +1319,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "project:labels",
   "pipeline:list",
   "forge:get",
+  "forge:file-diff",
   "endpoint:claim",
   "endpoint:lookup",
   "endpoint:release",

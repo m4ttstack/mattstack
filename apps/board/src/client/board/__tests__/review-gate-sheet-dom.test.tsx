@@ -209,17 +209,19 @@ function Host({
   queueIndex = QUEUE.index,
   onPrev = () => {},
   onContinue = () => {},
+  noMr = false,
 }: {
   gate?: GateRow;
   queueIndex?: number;
   onPrev?: () => void;
   onContinue?: () => void;
+  noMr?: boolean;
 }) {
   const form = useGateForm(gate);
   return (
     <ReviewGateSheet
       gate={gate}
-      mr={MR}
+      mr={noMr ? undefined : MR}
       form={form}
       queue={{
         ...QUEUE,
@@ -228,13 +230,14 @@ function Host({
         states: [...QUEUE.states],
         onPrev,
       }}
-      onClose={() => {}}
+      onClose={() => sheetCloses++}
       onContinue={onContinue}
       onFocusPane={() => {}}
     />
   );
 }
 
+let sheetCloses = 0;
 let root: Root;
 let container: HTMLElement;
 let posts: Array<{ url: string; body: unknown }>;
@@ -279,6 +282,7 @@ async function render(
     queueIndex?: number;
     onPrev?: () => void;
     onContinue?: () => void;
+    noMr?: boolean;
   }
 ) {
   await React.act(async () => {
@@ -1028,14 +1032,8 @@ describe('a later round', () => {
   }
 
   async function editReply(scope: Element, call: string, text: string) {
-    const card = cardFor(scope, call);
-    await React.act(async () =>
-      card
-        .querySelector<HTMLButtonElement>('button[aria-label$=": edit reply"]')!
-        .click()
-    );
-    const box = card.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label$=": reply"]'
+    const box = cardFor(scope, call).querySelector<HTMLTextAreaElement>(
+      'textarea.tui-composer-input'
     )!;
     await React.act(async () => {
       Object.getOwnPropertyDescriptor(
@@ -1232,5 +1230,601 @@ describe('a later round', () => {
       expect(skippedTitles).toHaveLength(SKIPPED.length);
       for (const t of skippedTitles) expect(newTitles).not.toContain(t);
     });
+  });
+});
+
+describe('a gate whose poster honors edited drafts', () => {
+  const COMMENT = {
+    f1: 'Hi! The query on line 42 splices user input straight into SQL. Could we bind it as a parameter instead?\n\nA test with a quote in the name would pin it.',
+    f2: 'Small one: the response can be null here when the upstream times out.',
+    f3: 'The error copy in this MR mixes two styles; the guide picks the short one.',
+    f4: 'Nit: this import is unused now.',
+  };
+  const SUMMARY = 'Thanks! One real issue inline, the rest are small.';
+  const SUMMARY_COMMENT =
+    'Thanks! One real issue inline; holding the merge call until it lands.';
+
+  function draftsGate(
+    over: {
+      editable?: boolean;
+      round?: number;
+      summaryComments?: Record<string, string>;
+    } = {}
+  ): GateRow {
+    const editable = over.editable ?? true;
+    return {
+      ...GATE,
+      gateId: 'g-review-drafts',
+      context: j({
+        ...REVIEW,
+        findings: { critical: 1, important: 2, minor: 1 },
+        ...(over.round !== undefined ? { round: over.round } : {}),
+        ...(editable ? { editable: true } : {}),
+        summaryComments: over.summaryComments ?? {
+          approve: SUMMARY,
+          comment: SUMMARY_COMMENT,
+        },
+      }),
+      questions: [
+        {
+          ...GATE.questions[0]!,
+          context: findingsCtx(
+            { ...E.f1, comment: COMMENT.f1 },
+            { ...E.f2, comment: COMMENT.f2 },
+            entry(
+              'f3',
+              'important',
+              'Inconsistent error wording',
+              undefined,
+              'align with the style guide',
+              { comment: COMMENT.f3 }
+            ),
+            { ...E.f4, comment: COMMENT.f4 }
+          ),
+        },
+        GATE.questions[2]!,
+      ],
+    };
+  }
+
+  const itemFor = (title: string): Element => {
+    const item = [...container.querySelectorAll('.tui-review-finding')].find(
+      r => r.querySelector('.tui-review-finding-title')?.textContent === title
+    );
+    if (!item) throw new Error(`no finding titled "${title}"`);
+    return item;
+  };
+
+  async function edit(scope: Element, text: string) {
+    const box = scope.querySelector<HTMLTextAreaElement>(
+      'textarea.tui-composer-input'
+    )!;
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value'
+      )!.set!.call(box, text);
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  const valueOf = (scope: Element | null | undefined) =>
+    [...(scope?.querySelectorAll('textarea') ?? [])]
+      .map(t => (t as HTMLTextAreaElement).value)
+      .join('\n');
+
+  const answers = () =>
+    (
+      posts.find(p => p.url === '/gate/answer')!.body as {
+        answers: Record<string, unknown>;
+      }
+    ).answers;
+
+  const submitButton = () =>
+    container.querySelector('.tui-sheet-submit') as HTMLButtonElement;
+
+  const sectionOf = (item: Element, name: string) =>
+    item.querySelector(`.tui-review-section[aria-label="${name}"]`);
+
+  test('a ticked finding is one card: header, then The Code, Agent Finding and Comment', async () => {
+    await render(draftsGate());
+    const item = itemFor('SQL built from unsanitized input');
+    expect(item.tagName).toBe('ARTICLE');
+    expect(
+      [...item.querySelectorAll('.tui-review-section-name')].map(
+        n => n.textContent
+      )
+    ).toEqual(['The Code', 'Agent Finding', 'Comment']);
+    expect(
+      sectionOf(item, 'The Code')!.querySelector('.tui-review-code-path')!
+        .textContent
+    ).toBe('lib/db/query.ts:42');
+    expect(sectionOf(item, 'Agent Finding')!.textContent).toContain(
+      'SQL built from unsanitized input: the full finding text, never truncated.'
+    );
+    expect(item.querySelector('.tui-review-finding-anchor')).toBeNull();
+  });
+
+  test('an unticked finding shows its header only', async () => {
+    await render(draftsGate());
+    await click(checkboxForTitle('Unused import'));
+    const item = itemFor('Unused import');
+    expect(item.hasAttribute('data-off')).toBe(true);
+    expect(item.querySelector('.tui-review-section')).toBeNull();
+    expect(item.querySelector('.tui-review-card-head')).not.toBeNull();
+  });
+
+  test('the cards sit indented under their severity heading', async () => {
+    await render(draftsGate());
+    const group = container.querySelector('.tui-review-tier-group')!;
+    expect(
+      group.querySelector('.tui-review-tier-items > .tui-review-card')
+    ).not.toBeNull();
+    expect(group.querySelector('.tui-review-tier-head')!.textContent).toContain(
+      'all·none'
+    );
+  });
+
+  test('each ticked anchored finding shows its whole draft as the comment, with no fix line', async () => {
+    await render(draftsGate());
+    const box = sectionOf(
+      itemFor('SQL built from unsanitized input'),
+      'Comment'
+    )!;
+    expect(
+      box.querySelector('.tui-review-comment-foot')!.textContent
+    ).toContain('Markdown supported');
+    expect(valueOf(box)).toContain('Could we bind it as a parameter instead?');
+    expect(valueOf(box)).toContain(
+      'A test with a quote in the name would pin it.'
+    );
+    expect(container.querySelector('.tui-review-finding-fix')).toBeNull();
+  });
+
+  test('unticking hides the box, and re-ticking brings back the earlier edit', async () => {
+    await render(draftsGate());
+    await edit(itemFor('Unused import'), 'Drop this import, please.');
+    await click(checkboxForTitle('Unused import'));
+    expect(itemFor('Unused import').querySelector('textarea')).toBeNull();
+    expect(itemFor('Unused import').hasAttribute('data-off')).toBe(true);
+    await click(checkboxForTitle('Unused import'));
+    const item = itemFor('Unused import');
+    expect(valueOf(sectionOf(item, 'Comment'))).toContain(
+      'Drop this import, please.'
+    );
+    expect(sectionOf(item, 'Comment')!.hasAttribute('data-edited')).toBe(true);
+  });
+
+  test('an edited comment rides its chunk answer as texts', async () => {
+    await render(draftsGate());
+    await edit(itemFor('Unused import'), '\nDrop this import, please. ');
+    await click(submitButton());
+    expect(answers()).toEqual({
+      'findings-1': {
+        value: ['f1', 'f2', 'f3', 'f4'],
+        texts: { f4: 'Drop this import, please.' },
+      },
+      outcome: 'approve',
+    });
+  });
+
+  test('an edited summary line rides the outcome as text', async () => {
+    await render(draftsGate());
+    await edit(
+      container.querySelector(
+        '.tui-review-summary [data-part="summary-line"]'
+      )!,
+      'New summary.'
+    );
+    await click(submitButton());
+    expect(answers().outcome).toEqual({
+      value: 'approve',
+      text: 'New summary.',
+    });
+  });
+
+  const summaryLine = () =>
+    container.querySelector('.tui-review-summary [data-part="summary-line"]')!;
+
+  const pickVerdict = async (value: string) =>
+    click(
+      [...container.querySelectorAll('input[type=radio]')].find(
+        i => (i as HTMLInputElement).value === value
+      )!
+    );
+
+  test("the summary box shows the selected verdict's draft and swaps with the verdict", async () => {
+    await render(draftsGate());
+    expect(valueOf(summaryLine())).toContain(SUMMARY);
+    await pickVerdict('comment');
+    expect(valueOf(summaryLine())).toContain(SUMMARY_COMMENT);
+    expect(valueOf(summaryLine())).not.toContain(SUMMARY);
+  });
+
+  test('the summary heading names the selected verdict and follows it', async () => {
+    await render(draftsGate());
+    const heading = () =>
+      container.querySelector('.tui-review-summary-k')?.textContent;
+    expect(heading()).toBe('summary comment · approve');
+    await pickVerdict('comment');
+    expect(heading()).toBe('summary comment · comment');
+  });
+
+  test('each verdict keeps its own edit: switching away and back restores it', async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), 'Approve, edited.');
+    await pickVerdict('comment');
+    expect(valueOf(summaryLine())).toContain(SUMMARY_COMMENT);
+    expect(valueOf(summaryLine())).not.toContain('Approve, edited.');
+    expect(
+      container.querySelector(
+        '.tui-review-summary [data-part="summary-line"][data-edited]'
+      )
+    ).toBeNull();
+    await pickVerdict('approve');
+    expect(valueOf(summaryLine())).toContain('Approve, edited.');
+    expect(
+      container.querySelector(
+        '.tui-review-summary [data-part="summary-line"][data-edited]'
+      )
+    ).not.toBeNull();
+  });
+
+  test('submitting under comment sends no approve edit', async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), 'Approve, edited.');
+    await pickVerdict('comment');
+    await click(submitButton());
+    expect(answers().outcome).toBe('comment');
+  });
+
+  test("the comment verdict's edit rides as text only when it differs from the comment draft", async () => {
+    await render(draftsGate());
+    await pickVerdict('comment');
+    await edit(summaryLine(), `\n${SUMMARY_COMMENT}\n`);
+    await click(submitButton());
+    expect(answers().outcome).toBe('comment');
+  });
+
+  test("the comment verdict's changed edit rides as text", async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), 'Approve, edited.');
+    await pickVerdict('comment');
+    await edit(summaryLine(), '\nComment, edited. ');
+    await click(submitButton());
+    expect(answers().outcome).toEqual({
+      value: 'comment',
+      text: 'Comment, edited.',
+    });
+  });
+
+  test('a blank summary edit blocks submit only while its verdict is selected', async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), '   ');
+    expect(submitButton().disabled).toBe(true);
+    await pickVerdict('comment');
+    expect(submitButton().disabled).toBe(false);
+  });
+
+  test('a three-verdict gate shows the request_changes draft and submits its edit', async () => {
+    const REQUEST = 'Thanks! The SQL path needs a fix before this merges.';
+    const gate = draftsGate({
+      summaryComments: {
+        approve: SUMMARY,
+        comment: SUMMARY_COMMENT,
+        request_changes: REQUEST,
+      },
+    });
+    const outcome = gate.questions[1]!;
+    gate.questions[1] = {
+      ...outcome,
+      options: [
+        ...outcome.options,
+        { value: 'request_changes', label: 'request changes' },
+      ],
+    };
+    await render(gate);
+    await pickVerdict('request_changes');
+    expect(valueOf(summaryLine())).toContain(REQUEST);
+    await edit(summaryLine(), '\nNeeds the SQL fix first. ');
+    await click(submitButton());
+    expect(answers().outcome).toEqual({
+      value: 'request_changes',
+      text: 'Needs the SQL fix first.',
+    });
+  });
+
+  test('a verdict question not named outcome is still the verdict', async () => {
+    const gate = draftsGate();
+    gate.questions[1] = { ...gate.questions[1]!, id: 'verdict' };
+    await render(gate);
+    expect(valueOf(summaryLine())).toContain(SUMMARY);
+    await edit(summaryLine(), 'Approve, edited.');
+    await click(submitButton());
+    expect(answers().verdict).toEqual({
+      value: 'approve',
+      text: 'Approve, edited.',
+    });
+  });
+
+  test('a summary draft missing for a verdict leaves the sheet read-only', async () => {
+    await render(draftsGate({ summaryComments: { approve: SUMMARY } }));
+    expect(container.querySelector('.tui-review-summary')).toBeNull();
+    expect(container.querySelector('textarea')).toBeNull();
+  });
+
+  test('a blank comment disables submit', async () => {
+    await render(draftsGate());
+    await edit(itemFor('Unused import'), '   ');
+    expect(submitButton().disabled).toBe(true);
+  });
+
+  test('the summary sits in the rail under Finish your review, with the line and each ticked no-diff-line finding', async () => {
+    await render(draftsGate());
+    expect(
+      container.querySelector('.tui-sheet-main .tui-review-summary')
+    ).toBeNull();
+    const dock = container.querySelector('.tui-sheet-rail .tui-sheet-dock')!;
+    expect(dock.querySelector('.tui-sheet-dock-heading')!.textContent).toBe(
+      'Finish your review on !31'
+    );
+    const card = dock.querySelector('.tui-review-summary')!;
+    expect(
+      card.compareDocumentPosition(dock.querySelector('[role="radiogroup"]')!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    const parts = card.querySelectorAll('.tui-review-summary-part');
+    expect(parts.length).toBe(2);
+    expect(parts[0]!.getAttribute('data-part')).toBe('summary-line');
+    expect(valueOf(parts[0])).toContain(SUMMARY);
+    expect(valueOf(parts[1])).toContain(COMMENT.f3);
+  });
+
+  test('on a later round the round band stays first in the main column', async () => {
+    await render(draftsGate({ round: 2 }));
+    const main = container.querySelector('.tui-sheet-main')!;
+    expect(main.firstElementChild?.className).toBe('tui-sheet-round');
+    expect(main.querySelector('.tui-review-summary')).toBeNull();
+  });
+
+  test('with no MR the rail heading names no target', async () => {
+    await render(draftsGate(), { noMr: true });
+    expect(
+      container.querySelector('.tui-sheet-dock-heading')!.textContent
+    ).toBe('Finish your review');
+  });
+
+  test('a no-diff-line finding points at the summary instead of carrying a box', async () => {
+    await render(draftsGate());
+    const item = itemFor('Inconsistent error wording');
+    expect(item.querySelector('textarea')).toBeNull();
+    expect(item.querySelector('[data-section="code"]')).toBeNull();
+    expect(sectionOf(item, 'Comment')!.textContent).toContain(
+      'Posts in the summary (no diff line)'
+    );
+  });
+
+  test('unticking the no-diff-line finding drops it and the hint from the summary card', async () => {
+    await render(draftsGate());
+    await click(checkboxForTitle('Inconsistent error wording'));
+    const card = container.querySelector('.tui-review-summary')!;
+    expect(card.querySelectorAll('textarea').length).toBe(1);
+    expect(valueOf(card)).not.toContain(COMMENT.f3);
+    expect(card.querySelector('[data-part="folded"]')).toBeNull();
+  });
+
+  test('the submit label counts the comments and the summary', async () => {
+    await render(draftsGate());
+    expect(submitButton().textContent).toBe(
+      'post 3 comments + summary · approve'
+    );
+    await click(checkboxForTitle('Unused import'));
+    await click(checkboxForTitle('Missing null check on response'));
+    expect(submitButton().textContent).toBe(
+      'post 1 comment + summary · approve'
+    );
+  });
+
+  test('a restored finding with no diff line is not counted as a comment', async () => {
+    const gate = draftsGate();
+    gate.questions = [
+      gate.questions[0]!,
+      {
+        id: 'skipped-1',
+        label: 'Bring back a finding you skipped earlier?',
+        multi: true,
+        context: j({
+          'gate-ctx': 'skipped@1',
+          skipped: [
+            {
+              id: 'r1-f9',
+              round: 1,
+              severity: 'minor',
+              title: 'Config defaults live in two files',
+              changed: false,
+            },
+          ],
+        }),
+        options: [
+          {
+            value: 'restore:r1-f9',
+            label: '[Minor] Config defaults live in two files',
+            description: 'skipped in round 1',
+          },
+        ],
+      },
+      gate.questions[1]!,
+    ];
+    await render(gate);
+    for (const t of [
+      'SQL built from unsanitized input',
+      'Missing null check on response',
+      'Unused import',
+      'Inconsistent error wording',
+    ])
+      await click(checkboxForTitle(t));
+    await click(
+      container.querySelector<HTMLElement>('.tui-review-skipped-head')!
+    );
+    await click(
+      container.querySelector<HTMLInputElement>(
+        '.tui-review-skipped-row input[type="checkbox"]'
+      )!
+    );
+    expect(submitButton().textContent).toBe('post summary · approve');
+  });
+
+  const metaOf = (scope: Element) =>
+    scope.querySelector('.tui-review-section-meta')?.textContent;
+
+  test('every comment is a framed text area ready to type into, named for what it edits', async () => {
+    await render(draftsGate());
+    expect(
+      container.querySelector('button[aria-label$="edit comment"]')
+    ).toBeNull();
+    const labels = [
+      ...container.querySelectorAll<HTMLTextAreaElement>(
+        'textarea.tui-composer-input'
+      ),
+    ].map(t => t.getAttribute('aria-label'));
+    expect(labels).toEqual([
+      'Comment on SQL built from unsanitized input',
+      'Comment on Missing null check on response',
+      'Comment on Unused import',
+      'Summary line',
+      'Summary comment: Inconsistent error wording',
+    ]);
+    expect(metaOf(itemFor('Unused import'))).toBe('drafted by the agent');
+  });
+
+  test('a changed comment says edited with a reset that restores the draft', async () => {
+    await render(draftsGate());
+    const item = () => itemFor('Unused import');
+    await edit(item(), 'Drop this import, please.');
+    expect(metaOf(item())).toBe('edited·reset to draft');
+    await click(
+      item().querySelector<HTMLButtonElement>('button.tui-composer-act')!
+    );
+    expect(valueOf(sectionOf(item(), 'Comment'))).toBe(COMMENT.f4);
+    expect(metaOf(item())).toBe('drafted by the agent');
+    expect(sectionOf(item(), 'Comment')!.hasAttribute('data-edited')).toBe(
+      false
+    );
+    expect(document.activeElement).toBe(
+      sectionOf(item(), 'Comment')!.querySelector('textarea')
+    );
+  });
+
+  test('reset to draft from Preview goes back to Write and focuses the field', async () => {
+    await render(draftsGate());
+    const item = () => itemFor('Unused import');
+    await edit(item(), 'Drop this import, please.');
+    const tabOf = (name: string) =>
+      [...item().querySelectorAll<HTMLButtonElement>('.tui-field-tab')].find(
+        t => t.textContent === name
+      )!;
+    await click(tabOf('Preview'));
+    expect(item().querySelector('textarea')).toBeNull();
+    await click(
+      item().querySelector<HTMLButtonElement>('button.tui-composer-act')!
+    );
+    const box = sectionOf(item(), 'Comment')!.querySelector('textarea')!;
+    expect(box.value).toBe(COMMENT.f4);
+    expect(tabOf('Write').getAttribute('aria-pressed')).toBe('true');
+    expect(document.activeElement).toBe(box);
+  });
+
+  test('reset on the summary line from Preview goes back to Write and focuses it', async () => {
+    await render(draftsGate());
+    await edit(summaryLine(), 'Approve, edited.');
+    const summary = () => container.querySelector('.tui-review-summary')!;
+    const tabOf = (name: string) =>
+      [...summary().querySelectorAll<HTMLButtonElement>('.tui-field-tab')].find(
+        t => t.textContent === name
+      )!;
+    await click(tabOf('Preview'));
+    await click(
+      summary().querySelector<HTMLButtonElement>(
+        'button[aria-label="Summary line: reset to draft"]'
+      )!
+    );
+    expect(document.activeElement).toBe(
+      summaryLine().querySelector('textarea')
+    );
+    expect(valueOf(summaryLine())).toBe(SUMMARY);
+  });
+
+  test('a folded finding sits in the summary under its own strip, and remove unticks it', async () => {
+    await render(draftsGate());
+    const folded = () =>
+      container.querySelector('.tui-review-summary [data-part="folded"]');
+    expect(
+      folded()!.querySelector('.tui-review-summary-part-title')?.textContent
+    ).toBe('+ Inconsistent error wording');
+    await click(
+      folded()!.querySelector<HTMLButtonElement>(
+        'button[aria-label$=": remove"]'
+      )!
+    );
+    expect(folded()).toBeNull();
+    expect(
+      (checkboxForTitle('Inconsistent error wording') as HTMLInputElement)
+        .checked
+    ).toBe(false);
+    expect(document.activeElement).toBe(
+      checkboxForTitle('Inconsistent error wording')
+    );
+  });
+
+  test('Escape in a field leaves the field, not the sheet; a second Escape reaches the sheet', async () => {
+    await render(draftsGate());
+    sheetCloses = 0;
+    const box = itemFor('Unused import').querySelector<HTMLTextAreaElement>(
+      'textarea.tui-composer-input'
+    )!;
+    const esc = (el: Element) =>
+      React.act(async () => {
+        el.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+        );
+      });
+    box.focus();
+    // The sheet's Escape listener sits on the document; counting what reaches
+    // it keeps the test free of the layer stack other files leave behind.
+    let reached = 0;
+    const onDoc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') reached++;
+    };
+    document.addEventListener('keydown', onDoc);
+    try {
+      await esc(box);
+      expect(document.activeElement?.className).toBe('tui-field-tab');
+      expect(document.activeElement?.textContent).toBe('Write');
+      expect(
+        box
+          .closest('[data-section="comment"]')!
+          .contains(document.activeElement)
+      ).toBe(true);
+      expect(reached).toBe(0);
+      expect(sheetCloses).toBe(0);
+      await esc(document.body);
+      expect(reached).toBe(1);
+    } finally {
+      document.removeEventListener('keydown', onDoc);
+    }
+  });
+
+  test('without editable the sheet is the one it was: fix lines, no boxes, no summary card', async () => {
+    await render(draftsGate({ editable: false }));
+    expect(container.querySelector('.tui-review-summary')).toBeNull();
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(container.querySelector('.tui-review-card')).toBeNull();
+    expect(
+      container.querySelector('.tui-sheet-dock-heading')!.textContent
+    ).toBe('Verdict on !31');
+    expect(container.querySelectorAll('.tui-review-finding-fix').length).toBe(
+      4
+    );
+    expect(submitButton().textContent).toBe('post 4 · approve');
   });
 });

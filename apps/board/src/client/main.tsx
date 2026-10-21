@@ -12,12 +12,16 @@ import { TuiKitProvider } from '@mattstack/tui-kit/provider';
 import '@mattstack/tui-kit/theme.css';
 import '@mattstack/tui-kit/canvas.css';
 
+import { boardDiffSource } from './board/board-diff-source.ts';
 import { Board } from './board/Board.tsx';
+import { DiffSourceContext } from './board/diff-source.ts';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <TuiKitProvider>
-      <Board />
+      <DiffSourceContext.Provider value={boardDiffSource}>
+        <Board />
+      </DiffSourceContext.Provider>
     </TuiKitProvider>
   </StrictMode>
 );

@@ -168,10 +168,6 @@ export async function gateAnswer(args: string[]): Promise<void> {
 
 // ─── ask ─────────────────────────────────────────────────────────────────────
 
-/** Mirrors the daemon's own cap (lib/daemon/handlers/gate.ts) for one line of
-    operator prose; the daemon, not this, decides what is oversized. */
-const CONTEXT_CAP_BYTES = 8192;
-
 const ASK_USAGE = "usage: rt gate ask --questions <json> [--context <text>] [--kind <k>] [--subject <s>] [--json]";
 
 /** Always-JSON failure: agents parse stdout on both
@@ -208,13 +204,9 @@ export function buildGateAskPayload(args: string[], env: NodeJS.ProcessEnv): Com
   return payload;
 }
 
-/** `contextOmitted` appears only when the daemon dropped an oversized
-    context: it rides stdout, where agents parse both outcomes, because a
-    caller that learns nothing ships a gate with no material in it. */
 export function gateAskOutput(data: Commands["gate:ask"]["data"]): Record<string, unknown> {
   return {
     ok: true, id: data.id, presentation: data.presentation, subject: data.subject, supersededId: data.supersededId,
-    ...(data.contextOmitted ? { contextOmitted: true } : {}),
     ...(data.formCapExceeded ? { formCapExceeded: data.formCapExceeded, formCapAdvisory: data.formCapAdvisory } : {}),
   };
 }
@@ -224,9 +216,6 @@ export async function gateAsk(args: string[]): Promise<void> {
   const res = await clientAsk(payload);
   if (!res.ok || res.data === undefined) askFail(res.error ?? "ask failed");
   const data = res.data;
-  if (data.contextOmitted) {
-    out.diagnostic(`rt gate: context omitted: gate context plus question contexts exceeded the shared ${CONTEXT_CAP_BYTES}-byte budget; question contexts were dropped, and the gate context too if it was over on its own; shorten and re-ask\n`);
-  }
   if (data.formCapExceeded) {
     out.diagnostic(`rt gate: form cap exceeded (${data.formCapExceeded.map((q) => `${q.question}: ${q.options}`).join(", ")}): ${data.formCapAdvisory}\n`);
   }

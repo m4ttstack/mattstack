@@ -13,7 +13,7 @@ import { API_PORT, resolveApiPort } from "../daemon-config.ts";
 import { needsToken, tokenOk, getApiToken, resolveOriginTrust, isTokenPreflight } from "./api-auth.ts";
 import { deriveFailure } from "./failure.ts";
 import { getAggregatedConnection } from "./freshness.ts";
-import { MAX_REQUEST_BODY_SIZE } from "./request-limits.ts";
+import { GATE_REQUEST_LIMIT_BYTES, readCommandBody } from "./request-limits.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { runCapture } from "../subprocess.ts";
 
@@ -404,7 +404,7 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
     // clients aren't reaped every 10s ("[Bun.serve]: request timed out").
     // 255 is the server max; the websocket block below sets its own larger one.
     idleTimeout: 255,
-    maxRequestBodySize: MAX_REQUEST_BODY_SIZE,
+    maxRequestBodySize: GATE_REQUEST_LIMIT_BYTES,
     async fetch(req, server) {
       const url = new URL(req.url);
       const origin = req.headers.get("origin");
@@ -504,7 +504,11 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
         // Build payload from query params (GET) or body (POST)
         let payload: any = {};
         if (req.method === "POST") {
-          try { payload = await req.json(); } catch { /* empty body */ }
+          const body = await readCommandBody(req, route.cmd);
+          if ("refused" in body) {
+            return new Response(body.refused.body, { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          payload = body.payload;
         } else {
           payload = coerceQueryParams(url.searchParams);
         }

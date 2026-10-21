@@ -40,10 +40,9 @@ const GONE_EXPIRY_MS = 24 * 60 * 60 * 1000;
 // Mirrors gate-escalation.ts's own page ceiling: one page covers every
 // practical gates.db size, and paging still guards against exceeding it.
 const PAGE_SIZE = 1000;
-// Matches handlers/gate.ts's CONTEXT_CAP_BYTES: gate:open rejects an
-// oversized context rather than truncating it, so a caller that opens
-// directly against the store (as this sweep does) must truncate itself.
-const CONTEXT_CAP_BYTES = 8192;
+// A pane peek is terminal capture, so the sweep bounds it before it becomes
+// the gate's context.
+const PANE_PEEK_CAP_BYTES = 8192;
 
 export interface Expectation {
   gateId: string;
@@ -123,7 +122,7 @@ const ATTENTION_QUESTION: GateQuestion = {
 };
 
 /** Byte-accurate cap: peek text can carry multi-byte characters right at the
-    boundary, so a char-length slice could still land over CONTEXT_CAP_BYTES. */
+    boundary, so a char-length slice could still land over PANE_PEEK_CAP_BYTES. */
 function truncateToBytes(s: string, maxBytes: number): string {
   const buf = Buffer.from(s, "utf8");
   return buf.byteLength <= maxBytes ? s : buf.subarray(0, maxBytes).toString("utf8");
@@ -207,7 +206,7 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
     const pane = panes.find((p) => p.paneRef === paneRef);
     if (!pane) return "";
     try {
-      return truncateToBytes(await deps.peek(pane), CONTEXT_CAP_BYTES);
+      return truncateToBytes(await deps.peek(pane), PANE_PEEK_CAP_BYTES);
     } catch (err) {
       log.warn({ err, paneRef }, "reconciler: peek failed, opening attention gate without context");
       return "";

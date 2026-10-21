@@ -747,8 +747,9 @@ gate.
 | `reply` | by the recommended action: `reply` is `verbatim` with the drafted reply as `text`; `fix` is `direction` with the drafted reply (it finalizes at Commit the fix and finalize its Fixed reply); `skip` is `{"kind": "none"}` |
 | `fix` option `description` | the planned change and where, from the adjudicator's `valid` entry; a thread with no such entry gets `implement the reviewer's ask as written` |
 
-Never shorten a reply to make an open fit: `gate_open` fits it, and a
-context it cannot fit is dropped loudly (`contextDropped`).
+Never shorten a reply to make an open fit: the gate stores every context
+whole, and `gate_open` fits only the pane form's prose, leaving out a
+context it cannot fit there loudly (`contextDropped`).
 
 ### respond-plan gate_open result?
 
@@ -798,9 +799,9 @@ holds the stored gate source. The board never reads the line.
 delegates): open nothing in the pane. Hand back the verdict table plus the absolute
 paths of `<dir>/respond-plan.open.json` (its source beside it as
 `respond-plan.source.json`) and of this skill's vendored
-`${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh`, which the caller runs in `prose`
-mode on that source; the caller opens its gate from the open file's
-`.questions` and `.context`, then hands `{plan}` back. When the result says
+`${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh`; the caller opens its gate from
+the open file's `.questions` and `.context`, builds its pane form from the
+file's `pane` key, then hands `{plan}` back. When the result says
 `contextDropped` or lists `droppedContexts`, say so: the caller writes
 `gate-1-context: dropped` into its own report.
 
@@ -822,7 +823,7 @@ from the shell.
 When the result says `contextDropped: true`, first write one line,
 `gate-1-context: dropped`, into the saved verdict report (when there is
 one), before presenting or waiting: a resumed pane has no other way to
-know those cards never showed their drafts. The record then passes
+know those pane cards never showed their drafts. The record then passes
 `contextDropped: true`.
 
 - **form:** `### Present the in-pane gate form`, holding `code-changes`

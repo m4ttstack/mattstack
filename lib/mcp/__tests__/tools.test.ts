@@ -131,8 +131,19 @@ describe("mcpTools", () => {
       properties: { answers: { additionalProperties: { oneOf: Array<{ type: string; properties?: Record<string, unknown> }> } } };
     };
     const objectForm = schema.properties.answers.additionalProperties.oneOf.find((b) => b.type === "object")!;
-    expect(Object.keys(objectForm.properties!)).toEqual(["value", "note", "text"]);
+    expect(Object.keys(objectForm.properties!)).toEqual(["value", "note", "text", "texts"]);
     expect(objectForm.properties!.text).toMatchObject({ type: "string", pattern: "\\S" });
+  });
+
+  test("gate_answer and herd_gate_answer accept texts, a map of non-blank strings", () => {
+    for (const name of ["gate_answer", "herd_gate_answer"]) {
+      const tool = mcpTools().find((t) => t.name === name)!;
+      const schema = tool.inputSchema as {
+        properties: { answers: { additionalProperties: { oneOf: Array<{ type: string; properties?: Record<string, unknown> }> } } };
+      };
+      const objectForm = schema.properties.answers.additionalProperties.oneOf.find((b) => b.type === "object" && b.properties?.value)!;
+      expect(objectForm.properties!.texts, name).toMatchObject({ type: "object", additionalProperties: { type: "string", pattern: "\\S" } });
+    }
   });
 
   describe("gate_ask", () => {
@@ -160,31 +171,43 @@ describe("mcpTools", () => {
 
     // RT-177: the description is where a caller learns not to self-censor the
     // context, which is what produced the bare form in the board.
-    test("description tells callers to always pass context and that oversize is reported back", () => {
+    test("description tells callers to always pass context and that it is stored whole", () => {
       const tool = mcpTools().find((t) => t.name === "gate_ask")!;
-      expect(tool.description).toContain("contextOmitted");
       expect(tool.description.toLowerCase()).toContain("always");
+      expect(tool.description).toContain("stored whole");
+      expect(tool.description).not.toContain("contextOmitted");
+      expect(tool.description).not.toContain("8192");
     });
 
-    // Contract pin: the daemon's field must not be filtered out of the body
-    // on its way to the caller, which is the only place it can act on it.
-    test("contextOmitted rides the tool result so the caller learns immediately", async () => {
+    test("no gate tool text describes a storage budget", () => {
+      for (const t of mcpTools().filter((x) => x.name.startsWith("gate_"))) {
+        const text = JSON.stringify(t);
+        expect(text).not.toContain("contextOmitted");
+        expect(text).not.toMatch(/shared 8192|8192-byte context budget/);
+      }
+    });
+
+    test("a context far past the old 8192-byte cap reaches the daemon verbatim", async () => {
+      const sent: unknown[] = [];
       mock.module("../../../packages/rt-client/src/transport.ts", () => ({
         ...realTransport,
-        rtCommand: async (cmd: string) => {
+        rtCommand: async (cmd: string, payload: unknown) => {
           if (cmd === "gate:ask") {
-            return { ok: true, data: { id: "g1", presentation: "form", subject: "mr:x", supersededId: null, contextOmitted: true } };
+            sent.push(payload);
+            return { ok: true, data: { id: "g1", presentation: "form", subject: "mr:x", supersededId: null } };
           }
           throw new Error(`unexpected rtCommand("${cmd}")`);
         },
       }));
       const tool = mcpTools().find((t) => t.name === "gate_ask")!;
+      const context = "x".repeat(40_000);
       const res = await tool.handler(
-        { questions: [{ id: "q1", label: "Proceed?", multi: false, options: ["yes", "no"] }], subject: "mr:x", context: "x" },
+        { questions: [{ id: "q1", label: "Proceed?", multi: false, options: ["yes", "no"] }], subject: "mr:x", context },
         {} as NodeJS.ProcessEnv,
       );
       expect(res.ok).toBe(true);
-      expect((res.body as { contextOmitted?: boolean }).contextOmitted).toBe(true);
+      expect((sent[0] as { context: string }).context).toBe(context);
+      expect((res.body as { contextOmitted?: boolean }).contextOmitted).toBeUndefined();
     });
 
     test("sessionId and paneId come from env; subject comes from input only, never RT_GATE_SUBJECT", async () => {

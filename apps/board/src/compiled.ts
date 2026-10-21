@@ -3,10 +3,19 @@
 // no source tree, so the client bundle must be embedded at build time (the
 // text imports below — scripts/build-client.ts writes them first) and handed
 // to the server before it boots.
+import { readFileSync } from 'fs';
+
 import appCss from '../dist/client/app.css' with { type: 'text' };
 import appJs from '../dist/client/app.js.txt' with { type: 'text' };
+// A file import, not text: a text import holding any non-Latin-1 character
+// embeds as UTF-16, which would double the ~12 MB of chunks in the binary.
+import chunksPath from '../dist/client/chunks.json.txt' with { type: 'file' };
 import pkg from '../package.json';
-import { injectClientAssets } from './client-assets.ts';
+import {
+  injectClientAssets,
+  lazyChunks,
+  parseChunkManifest,
+} from './client-assets.ts';
 import { runSubcommand } from './subcommands.ts';
 
 // Bare semver, nothing else: the mattstack bundle gate compares this output
@@ -45,5 +54,11 @@ if (await runSubcommand(Bun.argv)) {
   }
 }
 
-injectClientAssets({ appJs, appCss });
+injectClientAssets({
+  appJs,
+  appCss,
+  chunks: lazyChunks(() =>
+    parseChunkManifest(readFileSync(chunksPath, 'utf8'))
+  ),
+});
 await import('./server.ts');

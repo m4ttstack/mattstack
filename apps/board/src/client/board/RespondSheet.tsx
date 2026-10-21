@@ -20,6 +20,7 @@ import { Button, Chip } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { approvalSlots } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
+import { CommentComposer } from './CommentComposer.tsx';
 import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
@@ -34,8 +35,6 @@ import {
   type StepReply,
 } from './respond-join.ts';
 import {
-  editedText,
-  isEdited,
   planReplies,
   planTexts,
   postPicks,
@@ -44,12 +43,11 @@ import {
   type PostPick,
 } from './respond-post.ts';
 import {
-  EditableReply,
-  EditedChip,
   PostResolveChoice,
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
+  StripOutcome,
   ThreadCard,
   ThreadOutcome,
 } from './RespondCards.tsx';
@@ -136,12 +134,10 @@ function PostChoice({
     step. */
 function PostStepCard({
   j,
-  edited = false,
   reply,
   children,
 }: {
   j: JoinedThread;
-  edited?: boolean;
   reply?: ReactNode;
   children: ReactNode;
 }) {
@@ -162,9 +158,9 @@ function PostStepCard({
             <ThreadOutcome verb={j.reply?.verb ?? j.decided!} held={!j.reply} />
           )
         )}
-        {(edited || j.replyOnly?.edited) && <EditedChip />}
       </div>
       <ThreadCard
+        replyEdited={Boolean(j.replyOnly?.edited)}
         ctx={{
           ...j.thread,
           reply:
@@ -217,11 +213,10 @@ function StepReplyCard({ s }: { s: StepReply }) {
       <div className="tui-gate-question-head">
         <span className="tui-gate-question-label">{s.label}</span>
         <ThreadOutcome verb="reply" withStep />
-        {s.edited && <EditedChip />}
       </div>
       <div className="tui-thread-card">
         {s.text !== undefined ? (
-          <ReplyBlock text={s.text} />
+          <ReplyBlock text={s.text} edited={s.edited} />
         ) : (
           <p className="tui-thread-nothing">
             Approved at Gate 1; posts with this step.
@@ -624,11 +619,22 @@ function RespondSheetBody({
     const v = form.selections[p.name];
     return Array.isArray(v) && v.includes(p.post);
   };
-  const editableReply = (p: PostPick) => {
+  // `framed`: the composer is the thread's whole card, so its strip names
+  // the thread and its outcome.
+  const editableReply = (p: PostPick, framed = false) => {
     const live = postingPick(p);
     return (
-      <EditableReply
-        label={p.label}
+      <CommentComposer
+        label={`Reply on ${p.label}`}
+        noun="reply"
+        heldKicker="drafted reply · not posting"
+        {...(framed
+          ? {
+              where: p.label,
+              status: <StripOutcome verb={p.reply!.verb} />,
+              heldMeta: 'not posting',
+            }
+          : { kicker: 'will post as reply' })}
         draft={p.reply!.text}
         value={live ? form.texts[p.name] : undefined}
         canEdit={live}
@@ -784,11 +790,6 @@ function RespondSheetBody({
                   <PostStepCard
                     key={j.threadId}
                     j={j}
-                    edited={
-                      pick
-                        ? postingPick(pick) && isEdited(pick, form.texts)
-                        : false
-                    }
                     reply={pick?.reply ? editableReply(pick) : undefined}
                   >
                     {pick && !pick.reply && (
@@ -807,6 +808,19 @@ function RespondSheetBody({
                   );
                 const p = item.pick;
                 const display = displayOf(p.name);
+                if (p.reply)
+                  return (
+                    <section
+                      key={p.name}
+                      className="tui-gate-question"
+                      data-gate-ctx="thread"
+                      data-step="post"
+                      data-frame="composer"
+                      aria-label={p.label}
+                    >
+                      {editableReply(p, true)}
+                    </section>
+                  );
                 return (
                   <section
                     key={p.name}
@@ -817,14 +831,8 @@ function RespondSheetBody({
                   >
                     <div className="tui-gate-question-head">
                       <span className="tui-gate-question-label">{p.label}</span>
-                      {p.reply && <ThreadOutcome verb={p.reply.verb} />}
-                      {postingPick(p) && isEdited(p, form.texts) && (
-                        <EditedChip />
-                      )}
                     </div>
-                    {p.reply ? (
-                      <div className="tui-thread-card">{editableReply(p)}</div>
-                    ) : display?.context && questionCtx.get(p.name) == null ? (
+                    {display?.context && questionCtx.get(p.name) == null ? (
                       <ProseContext q={display} structured={false} />
                     ) : (
                       <p className="tui-thread-nothing">
@@ -832,7 +840,7 @@ function RespondSheetBody({
                         pane.
                       </p>
                     )}
-                    {!p.reply && <PostResolveChoice pick={p} form={form} />}
+                    <PostResolveChoice pick={p} form={form} />
                   </section>
                 );
               })}
@@ -859,16 +867,14 @@ function RespondSheetBody({
                       {qctx?.shape === 'thread@1' && (
                         <SeverityPill severity={qctx.severity} />
                       )}
-                      {pr &&
-                        replying &&
-                        editedText(q.name, pr.draft, form.texts) && (
-                          <EditedChip />
-                        )}
                     </div>
                     {qctx?.shape === 'thread@1' && pr ? (
                       <ThreadCard ctx={{ ...qctx, reply: { kind: 'none' } }}>
-                        <EditableReply
-                          label={q.prompt}
+                        <CommentComposer
+                          label={`Reply on ${q.prompt}`}
+                          noun="reply"
+                          kicker="will post as reply"
+                          heldKicker="drafted reply"
                           draft={pr.draft}
                           value={replying ? form.texts[q.name] : undefined}
                           canEdit={replying}

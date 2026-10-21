@@ -26,7 +26,7 @@ rt gate open [flags]
 | [`--agent`](/rt/guides/common-flags) | text |  | Optional opening agent id |
 | `--pane` | text |  | Optional herdr pane id: focus/resume reference, and the remote-answer Escape's fallback target when origin.paneId is absent (the doorbell itself binds to --nudge) |
 | `--nudge` | text |  | Optional JSON nudge target; required for a form-presentation origin |
-| `--context` | text |  | Optional verbatim decision context (raw text, 8KB cap) |
+| `--context` | text |  | Optional verbatim decision context (raw text, stored whole) |
 | `--origin` | text |  | Optional JSON origin; presentation form\|wait, and paneId names the pane the remote-answer Escape is injected into |
 
 _See code: [commands/gate.ts › gateOpen](https://github.com/m4ttstack/mattstack/blob/main/commands/gate.ts)_

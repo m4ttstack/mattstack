@@ -400,3 +400,33 @@ export function PencilLineIcon() {
     </svg>
   );
 }
+
+/** The Code section's mark (lucide `code`, ISC licensed). */
+export function CodeGlyph() {
+  return (
+    <svg {...RECORD_ICON}>
+      <path d="m16 18 6-6-6-6" />
+      <path d="m8 6-6 6 6 6" />
+    </svg>
+  );
+}
+
+/** A file header's mark (lucide `file`, ISC licensed). */
+export function FileGlyph() {
+  return (
+    <svg {...RECORD_ICON} width={13} height={13}>
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    </svg>
+  );
+}
+
+/** The Comment section's speech bubble (lucide `message-square`, ISC
+    licensed), on the record icons' scale. */
+export function CommentGlyph() {
+  return (
+    <svg {...RECORD_ICON}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
+    </svg>
+  );
+}

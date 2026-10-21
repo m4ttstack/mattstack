@@ -2,16 +2,13 @@ import { useState } from 'react';
 
 import type { GateSelections } from '@mattstack/gate-kit';
 import { Markdown } from '@mattstack/tui-kit';
+import { CommentComposer } from './CommentComposer.tsx';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { CarryoverCall, SkippedEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { SearchCheckIcon } from './icons.tsx';
-import { editedText, sendableTexts } from './respond-post.ts';
-import {
-  EditableReply,
-  EditedChip,
-  PostResolveChoice,
-} from './RespondCards.tsx';
+import { sendableTexts } from './respond-post.ts';
+import { PostResolveChoice } from './RespondCards.tsx';
 import { SEVERITY_LABEL, type CarryoverPick } from './review-gate.ts';
 
 /** Every label names who has to act; none says "open" or "unresolved". */
@@ -109,7 +106,6 @@ export function CarryoverCard({
 }) {
   const { carry } = pick;
   const posting = isPosting(pick, form.selections);
-  const edited = posting && editedText(pick.name, carry.reply, form.texts);
   const call = CARRYOVER_CALL[carry.call];
   return (
     <section
@@ -127,7 +123,6 @@ export function CarryoverCard({
         >
           {call.text}
         </span>
-        {edited && <EditedChip />}
       </div>
       <div className="tui-thread-card">
         <Quote
@@ -158,8 +153,11 @@ export function CarryoverCard({
             <span className="tui-carry-check-note">{carry.note}</span>
           </div>
         )}
-        <EditableReply
-          label={pick.label}
+        <CommentComposer
+          label={`Reply on ${pick.label}`}
+          noun="reply"
+          kicker="will post as reply"
+          heldKicker="drafted reply · not posting"
           draft={carry.reply}
           value={posting ? form.texts[pick.name] : undefined}
           canEdit={posting}

@@ -119,6 +119,12 @@ test('the text form unwraps with its text beside the value', () => {
   });
 });
 
+test('the texts map unwraps beside the value', () => {
+  expect(
+    unwrapGateAnswer({ value: ['f1', 'f2'], texts: { f1: 'Edited' } })
+  ).toEqual({ value: ['f1', 'f2'], texts: { f1: 'Edited' } });
+});
+
 const OPEN_Q = {
   id: 'approach',
   label: 'A',
