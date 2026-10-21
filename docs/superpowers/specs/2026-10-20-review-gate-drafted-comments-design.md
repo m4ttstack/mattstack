@@ -84,6 +84,15 @@ The summary that posts is made of two parts:
   editable comment, listed under the summary line inside the same card.
   Unticking such a finding drops it from the card and from what posts.
 
+**The summary line follows the verdict (Matt's call, 2026-10-20).** The
+review drafts one summary line per verdict the gate offers (`approve`,
+`comment`, and `request_changes` on GitHub). The box shows the draft for
+the selected verdict and swaps when the verdict changes. Each verdict keeps
+its own edit: switching away and back brings the earlier edit back, like
+unticking a finding. Only the selected verdict's line posts. So an
+all-clear written for Approve can never post under a Comment, from the
+board or from the pane.
+
 This keeps "untick removes it" true without trying to cut text out of a
 free-form summary someone may have edited. (My call. The mock draws the
 summary as one box. The builder should draw the folded findings as
