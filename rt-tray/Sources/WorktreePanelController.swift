@@ -79,6 +79,11 @@ final class WorktreePanelController: ObservableObject {
         runBanner(banner, args, done: "\(RepoIdentity.changeNoun(banner.repo)) checks are on for \(banner.repoName)")
     }
 
+    func enableWorktrees(_ banner: TriageBanner) {
+        guard let args = banner.enableWorktreesArgs else { return }
+        runBanner(banner, args, done: "Worktrees are on for this Mac")
+    }
+
     func hideBanner(_ banner: TriageBanner) {
         runBanner(banner, banner.hideArgs, done: "Hidden for \(banner.repoName)")
     }

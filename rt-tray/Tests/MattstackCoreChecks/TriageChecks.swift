@@ -187,6 +187,16 @@ let triageChecks: [Check] = [
         let teamLive = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"no-branches-grant","forge":"github","mode":"live","caches":["project-mrs"]}"#.utf8))
         c.expectEqual(teamLive.enableCleanupArgs?[3], "poll")
     },
+    Check("worktrees off and a tracking opt-out each say so, and never offer to track") { c in
+        let off = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"app-off","forge":"github"}"#.utf8))
+        c.expectEqual(off.text, "Merged worktrees in o/r won't clean up on their own: worktrees are off on this Mac.")
+        c.expectEqual(off.enableWorktreesArgs, ["worktree", "enable"])
+        c.expectEqual(off.enableCleanupArgs, nil)
+        let optedOut = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"tracking-off","forge":"github"}"#.utf8))
+        c.expectEqual(optedOut.text, "Merged worktrees in o/r won't clean up on their own: you turned off tracking for this repo on this Mac.")
+        c.expectEqual(optedOut.enableCleanupArgs, nil)
+        c.expectEqual(optedOut.enableWorktreesArgs, nil)
+    },
     Check("hiding a cleanup banner writes this repo's user-scope opt-out") { c in
         let b = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"no-branches-grant","forge":"github"}"#.utf8))
         c.expectEqual(b.hideArgs, ["settings", "set", "rt.worktreeMergeCleanupNotice", "false", "--scope", "user", "--repo", "remote:github.com%2Fo%2Fr"])
