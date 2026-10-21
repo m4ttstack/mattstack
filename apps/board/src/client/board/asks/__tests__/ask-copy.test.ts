@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test';
 import {
   askedPhrase,
   confirmLine,
-  firstName,
   historyOutcome,
   verbLabel,
   verbLane,
@@ -29,10 +28,6 @@ describe('ask copy', () => {
       'review',
       'respond',
     ]);
-  });
-  test('first name from the roster name, else the username capitalized', () => {
-    expect(firstName('Rae Marlow', 'rae')).toBe('Rae');
-    expect(firstName(undefined, 'tom')).toBe('Tom');
   });
   test('history outcome words follow the spec table', () => {
     const h = (handled: object, kind = 'review') =>

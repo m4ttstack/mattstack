@@ -8,13 +8,8 @@ import { ago } from '../format.ts';
 import { AgentGlyph } from '../icons.tsx';
 import { MemberInvadr } from '../MemberInvadr.tsx';
 import { MrLinks } from '../MrLinks.tsx';
-import {
-  askedPhrase,
-  confirmLine,
-  firstName,
-  verbLabel,
-  verbLane,
-} from './ask-copy.ts';
+import { usePeople } from '../people.ts';
+import { askedPhrase, confirmLine, verbLabel, verbLane } from './ask-copy.ts';
 import { AskDeclineForm } from './AskDeclineForm.tsx';
 
 const errorText = (err: unknown) =>
@@ -68,7 +63,7 @@ export function AskCard({
   const [alwaysAllow, setAlwaysAllow] = useState(false);
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const first = firstName(ask.fromName, ask.from);
+  const first = usePeople().short(ask.from);
   const run = async (kind: 'accept' | 'decline', act: () => Promise<void>) => {
     setBusy(kind);
     setError(null);
@@ -85,11 +80,11 @@ export function AskCard({
     <article
       className={flash ? 'tui-ask-card tui-ask-flash' : 'tui-ask-card'}
       data-ask-id={ask.id}
-      aria-label={`${ask.fromName ?? ask.from} ${askedPhrase(ask.kind)} on !${ask.iid}`}
+      aria-label={`${first} ${askedPhrase(ask.kind)} on !${ask.iid}`}
     >
       <div className="tui-ask-who">
         <MemberInvadr id={ask.from} className="tui-ask-avatar" />
-        <span className="tui-ask-name">{ask.fromName ?? ask.from}</span>
+        <span className="tui-ask-name">{first}</span>
         <span className="tui-ask-phrase">
           {askedPhrase(ask.kind)} ·{' '}
           <span className="tui-ask-iid">!{ask.iid}</span>

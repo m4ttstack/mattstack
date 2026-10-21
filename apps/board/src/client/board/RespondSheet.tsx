@@ -25,6 +25,7 @@ import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
+import { usePeople } from './people.ts';
 import { PersonLead, PersonTag } from './PersonLead.tsx';
 import {
   joinPlan,
@@ -55,7 +56,6 @@ import {
   itemMix,
   itemNoun,
   leadVerb,
-  personName,
   RespondCtxFacts,
   respondPerson,
   subjectRef,
@@ -445,7 +445,6 @@ function RespondSheetBody({
   mr,
   ctx,
   form,
-  people,
   onContinue,
   frame,
 }: {
@@ -453,13 +452,13 @@ function RespondSheetBody({
   mr?: BoardMRWithReview;
   ctx: PlanCtx | PostCtx;
   form: GateFormState;
-  people?: ReadonlyMap<string, string>;
   /** Retires a gate answered elsewhere from the queue. */
   onContinue: () => void;
   /** The gate's own context as prose, when the emitter flattened it to fit
       the budget: `ctx` then carries no reviewer, and this is shown instead. */
   frame?: string;
 }) {
+  const people = usePeople(mr);
   // The send-back reason is code-changes' note on the wire, so it lives in
   // the form's notes and rides the gate's draft like any other note.
   const reason = form.notes[CODE_CHANGES_QUESTION_ID] ?? '';
@@ -706,9 +705,7 @@ function RespondSheetBody({
         : mainQs.map(q => q.prompt)
   );
   const person = respondPerson(ctx, gate.openedAt, mr);
-  const personTag = (
-    <PersonTag id={person} name={personName(person, mr, people)} />
-  );
+  const personTag = <PersonTag id={person} name={people.short(person)} />;
   const dockPick = dockQs
     .map(q => {
       const v = form.selections[q.name];
@@ -943,7 +940,7 @@ function RespondSheetBody({
                   decision context
                 </span>
                 {frame === undefined ? (
-                  <PersonLead id={person} name={personName(person, mr, people)}>
+                  <PersonLead id={person} name={people.short(person)}>
                     {leadVerb(mix)} your {forgeNoun(mr, gate.subject)}
                   </PersonLead>
                 ) : (

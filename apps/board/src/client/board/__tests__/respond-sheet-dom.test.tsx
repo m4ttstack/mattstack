@@ -990,8 +990,8 @@ test('the sheet names the person the live respond run answers, by the name the b
       { username: 'john', name: 'John Ward', openThreads: 2, openComments: 0 },
     ])
   );
-  expect(listTitle()).toBe('Respond to 2 threads from John Ward');
-  expect(contextLead()).toBe('John Ward reviewed your merge request');
+  expect(listTitle()).toBe('Respond to 2 threads from John');
+  expect(contextLead()).toBe('John reviewed your merge request');
 });
 
 test("a parked gate from an earlier run names its own reviewer, not the live run's person", async () => {

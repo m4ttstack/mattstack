@@ -18,6 +18,7 @@ import {
 } from './DecisionQueueModal.tsx';
 import { DiffSourceContext, noDiffSource } from './diff-source.ts';
 import * as G from './gate-gallery.fixtures.ts';
+import { boardPeople, PeopleProvider } from './people.ts';
 
 /**
  * Every decision-queue face the daemon's real gate kinds produce, one story
@@ -84,27 +85,32 @@ function Face({
   position?: number;
   total?: number;
 }) {
+  const people = boardPeople({
+    allMembers: [...G.PEOPLE].map(([username, name]) => ({ username, name })),
+    mrs: entry.mr ? [entry.mr] : [],
+  });
   return (
-    <DiffSourceContext.Provider value={entry.diffs ?? noDiffSource}>
-      <DecisionQueueModal
-        gate={entry.gate}
-        mr={entry.mr}
-        position={position}
-        states={pips(position, total)}
-        nextPeek={
-          position < total
-            ? '!739 · sensors summary chip shows a count'
-            : undefined
-        }
-        people={G.PEOPLE}
-        onClose={noop}
-        onNext={noop}
-        onBack={noop}
-        onFocusPane={noop}
-        onAnswered={noop}
-        onContinue={noop}
-      />
-    </DiffSourceContext.Provider>
+    <PeopleProvider value={people}>
+      <DiffSourceContext.Provider value={entry.diffs ?? noDiffSource}>
+        <DecisionQueueModal
+          gate={entry.gate}
+          mr={entry.mr}
+          position={position}
+          states={pips(position, total)}
+          nextPeek={
+            position < total
+              ? '!739 · sensors summary chip shows a count'
+              : undefined
+          }
+          onClose={noop}
+          onNext={noop}
+          onBack={noop}
+          onFocusPane={noop}
+          onAnswered={noop}
+          onContinue={noop}
+        />
+      </DiffSourceContext.Provider>
+    </PeopleProvider>
   );
 }
 

@@ -1,4 +1,5 @@
 import type { AskCardData, BoardData } from '../../types.ts';
+import { people, type People } from '../people.ts';
 
 /** Invented asks for the `Board/Asks` stories: R3's people and MRs. */
 
@@ -141,11 +142,11 @@ export const NOTHING_WAITING: Asks = {
   alwaysAllow: ['rae', 'dani'],
 };
 
-export const ROSTER_NAMES: ReadonlyMap<string, string> = new Map([
-  ['rae', 'Rae Marlow'],
-  ['tom', 'Tom Clearwater'],
-  ['bea', 'Bea Finch'],
-  ['dani', 'Dani Oliveira'],
-  ['joel', 'Joel Vasquez'],
-  ['pia', 'Pia Quist'],
+export const ROSTER_PEOPLE: People = people([
+  { username: 'rae', name: 'Rae Marlow' },
+  { username: 'tom', name: 'Tom Clearwater' },
+  { username: 'bea', name: 'Bea Finch' },
+  { username: 'dani', name: 'Dani Oliveira' },
+  { username: 'joel', name: 'Joel Vasquez' },
+  { username: 'pia', name: 'Pia Quist' },
 ]);

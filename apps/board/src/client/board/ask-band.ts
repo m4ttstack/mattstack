@@ -82,16 +82,12 @@ export function clock(ms: number, now: number = Date.now()): string {
   return `${date}, ${time}`;
 }
 
-const capitalize = (s: string): string =>
-  s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-
 export function askBandModel(
   sent: SentNudgeInfo,
-  now: number = Date.now()
+  now: number = Date.now(),
+  name: string = sent.reviewer
 ): AskBand {
   const kind: Kind = sent.kind ?? 're-review';
-  const name =
-    sent.reviewerName?.trim().split(/\s+/)[0] || capitalize(sent.reviewer);
   const requested: AskStep = {
     name: 'Requested',
     detail: 'you',
