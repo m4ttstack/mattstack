@@ -154,7 +154,9 @@ check or optional-first rule is added.
 
 ## Refusals
 
-Compile collects every missing required marker across the whole pack and
+Compile collects every missing required marker across the whole pack as
+data, writes nothing when any is missing (so no file with a hole ever
+reaches disk, and init's resume check still sees an uncompiled pack), and
 refuses once, in the existing pack-level `{title, details}` shape (the
 base-plan pattern in `commands/skills.ts`):
 
@@ -167,7 +169,13 @@ The widgets pack is missing values the acme-base pack asks for
 
 The wording follows `.claude/rules/output-layer.md`; the `--json` envelope
 carries the same list structurally (key or section, kind, and the base
-files that ask for it).
+files that ask for it) and exits 1.
+
+Every other verb that compiles in memory refuses the same way rather than
+showing or comparing text with a hole: `rt skills check` reports the list
+as a compile error, and `compile --preview`, `anatomy` and `composition`
+refuse with it. `rt skills sync` stops at its compile step with the same
+list.
 
 ## Drift, sync and provenance
 
@@ -178,7 +186,7 @@ files that ask for it).
   base fill (`acme-base:<fill>@org`).
 - An inserted section gets its own seam marker in the compiled file, in
   the existing five-token shape:
-  `<!-- part: section source=<team pack>:pack/sections/<name>.md version=<team pack version> path=pack/sections/<name>.md lines=1-<n> -->`.
+  `<!-- part: section:<name> source=<team pack>:pack/sections/<name>.md version=<team pack version> path=pack/sections/<name>.md lines=1-<n> -->`.
   So `drift.ts` `partExtents`, `partsOnDisk`, the anatomy and composition
   views and the console's `parseSeam` keep walking compiled files by seam
   `lines=` counts. Each would otherwise cut a slot short when a multi-line
@@ -191,7 +199,8 @@ files that ask for it).
 
 1. Init writes `"extends": "<base>"` into the new fragment.
 2. After materialize (which writes the bindings that decide which base
-   fills apply), it finds the required markers as defined above and writes
+   fills apply), it runs compile, which reports any missing required
+   markers without writing anything. Init then writes
    `pack/params.jsonc` with each required key set to `""`, and an empty
    `pack/sections/<name>.md` for each required section. Files that already
    exist are left alone, as `renderPackFiles` does today.

@@ -62,10 +62,12 @@
 - Produces:
   - `type TeamValues = { plugin: string; version: string; params: Record<string, string>; sections: Record<string, string> }`
   - `type MissingMarker = { kind: "param" | "section"; name: string; file: string; askedBy: string[] }` (`file` is `pack/params.jsonc` or `pack/sections/<name>.md`)
-  - `type TeamContext = { values: TeamValues; basePlugins: ReadonlySet<string>; missing: Map<string, MissingMarker>; used: Set<string> }` (`missing` keyed `kind:name`; `used` holds param keys any emitted marker named)
+  - `type TeamContext = { values: TeamValues; basePlugins: ReadonlySet<string>; missing: Map<string, MissingMarker>; used: Set<string>; sawMarker: boolean }` (`missing` keyed `kind:name`; `used` holds param keys any emitted marker named; `sawMarker` turns true when any team marker is resolved)
+  - `newTeamContext(values: TeamValues, basePlugins: ReadonlySet<string>): TeamContext`
+  - `export const TEAM_MARKERS_MIN_ENGINE = "0.32.14"` (the `plugins/mattstack/.claude-plugin/plugin.json` version Task 7 bumps to; re-checked against main at merge)
   - `readTeamValues(packDir: string, plugin: string, version: string): TeamValues` (throws `Error("pack/params.jsonc: <why>")` on a malformed file; missing file or dir = empty)
   - `hasTeamMarker(text: string): boolean`
-  - `resolveTeamMarkers(body: string, team: TeamContext, opts: { where: string; sectionSeams: boolean }): string`: replaces every team marker, records missing required ones in `team.missing` (with `opts.where` appended to `askedBy`), and records param keys in `team.used`. Throws `Error("<where>: <raw> ... (line <n>)")` for: an invalid key or name, `section` used as a key, a section marker not alone on its line, a team marker nested in another `{{...}}` marker, and a value or section text containing `{{`.
+  - `resolveTeamMarkers(body: string, team: TeamContext, opts: { where: string; sectionSeams: boolean }): string`: replaces every team marker, records missing required ones in `team.missing` (with `opts.where` appended to `askedBy`), records param keys in `team.used`, and sets `team.sawMarker`. Throws `Error("<where>: <raw> ... (line <n>)")` for: an invalid key or name, `section` used as a key, a section marker not alone on its line, a team marker nested in another `{{...}}` marker, and a value or section text containing `{{`.
 
 - [ ] **Step 1: Write the failing tests** (one `test()` each, `describe("team-params")`):
   - `resolves a value marker`: `{{team.linear-team}}` with `params["linear-team"] = "Widgets"` gives `Widgets`.
@@ -97,7 +99,7 @@
 
 **Interfaces:**
 - Consumes: Task 1 `TeamContext`, `resolveTeamMarkers`, `hasTeamMarker`.
-- Produces: `PlaceholderContext.team: TeamContext | null` (null = no team pack in play; any `{{team.` then throws). Both inlining paths call `resolveTeamMarkers(fill.body, ctx.team, { where: fill.binding, sectionSeams: true })` before `substituteIncludesOnly`, only when `ctx.team.basePlugins.has(fill.plugin)`.
+- Produces: `PlaceholderContext.team?: TeamContext | null` (optional, so existing hand-built test contexts need no change; absent or null = no team pack in play, and any `{{team.` then throws). Both inlining paths call `resolveTeamMarkers(fill.body, ctx.team, { where: fill.binding, sectionSeams: true })` first, before `rewriteSkillDirRefs` / the `SKILL_DIR_TOKEN` split and before `substituteIncludesOnly`, only when `ctx.team.basePlugins.has(fill.plugin)`.
 
 - [ ] **Step 1: Write the failing tests.**
   - `slotText resolves team markers in a base fill`: a fill with plugin `acme-base` (in `basePlugins`) and body `Team {{team.linear-team}}` gives `Team Widgets` after the slot seam.
@@ -140,19 +142,23 @@
 **Interfaces:**
 - Consumes: Tasks 1-3.
 - Produces:
-  - `resolve()` builds `team: TeamContext` via `readTeamValues(packDir, self.name, self.version)`, with `basePlugins = pluginRoots.folderOnly ?? new Set()`.
-  - After all targets compile, if `team.missing.size > 0`, compile throws `SkillsUsageError` with:
-    - title `The <pack> pack is missing values the <bases> pack asks for` (`<bases>` = the distinct base plugins in `askedBy`, joined with ", ");
-    - `details` one line per file (`pack/params.jsonc: <key> (<askedBy>), ...` / `pack/sections/<name>.md (<askedBy>)`);
-    - `next` `rt skills compile --pack <pack>`.
-
-    The `--json` envelope carries `missing: MissingMarker[]`, and the compile result type (the one `deps.compile` returns to init) gains `missing?: MissingMarker[]`.
-  - Unused keys: a warning `pack/params.jsonc: <key> is not asked for by any base text this pack compiles`.
-  - `floorWrite(resolved, readFile, write, usesTeamMarkers: boolean)`: the floor is `max(mattstack floor, TEAM_MARKERS_MIN_ENGINE)` when true. `TEAM_MARKERS_MIN_ENGINE` is exported from `lib/skills/team-params.ts` and equals the `plugins/mattstack/.claude-plugin/plugin.json` version Task 7 bumps to (re-check it against main right before merge). `usesTeamMarkers` = any emitted base text contained a team marker (track it as a `used`-style flag on `TeamContext`: add `sawMarker: boolean`).
+  - `resolve()` builds `team: TeamContext` with `newTeamContext(readTeamValues(packDir, self.name, self.version), pluginRoots.folderOnly ?? new Set())`. When `packPluginIdentity` returns null, `team` is null: a pack with no plugin identity has no base text to resolve.
+  - The refusal is data, not a throw: `performCompile` returns `missing: MissingMarker[]` beside `failures`, and the write pass is gated on it the way it is on failures (`writing = failures.length === 0 && missing.length === 0 && ...`). So no `SKILL.md` with a hole reaches disk and `packIsCompiled` stays false for init. `compilePackAll` passes `missing` through to its result, and the compile result type `deps.compile` returns to init gains `missing?: MissingMarker[]`.
+  - Human branch: one failure block. The title is `The <pack> pack is missing values the <bases> pack asks for` (`<bases>` = the distinct base plugins in `askedBy`, joined with ", "). `details` has one line per file (`pack/params.jsonc: <key> (<askedBy>), ...` and `pack/sections/<name>.md (<askedBy>)`). `next` is `rt skills compile --pack <pack>`. Exit 1.
+  - `--json` branch: the envelope gains `missing: MissingMarker[]`, with `exitCode = 1`.
+  - Other in-memory compiles: `check` adds the same title to its compile errors (the way `pack/requires.json is out of date` rides `compileErrors`), and no verb reports `stale` for it. `compile --preview`, `anatomy` and `composition` refuse with the same block, so no text with a hole is printed or compared.
+  - Unused keys, on a full compile only (`verbFilter === null`, the guard `fieldContract` uses): the human output gets a warning line `pack/params.jsonc: <key> is not asked for by any base text this pack compiles`, and the `--json` envelope gets `unusedParams: string[]` next to `fieldContract`.
+  - `floorWrite(resolved, readFile, write, usesTeamMarkers: boolean)`: the floor is `max(mattstack floor, TEAM_MARKERS_MIN_ENGINE)` when true, and `usesTeamMarkers` is `team?.sawMarker === true`.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `compile refuses with every missing value listed`: a two-verb pack, a base fill missing `linear-team`, and an attachment missing section `ci-extra`. The thrown title and details match the spec's example layout.
-  - `--json carries missing` (frozen test).
+  - `compile refuses with every missing value listed and writes nothing`: a two-verb pack, a base fill missing `linear-team`, and an attachment missing section `ci-extra`. Assert:
+    - the failure title and details match the spec's example layout;
+    - exit 1;
+    - no `SKILL.md` and no copied attachment written.
+  - `--json carries missing` (frozen test; `exitCode` 1).
+  - `check lists missing values as a compile error`.
+  - `preview, anatomy and composition refuse on missing values`.
+  - `unused key does not warn under --verb`.
   - `a pack with no params and no markers compiles byte-identical` (Review Focus 3): compile before and after this feature on the fixture gives equal files.
   - `requiredness follows each emitted target` (Review Focus 4): a stage copy whose pipeline override is a team fill does not require that base fill's markers, and the default stage does.
   - `unused key warns`.
@@ -174,6 +180,7 @@
   - `DriftCause` gains `"team"`; `causeOf("section:<name>")` returns `"team"`, and check words it `team values`.
   - `partExtents` treats a `section:` marker nested in a slot like a nested include: the marker stands for one source line and carries `lines=` body lines.
   - `parseSeam` returns `kind: 'section'` for `section:<name>`.
+  - Anatomy: a section is its own part. `AnatomyPartKind` gains `"section"`, `partsFromMarkers` maps the `section:` key to it, `partsOnDisk` keeps it, and the anatomy caller (~`commands/skills.ts:2268`) adds `sources["section:<name>"]` with ref `<team plugin>:pack/sections/<name>.md`. Update the `skillsAnatomy --json` frozen test deliberately.
 - [ ] **Step 1: Write the failing tests.**
   - `partExtents spans a slot holding a 3-line section`: the slot's `end` covers the section body, and the next part starts after it.
   - `skillMdDriftCauses reports team for a changed section`.
@@ -194,7 +201,7 @@
 **Interfaces:**
 - Consumes: Task 4 compile result `missing?: MissingMarker[]`.
 - Produces: `params-missing` (needs-you). On compile with `missing`, init writes `pack/params.jsonc` (the existing keys kept, each missing key set to `""`) and an empty file for each missing section (existing files untouched), then refuses with `detail` listing them, `wrote` listing the seeded paths, and `next` `rt skills init --team <team> --extends <base>`. Re-running init resumes: no `pack-exists` (nothing compiled), no rewrites, and with nothing missing it continues through check, admit, install and publish.
-- `--extends` validation: the base exists in the org clone and is `base: true`; otherwise a `zone-missing`-style refusal naming the base.
+- `--extends` validation, inside the existing `InitDeps.fs` seam: `join(zone.orgDir, "mattstack", "org", "packs", base)` exists and `isBasePack(deps.fs, dir)` (`init.ts:90`) is true; otherwise a `zone-missing`-style refusal naming the base.
 
 - [ ] **Step 1: Write the failing tests.**
   - `mcp lint flags a shell form in pack/sections`.
@@ -211,7 +218,7 @@
 ### Task 7: Docs, skills and the plugin bump
 
 **Files:**
-- Modify: `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md` ("The org base pack"), `plugins/mattstack/plugin/skills/creating-a-pack/SKILL.md`, `plugins/mattstack/plugin/skills/editing-skills/SKILL.md`, `plugins/mattstack/.claude-plugin/plugin.json` (version bump; set `TEAM_MARKERS_MIN_ENGINE` to it), `website/docs/skills/packs.mdx`, `website/docs/rt/reference/_partials/skills/{compile,check,init}.mdx`, `lib/skills/README.md`
+- Modify: `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md` ("The org base pack"), `plugins/mattstack/plugin/skills/creating-a-pack/SKILL.md`, `plugins/mattstack/plugin/skills/editing-skills/SKILL.md`, `plugins/mattstack/.claude-plugin/plugin.json` (bump to exactly `0.32.14`, the value of `TEAM_MARKERS_MIN_ENGINE`; if main has moved past it by merge time, bump both together), `website/docs/skills/packs.mdx`, `website/docs/rt/reference/_partials/skills/{compile,check,init}.mdx`, `lib/skills/README.md`
 
 - [ ] **Step 1: RED.** A fresh subagent gets the current extending-a-pack and the task "two teams share a provision flow differing in Linear team and one block of CI rules; make the base own it". Record that it forks the fill.
 - [ ] **Step 2: Edit the skills** through `superpowers:writing-skills`:
