@@ -108,9 +108,25 @@ describe("renderSection", () => {
       { id: "d", label: "Other", after: { path: "/a.png", annotated: "/after.png" } },
     ] });
     const out = renderSection(r, up, { fold: true });
-    expect(out).toContain("<summary><b>Case</b> (1 screenshot)</summary>\n\nWaived: w\n\n- Before:");
+    expect(out).toContain("<summary><b>Case</b> (1 screenshot, waived)</summary>\n\nWaived: w\n\n- Before:");
     expect(out).toContain("</details>\n\n<details>\n<summary><b>Other</b> (1 screenshot)</summary>");
     expect(out.match(/<details>/g)?.length).toBe(2);
+  });
+
+  test("a folded caption or waiver carrying HTML cannot close the fold early", () => {
+    const r = rec({ v: 2, cases: [
+      { id: "c", label: "Case", waiver: "w</details>", before: { path: "/b.png", annotated: "/before.png", caption: "x</details><b>y" } },
+      { id: "d", label: "Next", after: { path: "/a.png", annotated: "/after.png" } },
+    ] });
+    const out = renderSection(r, up, { fold: true });
+    expect(out.match(/<\/details>/g)?.length).toBe(2);
+    expect(out).toContain("Waived: w&lt;/details&gt;");
+    expect(out).toContain("  Caption: x&lt;/details&gt;&lt;b&gt;y");
+  });
+
+  test("unfolded captions keep their text as written", () => {
+    const r = rec({ v: 2, cases: [{ id: "c", label: "Case", before: { path: "/b.png", annotated: "/before.png", caption: "a <b>bold</b> word" } }] });
+    expect(renderSection(r, up, {})).toContain("  Caption: a <b>bold</b> word");
   });
 
   test("a folded local link still names the file as attached separately", () => {
@@ -145,6 +161,19 @@ describe("spliceSection", () => {
     const d = "# T\n\n## Checklist\n- [ ] x\n";
     expect(spliceSection(d, "## Evidence", "NEW", "## Checklist")).toBe("# T\n\n## Evidence\n\nNEW\n\n## Checklist\n- [ ] x\n");
     expect(spliceSection(d, "## Evidence", "NEW")).toBe("# T\n\n## Checklist\n- [ ] x\n\n## Evidence\n\nNEW\n");
+  });
+
+  test("a rendered folded section splices twice under a template's helper units as a no-op", () => {
+    const template = "# T\n\n## Evidence\n<!--\nfill in\n-->\n_Screenshots or a recording_\n\n## Checklist\n- [ ] x\n";
+    const r = rec({ v: 2, cases: [
+      { id: "c", label: "Case", waiver: "w", before: { path: "/b.png", annotated: "/before.png", caption: "cap" } },
+      { id: "d", label: "Other", after: { path: "/a.png", annotated: "/after.png" } },
+    ] });
+    const body = renderSection(r, up, { fold: true });
+    const once = spliceSection(template, "## Evidence", body);
+    expect(spliceSection(once, "## Evidence", body)).toBe(once);
+    expect(once).toContain("<!--\nfill in\n-->\n_Screenshots or a recording_\n\n<details>");
+    expect(once).toContain("</details>\n\n## Checklist");
   });
 
   test("a folded body splices twice as a no-op", () => {

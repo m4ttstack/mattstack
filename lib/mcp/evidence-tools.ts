@@ -25,7 +25,7 @@ import { appendixProblem, namesHome, renderSection, spliceSection, type FileLink
 import { addTickets, parseTickets, serializeTickets, ticketShots, TICKETS_FIELD, type TicketEntry } from "../evidence/tickets-field.ts";
 import { parseUploads, serializeUploads, sha256Of, type UploadEntry } from "../evidence/uploads-field.ts";
 import { loadRepoIndex } from "../repo-index.ts";
-import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
+import { identityFromRemote, parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { loadRegistry } from "../worktree/registry.ts";
 import { githubRefusal, refuseGithubTarget } from "./mr-composite-tools.ts";
@@ -445,15 +445,18 @@ function prNumber(url: unknown, iid: unknown): number | null {
   return typeof iid === "number" && Number.isInteger(iid) && iid > 0 ? iid : null;
 }
 
-/** The raw `host/path` a repo-scoped setting is keyed on, from a PR url or a github.com repoName. */
+/** A remote identity's raw `host/path`, the form repo-scoped settings key on; a path identity has no repo section. */
+function remoteId(identity: string): string | null {
+  const parsed = parseIdentity(identity);
+  return parsed?.kind === "remote" ? parsed.id : null;
+}
+
+/** The repo a PR url or a github.com repoName names, through identityFromRemote so it matches the clone's own identity, overrides included. */
 function githubRepo(url: string | null, repoName: unknown): string | null {
-  const m = url ? /^https?:\/\/(?:www\.)?github\.com\/([^/]+\/[^/]+)/i.exec(url) : null;
-  if (m) return `github.com/${m[1]}`;
-  if (typeof repoName !== "string") return null;
-  const parsed = parseIdentity(repoName.trim());
-  if (parsed?.kind === "remote") return parsed.id;
-  const m2 = /^(?:remote:)?github\.com\/([^/]+\/[^/]+)$/i.exec(repoName.trim().replace(/%2f/gi, "/"));
-  return m2 ? `github.com/${m2[1]}` : null;
+  const name = typeof repoName === "string" ? (remoteId(repoName.trim()) ?? repoName.trim().replace(/^remote:/i, "").replace(/%2f/gi, "/")) : "";
+  const m = (url ? /^https?:\/\/(?:www\.)?github\.com\/([^/]+\/[^/]+)/i.exec(url) : null)
+    ?? /^github\.com\/([^/]+\/[^/]+?)\/?$/i.exec(name);
+  return m ? (identityFromRemote(`https://github.com/${m[1]}`)?.id ?? null) : null;
 }
 
 function githubUrl(v: unknown): string | null {
@@ -482,7 +485,7 @@ async function resolveAttachTarget(deps: EvidenceToolDeps, input: Obj, mrField: 
   const github = (identity?: string): Target | { error: string } => {
     const url = githubUrl(mrUrl) ?? githubUrl(fieldFallback);
     const number = prNumber(url, input.iid);
-    const repo = (identity === undefined ? undefined : parseIdentity(identity)?.id) ?? githubRepo(url, input.repoName);
+    const repo = (identity === undefined ? null : remoteId(identity)) ?? githubRepo(url, input.repoName);
     return iidMismatch(number) ?? { forge: "github", mr: url, number, repo };
   };
   if (refuseGithubTarget({ repoName: input.repoName, mrUrl }, "evidence_attach", "") !== null) return github();
@@ -624,7 +627,7 @@ async function evidenceAttach(deps: EvidenceToolDeps, input: Obj, env: NodeJS.Pr
   const description = typeof input.description === "string" ? input.description : undefined;
   const splice = (text: string, section: string) => spliceSection(text, heading, section, input.before as string | undefined);
   const appendix = typeof input.appendix === "string" ? input.appendix : undefined;
-  const repo = target.forge === "github" ? target.repo : parseIdentity(target.identity)?.id ?? null;
+  const repo = target.forge === "github" ? target.repo : remoteId(target.identity);
   const fold = deps.foldScreenshots(repo);
 
   if (target.forge === "github") {

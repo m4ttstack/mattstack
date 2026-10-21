@@ -46,12 +46,16 @@ function linkText(l: FileLink, alt: string): string {
   return url === undefined ? l.markdown : `![${alt}](${url})`;
 }
 
-function renderEntry(e: Entry, link: (path: string) => FileLink): string {
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** Inside a fold, a caption or waiver carrying a raw `</details>` would close it early, so its tags print as text. */
+function renderEntry(e: Entry, link: (path: string) => FileLink, fold = false): string {
+  const text = fold ? escapeHtml : (s: string) => s;
   const themes = EVIDENCE_THEMES.filter((t) => e.themes.includes(t));
   const label = `${cap(e.slots.join(" and "))}${themes.length ? ` (${themes.join(" and ")})` : ""}`;
   const lines = [`- ${label}: ${linkText(link(e.key), e.slots.join(" and "))}`];
-  if (e.caption) lines.push(`  Caption: ${e.caption}`);
-  if (e.waiver) lines.push(`  Waived: ${e.waiver}`);
+  if (e.caption) lines.push(`  Caption: ${text(e.caption)}`);
+  if (e.waiver) lines.push(`  Waived: ${text(e.waiver)}`);
   return lines.join("\n");
 }
 
@@ -78,12 +82,10 @@ export function namesHome(text: string, homes: string[]): boolean {
     .some((h) => new RegExp(`${h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!${NAME_CONTINUES})`).test(text));
 }
 
-const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-/** GitLab and GitHub both render markdown inside `<details>` only past a blank line after `</summary>`, and neither renders markdown inside `<summary>`. */
-function folded(label: string, body: string, count: number): string {
+/** GitLab and GitHub both render markdown inside `<details>` only past a blank line after `</summary>`, and neither renders markdown inside `<summary>`. A waiver shows in the summary so a skim still sees it. */
+function folded(label: string, body: string, count: number, waived: boolean): string {
   const noun = count === 1 ? "screenshot" : "screenshots";
-  return `<details>\n<summary><b>${escapeHtml(label)}</b> (${count} ${noun})</summary>\n\n${body}\n\n</details>`;
+  return `<details>\n<summary><b>${escapeHtml(label)}</b> (${count} ${noun}${waived ? ", waived" : ""})</summary>\n\n${body}\n\n</details>`;
 }
 
 function linksOf(line: string): string[] {
@@ -106,10 +108,11 @@ export function renderSection(
           if (shot.annotated) covered.add(shot.annotated);
         }
       }
-      const waiver = c.waiver ? [`Waived: ${oneLine(c.waiver)}`] : [];
-      const list = entries.map((e) => renderEntry(e, link)).join("\n");
-      if (o.fold && entries.length) {
-        blocks.push(folded(oneLine(c.label), [...waiver, list].join("\n\n"), entries.length));
+      const fold = o.fold === true && entries.length > 0;
+      const waiver = c.waiver ? [`Waived: ${fold ? escapeHtml(oneLine(c.waiver)) : oneLine(c.waiver)}`] : [];
+      const list = entries.map((e) => renderEntry(e, link, fold)).join("\n");
+      if (fold) {
+        blocks.push(folded(oneLine(c.label), [...waiver, list].join("\n\n"), entries.length, c.waiver !== undefined || entries.some((e) => e.waiver)));
         continue;
       }
       const head = [`**${oneLine(c.label)}**`, ...waiver];
