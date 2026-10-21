@@ -1,4 +1,4 @@
-import { Button, Chip, ICONS } from '@mattstack/tui-kit';
+import { Chip, ICONS } from '@mattstack/tui-kit';
 import type { RosterMember } from '../types.ts';
 import { MemberInvadr } from './MemberInvadr.tsx';
 
@@ -12,7 +12,6 @@ function Sidebar({
   note,
   empty,
   dimEmpty = false,
-  queue,
 }: {
   members: RosterMember[];
   total: number;
@@ -28,23 +27,9 @@ function Sidebar({
   empty?: string;
   /** Fade members with nothing on this tab (the tab's dimEmpty). */
   dimEmpty?: boolean;
-  /** Pending decision queue -- null when empty. Rendered above the roster
-      because it means the user owes an action, not just information. */
-  queue?: { count: number; open: () => void } | null;
 }) {
   return (
     <nav className="tui-sidebar" aria-label="team members">
-      {queue && (
-        <Button
-          type="button"
-          className="tui-dq-open"
-          variant="filled"
-          intent="accent"
-          onClick={queue.open}
-        >
-          decision queue · {queue.count}
-        </Button>
-      )}
       {note && <p className="tui-side-note">{note}</p>}
       <div className="tui-side-head">
         <button

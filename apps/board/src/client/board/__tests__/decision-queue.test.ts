@@ -6,7 +6,9 @@ import {
   advance,
   advanceOrWrap,
   backTo,
+  bannerCopy,
   decidedEntries,
+  entryPeek,
   forwardTo,
   queueView,
   reconcile,
@@ -237,4 +239,51 @@ test('the recap takes each answered gate from the latest rows, else the entry th
   expect(decided[1]).toEqual({ gate: extra });
   expect(decided[2]!.gate).toBe(answeredRow);
   expect(decided[2]!.mr?.title).toBe('fresh title');
+});
+
+test('entryPeek names an MR gate by iid and title, a non-MR gate by its label', () => {
+  expect(entryPeek(entry('g1', 7, 'tidy the cache'))).toBe(
+    '!7 · tidy the cache'
+  );
+  expect(
+    entryPeek({
+      gate: {
+        gateId: 'p1',
+        status: 'open',
+        label: 'api-lane is asking',
+      } as GateRow,
+    })
+  ).toBe('api-lane is asking');
+});
+
+test('bannerCopy counts the queue and names the gate that opens first', () => {
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const first: QueueEntry = {
+    gate: {
+      gateId: 'g1',
+      status: 'open',
+      openedAt: now - 2 * 3_600_000,
+    } as GateRow,
+    mr: { iid: 1374, title: 'attribute panel summaries' } as BoardMRWithReview,
+  };
+  expect(bannerCopy([first, entry('g2', 2), entry('g3', 3)], now)).toEqual({
+    title: '3 decisions are waiting on you',
+    detail: 'Next: !1374 · attribute panel summaries · waiting 2h',
+  });
+  expect(bannerCopy([first], now)).toEqual({
+    title: '1 decision is waiting on you',
+    detail: '!1374 · attribute panel summaries · waiting 2h',
+  });
+});
+
+test('bannerCopy leaves out the wait when openedAt is missing, and says just opened under a minute', () => {
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  expect(bannerCopy([entry('g1', 1)], now).detail).toBe('!1 · fix the thing');
+  const fresh: QueueEntry = {
+    gate: { gateId: 'g1', status: 'open', openedAt: now - 20_000 } as GateRow,
+    mr: { iid: 1, title: 'fix the thing' } as BoardMRWithReview,
+  };
+  expect(bannerCopy([fresh], now).detail).toBe(
+    '!1 · fix the thing · just opened'
+  );
 });

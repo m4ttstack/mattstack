@@ -203,9 +203,9 @@ export function MenuGlyph({ kind }: { kind: keyof typeof MENU_PATHS }) {
 }
 
 /** The agent mark on a verb that launches or jumps into an agent pane. */
-export function AgentGlyph() {
+export function AgentGlyph({ size = GLYPH.width }: { size?: number }) {
   return (
-    <svg {...GLYPH}>
+    <svg {...GLYPH} width={size} height={size}>
       <path d="M12 8V4H8" />
       <rect width="16" height="12" x="4" y="8" rx="2" />
       <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />

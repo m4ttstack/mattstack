@@ -159,9 +159,8 @@ async function openQueue(container: HTMLElement) {
   await React.act(async () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
-  const openButton = [...container.querySelectorAll('button')].find(b =>
-    b.textContent?.trim().startsWith('decision queue')
-  );
+  const openButton =
+    container.querySelector<HTMLElement>('.tui-dq-open') ?? undefined;
   if (!openButton) throw new Error('no decision queue button rendered');
   await React.act(async () => {
     (openButton as HTMLElement).click();
@@ -181,7 +180,7 @@ function buttonByText(root: ParentNode, text: string): HTMLButtonElement {
   return found as HTMLButtonElement;
 }
 
-test('sidebar decision-queue count includes queueExtras', async () => {
+test('decision banner count includes queueExtras', async () => {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -192,10 +191,9 @@ test('sidebar decision-queue count includes queueExtras', async () => {
     await React.act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
-    const openButton = [...container.querySelectorAll('button')].find(b =>
-      b.textContent?.trim().startsWith('decision queue')
+    expect(container.querySelector('.tui-dq-banner-title')?.textContent).toBe(
+      '1 decision is waiting on you'
     );
-    expect(openButton?.textContent?.trim()).toBe('decision queue · 1');
   } finally {
     await React.act(async () => root.unmount());
     container.remove();
