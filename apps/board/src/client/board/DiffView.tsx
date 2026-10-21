@@ -8,7 +8,11 @@ import {
 } from 'react';
 import {
   EXTENSION_TO_FILE_FORMAT,
+  getFiletypeFromFileName,
+  getHighlighterIfLoaded,
+  preloadHighlighter,
   registerCustomCSSVariableTheme,
+  type SupportedLanguages,
 } from '@pierre/diffs';
 import {
   File,
@@ -118,6 +122,32 @@ function useBoardDark(): [RefObject<HTMLDivElement | null>, boolean] {
   return [ref, dark];
 }
 
+/** Whether the shared highlighter holds `theme` and `lang` yet. The
+    renderer mounts only once it does: mounted earlier, under the board's
+    StrictMode, its first draw stays an empty block until some later
+    option change redraws it. */
+function useHighlighterReady(theme: string, lang: SupportedLanguages): boolean {
+  const loaded = () => getHighlighterIfLoaded({ theme, lang }) != null;
+  const [ready, setReady] = useState(loaded);
+  useEffect(() => {
+    if (ready) return;
+    let live = true;
+    const settle = () => {
+      if (live) setReady(true);
+    };
+    preloadHighlighter({ themes: [theme], langs: [lang] }).then(settle, settle);
+    return () => {
+      live = false;
+    };
+  }, [theme, lang, ready]);
+  return ready;
+}
+
+/** The file a patch's `+++ b/<path>` header names. */
+function patchPath(patch: string): string {
+  return /^\+\+\+ (?:b\/)?(.+)$/m.exec(patch)?.[1] ?? '';
+}
+
 /** A unified diff of one file's patch, highlighted, in board colours.
     `anchor` marks the line a finding sits on; `pins` hang
     `renderPin`'s output under their lines. */
@@ -135,6 +165,10 @@ export default function DiffView({
   separators?: 'metadata' | 'simple';
 }) {
   const [ref, dark] = useBoardDark();
+  const ready = useHighlighterReady(
+    CODE_THEME,
+    getFiletypeFromFileName(patchPath(patch))
+  );
   const options = useMemo<FileDiffOptions<DiffPin, undefined>>(
     () => ({
       theme: CODE_THEME,
@@ -167,13 +201,15 @@ export default function DiffView({
   );
   return (
     <div ref={ref} className="tui-diff">
-      <PatchDiff<DiffPin>
-        patch={patch}
-        options={options}
-        lineAnnotations={annotations}
-        selectedLines={selected}
-        renderAnnotation={a => renderPin?.(a.metadata)}
-      />
+      {ready && (
+        <PatchDiff<DiffPin>
+          patch={patch}
+          options={options}
+          lineAnnotations={annotations}
+          selectedLines={selected}
+          renderAnnotation={a => renderPin?.(a.metadata)}
+        />
+      )}
     </div>
   );
 }
@@ -212,6 +248,10 @@ export function CodeBlock({
 }) {
   const [ref, dark] = useBoardDark();
   const language = fenceLanguage(lang);
+  const ready = useHighlighterReady(
+    FENCE_THEME,
+    (language ?? 'text') as SupportedLanguages
+  );
   const file = useMemo(
     () => ({ name: `fence.${lang}`, contents: code, lang: language }),
     [lang, code, language]
@@ -227,7 +267,7 @@ export function CodeBlock({
     }),
     [dark]
   );
-  if (!language) return fallback;
+  if (!language || !ready) return fallback;
   return (
     <div ref={ref} className="tui-diff tui-md-code-hl" data-language={language}>
       <File file={file} options={options} />
