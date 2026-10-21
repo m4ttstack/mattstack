@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
+import { randomBytes } from "crypto";
 import { mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { containmentOf, patchIdenticalToMr } from "../containment.ts";
+import { __test__, containmentOf, patchIdenticalToMr } from "../containment.ts";
 
 const GIT_ID = "-c user.email=t@t -c user.name=t";
 const sh = (cmd: string, cwd?: string) => execSync(cmd, { cwd, shell: "/bin/zsh", stdio: "pipe" }).toString().trim();
@@ -171,4 +172,58 @@ describe("containmentOf", () => {
 
     expect(await containmentOf(repo, "feat", { state: "merged", sha: mrSha })).toBe("none");
   });
+});
+
+describe("patchIdenticalToMr over an MR range that carries other history", () => {
+  let repo: string;
+  let mrSha: string;
+  beforeEach(() => {
+    __test__.clearMemo();
+    ({ repo } = repoWithOrigin());
+    sh("git checkout -q -b feat", repo);
+    commit(repo, "a.txt", "a\n");
+    // What the forge saw: other history merged into the MR branch first,
+    // then the same a.txt patch on top.
+    sh("git checkout -q -b big main", repo);
+    commit(repo, "big.txt", randomBytes(64 << 10).toString("hex").replace(/(.{80})/g, "$1\n"));
+    sh("git checkout -q -b mr big", repo);
+    sh(`git ${GIT_ID} cherry-pick feat`, repo);
+    mrSha = sh("git rev-parse HEAD", repo);
+    sh("git checkout -q feat", repo);
+  });
+
+  test("git's patches go straight from git log into patch-id, never through a string", async () => {
+    const realSpawn = Bun.spawn;
+    const patchIdStdin: unknown[] = [];
+    const spy = spyOn(Bun, "spawn").mockImplementation(((cmd: string[], opts: any) => {
+      if (cmd[1] === "patch-id") patchIdStdin.push(opts?.stdin);
+      return realSpawn(cmd, opts);
+    }) as typeof Bun.spawn);
+    try {
+      expect(await patchIdenticalToMr(repo, mrSha, "origin/main", async () => false)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(patchIdStdin).toHaveLength(2);
+    for (const stdin of patchIdStdin) expect(stdin).toBeInstanceOf(ReadableStream);
+  });
+
+  test("a repeated question about the same commits is answered from memory", async () => {
+    expect(await patchIdenticalToMr(repo, mrSha, "origin/main", async () => false)).toBe(true);
+    expect(__test__.memoSize()).toBe(1);
+    expect(await patchIdenticalToMr(repo, mrSha, "origin/main", async () => false)).toBe(true);
+    expect(__test__.memoSize()).toBe(1);
+
+    // A new local commit is a new question.
+    commit(repo, "b.txt", "b\n");
+    expect(await patchIdenticalToMr(repo, mrSha, "origin/main", async () => false)).toBe(false);
+    expect(__test__.memoSize()).toBe(2);
+  });
+});
+
+test("the patch-id memo never grows past its cap", () => {
+  __test__.clearMemo();
+  for (let i = 0; i < __test__.PATCH_MEMO_MAX + 10; i++) __test__.remember(`k${i}`, true);
+  expect(__test__.memoSize()).toBe(__test__.PATCH_MEMO_MAX);
+  __test__.clearMemo();
 });
