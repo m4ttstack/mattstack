@@ -72,6 +72,8 @@ export async function buildClientBundle(): Promise<
     splitting: true,
     naming: { chunk: 'chunk-[hash].[ext]' },
     minify: true,
+    // Bun leaves NODE_ENV at "development" unless told, which ships React's dev build.
+    define: { 'process.env.NODE_ENV': '"production"' },
     plugins: [reactSingleton],
   });
   if (!build.success) {

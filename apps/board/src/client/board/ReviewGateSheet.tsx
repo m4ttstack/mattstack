@@ -456,9 +456,15 @@ function ReviewGateSheet({
     measure();
     el.addEventListener('scroll', measure);
     window.addEventListener('resize', measure);
+    // Cards grow after mount (the code view loads lazily), moving rows across the fold.
+    const resized =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    const list = el.querySelector('.tui-review-find-list');
+    if (resized && list) resized.observe(list);
     return () => {
       el.removeEventListener('scroll', measure);
       window.removeEventListener('resize', measure);
+      resized?.disconnect();
     };
   }, [findings.length, report]);
 
