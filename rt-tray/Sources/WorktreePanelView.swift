@@ -136,13 +136,17 @@ struct WorktreePanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            if isSnapshot {
-                content
+            if controller.counts == nil {
+                unloaded
             } else {
-                ScrollView { content }
+                header
+                if isSnapshot {
+                    content
+                } else {
+                    ScrollView { content }
+                }
+                footer
             }
-            footer
         }
         .frame(minWidth: 640, minHeight: isSnapshot ? 0 : 420)
         .background(WT.window)
@@ -184,27 +188,34 @@ struct WorktreePanelView: View {
                     ForEach(rows) { row(for: $0) }
                 }
             }
-            if controller.isLoading && controller.rows.isEmpty {
-                HStack(spacing: 10) {
-                    if isSnapshot {
-                        Image(systemName: "circle.dotted").foregroundStyle(WT.textTertiary)
-                    } else {
-                        ProgressView().controlSize(.small)
-                    }
-                    Text("Checking every repo's worktrees. This can take a few seconds.")
-                        .foregroundStyle(WT.textSecondary)
-                }
-                .padding(24)
-            } else if controller.counts == nil {
-                Text("Couldn't load worktrees. Trying again every 10 seconds.")
-                    .foregroundStyle(WT.textSecondary).padding(24)
-            } else if controller.rows.isEmpty {
+            if controller.rows.isEmpty {
                 Text("Nothing stuck. Every merged worktree was cleaned up.")
                     .foregroundStyle(WT.textSecondary).padding(24)
             }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 4)
+    }
+
+    /// Nothing has loaded yet, so there is no headline to state: a bare loader, or the failure, centred.
+    private var unloaded: some View {
+        VStack(spacing: 12) {
+            if controller.isLoading {
+                if isSnapshot {
+                    Image(systemName: "circle.dotted").font(.system(size: 22)).foregroundStyle(WT.textTertiary)
+                } else {
+                    ProgressView()
+                }
+                Text("Checking worktrees…").foregroundStyle(WT.textSecondary)
+            } else {
+                Text("Couldn't check worktrees").font(.system(size: 15, weight: .semibold)).foregroundStyle(WT.text)
+                if let status = controller.status { Text(status.text).foregroundStyle(WT.textSecondary) }
+                Text("Trying again every 10 seconds.").foregroundStyle(WT.textTertiary)
+            }
+        }
+        .font(.system(size: 13.5))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minHeight: isSnapshot ? 240 : 0)
     }
 
     private var header: some View {
@@ -233,7 +244,7 @@ struct WorktreePanelView: View {
         }
     }
 
-    private var headline: String { TriageMenu.headline(controller.counts, loading: controller.isLoading) }
+    private var headline: String { TriageMenu.headline(controller.counts ?? TriageCounts(needsDecision: 0, safe: 0, waiting: 0, kept: 0)) }
 
     private var footer: some View {
         HStack(spacing: 6) {
