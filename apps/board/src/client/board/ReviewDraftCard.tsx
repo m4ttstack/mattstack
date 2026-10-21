@@ -163,7 +163,11 @@ function FullDiffModal({
     <Modal
       ref={root}
       tabIndex={-1}
-      className="tui-diff-modal"
+      className={
+        error === undefined
+          ? 'tui-diff-modal'
+          : 'tui-diff-modal tui-diff-modal-error'
+      }
       ariaLabel={`Full diff of ${path}`}
       onClose={onClose}
       onKeyDown={onKeyDown}

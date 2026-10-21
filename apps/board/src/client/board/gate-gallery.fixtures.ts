@@ -1231,6 +1231,26 @@ export const radarDiffs: DiffSource = {
   loadView: () => import('./DiffView.tsx'),
 };
 
+/** The same review where GitLab holds the hook's diff back as too large
+    and the test file's diff fails to load. */
+export const reviewPostDraftedHeldBack: GalleryGate = {
+  mr: MRS.radarLayers,
+  diffs: {
+    fetchFileDiff: async ({ file }) => {
+      const d = RADAR_DIFFS[file];
+      if (!d) return null;
+      if (file.endsWith('.test.tsx'))
+        throw new Error('GitLab answered 502 for this diff.');
+      return { ...d, patch: '', tooLarge: true };
+    },
+    loadView: () => import('./DiffView.tsx'),
+  },
+  gate: {
+    ...reviewPostDrafted.gate,
+    gateId: 'gallery-review-post-drafted-held-back',
+  },
+};
+
 const GITHUB_PR = 'https://github.example.com/acme/radar/pull/58';
 
 /** The same files as GitHub's PR files API returns them. */
