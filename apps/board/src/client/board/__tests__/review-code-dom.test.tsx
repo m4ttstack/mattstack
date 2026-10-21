@@ -333,9 +333,9 @@ test("a diff that fails to load keeps the header, says why, and links to the MR'
   expect(code.querySelector('.tui-review-code-path')!.textContent).toBe(
     'lib/retry.ts:12'
   );
-  expect(code.querySelector('[role="alert"]')!.textContent).toBe(
-    'GitLab answered 500 for this diff.'
-  );
+  const alert = code.querySelector('[role="alert"]')!;
+  expect(alert.textContent).toBe('GitLab answered 500 for this diff.');
+  expect(alert.getAttribute('data-tone')).toBe('error');
   const open = code.querySelector<HTMLAnchorElement>('a[href]')!;
   expect(open.textContent).toContain('open on GitLab');
   expect(open.getAttribute('href')).toBe(`${MR.webUrl}/diffs`);

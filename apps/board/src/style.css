@@ -4199,6 +4199,13 @@ a.tui-id-card-ref:focus-visible {
   font-size: 12px;
   color: var(--text-3);
 }
+/* A diff that failed to load reads as a failure: body size, so the bad
+   hue's body step (at 12px it would have to be the near-black small
+   step). */
+.tui-review-code-held[data-tone='error'] {
+  font-size: 13px;
+  color: var(--text-bad);
+}
 @media (hover: hover) {
   .tui-review-code[data-openable]:hover {
     border-color: var(--fill-accent);

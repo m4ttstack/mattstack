@@ -343,7 +343,7 @@ function CodeSection({
           </p>
         )}
         {error !== null && (
-          <p className="tui-review-code-held" role="alert">
+          <p className="tui-review-code-held" data-tone="error" role="alert">
             {error}
           </p>
         )}
