@@ -50,6 +50,18 @@ edited reply posts as written. Review should feel the same.
 
 ## The gate, as it looks (option A)
 
+**Field style (Matt's call, 2026-10-20, mock B17 "V4 · Framed composer").**
+Every editable comment in the review sheet (the summary line, each folded
+finding, each anchored finding's comment) is an always-editable,
+auto-growing text area (`useAutoGrowTextarea`), never a display box with
+an `edit` button. Each field is framed like a small comment composer: a
+teal strip across the top ("WILL POST AS COMMENT", "WILL POST AS THE
+SUMMARY"; "posts as you" on its right) joined to a white text area with
+ink text. An edited field shows "edited · reset" in place of "posts as
+you". A folded finding's field carries "× remove" in its strip. This
+supersedes the teal display boxes and `edit`/`done`/`revert to draft`
+buttons described below. Respond keeps its own reply boxes.
+
 Use B15's "A · gate" frame as the picture. Main column, top to bottom:
 
 1. **Summary comment card**, above "Post which findings". Its header says
