@@ -4575,17 +4575,128 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-1);
   overflow-wrap: anywhere;
 }
-/* The Markdown recipe sets its own type on its root; the preview reads at
-   the field's size so the card doesn't change height between tabs. */
-.tui-field-preview [data-part='markdown'] {
-  font-size: inherit;
-  line-height: inherit;
-}
-.tui-field-preview [data-part='markdown'] > :first-child {
+/* A comment as it reads on the MR: the Markdown subset review comments
+   use, at the field's own size, so switching tabs keeps the card still. */
+.tui-md-comment > :first-child {
   margin-top: 0;
 }
-.tui-field-preview [data-part='markdown'] > :last-child {
+.tui-md-comment > :last-child {
   margin-bottom: 0;
+}
+.tui-md-comment :is(p, ul, ol, blockquote, table, .tui-md-code) {
+  margin: 0 0 8px;
+}
+.tui-md-comment :is(h1, h2, h3, h4, h5, h6) {
+  margin: 12px 0 6px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.tui-md-comment h1 {
+  font-size: 16px;
+}
+.tui-md-comment h2 {
+  font-size: 15px;
+}
+.tui-md-comment :is(h3, h4, h5, h6) {
+  font-size: 14px;
+}
+.tui-md-comment :is(ul, ol) {
+  padding-left: 22px;
+}
+.tui-md-comment li + li {
+  margin-top: 2px;
+}
+.tui-md-comment li > :is(ul, ol) {
+  margin: 2px 0 0;
+}
+.tui-md-comment .contains-task-list {
+  padding-left: 2px;
+  list-style: none;
+}
+.tui-md-comment .task-list-item input {
+  margin: 0 6px 0 0;
+  vertical-align: -1px;
+  accent-color: var(--fill-accent);
+}
+.tui-md-comment a {
+  color: var(--text-accent);
+  text-underline-offset: 2px;
+}
+.tui-md-comment :not(pre) > code {
+  padding: 1px 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: var(--surface-wash-fg-4-card);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+.tui-md-comment blockquote {
+  padding: 0 0 0 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-2);
+}
+.tui-md-comment table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tui-md-comment :is(th, td) {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.tui-md-comment th {
+  font-weight: 500;
+  background: var(--surface-wash-fg-4-card);
+}
+.tui-md-comment hr {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+}
+/* A fenced block: its language over the code, on a quiet wash; a
+   suggestion reads as the change it proposes. */
+.tui-md-code {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-wash-fg-4-card);
+  overflow: hidden;
+}
+.tui-md-code-head {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.tui-md-code-body {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--card);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tui-md-code-hl {
+  padding: 2px 0;
+  background: var(--card);
+}
+.tui-md-code[data-suggestion] {
+  border-color: color-mix(in srgb, var(--fill-ok) 45%, var(--card));
+  background: color-mix(in srgb, var(--fill-ok) 7%, var(--card));
+}
+.tui-md-code[data-suggestion] .tui-md-code-head {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  color: var(--text-ok-small);
+  border-bottom-color: color-mix(in srgb, var(--fill-ok) 30%, var(--card));
+}
+.tui-md-code[data-suggestion] .tui-md-code-body {
+  border-left: 3px solid var(--fill-ok);
+  background: color-mix(in srgb, var(--fill-ok) 7%, var(--card));
 }
 .tui-field-preview-empty {
   margin: 0;

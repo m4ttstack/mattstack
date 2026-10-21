@@ -220,3 +220,26 @@ export function useDiffView(): LazyExoticComponent<DiffViewComponent> | null {
   if (!view) views.set(loadView, (view = lazy(loadView)));
   return view;
 }
+
+type CodeBlockComponent = Awaited<
+  ReturnType<NonNullable<DiffSource['loadView']>>
+>['CodeBlock'];
+
+const codeBlocks = new WeakMap<
+  NonNullable<DiffSource['loadView']>,
+  LazyExoticComponent<CodeBlockComponent>
+>();
+
+/** The highlighted code block from the same renderer module, for a
+    comment's fenced code, or null when the source brings no renderer. */
+export function useCodeBlock(): LazyExoticComponent<CodeBlockComponent> | null {
+  const { loadView } = useContext(DiffSourceContext);
+  if (!loadView) return null;
+  let block = codeBlocks.get(loadView);
+  if (!block)
+    codeBlocks.set(
+      loadView,
+      (block = lazy(() => loadView().then(m => ({ default: m.CodeBlock }))))
+    );
+  return block;
+}

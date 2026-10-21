@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
 import { createRoot, type Root } from 'react-dom/client';
 
 import { CommentComposer } from '../CommentComposer.tsx';
+import { DiffSourceContext, type DiffSource } from '../diff-source.ts';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
 
@@ -203,4 +204,124 @@ test('a strip needs a kicker or a where: the types refuse neither', () => {
     />
   );
   expect(bare).toBeDefined();
+});
+
+const RICH = [
+  'Small one: `requireActual` drops `__esModule`.',
+  '',
+  '- [x] spread it',
+  '- set it back',
+  '',
+  '> the old mock read it directly',
+  '',
+  '| file | change |',
+  '| --- | --- |',
+  '| a.ts | +2 |',
+  '',
+  '```ts',
+  'const mod = jest.requireActual("./config");',
+  '```',
+  '',
+  '```suggestion:-0+0',
+  'export default { ...mod, __esModule: true };',
+  '```',
+].join('\n');
+
+async function preview(draft: string, diffs?: DiffSource) {
+  const host = <Host draft={draft} />;
+  await React.act(async () =>
+    root.render(
+      diffs ? (
+        <DiffSourceContext.Provider value={diffs}>
+          {host}
+        </DiffSourceContext.Provider>
+      ) : (
+        host
+      )
+    )
+  );
+  await React.act(async () => tab('Preview').click());
+  return container.querySelector<HTMLElement>('[role="tabpanel"]')!;
+}
+
+test('Preview reads like the comment will: inline code, task list, quote, table', async () => {
+  const panel = await preview(RICH);
+  expect(panel.querySelector('p code')!.textContent).toBe('requireActual');
+  expect(
+    panel.querySelector<HTMLInputElement>('.task-list-item input')!.checked
+  ).toBe(true);
+  expect(panel.querySelector('blockquote')!.textContent).toContain(
+    'the old mock read it directly'
+  );
+  expect(panel.querySelector('td')!.textContent).toBe('a.ts');
+});
+
+test('a fenced block shows its language over the code, and plain without a highlighter', async () => {
+  const panel = await preview(RICH);
+  const block = panel.querySelector<HTMLElement>(
+    '.tui-md-code[data-lang="ts"]'
+  )!;
+  expect(block.querySelector('.tui-md-code-head')!.textContent).toBe('ts');
+  expect(block.querySelector('pre code')!.textContent).toBe(
+    'const mod = jest.requireActual("./config");'
+  );
+  expect(block.querySelector('.tui-md-code-hl')).toBeNull();
+});
+
+test('a suggestion fence reads as a suggested change', async () => {
+  const panel = await preview(RICH);
+  const block = panel.querySelector<HTMLElement>(
+    '.tui-md-code[data-suggestion]'
+  )!;
+  expect(block.querySelector('.tui-md-code-head')!.textContent).toBe(
+    'Suggested change'
+  );
+  expect(block.textContent).toContain('__esModule: true');
+});
+
+test('with a source that brings the renderer, a fence is highlighted in its language', async () => {
+  const seen: string[] = [];
+  const diffs: DiffSource = {
+    fetchFileDiff: async () => null,
+    loadView: async () =>
+      ({
+        default: () => null,
+        CodeBlock: ({ lang, code }: { lang: string; code: string }) => {
+          seen.push(lang);
+          return <pre data-highlighted={lang}>{code}</pre>;
+        },
+      }) as unknown as typeof import('../DiffView.tsx'),
+  };
+  const panel = await preview(RICH, diffs);
+  await React.act(async () => {
+    await new Promise(r => setTimeout(r, 0));
+  });
+  expect(panel.querySelector('[data-highlighted="ts"]')!.textContent).toBe(
+    'const mod = jest.requireActual("./config");'
+  );
+  expect(seen).toEqual(['ts']);
+  expect(
+    panel.querySelector('.tui-md-code[data-suggestion] [data-highlighted]')
+  ).toBeNull();
+});
+
+test('empty text previews as a muted note', async () => {
+  const panel = await preview('   ');
+  expect(panel.querySelector('.tui-field-preview-empty')!.textContent).toBe(
+    'Nothing to preview'
+  );
+});
+
+test('Preview keeps at least the Write field height', async () => {
+  Object.defineProperty(HTMLTextAreaElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get: () => 120,
+  });
+  try {
+    const panel = await preview('one line');
+    expect(panel.style.getPropertyValue('--field-h')).toBe('120px');
+  } finally {
+    delete (HTMLTextAreaElement.prototype as { offsetHeight?: number })
+      .offsetHeight;
+  }
 });

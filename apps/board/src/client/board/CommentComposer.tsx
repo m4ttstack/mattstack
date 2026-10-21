@@ -10,8 +10,8 @@ import {
 } from 'react';
 import { flushSync } from 'react-dom';
 
-import { Markdown } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
+import { CommentMarkdown } from './CommentMarkdown.tsx';
 import { postedText } from './respond-post.ts';
 
 type FieldMode = 'write' | 'preview';
@@ -170,7 +170,7 @@ function CommentField({
         {text.trim() === '' ? (
           <p className="tui-field-preview-empty">Nothing to preview</p>
         ) : (
-          <Markdown linkTargetBlank>{text}</Markdown>
+          <CommentMarkdown>{text}</CommentMarkdown>
         )}
       </div>
     );

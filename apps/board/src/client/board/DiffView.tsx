@@ -6,11 +6,16 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { registerCustomCSSVariableTheme } from '@pierre/diffs';
 import {
+  EXTENSION_TO_FILE_FORMAT,
+  registerCustomCSSVariableTheme,
+} from '@pierre/diffs';
+import {
+  File,
   PatchDiff,
   type DiffLineAnnotation,
   type FileDiffOptions,
+  type FileOptions,
 } from '@pierre/diffs/react';
 
 /** A finding pinned under its line in the full diff. */
@@ -40,6 +45,26 @@ registerCustomCSSVariableTheme(CODE_THEME, {
   'token-inserted': 'var(--text-ok-small)',
   'token-deleted': 'var(--text-bad-small)',
   'token-changed': 'var(--text-warn-small)',
+});
+
+/** A comment's fenced code is 13px on the card, so its token kinds take
+    each hue's body text step, which clears 4.5 there in both schemes. */
+const FENCE_THEME = 'board-code-fence';
+registerCustomCSSVariableTheme(FENCE_THEME, {
+  foreground: 'var(--text-1)',
+  background: 'var(--card)',
+  'token-comment': 'var(--text-3)',
+  'token-punctuation': 'var(--text-2)',
+  'token-keyword': 'var(--text-purple)',
+  'token-string': 'var(--text-ok)',
+  'token-string-expression': 'var(--text-ok)',
+  'token-constant': 'var(--text-cyan)',
+  'token-function': 'var(--text-accent)',
+  'token-parameter': 'var(--text-warn)',
+  'token-link': 'var(--text-accent)',
+  'token-inserted': 'var(--text-ok)',
+  'token-deleted': 'var(--text-bad)',
+  'token-changed': 'var(--text-warn)',
 });
 
 /** The diff renders in a shadow root, so board tokens reach it only as
@@ -146,6 +171,63 @@ export default function DiffView({
         selectedLines={selected}
         renderAnnotation={a => renderPin?.(a.metadata)}
       />
+    </div>
+  );
+}
+
+const KNOWN_LANGS = new Set<string>(
+  Object.values(EXTENSION_TO_FILE_FORMAT).filter(
+    (l): l is string => typeof l === 'string'
+  )
+);
+
+/** A fence's language as the highlighter names it (`ts` is `typescript`),
+    or undefined for one it does not know. */
+export function fenceLanguage(lang: string): string | undefined {
+  const key = lang.toLowerCase();
+  return (
+    EXTENSION_TO_FILE_FORMAT[key] ?? (KNOWN_LANGS.has(key) ? key : undefined)
+  );
+}
+
+const CODE_CSS = `${BOARD_CSS}
+:host {
+  --diffs-font-size: 13px;
+}
+`;
+
+/** A comment's fenced code, highlighted with the diff view's board theme.
+    A language the highlighter does not know shows `fallback`. */
+export function CodeBlock({
+  lang,
+  code,
+  fallback,
+}: {
+  lang: string;
+  code: string;
+  fallback: ReactNode;
+}) {
+  const [ref, dark] = useBoardDark();
+  const language = fenceLanguage(lang);
+  const file = useMemo(
+    () => ({ name: `fence.${lang}`, contents: code, lang: language }),
+    [lang, code, language]
+  );
+  const options = useMemo<FileOptions<undefined, undefined>>(
+    () => ({
+      theme: FENCE_THEME,
+      themeType: dark ? 'dark' : 'light',
+      disableFileHeader: true,
+      disableLineNumbers: true,
+      overflow: 'wrap',
+      unsafeCSS: CODE_CSS,
+    }),
+    [dark]
+  );
+  if (!language) return fallback;
+  return (
+    <div ref={ref} className="tui-diff tui-md-code-hl" data-language={language}>
+      <File file={file} options={options} />
     </div>
   );
 }
