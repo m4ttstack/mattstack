@@ -589,7 +589,7 @@ describe("substituteAttachmentPlaceholders", () => {
     return {
       packName: "widgets", fileRel: "attachments/review-kit/SKILL.md", verbSides: { ...sides }, packRoot: root,
       plannedAttachments: new Map([["review-kit", new Set(["SKILL.md", "references/guide.md"])]]),
-      where: "acme-base:attachments/review-kit/SKILL.md", ...over,
+      where: "acme-base:attachments/review-kit/SKILL.md", team: null, ...over,
     };
   }
 

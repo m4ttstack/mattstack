@@ -1037,7 +1037,7 @@ function compileTargets(resolved: Resolved, publicSet: Set<string> | null, verbF
 /** A pack that extends a base only for its fills copies nothing, so it needs no plugin name; one that would copy an attachment does. */
 function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
   const pluginName = packPluginIdentity(resolved.packDir)?.name;
-  const plan = planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides });
+  const plan = planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides, team: null });
   if (pluginName || plan.base === null || plan.emits.length === 0) return plan;
   return { base: null, emits: [], kept: [], stale: [], retired: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
 }

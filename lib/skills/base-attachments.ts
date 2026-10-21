@@ -3,7 +3,8 @@ import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
 import { hasCompiledHeader, unresolvedRelativePaths } from "./compile.ts";
-import { substituteAttachmentPlaceholders } from "./placeholders.ts";
+import { assertNoTeamMarkerInRawFile, substituteAttachmentPlaceholders } from "./placeholders.ts";
+import type { TeamContext } from "./team-params.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
 import type { CompiledFile, PlannedAttachments, Side } from "./types.ts";
@@ -164,8 +165,15 @@ function isTeamOwned(dir: string): boolean {
     !isSkippedAttachmentPath(entry.name) && !(entry.isDirectory() && isEmittedAttachmentDir(join(dir, entry.name))));
 }
 
-export function planBaseAttachments(input: { packDir: string; packName: string; verbSides: Record<string, Side> }): BaseAttachmentPlan {
-  const { packDir, packName, verbSides } = input;
+const BINARY_SNIFF_BYTES = 8192;
+
+function readTextUnlessBinary(abs: string): string | null {
+  const buf = readFileSync(abs);
+  return buf.subarray(0, BINARY_SNIFF_BYTES).includes(0) ? null : buf.toString("utf8");
+}
+
+export function planBaseAttachments(input: { packDir: string; packName: string; verbSides: Record<string, Side>; team: TeamContext | null }): BaseAttachmentPlan {
+  const { packDir, packName, verbSides, team } = input;
   const own = readJsoncObject(join(packDir, "pack", "skills.jsonc"));
   const ext = own?.extends;
   const attachmentsDir = join(packDir, "attachments");
@@ -246,6 +254,12 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
     for (const file of files) {
       const abs = join(srcDir, file);
       if (!file.endsWith(".md")) {
+        try {
+          const text = readTextUnlessBinary(abs);
+          if (text !== null) assertNoTeamMarkerInRawFile(text, `${base.name}:attachments/${name}/${file}`);
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : String(err));
+        }
         out.push({ path: file, copyFrom: abs });
         continue;
       }
@@ -257,6 +271,7 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
           packRoot: packDir,
           plannedAttachments: planned,
           where: `${base.name}:attachments/${name}/${file}`,
+          team,
         });
         out.push({ path: file, content });
         const layout = { packRoot: packDir, compiledDir: dirname(join(attachmentsDir, name, file)) };

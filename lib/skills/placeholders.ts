@@ -128,7 +128,36 @@ export type AttachmentRenderOpts = {
   packRoot: string;
   plannedAttachments?: PlannedAttachments;
   where: string;
+  team: TeamContext | null;
 };
+
+const FRONTMATTER_BLOCK_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
+
+function lineCount(text: string): number {
+  return (text.match(/\n/g) ?? []).length;
+}
+
+/** A copied non-md file is not rewritten, so a marker in it would ship as written. */
+export function assertNoTeamMarkerInRawFile(text: string, where: string): void {
+  if (!hasTeamMarker(text)) return;
+  const lines = text.split("\n");
+  const at = lines.findIndex((line) => hasTeamMarker(line));
+  const raw = lines[at]!.match(TEAM_OPENER_LINE_RE)![0];
+  throw new Error(`${where}: ${raw} -- team markers only resolve in .md files (line ${at + 1})`);
+}
+
+/** Resolves a copied .md file's body, counting error lines from the top of the file. */
+function resolveAttachmentTeamMarkers(text: string, opts: AttachmentRenderOpts): string {
+  if (!hasTeamMarker(text)) return text;
+  const head = text.match(FRONTMATTER_BLOCK_RE)?.[0] ?? "";
+  const headAt = head.split("\n").findIndex((line) => hasTeamMarker(line));
+  if (headAt >= 0) {
+    const raw = head.split("\n")[headAt]!.match(TEAM_OPENER_LINE_RE)![0];
+    throw new Error(`${opts.where}: ${raw} -- team markers only resolve in a body, not frontmatter (line ${headAt + 1})`);
+  }
+  if (!opts.team) return text;
+  return head + resolveTeamMarkers(text.slice(head.length), opts.team, { where: opts.where, sectionSeams: false, startLine: lineCount(head) + 1 });
+}
 
 /**
  * An emitted base attachment is read as a plain file, so it gets only what
@@ -137,7 +166,7 @@ export type AttachmentRenderOpts = {
  */
 export function substituteAttachmentPlaceholders(body: string, opts: AttachmentRenderOpts): string {
   const { where } = opts;
-  return body.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
+  return resolveAttachmentTeamMarkers(body, opts).replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
     switch (kind) {
       case "pack.name":
         if (arg !== undefined) throw new Error(`${where}: ${raw} -- pack.name takes no argument`);
