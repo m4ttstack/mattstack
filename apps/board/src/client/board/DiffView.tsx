@@ -49,19 +49,20 @@ registerCustomCSSVariableTheme(CODE_THEME, {
   'token-changed': 'var(--text-warn-small)',
 });
 
-/** A comment's fenced code is 13px on the card, so its token kinds take
-    each hue's body text step, which clears 4.5 there in both schemes. */
+/** A comment's fenced code is 13px on the card alone, so every token kind
+    takes its hue's body text step, which clears 4.5 there in both
+    schemes. The hues per kind match the diff's. */
 const FENCE_THEME = 'board-code-fence';
 registerCustomCSSVariableTheme(FENCE_THEME, {
   foreground: 'var(--text-1)',
   background: 'var(--card)',
   'token-comment': 'var(--text-3)',
   'token-punctuation': 'var(--text-2)',
-  'token-keyword': 'var(--text-purple)',
+  'token-keyword': 'var(--text-bad)',
   'token-string': 'var(--text-ok)',
   'token-string-expression': 'var(--text-ok)',
-  'token-constant': 'var(--text-cyan)',
-  'token-function': 'var(--text-accent)',
+  'token-constant': 'var(--text-accent)',
+  'token-function': 'var(--text-purple)',
   'token-parameter': 'var(--text-warn)',
   'token-link': 'var(--text-accent)',
   'token-inserted': 'var(--text-ok)',
