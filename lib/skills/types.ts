@@ -1,3 +1,5 @@
+import type { TeamContext } from "./team-params.ts";
+
 export type Side = "skills" | "attachments";
 
 export type SlotSpec = { contract: string; required?: boolean };
@@ -64,4 +66,6 @@ export type PlaceholderContext = {
   plannedAttachments?: PlannedAttachments;
   /** The pipeline a work verb that renders `{{pipeline.table}}` runs; null for every other target. */
   pipeline: string | null;
+  /** The team pack being compiled; absent or null means none is in play, so any `{{team.` marker is an error. */
+  team?: TeamContext | null;
 };

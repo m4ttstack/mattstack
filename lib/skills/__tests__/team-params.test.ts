@@ -108,6 +108,10 @@ describe("team-params", () => {
     );
   });
 
+  test("startLine shifts the reported line", () => {
+    expect(() => resolveTeamMarkers("a\n{{team.x}}", ctx({ x: "{{y}}" }), { where, sectionSeams: true, startLine: 11 })).toThrow(new RegExp(`${where}.*line 12`));
+  });
+
   test("refuses {{ in a value", () => {
     expect(() => resolveTeamMarkers("a\n{{team.x}}", ctx({ x: "{{y}}" }), { where, sectionSeams: true })).toThrow(new RegExp(`${where}.*line 2`));
   });

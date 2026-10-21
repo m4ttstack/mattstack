@@ -1,7 +1,17 @@
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join, relative as relativePath, resolve as resolvePath, sep } from "path";
-import { assertNoPlaceholders, findPlaceholders, skillDirFor, substitute, substituteIncludesOnly, type TraceEntry } from "./placeholders.ts";
+import {
+  assertNoPlaceholders,
+  assertNoTeamMarkerInTools,
+  findPlaceholders,
+  resolveFillTeamMarkers,
+  skillDirFor,
+  substitute,
+  substituteIncludesOnly,
+  type TraceEntry,
+} from "./placeholders.ts";
 import { stripFrontmatter } from "./sources.ts";
+import type { TeamContext } from "./team-params.ts";
 import type {
   AttachmentSource,
   CompiledFile,
@@ -275,6 +285,7 @@ function buildAllowedTools(
   stageRules: string[],
   ctx: PlaceholderContext,
 ): string[] {
+  for (const { fill } of boundSlots) assertNoTeamMarkerInTools(fill);
   const entries = [
     ...step.allowedTools,
     ...boundSlots.flatMap(({ slotName, fill }) =>
@@ -383,7 +394,11 @@ function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): 
     sections.push(
       `<!-- part: slot:${slotName} binding=${fill.binding} version=${fill.version} ${span(fill)} -->`,
     );
-    const inlined = substituteIncludesOnly(rewriteSkillDirRefs(fill.body, slotName), opts.ctx, fill.binding);
+    const inlined = substituteIncludesOnly(
+      rewriteSkillDirRefs(resolveFillTeamMarkers(fill, opts.ctx.team), slotName),
+      opts.ctx,
+      fill.binding,
+    );
     packPaths.push(...inlined.packPaths);
     sections.push(inlined.body);
   }
@@ -539,6 +554,7 @@ export function compileSkill(
     side?: Side;
     plannedAttachments?: PlannedAttachments;
     pipeline?: string | null;
+    team?: TeamContext | null;
     trace?: (entry: TraceEntry) => void;
   } = {},
 ): CompileResult {
@@ -576,6 +592,7 @@ export function compileSkill(
     packRoot: opts.packRoot ?? null,
     plannedAttachments: opts.plannedAttachments,
     pipeline: opts.pipeline ?? null,
+    team: opts.team ?? null,
   };
 
   const allowedTools = buildAllowedTools(step, boundSlots, opts.stageAllowedTools ?? [], ctx);

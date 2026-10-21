@@ -75,14 +75,14 @@ function recordMissing(team: TeamContext, kind: "param" | "section", name: strin
   team.missing.set(key, entry);
 }
 
-export function resolveTeamMarkers(body: string, team: TeamContext, opts: { where: string; sectionSeams: boolean }): string {
-  const { where, sectionSeams } = opts;
+export function resolveTeamMarkers(body: string, team: TeamContext, opts: { where: string; sectionSeams: boolean; startLine?: number }): string {
+  const { where, sectionSeams, startLine = 1 } = opts;
   const { values } = team;
   const out: string[] = [];
 
   body.split("\n").forEach((line, i) => {
     const fail = (raw: string, why: string): never => {
-      throw new Error(`${where}: ${raw} ${why} (line ${i + 1})`);
+      throw new Error(`${where}: ${raw} ${why} (line ${i + startLine})`);
     };
     const stray = line.replace(TEAM_MARKER_RE, "").match(/\{\{\s*team\.[^}]*(\}\}?|$)/);
     if (stray) fail(stray[0], "is not a well-formed team marker");

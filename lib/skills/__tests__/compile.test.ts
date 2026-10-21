@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { compileSkill } from "../compile.ts";
 import type { TraceEntry } from "../placeholders.ts";
+import { newTeamContext } from "../team-params.ts";
 import type { AttachmentSource, CompiledFile, StepSource, VerbDef } from "../types.ts";
 
 /** The sibling-reference lint reads the working tree, so its cases need a real pack root on disk. */
@@ -166,6 +167,34 @@ describe("compileSkill", () => {
     expect(content).toContain("<!-- part: include:ci-note");
     expect(content).toContain("ci note body");
     expect(content).not.toContain("{{");
+  });
+
+  test("a base fill's team markers resolve on the legacy engine path", () => {
+    const baseDomain: AttachmentSource = { ...domainFill, binding: "acme-base:watch-ci-domain", plugin: "acme-base", body: "Team {{team.linear-team}}" };
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { "linear-team": "Widgets" }, sections: {} }, new Set(["acme-base"]));
+
+    const content = skillFileContent(compileSkill(verb, step, { domain: baseDomain, forge: forgeFill }, roster, { team }).files);
+
+    expect(content).toContain("Team Widgets");
+    expect(content).not.toContain("{{");
+  });
+
+  test("a team marker in a non-base fill on the legacy path is an error naming the file line", () => {
+    const widgetsDomain: AttachmentSource = { ...domainFill, binding: "widgets:x", plugin: "widgets", body: "a\nTeam {{team.linear-team}}" };
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: {}, sections: {} }, new Set(["acme-base"]));
+
+    expect(() => compileSkill(verb, step, { domain: widgetsDomain, forge: forgeFill }, roster, { team })).toThrow(
+      "widgets:x: {{team.linear-team}} -- team markers only resolve in base pack text (line 9)",
+    );
+  });
+
+  test("a team marker in a base fill's allowed-tools is an error", () => {
+    const baseDomain: AttachmentSource = { ...domainFill, binding: "acme-base:watch-ci-domain", plugin: "acme-base", allowedTools: ["Bash({{team.x}}:*)"] };
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { x: "y" }, sections: {} }, new Set(["acme-base"]));
+
+    expect(() => compileSkill(verb, step, { domain: baseDomain, forge: forgeFill }, roster, { team })).toThrow(
+      "acme-base:watch-ci-domain: {{team.x}} -- team markers only resolve in a body, not frontmatter",
+    );
   });
 
   test("a fill carrying {{slot:...}} on the legacy engine path is a compile error naming the fill", () => {

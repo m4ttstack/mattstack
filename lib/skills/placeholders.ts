@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "fs";
 import { join, posix } from "path";
 import { defaultPipeline } from "./pipelines.ts";
+import { hasTeamMarker, resolveTeamMarkers, type TeamContext } from "./team-params.ts";
 import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
 export type Placeholder = { kind: string; arg: string | null; line: number; raw: string };
@@ -46,12 +47,40 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
   return ctx.stageDir ?? SKILL_DIR_TOKEN;
 }
 
+const TEAM_OPENER_LINE_RE = /\{\{\s*team\.[^}]*(\}\}?|$)/;
+
+/**
+ * Only an org base's text may carry team markers; a base fill's markers
+ * resolve before any other substitution so its values never meet the
+ * `${CLAUDE_SKILL_DIR}` split or include expansion. Reports file lines,
+ * counting from where the fill's body starts in its source file.
+ */
+export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext | null | undefined): string {
+  if (!hasTeamMarker(fill.body)) return fill.body;
+  if (team && team.basePlugins.has(fill.plugin)) {
+    return resolveTeamMarkers(fill.body, team, { where: fill.binding, sectionSeams: true, startLine: fill.bodyStartLine });
+  }
+  const lines = fill.body.split("\n");
+  const at = lines.findIndex((line) => hasTeamMarker(line));
+  const raw = lines[at]!.match(TEAM_OPENER_LINE_RE)![0];
+  throw new Error(`${fill.binding}: ${raw} -- team markers only resolve in base pack text (line ${fill.bodyStartLine + at})`);
+}
+
+/** A fill's allowed-tools land in compiled frontmatter, where a marker would ship unresolved. */
+export function assertNoTeamMarkerInTools(fill: AttachmentSource): void {
+  for (const tool of fill.allowedTools) {
+    if (!hasTeamMarker(tool)) continue;
+    const raw = tool.match(TEAM_OPENER_LINE_RE)![0];
+    throw new Error(`${fill.binding}: ${raw} -- team markers only resolve in a body, not frontmatter`);
+  }
+}
+
 function slotText(name: string, fill: AttachmentSource | null, mode: "inline" | "reference", ctx: PlaceholderContext, packPaths: string[]): string {
   if (fill === null) return "";
   if (mode === "reference") {
     return `Slot ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
   }
-  const rewritten = fill.body.split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, name));
+  const rewritten = resolveFillTeamMarkers(fill, ctx.team).split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, name));
   const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding);
   packPaths.push(...inlined.packPaths);
   return `<!-- part: slot:${name} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${inlined.body}`;
