@@ -112,6 +112,24 @@ export interface MrListLiveFilters {
 export interface ProjectLabel { name: string; description: string | null; color: string | null }
 /** `body` is parsed JSON, or raw text when GitLab did not answer JSON or the body was cut at the size cap. */
 export interface ForgeGetData { status: number; body: unknown; truncated: boolean; nextPage: number | null; totalPages: number | null }
+/** One file of an MR or PR's diff, the same shape whichever forge it came from. */
+export interface ForgeFileDiff {
+  oldPath: string;
+  newPath: string;
+  renamed: boolean;
+  newFile: boolean;
+  deletedFile: boolean;
+  /** No text diff: GitLab's "Binary files ... differ". */
+  binary: boolean;
+  /** The forge holds the diff back: GitLab's too_large or collapsed, or a GitHub file with no patch. */
+  tooLarge: boolean;
+  /** The file's unified hunks with no file headers; null when binary or too large. */
+  diff: string | null;
+  /** The file in the MR's diff on the forge. */
+  webUrl: string | null;
+}
+/** `file` is null when the MR's diff does not touch that path. */
+export interface ForgeFileDiffData { forge: "gitlab" | "github"; headSha: string; file: ForgeFileDiff | null }
 export interface PipelineListRow { id: number; status: string; ref: string | null; sha: string | null; source: string | null; webUrl: string | null; createdAt: string | null }
 
 /** A null entry means GitLab has no open MR with that source branch. */
@@ -1022,6 +1040,8 @@ export interface Commands {
   "project:labels": { payload: { repoName: string; search?: string }; data: { labels: ProjectLabel[] } };
   "pipeline:list": { payload: { repoName: string; ref?: string; sha?: string; iid?: number; limit?: number }; data: { pipelines: PipelineListRow[] } };
   "forge:get": { payload: { repoName: string; path: string; query?: Record<string, string | number | boolean>; page?: number; perPage?: number }; data: ForgeGetData };
+  /** One file's diff in an MR (GitLab) or PR (GitHub), read through the repo's own forge; iid is the MR iid or PR number. */
+  "forge:file-diff": { payload: { repoName: string; iid: number; path: string }; data: ForgeFileDiffData };
 
   "endpoint:claim": { payload: { repo: string; worktree: string; role: string; pid?: number }; data: EndpointClaimData };
   "endpoint:lookup": { payload: { repo: string; worktree: string; role: string }; data: EndpointLookupData };
@@ -1284,6 +1304,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "project:labels",
   "pipeline:list",
   "forge:get",
+  "forge:file-diff",
   "endpoint:claim",
   "endpoint:lookup",
   "endpoint:release",

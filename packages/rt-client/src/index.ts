@@ -115,6 +115,8 @@ export type {
   ProjectLabel,
   PipelineListRow,
   ForgeGetData,
+  ForgeFileDiff,
+  ForgeFileDiffData,
   MrTargetSummary,
   BranchEnrichment,
   Commands,
