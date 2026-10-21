@@ -28,7 +28,7 @@ enum WorktreeSnapshot {
         }
         let diff = read("worktree-triage-diff.json", as: [TriageDiffFile].self)
         let panel = load("worktree-triage-panel.json"), catalog = load("worktree-triage-catalog.json")
-        let bannerJSON = #"[{"repo":"remote:github.com%2Facme%2Fwidgets","reason":"no-branches-grant","forge":"github","mode":"off","caches":[]},{"repo":"remote:gitlab.com%2Facme%2Fapp","reason":"no-token","forge":"gitlab"}]"#
+        let bannerJSON = #"[{"repo":"remote:github.com%2Facme%2Fwidgets","reason":"no-branches-grant","forge":"github","mode":"off","caches":[]},{"repo":"remote:gitlab.com%2Facme%2Fapp","reason":"no-token","forge":"gitlab"},{"repo":"remote:github.com%2Facme%2Fsite","reason":"app-off","forge":"github"},{"repo":"remote:github.com%2Facme%2Fdocs","reason":"tracking-off","forge":"github"}]"#
         let banners = (try? JSONDecoder().decode([TriageBanner].self, from: Data(bannerJSON.utf8))) ?? []
         let withBanners = TriageData(rows: panel.rows, banners: banners, counts: panel.counts)
         let look = catalog.rows.first { $0.group == "look" }!

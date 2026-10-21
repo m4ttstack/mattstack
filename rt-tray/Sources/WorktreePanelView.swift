@@ -367,7 +367,11 @@ struct TriageBannerView: View {
                     NotificationCenter.default.post(name: .rtShowSettingsAccounts, object: nil)
                 }
                 .buttonStyle(TriageButtonStyle())
-            } else {
+            } else if banner.enableWorktreesArgs != nil {
+                Button("Turn on worktrees") { controller.enableWorktrees(banner) }
+                    .buttonStyle(TriageButtonStyle())
+                    .help("rt starts managing worktrees on this Mac, including any spare worktrees a repo's settings ask for.")
+            } else if banner.enableCleanupArgs != nil {
                 Button("Clean these up automatically") { controller.enableCleanup(banner) }
                     .buttonStyle(TriageButtonStyle())
                     .help("rt starts checking \(banner.repoName)'s \(RepoIdentity.changeNoun(banner.repo))s on this Mac, so a worktree is disposed once its \(RepoIdentity.changeNoun(banner.repo)) merges.")

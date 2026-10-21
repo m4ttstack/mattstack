@@ -753,6 +753,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
       } catch { /* no origin remote */ }
       if (!isGitLabRemote(remoteUrl)) {
         out.note(out.line("refused", `rt cannot watch ${repoArg} live`, "live watching needs a GitLab remote"), out.callout("next", out.cmd(`rt daemon track ${repoArg} poll`)));
+        process.exitCode = 2;
         return;
       }
     }

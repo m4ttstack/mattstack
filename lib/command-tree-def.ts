@@ -1353,6 +1353,14 @@ export const TREE: Record<string, CommandNode> = {
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
       },
+      enable: {
+        description: "Turn worktrees on for this Mac",
+        module: "./commands/worktree.ts",
+        fn: "worktreeEnable",
+        args: [
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
+        ],
+      },
       "await-ready": {
         description: "Wait for a new worktree to finish setting up",
         module: "./commands/worktree.ts",

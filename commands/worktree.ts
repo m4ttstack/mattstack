@@ -391,6 +391,13 @@ type MergeCleanupOffRow = { repo: string; path: string } & MergeCleanupGap;
 
 function mergeCleanupOffBlocks(gap: MergeCleanupOffRow): Block[] {
   const title = `Merged worktrees are not cleaned up in ${repoLabel(gap.repo)}`;
+  const hideCmd = out.cmd(`rt settings set rt.worktreeMergeCleanupNotice false --scope user --repo ${shellQuote(repoLabelFull(gap.repo))}`);
+  if (gap.reason === "app-off") {
+    return gap.machineOff
+      ? lineWithNext("warn", title, "you turned worktrees off on this Mac", hideCmd)
+      : lineWithNext("warn", title, "worktrees are off on this Mac", out.cmd("rt worktree enable"));
+  }
+  if (gap.reason === "tracking-off") return lineWithNext("warn", title, "you turned off tracking for this repo on this Mac", hideCmd);
   if (gap.reason === "no-branches-grant") {
     const mode = gap.mode === "off" ? "poll" : gap.mode;
     return lineWithNext(
@@ -517,7 +524,8 @@ const BRANCH_STATE: Record<string, string> = {
   "tracking-remote": "a branch from the remote",
 };
 
-function provisionBlocks(d: Record<string, any>): Block[] {
+/** `repoArg` is set when the provision named its repo, so the printed wait command resolves the same one from any directory. */
+export function provisionBlocks(d: Record<string, any>, repoArg?: string): Block[] {
   const origin = [
     BRANCH_STATE[d.branchState] ?? String(d.branchState),
     ...(d.wasOnDeck ? ["on a spare worktree rt had ready"] : []),
@@ -529,7 +537,7 @@ function provisionBlocks(d: Record<string, any>): Block[] {
   }
   if (d.readyPending) {
     const steps = ((d.readySteps ?? []) as string[]).join(", ");
-    blocks.push(...lineWithNext("running", "Still setting up in the background", steps || undefined, out.cmd(`rt worktree await-ready ${d.tree}`)));
+    blocks.push(...lineWithNext("running", "Still setting up in the background", steps || undefined, out.cmd(`rt worktree await-ready ${d.tree}${repoArg ? ` --repo ${shellQuote(repoArg)}` : ""}`)));
   }
   if (d.readyFailed) blocks.push(setupFailedLine(d.failedStep));
   return blocks;
@@ -556,7 +564,7 @@ export async function worktreeProvision(args: string[], _ctx: unknown): Promise<
 
   if (parsed.json) { out.json(ok.data, 2); return; }
 
-  out.print(...provisionBlocks(ok.data));
+  out.print(...provisionBlocks(ok.data, parsed.repoName ? repoLabelFull(repoName) : undefined));
   await maybeOfferClaudeHook(parsed.json);
 }
 
@@ -781,6 +789,17 @@ export function restoreBlocks(d: WorktreeRestoreData, repoArg?: string): Block[]
       : []),
     ...(d.submodulesFailed?.length ? submodulesFailedBlocks(d.submodulesFailed) : []),
   ];
+}
+
+// ─── enable ──────────────────────────────────────────────────────────────────
+
+/** Merges `enabled: true` into this Mac's own value, so its other fields (killProcesses, claudeHook) survive. */
+export async function worktreeEnable(args: string[], _ctx: unknown): Promise<void> {
+  const json = args.includes("--json");
+  const { enableWorktreesOnThisMac } = await import("./worktree-hook.ts");
+  enableWorktreesOnThisMac();
+  if (json) { out.json({ enabled: true }, 2); return; }
+  out.print(out.line("done", "Worktrees are on for this Mac", "spare worktrees a repo's settings ask for start building now"));
 }
 
 // ─── list ────────────────────────────────────────────────────────────────────

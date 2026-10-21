@@ -133,7 +133,14 @@ describe("manageTracking off-branch (CLI wiring)", () => {
     expect(io.stdout()).toContain("this applies when it next starts or refreshes");
     const saved = getSetting<Record<string, unknown>>("rt.repoTracking").value;
     io.clear();
-    await manageTracking([REPO_NAME, "live"]);
+    const priorExit = process.exitCode;
+    try {
+      await manageTracking([REPO_NAME, "live"]);
+      // A caller reading only the exit code must not take the refusal for a write.
+      expect(process.exitCode).toBe(2);
+    } finally {
+      process.exitCode = priorExit ?? 0;
+    }
     expect(io.stdout()).toBe("");
     expect(io.stderr()).toContain(`[refused] rt cannot watch ${REPO_NAME} live`);
     expect(io.stderr()).toContain(`next: rt daemon track ${REPO_NAME} poll`);

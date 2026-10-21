@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { restoreBlocks } from "../worktree.ts";
+import { provisionBlocks, restoreBlocks } from "../worktree.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 
 describe("restoreBlocks", () => {
@@ -28,5 +28,19 @@ describe("restoreBlocks", () => {
 
     expect(text).toBe("[ok] lupin restored  /pool/lupin\n");
     expect(text).not.toContain("setting up");
+  });
+});
+
+describe("provisionBlocks", () => {
+  const pending = { tree: "lupin", path: "/pool/lupin", branch: "b", branchState: "new", readyPending: true, readySteps: ["pnpm install"] };
+
+  test("a provision that named its repo names it in the wait command too", () => {
+    expect(renderPlain(provisionBlocks(pending, "gitlab.com/acme/app"))).toContain("rt worktree await-ready lupin --repo gitlab.com/acme/app");
+  });
+
+  test("a provision from inside its repo prints the bare wait command", () => {
+    const text = renderPlain(provisionBlocks(pending));
+    expect(text).toContain("rt worktree await-ready lupin");
+    expect(text).not.toContain("--repo");
   });
 });

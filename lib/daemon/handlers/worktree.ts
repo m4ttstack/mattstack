@@ -50,7 +50,7 @@ import type { RunningRunScan } from "../../runs/store.ts";
 import { restoreTree } from "../../worktree/restore.ts";
 import { mergeCleanupGap, type MergeCleanupGap } from "../../worktree/merge-cleanup-gap.ts";
 import { loadSecrets } from "../../linear.ts";
-import { loadRepoTracking, type RepoTracking } from "../../repo-tracking.ts";
+import { loadMachineRepoTrackingRaw, loadRepoTracking, type RepoTracking } from "../../repo-tracking.ts";
 import { branchOf, composeKey } from "../../state/branch-cache.ts";
 import { isTreeLocked, withTreeLock } from "../../worktree/locks.ts";
 import {
@@ -759,7 +759,7 @@ export function createWorktreeHandlers(
       const mergeCleanupOff: Array<{ repo: string; path: string } & MergeCleanupGap> = [];
       // Read once per call, and only if some repo has claims. A failed read
       // skips just the check that needs it rather than reporting every repo.
-      let gapInputs: { tracking: RepoTracking | null; secrets: Awaited<ReturnType<typeof loadSecrets>> | null } | undefined;
+      let gapInputs: { tracking: RepoTracking | null; trackingRaw: Record<string, unknown>; secrets: Awaited<ReturnType<typeof loadSecrets>> | null } | undefined;
 
       for (const [repoName, repoPath] of repos) {
         if (await worktreePoolDormant(repoName, repoPath)) dormantRepos.push(repoName);
@@ -769,9 +769,9 @@ export function createWorktreeHandlers(
           if (gapInputs === undefined) {
             let tracking: RepoTracking | null = null;
             try { tracking = loadRepoTracking(); } catch (err) { ctx.log.warn({ err }, "worktree:list: repo tracking unreadable"); }
-            gapInputs = { tracking, secrets: await loadSecrets().catch(() => null) };
+            gapInputs = { tracking, trackingRaw: loadMachineRepoTrackingRaw(), secrets: await loadSecrets().catch(() => null) };
           }
-          const gap = await mergeCleanupGap(repoName, repoPath, gapInputs.tracking, gapInputs.secrets);
+          const gap = await mergeCleanupGap(repoName, repoPath, gapInputs.tracking, gapInputs.secrets, gapInputs.trackingRaw);
           if (gap) mergeCleanupOff.push({ repo: repoName, path: repoPath, ...gap });
         }
         const branchCounts = new Map<string, number>();

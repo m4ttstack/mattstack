@@ -95,7 +95,7 @@ describe("S077: status.data.worktreePool dormant surfacing", () => {
     expect(res.data.worktreePool).toEqual({
       dormant: true,
       repos: [repoName],
-      message: expect.stringContaining('rt settings set rt.worktreeApp \'{"enabled":true}\' --scope machine'),
+      message: expect.stringContaining('rt worktree enable'),
     });
   });
 

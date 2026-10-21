@@ -57,6 +57,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "commands/setup.ts": { count: 4, reason: "the Slack connect write starts from the org store's own integrations, never the merged view" },
     "commands/settings-keys.ts": { count: 2, reason: "`rt settings explain` prints every rung" },
     "commands/worktree-hook.ts": { count: 2, reason: "claudeHook is read from the machine rung only" },
+    "lib/worktree/merge-cleanup-gap.ts": { count: 2, reason: "only the machine rung says this Mac turned worktrees off on purpose" },
     "lib/variations.ts": { count: 2, reason: "saveVariation starts from the org store's own map, never the merged view" },
     "lib/worktree/config.ts": { count: 3, reason: "declared-presence check and ready-ladder owner need per-rung presence" },
     "lib/worktree/ready-approval.ts": { count: 2, reason: "approval is trusted only from user.repo/machine.repo rungs, never a team rung" },
