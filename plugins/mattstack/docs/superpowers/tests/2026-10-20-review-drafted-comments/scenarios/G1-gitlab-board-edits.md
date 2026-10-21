@@ -47,7 +47,7 @@ Where the turn stands:
     "reasoning": "the batch path can double-post and refunds race charges; both need a fix before this merges.",
     "comments": {
       "comment": "Thanks for this, the batch endpoint reads much more clearly than the old sync path. I left twelve notes. The two at the top matter most: a retried batch can post twice, and refunds skip the balance lock that charges take, so the two can race. The rest are smaller and some could be follow ups. Happy to look again as soon as the first two are in.",
-      "approve": "Thanks for this, the batch endpoint reads much more clearly than the old sync path. I left twelve notes and none of them block: the double-post and the refund race are worth a quick follow up, and the rest are small. Approving, this is ready to merge."
+      "approve": "Thanks for this, the batch endpoint reads much more clearly than the old sync path. I left twelve notes. I'm approving so this isn't held up, but the double-post and the refund race need a fix before it ships."
     }
   },
   "findings": [

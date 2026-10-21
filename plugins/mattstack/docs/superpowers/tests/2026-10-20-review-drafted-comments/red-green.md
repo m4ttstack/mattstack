@@ -86,3 +86,12 @@ GREEN (5 reps each): V1 to V5 5/5, D2 5/5, D1 5/5, G1 5/5, G2 5/5, G3
 unchanged here. In D2 the `comment` line left the merge call to the
 author and the `request_changes` line named what must change first. No
 rep ran a shell command a tool covers.
+
+Fix round: the G3 miss said "d1 and d7 use the human's `texts`" and
+then copied `d7`'s draft from the json. Compose's `summary` bullet now
+names the folded text's source itself (the `texts` entry at its id,
+else its `comment`; an edited folded finding posts the edit, copied
+from `texts`), and review-posting's Drafted reviews says each folded
+text is the human's edit, else its draft. G1 to G3's `approve` line no
+longer claims the MR is ready to merge on a readiness `no` review.
+G3 12/12, V3 5/5, V5 5/5.

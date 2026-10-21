@@ -105,13 +105,13 @@ the `summary` of the one submitted review, with the approve outcome.
 requires), nothing is composed here. The summary is exactly the caller's
 joined summary: the summary line (the human's edit, else the line drafted
 for the chosen disposition), then each selected finding with no diff
-line, its text, each preceded by one blank line. Write no Strengths,
-Assessment or issue list
-around it. Every comment posts the human's edit, else its draft, word for
-word. The json is the test, never the extras: a board's posting pane
-never sees the extras. A restored finding that lives in the summary
-follows the joined summary, with its recorded `file:line` and text; with
-nothing selected, the note is the summary line alone.
+line, its text (the human's edit, else its draft), each preceded by one
+blank line. Write no Strengths, Assessment or issue list around it.
+Every comment posts the human's edit, else its draft, word for word. The
+json is the test, never the extras: a board's posting pane never sees
+the extras. A restored finding that lives in the summary follows the
+joined summary, with its recorded `file:line` and text; with nothing
+selected, the note is the summary line alone.
 
 ## Posting mechanics by disposition
 

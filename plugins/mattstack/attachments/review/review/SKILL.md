@@ -638,7 +638,7 @@ here, before any gate opens.
 4. Write each line for its own verdict, whatever readiness says, so
    review-posting's tacit-approval rule shapes every line now. The
    `approve` line is the only one that may say the MR is ready to merge,
-   good to merge or nothing blocking. The `comment` line leaves the merge
+   good to merge, LGTM or nothing blocking. The `comment` line leaves the merge
    call to the author, or says approval is withheld pending the notes.
    The `request_changes` line says what must change before it merges.
 
@@ -788,11 +788,13 @@ review-posting, below).
 - `summary`: the board's `joinSummary` rule. It is the summary line, then
   the text of each selected finding without both `file` and `line`, in
   gate order (Critical, Important, Minor; json order within a tier), each
-  preceded by one blank line. A folded finding's text is chosen exactly as
-  a comment's: its `texts` entry first, its `comment` only when it has
-  none. Nothing else is added: no heading, label, anchor, bullet or issue
-  list. So the summary posts exactly as the board's summary card showed
-  it.
+  preceded by one blank line. A folded finding's text is the `texts` entry
+  at its id (a `findings-<n>` answer's `texts`, or the caller's `texts`),
+  else its `comment` in the report json. A folded finding the human
+  edited posts the edit, never the draft: copy it from `texts`, not from
+  the json. Nothing else is added: no heading, label, anchor, bullet or
+  issue list. So the summary posts exactly as the board's summary card
+  showed it.
 - At most 100 comments and replies in all. Past that, the lowest-tier
   anchored findings go into the summary after the joined part, each
   preceded by one blank line, their text word for word.
