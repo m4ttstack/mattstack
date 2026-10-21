@@ -2,6 +2,7 @@ import Foundation
 @testable import MattstackCore
 
 private let closing = Notification.Name("WindowScopedPollingChecks.closing")
+private let visibility = Notification.Name("WindowScopedPollingChecks.visibility")
 
 @MainActor private final class Probe {
     var events: [String] = []
@@ -43,5 +44,48 @@ let windowScopedPollingChecks: [Check] = [
             return withExtendedLifetime(polling) { probe.events }
         }
         c.expectEqual(events, ["start", "stop", "start"])
+    },
+    Check("window-scoped polling: a hidden window stops polling and resumes when it shows again") { c in
+        let events = await MainActor.run { () -> [String] in
+            let center = NotificationCenter(), window = NSObject(), probe = Probe()
+            var visible = true
+            let polling = WindowScopedPolling(window: window, closing: closing, visibilityChanged: visibility,
+                                              isVisible: { visible }, center: center,
+                                              start: { probe.events.append("start") }, stop: { probe.events.append("stop") })
+            polling.show()
+            visible = false
+            center.post(name: visibility, object: window)
+            visible = true
+            center.post(name: visibility, object: window)
+            return withExtendedLifetime(polling) { probe.events }
+        }
+        c.expectEqual(events, ["start", "stop", "start"])
+    },
+    Check("window-scoped polling: a window shown while hidden waits until it is visible") { c in
+        let events = await MainActor.run { () -> [String] in
+            let center = NotificationCenter(), window = NSObject(), probe = Probe()
+            var visible = false
+            let polling = WindowScopedPolling(window: window, closing: closing, visibilityChanged: visibility,
+                                              isVisible: { visible }, center: center,
+                                              start: { probe.events.append("start") }, stop: { probe.events.append("stop") })
+            polling.show()
+            visible = true
+            center.post(name: visibility, object: window)
+            return withExtendedLifetime(polling) { probe.events }
+        }
+        c.expectEqual(events, ["start"])
+    },
+    Check("window-scoped polling: a closed window stays stopped when its visibility changes") { c in
+        let events = await MainActor.run { () -> [String] in
+            let center = NotificationCenter(), window = NSObject(), probe = Probe()
+            let polling = WindowScopedPolling(window: window, closing: closing, visibilityChanged: visibility,
+                                              center: center,
+                                              start: { probe.events.append("start") }, stop: { probe.events.append("stop") })
+            polling.show()
+            center.post(name: closing, object: window)
+            center.post(name: visibility, object: window)
+            return withExtendedLifetime(polling) { probe.events }
+        }
+        c.expectEqual(events, ["start", "stop"])
     },
 ]

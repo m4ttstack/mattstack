@@ -1657,9 +1657,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @MainActor
     func showWorktreePanel() {
         if let w = worktreeWindow {
-            worktreePolling?.show()
             w.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            worktreePolling?.show()
             return
         }
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 720),
@@ -1691,12 +1691,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             MainActor.assumeIsolated { WorktreeReviewWindow.shared.close() }
         }
         let polling = WindowScopedPolling(window: w, closing: NSWindow.willCloseNotification,
+                                          visibilityChanged: NSWindow.didChangeOcclusionStateNotification,
+                                          isVisible: { [weak w] in w?.occlusionState.contains(.visible) ?? false },
                                           start: { controller.startPolling() }, stop: { controller.stopPolling() })
-        polling.show()
         worktreePolling = polling
         worktreeWindow = w
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        polling.show()
     }
 
     private static func applyWorktreesBadge(_ item: NSMenuItem?, _ counts: TriageCounts?) {
