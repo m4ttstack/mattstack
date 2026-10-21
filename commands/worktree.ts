@@ -43,7 +43,9 @@ import * as out from "../lib/ui/out.ts";
 import type { EnrichedBranch } from "../lib/enrich.ts";
 import type { Block, PickRow, PickSegment, RenderStatus, Segment } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
+import { withTransientStep } from "../lib/ui/transient-step.ts";
 import type { RestorableEntry } from "../lib/worktree/restore.ts";
+import type { WorktreeRestoreData } from "../packages/rt-client/src/commands.ts";
 import type { PickHandle } from "../lib/ui/pick.ts";
 
 // Provision and create both do a targeted `git fetch` / cold clone (up to
@@ -759,18 +761,26 @@ export async function worktreeRestore(args: string[], _ctx: unknown): Promise<vo
     }
   }
 
-  const res = await queryDaemon("worktree:restore", { repoName, tree: treeName }, RESTORE_TIMEOUT_MS);
+  const query = () => queryDaemon("worktree:restore", { repoName, tree: treeName }, RESTORE_TIMEOUT_MS);
+  const res = parsed.json ? await query() : await withTransientStep(`Restoring ${treeName}…`, query);
   const ok = requireQueryResult(parsed.json, res);
 
   if (parsed.json) { out.json(ok.data, 2); return; }
 
-  const d = ok.data as { restored: boolean; path: string; tree: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: string[] };
-  out.print(
-    out.line("done", `${d.tree} restored`, d.path),
-    ...(d.readyFailed ? [setupFailedLine(d.failedStep)] : []),
-    ...(d.submodulesFailed?.length ? submodulesFailedBlocks(d.submodulesFailed) : []),
-  );
+  out.print(...restoreBlocks(ok.data as WorktreeRestoreData, parsed.repoName ? repoLabelFull(repoName) : undefined));
   await maybeOfferClaudeHook(parsed.json);
+}
+
+/** `repoArg` is set when the restore named its repo, so the printed wait command resolves the same one from any directory. */
+export function restoreBlocks(d: WorktreeRestoreData, repoArg?: string): Block[] {
+  const awaitCmd = `rt worktree await-ready ${d.tree}${repoArg ? ` --repo ${shellQuote(repoArg)}` : ""}`;
+  return [
+    out.line("done", `${d.tree} restored`, d.path),
+    ...(d.readyPending
+      ? lineWithNext("running", "Still setting up in the background", d.readySteps?.join(", ") || undefined, out.cmd(awaitCmd))
+      : []),
+    ...(d.submodulesFailed?.length ? submodulesFailedBlocks(d.submodulesFailed) : []),
+  ];
 }
 
 // ─── list ────────────────────────────────────────────────────────────────────

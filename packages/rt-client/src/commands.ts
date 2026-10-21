@@ -647,7 +647,7 @@ export interface WorktreeDisposeData {
   recoverable: Array<{ tree: string; path: string; until: string }>;
 }
 export interface WorktreeRestoreData {
-  restored: true; path: string; tree: string; readyFailed?: true; failedStep?: string;
+  restored: true; path: string; tree: string; readyPending?: true; readySteps?: string[]; submodulesFailed?: string[];
 }
 export interface WorktreeFreshenData { ran: string[] }
 export interface WorktreeAdoptData {
@@ -824,6 +824,14 @@ export interface Commands {
     data:
       | { origin: string; kind: "email" | "password"; value: string }
       | { refused: "unknown" | "mismatch" | "limited"; until?: number };
+  };
+  /**
+   * Socket-only: whether a saved dev login exists for a page origin. Answers
+   * with the two placeholder names, never a stored value or email.
+   */
+  "logins:has": {
+    payload: { token?: string; client?: string; pid?: number; origin?: string };
+    data: { origin: string; fields: { email: string; password: string } } | { none: true };
   };
   "events:emit": { payload: { topic: string; payload?: unknown }; data: { id: number } };
   "events:wait": { payload: { pattern: string; after?: number; waitMs?: number }; data: { events: EventsBusEvent[]; cursor: number } };
@@ -1229,6 +1237,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "secrets:forge-token",
   "secrets:read",
   "logins:fill",
+  "logins:has",
   "events:emit",
   "events:wait",
   "events:list",
