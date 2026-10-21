@@ -94,9 +94,9 @@ test('Preview renders the text as Markdown, and Write brings the field back', as
     'Comment on finding 1: preview'
   );
   expect(preview.querySelector('code')!.textContent).toBe('requireActual');
-  expect(
-    [...preview.querySelectorAll('li')].map(li => li.textContent)
-  ).toEqual(['one', 'two']);
+  expect([...preview.querySelectorAll('li')].map(li => li.textContent)).toEqual(
+    ['one', 'two']
+  );
   expect(tab('Preview').getAttribute('aria-selected')).toBe('true');
   await React.act(async () => tab('Write').click());
   expect(box()!.value).toBe('Use `requireActual` here:\n\n- one\n- two');
@@ -144,7 +144,9 @@ test('Escape in the field hands focus to the sheet', async () => {
   const el = box()!;
   el.focus();
   await key(el, { key: 'Escape' });
-  expect(document.activeElement).toBe(container.querySelector('[role="dialog"]'));
+  expect(document.activeElement).toBe(
+    container.querySelector('[role="dialog"]')
+  );
 });
 
 test('a read-only held field takes no Tab', async () => {

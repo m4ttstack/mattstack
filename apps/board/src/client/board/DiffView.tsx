@@ -6,7 +6,6 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-
 import {
   PatchDiff,
   type DiffLineAnnotation,
@@ -30,8 +29,8 @@ const BOARD_CSS = `
   --diffs-addition-color-override: var(--fill-ok);
   --diffs-deletion-color-override: var(--fill-bad);
   --diffs-selection-color-override: var(--fill-accent);
-  --diffs-bg-selection-override: color-mix(in srgb, var(--fill-accent) 13%, var(--card));
-  --diffs-bg-selection-number-override: color-mix(in srgb, var(--fill-accent) 22%, var(--card));
+  --diffs-bg-selection-override: var(--fill-accent);
+  --diffs-bg-selection-number-override: var(--fill-accent);
 }
 [data-separator] {
   font-family: var(--font-mono);

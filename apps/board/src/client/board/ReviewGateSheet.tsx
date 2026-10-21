@@ -27,7 +27,6 @@ import {
 } from './icons.tsx';
 import { MrCard } from './MrCard.tsx';
 import { mrRef } from './MrLinks.tsx';
-import { FindingCard, RailSummary, type FilePin } from './ReviewDraftCard.tsx';
 import {
   attachDraftEdits,
   draftEdits,
@@ -41,6 +40,7 @@ import {
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
+import { FindingCard, RailSummary, type FilePin } from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
   carryoverTally,

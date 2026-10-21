@@ -1371,9 +1371,9 @@ describe('a gate whose poster honors edited drafts', () => {
       itemFor('SQL built from unsanitized input'),
       'Comment'
     )!;
-    expect(box.querySelector('.tui-review-comment-foot')!.textContent).toContain(
-      'Markdown supported'
-    );
+    expect(
+      box.querySelector('.tui-review-comment-foot')!.textContent
+    ).toContain('Markdown supported');
     expect(valueOf(box)).toContain('Could we bind it as a parameter instead?');
     expect(valueOf(box)).toContain(
       'A test with a quote in the name would pin it.'
@@ -1774,9 +1774,9 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(container.querySelector('.tui-review-summary')).toBeNull();
     expect(container.querySelector('textarea')).toBeNull();
     expect(container.querySelector('.tui-review-card')).toBeNull();
-    expect(container.querySelector('.tui-sheet-dock-heading')!.textContent).toBe(
-      'Verdict on !31'
-    );
+    expect(
+      container.querySelector('.tui-sheet-dock-heading')!.textContent
+    ).toBe('Verdict on !31');
     expect(container.querySelectorAll('.tui-review-finding-fix').length).toBe(
       4
     );

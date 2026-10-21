@@ -5,9 +5,9 @@ import {
   editedText,
   planReplies,
   planTexts,
+  postedText,
   postPicks,
   postTally,
-  postedText,
   postTexts,
   type PostPick,
 } from '../respond-post.ts';
@@ -191,9 +191,7 @@ test('postedText drops leading blank lines and trailing space, and keeps the fir
 });
 
 test('an indented first line is an edit and posts with its indent', () => {
-  expect(editedText('thread-1', 'draft', { 'thread-1': '  draft' })).toBe(
-    true
-  );
+  expect(editedText('thread-1', 'draft', { 'thread-1': '  draft' })).toBe(true);
 });
 
 test('editedText ignores leading blank lines and trailing whitespace', () => {

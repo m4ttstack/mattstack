@@ -1,6 +1,5 @@
 import {
   Component,
-  lazy,
   Suspense,
   useEffect,
   useId,
@@ -23,6 +22,7 @@ import {
   anchorPath,
   diffStats,
   filePatch,
+  useDiffView,
   useFileDiff,
   windowPatch,
   type FileDiff,
@@ -39,10 +39,6 @@ import {
 } from './icons.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
 
-/** The diff renderer and its highlighter load on first use, so a sheet
-    with no code to show never pays for them. */
-const DiffView = lazy(() => import('./DiffView.tsx'));
-
 /** A diff that fails to load or render leaves the file header standing. */
 class DiffBoundary extends Component<
   { fallback?: ReactNode; children: ReactNode },
@@ -53,7 +49,9 @@ class DiffBoundary extends Component<
     return { failed: true };
   }
   override render() {
-    return this.state.failed ? (this.props.fallback ?? null) : this.props.children;
+    return this.state.failed
+      ? (this.props.fallback ?? null)
+      : this.props.children;
   }
 }
 
@@ -92,6 +90,7 @@ function SectionHead({
     the file pinned at its line, the one opened from marked. Escape closes
     it and focus goes back to `returnTo`. */
 function FullDiffModal({
+  view: DiffView,
   diff,
   mrRef,
   pins,
@@ -99,6 +98,7 @@ function FullDiffModal({
   returnTo,
   onClose,
 }: {
+  view: NonNullable<ReturnType<typeof useDiffView>>;
   diff: FileDiff;
   mrRef?: string;
   pins: FilePin[];
@@ -120,9 +120,14 @@ function FullDiffModal({
   );
   const anchor = byId.get(current)?.line;
   const forge = FORGE_NAME[diff.forge];
-  // The sheet behind has its own Tab trap; this one keeps Tab in the
-  // modal and stops the sheet's from moving focus behind it.
-  const trapTab = (e: KeyboardEvent<HTMLDivElement>) => {
+  // The sheet behind has its own Tab trap and Escape: this keeps Tab in
+  // the modal, and Escape closes only the modal, never the sheet too.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onClose();
+      return;
+    }
     if (e.key !== 'Tab') return;
     e.stopPropagation();
     const el = root.current;
@@ -151,7 +156,7 @@ function FullDiffModal({
       className="tui-diff-modal"
       ariaLabel={`Full diff of ${diff.path}`}
       onClose={onClose}
-      onKeyDown={trapTab}
+      onKeyDown={onKeyDown}
       title={
         <span className="tui-diff-modal-head">
           <span className="tui-diff-modal-lead">
@@ -186,7 +191,9 @@ function FullDiffModal({
     >
       <div className="tui-diff-modal-body">
         <DiffBoundary
-          fallback={<p className="tui-diff-note">The diff could not be drawn.</p>}
+          fallback={
+            <p className="tui-diff-note">The diff could not be drawn.</p>
+          }
         >
           <Suspense
             fallback={<p className="tui-diff-note">Loading the diff…</p>}
@@ -241,7 +248,8 @@ function CodeSection({
   const path = anchorPath(file);
   const line = anchorLine(file);
   const state = useFileDiff(mrUrl, path);
-  const diff = state.status === 'ready' ? state.diff : null;
+  const DiffView = useDiffView();
+  const diff = state.status === 'ready' && DiffView ? state.diff : null;
   const snippet = useMemo(
     () => (diff && line !== undefined ? windowPatch(diff, line) : null),
     [diff, line]
@@ -282,7 +290,7 @@ function CodeSection({
             </span>
           )}
         </div>
-        {snippet && (
+        {snippet && DiffView && (
           <DiffBoundary>
             <Suspense fallback={null}>
               <DiffView patch={snippet} anchor={line} separators="simple" />
@@ -290,8 +298,9 @@ function CodeSection({
           </DiffBoundary>
         )}
       </div>
-      {open && diff && (
+      {open && diff && DiffView && (
         <FullDiffModal
+          view={DiffView}
           diff={diff}
           mrRef={mrRef}
           pins={pins}
@@ -464,12 +473,7 @@ export function FindingCard({
       {checked && (
         <>
           {f.file && (
-            <CodeSection
-              mrUrl={mrUrl}
-              mrRef={mrRef}
-              finding={f}
-              pins={pins}
-            />
+            <CodeSection mrUrl={mrUrl} mrRef={mrRef} finding={f} pins={pins} />
           )}
           <section
             className="tui-review-section"

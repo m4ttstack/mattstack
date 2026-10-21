@@ -85,6 +85,26 @@ describe('windowPatch', () => {
     expect(lines).toHaveLength(6);
   });
 
+  test('a blank context line stripped to nothing still counts as a line', () => {
+    const stripped = { ...DIFF, patch: HUNKS.replace('\n \n', '\n\n') };
+    expect(windowPatch(stripped, 103)).toBe(windowPatch(DIFF, 103));
+    expect(filePatch(stripped)).toBe(filePatch(DIFF));
+  });
+
+  test('a window of added lines only names the old line it follows', () => {
+    const added = {
+      ...DIFF,
+      patch: [
+        '@@ -10,2 +10,9 @@',
+        ' a',
+        ' b',
+        ...['c', 'd', 'e', 'f', 'g', 'h', 'i'].map(x => `+${x}`),
+        '',
+      ].join('\n'),
+    };
+    expect(windowPatch(added, 15)!.split('\n')[2]).toBe('@@ -11,0 +12,7 @@');
+  });
+
   test('an anchor outside every hunk has no window', () => {
     expect(windowPatch(DIFF, 40)).toBeNull();
   });

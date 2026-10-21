@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import {
+  createContext,
+  lazy,
+  useContext,
+  useEffect,
+  useState,
+  type LazyExoticComponent,
+} from 'react';
 
 /** One file's changes in an MR, as the forge reports them. */
 export interface FileDiff {
@@ -13,10 +20,17 @@ export interface FileDiff {
   webUrl?: string;
 }
 
-/** Where the review sheet gets a file's diff. */
+/** Where the review sheet gets a file's diff, and the renderer that
+    draws it. */
 export interface DiffSource {
   /** Null when the forge has no diff for the file, or none can be fetched. */
   fetchFileDiff(req: { mr: string; file: string }): Promise<FileDiff | null>;
+  /** Loads the renderer: `() => import('./DiffView.tsx')`. A source
+      without it shows file headers only. The board's Bun client bundle
+      does no code splitting, so it inlines what this imports: about 11 MB
+      of renderer and grammars in app.js, against about 550 KB on first use
+      plus one grammar per language once splitting is on. */
+  loadView?: () => Promise<typeof import('./DiffView.tsx')>;
 }
 
 /** The board's source until its server serves MR diffs: no file has a
@@ -38,11 +52,25 @@ export function anchorPath(file: string): string {
   return file.replace(/:\d+$/, '');
 }
 
+/** A hunk's blank context line as a bare empty line, the way a copy that
+    strips trailing spaces leaves it, back to the single space it was. */
+function restoreBlankContext(patch: string): string {
+  const lines = patch.split('\n');
+  let inHunk = false;
+  return lines
+    .map((text, i) => {
+      if (text.startsWith('@@')) inHunk = true;
+      else if (/^(---|\+\+\+|diff --git) /.test(text)) inHunk = false;
+      return inHunk && text === '' && i < lines.length - 1 ? ' ' : text;
+    })
+    .join('\n');
+}
+
 /** The patch with its file headers, as a diff renderer parses it. */
 export function filePatch(diff: FileDiff): string {
-  if (/^(---|diff --git) /m.test(diff.patch.split('@@')[0] ?? ''))
-    return diff.patch;
-  return `--- a/${diff.path}\n+++ b/${diff.path}\n${diff.patch}`;
+  const patch = restoreBlankContext(diff.patch);
+  if (/^(---|diff --git) /m.test(patch.split('@@')[0] ?? '')) return patch;
+  return `--- a/${diff.path}\n+++ b/${diff.path}\n${patch}`;
 }
 
 interface Hunk {
@@ -56,7 +84,7 @@ function parseHunks(patch: string): Hunk[] {
   let hunk: Hunk | null = null;
   let oldNo = 0;
   let newNo = 0;
-  for (const text of patch.split('\n')) {
+  for (const text of restoreBlankContext(patch).split('\n')) {
     const head = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
     if (head) {
       oldNo = Number(head[1]);
@@ -69,7 +97,8 @@ function parseHunks(patch: string): Hunk[] {
     const sign = text[0];
     if (sign === '+') hunk.lines.push({ text, new: newNo++ });
     else if (sign === '-') hunk.lines.push({ text, old: oldNo++ });
-    else if (sign === ' ') hunk.lines.push({ text, old: oldNo++, new: newNo++ });
+    else if (sign === ' ')
+      hunk.lines.push({ text, old: oldNo++, new: newNo++ });
   }
   return hunks;
 }
@@ -85,11 +114,20 @@ export function windowPatch(
   for (const hunk of parseHunks(diff.patch)) {
     const at = hunk.lines.findIndex(l => l.new === line);
     if (at < 0) continue;
-    const kept = hunk.lines.slice(Math.max(0, at - context), at + context + 1);
+    const from = Math.max(0, at - context);
+    const kept = hunk.lines.slice(from, at + context + 1);
+    const before = hunk.lines.slice(0, from);
     const olds = kept.filter(l => l.old !== undefined);
     const news = kept.filter(l => l.new !== undefined);
-    const oldStart = olds[0]?.old ?? hunk.oldStart;
-    const newStart = news[0]?.new ?? hunk.newStart;
+    // A side with no lines in the window names the line it follows.
+    const oldStart =
+      olds[0]?.old ??
+      before.findLast(l => l.old !== undefined)?.old ??
+      hunk.oldStart - 1;
+    const newStart =
+      news[0]?.new ??
+      before.findLast(l => l.new !== undefined)?.new ??
+      hunk.newStart - 1;
     const header = `@@ -${oldStart},${olds.length} +${newStart},${news.length} @@`;
     return [
       `--- a/${diff.path}`,
@@ -122,7 +160,10 @@ type DiffState =
   | { status: 'ready'; diff: FileDiff };
 
 /** One fetch per file per source, shared by every finding on that file. */
-const fetched = new WeakMap<DiffSource, Map<string, Promise<FileDiff | null>>>();
+const fetched = new WeakMap<
+  DiffSource,
+  Map<string, Promise<FileDiff | null>>
+>();
 
 function fetchOnce(
   source: DiffSource,
@@ -159,4 +200,23 @@ export function useFileDiff(mr: string | undefined, file: string): DiffState {
     };
   }, [source, mr, file]);
   return state;
+}
+
+type DiffViewComponent = Awaited<
+  ReturnType<NonNullable<DiffSource['loadView']>>
+>['default'];
+
+const views = new WeakMap<
+  NonNullable<DiffSource['loadView']>,
+  LazyExoticComponent<DiffViewComponent>
+>();
+
+/** The sheet's diff renderer, loaded on first render, or null when its
+    source brings none. */
+export function useDiffView(): LazyExoticComponent<DiffViewComponent> | null {
+  const { loadView } = useContext(DiffSourceContext);
+  if (!loadView) return null;
+  let view = views.get(loadView);
+  if (!view) views.set(loadView, (view = lazy(loadView)));
+  return view;
 }
