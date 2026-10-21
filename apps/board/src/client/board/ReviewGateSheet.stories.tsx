@@ -790,3 +790,51 @@ export const RoundTwoAllSettled: Story = {
   decorators: [no404],
   render: () => <Host gate={settledGate} mr={boardMr} />,
 };
+
+// --- DraftedReReview -----------------------------------------------------
+
+const draftedNewFindings = question(
+  'findings-1',
+  'Post which findings to !31?',
+  true,
+  newFindingsQuestion.options,
+  findingsCtx(
+    {
+      ...NEW.n1,
+      comment:
+        'Two tenants asking for the same page share one entry here, so the second one gets the first tenant’s results. Could the key start with the tenant id?\n\n```ts\nconst key = `${tenantId}:${page}`;\n```',
+    },
+    {
+      ...NEW.n2,
+      comment:
+        'Small one: this `log.debug` serializes the whole session, refresh token included. Logging `session.id` would be enough.',
+    }
+  )
+);
+
+const draftedReReviewGate: GateRow = {
+  ...roundThreeGate,
+  gateId: 'sheet-drafted-re-review',
+  context: ctx({
+    ...(JSON.parse(roundThreeGate.context!) as Record<string, unknown>),
+    editable: true,
+    summaryComments: {
+      comment:
+        'Thanks for the quick turnaround. Two earlier threads still need a look, and two new things turned up inline.',
+      approve:
+        'Thanks for the quick turnaround. The rest are small, so approving; the inline notes can land in a follow-up.',
+    },
+  }),
+  questions: roundThreeGate.questions.map(q =>
+    q.id === 'findings-1' ? draftedNewFindings : q
+  ),
+};
+
+/** A drafted round 3: the earlier threads keep their reply composers, each
+    with Post reply and Resolve thread in its footer, then the new findings
+    as drafted cards. No diff source is wired, so each card's code shows its
+    file header only. */
+export const DraftedReReview: Story = {
+  decorators: [no404],
+  render: () => <Host gate={draftedReReviewGate} mr={boardMr} />,
+};

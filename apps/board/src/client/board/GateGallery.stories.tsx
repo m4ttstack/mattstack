@@ -16,6 +16,7 @@ import {
   DecisionQueueModal,
   type TriageGateState,
 } from './DecisionQueueModal.tsx';
+import { DiffSourceContext, noDiffSource } from './diff-source.ts';
 import * as G from './gate-gallery.fixtures.ts';
 
 /**
@@ -84,24 +85,26 @@ function Face({
   total?: number;
 }) {
   return (
-    <DecisionQueueModal
-      gate={entry.gate}
-      mr={entry.mr}
-      position={position}
-      states={pips(position, total)}
-      nextPeek={
-        position < total
-          ? '!739 · sensors summary chip shows a count'
-          : undefined
-      }
-      people={G.PEOPLE}
-      onClose={noop}
-      onNext={noop}
-      onBack={noop}
-      onFocusPane={noop}
-      onAnswered={noop}
-      onContinue={noop}
-    />
+    <DiffSourceContext.Provider value={entry.diffs ?? noDiffSource}>
+      <DecisionQueueModal
+        gate={entry.gate}
+        mr={entry.mr}
+        position={position}
+        states={pips(position, total)}
+        nextPeek={
+          position < total
+            ? '!739 · sensors summary chip shows a count'
+            : undefined
+        }
+        people={G.PEOPLE}
+        onClose={noop}
+        onNext={noop}
+        onBack={noop}
+        onFocusPane={noop}
+        onAnswered={noop}
+        onContinue={noop}
+      />
+    </DiffSourceContext.Provider>
   );
 }
 
@@ -158,6 +161,28 @@ export const ReviewPost = face(
 export const ReviewPostDrafted = face(
   'Review: post, drafted comments (editable)',
   G.reviewPostDrafted
+);
+export const ReviewPostDraftedFullDiff: Story = {
+  ...face('Review: post, drafted, full file diff open', G.reviewPostDrafted),
+  play: async ({ canvasElement }) => {
+    const [open] = await within(canvasElement).findAllByRole('button', {
+      name: /view full diff/,
+    });
+    await userEvent.click(open!);
+  },
+};
+export const ReviewPostDraftedPreview: Story = {
+  ...face('Review: post, drafted, a comment in Preview', G.reviewPostDrafted),
+  play: async ({ canvasElement }) => {
+    const [preview] = await within(canvasElement).findAllByRole('tab', {
+      name: 'Preview',
+    });
+    await userEvent.click(preview!);
+  },
+};
+export const ReviewPostDraftedGitHub = face(
+  'Review: post, drafted, GitHub with three verdicts',
+  G.reviewPostDraftedGitHub
 );
 export const ReviewPostVerdictOnly = face(
   'Review: post, prose, verdict only',

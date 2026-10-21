@@ -1,5 +1,6 @@
 import type { GateAnswers, GateQuestion, GateRow } from '../../gates/store.ts';
 import type { BoardMRWithReview } from '../types.ts';
+import type { DiffSource, FileDiff } from './diff-source.ts';
 
 /**
  * One gate per kind and variant the rt daemon has actually opened, rebuilt
@@ -13,6 +14,8 @@ import type { BoardMRWithReview } from '../types.ts';
 export interface GalleryGate {
   gate: GateRow;
   mr?: BoardMRWithReview;
+  /** Where a drafted review's code sections get their diffs. */
+  diffs?: DiffSource;
 }
 
 export const PEOPLE: ReadonlyMap<string, string> = new Map([
@@ -1109,6 +1112,10 @@ const RADAR_COMMENTS: Record<string, string> = {
 
 export const reviewPostDrafted: GalleryGate = {
   mr: MRS.radarLayers,
+  diffs: {
+    fetchFileDiff: q => radarDiffs.fetchFileDiff(q),
+    loadView: () => import('./DiffView.tsx'),
+  },
   gate: {
     ...reviewPost.gate,
     gateId: 'gallery-review-post-drafted',
@@ -1137,6 +1144,160 @@ export const reviewPostDrafted: GalleryGate = {
         : q
     ),
   },
+};
+
+// Invented code for the radar review's two files, as GitLab's MR diffs API
+// returns them: per-file hunks with no file headers.
+const RADAR_HOOK_PATCH = `@@ -98,11 +98,12 @@ export function useRadarMap(provider: RadarProvider) {
+ export function useRadarMap(provider: RadarProvider) {
+   const mapRef = useRef<RadarMap | null>(null);
+   const layers = useLayers();
++  const isDetached = useRef(false);
+
+   useEffect(() => {
+-    if (!provider) return;
++    if (!provider || isDetached.current) return;
+     mapRef.current = provider.attach();
+     return () => {
+       mapRef.current = null;
+     };
+   }, [provider]);
+@@ -112,9 +113,16 @@ export function useRadarMap(provider: RadarProvider) {
+
+   const onModel = (model: RadarModel) => {
+     const ready = layers.ready();
+     if (!ready) return;
++    if (mapRef.current === null) return;
++    // A late model can land after a step navigation
++    // tore this map down, so drop it here.
+     layers.add(model);
+   };
++  useProviderTeardown(provider, () => {
++    isDetached.current = true;
++    mapRef.current = null;
++  });
+
+   return { onModel };
+ }
+`;
+
+const RADAR_TEST_PATCH = `@@ -993,6 +993,26 @@ describe('useRadarMap', () => {
+     expect(layers.add).toHaveBeenCalledTimes(2);
+   });
+
++  it('drops a model that lands after teardown', () => {
++    const held = holdModelLoads();
++    const { rerender, unmount } = render(tree('legend'));
++    rerender(tree('tracks'));
++    provider.teardown();
++    unmount();
++    held.release();
++    expect(() => flush()).not.toThrow();
++    expect(layers.add).not.toHaveBeenCalled();
++  });
++
++  it('marks the map removed on teardown', () => {
++    const { unmount } = renderHook(() => useRadarMap(provider));
++    provider.teardown();
++    unmount();
++    expect(layers.add).not.toHaveBeenCalled();
++    // Without this the test goes vacuous.
++    expect(map.removed).toBe(true);
++  });
++
+   it('keeps rendering the 3d layer after the step that built the map unmounts', () => {
+     const { rerender } = render(tree('legend'));
+     rerender(tree('tracks'));
+`;
+
+const RADAR_DIFFS: Record<string, FileDiff> = {
+  'packages/radar-map/src/layers/hooks/useRadarMap.ts': {
+    path: 'packages/radar-map/src/layers/hooks/useRadarMap.ts',
+    patch: RADAR_HOOK_PATCH,
+    forge: 'gitlab',
+    webUrl: `${FORGE}/812/diffs#useRadarMap.ts`,
+  },
+  'packages/radar-map/src/layers/hooks/useRadarMap.test.tsx': {
+    path: 'packages/radar-map/src/layers/hooks/useRadarMap.test.tsx',
+    patch: RADAR_TEST_PATCH,
+    forge: 'gitlab',
+    webUrl: `${FORGE}/812/diffs#useRadarMap.test.tsx`,
+  },
+};
+
+/** A diff source over the radar review's invented files. */
+export const radarDiffs: DiffSource = {
+  fetchFileDiff: async ({ file }) => RADAR_DIFFS[file] ?? null,
+  loadView: () => import('./DiffView.tsx'),
+};
+
+const GITHUB_PR = 'https://github.example.com/acme/radar/pull/58';
+
+/** The same files as GitHub's PR files API returns them. */
+const githubRadarDiffs: DiffSource = {
+  fetchFileDiff: async ({ file }) => {
+    const d = RADAR_DIFFS[file];
+    return d ? { ...d, forge: 'github', webUrl: `${GITHUB_PR}/files` } : null;
+  },
+  loadView: () => import('./DiffView.tsx'),
+};
+
+const GITHUB_SUMMARIES = {
+  approve:
+    'Nice fix, the guard matches the root cause. A couple of small notes inline, nothing blocking.',
+  comment:
+    'Nice fix, the guard matches the root cause. A couple of notes inline; I will come back once they are in.',
+  request_changes:
+    'The guard is right, but the test gap in useRadarMap.test.tsx needs closing before this merges. Details inline.',
+};
+
+/** A GitHub PR whose review offers all three of GitHub's verdicts. */
+export const reviewPostDraftedGitHub: GalleryGate = {
+  mr: {
+    ...MRS.radarLayers,
+    iid: 58,
+    provider: 'github',
+    webUrl: GITHUB_PR,
+  } as BoardMRWithReview,
+  gate: {
+    ...reviewPostDrafted.gate,
+    gateId: 'gallery-review-post-github',
+    subject: `mr:${GITHUB_PR}`,
+    label: 'review gate #58',
+    meta: { label: 'review gate #58' },
+    context: ctx({
+      ...(JSON.parse(reviewPostDrafted.gate.context!) as Record<
+        string,
+        unknown
+      >),
+      readiness: 'with-fixes',
+      summaryComments: GITHUB_SUMMARIES,
+    }),
+    questions: [
+      {
+        ...reviewPostDrafted.gate.questions[0]!,
+        label: 'Post which findings to #58?',
+      },
+      question('outcome', 'Verdict on #58: ready with fixes', false, [
+        opt(
+          'request_changes',
+          'Request changes (recommended)',
+          'post the picked findings and block the merge until they are addressed'
+        ),
+        opt(
+          'comment',
+          'Comment',
+          'post the picked findings and leave the merge decision open'
+        ),
+        opt(
+          'approve',
+          'Approve',
+          'post the picked findings as non-blocking notes, then approve the PR'
+        ),
+      ]),
+    ],
+  },
+  diffs: githubRadarDiffs,
 };
 
 export const reviewPostVerdictOnly: GalleryGate = {
