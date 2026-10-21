@@ -445,7 +445,13 @@ function ReviewGateSheet({
   const folded = drafts
     ? findings.filter(f => selectedFindings.has(f.id) && !hasDiffLine(f))
     : [];
-  const postingComments = postingFindings - folded.length;
+  const restoredWithoutLine = drafts
+    ? skippedEntries.filter(
+        ([value, e]) => selectedSkipped.has(value) && !hasDiffLine(e)
+      ).length
+    : 0;
+  const postingComments =
+    postingFindings - folded.length - restoredWithoutLine;
   const outcomeText =
     outcomeQuestion && typeof selectedOutcome === 'string'
       ? displayForValue(selectedOutcome, outcomeQuestion.options).text

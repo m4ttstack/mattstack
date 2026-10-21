@@ -1573,6 +1573,53 @@ describe('a gate whose poster honors edited drafts', () => {
     );
   });
 
+  test('a restored finding with no diff line is not counted as a comment', async () => {
+    const gate = draftsGate();
+    gate.questions = [
+      gate.questions[0]!,
+      {
+        id: 'skipped-1',
+        label: 'Bring back a finding you skipped earlier?',
+        multi: true,
+        context: j({
+          'gate-ctx': 'skipped@1',
+          skipped: [
+            {
+              id: 'r1-f9',
+              round: 1,
+              severity: 'minor',
+              title: 'Config defaults live in two files',
+              changed: false,
+            },
+          ],
+        }),
+        options: [
+          {
+            value: 'restore:r1-f9',
+            label: '[Minor] Config defaults live in two files',
+            description: 'skipped in round 1',
+          },
+        ],
+      },
+      gate.questions[1]!,
+    ];
+    await render(gate);
+    for (const t of [
+      'SQL built from unsanitized input',
+      'Missing null check on response',
+      'Unused import',
+      'Inconsistent error wording',
+    ])
+      await click(checkboxForTitle(t));
+    await click(container.querySelector<HTMLElement>('.tui-review-skipped-head')!);
+    await click(
+      container.querySelector<HTMLInputElement>(
+        '.tui-review-skipped-row input[type="checkbox"]'
+      )!
+    );
+    expect(submitButton().textContent).toBe('post summary · approve');
+  });
+
   const metaOf = (scope: Element) =>
     scope.querySelector('.tui-composer-meta')?.textContent;
 
