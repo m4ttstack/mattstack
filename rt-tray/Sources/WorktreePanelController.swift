@@ -76,7 +76,7 @@ final class WorktreePanelController: ObservableObject {
 
     func enableCleanup(_ banner: TriageBanner) {
         guard let args = banner.enableCleanupArgs else { return }
-        runBanner(banner, args, done: "rt now checks \(banner.repoName)'s merges, so its merged worktrees clean up on their own")
+        runBanner(banner, args, done: "\(RepoIdentity.changeNoun(banner.repo)) checks are on for \(banner.repoName)")
     }
 
     func hideBanner(_ banner: TriageBanner) {
@@ -84,21 +84,27 @@ final class WorktreePanelController: ObservableObject {
     }
 
     private func runBanner(_ banner: TriageBanner, _ args: [String], done: String) {
-        guard let rt, !bannerBusy.contains(banner.repo) else { return }
-        bannerBusy.insert(banner.repo)
+        guard !bannerBusy.contains(banner.repo) else { return }
+        guard let rt else {
+            setStatus("rt isn't available to the app, so this can't run from here.", isError: true)
+            return
+        }
+        let repo = banner.repo
+        bannerBusy.insert(repo)
         Task {
-            defer { bannerBusy.remove(banner.repo) }
             do {
                 let r = try await rt.run(args, stdin: nil)
                 if r.exitCode == 0 {
                     setStatus(done, isError: false)
-                    refresh(force: true)
-                } else {
-                    setStatus(r.userError?.message ?? r.failureCopy(verb: args.prefix(2).joined(separator: " ")), isError: true)
+                    // Busy holds until a query started after the write lands, so the old banner can't fire twice.
+                    refresh(force: true) { [weak self] in self?.bannerBusy.remove(repo) }
+                    return
                 }
+                setStatus(r.userError?.message ?? r.failureCopy(verb: args.prefix(2).joined(separator: " ")), isError: true)
             } catch {
                 setStatus((error as? RtClientError)?.copy ?? "rt failed to start.", isError: true)
             }
+            bannerBusy.remove(repo)
         }
     }
 

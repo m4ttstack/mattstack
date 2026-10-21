@@ -93,16 +93,16 @@ public struct TriageBanner: Decodable, Sendable {
             : "Merged worktrees in \(repoName) won't clean up on their own: rt isn't checking that repo's \(RepoIdentity.changeNoun(repo))s."
     }
 
-    /// Live watching needs a GitLab remote, so a repo tracked by nothing yet starts on poll for GitHub.
+    /// Live watching needs a GitLab remote, so GitHub always polls, whatever mode a team declared.
     public var enableCleanupArgs: [String]? {
         guard reason == "no-branches-grant" else { return nil }
-        let current = mode == "live" || mode == "poll" ? mode! : (forge == "gitlab" ? "live" : "poll")
+        let current = forge == "gitlab" && mode != "poll" ? "live" : "poll"
         let kept = (caches ?? []).filter { $0 != "branches" }
         return ["daemon", "track", repo, current, (["branches"] + kept).joined(separator: ",")]
     }
 
     public var hideArgs: [String] {
-        ["settings", "set", "rt.worktrees", #"{"mergeCleanupNotice":false}"#, "--scope", "user", "--repo", repo]
+        ["settings", "set", "rt.worktreeMergeCleanupNotice", "false", "--scope", "user", "--repo", repo]
     }
 }
 

@@ -184,9 +184,11 @@ let triageChecks: [Check] = [
         c.expectEqual(gl.enableCleanupArgs?[3], "live")
         let partial = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:gitlab.com%2Fo%2Fr","reason":"no-branches-grant","forge":"gitlab","mode":"poll","caches":["project-mrs"]}"#.utf8))
         c.expectEqual(partial.enableCleanupArgs, ["daemon", "track", "remote:gitlab.com%2Fo%2Fr", "poll", "branches,project-mrs"])
+        let teamLive = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"no-branches-grant","forge":"github","mode":"live","caches":["project-mrs"]}"#.utf8))
+        c.expectEqual(teamLive.enableCleanupArgs?[3], "poll")
     },
     Check("hiding a cleanup banner writes this repo's user-scope opt-out") { c in
         let b = try JSONDecoder().decode(TriageBanner.self, from: Data(#"{"repo":"remote:github.com%2Fo%2Fr","reason":"no-branches-grant","forge":"github"}"#.utf8))
-        c.expectEqual(b.hideArgs, ["settings", "set", "rt.worktrees", #"{"mergeCleanupNotice":false}"#, "--scope", "user", "--repo", "remote:github.com%2Fo%2Fr"])
+        c.expectEqual(b.hideArgs, ["settings", "set", "rt.worktreeMergeCleanupNotice", "false", "--scope", "user", "--repo", "remote:github.com%2Fo%2Fr"])
     },
 ]

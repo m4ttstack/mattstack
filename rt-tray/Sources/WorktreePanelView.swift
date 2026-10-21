@@ -370,7 +370,7 @@ struct TriageBannerView: View {
             } else {
                 Button("Clean these up automatically") { controller.enableCleanup(banner) }
                     .buttonStyle(TriageButtonStyle())
-                    .help("rt starts checking \(banner.repoName)'s \(RepoIdentity.changeNoun(banner.repo))s and disposes a worktree once its \(RepoIdentity.changeNoun(banner.repo)) merges.")
+                    .help("rt starts checking \(banner.repoName)'s \(RepoIdentity.changeNoun(banner.repo))s on this Mac, so a worktree is disposed once its \(RepoIdentity.changeNoun(banner.repo)) merges.")
             }
         }
         .disabled(busy)
