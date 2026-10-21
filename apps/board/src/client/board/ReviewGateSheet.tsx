@@ -32,6 +32,7 @@ import {
   attachDraftEdits,
   commentKey,
   draftEdits,
+  findOutcomeQuestion,
   hasDiffLine,
   summaryKey,
 } from './review-drafts.ts';
@@ -348,7 +349,7 @@ function ReviewGateSheet({
     [questions]
   );
   const outcomeQuestion = useMemo<GateQuestion | undefined>(
-    () => questions.find(q => !q.multi),
+    () => findOutcomeQuestion(questions),
     [questions]
   );
   const findingsName = findingsQuestion?.id;

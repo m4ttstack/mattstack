@@ -13,6 +13,17 @@ export function hasDiffLine(f: Pick<FindingEntry, 'file'>): boolean {
   return f.file !== undefined && /:\d+$/.test(f.file);
 }
 
+/** The verdict question, by the id the gate validators look up; a gate
+    with no `outcome` question falls back to its first single-select. */
+export function findOutcomeQuestion(
+  questions: GateQuestion[]
+): GateQuestion | undefined {
+  return (
+    questions.find(q => !q.multi && q.id === 'outcome') ??
+    questions.find(q => !q.multi)
+  );
+}
+
 export interface DraftEdits {
   texts: Record<string, string>;
   summary?: string;
@@ -70,7 +81,7 @@ export function attachDraftEdits(
     );
     if (Object.keys(texts).length > 0) out[q.id] = { value, texts };
   }
-  const outcome = questions.find(q => !q.multi);
+  const outcome = findOutcomeQuestion(questions);
   const verdict = outcome ? out[outcome.id] : undefined;
   if (outcome && edits.summary !== undefined) {
     if (typeof verdict === 'string')

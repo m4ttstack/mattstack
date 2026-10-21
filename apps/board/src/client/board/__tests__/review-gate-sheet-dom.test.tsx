@@ -1461,6 +1461,47 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(submitButton().disabled).toBe(false);
   });
 
+  test('a three-verdict gate shows the request_changes draft and submits its edit', async () => {
+    const REQUEST = 'Thanks! The SQL path needs a fix before this merges.';
+    const gate = draftsGate({
+      summaryComments: {
+        approve: SUMMARY,
+        comment: SUMMARY_COMMENT,
+        request_changes: REQUEST,
+      },
+    });
+    const outcome = gate.questions[1]!;
+    gate.questions[1] = {
+      ...outcome,
+      options: [
+        ...outcome.options,
+        { value: 'request_changes', label: 'request changes' },
+      ],
+    };
+    await render(gate);
+    await pickVerdict('request_changes');
+    expect(summaryLine().textContent).toContain(REQUEST);
+    await edit(summaryLine(), ' Needs the SQL fix first. ');
+    await click(submitButton());
+    expect(answers().outcome).toEqual({
+      value: 'request_changes',
+      text: 'Needs the SQL fix first.',
+    });
+  });
+
+  test('a verdict question not named outcome is still the verdict', async () => {
+    const gate = draftsGate();
+    gate.questions[1] = { ...gate.questions[1]!, id: 'verdict' };
+    await render(gate);
+    expect(summaryLine().textContent).toContain(SUMMARY);
+    await edit(summaryLine(), 'Approve, edited.');
+    await click(submitButton());
+    expect(answers().verdict).toEqual({
+      value: 'approve',
+      text: 'Approve, edited.',
+    });
+  });
+
   test('a summary draft missing for a verdict leaves the sheet read-only', async () => {
     await render(draftsGate({ summaryComments: { approve: SUMMARY } }));
     expect(container.querySelector('.tui-review-summary')).toBeNull();

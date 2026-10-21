@@ -6,6 +6,7 @@ import {
   attachDraftEdits,
   commentKey,
   draftEdits,
+  findOutcomeQuestion,
   hasDiffLine,
   summaryKey,
 } from '../review-drafts.ts';
@@ -200,6 +201,37 @@ describe('attachDraftEdits', () => {
     expect(attachDraftEdits(answers, QUESTIONS, { texts: {} })).toEqual(
       answers
     );
+  });
+});
+
+describe('findOutcomeQuestion', () => {
+  const NEXT: GateQuestion = {
+    id: 'next',
+    label: 'Next',
+    multi: false,
+    options: ['proceed', 'hold'],
+  };
+
+  test('finds the question by id outcome, past an earlier single-select', () => {
+    expect(findOutcomeQuestion([NEXT, ...QUESTIONS])?.id).toBe('outcome');
+  });
+
+  test('falls back to the first single-select when no question is outcome', () => {
+    expect(findOutcomeQuestion([QUESTIONS[0]!, NEXT])?.id).toBe('next');
+  });
+
+  test('the summary edit rides outcome, not an earlier single-select', () => {
+    expect(
+      attachDraftEdits(
+        { 'findings-1': ['f1'], next: 'proceed', outcome: 'approve' },
+        [NEXT, ...QUESTIONS],
+        { texts: {}, summary: 'New.' }
+      )
+    ).toEqual({
+      'findings-1': ['f1'],
+      next: 'proceed',
+      outcome: { value: 'approve', text: 'New.' },
+    });
   });
 });
 
