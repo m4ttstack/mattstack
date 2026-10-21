@@ -204,8 +204,8 @@ list.
    `pack/params.jsonc` with each required key set to `""`, and an empty
    `pack/sections/<name>.md` for each required section. Files that already
    exist are left alone, as `renderPackFiles` does today.
-3. When any required value is still missing, it stops before compile with
-   a needs-you refusal (`params-missing`) listing the keys and sections,
+3. When any required value is still missing, it stops after that compile
+   with a needs-you refusal (`params-missing`) listing the keys and sections,
    each with the base file that asks for it.
 4. The author fills them in and runs the same `rt skills init` again. Init
    resumes: `pack-exists` only fires once a pack has compiled, existing
