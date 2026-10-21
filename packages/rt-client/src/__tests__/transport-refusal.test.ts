@@ -42,4 +42,16 @@ describe("rtCommand: non-envelope replies", () => {
     expect(res.ok).toBe(false);
     expect(res.error).toContain("HTTP 500");
   });
+
+  test("a 2xx reply with raw JSON and no ok field passes through unchanged", async () => {
+    const sockPath = serve(() => Response.json({ rows: [1, 2] }));
+    const res = await rtCommand("gate:list", {}, { sockPath });
+    expect(res as unknown).toEqual({ rows: [1, 2] });
+  });
+
+  test("a non-gate 413 carries no gate hint", async () => {
+    const sockPath = serve(() => new Response("null", { status: 413 }));
+    const res = await rtCommand("cache:refresh", { x: 1 }, { sockPath });
+    expect(res.error).not.toContain("16 MiB");
+  });
 });

@@ -83,22 +83,26 @@ export async function rtCommand<T = unknown>(
   const sockPath = opts.sockPath ?? defaultSock();
   assertSockNotForbidden(cmd, sockPath);
   try {
+    const body = JSON.stringify(payload);
     const res = await fetch(`http://localhost/${cmd}`, {
       unix: sockPath,
       method: "POST",
       headers: { "Content-Type": "application/json", "X-RT-Client": `rt-client/${process.pid}` },
-      body: JSON.stringify(payload),
+      body,
       signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
       // Bun's `unix` fetch option isn't in the standard RequestInit type.
     } as RequestInit);
     const text = await res.text();
     let parsed: unknown;
     try { parsed = JSON.parse(text); } catch { /* not JSON */ }
-    const envelope = parsed as RtResponse<T> | null;
+    if (res.ok && parsed !== undefined) return parsed as RtResponse<T>;
+    const envelope = parsed as RtResponse<T> | null | undefined;
     if (envelope && typeof envelope === "object" && typeof envelope.ok === "boolean") return envelope;
     if (res.status === 413) {
-      const mb = (Buffer.byteLength(JSON.stringify(payload)) / (1024 * 1024)).toFixed(1);
-      return { ok: false, error: `${cmd} refused: request too large (${mb} MB sent; the daemon rejected it with HTTP 413${cmd.startsWith("gate:") ? "; gate requests are limited to 16 MiB" : ""})` };
+      const mb = (Buffer.byteLength(body) / (1024 * 1024)).toFixed(1);
+      // Literal: rt-client cannot import lib/daemon's GATE_REQUEST_LIMIT_BYTES.
+      const hint = cmd === "gate:open" || cmd === "gate:ask" ? "; gate requests are limited to 16 MiB" : "";
+      return { ok: false, error: `${cmd} refused: request too large (${mb} MB sent; the daemon rejected it with HTTP 413${hint})` };
     }
     return { ok: false, error: `${cmd} failed: HTTP ${res.status}${text ? ` ${text.slice(0, 200)}` : ""}` };
   } catch (err) {
