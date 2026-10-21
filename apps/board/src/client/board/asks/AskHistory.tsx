@@ -2,23 +2,22 @@ import { Chip } from '@mattstack/tui-kit';
 import type { AskCardData } from '../../types.ts';
 import { AskGlyph } from '../ask-glyph.tsx';
 import { ago } from '../format.ts';
+import { usePeople } from '../people.ts';
 import { historyOutcome } from './ask-copy.ts';
 
 /** The last two weeks of handled asks, then who starts without asking. */
 export function AskHistory({
   history,
   alwaysAllow,
-  names,
   now,
   onAllow,
 }: {
   history: AskCardData[];
   alwaysAllow: string[];
-  /** Roster display names by username. */
-  names: ReadonlyMap<string, string>;
   now: number;
   onAllow: (username: string, allow: boolean) => void;
 }) {
+  const people = usePeople();
   return (
     <>
       {history.length === 0 ? (
@@ -30,7 +29,7 @@ export function AskHistory({
             return (
               <li key={a.id} className="tui-ask-history-row">
                 <div className="tui-ask-who">
-                  <span className="tui-ask-name">{a.fromName ?? a.from}</span>
+                  <span className="tui-ask-name">{people.short(a.from)}</span>
                   <span className="tui-ask-phrase">{a.kind}</span>
                   <span className="tui-ask-age">
                     {ago(
@@ -56,7 +55,7 @@ export function AskHistory({
           <h3 className="tui-ask-allowed-head">Always allowed</h3>
           <div className="tui-ask-allowed-chips">
             {alwaysAllow.map(u => {
-              const name = names.get(u) ?? u;
+              const name = people.short(u);
               return (
                 <Chip key={u} intent="muted" className="tui-ask-allowed-chip">
                   {name}

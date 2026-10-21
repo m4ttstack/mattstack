@@ -85,43 +85,6 @@ export function headerMeta(
   ].filter((m): m is string => Boolean(m));
 }
 
-/** The reviewer's full name for a gate's reviewer handle: the board's team
-    roster first, then the MR's assigned reviewers and approvers, else the
-    handle itself. */
-export function reviewerName(
-  handle: string,
-  mr?: BoardMRWithReview,
-  people?: ReadonlyMap<string, string>
-): string {
-  const same = (u: { username: string }) => u.username === handle;
-  return (
-    people?.get(handle) ??
-    mr?.reviews?.reviewers?.find(same)?.name ??
-    mr?.reviews?.approvedBy?.find(same)?.name ??
-    handle
-  );
-}
-
-/** A person's full name for a handle: the team roster first, then the MR's
-    author, then its assigned reviewers and approvers, then the people it
-    can respond to, else the handle. */
-export function personName(
-  handle: string,
-  mr?: BoardMRWithReview,
-  people?: ReadonlyMap<string, string>
-): string {
-  const known = reviewerName(handle, mr, people);
-  return (
-    people?.get(handle) ??
-    (mr?.author?.username === handle
-      ? mr.author.name || undefined
-      : undefined) ??
-    (known !== handle ? known : undefined) ??
-    mr?.respondTargets?.find(t => t.username === handle)?.name ??
-    handle
-  );
-}
-
 /** The person a respond gate answers: the live respond run's person when
     the gate opened during that run, else the gate's own reviewer (a parked
     gate from an earlier run, or a run launched without a person). */

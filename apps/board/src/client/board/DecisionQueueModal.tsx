@@ -66,7 +66,6 @@ function DecisionQueueModal({
   onAnswered,
   onContinue,
   onLostChange,
-  people,
   readOnly: seatReadOnly,
 }: {
   gate: GateRow & { executor?: ExecutorState };
@@ -93,9 +92,6 @@ function DecisionQueueModal({
   /** Fires when the CAS-loss face flips on or off, so the host can hold the
       queue on this gate while it's showing. */
   onLostChange?: (lost: boolean) => void;
-  /** Team roster usernames to full names, for the reviewer a respond gate
-      answers. */
-  people?: ReadonlyMap<string, string>;
   /** Set when the seat cannot answer this gate (gateReadOnlyReason): the
       face shows the questions and says why, with no form to submit. */
   readOnly?: string | null;
@@ -243,7 +239,6 @@ function DecisionQueueModal({
           ctx={sheetCtx}
           {...(headerCtx ? {} : { frame: proseContext ?? '' })}
           form={form}
-          people={people}
           onContinue={onContinue}
         />
       </GateSheet>
@@ -314,7 +309,6 @@ function DecisionQueueModal({
         }
         context={proseContext}
         respondCtx={headerCtx ?? undefined}
-        people={people}
         onContinue={onContinue}
       />
     </GateSheet>

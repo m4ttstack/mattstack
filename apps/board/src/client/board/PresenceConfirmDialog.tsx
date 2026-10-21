@@ -1,4 +1,5 @@
 import { ConfirmDialog } from '@mattstack/tui-kit';
+import { usePeople } from './people.ts';
 
 export interface PendingPresence {
   reviewer: string;
@@ -9,14 +10,13 @@ export interface PendingPresence {
     Cancel holds focus, so Enter backs out. */
 export function PresenceConfirmDialog({
   pending,
-  nameOf,
   onDone,
 }: {
   pending: PendingPresence | null;
-  nameOf: (username: string) => string;
   onDone: () => void;
 }) {
-  const name = pending ? nameOf(pending.reviewer) : '';
+  const people = usePeople();
+  const name = pending ? people.short(pending.reviewer) : '';
   return (
     <ConfirmDialog
       open={pending !== null}

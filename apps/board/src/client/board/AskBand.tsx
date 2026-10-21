@@ -10,6 +10,7 @@ import {
   type AskBand,
 } from './ask-band.ts';
 import { AskGlyph } from './ask-glyph.tsx';
+import { usePeople } from './people.ts';
 
 const ACTION: Record<AskAction, string> = {
   retry: 'Retry',
@@ -86,9 +87,10 @@ export function AskBand({
 }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const bar = useRef<HTMLDivElement>(null);
+  const people = usePeople(mr);
   const sent = mr.sentNudge;
   if (!sent) return null;
-  const band = askBandModel(sent);
+  const band = askBandModel(sent, Date.now(), people.short(sent.reviewer));
   const run = (action: AskAction) =>
     action === 'retry' ? ctx.onAskRetry(mr) : ctx.onAskDismiss(mr);
   const open = rect !== null;

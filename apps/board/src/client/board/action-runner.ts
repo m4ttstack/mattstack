@@ -7,6 +7,7 @@ import type { MrAction } from '../../mr-action.ts';
 import type { ActionResult } from '../api.ts';
 import type { ToastHandle } from './launch-flow.ts';
 import { mrRef } from './MrLinks.tsx';
+import { NO_PEOPLE, type People } from './people.ts';
 import type {
   ActionRequest,
   Lane,
@@ -40,6 +41,8 @@ export interface RunnerDeps {
   /** A fired merge holds its row at "merging…" until the MR leaves the
       board; only a refusal lets go, so merge never reappears mid-flight. */
   merging: { start: (url: string) => void; fail: (url: string) => void };
+  /** Names people in toasts; absent, toasts name them by handle. */
+  people?: People;
 }
 
 export type RunnableRequest = Extract<
@@ -154,7 +157,7 @@ async function post(
   return result;
 }
 
-function postSpec(req: PostRequest): PostSpec {
+function postSpec(req: PostRequest, people: People): PostSpec {
   switch (req.kind) {
     case 'mr': {
       const w = MR_WORDING[req.action];
@@ -220,7 +223,7 @@ function postSpec(req: PostRequest): PostSpec {
       };
     case 'resolve-latch': {
       const what = (mr: BoardMR) =>
-        `${req.reviewer}'s agent to re-review ${mrRef(mr)} through the MR thread`;
+        `${people.short(req.reviewer)}'s agent to re-review ${mrRef(mr)} through the MR thread`;
       return {
         path: '/discussions/resolve',
         payload: mr => ({
@@ -233,7 +236,7 @@ function postSpec(req: PostRequest): PostSpec {
         pending: mr => `asking ${what(mr)}…`,
         done: mr => `asked ${what(mr)}`,
         fail: (mr, r) =>
-          `couldn't resolve ${req.reviewer}'s latch on ${mrRef(mr)}: ${
+          `couldn't resolve ${people.short(req.reviewer)}'s latch on ${mrRef(mr)}: ${
             (r.body as { error?: string } | null)?.error ?? (r.text || r.status)
           }`,
         fresh: true,
@@ -243,6 +246,7 @@ function postSpec(req: PostRequest): PostSpec {
     }
     case 'ask': {
       const reviewer = req.reviewer ?? '';
+      const name = people.short(reviewer);
       return {
         path: '/nudge',
         payload: (mr, url) => ({
@@ -252,11 +256,10 @@ function postSpec(req: PostRequest): PostSpec {
           kind: req.ask,
           ...(req.note ? { note: req.note } : {}),
         }),
-        pending: mr =>
-          `requesting ${req.ask} of ${mrRef(mr)} from ${reviewer}…`,
+        pending: mr => `requesting ${req.ask} of ${mrRef(mr)} from ${name}…`,
         done: (_mr, r) =>
           r.body?.queued
-            ? `switchboard unreachable... queued the ask to ${reviewer}`
+            ? `switchboard unreachable... queued the ask to ${name}`
             : undefined,
         // A 409 carries the relay's own reason in plain text; that is the
         // whole point of the failure, so it wins over the status.
@@ -264,8 +267,8 @@ function postSpec(req: PostRequest): PostSpec {
           r.text.trim() ||
           `couldn't request ${req.ask} for ${mrRef(mr)} (${r.status})`,
         fresh: false,
-        manyDone: done => `asked ${reviewer} on ${on(done)}`,
-        manyFail: list => `couldn't ask ${reviewer} on ${list}`,
+        manyDone: done => `asked ${name} on ${on(done)}`,
+        manyFail: list => `couldn't ask ${name} on ${list}`,
       };
     }
   }
@@ -285,7 +288,7 @@ export async function runOne(
     });
   const url = mr.webUrl;
   if (!url) return undefined;
-  const spec = postSpec(req);
+  const spec = postSpec(req, deps.people ?? NO_PEOPLE);
   const pending = spec.pending?.(mr);
   const toast = pending
     ? deps.startToast(pending)
@@ -323,7 +326,10 @@ export async function mapLimit<T, R>(
   return out;
 }
 
-function bulkPlan(req: RunnableRequest): Wording & {
+function bulkPlan(
+  req: RunnableRequest,
+  people: People
+): Wording & {
   run: (mr: BoardMR, deps: RunnerDeps) => Promise<ActionResult | undefined>;
 } {
   if (req.kind === 'launch') {
@@ -335,7 +341,7 @@ function bulkPlan(req: RunnableRequest): Wording & {
       manyFail: list => `couldn't launch ${w.noun} for ${list}`,
     };
   }
-  const spec = postSpec(req);
+  const spec = postSpec(req, people);
   return {
     run: (mr, deps) =>
       mr.webUrl
@@ -355,7 +361,10 @@ export async function runMany(
   presenceSkipped: ReadonlyArray<{ mr: BoardMR; reviewer: string }> = []
 ): Promise<void> {
   const presenceNote = presenceSkipped
-    .map(s => `skipped !${s.mr.iid}, ${s.reviewer} is reviewing`)
+    .map(
+      s =>
+        `skipped !${s.mr.iid}, ${(deps.people ?? NO_PEOPLE).short(s.reviewer)} is reviewing`
+    )
     .join(', ');
   // A stale picker snapshot (runBulk's pickTargets.get(pick) ?? []) can reach
   // here empty; an empty run has nothing to reload, but its presence note
@@ -364,7 +373,7 @@ export async function runMany(
     if (presenceNote) deps.addToast(presenceNote);
     return;
   }
-  const plan = bulkPlan(req);
+  const plan = bulkPlan(req, deps.people ?? NO_PEOPLE);
   const results = await mapLimit(targets, BULK_CONCURRENCY, mr =>
     plan.run(mr, deps)
   );

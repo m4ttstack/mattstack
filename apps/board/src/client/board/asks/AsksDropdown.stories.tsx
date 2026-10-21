@@ -10,10 +10,11 @@ import '@mattstack/tui-kit/canvas.css';
 import '../../../style.css';
 
 import type { BoardData } from '../../types.ts';
+import { PeopleProvider } from '../people.ts';
 import {
   NOTHING_WAITING,
   RAE_ASK,
-  ROSTER_NAMES,
+  ROSTER_PEOPLE,
   THREE_WAITING,
 } from './asks.fixtures.ts';
 import { AsksButton } from './AsksButton.tsx';
@@ -73,20 +74,21 @@ function Header({
           borderRadius: 8,
         }}
       >
-        <div className="tui-header-corner">
-          <AsksButton
-            asks={asks}
-            open={open}
-            onOpenChange={setOpen}
-            flashId={flashId}
-            names={ROSTER_NAMES}
-            onAccept={resolved}
-            onDecline={resolved}
-            onAllow={resolved}
-            onFocus={() => {}}
-            {...(confirmMs ? { confirmMs } : {})}
-          />
-        </div>
+        <PeopleProvider value={ROSTER_PEOPLE}>
+          <div className="tui-header-corner">
+            <AsksButton
+              asks={asks}
+              open={open}
+              onOpenChange={setOpen}
+              flashId={flashId}
+              onAccept={resolved}
+              onDecline={resolved}
+              onAllow={resolved}
+              onFocus={() => {}}
+              {...(confirmMs ? { confirmMs } : {})}
+            />
+          </div>
+        </PeopleProvider>
       </div>
     </div>
   );

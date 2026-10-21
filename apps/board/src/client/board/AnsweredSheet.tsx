@@ -14,14 +14,10 @@ import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import { AnsweredChip, type GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun } from './MrLinks.tsx';
+import { usePeople } from './people.ts';
 import { PersonLead, PersonTag } from './PersonLead.tsx';
 import { postPicks } from './respond-post.ts';
-import {
-  itemMix,
-  leadVerb,
-  personName,
-  RespondCtxFacts,
-} from './RespondGateHeader.tsx';
+import { itemMix, leadVerb, RespondCtxFacts } from './RespondGateHeader.tsx';
 import {
   DELIVERY_STUCK_MESSAGE,
   EXECUTION_UNASSIGNED_MESSAGE,
@@ -47,18 +43,17 @@ const TITLES: Record<Exclude<AnsweredState, 'answered'>, string> = {
 function AnsweredTitle({
   by,
   mr,
-  people,
 }: {
   by: string | undefined;
   mr?: BoardMRWithReview;
-  people?: ReadonlyMap<string, string>;
 }) {
+  const people = usePeople(mr);
   if (!by) return <>Answered</>;
   if (by === 'board') return <>Answered on the board</>;
   if (by === 'pane') return <>Answered in the pane</>;
   return (
     <>
-      Answered by <PersonTag id={by} name={personName(by, mr, people)} />
+      Answered by <PersonTag id={by} name={people.short(by)} />
     </>
   );
 }
@@ -77,7 +72,6 @@ function AnsweredSheetBody({
   state,
   context,
   respondCtx,
-  people,
   onContinue,
 }: {
   gate: GateRow;
@@ -89,8 +83,8 @@ function AnsweredSheetBody({
   /** The gate's own context as prose, when it has any. */
   context?: string;
   respondCtx?: PlanCtx | PostCtx;
-  people?: ReadonlyMap<string, string>;
 }) {
+  const people = usePeople(mr);
   const recorded = useMemo(() => {
     const out = new Map<string, UnwrappedGateAnswer>();
     for (const [id, raw] of Object.entries(gate.answers ?? {}))
@@ -172,7 +166,7 @@ function AnsweredSheetBody({
         <div className="tui-sheet-list-head">
           <span className="tui-sheet-list-title">
             {state === 'answered' ? (
-              <AnsweredTitle by={gate.answeredBy} mr={mr} people={people} />
+              <AnsweredTitle by={gate.answeredBy} mr={mr} />
             ) : (
               TITLES[state]
             )}
@@ -284,7 +278,7 @@ function AnsweredSheetBody({
                   <>
                     <PersonLead
                       id={respondCtx.reviewer}
-                      name={personName(respondCtx.reviewer, mr, people)}
+                      name={people.short(respondCtx.reviewer)}
                     >
                       {leadVerb(mix)} your {forgeNoun(mr, gate.subject)}
                     </PersonLead>

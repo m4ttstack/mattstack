@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { domainForKind } from '@mattstack/gate-kit';
 import type { BoardMRWithReview } from '../../types.ts';
+import { people } from '../people.ts';
 import {
   candidateLines,
   DELIVERY_STUCK_MESSAGE,
@@ -1496,6 +1497,28 @@ describe('rowStatus: social lanes', () => {
       ME
     );
     expect(line).toMatchObject({ tone: 'go', word: 'mira approved' });
+  });
+
+  test("a peer is named by the board's first name, not their handle", () => {
+    const [line] = candidateLines(
+      own({
+        peerReviews: [
+          {
+            mrUrl: 'u',
+            iid: 1,
+            reviewer: 'dcf417',
+            status: 'done',
+            outcome: 'approve',
+            updatedAt: NOW,
+          },
+        ],
+      }),
+      NOW,
+      NONE,
+      ME,
+      people([{ username: 'dcf417', name: 'Dana Fisher' }])
+    );
+    expect(line).toMatchObject({ tone: 'go', word: 'Dana approved' });
   });
 
   describe('on a board that is not the author', () => {

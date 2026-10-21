@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { SentNudgeInfo } from '../../types.ts';
-import { askBandModel, clock } from '../ask-band.ts';
+import { clock, askBandModel as model } from '../ask-band.ts';
+import { people } from '../people.ts';
 
 const NOW = 10_000_000_000;
 const MIN = 60_000;
@@ -9,9 +10,18 @@ const MIN = 60_000;
 const sent = (over: Partial<SentNudgeInfo>): SentNudgeInfo => ({
   display: 'requested',
   reviewer: 'grace',
+  reviewerName: 'Grace Hopper',
   sentAt: NOW - 3 * 60 * MIN,
   ...over,
 });
+
+/** The band named the way the row names it: through the board's people. */
+const askBandModel = (s: SentNudgeInfo, now?: number) =>
+  model(
+    s,
+    now,
+    people([{ username: s.reviewer, name: s.reviewerName }]).short(s.reviewer)
+  );
 
 describe('clock', () => {
   const now = new Date(2026, 9, 1, 19, 0).getTime();
@@ -269,14 +279,14 @@ describe('askBandModel', () => {
     });
   });
 
-  test("names the teammate by the roster's first name when it has one", () => {
+  test('names the teammate by the name it is given', () => {
     const m = askBandModel(
       sent({ reviewer: 'ghop2', reviewerName: 'Grace Hopper' })
     );
     expect(m.name).toBe('Grace');
     expect(m.who).toBe("Grace's agent");
     expect(m.title).toBe('Re-review from Grace');
-    expect(askBandModel(sent({ reviewer: 'ghop2' })).name).toBe('Ghop2');
+    expect(model(sent({ reviewer: 'ghop2' })).name).toBe('ghop2');
   });
 
   test('the trail titles the ask and names the teammate', () => {

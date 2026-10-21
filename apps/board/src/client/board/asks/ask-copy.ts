@@ -39,13 +39,6 @@ export function verbLane(kind: AskKind): 'review' | 'respond' {
   return kind === 'respond' ? 'respond' : 'review';
 }
 
-/** "Rae" from the roster's "Rae Marlow", else the username capitalized. */
-export function firstName(fromName: string | undefined, from: string): string {
-  const name = fromName?.trim().split(/\s+/)[0];
-  if (name) return name;
-  return from.charAt(0).toUpperCase() + from.slice(1);
-}
-
 export type OutcomeTone = 'ok' | 'quiet' | 'warn';
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);

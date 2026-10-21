@@ -23,8 +23,6 @@ export interface AsksHandlers {
 export interface AsksDropdownProps extends AsksHandlers {
   asks: NonNullable<BoardData['asks']>;
   flashId: string | null;
-  /** Roster display names by username, for the always-allowed chips. */
-  names?: ReadonlyMap<string, string>;
   /** How long an accepted card stays as its one-line confirm. */
   confirmMs?: number;
   /** Shows a failed go-ahead or decline whose card left before its error
@@ -40,7 +38,6 @@ export interface AsksDropdownProps extends AsksHandlers {
 export function AsksDropdown({
   asks,
   flashId,
-  names,
   confirmMs = CONFIRM_MS,
   initialView = 'list',
   onNotice,
@@ -89,13 +86,6 @@ export function AsksDropdown({
       return next;
     });
   }, [failed, asks.pending, onNotice]);
-
-  const allNames = useMemo(() => {
-    const m = new Map(names ?? []);
-    for (const a of [...asks.pending, ...asks.history])
-      if (a.fromName && !m.has(a.from)) m.set(a.from, a.fromName);
-    return m;
-  }, [names, asks]);
 
   const shown = useMemo(() => {
     const byId = new Map<string, AskCardData>();
@@ -182,7 +172,6 @@ export function AsksDropdown({
           <AskHistory
             history={asks.history}
             alwaysAllow={asks.alwaysAllow}
-            names={allNames}
             now={now}
             onAllow={(u, allow) => void onAllow(u, allow)}
           />

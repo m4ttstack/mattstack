@@ -4,6 +4,7 @@ import {
   askPickerModel,
   type AskPickerModel,
 } from '../client/board/ask-picker.ts';
+import { boardPeople } from '../client/board/people.ts';
 
 const teams = [
   {
@@ -30,6 +31,7 @@ const env = {
   peers: ['rae', 'sam', 'nia', 'ines'],
   teams,
   ownTeam: 'checkout',
+  people: boardPeople({ allMembers: [], mrs: [], teams }),
 };
 
 const mine = (extra: object = {}) =>

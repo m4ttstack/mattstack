@@ -17,6 +17,7 @@ import {
   type TriageGateState,
 } from './DecisionQueueModal.tsx';
 import * as G from './gate-gallery.fixtures.ts';
+import { boardPeople, PeopleProvider } from './people.ts';
 
 /**
  * Every decision-queue face the daemon's real gate kinds produce, one story
@@ -83,25 +84,30 @@ function Face({
   position?: number;
   total?: number;
 }) {
+  const people = boardPeople({
+    allMembers: [...G.PEOPLE].map(([username, name]) => ({ username, name })),
+    mrs: entry.mr ? [entry.mr] : [],
+  });
   return (
-    <DecisionQueueModal
-      gate={entry.gate}
-      mr={entry.mr}
-      position={position}
-      states={pips(position, total)}
-      nextPeek={
-        position < total
-          ? '!739 · sensors summary chip shows a count'
-          : undefined
-      }
-      people={G.PEOPLE}
-      onClose={noop}
-      onNext={noop}
-      onBack={noop}
-      onFocusPane={noop}
-      onAnswered={noop}
-      onContinue={noop}
-    />
+    <PeopleProvider value={people}>
+      <DecisionQueueModal
+        gate={entry.gate}
+        mr={entry.mr}
+        position={position}
+        states={pips(position, total)}
+        nextPeek={
+          position < total
+            ? '!739 · sensors summary chip shows a count'
+            : undefined
+        }
+        onClose={noop}
+        onNext={noop}
+        onBack={noop}
+        onFocusPane={noop}
+        onAnswered={noop}
+        onContinue={noop}
+      />
+    </PeopleProvider>
   );
 }
 

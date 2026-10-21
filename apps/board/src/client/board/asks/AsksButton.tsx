@@ -10,9 +10,7 @@ import {
 } from './AsksDropdown.tsx';
 
 export interface AsksButtonProps
-  extends
-    AsksHandlers,
-    Pick<AsksDropdownProps, 'names' | 'confirmMs' | 'onNotice'> {
+  extends AsksHandlers, Pick<AsksDropdownProps, 'confirmMs' | 'onNotice'> {
   asks: BoardData['asks'];
   open: boolean;
   onOpenChange(open: boolean): void;

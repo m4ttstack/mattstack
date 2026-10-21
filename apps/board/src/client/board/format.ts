@@ -51,12 +51,13 @@ function signOff(hour: number): string {
   return 'Enjoy your evening.';
 }
 
+/** Usernames of the GitLab reviewers with a review open right now. */
 function activeReviewers(mr: BoardMR): string[] {
   // getReviewDisplayState maps the raw reviewState to the UI taxonomy; the SDK
   // never populates r.displayState, so derive it rather than reading that field.
   return mr.reviews.reviewers
     .filter(r => getReviewDisplayState(r.reviewState ?? null) === 'reviewing')
-    .map(r => r.name || r.username);
+    .map(r => r.username);
 }
 
 /** Drop what the row already says elsewhere: the leading ticket id (the ticket
@@ -420,15 +421,6 @@ function respondChoiceLabel(c: RespondChoice): string {
 
 /** The name a respond label shows for a username: the display name while
     the person still has something open. */
-function respondPersonName(
-  mr: Pick<BoardMR, 'respondTargets'>,
-  username: string
-): string {
-  return (
-    mr.respondTargets?.find(t => t.username === username)?.name ?? username
-  );
-}
-
 /** A doctor at the api tier never touches a checkout: it retries flaky
     jobs and watches CI, so its label says that rather than promise fixes. */
 function doctorItemLabel(
@@ -510,7 +502,6 @@ export {
   reviewLogged,
   respondChoices,
   respondChoiceLabel,
-  respondPersonName,
   roundSuffix,
   doctorItemLabel,
 };

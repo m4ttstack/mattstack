@@ -21,6 +21,7 @@ import {
 } from './icons.tsx';
 import { MemberInvadr } from './MemberInvadr.tsx';
 import { mrRef } from './MrLinks.tsx';
+import { useBoardPeople, usePeople } from './people.ts';
 import { rowStatus, statusPhrase, statusReasons } from './row-status.ts';
 import { RowNote } from './RowNote.tsx';
 import { furthestAcross, slackLadder } from './slack-ladder.ts';
@@ -224,12 +225,12 @@ function Rail({
 
 /** The header line's identity slot when the view mixes authors (the All
     view grouped by anything but author). */
-function AuthorTag({ mr }: { mr: BoardMR }) {
-  const name = mr.author.name || mr.author.username;
+function AuthorTag({ mr }: { mr: BoardMRWithReview }) {
+  const people = usePeople(mr);
   return (
-    <span className="tui-author-tag" title={name}>
+    <span className="tui-author-tag" title={people.full(mr.author.username)}>
       <MemberInvadr id={mr.author.username} className="tui-avatar" />
-      {name}
+      {people.short(mr.author.username)}
     </span>
   );
 }
@@ -264,10 +265,11 @@ function RowView({
   showAuthor: boolean;
   ctx: RowContext;
 }) {
+  const people = useBoardPeople();
   const renderRow = (mr: BoardMRWithReview, depth: number) => {
     const ticket = extractTicketId(mr.sourceBranch, mr.title);
     const nested = depth > 0;
-    const status = rowStatus(mr, now, ctx.draftResolved, ctx.self);
+    const status = rowStatus(mr, now, ctx.draftResolved, ctx.self, people);
     const behind = behindToken(mr);
     const url = mr.webUrl;
     const noteOpen = !!url && ctx.noteEditing === url;

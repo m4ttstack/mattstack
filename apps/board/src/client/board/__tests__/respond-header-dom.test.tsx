@@ -16,12 +16,7 @@ import type { GateRow } from '../../../gates/store.ts';
 import type { BoardMRWithReview } from '../../types.ts';
 import { DecisionQueueModal } from '../DecisionQueueModal.tsx';
 import type { PlanCtx, PostCtx } from '../gate-ctx.ts';
-import {
-  headerChips,
-  headerMeta,
-  personName,
-  reviewerName,
-} from '../RespondGateHeader.tsx';
+import { headerChips, headerMeta } from '../RespondGateHeader.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
 
@@ -172,7 +167,7 @@ test('an open plan@1 gate opens the respond sheet: threads left; MR card, decisi
   expect($('.tui-respond-sheet')).not.toBeNull();
   const card = $('.tui-sheet-rail .tui-mr-card')!;
   expect(card.querySelector('.tui-id-card-lead')!.textContent).toBe(
-    'Alex Doe opened !87 into main'
+    'Alex opened !87 into main'
   );
   expect(card.querySelector('.tui-id-card-title')!.textContent).toBe(
     'add retry to the fetch queue'
@@ -251,35 +246,6 @@ test('a post@1 gate leads its decision context with the reviewer', async () => {
   expect($('.tui-sheet-context-card .tui-id-card-lead')!.textContent).toBe(
     'renee reviewed your merge request'
   );
-});
-
-test('the reviewer reads by full name from the roster, else the MR reviewers, else the handle', async () => {
-  const withReviewer = {
-    ...MR,
-    reviews: {
-      ...(MR as unknown as { reviews: object }).reviews,
-      reviewers: [{ username: 'renee', name: 'Renee Park' }],
-    },
-  } as unknown as BoardMRWithReview;
-  expect(reviewerName('renee', withReviewer)).toBe('Renee Park');
-  expect(
-    reviewerName('renee', withReviewer, new Map([['renee', 'R. Park']]))
-  ).toBe('R. Park');
-  expect(reviewerName('renee', MR)).toBe('renee');
-});
-
-test('a person reads by full name from the respond targets once the roster and reviewers miss', () => {
-  const withTargets = {
-    ...MR,
-    respondTargets: [
-      { username: 'john', name: 'John Ward', openThreads: 0, openComments: 2 },
-    ],
-  } as unknown as BoardMRWithReview;
-  expect(personName('john', withTargets)).toBe('John Ward');
-  expect(personName('john', withTargets, new Map([['john', 'J. Ward']]))).toBe(
-    'J. Ward'
-  );
-  expect(personName('john', MR)).toBe('john');
 });
 
 test('a GitHub MR says pull request', async () => {
