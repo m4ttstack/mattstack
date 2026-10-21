@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import type { Database } from 'bun:sqlite';
 
 import type { Commands, RtResponse } from '@mattstack/rt-client';
@@ -97,6 +97,35 @@ function readGateVerbState(statePath: string, db: Database): GateVerbState {
     );
   }
   return row;
+}
+
+export interface GateOpenFile {
+  questionsJson: string;
+  context?: string;
+}
+
+/** Reads `gate open --open-file`: `{"questions": [...], "context"?: <string>}`.
+    The file carries what `--questions`/`--context` would, so a gate of any
+    size opens without its content riding argv (macOS caps argv near 1 MB). */
+export function readGateOpenFile(path: string): GateOpenFile {
+  const open = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  if (
+    typeof open !== 'object' ||
+    open === null ||
+    !Array.isArray((open as { questions?: unknown }).questions)
+  ) {
+    throw new Error(`${path}: open file needs a "questions" array`);
+  }
+  const { questions, context } = open as {
+    questions: unknown[];
+    context?: unknown;
+  };
+  if (context !== undefined && typeof context !== 'string') {
+    throw new Error(`${path}: open file "context" must be a string`);
+  }
+  return context === undefined
+    ? { questionsJson: JSON.stringify(questions) }
+    : { questionsJson: JSON.stringify(questions), context };
 }
 
 export type GatePresentation = 'form' | 'wait';

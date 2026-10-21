@@ -1,4 +1,10 @@
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
@@ -28,6 +34,10 @@ writeFileSync(
   statusBin,
   `#!/bin/sh
 jq -nc '$ARGS.positional' --args -- "$@" >> "$CALLS"
+while [ $# -gt 0 ]; do
+  [ "$1" = --open-file ] && cat "$2" > "$CALLS.open"
+  shift
+done
 echo '{"gateId":"g-1","presentation":"form"}'
 exit "\${STUB_EXIT:-0}"
 `
@@ -49,11 +59,15 @@ const run = (open: Open | string, env: Record<string, string> = {}) => {
     .split('\n')
     .filter(Boolean)
     .map(line => JSON.parse(line) as string[]);
+  const sent = existsSync(`${calls}.open`)
+    ? (JSON.parse(readFileSync(`${calls}.open`, 'utf8')) as Open)
+    : undefined;
   return {
     exitCode: proc.exitCode,
     stdout: proc.stdout.toString(),
     stderr: proc.stderr.toString(),
     argv,
+    sent,
   };
 };
 
@@ -61,8 +75,6 @@ const flag = (argv: string[], name: string) => {
   const i = argv.indexOf(name);
   return i === -1 ? undefined : argv[i + 1];
 };
-const sentQuestions = (argv: string[]) =>
-  JSON.parse(flag(argv, '--questions') ?? 'null') as Question[];
 
 const thread = (i: number, context: string): Question => ({
   id: `thread-${i}`,
@@ -96,15 +108,16 @@ describe('open-gate.sh', () => {
     expect(r.stdout.trim()).toBe('{"gateId":"g-1","presentation":"form"}');
     expect(r.argv).toHaveLength(1);
     const argv = r.argv[0]!;
-    expect(argv.slice(0, 5)).toEqual([
+    expect(argv.slice(0, 6)).toEqual([
       'gate',
       'open',
       '/board/respond/7.json',
       '--kind',
       'respond-plan',
+      '--open-file',
     ]);
-    expect(sentQuestions(argv)).toEqual(open.questions);
-    expect(flag(argv, '--context')).toBe(open.context);
+    expect(argv).toHaveLength(7);
+    expect(r.sent).toEqual(open);
   });
 
   test('drops the pane-only next question and nothing else', () => {
@@ -129,22 +142,34 @@ describe('open-gate.sh', () => {
       questions: [reply(1), reply(2), next],
     });
     expect(r.exitCode).toBe(0);
-    expect(sentQuestions(r.argv[0]!)).toEqual([reply(1), reply(2)]);
+    expect(r.sent?.questions).toEqual([reply(1), reply(2)]);
   });
 
-  test('a file of any size opens as is, every context whole', () => {
-    const questions = [1, 2, 3].map(i => thread(i, 'y'.repeat(20000 + i)));
+  test('a file over 1 MB opens as is, every context whole, none of it on argv', () => {
+    const questions = Array.from({ length: 40 }, (_, i) =>
+      thread(i, 'y'.repeat(30000 + i))
+    );
     const context = `Responding to ada · ${'z'.repeat(40000)}`;
     const r = run({ context, questions: [...questions, codeChanges] });
     expect(r.exitCode).toBe(0);
-    expect(sentQuestions(r.argv[0]!)).toEqual([...questions, codeChanges]);
-    expect(flag(r.argv[0]!, '--context')).toBe(context);
+    expect(JSON.stringify(r.sent).length).toBeGreaterThan(1_048_576);
+    expect(r.sent).toEqual({ context, questions: [...questions, codeChanges] });
+    expect(JSON.stringify(r.argv[0]).length).toBeLessThan(1000);
   });
 
-  test('a file with no gate context opens without --context', () => {
+  test('a file with no gate context sends none', () => {
     const r = run({ questions: [codeChanges] });
     expect(r.exitCode).toBe(0);
-    expect(r.argv[0]).not.toContain('--context');
+    expect(r.sent).toEqual({ questions: [codeChanges] });
+  });
+
+  test('removes its fitted temp file after the open', () => {
+    const tmp = mkdtempSync(join(dir, 'tmp-'));
+    const r = run({ questions: [codeChanges] }, { TMPDIR: tmp });
+    expect(r.exitCode).toBe(0);
+    const sentPath = flag(r.argv[0]!, '--open-file')!;
+    expect(sentPath.startsWith(tmp)).toBe(true);
+    expect(existsSync(sentPath)).toBe(false);
   });
 
   test("passes the status-bin's failure through so degraded mode can see it", () => {

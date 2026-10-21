@@ -16,6 +16,7 @@ import {
   gateOpen,
   gateWait,
   parseWaitMaxMs,
+  readGateOpenFile,
   type GateVerbIo,
 } from '../gates/verbs.ts';
 import { statusBinPath } from '../herdr.ts';
@@ -979,6 +980,130 @@ describe('bin/gate.ts malformed --questions', () => {
     expect(code).not.toBe(0);
     const stderr = await new Response(proc.stderr).text();
     expect(stderr.length).toBeGreaterThan(0);
+  });
+});
+
+describe('readGateOpenFile', () => {
+  const write = (body: string) => {
+    const file = join(dir, 'open.json');
+    writeFileSync(file, body);
+    return file;
+  };
+
+  test('reads a question set over 1 MB and its context whole', () => {
+    const questions = Array.from({ length: 40 }, (_, i) => ({
+      ...QUESTIONS[0]!,
+      id: `findings-${i}`,
+      context: 'x'.repeat(30_000),
+    }));
+    const context = 'c'.repeat(50_000);
+    const file = write(JSON.stringify({ context, questions }));
+    const open = readGateOpenFile(file);
+    expect(open.questionsJson.length).toBeGreaterThan(1_048_576);
+    expect(JSON.parse(open.questionsJson)).toEqual(questions);
+    expect(open.context).toBe(context);
+  });
+
+  test('a file with no context leaves context undefined', () => {
+    const open = readGateOpenFile(
+      write(JSON.stringify({ questions: QUESTIONS }))
+    );
+    expect(open.context).toBeUndefined();
+    expect(JSON.parse(open.questionsJson)).toEqual(QUESTIONS);
+  });
+
+  test('refuses a file that is not a gate open', () => {
+    expect(() => readGateOpenFile(write('not json'))).toThrow();
+    expect(() => readGateOpenFile(write('{"context":"c"}'))).toThrow(
+      /questions/
+    );
+    expect(() =>
+      readGateOpenFile(write(JSON.stringify({ context: 1, questions: [] })))
+    ).toThrow(/context/);
+  });
+});
+
+describe('bin/gate.ts --open-file', () => {
+  test('a gate over 1 MB reaches the daemon whole through the file', async () => {
+    const questions = Array.from({ length: 40 }, (_, i) => ({
+      ...QUESTIONS[0]!,
+      id: `findings-${i}`,
+      context: 'x'.repeat(30_000),
+    }));
+    const file = join(dir, 'big-open.json');
+    writeFileSync(file, JSON.stringify({ context: 'c', questions }));
+    // A short path: macOS caps a unix socket path at 104 bytes.
+    const sockDir = mkdtempSync('/tmp/gvs-');
+    const sock = join(sockDir, 'rt.sock');
+    const received: Array<Record<string, unknown>> = [];
+    const daemon = Bun.serve({
+      unix: sock,
+      maxRequestBodySize: 16 * 1024 * 1024,
+      async fetch(req) {
+        received.push((await req.json()) as Record<string, unknown>);
+        return Response.json({
+          ok: true,
+          data: { id: 'g-big', presentation: 'form' },
+        });
+      },
+    });
+    try {
+      const proc = Bun.spawn(
+        [
+          statusBinPath(),
+          'gate',
+          'open',
+          statePath,
+          '--kind',
+          'review-post',
+          '--open-file',
+          file,
+        ],
+        {
+          stdout: 'pipe',
+          stderr: 'pipe',
+          env: { ...process.env, RT_DAEMON_SOCK: sock },
+        }
+      );
+      const code = await proc.exited;
+      expect(await new Response(proc.stderr).text()).toBe('');
+      expect(code).toBe(0);
+      expect(JSON.parse(await new Response(proc.stdout).text())).toEqual({
+        gateId: 'g-big',
+        presentation: 'form',
+      });
+      expect(received).toHaveLength(1);
+      expect(JSON.stringify(received[0]!.questions).length).toBeGreaterThan(
+        1_048_576
+      );
+      expect(received[0]!.questions).toEqual(questions);
+      expect(received[0]!.context).toBe('c');
+    } finally {
+      await daemon.stop(true);
+      rmSync(sockDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses --open-file alongside --questions', async () => {
+    const proc = Bun.spawn(
+      [
+        statusBinPath(),
+        'gate',
+        'open',
+        statePath,
+        '--kind',
+        'review-post',
+        '--open-file',
+        join(dir, 'x.json'),
+        '--questions',
+        '[]',
+      ],
+      { stdout: 'pipe', stderr: 'pipe' }
+    );
+    expect(await proc.exited).not.toBe(0);
+    expect(await new Response(proc.stderr).text()).toContain(
+      'usage: gate open'
+    );
   });
 });
 
