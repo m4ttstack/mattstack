@@ -158,6 +158,16 @@ function ThreadOutcome({
   );
 }
 
+/** A thread's outcome inside its composer strip, for a thread whose
+    composer is its whole card. */
+function StripOutcome({ verb }: { verb: 'reply' | 'fix' | 'skip' }) {
+  return (
+    <span className="tui-composer-status" data-outcome={verb}>
+      {OUTCOME_TEXT[verb]}
+    </span>
+  );
+}
+
 /** A respond-post reply option's label: where the reply lands, whether it
     rides a pushed fix, and the full text that will be posted. `children`
     joins the label row (the recommended chip). `showFile` is false where
@@ -202,10 +212,10 @@ function ReplyChoiceBody({
   );
 }
 
-/** A per-thread post question's controls, one compact row of ticks: post
-    the reply, and, independently, resolve the thread when the question
-    offers it (an Overview comment does not). Unticking post holds the reply
-    back. What each does rides the tooltip. */
+/** A per-thread post question's controls, plain checkboxes in one row:
+    post the reply, and, independently, resolve the thread when the
+    question offers it (an Overview comment does not). Unticking post holds
+    the reply back. What each does rides the tooltip. */
 function PostResolveChoice({
   pick,
   form,
@@ -246,6 +256,7 @@ function PostResolveChoice({
         <label
           className="tui-post-tick"
           data-checked={t.on || undefined}
+          data-quiet={(t.value === 'resolve' && !posting && !t.on) || undefined}
           title={t.hint}
           key={t.value}
         >
@@ -277,6 +288,7 @@ export {
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
+  StripOutcome,
   ThreadCard,
   ThreadOutcome,
 };

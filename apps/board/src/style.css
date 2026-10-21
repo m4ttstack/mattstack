@@ -2362,41 +2362,32 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 18px;
 }
 .tui-post-tick {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--card);
   font-size: 13px;
-  font-weight: 500;
   color: var(--text-1);
   cursor: pointer;
   user-select: none;
-  transition:
-    background-color 120ms,
-    border-color 120ms;
 }
-.tui-post-tick:hover {
-  background: color-mix(in srgb, var(--fg) 4%, var(--card));
-}
-.tui-post-tick[data-checked] {
-  border-color: var(--fill-accent);
-  background: color-mix(in srgb, var(--fill-accent) 10%, var(--card));
+/* Resolving without a reply is the rarer call, so while the reply is held
+   its tick steps back. */
+.tui-post-tick[data-quiet] {
+  color: var(--text-2);
 }
 .tui-post-tick:has(input:focus-visible) {
   outline: 2px solid var(--fill-accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 .tui-post-tick .tui-gate-choice-input {
   width: 14px;
   height: 14px;
 }
-/* The resolve tick is painted with the on-fill token through a mask, so it
+/* The tick is painted with the on-fill token through a mask, so it
    follows the fill it sits on in either scheme. */
 .tui-check {
   position: relative;
@@ -4073,8 +4064,8 @@ a.tui-id-card-ref:focus-visible {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 28px;
-  padding: 4px 12px;
+  min-height: 32px;
+  padding: 6px 14px;
   background: color-mix(in srgb, var(--fill-ok) 16%, var(--card));
   border-bottom: 1px solid color-mix(in srgb, var(--fill-ok) 35%, var(--card));
 }
@@ -4096,11 +4087,46 @@ a.tui-id-card-ref:focus-visible {
   font-size: 12px;
   color: var(--text-ok-small);
 }
+/* A composer that is its thread's whole card names the thread in its
+   strip: the diff line in mono, or the thread's plain name. */
+.tui-composer-lead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  flex: 1;
+  min-width: 0;
+}
+.tui-composer-where {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-ok-small);
+  overflow-wrap: anywhere;
+}
+.tui-composer-where[data-mono] {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.tui-composer-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--fill-ok) 45%, var(--card));
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-ok-small);
+}
+.tui-composer-edited {
+  color: var(--text-warn-small);
+}
 .tui-composer-act {
   padding: 0;
   font: inherit;
   font-weight: 500;
-  color: var(--text-ok-small);
+  color: var(--text-accent-small);
   background: none;
   border: none;
   text-decoration: underline;
@@ -4117,7 +4143,7 @@ a.tui-id-card-ref:focus-visible {
   width: 100%;
   box-sizing: border-box;
   margin: 0;
-  padding: 10px 12px;
+  padding: 10px 14px;
   font: inherit;
   font-size: 14px;
   line-height: 1.5;
@@ -4128,7 +4154,7 @@ a.tui-id-card-ref:focus-visible {
   overflow: hidden;
 }
 .tui-composer-text {
-  padding: 10px 12px;
+  padding: 10px 14px;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-1);
@@ -4153,12 +4179,84 @@ a.tui-id-card-ref:focus-visible {
   border-bottom-color: var(--border-soft);
 }
 .tui-composer[data-held]
-  :is(.tui-composer-k, .tui-composer-input, .tui-composer-text) {
+  :is(
+    .tui-composer-k,
+    .tui-composer-where,
+    .tui-composer-meta,
+    .tui-composer-input,
+    .tui-composer-text
+  ) {
   color: var(--text-2);
 }
+/* Inside the frame, under the field: the card's own ticks on the left,
+   Write and Preview on the right. */
 .tui-composer-foot {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  min-height: 34px;
+  padding: 5px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+/* A thread whose composer is its whole card: the frame is the card. */
+.tui-gate-question[data-frame='composer'] {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+/* Write and Preview: two quiet text tabs, the current one inked on a
+   faint wash. They exist only because Preview does. */
+.tui-field-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.tui-field-tab {
+  padding: 2px 7px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .tui-field-tab:hover {
+    color: var(--text-1);
+  }
+}
+.tui-field-tab[aria-selected='true'] {
+  font-weight: 500;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+.tui-field-tab:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 1px;
+}
+.tui-field-preview {
+  box-sizing: border-box;
+  min-height: var(--field-h, auto);
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.tui-field-preview [data-part='markdown'] > :first-child {
+  margin-top: 0;
+}
+.tui-field-preview [data-part='markdown'] > :last-child {
+  margin-bottom: 0;
+}
+.tui-field-preview-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-3);
 }
 
 /* Hairline above the record cluster, spanning the left column. */

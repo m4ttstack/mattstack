@@ -1354,7 +1354,7 @@ describe('a gate whose poster honors edited drafts', () => {
 
   test('an edited comment rides its chunk answer as texts', async () => {
     await render(draftsGate());
-    await edit(itemFor('Unused import'), ' Drop this import, please. ');
+    await edit(itemFor('Unused import'), '\nDrop this import, please. ');
     await click(submitButton());
     expect(answers()).toEqual({
       'findings-1': {
@@ -1434,7 +1434,7 @@ describe('a gate whose poster honors edited drafts', () => {
   test("the comment verdict's edit rides as text only when it differs from the comment draft", async () => {
     await render(draftsGate());
     await pickVerdict('comment');
-    await edit(summaryLine(), `  ${SUMMARY_COMMENT}\n`);
+    await edit(summaryLine(), `\n${SUMMARY_COMMENT}\n`);
     await click(submitButton());
     expect(answers().outcome).toBe('comment');
   });
@@ -1443,7 +1443,7 @@ describe('a gate whose poster honors edited drafts', () => {
     await render(draftsGate());
     await edit(summaryLine(), 'Approve, edited.');
     await pickVerdict('comment');
-    await edit(summaryLine(), ' Comment, edited. ');
+    await edit(summaryLine(), '\nComment, edited. ');
     await click(submitButton());
     expect(answers().outcome).toEqual({
       value: 'comment',
@@ -1479,7 +1479,7 @@ describe('a gate whose poster honors edited drafts', () => {
     await render(gate);
     await pickVerdict('request_changes');
     expect(valueOf(summaryLine())).toContain(REQUEST);
-    await edit(summaryLine(), ' Needs the SQL fix first. ');
+    await edit(summaryLine(), '\nNeeds the SQL fix first. ');
     await click(submitButton());
     expect(answers().outcome).toEqual({
       value: 'request_changes',

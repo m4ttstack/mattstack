@@ -7,6 +7,7 @@ import {
   planTexts,
   postPicks,
   postTally,
+  postedText,
   postTexts,
   type PostPick,
 } from '../respond-post.ts';
@@ -160,9 +161,9 @@ test('postTexts sends a trimmed edit only for a posting thread whose edit differ
     'thread-3': ['post:T3'],
   };
   const texts = {
-    'thread-1': '  edited one \n',
+    'thread-1': '\nedited one \n',
     'thread-2': 'held edit',
-    'thread-3': ' draft three ',
+    'thread-3': '\ndraft three ',
   };
   expect(postTexts(picks, selections, texts)).toEqual({
     'thread-1': 'edited one',
@@ -183,9 +184,21 @@ test('postTexts is null when a posting thread was emptied, never when a held one
   ).toEqual({});
 });
 
-test('editedText ignores surrounding whitespace', () => {
+test('postedText drops leading blank lines and trailing space, and keeps the first line indent', () => {
+  expect(postedText('\n  \n    const x = 1;\n  \n')).toBe('    const x = 1;');
+  expect(postedText('  indented first line')).toBe('  indented first line');
+  expect(postedText('text\r\n\t ')).toBe('text');
+});
+
+test('an indented first line is an edit and posts with its indent', () => {
+  expect(editedText('thread-1', 'draft', { 'thread-1': '  draft' })).toBe(
+    true
+  );
+});
+
+test('editedText ignores leading blank lines and trailing whitespace', () => {
   expect(editedText('thread-1', 'draft', {})).toBe(false);
-  expect(editedText('thread-1', 'draft', { 'thread-1': ' draft\n' })).toBe(
+  expect(editedText('thread-1', 'draft', { 'thread-1': '\ndraft\n' })).toBe(
     false
   );
   expect(editedText('thread-1', 'draft', { 'thread-1': 'draft, edited' })).toBe(
@@ -241,11 +254,11 @@ test('planTexts sends a trimmed edit only for a reply pick whose edit differs', 
     planTexts(
       replies,
       { 'thread-1': 'reply:T1', 'thread-2': 'fix:T2' },
-      { 'thread-1': ' one, edited ', 'thread-2': 'kept for later' }
+      { 'thread-1': '\none, edited ', 'thread-2': 'kept for later' }
     )
   ).toEqual({ 'thread-1': 'one, edited' });
   expect(
-    planTexts(replies, { 'thread-1': 'reply:T1' }, { 'thread-1': ' one ' })
+    planTexts(replies, { 'thread-1': 'reply:T1' }, { 'thread-1': '\none ' })
   ).toEqual({});
   expect(
     planTexts(replies, { 'thread-1': 'reply:T1' }, { 'thread-1': '  ' })

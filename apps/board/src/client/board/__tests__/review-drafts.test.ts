@@ -51,13 +51,13 @@ describe('joinSummary', () => {
 describe('draftEdits', () => {
   const ticked = new Set(['f1', 'f2', 'f5']);
 
-  test('an edit that matches its draft once trimmed is dropped', () => {
+  test('an edit that matches its draft as it would post is dropped', () => {
     expect(
       draftEdits(
         DRAFTS,
         ticked,
         {
-          [commentKey('f1')]: '  Draft one.\n',
+          [commentKey('f1')]: '\nDraft one.\n',
           [summaryKey('approve')]: 'Approve draft. ',
         },
         'approve'
@@ -65,18 +65,29 @@ describe('draftEdits', () => {
     ).toEqual({ texts: {} });
   });
 
-  test('a changed edit rides trimmed, keyed by finding id', () => {
+  test('a changed edit rides as it would post, keyed by finding id', () => {
     expect(
       draftEdits(
         DRAFTS,
         ticked,
         {
-          [commentKey('f2')]: ' New two. ',
+          [commentKey('f2')]: '\nNew two. ',
           [summaryKey('approve')]: 'New summary.',
         },
         'approve'
       )
     ).toEqual({ texts: { f2: 'New two.' }, summary: 'New summary.' });
+  });
+
+  test('an edit opening on an indented code line keeps the indent', () => {
+    expect(
+      draftEdits(
+        DRAFTS,
+        ticked,
+        { [commentKey('f2')]: '    return null;\n\nWould this read better?\n' },
+        'approve'
+      )
+    ).toEqual({ texts: { f2: '    return null;\n\nWould this read better?' } });
   });
 
   test("an unticked finding's edit is dropped", () => {
@@ -138,7 +149,7 @@ describe('draftEdits', () => {
       draftEdits(
         DRAFTS,
         ticked,
-        { [summaryKey('comment')]: ' Comment draft.\n' },
+        { [summaryKey('comment')]: '\nComment draft.\n' },
         'comment'
       )
     ).toEqual({ texts: {} });

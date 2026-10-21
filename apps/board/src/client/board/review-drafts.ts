@@ -1,5 +1,6 @@
 import type { GateAnswers, GateQuestion } from '@mattstack/gate-kit';
 import type { FindingEntry } from './gate-ctx.ts';
+import { postedText } from './respond-post.ts';
 import { isFindingsQuestion } from './review-gate.ts';
 
 /** Form text keys: one per finding's comment, one summary line per
@@ -29,7 +30,7 @@ export interface DraftEdits {
   summary?: string;
 }
 
-/** The trimmed edits that differ from their drafts, for ticked findings
+/** The edits, as they post, that differ from their drafts, for ticked findings
     only, keyed by finding id, plus the selected verdict's summary edit.
     Null when a ticked finding's edit, or the selected verdict's summary
     edit, is blank: an empty comment cannot post. */
@@ -44,18 +45,18 @@ export function draftEdits(
     if (!ticked.has(id)) continue;
     const edit = texts[commentKey(id)];
     if (edit === undefined) continue;
-    const trimmed = edit.trim();
-    if (trimmed === '') return null;
-    if (trimmed !== draft.trim()) out.texts[id] = trimmed;
+    if (edit.trim() === '') return null;
+    const posted = postedText(edit);
+    if (posted !== postedText(draft)) out.texts[id] = posted;
   }
   const summaryDraft =
     outcome !== undefined ? drafts.summaries[outcome] : undefined;
   const summaryEdit =
     outcome !== undefined ? texts[summaryKey(outcome)] : undefined;
   if (summaryEdit !== undefined && summaryDraft !== undefined) {
-    const trimmed = summaryEdit.trim();
-    if (trimmed === '') return null;
-    if (trimmed !== summaryDraft.trim()) out.summary = trimmed;
+    if (summaryEdit.trim() === '') return null;
+    const posted = postedText(summaryEdit);
+    if (posted !== postedText(summaryDraft)) out.summary = posted;
   }
   return out;
 }

@@ -53,19 +53,25 @@ export function postPicks(questions: GateQuestion[]): PostPick[] {
   });
 }
 
-/** An edit counts only when it differs from the draft once surrounding
-    whitespace is ignored. */
+/** What a typed reply or comment posts as: leading blank lines and
+    trailing whitespace go, and the first line keeps its indent, since an
+    indented code line is content. */
+export function postedText(text: string): string {
+  return text.replace(/^(?:[ \t]*\r?\n)+/, '').trimEnd();
+}
+
+/** An edit counts only when it differs from the draft as each would post. */
 export function editedText(
   name: string,
   draft: string,
   texts: Record<string, string>
 ): boolean {
   const edit = texts[name];
-  return edit !== undefined && edit.trim() !== draft.trim();
+  return edit !== undefined && postedText(edit) !== postedText(draft);
 }
 
-/** The trimmed edit each active item sends, keyed by question id. Null when
-    an active item's edit is empty: an empty reply cannot post. */
+/** The edit each active item sends, as it posts, keyed by question id. Null
+    when an active item's edit is empty: an empty reply cannot post. */
 export function sendableTexts(
   items: Array<{ name: string; draft: string; active: boolean }>,
   texts: Record<string, string>
@@ -76,7 +82,7 @@ export function sendableTexts(
     const edit = texts[it.name];
     if (edit === undefined) continue;
     if (edit.trim() === '') return null;
-    if (editedText(it.name, it.draft, texts)) out[it.name] = edit.trim();
+    if (editedText(it.name, it.draft, texts)) out[it.name] = postedText(edit);
   }
   return out;
 }

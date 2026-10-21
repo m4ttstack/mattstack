@@ -46,6 +46,7 @@ import {
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
+  StripOutcome,
   ThreadCard,
   ThreadOutcome,
 } from './RespondCards.tsx';
@@ -619,7 +620,9 @@ function RespondSheetBody({
     const v = form.selections[p.name];
     return Array.isArray(v) && v.includes(p.post);
   };
-  const editableReply = (p: PostPick) => {
+  // `framed`: the composer is the thread's whole card, so its strip names
+  // the thread and its outcome.
+  const editableReply = (p: PostPick, framed = false) => {
     const live = postingPick(p);
     return (
       <CommentComposer
@@ -627,6 +630,13 @@ function RespondSheetBody({
         noun="reply"
         kicker="will post as reply"
         heldKicker="drafted reply · not posting"
+        {...(framed
+          ? {
+              where: p.label,
+              status: <StripOutcome verb={p.reply!.verb} />,
+              heldMeta: 'not posting',
+            }
+          : {})}
         draft={p.reply!.text}
         value={live ? form.texts[p.name] : undefined}
         canEdit={live}
@@ -802,6 +812,19 @@ function RespondSheetBody({
                   );
                 const p = item.pick;
                 const display = displayOf(p.name);
+                if (p.reply)
+                  return (
+                    <section
+                      key={p.name}
+                      className="tui-gate-question"
+                      data-gate-ctx="thread"
+                      data-step="post"
+                      data-frame="composer"
+                      aria-label={p.label}
+                    >
+                      {editableReply(p, true)}
+                    </section>
+                  );
                 return (
                   <section
                     key={p.name}
@@ -812,11 +835,8 @@ function RespondSheetBody({
                   >
                     <div className="tui-gate-question-head">
                       <span className="tui-gate-question-label">{p.label}</span>
-                      {p.reply && <ThreadOutcome verb={p.reply.verb} />}
                     </div>
-                    {p.reply ? (
-                      <div className="tui-thread-card">{editableReply(p)}</div>
-                    ) : display?.context && questionCtx.get(p.name) == null ? (
+                    {display?.context && questionCtx.get(p.name) == null ? (
                       <ProseContext q={display} structured={false} />
                     ) : (
                       <p className="tui-thread-nothing">
@@ -824,7 +844,7 @@ function RespondSheetBody({
                         pane.
                       </p>
                     )}
-                    {!p.reply && <PostResolveChoice pick={p} form={form} />}
+                    <PostResolveChoice pick={p} form={form} />
                   </section>
                 );
               })}

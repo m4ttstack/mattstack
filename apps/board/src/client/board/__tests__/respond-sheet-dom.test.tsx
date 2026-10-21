@@ -725,6 +725,48 @@ test('without its plan gate, each per-thread question still draws its reply and 
   expect($('.tui-sheet-list-tally')!.textContent).toBe('2 of 2 posting');
 });
 
+test('without its plan gate, each thread is one composer frame: strip, field, footer ticks', async () => {
+  await render(perThreadPostGate());
+  const [fix] = postCards();
+  expect(fix!.getAttribute('data-frame')).toBe('composer');
+  expect(fix!.querySelector('.tui-thread-card')).toBeNull();
+  expect(fix!.querySelector('.tui-gate-question-head')).toBeNull();
+  const strip = fix!.querySelector('.tui-composer-strip')!;
+  const where = strip.querySelector('.tui-composer-where')!;
+  expect(where.textContent).toBe('a.ts:1');
+  expect(where.hasAttribute('data-mono')).toBe(true);
+  expect(strip.querySelector('[data-outcome]')!.textContent).toBe('fixed');
+  expect(strip.querySelector('.tui-composer-meta')!.textContent).toBe(
+    'posts as you'
+  );
+  const foot = fix!.querySelector('.tui-composer .tui-composer-foot')!;
+  expect(
+    [...foot.querySelectorAll('.tui-post-tick')].map(t => t.textContent)
+  ).toEqual(['Post reply', 'Resolve thread']);
+  expect(foot.querySelector('input[value="post"]')).toBe(control(fix!, 'post'));
+});
+
+test('an unticked Post greys the strip and says the reply is not posting', async () => {
+  await render(perThreadPostGate());
+  const card = () => postCards()[1]!;
+  await holdReply(card());
+  const frame = card().querySelector('.tui-composer')!;
+  expect(frame.hasAttribute('data-held')).toBe(true);
+  expect(frame.querySelector('.tui-composer-meta')!.textContent).toBe(
+    'not posting'
+  );
+  expect(card().querySelector('.tui-composer-where')!.textContent).toBe(
+    'b.ts:2'
+  );
+  const box = replyBox(card())!;
+  expect(box.readOnly).toBe(true);
+  const named = box
+    .getAttribute('aria-describedby')!
+    .split(' ')
+    .map(id => document.getElementById(id)?.textContent);
+  expect(named).toContain('not posting');
+});
+
 /** The same gate after `gate-ctx.sh fit` went over budget: every context,
     the gate's own included, flattened to prose. */
 function prosePostGate(): GateRow {
@@ -990,7 +1032,7 @@ const seedTexts = (
   );
 
 test('an edited posting thread answers with its text; the others stay bare', async () => {
-  seedTexts({ 'thread-1': '  Fixed, and the retry is now bounded.  ' });
+  seedTexts({ 'thread-1': '\nFixed, and the retry is now bounded.  ' });
   await render(perThreadPostGate(), withFixPlan());
   await clickSubmit();
   expect(answer()).toEqual({
