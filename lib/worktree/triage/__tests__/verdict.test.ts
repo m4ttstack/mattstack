@@ -4,7 +4,7 @@ import { triageCounts, triageRow, type TriageFacts } from "../verdict.ts";
 const base: TriageFacts = {
   repo: `remote:${encodeURIComponent("github.com/m4ttstack/rt")}`, tree: "t", path: "/p/t", branch: "b", broken: null,
   mr: { iid: 1, state: "merged", title: "x", at: null, url: null }, ticket: null,
-  remoteBranchExists: true, ahead: 0, containment: "on-remote",
+  remoteBranchExists: true, ahead: 0, unpushed: 0, containment: "on-remote",
   dirt: { kind: "none", files: [], discardable: [] },
   fingerprint: { headSha: "h", dirtHash: "d", mrState: "merged" }, kept: null, hold: null,
 };
@@ -44,10 +44,14 @@ describe("triageRow", () => {
     expect([r.group, r.actions[0]]).toEqual(["look", "review"]);
   });
   test("unpushed work with no remote is the only copy, push first", () => {
-    const r = row({ containment: "none", remoteBranchExists: false, ahead: 19, mr: { iid: 3, state: "closed", title: "x", at: null, url: null } });
+    const r = row({ containment: "none", remoteBranchExists: false, ahead: 19, unpushed: 19, mr: { iid: 3, state: "closed", title: "x", at: null, url: null } });
     expect([r.group, r.push, r.actions[0]]).toEqual(["only-copy", { kind: "unpushed", ahead: 19 }, "push-branch"]);
     expect(r.actions).toContain("keep");
     expect(r.actions).not.toContain("dispose");
+  });
+  test("a squash-merged branch counts only the commits its remote branch lacks", () => {
+    const r = row({ containment: "none", remoteBranchExists: true, ahead: 22, unpushed: 1 });
+    expect(r.push).toEqual({ kind: "unpushed", ahead: 1 });
   });
   test.each([
     ["process", "stop-process"], ["herd", "release"], ["run", "open-run"],

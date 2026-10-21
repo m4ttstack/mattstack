@@ -60,6 +60,16 @@ const ROWS: readonly SettingDef[] = [
     description: "Worktree pool on/off switch (enabled, killProcesses, claudeHook), merged per field. A team can turn the pool on for every member; a user or machine value overrides the team's, so a machine that wants it off sets {\"enabled\":false} at machine scope. claudeHook records this machine's answer to the Claude hook offer and is read from the machine store only. A distinct key from rt.worktrees (the per-repo pool config above).",
   },
   {
+    key: "rt.worktreeMergeCleanupNotice",
+    type: "boolean",
+    scopes: ALL_SCOPES,
+    default: true,
+    merge: "replace",
+    repoScoped: true,
+    repoOnly: true,
+    description: "Say when a repo's merged worktrees are not cleaned up on their own (no PR checks, or no forge token). false hides that notice for the repo, in the Worktrees window and in rt worktree list.",
+  },
+  {
     key: "rt.worktreeReadyApproval",
     type: "string",
     scopes: ALL_SCOPES,

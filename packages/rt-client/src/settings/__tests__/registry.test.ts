@@ -200,6 +200,7 @@ describe("settings/registry", () => {
         "rt.roles",
         "rt.sync",
         "rt.variations",
+        "rt.worktreeMergeCleanupNotice",
         "rt.worktreeReadyApproval",
         "rt.worktrees",
       ]);
@@ -370,6 +371,7 @@ describe("settings/registry", () => {
         "chat.viewerUrl",
         "chat.herdrWorkspace",
         "chat.autoSignIn",
+        "rt.worktreeMergeCleanupNotice",
         "chat.push.provider",
         "chat.push.target",
         "agent.provider",
@@ -413,7 +415,7 @@ describe("settings/registry", () => {
         "rt.branchNaming",
         "telemetry.enabled",
       ];
-      expect(suiteKeys).toHaveLength(97);
+      expect(suiteKeys).toHaveLength(98);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

@@ -64,10 +64,48 @@ final class WorktreePanelController: ObservableObject {
     /// A finished action keeps its row busy until a query started after it lands.
     private var settling = TriageSettleLedger<() -> Void>()
     private let fixture: TriageData?
+    private let rt: RtRunning?
+    /// Repos whose banner action is running, so its buttons cannot fire twice.
+    @Published var bannerBusy: Set<String> = []
 
-    init(fixture: TriageData? = nil) {
+    init(fixture: TriageData? = nil, rt: RtRunning? = nil) {
         self.fixture = fixture
+        self.rt = rt
         if let f = fixture { rows = f.rows; counts = f.counts; banners = f.banners; isLoading = false }
+    }
+
+    func enableCleanup(_ banner: TriageBanner) {
+        guard let args = banner.enableCleanupArgs else { return }
+        runBanner(banner, args, done: "\(RepoIdentity.changeNoun(banner.repo)) checks are on for \(banner.repoName)")
+    }
+
+    func hideBanner(_ banner: TriageBanner) {
+        runBanner(banner, banner.hideArgs, done: "Hidden for \(banner.repoName)")
+    }
+
+    private func runBanner(_ banner: TriageBanner, _ args: [String], done: String) {
+        guard !bannerBusy.contains(banner.repo) else { return }
+        guard let rt else {
+            setStatus("rt isn't available to the app, so this can't run from here.", isError: true)
+            return
+        }
+        let repo = banner.repo
+        bannerBusy.insert(repo)
+        Task {
+            do {
+                let r = try await rt.run(args, stdin: nil)
+                if r.exitCode == 0 {
+                    setStatus(done, isError: false)
+                    // Busy holds until a query started after the write lands, so the old banner can't fire twice.
+                    refresh(force: true) { [weak self] in self?.bannerBusy.remove(repo) }
+                    return
+                }
+                setStatus(r.userError?.message ?? r.failureCopy(verb: args.prefix(2).joined(separator: " ")), isError: true)
+            } catch {
+                setStatus((error as? RtClientError)?.copy ?? "rt failed to start.", isError: true)
+            }
+            bannerBusy.remove(repo)
+        }
     }
 
     func startPolling() {
