@@ -91,7 +91,16 @@ export async function rtCommand<T = unknown>(
       signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
       // Bun's `unix` fetch option isn't in the standard RequestInit type.
     } as RequestInit);
-    return (await res.json()) as RtResponse<T>;
+    const text = await res.text();
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { /* not JSON */ }
+    const envelope = parsed as RtResponse<T> | null;
+    if (envelope && typeof envelope === "object" && typeof envelope.ok === "boolean") return envelope;
+    if (res.status === 413) {
+      const mb = (Buffer.byteLength(JSON.stringify(payload)) / (1024 * 1024)).toFixed(1);
+      return { ok: false, error: `${cmd} refused: request too large (${mb} MB sent; the daemon rejected it with HTTP 413${cmd.startsWith("gate:") ? "; gate requests are limited to 16 MiB" : ""})` };
+    }
+    return { ok: false, error: `${cmd} failed: HTTP ${res.status}${text ? ` ${text.slice(0, 200)}` : ""}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: `rt daemon unreachable at ${sockPath}: ${msg}` };
