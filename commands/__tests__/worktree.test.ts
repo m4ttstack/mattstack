@@ -430,7 +430,7 @@ describe("worktree CLI identity plumbing", () => {
     ]);
   });
 
-  test("provision and restore never name an undefined setup step", async () => {
+  test("provision never names an undefined setup step", async () => {
     const repoPath = makeGitRepo("provision-unnamed");
     process.chdir(repoPath);
     getRepoIdentity();
@@ -441,9 +441,19 @@ describe("worktree CLI identity plumbing", () => {
     expect(io.lines().at(-1)).toBe(unfinished);
 
     io.clear();
-    installFakeDaemon({ ok: true, data: { restored: true, path: "/pool/alpha", tree: "alpha", readyFailed: true } });
+  });
+
+  test("restore hands setup to the background and says how to wait for it", async () => {
+    const repoPath = makeGitRepo("restore-pending");
+    process.chdir(repoPath);
+    getRepoIdentity();
+    installFakeDaemon({ ok: true, data: { restored: true, path: "/pool/alpha", tree: "alpha", readyPending: true, readySteps: ["pnpm install"] } });
+
     await worktreeRestore(["alpha"], {});
-    expect(io.lines()).toEqual(["[ok] alpha restored  /pool/alpha", unfinished]);
+
+    expect(io.lines()[0]).toBe("[ok] alpha restored  /pool/alpha");
+    expect(io.stdout()).toContain("Still setting up in the background");
+    expect(io.stdout()).toContain("rt worktree await-ready alpha");
   });
 
   test("create names the tree, and says when it was kept as a spare", async () => {

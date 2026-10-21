@@ -986,6 +986,36 @@ describe("worktree:restore", () => {
     const res: any = await h["worktree:restore"]!({ repoName, tree: "alpha" });
     expect(res).toMatchObject({ ok: false, error: "not-found" });
   });
+
+  test("ready steps settle in the background after restore replies", async () => {
+    const repo = makeRepo();
+    seedOnDeck(repo, repoName, "alpha", new Date().toISOString());
+    const { h, events } = makeHandlers({ [repoName]: repo });
+    const claimed: any = await h["worktree:provision"]!({ repoName, branch: "rt-restore-bg" });
+    expect(claimed.ok).toBe(true);
+    const rec = loadRegistry(repoName).find((t) => t.name === "alpha")!;
+    const disposed = await disposeTree(
+      { repoName, repoPath: repo, cacheEntries: {}, emit: () => {}, log: { info: () => {}, warn: () => {}, debug: () => {} } as never, killProcesses: false, findRunningRun: () => ({ kind: "none" }) },
+      rec,
+      { force: true },
+    );
+    expect(disposed.disposed).toBe(true);
+    await declareWorktrees(repo, repoName, { ready: [{ run: "echo ran >> settle-marker.txt" }] });
+
+    const res: any = await h["worktree:restore"]!({ repoName, tree: "alpha" });
+
+    expect(res.ok).toBe(true);
+    expect(res.data.readyPending).toBe(true);
+    expect(res.data.readySteps).toEqual(["echo ran >> settle-marker.txt"]);
+    const task = readyTaskFor(res.data.path);
+    expect(task).not.toBeNull();
+    expect((await task!).ok).toBe(true);
+    expect(existsSync(join(res.data.path, "settle-marker.txt"))).toBe(true);
+    const settled = loadRegistry(repoName).find((t) => t.name === "alpha")!;
+    expect(settled.readyPendingAt).toBeUndefined();
+    expect(settled.readyAt).toBeTruthy();
+    expect(events.find((e) => e.type === "worktree:ready-settled")?.data).toMatchObject({ repo: repoName, tree: "alpha", ok: true });
+  }, 60_000);
 });
 
 describe("worktree:list", () => {
