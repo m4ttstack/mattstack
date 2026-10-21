@@ -99,6 +99,7 @@ const upload = (path: string, runIdArg?: string) => {
 
 const deps = (): EvidenceToolDeps => ({
   ...realEvidenceToolDeps,
+  foldScreenshots: () => false,
   guard: noGuard,
   home: () => home,
   uid: () => null,

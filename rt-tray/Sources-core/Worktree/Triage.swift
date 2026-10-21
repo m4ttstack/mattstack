@@ -76,6 +76,8 @@ public struct TriageBanner: Decodable, Sendable {
     /// The grant the repo has now, so turning cleanup on adds `branches` without dropping the rest.
     public let mode: String?
     public let caches: [String]?
+    /// This Mac turned worktrees off on purpose; nothing offers to undo it.
+    public let machineOff: Bool?
 
     public var repoLabel: String { RepoIdentity.label(repo) }
 
@@ -88,10 +90,17 @@ public struct TriageBanner: Decodable, Sendable {
     private var forgeName: String { forge == "github" ? "GitHub" : "GitLab" }
 
     public var text: String {
-        reason == "no-token"
-            ? "Merged worktrees in \(repoName) won't clean up on their own: rt has no \(forgeName) token."
-            : "Merged worktrees in \(repoName) won't clean up on their own: rt isn't checking that repo's \(RepoIdentity.changeNoun(repo))s."
+        let why: String
+        switch reason {
+        case "no-token": why = "rt has no \(forgeName) token."
+        case "app-off": why = machineOff == true ? "you turned worktrees off on this Mac." : "worktrees are off on this Mac."
+        case "tracking-off": why = "you turned off tracking for this repo on this Mac."
+        default: why = "rt isn't checking that repo's \(RepoIdentity.changeNoun(repo))s."
+        }
+        return "Merged worktrees in \(repoName) won't clean up on their own: \(why)"
     }
+
+    public var enableWorktreesArgs: [String]? { reason == "app-off" && machineOff != true ? ["worktree", "enable"] : nil }
 
     /// Live watching needs a GitLab remote, so GitHub always polls, whatever mode a team declared.
     public var enableCleanupArgs: [String]? {

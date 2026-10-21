@@ -16,6 +16,7 @@ import { currentRepoIdentityFor } from "../lib/repo-arg.ts";
 import { isRepoRegistered } from "../lib/repo-index.ts";
 import { claudeWorktreeHookStatus, HOOK_TIMEOUT_SECONDS, installClaudeWorktreeHooks, uninstallClaudeWorktreeHooks } from "../lib/claude-settings.ts";
 import { explainSetting } from "../lib/settings/resolve.ts";
+import { UserActionableError } from "../lib/errors.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { decideCreate, decideRemove, stockWorktreeAdd } from "../lib/worktree/claude-hook.ts";
 import { loadWorktreeAppConfig } from "../lib/worktree/config.ts";
@@ -45,8 +46,24 @@ export function claudeSettingsPath(): string {
 // every member's machine.
 const WORKTREE_APP_SETTING_KEY = "rt.worktreeApp";
 
+/** An unreadable machine value is refused, not replaced: replacing it would drop a killProcesses:false nobody can see. */
+export function enableWorktreesOnThisMac(): void {
+  const row = machineWorktreeAppRow();
+  if (row?.present && row.invalid !== undefined) {
+    throw new UserActionableError("worktree-app-unreadable", "This Mac's worktree setting can't be read, so rt left it alone", {}, {
+      why: row.invalid,
+      next: "rt settings check",
+    });
+  }
+  setSetting(WORKTREE_APP_SETTING_KEY, { ...(machineWorktreeAppValue() ?? {}), enabled: true }, "machine");
+}
+
+function machineWorktreeAppRow() {
+  return explainSetting(WORKTREE_APP_SETTING_KEY).find((r) => r.scope === "machine");
+}
+
 function machineWorktreeAppValue(): Record<string, unknown> | undefined {
-  const row = explainSetting(WORKTREE_APP_SETTING_KEY).find((r) => r.scope === "machine");
+  const row = machineWorktreeAppRow();
   if (!row?.present || row.invalid !== undefined) return undefined;
   const value = row.value;
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;

@@ -1057,7 +1057,7 @@ describe("worktree:list", () => {
     expect(res.ok).toBe(true);
     expect(res.data.dormant).toBe(true);
     expect(res.data.dormantRepos).toEqual([repoName]);
-    expect(res.data.message).toContain('rt settings set rt.worktreeApp \'{"enabled":true}\' --scope machine');
+    expect(res.data.message).toContain('rt worktree enable');
   });
 
   function claimOne(repo: string): void {

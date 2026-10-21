@@ -15,7 +15,7 @@ import { killWorktreeProcesses } from "../worktree-process-kill.ts";
 import { hasLiveCwdInside, liveProcessCwds } from "../reconciler/stale-claims.ts";
 import { dirAndParentMissing, poolRootsReadable } from "../reconciler/reconcile.ts";
 import { RETENTION_MS, retireTree, stripTrashDir, writeDisposalManifest } from "../../worktree/trash.ts";
-import { loadRepoTracking } from "../../repo-tracking.ts";
+import { loadMachineRepoTrackingRaw, loadRepoTracking } from "../../repo-tracking.ts";
 import { loadSecrets } from "../../linear.ts";
 import { mergeCleanupGap, type MergeCleanupGap } from "../../worktree/merge-cleanup-gap.ts";
 import { disposeDeps, targetRepos } from "./worktree.ts";
@@ -154,7 +154,7 @@ export function createWorktreeTriageHandlers(
       const banners: Array<{ repo: string; path: string } & MergeCleanupGap> = [];
       // Same repo set and lazy read as worktree:list's mergeCleanupOff, so
       // the panel and the CLI never disagree about which repos get a banner.
-      let gapInputs: { tracking: ReturnType<typeof loadRepoTracking> | null; secrets: Awaited<ReturnType<typeof loadSecrets>> | null } | undefined;
+      let gapInputs: { tracking: ReturnType<typeof loadRepoTracking> | null; trackingRaw: Record<string, unknown>; secrets: Awaited<ReturnType<typeof loadSecrets>> | null } | undefined;
       for (const [repo, path] of repos) {
         try {
           rows.push(...(await triageRepo(repo, path, deps())));
@@ -165,9 +165,9 @@ export function createWorktreeTriageHandlers(
         if (gapInputs === undefined) {
           let tracking: ReturnType<typeof loadRepoTracking> | null = null;
           try { tracking = loadRepoTracking(); } catch (err) { ctx.log.warn({ err }, "worktree:triage: repo tracking unreadable"); }
-          gapInputs = { tracking, secrets: await loadSecrets().catch(() => null) };
+          gapInputs = { tracking, trackingRaw: loadMachineRepoTrackingRaw(), secrets: await loadSecrets().catch(() => null) };
         }
-        const gap = await mergeCleanupGap(repo, path, gapInputs.tracking, gapInputs.secrets);
+        const gap = await mergeCleanupGap(repo, path, gapInputs.tracking, gapInputs.secrets, gapInputs.trackingRaw);
         if (gap) banners.push({ repo, path, ...gap });
       }
       return { ok: true as const, data: { rows, banners, counts: triageCounts(rows) } };
