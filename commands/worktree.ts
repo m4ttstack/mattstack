@@ -517,7 +517,8 @@ const BRANCH_STATE: Record<string, string> = {
   "tracking-remote": "a branch from the remote",
 };
 
-function provisionBlocks(d: Record<string, any>): Block[] {
+/** `repoArg` is set when the provision named its repo, so the printed wait command resolves the same one from any directory. */
+export function provisionBlocks(d: Record<string, any>, repoArg?: string): Block[] {
   const origin = [
     BRANCH_STATE[d.branchState] ?? String(d.branchState),
     ...(d.wasOnDeck ? ["on a spare worktree rt had ready"] : []),
@@ -529,7 +530,7 @@ function provisionBlocks(d: Record<string, any>): Block[] {
   }
   if (d.readyPending) {
     const steps = ((d.readySteps ?? []) as string[]).join(", ");
-    blocks.push(...lineWithNext("running", "Still setting up in the background", steps || undefined, out.cmd(`rt worktree await-ready ${d.tree}`)));
+    blocks.push(...lineWithNext("running", "Still setting up in the background", steps || undefined, out.cmd(`rt worktree await-ready ${d.tree}${repoArg ? ` --repo ${shellQuote(repoArg)}` : ""}`)));
   }
   if (d.readyFailed) blocks.push(setupFailedLine(d.failedStep));
   return blocks;
@@ -556,7 +557,7 @@ export async function worktreeProvision(args: string[], _ctx: unknown): Promise<
 
   if (parsed.json) { out.json(ok.data, 2); return; }
 
-  out.print(...provisionBlocks(ok.data));
+  out.print(...provisionBlocks(ok.data, parsed.repoName ? repoLabelFull(repoName) : undefined));
   await maybeOfferClaudeHook(parsed.json);
 }
 
