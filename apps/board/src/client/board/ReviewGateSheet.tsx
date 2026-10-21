@@ -15,7 +15,7 @@ import {
 import { Button, Chip, Markdown } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import type { BoardMRWithReview } from '../types.ts';
-import { CommentComposer } from './CommentComposer.tsx';
+import { anchorLine, anchorPath } from './diff-source.ts';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
@@ -27,13 +27,12 @@ import {
 } from './icons.tsx';
 import { MrCard } from './MrCard.tsx';
 import { mrRef } from './MrLinks.tsx';
+import { FindingCard, RailSummary, type FilePin } from './ReviewDraftCard.tsx';
 import {
   attachDraftEdits,
-  commentKey,
   draftEdits,
   findOutcomeQuestion,
   hasDiffLine,
-  summaryKey,
 } from './review-drafts.ts';
 import {
   readinessProse,
@@ -237,77 +236,6 @@ function readDrafts(
   return { findings: map, summaries };
 }
 
-/** The review's summary note as it will post (`joinSummary`): the summary
-    line, then each ticked finding with no diff line, each its own box. */
-function SummaryCard({
-  target,
-  outcome,
-  verdictLabel,
-  draft,
-  folded,
-  form,
-  onRemove,
-}: {
-  target?: string;
-  outcome: string;
-  verdictLabel: string;
-  draft: string;
-  folded: FindingEntry[];
-  form: GateFormState;
-  onRemove: (f: FindingEntry) => void;
-}) {
-  const key = summaryKey(outcome);
-  return (
-    <section
-      className="tui-gate-question tui-review-summary"
-      aria-label="Summary comment"
-    >
-      <div className="tui-gate-question-head">
-        <span className="tui-gate-question-label">Summary comment</span>
-        <span className="tui-review-summary-chips">
-          {target && (
-            <span className="tui-respond-chip" data-hue="accent">
-              posts on {target}
-            </span>
-          )}
-        </span>
-      </div>
-      <div data-part="summary-line">
-        <CommentComposer
-          key={key}
-          label="Summary line"
-          noun="comment"
-          kicker={`will post as the summary · ${verdictLabel}`}
-          draft={draft}
-          value={form.texts[key]}
-          onChange={t => form.setText(key, t)}
-          onReset={() => form.clearText(key)}
-        />
-      </div>
-      {folded.map(f => (
-        <div data-part="folded" key={f.id}>
-          <CommentComposer
-            label={`Summary comment: ${f.title}`}
-            noun="comment"
-            kicker={`added to the summary · ${f.title}`}
-            draft={f.comment!}
-            value={form.texts[commentKey(f.id)]}
-            onChange={t => form.setText(commentKey(f.id), t)}
-            onReset={() => form.clearText(commentKey(f.id))}
-            onRemove={() => onRemove(f)}
-          />
-        </div>
-      ))}
-      {folded.length > 0 && (
-        <p className="tui-review-summary-hint">
-          includes {folded.length}{' '}
-          {folded.length === 1 ? 'finding' : 'findings'} with no diff line
-        </p>
-      )}
-    </section>
-  );
-}
-
 /** The full-screen sheet a `review-post` gate opens (design doc §4). Header
     carries queue chrome; the main column is the findings and the optional
     record cluster; the rail is the MR card, decision context and checks,
@@ -451,6 +379,30 @@ function ReviewGateSheet({
       ).length
     : 0;
   const postingComments = postingFindings - folded.length - restoredWithoutLine;
+  const pinsByFile = useMemo(() => {
+    const out = new Map<string, FilePin[]>();
+    for (const f of findings) {
+      const line = f.file !== undefined ? anchorLine(f.file) : undefined;
+      if (f.file === undefined || line === undefined) continue;
+      const path = anchorPath(f.file);
+      out.set(path, [
+        ...(out.get(path) ?? []),
+        { id: f.id, title: f.title, line },
+      ]);
+    }
+    return out;
+  }, [findings]);
+  const removeFolded = (f: FindingEntry) => {
+    if (!findingsName) return;
+    form.toggleMulti(findingsName, f.id, false);
+    // The part's button unmounts with it, which would drop focus outside
+    // the sheet's Tab trap.
+    document
+      .querySelector<HTMLInputElement>(
+        `input[aria-labelledby="tui-review-finding-title-${CSS.escape(f.id)}"]`
+      )
+      ?.focus();
+  };
   const outcomeText =
     outcomeQuestion && typeof selectedOutcome === 'string'
       ? displayForValue(selectedOutcome, outcomeQuestion.options).text
@@ -602,27 +554,6 @@ function ReviewGateSheet({
           {review.round !== undefined && (
             <RoundHeading round={review.round} summary={roundSummary} />
           )}
-          {verdict !== undefined && summaryDraft !== undefined && (
-            <SummaryCard
-              target={mr && mrRef(mr)}
-              outcome={verdict}
-              verdictLabel={outcomeText.toLowerCase()}
-              draft={summaryDraft}
-              folded={folded}
-              form={form}
-              onRemove={f => {
-                if (!findingsName) return;
-                form.toggleMulti(findingsName, f.id, false);
-                // The strip's button unmounts with the folded box, which
-                // would drop focus outside the sheet's Tab trap.
-                document
-                  .querySelector<HTMLInputElement>(
-                    `input[aria-labelledby="tui-review-finding-title-${CSS.escape(f.id)}"]`
-                  )
-                  ?.focus();
-              }}
-            />
-          )}
           {carryovers.length > 0 && (
             <>
               <div className="tui-sheet-list-head">
@@ -664,6 +595,7 @@ function ReviewGateSheet({
               <div
                 className="tui-review-find-list"
                 data-at-end={atEnd || undefined}
+                data-drafts={drafts ? '' : undefined}
               >
                 {tierGroups.map(([tier, items]) => {
                   const allOn = items.every(f => selectedFindings.has(f.id));
@@ -702,11 +634,35 @@ function ReviewGateSheet({
                           </button>
                         </span>
                       </div>
-                      {items.map(f => {
-                        const checked = selectedFindings.has(f.id);
-                        const key = commentKey(f.id);
-                        const row = (
-                          <label className="tui-review-finding-row" key={f.id}>
+                      {(() => {
+                        const rows = items.map(f => {
+                          const checked = selectedFindings.has(f.id);
+                          const pills = (
+                            <>
+                              {f.kind && (
+                                <span
+                                  className="tui-respond-pill"
+                                  data-kind={f.kind}
+                                >
+                                  {f.kind}
+                                </span>
+                              )}
+                              {f.disposition &&
+                                !(
+                                  f.disposition === 'new' &&
+                                  carryovers.length > 0
+                                ) && (
+                                  <span
+                                    className="tui-respond-pill"
+                                    data-hue={DISPOSITION[f.disposition].hue}
+                                    data-disposition={f.disposition}
+                                  >
+                                    {DISPOSITION[f.disposition].text}
+                                  </span>
+                                )}
+                            </>
+                          );
+                          const tick = (
                             <input
                               type="checkbox"
                               className="tui-gate-choice-input"
@@ -723,83 +679,73 @@ function ReviewGateSheet({
                                 )
                               }
                             />
-                            <span className="tui-review-finding-body">
-                              <span className="tui-review-finding-line1">
-                                <span
-                                  className="tui-review-finding-title"
-                                  id={`tui-review-finding-title-${f.id}`}
-                                >
-                                  {f.title}
+                          );
+                          const title = (
+                            <span
+                              className="tui-review-finding-title"
+                              id={`tui-review-finding-title-${f.id}`}
+                            >
+                              {f.title}
+                            </span>
+                          );
+                          // The card's sections sit outside the label:
+                          // inside it, a click on the comment would toggle
+                          // the finding.
+                          if (drafts)
+                            return (
+                              <FindingCard
+                                key={f.id}
+                                finding={f}
+                                checked={checked}
+                                form={form}
+                                mrUrl={mr?.webUrl ?? undefined}
+                                mrRef={mr && mrRef(mr)}
+                                pins={
+                                  f.file
+                                    ? (pinsByFile.get(anchorPath(f.file)) ?? [])
+                                    : []
+                                }
+                                head={
+                                  <label className="tui-review-finding-row tui-review-card-head">
+                                    {tick}
+                                    {title}
+                                    {pills}
+                                  </label>
+                                }
+                              />
+                            );
+                          return (
+                            <label
+                              className="tui-review-finding-row"
+                              key={f.id}
+                            >
+                              {tick}
+                              <span className="tui-review-finding-body">
+                                <span className="tui-review-finding-line1">
+                                  {title}
+                                  {pills}
                                 </span>
-                                {f.kind && (
-                                  <span
-                                    className="tui-respond-pill"
-                                    data-kind={f.kind}
-                                  >
-                                    {f.kind}
+                                {f.file && <FindingAnchor file={f.file} />}
+                                <span className="tui-review-finding-text">
+                                  <Markdown unstyled linkTargetBlank>
+                                    {f.body}
+                                  </Markdown>
+                                </span>
+                                {f.fix && (
+                                  <span className="tui-review-finding-fix">
+                                    {f.fix}
                                   </span>
                                 )}
-                                {f.disposition &&
-                                  !(
-                                    f.disposition === 'new' &&
-                                    carryovers.length > 0
-                                  ) && (
-                                    <span
-                                      className="tui-respond-pill"
-                                      data-hue={DISPOSITION[f.disposition].hue}
-                                      data-disposition={f.disposition}
-                                    >
-                                      {DISPOSITION[f.disposition].text}
-                                    </span>
-                                  )}
                               </span>
-                              {f.file && <FindingAnchor file={f.file} />}
-                              <span className="tui-review-finding-text">
-                                <Markdown unstyled linkTargetBlank>
-                                  {f.body}
-                                </Markdown>
-                              </span>
-                              {f.fix && !drafts && (
-                                <span className="tui-review-finding-fix">
-                                  {f.fix}
-                                </span>
-                              )}
-                            </span>
-                          </label>
+                            </label>
+                          );
+                        });
+                        return drafts ? (
+                          <div className="tui-review-tier-items">{rows}</div>
+                        ) : (
+                          rows
                         );
-                        if (!drafts) return row;
-                        // The box sits outside the label: inside it, a
-                        // click on the comment would toggle the finding.
-                        return (
-                          <div
-                            className="tui-review-finding"
-                            data-off={checked ? undefined : ''}
-                            key={f.id}
-                          >
-                            {row}
-                            {checked && (
-                              <div className="tui-review-finding-draft">
-                                {hasDiffLine(f) ? (
-                                  <CommentComposer
-                                    label={`Comment on ${f.title}`}
-                                    noun="comment"
-                                    kicker="will post as comment"
-                                    draft={f.comment!}
-                                    value={form.texts[key]}
-                                    onChange={t => form.setText(key, t)}
-                                    onReset={() => form.clearText(key)}
-                                  />
-                                ) : (
-                                  <p className="tui-review-finding-pointer">
-                                    No diff line, so this posts in the summary
-                                    comment above
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                      })()}
                     </div>
                   );
                 })}
@@ -943,7 +889,9 @@ function ReviewGateSheet({
                 <div className="tui-sheet-dock" ref={reserveDock}>
                   <div className="tui-sheet-dock-head">
                     <h3 className="tui-sheet-dock-heading">
-                      Verdict on {mr ? mrRef(mr) : '!'}
+                      {drafts
+                        ? `Finish your review${mr ? ` on ${mrRef(mr)}` : ''}`
+                        : `Verdict on ${mr ? mrRef(mr) : '!'}`}
                     </h3>
                     <button
                       type="button"
@@ -953,6 +901,16 @@ function ReviewGateSheet({
                       reset
                     </button>
                   </div>
+                  {verdict !== undefined && summaryDraft !== undefined && (
+                    <RailSummary
+                      outcome={verdict}
+                      verdictLabel={outcomeText.toLowerCase()}
+                      draft={summaryDraft}
+                      folded={folded}
+                      form={form}
+                      onRemove={removeFolded}
+                    />
+                  )}
                   <div
                     className="tui-gate-choices"
                     role="radiogroup"

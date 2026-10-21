@@ -166,7 +166,7 @@ function CommentField({
 
 /** The edit state of one comment: what the field shows, whether it differs
     from the draft as it would post, and whether it is blank. */
-function useCommentState(
+function commentState(
   draft: string,
   value: string | undefined,
   canEdit: boolean
@@ -229,7 +229,7 @@ function CommentComposer({
   onRemove?: () => void;
   controls?: ReactNode;
 }) {
-  const { text, edited, empty } = useCommentState(draft, value, canEdit);
+  const { text, edited, empty } = commentState(draft, value, canEdit);
   const [mode, setMode] = useState<FieldMode>('write');
   const emptyHint = useId();
   const kickerId = useId();
@@ -364,6 +364,6 @@ export {
   CommentField,
   CommentFrame,
   FieldTabs,
-  useCommentState,
+  commentState,
   type FieldMode,
 };

@@ -4004,38 +4004,357 @@ a.tui-id-card-ref:focus-visible {
   font-weight: 600;
   color: var(--text-accent);
 }
-/* A finding whose comment the sheet can edit: the row, then its comment
-   box set in to the body's left edge (the checkbox plus the row gap). */
-.tui-review-finding {
+/* A finding whose comment the board posts is one card: its header, then
+   The Code, the agent's finding and the comment, each under its own label.
+   Unticked, only the header stays. */
+.tui-review-find-list[data-drafts] .tui-review-tier-pill {
+  padding: 3px 10px;
+  font-size: 13px;
+}
+.tui-review-tier-items {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
+  padding-left: 16px;
 }
-.tui-review-finding-draft {
-  margin-left: 25px;
+.tui-review-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+.tui-review-card[data-off] {
+  border-color: var(--border-soft);
+}
+.tui-review-finding[data-off] .tui-review-finding-title {
+  color: var(--text-3);
+}
+.tui-review-finding-row.tui-review-card-head {
+  align-items: center;
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 7px;
+}
+.tui-review-card:not([data-off]) .tui-review-card-head {
+  border-radius: 7px 7px 0 0;
+}
+.tui-review-card-head .tui-gate-choice-input {
+  margin-top: 0;
+}
+.tui-review-card-head .tui-review-finding-title {
+  font-size: 14px;
+}
+.tui-review-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.tui-review-section[data-section='code'] {
+  padding-top: 2px;
+  border-top: none;
+}
+.tui-review-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 20px;
+}
+.tui-review-section-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.tui-review-section-name[data-hue='accent'] {
+  color: var(--text-accent);
+}
+.tui-review-section-name[data-hue='ok'] {
+  color: var(--text-ok);
+}
+.tui-review-section-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tui-review-section-body {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
   max-width: 140ch;
 }
-.tui-review-finding[data-off]
-  :is(.tui-review-finding-title, .tui-review-finding-text) {
-  color: var(--text-3);
-}
-.tui-review-finding-pointer {
+.tui-review-section-body [data-part='markdown'] > * {
   margin: 0;
-  font-size: var(--gate-font-meta);
+}
+.tui-review-section-body [data-part='markdown'] > * + * {
+  margin-top: 6px;
+}
+.tui-review-section-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.tui-review-section-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-accent-small);
+  text-decoration: none;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .tui-review-section-link:hover {
+    text-decoration: underline;
+  }
+}
+.tui-review-section-link:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* The comment that posts: a plain field the agent drafted, teal once it
+   takes focus or an edit, with the Markdown note and the tabs under it. */
+.tui-review-comment-field {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  overflow: hidden;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.tui-review-section[data-edited] .tui-review-comment-field {
+  border-color: color-mix(in srgb, var(--fill-ok) 55%, var(--card));
+}
+.tui-review-comment-field:focus-within {
+  border-color: var(--fill-ok);
+  box-shadow: 0 0 0 1px var(--fill-ok);
+}
+.tui-review-comment-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 8px;
+  font-size: 12px;
   color: var(--text-3);
 }
-.tui-review-summary {
-  margin-bottom: 18px;
+/* The Code: the file's header over the diff lines around the anchor.
+   Once the forge's diff is in, the whole snippet opens the full diff. */
+.tui-review-code {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: border-color 120ms;
 }
-.tui-review-summary-chips {
+.tui-review-code[data-openable] {
+  cursor: pointer;
+}
+.tui-review-code-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--surface-wash-fg-4-card);
+  color: var(--text-3);
+}
+.tui-review-code-file:not(:last-child) {
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-review-code-path {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.tui-review-code-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-accent-small);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+@media (hover: hover) {
+  .tui-review-code[data-openable]:hover {
+    border-color: var(--fill-accent);
+  }
+  .tui-review-code[data-openable]:hover .tui-review-code-hint {
+    opacity: 1;
+  }
+}
+/* The diff draws in a shadow root; these reach it as inherited custom
+   properties. */
+.tui-diff {
+  --diffs-font-family: var(--font-mono);
+  --diffs-header-font-family: var(--font-sans);
+  --diffs-font-size: 12px;
+  --diffs-line-height: 1.6;
+  --diffs-min-number-column-width: 4ch;
+}
+/* The full file diff over the sheet. */
+.tui-diff-modal {
+  width: 96vw;
+  max-width: 1100px;
+  height: 90vh;
+  max-height: 90vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--card);
+}
+.tui-diff-modal:focus {
+  outline: none;
+}
+.tui-diff-modal [data-part='modal-head'] {
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-diff-modal [data-part='modal-title'] {
+  flex: 1;
+  min-width: 0;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-1);
+}
+.tui-diff-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.tui-diff-modal-lead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.tui-diff-modal-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.tui-diff-modal-sub {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tui-diff-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.tui-diff-note {
+  margin: 0;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+/* A finding pinned under its line; the one the modal opened from in
+   accent. */
+.tui-diff-pin {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin: 4px 12px 6px 0;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--text-2);
 }
-.tui-review-summary-hint {
-  margin: 0;
-  font-size: var(--gate-font-meta);
+.tui-diff-pin[data-current] {
+  border-color: color-mix(in srgb, var(--fill-accent) 55%, var(--card));
+  background: color-mix(in srgb, var(--fill-accent) 8%, var(--card));
+  color: var(--text-accent-small);
+}
+.tui-diff-pin-title {
+  font-weight: 500;
+  color: var(--text-1);
+}
+.tui-diff-pin-here {
   color: var(--text-3);
+}
+/* The review's summary in the rail: one field for the summary line, then
+   each folded finding as its own part. */
+.tui-review-summary {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  overflow: hidden;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.tui-review-summary:focus-within {
+  border-color: var(--fill-ok);
+  box-shadow: 0 0 0 1px var(--fill-ok);
+}
+.tui-review-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  background: var(--surface-wash-fg-4-card);
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-review-summary-k {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.tui-review-summary-head .tui-field-tabs {
+  margin-left: 0;
+}
+.tui-review-summary-body {
+  max-height: 38vh;
+  overflow-y: auto;
+}
+.tui-review-summary-part[data-part='folded'] {
+  border-top: 1px solid var(--border-soft);
+}
+.tui-review-summary-part-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.tui-review-summary-part-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tui-review-summary :is(.tui-composer-input, .tui-field-preview) {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.tui-review-summary .tui-gate-error,
+.tui-review-section .tui-gate-error {
+  padding: 0 12px 8px;
 }
 
 /* A comment that posts under the developer's name: a teal strip saying

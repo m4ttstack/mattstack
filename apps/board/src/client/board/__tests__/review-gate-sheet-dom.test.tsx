@@ -1323,13 +1323,56 @@ describe('a gate whose poster honors edited drafts', () => {
   const submitButton = () =>
     container.querySelector('.tui-sheet-submit') as HTMLButtonElement;
 
+  const sectionOf = (item: Element, name: string) =>
+    item.querySelector(`.tui-review-section[aria-label="${name}"]`);
+
+  test('a ticked finding is one card: header, then The Code, Agent Finding and Comment', async () => {
+    await render(draftsGate());
+    const item = itemFor('SQL built from unsanitized input');
+    expect(item.tagName).toBe('ARTICLE');
+    expect(
+      [...item.querySelectorAll('.tui-review-section-name')].map(
+        n => n.textContent
+      )
+    ).toEqual(['The Code', 'Agent Finding', 'Comment']);
+    expect(
+      sectionOf(item, 'The Code')!.querySelector('.tui-review-code-path')!
+        .textContent
+    ).toBe('lib/db/query.ts');
+    expect(sectionOf(item, 'Agent Finding')!.textContent).toContain(
+      'SQL built from unsanitized input: the full finding text, never truncated.'
+    );
+    expect(item.querySelector('.tui-review-finding-anchor')).toBeNull();
+  });
+
+  test('an unticked finding shows its header only', async () => {
+    await render(draftsGate());
+    await click(checkboxForTitle('Unused import'));
+    const item = itemFor('Unused import');
+    expect(item.hasAttribute('data-off')).toBe(true);
+    expect(item.querySelector('.tui-review-section')).toBeNull();
+    expect(item.querySelector('.tui-review-card-head')).not.toBeNull();
+  });
+
+  test('the cards sit indented under their severity heading', async () => {
+    await render(draftsGate());
+    const group = container.querySelector('.tui-review-tier-group')!;
+    expect(
+      group.querySelector('.tui-review-tier-items > .tui-review-card')
+    ).not.toBeNull();
+    expect(group.querySelector('.tui-review-tier-head')!.textContent).toContain(
+      'all·none'
+    );
+  });
+
   test('each ticked anchored finding shows its whole draft as the comment, with no fix line', async () => {
     await render(draftsGate());
-    const box = itemFor('SQL built from unsanitized input').querySelector(
-      '.tui-composer'
+    const box = sectionOf(
+      itemFor('SQL built from unsanitized input'),
+      'Comment'
     )!;
-    expect(box.querySelector('.tui-composer-k')?.textContent).toBe(
-      'will post as comment'
+    expect(box.querySelector('.tui-review-comment-foot')!.textContent).toContain(
+      'Markdown supported'
     );
     expect(valueOf(box)).toContain('Could we bind it as a parameter instead?');
     expect(valueOf(box)).toContain(
@@ -1342,14 +1385,14 @@ describe('a gate whose poster honors edited drafts', () => {
     await render(draftsGate());
     await edit(itemFor('Unused import'), 'Drop this import, please.');
     await click(checkboxForTitle('Unused import'));
-    expect(itemFor('Unused import').querySelector('.tui-composer')).toBeNull();
+    expect(itemFor('Unused import').querySelector('textarea')).toBeNull();
     expect(itemFor('Unused import').hasAttribute('data-off')).toBe(true);
     await click(checkboxForTitle('Unused import'));
     const item = itemFor('Unused import');
-    expect(valueOf(item.querySelector('.tui-composer'))).toContain(
+    expect(valueOf(sectionOf(item, 'Comment'))).toContain(
       'Drop this import, please.'
     );
-    expect(item.querySelector('.tui-composer[data-edited]')).not.toBeNull();
+    expect(sectionOf(item, 'Comment')!.hasAttribute('data-edited')).toBe(true);
   });
 
   test('an edited comment rides its chunk answer as texts', async () => {
@@ -1401,10 +1444,10 @@ describe('a gate whose poster honors edited drafts', () => {
   test('the summary heading names the selected verdict and follows it', async () => {
     await render(draftsGate());
     const heading = () =>
-      summaryLine().querySelector('.tui-composer-k')?.textContent;
-    expect(heading()).toBe('will post as the summary · approve');
+      container.querySelector('.tui-review-summary-k')?.textContent;
+    expect(heading()).toBe('summary comment · approve');
     await pickVerdict('comment');
-    expect(heading()).toBe('will post as the summary · comment');
+    expect(heading()).toBe('summary comment · comment');
   });
 
   test('each verdict keeps its own edit: switching away and back restores it', async () => {
@@ -1414,12 +1457,16 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(valueOf(summaryLine())).toContain(SUMMARY_COMMENT);
     expect(valueOf(summaryLine())).not.toContain('Approve, edited.');
     expect(
-      container.querySelector('.tui-review-summary .tui-composer[data-edited]')
+      container.querySelector(
+        '.tui-review-summary [data-part="summary-line"][data-edited]'
+      )
     ).toBeNull();
     await pickVerdict('approve');
     expect(valueOf(summaryLine())).toContain('Approve, edited.');
     expect(
-      container.querySelector('.tui-review-summary .tui-composer[data-edited]')
+      container.querySelector(
+        '.tui-review-summary [data-part="summary-line"][data-edited]'
+      )
     ).not.toBeNull();
   });
 
@@ -1503,7 +1550,7 @@ describe('a gate whose poster honors edited drafts', () => {
   test('a summary draft missing for a verdict leaves the sheet read-only', async () => {
     await render(draftsGate({ summaryComments: { approve: SUMMARY } }));
     expect(container.querySelector('.tui-review-summary')).toBeNull();
-    expect(container.querySelector('.tui-composer')).toBeNull();
+    expect(container.querySelector('textarea')).toBeNull();
   });
 
   test('a blank comment disables submit', async () => {
@@ -1512,43 +1559,48 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(submitButton().disabled).toBe(true);
   });
 
-  test('the summary card comes first in the main column with the line and each ticked no-diff-line finding', async () => {
+  test('the summary sits in the rail under Finish your review, with the line and each ticked no-diff-line finding', async () => {
     await render(draftsGate());
-    const main = container.querySelector('.tui-sheet-main')!;
-    const card = main.querySelector('.tui-review-summary')!;
-    expect(main.firstElementChild).toBe(card);
-    expect(card.textContent).toContain('Summary comment');
-    expect(card.textContent).toContain('posts on !31');
-    const boxes = card.querySelectorAll('.tui-composer');
-    expect(boxes.length).toBe(2);
-    expect(boxes[0]!.querySelector('.tui-composer-k')?.textContent).toBe(
-      'will post as the summary · approve'
+    expect(
+      container.querySelector('.tui-sheet-main .tui-review-summary')
+    ).toBeNull();
+    const dock = container.querySelector('.tui-sheet-rail .tui-sheet-dock')!;
+    expect(dock.querySelector('.tui-sheet-dock-heading')!.textContent).toBe(
+      'Finish your review on !31'
     );
-    expect(valueOf(boxes[0])).toContain(SUMMARY);
-    expect(valueOf(boxes[1])).toContain(COMMENT.f3);
-    expect(card.textContent).toContain('includes 1 finding with no diff line');
+    const card = dock.querySelector('.tui-review-summary')!;
+    expect(
+      card.compareDocumentPosition(dock.querySelector('[role="radiogroup"]')!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    const parts = card.querySelectorAll('.tui-review-summary-part');
+    expect(parts.length).toBe(2);
+    expect(parts[0]!.getAttribute('data-part')).toBe('summary-line');
+    expect(valueOf(parts[0])).toContain(SUMMARY);
+    expect(valueOf(parts[1])).toContain(COMMENT.f3);
   });
 
-  test('on a later round the round band stays first and the summary card follows it', async () => {
+  test('on a later round the round band stays first in the main column', async () => {
     await render(draftsGate({ round: 2 }));
     const main = container.querySelector('.tui-sheet-main')!;
     expect(main.firstElementChild?.className).toBe('tui-sheet-round');
-    expect(main.children[1]).toBe(main.querySelector('.tui-review-summary')!);
+    expect(main.querySelector('.tui-review-summary')).toBeNull();
   });
 
-  test('with no MR the summary card names no target', async () => {
+  test('with no MR the rail heading names no target', async () => {
     await render(draftsGate(), { noMr: true });
-    const card = container.querySelector('.tui-review-summary')!;
-    expect(card.textContent).toContain('Summary comment');
-    expect(card.textContent).not.toContain('posts on');
+    expect(
+      container.querySelector('.tui-sheet-dock-heading')!.textContent
+    ).toBe('Finish your review');
   });
 
   test('a no-diff-line finding points at the summary instead of carrying a box', async () => {
     await render(draftsGate());
     const item = itemFor('Inconsistent error wording');
-    expect(item.querySelector('.tui-composer')).toBeNull();
-    expect(item.textContent).toContain(
-      'No diff line, so this posts in the summary comment above'
+    expect(item.querySelector('textarea')).toBeNull();
+    expect(item.querySelector('[data-section="code"]')).toBeNull();
+    expect(sectionOf(item, 'Comment')!.textContent).toContain(
+      'Posts in the summary (no diff line)'
     );
   });
 
@@ -1556,9 +1608,9 @@ describe('a gate whose poster honors edited drafts', () => {
     await render(draftsGate());
     await click(checkboxForTitle('Inconsistent error wording'));
     const card = container.querySelector('.tui-review-summary')!;
-    expect(card.querySelectorAll('.tui-composer').length).toBe(1);
+    expect(card.querySelectorAll('textarea').length).toBe(1);
     expect(valueOf(card)).not.toContain(COMMENT.f3);
-    expect(card.textContent).not.toContain('no diff line');
+    expect(card.querySelector('[data-part="folded"]')).toBeNull();
   });
 
   test('the submit label counts the comments and the summary', async () => {
@@ -1623,7 +1675,7 @@ describe('a gate whose poster honors edited drafts', () => {
   });
 
   const metaOf = (scope: Element) =>
-    scope.querySelector('.tui-composer-meta')?.textContent;
+    scope.querySelector('.tui-review-section-meta')?.textContent;
 
   test('every comment is a framed text area ready to type into, named for what it edits', async () => {
     await render(draftsGate());
@@ -1636,36 +1688,40 @@ describe('a gate whose poster honors edited drafts', () => {
       ),
     ].map(t => t.getAttribute('aria-label'));
     expect(labels).toEqual([
-      'Summary line',
-      'Summary comment: Inconsistent error wording',
       'Comment on SQL built from unsanitized input',
       'Comment on Missing null check on response',
       'Comment on Unused import',
+      'Summary line',
+      'Summary comment: Inconsistent error wording',
     ]);
-    const box = itemFor('Unused import').querySelector('.tui-composer')!;
-    expect(metaOf(box)).toBe('posts as you');
+    expect(metaOf(itemFor('Unused import'))).toBe('drafted by the agent');
   });
 
   test('a changed comment says edited with a reset that restores the draft', async () => {
     await render(draftsGate());
     const item = () => itemFor('Unused import');
     await edit(item(), 'Drop this import, please.');
-    expect(metaOf(item())).toBe('edited·reset');
+    expect(metaOf(item())).toBe('edited·reset to draft');
     await click(
       item().querySelector<HTMLButtonElement>('button.tui-composer-act')!
     );
-    expect(valueOf(item().querySelector('.tui-composer'))).toBe(COMMENT.f4);
-    expect(metaOf(item())).toBe('posts as you');
-    expect(item().querySelector('.tui-composer[data-edited]')).toBeNull();
+    expect(valueOf(sectionOf(item(), 'Comment'))).toBe(COMMENT.f4);
+    expect(metaOf(item())).toBe('drafted by the agent');
+    expect(sectionOf(item(), 'Comment')!.hasAttribute('data-edited')).toBe(
+      false
+    );
+    expect(document.activeElement).toBe(
+      sectionOf(item(), 'Comment')!.querySelector('textarea')
+    );
   });
 
   test('a folded finding sits in the summary under its own strip, and remove unticks it', async () => {
     await render(draftsGate());
     const folded = () =>
       container.querySelector('.tui-review-summary [data-part="folded"]');
-    expect(folded()!.querySelector('.tui-composer-k')?.textContent).toBe(
-      'added to the summary · Inconsistent error wording'
-    );
+    expect(
+      folded()!.querySelector('.tui-review-summary-part-title')?.textContent
+    ).toBe('+ Inconsistent error wording');
     await click(
       folded()!.querySelector<HTMLButtonElement>(
         'button[aria-label$=": remove"]'
@@ -1716,7 +1772,11 @@ describe('a gate whose poster honors edited drafts', () => {
   test('without editable the sheet is the one it was: fix lines, no boxes, no summary card', async () => {
     await render(draftsGate({ editable: false }));
     expect(container.querySelector('.tui-review-summary')).toBeNull();
-    expect(container.querySelector('.tui-composer')).toBeNull();
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(container.querySelector('.tui-review-card')).toBeNull();
+    expect(container.querySelector('.tui-sheet-dock-heading')!.textContent).toBe(
+      'Verdict on !31'
+    );
     expect(container.querySelectorAll('.tui-review-finding-fix').length).toBe(
       4
     );
