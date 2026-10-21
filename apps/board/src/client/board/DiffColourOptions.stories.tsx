@@ -109,6 +109,20 @@ const OPTIONS: {
     caption:
       'D: 13px, purple keywords, accent names, cyan constants (small step: its body step fails a wash), red only on removed signs. Bar 4.5. Lowest hue pair 5.09 light, 5.70 dark.',
   },
+  {
+    key: 'E',
+    size: 12,
+    colours: 'red-body',
+    caption:
+      "E: B's mapping (red keywords, body steps) at 12px. The guide's bar at 12px is 7.0, so this is below it. Lowest hue pair 4.58 light, 5.69 dark.",
+  },
+  {
+    key: 'F',
+    size: 12,
+    colours: 'purple-body',
+    caption:
+      "F: D's mapping (purple keywords, body steps) at 12px. The guide's bar at 12px is 7.0, so this is below it. Lowest hue pair 5.09 light, 5.70 dark.",
+  },
 ];
 
 export const Options: Story = {
