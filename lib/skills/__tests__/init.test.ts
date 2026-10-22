@@ -450,6 +450,114 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
   return { deps, calls, fs };
 }
 
+const BASE_DIR = `${ORG_ROOT("acme")}/mattstack/org/packs/acme-base`;
+const BASE_FILES = { [`${BASE_DIR}/pack/skills.jsonc`]: '{ "base": true }' };
+const MISSING = [
+  { kind: "param" as const, name: "repo-name", file: "pack/params.jsonc", askedBy: ["acme-base:watch-ci-rules"] },
+  { kind: "section" as const, name: "ci-extra-jobs", file: "pack/sections/ci-extra-jobs.md", askedBy: ["acme-base:watch-ci-rules"] },
+];
+const stopOnMissing = async () => ({ ok: false, errors: ["missing"], missing: MISSING });
+
+describe("initPack --extends", () => {
+  test("init --extends writes extends", async () => {
+    const { deps, fs } = world({ files: BASE_FILES });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(out.ok).toBe(true);
+    expect(JSON.parse(stripJsonc(fs.readFile(`${ACME_PACK}/pack/skills.jsonc`)!)).extends).toBe("acme-base");
+  });
+
+  test("init --extends refuses an unknown base", async () => {
+    for (const files of [{}, { [`${BASE_DIR}/pack/skills.jsonc`]: '{ "version": 1 }' }]) {
+      const { deps, calls, fs } = world({ files });
+      const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+      expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
+      if (out.ok || !out.refused) throw new Error("expected a refusal");
+      expect(out.detail).toContain("acme-base");
+      expect(calls.claims).toEqual([]);
+      expect(fs.exists(`${ACME_PACK}/pack/stubs.jsonc`)).toBe(false);
+    }
+  });
+
+  test("init --extends refuses a base name that is not a name", async () => {
+    const { deps } = world({ files: BASE_FILES });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "../acme-base" }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
+  });
+
+  test("init seeds missing values and stops with params-missing", async () => {
+    const { deps, calls, fs } = world({ files: BASE_FILES, compile: stopOnMissing });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(out).toMatchObject({
+      ok: false,
+      refused: true,
+      code: "params-missing",
+      wrote: [`${ACME_PACK}/pack/params.jsonc`, `${ACME_PACK}/pack/sections/ci-extra-jobs.md`],
+      next: "rt skills init --team acme --extends acme-base",
+    });
+    if (out.ok || !out.refused) throw new Error("expected a refusal");
+    expect(out.detail).toContain("repo-name");
+    expect(out.detail).toContain("ci-extra-jobs");
+    expect(out.detail).toContain("acme-base:watch-ci-rules");
+    expect(JSON.parse(stripJsonc(fs.readFile(`${ACME_PACK}/pack/params.jsonc`)!))).toEqual({ version: 1, params: { "repo-name": "" } });
+    expect(fs.readFile(`${ACME_PACK}/pack/sections/ci-extra-jobs.md`)).toBe("");
+    expect(calls.checked).toEqual([]);
+    expect(calls.claude).toEqual([]);
+    expect(calls.shared).toEqual([]);
+  });
+
+  test("seeding keeps existing values and files, and adds each missing key as empty", async () => {
+    const params = '// ours\n{ "version": 1, "params": { "other": "kept" } }\n';
+    const { deps, fs } = world({
+      files: { ...BASE_FILES, [`${ACME_PACK}/pack/params.jsonc`]: params, [`${ACME_PACK}/pack/sections/ci-extra-jobs.md`]: "Run the lint job.\n" },
+      compile: stopOnMissing,
+    });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "params-missing", wrote: [`${ACME_PACK}/pack/params.jsonc`] });
+    const text = fs.readFile(`${ACME_PACK}/pack/params.jsonc`)!;
+    expect(text).toContain("// ours");
+    expect(JSON.parse(stripJsonc(text)).params).toEqual({ other: "kept", "repo-name": "" });
+    expect(fs.readFile(`${ACME_PACK}/pack/sections/ci-extra-jobs.md`)).toBe("Run the lint job.\n");
+  });
+
+  test("a second stop with nothing new to seed writes nothing", async () => {
+    const { deps } = world({ files: BASE_FILES, compile: stopOnMissing });
+    await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    const again = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(again).toMatchObject({ ok: false, refused: true, code: "params-missing", wrote: [] });
+  });
+
+  test("init resumes after values are filled", async () => {
+    let filled = false;
+    const { deps, calls, fs } = world({ files: BASE_FILES, compile: async () => (filled ? { ok: true, errors: [] } : stopOnMissing()) });
+    const first = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(first).toMatchObject({ refused: true, code: "params-missing" });
+    fs.writeFile(`${ACME_PACK}/pack/params.jsonc`, '{ "version": 1, "params": { "repo-name": "widgets" } }');
+    fs.writeFile(`${ACME_PACK}/pack/sections/ci-extra-jobs.md`, "Run the lint job.\n");
+    filled = true;
+    const second = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(second.ok).toBe(true);
+    expect(fs.readFile(`${ACME_PACK}/pack/params.jsonc`)).toContain("widgets");
+    expect(calls.checked).toEqual([ACME_PACK]);
+    expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
+  });
+
+  test("a stop with no --extends names no base in its next", async () => {
+    const { deps } = world({ compile: stopOnMissing });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ code: "params-missing", next: "rt skills init --team acme" });
+  });
+});
+
+describe("renderPackFiles extends", () => {
+  test("extendsBase adds extends to the fragment and nothing else changes", () => {
+    const plain = renderPackFiles({ pack: "acme", workDescription: "d" });
+    const based = renderPackFiles({ pack: "acme", workDescription: "d", extendsBase: "acme-base" });
+    expect(JSON.parse(stripJsonc(based["pack/skills.jsonc"]!)).extends).toBe("acme-base");
+    expect(JSON.parse(stripJsonc(plain["pack/skills.jsonc"]!)).extends).toBeUndefined();
+    expect({ ...based, "pack/skills.jsonc": "" }).toEqual({ ...plain, "pack/skills.jsonc": "" });
+  });
+});
+
 describe("initPack", () => {
   test("an owner missing a marketplace entry is refused before files or claims", async () => {
     const { deps, calls, fs } = world({ mayWrite: (_zone, relPath) => relPath === ".claude-plugin/marketplace.json" ? { message: "The org's shared files belong to its admins", why: "Ask dev1 (an org admin) to make this change." } : null });

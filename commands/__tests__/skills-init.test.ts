@@ -11,10 +11,13 @@ import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 describe("parseInitArgs", () => {
   test("defaults: cwd repo, no zone, no team, human output", () => {
-    expect(parseInitArgs([])).toEqual({ repo: process.cwd(), zone: null, team: null, json: false });
+    expect(parseInitArgs([])).toEqual({ repo: process.cwd(), zone: null, team: null, extendsBase: null, json: false });
   });
   test("reads every flag", () => {
-    expect(parseInitArgs(["--repo", "/r", "--zone", "z", "--team", "t", "--json"])).toEqual({ repo: "/r", zone: "z", team: "t", json: true });
+    expect(parseInitArgs(["--repo", "/r", "--zone", "z", "--team", "t", "--extends", "acme-base", "--json"])).toEqual({ repo: "/r", zone: "z", team: "t", extendsBase: "acme-base", json: true });
+  });
+  test("--extends without a value throws a usage error", () => {
+    expect(() => parseInitArgs(["--extends"])).toThrow(/--extends needs a value/);
   });
   test("--team names a team folder and --zone the clone", () => {
     expect(parseInitArgs(["--team", "gadgets", "--zone", "acme"])).toMatchObject({ team: "gadgets", zone: "acme" });
@@ -234,6 +237,21 @@ test("a refusal keeps its reason in the failure and refusal blocks", () => {
 test("a pack held by its engine floor is a refused note with no command to run", () => {
   const o = { ok: false as const, refused: true as const, code: "needs-newer-app" as const, detail: "This app runs engine 0.30.28; the acme pack needs engine 0.31.0. Update the app first.", why: "The pack is written, but rt will not install or share it until the app updates." };
   expect(renderPlain(initRefusalBlocks(o))).toBe(`[refused] ${o.detail}\n  why: ${o.why}\n`);
+});
+
+test("skills-init renders params-missing as needs-you", () => {
+  const o: Extract<InitOutcome, { ok: false; refused: true }> = {
+    ok: false,
+    refused: true,
+    code: "params-missing",
+    detail: "The base pack asks for values only your team can give: repo-name (asked by acme-base:watch-ci-rules), the ci-extra-jobs section (asked by acme-base:watch-ci-rules)",
+    why: "rt added them to your pack, empty. Fill them in, then run this again.",
+    next: "rt skills init --team acme --extends acme-base",
+    wrote: ["/z/pack/params.jsonc", "/z/pack/sections/ci-extra-jobs.md"],
+  };
+  expect(renderPlain(initRefusalBlocks(o))).toBe(
+    `[needs you] ${o.detail}\n  why: ${o.why}\n  next: ${o.next}\n` + renderPlain([ui.verbatim(o.wrote!, "fill these in")]),
+  );
 });
 
 describe("repoListFailure", () => {

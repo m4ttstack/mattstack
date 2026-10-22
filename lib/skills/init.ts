@@ -1,4 +1,4 @@
-import { join, relative } from "path";
+import { dirname, join, relative } from "path";
 import { applyEdits, modify } from "jsonc-parser";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { readSection } from "../../packages/rt-client/src/settings/migrate.ts";
@@ -247,12 +247,13 @@ export function packDescription(pack: string): string {
   return `The ${pack} team pack for mattstack pipelines: the team's verb roster and bindings fragment, plus the domain fills bound to the generic stages.`;
 }
 
-export function renderPackFiles(opts: { pack: string; workDescription: string }): Record<string, string> {
-  const { pack, workDescription } = opts;
+export function renderPackFiles(opts: { pack: string; workDescription: string; extendsBase?: string }): Record<string, string> {
+  const { pack, workDescription, extendsBase } = opts;
   const plugin = { name: pack, version: "0.1.0", description: packDescription(pack), skills: "./skills/" };
   const stubs = { verbs: { work: { engine: "work", description: workDescription } } };
   const manifest = {
     version: 1,
+    ...(extendsBase ? { extends: extendsBase } : {}),
     skills: { enabled: ["mattstack:work", "mattstack:model-tiering"] },
     pipelines: { feature: PIPELINE_STAGES.map((s) => `mattstack:${s}`) },
     bindings: {
@@ -356,7 +357,7 @@ function sharePathsFor(zone: ZoneInfo, packDir: string, wrote: string[]): string
 export type InitRefusalCode =
   | "not-yours" | "other-org"
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host"
-  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app";
+  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
 
@@ -373,17 +374,59 @@ export type InitOutcome =
       tryNext: string;
       published: PackShare;
     }
-  | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string; why?: string }
+  | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string; why?: string; wrote?: string[] }
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
 export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict", "needs-newer-app"]);
 
 /** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
-export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host"]);
+export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host", "params-missing"]);
 
-function refuse(code: InitRefusalCode, detail: string, next?: string, why?: string): InitOutcome {
-  return { ok: false, refused: true, code, detail, ...(next ? { next } : {}), ...(why ? { why } : {}) };
+function refuse(code: InitRefusalCode, detail: string, next?: string, why?: string, wrote?: string[]): InitOutcome {
+  return { ok: false, refused: true, code, detail, ...(next ? { next } : {}), ...(why ? { why } : {}), ...(wrote ? { wrote } : {}) };
+}
+
+function missingDetail(missing: MissingMarker[]): string {
+  const items = missing.map((m) => `${m.kind === "param" ? m.name : `the ${m.name} section`}${m.askedBy.length > 0 ? ` (asked by ${m.askedBy.join(", ")})` : ""}`);
+  return `The base pack asks for values only your team can give: ${items.join("; ")}`;
+}
+
+/** Adds each key as "" to the params file, keeping its comments and every value already there. An unreadable file is left for compile to report. */
+function seedParams(fs: InitFs, path: string, keys: string[]): boolean {
+  const existing = fs.readFile(path);
+  const parsed = existing === null ? { params: {} } : readJsonc(fs, path);
+  if (parsed === null) return false;
+  const have = parsed.params && typeof parsed.params === "object" ? parsed.params : {};
+  let text = existing ?? '{\n  "version": 1,\n  "params": {}\n}\n';
+  let changed = false;
+  for (const key of keys) {
+    if (key in have) continue;
+    text = applyEdits(text, modify(text, ["params", key], "", FORMAT));
+    changed = true;
+  }
+  if (changed) {
+    fs.mkdirp(dirname(path));
+    fs.writeFile(path, text);
+  }
+  return changed;
+}
+
+/** Seeds an empty place for each missing marker and returns the paths it wrote; a file that is already there is left alone. */
+function seedMissing(fs: InitFs, packDir: string, missing: MissingMarker[]): string[] {
+  const wrote: string[] = [];
+  const paramsPath = join(packDir, "pack", "params.jsonc");
+  const keys = missing.filter((m) => m.kind === "param").map((m) => m.name);
+  if (keys.length > 0 && seedParams(fs, paramsPath, keys)) wrote.push(paramsPath);
+  for (const m of missing) {
+    if (m.kind !== "section") continue;
+    const path = join(packDir, m.file);
+    if (fs.exists(path)) continue;
+    fs.mkdirp(dirname(path));
+    fs.writeFile(path, "");
+    wrote.push(path);
+  }
+  return wrote;
 }
 
 /** Anchored to the CLI's own "already ..." phrasings so a failing call that merely mentions the word does not read as success. */
@@ -403,7 +446,7 @@ async function marketplaceNames(claude: NonNullable<InitDeps["claude"]>): Promis
   }
 }
 
-export async function initPack(opts: { repoDir: string; zone: string | null; team: string | null }, deps: InitDeps): Promise<InitOutcome> {
+export async function initPack(opts: { repoDir: string; zone: string | null; team: string | null; extendsBase?: string | null }, deps: InitDeps): Promise<InitOutcome> {
   const remote = await deps.gitRemote(opts.repoDir);
   if (remote.kind === "not-a-repo") return refuse("not-a-repo", "This folder is not a git repo");
   if (remote.kind === "no-remote") return refuse("no-remote", "This repo has no git remote", "git remote add origin <url>");
@@ -479,6 +522,13 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if (packIsCompiled(deps.fs, packDir)) {
     return refuse("pack-exists", "This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
   }
+  const extendsBase = opts.extendsBase ?? null;
+  if (extendsBase !== null) {
+    const baseDir = TEAM_NAME_RE.test(extendsBase) ? join(zone.orgDir, "mattstack", "org", "packs", extendsBase) : null;
+    if (baseDir === null || !deps.fs.exists(baseDir) || !isBasePack(deps.fs, baseDir)) {
+      return refuse("zone-missing", `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org`);
+    }
+  }
   const packSource = teamPackSource(zone.team);
   const marketOnDiskEarly = deps.fs.readFile(join(zone.orgDir, ".claude-plugin", "marketplace.json"));
   const entryThere = marketOnDiskEarly !== null && addMarketplacePlugin(marketOnDiskEarly, pack, packDescription(pack), packSource) === marketOnDiskEarly;
@@ -532,7 +582,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   };
 
   try {
-    for (const [rel, text] of Object.entries(renderPackFiles({ pack, workDescription }))) {
+    for (const [rel, text] of Object.entries(renderPackFiles({ pack, workDescription, ...(extendsBase !== null ? { extendsBase } : {}) }))) {
       const full = join(packDir, rel);
       if (deps.fs.exists(full)) continue;
       deps.fs.mkdirp(join(full, ".."));
@@ -569,6 +619,21 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const compiledAttempt = await attempt("compile-failed", () => deps.compile(packDir, manifestPath));
   if ("outcome" in compiledAttempt) return compiledAttempt.outcome;
   const compiled = compiledAttempt.value;
+  if (compiled.missing && compiled.missing.length > 0) {
+    let seeded: string[];
+    try {
+      seeded = seedMissing(deps.fs, packDir, compiled.missing);
+    } catch (err) {
+      return failed("write-failed", err instanceof Error ? err.message : String(err));
+    }
+    return refuse(
+      "params-missing",
+      missingDetail(compiled.missing),
+      `rt skills init --team ${zone.team}${extendsBase !== null ? ` --extends ${extendsBase}` : ""}`,
+      "Each one has an empty place in your pack. Fill them in, then run this again.",
+      seeded,
+    );
+  }
   if (!compiled.ok) return failed("compile-failed", compiled.errors.join("\n"));
   const checkedAttempt = await attempt("check-drift", () => deps.check(packDir, manifestPath));
   if ("outcome" in checkedAttempt) return checkedAttempt.outcome;
