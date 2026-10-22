@@ -19,6 +19,7 @@ export type Block = {
   label: string; // frontmatter label, else id tail in plain words
   node: string | null;
   order: number | null;
+  fieldAt: { node?: { line: number; col: number }; order?: { line: number; col: number } };
   kind: "gate" | null;
   props: PropSpec[];
   markers: MarkerUse[];

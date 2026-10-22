@@ -4,7 +4,7 @@ import type { Block, MarkerUse, PropSpec } from "./types.ts";
 
 export type ParsedBlockFile = Pick<
   Block,
-  "title" | "label" | "node" | "order" | "kind" | "props" | "markers" | "text" | "bodyStartLine" | "textStartLine" | "frontmatter"
+  "title" | "label" | "node" | "order" | "fieldAt" | "kind" | "props" | "markers" | "text" | "bodyStartLine" | "textStartLine" | "frontmatter"
 >;
 
 // An empty block (`---\n---`) has no newline between the fences, which the shared stripFrontmatter pattern does not match.
@@ -103,6 +103,15 @@ export function parseBlockFile(raw: string, file: string, idTail: string): Parse
   }
 
   const topNode = (key: string): Node | null => valueNode(doc.contents, key);
+  const topKey = (key: string): Node | null => {
+    if (!isMap(doc.contents)) return null;
+    const pair = doc.contents.items.find((i) => isScalar(i.key) && i.key.value === key);
+    return (pair?.key as Node | undefined) ?? null;
+  };
+
+  const fieldAt: ParsedBlockFile["fieldAt"] = {};
+  if (frontmatter.node !== undefined) fieldAt.node = posOf(topKey("node"));
+  if (frontmatter.order !== undefined) fieldAt.order = posOf(topKey("order"));
 
   let node: string | null = null;
   if (frontmatter.node !== undefined) {
@@ -185,6 +194,7 @@ export function parseBlockFile(raw: string, file: string, idTail: string): Parse
     label: label ?? labelFromId(idTail),
     node,
     order,
+    fieldAt,
     kind,
     props,
     markers,

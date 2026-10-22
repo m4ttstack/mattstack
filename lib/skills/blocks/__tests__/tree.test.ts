@@ -30,14 +30,14 @@ test("loads ids, depth and the root's engine frontmatter", () => {
   expect(tree.byId.get("mini/run/check")!.depth).toBe(2);
 });
 
-test("walk is preorder with children by name", () => {
+test("walk is preorder with children in graph, then order, then name", () => {
   expect(walk(loadBlockTree(DIR, opts)).map((b) => b.id)).toEqual([
     "mini",
-    "mini/gate",
-    "mini/guard",
-    "mini/notes",
     "mini/run",
     "mini/run/check",
+    "mini/gate",
+    "mini/notes",
+    "mini/guard",
   ]);
 });
 

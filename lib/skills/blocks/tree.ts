@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { BlockError, type BlockDiagnostic } from "./diagnostics.ts";
 import { parseBlockFile } from "./frontmatter.ts";
-import { parseMermaid } from "./mermaid.ts";
+import { graphOrder, parseMermaid } from "./mermaid.ts";
 import type { Block, BlockTree } from "./types.ts";
 
 const SUFFIX = ".block.md";
@@ -97,6 +97,76 @@ function attachGraph(block: Block, diagnostics: BlockDiagnostic[]): void {
   });
 }
 
+function orderChildren(parent: Block, diagnostics: BlockDiagnostic[]): void {
+  const graphIds = parent.graph ? graphOrder(parent.graph) : [];
+  const rank = new Map(graphIds.map((id, i) => [id, i]));
+  const byNode = new Map<string, Block>();
+  const byOrder = new Map<number, Block>();
+  const bound: Block[] = [];
+  const rest: Block[] = [];
+  for (const child of parent.children) {
+    const nodeAt = child.fieldAt.node ?? { line: 1, col: 1 };
+    if (child.node !== null) {
+      if (!rank.has(child.node)) {
+        diagnostics.push({
+          file: child.relPath,
+          ...nodeAt,
+          message: parent.graph
+            ? `node "${child.node}" is not in the graph of ${parent.relPath}`
+            : `node "${child.node}" has no graph to bind to: ${parent.relPath} has no mermaid graph`,
+          code: "missing-node",
+        });
+        continue;
+      }
+      if (child.title === null) {
+        diagnostics.push({
+          file: child.relPath,
+          ...nodeAt,
+          message: `node "${child.node}" takes its label from the block title, and this block has no # title line`,
+          code: "node-unbound",
+        });
+      }
+      const twin = byNode.get(child.node);
+      if (twin) {
+        diagnostics.push({
+          file: child.relPath,
+          ...nodeAt,
+          message: `node "${child.node}" is already bound by ${twin.relPath}`,
+          code: "duplicate-node",
+        });
+        continue;
+      }
+      byNode.set(child.node, child);
+      if (child.order !== null) {
+        diagnostics.push({
+          file: child.relPath,
+          ...(child.fieldAt.order ?? { line: 1, col: 1 }),
+          message: `order has no effect on a block bound to graph node "${child.node}"; the graph sets its place`,
+          code: "order-on-graph-child",
+        });
+      }
+      bound.push(child);
+    } else {
+      if (child.order !== null) {
+        const first = byOrder.get(child.order);
+        if (first) {
+          diagnostics.push({
+            file: child.relPath,
+            ...(child.fieldAt.order ?? { line: 1, col: 1 }),
+            message: `order ${child.order} is already taken by ${first.relPath}`,
+            code: "duplicate-order",
+          });
+        } else byOrder.set(child.order, child);
+      }
+      rest.push(child);
+    }
+  }
+  bound.sort((x, y) => rank.get(x.node!)! - rank.get(y.node!)!);
+  // Array.sort is stable, so the incoming name-stem order breaks ties among blocks without order.
+  rest.sort((x, y) => (x.order === null ? 1 : 0) - (y.order === null ? 1 : 0) || (x.order ?? 0) - (y.order ?? 0));
+  parent.children = [...bound, ...rest];
+}
+
 function loadBlock(
   file: string,
   dir: string | null,
@@ -158,6 +228,7 @@ function loadBlock(
         code: "headless-children",
       });
     }
+    if (block) orderChildren(block, diagnostics);
   }
   return block;
 }
