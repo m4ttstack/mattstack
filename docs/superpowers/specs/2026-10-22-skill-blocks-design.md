@@ -267,7 +267,10 @@ path, then by prop:
 "mattstack:shepherdr/tiering": { "tiering": "widgets:our-tiering" }
 ```
 
-- A value is always inlined at its marker.
+- A per-file value is inlined at its marker. A whole-skill value follows
+  today's rule: a registered public skill renders as a one-line reference
+  to invoke it (how `mattstack:model-tiering` reaches `shepherdr` today,
+  which keeps that context small), and any other whole skill is inlined.
 - The `plugin:skill/file` form is new, so the bindings schema moves to the
   next version and its value pattern allows one `/`.
 - Layering per prop follows its `merge`: `add` stacks org then team;
@@ -343,7 +346,10 @@ changes are:
   stay one block with sub-headings, and a heading-less one
   (`spawned-no-run-guard`) is a headless block.
 - `{{include:x}}` renders the include's tree at the marker, as a child of
-  the block that names it, with levels from depth.
+  the block that names it, with levels from depth. When the include's
+  title repeats the title of the block that includes it (`## Gate
+  protocol` holding `{{include:gate-protocol}}`), the repeat is dropped.
+  Compile and `rt skills expand` apply the same rule.
 - An include that carries headings must be the last thing in its block:
   text after it would fall under the include's last heading. Compile
   refuses text after such an include. An include with no headings
@@ -381,7 +387,8 @@ changes are:
     shapes and edges;
   - in `review`, `self-review` and `receive-review`, text that followed a
     heading-carrying include moving into its own block right after it,
-    with the new block's heading (see "Includes").
+    with the new block's heading (see "Includes");
+  - an include's repeated title dropped (see "Includes").
   Anything else fails review.
 
 ### Rollout of the two team packs
