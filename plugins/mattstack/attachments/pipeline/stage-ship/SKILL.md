@@ -455,7 +455,7 @@ the after alone. Recorded goes straight to the attach: this stage writes no
 
 The ship gate's Proceed is the attach consent (on a re-capture, the
 operator's ask). On GitLab, Gate evidence-boards then shows every file
-about to go up but a mock-data board before anything uploads. This is the last attach, so
+about to go up but a cleared board before anything uploads. This is the last attach, so
 a Take at the upload off-script gate (never the first call) sends
 `linkRefused: true`.
 
