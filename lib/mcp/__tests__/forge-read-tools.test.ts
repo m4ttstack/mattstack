@@ -40,6 +40,13 @@ describe("forge read tools", () => {
     expect(tool("pipeline_list").description).toContain("iid cannot be combined with ref or sha");
   });
 
+  test("pipeline_list's description says mrUrl only names the repo, so it combines with ref or sha", () => {
+    const { tool } = fake({});
+    const description = tool("pipeline_list").description;
+    expect(description).toContain("mrUrl only names the repo; its iid is not used, so mrUrl combines with ref or sha");
+    expect(description).not.toContain("which also supplies iid");
+  });
+
   test("gitlab_get has no method input and passes path, query and paging", async () => {
     const { calls, tool } = fake({ "forge:get": { status: 200, body: [], truncated: false, nextPage: null, totalPages: 1 } });
     const def = tool("gitlab_get");
