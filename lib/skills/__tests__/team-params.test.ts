@@ -148,6 +148,14 @@ describe("team-params", () => {
     );
   });
 
+  test("a marker named for an Object.prototype member resolves as absent", () => {
+    const team = ctx();
+    expect(resolveTeamMarkers("a {{team.constructor}} b", team, { where, sectionSeams: true })).toBe("a  b");
+    expect(team.missing.has("param:constructor")).toBe(true);
+    expect(resolveTeamMarkers("a\n{{team.section:constructor?}}\nb", team, { where, sectionSeams: true })).toBe("a\nb");
+    expect(team.missing.has("section:constructor")).toBe(false);
+  });
+
   test("an indented section marker indents every line of its section, and keeps lines=", () => {
     const team = ctx({}, { s: "l1\n\nl2\n" });
     expect(resolveTeamMarkers("- item\n  {{team.section:s}}", team, { where, sectionSeams: false })).toBe("- item\n  l1\n\n  l2");
@@ -161,6 +169,13 @@ describe("readTeamValues", () => {
   test("missing file gives empty params", () => {
     const dir = mkdtempSync(join(tmpdir(), "team-params-"));
     expect(readTeamValues(dir, "widgets", "0.4.0")).toEqual({ plugin: "widgets", version: "0.4.0", params: {}, sections: {} });
+  });
+
+  test("read values carry no inherited keys", () => {
+    const dir = packWith({ "pack/params.jsonc": '{"version":1,"params":{"a":"x"}}' });
+    const values = readTeamValues(dir, "widgets", "0.4.0");
+    expect(values.params.constructor).toBeUndefined();
+    expect(values.sections.constructor).toBeUndefined();
   });
 
   test("reads params and sections", () => {

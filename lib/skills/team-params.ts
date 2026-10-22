@@ -51,7 +51,7 @@ export function firstTeamMarker(text: string): MarkerHit | null {
 }
 
 export function readTeamValues(packDir: string, plugin: string, version: string): TeamValues {
-  const params: Record<string, string> = {};
+  const params: Record<string, string> = Object.create(null);
   const paramsPath = join(packDir, PARAMS_FILE);
   if (existsSync(paramsPath)) {
     let parsed: unknown;
@@ -71,7 +71,7 @@ export function readTeamValues(packDir: string, plugin: string, version: string)
     }
   }
 
-  const sections: Record<string, string> = {};
+  const sections: Record<string, string> = Object.create(null);
   const sectionsDir = join(packDir, "pack", "sections");
   if (existsSync(sectionsDir)) {
     for (const file of readdirSync(sectionsDir).sort()) {
@@ -115,7 +115,7 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
 
       if (!sectionPrefix) {
         team.used.add(name);
-        const value = values.params[name];
+        const value = Object.hasOwn(values.params, name) ? values.params[name] : undefined;
         if (!value) {
           if (!optional) recordMissing(team, "param", name, where);
           return "";
@@ -125,7 +125,7 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
       }
 
       if (line.trim() !== raw) fail(raw, "must be alone on its line");
-      const text = values.sections[name]?.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
+      const text = (Object.hasOwn(values.sections, name) ? values.sections[name] : undefined)?.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
       if (!text || !text.trim()) {
         if (!optional) recordMissing(team, "section", name, where);
         removeLine = true;
