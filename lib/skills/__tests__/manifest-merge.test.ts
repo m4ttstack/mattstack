@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { VALUE_FILE_RE } from "../sources.ts";
 import { FragmentError, layeredFromManifest, mergeLayers, parseFragment, readManifestDropped, readManifestProvenance, readManifestZone, renderManifest } from "../manifest-merge.ts";
 
 const defaults = { label: "default", fragment: { bindings: { "mattstack:stage-gates": { domain: "mattstack:generic-gates" } }, pipelines: { feature: ["stage-plan", "stage-gates"] } } };
@@ -189,7 +190,7 @@ describe("mergeLayers layered bindings", () => {
 
   test("version 2 for a block-path key or a per-file value even with one layer", () => {
     expect(body(renderManifest(mergeLayers([{ label: "pack", fragment: { bindings: { [KEY]: { rules: "widgets:fast-rules" } } } }]), opts)).version).toBe(2);
-    expect(body(renderManifest(mergeLayers([{ label: "pack", fragment: { bindings: { "mattstack:ship": { rules: "widgets:rules/fast.md" } } } }]), opts)).version).toBe(2);
+    expect(body(renderManifest(mergeLayers([{ label: "pack", fragment: { bindings: { "mattstack:ship": { rules: "widgets:rules/fast" } } } }]), opts)).version).toBe(2);
     expect(body(renderManifest(mergeLayers([{ label: "pack", fragment: { bindings: { "mattstack:ship": { rules: "widgets:rules" } } } }]), opts)).version).toBe(1);
   });
 
@@ -388,7 +389,7 @@ describe("skills-manifest.schema.json", () => {
 
   test("version 1 refuses the version 2 forms", () => {
     expect(accepts({ bindings: { "mattstack:ship/flow/fast-checks": { rules: "acme:r" } } })).toBe(false);
-    expect(accepts({ bindings: { "mattstack:ship": { rules: "acme:r/fast.md" } } })).toBe(false);
+    expect(accepts({ bindings: { "mattstack:ship": { rules: "acme:r/fast" } } })).toBe(false);
     expect(accepts({ layered: { "mattstack:ship": { rules: [{ layer: "pack", value: "acme:r" }, { layer: "override", value: "" }] } } })).toBe(false);
   });
 
@@ -397,8 +398,15 @@ describe("skills-manifest.schema.json", () => {
     const layers = [{ layer: "base:acme-base", value: "acme-base:fast-rules" }, { layer: "pack", value: "" }];
 
     test("string form: block-path keys, per-file values and empty values", () => {
-      expect(accepts2({ bindings: { "mattstack:ship/flow/fast-checks": { rules: "acme:rules/fast.md" }, "mattstack:ship": { domain: "" } } })).toBe(true);
-      expect(accepts2({ bindings: { "mattstack:ship": { rules: "acme:rules/a/b.md" } } })).toBe(false);
+      expect(accepts2({ bindings: { "mattstack:ship/flow/fast-checks": { rules: "acme:rules/fast" }, "mattstack:ship": { domain: "" } } })).toBe(true);
+      expect(accepts2({ bindings: { "mattstack:ship": { rules: "acme:rules/a/b" } } })).toBe(false);
+      expect(accepts2({ bindings: { "mattstack:ship": { rules: "acme:rules/fast.md" } } })).toBe(false);
+    });
+
+    test("the value's file tail accepts exactly what the loader's file name check accepts", () => {
+      const samples = ["fast", "fast-checks", "a1", "0x", "fast.md", "fast_checks", "Fast", "-fast", "", "fast checks"];
+      const valuePattern = new RegExp(schema.definitions.bindingValueV2.anyOf[0].pattern);
+      for (const name of samples) expect([name, valuePattern.test(`acme:rules/${name}`)]).toEqual([name, VALUE_FILE_RE.test(name)]);
       expect(accepts2({ bindings: { "ship/flow": { rules: "acme:r" } } })).toBe(false);
     });
 

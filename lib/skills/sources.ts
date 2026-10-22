@@ -376,7 +376,7 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
   };
 }
 
-const VALUE_FILE_RE = /^[a-z0-9][a-z0-9-]*$/;
+export const VALUE_FILE_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 export function loadAttachment(binding: string, slot: string, roots: PluginRoots): AttachmentSource {
   const [plugin, skillPart] = binding.split(":");
