@@ -6,7 +6,9 @@ Design boards: the pen.dev document `Skill Packs.pen`. The reference boards
 are the three `L1`/`L2`/`L3` boards in light and dark; everything else in
 that document is exploration. Renders are in
 `docs/apps/design/console/skill-blocks/` (`skill`, `parent-block`, `block`,
-each `.light.png` and `.dark.png`).
+each `.light.png` and `.dark.png`). The boards were drawn before props
+replaced the `{{fills}}` marker: read a board's `{{fills}}` box as the
+block's prop, and its "Open" badge as "has props".
 
 ## Problem
 
@@ -37,7 +39,9 @@ answer "what does this skill do, step by step, and who shaped each step?"
 
 - A skill is a tree of **blocks**, each one a file, compiled into one
   markdown file for Claude.
-- A team's or org's text lands **inside the block it changes**.
+- A block takes **props**, the way a React component does. A pack passes
+  values to them, and a team's or org's text lands inside the block it
+  changes.
 - Console reads **one skill at a time**, at three zoom levels (the skill, a
   parent block, a single block), with the layers visible at a glance.
 - Changes still go through Claude, with the same before-and-after testing.
@@ -49,11 +53,16 @@ answer "what does this skill do, step by step, and who shaped each step?"
   one `SKILL.md` with its graphs as dot digraphs.
 - The Graph tab's map between skills (`work` and its stages, shared files)
   stays.
+- Converting existing team packs automatically. Today there are two team
+  packs, both maintained by the mattstack maintainer; they are converted by
+  hand as part of the rollout.
 
 ## Anti-goals
 
-- A layer replacing mattstack's text in a block. A replaced block stops
-  receiving mattstack's fixes: the drift a pack exists to prevent.
+- A layer replacing mattstack's own text in a block. A pack only ever passes
+  props; text outside a `{{props.x}}` marker belongs to mattstack, and a
+  replaced block would stop receiving mattstack's fixes, the drift a pack
+  exists to prevent.
 - Wiring that only works by convention (a fill found by mirroring a path).
   The contract stays written down and checkable.
 
@@ -68,48 +77,60 @@ These were settled in brainstorming.
 2. **Each block is a file.** A block with children is a folder.
 3. **Heading levels come from depth.** A block stores its title, never `#`
    marks; compile assigns the level from its depth in the tree.
-4. **Fills sit inside the block they change.** Org and team text compiles
-   into the block it targets, not into one pile at the end.
-5. **A block is open to fills if and only if its text contains a
-   `{{fills}}` marker.** The marker also sets where fills go. When both
-   layers add to a block, org text comes first, then team text, at the one
-   marker. Teams don't choose the position: needing a different position is
-   a request to mattstack (or the org base) to move or add a marker. A block
-   that needs fills in two places should be two blocks.
-6. **Bindings stay explicit in `pack/skills.jsonc`, keyed by block id.**
-   Compile can then report a binding whose fill file is missing, or whose
-   block no longer exists or is closed.
-7. **Graphs stay in the compiled output as dot, and are authored in
+4. **A block takes props.** A `{{props.x}}` marker in a block's text is
+   where a pack's value for prop `x` goes. A block can have any number of
+   props. Props replace both of today's mechanisms: named slots
+   (`{{slot:tiering}}`, `{{slot:domain}}` and the rest) and the
+   `{{fills}}` marker from earlier drafts.
+5. **There is one kind of prop. Each declares how it merges and whether it
+   has a default**, the way rt settings declare `merge` per key:
+   - `merge: add`: every layer's value stacks, org first, then team.
+     Today's domain rules.
+   - `merge: replace`: the last layer wins. Today's tiering, forge and
+     reviewer slots.
+   - `default`: used when no layer passes a value. `default: ""` makes the
+     prop optional and empty. No `default` makes it required: compile stops
+     if no layer passes one.
+6. **A prop may name a contract**, the type of value it accepts
+   (`contract: model-tiering@1`), checked against the fill's `provides`
+   exactly as slots are checked today. Contracts keep their version; a
+   block's prop list (its signature) does not get one.
+7. **Bindings stay explicit in `pack/skills.jsonc`**, keyed by block, then
+   by prop. Compile reports a binding whose fill is missing, whose block no
+   longer exists, or whose prop the block doesn't declare.
+8. **A team can clear a lower layer's value** for a prop with an empty
+   binding (`""`), as slots allow today. Replacing mattstack's own text
+   stays impossible.
+9. **Graphs stay in the compiled output as dot, and are authored in
    Mermaid.** Compile turns Mermaid into dot Claude reads the way it does
    today. A graph lives in its parent block, and each child block is tied to
    a node in that graph (see "Graphs").
-8. **Console is for reading; Claude makes changes.** Each block offers
-   "Copy for Claude", which copies a brief to paste into a session. Open in
-   editor stays as a secondary action.
-9. **The console view** is as drawn on the L1 to L3 boards and described in
-   "Console" below: one skill at a time, three zoom levels, a short-label
-   block tree, folded section lists, a Layers panel drawn as charts, and a
-   small graph around a single block.
-10. The word is **block**.
-11. **Every engine converts in the first build.** All of mattstack's
+10. **Console is for reading; Claude makes changes.** Each block offers
+    "Copy for Claude", which copies a brief to paste into a session. Open in
+    editor stays as a secondary action.
+11. **The console view** is as drawn on the L1 to L3 boards and described
+    in "Console" below.
+12. **Every engine converts in the first build.** All of mattstack's
     engines and shared includes move to blocks together, so there is no
     period where engines come in two formats.
-12. **Testing the conversion.** `ship` gets the full before-and-after test
+13. **Testing the conversion.** `ship` gets the full before-and-after test
     with fresh agents (superpowers:writing-skills). Every other engine gets
-    a reviewed diff of its compiled output that shows only heading-level
-    and fill-placement changes.
-13. **A team can unbind the org's fill on a block,** as slots allow today
-    (an empty binding). Replacing mattstack's own text stays impossible.
+    a reviewed diff of its compiled output (see "Testing").
+14. **Breaking changes to props are caught in mattstack's CI**, not by
+    versioning signatures (see "Prop signature check").
+15. The word is **block**.
 
 ## Approaches considered
 
 | Question | Options | Picked, and why |
 |---|---|---|
 | How to teach packs | A 3D or spatial explorer; diagrams about packs (layer stacks, metro maps, run replays); an editor that knows its layers | The editor. It borrows conventions people already know: template inheritance (Jinja `extends`/`block`), the CSS cascade inspector in browser DevTools, and inline Peek. The diagram boards explained the system from outside and didn't land. |
-| Where fills go | One named slot per skill (today); inside the block they change | Inside the block. It's what real packs already fake with `## At: <step>` sections. |
+| Where a team's text goes | One named slot per skill (today); inside the block it changes | Inside the block. It's what real packs already fake with `## At: <step>` sections. |
 | How a fill finds its block | Same path in the team's pack; an entry in `skills.jsonc` | `skills.jsonc`. A moved file silently stops applying under path-matching; an explicit binding can be checked. |
-| How a block says it's open | `open: true` in frontmatter; a `{{fills}}` marker in its text | The marker. One mechanism answers both "can I add here?" and "where does it go?", and you can see both by reading the block. |
-| How graphs are written | Hand-written dot (today); generated from per-block edge lists; Mermaid compiled to dot | Mermaid. Generating from blocks scatters the edges and hides the shape from the author. Mermaid declares nodes where they're used: `ship`'s graphs go from 73 to 37 lines and from 301 to 175. It also renders on GitHub and GitLab. The dot Claude reads doesn't change; changing that would need its own before-and-after test. |
+| How a block marks where text goes | `open: true` in frontmatter; a `{{fills}}` marker; separate `{{fills}}` (add) and `{{swap}}` (replace) markers; props | Props. One mechanism covers adding, replacing, defaults, several spots in one block, and today's named slots. It borrows React's component props and rt settings' `merge`. |
+| Several spots in one block | Split into more blocks; named spots | Props: a block declares as many as it needs. |
+| Versioning | A version on each block's prop signature; contract versions only, plus a CI check | Contract versions plus a CI check. A signature version would make every team re-pin bindings on every release, even when nothing they use changed. |
+| How graphs are written | Hand-written dot (today); generated from per-block edge lists; Mermaid compiled to dot | Mermaid. Generating from blocks scatters the edges and hides the shape from the author. Mermaid declares nodes where they're used: `ship`'s graphs go from 73 to 37 lines and from 301 to 175. The dot Claude reads doesn't change in meaning. |
 | Editing in console | In-console editing; read-only with Edit opening the editor; read-only with a hand-off to Claude | Hand-off to Claude. Nearly every skill edit is made with Claude, and the extending-a-pack round carries the testing a text box would skip. |
 | Showing the layers | A text list per layer; a chart | A chart. A part-to-whole job is a stacked bar, not a pie: in `ship` the fills are about 1% of the text, and a pie would read as one solid circle. |
 
@@ -154,78 +175,133 @@ A block's id is its path without `.md`, with `/index` dropped:
 ---
 node: domain_fast_checks
 label: Fast checks
+props:
+  rules: { merge: add, default: "" }
 ---
 # Run the domain's fast checks (none when unbound)
 
 Only the checks the domain names, on the changed files; revert generated
 drift they leave. A full suite the domain rules out stays out. …
 
-{{fills}}
+{{props.rules}}
 ```
 
-- The `#` is ignored for level; it marks the title line.
-- `node` ties the block to its node in the parent's graph (see "Graphs").
-- `label` is the short name console shows. Without it, console uses the id
-  in plain words (`fast-checks` → "Fast checks").
-- A leaf file may contain sub-headings. They belong to the block: they get
-  levels from depth like everything else, but they are not blocks, so they
-  can't be bound to and don't show in the sidebar.
+```markdown
+---
+label: Tiering
+order: 1
+props:
+  tiering: { merge: replace, default: mattstack:model-tiering, contract: model-tiering@1 }
+---
+# Tiering
+
+*If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
+
+{{props.tiering}}
+```
+
+Frontmatter fields:
+
+| Field | Meaning |
+|---|---|
+| `node` | Ties the block to its node in the parent's graph (see "Graphs"). |
+| `label` | The short name console shows. Without it, console uses the id in plain words (`fast-checks` → "Fast checks"). |
+| `order` | Position among siblings that aren't ordered by a graph (see "Order"). |
+| `kind` | `gate` for a block that stops and asks the human through a form. Steps and questions come from the graph's shapes; gates need saying. |
+| `props` | Each prop's `merge`, `default` and optional `contract`. |
+
+The `#` line is the title; its level is ignored. A leaf file may contain
+sub-headings: they belong to the block, get levels from depth like
+everything else, and are not blocks (they can't be bound to and don't show
+in the sidebar).
 
 ### Placeholders inside a block
 
 | Placeholder | Meaning | Change |
 |---|---|---|
-| `{{fills}}` | Org and team text goes here | New. Marks the block open. |
-| `{{include:x}}` | A shared block, the same for everyone | Unchanged. Compiles in as a child, with levels from depth. |
+| `{{props.x}}` | Where prop `x`'s value goes | New. Replaces `{{slot:x}}`. |
+| `{{include:x}}` | A shared block, the same for everyone | Unchanged in meaning (see "Includes"). |
 | `{{team.x}}`, `{{team.section:x}}` | Values an org base asks each team for | Unchanged. |
 | `{{verb.path:x}}` | A path to another compiled verb | Unchanged. |
 | `{{run-start.flags:x}}` | Filled by rt for each run | Unchanged. |
 
 ### Fills and bindings
 
-A fill stays a skill folder. Its `SKILL.md` keeps the frontmatter a fill
-carries today (description, version, `allowed-tools`), and one file per
-block it adds to sits beside it:
+A fill stays a skill folder, and its `SKILL.md` frontmatter keeps what a
+fill carries today: `description`, `version`, `allowed-tools` and
+`metadata.provides`. A value passed to a prop is either:
+
+- **a whole skill**, `plugin:skill`: its `SKILL.md` body is the value (how
+  `mattstack:model-tiering` fills tiering today), or
+- **one file beside a skill's `SKILL.md`**, `plugin:skill/file`: that file is
+  the value, and the `SKILL.md` carries only frontmatter. This is how a team
+  splits its rules across steps:
 
 ```
 teams/widgets/plugin/attachments/ship-lint/
-  SKILL.md
+  SKILL.md            frontmatter only: description, allowed-tools
   fast-checks.md
   commit-named.md
 ```
 
-Per-block fill text is always inlined at the marker.
-
-The pack binds each file to a block in `pack/skills.jsonc`. The key is the
-engine ref plus the block path, so a binding names exactly which engine it
-targets:
+The pack binds values in `pack/skills.jsonc`, keyed by engine ref plus block
+path, then by prop:
 
 ```jsonc
-"mattstack:ship/flow/fast-checks": "widgets:ship-lint/fast-checks"
+"mattstack:ship/flow/fast-checks": { "rules": "widgets:ship-lint/fast-checks" },
+"mattstack:shepherdr/tiering": { "tiering": "widgets:our-tiering" }
 ```
 
-- Layering works per block the way it works per slot today: a later layer
-  replaces an earlier one's binding for that block, and `""` unbinds it.
-  When both org and team bind a block, both land, org first, unless the
-  team unbinds the org's.
-- Per-pipeline bindings and stage copies carry over unchanged, now keyed
-  by block.
-- Engines that repeat the same steps (`ship` and `stage-ship`) keep
-  separate block trees. A pack binds each one.
+- A value is always inlined at its marker.
+- The `plugin:skill/file` form is new, so the bindings schema moves to the
+  next version and its value pattern allows one `/`.
+- Layering per prop follows its `merge`: `add` stacks org then team;
+  `replace` keeps the last layer's value. An empty binding (`""`) clears the
+  lower layers' values for that prop.
+- Per-pipeline bindings and stage copies carry over unchanged, now keyed by
+  block and prop.
+- Engines that repeat the same steps (`ship` and `stage-ship`) keep separate
+  block trees. A pack binds each one.
+- mattstack's defaults live on the props (`default:`), so mattstack's own
+  `pack/skills.jsonc` no longer needs default lines.
 
-Compile refuses a binding when:
+Compile refuses:
 
-- its fill file is missing;
-- its block doesn't exist (for example, renamed in a newer mattstack);
-- its block has no `{{fills}}` marker.
+- a required prop (no `default`) that no layer passes;
+- a binding whose fill is missing;
+- a binding whose block doesn't exist (for example, renamed in a newer
+  mattstack), or whose prop the block doesn't declare;
+- a value whose `provides` doesn't match the prop's `contract`;
+- an old-style binding to a `{{slot:x}}` that no longer exists, naming the
+  block and prop that replaced it.
+
+### Prop signature check
+
+mattstack's CI compares every block's props with the last release and fails
+on a breaking change unless the release notes name it:
+
+- a prop removed or renamed;
+- a new prop with no `default` (newly required);
+- a prop's `merge` flipped (an `add` turning into `replace` would make a
+  lower layer's text vanish silently);
+- a prop's `contract` moved to a new version.
+
+### Order
+
+- A graph's children follow the graph: the order their nodes first appear in
+  the parent's Mermaid source.
+- Other siblings (Run, Flow, the notes blocks) follow `order`, lowest
+  first. Siblings without `order` come after those with one, by filename.
+- Converting an engine sets `order` so the compiled verb keeps today's
+  section order.
 
 ### Graphs
 
 - Node ids keep today's short-id rules (`check-dot.py --short-ids`):
   snake_case, command nodes start with their call word, STOP nodes start
-  with `stop_`. A block names its node with `node:` in frontmatter, so block
-  ids (kebab-case paths, used for bindings) and node ids (used in graphs)
-  stay separate.
+  with `stop_`. A block names its node with `node:`, so block ids
+  (kebab-case paths, used for bindings) and node ids (used in graphs) stay
+  separate.
 - The block's title is the node's label, as one source. In Mermaid a block
   node may omit its label; compile fills it from the title and refuses a
   label that disagrees.
@@ -234,38 +310,54 @@ Compile refuses a binding when:
   (doublecircle). STOP nodes and the green done node use Mermaid classes
   (`:::stop`, `:::done`) that compile turns into today's octagon and fill
   attributes.
-- The compiled dot doesn't have to be byte-identical to today's, but it
-  must pass `check-dot.py --short-ids` with the same ids, so existing
-  digraph fixtures stay valid.
+- The compiled dot must pass `check-dot.py --short-ids` with the same node
+  ids and edges as today, so existing digraph fixtures stay valid. Its
+  formatting doesn't have to match byte for byte.
 
 ### Includes
 
-Shared includes (`gate-protocol`, `browser-evidence` and the rest) become
-block trees like engines. `{{include:x}}` places the include's tree as a
-child of the block that names it, with levels from depth. Skills outside
-mattstack that expand includes (the board's launcher skills) get the same
-flattened text.
+- Shared includes (`gate-protocol`, `browser-evidence` and the rest) become
+  block trees like engines.
+- `{{include:x}}` renders the include's tree at the marker, as a child of
+  the block that names it, with levels from depth.
+- An include must be the last thing in its block: text after it would fall
+  under the include's last heading. Compile refuses text after an include.
+  `run-identity` already sits last in its block (`ship`'s "Resumed ship
+  run" block), and `ship`'s four other includes each fill a block of their
+  own.
+- Skills outside mattstack that expand includes (the board's launcher
+  skills) get the same flattened text.
 
 ### Compile
 
 1. Walk the block tree in order.
 2. Give each block's title a heading level from its depth.
-3. At each `{{fills}}` marker, insert the bound org fill, then the bound team
-   fill. Insert nothing when there are none.
+3. At each `{{props.x}}` marker, insert the merged value: the default, or
+   the layers' values merged by the prop's `merge`.
 4. Turn each Mermaid graph into dot, in the same place.
 5. Write one `SKILL.md`, as today.
-
-The order of a graph's children comes from the graph. The order of other
-siblings (Run, Flow, the notes blocks) is an open question, below.
 
 ### Testing
 
 - `ship` converts first and is tested before and after with fresh agents,
-  following superpowers:writing-skills: same scenarios against today's
+  following superpowers:writing-skills: the same scenarios against today's
   compiled verb and the block-compiled one.
 - Every other engine and include converts with a reviewed diff of its
-  compiled output. The only expected differences are heading levels and
-  fill text moving to its block; anything else fails review.
+  compiled output. The expected differences are:
+  - heading levels;
+  - a pack's text moving from the old slot section into the block it's
+    about;
+  - dot formatting, compared after normalizing: the same node ids, labels,
+    shapes and edges.
+  Anything else fails review.
+
+### Rollout of the two team packs
+
+Converting the engines removes `{{slot:domain}}` and the other named slots.
+Compile then refuses each pack's old bindings and names the prop that
+replaced each one. The two existing team packs are converted by hand, with
+Claude, as part of the rollout: their domain rules split into per-block
+files and rebound to props.
 
 ## Console
 
@@ -278,6 +370,9 @@ History tabs move into the block view: Used by on shared blocks, History per
 block. The Rebind panel goes away, since bindings change through Claude. The
 unsynced banner stays.
 
+A skill that isn't a block tree (a team's hand-written skill) opens in the
+same view, with its headings parsed into a read-only tree.
+
 ### Three zoom levels
 
 The sidebar selection sets the zoom level.
@@ -289,29 +384,34 @@ The sidebar selection sets the zoom level.
   own text, its graph as a one-line card ("112 steps · 174 links · View
   graph"), and its children as a folded list.
 - **A single block (board L3).** A breadcrumb (`ship › Flow › Fast checks`),
-  the full title, the path behind a ⋯ menu, the block's text with its fills
-  at the marker, and "Around this block".
+  the full title, the path behind a ⋯ menu, the block's text with each
+  prop's value at its marker, and "Around this block".
 
 ### Sidebar
 
 - "All skills" back link, then a switcher for the current skill (name, kind,
   block count).
-- The block tree, using short labels (`label`, or the id in plain words) on
-  one line each.
+- The block tree, using short labels on one line each.
 - Sections fold. Only the one holding the selection starts open.
 - A kind glyph on each row: ○ step, ◇ question, ⚑ gate. Note blocks get a
-  document icon, and the four shared blocks fold into one "Shared" row.
-- A purple dot when the org base adds to a block, a cyan dot when the team
-  does.
+  document icon. Top-level include blocks fold into one "Shared" row
+  (`ship` has four); an include inside another block shows under that block.
+- A purple dot when the org base passes a value to a prop in the block, a
+  cyan dot when the team does.
 
 ### Main column
 
-- Each section heads its own band (icon, title, block count, open count),
-  with its blocks in one bordered list, rows separated by lines.
+- Each section heads its own band (icon, title, block count, how many
+  blocks have props), with its blocks in one bordered list, rows separated
+  by lines.
 - A folded row shows: kind glyph, short label, a one-line summary (the first
-  sentence), fill dots, and a plug icon when the block is open.
+  sentence), layer dots, and a plug icon when the block has props.
 - Paths and Open file appear only on the selected block.
 - Prose is rendered: no raw backticks.
+- On a single block, each prop shows as a framed box at its marker: the
+  prop's name, its merge and default, and each layer's value in its layer's
+  tint (org then team for `add`; the winning value for `replace`, with the
+  default shown when nothing is passed).
 
 ### Layers panel
 
@@ -319,14 +419,15 @@ Titled "Layers".
 
 - **Where they add** (L1, L2): a block map with one square per block,
   grouped by section. Gray means mattstack only, purple means the org base
-  adds, cyan means the team adds, and a split square means both. A legend
-  gives the counts.
+  passes a value, cyan means the team does, and a split square means both.
+  A legend gives the counts.
 - **How much text** (L1, L2): a stacked bar of lines by layer, labelled
-  with its total. mattstack's lines are its prose plus its Mermaid lines.
-  In `ship`, fills are about 1% of the text.
+  with its total. mattstack's lines are its prose plus its Mermaid lines; a
+  replaced default counts toward the layer that replaced it. In `ship`, the
+  packs' text is about 1% of the total.
 - **This block, top to bottom** (L3): a strip in the block's own order:
-  mattstack's lines, then each fill at the marker, labelled with line
-  counts.
+  mattstack's lines, then each prop's value at its marker, labelled with
+  line counts.
 
 Colors: mattstack is the neutral context color (`--tk-line-1`), the org base
 is purple, and the team is cyan, using the kit's fill steps. Purple and
@@ -343,9 +444,9 @@ A small flowchart of the graph near the selected block.
    block of three hops or fewer, so loops like fix-and-recheck show.
 3. Lay it out on the React Flow canvas the Graph tab already uses, with a
    layered layout.
-4. A node whose id matches a block file is solid and opens that block. Every
-   other node is a muted outline with nothing to open, and a key explains
-   which is which.
+4. A node whose id a block names (`node:`) is solid and opens that block.
+   Every other node is a muted outline with nothing to open, and a key
+   explains which is which.
 5. "View whole graph" opens the full graph.
 
 ### Copy for Claude
@@ -356,12 +457,12 @@ The main action on a block. It copies a brief like:
 Block: ship/flow/fast-checks
   "Run the domain's fast checks"
 File: …/pipeline/ship/flow/fast-checks.md
-Fills go: {{fills}}, at the end
-widgets: …/ship-lint/fast-checks.md
-acme-base: nothing here
+Props: rules (add, optional)
+  widgets: …/ship-lint/fast-checks.md
+  acme-base: nothing passed
 Pack: widgets, extends acme-base
 
-Change a fill: mattstack:extending-a-pack
+Change a prop's value: mattstack:extending-a-pack
 Change mattstack's text: mattstack:editing-skills
 Write it with: superpowers:writing-skills
 
@@ -375,26 +476,11 @@ existing `buildAgentContext`, scoped to one block.
 
 Built from kit chrome (`MattstackShell`, `PageShell` with its sidebar and
 content) and role tokens, per `docs/apps/ui-authoring.md`: Inter and
-JetBrains Mono at weights 400, 500 and 700; hue tints for the fill cards;
-no raw colors.
+JetBrains Mono at weights 400, 500 and 700; hue tints for the layer
+values; no raw colors.
 
 ## Open questions
 
-- **Sibling order outside a graph.** Run, Flow and the notes blocks need an
-  order. A position field in frontmatter, as Docusaurus does, is one way.
-  Number prefixes on filenames would break the stable ids.
-- **Named slots that aren't about a step.** `{{slot:domain}}` appears in 10
-  engines and maps cleanly onto per-block fills. Others (`reviewer`,
-  `criteria`, `tiering`, `forge`, `strategy`, `reply-rules`, `accounts`)
-  swap in a capability, carry contracts such as `ship-domain@1`, and can be
-  required. Whether each becomes a `{{fills}}` marker in a block or stays a
-  named slot is undecided.
-- **Moving existing packs.** Existing domain fills (including the
-  `## At: <step>` pattern) have to be split into per-block fill files and
-  re-bound when the engines convert. Whether that's a conversion command
-  rt runs on each pack, or done by hand with Claude, is undecided.
-- **Marking gates.** Console infers a gate from its title in the mock. A
-  real marker (a frontmatter `kind`, say) is needed.
 - **Short labels for graph-only nodes.** Their labels are long sentences,
   which crowd the Around-this-block chart.
 - **Merging budget pairs in the small graph.** A `run_budget` command and its
@@ -403,23 +489,27 @@ no raw colors.
 - **The board file.** Whether `Skill Packs.pen` is committed beside
   `console.pen`.
 
+None of these block planning: the first two are console polish, the last is
+housekeeping.
+
 ## Calls I made
 
 Matt didn't pick these; check them while reading.
 
 - A block with children is a folder with `index.md`.
-- A block's id is its path; `label` in frontmatter gives the short name.
-- Graphs: `node:` in a block's frontmatter ties it to its graph node, node
-  ids keep today's short-id rules, the block title is the node label, the
-  shape mapping above, and equivalent rather than byte-identical dot.
+- A block's id is its path; `label` gives the short name; `kind: gate`
+  marks gates.
+- Sibling order: graph order for a graph's children, `order` for the rest.
+- Graphs: `node:` ties a block to its node, node ids keep today's short-id
+  rules, the block title is the node label, the shape mapping above, and dot
+  compared after normalizing rather than byte for byte.
 - A leaf file may hold sub-headings that aren't blocks.
-- Bindings key on engine ref plus block path; `ship` and `stage-ship` keep
-  separate trees and are bound separately.
-- A fill stays a skill folder with a `SKILL.md`, so `allowed-tools` and
-  versions keep working; per-block fill text is always inlined.
-- Includes become block trees too.
-- Console shows a skill that isn't a block tree (a team's hand-written
-  skill) by parsing its headings into a read-only tree.
+- An include must be the last thing in its block.
+- Bindings key on engine ref plus block path, then prop. A value is a whole
+  skill or one file beside a skill's `SKILL.md`. `ship` and `stage-ship`
+  are bound separately.
+- An empty binding clears lower layers for a prop.
+- What the prop signature check fails on.
 - The Graph tab split: the skill map stays as home, and the block view
   replaces the template canvas and drawer. The Rebind panel goes away.
 - The layer colors: purple for the org base, cyan for the team, neutral for
@@ -427,5 +517,6 @@ Matt didn't pick these; check them while reading.
 - The small graph's rule: one hop each way plus cycles of three hops or
   fewer.
 - The Copy for Claude brief's wording.
-- The fills shown on the boards (widgets, acme-base) are invented. The open
-  blocks on the boards are the steps a real domain fill targets today.
+- The fills shown on the boards (widgets, acme-base) are invented. The
+  blocks with props on the boards are the steps a real domain fill targets
+  today.
