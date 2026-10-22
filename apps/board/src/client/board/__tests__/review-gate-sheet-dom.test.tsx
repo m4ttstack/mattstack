@@ -1436,15 +1436,15 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(valueOf(summaryLine())).not.toContain(SUMMARY);
   });
 
-  test('the summary heading names the selected verdict and follows it', async () => {
+  test('the summary badge names the selected verdict in its colour and follows it', async () => {
     await render(draftsGate());
-    const heading = () =>
-      container.querySelector(
-        '.tui-review-summary [data-section="summary"] .tui-review-section-meta'
-      )?.textContent;
-    expect(heading()).toBe('drafted for approve');
+    const badge = () =>
+      container.querySelector('.tui-review-summary [data-verdict]');
+    expect(badge()?.textContent).toBe('for approve');
+    expect(badge()?.getAttribute('data-intent')).toBe('ok');
     await pickVerdict('comment');
-    expect(heading()).toBe('drafted for comment');
+    expect(badge()?.textContent).toBe('for comment');
+    expect(badge()?.getAttribute('data-intent')).toBe('accent');
   });
 
   test('each verdict keeps its own edit: switching away and back restores it', async () => {
