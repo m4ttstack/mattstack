@@ -568,9 +568,10 @@ form: the verdict and a one-line triage per blocking failure.
 | `action` (write-in) | **Fix and re-push** (a REAL failure in the change) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
-The table writes `(Recommended)` on one `action` option: **Fix and
-re-push** when any blocking failure is REAL, until the third fix round;
-else **Retry the job** when an INFRA one is not yet retried; else **Hand
+Mark one `action` option `(Recommended)`: **Fix and re-push** when any
+blocking failure is REAL, while fewer than three fix rounds have run
+(`watch-ci:fix-rounds`); else **Hand back** when any is REAL; else
+**Retry the job** when an INFRA one is not yet retried; else **Hand
 back**, which also covers a red with no triage (a timeout, `no_pipeline`,
 an MR lookup error).
 

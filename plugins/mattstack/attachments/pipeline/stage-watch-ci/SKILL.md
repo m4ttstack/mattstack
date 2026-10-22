@@ -417,11 +417,12 @@ verdict and a one-line triage per blocking failure.
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | `to` | one option per earlier stage; with one candidate, **Go back to `<stage>`** in `next` instead | Go back, with more than one earlier stage row |
 
-The table writes `(Recommended)` on one `action` option: **Fix and
-re-push** when any blocking failure is REAL, until the third one in a run;
-else **Retry the job** when an INFRA one is not yet retried; else **Hand
-back**, which also covers a red with no triage (a timeout, `no_pipeline`,
-an MR lookup error).
+Mark one `action` option `(Recommended)`: **Fix and re-push** when any
+blocking failure is REAL, while this is the first or second `watch-ci`
+attempt (the `<attempt>` in scope `ci:watch-ci:<attempt>`); else **Hand
+back** when any is REAL; else **Retry the job** when an INFRA one is not
+yet retried; else **Hand back**, which also covers a red with no triage
+(a timeout, `no_pipeline`, an MR lookup error).
 
 Selection: `{"action":"fix|retry|handback|abandon","next":"proceed|iterate|go-back|hold","to":"<stage or null>","note":"<their words or null>"}`.
 An `action` write-in records `{"writeIn": "<their words>"}` as `action`.
