@@ -3692,7 +3692,7 @@ GitLab only. Sort a pipeline's failed jobs, same-project child pipelines include
     },
     "config": {
       "type": "object",
-      "description": "Optional one-off override with the keys of a pack's ci-config.json."
+      "description": "Optional additions for this call: real-patterns, infra-patterns and noisy-jobs add to the ci.triage.* settings; base-depth, base-ref and skip-base replace them."
     },
     "base": {
       "type": "string",

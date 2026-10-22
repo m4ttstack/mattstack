@@ -414,7 +414,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         properties: {
           ...MR_TARGET_PROPS,
           pipelineId: { type: "number", description: "The numeric part of a gitlab:pipeline:N id; default the MR's head pipeline." },
-          config: { type: "object", description: "Optional one-off override with the keys of a pack's ci-config.json." },
+          config: { type: "object", description: "Optional additions for this call: real-patterns, infra-patterns and noisy-jobs add to the ci.triage.* settings; base-depth, base-ref and skip-base replace them." },
           base: { type: "string", description: "The branch whose recent failures mark a job INHERITED." },
           noBase: { type: "boolean" },
         },

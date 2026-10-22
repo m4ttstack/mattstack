@@ -91,9 +91,11 @@ candidate's `runId`.
 ## Flow
 
 `<root>` is the worktree root (`git rev-parse --show-toplevel`), `<mr>` the
-MR's or PR's https URL. Every CI tool takes `mrUrl: <mr>`; `mr_view` and
-`mr_ready` take `repoName` = `<root>` and `iid`. `<N>` is the number in
-`ci_watch`'s `pipeline.id` (`gitlab:pipeline:N`).
+MR's or PR's https URL. Every CI tool takes `mrUrl: <mr>`; `ci_watch`,
+`ci_triage`, `pipeline_jobs`, `mr_job_trace` and `mr_retry` take
+`repoName` = `<root>` and `iid` in its place as the same call, as do
+`mr_view` and `mr_ready`. `<N>` is the number in `ci_watch`'s
+`pipeline.id` (`gitlab:pipeline:N`).
 
 ```dot
 digraph watch_ci {
@@ -550,7 +552,7 @@ One sentence above the form: CI is green for the MR's head.
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | `to` | one option per earlier stage; with one candidate, **Go back to `<stage>`** in `next` instead | Go back, with more than one earlier stage in `run_snapshot` |
 
-Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
+Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|go-back|hold","to":"<stage or null>","note":"<their words or null>"}`.
 
 ### watch-ci gate ci
 
@@ -561,12 +563,11 @@ form: the verdict and a one-line triage per blocking failure.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in the change; after the third fix round the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
+| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in the change; when every blocking failure is INHERITED, or after the third fix round, the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
-Selection: `{"next":"fix|retry|handback|abandon|iterate|hold","note":"<their words or null>"}`.
-An `action` write-in adds `"action": {"writeIn": "<their words>"}`, and
-`next` records `iterate`, or the Hold that won. Hand back leaves the MR red
+Selection: `{"action":"fix|retry|handback|abandon","next":"proceed|iterate|hold","note":"<their words or null>"}`.
+An `action` write-in records `{"writeIn": "<their words>"}` as `action`. Hand back leaves the MR red
 for the human.
 
 ### Fix the REAL failure, commit
@@ -656,9 +657,14 @@ block, noise, ownership), judged at `Classify the triage report
 skill runs no vendored script: a rule that runs `<scripts>/ci-triage.sh`
 is the move `STOP: GitLab triage goes through ci_triage (watch-ci)`
 redirects, so call `ci_triage` with `pipelineId: <N>` (never the ref's
-newest pipeline) and its `--config` file's keys as `config`, its only
-source (the file sits under `parts/domain/`); `<forge> jobs` goes to
-`pipeline_jobs`; `ci-attendant.sh` or `ci-watch.sh` goes to `ci_watch`.
+newest pipeline); `<forge> jobs` goes to `pipeline_jobs`; `ci-attendant.sh`
+or `ci-watch.sh` goes to `ci_watch`. `ci_triage` reads its REAL and
+INFRA patterns, noisy jobs and base settings from the `ci.triage.*`
+settings, on top of its built-in patterns, so a rule's `--config` flag
+names no file to read. `config` carries only
+what a rule states outright: `real-patterns`, `infra-patterns` and
+`noisy-jobs` (string arrays) add to the settings; `base-depth`, `base-ref`
+and `skip-base` replace them.
 
 {{slot:domain}}
 
