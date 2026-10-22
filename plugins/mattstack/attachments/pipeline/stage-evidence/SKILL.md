@@ -358,7 +358,8 @@ Selection: `{"boards":"clear|hide|<their words>|null","annotations":[...],"attac
 **Hide something first**, or words naming a board, is a revision of that
 board as under Iterate here, adding a `redact` mark over what they name;
 then this gate is asked again. `Attach the evidence` still shows every
-board at its evidence-boards gate before anything goes up, these included.
+board but a mock-data board at its evidence-boards gate before anything
+goes up, these included.
 
 For a board not yet drawn (a ticket image, a non-browser image), the kept
 labels are its brief's `point at`. A browser case's board is already

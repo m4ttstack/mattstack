@@ -37,13 +37,20 @@ takes its default:
 The pack's block wins over this page only on facts about its app, never on a
 STOP below.
 
-A board is a mock-data board when Personal data says its source holds only
-mock data (seeded test records, no real person), read from where the image
-came from, never from how the names on screen look. Its brief's `hide:`
-line reads `no redact marks: mock data from <source>`, `<source>` being
-the source as Personal data names it (a database class, a site), written
-before the driver spawns, and its empty record
-is confirmed without a question (Confirm a mock-data board).
+A board is a mock-data board only when all three hold:
+
+- Personal data says the page's source holds only mock data (seeded test
+  records, no real person), read from where the page is served from, never
+  from how the names on screen look;
+- its brief has `page:`, never `import:`: an imported image (a ticket
+  screenshot) can come from anywhere;
+- a pair's `before:` names a board that was itself a mock-data board (its
+  `evidence-mock-data:<before stem>` field is set), never an import board.
+
+Its brief's `hide:` line reads `no redact marks: mock data from <source>`,
+`<source>` being the source as Personal data names it (a database class, a
+site), written before the driver spawns, and its empty record is confirmed
+without a question (Confirm a mock-data board).
 
 ## Draw the boards
 
@@ -74,10 +81,12 @@ digraph browser_evidence {
     rerenders_spent [label="rerenders spent?" shape=diamond];
     redaction_record [label="Redaction record?" shape=diamond];
     stop_self_confirm [label="STOP: confirming is the human's answer, never the agent's, except a mock-data board's empty record" shape=octagon style=filled fillcolor=red fontcolor=white];
-    run_field_set_mock [label="run_field_set {runDb, key: evidence-mock-data:<stem>, value: <the brief's hide line>, stage}" shape=plaintext];
+    fast_browser_confirm_mock [label="fast-browser compose --confirm ~/.fast-browser/screenshots/<stem>.spec.json (mock-data board)" shape=plaintext];
+    mock_confirm_result [label="Mock-data confirm result?" shape=diamond];
+    run_field_set_mock [label="run_field_set {runDb, key: evidence-mock-data:<stem>, value: <boardSha256 of the confirmed record> <the hide line>, stage}" shape=plaintext];
     hand_off_at_gate [label="Every board of this hand-off at the redaction gate or done?" shape=diamond];
     wait_for_hand_off [label="Wait for this hand-off's other boards" shape=box];
-    run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<first entry of this opening>, limit: 4, stage}" shape=plaintext];
+    run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<first entry of this opening>:<first crop of this opening, or board>, limit: 4, stage}" shape=plaintext];
     redaction_openings_spent [label="redaction-openings spent?" shape=diamond];
     gate_evidence_redaction [label="Gate evidence-redaction (below)" shape=box];
     redaction_answer [label="Redaction answer?" shape=diamond];
@@ -131,12 +140,15 @@ digraph browser_evidence {
     rerenders_spent -> agent_driver [label="no: the brief and what reads wrong"];
     rerenders_spent -> not_drawn [label="yes"];
     redaction_record -> hand_off_at_gate [label="crops: <stem>.redactions.json lists a crop"];
-    redaction_record -> run_field_set_mock [label="empty, on a mock-data board"];
+    redaction_record -> fast_browser_confirm_mock [label="empty, on a mock-data board: a page: brief, no import"];
     redaction_record -> hand_off_at_gate [label="empty, on any other board"];
     redaction_record -> board_ready [label="none: no <stem>.redactions.json"];
     redaction_record -> stop_self_confirm [label="tempted to run --confirm without a yes on any other board"];
     stop_self_confirm -> hand_off_at_gate;
-    run_field_set_mock -> fast_browser_confirm;
+    fast_browser_confirm_mock -> mock_confirm_result;
+    mock_confirm_result -> run_field_set_mock [label="ok: the record reads confirmed"];
+    mock_confirm_result -> hand_off_at_gate [label="refused, or still not confirmed: the human looks"];
+    run_field_set_mock -> board_ready;
     hand_off_at_gate -> run_budget_redaction_gate [label="yes: every waiting board, one opening"];
     hand_off_at_gate -> wait_for_hand_off [label="no"];
     wait_for_hand_off -> hand_off_at_gate;
@@ -151,6 +163,7 @@ digraph browser_evidence {
     boards_named -> ask_which_board [label="no"];
     ask_which_board -> which_answer;
     which_answer -> named_boards [label="boards picked"];
+    which_answer -> crops_left [label="none picked: every board of this opening confirmed"];
     which_answer -> held_redaction [label="hold"];
     named_boards -> run_budget_redaction [label="each board they name, with their words"];
     named_boards -> crops_left [label="each other board of this opening"];
@@ -303,22 +316,29 @@ re-renders per board (`rerenders:<stem>`).
 `Redaction record?` reads the record compose wrote,
 `~/.fast-browser/screenshots/<stem>.redactions.json`, never the driver's
 `crops` list: crops when that record lists one or more crops, empty when
-its `redactions` is `[]`, none when there is no record. An empty record
-(compose may warn that a redact mark lies outside the board) has no crop,
-and the upload refuses it until `fast-browser compose --confirm` marks it
-confirmed, so it takes the redaction gate like a record with crops: the
-human looks at the board itself and confirms nothing on it needs hiding.
-The one exception is a mock-data board (Confirm a mock-data board).
+its `redactions` is `[]`, none when there is no record. Compose writes
+no record for a board whose redact marks all sit on live captures (the
+page was hidden before the capture left it), so none is expected there.
+An empty record
+means no panel of the board carries a redact mark, and the upload refuses
+it until `fast-browser compose --confirm` marks it confirmed, so it takes
+the redaction gate like a record with crops: the human looks at the board
+itself and confirms nothing on it needs hiding. The one exception is a
+mock-data board (Confirm a mock-data board).
 
 ### Confirm a mock-data board
 
-An empty record on a mock-data board skips the gate: its source holds no
-real person, so there is nothing for the human to check. Write the run
-field `evidence-mock-data:<stem>` with the brief's `hide:` line as its
-value (evidence-record reads it before the upload), then run the confirm.
-Only an empty record takes this path: a mock-data board whose record lists
-a crop goes to the gate like any other, since a crop means something on it
-was hidden.
+An empty record on a mock-data board (all three conditions under The
+browser target) skips the gate: its page holds no real person, so there is
+nothing for the human to check. Run the confirm, and only once the record
+reads `"confirmed": true` write the run field `evidence-mock-data:<stem>`
+with the record's `boardSha256`, a space, and the brief's `hide:` line as
+its value. evidence-record trusts the field only for those exact bytes, so
+any later render of the stem (a re-capture, a revision, another source)
+is shown again until it earns a field of its own. A confirm that is refused
+or leaves the record unconfirmed sends the board to the gate instead: the
+human looks. A board with crops, or one whose source is not mock data,
+never takes this path.
 
 ### Every board of this hand-off at the redaction gate or done?
 
@@ -331,9 +351,10 @@ board re-rendered after the gate waits for the others re-rendered with it.
 
 Scope `evidence-redaction:<stage>:<n>`, where `<n>` counts this gate's
 openings in this stage pass from 1;
-`redaction-openings:<first entry of this opening>` (the entry's file name)
-budgets each opening, so a long hand-off's later openings are not charged
-to the first. Open it with `gate_open` (gate-protocol,
+`redaction-openings:<first entry of this opening>:<first crop of this
+opening, or board>` (file names) budgets each opening, so a long
+hand-off's later openings, and the later openings of one board's long run
+of crops, are not charged to the first. Open it with `gate_open` (gate-protocol,
 Structured context): the source's `context` is a `boards@1` object, so the
 human sees the whole board, not only its crops.
 
@@ -376,8 +397,10 @@ A clarify question through gate-protocol, scope
 question: which boards of the opening need something hidden, multiple
 choice, one option per board (its case and claim), at most four options
 per question, so more boards spread over consecutive questions in that
-form. Their earlier words travel with each board they pick. Hold is the
-only other answer.
+form. The form's one-line context says that boards left unpicked count as
+confirmed, and that picking none confirms them all. Their earlier words
+travel with each board they pick. A Hold in the form is Held at
+evidence-redaction.
 
 ### Crops left for this board?
 
@@ -450,17 +473,16 @@ by hand:
    `{ "asked": "<their words>", "changed": "<what you changed>" }` to its
    top-level `revisions` list (create it if absent). On a return from step
    5, add their words to this revision's entry instead of appending one,
-   so `<k>` stays the same for the whole revision. A revision that adds a
-   `redact` mark clears the board's mock-data field
-   (`run_field_set {runDb, key: evidence-mock-data:<stem>, value: "", stage}`):
-   someone found something to hide, so the board is shown from here on.
+   so `<k>` stays the same for the whole revision.
 4. `fast-browser compose ~/.fast-browser/screenshots/<stem>.spec.json`, and
    read the board as in Read the board yourself.
 5. A redaction record beside it (`<stem>.redactions.json`, with crops or
    empty): Gate evidence-redaction, then `fast-browser compose --confirm`
-   on that spec; an empty record on a mock-data board takes Confirm a
-   mock-data board instead. Naming this board returns to step 3 with their
-   words, counted against `redaction-rounds:<stem>:r<k>`. A Hold there
+   on that spec. An empty record takes Confirm a mock-data board instead
+   only when the board's `evidence-mock-data:<stem>` field was set before
+   this revision and nobody asked for anything to be hidden in it; the
+   hide line comes from that field. Naming this board returns to step 3
+   with their words, counted against `redaction-rounds:<stem>:r<k>`. A Hold there
    holds the revision with nothing recorded; a refused confirm, a confirm
    that left an empty record unconfirmed, or spent redaction rounds or
    openings ends the revision, the output or the spent budget quoted.

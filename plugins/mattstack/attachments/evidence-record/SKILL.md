@@ -178,7 +178,7 @@ Selection: `{"waivers":{"<case>/<slot>[/<theme>]":"<reason>|annotate","<case>":"
 
 Entered only after the verb's attach gate proceeds. On GitLab, nothing
 uploads until the human has looked at every file the upload carries
-(Gate evidence-boards). The domain supplies `heading`, `before` and
+but a mock-data board (Gate evidence-boards). The domain supplies `heading`, `before` and
 `appendix`; unbound, `heading` is the repo MR template's evidence
 heading, else `## Evidence`, always the full line with its `##`. On
 GitHub nothing uploads; `<n>` is the PR number in `mrUrl`. Attach held is
@@ -283,12 +283,14 @@ digraph attach_evidence {
 ### Any file to show?
 
 A file to show is each distinct `annotated` board and each waived image's
-own `path` the upload carries, except a mock-data board: a board whose
-`evidence-mock-data:<stem>` run field is set (browser-evidence, Confirm a
-mock-data board) holds no real person, so nobody needs to look at it. An
-unset field (an error or an empty value) means the board is shown. No
-when every file is a mock-data board: the upload goes up without this
-gate.
+own `path` the upload carries, except a mock-data board. A board is a
+mock-data board here only when its `evidence-mock-data:<stem>` run field
+(browser-evidence, Confirm a mock-data board) starts with the sha256 of
+the very board file this upload carries (`shasum -a 256 <its annotated
+path>` on Bash): that board holds no real person, so nobody needs to look
+at it. An unset field (an error or an empty value), or one whose sha names
+other bytes (a re-capture, a revision), means the board is shown. No when
+every file is a mock-data board: the upload goes up without this gate.
 
 ### Files left to show in this attach?
 
