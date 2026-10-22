@@ -1242,6 +1242,22 @@ describe("initPack against a real org clone", () => {
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
   });
 
+  test("a run resumed after params-missing still shares the marketplace entry and the claim the first run wrote", async () => {
+    const w = orgWorld("dev1", { settings: { "board.gitlabHost": "gitlab.com" } });
+    const missing = [{ kind: "param" as const, name: "linear-team", file: "pack/params.jsonc", askedBy: ["acme-base:work"] }];
+    const first = await initPack({ repoDir: REPO, zone: null, team: "widgets" }, realCloneDeps(w, { compile: async () => ({ ok: false, errors: [], missing }) }));
+    expect(first).toMatchObject({ ok: false, refused: true, code: "params-missing" });
+    expect(w.pushes).toEqual([]);
+
+    const again = await initPack({ repoDir: REPO, zone: null, team: "widgets" }, realCloneDeps(w));
+    expect(again).toMatchObject({ ok: true, wrote: [], published: { pushed: true, remote: w.remote } });
+    const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
+    expect(files).toContain(".claude-plugin/marketplace.json");
+    expect(files).toContain("mattstack/teams/widgets/settings.team.jsonc");
+    expect(files).toContain("mattstack/teams/widgets/plugin/skills/work/SKILL.md");
+    expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
+  });
+
   test("the new pack folder and its marketplace entry reach origin in one push", async () => {
     const w = orgWorld("dev1", { settings: { "board.gitlabHost": "gitlab.com" } });
     const out = await initPack({ repoDir: REPO, zone: null, team: "widgets" }, realCloneDeps(w));
