@@ -9,7 +9,7 @@ import { Tooltip } from './Tooltip.tsx';
 const BUILD_TIP = 'Build without redeploying';
 const REDEPLOY_TIP = 'Deploy the latest code';
 
-const COMMAND_ICONS: Record<string, string> = { build: HAMMER, deploy: ROCKET };
+export const COMMAND_ICONS: Record<string, string> = { build: HAMMER, deploy: ROCKET };
 const LABELED_ICONS: Record<string, string> = {
   build: HAMMER,
   deploy: CIRCLE_ARROW_UP,
