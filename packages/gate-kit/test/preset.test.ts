@@ -130,6 +130,9 @@ test('withoutPreset matches a multi preset by its values', () => {
   expect(withoutPreset({ fixes: ['a'] }, { fixes: ['a', 'c'] })).toEqual({
     fixes: ['a'],
   });
+  expect(withoutPreset({ fixes: ['a', 'a'] }, { fixes: ['a', 'c'] })).toEqual({
+    fixes: ['a', 'a'],
+  });
 });
 
 test('withoutPreset drops only picks still equal to the preset', () => {

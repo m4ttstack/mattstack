@@ -57,7 +57,9 @@ export function presetSelections(
 
 function samePick(a: string | string[] | undefined, b: string | string[]) {
   if (!Array.isArray(a) || !Array.isArray(b)) return a === b;
-  return a.length === b.length && a.every(v => b.includes(v));
+  if (a.length !== b.length) return false;
+  const sortedB = [...b].sort();
+  return [...a].sort().every((v, i) => v === sortedB[i]);
 }
 
 /** `selections` minus every pick still equal to its preset, so an untouched
