@@ -35,7 +35,7 @@ jobs:
           fetch-depth: 2
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
       - id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -52,7 +52,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -115,7 +115,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
       - uses: actions/setup-go@v5
         with:
           go-version-file: ui/go.mod
@@ -136,7 +136,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - uses: actions/cache@v4
         with:
@@ -176,7 +176,7 @@ jobs:
           fetch-depth: 2
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
 
       - name: Install backup dependencies
         run: brew install age zstd git-lfs
@@ -220,7 +220,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - name: Always-run guards
         env:
@@ -273,7 +273,7 @@ jobs:
           fetch-depth: 2
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       # A PR checkout is the merge commit, so HEAD^1 is the base branch tip,
       # the same base the scope job diffs against.
@@ -349,7 +349,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
       - name: Build the docs site
         working-directory: website
         run: bun install --frozen-lockfile && bun run build

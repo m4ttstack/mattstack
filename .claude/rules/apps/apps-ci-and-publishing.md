@@ -43,7 +43,7 @@ them as `$TURBO_ROOT$` inputs on its package's `test` task
 `$TURBO_ROOT$` glob carries the `node_modules`/`.turbo`/`dist`/`dist-bin`
 negations because those globs ignore `.gitignore`.
 
-`setup-bun` is pinned to `1.4.3` in every job. The pin exists because
+`setup-bun` is pinned to `1.4.4` in every job. The pin exists because
 CI byte-compares generated/committed artifacts (deck's
 `core/generated-fresh.test.ts`, tui-kit's codegen gate) against a live
 rebuild, and bun's bundler/minifier output is not stable across bun
