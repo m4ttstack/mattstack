@@ -1465,7 +1465,7 @@ body {
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent;
-  margin: 0.6rem 0 0.75rem;
+  margin: 0.6rem 0 1rem;
 }
 .tui-cd-note-body pre code {
   background: none;
