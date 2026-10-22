@@ -356,7 +356,7 @@ function sharePathsFor(zone: ZoneInfo, packDir: string, wrote: string[]): string
 
 export type InitRefusalCode =
   | "not-yours" | "other-org"
-  | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host"
+  | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host" | "base-missing"
   | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
@@ -388,7 +388,7 @@ function refuse(code: InitRefusalCode, detail: string, next?: string, why?: stri
 }
 
 function missingDetail(missing: MissingMarker[]): string {
-  const items = missing.map((m) => `${m.kind === "param" ? m.name : `the ${m.name} section`}${m.askedBy.length > 0 ? ` (asked by ${m.askedBy.join(", ")})` : ""}`);
+  const items = missing.map((m) => `${m.kind === "param" ? m.name : `the ${m.name} section`} in ${m.file}${m.askedBy.length > 0 ? ` (asked by ${m.askedBy.join(", ")})` : ""}`);
   return `The base pack asks for values only your team can give: ${items.join("; ")}`;
 }
 
@@ -401,7 +401,7 @@ function seedParams(fs: InitFs, path: string, keys: string[]): boolean {
   let text = existing ?? '{\n  "version": 1,\n  "params": {}\n}\n';
   let changed = false;
   for (const key of keys) {
-    if (key in have) continue;
+    if (Object.hasOwn(have, key)) continue;
     text = applyEdits(text, modify(text, ["params", key], "", FORMAT));
     changed = true;
   }
@@ -524,9 +524,15 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   }
   const extendsBase = opts.extendsBase ?? null;
   if (extendsBase !== null) {
-    const baseDir = TEAM_NAME_RE.test(extendsBase) ? join(zone.orgDir, "mattstack", "org", "packs", extendsBase) : null;
+    const packsDir = join(zone.orgDir, "mattstack", "org", "packs");
+    const baseDir = TEAM_NAME_RE.test(extendsBase) ? join(packsDir, extendsBase) : null;
     if (baseDir === null || !deps.fs.exists(baseDir) || !isBasePack(deps.fs, baseDir)) {
-      return refuse("zone-missing", `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org`);
+      const bases = deps.fs.exists(packsDir) ? deps.fs.readDir(packsDir).filter((name) => isBasePack(deps.fs, join(packsDir, name))).sort() : [];
+      return refuse(
+        "base-missing",
+        `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org${bases.length > 0 ? `. Bases here: ${bases.join(", ")}` : ""}`,
+        `rt skills init --team ${zone.team} --extends <base>`,
+      );
     }
   }
   const packSource = teamPackSource(zone.team);

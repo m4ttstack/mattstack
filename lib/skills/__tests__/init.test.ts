@@ -470,9 +470,9 @@ describe("initPack --extends", () => {
     for (const files of [{}, { [`${BASE_DIR}/pack/skills.jsonc`]: '{ "version": 1 }' }]) {
       const { deps, calls, fs } = world({ files });
       const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
-      expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
+      expect(out).toMatchObject({ ok: false, refused: true, code: "base-missing" });
       if (out.ok || !out.refused) throw new Error("expected a refusal");
-      expect(out.detail).toContain("acme-base");
+      expect(out.detail).toBe("There is no base pack called acme-base in the acme org");
       expect(calls.claims).toEqual([]);
       expect(fs.exists(`${ACME_PACK}/pack/stubs.jsonc`)).toBe(false);
     }
@@ -481,7 +481,13 @@ describe("initPack --extends", () => {
   test("init --extends refuses a base name that is not a name", async () => {
     const { deps } = world({ files: BASE_FILES });
     const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "../acme-base" }, deps);
-    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
+    expect(out).toMatchObject({
+      ok: false,
+      refused: true,
+      code: "base-missing",
+      detail: "There is no base pack called ../acme-base in the acme org. Bases here: acme-base",
+      next: "rt skills init --team acme --extends <base>",
+    });
   });
 
   test("init seeds missing values and stops with params-missing", async () => {
@@ -495,9 +501,9 @@ describe("initPack --extends", () => {
       next: "rt skills init --team acme --extends acme-base",
     });
     if (out.ok || !out.refused) throw new Error("expected a refusal");
-    expect(out.detail).toContain("repo-name");
-    expect(out.detail).toContain("ci-extra-jobs");
-    expect(out.detail).toContain("acme-base:watch-ci-rules");
+    expect(out.detail).toBe(
+      "The base pack asks for values only your team can give: repo-name in pack/params.jsonc (asked by acme-base:watch-ci-rules); the ci-extra-jobs section in pack/sections/ci-extra-jobs.md (asked by acme-base:watch-ci-rules)",
+    );
     expect(JSON.parse(stripJsonc(fs.readFile(`${ACME_PACK}/pack/params.jsonc`)!))).toEqual({ version: 1, params: { "repo-name": "" } });
     expect(fs.readFile(`${ACME_PACK}/pack/sections/ci-extra-jobs.md`)).toBe("");
     expect(calls.checked).toEqual([]);
@@ -524,6 +530,17 @@ describe("initPack --extends", () => {
     await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
     const again = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
     expect(again).toMatchObject({ ok: false, refused: true, code: "params-missing", wrote: [] });
+    if (again.ok || !again.refused) throw new Error("expected a refusal");
+    expect(again.detail).toContain("repo-name in pack/params.jsonc");
+    expect(again.detail).toContain("the ci-extra-jobs section in pack/sections/ci-extra-jobs.md");
+  });
+
+  test("a missing key named like an Object.prototype property is still seeded", async () => {
+    const missing = [{ kind: "param" as const, name: "constructor", file: "pack/params.jsonc", askedBy: ["acme-base:x"] }];
+    const { deps, fs } = world({ files: BASE_FILES, compile: async () => ({ ok: false, errors: ["missing"], missing }) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(out).toMatchObject({ code: "params-missing", wrote: [`${ACME_PACK}/pack/params.jsonc`] });
+    expect(JSON.parse(stripJsonc(fs.readFile(`${ACME_PACK}/pack/params.jsonc`)!)).params).toEqual({ constructor: "" });
   });
 
   test("init resumes after values are filled", async () => {

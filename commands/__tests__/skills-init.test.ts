@@ -90,6 +90,11 @@ describe("init outcome", () => {
     expect(renderPlain([ui.failure(failure)])).toBe("More than one team could hold this pack: acme, beta\n  next: rt skills init --team <name>\n");
   });
 
+  test("an unknown base is a failure naming the bases there", () => {
+    const o = { ok: false as const, refused: true as const, code: "base-missing" as const, detail: "There is no base pack called gadgets-base in the acme org. Bases here: acme-base", next: "rt skills init --team acme --extends <base>" };
+    expect(renderPlain([ui.failure(initFailure(o))])).toBe(`${o.detail}\n  next: ${o.next}\n`);
+  });
+
   test("the failure prefers the error's next to the generic remedy", () => {
     const f = initFailure({
       ok: false,
@@ -244,7 +249,7 @@ test("skills-init renders params-missing as needs-you", () => {
     ok: false,
     refused: true,
     code: "params-missing",
-    detail: "The base pack asks for values only your team can give: repo-name (asked by acme-base:watch-ci-rules), the ci-extra-jobs section (asked by acme-base:watch-ci-rules)",
+    detail: "The base pack asks for values only your team can give: repo-name in pack/params.jsonc (asked by acme-base:watch-ci-rules); the ci-extra-jobs section in pack/sections/ci-extra-jobs.md (asked by acme-base:watch-ci-rules)",
     why: "rt added them to your pack, empty. Fill them in, then run this again.",
     next: "rt skills init --team acme --extends acme-base",
     wrote: ["/z/pack/params.jsonc", "/z/pack/sections/ci-extra-jobs.md"],

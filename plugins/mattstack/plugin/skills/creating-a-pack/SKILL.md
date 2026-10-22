@@ -55,6 +55,8 @@ digraph create_pack {
     gate_init_budget [label="Gate: init budget spent" shape=box];
     values_filled_once [label="Filled the listed values once already?" shape=diamond];
     fill_listed_values [label="Fill in each listed value with the author" shape=box];
+    base_name_asked [label="Asked for the base name once already?" shape=diamond];
+    fix_base_name [label="Ask the author for the base name" shape=box];
     relay_error_wrote [label="Relay error.message and error.wrote" shape=box];
     write_failed [label="write-failed?" shape=diamond];
     pack_dir_removed [label="Removed the pack dir once already?" shape=diamond];
@@ -120,10 +122,14 @@ digraph create_pack {
     relay_error_message -> refusal_code;
     refusal_code -> init_runs_spent [label="zone-missing or zone-ambiguous"];
     refusal_code -> values_filled_once [label="params-missing"];
+    refusal_code -> base_name_asked [label="base-missing"];
     refusal_code -> stopped_refusal [label="any other code"];
     values_filled_once -> fill_listed_values [label="no"];
     values_filled_once -> gate_init_budget [label="yes"];
     fill_listed_values -> rt_skills_init;
+    base_name_asked -> fix_base_name [label="no"];
+    base_name_asked -> gate_init_budget [label="yes"];
+    fix_base_name -> rt_skills_init;
     init_runs_spent -> ask_which_team [label="no"];
     init_runs_spent -> gate_init_budget [label="yes"];
     gate_init_budget -> rt_skills_init [label="retry: author fixed it"];
@@ -247,15 +253,25 @@ command to run, when there is one), then read `error.code`:
   `--team`.
 - `pack-exists`: this team's pack has already compiled, and init never
   changes it. Rules and verbs go through `mattstack:extending-a-pack`.
+- `base-missing`: the org has no base pack by the name `--extends` gave.
+  The message lists the org's base packs, when it has any.
 - `params-missing`: the base named by `--extends` asks for values only
   this team can give. Init wrote the pack but did not compile it, and
   `error.wrote` lists the places it seeded for them.
 
+### Ask the author for the base name
+
+Show the author the base packs the message lists and ask which one this
+team extends. Run the same init again with that name in `--extends`, or
+without `--extends` when the team extends no base. Never pick a base for
+the author.
+
 ### Fill in each listed value with the author
 
-Ask the author for each value the message lists, and write it where
-`error.wrote` says: a key in `pack/params.jsonc` (seeded as `""`, one line
-each) or a seeded empty `pack/sections/<name>.md` (a block of markdown).
+Ask the author for each value the message lists, and write it in the file
+the message names beside it: a key in `pack/params.jsonc` (seeded as `""`,
+one line each) or a seeded empty `pack/sections/<name>.md` (a block of
+markdown).
 An empty value or a blank section still counts as missing. Then run the
 same init again: it resumes on the written pack and leaves the files alone.
 
