@@ -486,10 +486,14 @@ noise, ownership), judged at `Classify the triage report`, where it may
 move a job between REAL and INFRA; it never watches, claims, releases,
 retries or pushes. A rule that runs `<scripts>/ci-triage.sh` is the move
 `STOP: GitLab triage goes through ci_triage` redirects: call `ci_triage`
-with `pipelineId: <N>` (never the ref's newest pipeline) and the rule's
-`--config` file's keys as `config`, its only source (the file sits under
-`parts/domain/`). `<forge> jobs` goes to `pipeline_jobs`;
-`ci-attendant.sh` or `ci-watch.sh` to `ci_watch`.
+with `pipelineId: <N>` (never the ref's newest pipeline). `<forge> jobs`
+goes to `pipeline_jobs`; `ci-attendant.sh` or `ci-watch.sh` to
+`ci_watch`. `ci_triage` reads its REAL and INFRA patterns, noisy jobs
+and base settings from the `ci.triage.*` settings, on top of its built-in
+patterns, so a rule's `--config` flag names no file to read. `config` carries only
+what a rule states outright: `real-patterns`, `infra-patterns` and
+`noisy-jobs` (string arrays) add to the settings; `base-depth`, `base-ref`
+and `skip-base` replace them.
 
 {{slot:domain}}
 
