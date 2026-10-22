@@ -51,7 +51,7 @@ Create under `lib/skills/lsp/`:
 
 Modify: `commands/skills-lsp.ts` (new, `skillsLsp(args)` starts `server.ts` on stdio), `lib/command-tree-def.ts` (verb `lsp` under `skills`, description "Run the block language server over stdio for an editor", `omitBehavior` for the picker since it is not interactive; read `.claude/rules/command-tree.md` first), `package.json` (dependencies), `plugins/mattstack/.claude-plugin/plugin.json` (registration, Task 10).
 
-Create: `extensions/vscode/skill-blocks/` (`package.json`, `src/extension.ts`, `tsconfig.json`, `README.md`, `scripts/build.sh` copied from `rt-context`), and add it to the root `package.json` workspaces beside `extensions/vscode/rt-context`.
+Create: `extensions/vscode/skill-blocks/` (`package.json`, `src/extension.ts`, `tsconfig.json`, `README.md`, and a `build` npm script running esbuild, as `rt-context` builds; `rt-context` has no `scripts/build.sh`), and add it to the root `package.json` workspaces beside `extensions/vscode/rt-context`.
 
 Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fixture plus the `blocks` fixture pack; `extensions/vscode/skill-blocks/src/__tests__/extension.test.ts` for the launch arguments.
 
@@ -132,7 +132,7 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 
 - [ ] **Step 1: Write the failing tests**
 - [ ] **Step 2: Run → FAIL**
-- [ ] **Step 3: Implement; `bun run check` for the command-tree conformance and the UI-free guard (`lib/__tests__/no-ui-in-cli.test.ts` must stay green: the server is not a UI framework, but confirm it is not caught by the import list)**
+- [ ] **Step 3: Implement; `bun run check` for the command-tree conformance and the UI-free guard (`lib/__tests__/no-ui-in-cli.test.ts` must stay green: the server is not a UI framework, but confirm it is not caught by the import list). `lib/__tests__/no-raw-output.test.ts` forbids `process.stdout` under `lib/` and `commands/`: `server.ts` hands stdio to `vscode-languageserver` (`createConnection(ProposedFeatures.all)` started with `--stdio`) and never writes stdout itself; list the file in `lib/__tests__/raw-output-exemptions.json`, with its reason, only if the connection setup still trips the guard**
 - [ ] **Step 4: Run → PASS**
 - [ ] **Step 5: Commit: `rt skills lsp: diagnostics over stdio`**
 
@@ -230,7 +230,7 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 ### Task 9: The VS Code extension
 
 **Files:**
-- Create: `extensions/vscode/skill-blocks/package.json` (name `skill-blocks`, `activationEvents: ["workspaceContains:**/*.block.md", "workspaceContains:**/skills.jsonc"]`, `contributes.languages` registering `skill-blocks-markdown` for `*.block.md` with `markdown` as the base configuration so highlighting stays, a `skillBlocks.rtPath` setting defaulting to `rt`), `src/extension.ts` (`LanguageClient` over `{ command: rtPath, args: ["skills", "lsp"], transport: stdio }`, document selector for both patterns, a "Skill Blocks: Restart Server" command), `tsconfig.json`, `scripts/build.sh`, `README.md` (install from a `.vsix` built by `bun run build && npx @vscode/vsce package`)
+- Create: `extensions/vscode/skill-blocks/package.json` (name `skill-blocks`, `activationEvents: ["workspaceContains:**/*.block.md", "workspaceContains:**/skills.jsonc"]`, `contributes.languages` registering `skill-blocks-markdown` for `*.block.md` with `markdown` as the base configuration so highlighting stays, a `skillBlocks.rtPath` setting defaulting to `rt`), `src/extension.ts` (`LanguageClient` over `{ command: rtPath, args: ["skills", "lsp"], transport: stdio }`, document selector for both patterns, a "Skill Blocks: Restart Server" command), `tsconfig.json`, the esbuild `build` script in `package.json`, `README.md` (install from a `.vsix` built by `bun run build && npx @vscode/vsce package`)
 - Modify: root `package.json` workspaces
 - Test: `src/__tests__/extension.test.ts` (the client is built with `["skills","lsp"]` and the configured path)
 

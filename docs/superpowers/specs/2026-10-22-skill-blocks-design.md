@@ -153,31 +153,32 @@ These were settled in brainstorming.
 
 ```
 ship/
-  index.md                    the skill: frontmatter, title, intro
+  index.block.md                    the skill: frontmatter, title, intro
   run/
-    index.md                  Run's text and its graph (Mermaid)
-    resume-offer.md
-    recapture-asked.md
+    index.block.md                  Run's text and its graph (Mermaid)
+    resume-offer.block.md
+    recapture-asked.block.md
     …
   flow/
-    index.md                  Flow's text and its graph (Mermaid)
-    commit-named.md
-    fast-checks.md
-    write-title.md
+    index.block.md                  Flow's text and its graph (Mermaid)
+    commit-named.block.md
+    fast-checks.block.md
+    write-title.block.md
     …
-  graph-notes.md
-  budgets.md
-  domain-rules.md
+  graph-notes.block.md
+  budgets.block.md
+  domain-rules.block.md
 ```
 
-A block with children is a folder with an `index.md`, the convention Hugo,
-Docusaurus and Next use. A plain `.md` file is a leaf.
+A block with children is a folder with an `index.block.md`, the convention
+Hugo, Docusaurus and Next use (`index.md` there). A plain `.block.md` file
+is a leaf. Fill files a pack passes as values stay plain `.md`.
 
 Only graph nodes with prose get a block. Most nodes are one-line commands
 that live only as Mermaid labels, so `ship` becomes 36 blocks, not one per
 node (its two graphs have 144 nodes).
 
-A block's id is its path without `.md`, with `/index` dropped:
+A block's id is its path without `.block.md`, with `/index` dropped:
 `ship/flow/fast-checks`.
 
 ### A block file
@@ -369,7 +370,9 @@ changes are:
 1. Walk the block tree in order.
 2. Give each block's title a heading level from its depth.
 3. At each `{{props.x}}` marker, insert the merged value: the default, or
-   the layers' values merged by the prop's `merge`.
+   the layers' values merged by the prop's `merge`. A titled block whose
+   text renders blank (only empty props, no children) is left out with its
+   heading, as an unbound slot's heading is today.
 4. Turn each Mermaid graph into dot, in the same place.
 5. Write one `SKILL.md`, as today.
 
@@ -534,7 +537,7 @@ The main action on a block. It copies a brief like:
 ```
 Block: ship/flow/fast-checks
   "Run the domain's fast checks"
-File: …/pipeline/ship/flow/fast-checks.md
+File: …/pipeline/ship/flow/fast-checks.block.md
 Props: rules (add, optional)
   widgets: …/ship-lint/fast-checks.md
   acme-base: nothing passed
@@ -574,7 +577,13 @@ housekeeping.
 
 Matt didn't pick these; check them while reading.
 
-- A block with children is a folder with `index.md`.
+- A block with children is a folder with `index.block.md`.
+- How `domain` converts: `ship` and `stage-ship` spread it into per-step
+  props on the steps a domain fill targets today; every other engine keeps
+  one `rules` prop where its `{{slot:domain}}` was, and spreading those is
+  follow-up work.
+- A titled block that renders blank (only empty props, no children) is left
+  out with its heading, as an unbound slot's heading is today.
 - Block files are named `*.block.md` rather than `*.block`, so forges keep
   rendering them as markdown. (So a folder block's file is
   `index.block.md`.)
