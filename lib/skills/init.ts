@@ -5,7 +5,8 @@ import { readSection } from "../../packages/rt-client/src/settings/migrate.ts";
 import { getDef } from "../settings/registry.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
-import { FragmentError, parseFragment } from "./manifest-merge.ts";
+import { FragmentError, parseFragment, type Fragment } from "./manifest-merge.ts";
+import { normalizePipelines } from "./pipelines.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { MissingMarker } from "./team-params.ts";
@@ -89,13 +90,19 @@ export function isPackDir(fs: Pick<InitFs, "exists">, dir: string): boolean {
 
 /** An unreadable fragment is not a base, so materialize still tries the pack and reports the parse error against it. */
 export function isBasePack(fs: Pick<InitFs, "readFile">, dir: string): boolean {
+  return readBaseFragment(fs, dir) !== null;
+}
+
+/** The fragment of the base pack at `dir`; null when `dir` holds no readable fragment marked as a base. */
+function readBaseFragment(fs: Pick<InitFs, "readFile">, dir: string): Fragment | null {
   const path = join(dir, "pack", "skills.jsonc");
   const text = fs.readFile(path);
-  if (text === null) return false;
+  if (text === null) return null;
   try {
-    return parseFragment(text, path).base === true;
+    const fragment = parseFragment(text, path);
+    return fragment.base === true ? fragment : null;
   } catch (err) {
-    if (err instanceof FragmentError) return false;
+    if (err instanceof FragmentError) return null;
     throw err;
   }
 }
@@ -247,20 +254,35 @@ export function packDescription(pack: string): string {
   return `The ${pack} team pack for mattstack pipelines: the team's verb roster and bindings fragment, plus the domain fills bound to the generic stages.`;
 }
 
-export function renderPackFiles(opts: { pack: string; workDescription: string; extendsBase?: string }): Record<string, string> {
-  const { pack, workDescription, extendsBase } = opts;
+const SEED_BINDINGS: Record<string, Record<string, string>> = {
+  "mattstack:work": { tiering: "mattstack:model-tiering" },
+  "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" },
+};
+
+/** The seed's bindings minus every slot `base` sets: a pack's layer sits over its base's at materialize, so a seeded default would replace the base's choice. */
+function seedBindingsOver(base: Fragment | undefined): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  for (const [engineRef, slots] of Object.entries(SEED_BINDINGS)) {
+    const kept = Object.entries(slots).filter(([slot]) => !(base?.bindings?.[engineRef] && Object.hasOwn(base.bindings[engineRef], slot)));
+    if (kept.length > 0) out[engineRef] = Object.fromEntries(kept);
+  }
+  return out;
+}
+
+export function renderPackFiles(opts: { pack: string; workDescription: string; extendsBase?: string; baseFragment?: Fragment }): Record<string, string> {
+  const { pack, workDescription, extendsBase, baseFragment } = opts;
   const plugin = { name: pack, version: "0.1.0", description: packDescription(pack), skills: "./skills/" };
   const stubs = { verbs: { work: { engine: "work", description: workDescription } } };
+  const baseHasFeature = Object.hasOwn(normalizePipelines(baseFragment?.pipelines).stages, "feature");
+  const bindings = seedBindingsOver(baseFragment);
   const manifest = {
     version: 1,
     ...(extendsBase ? { extends: extendsBase } : {}),
     skills: { enabled: ["mattstack:work", "mattstack:model-tiering"] },
-    pipelines: { feature: PIPELINE_STAGES.map((s) => `mattstack:${s}`) },
-    bindings: {
-      "mattstack:work": { tiering: "mattstack:model-tiering" },
-      "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" },
-    },
+    ...(baseHasFeature ? {} : { pipelines: { feature: PIPELINE_STAGES.map((s) => `mattstack:${s}`) } }),
+    ...(Object.keys(bindings).length > 0 ? { bindings } : {}),
   };
+  const pipelineNote = baseHasFeature ? `// The feature pipeline comes from ${extendsBase}.` : "// The seed declares one pipeline, feature.";
   return {
     ".claude-plugin/plugin.json": JSON.stringify(plugin, null, 2) + "\n",
     "PACK.md": renderPackMd(pack),
@@ -279,7 +301,7 @@ export function renderPackFiles(opts: { pack: string; workDescription: string; e
       "// defaults and over any base pack into the per-pack file at\n" +
       `// ~/.mattstack/repos/<repo>/packs/${pack}/skills.jsonc. Every domain slot is\n` +
       "// optional; bind one with rt skills bind (see mattstack:extending-a-pack).\n" +
-      "// The seed declares one pipeline, feature. To give a kind of work its own\n" +
+      `${pipelineNote} To give a kind of work its own\n` +
       "// stages or fills, add a specialized pipeline with mattstack:extending-a-pack.\n" +
       JSON.stringify(manifest, null, 2) + "\n",
   };
@@ -523,10 +545,12 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     return refuse("pack-exists", "This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
   }
   const extendsBase = opts.extendsBase ?? null;
+  let baseFragment: Fragment | null = null;
   if (extendsBase !== null) {
     const packsDir = join(zone.orgDir, "mattstack", "org", "packs");
     const baseDir = TEAM_NAME_RE.test(extendsBase) ? join(packsDir, extendsBase) : null;
-    if (baseDir === null || !deps.fs.exists(baseDir) || !isBasePack(deps.fs, baseDir)) {
+    baseFragment = baseDir !== null && deps.fs.exists(baseDir) ? readBaseFragment(deps.fs, baseDir) : null;
+    if (baseFragment === null) {
       const bases = deps.fs.exists(packsDir) ? deps.fs.readDir(packsDir).filter((name) => isBasePack(deps.fs, join(packsDir, name))).sort() : [];
       return refuse(
         "base-missing",
@@ -588,7 +612,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   };
 
   try {
-    for (const [rel, text] of Object.entries(renderPackFiles({ pack, workDescription, ...(extendsBase !== null ? { extendsBase } : {}) }))) {
+    for (const [rel, text] of Object.entries(renderPackFiles({ pack, workDescription, ...(extendsBase !== null ? { extendsBase } : {}), ...(baseFragment !== null ? { baseFragment } : {}) }))) {
       const full = join(packDir, rel);
       if (deps.fs.exists(full)) continue;
       deps.fs.mkdirp(join(full, ".."));

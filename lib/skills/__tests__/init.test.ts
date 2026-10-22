@@ -466,6 +466,14 @@ describe("initPack --extends", () => {
     expect(JSON.parse(stripJsonc(fs.readFile(`${ACME_PACK}/pack/skills.jsonc`)!)).extends).toBe("acme-base");
   });
 
+  test("init --extends leaves the base's forge binding to the base", async () => {
+    const { deps, fs } = world({ files: { [`${BASE_DIR}/pack/skills.jsonc`]: '{ "base": true, "bindings": { "mattstack:stage-watch-ci": { "forge": "acme-base:ci-forge" } } }' } });
+    expect((await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps)).ok).toBe(true);
+    const fragment = JSON.parse(stripJsonc(fs.readFile(`${ACME_PACK}/pack/skills.jsonc`)!));
+    expect(fragment.bindings["mattstack:stage-watch-ci"]).toBeUndefined();
+    expect(fragment.pipelines.feature).toEqual(PIPELINE_STAGES.map((s) => `mattstack:${s}`));
+  });
+
   test("init --extends refuses an unknown base", async () => {
     for (const files of [{}, { [`${BASE_DIR}/pack/skills.jsonc`]: '{ "version": 1 }' }]) {
       const { deps, calls, fs } = world({ files });
@@ -572,6 +580,25 @@ describe("renderPackFiles extends", () => {
     expect(JSON.parse(stripJsonc(based["pack/skills.jsonc"]!)).extends).toBe("acme-base");
     expect(JSON.parse(stripJsonc(plain["pack/skills.jsonc"]!)).extends).toBeUndefined();
     expect({ ...based, "pack/skills.jsonc": "" }).toEqual({ ...plain, "pack/skills.jsonc": "" });
+  });
+
+  test("the seed leaves out each pipeline and binding the base sets, so the base's own wins at materialize", () => {
+    const base = {
+      base: true,
+      pipelines: { feature: ["mattstack:stage-plan", "acme-base:stage-audit"] },
+      bindings: { "mattstack:stage-watch-ci": { forge: "acme-base:ci-forge" } },
+    };
+    const fragment = JSON.parse(stripJsonc(renderPackFiles({ pack: "acme", workDescription: "d", extendsBase: "acme-base", baseFragment: base })["pack/skills.jsonc"]!));
+    expect(fragment.extends).toBe("acme-base");
+    expect(fragment.pipelines).toBeUndefined();
+    expect(fragment.bindings).toEqual({ "mattstack:work": { tiering: "mattstack:model-tiering" } });
+  });
+
+  test("a base that sets no feature stages leaves the seed's own", () => {
+    const base = { base: true, pipelines: { feature: { bindings: { "mattstack:stage-ship": { policy: "acme-base:squash" } } } } };
+    const fragment = JSON.parse(stripJsonc(renderPackFiles({ pack: "acme", workDescription: "d", extendsBase: "acme-base", baseFragment: base })["pack/skills.jsonc"]!));
+    expect(fragment.pipelines.feature).toEqual(PIPELINE_STAGES.map((s) => `mattstack:${s}`));
+    expect(fragment.bindings["mattstack:stage-watch-ci"]).toEqual({ forge: "mattstack:ci-forge-gitlab" });
   });
 });
 
