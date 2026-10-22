@@ -37,6 +37,14 @@ takes its default:
 The pack's block wins over this page only on facts about its app, never on a
 STOP below.
 
+A board is a mock-data board when Personal data says its source holds only
+mock data (seeded test records, no real person), read from where the image
+came from, never from how the names on screen look. Its brief's `hide:`
+line reads `no redact marks: mock data from <source>`, `<source>` being
+the source as Personal data names it (a database class, a site), written
+before the driver spawns, and its empty record
+is confirmed without a question (Confirm a mock-data board).
+
 ## Draw the boards
 
 ```dot
@@ -65,11 +73,18 @@ digraph browser_evidence {
     run_budget_rerender [label="run_budget {runDb, key: evidence:rerenders:<stem>, limit: 3, stage}" shape=plaintext];
     rerenders_spent [label="rerenders spent?" shape=diamond];
     redaction_record [label="Redaction record?" shape=diamond];
-    stop_self_confirm [label="STOP: confirming is the human's answer, never the agent's" shape=octagon style=filled fillcolor=red fontcolor=white];
-    run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<stem>:<first crop of this opening, or board for an empty record>, limit: 4, stage}" shape=plaintext];
+    stop_self_confirm [label="STOP: confirming is the human's answer, never the agent's, except a mock-data board's empty record" shape=octagon style=filled fillcolor=red fontcolor=white];
+    run_field_set_mock [label="run_field_set {runDb, key: evidence-mock-data:<stem>, value: <the brief's hide line>, stage}" shape=plaintext];
+    hand_off_at_gate [label="Every board of this hand-off at the redaction gate or done?" shape=diamond];
+    wait_for_hand_off [label="Wait for this hand-off's other boards" shape=box];
+    run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<first entry of this opening>, limit: 4, stage}" shape=plaintext];
     redaction_openings_spent [label="redaction-openings spent?" shape=diamond];
     gate_evidence_redaction [label="Gate evidence-redaction (below)" shape=box];
     redaction_answer [label="Redaction answer?" shape=diamond];
+    boards_named [label="Their words name the boards?" shape=diamond];
+    ask_which_board [label="Ask which board" shape=box];
+    which_answer [label="Which-board answer?" shape=diamond];
+    named_boards [label="Split the opening: named boards re-render, the rest confirm" shape=box];
     crops_left [label="Crops left for this board?" shape=diamond];
     fast_browser_confirm [label="fast-browser compose --confirm ~/.fast-browser/screenshots/<stem>.spec.json" shape=plaintext];
     confirm_result [label="Confirm result?" shape=diamond];
@@ -115,20 +130,32 @@ digraph browser_evidence {
     run_budget_rerender -> rerenders_spent;
     rerenders_spent -> agent_driver [label="no: the brief and what reads wrong"];
     rerenders_spent -> not_drawn [label="yes"];
-    redaction_record -> run_budget_redaction_gate [label="crops: <stem>.redactions.json lists a crop"];
-    redaction_record -> run_budget_redaction_gate [label="empty: its redactions is []"];
+    redaction_record -> hand_off_at_gate [label="crops: <stem>.redactions.json lists a crop"];
+    redaction_record -> run_field_set_mock [label="empty, on a mock-data board"];
+    redaction_record -> hand_off_at_gate [label="empty, on any other board"];
     redaction_record -> board_ready [label="none: no <stem>.redactions.json"];
-    redaction_record -> stop_self_confirm [label="tempted to run --confirm without a yes"];
-    stop_self_confirm -> run_budget_redaction_gate;
+    redaction_record -> stop_self_confirm [label="tempted to run --confirm without a yes on any other board"];
+    stop_self_confirm -> hand_off_at_gate;
+    run_field_set_mock -> fast_browser_confirm;
+    hand_off_at_gate -> run_budget_redaction_gate [label="yes: every waiting board, one opening"];
+    hand_off_at_gate -> wait_for_hand_off [label="no"];
+    wait_for_hand_off -> hand_off_at_gate;
     run_budget_redaction_gate -> redaction_openings_spent;
     redaction_openings_spent -> gate_evidence_redaction [label="no"];
-    redaction_openings_spent -> not_drawn [label="yes: redaction openings spent"];
+    redaction_openings_spent -> not_drawn [label="yes: redaction openings spent, every board of this opening"];
     gate_evidence_redaction -> redaction_answer;
-    redaction_answer -> crops_left [label="proceed: confirm"];
+    redaction_answer -> crops_left [label="proceed: confirmed, every board of this opening"];
+    redaction_answer -> boards_named [label="proceed: something needs hiding"];
+    redaction_answer -> held_redaction [label="hold"];
+    boards_named -> named_boards [label="yes"];
+    boards_named -> ask_which_board [label="no"];
+    ask_which_board -> which_answer;
+    which_answer -> named_boards [label="boards picked"];
+    which_answer -> held_redaction [label="hold"];
+    named_boards -> run_budget_redaction [label="each board they name, with their words"];
+    named_boards -> crops_left [label="each other board of this opening"];
     crops_left -> run_budget_redaction_gate [label="yes: the next 11 crops"];
     crops_left -> fast_browser_confirm [label="no: every opening of this board confirmed"];
-    redaction_answer -> run_budget_redaction [label="proceed: widen it, or hide something"];
-    redaction_answer -> held_redaction [label="hold"];
     fast_browser_confirm -> confirm_result;
     confirm_result -> board_ready [label="ok"];
     confirm_result -> not_drawn [label="clean exit, but an empty record still not confirmed: the output quoted, update Fast Browser"];
@@ -144,8 +171,9 @@ digraph browser_evidence {
 
 Each hand-off from the verb is one pass and one spawn for the boards it
 hands over (a verb that walks cases one at a time spawns once per case);
-each returned board then walks the rest of the graph on its own. Get ready
-runs once per stage pass, before the first spawn.
+each returned board then walks the rest of the graph on its own, except
+at the redaction gate, which waits for the hand-off's boards and asks about
+them together. Get ready runs once per stage pass, before the first spawn.
 
 `Board ready` returns the board to the box that called this flow, which
 records it (Record the board, below). `Not drawn` returns with the reason;
@@ -188,7 +216,7 @@ stem: <run id>-<case id>-<before|after>[-<theme>]
 claim: one sentence, what this board proves (the board's title and every image's caption)
 show: the region, named in words ("the job row's header")
 point at: one line per label: <TAG> | <title> | <description>
-hide: what Personal data names, plus every other personal detail on screen that is not being verified; never "nothing"
+hide: what Personal data names, plus every other personal detail on screen that is not being verified; never "nothing"; for a mock-data board, `no redact marks: mock data from <source>`
 state: FOUND | AFTER | BEFORE → AFTER | FLOW
 page: the URL, the sign-in Reach the view names, and the steps to the state (a live page), or
 import: <absolute path of a saved image> from <its link> (a ticket before, or any image that is not a browser capture)
@@ -280,35 +308,76 @@ its `redactions` is `[]`, none when there is no record. An empty record
 and the upload refuses it until `fast-browser compose --confirm` marks it
 confirmed, so it takes the redaction gate like a record with crops: the
 human looks at the board itself and confirms nothing on it needs hiding.
+The one exception is a mock-data board (Confirm a mock-data board).
+
+### Confirm a mock-data board
+
+An empty record on a mock-data board skips the gate: its source holds no
+real person, so there is nothing for the human to check. Write the run
+field `evidence-mock-data:<stem>` with the brief's `hide:` line as its
+value (evidence-record reads it before the upload), then run the confirm.
+Only an empty record takes this path: a mock-data board whose record lists
+a crop goes to the gate like any other, since a crop means something on it
+was hidden.
+
+### Every board of this hand-off at the redaction gate or done?
+
+The gate asks about the hand-off's boards together, never one board at a
+time. Yes once every board of this hand-off has reached the gate or ended
+(ready, not drawn, held); the boards waiting then go into one opening. A
+board re-rendered after the gate waits for the others re-rendered with it.
 
 ## Gate evidence-redaction (below)
 
 Scope `evidence-redaction:<stage>:<n>`, where `<n>` counts this gate's
 openings in this stage pass from 1;
-`redaction-openings:<stem>:<first crop of this opening>` (`board` in
-place of the crop for a board with an empty record) budgets the
-openings of each board's run of crops, so splitting a board's crops never
-spends the allowance its widen rounds need. Open it with `gate_open` (gate-protocol,
+`redaction-openings:<first entry of this opening>` (the entry's file name)
+budgets each opening, so a long hand-off's later openings are not charged
+to the first. Open it with `gate_open` (gate-protocol,
 Structured context): the source's `context` is a `boards@1` object, so the
 human sees the whole board, not only its crops.
 
-- `summary`: one sentence asking the human to look at each board and each
-  of its crops, and check that no hidden letter or digit is readable; for
-  a board with an empty record, that no personal detail on it is
-  readable.
-- `boards`: for each board with crops, the board itself, then each crop
-  `<stem>.redactions.json` lists; for a board with an empty record, the
-  board alone. Every entry's `path` is absolute (the home directory
-  written out, never `~`) and its `case` is the brief's case. The board's `slot` is its stem's `before` or `after`, its `theme`
+- `summary`: one sentence asking the human to look at every board and
+  crop in this opening and check that nothing personal is readable on
+  any of them.
+- `boards`: for each waiting board, the board itself, then each crop
+  `<stem>.redactions.json` lists. Every entry's `path` is absolute (the
+  home directory written out, never `~`) and its `case` is the brief's
+  case. The board's `slot` is its stem's `before` or `after`, its `theme`
   the stem's when it has one, and its `caption` the brief's claim; each
   crop's `slot` is `crop` and its `caption` names the crop and its board
   (`Crop 1 of the badge board`).
-- At most 12 entries per opening: when the boards and their crops pass 12,
-  open one board (and its crops) per opening. A board with more than 11
-  crops spreads them over consecutive openings, the board first in each
-  with the next 11 crops, until every crop has been shown (Crops left for
-  this board?); the confirm waits until every one of those openings is
-  answered.
+- At most 12 entries per opening: fill each opening with whole boards (a
+  board and its crops) in case order, and open the next with the boards
+  left. A board with more than 11 crops spreads them over consecutive
+  openings, the board first in each with the next 11 crops, until every
+  crop has been shown (Crops left for this board?); its confirm waits
+  until every one of those openings is answered.
+
+| Question | Options (recommended first) | Shown when |
+|---|---|---|
+| `redaction` (write-in) | **Confirmed: nothing on these boards needs hiding (Recommended)** / **Something needs hiding**, with free text naming the board and what shows | always, once per opening |
+| `next` | **Proceed** / **Hold** | always |
+
+Selection: `{"redaction":"confirm|<their words>","next":"proceed|hold","note":"<their words or null>"}`.
+
+### Their words name the boards?
+
+Yes when their words (or the note) pick out one or more boards of this
+opening, by case, claim or what the board shows. Those boards re-render
+with their words; every other board of the opening counts as confirmed by
+that answer and goes on to its confirm at once, without waiting for the
+re-renders.
+
+### Ask which board
+
+A clarify question through gate-protocol, scope
+`clarify:redaction-which:<n>`, in a form of its own with no `next`
+question: which boards of the opening need something hidden, multiple
+choice, one option per board (its case and claim), at most four options
+per question, so more boards spread over consecutive questions in that
+form. Their earlier words travel with each board they pick. Hold is the
+only other answer.
 
 ### Crops left for this board?
 
@@ -316,16 +385,8 @@ Yes while this board has crops after the ones the last opening showed:
 open the next opening with the board first and the next 11 crops. No once
 every crop has been in an opening answered confirmed, and at once for a
 board with an empty record; only then does
-`fast-browser compose --confirm` run. A widen in any opening re-renders the
-board, and the new render starts again from its first crop.
-
-| Question | Options (recommended first) | Shown when |
-|---|---|---|
-| `redaction-<case>` | **Confirmed: nothing hidden is readable (Recommended)** / **Widen it**, with free text naming the crop and what shows | per board with crops |
-| `redaction-<case>` | **Confirmed: nothing needs hiding (Recommended)** / **Hide something**, with free text naming what shows | per board with an empty record |
-| `next` | **Proceed** / **Hold** | always |
-
-Selection: `{"redactions":{"<case>":"confirm|<their words>"},"next":"proceed|hold","note":"<their words or null>"}`.
+`fast-browser compose --confirm` run. A re-render in any opening starts
+the board again from its first crop.
 
 - Confirm runs `fast-browser compose --confirm` on Bash on the spec that
   rendered the board, `~/.fast-browser/screenshots/<stem>.spec.json`, and
@@ -337,10 +398,10 @@ Selection: `{"redactions":{"<case>":"confirm|<their words>"},"next":"proceed|hol
   Browser. The first refusal for a board re-renders it through the driver
   with the refusal quoted, counted against `redaction-rounds:<stem>`; a
   second refusal for the same board is not drawn, with the output quoted.
-- Widen and Hide something re-render, and the new render opens this gate
-  again.
+- A named board re-renders, and the new render opens this gate again.
 - Every render with a redaction record (crops or empty) that a verb
-  records, during a run or in a revision, passes this gate first.
+  records, during a run or in a revision, passes this gate first, or, for
+  a mock-data board's empty record, Confirm a mock-data board.
 
 ## Record the board
 
@@ -389,12 +450,16 @@ by hand:
    `{ "asked": "<their words>", "changed": "<what you changed>" }` to its
    top-level `revisions` list (create it if absent). On a return from step
    5, add their words to this revision's entry instead of appending one,
-   so `<k>` stays the same for the whole revision.
+   so `<k>` stays the same for the whole revision. A revision that adds a
+   `redact` mark clears the board's mock-data field
+   (`run_field_set {runDb, key: evidence-mock-data:<stem>, value: "", stage}`):
+   someone found something to hide, so the board is shown from here on.
 4. `fast-browser compose ~/.fast-browser/screenshots/<stem>.spec.json`, and
    read the board as in Read the board yourself.
 5. A redaction record beside it (`<stem>.redactions.json`, with crops or
    empty): Gate evidence-redaction, then `fast-browser compose --confirm`
-   on that spec. Widen or Hide something returns to step 3 with their
+   on that spec; an empty record on a mock-data board takes Confirm a
+   mock-data board instead. Naming this board returns to step 3 with their
    words, counted against `redaction-rounds:<stem>:r<k>`. A Hold there
    holds the revision with nothing recorded; a refused confirm, a confirm
    that left an empty record unconfirmed, or spent redaction rounds or
