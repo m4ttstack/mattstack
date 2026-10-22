@@ -402,8 +402,16 @@ A case already in the record keeps its `id`; a new case gets its `id` and
 
 `page:` comes from Reach the view, on the pushed sha; `show` and `point
 at` from What proves a change, the wording from Captions and `hide` from
-Personal data. Unbound, every block takes its default. Then walk
-browser-evidence's `Draw the boards` (Browser evidence below).
+Personal data. Unbound, every block takes its default.
+
+The first browser case of this pass takes every named browser case not
+yet tried into one hand-off: write all their after briefs, then walk
+browser-evidence's `Draw the boards` (Browser evidence below) once for
+them, so its redaction gate asks about them together. A later browser case
+already in that hand-off reads its own terminal from it, with no new
+spawn. A retry after `ship:after-attempts` is a hand-off of that case
+alone. A browser case named after that hand-off was made starts a hand-off
+of its own.
 
 Its terminals answer `AFTER result?`. Board ready is captured: the AFTER
 goes into `Record the evidence` with its board. Held at evidence-redaction
