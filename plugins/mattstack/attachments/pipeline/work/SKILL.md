@@ -189,7 +189,9 @@ stage, `reason` and `detailPath`.
 
 `stage` is the last stage. Above the form: the MR link, its state, the
 `ci` verdict and every `board-<iid>` run note (the board frame map's
-notes, read with `run_field_get`).
+notes): list every field whose key starts with `board-` from
+`run_snapshot`'s fields. `run_field_get` needs the exact key, and at
+close the iids are unknown.
 
 ## A board frame mid-run
 
@@ -221,6 +223,7 @@ digraph board_frame {
     ci_triage_stacked [label="ci_triage {repoName: <worktree>, iid: <the stacked iid>, pipelineId?: <the frame's pipeline>}" shape=plaintext];
     judge_stacked_cause [label="Judge whether this branch's change caused the stacked MR's failure" shape=box];
     stacked_cause [label="This branch's change caused it?" shape=diamond];
+    stacked_after_ship [label="Ship already pushed this attempt (position is watch-ci)?" shape=diamond];
     fix_on_my_branch [label="Fix it test-first and commit on this run's branch" shape=box];
     fix_green [label="Fixed, with the stage's tests green?" shape=diamond];
     git_log_board_shas [label="git log --format=%h <branch-point>..HEAD (after the board move)" shape=plaintext];
@@ -263,7 +266,9 @@ digraph board_frame {
     rebased_green -> fix_on_my_branch [label="no"];
     ci_triage_stacked -> judge_stacked_cause;
     judge_stacked_cause -> stacked_cause;
-    stacked_cause -> fix_on_my_branch [label="yes"];
+    stacked_cause -> stacked_after_ship [label="yes"];
+    stacked_after_ship -> fix_on_my_branch [label="no"];
+    stacked_after_ship -> run_field_set_board_note [label="yes: note it, no local commit"];
     stacked_cause -> run_field_set_board_note [label="no, not provable, or ci_triage errored"];
     fix_on_my_branch -> fix_green;
     fix_green -> git_log_board_shas [label="yes"];
@@ -332,6 +337,14 @@ Compare the triage's blocking jobs and their logs with this branch's
 diff against its target. Yes needs a job failing in code this branch
 changed; a failure in the stacked MR's own change, or INFRA, is no.
 
+### Ship already pushed this attempt (position is watch-ci)?
+
+Yes when the position's stage is watch-ci, its lease held or between
+pushes. Write the cause as a run note and commit nothing: watch-ci checks
+that the pushed sha is the branch head, and an unpushed local commit can
+misdirect that check. The human answering close takes it back through
+ship with Iterate.
+
 ### git log --format=%h <branch-point>..HEAD (after the board move)
 
 Every sha on the branch, the fix or rebased commits included: ship
@@ -348,8 +361,9 @@ decide.
 One line naming the MR and what you found: `!4127 red on pipeline
 88120431: INFRA runner timeout, no code change`, `!4131 red on
 pipeline 88120577: its own lint job, not this branch`, `!4127 red on
-pipeline 88120431 after close opened: unfixed, Iterate to fix`, or for a
-rebase frame `!4131 needs a rebase: a doctor rebases it after this run`.
+pipeline 88120431 after close opened: unfixed, Iterate to fix`, `!4131
+red on pipeline 88120577: caused by this branch (unit-tests), unfixed:
+Iterate to ship`, or for a rebase frame `!4131 needs a rebase: a doctor rebases it after this run`.
 `stage` is the position's stage (at close, the last stage). Never rebase,
 push to or retry the stacked MR: it is someone else's branch.
 
