@@ -2,7 +2,7 @@
   "name": "repo-tools",
   "private": true,
   "license": "MIT",
-  "packageManager": "bun@1.4.3",
+  "packageManager": "bun@1.4.4",
   "workspaces": {
     "packages": [
       "packages/*",
