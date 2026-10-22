@@ -161,6 +161,7 @@ describe("compileSkill with internalRoster", () => {
       allowedTools: [],
       extraFiles: [],
       registered: true,
+      file: null,
     };
     const internalRoster = new Set(["acme:qa-gates"]);
 
@@ -203,6 +204,7 @@ describe("compileSkill with internalRoster", () => {
       allowedTools: [],
       extraFiles: [],
       registered: true,
+      file: null,
     };
 
     const result = compileSkill(verb, stepWithSlot, { domain: registeredPublicFill }, roster, {

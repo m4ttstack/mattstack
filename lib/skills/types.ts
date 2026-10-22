@@ -31,6 +31,7 @@ export type AttachmentSource = {
   allowedTools: string[];
   extraFiles: string[]; // non-SKILL.md files relative to dir, vendored under parts/<slot>/
   registered: boolean; // true = top-level skill under skills/, referenced not inlined; false = internal attachment under attachments/, inlined
+  file: string | null; // "fast.md" for a "plugin:skill/fast" value, relative to dir; null = the SKILL.md body
   /** The first team marker in the file's frontmatter, kept because the body handed to compile has none of it. */
   frontmatterTeamMarker?: { raw: string; line: number };
 };

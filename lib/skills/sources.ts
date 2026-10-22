@@ -375,10 +375,13 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
   };
 }
 
+const VALUE_FILE_RE = /^[a-z0-9][a-z0-9-]*$/;
+
 export function loadAttachment(binding: string, slot: string, roots: PluginRoots): AttachmentSource {
-  const [plugin, skillName] = binding.split(":");
-  if (!plugin || !skillName) {
-    throw new Error(`loadAttachment: slot "${slot}": binding "${binding}" is not "<plugin>:<skill>"`);
+  const [plugin, skillPart] = binding.split(":");
+  const [skillName, fileName, ...rest] = (skillPart ?? "").split("/");
+  if (!plugin || !skillName || rest.length > 0 || (fileName !== undefined && !VALUE_FILE_RE.test(fileName))) {
+    throw new Error(`loadAttachment: slot "${slot}": binding "${binding}" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"`);
   }
 
   const pluginRoot = roots.byName[plugin];
@@ -446,19 +449,51 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
     throw new Error(`loadAttachment: slot "${slot}": "${skillMdPath}" has no metadata.provides`);
   }
 
+  // A frontmatter-only SKILL.md marks a per-file-value skill: each top-level
+  // .md sibling is a value some other binding may name, so none is vendored.
+  const exclude = new Set(["SKILL.md"]);
+  if (body === "") {
+    for (const entry of readdirSync(foundDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md")) exclude.add(entry.name);
+    }
+  }
+
+  let value = { srcPath: relative(pluginRoot.dir, skillMdPath), bodyStartLine, body, file: null as string | null };
+  if (fileName !== undefined) {
+    if (body !== "") {
+      throw new Error(
+        `loadAttachment: slot "${slot}": ${binding}: SKILL.md carries text, but a per-file value's SKILL.md is frontmatter only`,
+      );
+    }
+    const file = `${fileName}.md`;
+    const filePath = join(foundDir, file);
+    if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+      throw new Error(`loadAttachment: slot "${slot}": binding "${binding}": no file at ${filePath}`);
+    }
+    const text = readFileSync(filePath, "utf8");
+    const lead = text.length - text.trimStart().length;
+    value = {
+      srcPath: relative(pluginRoot.dir, filePath),
+      bodyStartLine: (text.slice(0, lead).match(/\n/g) ?? []).length + 1,
+      body: text.trim(),
+      file,
+    };
+  }
+
   return {
     ...(frontmatterHit ? { frontmatterTeamMarker: { raw: frontmatterHit.raw, line: frontmatterHit.lineIndex + 1 } } : {}),
     binding,
     plugin,
     version: pluginRoot.version,
     dir: foundDir,
-    srcPath: relative(pluginRoot.dir, skillMdPath),
-    bodyStartLine,
-    body,
+    srcPath: value.srcPath,
+    bodyStartLine: value.bodyStartLine,
+    body: value.body,
     provides,
     allowedTools: parseAllowedTools(frontmatter["allowed-tools"]),
-    extraFiles: listFilesUnder(foundDir, new Set(["SKILL.md"])),
+    extraFiles: listFilesUnder(foundDir, exclude),
     registered,
+    file: value.file,
   };
 }
 
@@ -502,6 +537,7 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
     allowedTools: parseAllowedTools(frontmatter["allowed-tools"]),
     extraFiles: listFilesUnder(dir, new Set(["SKILL.md"])),
     registered: false,
+    file: null,
   };
 }
 

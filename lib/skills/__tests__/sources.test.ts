@@ -325,6 +325,65 @@ describe("loadAttachment", () => {
   });
 });
 
+describe("loadAttachment per-file values", () => {
+  const LINT_SKILL_MD = `---\nname: lint\ndescription: "lint rules"\nmetadata:\n  provides: ship-domain@1\n---\n`;
+
+  function lintRoots(skillMd = LINT_SKILL_MD): { dir: string; roots: PluginRoots } {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-perfile-")));
+    writeFile(join(dir, "attachments", "lint", "SKILL.md"), skillMd);
+    writeFile(join(dir, "attachments", "lint", "fast.md"), "the fast rules\n");
+    writeFile(join(dir, "attachments", "lint", "slow.md"), "the slow rules\n");
+    writeFile(join(dir, "attachments", "lint", "config.json"), "{}\n");
+    writeFile(join(dir, "attachments", "lint", "references", "notes.md"), "notes\n");
+    return { dir, roots: { byName: { w: { dir, version: "0.1.0" } }, list: [] } };
+  }
+
+  test("plugin:skill/file reads that file as the body", () => {
+    const { roots } = lintRoots();
+
+    const fill = loadAttachment("w:lint/fast", "rules", roots);
+
+    expect(fill.body).toBe("the fast rules");
+    expect(fill.file).toBe("fast.md");
+    expect(fill.binding).toBe("w:lint/fast");
+    expect(fill.srcPath.endsWith(join("attachments", "lint", "fast.md"))).toBe(true);
+    expect(fill.bodyStartLine).toBe(1);
+    expect(fill.provides).toBe("ship-domain@1");
+    expect(fill.registered).toBe(false);
+  });
+
+  test("a per-file skill vendors sub-folders and non-md files, never its top-level md values", () => {
+    const { roots } = lintRoots();
+
+    expect(loadAttachment("w:lint/fast", "rules", roots).extraFiles).toEqual(["config.json", "references/notes.md"]);
+    expect(loadAttachment("w:lint", "rules", roots).extraFiles).toEqual(["config.json", "references/notes.md"]);
+  });
+
+  test("a whole-skill binding keeps file null", () => {
+    const { roots } = makeFixtureRoots();
+
+    expect(loadAttachment("acme:watch-ci-domain", "domain", roots).file).toBeNull();
+  });
+
+  test("a SKILL.md with body text refuses a per-file value", () => {
+    const { roots } = lintRoots(`${LINT_SKILL_MD}\nsome text\n`);
+
+    expect(() => loadAttachment("w:lint/fast", "rules", roots)).toThrow(/w:lint\/fast: SKILL\.md carries text, but a per-file value's SKILL\.md is frontmatter only/);
+  });
+
+  test("a missing file throws naming the binding", () => {
+    const { roots } = lintRoots();
+
+    expect(() => loadAttachment("w:lint/nope", "rules", roots)).toThrow(/w:lint\/nope/);
+  });
+
+  test("a file part outside the name pattern is refused", () => {
+    const { roots } = lintRoots();
+
+    expect(() => loadAttachment("w:lint/../lint/fast", "rules", roots)).toThrow(/w:lint\/\.\.\/lint\/fast/);
+  });
+});
+
 describe("readVerbRoster", () => {
   test("parses the real stubs.jsonc shape (comment-bearing JSONC)", () => {
     const rootDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-pack-")));

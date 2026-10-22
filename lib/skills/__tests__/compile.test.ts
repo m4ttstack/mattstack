@@ -48,6 +48,7 @@ const domainFill: AttachmentSource = {
   allowedTools: ["Read(${CLAUDE_SKILL_DIR}/ci-config.json)"],
   extraFiles: ["ci-config.json"],
   registered: false,
+  file: null,
 };
 
 const forgeFill: AttachmentSource = {
@@ -62,6 +63,7 @@ const forgeFill: AttachmentSource = {
   allowedTools: ["Bash(glab:*)", "Read"],
   extraFiles: [],
   registered: false,
+  file: null,
 };
 
 const registeredForgeFill: AttachmentSource = {
@@ -76,6 +78,7 @@ const registeredForgeFill: AttachmentSource = {
   allowedTools: ["Bash(glab:*)", "Read(${CLAUDE_SKILL_DIR}/token.txt)"],
   extraFiles: ["token.txt"],
   registered: true,
+  file: null,
 };
 
 const roster = new Set(["mattstack:watch-ci", "acme:watch-ci-domain", "mattstack:gitlab-forge"]);
@@ -153,6 +156,7 @@ describe("compileSkill", () => {
       allowedTools: [],
       extraFiles: [],
       registered: false,
+      file: null,
     };
     const domainWithInclude: AttachmentSource = {
       ...domainFill,

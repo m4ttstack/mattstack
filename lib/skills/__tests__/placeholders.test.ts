@@ -37,7 +37,7 @@ const fill: AttachmentSource = {
   binding: "acme:plan-policy", plugin: "acme", version: "0.4.0",
   dir: "/p/acme/attachments/plan-policy", srcPath: "attachments/plan-policy/SKILL.md",
   bodyStartLine: 11, body: "line one\nline two\nline three",
-  provides: "plan-domain@1", allowedTools: [], extraFiles: [], registered: false,
+  provides: "plan-domain@1", allowedTools: [], extraFiles: [], registered: false, file: null,
 };
 const inc: AttachmentSource = { ...fill, binding: "mattstack:review-core-body", plugin: "mattstack",
   version: "1.0.0", srcPath: "attachments/review-core-body/SKILL.md", bodyStartLine: 6, body: "core A\ncore B", provides: "" };
