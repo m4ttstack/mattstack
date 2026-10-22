@@ -183,7 +183,9 @@ digraph browser_evidence {
 ```
 
 Each hand-off from the verb is one pass and one spawn for the boards it
-hands over (a verb that walks cases one at a time spawns once per case);
+hands over (a verb hands over all of a pass's browser cases at once, and
+spawns again only for a retried case; a re-render inside this graph stays
+in its hand-off, so the boards waiting at the gate wait for it);
 each returned board then walks the rest of the graph on its own, except
 at the redaction gate, which waits for the hand-off's boards and asks about
 them together. Get ready runs once per stage pass, before the first spawn.
