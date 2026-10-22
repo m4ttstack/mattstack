@@ -566,6 +566,35 @@ describe("initPack --extends", () => {
     expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
   });
 
+  test("a written pack whose extends differs from --extends is refused before anything is written", async () => {
+    const OTHER_BASE = { [`${ORG_ROOT("acme")}/mattstack/org/packs/gadgets-base/pack/skills.jsonc`]: '{ "base": true }' };
+    const cases = [
+      { onDisk: renderPackFiles({ pack: "acme", workDescription: "d" })["pack/skills.jsonc"]!, detail: "This team's pack is already written without a base, but this run asked for acme-base", next: "rt skills init --team acme" },
+      { onDisk: renderPackFiles({ pack: "acme", workDescription: "d", extendsBase: "gadgets-base" })["pack/skills.jsonc"]!, detail: "This team's pack is already written extending gadgets-base, but this run asked for acme-base", next: "rt skills init --team acme --extends gadgets-base" },
+    ];
+    for (const { onDisk, detail, next } of cases) {
+      const { deps, calls, fs } = world({ files: { ...BASE_FILES, ...OTHER_BASE, [`${ACME_PACK}/pack/skills.jsonc`]: onDisk } });
+      const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+      expect(out).toMatchObject({ ok: false, refused: true, code: "extends-conflict", detail, next });
+      if (out.ok || !out.refused) throw new Error("expected a refusal");
+      expect(POLICY_REFUSALS.has(out.code)).toBe(true);
+      expect(fs.readFile(`${ACME_PACK}/pack/skills.jsonc`)).toBe(onDisk);
+      expect(fs.exists(`${ACME_PACK}/pack/stubs.jsonc`)).toBe(false);
+      expect(calls.claims).toEqual([]);
+      expect(calls.remembered).toEqual([]);
+      expect(calls.materialized).toEqual([]);
+    }
+  });
+
+  test("a written pack that extends the base resumes with the same --extends or with none", async () => {
+    for (const extendsBase of ["acme-base", null]) {
+      const { deps, calls } = world({ files: { ...BASE_FILES, [`${ACME_PACK}/pack/skills.jsonc`]: renderPackFiles({ pack: "acme", workDescription: "d", extendsBase: "acme-base" })["pack/skills.jsonc"]! } });
+      const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase }, deps);
+      expect(out.ok).toBe(true);
+      expect(calls.compiled).toEqual([ACME_PACK]);
+    }
+  });
+
   test("a stop with no --extends names no base in its next", async () => {
     const { deps } = world({ compile: stopOnMissing });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);

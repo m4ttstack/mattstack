@@ -255,6 +255,10 @@ command to run, when there is one), then read `error.code`:
   changes it. Rules and verbs go through `mattstack:extending-a-pack`.
 - `base-missing`: the org has no base pack by the name `--extends` gave.
   The message lists the org's base packs, when it has any.
+- `extends-conflict`: this team's pack is already written, uncompiled,
+  with a different base (or none) than `--extends` gave. The message's
+  command is the one that resumes it. Never edit the pack's `extends` to
+  get past this.
 - `params-missing`: the base named by `--extends` asks for values only
   this team can give. Init wrote the pack but did not compile it, and
   `error.wrote` lists the places it seeded for them.

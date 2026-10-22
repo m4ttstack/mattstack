@@ -107,6 +107,19 @@ function readBaseFragment(fs: Pick<InitFs, "readFile">, dir: string): Fragment |
   }
 }
 
+/** The base a written but uncompiled pack names: null for none, undefined when no readable fragment is there yet. */
+function writtenPackExtends(fs: Pick<InitFs, "readFile">, packDir: string): string | null | undefined {
+  const path = join(packDir, "pack", "skills.jsonc");
+  const text = fs.readFile(path);
+  if (text === null) return undefined;
+  try {
+    return parseFragment(text, path).extends ?? null;
+  } catch (err) {
+    if (err instanceof FragmentError) return undefined;
+    throw err;
+  }
+}
+
 export function readZones(fs: InitFs, home: string): ZoneInfo[] {
   return readZonesFrom(fs, orgsDirUnder(home));
 }
@@ -379,7 +392,7 @@ function sharePathsFor(zone: ZoneInfo, packDir: string, wrote: string[]): string
 export type InitRefusalCode =
   | "not-yours" | "other-org"
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host" | "base-missing"
-  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing";
+  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing" | "extends-conflict";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
 
@@ -400,7 +413,7 @@ export type InitOutcome =
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
-export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict", "needs-newer-app"]);
+export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict", "needs-newer-app", "extends-conflict"]);
 
 /** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
 export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host", "params-missing"]);
@@ -558,6 +571,15 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
         `rt skills init --team ${zone.team} --extends <base>`,
       );
     }
+  }
+  const writtenExtends = writtenPackExtends(deps.fs, packDir);
+  if (extendsBase !== null && writtenExtends !== undefined && writtenExtends !== extendsBase) {
+    return refuse(
+      "extends-conflict",
+      `This team's pack is already written ${writtenExtends === null ? "without a base" : `extending ${writtenExtends}`}, but this run asked for ${extendsBase}`,
+      `rt skills init --team ${zone.team}${writtenExtends === null ? "" : ` --extends ${writtenExtends}`}`,
+      "rt never changes the base of a pack it already wrote",
+    );
   }
   const packSource = teamPackSource(zone.team);
   const marketOnDiskEarly = deps.fs.readFile(join(zone.orgDir, ".claude-plugin", "marketplace.json"));
