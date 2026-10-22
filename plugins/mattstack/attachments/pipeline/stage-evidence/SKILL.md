@@ -356,7 +356,7 @@ drawn yet (a ticket image's board is drawn at Record), it opens through
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `boards` (write-in) | **Nothing here should stay private** / **Hide something first**, with free text naming the board and what shows; no option recommended, since only the human, looking at the boards, can say | a board is drawn that is not cleared (browser-evidence, Record the clearance) |
+| `boards` (write-in) | **Nothing here should stay private** / **Hide something first**, with free text naming the board and what shows; no option recommended, since only the human, looking at the boards, can say | a board is drawn that is not cleared: cleared means its `evidence-cleared:<stem>` field starts with `shasum -a 256` of `~/.fast-browser/screenshots/<stem>.png` and passes the same backing check as evidence-record's Any file to show? |
 | `annotations` | the proposed labels per board, each written `<TAG> \| <title> \| <description>` (browser-evidence, Labels), multi-select, all pre-selected; an image left with nothing selected goes to the waiver question (evidence record below); split `annotations-1`, ... over 4 | always |
 | `attach` (write-in) | **Hand back the markdown (Recommended)** (ship attaches) / **Attach to the MR now** | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |

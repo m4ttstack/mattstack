@@ -46,7 +46,8 @@ A board is a mock-data board only when all three hold:
   screenshot) can come from anywhere;
 - a pair's `before:` names a board that was itself a mock-data board (its
   `evidence-cleared:<before stem>` field reads `<sha> no redact marks:
-  mock data from ...`), never an import board or one a human approved.
+  mock data from ...`, `<sha>` matching `shasum -a 256` of the before
+  bundle's `<stem>.png`), never an import board or one a human approved.
 
 Its brief's `hide:` line reads `no redact marks: mock data from <source>`,
 `<source>` being the source as Personal data names it (a database class, a
@@ -85,7 +86,8 @@ digraph browser_evidence {
     fast_browser_confirm_mock [label="fast-browser compose --confirm ~/.fast-browser/screenshots/<stem>.spec.json (mock-data board)" shape=plaintext];
     mock_confirm_result [label="Mock-data confirm result?" shape=diamond];
     run_field_set_mock [label="run_field_set {runDb, key: evidence-cleared:<stem>, value: <boardSha256 of the confirmed record> <the hide line>, stage}" shape=plaintext];
-    run_field_set_approved [label="run_field_set {runDb, key: evidence-cleared:<stem>, value: <boardSha256 of the confirmed record> approved at <the gate's scope>, stage}" shape=plaintext];
+    run_field_set_approved [label="run_field_set {runDb, key: evidence-cleared:<stem>, value: <boardSha256 of the confirmed record> approved at <the last opening that showed it>, stage}" shape=plaintext];
+    explicit_confirm [label="Answered confirm for this opening itself?" shape=diamond];
     hand_off_at_gate [label="Every board of this hand-off at the redaction gate or done?" shape=diamond];
     wait_for_hand_off [label="Wait for this hand-off's other boards" shape=box];
     run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<first entry of this opening>:<first crop of this opening, or board>, limit: 4, stage}" shape=plaintext];
@@ -172,7 +174,9 @@ digraph browser_evidence {
     crops_left -> run_budget_redaction_gate [label="yes: the next 11 crops"];
     crops_left -> fast_browser_confirm [label="no: every opening of this board confirmed"];
     fast_browser_confirm -> confirm_result;
-    confirm_result -> run_field_set_approved [label="ok: the record reads confirmed"];
+    confirm_result -> explicit_confirm [label="ok: the record reads confirmed"];
+    explicit_confirm -> run_field_set_approved [label="yes: redaction is confirm"];
+    explicit_confirm -> board_ready [label="no: confirmed by inference, no field"];
     run_field_set_approved -> board_ready;
     confirm_result -> not_drawn [label="clean exit, but an empty record still not confirmed: the output quoted, update Fast Browser"];
     confirm_result -> run_budget_confirm [label="refused"];
@@ -353,13 +357,17 @@ exactly two places, each only after the record reads `"confirmed": true`:
 
 - a mock-data board: `<boardSha256> <the hide line>` (Confirm a
   mock-data board);
-- any board the human confirmed at Gate evidence-redaction:
-  `<boardSha256> approved at <the opening's scope>`, since the human has
-  already looked at these exact bytes.
+- a board in an opening the human answered with `redaction: "confirm"`
+  itself: `<boardSha256> approved at <scope>`, `<scope>` the last opening
+  that showed it, since the human has already looked at these exact bytes.
 
-A board that reaches Board ready without a record (its redact marks all
-on live captures) gets no field: the human has not looked at it yet, so
-the upload shows it.
+Only that explicit answer clears. A board confirmed by inference (one
+their words did not name when something needed hiding, one left unpicked
+at Ask which board) still runs its confirm but gets no field, and so does
+a board that reaches Board ready without a record (its redact marks all
+on live captures): the human has not answered for it, so the upload shows
+it. A `run_field_set` that errors leaves the field unset, which also shows
+the board.
 
 ### Every board of this hand-off at the redaction gate or done?
 
@@ -380,8 +388,9 @@ Structured context): the source's `context` is a `boards@1` object, so the
 human sees the whole board, not only its crops.
 
 - `summary`: one sentence asking the human to look at every board and
-  crop in this opening and check that nothing personal is readable on
-  any of them.
+  crop in this opening and check that nothing on any of them should stay
+  private: no personal detail, token, internal link or other customer's
+  data is readable.
 - `boards`: for each waiting board, the board itself, then each crop
   `<stem>.redactions.json` lists. Every entry's `path` is absolute (the
   home directory written out, never `~`) and its `case` is the brief's
@@ -398,7 +407,7 @@ human sees the whole board, not only its crops.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `redaction` (write-in) | **Confirmed: nothing on these boards needs hiding (Recommended)** / **Something needs hiding**, with free text naming the board and what shows | always, once per opening |
+| `redaction` (write-in) | **Confirmed: nothing here should stay private (Recommended)** / **Something needs hiding**, with free text naming the board and what shows | always, once per opening |
 | `next` | **Proceed** / **Hold** | always |
 
 Selection: `{"redaction":"confirm|<their words>","next":"proceed|hold","note":"<their words or null>"}`.

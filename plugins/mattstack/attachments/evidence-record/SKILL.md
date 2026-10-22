@@ -294,11 +294,18 @@ means the board is shown, and so is every board that never passed the
 redaction gate (its redact marks all on live captures). No when every file
 is a cleared board: the upload goes up without this gate.
 
+A field that reads `approved at <scope>` clears only when the run backs
+it: `run_snapshot {runDb}` lists a decision on that `<scope>` whose
+selection has `redaction: "confirm"` and whose decider is a human (not
+this agent, not a shepherd). A field the run does not back is treated as
+unset and the board is shown.
+
 ### Files left to show in this attach?
 
 Every attach shows every file to show, 12 to an opening, in the
 record's case order. A file an earlier gate showed (the verb's attach gate,
-a redaction gate, an earlier attach) is shown again: only an answer given
+an earlier attach) is shown again, and so is one a redaction gate showed
+unless that gate cleared it (Any file to show?): only an answer given
 while looking at these exact files lets them go up. Yes while files after
 this opening's are left; when you cannot tell which openings were answered
 (a compaction, a resume), start again from the first file.
@@ -358,7 +365,7 @@ a board steps 1 to 6 on that board with no wording change (step 3's
 "re-rendered and re-confirmed"): they re-render
 it, pass Gate evidence-redaction, confirm after a yes and record the new
 bundle. Recorded is Repaired, and a repaired board is new bytes: Gate
-evidence-boards shows every file again from the first opening before the
+evidence-boards shows every file to show again from the first opening before the
 next `evidence_attach`. A Hold at the gate, or Record held, is
 Held at evidence-redaction, with nothing uploaded; no spec beside the
 board, a compose error, a refused confirm, a confirm that left an empty
