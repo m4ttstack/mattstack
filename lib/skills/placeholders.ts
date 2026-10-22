@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 import { join, posix } from "path";
 import { defaultPipeline } from "./pipelines.ts";
 import { hasTeamMarker, resolveTeamMarkers, type TeamContext } from "./team-params.ts";
@@ -137,13 +137,20 @@ function lineCount(text: string): number {
   return (text.match(/\n/g) ?? []).length;
 }
 
-/** A copied non-md file is not rewritten, so a marker in it would ship as written. */
-export function assertNoTeamMarkerInRawFile(text: string, where: string): void {
+const BINARY_SNIFF_BYTES = 8192;
+
+export function readTextUnlessBinary(abs: string): string | null {
+  const buf = readFileSync(abs);
+  return buf.subarray(0, BINARY_SNIFF_BYTES).includes(0) ? null : buf.toString("utf8");
+}
+
+/** A copied file is not rewritten, so a marker in it would ship as written. */
+export function assertNoTeamMarkerInRawFile(text: string, where: string, why = "team markers only resolve in .md files"): void {
   if (!hasTeamMarker(text)) return;
   const lines = text.split("\n");
   const at = lines.findIndex((line) => hasTeamMarker(line));
   const raw = lines[at]!.match(TEAM_OPENER_LINE_RE)![0];
-  throw new Error(`${where}: ${raw} -- team markers only resolve in .md files (line ${at + 1})`);
+  throw new Error(`${where}: ${raw} -- ${why} (line ${at + 1})`);
 }
 
 /** Resolves a copied .md file's body, counting error lines from the top of the file. */

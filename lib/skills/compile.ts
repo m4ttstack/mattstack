@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import {
   assertNoPlaceholders,
+  assertNoTeamMarkerInRawFile,
   assertNoTeamMarkerInTools,
   findPlaceholders,
+  readTextUnlessBinary,
   resolveFillTeamMarkers,
   skillDirFor,
   substitute,
@@ -408,10 +410,20 @@ function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): 
   return { body, notes, packPaths };
 }
 
+/** A fill's other files are copied as written, so a team marker in one that base text would carry ships unresolved. */
+function assertNoTeamMarkerInVendoredFile(fill: AttachmentSource, entry: string, team: TeamContext | null): void {
+  if (team && !team.basePlugins.has(fill.plugin)) return;
+  const abs = `${fill.dir}/${entry}`;
+  if (!existsSync(abs)) return;
+  const text = readTextUnlessBinary(abs);
+  if (text !== null) assertNoTeamMarkerInRawFile(text, `${fill.binding}:${entry}`, "team markers only resolve in a fill's SKILL.md, not the files it vendors");
+}
+
 function buildVendoredFiles(
   step: StepSource,
   boundSlots: BoundSlot[],
   includes: Record<string, AttachmentSource>,
+  team: TeamContext | null,
 ): CompiledFile[] {
   const files: CompiledFile[] = [];
 
@@ -421,6 +433,7 @@ function buildVendoredFiles(
 
   for (const { slotName, fill } of boundSlots) {
     for (const entry of fill.extraFiles) {
+      assertNoTeamMarkerInVendoredFile(fill, entry, team);
       files.push({ path: `parts/${slotName}/${entry}`, copyFrom: `${fill.dir}/${entry}` });
     }
   }
@@ -607,7 +620,7 @@ export function compileSkill(
 
   const files: CompiledFile[] = [
     { path: "SKILL.md", content },
-    ...buildVendoredFiles(step, boundSlots, opts.includes ?? {}),
+    ...buildVendoredFiles(step, boundSlots, opts.includes ?? {}, opts.team ?? null),
   ];
 
   const fillBindings = boundSlots.map(({ fill }) => fill.binding);

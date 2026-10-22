@@ -197,6 +197,37 @@ describe("compileSkill", () => {
     );
   });
 
+  describe("a base fill's vendored files", () => {
+    const vendoring = (text: string) => {
+      const dir = tempPackRoot();
+      writeFileSync(join(dir, "checklist.md"), text);
+      const fill: AttachmentSource = { ...domainFill, binding: "acme-base:provision-flow", plugin: "acme-base", dir, body: "Read the checklist.", allowedTools: [], extraFiles: ["checklist.md"] };
+      return fill;
+    };
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { "linear-team": "Widgets" }, sections: {} }, new Set(["acme-base"]));
+
+    test("a team marker in one is refused with the file line", () => {
+      const fill = vendoring("# Checklist\n\nFile it in {{team.linear-team}}.\n");
+      expect(() => compileSkill(verb, step, { domain: fill, forge: forgeFill }, roster, { team })).toThrow(
+        "acme-base:provision-flow:checklist.md: {{team.linear-team}} -- team markers only resolve in a fill's SKILL.md, not the files it vendors (line 3)",
+      );
+    });
+
+    test("with no team context the same file is refused", () => {
+      const fill = vendoring("File it in {{team.linear-team}}.\n");
+      expect(() => compileSkill(verb, step, { domain: fill, forge: forgeFill }, roster)).toThrow(
+        "acme-base:provision-flow:checklist.md: {{team.linear-team}} -- team markers only resolve in a fill's SKILL.md, not the files it vendors (line 1)",
+      );
+    });
+
+    test("a file with no marker, and a team pack's own fill, still vendor", () => {
+      const clean = vendoring("Nothing to fill.\n");
+      expect(compileSkill(verb, step, { domain: clean, forge: forgeFill }, roster, { team }).files.map((f) => f.path)).toContain("parts/domain/checklist.md");
+      const own = { ...vendoring("Docs mention {{team.x}}.\n"), binding: "widgets:provision-flow", plugin: "widgets" };
+      expect(compileSkill(verb, step, { domain: own, forge: forgeFill }, roster, { team }).files.map((f) => f.path)).toContain("parts/domain/checklist.md");
+    });
+  });
+
   test("a fill carrying {{slot:...}} on the legacy engine path is a compile error naming the fill", () => {
     const domainWithSlot: AttachmentSource = {
       ...domainFill,

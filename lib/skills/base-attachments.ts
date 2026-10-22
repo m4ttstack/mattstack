@@ -3,7 +3,7 @@ import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
 import { hasCompiledHeader, unresolvedRelativePaths } from "./compile.ts";
-import { assertNoTeamMarkerInRawFile, substituteAttachmentPlaceholders } from "./placeholders.ts";
+import { assertNoTeamMarkerInRawFile, readTextUnlessBinary, substituteAttachmentPlaceholders } from "./placeholders.ts";
 import type { TeamContext } from "./team-params.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
@@ -163,13 +163,6 @@ function isTeamOwned(dir: string): boolean {
   if (existsSync(join(dir, "SKILL.md"))) return true;
   return readdirSync(dir, { withFileTypes: true }).some((entry) =>
     !isSkippedAttachmentPath(entry.name) && !(entry.isDirectory() && isEmittedAttachmentDir(join(dir, entry.name))));
-}
-
-const BINARY_SNIFF_BYTES = 8192;
-
-function readTextUnlessBinary(abs: string): string | null {
-  const buf = readFileSync(abs);
-  return buf.subarray(0, BINARY_SNIFF_BYTES).includes(0) ? null : buf.toString("utf8");
 }
 
 export function planBaseAttachments(input: { packDir: string; packName: string; verbSides: Record<string, Side>; team: TeamContext | null }): BaseAttachmentPlan {
