@@ -44,6 +44,7 @@ import {
   readReviewStates,
   resurrectReviewState,
 } from '../src/review-state.ts';
+import { daemonOwnerIo, ownMrFacts } from '../src/run-owner-io.ts';
 import { createBoardAttendants } from '../src/triage/attendant.ts';
 import { appendAudit } from '../src/triage/audit.ts';
 import {
@@ -74,11 +75,7 @@ import {
   triageShouldRun,
 } from '../src/triage/peer-pass.ts';
 import { collectProjectPRs } from '../src/triage/projects.ts';
-import {
-  numericPipelineId,
-  resolveDispatchIdentity,
-  runTriage,
-} from '../src/triage/run.ts';
+import { resolveDispatchIdentity, runTriage } from '../src/triage/run.ts';
 import { triageOwns } from '../src/triage/seat.ts';
 
 // A peer pass is only useful on a board that peers. Checked before the claim
@@ -185,18 +182,7 @@ try {
       .filter(
         m => !!m.webUrl && triageOwns(m, boardConfig.defaultMember, username)
       )
-      .map(m => ({
-        mrUrl: m.webUrl!,
-        iid: m.iid,
-        pipelineId: m.pipeline ? numericPipelineId(m.pipeline.id) : null,
-        pipelineState: m.pipelineState,
-        needsRebase: m.blockers.needsRebase,
-        author: m.author.username,
-        // BOARD-12: the stack chain is reconstructed from these three.
-        sourceBranch: m.sourceBranch,
-        targetBranch: m.targetBranch,
-        isStacked: !!m.isStacked,
-      }));
+      .map(m => ownMrFacts({ ...m, webUrl: m.webUrl! }));
   };
 
   // The latch pass's mirror image of fetchOwnMrs: every MR this board holds a
@@ -258,6 +244,7 @@ try {
       sendPaneText,
       now: () => Date.now(),
       attendants: createBoardAttendants(),
+      ...daemonOwnerIo(boardConfig.gitlabHost),
     });
     console.log(
       `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`

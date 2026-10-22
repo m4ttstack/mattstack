@@ -55,6 +55,48 @@ describe("runs store", () => {
     ]);
   });
 
+  describe("session and mr denormalization", () => {
+    const MR = "https://gitlab.example.com/acme/app/-/merge_requests/7";
+    const id = "20260821-010101-aaaa";
+    const both = (run: () => ReturnType<typeof listRuns>[number] | undefined) => {
+      const row = run()!;
+      const detail = readRun("alpha", id)!.run;
+      return [row, detail] as const;
+    };
+
+    test("summary carries the recorded claude session and own mr url", () => {
+      seedRun(root(), "alpha", id, 1000, 1, { fields: [
+        { key: "claude-session", value: "sess-1" },
+        { key: "mr", value: MR, producedBy: "ship", at: 2000 },
+      ] });
+      for (const r of both(() => listRuns("alpha")[0])) {
+        expect(r.session).toBe("sess-1");
+        expect(r.mr).toBe(MR);
+      }
+    });
+
+    test("an mr recorded by review is not the run's own mr", () => {
+      seedRun(root(), "alpha", id, 1000, 1, { fields: [{ key: "mr", value: MR, producedBy: "receive-review" }] });
+      for (const r of both(() => listRuns("alpha")[0])) expect(r.mr).toBeNull();
+    });
+
+    test("a cleared mr field reads as null", () => {
+      seedRun(root(), "alpha", id, 1000, 1, { fields: [
+        { key: "mr", value: MR, producedBy: "ship", at: 2000 },
+        { key: "mr", value: "-", producedBy: "ship", at: 3000 },
+      ] });
+      for (const r of both(() => listRuns("alpha")[0])) expect(r.mr).toBeNull();
+    });
+
+    test("a run with neither field has null session and mr", () => {
+      seedRun(root(), "alpha", id, 1000);
+      for (const r of both(() => listRuns("alpha")[0])) {
+        expect(r.session).toBeNull();
+        expect(r.mr).toBeNull();
+      }
+    });
+  });
+
   test("findRun resolves the repo by scanning; newer schema flags schemaAhead", () => {
     const dir = root();
     seedRun(dir, "beta", "20260821-030303-cccc", 3000, 99);

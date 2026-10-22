@@ -89,6 +89,8 @@ export {
   bgStop,
   bgRelease,
   herdrStart,
+  inboxRing,
+  inboxProbe,
 } from "./client.ts";
 
 export { COMMAND_NAMES, GATE_BY_PANE, gateOptionValue, gateOptionLabel } from "./commands.ts";

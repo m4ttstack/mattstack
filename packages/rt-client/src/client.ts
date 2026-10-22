@@ -816,6 +816,22 @@ export function herdrStart(o: RtClientOptions = {}): Promise<RtResponse<Commands
   return rtCommand<Commands["herdr:start"]["data"]>("herdr:start", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
 }
 
+/** Rings one session's inbox; the daemon answers within the inbox delivery timeout. */
+export function inboxRing(
+  payload: Commands["inbox:ring"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["inbox:ring"]["data"]>> {
+  return rtCommand<Commands["inbox:ring"]["data"]>("inbox:ring", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 5000 });
+}
+
+/** One local socket accept under the probe's own short timeout. */
+export function inboxProbe(
+  payload: Commands["inbox:probe"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["inbox:probe"]["data"]>> {
+  return rtCommand<Commands["inbox:probe"]["data"]>("inbox:probe", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 5000 });
+}
+
 export function bgRelease(
   a: Commands["bg:release"]["payload"],
   o: RtClientOptions = {},

@@ -655,6 +655,37 @@ function settled(
   return { ...line, settled: true };
 }
 
+/** A live run's worker was rung in place of a doctor. The server sends only
+    handoffs whose edge still holds, so the line clears with the edge. */
+function handoffLine(mr: BoardMRWithReview): Candidate | null {
+  const handoffs = Object.values(mr.handoffs ?? {});
+  if (handoffs.length === 0) return null;
+  const own = handoffs.find(h => h.viaMr === mr.webUrl);
+  return {
+    tone: 'quiet',
+    word: HANDED_TO_WORKER,
+    detail: own
+      ? own.stage
+        ? `stage ${own.stage}`
+        : undefined
+      : "parent's worker",
+    verbs: [],
+  };
+}
+
+const HANDED_TO_WORKER = 'handed to worker';
+
+/** The worker already holds every repair the author's line would offer the
+    doctor for. */
+function repairHandedOff(mr: BoardMRWithReview): boolean {
+  const b = mr.blockers;
+  const h = mr.handoffs ?? {};
+  if (!h['pipeline-red'] && !h['needs-rebase']) return false;
+  if (b.pipelineFailing && !h['pipeline-red']) return false;
+  if ((b.hasConflicts || b.needsRebase) && !h['needs-rebase']) return false;
+  return true;
+}
+
 function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   // Stood down (row menu's "never diagnose this stack"): this outranks
   // whatever the doctor's own status says and never expires the way a
@@ -664,6 +695,12 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   if (mr.standDown)
     return { tone: 'quiet', word: 'auto-doctor off', verbs: [] };
   const d = mr.doctor;
+  const inFlight =
+    d &&
+    !laneDismissed(d) &&
+    (d.status === 'queued' || DOCTOR_WORKING.has(d.status));
+  const handoff = inFlight ? null : handoffLine(mr);
+  if (handoff) return handoff;
   if (!d || laneDismissed(d)) return null;
   switch (d.status) {
     case 'queued':
@@ -1005,7 +1042,9 @@ export function candidateLines(
     ];
   if (!mine) return lines.map(withoutAuthorVerbs);
   const standing = self !== null ? authorLine(mr, self) : null;
-  return standing?.repair ? [...lines, standing] : lines;
+  const handed =
+    lines.some(l => l.word === HANDED_TO_WORKER) && repairHandedOff(mr);
+  return standing?.repair && !handed ? [...lines, standing] : lines;
 }
 
 const TONE_RANK: Record<Tone, number> = {

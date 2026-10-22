@@ -425,6 +425,10 @@ export interface RunSummary {
       the run has not produced that field yet. */
   ticket: string | null;
   branch: string | null;
+  /** The run's `claude-session` field; always set by the daemon, null when unrecorded. */
+  session?: string | null;
+  /** The run's own MR url (latest `mr` field, produced by a work stage, an http(s) url); null when none or cleared. */
+  mr?: string | null;
   /** The herdr agent attributed to this run (matched by recorded claude
       session, else by worktree), mirrored live from `herdr agent list`.
       Null when no agent matches or herdr is unavailable; absent on
@@ -1230,6 +1234,12 @@ export interface Commands {
   // ─── herdr (the visible server agents launch into) ───────────────────────
   /** Starts herdr when it is not running; a failure is a state in `data`, never `ok:false`. */
   "herdr:start": { payload: Record<string, never>; data: { state: "running" | "started" | "not-installed" | "failed"; bin: string; detail?: string } };
+
+  // ─── inbox (push a frame into one Claude session) ────────────────────────
+  /** Rings one session's inbox with a framed message; never types into a pane. */
+  "inbox:ring": { payload: { session: string; label: string; text: string }; data: { delivered: boolean; reason?: "no-session" | "failed" } };
+  /** Whether a live session's inbox accepts a connection; `name` only when the user chose it. */
+  "inbox:probe": { payload: { session: string }; data: { reachable: boolean; name?: string } };
 }
 
 export type CommandName = keyof Commands;
@@ -1390,4 +1400,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "bg:release",
 
   "herdr:start",
+
+  "inbox:ring",
+  "inbox:probe",
 ];

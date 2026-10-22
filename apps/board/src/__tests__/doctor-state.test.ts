@@ -206,6 +206,19 @@ describe('parseDoctorRequestBody', () => {
   test('an unknown mode is rejected', () => {
     expect(parseDoctorRequestBody({ ...base, mode: 'fix-all' })).toBeNull();
   });
+
+  test('parseDoctorRequestBody accepts ring: true and rejects other ring values', () => {
+    expect(parseDoctorRequestBody({ ...base, ring: true })).toEqual({
+      ...base,
+      ring: true,
+    });
+    expect(
+      parseDoctorRequestBody({ ...base, mode: 'rebase', ring: true })
+    ).toEqual({ ...base, mode: 'rebase', ring: true });
+    expect(parseDoctorRequestBody({ ...base, ring: false })).toBeNull();
+    expect(parseDoctorRequestBody({ ...base, ring: 'yes' })).toBeNull();
+    expect(parseDoctorRequestBody(base)?.ring).toBeUndefined();
+  });
 });
 
 describe('planStandDown', () => {

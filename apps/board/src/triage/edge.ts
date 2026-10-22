@@ -9,6 +9,8 @@ export interface OwnMrFacts {
   pipelineId: number | null;
   pipelineState: PipelineState;
   needsRebase: boolean;
+  /** Merge conflicts; only the handoff recheck reads it, edges do not. */
+  hasConflicts?: boolean;
   /** MR author's GitLab username. fetchOwnMrs already scopes this list to the
       token identity, so today this is always that identity -- carried onto
       the edge anyway so the mechanical-lint fix class (MAT-351) can re-verify
@@ -90,4 +92,16 @@ export function markHandled(mem: DispatchMemory, edge: Edge): void {
   if (!m) return;
   if (edge.kind === 'pipeline-red') m.lastHandledPipelineId = edge.pipelineId;
   if (edge.kind === 'needs-rebase') m.lastNeedsRebase = true;
+}
+
+/** Inverse of markHandled: the next detectEdges sees the edge as new. */
+export function rearm(
+  mem: DispatchMemory,
+  mrUrl: string,
+  kind: EdgeKind
+): void {
+  const m = mem.mrs[mrUrl];
+  if (!m) return;
+  if (kind === 'pipeline-red') m.lastHandledPipelineId = null;
+  if (kind === 'needs-rebase') m.lastNeedsRebase = false;
 }

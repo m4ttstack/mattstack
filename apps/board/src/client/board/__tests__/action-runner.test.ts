@@ -523,3 +523,62 @@ test('presence never filters a respond bulk run', async () => {
   );
   expect(events[0]).toBe('launch respond !1 {"quiet":true}');
 });
+
+test('a bulk doctor skips MRs a live work run owns and names them', async () => {
+  const { deps, events } = fakeDeps();
+  deps.activeRun = (_flow, m) =>
+    m.iid === 2
+      ? { runId: 'run-7', stage: 'implement', name: 'Pip' }
+      : m.iid === 3
+        ? { runId: 'run-8', stage: null }
+        : null;
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'doctor' },
+      targets: [mr(1), mr(2), mr(3)],
+      selected: 3,
+    },
+    {},
+    deps
+  );
+  expect(events).toEqual([
+    'launch doctor !1 {"quiet":true}',
+    "toast doctor called on !1 · skipped !2, Pip's run is active · skipped !3, a work run is active",
+    'reload false',
+  ]);
+});
+
+test('a bulk local rebase skips MRs a live work run owns too', async () => {
+  const { deps, events } = fakeDeps();
+  deps.activeRun = (_flow, m) =>
+    m.iid === 2 ? { runId: 'run-7', stage: 'implement', name: 'Pip' } : null;
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'rebase-local' },
+      targets: [mr(1), mr(2)],
+      selected: 2,
+    },
+    {},
+    deps
+  );
+  expect(events).toEqual([
+    'launch rebase-local !1 {"quiet":true}',
+    "toast local rebase started on !1 · skipped !2, Pip's run is active",
+    'reload false',
+  ]);
+});
+
+test('the live-run skip never filters a review bulk run', async () => {
+  const { deps, events } = fakeDeps();
+  deps.activeRun = () => ({ runId: 'run-7', stage: 'implement' });
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'review' },
+      targets: [mr(1)],
+      selected: 1,
+    },
+    {},
+    deps
+  );
+  expect(events[0]).toBe('launch review !1 {"quiet":true}');
+});

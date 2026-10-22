@@ -199,15 +199,17 @@ export function planStandDown(
 
 export function parseDoctorRequestBody(
   body: unknown
-): { mrUrl: string; iid: number; mode?: 'rebase' } | null {
+): { mrUrl: string; iid: number; mode?: 'rebase'; ring?: true } | null {
   if (!body || typeof body !== 'object') return null;
-  const { mrUrl, iid, mode } = body as {
+  const { mrUrl, iid, mode, ring } = body as {
     mrUrl?: unknown;
     iid?: unknown;
     mode?: unknown;
+    ring?: unknown;
   };
   if (typeof mrUrl !== 'string' || !mrUrl) return null;
   if (typeof iid !== 'number' || !Number.isFinite(iid)) return null;
   if (mode !== undefined && mode !== 'rebase') return null;
-  return { mrUrl, iid, mode };
+  if (ring !== undefined && ring !== true) return null;
+  return ring ? { mrUrl, iid, mode, ring } : { mrUrl, iid, mode };
 }
