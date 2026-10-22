@@ -2322,6 +2322,17 @@ body {
   color: var(--text-2);
   background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
+/* The board's boxed all-caps pills, trimmed to the cap height the way the
+   kit's uppercase Chip is, so the padding alone centres the capitals. A flex
+   container takes no trim, so here they lay out as inline blocks (their
+   content is only text). */
+@supports (text-box: trim-both cap alphabetic) {
+  :is(.tui-respond-pill, .tui-phrase) {
+    display: inline-block;
+    text-box: trim-both cap alphabetic;
+    padding-block: 4px;
+  }
+}
 .tui-respond-pill[data-hue='amber'],
 .tui-respond-chip[data-hue='amber'] {
   color: var(--text-warn-small);

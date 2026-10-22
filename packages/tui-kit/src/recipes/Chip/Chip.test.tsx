@@ -422,12 +422,21 @@ describe("Chip (browser)", () => {
     expect(style.paddingTop).toBe("1px");
   });
 
-  it("stamps its two data-parts (the kit's cross-boundary hook)", async () => {
+  it("stamps its data-parts (the kit's cross-boundary hook)", async () => {
     const screen = await renderWithTheme(<Chip icon={<span>x</span>}>done</Chip>);
 
     expect(screen.container.querySelectorAll('[data-part="chip"]')).toHaveLength(1);
     expect(screen.container.querySelectorAll('[data-part="chip-icon"]')).toHaveLength(1);
-    expect(CHIP_PARTS).toEqual({ root: "chip", icon: "chip-icon" });
+    expect(CHIP_PARTS).toEqual({ root: "chip", icon: "chip-icon", label: "chip-label" });
+  });
+
+  it("wraps only an uppercase chip's text in its label part", async () => {
+    const plain = await renderWithTheme(<Chip>done</Chip>);
+    expect(plain.container.querySelectorAll('[data-part="chip-label"]')).toHaveLength(0);
+
+    const caps = await renderWithTheme(<Chip uppercase>done</Chip>);
+    const label = caps.container.querySelector('[data-part="chip-label"]');
+    expect(label?.textContent).toBe("done");
   });
 
   it("a consumer-supplied data-part does not win", async () => {

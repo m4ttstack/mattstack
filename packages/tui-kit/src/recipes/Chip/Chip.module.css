@@ -54,6 +54,21 @@
     font-weight: 500;
   }
 
+  /* Capitals have no descenders, so a line box centred in the outline leaves
+     them riding high. The label (a flex item, so a block container the trim
+     applies to) is cut to the cap height and the padding alone sets the
+     space above and below; where trimming is unsupported the chip keeps its
+     line box and its usual padding. */
+  @supports (text-box: trim-both cap alphabetic) {
+    .root[data-uppercase] {
+      padding-block: var(--spacing-px4);
+    }
+
+    .root[data-uppercase] .label {
+      text-box: trim-both cap alphabetic;
+    }
+  }
+
   /* Keyed on the ELEMENT, not a modifier prop: in mr-board every chip carrying
      `.tui-review-open` is exactly the one rendered as a button, so the element
      already is the signal and a `clickable` prop could disagree with it. */

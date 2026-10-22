@@ -8,12 +8,12 @@ import "./Chip.keyframes.css";
     scripts/derive.ts to build the kit's manifest; not dead code. */
 export const recipeCategory = 1 as const;
 
-const CHIP_SELECTORS = ["root", "icon"] as const;
+const CHIP_SELECTORS = ["root", "icon", "label"] as const;
 
 /** Stable selector surface for app-side CSS, since CSS-module class names are
     hashed. Stamped in the non-overridable tail (after `{...rest}`) so a
     `<Chip data-part="…" />` cannot sever an app's `[data-part="chip"]` rules. */
-export const CHIP_PARTS = { root: "chip", icon: "chip-icon" } as const;
+export const CHIP_PARTS = { root: "chip", icon: "chip-icon", label: "chip-label" } as const;
 
 /** Two of the theme's four variants — `default` (opaque panel) and `light`
     (soft filled) are omitted: nothing in the chip family renders either,
@@ -122,7 +122,13 @@ export const Chip = definePolymorphicComponent<
             {icon}
           </span>
         )}
-        {children}
+        {uppercase ? (
+          <span {...getStyles("label")} data-part={CHIP_PARTS.label}>
+            {children}
+          </span>
+        ) : (
+          children
+        )}
       </Element>
     );
   },
