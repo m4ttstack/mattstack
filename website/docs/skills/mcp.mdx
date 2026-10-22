@@ -172,7 +172,7 @@ What they refuse:
 | `ci_lease_release` | Release this session's lease. |
 | `ci_lease_read` | Read the MR's lease and whether it is this session's. |
 
-`ci_triage`'s patterns and its comparison branch come from the `ci.triage.*` settings, and `ci_watch`'s budget from `ci.watch.budgetMinutes` (default 75).
+`ci_triage`'s patterns and its comparison branch come from the `ci.triage.*` settings, and `ci_watch`'s budget from `ci.watch.budgetMinutes` (default 75). A `ci_triage` call's `config` changes them for that call only: `real-patterns`, `infra-patterns` and `noisy-jobs` add to the settings, and `base-depth`, `base-ref` and `skip-base` replace them.
 
 ### Evidence
 
@@ -182,7 +182,11 @@ What they refuse:
 | `evidence_attach` | After the attach gate says proceed, upload each file the run's evidence allows, reusing an earlier upload of the same bytes, and write the evidence section into the MR description. |
 | `dev_endpoints` | Look up the dev-server endpoints rt claimed for a worktree and probe each until it answers or the wait runs out. |
 
-`evidence_record` takes images only from the target repo's checkout or worktrees, your Claude Code temp root, `~/.mattstack/evidence`, a run's evidence folder, `~/.fast-browser/screenshots` and the `rt.mcp.uploadRoots` folders. `evidence_attach` never writes a section that names a path in your home directory. On GitHub it uploads nothing and names each file as attached separately.
+`evidence_record` takes images only from the target repo's checkout or worktrees, your Claude Code temp root, `~/.mattstack/evidence`, a run's evidence folder, `~/.fast-browser/screenshots` and the `rt.mcp.uploadRoots` folders. `evidence_attach` never writes a section that names a path in your home directory. On GitHub it uploads nothing and names each file as attached separately. It folds each case's screenshots behind a line that names the case and counts them, so reviewers scroll past them to the approvals and pipeline. Turn that off for a repo with `rt.evidence.foldScreenshots`:
+
+```bash
+rt settings set rt.evidence.foldScreenshots false --scope user --repo <repo>
+```
 
 ### Worktrees
 

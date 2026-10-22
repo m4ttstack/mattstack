@@ -18,6 +18,7 @@ The daemon is a long-lived process (a launchd LaunchAgent, `com.mattstack.daemon
 - **Runs the worktree lifecycle.** [`rt worktree`](/rt/reference/worktree)'s provision/dispose/freshen verbs execute in the daemon, which owns the worktree registry, keeps the on-deck pool replenished, and reacts to merged MRs (auto-return plus guarded auto-dispose of the finished tree).
 - **Kills a worktree's workload on dispose.** When a worktree is disposed (its feature is done), the daemon finds the dev servers, watchers, and compilers rooted in that worktree. It SIGTERMs them, and escalates any survivor to SIGKILL after about 5 seconds. It deliberately spares AI agent sessions (Claude, Codex, and the like) and everything they spawned, plus shells and `.app` bundle processes, since those aren't workload.
 - **Scans for and notifies on runaway processes.** Roughly every 10 seconds (under the same "something asked recently" rule as the port scan) it scans system processes for anything rooted in a tracked repo. It tracks a rolling CPU sample window per process. It notifies once a process has sustained high CPU for long enough (5 minutes above 80% by default, after a 2-minute grace period). AI agent sessions are excluded from this too.
+- **Warns before a Claude usage limit runs out.** It is off until you set thresholds. Every 5 minutes it reads the usage of every account `cswap` manages, when cswap is installed, plus the account Claude Code is signed in to. It notifies when a limit (monthly spend, the 5-hour limit or a weekly limit) crosses a threshold. See [Usage-limit alerts](#usage-limit-alerts).
 
 mattstack.app's menu bar icon shows the daemon's health at a glance, polling its status so you can tell at a look whether it's up. See the [menu bar app guide](/start/menu-bar-app).
 
@@ -48,9 +49,26 @@ rt daemon logs            # open the log viewer
 
 See the full command reference: [`rt daemon`](/rt/reference/daemon), [`rt daemon status`](/rt/reference/daemon/status), [`rt daemon logs`](/rt/reference/daemon/logs), [`rt daemon log-level`](/rt/reference/daemon/log-level), [`rt daemon track`](/rt/reference/daemon/track), [`rt daemon install`](/rt/reference/daemon/install), [`rt daemon start`](/rt/reference/daemon/start), [`rt daemon stop`](/rt/reference/daemon/stop), [`rt daemon restart`](/rt/reference/daemon/restart), and [`rt daemon uninstall`](/rt/reference/daemon/uninstall).
 
+## Usage-limit alerts
+
+Set the thresholds, as percentages of any limit, in `rt.notify.usageLimits` at user or team scope:
+
+```bash
+rt settings set rt.notify.usageLimits '{"thresholds":[80,95]}' --scope user
+```
+
+Each threshold a limit crosses notifies once, for example "Claude usage at 80%", naming the account and the limit. When a limit falls back below a threshold, because its window reset or the limit went up, the next climb notifies again.
+
+The setting takes two more keys:
+
+- `accounts` sets other thresholds for one account, keyed by its email or org UUID. An empty list silences that account.
+- `hint` adds a line to every notification, such as where to ask for more usage.
+
 ## Background server
 
-The daemon owns a headless herdr server (session name `bg`) for agents that do not need a visible terminal. Any operation that creates a background pane starts the server automatically; you do not need to manage it yourself.
+The daemon owns a headless herdr server (session name `mattstack-bg`) for agents that do not need a visible terminal. Any operation that creates a background pane starts the server automatically; you do not need to manage it yourself.
+
+Older versions named this server `bg`. The update that renamed it stops the old `bg` server when no panes are open there. When some still are, the update's "Setup needs you" notification says so: finish or close the agents running there, then run `herdr session stop bg` yourself.
 
 ```bash
 rt bg status              # up/down, socket path, live claims

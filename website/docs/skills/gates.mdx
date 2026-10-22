@@ -44,7 +44,7 @@ Options can be bare strings or objects with richer metadata:
 ]
 ```
 
-An option with `recommended: true` gets a "(Recommended)" suffix in the daemon's normalized label, which downstream UI renders as a badge.
+An option with `recommended: true` gets a "(Recommended)" suffix in the daemon's normalized label, which downstream UI renders as a badge. The board and the console open a fresh form with each question's recommended options already picked.
 
 ### Per-question context
 
@@ -84,7 +84,7 @@ rt gate list --open          # see what is waiting
 rt gate answer <id> --answers '{"q1":"refactor"}' --by human   # answer one
 ```
 
-Answer values must match an option's value verbatim. Free-text feedback rides a per-answer `note` field. For multi-select questions, the answer is an array of values.
+Answer values must match an option's value verbatim. Free-text feedback rides a per-answer `note` field. For multi-select questions, the answer is an array of values. A multi-select answer can also carry `texts`, an edited text for some of its picked values, keyed by value; the board sends a review comment you edited this way.
 
 A question marked `writeIn` may instead take the human's own words, sent alone with no `value`, `note` or `text`:
 

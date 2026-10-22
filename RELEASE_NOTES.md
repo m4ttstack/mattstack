@@ -1,50 +1,75 @@
-Evidence boards go to you before upload, the board responds to one reviewer at a time, a root pointer for the org's data branch, version telemetry, and fixes for team packs and pipeline runs.
+A review and onboarding release. The board's review gate now drafts every comment and the summary for you to edit before anything posts, gate forms open with the recommended answers picked, and a decision banner replaces the small queue button. Joining a team gets steadier: Start services passes on a running daemon, a joiner's Slack and repo rows hold Finish until they are done, herdr starts after Finish, and Claude Code defaults to fullscreen. Org base-pack text can now carry each team's own values and sections, browser evidence asks one privacy question per batch, and the daemon can warn you before a Claude usage limit runs out.
 
-### Before you update
-
-- **Version reporting is on by default.** So the mattstack admin can see who is on which version, the rt daemon sends a small report to the mattstack switchboard when it starts, about every 50 minutes, and when the app or rt version changes. It holds your username for each team and a random install id; the app, rt and plugin versions and the app flavor; your macOS version; which setup steps have run; the names of any leftover legacy folders; and your org names and layouts, team packs and their versions. It never sends your repos, files, paths or commands. Turn it off with the "Share version info with the mattstack admin" switch in Settings, General, Privacy, or with `rt settings set telemetry.enabled false --scope user`. [Version reporting](https://docs.mattstack.dev/start/settings#version-reporting) has the details (#886)
-- **Team packs need this release.** The mattstack plugin's engine floor rises to 0.32.9, so a team pack compiled after this release installs only on Macs running v2.25.2 or later. A teammate on an older app keeps the pack version they have until they update (#883, #889)
-
-### Evidence
-
-- Ship shows you every evidence board it is about to upload, as thumbnails in the console or opened from the terminal, and nothing is attached until you answer. The redaction check shows the whole board (#889)
-- A board that hides nothing must be confirmed before upload too (#888)
-- A ticket image a run saved keeps its ticket mark when a later `evidence_record` call leaves out `source`, so a copy of the same bytes is refused on upload; `mr_upload` checks every run's ticket images, with or without `runId` (#877)
-- An imported capture of a ticket image is refused as a copy too, even after the browser re-encodes it (#879)
-- Ship's pair recording keeps a standalone import board as the before's cover, so it reaches the record and the MR (#881)
-- `mr_upload`'s check for ticket-image copies reads only each run's evidence and compares recorded hashes, so it stays fast as runs pile up (#882)
+Updating runs one new setup migration: it stops the old background herdr server, renamed from `bg` to `mattstack-bg`, when it has no panes open. If it still holds panes, setup asks you to finish or close them first and then run `herdr session stop bg`.
 
 ### Board
 
-- Respond answers one person at a time: their open review threads and Overview comments, with a round count per person. The row menu reads "respond to dev2 (round 2)", or opens a list of people when more than one has something open, and the lane line and decision header name the person. Overview comments get a reply, never a resolve. [Respond](https://docs.mattstack.dev/apps/board#respond) has the details (#892)
-- An MR posted to several Slack channels lists each post, team thread first, from the row's Slack marks and "open MR post in slack…", so you can open a code owners post too. The row shows how many posts there are and the furthest review reaction any channel reached, and the board keeps re-reading reactions on every post instead of reading them once
+- the review drafts every comment and the summary before the post gate; the board shows them in editable boxes and posts what is in the box word for word (#905)
+- gates are no longer capped at 8192 bytes: the budget covers only the Claude Code pane's prose, and drafts ride as board-only fields (#905)
+- the review summary comes first in the main column, a verdict-only submit works, and the summary names its verdict in a coloured badge
+- Cmd+Enter submits a gate sheet, and number keys pick the review verdict (#919)
+- a banner above the board names how many decisions are waiting and which opens first, replacing the sidebar's decision queue button (#911)
+- answering a form gate on the board dismisses the Claude Code form in the pane, so doorbells no longer queue behind it (#897)
+- when a CI doctor would land on a branch a live work run owns, the board rings that worker instead of launching a doctor (#922)
+- a peer's finished review on your own mergeable MR offers merge, and a needed rebase leads the row over finished runs and a peer's review; finished runs expire after 2 hours
+- a fresh respond no longer reads as interrupted, and resume never opens a second pane on a live session (#901)
+- a follow-up review into a pane that is still open no longer flashes "review interrupted" (#904)
+- people are named by first name through one shared lookup, with full names on the MR row, the row menu, the redo dialog and the check-in toast
+- the full diff opens centred on the finding you came from
+- code blocks in the threads drawer wrap instead of scrolling
+- Slack marks count on your own thread replies and other teams' emoji
+- `board.slack`'s emoji alias lists edit as fields in the console (#902)
 
-### Pipeline runs
+### Gates
 
-- A finished run can be reopened on purpose: `run_stage start` with `reopen: true` (`--reopen` on the CLI), and ship re-captures the AFTER on a shipped MR without pushing or opening the MR again (#883)
-- `run_stage start` refuses a stage that is already running and names the tool to use instead, and `rt skills compile` fails when a pack reads a run field nothing in the pack writes (#875)
-- One budget convention across hosts, and the forge checkout and rebase gates move onto the gate tools (#878)
+- gate forms open with every recommended option already picked; consent questions still open empty (#918)
 
-### Org and team packs
+### Setup and onboarding
 
-- The org's pointer on `main` moves to a single `.mattstack.jsonc` file at the repo root; rt reads it or the old `mattstack/mattstack.jsonc`. Each Mac also remembers which branch holds the org's data. An admin moves an existing org's pointer in two phases with `bun scripts/move-pointer-to-root.ts` (#880)
-- New setup rows for the data branch: one when the branch is gone from the forge while your copy still has it, which an owner or admin restores with `rt team restore-data-branch`, and one when org data has been merged into `main` (#880)
-- The org clone's daemon never commits or pushes a team pack's edits. Pack edits left unpublished for hours are saved to a copy on that Mac, and a new **Unpublished packs** row in setup status names the pack and how to publish it (`rt skills sync --pack <name> --commit-pending`) or throw it away (#876)
-- The console's Surface tab lists only real skills, explains its switch and badges, and `rt skills surface set` refuses to make a template public (#885)
-- `mattstack:model-tiering` is now a skill you can call (#884)
-
-### Version reporting
-
-- The switchboard keeps each Mac's latest report, and the mattstack admin opens the page with `rt telemetry open` (#886, #890)
+- Start services passes when the daemon is already running and waits out a cold start (#893)
+- the Fast Browser install steps stop at the Chrome Web Store install (#894)
+- herdr starts when you press Finish (#895)
+- a joiner's Slack and repo rows block Finish instead of waiting for a relaunch (#896)
+- Claude Code defaults to fullscreen when `tui` is unset, so its input stays docked to the bottom of the pane (#898)
+- a deck register that drops its connection is retried (#899)
+- the dev app announces a newer version on every launch, once per version (#900)
+- the background herdr server is now `mattstack-bg`, and a setup migration stops the old `bg` server when it is empty (#913, #928)
 
 ### Worktrees
 
-- Worktree ready steps load nvm and switch to the tree's `.nvmrc` Node, so pnpm and npm find Node on Macs where nvm is set up only in `~/.zshrc` (#887)
+- the Worktrees window counts unpushed commits honestly on squash-merged branches, and its cleanup banner fixes or hides itself per repo (#912)
+- the banner names worktrees being off and tracking opt-outs, `rt worktree enable` turns worktrees on, and `rt worktree provision`'s await-ready hint names `--repo` (#914)
+- the Worktrees window says it is checking until the first counts land, and stops polling the daemon while hidden (#907)
+- `rt worktree restore` shows progress, copies without blocking, and sets the tree up in the background (#906)
+- the patch-identical check streams `git log` into `git patch-id` and remembers verdicts by commit, so the daemon no longer grows past 1 GB overnight (#908)
 
-### Release tooling and bundled tools
+### Skills and packs
 
-- Fast Browser 0.1.16: compose confirms a board with no redaction marks (#891, #888)
-- `rt release update-machine` retries when Apple's notary service can't be reached or answers with a server error, instead of reporting a missing profile (#874)
-- The release skill reruns failures outside our code without counting them against the rerun budget (#873)
+- org base-pack text can carry `{{team.<key>}}` and `{{team.section:<name>}}` markers that `rt skills compile` fills from each team pack's params and sections (#916)
+- the console's Graph tab draws team sections inside their slot's card, and a slot stale from a team value says so (#917)
+- browser evidence asks one redaction question per batch, and mock-data boards confirm without asking (#920)
+- stage-evidence, ship and stage-ship hand all of a pass's browser cases to the driver at once, so a real-data run gets one redaction question (#921)
+- boards a person approved at the redaction gate skip the upload check (#924)
+- evidence sections fold each case's screenshots behind a summary, on by default with `rt.evidence.foldScreenshots` (#910)
+- the watch-ci and evidence engines read their triage config from settings, and the ci gate's Recommended option follows the triage (#925, #926)
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.25.1...v2.25.2
+### Chat and notifications
+
+- `chat.autoSignIn` signs new pane sessions in to chat at startup (#903)
+- the daemon can notify you before a Claude usage limit runs out, including a monthly cap on an enterprise seat; it is off until you set thresholds in `rt.notify.usageLimits` (#923)
+
+### Fast Browser
+
+- Fast Browser 0.1.18: tool results on an origin with a saved dev login say so, and setup no longer breaks Codex when its `config.toml` already has its own `fast_browser` table; the `logins:has` daemon verb backs the hint (#909, #927)
+
+### Deck and console
+
+- deck's success toasts name the app and reuse the command's icon
+- the console's evidence modal has one head, and gate boards page through every board
+
+### Also
+
+- telemetry never pings from a virtual machine
+- bundled tools: bun 1.4.4, node 24.22.1, gh 2.103.0, glab 1.124.0, git-lfs 3.8.1, cloudflared 2026.10.3, portless 0.15.9 (#927)
+
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.25.2...v2.26.0
