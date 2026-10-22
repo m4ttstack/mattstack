@@ -41,14 +41,12 @@ import {
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
-import { FindingCard, RailSummary, type FilePin } from './ReviewDraftCard.tsx';
+import { FindingCard, SummaryCard, type FilePin } from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
   carryoverTally,
   carryoverTexts,
   FindingAnchor,
-  isPosting,
-  isResolving,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
 import { useSheetKeys } from './sheet-keys.ts';
@@ -362,12 +360,7 @@ function ReviewGateSheet({
     const current = skippedName ? form.selections[skippedName] : undefined;
     return new Set(Array.isArray(current) ? current : []);
   }, [form.selections, skippedName]);
-  const replying = carryovers.filter(c => isPosting(c, form.selections)).length;
-  const resolving = carryovers.filter(c =>
-    isResolving(c, form.selections)
-  ).length;
   const replyTexts = carryoverTexts(carryovers, form.selections, form.texts);
-  const postingFindings = selectedFindings.size + selectedSkipped.size;
   const drafts = useMemo(
     () => readDrafts(data?.review, findings, outcomeQuestion),
     [data, findings, outcomeQuestion]
@@ -385,12 +378,6 @@ function ReviewGateSheet({
   const folded = drafts
     ? findings.filter(f => selectedFindings.has(f.id) && !hasDiffLine(f))
     : [];
-  const restoredWithoutLine = drafts
-    ? skippedEntries.filter(
-        ([value, e]) => selectedSkipped.has(value) && !hasDiffLine(e)
-      ).length
-    : 0;
-  const postingComments = postingFindings - folded.length - restoredWithoutLine;
   const pinsByFile = useMemo(() => {
     const out = new Map<string, FilePin[]>();
     for (const f of findings) {
@@ -683,6 +670,26 @@ function ReviewGateSheet({
           {review.round !== undefined && (
             <RoundHeading round={review.round} summary={roundSummary} />
           )}
+          {verdict !== undefined && summaryDraft !== undefined && (
+            <>
+              <div className="tui-sheet-list-head">
+                <span className="tui-sheet-list-title">Summary comment</span>
+                {mr && (
+                  <span className="tui-sheet-list-tally">
+                    posts on {mrRef(mr)}
+                  </span>
+                )}
+              </div>
+              <SummaryCard
+                outcome={verdict}
+                verdictLabel={outcomeText.toLowerCase()}
+                draft={summaryDraft}
+                folded={folded}
+                form={form}
+                onRemove={removeFolded}
+              />
+            </>
+          )}
           {carryovers.length > 0 && (
             <>
               <div className="tui-sheet-list-head">
@@ -907,9 +914,7 @@ function ReviewGateSheet({
                 <div className="tui-sheet-dock" ref={reserveDock}>
                   <div className="tui-sheet-dock-head">
                     <h3 className="tui-sheet-dock-heading">
-                      {drafts
-                        ? `Finish your review${mr ? ` on ${mrRef(mr)}` : ''}`
-                        : `Verdict on ${mr ? mrRef(mr) : '!'}`}
+                      {mr ? `Verdict on ${mrRef(mr)}` : 'Verdict'}
                     </h3>
                     <button
                       type="button"
@@ -919,16 +924,6 @@ function ReviewGateSheet({
                       reset
                     </button>
                   </div>
-                  {verdict !== undefined && summaryDraft !== undefined && (
-                    <RailSummary
-                      outcome={verdict}
-                      verdictLabel={outcomeText.toLowerCase()}
-                      draft={summaryDraft}
-                      folded={folded}
-                      form={form}
-                      onRemove={removeFolded}
-                    />
-                  )}
                   <div
                     className="tui-gate-choices"
                     role="radiogroup"
@@ -1006,33 +1001,7 @@ function ReviewGateSheet({
                     disabled={!canSubmit}
                     onClick={submit}
                   >
-                    {form.busy
-                      ? 'submitting…'
-                      : drafts
-                        ? [
-                            postingComments > 0
-                              ? `post ${postingComments} ${postingComments === 1 ? 'comment' : 'comments'} + summary`
-                              : 'post summary',
-                            replying > 0 ? `reply ${replying}` : null,
-                            resolving > 0 ? `resolve ${resolving}` : null,
-                            outcomeText || null,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')
-                        : findingsQuestion === undefined &&
-                            !skippedQuestion &&
-                            carryovers.length === 0
-                          ? (outcomeText ?? 'submit')
-                          : [
-                              findingsQuestion || skippedQuestion
-                                ? `post ${postingFindings}`
-                                : null,
-                              replying > 0 ? `reply ${replying}` : null,
-                              resolving > 0 ? `resolve ${resolving}` : null,
-                              outcomeText || null,
-                            ]
-                              .filter(Boolean)
-                              .join(' · ')}
+                    {form.busy ? 'submitting…' : outcomeText || 'submit'}
                     {!form.busy && <KeyCap keys={SUBMIT_KEYS} onFill />}
                   </Button>
                   {form.failed && (
