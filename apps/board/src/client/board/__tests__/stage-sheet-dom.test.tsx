@@ -8,7 +8,14 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import React from 'react';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
-import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import { createRoot, type Root } from 'react-dom/client';
 
 import type { GateDomain } from '@mattstack/gate-kit';
@@ -1037,4 +1044,78 @@ test('a boards@1 gate sends the human to the console and offers no answer here',
   expect(text('.tui-sheet-context-card')).not.toContain('gate-ctx');
   expect(text('.tui-banner')).toContain('console');
   expect(submit()).toBeNull();
+});
+
+async function pressSubmit(target: Element | null = $('.tui-gate-sheet')) {
+  await React.act(async () => {
+    target!.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        metaKey: true,
+        bubbles: true,
+      })
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+}
+
+describe('keyboard', () => {
+  test('Cmd+Enter submits a fully answered stage gate, even from a note', async () => {
+    await render(ship(), MR);
+    await pick('hand-back');
+    await pick('preview-a');
+    await pick('draft');
+    await pressSubmit($('input[aria-label="Note for How do we hand off?"]'));
+    expect(answerPosts().length).toBe(1);
+  });
+
+  test('Cmd+Enter does nothing while the stage submit is disabled', async () => {
+    await render(ship(), MR);
+    await pick('hand-back');
+    await pressSubmit();
+    expect(answerPosts()).toEqual([]);
+  });
+
+  test('the stage submit shows the chord without changing its label', async () => {
+    await render(ship(), MR);
+    expect(submit().textContent).toBe('submit');
+    expect(
+      submit().querySelector('.tui-key-cap')?.getAttribute('data-keys')
+    ).toBe('⌘↵');
+  });
+
+  test('Cmd+Enter does nothing on a read-only stage sheet', async () => {
+    await render(
+      ship({
+        gateId: 'g-boards',
+        kind: 'evidence-attach',
+        label: 'evidence-attach',
+        context: JSON.stringify({
+          'gate-ctx': 'boards@1',
+          summary: 'One board goes up.',
+          boards: [{ case: 'badge', slot: 'after', caption: 'The badge' }],
+        }),
+        questions: [
+          {
+            id: 'boards',
+            label: 'Anything on these boards that should not be public?',
+            multi: false,
+            options: [{ value: 'clear', label: 'Nothing here' }],
+          },
+        ],
+      }),
+      MR
+    );
+    expect(submit()).toBeNull();
+    await pressSubmit();
+    expect(answerPosts()).toEqual([]);
+  });
+
+  test("Cmd+Enter takes a pane gate's big action", async () => {
+    await render(pane('blocked'));
+    await pressSubmit();
+    expect(answerPosts().map(p => p.body)).toEqual([
+      { gateId: 'g-pane', answers: { action: 'focus-pane' } },
+    ]);
+  });
 });
