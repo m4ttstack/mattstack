@@ -87,7 +87,7 @@ describe('firstLiveOwner', () => {
     const owner = await firstLiveOwner(cands, async (s) =>
       s === 's-old' ? { reachable: true, name: 'worker-a' } : { reachable: false },
     );
-    expect(owner).toEqual({ ...cands[1], name: 'worker-a' });
+    expect(owner).toEqual({ runId: 'old', session: 's-old', stage: 'build', name: 'worker-a' });
   });
 
   test('returns null when none probe live', async () => {
