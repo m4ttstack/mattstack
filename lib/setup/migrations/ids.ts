@@ -12,4 +12,5 @@ export const MIGRATION_IDS: readonly string[] = [
   "2026-10-10-import-legacy-settings",
   "2026-10-11-import-app-settings",
   "2026-10-17-enable-team-pack",
+  "2026-10-22-retire-old-bg-server",
 ];
