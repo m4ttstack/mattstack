@@ -1084,6 +1084,33 @@ describe('keyboard', () => {
     ).toBe('⌘↵');
   });
 
+  test('Cmd+Enter does nothing on a read-only stage sheet', async () => {
+    await render(
+      ship({
+        gateId: 'g-boards',
+        kind: 'evidence-attach',
+        label: 'evidence-attach',
+        context: JSON.stringify({
+          'gate-ctx': 'boards@1',
+          summary: 'One board goes up.',
+          boards: [{ case: 'badge', slot: 'after', caption: 'The badge' }],
+        }),
+        questions: [
+          {
+            id: 'boards',
+            label: 'Anything on these boards that should not be public?',
+            multi: false,
+            options: [{ value: 'clear', label: 'Nothing here' }],
+          },
+        ],
+      }),
+      MR
+    );
+    expect(submit()).toBeNull();
+    await pressSubmit();
+    expect(answerPosts()).toEqual([]);
+  });
+
   test("Cmd+Enter takes a pane gate's big action", async () => {
     await render(pane('blocked'));
     await pressSubmit();

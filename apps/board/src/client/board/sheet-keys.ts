@@ -9,6 +9,7 @@ interface KeyLike {
   altKey: boolean;
   shiftKey: boolean;
   isComposing?: boolean;
+  repeat?: boolean;
   target: EventTarget | null;
 }
 
@@ -16,23 +17,31 @@ const TYPING =
   'textarea, select, [contenteditable]:not([contenteditable="false"]), input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"])';
 
 /** A key reaches a gate sheet only when the sheet is the topmost dialog
-    around it: a modal opened over the sheet (the full diff) keeps its keys.
-    Focus on the page itself counts as the open sheet's. */
+    around it: a modal opened over the sheet (the full diff, rendered inside
+    it) keeps its keys. Focus on the page itself belongs to the last open
+    modal, which is the sheet only when nothing sits over it. */
 function inGateSheet(target: EventTarget | null): boolean {
   const dialog =
     target instanceof Element && target !== document.body
       ? target.closest('[role="dialog"]')
-      : document.querySelector('[role="dialog"][aria-modal="true"]');
+      : [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')].at(
+          -1
+        );
   return dialog?.classList.contains('tui-gate-sheet') ?? false;
 }
 
 /** What a keydown means on an open gate sheet: Cmd/Ctrl+Enter submits from
     anywhere in it, a text field included; 1 to `picks` pick an option
-    unless the key is being typed into a field. */
+    unless the key is being typed into a field. A held key never repeats:
+    its repeats would land on the next gate once this one is answered. A
+    link keeps its own Cmd+Enter (open in a new tab). */
 function sheetKey(e: KeyLike, picks: number): SheetKey | null {
-  if (e.isComposing || !inGateSheet(e.target)) return null;
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))
-    return e.altKey || e.shiftKey ? null : { kind: 'submit' };
+  if (e.isComposing || e.repeat || !inGateSheet(e.target)) return null;
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.altKey || e.shiftKey) return null;
+    if (e.target instanceof Element && e.target.closest('a[href]')) return null;
+    return { kind: 'submit' };
+  }
   if (e.metaKey || e.ctrlKey || e.altKey) return null;
   if (!/^[1-9]$/.test(e.key)) return null;
   const index = Number(e.key) - 1;

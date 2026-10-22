@@ -39,6 +39,7 @@ const key = (
     altKey: boolean;
     shiftKey: boolean;
     isComposing: boolean;
+    repeat: boolean;
   }> = {}
 ) => ({
   key: k,
@@ -124,4 +125,29 @@ test('keys outside any gate sheet are ignored', () => {
   document.body.appendChild(outside);
   expect(sheetKey(key(outside, 'Enter', { metaKey: true }), 0)).toBeNull();
   expect(sheetKey(key(document.body, '1'), 2)).toBeNull();
+});
+
+test('a held key never repeats a submit or a pick', () => {
+  expect(
+    sheetKey(key(sheet, 'Enter', { metaKey: true, repeat: true }), 0)
+  ).toBeNull();
+  expect(sheetKey(key(sheet, '1', { repeat: true }), 2)).toBeNull();
+});
+
+test('focus on the page under a modal nested in the sheet stays the modal’s', () => {
+  const modal = document.createElement('div');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  sheet.appendChild(modal);
+  expect(
+    sheetKey(key(document.body, 'Enter', { metaKey: true }), 0)
+  ).toBeNull();
+  expect(sheetKey(key(document.body, '1'), 2)).toBeNull();
+});
+
+test('a focused link keeps its own Cmd+Enter', () => {
+  const link = document.createElement('a');
+  link.href = 'https://example.com/';
+  sheet.appendChild(link);
+  expect(sheetKey(key(link, 'Enter', { metaKey: true }), 0)).toBeNull();
 });
