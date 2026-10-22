@@ -1035,7 +1035,7 @@ describe('runTriage post-launch stand-down race', () => {
 
 describe('runTriage defers to a live work run', () => {
   const OWN = 'https://x/mr/1';
-  const PARENT = 'https://x/mr/1';
+  const PARENT = 'https://x/mr/5';
   const CHILD = 'https://x/mr/2';
 
   function workRun(over: Partial<RunSummary> = {}): RunSummary {
@@ -1095,7 +1095,7 @@ describe('runTriage defers to a live work run', () => {
     return [
       mr({
         mrUrl: PARENT,
-        iid: 1,
+        iid: 5,
         pipelineState: 'passed',
         sourceBranch: 'feat-parent',
         ...over.parent,
@@ -1409,18 +1409,22 @@ describe('runTriage defers to a live work run', () => {
     expect(d.audit.some(e => e.reason === 'handoff-lapsed')).toBe(true);
   });
 
-  test('a handoff on an MR that left the board is cleared', async () => {
+  test('a handoff on an MR that left the board is cleared and its edge re-armed', async () => {
     const gone = 'https://x/mr/9';
     const d = liveRunDeps(
       [workRun()],
       {},
       {
         fetchOwnMrs: async () => [],
-        memory: memoryWith(gone, { handoffs: { 'pipeline-red': handoff() } }),
+        memory: memoryWith(gone, {
+          lastHandledPipelineId: 100,
+          handoffs: { 'pipeline-red': handoff() },
+        }),
       }
     );
     await runTriage(d);
     expect(d.memory.mrs[gone]!.handoffs).toBeUndefined();
+    expect(d.memory.mrs[gone]!.lastHandledPipelineId).toBeNull();
     expect(d.audit).toContainEqual(
       expect.objectContaining({
         mrUrl: gone,
@@ -1470,5 +1474,74 @@ describe('runTriage defers to a live work run', () => {
     expect(d.rings[0]!.text).toContain('pipeline 102');
     expect(d.memory.mrs[OWN]!.handoffs?.['pipeline-red']?.pipelineId).toBe(102);
     expect(d.launches).toHaveLength(0);
+  });
+
+  test('a daemon outage that empties the MR list keeps open handoffs', async () => {
+    let facts: OwnMrFacts[] = [];
+    let runs: RunSummary[] | null = null;
+    const d = liveRunDeps(
+      [],
+      { live: [] },
+      {
+        fetchOwnMrs: async () => facts,
+        listRuns: async () => runs,
+        memory: memoryWith(OWN, {
+          lastHandledPipelineId: 100,
+          handoffs: { 'pipeline-red': handoff() },
+        }),
+      }
+    );
+    await runTriage(d);
+    expect(d.memory.mrs[OWN]!.handoffs?.['pipeline-red']?.runId).toBe('run-1');
+    expect(d.memory.mrs[OWN]!.lastHandledPipelineId).toBe(100);
+    expect(d.audit.some(e => e.reason === 'handoff-cleared')).toBe(false);
+
+    facts = [mr()];
+    runs = [workRun({ status: 'done' })];
+    await runTriage(d);
+    expect(d.memory.mrs[OWN]!.handoffs).toBeUndefined();
+    expect(d.audit).toContainEqual(
+      expect.objectContaining({ reason: 'handoff-lapsed', outcome: 'run-1' })
+    );
+    expect(d.launches).toHaveLength(1);
+  });
+
+  async function expectHandoffKept(
+    d: ReturnType<typeof liveRunDeps>,
+    mrUrl: string,
+    runId: string
+  ) {
+    await runTriage(d);
+    expect(d.rings).toHaveLength(1);
+    expect(d.memory.mrs[mrUrl]!.handoffs?.['pipeline-red']?.runId).toBe(runId);
+    await runTriage(d);
+    expect(d.rings).toHaveLength(1);
+    expect(d.launches).toHaveLength(0);
+    expect(d.audit.some(e => e.reason === 'handoff-lapsed')).toBe(false);
+    expect(d.memory.mrs[mrUrl]!.handoffs?.['pipeline-red']?.runId).toBe(runId);
+  }
+
+  test("a live run keeps its own MR's handoff on the next pass", async () => {
+    await expectHandoffKept(liveRunDeps([workRun()]), OWN, 'run-1');
+  });
+
+  test("a live parent run keeps its child's handoff on the next pass", async () => {
+    const d = liveRunDeps(
+      [workRun({ id: 'run-p', session: 'sess-p', branch: 'feat-parent' })],
+      {},
+      { fetchOwnMrs: async () => stack() }
+    );
+    await expectHandoffKept(d, CHILD, 'run-p');
+    expect(d.memory.mrs[CHILD]!.handoffs?.['pipeline-red']?.viaMr).toBe(PARENT);
+  });
+
+  test('a live run on a parent outside the board keeps its branch-only handoff', async () => {
+    const d = liveRunDeps(
+      [workRun({ id: 'run-p', session: 'sess-p', branch: 'feat-parent' })],
+      {},
+      { fetchOwnMrs: async () => [stack()[1]!] }
+    );
+    await expectHandoffKept(d, CHILD, 'run-p');
+    expect(d.memory.mrs[CHILD]!.handoffs?.['pipeline-red']?.viaMr).toBeNull();
   });
 });

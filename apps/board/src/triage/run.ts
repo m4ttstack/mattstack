@@ -247,6 +247,16 @@ async function recheckHandoffs(
         event: kind,
         pipelineId: handoff.pipelineId,
       };
+      if (!facts) {
+        // fetchOwnMrs reads over the same daemon socket as listRuns, so in an
+        // outage the MR list comes back empty too: only a working run lookup
+        // shows the MR really left.
+        if (!owners) continue;
+        delete handoffs[kind];
+        rearm(memory, mrUrl, kind);
+        audit({ ...entry, reason: 'handoff-cleared', outcome: handoff.runId });
+        continue;
+      }
       if (!live[kind]) {
         delete handoffs[kind];
         audit({ ...entry, reason: 'handoff-cleared', outcome: handoff.runId });
@@ -271,9 +281,8 @@ async function recheckHandoffs(
   }
 }
 
-/** The MR's own live run first, then each ancestor's nearest first, then a
-    parent outside the board by branch. Stops at the first delivered ring and
-    records the handoff; false means nobody took it and the doctor path runs. */
+/** True when a live owner took the ring and the handoff is recorded; false
+    sends the edge down the doctor path. */
 async function ringLiveOwner(
   edge: Edge,
   mrs: OwnMrFacts[],
