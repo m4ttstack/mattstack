@@ -89,16 +89,23 @@ export function assertNoTeamMarkerInAllowedTools(fill: AttachmentSource): void {
   }
 }
 
-function slotText(name: string, fill: AttachmentSource | null, mode: "inline" | "reference", ctx: PlaceholderContext, packPaths: string[]): string {
-  if (fill === null) return "";
-  if (mode === "reference") {
-    return `Slot ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
-  }
+export function fillReference(noun: "Slot" | "Prop", name: string, fill: AttachmentSource): string {
+  return `${noun} ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
+}
+
+/** `key` is the seam's part key (`slot:<name>`, `prop:<block>.<name>`); `partsName` is the parts dir the fill's files vendor under. */
+export function inlineFillText(key: string, partsName: string, fill: AttachmentSource, ctx: PlaceholderContext, packPaths: string[]): string {
   const resolved = resolveFillTeamMarkers(fill, ctx.team);
-  const rewritten = resolved.body.split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, name));
+  const rewritten = resolved.body.split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, partsName));
   const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding);
   packPaths.push(...inlined.packPaths);
-  return `<!-- part: slot:${name} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
+  return `<!-- part: ${key} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
+}
+
+function slotText(name: string, fill: AttachmentSource | null, mode: "inline" | "reference", ctx: PlaceholderContext, packPaths: string[]): string {
+  if (fill === null) return "";
+  if (mode === "reference") return fillReference("Slot", name, fill);
+  return inlineFillText(`slot:${name}`, name, fill, ctx, packPaths);
 }
 
 function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext): string {
@@ -374,7 +381,7 @@ function emptySlotAfter(lines: string[], heading: number, fills: PlaceholderCont
 }
 
 // Global-regex `.replace` resets `lastIndex` per call, so PLACEHOLDER_RE is safe to share with findPlaceholders.
-function substituteLine(line: string, i: number, ctx: PlaceholderContext, where: string, used: Used): string {
+export function substituteLine(line: string, i: number, ctx: PlaceholderContext, where: string, used: Used): string {
   return line.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
     // The console's parser and stripCompilerComments both require a slot/include
     // seam marker to start a line, so the placeholder that produces it must be

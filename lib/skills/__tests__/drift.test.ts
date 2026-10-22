@@ -30,6 +30,20 @@ describe("skillMdDriftCauses", () => {
     const dropped = compiled.replace(/\n\n<!-- part: include:note[\s\S]*$/, "");
     expect(skillMdDriftCauses(compiled, dropped)).toEqual(["structure"]);
   });
+
+  const blocks = [
+    "---\nname: mini\n---",
+    "<!-- part: block:mini source=mattstack:mini version=1 path=a/index.block.md lines=11-13 -->\n# mini\n\nroot text",
+    "<!-- part: block:mini/gate source=mattstack:mini version=1 path=a/gate.block.md lines=4-6 -->\n## Gate\n\ngate text",
+    "<!-- part: prop:mini/gate.tiering binding=acme:t version=1 path=b lines=1-1 -->\nprop body",
+  ].join("\n\n");
+  test("a block's text is a source cause and a prop's body a fill cause", () => {
+    expect(skillMdDriftCauses(blocks, blocks.replace("gate text", "gate v2"))).toEqual(["source"]);
+    expect(skillMdDriftCauses(blocks, blocks.replace("prop body", "prop v2"))).toEqual(["fill"]);
+  });
+  test("a dropped block seam is structure", () => {
+    expect(skillMdDriftCauses(blocks, blocks.replace(/<!-- part: block:mini\/gate [^\n]*\n/, ""))).toEqual(["structure"]);
+  });
 });
 
 describe("partExtents", () => {

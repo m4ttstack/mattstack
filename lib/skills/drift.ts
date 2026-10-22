@@ -1,6 +1,6 @@
 export type DriftCause = "frontmatter" | "source" | "fill" | "include" | "structure" | "vendored" | "team";
 
-const MARKER_RE = /^<!-- part: (step|slot:\S+|include:\S+|section:\S+) /;
+const MARKER_RE = /^<!-- part: (step|slot:\S+|include:\S+|section:\S+|block:\S+|prop:\S+) /;
 
 function splitParts(md: string): { key: string; text: string }[] {
   const parts = [{ key: "frontmatter", text: "" }];
@@ -14,9 +14,9 @@ function splitParts(md: string): { key: string; text: string }[] {
 
 function causeOf(key: string): DriftCause {
   if (key === "frontmatter") return "frontmatter";
-  if (key === "step") return "source";
+  if (key === "step" || key.startsWith("block:")) return "source";
   if (key.startsWith("section:")) return "team";
-  return key.startsWith("slot:") ? "fill" : "include";
+  return key.startsWith("slot:") || key.startsWith("prop:") ? "fill" : "include";
 }
 
 /**
