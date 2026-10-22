@@ -40,7 +40,7 @@ digraph create_pack {
     author_is_admin [label="Author is an org admin?" shape=diamond];
     rt_team_add [label="rt team add <team> --owner <username>" shape=plaintext];
     ask_admin_add_team [label="Ask an org admin to add the team" shape=box];
-    rt_skills_init [label="rt skills init --json --team <team> --repo <repo-path>" shape=plaintext];
+    rt_skills_init [label="rt skills init --json --team <team> --repo <repo-path> [--extends <base>]" shape=plaintext];
     init_envelope [label="Envelope?" shape=diamond];
     published_pushed [label="published.pushed?" shape=diamond];
     relay_publish_reason [label="Relay published.reason" shape=box];
@@ -53,6 +53,8 @@ digraph create_pack {
     refusal_code [label="Refusal code?" shape=diamond];
     init_runs_spent [label="Init runs = 2?" shape=diamond];
     gate_init_budget [label="Gate: init budget spent" shape=box];
+    values_filled_once [label="Filled the listed values once already?" shape=diamond];
+    fill_listed_values [label="Fill in each listed value with the author" shape=box];
     relay_error_wrote [label="Relay error.message and error.wrote" shape=box];
     write_failed [label="write-failed?" shape=diamond];
     pack_dir_removed [label="Removed the pack dir once already?" shape=diamond];
@@ -117,7 +119,11 @@ digraph create_pack {
     init_envelope -> relay_error_wrote [label="refused: false, after a write"];
     relay_error_message -> refusal_code;
     refusal_code -> init_runs_spent [label="zone-missing or zone-ambiguous"];
+    refusal_code -> values_filled_once [label="params-missing"];
     refusal_code -> stopped_refusal [label="any other code"];
+    values_filled_once -> fill_listed_values [label="no"];
+    values_filled_once -> gate_init_budget [label="yes"];
+    fill_listed_values -> rt_skills_init;
     init_runs_spent -> ask_which_team [label="no"];
     init_runs_spent -> gate_init_budget [label="yes"];
     gate_init_budget -> rt_skills_init [label="retry: author fixed it"];
@@ -241,6 +247,17 @@ command to run, when there is one), then read `error.code`:
   `--team`.
 - `pack-exists`: this team's pack has already compiled, and init never
   changes it. Rules and verbs go through `mattstack:extending-a-pack`.
+- `params-missing`: the base named by `--extends` asks for values only
+  this team can give. Init wrote the pack but did not compile it, and
+  `error.wrote` lists the places it seeded for them.
+
+### Fill in each listed value with the author
+
+Ask the author for each value the message lists, and write it where
+`error.wrote` says: a key in `pack/params.jsonc` (seeded as `""`, one line
+each) or a seeded empty `pack/sections/<name>.md` (a block of markdown).
+An empty value or a blank section still counts as missing. Then run the
+same init again: it resumes on the written pack and leaves the files alone.
 
 ### Relay error.message and error.wrote
 
@@ -348,6 +365,10 @@ as init and the remedy left it, for the author.
   host with no compiled pack), which can land the pack in another team's
   folder. rt works with one org per Mac (the first clone by name when a
   Mac has several), so `--zone <org>` only ever names that org.
+- When the org has a base pack this team builds on (a folder under
+  `mattstack/org/packs/` in the org clone, say `acme-base`), add
+  `--extends acme-base`: init writes `"extends": "acme-base"` into the
+  fragment and seeds any values the base asks the team for.
 - The pack binds the repos in its team's `board.projects` (the org's list
   unless the team sets its own), on the org's forge host. Init adds this
   repo to the team's list.

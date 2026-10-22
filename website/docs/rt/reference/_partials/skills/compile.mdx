@@ -24,3 +24,17 @@ A stage compiles once, with the default fills. Where a pipeline's overrides give
 Copies are compiled output: never edit one. Change it through its fill or `rt skills bind --pipeline`. When a pipeline's fills match the default again, compile removes the copy.
 
 After a write that removed stage copies, `compile --json` carries `removedCopies`, the removed copy names. The key is absent when nothing was removed, and on `--dry-run` or a failed compile.
+
+### Team values
+
+When the pack extends an org base whose text carries `{{team.<key>}}` or `{{team.section:<name>}}` markers, compile fills them from the pack's `pack/params.jsonc` and `pack/sections/<name>.md`. A marker ending in `?` is optional. When a required value is missing, compile writes nothing and refuses once, listing each missing key or section with the base files that ask for it:
+
+```
+The widgets pack is missing values the acme-base pack asks for
+  pack/params.jsonc: linear-team (acme-base:provision-flow)
+  pack/sections/ci-extra-jobs.md (acme-base:watch-ci-rules)
+```
+
+`compile --json` carries the list as `missing` (each entry's `kind`, `name`, `file` and `askedBy`) and exits 1.
+
+A key in `pack/params.jsonc` that no compiled base text asks for prints a warning: `pack/params.jsonc: <key> is not asked for by any base text this pack compiles`. `compile --json` carries those keys as `unusedParams`. A pack whose base text uses any marker gets a `pack/requires.json` floor no lower than the first engine that resolves them. See [Team values in shared fills](/skills/packs#team-values-in-shared-fills).

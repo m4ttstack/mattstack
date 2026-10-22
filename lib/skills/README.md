@@ -28,3 +28,13 @@ Renders `${CLAUDE_SKILL_DIR}/../../<side>/<attachment>/<file>`, anchored on the 
 ## Headings above an unbound slot
 
 An unbound optional slot renders as nothing. When the only content under a markdown heading would have been that slot (a `#`-to-`######` heading, blank lines, then `{{slot:<name>}}` alone on its line), the heading, the blank lines between, the slot line, and one blank line after it are all dropped. Lines inside a fenced code block (opened and closed by lines starting with three backticks) are never read as headings. A slot with no heading above it still renders as an empty line.
+
+## `{{team.<key>}}` and `{{team.section:<name>}}`
+
+Org base text carries values each team pack supplies; the user contract is the "Team values in shared fills" section of `website/docs/skills/packs.mdx`. `team-params.ts` owns the pass: `readTeamValues` reads the team pack's `pack/params.jsonc` and `pack/sections/*.md`, and `resolveTeamMarkers` resolves one body against a `TeamContext`, recording each missing required marker instead of throwing so the whole pack's gaps refuse once.
+
+- **Base fills.** `resolveFillTeamMarkers` (`placeholders.ts`) runs on a fill's body before any other substitution, so a value never meets the `${CLAUDE_SKILL_DIR}` split or include expansion. It resolves only when the fill's plugin is an org base (`TeamContext.basePlugins`); a marker in any other fill, or in a fill's `allowed-tools`, throws.
+- **Copied attachments.** `substituteAttachmentPlaceholders` resolves a copied `.md` file's body first; a marker in its frontmatter throws, and `assertNoTeamMarkerInRawFile` throws on one in a copied non-`.md` file.
+- **Required.** Only markers in text this compile emits count, so a `--verb` compile checks only that verb. `commands/skills.ts` collects the gaps (`missingOf`) and refuses with `missingValuesFailure` before writing anything; check, preview, anatomy and composition refuse with the same list.
+- **Seams.** An inserted section inside an inlined fill gets its own five-token seam, `<!-- part: section:<name> source=<team pack>:pack/sections/<name>.md version=<team pack version> path=pack/sections/<name>.md lines=1-<n> -->`, so `drift.ts` and the anatomy and console views keep counting lines; drift on it reports the cause `team`. Copied attachments carry no seams.
+- **Floor.** When any emitted base text used a marker, compile writes `pack/requires.json` `minEngine` no lower than `TEAM_MARKERS_MIN_ENGINE`.
