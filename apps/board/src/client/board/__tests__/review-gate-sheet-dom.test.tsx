@@ -348,11 +348,11 @@ test('tier group headers show their counts', async () => {
   expect(pills).toContain('Minor (2)');
 });
 
-test('unchecking a finding updates the tally and the submit label', async () => {
+test('unchecking a finding updates the tally; the submit names the verdict alone', async () => {
   await render();
 
   const submitBefore = container.querySelector('.tui-sheet-submit');
-  expect(submitBefore?.textContent).toBe('post 6 · approve');
+  expect(submitBefore?.textContent).toBe('approve');
 
   const first = container.querySelector(
     '.tui-review-finding-row input[type="checkbox"]'
@@ -364,7 +364,7 @@ test('unchecking a finding updates the tally and the submit label', async () => 
   expect(tally?.textContent).toContain('5 of 6 selected');
 
   const submitAfter = container.querySelector('.tui-sheet-submit');
-  expect(submitAfter?.textContent).toBe('post 5 · approve');
+  expect(submitAfter?.textContent).toBe('approve');
 });
 
 test('the verdict radios form one radio group named by the question', async () => {
@@ -464,7 +464,7 @@ test('a note on the outcome question posts as {value, note}, not silently droppe
   ) as HTMLInputElement;
   expect(note.value).toBe('Merge once CI settles.');
 
-  await click(buttonByText('post 6 · approve'));
+  await click(buttonByText('approve'));
 
   const answerPost = posts.find(p => p.url === '/gate/answer');
   expect(answerPost).toBeDefined();
@@ -487,7 +487,7 @@ test('a gate answered elsewhere offers continue, which retires it from the queue
       continues++;
     },
   });
-  await click(buttonByText('post 6 · approve'));
+  await click(buttonByText('approve'));
   expect(container.querySelector('.tui-sheet-lost')!.textContent).toContain(
     'answered elsewhere'
   );
@@ -510,7 +510,7 @@ test('an unchunked findings question posts its answer under its own id', async (
   };
   await render(unchunked);
 
-  await click(buttonByText('post 2 · approve'));
+  await click(buttonByText('approve'));
 
   const answerPost = posts.find(p => p.url === '/gate/answer');
   const body = answerPost!.body as { answers: Record<string, unknown> };
@@ -521,14 +521,14 @@ test('a blank or whitespace-only note posts the bare selection, not an empty not
   seedDraft(GATE.gateId, { notes: { outcome: '   ' } });
   await render();
 
-  await click(buttonByText('post 6 · approve'));
+  await click(buttonByText('approve'));
 
   const answerPost = posts.find(p => p.url === '/gate/answer');
   const body = answerPost!.body as { answers: Record<string, unknown> };
   expect(body.answers.outcome).toBe('approve');
 });
 
-test('reset re-seeds every finding checked and the recommended outcome, never a bare "post N ·" label', async () => {
+test('reset re-seeds every finding checked and the recommended outcome', async () => {
   await render();
 
   const first = container.querySelector(
@@ -541,7 +541,7 @@ test('reset re-seeds every finding checked and the recommended outcome, never a 
   await click(comment);
 
   expect(container.querySelector('.tui-sheet-submit')?.textContent).toBe(
-    'post 5 · comment'
+    'comment'
   );
 
   await click(buttonByText('reset'));
@@ -550,10 +550,7 @@ test('reset re-seeds every finding checked and the recommended outcome, never a 
     container.querySelector('.tui-sheet-list-tally')?.textContent
   ).toContain('6 of 6 selected');
   expect(container.querySelector('.tui-sheet-submit')?.textContent).toBe(
-    'post 6 · approve'
-  );
-  expect(container.querySelector('.tui-sheet-submit')?.textContent).not.toBe(
-    'post 6 · '
+    'approve'
   );
 });
 
@@ -573,7 +570,7 @@ test('submit splits the checked union back into the original findings-1/findings
   await click(checkboxForTitle('Retry loop lacks backoff'));
   await click(checkboxForTitle('Inconsistent spacing'));
 
-  await click(buttonByText('post 4 · approve'));
+  await click(buttonByText('approve'));
 
   const answerPost = posts.find(p => p.url === '/gate/answer');
   expect(answerPost).toBeDefined();
@@ -849,7 +846,7 @@ test('the verdict dock and the lost panel each reserve their height on the scrol
     answeredElsewhere = true;
     await render();
     expect(await reserveOf('.tui-sheet-dock', 294)).toBe('294px');
-    await click(buttonByText('post 6 · approve'));
+    await click(buttonByText('approve'));
     expect(await reserveOf('.tui-sheet-lost', 332)).toBe('332px');
   } finally {
     restore();
@@ -1445,9 +1442,9 @@ describe('a gate whose poster honors edited drafts', () => {
     await render(draftsGate());
     const heading = () =>
       container.querySelector('.tui-review-summary-k')?.textContent;
-    expect(heading()).toBe('summary comment · approve');
+    expect(heading()).toBe('for approve');
     await pickVerdict('comment');
-    expect(heading()).toBe('summary comment · comment');
+    expect(heading()).toBe('for comment');
   });
 
   test('each verdict keeps its own edit: switching away and back restores it', async () => {
@@ -1559,20 +1556,28 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(submitButton().disabled).toBe(true);
   });
 
-  test('the summary sits in the rail under Finish your review, with the line and each ticked no-diff-line finding', async () => {
+  test('the summary comes first in the main column, with the line and each ticked no-diff-line finding', async () => {
     await render(draftsGate());
-    expect(
-      container.querySelector('.tui-sheet-main .tui-review-summary')
-    ).toBeNull();
-    const dock = container.querySelector('.tui-sheet-rail .tui-sheet-dock')!;
-    expect(dock.querySelector('.tui-sheet-dock-heading')!.textContent).toBe(
-      'Finish your review on !31'
+    const main = container.querySelector('.tui-sheet-main')!;
+    const head = main.firstElementChild!;
+    expect(head.querySelector('.tui-sheet-list-title')?.textContent).toBe(
+      'Summary comment'
     );
-    const card = dock.querySelector('.tui-review-summary')!;
+    expect(head.querySelector('.tui-sheet-list-tally')?.textContent).toBe(
+      'posts on !31'
+    );
+    const card = main.querySelector('.tui-review-summary')!;
     expect(
-      card.compareDocumentPosition(dock.querySelector('[role="radiogroup"]')!) &
-        Node.DOCUMENT_POSITION_FOLLOWING
+      card.compareDocumentPosition(
+        main.querySelector('.tui-review-find-list')!
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+    expect(
+      container.querySelector('.tui-sheet-rail .tui-review-summary')
+    ).toBeNull();
+    expect(
+      container.querySelector('.tui-sheet-dock-heading')!.textContent
+    ).toBe('Verdict on !31');
     const parts = card.querySelectorAll('.tui-review-summary-part');
     expect(parts.length).toBe(2);
     expect(parts[0]!.getAttribute('data-part')).toBe('summary-line');
@@ -1580,18 +1585,25 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(valueOf(parts[1])).toContain(COMMENT.f3);
   });
 
-  test('on a later round the round band stays first in the main column', async () => {
+  test('on a later round the round band stays first, the summary right under it', async () => {
     await render(draftsGate({ round: 2 }));
     const main = container.querySelector('.tui-sheet-main')!;
     expect(main.firstElementChild?.className).toBe('tui-sheet-round');
-    expect(main.querySelector('.tui-review-summary')).toBeNull();
+    expect(
+      main.children[1]?.querySelector('.tui-sheet-list-title')?.textContent
+    ).toBe('Summary comment');
   });
 
-  test('with no MR the rail heading names no target', async () => {
+  test('with no MR the headings name no target', async () => {
     await render(draftsGate(), { noMr: true });
     expect(
       container.querySelector('.tui-sheet-dock-heading')!.textContent
-    ).toBe('Finish your review');
+    ).toBe('Verdict');
+    expect(
+      container
+        .querySelector('.tui-sheet-main')!
+        .firstElementChild!.querySelector('.tui-sheet-list-tally')
+    ).toBeNull();
   });
 
   test('a no-diff-line finding points at the summary instead of carrying a box', async () => {
@@ -1613,65 +1625,12 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(card.querySelector('[data-part="folded"]')).toBeNull();
   });
 
-  test('the submit label counts the comments and the summary', async () => {
+  test('the submit label names the verdict alone, whatever is ticked', async () => {
     await render(draftsGate());
-    expect(submitButton().textContent).toBe(
-      'post 3 comments + summary · approve'
-    );
+    expect(submitButton().textContent).toBe('approve');
     await click(checkboxForTitle('Unused import'));
     await click(checkboxForTitle('Missing null check on response'));
-    expect(submitButton().textContent).toBe(
-      'post 1 comment + summary · approve'
-    );
-  });
-
-  test('a restored finding with no diff line is not counted as a comment', async () => {
-    const gate = draftsGate();
-    gate.questions = [
-      gate.questions[0]!,
-      {
-        id: 'skipped-1',
-        label: 'Bring back a finding you skipped earlier?',
-        multi: true,
-        context: j({
-          'gate-ctx': 'skipped@1',
-          skipped: [
-            {
-              id: 'r1-f9',
-              round: 1,
-              severity: 'minor',
-              title: 'Config defaults live in two files',
-              changed: false,
-            },
-          ],
-        }),
-        options: [
-          {
-            value: 'restore:r1-f9',
-            label: '[Minor] Config defaults live in two files',
-            description: 'skipped in round 1',
-          },
-        ],
-      },
-      gate.questions[1]!,
-    ];
-    await render(gate);
-    for (const t of [
-      'SQL built from unsanitized input',
-      'Missing null check on response',
-      'Unused import',
-      'Inconsistent error wording',
-    ])
-      await click(checkboxForTitle(t));
-    await click(
-      container.querySelector<HTMLElement>('.tui-review-skipped-head')!
-    );
-    await click(
-      container.querySelector<HTMLInputElement>(
-        '.tui-review-skipped-row input[type="checkbox"]'
-      )!
-    );
-    expect(submitButton().textContent).toBe('post summary · approve');
+    expect(submitButton().textContent).toBe('approve');
   });
 
   const metaOf = (scope: Element) =>
@@ -1688,11 +1647,11 @@ describe('a gate whose poster honors edited drafts', () => {
       ),
     ].map(t => t.getAttribute('aria-label'));
     expect(labels).toEqual([
+      'Summary line',
+      'Summary comment: Inconsistent error wording',
       'Comment on SQL built from unsanitized input',
       'Comment on Missing null check on response',
       'Comment on Unused import',
-      'Summary line',
-      'Summary comment: Inconsistent error wording',
     ]);
     expect(metaOf(itemFor('Unused import'))).toBe('drafted by the agent');
   });
@@ -1825,7 +1784,7 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(container.querySelectorAll('.tui-review-finding-fix').length).toBe(
       4
     );
-    expect(submitButton().textContent).toBe('post 4 · approve');
+    expect(submitButton().textContent).toBe('approve');
   });
 });
 
@@ -1878,7 +1837,7 @@ describe('keyboard', () => {
     ] as HTMLInputElement[];
     expect(radios.find(r => r.value === 'comment')?.checked).toBe(true);
     expect(container.querySelector('.tui-sheet-submit')?.textContent).toBe(
-      'post 6 · comment'
+      'comment'
     );
   });
 
@@ -1898,13 +1857,13 @@ describe('keyboard', () => {
     expect(
       submit.querySelector('.tui-key-cap')?.getAttribute('data-keys')
     ).toBe('⌘↵');
-    expect(submit.textContent).toBe('post 6 · approve');
+    expect(submit.textContent).toBe('approve');
   });
 
   test('Cmd+Enter does nothing once the gate was answered elsewhere', async () => {
     answeredElsewhere = true;
     await render();
-    await click(buttonByText('post 6 · approve'));
+    await click(buttonByText('approve'));
     const before = answerPosts().length;
     await press(sheetEl(), 'Enter', { metaKey: true });
     expect(answerPosts().length).toBe(before);

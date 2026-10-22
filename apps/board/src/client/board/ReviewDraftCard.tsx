@@ -690,7 +690,7 @@ function FoldedPart({
 /** The review's summary note as it will post (`joinSummary`): the summary
     line for the picked verdict, then each ticked finding with no diff
     line as its own removable part. */
-export function RailSummary({
+export function SummaryCard({
   outcome,
   verdictLabel,
   draft,
@@ -716,7 +716,7 @@ export function RailSummary({
     >
       <div className="tui-review-summary-head">
         <span className="tui-review-summary-k">
-          summary comment · {verdictLabel}
+          for {verdictLabel}
         </span>
         <DraftMeta
           edited={edited}

@@ -4375,8 +4375,8 @@ a.tui-id-card-ref:focus-visible {
 .tui-diff-pin-here {
   color: var(--text-3);
 }
-/* The review's summary in the rail: one field for the summary line, then
-   each folded finding as its own part. */
+/* The review's summary, first in the main column: one field for the summary
+   line, then each folded finding as its own part. */
 .tui-review-summary {
   display: flex;
   flex-direction: column;
@@ -4408,10 +4408,6 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-review-summary-head .tui-field-tabs {
   margin-left: 0;
-}
-.tui-review-summary-body {
-  max-height: 38vh;
-  overflow-y: auto;
 }
 .tui-review-summary-part[data-part='folded'] {
   border-top: 1px solid var(--border-soft);
@@ -5107,24 +5103,29 @@ a.tui-id-card-ref:focus-visible {
 }
 /* A keyboard hint. Its text comes from data-keys so it never joins the
    control's label or accessible name. */
+/* Drawn as a physical key, like the console's Kbd: a heavier bottom edge on
+   a faint key face. */
 .tui-key-cap {
   flex-shrink: 0;
   min-width: 22px;
-  padding: 1px 6px;
+  padding: 0.12em 0.45em;
   border: 1px solid var(--border-control);
-  border-radius: 5px;
-  font-family: inherit;
+  border-bottom-width: 3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 4%, var(--card));
+  font-family: var(--font-mono);
   font-size: var(--gate-font-small);
-  font-weight: 500;
+  font-weight: 700;
   line-height: 1.4;
   text-align: center;
-  color: var(--text-3);
+  color: var(--text-2);
 }
 .tui-key-cap::after {
   content: attr(data-keys);
 }
 .tui-gate-choice[data-checked] .tui-key-cap {
-  border-color: color-mix(in srgb, var(--fill-accent) 55%, var(--card));
+  border-color: color-mix(in srgb, var(--fill-accent) 40%, var(--card));
+  background: var(--card);
   color: var(--text-accent-small);
 }
 /* Inside a filled button: the on-fill label over a wash of itself, the
@@ -5132,6 +5133,9 @@ a.tui-id-card-ref:focus-visible {
 .tui-key-cap[data-variant='on-fill'] {
   margin-left: 10px;
   border: 0;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-weight: 500;
   color: color-mix(in srgb, var(--on-fill-accent) 85%, transparent);
   background: color-mix(in srgb, var(--on-fill-accent) 18%, transparent);
 }
