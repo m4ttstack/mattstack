@@ -1501,6 +1501,9 @@
         },
         "setup_update": {
           "type": "boolean"
+        },
+        "usage_limit": {
+          "type": "boolean"
         }
       },
       "additionalProperties": {}
@@ -1548,6 +1551,50 @@
         ],
         "additionalProperties": {}
       }
+    }
+  },
+  "rt.notify.usageLimits": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "thresholds": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "title": "Thresholds",
+          "description": "Percentages of a limit that notify, e.g. [80, 95]"
+        },
+        "accounts": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          "title": "Per-account thresholds",
+          "description": "Keyed by account email or org UUID"
+        },
+        "hint": {
+          "type": "string",
+          "title": "Hint",
+          "description": "Appended to every usage notification"
+        }
+      },
+      "required": [
+        "thresholds"
+      ],
+      "additionalProperties": {}
     }
   },
   "rt.picker.hidden": {

@@ -391,6 +391,7 @@ describe("settings/registry", () => {
         "rt.ui.background",
         "rt.daemonPath",
         "rt.notify.eventBridges",
+        "rt.notify.usageLimits",
         "rt.gates.escalationTtlMinutes",
         "ci.watch.budgetMinutes",
         "ci.triage.realPatterns",
@@ -417,7 +418,7 @@ describe("settings/registry", () => {
         "telemetry.enabled",
         "rt.evidence.foldScreenshots",
       ];
-      expect(suiteKeys).toHaveLength(99);
+      expect(suiteKeys).toHaveLength(100);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
