@@ -45,6 +45,14 @@ export function rowHeightOf(view: TemplateView, row: TemplateRow): number {
   return view.output ? LAYOUT.stepPlaceholderRowH : LAYOUT.placeholderRowH;
 }
 
+/** No board draws a team section; a slot card grows a row this tall under
+    its face for each one. */
+export const SECTION_ROW_H = 34;
+
+export function inputHeightOf(card: InputCard): number {
+  return LAYOUT.cardH + card.sections.length * SECTION_ROW_H;
+}
+
 const rowHandle = (rowId: string) => `row:${rowId}`;
 
 const edgeBetween = (
@@ -70,18 +78,16 @@ export function layoutTemplate(view: TemplateView): LayoutResult {
   }
 
   const columnPlacer = (kind: 'input' | 'link') => {
-    let prevY = -Infinity;
-    return (card: { id: string; rowId: string }) => {
+    let nextY = -Infinity;
+    return (card: { id: string; rowId: string }, height: number) => {
       const centre = centres.get(card.rowId);
       if (centre === undefined)
         throw new Error(
           `${kind} card "${card.id}" names row "${card.rowId}", which the template does not have`
         );
-      prevY = Math.max(
-        centre - LAYOUT.cardH / 2,
-        prevY + LAYOUT.cardH + LAYOUT.cardGap
-      );
-      return prevY;
+      const y = Math.max(centre - LAYOUT.cardH / 2, nextY);
+      nextY = y + height + LAYOUT.cardGap;
+      return y;
     };
   };
   const placeInput = columnPlacer('input');
@@ -99,7 +105,8 @@ export function layoutTemplate(view: TemplateView): LayoutResult {
   let height = top;
 
   for (const card of view.inputs) {
-    const y = placeInput(card);
+    const cardH = inputHeightOf(card);
+    const y = placeInput(card, cardH);
     nodes.push({
       id: card.id,
       type: 'input',
@@ -109,11 +116,11 @@ export function layoutTemplate(view: TemplateView): LayoutResult {
     edges.push(
       edgeBetween(card.id, 'template', { targetHandle: rowHandle(card.rowId) })
     );
-    height = Math.max(height, y + LAYOUT.cardH);
+    height = Math.max(height, y + cardH);
   }
 
   for (const card of view.links) {
-    const y = placeLink(card);
+    const y = placeLink(card, LAYOUT.cardH);
     nodes.push({
       id: card.id,
       type: 'link',

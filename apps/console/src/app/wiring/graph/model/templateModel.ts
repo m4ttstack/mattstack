@@ -78,6 +78,17 @@ export type InputCard = {
   /** Who owns the fill, set only for a skill another app owns, whose card has
       no anatomy part to read it from. */
   owner?: Owner;
+  /** The team sections a slot's fill renders, in rendered order. */
+  sections: SectionCard[];
+};
+
+export type SectionCard = {
+  id: string;
+  title: string;
+  /** `<team plugin>:pack/sections/<name>.md`. */
+  source: string;
+  /** Changed since the last compile, so the skill is stale on team values. */
+  changed: boolean;
 };
 
 /** `unknown` is check having no row for the skill: rt said nothing, which is
@@ -145,9 +156,6 @@ export type TemplateView = {
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
-type GraphPart = AnatomyPart & {
-  kind: Exclude<AnatomyPart['kind'], 'section'>;
-};
 type DriftCause = SkillsAnatomy['staleBecause'][number];
 type CheckRow = SkillsCheck['verbs'][number];
 
@@ -167,6 +175,7 @@ const STALE_CHANGES: [DriftCause, { what: string; own: boolean }][] = [
   ['source', { what: 'template', own: true }],
   ['include', { what: 'a pasted file', own: false }],
   ['fill', { what: 'pack text', own: true }],
+  ['team', { what: 'team values', own: false }],
   ['frontmatter', { what: 'header', own: true }],
   ['structure', { what: 'files', own: true }],
   ['vendored', { what: 'files', own: true }],
@@ -209,16 +218,36 @@ export function resolveFrom(file: string, relative: string): string {
   return segments.join('/');
 }
 
-/** A team section renders inside the slot whose lines hold it, so the slot's
-    card already covers it and the graph draws no part of its own for it. */
-export function graphAnatomy(
-  anatomy: SkillsAnatomy
-): SkillsAnatomy & { parts: GraphPart[] } {
+/** A team section renders inside the slot whose lines hold it, and rt lists
+    it right after that slot: it has no row of its own. */
+export function withoutSections(anatomy: SkillsAnatomy): SkillsAnatomy {
   return {
     ...anatomy,
-    parts: anatomy.parts.filter(
-      (part): part is GraphPart => part.kind !== 'section'
-    ),
+    parts: anatomy.parts.filter(part => part.kind !== 'section'),
+  };
+}
+
+/** Whether rt placed a section inside a slot's rendered range; a stale file
+    may not place it at all, and then rt's order is all there is. */
+function holds(slot: AnatomyPart, section: AnatomyPart): boolean {
+  const outer = slot.renderedLines;
+  const inner = section.renderedLines;
+  if (!inner) return true;
+  return outer !== null && outer[0] <= inner[0] && inner[1] <= outer[1];
+}
+
+/** A fill can paste one section twice; the second takes its place as `@n`. */
+function sectionCard(part: AnatomyPart, card: InputCard): SectionCard {
+  const name = part.name ?? '';
+  const base = partKey(part);
+  const repeats = card.sections.filter(
+    section => section.id.split('@')[0] === base
+  ).length;
+  return {
+    id: repeats === 0 ? base : `${base}@${repeats + 1}`,
+    title: name,
+    source: part.source?.ref ?? `pack/sections/${name}.md`,
+    changed: part.changed,
   };
 }
 
@@ -231,6 +260,7 @@ export function partKey(part: AnatomyPart): string {
  * located it, else the size of its source. rt gives every placeholder on one
  * template line that line's whole rendered range, so a range shared with
  * another part says nothing about this part's size and its source decides.
+ * A section sits inside its slot's range and shares nothing with it.
  */
 export function pastedLines(
   part: AnatomyPart,
@@ -241,6 +271,7 @@ export function pastedLines(
   const sharing = parts.filter(
     other =>
       other.kind !== 'text' &&
+      other.kind !== 'section' &&
       other.renderedLines?.[0] === range[0] &&
       other.renderedLines[1] === range[1]
   ).length;
@@ -411,8 +442,7 @@ export function buildTemplateView(input: {
   /** The focused pipeline; absent or unknown reads the pack's first. */
   workType?: string | null;
 }): TemplateView {
-  const { composition, check, changes, step } = input;
-  const anatomy = graphAnatomy(input.anatomy);
+  const { composition, check, changes, step, anatomy } = input;
   const stepOf = stepNumbers(composition, input.workType ?? null);
   const pack = anatomy.pack;
   const textNoun = textNounOf(anatomy, composition);
@@ -466,7 +496,14 @@ export function buildTemplateView(input: {
     return cardId;
   };
 
+  let slot: { part: AnatomyPart; card: InputCard } | null = null;
   for (const part of anatomy.parts) {
+    if (part.kind === 'section') {
+      if (slot && holds(slot.part, part))
+        slot.card.sections.push(sectionCard(part, slot.card));
+      continue;
+    }
+    if (part.kind === 'slot') slot = null;
     const anchor = part.templateLines ?? part.renderedLines;
     if (!anchor) continue;
     const line = anchor[0];
@@ -531,7 +568,7 @@ export function buildTemplateView(input: {
     }
     if (state === 'optional-unbound') continue;
 
-    inputs.push({
+    const card: InputCard = {
       id: cardIdFor(partKey(part), id),
       rowId: id,
       ...cardFace(part, state, facts, pack),
@@ -542,7 +579,10 @@ export function buildTemplateView(input: {
           : part.kind === 'slot' && facts?.boundTo
             ? fillUses(facts.boundTo)
             : 0,
-    });
+      sections: [],
+    };
+    inputs.push(card);
+    if (part.kind === 'slot') slot = { part, card };
   }
 
   const pendingSkill =
@@ -749,6 +789,7 @@ export function appSkillView(
         other.slots.some(s => s.boundTo === slot.boundTo)
       ).length,
       owner,
+      sections: [],
       ...(fill
         ? {
             title: fileLabelOf(fill.sourcePath),
