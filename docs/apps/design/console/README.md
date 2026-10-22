@@ -989,10 +989,17 @@ Compare (runs-ev-compare `Compare`):
   `modal/head`, so every board key compares as missing at the root and its
   app copy as extra under `modal/`. Read by eye, every control, frame and
   line the board draws is there.
-- The case picker is a kit `Select` (36px, its own chevron, the value not
-  keyed); Light / Dark and the mode are kit `SegmentedControl`s at their
-  default size (31px, options not keyed); the close button is the kit
-  `CloseButton`, focused on open, with no `x` layer.
+- The head is option B of the evidence modal options (`Evidence modal · B ·
+  One toolbar`, below the gate queue boards): the pager is a kit
+  `ActionIcon.Group` (`pager`, its chevrons and count not keyed), then the
+  ticket, `/` and the case as a kit `Menu` target (`t/ticket`, `t/sep`,
+  `t/case`; the `chevrons-up-down` glyph not keyed). Light / Dark and the
+  mode are kit `SegmentedControl`s at their default size (31px, options not
+  keyed); the close button is the kit `CloseButton`, focused on open, with
+  no `x` layer. The gate's boards modal shares this head without the theme
+  and mode controls.
+- In dark the frame is the kit modal's surface, not the board's `Compare`
+  fill.
 - Each frame's phase and line sit in one `cap` stack, as runs-p2-overlays
   keys it, not at the root.
 - The frames show the photo contained on the panel surface; the board's
