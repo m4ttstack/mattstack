@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from 'react';
 
-import { Badge, Markdown, Modal } from '@mattstack/tui-kit';
+import { Chip, Markdown, Modal } from '@mattstack/tui-kit';
 import {
   CommentField,
   commentState,
@@ -719,10 +719,11 @@ function FoldedSection({
   );
 }
 
-/** The summary's verdict badge: approving reads as done, a change request
-    as a warning, anything else (a comment) stays neutral. */
-const VERDICT_INTENT: Record<string, 'ok' | 'warn'> = {
+/** The summary's verdict badge: approving reads as done, a comment as the
+    board's accent, a change request as a warning. */
+const VERDICT_INTENT: Record<string, 'ok' | 'accent' | 'warn'> = {
   approve: 'ok',
+  comment: 'accent',
   request_changes: 'warn',
 };
 
@@ -767,12 +768,14 @@ export function SummaryCard({
                 setMode('write');
               }}
             />
-            <Badge
+            <Chip
               intent={VERDICT_INTENT[outcome] ?? 'muted'}
+              variant="outline"
+              uppercase
               data-verdict={outcome}
             >
               for {verdictLabel}
-            </Badge>
+            </Chip>
           </span>
         </SectionHead>
         <CommentEditor
