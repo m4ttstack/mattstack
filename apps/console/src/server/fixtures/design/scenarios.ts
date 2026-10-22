@@ -70,6 +70,7 @@ interface Part {
 interface Anatomy {
   skill: string;
   status: string;
+  staleBecause?: string[];
   template: { builtVersion: string | null };
   rendered: { path: string; exists: boolean; lines: number };
   parts: Part[];
@@ -453,19 +454,23 @@ function sectionPart(name: string, at: number, changed: boolean): Part {
   };
 }
 
+/** Plan stale on a changed team section, as rt reads it off the file on
+    disk: a slot's extent holds its sections, so the domain slot changed too,
+    and text between markers has no anchor in a stale file. */
 function domainHoldsSections(anatomy: Anatomy): Anatomy {
   return {
     ...anatomy,
     status: 'stale',
-    parts: anatomy.parts.flatMap(part =>
-      part.kind === 'slot' && part.name === 'domain'
-        ? [
-            part,
-            sectionPart('ci-extra', 4, false),
-            sectionPart('release-rules', 9, true),
-          ]
-        : [part]
-    ),
+    staleBecause: ['team'],
+    parts: anatomy.parts.flatMap(part => {
+      if (part.kind === 'text') return [{ ...part, renderedLines: null }];
+      if (part.kind !== 'slot' || part.name !== 'domain') return [part];
+      return [
+        { ...part, changed: true },
+        sectionPart('ci-extra', 4, false),
+        sectionPart('release-rules', 9, true),
+      ];
+    }),
   };
 }
 

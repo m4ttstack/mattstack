@@ -534,7 +534,7 @@ describe('the team-sections scenario', () => {
         .slice(at, at + 3)
         .map(part => [part.kind, part.name, part.changed])
     ).toEqual([
-      ['slot', 'domain', false],
+      ['slot', 'domain', true],
       ['section', 'ci-extra', false],
       ['section', 'release-rules', true],
     ]);

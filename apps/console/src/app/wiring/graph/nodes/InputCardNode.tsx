@@ -6,6 +6,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import {
   inputHeightOf,
   LAYOUT,
+  SECTION_ROW_H,
   type InputNodeData,
 } from '../layout/templateLayout';
 import type { InputCard, RowState, SectionCard } from '../model/templateModel';
@@ -117,6 +118,14 @@ function InputCardNodeComponent({
           data-sections={sections || undefined}
           w={LAYOUT.inputW}
           h={inputHeightOf(card)}
+          style={
+            sections
+              ? {
+                  '--card-face-h': `${LAYOUT.cardH}px`,
+                  '--section-row-h': `${SECTION_ROW_H}px`,
+                }
+              : undefined
+          }
           className={classes.card}
           data-parity={`input · ${name}`}
         >
