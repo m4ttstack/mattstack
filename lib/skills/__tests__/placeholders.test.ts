@@ -80,9 +80,20 @@ describe("team markers in slot fills", () => {
     );
   });
 
-  test("a team marker with no team context is the same error", () => {
+  test("a team marker with no team context names the missing plugin name", () => {
     expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: baseFill } }), "x")).toThrow(
-      "acme-base:flow: {{team.linear-team}} -- team markers only resolve in base pack text (line 11)",
+      "acme-base:flow: {{team.linear-team}} -- the pack has no .claude-plugin/plugin.json name to give team markers (line 11)",
+    );
+  });
+
+  test("a marker broken across lines is refused, never passed through", () => {
+    const split = { ...baseFill, body: "intro\na {{\nteam.linear-team}} b" };
+    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: split }, team: team({ "linear-team": "Widgets" }) }), "x")).toThrow(
+      "acme-base:flow: {{ team.linear-team}} breaks across lines; a team marker sits on one line (line 12)",
+    );
+    const widgetsSplit = { ...split, binding: "widgets:x", plugin: "widgets" };
+    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: widgetsSplit }, team: team() }), "x")).toThrow(
+      "widgets:x: {{ team.linear-team}} -- team markers only resolve in base pack text (line 12)",
     );
   });
 

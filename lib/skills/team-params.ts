@@ -25,7 +25,9 @@ export const TEAM_MARKERS_MIN_ENGINE = "0.32.15";
 
 const PARAMS_FILE = "pack/params.jsonc";
 const TEAM_MARKER_RE = /\{\{team\.(section:)?([^}\s?]*)(\?)?\}\}/g;
-const TEAM_OPENER_RE = /\{\{\s*team\./;
+/** Crosses lines on purpose, so a marker split after its braces is still caught. */
+const FIRST_MARKER_RE = /\{\{\s*team\.[^}\n]*(?:\}\}?)?/;
+const SPLIT_MARKER_RE = /\{\{[ \t]*\r?\n\s*team\.[^}\n]*(?:\}\}?)?/;
 const NAME_RE = /^[a-z][a-z0-9-]*$/;
 
 export function newTeamContext(values: TeamValues, basePlugins: ReadonlySet<string>): TeamContext {
@@ -33,7 +35,19 @@ export function newTeamContext(values: TeamValues, basePlugins: ReadonlySet<stri
 }
 
 export function hasTeamMarker(text: string): boolean {
-  return TEAM_OPENER_RE.test(text);
+  return FIRST_MARKER_RE.test(text);
+}
+
+export type MarkerHit = { raw: string; lineIndex: number };
+
+function hitOf(text: string, m: RegExpExecArray | null): MarkerHit | null {
+  if (!m) return null;
+  return { raw: m[0].replace(/\s*\n\s*/g, " "), lineIndex: text.slice(0, m.index).split("\n").length - 1 };
+}
+
+/** The first team marker opening in `text`, whole or broken, with the 0-based index of the line its braces sit on. */
+export function firstTeamMarker(text: string): MarkerHit | null {
+  return hitOf(text, FIRST_MARKER_RE.exec(text));
 }
 
 export function readTeamValues(packDir: string, plugin: string, version: string): TeamValues {
@@ -80,11 +94,14 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
   const { values } = team;
   const out: string[] = [];
 
+  const split = hitOf(body, SPLIT_MARKER_RE.exec(body));
+  if (split) throw new Error(`${where}: ${split.raw} breaks across lines; a team marker sits on one line (line ${split.lineIndex + startLine})`);
+
   body.split("\n").forEach((line, i) => {
     const fail = (raw: string, why: string): never => {
       throw new Error(`${where}: ${raw} ${why} (line ${i + startLine})`);
     };
-    const stray = line.replace(TEAM_MARKER_RE, "").match(/\{\{\s*team\.[^}]*(\}\}?|$)/);
+    const stray = line.replace(TEAM_MARKER_RE, "").match(/\{\{[ \t]*team\.[^}]*(\}\}?|$)/);
     if (stray) fail(stray[0], "is not a well-formed team marker");
     let removeLine = false;
     let sectionText: string | null = null;
@@ -116,9 +133,12 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
       }
       if (text.includes("{{")) fail(raw, `has a section pack/sections/${name}.md containing {{`);
       const lines = text.split("\n").length;
+      const indent = line.slice(0, line.length - line.trimStart().length);
+      const indented = text.split("\n").map((l) => (l === "" ? l : indent + l)).join("\n");
+      // Every seam parser anchors a marker at column 0, so only the section's own lines take the indent.
       sectionText = sectionSeams
-        ? `<!-- part: section:${name} source=${values.plugin}:pack/sections/${name}.md version=${values.version} path=pack/sections/${name}.md lines=1-${lines} -->\n${text}`
-        : text;
+        ? `<!-- part: section:${name} source=${values.plugin}:pack/sections/${name}.md version=${values.version} path=pack/sections/${name}.md lines=1-${lines} -->\n${indented}`
+        : indented;
       return "";
     });
 

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "fs";
 import { join, posix } from "path";
 import { defaultPipeline } from "./pipelines.ts";
-import { hasTeamMarker, resolveTeamMarkers, type TeamContext } from "./team-params.ts";
+import { firstTeamMarker, resolveTeamMarkers, type TeamContext } from "./team-params.ts";
 import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
 export type Placeholder = { kind: string; arg: string | null; line: number; raw: string };
@@ -47,31 +47,28 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
   return ctx.stageDir ?? SKILL_DIR_TOKEN;
 }
 
-const TEAM_OPENER_LINE_RE = /\{\{\s*team\.[^}]*(\}\}?|$)/;
-
 /**
- * Only an org base's text may carry team markers; a base fill's markers
- * resolve before any other substitution so its values never meet the
- * `${CLAUDE_SKILL_DIR}` split or include expansion. Reports file lines,
- * counting from where the fill's body starts in its source file.
+ * Only an org base's text may carry team markers. A base fill's markers
+ * resolve before any other substitution, so a value is never read as an
+ * include; a value cannot itself contain `{{`. Reports file lines, counting
+ * from where the fill's body starts in its source file.
  */
 export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext | null | undefined): string {
-  if (!hasTeamMarker(fill.body)) return fill.body;
+  const hit = firstTeamMarker(fill.body);
+  if (!hit) return fill.body;
   if (team && team.basePlugins.has(fill.plugin)) {
     return resolveTeamMarkers(fill.body, team, { where: fill.binding, sectionSeams: true, startLine: fill.bodyStartLine });
   }
-  const lines = fill.body.split("\n");
-  const at = lines.findIndex((line) => hasTeamMarker(line));
-  const raw = lines[at]!.match(TEAM_OPENER_LINE_RE)![0];
-  throw new Error(`${fill.binding}: ${raw} -- team markers only resolve in base pack text (line ${fill.bodyStartLine + at})`);
+  const line = fill.bodyStartLine + hit.lineIndex;
+  if (!team) throw new Error(`${fill.binding}: ${hit.raw} -- the pack has no .claude-plugin/plugin.json name to give team markers (line ${line})`);
+  throw new Error(`${fill.binding}: ${hit.raw} -- team markers only resolve in base pack text (line ${line})`);
 }
 
 /** A fill's allowed-tools land in compiled frontmatter, where a marker would ship unresolved. */
 export function assertNoTeamMarkerInTools(fill: AttachmentSource): void {
   for (const tool of fill.allowedTools) {
-    if (!hasTeamMarker(tool)) continue;
-    const raw = tool.match(TEAM_OPENER_LINE_RE)![0];
-    throw new Error(`${fill.binding}: ${raw} -- team markers only resolve in a body, not frontmatter`);
+    const hit = firstTeamMarker(tool);
+    if (hit) throw new Error(`${fill.binding}: ${hit.raw} -- team markers only resolve in a body, not frontmatter`);
   }
 }
 
@@ -146,27 +143,21 @@ export function readTextUnlessBinary(abs: string): string | null {
 
 /** A copied file is not rewritten, so a marker in it would ship as written. */
 export function assertNoTeamMarkerInRawFile(text: string, where: string, why = "team markers only resolve in .md files"): void {
-  if (!hasTeamMarker(text)) return;
-  const lines = text.split("\n");
-  const at = lines.findIndex((line) => hasTeamMarker(line));
-  const raw = lines[at]!.match(TEAM_OPENER_LINE_RE)![0];
-  throw new Error(`${where}: ${raw} -- ${why} (line ${at + 1})`);
+  const hit = firstTeamMarker(text);
+  if (hit) throw new Error(`${where}: ${hit.raw} -- ${why} (line ${hit.lineIndex + 1})`);
 }
 
 /** Resolves a copied .md file's body, counting error lines from the top of the file. */
 function resolveAttachmentTeamMarkers(text: string, opts: AttachmentRenderOpts): string {
-  if (!hasTeamMarker(text)) return text;
+  const hit = firstTeamMarker(text);
+  if (!hit) return text;
   const head = text.match(FRONTMATTER_BLOCK_RE)?.[0] ?? "";
-  const headAt = head.split("\n").findIndex((line) => hasTeamMarker(line));
-  if (headAt >= 0) {
-    const raw = head.split("\n")[headAt]!.match(TEAM_OPENER_LINE_RE)![0];
-    throw new Error(`${opts.where}: ${raw} -- team markers only resolve in a body, not frontmatter (line ${headAt + 1})`);
+  const headHit = firstTeamMarker(head);
+  if (headHit) {
+    throw new Error(`${opts.where}: ${headHit.raw} -- team markers only resolve in a body, not frontmatter (line ${headHit.lineIndex + 1})`);
   }
   if (!opts.team) {
-    const lines = text.split("\n");
-    const at = lines.findIndex((line) => hasTeamMarker(line));
-    const raw = lines[at]!.match(TEAM_OPENER_LINE_RE)![0];
-    throw new Error(`${opts.where}: ${raw} -- team markers only resolve in base pack text (line ${at + 1})`);
+    throw new Error(`${opts.where}: ${hit.raw} -- team markers only resolve in base pack text (line ${hit.lineIndex + 1})`);
   }
   return head + resolveTeamMarkers(text.slice(head.length), opts.team, { where: opts.where, sectionSeams: false, startLine: lineCount(head) + 1 });
 }

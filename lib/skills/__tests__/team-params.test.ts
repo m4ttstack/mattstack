@@ -138,7 +138,22 @@ describe("team-params", () => {
 
   test("hasTeamMarker", () => {
     expect(hasTeamMarker("a {{team.x}}")).toBe(true);
+    expect(hasTeamMarker("a {{\nteam.x}} b")).toBe(true);
     expect(hasTeamMarker("a {{slot:x}}")).toBe(false);
+  });
+
+  test("refuses a marker broken across lines after its braces", () => {
+    expect(() => resolveTeamMarkers("ok\na {{\nteam.x}} b", ctx({ x: "v" }), { where, sectionSeams: true, startLine: 11 })).toThrow(
+      `${where}: {{ team.x}} breaks across lines; a team marker sits on one line (line 12)`,
+    );
+  });
+
+  test("an indented section marker indents every line of its section, and keeps lines=", () => {
+    const team = ctx({}, { s: "l1\n\nl2\n" });
+    expect(resolveTeamMarkers("- item\n  {{team.section:s}}", team, { where, sectionSeams: false })).toBe("- item\n  l1\n\n  l2");
+    expect(resolveTeamMarkers("- item\n  {{team.section:s}}", team, { where, sectionSeams: true })).toBe(
+      "- item\n<!-- part: section:s source=widgets:pack/sections/s.md version=0.4.0 path=pack/sections/s.md lines=1-3 -->\n  l1\n\n  l2",
+    );
   });
 });
 
