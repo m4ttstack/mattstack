@@ -71,7 +71,8 @@ answer "what does this skill do, step by step, and who shaped each step?"
 These were settled in brainstorming.
 
 1. **A block is a file, the way a component is.** It has one title (its
-   top heading), which sets where it sits in the outline, and inside it can
+   top heading), or none for a headless block, and the title sets where it
+   sits in the outline. Inside, it can
    be as large or small as its content needs: paragraphs, tables and
    sub-headings. A skill is a tree of blocks; a block with child blocks is a
    folder. Compile walks the tree and writes markdown.
@@ -220,7 +221,8 @@ Frontmatter fields:
 
 The `#` line is the title; its level is ignored. A block without one is
 headless: its text renders inline at its parent's level, with no heading of
-its own. Sub-headings inside a block belong to it: they get levels from
+its own, and any sub-headings in it sit one level below the parent's. A
+headless block still gets a sidebar row, labelled by `label` or its id. Sub-headings inside a block belong to it: they get levels from
 depth like everything else, and they are not blocks (they don't show in the
 sidebar and have no history of their own). Props make a spot inside a block
 addressable, so a sub-heading never needs to become a block just to take a
