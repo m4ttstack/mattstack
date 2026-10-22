@@ -317,6 +317,7 @@ export const NOTIFICATION_EVENTS = [
   "evidence_batch_ready", "evidence_failed", "chat_mention", "credential_health", "member_joined",
   "worktree_triage",
   "setup_update",
+  "usage_limit",
 ] as const;
 
 /** board's slack-emoji.ts DEFAULT_SLACK_EMOJI; board asserts parity. */

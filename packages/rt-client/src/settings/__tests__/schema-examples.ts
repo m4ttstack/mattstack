@@ -79,6 +79,17 @@ export const EXAMPLES: Record<string, Example> = {
       { value: [{ pattern: "x", category: "gate", title: "t", message: "m", owner: "herd" }], path: [0, "owner"] },
     ],
   },
+  "rt.notify.usageLimits": {
+    good: [
+      { thresholds: [80, 95], accounts: {} },
+      { thresholds: [], accounts: { "dev@example.com": [50, 90] }, hint: "Ask your admin for more usage." },
+    ],
+    bad: [
+      { value: { thresholds: ["80"] }, path: ["thresholds", 0] },
+      { value: { thresholds: [150] }, path: ["thresholds", 0] },
+    ],
+    layer: [{ hint: "Ask your admin for more usage." }],
+  },
   "rt.cron": {
     good: [
       {},

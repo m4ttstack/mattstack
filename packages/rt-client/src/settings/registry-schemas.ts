@@ -146,6 +146,13 @@ export const SCHEMAS = {
       surface: z.string().optional(),
     }),
   ),
+  "rt.notify.usageLimits": z.looseObject({
+    thresholds: z.array(z.number().min(1).max(100)).meta({ title: "Thresholds", description: "Percentages of a limit that notify, e.g. [80, 95]" }),
+    accounts: z.record(z.string(), z.array(z.number().min(1).max(100)))
+      .meta({ title: "Per-account thresholds", description: "Keyed by account email or org UUID" })
+      .optional(),
+    hint: z.string().meta({ title: "Hint", description: "Appended to every usage notification" }).optional(),
+  }),
   "rt.cron": z.looseObject({ triggers: z.array(cronTrigger).optional() }),
   "rt.repoTracking": z.record(z.string(), trackingEntry),
   "rt.runaway": z.looseObject({ cpuThreshold: z.number().optional(), sustainMs: z.number().optional(), graceMs: z.number().optional() }),
