@@ -18,6 +18,7 @@ import * as ui from "../../lib/ui/out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 import { TEAM_MARKERS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
+import { changedPartKeys, partExtents } from "../../lib/skills/drift.ts";
 
 const realInitFsForTests: MaterializeFs = {
   exists: existsSync,
@@ -1875,6 +1876,52 @@ describe("base pack attachments", () => {
       const stale = JSON.parse(io.stdout());
       expect(stale).toMatchObject({ status: "stale", staleBecause: ["team"] });
       expect(stale.parts.find((p: { kind: string }) => p.kind === "section")).toMatchObject({ changed: true });
+    });
+
+    const DOMAIN_WITH_ABSENT = DOMAIN_SKILL_MD + "Rules:\n{{team.section:ci-a?}}\n{{team.section:ci-b?}}\nDone.\n";
+
+    test("absent optional sections drop their lines without the slot's extent running into the next slot", async () => {
+      const { packDir, compile, run } = seedTeamValues({ domainBody: DOMAIN_WITH_ABSENT, ciNotes: false });
+      expect((await compile()).errors).toEqual([]);
+      const rendered = readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8");
+      expect(rendered).not.toContain("ci-a");
+      const lines = rendered.split("\n");
+      const domain = partExtents(rendered).find((x) => x.key === "slot:domain")!;
+      expect(lines[domain.end]).toBe("Done.");
+
+      const forgeAt = lines.findIndex((l) => l.startsWith("Slot forge is bound to"));
+      expect(forgeAt).toBeGreaterThan(domain.end);
+      lines[forgeAt] += " edited";
+      expect([...changedPartKeys(lines.join("\n"), rendered)]).toEqual([]);
+
+      io.clear();
+      await run(["anatomy", "--skill", "watch-ci", "--json"]);
+      const slot = JSON.parse(io.stdout()).parts.find((p: { kind: string; name: string }) => p.kind === "slot" && p.name === "domain");
+      expect(slot.renderedLines[1]).toBe(domain.end + 1);
+    });
+
+    test("absent optional sections in a compile-native slot leave the template text after it outside the slot", async () => {
+      const { packDir, mattstackDir } = seedTeamValues({ domainBody: DOMAIN_WITH_ABSENT, ciNotes: false });
+      writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"), slottedStageMd("intro\n{{slot:domain}}\noutro\nmore"));
+      const manifestPath = join(mattstackDir, "widgets-pipelines.jsonc");
+      writeFile(manifestPath, JSON.stringify({
+        pipelines: { feature: ["mattstack:stage-plan"] },
+        bindings: {
+          "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" },
+          "mattstack:stage-plan": { domain: "acme-base:watch-ci-domain" },
+        },
+      }));
+      const flags = ["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath];
+      await runExpectingCleanExit(() => skillsCompile([...flags, "--verb", "stage-plan"]));
+      io.clear();
+      await skillsAnatomy([...flags, "--skill", "stage-plan", "--json"]);
+      const anatomy = JSON.parse(io.stdout());
+      const lines = readFileSync(anatomy.rendered.path, "utf8").split("\n");
+      const slot = anatomy.parts.find((p: { kind: string }) => p.kind === "slot");
+      expect(lines[slot.renderedLines[1] - 1]).toBe("Done.");
+      expect(lines[slot.renderedLines[1]]).toBe("outro");
+      const extent = partExtents(lines.join("\n")).find((x) => x.key === "slot:domain")!;
+      expect(lines[extent.end]).toBe("Done.");
     });
 
     test("a compile-native stage lists a section as its own part after the slot that holds it", async () => {

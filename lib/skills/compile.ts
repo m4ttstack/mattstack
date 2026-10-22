@@ -8,6 +8,7 @@ import {
   readTextUnlessBinary,
   resolveFillTeamMarkers,
   skillDirFor,
+  spanOf,
   substitute,
   substituteIncludesOnly,
   type TraceEntry,
@@ -234,11 +235,6 @@ function yamlQuote(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-/** Shared by both seam kinds so the step and slot formats cannot drift apart. */
-function span(src: { srcPath: string; bodyStartLine: number; body: string }): string {
-  const lines = src.body.split("\n").length;
-  return `path=${src.srcPath} lines=${src.bodyStartLine}-${src.bodyStartLine + lines - 1}`;
-}
 
 function resolveBoundSlots(
   where: string,
@@ -347,7 +343,7 @@ function assertNoStrayBraces(body: string, engineName: string): void {
 function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): { body: string; notes: string[]; packPaths: string[] } {
   const notes: string[] = [];
   const sections: string[] = [HEADER_COMMENT];
-  sections.push(`<!-- part: step source=${step.plugin}:${step.name} version=${step.version} ${span(step)} -->`);
+  sections.push(`<!-- part: step source=${step.plugin}:${step.name} version=${step.version} ${spanOf(step)} -->`);
 
   // A stage's own scripts live beside it, not at the orchestrator's ${CLAUDE_SKILL_DIR}; fill/include
   // bodies are rewritten separately by `substitute` via partsPrefix, so this rewrite must not touch them.
@@ -393,11 +389,12 @@ function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): 
     if (!opts.ctx) {
       throw new Error(`engine "${step.name}": fill "${fill.binding}" needs a placeholder context to resolve its includes`);
     }
+    const resolved = resolveFillTeamMarkers(fill, opts.ctx.team);
     sections.push(
-      `<!-- part: slot:${slotName} binding=${fill.binding} version=${fill.version} ${span(fill)} -->`,
+      `<!-- part: slot:${slotName} binding=${fill.binding} version=${fill.version} ${resolved.span} -->`,
     );
     const inlined = substituteIncludesOnly(
-      rewriteSkillDirRefs(resolveFillTeamMarkers(fill, opts.ctx.team), slotName),
+      rewriteSkillDirRefs(resolved.body, slotName),
       opts.ctx,
       fill.binding,
     );

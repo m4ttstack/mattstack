@@ -49,10 +49,10 @@ const MARKER_VERSION_RE = /^(<!-- part: .*?\bversion=)\S+/gm;
 
 /**
  * An include part is its marker plus exactly its `lines=` count: include bodies
- * are verbatim, as are a section's. A slot's count is in SOURCE lines, and a
- * nested include or section marker stands for the one source line it replaced
- * while carrying its own body lines on top, so the walk counts the marker once
- * and steps over that body.
+ * are verbatim, as are a section's. A slot's count is in SOURCE lines, less any
+ * line an absent optional section dropped, and a nested include or section
+ * marker stands for the one source line it replaced while carrying its own body
+ * lines on top, so the walk counts the marker once and steps over that body.
  * The legacy engine also puts one blank separator between a slot marker and its
  * fill; fill bodies are trimmed on load, so a blank there is never fill text.
  */

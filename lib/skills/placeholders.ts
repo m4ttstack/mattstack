@@ -24,8 +24,9 @@ export function assertNoPlaceholders(body: string, where: string): void {
   if (first) throw new Error(`${where}: unfilled placeholder ${first.raw} at line ${first.line}`);
 }
 
-function spanOf(src: { srcPath: string; bodyStartLine: number; body: string }): string {
-  const lines = src.body.split("\n").length;
+/** Every seam kind's span, so their formats cannot drift apart. */
+export function spanOf(src: { srcPath: string; bodyStartLine: number; body: string }, droppedLines = 0): string {
+  const lines = src.body.split("\n").length - droppedLines;
   return `path=${src.srcPath} lines=${src.bodyStartLine}-${src.bodyStartLine + lines - 1}`;
 }
 
@@ -51,14 +52,18 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
  * Only an org base's text may carry team markers. A base fill's markers
  * resolve before any other substitution, so a value is never read as an
  * include; a value cannot itself contain `{{`. Reports file lines, counting
- * from where the fill's body starts in its source file.
+ * from where the fill's body starts in its source file. `span` is the slot
+ * seam's: source lines less those an absent optional section drops, since
+ * the seam walkers consume one rendered line per counted source line.
  */
-export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext | null | undefined): string {
+export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext | null | undefined): { body: string; span: string } {
   assertNoTeamMarkerInFrontmatter(fill);
   const hit = firstTeamMarker(fill.body);
-  if (!hit) return fill.body;
+  if (!hit) return { body: fill.body, span: spanOf(fill) };
   if (team && team.basePlugins.has(fill.plugin)) {
-    return resolveTeamMarkers(fill.body, team, { where: fill.binding, sectionSeams: true, startLine: fill.bodyStartLine });
+    const dropped = { lines: 0 };
+    const body = resolveTeamMarkers(fill.body, team, { where: fill.binding, sectionSeams: true, startLine: fill.bodyStartLine, dropped });
+    return { body, span: spanOf(fill, dropped.lines) };
   }
   const line = fill.bodyStartLine + hit.lineIndex;
   if (!team) throw new Error(`${fill.binding}: ${hit.raw} -- the pack has no .claude-plugin/plugin.json name to give team markers (line ${line})`);
@@ -80,10 +85,11 @@ function slotText(name: string, fill: AttachmentSource | null, mode: "inline" | 
   if (mode === "reference") {
     return `Slot ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
   }
-  const rewritten = resolveFillTeamMarkers(fill, ctx.team).split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, name));
+  const resolved = resolveFillTeamMarkers(fill, ctx.team);
+  const rewritten = resolved.body.split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, name));
   const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding);
   packPaths.push(...inlined.packPaths);
-  return `<!-- part: slot:${name} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${inlined.body}`;
+  return `<!-- part: slot:${name} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
 }
 
 function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext): string {

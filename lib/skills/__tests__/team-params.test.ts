@@ -70,6 +70,12 @@ describe("team-params", () => {
     expect(team.missing.size).toBe(0);
   });
 
+  test("each removed line is counted, so a slot seam can leave it out of its source-line count", () => {
+    const dropped = { lines: 0 };
+    expect(resolveTeamMarkers("a\n{{team.section:x?}}\n{{team.section:y?}}\nb {{team.k?}}", ctx(), { where, sectionSeams: true, dropped })).toBe("a\nb ");
+    expect(dropped.lines).toBe(2);
+  });
+
   test("required absent section records missing", () => {
     const team = ctx();
     resolveTeamMarkers("{{team.section:x}}", team, { where, sectionSeams: true });

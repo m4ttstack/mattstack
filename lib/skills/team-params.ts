@@ -89,8 +89,9 @@ function recordMissing(team: TeamContext, kind: "param" | "section", name: strin
   team.missing.set(key, entry);
 }
 
-export function resolveTeamMarkers(body: string, team: TeamContext, opts: { where: string; sectionSeams: boolean; startLine?: number }): string {
-  const { where, sectionSeams, startLine = 1 } = opts;
+/** `dropped` counts the lines an absent optional section removes, which a slot seam's source-line count must leave out. */
+export function resolveTeamMarkers(body: string, team: TeamContext, opts: { where: string; sectionSeams: boolean; startLine?: number; dropped?: { lines: number } }): string {
+  const { where, sectionSeams, startLine = 1, dropped } = opts;
   const { values } = team;
   const out: string[] = [];
 
@@ -142,7 +143,10 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
       return "";
     });
 
-    if (removeLine) return;
+    if (removeLine) {
+      if (dropped) dropped.lines++;
+      return;
+    }
     out.push(sectionText ?? resolved);
   });
 
