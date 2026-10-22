@@ -16,8 +16,8 @@ test("parses shapes, classes, labels and chains", () => {
   });
   expect(g.nodes.find((n) => n.id === "checks_pass")).toMatchObject({ shape: "diamond", label: "Checks pass (ship)?" });
   expect(g.nodes.find((n) => n.id === "done")).toMatchObject({ shape: "doublecircle", label: "Shipped", cls: "done" });
-  expect(g.edges).toContainEqual({ from: "run_open", to: "domain_fast_checks", label: null, line: 18 });
-  expect(g.edges).toContainEqual({ from: "checks_pass", to: "git_push_upstream", label: "yes", line: 19 });
+  expect(g.edges).toContainEqual({ from: "run_open", to: "domain_fast_checks", label: null, style: null, line: 18 });
+  expect(g.edges).toContainEqual({ from: "checks_pass", to: "git_push_upstream", label: "yes", style: null, line: 19 });
   expect(graphOrder(g)).toEqual(["run_open", "checks_pass", "domain_fast_checks", "git_push_upstream", "stop_shell_push", "done"]);
 });
 
@@ -41,4 +41,14 @@ test("toDot fills a block node's label from its title and refuses a disagreeing 
   expect(dot).toContain(`stop_shell_push [label="STOP: push only with git_push" shape=octagon style=filled fillcolor=red fontcolor=white];`);
   expect(dot).toContain(`checks_pass -> git_push_upstream [label="yes"];`);
   expect(() => toDot(g, new Map([["run_open", "Other"]]))).toThrow(/label-disagrees|disagrees/);
+});
+
+test("dotted links give dashed edges and emit style=dashed", () => {
+  const g = parseMermaid("graph TB\n a[A]\n b[B]\n c[C]\n d[D]\n a -.-> b\n b -.->|x| c\n c -. why .-> d\n a --> d\n", "f", 0);
+  expect(g.edges.map((e) => [e.label, e.style])).toEqual([[null, "dashed"], ["x", "dashed"], ["why", "dashed"], [null, null]]);
+  const dot = toDot(g, new Map());
+  expect(dot).toContain("a -> b [style=dashed];");
+  expect(dot).toContain('b -> c [label="x" style=dashed];');
+  expect(dot).toContain('c -> d [label="why" style=dashed];');
+  expect(dot).toContain("a -> d;");
 });

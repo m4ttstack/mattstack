@@ -1,8 +1,8 @@
 import { BlockError } from "./diagnostics.ts";
 import type { BlockGraph } from "./types.ts";
 
-export type DotNode = { id: string; label: string; shape: string; style?: string; fillcolor?: string };
-export type DotEdge = { from: string; to: string; label: string | null };
+export type DotNode = { id: string; label: string; shape: string; style?: string; fillcolor?: string; fontcolor?: string };
+export type DotEdge = { from: string; to: string; label: string | null; style?: string };
 
 const CLASS_ATTRS = {
   stop: "shape=octagon style=filled fillcolor=red fontcolor=white",
@@ -32,17 +32,21 @@ export function toDot(graph: BlockGraph, titles: Map<string, string>): string {
   }
   out.push("");
   for (const e of graph.edges) {
-    out.push(`    ${e.from} -> ${e.to}${e.label === null ? "" : ` [label="${escapeLabel(e.label)}"]`};`);
+    const attrs = [e.label === null ? null : `label="${escapeLabel(e.label)}"`, e.style ? `style=${e.style}` : null].filter(Boolean);
+    out.push(`    ${e.from} -> ${e.to}${attrs.length ? ` [${attrs.join(" ")}]` : ""};`);
   }
   out.push("}", "");
   return out.join("\n");
 }
+
+const HEADER_RE = /^(?:strict\s+)?(?:(?:di)?graph|subgraph)\b/;
 
 function splitStatements(body: string): string[] {
   const stmts: string[] = [];
   let cur = "";
   let inQuote = false;
   let depth = 0;
+  let inGroup = false;
   for (let i = 0; i < body.length; i++) {
     const ch = body[i]!;
     if (inQuote) {
@@ -54,6 +58,16 @@ function splitStatements(body: string): string[] {
     if (ch === '"') inQuote = true;
     else if (ch === "[") depth++;
     else if (ch === "]") depth--;
+    if (depth === 0 && inGroup) {
+      cur += ch;
+      if (ch === "}") inGroup = false;
+      continue;
+    }
+    if (depth === 0 && ch === "{" && !HEADER_RE.test(cur.trim())) {
+      inGroup = true;
+      cur += ch;
+      continue;
+    }
     if (depth === 0 && (ch === ";" || ch === "\n" || ch === "{" || ch === "}")) {
       if (ch !== "{" && cur.trim()) stmts.push(cur.trim());
       cur = "";
@@ -80,6 +94,26 @@ function readId(s: string, pos: number): { id: string; end: number } | null {
   return m ? { id: m[0], end: pos + m[0].length } : null;
 }
 
+function readIds(s: string, pos: number): { ids: string[]; end: number } | null {
+  if (s[pos] !== "{") {
+    const one = readId(s, pos);
+    return one ? { ids: [one.id], end: one.end } : null;
+  }
+  const close = s.indexOf("}", pos);
+  if (close < 0) return null;
+  const ids: string[] = [];
+  let p = pos + 1;
+  while (p < close) {
+    while (p < close && /[\s,]/.test(s[p]!)) p++;
+    if (p >= close) break;
+    const one = readId(s, p);
+    if (!one) break;
+    ids.push(one.id);
+    p = one.end;
+  }
+  return { ids, end: close + 1 };
+}
+
 function readAttrs(s: string): Record<string, string> {
   const attrs: Record<string, string> = {};
   const inner = s.trim().replace(/^\[/, "").replace(/\]$/, "");
@@ -89,13 +123,13 @@ function readAttrs(s: string): Record<string, string> {
     const key = /^[\w-]+/.exec(inner.slice(i));
     if (!key) break;
     i += key[0].length;
-    while (inner[i] === " ") i++;
+    while (/\s/.test(inner[i] ?? "")) i++;
     if (inner[i] !== "=") {
       attrs[key[0]] = "true";
       continue;
     }
     i++;
-    while (inner[i] === " ") i++;
+    while (/\s/.test(inner[i] ?? "")) i++;
     const v = readId(inner, i);
     if (!v) break;
     attrs[key[0]] = v.id;
@@ -117,31 +151,40 @@ export function parseDot(source: string): { nodes: DotNode[]; edges: DotEdge[] }
   };
   for (const stmt of splitStatements(source)) {
     if (/^(?:strict\s+)?(?:di)?graph\b/.test(stmt) || /^(?:graph|node|edge)\s*\[/.test(stmt) || /^[\w-]+\s*=/.test(stmt)) continue;
-    const chain: string[] = [];
+    const chain: string[][] = [];
     let pos = 0;
     for (;;) {
-      const id = readId(stmt, pos);
-      if (!id) break;
-      chain.push(id.id);
-      pos = id.end;
-      while (stmt[pos] === " ") pos++;
+      const ids = readIds(stmt, pos);
+      if (!ids) break;
+      chain.push(ids.ids);
+      pos = ids.end;
+      while (/\s/.test(stmt[pos] ?? "")) pos++;
       if (!stmt.startsWith("->", pos)) break;
       pos += 2;
-      while (stmt[pos] === " ") pos++;
+      while (/\s/.test(stmt[pos] ?? "")) pos++;
     }
     if (chain.length === 0) continue;
     const attrs = readAttrs(stmt.slice(pos));
     if (chain.length === 1) {
-      const n = ensure(chain[0]!);
-      if (attrs.label !== undefined) n.label = attrs.label;
-      if (attrs.shape !== undefined) n.shape = attrs.shape;
-      if (attrs.style !== undefined) n.style = attrs.style;
-      if (attrs.fillcolor !== undefined) n.fillcolor = attrs.fillcolor;
+      for (const id of chain[0]!) {
+        const n = ensure(id);
+        if (attrs.label !== undefined) n.label = attrs.label;
+        if (attrs.shape !== undefined) n.shape = attrs.shape;
+        if (attrs.style !== undefined) n.style = attrs.style;
+        if (attrs.fillcolor !== undefined) n.fillcolor = attrs.fillcolor;
+        if (attrs.fontcolor !== undefined) n.fontcolor = attrs.fontcolor;
+      }
     } else {
       for (let i = 0; i + 1 < chain.length; i++) {
-        ensure(chain[i]!);
-        ensure(chain[i + 1]!);
-        edges.push({ from: chain[i]!, to: chain[i + 1]!, label: attrs.label ?? null });
+        for (const from of chain[i]!) {
+          for (const to of chain[i + 1]!) {
+            ensure(from);
+            ensure(to);
+            const edge: DotEdge = { from, to, label: attrs.label ?? null };
+            if (attrs.style !== undefined) edge.style = attrs.style;
+            edges.push(edge);
+          }
+        }
       }
     }
   }

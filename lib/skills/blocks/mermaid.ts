@@ -6,7 +6,7 @@ type Cls = "stop" | "done";
 
 const HEADER_RE = /^(?:flowchart|graph)\s+TB\s*$/;
 const ID_RE = /^\w+/;
-const EDGE_START_RE = /\s(?:-->|--\s)/;
+const EDGE_START_RE = /\s(?:-->|-\.->|--\s|-\.\s)/;
 const CLASS_RE = /:::(\w+)$/;
 const NAME_RE = /^%%\s*name:\s*(\S+)\s*$/;
 const HEADER_MESSAGE = "a block graph starts with `flowchart TB` or `graph TB`";
@@ -66,17 +66,20 @@ function readNode(stmt: string, pos: number): { ref: NodeRef; end: number } {
   return { ref: { id, shaped, cls }, end: p };
 }
 
-function readEdge(stmt: string, pos: number): { label: string | null; end: number } | null {
+function readEdge(stmt: string, pos: number): { label: string | null; style: GraphEdge["style"]; end: number } | null {
   let p = pos;
   while (stmt[p] === " " || stmt[p] === "\t") p++;
-  if (stmt.startsWith("-->", p)) {
-    p += 3;
+  for (const [arrow, style] of [["-->", null], ["-.->", "dashed"]] as const) {
+    if (!stmt.startsWith(arrow, p)) continue;
+    p += arrow.length;
     const pipe = /^\|([^|]*)\|/.exec(stmt.slice(p));
-    if (pipe) return { label: unquote(pipe[1]!), end: p + pipe[0].length };
-    return { label: null, end: p };
+    if (pipe) return { label: unquote(pipe[1]!), style, end: p + pipe[0].length };
+    return { label: null, style, end: p };
   }
   const textual = /^--\s+(.+?)\s+-->/.exec(stmt.slice(p));
-  if (textual) return { label: unquote(textual[1]!), end: p + textual[0].length };
+  if (textual) return { label: unquote(textual[1]!), style: null, end: p + textual[0].length };
+  const dotted = /^-\.\s+(.+?)\s+\.->/.exec(stmt.slice(p));
+  if (dotted) return { label: unquote(dotted[1]!), style: "dashed", end: p + dotted[0].length };
   return null;
 }
 
@@ -138,7 +141,7 @@ export function parseMermaid(source: string, file: string, fenceLine: number): B
         while (stmt[pos] === " " || stmt[pos] === "\t") pos++;
         const nxt = readNode(stmt, pos);
         touch(nxt.ref, i, col);
-        edges.push({ from: cur.ref.id, to: nxt.ref.id, label: edge.label, line: lineOf(i) });
+        edges.push({ from: cur.ref.id, to: nxt.ref.id, label: edge.label, style: edge.style, line: lineOf(i) });
         cur = nxt;
       }
       if (stmt.slice(cur.end).trim() !== "") throw new Unreadable(`cannot read this graph line: ${stmt}`);
