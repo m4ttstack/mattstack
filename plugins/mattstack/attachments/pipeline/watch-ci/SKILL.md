@@ -91,10 +91,12 @@ candidate's `runId`.
 ## Flow
 
 `<root>` is the worktree root (`git rev-parse --show-toplevel`), `<mr>` the
-MR's or PR's https URL. Every CI tool takes `mrUrl: <mr>`; `ci_watch`,
-`ci_triage`, `pipeline_jobs`, `mr_job_trace` and `mr_retry` take
-`repoName` = `<root>` and `iid` in its place as the same call, as do
-`mr_view` and `mr_ready`. `<N>` is the number in `ci_watch`'s
+MR's or PR's https URL. Every CI tool, `mr_view` and `mr_ready` take
+`mrUrl: <mr>`, the form the graph shows. When `<root>` is a checkout of
+the MR's project, `ci_watch`, `ci_triage`, `pipeline_jobs`,
+`mr_job_trace`, `mr_retry`, `mr_view` and `mr_ready` also take
+`repoName` = `<root>` and `iid` in its place as the same call. `mr_retry`
+keeps `leaseMrUrl: <mr>` either way. `<N>` is the number in `ci_watch`'s
 `pipeline.id` (`gitlab:pipeline:N`).
 
 ```dot
@@ -178,14 +180,14 @@ digraph watch_ci {
 
     own_run_green [label="Own run (watch-ci green)?" shape=diamond];
     draft_forge_host [label="Forge host (watch-ci draft check)?" shape=diamond];
-    mr_view_draft [label="mr_view {repoName, iid} (draft check)" shape=plaintext];
+    mr_view_draft [label="mr_view {mrUrl: <mr>} (draft check)" shape=plaintext];
     gh_pr_view_draft [label="gh pr view <mr> --json isDraft (draft check)" shape=plaintext];
     mr_still_draft [label="MR still a draft (watch-ci)?" shape=diamond];
     gate_mark_ready [label="watch-ci gate mark-ready" shape=box];
     run_budget_mark_ready [label="run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}" shape=plaintext];
     mark_ready_spent [label="mark-ready-iterations spent (watch-ci)?" shape=diamond];
     mark_ready_forge_host [label="Forge host (watch-ci mark-ready)?" shape=diamond];
-    mr_ready [label="mr_ready {repoName, iid}" shape=plaintext];
+    mr_ready [label="mr_ready {mrUrl: <mr>}" shape=plaintext];
     gh_pr_ready [label="gh pr ready <number>" shape=plaintext];
 
     gate_ci [label="watch-ci gate ci" shape=box];
@@ -563,11 +565,20 @@ form: the verdict and a one-line triage per blocking failure.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in the change; when every blocking failure is INHERITED, or after the third fix round, the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
+| `action` (write-in) | **Fix and re-push** (a REAL failure in the change) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
+Mark one `action` option `(Recommended)`: **Fix and re-push** when any
+blocking failure is REAL, while fewer than three fix rounds have run
+(`watch-ci:fix-rounds`); else **Hand back** when any is REAL; else
+**Retry the job** when an INFRA one is not yet retried; else **Hand
+back**, which also covers a red with no triage (a timeout, `no_pipeline`,
+an MR lookup error).
+
 Selection: `{"action":"fix|retry|handback|abandon","next":"proceed|iterate|hold","note":"<their words or null>"}`.
-An `action` write-in records `{"writeIn": "<their words>"}` as `action`. Hand back leaves the MR red
+An `action` write-in records `{"writeIn": "<their words>"}` as `action`.
+Read `next` first: Proceed applies `action`; Iterate here and Hold win
+over it. Hand back leaves the MR red
 for the human.
 
 ### Fix the REAL failure, commit
