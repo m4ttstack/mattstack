@@ -2,7 +2,13 @@
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
 
-import { LAYOUT, layoutTemplate, rowHeightOf } from '../layout/templateLayout';
+import {
+  inputHeightOf,
+  LAYOUT,
+  layoutTemplate,
+  rowHeightOf,
+  SECTION_ROW_H,
+} from '../layout/templateLayout';
 import {
   buildTemplateView,
   type TemplateRow,
@@ -228,6 +234,44 @@ describe('the plan layout', () => {
       expect(rowIds.has(edge.targetHandle!.slice('row:'.length))).toBe(true);
     }
     expect(edges).toHaveLength(6);
+  });
+});
+
+describe('a slot card holding team sections', () => {
+  const plain = planView();
+  const withSections: TemplateView = {
+    ...plain,
+    inputs: plain.inputs.map(card =>
+      card.id === 'slot:domain'
+        ? {
+            ...card,
+            sections: ['ci-extra', 'release-rules'].map(name => ({
+              id: `section:${name}`,
+              title: name,
+              source: `widgets:pack/sections/${name}.md`,
+              changed: false,
+            })),
+          }
+        : card
+    ),
+  };
+  const ys = (view: TemplateView) =>
+    ofType(layoutTemplate(view).nodes, 'input').map(node => node.position.y);
+  const at = plain.inputs.findIndex(card => card.id === 'slot:domain');
+
+  it('grows a row per section under its face', () => {
+    expect(inputHeightOf(withSections.inputs[at]!)).toBe(
+      LAYOUT.cardH + 2 * SECTION_ROW_H
+    );
+  });
+
+  it('stays on its row and pushes the cards below it down', () => {
+    const before = ys(plain);
+    const after = ys(withSections);
+    expect(after.slice(0, at + 1)).toEqual(before.slice(0, at + 1));
+    expect(after[at + 1]).toBeGreaterThanOrEqual(
+      after[at]! + inputHeightOf(withSections.inputs[at]!) + LAYOUT.cardGap
+    );
   });
 });
 

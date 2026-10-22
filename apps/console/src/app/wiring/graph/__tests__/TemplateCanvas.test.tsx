@@ -205,6 +205,66 @@ describe('TemplateCanvas: a step template', () => {
   });
 });
 
+describe('TemplateCanvas: team sections in a slot', () => {
+  it('draws each section in its slot card, in order, and tags a changed one', () => {
+    const anatomy = designFixture('anatomy.stage-plan');
+    const domain = anatomy.parts.find(part => part.name === 'domain')!;
+    const [from] = domain.renderedLines!;
+    const section = (name: string, at: number, changed: boolean) => ({
+      kind: 'section' as const,
+      name,
+      templateLines: null,
+      renderedLines: [from + at, from + at + 1] as [number, number],
+      mode: null,
+      source: {
+        ref: `widgets:pack/sections/${name}.md`,
+        path: `/fixture/packs/widgets/pack/sections/${name}.md`,
+        version: '0.4.0',
+        builtVersion: '0.4.0',
+        lines: 2,
+      },
+      target: null,
+      changed,
+    });
+    const view = buildTemplateView({
+      anatomy: {
+        ...anatomy,
+        parts: anatomy.parts.flatMap(part =>
+          part === domain
+            ? [
+                part,
+                section('ci-extra', 2, false),
+                section('release-rules', 5, true),
+              ]
+            : [part]
+        ),
+      },
+      composition: designFixture('composition'),
+      check: designFixture('check'),
+      changes: designFixture('changes.clean'),
+      step: 2,
+    });
+    renderWithProviders(
+      <TemplateCanvas
+        layout={layoutTemplate(view)}
+        view={view}
+        height="900px"
+        onSelect={vi.fn()}
+      />
+    );
+
+    const sections = screen.getAllByTestId('section-row');
+    expect(sections.map(row => row.textContent)).toEqual([
+      'ci-extrawidgets:pack/sections/ci-extra.md',
+      'release-ruleswidgets:pack/sections/release-rules.md' +
+        'team values changed',
+    ]);
+    const card = sections[0]!.closest('[data-testid="input-card"]')!;
+    expect(within(card as HTMLElement).getByTestId('card-title')).toBeTruthy();
+    expect(card).toBe(sections[1]!.closest('[data-testid="input-card"]'));
+  });
+});
+
 describe('TemplateCanvas: the share bar', () => {
   const activeSegments = () =>
     [...document.querySelectorAll('[data-parity^="seg · "]')]
