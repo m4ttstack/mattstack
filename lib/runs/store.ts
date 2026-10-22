@@ -8,7 +8,7 @@ import { join } from "path";
 import type { Attention, RunDecisionRow, RunDetail, RunFieldRow, RunStageRow, RunSummary } from "../../packages/rt-client/src/commands.ts";
 import { evidenceShots, readEvidence } from "../../packages/rt-client/src/evidence.ts";
 import { computeAttention, fieldValue, lastEventAt, type RunLiveness } from "./attention.ts";
-import { buildOutcome, readAllCachedOutcomes, readCachedOutcome, type CachedOutcome } from "./outcome.ts";
+import { buildOutcome, mrRole, readAllCachedOutcomes, readCachedOutcome, type CachedOutcome } from "./outcome.ts";
 import { isPathComponent, runsRoot } from "./paths.ts";
 import { KNOWN_SCHEMA_VERSION } from "./write.ts";
 
@@ -74,6 +74,8 @@ function runRow(db: Database): RunSummary | null {
       last_event_at: Number(r.started_at),
       ticket: null,
       branch: null,
+      session: null,
+      mr: null,
     };
   } catch {
     return null;
@@ -144,6 +146,13 @@ function agentMirror(run: RunSummary, fields: RunFieldRow[], liveness?: RunLiven
   return liveness.agentFor(fieldValue(fields, "claude-session"), fieldValue(fields, "worktree"));
 }
 
+// "-" is the cleared marker; only a work run's own MR counts, never one it reviewed.
+function sessionAndMr(run: Pick<RunSummary, "work_type">, fields: RunFieldRow[]): Pick<RunSummary, "session" | "mr"> {
+  const latest = fields.filter((f) => f.key === "mr").sort((a, b) => b.at - a.at)[0];
+  const own = latest && mrRole(latest.produced_by, run.work_type) === "own" && /^https?:\/\//.test(latest.value);
+  return { session: fieldValue(fields, "claude-session"), mr: own ? latest.value : null };
+}
+
 // A run whose tables are missing (interrupted run-start) is still worth
 // listing — the store's contract is skip-the-broken-row, not throw, and
 // listRuns has no catch around this call.
@@ -159,6 +168,7 @@ function withAttention(db: Database, row: RunSummary, liveness?: RunLiveness): {
         last_event_at: lastEventAt(row, stages, fields, decisions),
         ticket: fieldValue(fields, "ticket"),
         branch: fieldValue(fields, "branch"),
+        ...sessionAndMr(row, fields),
         agent: agentMirror(row, fields, liveness),
         stages: stageSummaries(stages),
         decision_count: decisions.length,
@@ -227,6 +237,7 @@ export function readRun(repo: string, runId: string, liveness?: RunLiveness): Ru
         last_event_at: lastEventAt(run, stages, fields, decisions),
         ticket: fieldValue(fields, "ticket"),
         branch: fieldValue(fields, "branch"),
+        ...sessionAndMr(run, fields),
         agent: agentMirror(run, fields, liveness),
         stages: stageSummaries(stages),
         decision_count: decisions.length,

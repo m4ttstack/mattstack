@@ -4,9 +4,16 @@ import {
   detectEdges,
   markHandled,
   observe,
+  rearm,
   type OwnMrFacts,
 } from '../triage/edge.ts';
-import { emptyMrMemory, type DispatchMemory } from '../triage/memory.ts';
+import {
+  emptyMrMemory,
+  liveHandoffs,
+  rollDay,
+  type DispatchMemory,
+  type Handoff,
+} from '../triage/memory.ts';
 
 const DAY = '2026-08-08';
 const mr = (over: Partial<OwnMrFacts> = {}): OwnMrFacts => ({
@@ -98,5 +105,75 @@ describe('edge detection', () => {
     const theirs = mr({ author: 'teammate' });
     observe(mem, [theirs], DAY);
     expect(detectEdges(mem, [theirs])[0]!.author).toBe('teammate');
+  });
+});
+
+const handoff = (over: Partial<Handoff> = {}): Handoff => ({
+  runId: 'run-1',
+  session: 'sess-1',
+  stage: 'ship',
+  pipelineId: 100,
+  viaMr: 'https://x/mr/1',
+  viaBranch: 'feat',
+  at: 1,
+  ...over,
+});
+
+describe('rearm and handoffs', () => {
+  test('rearm lets the same red pipeline fire again', () => {
+    const mem = fresh();
+    observe(mem, [mr()], DAY);
+    const [edge] = detectEdges(mem, [mr()]);
+    markHandled(mem, edge!);
+    expect(detectEdges(mem, [mr()])).toEqual([]);
+    rearm(mem, edge!.mrUrl, 'pipeline-red');
+    expect(mem.mrs[edge!.mrUrl]!.lastHandledPipelineId).toBeNull();
+    expect(detectEdges(mem, [mr()])).toHaveLength(1);
+  });
+
+  test('rearm lets a held rebase fire again', () => {
+    const mem = fresh();
+    const f = mr({ pipelineState: 'passed', needsRebase: true });
+    observe(mem, [f], DAY);
+    markHandled(mem, detectEdges(mem, [f])[0]!);
+    expect(detectEdges(mem, [f])).toEqual([]);
+    rearm(mem, f.mrUrl, 'needs-rebase');
+    expect(detectEdges(mem, [f])).toHaveLength(1);
+  });
+
+  test('rollDay keeps handoffs', () => {
+    const m = {
+      ...emptyMrMemory(DAY),
+      handoffs: { 'pipeline-red': handoff() },
+    };
+    expect(rollDay(m, '2026-08-09').handoffs).toEqual(m.handoffs);
+  });
+
+  test('two kinds keep two handoffs', () => {
+    const m = {
+      ...emptyMrMemory(DAY),
+      handoffs: {
+        'pipeline-red': handoff(),
+        'needs-rebase': handoff({ runId: 'run-2', pipelineId: null }),
+      },
+    };
+    const live = liveHandoffs(m, {
+      pipelineId: 100,
+      pipelineFailed: true,
+      needsRebase: true,
+    });
+    expect(Object.keys(live).sort()).toEqual(['needs-rebase', 'pipeline-red']);
+  });
+
+  test('liveHandoffs drops a pipeline-red handoff once the pipeline id changes or goes green', () => {
+    const m = {
+      ...emptyMrMemory(DAY),
+      handoffs: { 'pipeline-red': handoff() },
+    };
+    const f = { pipelineId: 100, pipelineFailed: true, needsRebase: false };
+    expect(liveHandoffs(m, f)['pipeline-red']).toBeDefined();
+    expect(liveHandoffs(m, { ...f, pipelineId: 101 })).toEqual({});
+    expect(liveHandoffs(m, { ...f, pipelineFailed: false })).toEqual({});
+    expect(liveHandoffs(undefined, f)).toEqual({});
   });
 });

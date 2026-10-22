@@ -5,6 +5,7 @@
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
 import type { ActionResult } from '../api.ts';
+import type { ActiveRun } from '../types.ts';
 import type { ToastHandle } from './launch-flow.ts';
 import { mrRef } from './MrLinks.tsx';
 import { NO_PEOPLE, type People } from './people.ts';
@@ -35,6 +36,8 @@ export interface RunnerDeps {
   ) => Promise<ActionResult | undefined>;
   /** The peer already reviewing this MR, for flows that would double it. */
   presence: (flow: LaunchFlow, mr: BoardMR) => string | null;
+  /** The live work run a doctor launch would collide with; absent, none is. */
+  activeRun?: (flow: LaunchFlow, mr: BoardMR) => ActiveRun | null;
   addToast: (text: string) => void;
   startToast: (text: string) => ToastHandle;
   reload: (fresh: boolean) => void;
@@ -358,7 +361,8 @@ export async function runMany(
   targets: readonly BoardMR[],
   deps: RunnerDeps,
   skipped = 0,
-  presenceSkipped: ReadonlyArray<{ mr: BoardMR; reviewer: string }> = []
+  presenceSkipped: ReadonlyArray<{ mr: BoardMR; reviewer: string }> = [],
+  runSkipped: ReadonlyArray<{ mr: BoardMR; run: ActiveRun }> = []
 ): Promise<void> {
   const presenceNote = presenceSkipped
     .map(
@@ -366,11 +370,16 @@ export async function runMany(
         `skipped !${s.mr.iid}, ${(deps.people ?? NO_PEOPLE).short(s.reviewer)} is reviewing`
     )
     .join(', ');
+  const runNotes = runSkipped.map(
+    s =>
+      `skipped !${s.mr.iid}, ${s.run.name ? `${s.run.name}'s run` : 'a work run'} is active`
+  );
+  const skipNotes = [...(presenceNote ? [presenceNote] : []), ...runNotes];
   // A stale picker snapshot (runBulk's pickTargets.get(pick) ?? []) can reach
-  // here empty; an empty run has nothing to reload, but its presence note
-  // still has to be said.
+  // here empty; an empty run has nothing to reload, but its skip notes
+  // still have to be said.
   if (targets.length === 0) {
-    if (presenceNote) deps.addToast(presenceNote);
+    if (skipNotes.length) deps.addToast(skipNotes.join(' · '));
     return;
   }
   const plan = bulkPlan(req, deps.people ?? NO_PEOPLE);
@@ -394,7 +403,7 @@ export async function runMany(
     );
   }
   if (skipped > 0) parts.push(`${skipped} didn't need it`);
-  if (presenceNote) parts.push(presenceNote);
+  parts.push(...skipNotes);
   deps.addToast(parts.join(' · '));
   deps.reload(plan.fresh);
 }
@@ -426,15 +435,28 @@ export function runBulk(
   }
   if (req.kind === 'launch') {
     const presenceSkipped: Array<{ mr: BoardMR; reviewer: string }> = [];
+    const runSkipped: Array<{ mr: BoardMR; run: ActiveRun }> = [];
     const targets = entry.targets.filter(m => {
       const reviewer =
         req.flow === 'review' || req.flow === 're-review'
           ? deps.presence(req.flow, m)
           : null;
       if (reviewer) presenceSkipped.push({ mr: m, reviewer });
-      return !reviewer;
+      const run =
+        req.flow === 'doctor' || req.flow === 'rebase-local'
+          ? (deps.activeRun?.(req.flow, m) ?? null)
+          : null;
+      if (run) runSkipped.push({ mr: m, run });
+      return !reviewer && !run;
     });
-    return runMany(req, targets, deps, skipped(entry.targets), presenceSkipped);
+    return runMany(
+      req,
+      targets,
+      deps,
+      skipped(entry.targets),
+      presenceSkipped,
+      runSkipped
+    );
   }
   return runMany(req, entry.targets, deps, skipped(entry.targets));
 }

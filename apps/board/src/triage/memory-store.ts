@@ -8,7 +8,12 @@ import {
   runCriticalWrite,
   setKvValue,
 } from '../state/index.ts';
-import { emptyMrMemory, type DispatchMemory } from './memory.ts';
+import {
+  emptyMrMemory,
+  type DispatchMemory,
+  type Handoff,
+  type HandoffKind,
+} from './memory.ts';
 
 /** A fresh fallback object per call -- getKvValue returns this reference
     verbatim on a miss, and callers (resolveDispatchIdentity, the nudge pass)
@@ -89,6 +94,62 @@ export function writeStandDown(
         ...(fresh.mrs[mrUrl] ?? emptyMrMemory(dayStamp)),
         standDown: on,
       };
+      setKvValue('triage', 'memory', fresh, db);
+    });
+    tx.immediate();
+  });
+}
+
+/** Writes one MR's handoff of one edge kind (null deletes it), onto a fresh
+    read of the CURRENT row -- same discipline as writeStandDown. With
+    markHandled, the same transaction latches the edge exactly as
+    edge.ts's markHandled does. Caller must hold tryClaimCron() around this
+    call. */
+export function writeHandoff(
+  mrUrl: string,
+  kind: HandoffKind,
+  handoff: Handoff | null,
+  opts?: { markHandled?: { pipelineId: number | null } },
+  db: Database = getStateDb()
+): void {
+  runCriticalWrite('triage handoff write', () => {
+    const tx = db.transaction(() => {
+      const fresh = readMemory(db);
+      const day = new Date(handoff?.at ?? Date.now())
+        .toISOString()
+        .slice(0, 10);
+      const m = { ...(fresh.mrs[mrUrl] ?? emptyMrMemory(day)) };
+      const handoffs = { ...m.handoffs };
+      if (handoff) handoffs[kind] = handoff;
+      else delete handoffs[kind];
+      m.handoffs = handoffs;
+      if (opts?.markHandled) {
+        if (kind === 'pipeline-red') {
+          m.lastHandledPipelineId = opts.markHandled.pipelineId;
+        } else {
+          m.lastNeedsRebase = true;
+        }
+      }
+      fresh.mrs[mrUrl] = m;
+      setKvValue('triage', 'memory', fresh, db);
+    });
+    tx.immediate();
+  });
+}
+
+/** Drops both handoff kinds for one MR; a missing row stays missing. Caller
+    must hold tryClaimCron() around this call. */
+export function clearHandoffs(
+  mrUrl: string,
+  db: Database = getStateDb()
+): void {
+  runCriticalWrite('triage handoff clear', () => {
+    const tx = db.transaction(() => {
+      const fresh = readMemory(db);
+      const m = fresh.mrs[mrUrl];
+      if (!m) return;
+      const { handoffs: _dropped, ...rest } = m;
+      fresh.mrs[mrUrl] = rest;
       setKvValue('triage', 'memory', fresh, db);
     });
     tx.immediate();
