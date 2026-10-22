@@ -583,3 +583,77 @@ test('with something selected, a row click toggles the row instead of opening it
   expect(opened).toHaveLength(1);
   window.open = (() => null) as typeof window.open;
 });
+
+/** A doctor whose pane is gone, so the row offers "redo doctor". */
+const strandedDoctor = (iid: number, over: Record<string, unknown> = {}) =>
+  boardMr(iid, {
+    blockers: { any: true, pipelineFailing: true },
+    doctor: { status: 'watching' },
+    orphan: { state: 'gone' },
+    ...over,
+  });
+const PIP = { runId: 'run-7', stage: 'implement', name: 'Pip' };
+const dialogTitle = () =>
+  document.querySelector('[role="dialog"]')?.getAttribute('aria-label');
+
+test("a row-menu doctor redo on a live run's MR asks the live-run question", async () => {
+  servedData = {
+    ...BOARD_DATA,
+    mrs: [strandedDoctor(111, { activeRun: PIP })],
+  };
+  await renderBoard();
+  await rightClick(111);
+  await click('redo doctor');
+  expect(dialogTitle()).toBe("Pip's run is active on this branch");
+  await confirmWith('Launch doctor anyway');
+  await settle();
+  await rightClick(111);
+  await click('redo doctor');
+  await confirmWith('Ring worker');
+  await settle();
+  expect(
+    posts.filter(p => p.url === '/doctor').map(p => p.body.ring ?? false)
+  ).toEqual([false, true]);
+});
+
+test("a status-line doctor redo on a live run's MR asks the live-run question", async () => {
+  servedData = {
+    ...BOARD_DATA,
+    mrs: [strandedDoctor(112, { activeRun: PIP })],
+  };
+  await renderBoard();
+  const redo = [...row(112).querySelectorAll<HTMLElement>('button')].find(
+    b => b.textContent?.trim() === 'redo'
+  );
+  if (!redo) throw new Error('no redo verb on !112');
+  await React.act(async () => redo.click());
+  expect(dialogTitle()).toBe("Pip's run is active on this branch");
+});
+
+test('a doctor redo with no live run keeps the redo confirm', async () => {
+  servedData = { ...BOARD_DATA, mrs: [strandedDoctor(113)] };
+  await renderBoard();
+  await rightClick(113);
+  await click('redo doctor');
+  expect(dialogTitle()).toBe('Redo doctor run?');
+});
+
+test('a bulk doctor redo skips the MR a live run owns and names it', async () => {
+  servedData = {
+    ...BOARD_DATA,
+    mrs: [strandedDoctor(114), strandedDoctor(115, { activeRun: PIP })],
+  };
+  await renderBoard();
+  await check(114);
+  await check(115);
+  await rightClick(114);
+  await click('redo doctor');
+  await confirmWith('Redo 2 doctor runs');
+  await settle();
+  expect(posts.filter(p => p.url === '/doctor').map(p => p.body.iid)).toEqual([
+    114,
+  ]);
+  expect(document.body.textContent).toContain(
+    "skipped !115, Pip's run is active"
+  );
+});

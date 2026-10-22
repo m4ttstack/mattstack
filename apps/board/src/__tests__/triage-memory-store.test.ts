@@ -8,14 +8,20 @@ import { openStateDb } from '../state/db.ts';
 import { setKvValue } from '../state/kv-blob.ts';
 import {
   attachStandDown,
+  clearHandoffs,
   readMemory,
   releaseCron,
   tryClaimCron,
+  writeHandoff,
   writeMemory,
   writeRefreshedIdentity,
   writeStandDown,
 } from '../triage/memory-store.ts';
-import { emptyMrMemory, type DispatchMemory } from '../triage/memory.ts';
+import {
+  emptyMrMemory,
+  type DispatchMemory,
+  type Handoff,
+} from '../triage/memory.ts';
 
 let dir: string;
 let db: Database;
@@ -204,5 +210,61 @@ describe('writeStandDown', () => {
     writeStandDown('https://x/mr/1', true, '2026-08-08', db);
     writeStandDown('https://x/mr/1', false, '2026-08-08', db);
     expect(readMemory(db).mrs['https://x/mr/1']?.standDown).toBe(false);
+  });
+});
+
+describe('handoff writes', () => {
+  const URL = 'https://x/mr/1';
+  const handoff = (over: Partial<Handoff> = {}): Handoff => ({
+    runId: 'run-1',
+    session: 'sess-1',
+    stage: 'ship',
+    pipelineId: 100,
+    viaMr: URL,
+    viaBranch: 'feat',
+    at: Date.UTC(2026, 7, 8),
+    ...over,
+  });
+
+  test('writeHandoff marks the edge handled when asked', () => {
+    writeHandoff(
+      URL,
+      'pipeline-red',
+      handoff(),
+      {
+        markHandled: { pipelineId: 100 },
+      },
+      db
+    );
+    writeHandoff(
+      URL,
+      'needs-rebase',
+      handoff({ pipelineId: null }),
+      {
+        markHandled: { pipelineId: null },
+      },
+      db
+    );
+    const m = readMemory(db).mrs[URL]!;
+    expect(m.lastHandledPipelineId).toBe(100);
+    expect(m.lastNeedsRebase).toBe(true);
+    expect(m.handoffs?.['pipeline-red']?.runId).toBe('run-1');
+  });
+
+  test('writeHandoff leaves the latches alone without the option, and null deletes one kind', () => {
+    writeHandoff(URL, 'pipeline-red', handoff(), undefined, db);
+    writeHandoff(URL, 'needs-rebase', handoff(), undefined, db);
+    expect(readMemory(db).mrs[URL]!.lastHandledPipelineId).toBeNull();
+    writeHandoff(URL, 'pipeline-red', null, undefined, db);
+    const h = readMemory(db).mrs[URL]!.handoffs!;
+    expect(h['pipeline-red']).toBeUndefined();
+    expect(h['needs-rebase']).toBeDefined();
+  });
+
+  test('clearHandoffs removes both kinds', () => {
+    writeHandoff(URL, 'pipeline-red', handoff(), undefined, db);
+    writeHandoff(URL, 'needs-rebase', handoff(), undefined, db);
+    clearHandoffs(URL, db);
+    expect(readMemory(db).mrs[URL]!.handoffs ?? {}).toEqual({});
   });
 });

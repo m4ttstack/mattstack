@@ -143,6 +143,11 @@ import {
 import { reviewGroupHue, statusGroupHue } from './row-status.ts';
 import { RowMenu } from './RowMenu.tsx';
 import { RowView } from './RowView.tsx';
+import { activeRunConfirmFor } from './run-guard.ts';
+import {
+  RunActiveConfirmDialog,
+  type PendingRun,
+} from './RunActiveConfirmDialog.tsx';
 import { SelectionBar } from './SelectionBar.tsx';
 import { SettingsModal } from './SettingsModal.tsx';
 import { ShowChips } from './ShowChips.tsx';
@@ -457,6 +462,7 @@ export function Board() {
   const [pendingRedo, setPendingRedo] = useState<PendingRedo | null>(null);
   const [pendingPresence, setPendingPresence] =
     useState<PendingPresence | null>(null);
+  const [pendingRun, setPendingRun] = useState<PendingRun | null>(null);
   // The seat is computed below the early returns, after the callbacks that
   // read it, so they read it through this ref.
   const seatRef = useRef<string | null>(null);
@@ -705,8 +711,39 @@ export function Board() {
       state.tab,
     ]
   );
+  // Rings the live work run's session in place of a doctor; the server picks
+  // what to tell the worker from the MR's state, not from the button clicked.
+  const ringWorker = useCallback(
+    (mr: BoardMR) => {
+      if (!mr.webUrl) return;
+      const toast = startToast(`ringing the worker on ${mrRef(mr)}…`);
+      postAction('/doctor', { mrUrl: mr.webUrl, iid: mr.iid, ring: true }).then(
+        result => {
+          if (!result.ok) {
+            toast.fail(
+              `couldn't ring the worker on ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`
+            );
+            return;
+          }
+          toast.done(`rang the worker on ${mrRef(mr)}`);
+          load();
+        }
+      );
+    },
+    [startToast, load]
+  );
   const guardedLaunch = useCallback(
     (flow: LaunchFlow, mr: BoardMR, opts: LaunchOpts = {}) => {
+      const run = activeRunConfirmFor(flow, opts, mr as BoardMRWithReview);
+      if (run) {
+        setPendingRun({
+          run,
+          iid: mr.iid,
+          ring: () => ringWorker(mr),
+          launch: () => void launch(flow, mr, opts),
+        });
+        return Promise.resolve(undefined);
+      }
       const reviewer = presenceConfirmFor(
         flow,
         opts,
@@ -718,7 +755,7 @@ export function Board() {
       setPendingPresence({ reviewer, run: () => void launch(flow, mr, opts) });
       return Promise.resolve(undefined);
     },
-    [launch]
+    [launch, ringWorker]
   );
   const handleLaunch = useCallback(
     (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') =>
@@ -741,8 +778,8 @@ export function Board() {
   );
   const handleDoctor = useCallback(
     (mr: BoardMR, note?: string, intent?: 'launch' | 'focus') =>
-      void launch('doctor', mr, { note, intent }),
-    [launch]
+      void guardedLaunch('doctor', mr, { note, intent }),
+    [guardedLaunch]
   );
   const handleResumeRespond = useCallback(
     (mr: BoardMR, note?: string) => void launch('resume-respond', mr, { note }),
@@ -752,15 +789,31 @@ export function Board() {
     (mr: BoardMR) => void launch('resume-review', mr),
     [launch]
   );
+  // A doctor redo on an MR a live run owns asks the live-run question
+  // instead; its "Launch doctor anyway" stands in for the redo.
+  const askRedo = useCallback(
+    (pending: PendingRedo, flow: LaunchFlow | null, mr: BoardMR) => {
+      const run = flow
+        ? activeRunConfirmFor(flow, {}, mr as BoardMRWithReview)
+        : null;
+      if (!run) return setPendingRedo(pending);
+      setPendingRun({
+        run,
+        iid: mr.iid,
+        ring: () => ringWorker(mr),
+        launch: pending.run,
+      });
+    },
+    [ringWorker]
+  );
   const handleRedo = useCallback(
     (mr: BoardMR, lane: 'review' | 'respond' | 'doctor') =>
-      setPendingRedo({
+      askRedo(
+        { lane, count: 1, prior: 1, run: () => void launch(lane, mr) },
         lane,
-        count: 1,
-        prior: 1,
-        run: () => void launch(lane, mr),
-      }),
-    [launch]
+        mr
+      ),
+    [askRedo, launch]
   );
 
   // A gate's "focus pane" escape hatch: jump into whichever domain's pane
@@ -1053,6 +1106,8 @@ export function Board() {
       launch: guardedLaunch,
       presence: (flow, mr) =>
         presenceConfirmFor(flow, {}, mr, seatRef.current, Date.now()),
+      activeRun: (flow, mr) =>
+        activeRunConfirmFor(flow, {}, mr as BoardMRWithReview),
       addToast,
       startToast,
       reload: fresh => void load(fresh),
@@ -1113,23 +1168,27 @@ export function Board() {
       const redoLane = action.redo ?? (answered?.open === 0 ? 'respond' : null);
       if (redoLane) {
         const lane = redoLane;
-        setPendingRedo({
-          lane,
-          count: 1,
-          prior: 1,
-          who: answered && {
-            name: people.short(answered.username),
-            round: answered.nextRound,
+        askRedo(
+          {
+            lane,
+            count: 1,
+            prior: 1,
+            who: answered && {
+              name: people.short(answered.username),
+              round: answered.nextRound,
+            },
+            run: () =>
+              void dispatchRowAction(
+                req,
+                mr,
+                opts,
+                { ...runner, launch },
+                rowHandlers
+              ),
           },
-          run: () =>
-            void dispatchRowAction(
-              req,
-              mr,
-              opts,
-              { ...runner, launch },
-              rowHandlers
-            ),
-        });
+          req.kind === 'launch' ? req.flow : null,
+          mr
+        );
         return undefined;
       }
       if (req.kind !== 'ask') {
@@ -1150,7 +1209,7 @@ export function Board() {
       });
       return undefined;
     },
-    [runner, launch, rowHandlers, people]
+    [runner, launch, rowHandlers, askRedo, people]
   );
 
   // Poll faster while a review, response, or doctor run is active, or a fired
@@ -2053,6 +2112,11 @@ export function Board() {
           <PresenceConfirmDialog
             pending={pendingPresence}
             onDone={() => setPendingPresence(null)}
+          />
+
+          <RunActiveConfirmDialog
+            pending={pendingRun}
+            onDone={() => setPendingRun(null)}
           />
 
           <AskConfirmDialog

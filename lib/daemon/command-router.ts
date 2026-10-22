@@ -32,6 +32,7 @@ import { createBgHandlers } from "./handlers/bg.ts";
 import { createChatHandlers } from "./handlers/chat.ts";
 import { createAgentHandlers } from "./handlers/agent.ts";
 import { createHerdrHandlers } from "./handlers/herdr.ts";
+import { createInboxHandlers } from "./handlers/inbox.ts";
 import { startHerdr } from "../herdr/start.ts";
 import { createPaneHandlers } from "./handlers/pane.ts";
 import type { RelocationWatcher } from "./relocation-announce.ts";
@@ -287,6 +288,7 @@ export function buildRoutedHandlers(opts: {
     ...createOrgHandlers({ ...opts.repos, emitEvent, teamSnapshots: opts.teamSnapshots }),
     ...createGitStatusHandlers({ store: opts.gitBadges, sweep: opts.gitStatusSweep }),
     ...createHerdrHandlers({ start: startHerdr }),
+    ...createInboxHandlers(),
 
     // Applies repo-tracking edits immediately (rt daemon track <repo>
     // live|poll|off) instead of waiting for the next refresh-tail reconcile.
