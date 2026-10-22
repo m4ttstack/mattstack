@@ -358,7 +358,8 @@ exactly two places, each only after the record reads `"confirmed": true`:
 - a mock-data board: `<boardSha256> <the hide line>` (Confirm a
   mock-data board);
 - a board in an opening the human answered with `redaction: "confirm"`
-  itself: `<boardSha256> approved at <scope>`, `<scope>` the last opening
+  itself (the Confirmed option, never free text read as a yes, and no note
+  naming a board): `<boardSha256> approved at <scope>`, `<scope>` the last opening
   that showed it, since the human has already looked at these exact bytes.
 
 Only that explicit answer clears. A board confirmed by inference (one
