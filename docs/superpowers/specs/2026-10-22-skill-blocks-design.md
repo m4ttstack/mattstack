@@ -80,9 +80,9 @@ These were settled in brainstorming.
    Compile can then report a binding whose fill file is missing, or whose
    block no longer exists or is closed.
 7. **Graphs stay in the compiled output as dot, and are authored in
-   Mermaid.** Compile turns Mermaid into the same dot Claude reads today. A
-   graph lives in its parent block, and its node ids are that block's
-   children's ids.
+   Mermaid.** Compile turns Mermaid into dot Claude reads the way it does
+   today. A graph lives in its parent block, and each child block is tied to
+   a node in that graph (see "Graphs").
 8. **Console is for reading; Claude makes changes.** Each block offers
    "Copy for Claude", which copies a brief to paste into a session. Open in
    editor stays as a secondary action.
@@ -91,6 +91,15 @@ These were settled in brainstorming.
    block tree, folded section lists, a Layers panel drawn as charts, and a
    small graph around a single block.
 10. The word is **block**.
+11. **Every engine converts in the first build.** All of mattstack's
+    engines and shared includes move to blocks together, so there is no
+    period where engines come in two formats.
+12. **Testing the conversion.** `ship` gets the full before-and-after test
+    with fresh agents (superpowers:writing-skills). Every other engine gets
+    a reviewed diff of its compiled output that shows only heading-level
+    and fill-placement changes.
+13. **A team can unbind the org's fill on a block,** as slots allow today
+    (an empty binding). Replacing mattstack's own text stays impossible.
 
 ## Approaches considered
 
@@ -143,9 +152,10 @@ A block's id is its path without `.md`, with `/index` dropped:
 
 ```markdown
 ---
+node: domain_fast_checks
 label: Fast checks
 ---
-# Run the domain's fast checks
+# Run the domain's fast checks (none when unbound)
 
 Only the checks the domain names, on the changed files; revert generated
 drift they leave. A full suite the domain rules out stays out. …
@@ -154,8 +164,12 @@ drift they leave. A full suite the domain rules out stays out. …
 ```
 
 - The `#` is ignored for level; it marks the title line.
+- `node` ties the block to its node in the parent's graph (see "Graphs").
 - `label` is the short name console shows. Without it, console uses the id
   in plain words (`fast-checks` → "Fast checks").
+- A leaf file may contain sub-headings. They belong to the block: they get
+  levels from depth like everything else, but they are not blocks, so they
+  can't be bound to and don't show in the sidebar.
 
 ### Placeholders inside a block
 
@@ -169,25 +183,68 @@ drift they leave. A full suite the domain rules out stays out. …
 
 ### Fills and bindings
 
-A fill is a folder in the pack holding one file per block it adds to:
+A fill stays a skill folder. Its `SKILL.md` keeps the frontmatter a fill
+carries today (description, version, `allowed-tools`), and one file per
+block it adds to sits beside it:
 
 ```
 teams/widgets/plugin/attachments/ship-lint/
+  SKILL.md
   fast-checks.md
   commit-named.md
 ```
 
-The pack binds each file to a block in `pack/skills.jsonc`:
+Per-block fill text is always inlined at the marker.
+
+The pack binds each file to a block in `pack/skills.jsonc`. The key is the
+engine ref plus the block path, so a binding names exactly which engine it
+targets:
 
 ```jsonc
-"ship/flow/fast-checks": "widgets:ship-lint/fast-checks"
+"mattstack:ship/flow/fast-checks": "widgets:ship-lint/fast-checks"
 ```
+
+- Layering works per block the way it works per slot today: a later layer
+  replaces an earlier one's binding for that block, and `""` unbinds it.
+  When both org and team bind a block, both land, org first, unless the
+  team unbinds the org's.
+- Per-pipeline bindings and stage copies carry over unchanged, now keyed
+  by block.
+- Engines that repeat the same steps (`ship` and `stage-ship`) keep
+  separate block trees. A pack binds each one.
 
 Compile refuses a binding when:
 
 - its fill file is missing;
 - its block doesn't exist (for example, renamed in a newer mattstack);
 - its block has no `{{fills}}` marker.
+
+### Graphs
+
+- Node ids keep today's short-id rules (`check-dot.py --short-ids`):
+  snake_case, command nodes start with their call word, STOP nodes start
+  with `stop_`. A block names its node with `node:` in frontmatter, so block
+  ids (kebab-case paths, used for bindings) and node ids (used in graphs)
+  stay separate.
+- The block's title is the node's label, as one source. In Mermaid a block
+  node may omit its label; compile fills it from the title and refuses a
+  label that disagrees.
+- Shapes map one to one: `([…])` trigger (ellipse), `{…}` question
+  (diamond), `[…]` step (box), `[/…/]` command (plaintext), `(((…)))` end
+  (doublecircle). STOP nodes and the green done node use Mermaid classes
+  (`:::stop`, `:::done`) that compile turns into today's octagon and fill
+  attributes.
+- The compiled dot doesn't have to be byte-identical to today's, but it
+  must pass `check-dot.py --short-ids` with the same ids, so existing
+  digraph fixtures stay valid.
+
+### Includes
+
+Shared includes (`gate-protocol`, `browser-evidence` and the rest) become
+block trees like engines. `{{include:x}}` places the include's tree as a
+child of the block that names it, with levels from depth. Skills outside
+mattstack that expand includes (the board's launcher skills) get the same
+flattened text.
 
 ### Compile
 
@@ -200,6 +257,15 @@ Compile refuses a binding when:
 
 The order of a graph's children comes from the graph. The order of other
 siblings (Run, Flow, the notes blocks) is an open question, below.
+
+### Testing
+
+- `ship` converts first and is tested before and after with fresh agents,
+  following superpowers:writing-skills: same scenarios against today's
+  compiled verb and the block-compiled one.
+- Every other engine and include converts with a reviewed diff of its
+  compiled output. The only expected differences are heading levels and
+  fill text moving to its block; anything else fails review.
 
 ## Console
 
@@ -325,8 +391,8 @@ no raw colors.
   named slot is undecided.
 - **Moving existing packs.** Existing domain fills (including the
   `## At: <step>` pattern) have to be split into per-block fill files and
-  re-bound. Whether compile reads the old form during a transition, or packs
-  convert in one step, is undecided.
+  re-bound when the engines convert. Whether that's a conversion command
+  rt runs on each pack, or done by hand with Claude, is undecided.
 - **Marking gates.** Console infers a gate from its title in the mock. A
   real marker (a frontmatter `kind`, say) is needed.
 - **Short labels for graph-only nodes.** Their labels are long sentences,
@@ -343,6 +409,17 @@ Matt didn't pick these; check them while reading.
 
 - A block with children is a folder with `index.md`.
 - A block's id is its path; `label` in frontmatter gives the short name.
+- Graphs: `node:` in a block's frontmatter ties it to its graph node, node
+  ids keep today's short-id rules, the block title is the node label, the
+  shape mapping above, and equivalent rather than byte-identical dot.
+- A leaf file may hold sub-headings that aren't blocks.
+- Bindings key on engine ref plus block path; `ship` and `stage-ship` keep
+  separate trees and are bound separately.
+- A fill stays a skill folder with a `SKILL.md`, so `allowed-tools` and
+  versions keep working; per-block fill text is always inlined.
+- Includes become block trees too.
+- Console shows a skill that isn't a block tree (a team's hand-written
+  skill) by parsing its headings into a read-only tree.
 - The Graph tab split: the skill map stays as home, and the block view
   replaces the template canvas and drawer. The Rebind panel goes away.
 - The layer colors: purple for the org base, cyan for the team, neutral for
