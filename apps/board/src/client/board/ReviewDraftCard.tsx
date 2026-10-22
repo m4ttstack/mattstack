@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from 'react';
 
-import { Markdown, Modal } from '@mattstack/tui-kit';
+import { Chip, Markdown, Modal } from '@mattstack/tui-kit';
 import {
   CommentField,
   commentState,
@@ -719,6 +719,14 @@ function FoldedSection({
   );
 }
 
+/** The summary's verdict badge: approving reads as done, a comment as the
+    board's accent, a change request as a warning. */
+const VERDICT_INTENT: Record<string, 'ok' | 'accent' | 'warn'> = {
+  approve: 'ok',
+  comment: 'accent',
+  request_changes: 'warn',
+};
+
 /** The review's summary comment as it will post (`joinSummary`), as one
     card in the finding cards' frame: the summary line drafted for the
     picked verdict, then each ticked finding with no diff line as its own
@@ -751,15 +759,24 @@ export function SummaryCard({
         aria-label="Summary comment"
       >
         <SectionHead icon={<CommentGlyph />} name="Summary" hue="ok">
-          <DraftMeta
-            edited={edited}
-            label="Summary line"
-            unedited={`drafted for ${verdictLabel}`}
-            onReset={() => {
-              form.clearText(key);
-              setMode('write');
-            }}
-          />
+          <span className="tui-review-section-meta">
+            <DraftMeta
+              edited={edited}
+              label="Summary line"
+              onReset={() => {
+                form.clearText(key);
+                setMode('write');
+              }}
+            />
+            <Chip
+              intent={VERDICT_INTENT[outcome] ?? 'muted'}
+              variant="outline"
+              uppercase
+              data-verdict={outcome}
+            >
+              for {verdictLabel}
+            </Chip>
+          </span>
         </SectionHead>
         <CommentEditor
           key={key}
