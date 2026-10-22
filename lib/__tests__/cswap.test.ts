@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { callerCswapAccount, cswapConfigDirs, listCswapAccounts, parseCswapList } from "../cswap.ts";
+import { describe, expect, test } from "bun:test";
+import { CSWAP_STILL_RUNNING, callerCswapAccount, createCswapExec, cswapConfigDirs, listCswapAccounts, parseCswapList } from "../cswap.ts";
 import { fakeProbes } from "../setup/__tests__/fakes.ts";
 
 const CAPTURED = `
@@ -85,4 +85,55 @@ test("cswapConfigDirs lists each account folder under the cswap sessions root, s
   });
   expect(cswapConfigDirs(p)).toEqual([`${root}/1-dev1_acme.test`, `${root}/4-dev2_acme.test`]);
   expect(cswapConfigDirs(fakeProbes({ home: "/home/x" }))).toEqual([]);
+});
+
+describe("createCswapExec", () => {
+  type Result = { stdout: string; stderr: string; exitCode: number };
+  function controlled() {
+    const runs: Array<(r: Result) => void> = [];
+    const spawn = () => new Promise<Result>((resolve) => { runs.push(resolve); });
+    return { spawn, runs };
+  }
+
+  test("a missing binary reads as a failed spawn", async () => {
+    const exec = createCswapExec(() => null);
+    expect(await exec(["cswap", "list"], { timeoutMs: 50 })).toEqual({ stdout: "", stderr: "", exitCode: -1 });
+  });
+
+  test("a finished run returns its output", async () => {
+    const exec = createCswapExec(async () => ({ stdout: "ok", stderr: "", exitCode: 0 }));
+    expect(await exec(["cswap", "list"], { timeoutMs: 1_000 })).toEqual({ stdout: "ok", stderr: "", exitCode: 0 });
+  });
+
+  test("a slow run stops the wait, never the child, and a later call joins it", async () => {
+    const { spawn, runs } = controlled();
+    const exec = createCswapExec(spawn);
+    expect((await exec(["cswap", "list", "--json"], { timeoutMs: 10 })).exitCode).toBe(CSWAP_STILL_RUNNING);
+    const joined = exec(["cswap", "list", "--json"], { timeoutMs: 1_000 });
+    runs[0]!({ stdout: "late", stderr: "", exitCode: 0 });
+    expect(await joined).toEqual({ stdout: "late", stderr: "", exitCode: 0 });
+    expect(runs).toHaveLength(1);
+  });
+
+  test("a call after the run finished starts a fresh one", async () => {
+    const { spawn, runs } = controlled();
+    const exec = createCswapExec(spawn);
+    const first = exec(["cswap", "list"], { timeoutMs: 1_000 });
+    runs[0]!({ stdout: "1", stderr: "", exitCode: 0 });
+    await first;
+    const second = exec(["cswap", "list"], { timeoutMs: 1_000 });
+    runs[1]!({ stdout: "2", stderr: "", exitCode: 0 });
+    expect((await second).stdout).toBe("2");
+  });
+
+  test("callers under different cswap profiles never share a run", async () => {
+    const { spawn, runs } = controlled();
+    const exec = createCswapExec(spawn);
+    const a = exec(["cswap", "list", "--json"], { timeoutMs: 1_000, env: { CLAUDE_CONFIG_DIR: "/a" } });
+    const b = exec(["cswap", "list", "--json"], { timeoutMs: 1_000, env: { CLAUDE_CONFIG_DIR: "/b" } });
+    expect(runs).toHaveLength(2);
+    runs[0]!({ stdout: "a", stderr: "", exitCode: 0 });
+    runs[1]!({ stdout: "b", stderr: "", exitCode: 0 });
+    expect([(await a).stdout, (await b).stdout]).toEqual(["a", "b"]);
+  });
 });

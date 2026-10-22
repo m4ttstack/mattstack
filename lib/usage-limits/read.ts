@@ -10,7 +10,7 @@
 import { readFile } from "fs/promises";
 import { homedir, userInfo } from "os";
 import { join } from "path";
-import { cswapBin } from "../cswap.ts";
+import { CSWAP_STILL_RUNNING, cswapBin, cswapExec } from "../cswap.ts";
 import { runCapture } from "../subprocess.ts";
 
 /** `kind` is `spend`, `five_hour`, `seven_day`, or `scoped:<model name>`. */
@@ -179,8 +179,9 @@ function home(): string {
 }
 
 async function runCswapList(): Promise<Got<unknown> | null> {
-  const res = await runCapture([cswapBin(), "list", "--json"], { timeoutMs: CSWAP_TIMEOUT_MS });
+  const res = await cswapExec([cswapBin(), "list", "--json"], { timeoutMs: CSWAP_TIMEOUT_MS });
   if (res.exitCode === -1 && !res.stdout) return null;
+  if (res.exitCode === CSWAP_STILL_RUNNING) return { ok: false, problem: "list is still running; its result is read next time" };
   if (res.exitCode !== 0) return { ok: false, problem: `list exited ${res.exitCode}` };
   try {
     return { ok: true, value: JSON.parse(res.stdout) };

@@ -465,6 +465,14 @@ test("pane:spawn refuses an unknown cswap account before touching herdr", async 
   expect(calls).toHaveLength(0);
 });
 
+test("pane:spawn says cswap is missing rather than blaming the account when cswap lists nothing", async () => {
+  const db = freshDb();
+  const exec = async () => ({ stdout: "", stderr: "", exitCode: -1 });
+  const pane = createPaneHandlers({ db, repoIndex: () => ({}), exec });
+  const res = await pane["pane:spawn"]({ cwd: "/repos/chat", account: "Me" });
+  expect(res).toEqual({ ok: false, error: `cswap isn't installed or lists no accounts, so account "Me" can't be used` });
+});
+
 test("pane:send delivers caller text and returns accepted", async () => {
   const claude = (status: string) => ({ type: "agent_info", agent: { pane_id: "w1:p1", agent: "claude", agent_status: status } });
   const { pane } = harness((method, params) =>

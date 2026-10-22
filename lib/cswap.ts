@@ -2,7 +2,7 @@ import { homedir } from "os";
 import { join } from "path";
 import type { PaneAccount } from "../packages/rt-client/src/commands.ts";
 import type { Probes } from "./setup/probes.ts";
-import { runCapture } from "./subprocess.ts";
+import { childEnv, runCapture } from "./subprocess.ts";
 
 const ACCOUNT_LINE = /^\s*(\d+):\s+(\S+)(?:\s+\[([^\]]+)\])?/;
 // The `$$` row is spend, not rate-limit headroom; it is skipped on purpose.
@@ -30,6 +30,63 @@ export function cswapBin(): string {
   return Bun.which("cswap") ?? join(homedir(), ".local", "bin", "cswap");
 }
 
+/** Exit code a `cswapExec` caller sees when it stopped waiting on a slow cswap. */
+export const CSWAP_STILL_RUNNING = -2;
+
+type RunOpts = Parameters<typeof runCapture>[1];
+type RunResult = Awaited<ReturnType<typeof runCapture>>;
+export type CswapSpawn = (argv: [string, ...string[]], env: Record<string, string | undefined>) => Promise<RunResult> | null;
+
+const realSpawn: CswapSpawn = (argv, env) => {
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(argv, { env, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+  } catch {
+    return null;
+  }
+  proc.unref();
+  return (async () => {
+    const [stdout, exitCode] = await Promise.all([new Response(proc.stdout as ReadableStream).text(), proc.exited]);
+    return { stdout, stderr: "", exitCode };
+  })();
+};
+
+const inflight = new Map<string, Promise<RunResult>>();
+
+/**
+ * A runCapture stand-in for cswap that never signals the child. `cswap list`
+ * can refresh an expired Claude token under Claude Code's own lock, and a
+ * kill between its refresh and its write-back loses the account's login. A
+ * caller past `timeoutMs` gets `CSWAP_STILL_RUNNING` and cswap finishes on
+ * its own; an identical call made meanwhile joins that run instead of
+ * starting another.
+ */
+export function createCswapExec(spawn: CswapSpawn = realSpawn): typeof runCapture {
+  return async (argv, opts: RunOpts = {}) => {
+    const env = opts.env ?? childEnv();
+    const key = JSON.stringify([argv, env.CLAUDE_CONFIG_DIR ?? ""]);
+    let run = inflight.get(key);
+    if (!run) {
+      const started = spawn(argv, env);
+      if (!started) return { stdout: "", stderr: "", exitCode: -1 };
+      run = started.finally(() => inflight.delete(key));
+      inflight.set(key, run);
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const waited = new Promise<RunResult>((resolve) => {
+      timer = setTimeout(() => resolve({ stdout: "", stderr: "", exitCode: CSWAP_STILL_RUNNING }), opts.timeoutMs ?? 10_000);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([run, waited]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
+export const cswapExec = createCswapExec();
+
 /** The account a `cswap run` caller is actually running as. Only the caller's
     env knows it: `cswap run` sets CLAUDE_CONFIG_DIR per terminal, while a
     bare `claude` launched by the daemon falls back to the global default
@@ -37,7 +94,7 @@ export function cswapBin(): string {
     caller, whose spawns already land on the same account. */
 export async function callerCswapAccount(
   env: Record<string, string | undefined>,
-  exec: typeof runCapture = runCapture,
+  exec: typeof runCapture = cswapExec,
 ): Promise<string | undefined> {
   if (!env.CLAUDE_CONFIG_DIR) return undefined;
   const res = await exec([cswapBin(), "list", "--json"], { timeoutMs: 5_000, env });
@@ -51,7 +108,7 @@ export async function callerCswapAccount(
 }
 
 /** Account number to email, the pairing a cswap config dir's `<number>-` prefix needs. Empty when cswap is missing or answers garbage. */
-export async function cswapAccountNumbers(exec: typeof runCapture = runCapture): Promise<{ number: number; email: string }[]> {
+export async function cswapAccountNumbers(exec: typeof runCapture = cswapExec): Promise<{ number: number; email: string }[]> {
   const res = await exec([cswapBin(), "list", "--json"], { timeoutMs: 5_000 });
   if (res.exitCode !== 0) return [];
   try {
@@ -64,7 +121,7 @@ export async function cswapAccountNumbers(exec: typeof runCapture = runCapture):
   }
 }
 
-export async function listCswapAccounts(exec: typeof runCapture = runCapture): Promise<PaneAccount[]> {
+export async function listCswapAccounts(exec: typeof runCapture = cswapExec): Promise<PaneAccount[]> {
   const res = await exec([cswapBin(), "list"], { timeoutMs: 5_000 });
   if (res.exitCode !== 0) return [];
   return parseCswapList(res.stdout);

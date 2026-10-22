@@ -7,7 +7,7 @@ import type { Logger } from "pino";
 import { basename, isAbsolute } from "path";
 import type { AgentStatus, BuddyStatus, ChatPane, Commands, PaneDirectory } from "../../../packages/rt-client/src/commands.ts";
 import { formatPaneRef, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
-import { listCswapAccounts } from "../../cswap.ts";
+import { cswapExec, listCswapAccounts } from "../../cswap.ts";
 import { herdrRequest, waitTimeout, type HerdrResult } from "../../herdr/client.ts";
 import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
@@ -192,6 +192,7 @@ export function createPaneHandlers(opts: {
   const herdr = opts.herdr ?? herdrRequest;
   const tray = opts.tray ?? trayRequest;
   const exec = opts.exec ?? runCapture;
+  const cswapRun = opts.exec ?? cswapExec;
   const now = opts.now ?? Date.now;
   const registry = opts.registry ?? ((name: string) => loadRegistry(name));
   const registryDeps = opts.registryDeps;
@@ -258,7 +259,7 @@ export function createPaneHandlers(opts: {
     },
 
     "pane:accounts": async (_payload: unknown): Promise<CommandResult<"pane:accounts">> => {
-      return { ok: true, data: { accounts: await listCswapAccounts(exec) } };
+      return { ok: true, data: { accounts: await listCswapAccounts(cswapRun) } };
     },
 
     "pane:directories": async (rawPayload: unknown): Promise<CommandResult<"pane:directories">> => {
@@ -292,7 +293,8 @@ export function createPaneHandlers(opts: {
       const { cwd, account, model, effort, prompt } = payload;
       if (!cwd || !cwd.startsWith("/")) return { ok: false, error: "cwd must be an absolute path" };
       if (account) {
-        const accounts = await listCswapAccounts(exec);
+        const accounts = await listCswapAccounts(cswapRun);
+        if (accounts.length === 0) return { ok: false, error: `cswap isn't installed or lists no accounts, so account "${account}" can't be used` };
         const known = accounts.some((a) => a.alias === account || a.email === account || String(a.slot) === account);
         if (!known) return { ok: false, error: `unknown cswap account "${account}"` };
       }
