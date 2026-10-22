@@ -715,9 +715,7 @@ export function SummaryCard({
       data-draft-part=""
     >
       <div className="tui-review-summary-head">
-        <span className="tui-review-summary-k">
-          for {verdictLabel}
-        </span>
+        <span className="tui-review-summary-k">for {verdictLabel}</span>
         <DraftMeta
           edited={edited}
           label="Summary line"
