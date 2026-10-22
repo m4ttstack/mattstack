@@ -578,10 +578,11 @@ housekeeping.
 Matt didn't pick these; check them while reading.
 
 - A block with children is a folder with `index.block.md`.
-- How `domain` converts: `ship` and `stage-ship` spread it into per-step
-  props on the steps a domain fill targets today; every other engine keeps
-  one `rules` prop where its `{{slot:domain}}` was, and spreading those is
-  follow-up work.
+- How `domain` converts (Matt chose spreading every engine now): in every
+  engine with `{{slot:domain}}`, a `rules` prop goes on each step where the
+  engine's own text says the domain acts ("(none when unbound)", a "Domain
+  hook" paragraph, or text naming the domain), plus one on the block that
+  held the slot for rules that aren't about one step.
 - A titled block that renders blank (only empty props, no children) is left
   out with its heading, as an unbound slot's heading is today.
 - An include that is also a fill (`execution-strategy`) stays a skill folder
