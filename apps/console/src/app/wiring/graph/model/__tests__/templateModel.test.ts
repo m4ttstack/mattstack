@@ -9,6 +9,7 @@ import {
   buildTemplateView,
   selectedPartId,
   textNounOf,
+  type LineRange,
   type TemplateRow,
 } from '../templateModel';
 
@@ -460,6 +461,64 @@ describe('team sections inside a slot', () => {
       status: 'stale',
       reason: 'team values changed',
     });
+  });
+
+  const domainSections = (anatomy: SkillsAnatomy) =>
+    viewOf(anatomy)
+      .inputs.find(card => card.id === 'slot:domain')!
+      .sections.map(section => section.id);
+
+  it('keeps a section a stale file could not place on its slot', () => {
+    const unplaced = { ...sectionPart('ci-extra', 2), renderedLines: null };
+    expect(domainSections(withSections(unplaced))).toEqual([
+      'section:ci-extra',
+    ]);
+  });
+
+  it('drops a section that sits outside the slot before it', () => {
+    const outside = {
+      ...sectionPart('ci-extra', 0),
+      renderedLines: [1, 2] as LineRange,
+    };
+    expect(domainSections(withSections(outside))).toEqual([]);
+  });
+
+  it('keeps a section listed after a file pasted inside the same fill', () => {
+    const nested: Part = {
+      kind: 'include',
+      name: 'nested-partial',
+      templateLines: null,
+      renderedLines: [from + 1, from + 1],
+      mode: null,
+      source: null,
+      target: null,
+      changed: false,
+    };
+    expect(
+      domainSections(withSections(nested, sectionPart('ci-extra', 2)))
+    ).toEqual(['section:ci-extra']);
+  });
+
+  it('numbers a section the fill pastes twice', () => {
+    expect(
+      domainSections(
+        withSections(sectionPart('ci-extra', 2), sectionPart('ci-extra', 6))
+      )
+    ).toEqual(['section:ci-extra', 'section:ci-extra@2']);
+  });
+
+  it('never hangs a section on the card before a slot that draws none', () => {
+    const unbound: Part = {
+      ...domain,
+      name: 'extra',
+      source: null,
+      mode: null,
+    };
+    const view = viewOf(withSections(unbound, sectionPart('ci-extra', 2)));
+    expect(view.inputs.some(card => card.id === 'slot:extra')).toBe(false);
+    expect(
+      view.inputs.find(card => card.id === 'slot:domain')?.sections
+    ).toEqual([]);
   });
 
   it('leaves the drawer as it is without one', () => {

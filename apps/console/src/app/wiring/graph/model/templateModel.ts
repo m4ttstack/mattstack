@@ -227,10 +227,24 @@ export function withoutSections(anatomy: SkillsAnatomy): SkillsAnatomy {
   };
 }
 
-function sectionCard(part: AnatomyPart): SectionCard {
+/** Whether rt placed a section inside a slot's rendered range; a stale file
+    may not place it at all, and then rt's order is all there is. */
+function holds(slot: AnatomyPart, section: AnatomyPart): boolean {
+  const outer = slot.renderedLines;
+  const inner = section.renderedLines;
+  if (!inner) return true;
+  return outer !== null && outer[0] <= inner[0] && inner[1] <= outer[1];
+}
+
+/** A fill can paste one section twice; the second takes its place as `@n`. */
+function sectionCard(part: AnatomyPart, card: InputCard): SectionCard {
   const name = part.name ?? '';
+  const base = partKey(part);
+  const repeats = card.sections.filter(
+    section => section.id.split('@')[0] === base
+  ).length;
   return {
-    id: partKey(part),
+    id: repeats === 0 ? base : `${base}@${repeats + 1}`,
     title: name,
     source: part.source?.ref ?? `pack/sections/${name}.md`,
     changed: part.changed,
@@ -482,13 +496,14 @@ export function buildTemplateView(input: {
     return cardId;
   };
 
-  let slotCard: InputCard | null = null;
+  let slot: { part: AnatomyPart; card: InputCard } | null = null;
   for (const part of anatomy.parts) {
     if (part.kind === 'section') {
-      slotCard?.sections.push(sectionCard(part));
+      if (slot && holds(slot.part, part))
+        slot.card.sections.push(sectionCard(part, slot.card));
       continue;
     }
-    if (part.kind === 'slot') slotCard = null;
+    if (part.kind === 'slot') slot = null;
     const anchor = part.templateLines ?? part.renderedLines;
     if (!anchor) continue;
     const line = anchor[0];
@@ -567,7 +582,7 @@ export function buildTemplateView(input: {
       sections: [],
     };
     inputs.push(card);
-    if (part.kind === 'slot') slotCard = card;
+    if (part.kind === 'slot') slot = { part, card };
   }
 
   const pendingSkill =
