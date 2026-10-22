@@ -94,7 +94,10 @@ test('a number with a modifier is the browser’s, not a pick', () => {
 
 test('an IME composition keeps its keys', () => {
   expect(
-    sheetKey(key(el('comment'), 'Enter', { metaKey: true, isComposing: true }), 0)
+    sheetKey(
+      key(el('comment'), 'Enter', { metaKey: true, isComposing: true }),
+      0
+    )
   ).toBeNull();
 });
 
