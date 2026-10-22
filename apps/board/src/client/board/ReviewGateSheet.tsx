@@ -51,7 +51,14 @@ import {
   isResolving,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
-import { reserveDock, RoundHeading, SheetLost } from './SheetParts.tsx';
+import { useSheetKeys } from './sheet-keys.ts';
+import {
+  KeyCap,
+  reserveDock,
+  RoundHeading,
+  SheetLost,
+  SUBMIT_KEYS,
+} from './SheetParts.tsx';
 
 /** The engine's optional record fields (`docs/superpowers/specs/
     2026-09-18-review-gate-redesign-design.md` §1): all absent on a report
@@ -606,6 +613,24 @@ function ReviewGateSheet({
 
   const parked = gate.status === 'parked';
 
+  const canSubmit =
+    !form.busy &&
+    typeof selectedOutcome === 'string' &&
+    replyTexts !== null &&
+    edits !== null;
+  const verdicts = outcomeQuestion?.options ?? [];
+  const live = Boolean(data && outcomeName && !form.lost);
+  useSheetKeys({
+    onSubmit: live && canSubmit ? submit : undefined,
+    onPick: live
+      ? i => {
+          const o = verdicts[i];
+          if (o && outcomeName) form.setSingle(outcomeName, optionValue(o));
+        }
+      : undefined,
+    picks: verdicts.length,
+  });
+
   if (!data) return null;
   const { review } = data;
   const meta = reviewMeta(review);
@@ -909,7 +934,7 @@ function ReviewGateSheet({
                     role="radiogroup"
                     aria-label={outcomeQuestion.label}
                   >
-                    {outcomeQuestion.options.map((o: GateOption) => {
+                    {outcomeQuestion.options.map((o: GateOption, i) => {
                       const display = optionDisplayFor(o);
                       const value = optionValue(o);
                       const checked = selectedOutcome === value;
@@ -956,6 +981,7 @@ function ReviewGateSheet({
                               </span>
                             )}
                           </span>
+                          {i < 9 && <KeyCap keys={String(i + 1)} />}
                         </label>
                       );
                     })}
@@ -977,12 +1003,7 @@ function ReviewGateSheet({
                     intent="accent"
                     size="lg"
                     className="tui-sheet-submit"
-                    disabled={
-                      form.busy ||
-                      typeof selectedOutcome !== 'string' ||
-                      replyTexts === null ||
-                      edits === null
-                    }
+                    disabled={!canSubmit}
                     onClick={submit}
                   >
                     {form.busy
@@ -1012,6 +1033,7 @@ function ReviewGateSheet({
                             ]
                               .filter(Boolean)
                               .join(' · ')}
+                    {!form.busy && <KeyCap keys={SUBMIT_KEYS} onFill />}
                   </Button>
                   {form.failed && (
                     <span className="tui-gate-error">

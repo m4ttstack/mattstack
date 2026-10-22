@@ -1828,3 +1828,85 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(submitButton().textContent).toBe('post 4 · approve');
   });
 });
+
+async function press(
+  target: Element,
+  key: string,
+  mods: { metaKey?: boolean; ctrlKey?: boolean } = {}
+) {
+  await React.act(async () => {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, ...mods })
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+}
+
+const sheetEl = () => container.querySelector('.tui-gate-sheet')!;
+const answerPosts = () => posts.filter(p => p.url === '/gate/answer');
+
+describe('keyboard', () => {
+  test('Cmd+Enter posts the review the submit button would', async () => {
+    await render();
+    await press(sheetEl(), 'Enter', { metaKey: true });
+    const sent = answerPosts();
+    expect(sent.length).toBe(1);
+    const body = sent[0]!.body as { answers: Record<string, unknown> };
+    expect(body.answers.outcome).toBe('approve');
+    expect(body.answers['findings-1']).toEqual(['f1', 'f2', 'f3', 'f4']);
+  });
+
+  test('Ctrl+Enter in the verdict note still posts', async () => {
+    await render();
+    const note = container.querySelector('.tui-sheet-dock .tui-gate-note')!;
+    await press(note, 'Enter', { ctrlKey: true });
+    expect(answerPosts().length).toBe(1);
+  });
+
+  test('a number key picks that verdict, and the caps number each verdict', async () => {
+    await render();
+    const caps = [
+      ...container.querySelectorAll(
+        '.tui-sheet-rail .tui-gate-choice .tui-key-cap'
+      ),
+    ].map(c => c.getAttribute('data-keys'));
+    expect(caps).toEqual(['1', '2']);
+
+    await press(sheetEl(), '2');
+    const radios = [
+      ...container.querySelectorAll('.tui-sheet-rail input[type=radio]'),
+    ] as HTMLInputElement[];
+    expect(radios.find(r => r.value === 'comment')?.checked).toBe(true);
+    expect(container.querySelector('.tui-sheet-submit')?.textContent).toBe(
+      'post 6 · comment'
+    );
+  });
+
+  test('a number typed into the verdict note never changes the verdict', async () => {
+    await render();
+    const note = container.querySelector('.tui-sheet-dock .tui-gate-note')!;
+    await press(note, '2');
+    const radios = [
+      ...container.querySelectorAll('.tui-sheet-rail input[type=radio]'),
+    ] as HTMLInputElement[];
+    expect(radios.find(r => r.value === 'approve')?.checked).toBe(true);
+  });
+
+  test('the submit button shows the chord without changing its label', async () => {
+    await render();
+    const submit = container.querySelector('.tui-sheet-submit')!;
+    expect(
+      submit.querySelector('.tui-key-cap')?.getAttribute('data-keys')
+    ).toBe('⌘↵');
+    expect(submit.textContent).toBe('post 6 · approve');
+  });
+
+  test('Cmd+Enter does nothing once the gate was answered elsewhere', async () => {
+    answeredElsewhere = true;
+    await render();
+    await click(buttonByText('post 6 · approve'));
+    const before = answerPosts().length;
+    await press(sheetEl(), 'Enter', { metaKey: true });
+    expect(answerPosts().length).toBe(before);
+  });
+});

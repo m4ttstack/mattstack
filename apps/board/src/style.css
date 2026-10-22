@@ -4280,7 +4280,12 @@ a.tui-id-card-ref:focus-visible {
   --diffs-line-height: 1.6;
   --diffs-min-number-column-width: 4ch;
 }
-/* The full file diff over the sheet. */
+/* The full file diff over the sheet, centred: the kit's top-anchored
+   overlay would leave a 90vh frame hugging the bottom edge. */
+.tui-diff-overlay {
+  align-items: center;
+  padding: 1rem;
+}
 .tui-diff-modal {
   width: 96vw;
   max-width: 1100px;
@@ -5099,6 +5104,36 @@ a.tui-id-card-ref:focus-visible {
 .tui-sheet-submit {
   min-height: 44px;
   border-radius: 8px;
+}
+/* A keyboard hint. Its text comes from data-keys so it never joins the
+   control's label or accessible name. */
+.tui-key-cap {
+  flex-shrink: 0;
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-control);
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: var(--gate-font-small);
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--text-3);
+}
+.tui-key-cap::after {
+  content: attr(data-keys);
+}
+.tui-gate-choice[data-checked] .tui-key-cap {
+  border-color: color-mix(in srgb, var(--fill-accent) 55%, var(--card));
+  color: var(--text-accent-small);
+}
+/* Inside a filled button: the on-fill label over a wash of itself, the
+   console's value, signed off in the Kbd contrast ledger. */
+.tui-key-cap[data-variant='on-fill'] {
+  margin-left: 10px;
+  border: 0;
+  color: color-mix(in srgb, var(--on-fill-accent) 85%, transparent);
+  background: color-mix(in srgb, var(--on-fill-accent) 18%, transparent);
 }
 /* Sits with the verdict heading rather than under the submit: a full-width
    lg button spent a whole row of docked height on the least-used control. */

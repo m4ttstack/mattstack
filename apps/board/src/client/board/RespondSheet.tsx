@@ -60,15 +60,18 @@ import {
   respondPerson,
   subjectRef,
 } from './RespondGateHeader.tsx';
+import { useSheetKeys } from './sheet-keys.ts';
 import { sheetAnswers } from './sheet-payload.ts';
 import {
   Choices,
+  KeyCap,
   Note,
   ProseContext,
   reserveDock,
   RoundHeading,
   SheetLost,
   SheetRows,
+  SUBMIT_KEYS,
   type RowChip,
   type SheetRow,
 } from './SheetParts.tsx';
@@ -751,6 +754,10 @@ function RespondSheetBody({
           : [`post ${repliesPicked + withStep}`, dockPick]
               .filter(Boolean)
               .join(' · ');
+  const canSubmit = !form.lost && !form.busy && payload !== null;
+  useSheetKeys({
+    onSubmit: canSubmit ? () => void form.submit(payload) : undefined,
+  });
 
   return (
     <div className="tui-sheet-body">
@@ -1019,10 +1026,11 @@ function RespondSheetBody({
                 intent="accent"
                 size="lg"
                 className="tui-sheet-submit"
-                disabled={form.busy || payload === null}
+                disabled={!canSubmit}
                 onClick={() => void form.submit(payload)}
               >
                 {submitLabel}
+                {!form.busy && <KeyCap keys={SUBMIT_KEYS} onFill />}
               </Button>
               {impliedCodeChanges && !revising && (
                 <button
