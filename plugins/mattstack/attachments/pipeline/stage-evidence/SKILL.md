@@ -348,7 +348,7 @@ drawn yet (a ticket image's board is drawn at Record), it opens through
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `boards` (write-in) | **Nothing here should stay private** / **Hide something first**, with free text naming the board and what shows; no option recommended, since only the human, looking at the boards, can say | a board is drawn |
+| `boards` (write-in) | **Nothing here should stay private** / **Hide something first**, with free text naming the board and what shows; no option recommended, since only the human, looking at the boards, can say | a board is drawn that is not a mock-data board (browser-evidence, Confirm a mock-data board) |
 | `annotations` | the proposed labels per board, each written `<TAG> \| <title> \| <description>` (browser-evidence, Labels), multi-select, all pre-selected; an image left with nothing selected goes to the waiver question (evidence record below); split `annotations-1`, ... over 4 | always |
 | `attach` (write-in) | **Hand back the markdown (Recommended)** (ship attaches) / **Attach to the MR now** | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
@@ -358,7 +358,8 @@ Selection: `{"boards":"clear|hide|<their words>|null","annotations":[...],"attac
 **Hide something first**, or words naming a board, is a revision of that
 board as under Iterate here, adding a `redact` mark over what they name;
 then this gate is asked again. `Attach the evidence` still shows every
-board at its evidence-boards gate before anything goes up, these included.
+board but a mock-data board at its evidence-boards gate before anything
+goes up, these included.
 
 For a board not yet drawn (a ticket image, a non-browser image), the kept
 labels are its brief's `point at`. A browser case's board is already
