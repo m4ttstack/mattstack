@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { ActiveRun, BoardMRWithReview } from '../../types.ts';
-import { activeRunConfirmFor } from '../run-guard.ts';
+import { activeRunConfirmFor, runParent } from '../run-guard.ts';
 
 const RUN: ActiveRun = { runId: 'run-7', stage: 'implement', name: 'Pip' };
 const mr = (activeRun?: ActiveRun) =>
@@ -33,5 +33,15 @@ describe('activeRunConfirmFor', () => {
       'resume-respond',
     ] as const)
       expect(activeRunConfirmFor(flow, {}, mr(RUN))).toBeNull();
+  });
+});
+
+describe('runParent', () => {
+  test("names the parent by iid, else by branch, else it is this MR's own", () => {
+    expect(runParent({ ...RUN, viaIid: 1400, viaBranch: 'feature/p' })).toBe(
+      '!1400'
+    );
+    expect(runParent({ ...RUN, viaBranch: 'feature/p' })).toBe('feature/p');
+    expect(runParent(RUN)).toBeNull();
   });
 });

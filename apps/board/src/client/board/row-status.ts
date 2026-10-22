@@ -659,15 +659,31 @@ function settled(
     handoffs whose edge still holds, so the line clears with the edge. */
 function handoffLine(mr: BoardMRWithReview): Candidate | null {
   const handoffs = Object.values(mr.handoffs ?? {});
-  const [first] = handoffs;
-  if (!first) return null;
-  const parent = handoffs.some(h => h.viaMr !== mr.webUrl);
+  if (handoffs.length === 0) return null;
+  const own = handoffs.find(h => h.viaMr === mr.webUrl);
   return {
     tone: 'quiet',
-    word: 'handed to worker',
-    detail: parent ? "parent's worker" : first.stage || undefined,
+    word: HANDED_TO_WORKER,
+    detail: own
+      ? own.stage
+        ? `stage ${own.stage}`
+        : undefined
+      : "parent's worker",
     verbs: [],
   };
+}
+
+const HANDED_TO_WORKER = 'handed to worker';
+
+/** The worker already holds every repair the author's line would offer the
+    doctor for. */
+function repairHandedOff(mr: BoardMRWithReview): boolean {
+  const b = mr.blockers;
+  const h = mr.handoffs ?? {};
+  if (!h['pipeline-red'] && !h['needs-rebase']) return false;
+  if (b.pipelineFailing && !h['pipeline-red']) return false;
+  if ((b.hasConflicts || b.needsRebase) && !h['needs-rebase']) return false;
+  return true;
 }
 
 function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
@@ -1026,7 +1042,9 @@ export function candidateLines(
     ];
   if (!mine) return lines.map(withoutAuthorVerbs);
   const standing = self !== null ? authorLine(mr, self) : null;
-  return standing?.repair ? [...lines, standing] : lines;
+  const handed =
+    lines.some(l => l.word === HANDED_TO_WORKER) && repairHandedOff(mr);
+  return standing?.repair && !handed ? [...lines, standing] : lines;
 }
 
 const TONE_RANK: Record<Tone, number> = {

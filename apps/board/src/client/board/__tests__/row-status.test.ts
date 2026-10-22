@@ -1309,9 +1309,72 @@ describe('rowStatus: doctor lane', () => {
     expect(line).toEqual({
       tone: 'quiet',
       word: 'handed to worker',
-      detail: 'implement',
+      detail: 'stage implement',
       verbs: [],
     });
+  });
+
+  test("an own handoff's stage outranks a parent's", () => {
+    const [line] = candidateLines(
+      mr({
+        handoffs: {
+          'needs-rebase': handoff({
+            viaMr:
+              'https://gitlab.example.com/acme/webapp/-/merge_requests/1400',
+          }),
+          'pipeline-red': handoff({ stage: 'self-review' }),
+        },
+      } as Over),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ detail: 'stage self-review' });
+  });
+
+  test('a handoff outranks a finished or stuck doctor', () => {
+    for (const doctor of [
+      { status: 'done', updatedAt: NOW - 60_000 },
+      { status: 'error' },
+    ]) {
+      const [line] = candidateLines(
+        mr({ doctor, handoffs: { 'pipeline-red': handoff() } } as Over),
+        NOW,
+        NONE,
+        ME
+      );
+      expect(line).toMatchObject({ word: 'handed to worker' });
+    }
+  });
+
+  test("a live CI handoff replaces the author's call-doctor repair", () => {
+    const s = rowStatus(
+      own({
+        ...blockedBy({ pipelineFailing: true }),
+        handoffs: { 'pipeline-red': handoff() },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.line).toMatchObject({ word: 'handed to worker' });
+    expect(s.more.map(l => l.word)).not.toContain('needs a ci fix');
+    expect(
+      [s.line, ...s.more].flatMap(l => l.verbs.map(v => v.kind))
+    ).not.toContain('call-doctor');
+  });
+
+  test('a CI handoff leaves a rebase repair the worker was not handed', () => {
+    const s = rowStatus(
+      own({
+        ...blockedBy({ pipelineFailing: true, needsRebase: true }),
+        handoffs: { 'pipeline-red': handoff() },
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.more.map(l => l.word)).toContain('needs a rebase and a ci fix');
   });
 
   test("parent handoff says parent's worker", () => {

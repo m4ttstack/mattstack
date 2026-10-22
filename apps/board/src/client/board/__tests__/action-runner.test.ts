@@ -548,6 +548,26 @@ test('a bulk doctor skips MRs a live work run owns and names them', async () => 
   ]);
 });
 
+test('a bulk local rebase skips MRs a live work run owns too', async () => {
+  const { deps, events } = fakeDeps();
+  deps.activeRun = (_flow, m) =>
+    m.iid === 2 ? { runId: 'run-7', stage: 'implement', name: 'Pip' } : null;
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'rebase-local' },
+      targets: [mr(1), mr(2)],
+      selected: 2,
+    },
+    {},
+    deps
+  );
+  expect(events).toEqual([
+    'launch rebase-local !1 {"quiet":true}',
+    "toast local rebase started on !1 · skipped !2, Pip's run is active",
+    'reload false',
+  ]);
+});
+
 test('the live-run skip never filters a review bulk run', async () => {
   const { deps, events } = fakeDeps();
   deps.activeRun = () => ({ runId: 'run-7', stage: 'implement' });

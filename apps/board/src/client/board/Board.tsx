@@ -786,15 +786,31 @@ export function Board() {
     (mr: BoardMR) => void launch('resume-review', mr),
     [launch]
   );
+  // A doctor redo on an MR a live run owns asks the live-run question
+  // instead; its "Launch doctor anyway" stands in for the redo.
+  const askRedo = useCallback(
+    (pending: PendingRedo, flow: LaunchFlow | null, mr: BoardMR) => {
+      const run = flow
+        ? activeRunConfirmFor(flow, {}, mr as BoardMRWithReview)
+        : null;
+      if (!run) return setPendingRedo(pending);
+      setPendingRun({
+        run,
+        iid: mr.iid,
+        ring: () => ringWorker(mr),
+        launch: pending.run,
+      });
+    },
+    [ringWorker]
+  );
   const handleRedo = useCallback(
     (mr: BoardMR, lane: 'review' | 'respond' | 'doctor') =>
-      setPendingRedo({
+      askRedo(
+        { lane, count: 1, prior: 1, run: () => void launch(lane, mr) },
         lane,
-        count: 1,
-        prior: 1,
-        run: () => void launch(lane, mr),
-      }),
-    [launch]
+        mr
+      ),
+    [askRedo, launch]
   );
 
   // A gate's "focus pane" escape hatch: jump into whichever domain's pane
@@ -1150,20 +1166,27 @@ export function Board() {
       const redoLane = action.redo ?? (answered?.open === 0 ? 'respond' : null);
       if (redoLane) {
         const lane = redoLane;
-        setPendingRedo({
-          lane,
-          count: 1,
-          prior: 1,
-          who: answered && { name: answered.name, round: answered.nextRound },
-          run: () =>
-            void dispatchRowAction(
-              req,
-              mr,
-              opts,
-              { ...runner, launch },
-              rowHandlers
-            ),
-        });
+        askRedo(
+          {
+            lane,
+            count: 1,
+            prior: 1,
+            who: answered && {
+              name: answered.name,
+              round: answered.nextRound,
+            },
+            run: () =>
+              void dispatchRowAction(
+                req,
+                mr,
+                opts,
+                { ...runner, launch },
+                rowHandlers
+              ),
+          },
+          req.kind === 'launch' ? req.flow : null,
+          mr
+        );
         return undefined;
       }
       if (req.kind !== 'ask') {
@@ -1184,7 +1207,7 @@ export function Board() {
       });
       return undefined;
     },
-    [runner, launch, rowHandlers]
+    [runner, launch, rowHandlers, askRedo]
   );
 
   // Poll faster while a review, response, or doctor run is active, or a fired
@@ -2046,7 +2069,6 @@ export function Board() {
                           ...runner,
                           launch,
                           presence: () => null,
-                          activeRun: () => null,
                         }),
                     });
                     return undefined;

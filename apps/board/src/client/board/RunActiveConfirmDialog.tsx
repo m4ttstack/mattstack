@@ -9,6 +9,13 @@ export interface PendingRun {
   launch: () => void;
 }
 
+export function runDialogTitle(run: ActiveRun, iid: number): string {
+  const parent = runParent(run);
+  if (run.name)
+    return `${run.name}'s run is active on ${parent ? 'the parent branch' : 'this branch'}`;
+  return `A work run is active on ${parent ?? `!${iid}`}`;
+}
+
 function whereLine(run: ActiveRun): string | null {
   const parent = runParent(run);
   const stage = run.stage ? `at its ${run.stage} stage` : null;
@@ -27,17 +34,13 @@ export function RunActiveConfirmDialog({
   pending: PendingRun | null;
   onDone: () => void;
 }) {
-  const run = pending?.run;
-  const title = run?.name
-    ? `${run.name}'s run is active on this branch`
-    : `A work run is active on !${pending?.iid ?? ''}`;
-  const where = run ? whereLine(run) : null;
+  const where = pending ? whereLine(pending.run) : null;
   return (
     <ConfirmDialog
       open={pending !== null}
       intent="accent"
       confirmVariant="filled"
-      title={title}
+      title={pending ? runDialogTitle(pending.run, pending.iid) : ''}
       confirmLabel="Ring worker"
       cancelLabel="Cancel"
       onConfirm={() => {
@@ -47,9 +50,11 @@ export function RunActiveConfirmDialog({
       onCancel={onDone}
     >
       {where && <p>{where}</p>}
-      <p>Ringing hands the worker this MR's CI or rebase. No doctor starts.</p>
+      <p>
+        Ring worker tells the worker what this MR needs, and no doctor starts.
+      </p>
       <Button
-        variant="subtle"
+        variant="outline"
         intent="muted"
         size="sm"
         onClick={() => {
