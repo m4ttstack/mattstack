@@ -4280,7 +4280,12 @@ a.tui-id-card-ref:focus-visible {
   --diffs-line-height: 1.6;
   --diffs-min-number-column-width: 4ch;
 }
-/* The full file diff over the sheet. */
+/* The full file diff over the sheet, centred: the kit's top-anchored
+   overlay would leave a 90vh frame hugging the bottom edge. */
+.tui-diff-overlay {
+  align-items: center;
+  padding: 1rem;
+}
 .tui-diff-modal {
   width: 96vw;
   max-width: 1100px;
