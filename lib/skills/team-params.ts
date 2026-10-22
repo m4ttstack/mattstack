@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { basename, join } from "path";
-import { stripJsonc } from "./sources.ts";
+import { stripJsonc } from "../jsonc.ts";
 
 export type TeamValues = {
   plugin: string;

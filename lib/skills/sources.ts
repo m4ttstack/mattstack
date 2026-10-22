@@ -9,6 +9,7 @@ import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
 import { findPlaceholders } from "./placeholders.ts";
+import { firstTeamMarker } from "./team-params.ts";
 import { fillsDiffer, normalizePipelines, pipelineNameError, stageCopyName, type BindingsMap } from "./pipelines.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
@@ -433,7 +434,9 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
   }
 
   const skillMdPath = join(foundDir, "SKILL.md");
-  const { body, frontmatter, bodyStartLine } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
+  const raw = readFileSync(skillMdPath, "utf8");
+  const { body, frontmatter, bodyStartLine } = stripFrontmatter(raw);
+  const frontmatterHit = firstTeamMarker(raw.match(FRONTMATTER_RE)?.[0] ?? "");
 
   const metadata = frontmatter.metadata && typeof frontmatter.metadata === "object"
     ? (frontmatter.metadata as Record<string, unknown>)
@@ -444,6 +447,7 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
   }
 
   return {
+    ...(frontmatterHit ? { frontmatterTeamMarker: { raw: frontmatterHit.raw, line: frontmatterHit.lineIndex + 1 } } : {}),
     binding,
     plugin,
     version: pluginRoot.version,

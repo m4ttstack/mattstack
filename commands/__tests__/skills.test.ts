@@ -1976,6 +1976,31 @@ describe("base pack attachments", () => {
       expect(stderr).toContain("team markers only resolve in a body, not frontmatter");
     });
 
+    test("a team marker in a base fill's description refuses with the file line instead of being dropped with the frontmatter", async () => {
+      const { packDir, compile, setValues } = seedTeamValues({ domainBody: DOMAIN_WITH_TEAM.replace('"Domain rules for watch-ci"', '"Domain rules for {{team.linear-team}}"'), ciNotes: false });
+      setValues({ "linear-team": "Widgets" });
+
+      const { exitCode, errors } = await compile();
+
+      expect(exitCode).toBe(1);
+      expect(errors.join("\n")).toContain("acme-base:watch-ci-domain: {{team.linear-team}} -- team markers only resolve in a body, not frontmatter (line 3)");
+      expect(existsSync(join(packDir, "skills"))).toBe(false);
+    });
+
+    test("a team marker in a compile-native stage fill's description refuses with the file line", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-native-")));
+      cpSync(join(import.meta.dir, "..", "..", "lib", "skills", "__tests__", "fixtures", "compile-native"), root, { recursive: true });
+      const fill = join(root, "pack", "attachments", "plan-policy", "SKILL.md");
+      writeFile(fill, readFileSync(fill, "utf8").replace('description: "plan-policy"', 'description: "plan-policy for {{team.x}}"'));
+      const ms = join(root, "mattstack-home");
+      const flags = ["--pack-dir", join(root, "pack"), "--mattstack-dir", ms, "--manifest", join(ms, "repos", "my-repo", "skills.jsonc")];
+
+      const { exitCode, stderr } = await runSkillsCapturing(["compile", ...flags, "--verb", "stage-plan", "--dry-run"]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("{{team.x}} -- team markers only resolve in a body, not frontmatter (line 3)");
+    });
+
     test("requiredness follows each emitted target: a stage copy overridden to a team fill does not need the base fill's values", async () => {
       const { packDir, mattstackDir, setValues } = seedTeamValues({ ciNotes: false });
       writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"), slottedStageMd("{{slot:domain}}"));

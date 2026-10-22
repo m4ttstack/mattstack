@@ -31,6 +31,8 @@ export type AttachmentSource = {
   allowedTools: string[];
   extraFiles: string[]; // non-SKILL.md files relative to dir, vendored under parts/<slot>/
   registered: boolean; // true = top-level skill under skills/, referenced not inlined; false = internal attachment under attachments/, inlined
+  /** The first team marker in the file's frontmatter, kept because the body handed to compile has none of it. */
+  frontmatterTeamMarker?: { raw: string; line: number };
 };
 
 /** `pipeline` is the pipeline a work verb runs, or the one a stage copy compiles for. */

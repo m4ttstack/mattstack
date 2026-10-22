@@ -54,6 +54,7 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
  * from where the fill's body starts in its source file.
  */
 export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext | null | undefined): string {
+  assertNoTeamMarkerInFrontmatter(fill);
   const hit = firstTeamMarker(fill.body);
   if (!hit) return fill.body;
   if (team && team.basePlugins.has(fill.plugin)) {
@@ -64,8 +65,10 @@ export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext
   throw new Error(`${fill.binding}: ${hit.raw} -- team markers only resolve in base pack text (line ${line})`);
 }
 
-/** A fill's allowed-tools land in compiled frontmatter, where a marker would ship unresolved. */
-export function assertNoTeamMarkerInTools(fill: AttachmentSource): void {
+/** Compile drops a fill's frontmatter except allowed-tools, which lands in compiled frontmatter unresolved, so a marker anywhere in it would never resolve. */
+export function assertNoTeamMarkerInFrontmatter(fill: AttachmentSource): void {
+  const marker = fill.frontmatterTeamMarker;
+  if (marker) throw new Error(`${fill.binding}: ${marker.raw} -- team markers only resolve in a body, not frontmatter (line ${marker.line})`);
   for (const tool of fill.allowedTools) {
     const hit = firstTeamMarker(tool);
     if (hit) throw new Error(`${fill.binding}: ${hit.raw} -- team markers only resolve in a body, not frontmatter`);
