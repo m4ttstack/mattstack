@@ -923,6 +923,31 @@ describe('GatePanel: a boards gate', () => {
     );
   });
 
+  it('pages through every board from the one it opened on', async () => {
+    renderPanel(boardsGate());
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Open rush-window/before full size',
+      })
+    );
+    const dialog = await screen.findByRole('dialog');
+    const shown = () => within(dialog).getByRole('img').getAttribute('src');
+    expect(within(dialog).getByText('1 / 2')).toBeInTheDocument();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(shown()).toBe(src(`${dir}/r-after.png`));
+    expect(within(dialog).getByText('2 / 2')).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Next board' })
+    ).toBeDisabled();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Previous board' })
+    );
+    expect(shown()).toBe(src(`${dir}/r-before.png`));
+    expect(within(dialog).getByRole('heading')).toHaveTextContent(
+      'rush-window/before'
+    );
+  });
+
   it('still draws a markdown image in prose context as its alt text only', () => {
     renderPanel(
       gateRow({ context: 'See ![the board](https://example.test/board.png)' })

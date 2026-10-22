@@ -283,6 +283,7 @@ describe('the state scenarios', () => {
           'org-base',
           'org-base-drift',
           'stale-copy',
+          'team-sections',
         ].includes(scenario)
       ) {
         const report = await runRt(pack('check'));
@@ -515,6 +516,35 @@ describe('the pipeline scenarios', () => {
           layer: 'base:acme-base',
         },
       ],
+    });
+  });
+});
+
+describe('the team-sections scenario', () => {
+  const json = async <T>(argv: string[]) =>
+    JSON.parse((await fixtureRt('team-sections').runRt(argv)).stdout) as T;
+
+  it("lists two sections right after plan's domain slot", async () => {
+    const anatomy = await json<typeof anatomyPlan>(
+      pack('anatomy', '--skill', 'stage-plan')
+    );
+    const at = anatomy.parts.findIndex(part => part.name === 'domain');
+    expect(
+      anatomy.parts
+        .slice(at, at + 3)
+        .map(part => [part.kind, part.name, part.changed])
+    ).toEqual([
+      ['slot', 'domain', true],
+      ['section', 'ci-extra', false],
+      ['section', 'release-rules', true],
+    ]);
+  });
+
+  it('check calls plan stale on team values', async () => {
+    const report = await json<typeof check>(pack('check'));
+    expect(report.verbs.find(row => row.name === 'stage-plan')).toMatchObject({
+      status: 'stale',
+      staleBecause: ['team'],
     });
   });
 });

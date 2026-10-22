@@ -339,6 +339,43 @@ describe('usedBySites', () => {
 });
 
 describe('builtFrom', () => {
+  it('lists a team section as its own team values row', () => {
+    const anatomy = designFixture('anatomy.stage-plan');
+    const domain = anatomy.parts.find(part => part.name === 'domain')!;
+    const section = {
+      ...domain,
+      kind: 'section' as const,
+      name: 'ci-extra',
+      templateLines: null,
+      mode: null,
+      changed: true,
+      source: {
+        ref: 'widgets:pack/sections/ci-extra.md',
+        path: '/fixture/packs/widgets/pack/sections/ci-extra.md',
+        version: '0.4.0',
+        builtVersion: '0.4.0',
+        lines: 2,
+      },
+    };
+    const row = designFixture('check').verbs.find(
+      verb => verb.name === 'stage-plan'
+    )!;
+    const rows = builtFrom(
+      {
+        ...anatomy,
+        parts: anatomy.parts.flatMap(part =>
+          part === domain ? [part, section] : [part]
+        ),
+      },
+      { ...row, status: 'stale', staleBecause: ['team'] }
+    );
+    expect(rows.find(r => r.kind === 'team values')).toMatchObject({
+      name: 'ci-extra',
+      file: 'sections/ci-extra.md',
+      status: 'changed',
+    });
+  });
+
   it('reads every file plan was built from as unchanged or current', () => {
     const rows = builtFrom(
       designFixture('anatomy.stage-plan'),
