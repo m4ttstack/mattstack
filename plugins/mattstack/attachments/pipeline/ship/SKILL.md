@@ -601,6 +601,10 @@ watched sha with no prior pipeline id.
 
 ### Capture the AFTER with the browser (ship, browser-evidence)
 
+Ship captures no BEFORE: a BEFORE is only what the evidence record
+already holds, taken before implementation changed the surface, so a case
+with no bundled BEFORE gets an AFTER board alone.
+
 `Browser screenshot for this case (ship)?` is yes when the domain has a
 `## Browser target` section (in its rules, or in the file they point at
 for it) and either its What proves a change names a view for this case's
@@ -719,7 +723,7 @@ are not).
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always; **Go back** only in an inherited run |
 | `to` | one option per earlier stage; with one candidate, **Go back to `<stage>`** in `next` instead | Go back, with more than one earlier stage in `run_snapshot` |
 
-Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
+Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|go-back|hold","to":"<stage or null>","note":"<their words or null>"}`.
 The first Iterate opens a new gate with the note; the second ends the
 verb done, the MR a draft, the note quoted in the report.
 

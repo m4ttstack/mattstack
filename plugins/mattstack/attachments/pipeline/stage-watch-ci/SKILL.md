@@ -21,10 +21,11 @@ Run state: the orchestrator opens and closes this stage, so never write
 `run_field_get`; every `stage` argument is `"watch-ci"`. Write `ci` once a
 verdict exists; a failure's `detailPath` is the triage report.
 
-`<mr>` is `mr`'s https URL. Every CI tool takes `mrUrl: <mr>`; `mr_view`
-and `mr_ready` take `repoName` = this worktree's absolute path and the iid
-in `mr`. `<N>` is the number in `ci_watch`'s `pipeline.id`
-(`gitlab:pipeline:N`).
+`<mr>` is `mr`'s https URL. Every CI tool takes `mrUrl: <mr>`; `ci_watch`,
+`ci_triage`, `pipeline_jobs`, `mr_job_trace` and `mr_retry` take
+`repoName` = this worktree's absolute path and the iid in `mr` in its
+place as the same call, as do `mr_view` and `mr_ready`. `<N>` is the
+number in `ci_watch`'s `pipeline.id` (`gitlab:pipeline:N`).
 
 ```dot
 digraph watch_ci {
@@ -410,12 +411,11 @@ verdict and a one-line triage per blocking failure.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in your change; from the third one in a run the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
+| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in your change; when every blocking failure is INHERITED, or from the third one in a run, the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
 | `next` | **Proceed** / **Iterate here** / **Go back to `<stage>`** / **Hold** | always |
 
-Selection: `{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
-An `action` write-in adds `"action": {"writeIn": "<their words>"}`, and
-`next` records `iterate`, or the Hold or Go back that won.
+Selection: `{"action":"fix|retry|handback|abandon","next":"proceed|iterate|go-back|hold","to":"<stage or null>","note":"<their words or null>"}`.
+An `action` write-in records `{"writeIn": "<their words>"}` as `action`.
 
 ### Gate mark-ready
 
@@ -428,7 +428,7 @@ One sentence above the form: CI is green for the MR's head, and whether
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | `to` | one option per earlier stage | Go back, with more than one earlier stage row |
 
-Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
+Selection: `{"ready":true|false,"next":"proceed|iterate|go-back|hold","to":"<stage or null>","note":"<their words or null>"}`.
 
 ## What the graph cannot show
 
@@ -486,10 +486,14 @@ noise, ownership), judged at `Classify the triage report`, where it may
 move a job between REAL and INFRA; it never watches, claims, releases,
 retries or pushes. A rule that runs `<scripts>/ci-triage.sh` is the move
 `STOP: GitLab triage goes through ci_triage` redirects: call `ci_triage`
-with `pipelineId: <N>` (never the ref's newest pipeline) and the rule's
-`--config` file's keys as `config`, its only source (the file sits under
-`parts/domain/`). `<forge> jobs` goes to `pipeline_jobs`;
-`ci-attendant.sh` or `ci-watch.sh` to `ci_watch`.
+with `pipelineId: <N>` (never the ref's newest pipeline). `<forge> jobs`
+goes to `pipeline_jobs`; `ci-attendant.sh` or `ci-watch.sh` to
+`ci_watch`. `ci_triage` reads its REAL and INFRA patterns, noisy jobs
+and base settings from the `ci.triage.*` settings, on top of its built-in
+patterns, so a rule's `--config` flag names no file to read. `config` carries only
+what a rule states outright: `real-patterns`, `infra-patterns` and
+`noisy-jobs` (string arrays) add to the settings; `base-depth`, `base-ref`
+and `skip-base` replace them.
 
 {{slot:domain}}
 
