@@ -987,24 +987,27 @@ async function claimTriageMemory(): Promise<string | false> {
 }
 
 /** Clears an MR's handoffs once a doctor launch has resolved, so a launch
-    that fails leaves the edge with the worker it was handed to. */
+    that fails leaves the edge with the worker it was handed to. Never
+    rejects: it runs detached, and an unhandled rejection exits the server. */
 async function clearHandoffsAfterLaunch(mrUrl: string): Promise<void> {
-  if (!readMemory().mrs[mrUrl]?.handoffs) return;
-  const claimed = await claimTriageMemory();
-  if (claimed === false) {
-    console.error(
-      `doctor launch: triage busy, handoffs on ${mrUrl} not cleared`
-    );
-    return;
-  }
   try {
-    clearHandoffs(mrUrl);
+    if (!readMemory().mrs[mrUrl]?.handoffs) return;
+    const claimed = await claimTriageMemory();
+    if (claimed === false) {
+      console.error(
+        `doctor launch: triage busy, handoffs on ${mrUrl} not cleared`
+      );
+      return;
+    }
+    try {
+      clearHandoffs(mrUrl);
+    } finally {
+      releaseCron(claimed);
+    }
   } catch (err) {
     console.error(
       `doctor launch: clearing handoffs on ${mrUrl} failed: ${err instanceof Error ? err.message : err}`
     );
-  } finally {
-    releaseCron(claimed);
   }
 }
 

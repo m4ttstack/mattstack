@@ -150,6 +150,7 @@ const CLEAN = url(45);
 const RED_ONLY = url(46);
 const IN_FLIGHT = url(47);
 const FAILED_LAUNCH = url(48);
+const UNREADABLE = url(49);
 
 const prs = [
   fakePr({ iid: 43, conflicts: true }),
@@ -158,6 +159,7 @@ const prs = [
   fakePr({ iid: 46, failedPipeline: 9046 }),
   fakePr({ iid: 47, failedPipeline: 9047 }),
   fakePr({ iid: 48, failedPipeline: 9048 }),
+  fakePr({ iid: 49, failedPipeline: 9049 }),
   fakePr({ iid: 31, failedPipeline: 9031 }),
   fakePr({ iid: 32, conflicts: true }),
   fakePr({ iid: 33, failedPipeline: 9033, conflicts: true }),
@@ -213,6 +215,21 @@ const runs = [
 ];
 
 let runsListFails = false;
+/** Parks UNREADABLE's agent:start until the test lets it resolve. */
+const heldLaunch = (() => {
+  let reach: () => void = () => {};
+  let release: () => void = () => {};
+  const reachedP = new Promise<void>(r => (reach = r));
+  const releasedP = new Promise<void>(r => (release = r));
+  return {
+    reachedP,
+    release,
+    reached: () => {
+      reach();
+      return releasedP;
+    },
+  };
+})();
 const rings: Array<{ session: string; label: string; text: string }> = [];
 const daemonSeen: string[] = [];
 
@@ -303,6 +320,7 @@ const rtDaemon = Bun.serve({
       });
     if (cmd === 'agent:start') {
       const subject = String(body?.subject ?? '');
+      if (subject.endsWith(UNREADABLE)) await heldLaunch.reached();
       return subject.endsWith(FAILED_LAUNCH)
         ? Response.json({ ok: false, error: 'herdr is not running' })
         : Response.json({
@@ -645,4 +663,26 @@ test('the snapshot carries activeRun and only live handoffs', async () => {
   const stale = all.find(r => r.webUrl === STALE)!;
   expect(Object.keys(stale.handoffs ?? {})).toEqual(['needs-rebase']);
   expect(all.find(r => r.webUrl === NOBODY)!.handoffs).toBeUndefined();
+}, 15_000);
+
+test('a handoff clear whose memory read throws after a launch keeps the server up', async () => {
+  await ready();
+  const res = await doctor({ mrUrl: UNREADABLE, iid: iidOf(UNREADABLE) });
+  expect(res.status).toBe(200);
+  await heldLaunch.reachedP;
+  db.run('ALTER TABLE kv RENAME TO kv_hidden');
+  try {
+    heldLaunch.release();
+    for (
+      let i = 0;
+      i < 50 && readDoctorStates(db).get(UNREADABLE)?.paneId !== 'p1';
+      i++
+    )
+      await new Promise(r => setTimeout(r, 20));
+    await new Promise(r => setTimeout(r, 200));
+  } finally {
+    db.run('ALTER TABLE kv_hidden RENAME TO kv');
+  }
+  expect(proc.exitCode).toBeNull();
+  expect((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok).toBe(true);
 }, 15_000);
