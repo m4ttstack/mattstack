@@ -9,6 +9,7 @@ import { boardPeerTriggerMigration } from "./board-peer-trigger.ts";
 import { enableTeamPackMigration } from "./enable-team-pack.ts";
 import { importAppSettingsMigration } from "./import-app-settings.ts";
 import { importLegacySettingsMigration } from "./import-legacy-settings.ts";
+import { retireOldBgServerMigration } from "./retire-old-bg-server.ts";
 import { retireSwitchboardUrlMigration } from "./retire-switchboard-url.ts";
 import { sdmResourcesKeyMigration } from "./sdm-resources-key.ts";
 import { unsetSetting } from "../../settings/write.ts";
@@ -46,6 +47,7 @@ export const MIGRATIONS: MigrationDef[] = [
   importLegacySettingsMigration,
   importAppSettingsMigration,
   enableTeamPackMigration,
+  retireOldBgServerMigration,
 ];
 
 export function migrationEventId(id: string): MigrationEventId {
