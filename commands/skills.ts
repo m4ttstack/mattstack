@@ -1720,7 +1720,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // With a value missing, the text compared above has holes, so a stale row says nothing a compile would fix.
   const missing = missingOf(resolved.teamContext);
   if (missing.length > 0) {
-    compileErrors.push(missingValuesFailure(resolved.team, missing).title);
+    const shown = missingValuesFailure(resolved.team, missing);
+    compileErrors.push(shown.title, ...shown.details.split("\n"));
     anyStale = true;
     for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.status === "stale") rows.splice(i, 1);
   }

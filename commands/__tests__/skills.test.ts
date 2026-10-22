@@ -4,7 +4,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { checkPack, compilePackAll, computeRows, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
+import { checkBlocks, checkPack, compilePackAll, computeRows, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
 import { compileSkill, HEADER_COMMENT } from "../../lib/skills/compile.ts";
 import { setFieldContractSeverityForTest } from "../../lib/skills/field-contract.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
@@ -15,6 +15,7 @@ import type { VerbDef } from "../../lib/skills/types.ts";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import * as ui from "../../lib/ui/out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 import { TEAM_MARKERS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
 
@@ -1822,6 +1823,8 @@ describe("base pack attachments", () => {
 
       expect(payload.drift).toBe(true);
       expect(payload.compileErrors).toContain(TITLE);
+      expect(payload.compileErrors).toContain("pack/params.jsonc: linear-team (acme-base:watch-ci-domain)");
+      expect(renderPlain(checkBlocks(payload, false))).toContain("pack/params.jsonc: linear-team (acme-base:watch-ci-domain)");
       expect(payload.verbs.filter((row) => row.status === "stale")).toEqual([]);
       expect(payload.attachments.filter((row) => row.status === "stale")).toEqual([]);
     });

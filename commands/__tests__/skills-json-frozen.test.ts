@@ -95,7 +95,10 @@ test("skills check --json with missing team values keeps its keys and names the 
   await skillsCheck(["--pack-dir", makeTeamPackMissingASection(), "--json"]);
   const { value } = oneJsonLine();
   expect(Object.keys(value).slice(-4)).toEqual(["attachments", "baseErrors", "compileErrors", "fieldContract"]);
-  expect((value.compileErrors as string[])[0]).toBe("The widgets pack is missing values the acme-base pack asks for");
+  expect((value.compileErrors as string[]).slice(0, 2)).toEqual([
+    "The widgets pack is missing values the acme-base pack asks for",
+    "pack/sections/ci-extra.md (acme-base:attachments/ci-notes/SKILL.md)",
+  ]);
   expect(process.exitCode).toBe(1);
 });
 
