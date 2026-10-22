@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultPipeline, effectiveSlotBindings, fillsDiffer, normalizePipelines, PIPELINE_NAME_RE, pipelineBindingKey, pipelineNameError, stageCopyName } from "../pipelines.ts";
+import { defaultPipeline, effectiveBindings, effectiveSlotBindings, fillsDiffer, normalizePipelines, PIPELINE_NAME_RE, pipelineBindingKey, pipelineNameError, stageCopyName } from "../pipelines.ts";
 
 describe("normalizePipelines", () => {
   test("a plain list gives stages and no bindings", () => {
@@ -105,5 +105,28 @@ describe("defaultPipeline", () => {
   });
   test("null when empty", () => {
     expect(defaultPipeline({})).toBeNull();
+  });
+});
+
+describe("effectiveBindings", () => {
+  const KEY = "mattstack:ship/flow/fast-checks";
+  const defaults = { [KEY]: { rules: [{ layer: "base:acme-base", value: "acme-base:r" }, { layer: "pack", value: "widgets:r" }], domain: [{ layer: "pack", value: "widgets:d" }] } };
+
+  test("a pipeline's layered values follow the top-level ones per prop", () => {
+    const overrides = { [KEY]: { rules: [{ layer: "pack", value: "" }, { layer: "override", value: "me:r" }] } };
+    expect(effectiveBindings(defaults, overrides, KEY)).toEqual({
+      rules: [
+        { layer: "base:acme-base", value: "acme-base:r" },
+        { layer: "pack", value: "widgets:r" },
+        { layer: "pack", value: "" },
+        { layer: "override", value: "me:r" },
+      ],
+      domain: [{ layer: "pack", value: "widgets:d" }],
+    });
+  });
+
+  test("no overrides, or an unknown key, gives the top level or nothing", () => {
+    expect(effectiveBindings(defaults, undefined, KEY)).toEqual(defaults[KEY]);
+    expect(effectiveBindings(defaults, undefined, "__proto__")).toEqual({});
   });
 });

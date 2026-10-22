@@ -3,13 +3,73 @@
   "$id": "https://mattstack.dev/schemas/skills-manifest.schema.json",
   "title": "mattstack bindings manifest (pack/skills.jsonc fragment or generated packs/<pack>/skills.jsonc)",
   "description": "Consumer-repo manifest: enabled stack skills, the pipeline stage roster, and slot bindings for parameterized skills. JSONC: JSON plus full-line // comments; no trailing commas.",
-  "type": "object",
-  "required": ["version"],
-  "additionalProperties": false,
-  "properties": {
-    "version": {
-      "const": 1,
-      "description": "Manifest format version. This schema describes version 1."
+  "oneOf": [
+    {
+      "$ref": "#/definitions/manifestV1"
+    },
+    {
+      "$ref": "#/definitions/manifestV2"
+    }
+  ],
+  "definitions": {
+    "manifestV1": {
+      "type": "object",
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Manifest format version 1: slot bindings keyed by engine ref."
+        },
+        "extends": {
+          "$ref": "#/definitions/extends"
+        },
+        "base": {
+          "$ref": "#/definitions/base"
+        },
+        "skills": {
+          "$ref": "#/definitions/skills"
+        },
+        "pipelines": {
+          "$ref": "#/definitions/pipelines"
+        },
+        "bindings": {
+          "$ref": "#/definitions/bindings"
+        }
+      }
+    },
+    "manifestV2": {
+      "type": "object",
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 2,
+          "description": "Manifest format version 2: binding keys may carry a block path, values may name one file of a skill, and a generated file carries layered."
+        },
+        "extends": {
+          "$ref": "#/definitions/extends"
+        },
+        "base": {
+          "$ref": "#/definitions/base"
+        },
+        "skills": {
+          "$ref": "#/definitions/skills"
+        },
+        "pipelines": {
+          "$ref": "#/definitions/pipelinesV2"
+        },
+        "bindings": {
+          "$ref": "#/definitions/bindingsV2"
+        },
+        "layered": {
+          "$ref": "#/definitions/layered"
+        }
+      }
     },
     "extends": {
       "type": "string",
@@ -26,7 +86,9 @@
       "properties": {
         "enabled": {
           "type": "array",
-          "items": { "$ref": "#/definitions/skillName" },
+          "items": {
+            "$ref": "#/definitions/skillName"
+          },
           "uniqueItems": true,
           "description": "Stack skills this repo uses. Declarative record in phase 1; not read by resolve-args.sh."
         }
@@ -34,11 +96,15 @@
     },
     "pipelines": {
       "type": "object",
-      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
       "patternProperties": {
         "--": {
           "type": "array",
-          "items": { "$ref": "#/definitions/skillName" },
+          "items": {
+            "$ref": "#/definitions/skillName"
+          },
           "minItems": 1
         }
       },
@@ -46,7 +112,9 @@
         "oneOf": [
           {
             "type": "array",
-            "items": { "$ref": "#/definitions/skillName" },
+            "items": {
+              "$ref": "#/definitions/skillName"
+            },
             "minItems": 1
           },
           {
@@ -55,38 +123,102 @@
             "properties": {
               "stages": {
                 "type": "array",
-                "items": { "$ref": "#/definitions/skillName" },
+                "items": {
+                  "$ref": "#/definitions/skillName"
+                },
                 "minItems": 1
               },
-              "bindings": { "$ref": "#/definitions/pipelineBindings" }
+              "bindings": {
+                "$ref": "#/definitions/pipelineBindings"
+              }
             }
           }
         ]
       },
       "description": "Stage roster for compile (pipeline name -> stage skills). A pipeline a work verb runs starts with stage-provision, ends with stage-watch-ci, and includes stage-implement and stage-ship; any other pipeline takes any order the chain check accepts. A pipeline is a plain list of stages, or an object with its stages and its own bindings, which override the top-level bindings per slot for that pipeline only. A name containing -- is reserved for stage copies, so it takes only the plain-list form."
     },
-    "bindings": { "$ref": "#/definitions/bindings" }
-  },
-  "definitions": {
+    "pipelinesV2": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "patternProperties": {
+        "--": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/skillName"
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/skillName"
+            },
+            "minItems": 1
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "stages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/skillName"
+                },
+                "minItems": 1
+              },
+              "bindings": {
+                "$ref": "#/definitions/bindingsV2"
+              },
+              "layered": {
+                "$ref": "#/definitions/layered"
+              }
+            }
+          }
+        ]
+      },
+      "description": "Stage roster for compile (pipeline name -> stage skills). A pipeline a work verb runs starts with stage-provision, ends with stage-watch-ci, and includes stage-implement and stage-ship; any other pipeline takes any order the chain check accepts. A pipeline is a plain list of stages, or an object with its stages and its own bindings, which override the top-level bindings per slot for that pipeline only. A name containing -- is reserved for stage copies, so it takes only the plain-list form. Version 2: a generated file's pipeline object also carries layered, the props several layers bound for that pipeline."
+    },
     "bindings": {
       "type": "object",
-      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$" },
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$"
+      },
       "additionalProperties": {
         "type": "object",
-        "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
-        "additionalProperties": { "$ref": "#/definitions/skillName" },
+        "propertyNames": {
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "additionalProperties": {
+          "$ref": "#/definitions/skillName"
+        },
         "description": "Slot name -> inner skill name, for one wrapper skill."
       },
       "description": "Wrapper skill name -> slot bindings. The only section resolve-args.sh reads."
     },
     "pipelineBindings": {
       "type": "object",
-      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$" },
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$"
+      },
       "additionalProperties": {
         "type": "object",
-        "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+        "propertyNames": {
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "additionalProperties": {
-          "anyOf": [{ "$ref": "#/definitions/skillName" }, { "const": "" }]
+          "anyOf": [
+            {
+              "$ref": "#/definitions/skillName"
+            },
+            {
+              "const": ""
+            }
+          ]
         },
         "description": "Slot name -> inner skill name, or \"\" to unbind a slot the top-level bindings fill, for this pipeline only."
       },
@@ -96,6 +228,68 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$",
       "description": "A namespaced skill name: 'name' or 'prefix:name'."
+    },
+    "bindingsV2": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "additionalProperties": {
+          "$ref": "#/definitions/bindingValueV2"
+        },
+        "description": "Prop name -> binding value, for one engine ref or one block of it."
+      },
+      "description": "\"<engine ref>[/<block path>]\" -> prop bindings. A generated file writes each prop's last-wins value here; layered keeps every layer's value for props several layers bound."
+    },
+    "bindingValueV2": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?(/[a-z0-9][a-z0-9._-]*)?$"
+        },
+        {
+          "const": ""
+        }
+      ],
+      "description": "'plugin:skill' (the skill's body), 'plugin:skill/file' (one file of it), or \"\" to clear the layers before this one."
+    },
+    "layered": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "additionalProperties": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": [
+              "layer",
+              "value"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "layer": {
+                "type": "string"
+              },
+              "value": {
+                "$ref": "#/definitions/bindingValueV2"
+              }
+            }
+          }
+        }
+      },
+      "description": "Generated file only: each prop more than one layer bound, as every layer's value in layer order. A prop one layer bound appears only in bindings, its layer in the provenance comment."
     }
   }
 }

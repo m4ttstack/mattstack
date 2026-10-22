@@ -1,5 +1,6 @@
-import { normalizePipelines, pipelineBindingKey, pipelineNameError, type BindingsMap, type PipelineValue } from "./pipelines.ts";
-import { stripJsonc } from "./sources.ts";
+import type { LayerValue } from "./blocks/props.ts";
+import { normalizePipelines, pipelineBindingKey, pipelineNameError, type BindingsMap, type LayeredBindings, type PipelineValue } from "./pipelines.ts";
+import { stripJsonc } from "../jsonc.ts";
 
 export type Fragment = {
   extends?: string;
@@ -12,6 +13,8 @@ export type Fragment = {
 
 /** label is the layer's provenance name: "default", "base:<pack>", "pack" or "override". */
 export type Layer = { label: string; fragment: Fragment };
+
+export type { LayeredBindings };
 
 export type DroppedOverride = { key: string; layer: string };
 
@@ -27,6 +30,9 @@ export type MergedManifest = {
   /** Overrides the final stage list leaves without a stage to apply to. */
   dropped: MergedDroppedOverride[];
   provenance: Record<string, string>;
+  /** Every layer's value per (key, prop) in layer order, `""` included; `bindings` is its last-wins view. */
+  layered: LayeredBindings;
+  pipelineLayered: Record<string, LayeredBindings>;
 };
 
 export class FragmentError extends Error {}
@@ -98,7 +104,7 @@ export function parseFragment(text: string, path: string): Fragment {
 
 export function mergeLayers(layers: Layer[]): MergedManifest {
   // Fragment keys are untrusted: a "__proto__" key assigned into a plain object would write through to Object.prototype.
-  const out: MergedManifest = { enabled: [], pipelines: Object.create(null), bindings: Object.create(null), pipelineBindings: Object.create(null), dropped: [], provenance: Object.create(null) };
+  const out: MergedManifest = { enabled: [], pipelines: Object.create(null), bindings: Object.create(null), pipelineBindings: Object.create(null), dropped: [], provenance: Object.create(null), layered: Object.create(null), pipelineLayered: Object.create(null) };
   // The engine refs the layer that last set a pipeline's stages also overrode in that same fragment.
   const stagesLayerRefs: Record<string, Set<string>> = Object.create(null);
   const everListed: Record<string, Set<string>> = Object.create(null);
@@ -119,6 +125,7 @@ export function mergeLayers(layers: Layer[]): MergedManifest {
         for (const [slot, fill] of Object.entries(slots)) {
           const forType = (out.pipelineBindings[type] ??= Object.create(null) as BindingsMap);
           (forType[engineRef] ??= Object.create(null) as Record<string, string>)[slot] = fill;
+          appendLayer((out.pipelineLayered[type] ??= Object.create(null) as LayeredBindings), engineRef, slot, label, fill);
           out.provenance[pipelineBindingKey(type, engineRef, slot)] = label;
         }
       }
@@ -126,12 +133,17 @@ export function mergeLayers(layers: Layer[]): MergedManifest {
     for (const [engineRef, slots] of Object.entries(fragment.bindings ?? {})) {
       for (const [slot, fill] of Object.entries(slots)) {
         (out.bindings[engineRef] ??= Object.create(null) as Record<string, string>)[slot] = fill;
+        appendLayer(out.layered, engineRef, slot, label, fill);
         out.provenance[`${engineRef} ${slot}`] = label;
       }
     }
   }
   settlePipelineBindings(out, stagesLayerRefs, everListed);
   return out;
+}
+
+function appendLayer(into: LayeredBindings, key: string, prop: string, layer: string, value: string): void {
+  ((into[key] ??= Object.create(null) as Record<string, LayerValue[]>)[prop] ??= []).push({ layer, value });
 }
 
 function settlePipelineBindings(out: MergedManifest, stagesLayerRefs: Record<string, Set<string>>, everListed: Record<string, Set<string>>): void {
@@ -149,8 +161,12 @@ function settlePipelineBindings(out: MergedManifest, stagesLayerRefs: Record<str
         delete out.provenance[key];
       }
       delete refs[engineRef];
+      delete out.pipelineLayered[type]![engineRef];
     }
-    if (Object.keys(refs).length === 0) delete out.pipelineBindings[type];
+    if (Object.keys(refs).length === 0) {
+      delete out.pipelineBindings[type];
+      delete out.pipelineLayered[type];
+    }
   }
 }
 
@@ -173,13 +189,80 @@ export function renderManifest(merged: MergedManifest, opts: { repo: string; pac
     ...merged.dropped.map(({ key, layer }) => `// dropped: ${key} <- ${layer}`),
   ];
   // A pipeline with no overrides stays a plain list so manifests written before overrides existed render byte for byte the same.
-  const pipelines: Record<string, PipelineValue> = Object.create(null);
+  const pipelines: Record<string, PipelineValue | { stages: string[]; bindings: BindingsMap; layered: LayeredBindings }> = Object.create(null);
+  let v2 = usesV2Forms(merged.bindings);
   for (const [type, stages] of Object.entries(merged.pipelines)) {
     const bindings = merged.pipelineBindings[type];
-    pipelines[type] = bindings ? { stages, bindings } : stages;
+    if (!bindings) {
+      pipelines[type] = stages;
+      continue;
+    }
+    v2 ||= usesV2Forms(bindings);
+    const layered = stackedOnly(merged.pipelineLayered[type] ?? {});
+    v2 ||= layered !== null;
+    pipelines[type] = layered ? { stages, bindings, layered } : { stages, bindings };
   }
-  const body = { version: 1, skills: { enabled: merged.enabled }, pipelines, bindings: merged.bindings };
+  const layered = stackedOnly(merged.layered);
+  v2 ||= layered !== null;
+  // Version 1 output stays byte for byte today's, so only a file that needs a version 2 form says 2.
+  const body = { version: v2 ? 2 : 1, skills: { enabled: merged.enabled }, pipelines, bindings: merged.bindings, ...(layered ? { layered } : {}) };
   return `${lines.join("\n")}\n${JSON.stringify(body, null, 2)}\n`;
+}
+
+/** The layered section carries only what several layers bound; the rest reads back from `bindings` and provenance. */
+function stackedOnly(layered: LayeredBindings): LayeredBindings | null {
+  const out: LayeredBindings = Object.create(null);
+  for (const [key, props] of Object.entries(layered)) {
+    for (const [prop, values] of Object.entries(props)) {
+      if (values.length > 1) (out[key] ??= Object.create(null) as Record<string, LayerValue[]>)[prop] = values;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function usesV2Forms(bindings: BindingsMap): boolean {
+  return Object.entries(bindings).some(([key, props]) => key.includes("/") || Object.values(props).some((value) => value.includes("/")));
+}
+
+type ManifestDoc = { bindings?: unknown; layered?: unknown; pipelines?: unknown };
+
+/** A string binding takes its layer from provenance, or "pack" in a file with no provenance lines (a fragment read directly). */
+export function layeredFromManifest(text: string): { layered: LayeredBindings; pipelineLayered: Record<string, LayeredBindings> } {
+  const doc = JSON.parse(stripJsonc(text)) as ManifestDoc;
+  const provenance = readManifestProvenance(text);
+  const layerOf = (provKey: string) => (Object.hasOwn(provenance, provKey) ? provenance[provKey]! : "pack");
+  const layered = readLayered(doc.bindings, doc.layered, (key, prop) => layerOf(`${key} ${prop}`));
+  const pipelineLayered: Record<string, LayeredBindings> = Object.create(null);
+  if (isObject(doc.pipelines)) {
+    for (const [type, value] of Object.entries(doc.pipelines)) {
+      if (!isObject(value) || !isObject(value.bindings)) continue;
+      const read = readLayered(value.bindings, value.layered, (key, prop) => layerOf(pipelineBindingKey(type, key, prop)));
+      if (Object.keys(read).length > 0) pipelineLayered[type] = read;
+    }
+  }
+  return { layered, pipelineLayered };
+}
+
+function readLayered(bindings: unknown, stacked: unknown, layerOf: (key: string, prop: string) => string): LayeredBindings {
+  const out: LayeredBindings = Object.create(null);
+  if (!isObject(bindings)) return out;
+  const stackedMap = isObject(stacked) ? stacked : {};
+  for (const [key, props] of Object.entries(bindings)) {
+    if (!isObject(props)) continue;
+    const stackedProps = Object.hasOwn(stackedMap, key) && isObject(stackedMap[key]) ? stackedMap[key] : {};
+    for (const [prop, value] of Object.entries(props)) {
+      if (typeof value !== "string") continue;
+      const several = Object.hasOwn(stackedProps, prop) ? layerValues(stackedProps[prop]) : null;
+      (out[key] ??= Object.create(null) as Record<string, LayerValue[]>)[prop] = several ?? [{ layer: layerOf(key, prop), value }];
+    }
+  }
+  return out;
+}
+
+function layerValues(raw: unknown): LayerValue[] | null {
+  if (!Array.isArray(raw)) return null;
+  const ok = raw.every((v) => isObject(v) && typeof v.layer === "string" && typeof v.value === "string");
+  return ok ? raw.map((v) => ({ layer: v.layer as string, value: v.value as string })) : null;
 }
 
 export function readManifestProvenance(text: string): Record<string, string> {

@@ -1,4 +1,9 @@
+import type { LayerValue } from "./blocks/props.ts";
+
 export type BindingsMap = Record<string, Record<string, string>>;
+
+/** Keyed `<engineRef>[/<blockPath>]` -> prop -> every layer's value in layer order. */
+export type LayeredBindings = Record<string, Record<string, LayerValue[]>>;
 
 export type PipelineValue = string[] | { stages?: string[]; bindings?: BindingsMap };
 
@@ -46,6 +51,15 @@ export function stageCopyName(stage: string, pipeline: string): string {
 
 export function effectiveSlotBindings(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): Record<string, string> {
   return { ...own(defaults, engineRef), ...own(overrides, engineRef) };
+}
+
+/** A pipeline's values follow the top-level ones, so a pipeline's `""` clears the top level the way a later layer's does. */
+export function effectiveBindings(defaults: LayeredBindings, overrides: LayeredBindings | undefined, key: string): Record<string, LayerValue[]> {
+  const out: Record<string, LayerValue[]> = Object.create(null);
+  for (const source of [own(defaults, key), own(overrides, key)]) {
+    for (const [prop, values] of Object.entries(source ?? {})) out[prop] = [...(out[prop] ?? []), ...values];
+  }
+  return out;
 }
 
 export function fillsDiffer(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): boolean {

@@ -13,7 +13,9 @@ import {
   orgOfPackDir,
   parseStageQualifiedName,
   readManifestBindings,
+  readManifestLayered,
   readManifestPipelineBindings,
+  readManifestPipelineLayered,
   readManifestPipelines,
   readVerbRoster,
   stageRoster,
@@ -442,6 +444,47 @@ describe("readVerbRoster", () => {
 
     expect(roster[0]).not.toHaveProperty("pipeline");
     expect(roster[1]).toEqual({ name: "work-a11y", engine: "work", description: "Run accessibility work", pipeline: "accessibility" });
+  });
+});
+
+describe("readManifestLayered", () => {
+  test("reads the layered section and falls back to the string binding with its provenance layer", () => {
+    const rootDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-layered-")));
+    const manifestPath = join(rootDir, "skills.jsonc");
+    writeFile(
+      manifestPath,
+      `// GENERATED
+// provenance (binding <- layer):
+//   mattstack:ship domain <- base:acme-base
+//   mattstack:ship/flow/fast-checks rules <- pack
+//   a/r x <- override
+{
+  "version": 2,
+  "pipelines": { "a": { "stages": ["r"], "bindings": { "r": { "x": "me:x" } } } },
+  "bindings": {
+    "mattstack:ship": { "domain": "acme-base:d" },
+    "mattstack:ship/flow/fast-checks": { "rules": "" }
+  },
+  "layered": {
+    "mattstack:ship/flow/fast-checks": { "rules": [{ "layer": "base:acme-base", "value": "acme-base:r" }, { "layer": "pack", "value": "" }] }
+  }
+}
+`,
+    );
+
+    expect(readManifestLayered(manifestPath)).toEqual({
+      "mattstack:ship": { domain: [{ layer: "base:acme-base", value: "acme-base:d" }] },
+      "mattstack:ship/flow/fast-checks": { rules: [{ layer: "base:acme-base", value: "acme-base:r" }, { layer: "pack", value: "" }] },
+    });
+    expect(readManifestPipelineLayered(manifestPath)).toEqual({ a: { r: { x: [{ layer: "override", value: "me:x" }] } } });
+    expect(readManifestBindings(manifestPath)["mattstack:ship/flow/fast-checks"]).toEqual({ rules: "" });
+  });
+
+  test("a fragment with no provenance lines reads every string as the pack layer", () => {
+    const rootDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-layered-")));
+    const manifestPath = join(rootDir, "skills.jsonc");
+    writeFile(manifestPath, '// Bindings manifest for this pack\n{ "version": 1, "bindings": { "mattstack:shepherdr": { "tiering": "mattstack:model-tiering" } } }\n');
+    expect(readManifestLayered(manifestPath)).toEqual({ "mattstack:shepherdr": { tiering: [{ layer: "pack", value: "mattstack:model-tiering" }] } });
   });
 });
 

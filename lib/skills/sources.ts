@@ -10,7 +10,8 @@ import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
 import { findPlaceholders } from "./placeholders.ts";
 import { firstTeamMarker } from "./team-params.ts";
-import { fillsDiffer, normalizePipelines, pipelineNameError, stageCopyName, type BindingsMap } from "./pipelines.ts";
+import { layeredFromManifest } from "./manifest-merge.ts";
+import { fillsDiffer, normalizePipelines, pipelineNameError, stageCopyName, type BindingsMap, type LayeredBindings } from "./pipelines.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
 
@@ -604,6 +605,15 @@ export function readManifestBindings(manifestPath: string): Record<string, Recor
     bindings?: Record<string, Record<string, string>>;
   };
   return parsed.bindings ?? {};
+}
+
+/** Every layer's value per (key, prop); `readManifestBindings` stays the last-wins view today's slot engines read. */
+export function readManifestLayered(manifestPath: string): LayeredBindings {
+  return layeredFromManifest(readFileSync(manifestPath, "utf8")).layered;
+}
+
+export function readManifestPipelineLayered(manifestPath: string): Record<string, LayeredBindings> {
+  return layeredFromManifest(readFileSync(manifestPath, "utf8")).pipelineLayered;
 }
 
 /**
