@@ -592,14 +592,14 @@ const strandedDoctor = (iid: number, over: Record<string, unknown> = {}) =>
     orphan: { state: 'gone' },
     ...over,
   });
-const COSMO = { runId: 'run-7', stage: 'implement', name: 'Pip' };
+const PIP = { runId: 'run-7', stage: 'implement', name: 'Pip' };
 const dialogTitle = () =>
   document.querySelector('[role="dialog"]')?.getAttribute('aria-label');
 
 test("a row-menu doctor redo on a live run's MR asks the live-run question", async () => {
   servedData = {
     ...BOARD_DATA,
-    mrs: [strandedDoctor(111, { activeRun: COSMO })],
+    mrs: [strandedDoctor(111, { activeRun: PIP })],
   };
   await renderBoard();
   await rightClick(111);
@@ -619,7 +619,7 @@ test("a row-menu doctor redo on a live run's MR asks the live-run question", asy
 test("a status-line doctor redo on a live run's MR asks the live-run question", async () => {
   servedData = {
     ...BOARD_DATA,
-    mrs: [strandedDoctor(112, { activeRun: COSMO })],
+    mrs: [strandedDoctor(112, { activeRun: PIP })],
   };
   await renderBoard();
   const redo = [...row(112).querySelectorAll<HTMLElement>('button')].find(
@@ -641,7 +641,7 @@ test('a doctor redo with no live run keeps the redo confirm', async () => {
 test('a bulk doctor redo skips the MR a live run owns and names it', async () => {
   servedData = {
     ...BOARD_DATA,
-    mrs: [strandedDoctor(114), strandedDoctor(115, { activeRun: COSMO })],
+    mrs: [strandedDoctor(114), strandedDoctor(115, { activeRun: PIP })],
   };
   await renderBoard();
   await check(114);

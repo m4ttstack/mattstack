@@ -2,8 +2,8 @@
 
 ## Why
 
-On !4127 a work pipeline worker (Pip) was making final changes from a
-review when the board saw CI failing and launched an auto doctor (Wren).
+On an MR, a worker making final review fixes was mid-stage when the board saw
+CI failing and launched an auto doctor.
 Both were about to commit and push to the same branch. Matt caught it, signed
 both into rt chat, had the doctor message the worker, and the doctor stood
 down. That fixed it, but only because a person noticed.
@@ -26,7 +26,7 @@ When the board would launch an auto doctor for an MR, and a live work run
 owns that MR's branch, the board launches nothing and rings the worker
 instead. The worker folds the fix into the work it is already doing.
 
-Success: the !4127 situation resolves with no person involved and no doctor
+Success: that situation resolves with no person involved and no doctor
 pane.
 
 ## Non-goals
