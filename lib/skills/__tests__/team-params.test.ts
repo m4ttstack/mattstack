@@ -76,6 +76,23 @@ describe("team-params", () => {
     expect(dropped.lines).toBe(2);
   });
 
+  test("an absent optional section between two sections leaves exactly one blank line", () => {
+    const dropped = { lines: 0 };
+    const body = "## One\nx\n\n{{team.section:x?}}\n\n## Two\ny";
+    expect(resolveTeamMarkers(body, ctx(), { where, sectionSeams: true, dropped })).toBe("## One\nx\n\n## Two\ny");
+    expect(dropped.lines).toBe(2);
+  });
+
+  test("absent optional sections in a row, each between blanks, collapse to one blank line", () => {
+    const body = "a\n\n{{team.section:x?}}\n\n{{team.section:y?}}\n\n\nb";
+    expect(resolveTeamMarkers(body, ctx(), { where, sectionSeams: true })).toBe("a\n\nb");
+  });
+
+  test("blank lines the author wrote away from a removed marker are untouched, code fences included", () => {
+    const body = "a\n\n\nb\n\n```\nfirst\n\n\nsecond\n```\n\n{{team.section:x?}}\nc";
+    expect(resolveTeamMarkers(body, ctx(), { where, sectionSeams: true })).toBe("a\n\n\nb\n\n```\nfirst\n\n\nsecond\n```\n\nc");
+  });
+
   test("required absent section records missing", () => {
     const team = ctx();
     resolveTeamMarkers("{{team.section:x}}", team, { where, sectionSeams: true });
