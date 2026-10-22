@@ -11,6 +11,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
+import { readDoctorStates, writeDoctorState } from '../doctor-state.ts';
+import { mintHandle } from '../state/agent-states.ts';
 import { openStateDb } from '../state/db.ts';
 import {
   readMemory,
@@ -146,12 +148,16 @@ const SNAP_CONFLICTED = url(43);
 const OUTAGE = url(44);
 const CLEAN = url(45);
 const RED_ONLY = url(46);
+const IN_FLIGHT = url(47);
+const FAILED_LAUNCH = url(48);
 
 const prs = [
   fakePr({ iid: 43, conflicts: true }),
   fakePr({ iid: 44, failedPipeline: 9044 }),
   fakePr({ iid: 45 }),
   fakePr({ iid: 46, failedPipeline: 9046 }),
+  fakePr({ iid: 47, failedPipeline: 9047 }),
+  fakePr({ iid: 48, failedPipeline: 9048 }),
   fakePr({ iid: 31, failedPipeline: 9031 }),
   fakePr({ iid: 32, conflicts: true }),
   fakePr({ iid: 33, failedPipeline: 9033, conflicts: true }),
@@ -203,6 +209,7 @@ const runs = [
   run('run-outage', OUTAGE, 'sess-outage'),
   run('run-clean', CLEAN, 'sess-clean'),
   run('run-red-only', RED_ONLY, 'sess-red-only'),
+  run('run-in-flight', IN_FLIGHT, 'sess-in-flight'),
 ];
 
 let runsListFails = false;
@@ -243,6 +250,9 @@ writeMemory(
       ...seeded.mrs,
       [LAUNCH]: seedRow({
         'pipeline-red': handoff({ pipelineId: 9038, viaMr: LAUNCH }),
+      }),
+      [FAILED_LAUNCH]: seedRow({
+        'pipeline-red': handoff({ pipelineId: 9048, viaMr: FAILED_LAUNCH }),
       }),
       [STALE]: seedRow({
         'pipeline-red': handoff({ pipelineId: 1, viaMr: STALE }),
@@ -291,6 +301,21 @@ const rtDaemon = Bun.serve({
         ok: true,
         data: { reachable: true, name: 'Pip' },
       });
+    if (cmd === 'agent:start') {
+      const subject = String(body?.subject ?? '');
+      return subject.endsWith(FAILED_LAUNCH)
+        ? Response.json({ ok: false, error: 'herdr is not running' })
+        : Response.json({
+            ok: true,
+            data: {
+              id: 'agent-1',
+              sessionId: 'sess-doctor',
+              paneId: 'p1',
+              tabId: 't1',
+              workspaceId: 'w1',
+            },
+          });
+    }
     if (cmd === 'inbox:ring') {
       const ring = body as { session: string; label: string; text: string };
       const fails =
@@ -498,11 +523,50 @@ test('a launch without ring clears handoffs and launches as today', async () => 
   const res = await doctor({ mrUrl: LAUNCH, iid: iidOf(LAUNCH) });
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ ok: true });
-  expect(readMemory(db).mrs[LAUNCH]?.handoffs).toBeUndefined();
   expect(ringsTo('sess-launch')).toHaveLength(0);
-  for (let i = 0; i < 20 && !launchedOn(38); i++)
+  for (
+    let i = 0;
+    i < 50 && readMemory(db).mrs[LAUNCH]?.handoffs !== undefined;
+    i++
+  )
     await new Promise(r => setTimeout(r, 100));
   expect(launchedOn(38)).toBe(true);
+  expect(readMemory(db).mrs[LAUNCH]?.handoffs).toBeUndefined();
+}, 15_000);
+
+test('a launch that fails leaves the handoffs in place', async () => {
+  await ready();
+  const res = await doctor({ mrUrl: FAILED_LAUNCH, iid: iidOf(FAILED_LAUNCH) });
+  expect(res.status).toBe(200);
+  for (
+    let i = 0;
+    i < 50 && readDoctorStates(db).get(FAILED_LAUNCH)?.status !== 'error';
+    i++
+  )
+    await new Promise(r => setTimeout(r, 100));
+  expect(readDoctorStates(db).get(FAILED_LAUNCH)?.status).toBe('error');
+  expect(
+    readMemory(db).mrs[FAILED_LAUNCH]?.handoffs?.['pipeline-red']?.runId
+  ).toBe('run-old');
+}, 15_000);
+
+test('ring while a doctor is running on the MR is a 409 and rings nobody', async () => {
+  await ready();
+  writeDoctorState(
+    mintHandle('doctor', IN_FLIGHT, fakeHome),
+    { mrUrl: IN_FLIGHT, iid: iidOf(IN_FLIGHT), status: 'diagnosing' },
+    Date.now(),
+    db
+  );
+  const res = await doctor({
+    mrUrl: IN_FLIGHT,
+    iid: iidOf(IN_FLIGHT),
+    ring: true,
+  });
+  expect(res.status).toBe(409);
+  expect(await res.text()).toBe('a doctor is already running on this MR');
+  expect(ringsTo('sess-in-flight')).toHaveLength(0);
+  expect(readMemory(db).mrs[IN_FLIGHT]?.handoffs).toBeUndefined();
 }, 15_000);
 
 test('a conflicts-only handoff shows on the snapshot', async () => {
@@ -519,13 +583,13 @@ test('a conflicts-only handoff shows on the snapshot', async () => {
   expect(row.handoffs?.['pipeline-red']).toBeUndefined();
 }, 15_000);
 
-test('ring when runs:list fails is a 409 and writes nothing', async () => {
+test('ring when runs:list fails is a 503 and writes nothing', async () => {
   await ready();
   runsListFails = true;
   try {
     const res = await doctor({ mrUrl: OUTAGE, iid: iidOf(OUTAGE), ring: true });
-    expect(res.status).toBe(409);
-    expect(await res.text()).toBe('no work run is active on this MR');
+    expect(res.status).toBe(503);
+    expect(await res.text()).toBe('could not read runs from the daemon');
   } finally {
     runsListFails = false;
   }

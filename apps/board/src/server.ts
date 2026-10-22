@@ -986,6 +986,28 @@ async function claimTriageMemory(): Promise<string | false> {
   return claimed;
 }
 
+/** Clears an MR's handoffs once a doctor launch has resolved, so a launch
+    that fails leaves the edge with the worker it was handed to. */
+async function clearHandoffsAfterLaunch(mrUrl: string): Promise<void> {
+  if (!readMemory().mrs[mrUrl]?.handoffs) return;
+  const claimed = await claimTriageMemory();
+  if (claimed === false) {
+    console.error(
+      `doctor launch: triage busy, handoffs on ${mrUrl} not cleared`
+    );
+    return;
+  }
+  try {
+    clearHandoffs(mrUrl);
+  } catch (err) {
+    console.error(
+      `doctor launch: clearing handoffs on ${mrUrl} failed: ${err instanceof Error ? err.message : err}`
+    );
+  } finally {
+    releaseCron(claimed);
+  }
+}
+
 /** POST /doctor with ring: hands what is wrong with the MR right now (never
     which button was clicked) to the live work run that owns it, its own
     else an ancestor's, in place of a doctor. Only delivered frames are
@@ -1004,15 +1026,22 @@ async function ringActiveWorker(
     return new Response('nothing on this MR needs the worker', {
       status: 409,
     });
+  const doctor = readDoctorStates().get(mr.webUrl);
+  if (doctor && DOCTOR_IN_FLIGHT.has(doctor.status))
+    return new Response('a doctor is already running on this MR', {
+      status: 409,
+    });
   const io = ownerIo();
   const runs = await io.listRuns();
-  const found =
-    runs &&
-    (await firstOwnerAlong(
-      ownerSteps(boardOwnMrFacts(boardMrs), mr.webUrl, io.repoSlugForMr),
-      runs,
-      io.probe
-    ));
+  if (runs === null)
+    return new Response('could not read runs from the daemon', {
+      status: 503,
+    });
+  const found = await firstOwnerAlong(
+    ownerSteps(boardOwnMrFacts(boardMrs), mr.webUrl, io.repoSlugForMr),
+    runs,
+    io.probe
+  );
   if (!found)
     return new Response('no work run is active on this MR', { status: 409 });
   const { owner, step } = found;
@@ -2938,20 +2967,6 @@ const httpServer = Bun.serve({
                 .filter(Boolean)
                 .join('. ')
             : note;
-        if (readMemory().mrs[parsed.mrUrl]?.handoffs) {
-          const claimed = await claimTriageMemory();
-          if (claimed === false) {
-            console.error(
-              `doctor launch: triage busy, handoffs on ${parsed.mrUrl} not cleared`
-            );
-          } else {
-            try {
-              clearHandoffs(parsed.mrUrl);
-            } finally {
-              releaseCron(claimed);
-            }
-          }
-        }
         const statePath = doctorFilePath(parsed.mrUrl);
         writeDoctorState(statePath, {
           mrUrl: parsed.mrUrl,
@@ -2980,6 +2995,7 @@ const httpServer = Bun.serve({
           draftBin: manual.draftBin,
         })
           .then(result => {
+            void clearHandoffsAfterLaunch(parsed.mrUrl);
             if (result.focusedExisting) return;
             // Race guard: the row may have closed out (operator stand-down)
             // while this launch was in flight -- readDoctorStates() here is
