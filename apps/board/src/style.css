@@ -5119,7 +5119,7 @@ a.tui-id-card-ref:focus-visible {
   content: attr(data-keys);
 }
 .tui-gate-choice[data-checked] .tui-key-cap {
-  border-color: color-mix(in srgb, var(--fill-accent) 30%, var(--card));
+  border-color: color-mix(in srgb, var(--fill-accent) 55%, var(--card));
   color: var(--text-accent-small);
 }
 /* Inside a filled button: the on-fill label over a wash of itself, the
