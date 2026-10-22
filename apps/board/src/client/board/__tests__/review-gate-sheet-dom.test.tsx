@@ -1408,9 +1408,7 @@ describe('a gate whose poster honors edited drafts', () => {
   test('an edited summary line rides the outcome as text', async () => {
     await render(draftsGate());
     await edit(
-      container.querySelector(
-        '.tui-review-summary [data-part="summary-line"]'
-      )!,
+      container.querySelector('.tui-review-summary [data-section="summary"]')!,
       'New summary.'
     );
     await click(submitButton());
@@ -1421,7 +1419,7 @@ describe('a gate whose poster honors edited drafts', () => {
   });
 
   const summaryLine = () =>
-    container.querySelector('.tui-review-summary [data-part="summary-line"]')!;
+    container.querySelector('.tui-review-summary [data-section="summary"]')!;
 
   const pickVerdict = async (value: string) =>
     click(
@@ -1438,13 +1436,15 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(valueOf(summaryLine())).not.toContain(SUMMARY);
   });
 
-  test('the summary heading names the selected verdict and follows it', async () => {
+  test('the summary badge names the selected verdict in its colour and follows it', async () => {
     await render(draftsGate());
-    const heading = () =>
-      container.querySelector('.tui-review-summary-k')?.textContent;
-    expect(heading()).toBe('for approve');
+    const badge = () =>
+      container.querySelector('.tui-review-summary [data-verdict]');
+    expect(badge()?.textContent).toBe('for approve');
+    expect(badge()?.getAttribute('data-intent')).toBe('ok');
     await pickVerdict('comment');
-    expect(heading()).toBe('for comment');
+    expect(badge()?.textContent).toBe('for comment');
+    expect(badge()?.getAttribute('data-intent')).toBe('accent');
   });
 
   test('each verdict keeps its own edit: switching away and back restores it', async () => {
@@ -1455,14 +1455,14 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(valueOf(summaryLine())).not.toContain('Approve, edited.');
     expect(
       container.querySelector(
-        '.tui-review-summary [data-part="summary-line"][data-edited]'
+        '.tui-review-summary [data-section="summary"][data-edited]'
       )
     ).toBeNull();
     await pickVerdict('approve');
     expect(valueOf(summaryLine())).toContain('Approve, edited.');
     expect(
       container.querySelector(
-        '.tui-review-summary [data-part="summary-line"][data-edited]'
+        '.tui-review-summary [data-section="summary"][data-edited]'
       )
     ).not.toBeNull();
   });
@@ -1578,9 +1578,9 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(
       container.querySelector('.tui-sheet-dock-heading')!.textContent
     ).toBe('Verdict on !31');
-    const parts = card.querySelectorAll('.tui-review-summary-part');
+    const parts = card.querySelectorAll('.tui-review-section');
     expect(parts.length).toBe(2);
-    expect(parts[0]!.getAttribute('data-part')).toBe('summary-line');
+    expect(parts[0]!.getAttribute('data-section')).toBe('summary');
     expect(valueOf(parts[0])).toContain(SUMMARY);
     expect(valueOf(parts[1])).toContain(COMMENT.f3);
   });
@@ -1622,7 +1622,7 @@ describe('a gate whose poster honors edited drafts', () => {
     const card = container.querySelector('.tui-review-summary')!;
     expect(card.querySelectorAll('textarea').length).toBe(1);
     expect(valueOf(card)).not.toContain(COMMENT.f3);
-    expect(card.querySelector('[data-part="folded"]')).toBeNull();
+    expect(card.querySelector('[data-section="folded"]')).toBeNull();
   });
 
   test('the submit label names the verdict alone, whatever is ticked', async () => {
@@ -1713,13 +1713,13 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(valueOf(summaryLine())).toBe(SUMMARY);
   });
 
-  test('a folded finding sits in the summary under its own strip, and remove unticks it', async () => {
+  test('a folded finding is its own section in the summary, and Remove unticks it', async () => {
     await render(draftsGate());
     const folded = () =>
-      container.querySelector('.tui-review-summary [data-part="folded"]');
+      container.querySelector('.tui-review-summary [data-section="folded"]');
     expect(
-      folded()!.querySelector('.tui-review-summary-part-title')?.textContent
-    ).toBe('+ Inconsistent error wording');
+      folded()!.querySelector('.tui-review-section-name')?.textContent
+    ).toBe('Inconsistent error wording');
     await click(
       folded()!.querySelector<HTMLButtonElement>(
         'button[aria-label$=": remove"]'

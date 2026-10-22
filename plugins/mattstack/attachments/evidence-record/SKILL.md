@@ -178,7 +178,7 @@ Selection: `{"waivers":{"<case>/<slot>[/<theme>]":"<reason>|annotate","<case>":"
 
 Entered only after the verb's attach gate proceeds. On GitLab, nothing
 uploads until the human has looked at every file the upload carries
-but a mock-data board (Gate evidence-boards). The domain supplies `heading`, `before` and
+but a cleared board (Gate evidence-boards). The domain supplies `heading`, `before` and
 `appendix`; unbound, `heading` is the repo MR template's evidence
 heading, else `## Evidence`, always the full line with its `##`. On
 GitHub nothing uploads; `<n>` is the PR number in `mrUrl`. Attach held is
@@ -190,7 +190,7 @@ refused files.
 digraph attach_evidence {
     attach_evidence [label="Attach the evidence (evidence-record)" shape=ellipse];
     forge_host [label="Forge host?" shape=diamond];
-    run_field_get_mock [label="run_field_get {runDb, key: evidence-mock-data:<stem>}, for each board the upload carries" shape=plaintext];
+    run_field_get_cleared [label="run_field_get {runDb, key: evidence-cleared:<stem>}, for each board the upload carries" shape=plaintext];
     files_to_show [label="Any file to show?" shape=diamond];
     run_budget_boards [label="run_budget {runDb, key: evidence:boards-openings:<first file of this opening>, limit: 3, stage}" shape=plaintext];
     boards_openings_spent [label="boards-openings spent?" shape=diamond];
@@ -225,10 +225,10 @@ digraph attach_evidence {
     attach_failed [label="Attach failed" shape=doublecircle];
 
     attach_evidence -> forge_host;
-    forge_host -> run_field_get_mock [label="GitLab"];
-    run_field_get_mock -> files_to_show;
+    forge_host -> run_field_get_cleared [label="GitLab"];
+    run_field_get_cleared -> files_to_show;
     files_to_show -> run_budget_boards [label="yes: the first 12 files to show"];
-    files_to_show -> evidence_attach [label="no: every file a mock-data board"];
+    files_to_show -> evidence_attach [label="no: every file a cleared board"];
     run_budget_boards -> boards_openings_spent;
     boards_openings_spent -> gate_evidence_boards [label="no"];
     boards_openings_spent -> attach_held [label="yes: nothing uploaded"];
@@ -239,7 +239,7 @@ digraph attach_evidence {
     boards_answer -> revise_named_boards [label="proceed + hide, or their words"];
     boards_answer -> attach_held [label="hold"];
     revise_named_boards -> boards_revision_outcome;
-    boards_revision_outcome -> run_field_get_mock [label="Recorded, or no board named: again from the first file"];
+    boards_revision_outcome -> run_field_get_cleared [label="Recorded, or no board named: again from the first file"];
     boards_revision_outcome -> attach_held [label="Held at evidence-redaction, or Record held"];
     boards_revision_outcome -> attach_failed [label="Not revised: the failure quoted"];
     forge_host -> gh_pr_view [label="GitHub"];
@@ -251,7 +251,7 @@ digraph attach_evidence {
     repairs_spent -> repair_board [label="no"];
     repairs_spent -> stop_move_refused_file [label="yes: refused again after a repair"];
     repair_board -> repair_outcome;
-    repair_outcome -> run_field_get_mock [label="Repaired: again from the first file"];
+    repair_outcome -> run_field_get_cleared [label="Repaired: again from the first file"];
     repair_outcome -> attach_held [label="Held at evidence-redaction"];
     repair_outcome -> stop_move_refused_file [label="Not repaired, the output quoted"];
     attach_result -> stop_move_refused_file [label="tempted to copy the file or upload another way"];
@@ -268,7 +268,7 @@ digraph attach_evidence {
     needs_rerecord -> rerecord_images [label="yes: size, bytes or missing (a recapture), a new file, or a record or raw-capture refusal"];
     needs_rerecord -> evidence_attach [label="no: timedOutTwice, the human checked the daemon"];
     rerecord_images -> rerecord_outcome;
-    rerecord_outcome -> run_field_get_mock [label="Recorded: again from the first file"];
+    rerecord_outcome -> run_field_get_cleared [label="Recorded: again from the first file"];
     rerecord_outcome -> attach_held [label="Record held"];
     rerecord_outcome -> attach_failed [label="Record failed"];
     gh_pr_view -> evidence_attach_body -> description_returned;
@@ -283,20 +283,29 @@ digraph attach_evidence {
 ### Any file to show?
 
 A file to show is each distinct `annotated` board and each waived image's
-own `path` the upload carries, except a mock-data board. A board is a
-mock-data board here only when its `evidence-mock-data:<stem>` run field
-(browser-evidence, Confirm a mock-data board) starts with the sha256 of
-the very board file this upload carries (`shasum -a 256 <its annotated
-path>` on Bash): that board holds no real person, so nobody needs to look
-at it. An unset field (an error or an empty value), or one whose sha names
-other bytes (a re-capture, a revision), means the board is shown. No when
-every file is a mock-data board: the upload goes up without this gate.
+own `path` the upload carries, except a cleared board. A board is cleared
+here only when its `evidence-cleared:<stem>` run field (browser-evidence,
+Record the clearance) starts with the sha256 of the very board file this
+upload carries (`shasum -a 256 <its annotated path>` on Bash): either it
+holds no real person, or the human already looked at these exact bytes at
+the redaction gate and approved them. An unset field (an error or an empty
+value), or one whose sha names other bytes (a re-capture, a revision),
+means the board is shown, and so is every board that never passed the
+redaction gate (its redact marks all on live captures). No when every file
+is a cleared board: the upload goes up without this gate.
+
+A field that reads `approved at <scope>` clears only when the run backs
+it: `run_snapshot {runDb}` lists a decision on that `<scope>` whose
+selection has `redaction: "confirm"` and whose decider is a human (not
+this agent, not a shepherd). A field the run does not back is treated as
+unset and the board is shown.
 
 ### Files left to show in this attach?
 
 Every attach shows every file to show, 12 to an opening, in the
 record's case order. A file an earlier gate showed (the verb's attach gate,
-a redaction gate, an earlier attach) is shown again: only an answer given
+an earlier attach) is shown again, and so is one a redaction gate showed
+unless that gate cleared it (Any file to show?): only an answer given
 while looking at these exact files lets them go up. Yes while files after
 this opening's are left; when you cannot tell which openings were answered
 (a compaction, a resume), start again from the first file.
@@ -356,7 +365,7 @@ a board steps 1 to 6 on that board with no wording change (step 3's
 "re-rendered and re-confirmed"): they re-render
 it, pass Gate evidence-redaction, confirm after a yes and record the new
 bundle. Recorded is Repaired, and a repaired board is new bytes: Gate
-evidence-boards shows every file again from the first opening before the
+evidence-boards shows every file to show again from the first opening before the
 next `evidence_attach`. A Hold at the gate, or Record held, is
 Held at evidence-redaction, with nothing uploaded; no spec beside the
 board, a compose error, a refused confirm, a confirm that left an empty
