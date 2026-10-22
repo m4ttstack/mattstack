@@ -1877,6 +1877,44 @@ describe("base pack attachments", () => {
       expect(stale.parts.find((p: { kind: string }) => p.kind === "section")).toMatchObject({ changed: true });
     });
 
+    test("a compile-native stage lists a section as its own part after the slot that holds it", async () => {
+      const { packDir, mattstackDir, setValues } = seedTeamValues({ domainBody: DOMAIN_WITH_SECTION, ciNotes: false });
+      setValues({}, { "ci-extra": "- lint\n- e2e\n- deploy\n" });
+      writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"), slottedStageMd("intro\n{{slot:domain}}\noutro"));
+      const manifestPath = join(mattstackDir, "widgets-pipelines.jsonc");
+      writeFile(manifestPath, JSON.stringify({
+        pipelines: { feature: ["mattstack:stage-plan"] },
+        bindings: {
+          "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" },
+          "mattstack:stage-plan": { domain: "acme-base:watch-ci-domain" },
+        },
+      }));
+      const flags = ["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath];
+      await runExpectingCleanExit(() => skillsCompile([...flags, "--verb", "stage-plan"]));
+      const anatomyOf = async () => {
+        io.clear();
+        await skillsAnatomy([...flags, "--skill", "stage-plan", "--json"]);
+        return JSON.parse(io.stdout());
+      };
+
+      const fresh = await anatomyOf();
+      const lines = readFileSync(fresh.rendered.path, "utf8").split("\n");
+      const seamAt = lines.findIndex((l) => l.startsWith("<!-- part: section:ci-extra "));
+      expect(fresh.parts.map((p: { kind: string }) => p.kind)).toEqual(["text", "slot", "section", "text"]);
+      const [, slot, section, outro] = fresh.parts;
+      expect(section).toMatchObject({ name: "ci-extra", renderedLines: [seamAt + 1, seamAt + 4], changed: false, templateLines: null });
+      expect(section.source).toMatchObject({ ref: "widgets:pack/sections/ci-extra.md", version: "0.1.0", lines: 3 });
+      expect(slot.renderedLines[0]).toBeLessThan(seamAt + 1);
+      expect(slot.renderedLines[1]).toBeGreaterThanOrEqual(seamAt + 4);
+      expect(lines[outro.renderedLines[0] - 1]).toBe("outro");
+
+      setValues({}, { "ci-extra": "- lint\n- e2e\n- deploy\n- smoke\n" });
+      const stale = await anatomyOf();
+      expect(stale).toMatchObject({ status: "stale", staleBecause: ["team"] });
+      const staleSection = stale.parts.find((p: { kind: string }) => p.kind === "section");
+      expect(staleSection).toMatchObject({ changed: true, renderedLines: [seamAt + 1, seamAt + 4] });
+    });
+
     test("preview, anatomy and composition refuse on missing values", async () => {
       const { run } = seedTeamValues();
 

@@ -101,12 +101,29 @@ export function partsFromMarkers(rendered: string, sources: Record<string, Anato
       mode: null, source: null, target: null, changed: false,
     });
   }
-  for (const x of extents) {
-    const colon = x.key.indexOf(":");
-    const kind = x.key.slice(0, colon) as "slot" | "include" | "section";
-    parts.push({ kind, name: x.key.slice(colon + 1), templateLines: null, renderedLines: [x.start + 1, x.end + 1], mode: kind === "slot" ? "inline" : null, source: sources[x.key] ?? null, target: null, changed: changedKeys.has(x.key) });
-  }
+  for (const x of extents) parts.push(markerPart(x, sources, changedKeys));
   return parts;
+}
+
+function markerPart(x: PartExtent, sources: Record<string, AnatomySource>, changedKeys: Set<string>): AnatomyPart {
+  const colon = x.key.indexOf(":");
+  const kind = x.key.slice(0, colon) as "slot" | "include" | "section";
+  return { kind, name: x.key.slice(colon + 1), templateLines: null, renderedLines: [x.start + 1, x.end + 1], mode: kind === "slot" ? "inline" : null, source: sources[x.key] ?? null, target: null, changed: changedKeys.has(x.key) };
+}
+
+/**
+ * Placeholders in a template never name a section, so the trace-built parts
+ * have none: each section seam in the rendered file becomes its own part,
+ * placed after the slot whose lines hold it.
+ */
+export function withSectionParts(parts: AnatomyPart[], rendered: string, sources: Record<string, AnatomySource>, changedKeys: Set<string>): AnatomyPart[] {
+  const out = [...parts];
+  for (const x of partExtents(rendered)) {
+    if (!x.key.startsWith("section:")) continue;
+    const owner = out.findLastIndex((p) => p.kind === "slot" && p.renderedLines !== null && p.renderedLines[0] <= x.start + 1 && x.end + 1 <= p.renderedLines[1]);
+    out.splice(owner < 0 ? out.length : owner + 1, 0, markerPart(x, sources, changedKeys));
+  }
+  return out;
 }
 
 /**

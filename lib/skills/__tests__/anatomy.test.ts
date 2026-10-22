@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPart, type AnatomySource } from "../anatomy.ts";
+import { buildParts, linksIn, partsFromMarkers, partsOnDisk, withSectionParts, type AnatomyPart, type AnatomySource } from "../anatomy.ts";
 import type { TraceEntry } from "../placeholders.ts";
 
 const gate: AnatomySource = { ref: "mattstack:gate-protocol", path: "/m/attachments/gate-protocol/SKILL.md", version: "0.30.4", builtVersion: "0.28.10", lines: 446 };
@@ -147,6 +147,30 @@ describe("partsFromMarkers with a section", () => {
   test("partsOnDisk keeps a section part and points it at its marker", () => {
     const parts = partsFromMarkers(md, {}, new Set()).map((p) => ({ ...p, renderedLines: null }));
     expect(partsOnDisk(parts, md).map((p) => p.renderedLines)).toEqual([null, [5, 11], [8, 10]]);
+  });
+});
+
+describe("withSectionParts", () => {
+  const md = [
+    "<!-- part: slot:ci binding=acme-base:ci version=1 path=b lines=1-3 -->",
+    "intro",
+    "<!-- part: section:ci-extra source=widgets:pack/sections/ci-extra.md version=0.4.0 path=pack/sections/ci-extra.md lines=1-2 -->", "s1", "s2",
+    "outro",
+  ].join("\n");
+  const slot: AnatomyPart = { kind: "slot", name: "ci", templateLines: [3, 3], renderedLines: [1, 6], mode: "inline", source: null, target: null, changed: false };
+  const text: AnatomyPart = { kind: "text", name: null, templateLines: [4, 4], renderedLines: [7, 7], mode: null, source: null, target: null, changed: false };
+
+  test("adds the section after the slot that holds it and before later parts", () => {
+    const parts = withSectionParts([slot, text], md, {}, new Set(["section:ci-extra"]));
+    expect(parts.map((p) => [p.kind, p.name, p.renderedLines, p.changed])).toEqual([
+      ["slot", "ci", [1, 6], false],
+      ["section", "ci-extra", [3, 5], true],
+      ["text", null, [7, 7], false],
+    ]);
+  });
+
+  test("a file with no section leaves the parts alone", () => {
+    expect(withSectionParts([slot, text], "plain", {}, new Set())).toEqual([slot, text]);
   });
 });
 
