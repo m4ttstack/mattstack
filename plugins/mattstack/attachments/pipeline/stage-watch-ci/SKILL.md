@@ -21,10 +21,12 @@ Run state: the orchestrator opens and closes this stage, so never write
 `run_field_get`; every `stage` argument is `"watch-ci"`. Write `ci` once a
 verdict exists; a failure's `detailPath` is the triage report.
 
-`<mr>` is `mr`'s https URL. Every CI tool takes `mrUrl: <mr>`; `ci_watch`,
-`ci_triage`, `pipeline_jobs`, `mr_job_trace` and `mr_retry` take
-`repoName` = this worktree's absolute path and the iid in `mr` in its
-place as the same call, as do `mr_view` and `mr_ready`. `<N>` is the
+`<mr>` is `mr`'s https URL. Every CI tool, `mr_view` and `mr_ready` take
+`mrUrl: <mr>`, the form the graph shows. When this worktree is a checkout
+of the MR's project, `ci_watch`, `ci_triage`, `pipeline_jobs`,
+`mr_job_trace`, `mr_retry`, `mr_view` and `mr_ready` also take
+`repoName` = its absolute path and the iid in `mr` in its place as the
+same call. `mr_retry` keeps `leaseMrUrl: <mr>` either way. `<N>` is the
 number in `ci_watch`'s `pipeline.id` (`gitlab:pipeline:N`).
 
 ```dot
@@ -108,14 +110,14 @@ digraph watch_ci {
     run_field_set_ci_red [label="run_field_set {key: ci, value: red: <triage>, stage}" shape=plaintext];
     run_status_abandoned [label="run_status {status: abandoned}" shape=plaintext];
     draft_forge_host [label="Forge host (draft check)?" shape=diamond];
-    mr_view [label="mr_view {repoName, iid}" shape=plaintext];
+    mr_view [label="mr_view {mrUrl: <mr>}" shape=plaintext];
     gh_pr_view_draft [label="gh pr view <mr> --json isDraft" shape=plaintext];
     mr_still_draft [label="MR still a draft?" shape=diamond];
     gate_mark_ready [label="Gate mark-ready" shape=box];
     run_budget_mark_ready [label="run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}" shape=plaintext];
     mark_ready_spent [label="mark-ready-iterations spent?" shape=diamond];
     mark_ready_forge_host [label="Forge host (mark-ready)?" shape=diamond];
-    mr_ready [label="mr_ready {repoName, iid}" shape=plaintext];
+    mr_ready [label="mr_ready {mrUrl: <mr>}" shape=plaintext];
     gh_pr_ready [label="gh pr ready <number>" shape=plaintext];
     run_field_set_ci_green [label="run_field_set {key: ci, value: green, stage}" shape=plaintext];
     mr_known_at_exit [label="MR known (exit)?" shape=diamond];
@@ -411,11 +413,21 @@ verdict and a one-line triage per blocking failure.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in your change; when every blocking failure is INHERITED, or from the third one in a run, the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
-| `next` | **Proceed** / **Iterate here** / **Go back to `<stage>`** / **Hold** | always |
+| `action` (write-in) | **Fix and re-push** (a REAL failure in your change) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
+| `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
+| `to` | one option per earlier stage; with one candidate, **Go back to `<stage>`** in `next` instead | Go back, with more than one earlier stage row |
+
+Mark one `action` option `(Recommended)`: **Fix and re-push** when any
+blocking failure is REAL, while this is the first or second `watch-ci`
+attempt (the `<attempt>` in scope `ci:watch-ci:<attempt>`); else **Hand
+back** when any is REAL; else **Retry the job** when an INFRA one is not
+yet retried; else **Hand back**, which also covers a red with no triage
+(a timeout, `no_pipeline`, an MR lookup error).
 
 Selection: `{"action":"fix|retry|handback|abandon","next":"proceed|iterate|go-back|hold","to":"<stage or null>","note":"<their words or null>"}`.
 An `action` write-in records `{"writeIn": "<their words>"}` as `action`.
+Read `next` first: Proceed applies `action`; Iterate here, Go back and
+Hold win over it.
 
 ### Gate mark-ready
 

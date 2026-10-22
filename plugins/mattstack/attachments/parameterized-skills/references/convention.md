@@ -487,7 +487,7 @@ workType, stage, outcome}` (`done`, `failed` or `abandoned`, with
 
 Selections record the standing options with the pattern work's failure and
 close gates use: `next` is the gate's own enum and always includes
-`iterate` and `hold`, plus `redirect` with `to` wherever the form offers Go
+`iterate` and `hold`, plus `go-back` with `to` wherever the form offers Go
 back; `note` carries their free text or null. A gate's own answer keys
 stand beside them.
 
