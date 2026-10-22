@@ -228,9 +228,9 @@ function Rail({
 function AuthorTag({ mr }: { mr: BoardMRWithReview }) {
   const people = usePeople(mr);
   return (
-    <span className="tui-author-tag" title={people.full(mr.author.username)}>
+    <span className="tui-author-tag">
       <MemberInvadr id={mr.author.username} className="tui-avatar" />
-      {people.short(mr.author.username)}
+      {people.full(mr.author.username)}
     </span>
   );
 }

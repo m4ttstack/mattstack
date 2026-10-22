@@ -423,6 +423,7 @@ export function Board() {
   // predicate it would need to take as an argument.
   const { data, loadError, load, refreshNow, refreshing, setData } =
     useBoardData(state.member, onData);
+  const people = useMemo(() => (data ? boardPeople(data) : NO_PEOPLE), [data]);
 
   // Selection for the multi-copy bar, keyed by webUrl so it survives the
   // refresh poll and every member/group/sort change. Deliberately not
@@ -537,13 +538,15 @@ export function Board() {
       postAction('/settings', { username, hidden }).then(result => {
         if (!result.ok) {
           applyHidden(username, !hidden);
-          addToast(`could not check ${username} ${hidden ? 'out' : 'in'}`);
+          addToast(
+            `could not check ${people.short(username)} ${hidden ? 'out' : 'in'}`
+          );
           return;
         }
         load();
       });
     },
-    [applyHidden, load, addToast]
+    [applyHidden, load, addToast, people]
   );
 
   // Optimistic review/respond/doctor state: show a "queued" badge the instant
@@ -1044,7 +1047,6 @@ export function Board() {
     [startToast, load]
   );
 
-  const people = useMemo(() => (data ? boardPeople(data) : NO_PEOPLE), [data]);
   const runner: RunnerDeps = useMemo(
     () => ({
       post: (path, payload) => postAction(path, payload),
@@ -1115,7 +1117,10 @@ export function Board() {
           lane,
           count: 1,
           prior: 1,
-          who: answered && { name: answered.name, round: answered.nextRound },
+          who: answered && {
+            name: people.short(answered.username),
+            round: answered.nextRound,
+          },
           run: () =>
             void dispatchRowAction(
               req,
@@ -1145,7 +1150,7 @@ export function Board() {
       });
       return undefined;
     },
-    [runner, launch, rowHandlers]
+    [runner, launch, rowHandlers, people]
   );
 
   // Poll faster while a review, response, or doctor run is active, or a fired
