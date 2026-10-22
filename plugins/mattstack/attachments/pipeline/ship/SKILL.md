@@ -631,7 +631,8 @@ browser-evidence's `Draw the boards` (Browser evidence below) once for
 them, so its redaction gate asks about them together. A later browser case
 already in that hand-off reads its own terminal from it, with no new
 spawn. A retry after `ship:after-attempts` is a hand-off of that case
-alone.
+alone. A browser case named after that hand-off was made starts a hand-off
+of its own.
 
 Its terminals answer `AFTER result (ship)?`. Board ready is captured; the
 board is recorded with the rest in `Record the evidence (evidence-record)`.
