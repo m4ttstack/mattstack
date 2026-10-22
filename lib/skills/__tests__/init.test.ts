@@ -595,6 +595,26 @@ describe("initPack --extends", () => {
     }
   });
 
+  test("init --extends refuses a base that itself extends another, before anything is written", async () => {
+    const { deps, calls, fs } = world({
+      files: {
+        [`${BASE_DIR}/pack/skills.jsonc`]: '{ "base": true, "extends": "gadgets-base" }',
+        [`${ORG_ROOT("acme")}/mattstack/org/packs/gadgets-base/pack/skills.jsonc`]: '{ "base": true }',
+      },
+    });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(out).toMatchObject({
+      ok: false,
+      refused: true,
+      code: "base-missing",
+      detail: "The acme-base pack in the acme org extends gadgets-base, and a base pack cannot extend another. Bases here: gadgets-base",
+      next: "rt skills init --team acme --extends <base>",
+    });
+    expect(fs.exists(`${ACME_PACK}/pack/skills.jsonc`)).toBe(false);
+    expect(calls.claims).toEqual([]);
+    expect(calls.remembered).toEqual([]);
+  });
+
   test("a stop with no --extends names no base in its next", async () => {
     const { deps } = world({ compile: stopOnMissing });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);

@@ -563,11 +563,19 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     const packsDir = join(zone.orgDir, "mattstack", "org", "packs");
     const baseDir = TEAM_NAME_RE.test(extendsBase) ? join(packsDir, extendsBase) : null;
     baseFragment = baseDir !== null && deps.fs.exists(baseDir) ? readBaseFragment(deps.fs, baseDir) : null;
-    if (baseFragment === null) {
-      const bases = deps.fs.exists(packsDir) ? deps.fs.readDir(packsDir).filter((name) => isBasePack(deps.fs, join(packsDir, name))).sort() : [];
+    if (baseFragment === null || baseFragment.extends) {
+      const bases = deps.fs.exists(packsDir)
+        ? deps.fs.readDir(packsDir).filter((name) => {
+            const fragment = readBaseFragment(deps.fs, join(packsDir, name));
+            return fragment !== null && !fragment.extends;
+          }).sort()
+        : [];
+      const listed = bases.length > 0 ? `. Bases here: ${bases.join(", ")}` : "";
       return refuse(
         "base-missing",
-        `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org${bases.length > 0 ? `. Bases here: ${bases.join(", ")}` : ""}`,
+        baseFragment === null
+          ? `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org${listed}`
+          : `The ${extendsBase} pack in the ${zone.org} org extends ${baseFragment.extends}, and a base pack cannot extend another${listed}`,
         `rt skills init --team ${zone.team} --extends <base>`,
       );
     }
