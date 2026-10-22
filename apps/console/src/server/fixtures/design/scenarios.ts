@@ -20,6 +20,7 @@
  * | `org-base-drift`   | `org-base`, with a stale base copy and a base error   |
  * | `pipeline-base-override` | `acme-base` sets the accessibility evidence override |
  * | `stale-copy`       | check reports a stale stage copy and a dropped override |
+ * | `team-sections`    | plan's domain fill holds two `widgets` team sections, one changed |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -45,6 +46,7 @@ export const SCENARIOS = [
   'org-base-drift',
   'pipeline-base-override',
   'stale-copy',
+  'team-sections',
   'runs',
   'runs-empty',
   'runs-outage',
@@ -68,6 +70,7 @@ interface Part {
 interface Anatomy {
   skill: string;
   status: string;
+  staleBecause?: string[];
   template: { builtVersion: string | null };
   rendered: { path: string; exists: boolean; lines: number };
   parts: Part[];
@@ -91,7 +94,7 @@ interface Composition {
 }
 
 interface Check {
-  verbs: { name: string; status: string }[];
+  verbs: { name: string; status: string; staleBecause?: string[] }[];
   attachments?: unknown[];
   baseErrors?: string[];
   staleCopies?: string[];
@@ -429,6 +432,48 @@ function baseOverridesEvidence(composition: Composition): Composition {
   };
 }
 
+/** A `widgets` team section rt found inside plan's domain body, `at` lines
+    into it. */
+function sectionPart(name: string, at: number, changed: boolean): Part {
+  const from = DOMAIN_BODY[0] + at;
+  return {
+    kind: 'section',
+    name,
+    templateLines: null,
+    renderedLines: [from, from + 2],
+    mode: null,
+    source: {
+      ref: `widgets:pack/sections/${name}.md`,
+      path: `/fixture/packs/widgets/pack/sections/${name}.md`,
+      version: '0.4.0',
+      builtVersion: '0.4.0',
+      lines: 2,
+    },
+    target: null,
+    changed,
+  };
+}
+
+/** Plan stale on a changed team section, as rt reads it off the file on
+    disk: a slot's extent holds its sections, so the domain slot changed too,
+    and text between markers has no anchor in a stale file. */
+function domainHoldsSections(anatomy: Anatomy): Anatomy {
+  return {
+    ...anatomy,
+    status: 'stale',
+    staleBecause: ['team'],
+    parts: anatomy.parts.flatMap(part => {
+      if (part.kind === 'text') return [{ ...part, renderedLines: null }];
+      if (part.kind !== 'slot' || part.name !== 'domain') return [part];
+      return [
+        { ...part, changed: true },
+        sectionPart('ci-extra', 4, false),
+        sectionPart('release-rules', 9, true),
+      ];
+    }),
+  };
+}
+
 const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
   runs: { subject: 'stage-plan' },
@@ -527,6 +572,18 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
       droppedOverrides: [
         { key: 'feature/mattstack:stage-gates domain', layer: `base:${BASE}` },
       ],
+    }),
+  },
+  'team-sections': {
+    subject: 'stage-plan',
+    anatomy: { 'stage-plan': { file: PLAN_FILE, edit: domainHoldsSections } },
+    check: check => ({
+      ...check,
+      verbs: check.verbs.map(row =>
+        row.name === 'stage-plan'
+          ? { ...row, status: 'stale', staleBecause: ['team'] }
+          : row
+      ),
     }),
   },
 };

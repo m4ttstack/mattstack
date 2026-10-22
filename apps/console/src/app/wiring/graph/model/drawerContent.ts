@@ -7,7 +7,6 @@ import { STATUS_TONE, type StatusTone } from './statusTone';
 import {
   countOf,
   fileLabelOf,
-  graphAnatomy,
   gutterOf,
   partKey,
   partLabel,
@@ -16,6 +15,7 @@ import {
   shareOf,
   spanOf,
   textNounOf,
+  withoutSections,
   type InputCard,
   type LineRange,
   type OutputCard,
@@ -121,7 +121,7 @@ export function drawerContent(
   requestedView: WiringView | null,
   check?: Pick<SkillsCheck, 'attachments'>
 ): DrawerContent | null {
-  const anatomy = graphAnatomy(fullAnatomy);
+  const anatomy = withoutSections(fullAnatomy);
   if (view.app) return appFillContent(target, view, anatomy.pack);
   switch (target.kind) {
     case 'row': {

@@ -17,7 +17,7 @@ export type BuiltFromRow = {
   /** The folder that names the file: `gate-protocol`. */
   name: string;
   file: string;
-  kind: 'template' | 'partial' | 'pack text';
+  kind: 'template' | 'partial' | 'pack text' | 'team values';
   /** Owner and version the skill was built with; null when never built. */
   builtWith: string | null;
   installed: string;
@@ -89,6 +89,19 @@ export function builtFrom(
   const seen = new Set([anatomy.template.path]);
   for (const part of anatomy.parts) {
     const { source } = part;
+    if (part.kind === 'section' && source && !seen.has(source.path)) {
+      seen.add(source.path);
+      rows.push({
+        ...rowOf(
+          source,
+          'team values',
+          statusOf(source, part.changed),
+          anatomy.pack
+        ),
+        name: part.name ?? source.path,
+      });
+      continue;
+    }
     if ((part.kind !== 'include' && part.kind !== 'slot') || !source) continue;
     if (seen.has(source.path)) continue;
     seen.add(source.path);

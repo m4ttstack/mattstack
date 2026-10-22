@@ -9,6 +9,7 @@ import {
   buildTemplateView,
   selectedPartId,
   textNounOf,
+  type LineRange,
   type TemplateRow,
 } from '../templateModel';
 
@@ -357,62 +358,177 @@ describe('the plan step template', () => {
   });
 });
 
-describe('a team section inside a slot', () => {
+describe('team sections inside a slot', () => {
   const domain = anatomyPlan.parts.find(
     part => part.kind === 'slot' && part.name === 'domain'
   )!;
   const [from] = domain.renderedLines!;
-  const section: Part = {
+  const sectionPart = (name: string, at: number, changed = false): Part => ({
     kind: 'section',
-    name: 'ci-extra',
+    name,
     templateLines: null,
-    renderedLines: [from + 2, from + 4],
+    renderedLines: [from + at, from + at + 2],
     mode: null,
-    source: null,
+    source: {
+      ref: `widgets:pack/sections/${name}.md`,
+      path: `/fixture/packs/widgets/pack/sections/${name}.md`,
+      version: '0.4.0',
+      builtVersion: '0.4.0',
+      lines: 2,
+    },
     target: null,
-    changed: false,
-  };
-  const withSection: SkillsAnatomy = {
+    changed,
+  });
+  const withSections = (...sections: Part[]): SkillsAnatomy => ({
     ...anatomyPlan,
     parts: anatomyPlan.parts.flatMap(part =>
-      part === domain ? [part, section] : [part]
+      part === domain ? [part, ...sections] : [part]
     ),
-  };
-  const view = buildTemplateView({
-    anatomy: withSection,
-    composition,
-    check,
-    changes: changesClean,
-    step: 2,
+  });
+  const viewOf = (anatomy: SkillsAnatomy, stale = check) =>
+    buildTemplateView({
+      anatomy,
+      composition,
+      check: stale,
+      changes: changesClean,
+      step: 2,
+    });
+  const twoSections = withSections(
+    sectionPart('ci-extra', 2),
+    sectionPart('release-rules', 6)
+  );
+  const view = viewOf(twoSections);
+
+  it('draws each section in its slot card, in rendered order', () => {
+    expect(
+      view.inputs.find(card => card.id === 'slot:domain')?.sections
+    ).toEqual([
+      {
+        id: 'section:ci-extra',
+        title: 'ci-extra',
+        source: 'widgets:pack/sections/ci-extra.md',
+        changed: false,
+      },
+      {
+        id: 'section:release-rules',
+        title: 'release-rules',
+        source: 'widgets:pack/sections/release-rules.md',
+        changed: false,
+      },
+    ]);
   });
 
-  it('draws no card or row of its own', () => {
+  it('gives a section no row or card of its own', () => {
     expect(view.inputs.some(card => card.id.startsWith('section:'))).toBe(
       false
     );
     expect(
       view.rows.some(
-        row => row.kind === 'placeholder' && row.name === 'ci-extra'
+        row =>
+          row.kind === 'placeholder' &&
+          (row.name === 'ci-extra' || row.name === 'release-rules')
       )
     ).toBe(false);
   });
 
-  it('leaves the slot card and the whole graph as they are without it', () => {
+  it('leaves every other card, row and the output as they are without one', () => {
     const plain = planView();
-    expect(view.inputs.find(card => card.id === 'slot:domain')).toEqual(
-      plain.inputs.find(card => card.id === 'slot:domain')
-    );
-    expect(view).toEqual(plain);
+    expect({
+      ...view,
+      inputs: view.inputs.map(card => ({ ...card, sections: [] })),
+    }).toEqual(plain);
+    expect(plain.inputs.every(card => card.sections.length === 0)).toBe(true);
   });
 
-  it('leaves the drawer as it is without it', () => {
+  it('marks a section that changed since the last compile', () => {
+    const changed = viewOf(withSections(sectionPart('ci-extra', 2, true)));
+    expect(
+      changed.inputs.find(card => card.id === 'slot:domain')?.sections[0]
+        ?.changed
+    ).toBe(true);
+  });
+
+  it('says team values changed when check names them', () => {
+    const stale: SkillsCheck = {
+      ...check,
+      verbs: check.verbs.map(row =>
+        row.name === 'stage-plan'
+          ? { ...row, status: 'stale', staleBecause: ['team'] }
+          : row
+      ),
+    };
+    expect(viewOf(twoSections, stale).output).toMatchObject({
+      status: 'stale',
+      reason: 'team values changed',
+    });
+  });
+
+  const domainSections = (anatomy: SkillsAnatomy) =>
+    viewOf(anatomy)
+      .inputs.find(card => card.id === 'slot:domain')!
+      .sections.map(section => section.id);
+
+  it('keeps a section a stale file could not place on its slot', () => {
+    const unplaced = { ...sectionPart('ci-extra', 2), renderedLines: null };
+    expect(domainSections(withSections(unplaced))).toEqual([
+      'section:ci-extra',
+    ]);
+  });
+
+  it('drops a section that sits outside the slot before it', () => {
+    const outside = {
+      ...sectionPart('ci-extra', 0),
+      renderedLines: [1, 2] as LineRange,
+    };
+    expect(domainSections(withSections(outside))).toEqual([]);
+  });
+
+  it('keeps a section listed after a file pasted inside the same fill', () => {
+    const nested: Part = {
+      kind: 'include',
+      name: 'nested-partial',
+      templateLines: null,
+      renderedLines: [from + 1, from + 1],
+      mode: null,
+      source: null,
+      target: null,
+      changed: false,
+    };
+    expect(
+      domainSections(withSections(nested, sectionPart('ci-extra', 2)))
+    ).toEqual(['section:ci-extra']);
+  });
+
+  it('numbers a section the fill pastes twice', () => {
+    expect(
+      domainSections(
+        withSections(sectionPart('ci-extra', 2), sectionPart('ci-extra', 6))
+      )
+    ).toEqual(['section:ci-extra', 'section:ci-extra@2']);
+  });
+
+  it('never hangs a section on the card before a slot that draws none', () => {
+    const unbound: Part = {
+      ...domain,
+      name: 'extra',
+      source: null,
+      mode: null,
+    };
+    const view = viewOf(withSections(unbound, sectionPart('ci-extra', 2)));
+    expect(view.inputs.some(card => card.id === 'slot:extra')).toBe(false);
+    expect(
+      view.inputs.find(card => card.id === 'slot:domain')?.sections
+    ).toEqual([]);
+  });
+
+  it('leaves the drawer as it is without one', () => {
     const plain = planView();
     for (const target of [
       { kind: 'output', part: null },
       { kind: 'output', part: 'slot:domain' },
       { kind: 'input', id: 'slot:domain' },
     ] as const) {
-      expect(drawerContent(target, view, withSection, null)).toEqual(
+      expect(drawerContent(target, view, twoSections, null)).toEqual(
         drawerContent(target, plain, anatomyPlan, null)
       );
     }
