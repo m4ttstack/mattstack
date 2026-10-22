@@ -493,3 +493,98 @@ test('selecting text inside the snippet does not open the full diff', async () =
   await React.act(async () => snippet.click());
   expect(dialog()).not.toBeNull();
 });
+
+/** A stand-in renderer that draws its pins a task after mounting, the way
+    the real one does once its highlighter and chunks are in. */
+function LatePinsView({
+  pins = [],
+  renderPin,
+}: {
+  pins?: Array<{ id: string; line: number }>;
+  renderPin?: (pin: { id: string; line: number }) => React.ReactNode;
+}) {
+  const [drawn, setDrawn] = React.useState(false);
+  React.useEffect(() => {
+    const t = setTimeout(() => setDrawn(true), 0);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="tui-diff">
+      {drawn && pins.map(p => <div key={p.id}>{renderPin?.(p)}</div>)}
+    </div>
+  );
+}
+
+const lateSource: DiffSource = {
+  ...source,
+  loadView: async () =>
+    ({ default: LatePinsView }) as unknown as typeof import('../DiffView.tsx'),
+};
+
+function placeAt(el: Element, top: number, height: number) {
+  el.getBoundingClientRect = () =>
+    ({ top, height, bottom: top + height }) as DOMRect;
+}
+
+test('the full diff opens centred on the finding you came from, once its pin is drawn', async () => {
+  const realRect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    if (this.classList.contains('tui-diff-modal-body'))
+      return { top: 100, height: 400, bottom: 500 } as DOMRect;
+    if (this.matches('.tui-diff-pin[data-current]')) {
+      const body = this.closest('.tui-diff-modal-body') as HTMLElement;
+      return { top: 1300 - body.scrollTop, height: 40 } as DOMRect;
+    }
+    return realRect.call(this);
+  };
+  const realHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    'clientHeight'
+  );
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains('tui-diff-modal-body')
+        ? 400
+        : (realHeight?.get?.call(this) ?? 0);
+    },
+  });
+  try {
+    await render(lateSource);
+    await React.act(async () =>
+      fullDiffLink('Retry loop lacks backoff')!.click()
+    );
+    const body = dialog()!.querySelector<HTMLElement>('.tui-diff-modal-body')!;
+    await React.act(async () => {
+      await new Promise(r => setTimeout(r, 10));
+    });
+    const pin = body.querySelector('.tui-diff-pin[data-current]');
+    expect(pin?.textContent).toContain('Retry loop lacks backoff');
+    expect(body.scrollTop).toBe(1300 - 100 - (400 - 40) / 2);
+  } finally {
+    HTMLElement.prototype.getBoundingClientRect = realRect;
+    if (realHeight)
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', realHeight);
+    else
+      delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+  }
+});
+
+test('scrolling the full diff yourself stops it re-centring', async () => {
+  await render(lateSource);
+  await React.act(async () =>
+    fullDiffLink('Retry loop lacks backoff')!.click()
+  );
+  const body = dialog()!.querySelector<HTMLElement>('.tui-diff-modal-body')!;
+  body.dispatchEvent(new Event('wheel'));
+  await React.act(async () => {
+    await new Promise(r => setTimeout(r, 10));
+  });
+  const pin = body.querySelector('.tui-diff-pin[data-current]')!;
+  placeAt(pin, 5000, 40);
+  body.appendChild(document.createElement('div'));
+  await React.act(async () => {
+    await new Promise(r => setTimeout(r, 0));
+  });
+  expect(body.scrollTop).toBe(0);
+});
