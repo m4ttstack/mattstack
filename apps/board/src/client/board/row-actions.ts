@@ -535,7 +535,7 @@ export function rowActions(
       item(
         'agent',
         'ask-respond',
-        `ask ${who}'s agent to respond`,
+        `ask ${people.short(who)}'s agent to respond`,
         AGENT_CLOUD,
         { kind: 'ask', ask: 'respond', reviewer: who },
         target ? {} : { blocked: respondAskBlock(mrx) }

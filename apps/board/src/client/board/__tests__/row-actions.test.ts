@@ -251,7 +251,7 @@ test("a teammate's MR without my commented review blocks the respond ask", () =>
   const ask = rowActions(mr, actionEnvOf(ownEnv, mr)).find(
     a => a.key === 'ask-respond'
   );
-  expect(ask?.label).toBe("ask kim's agent to respond");
+  expect(ask?.label).toBe("ask Kim's agent to respond");
   expect(ask?.blocked).toBe('no finished review with comments');
 });
 

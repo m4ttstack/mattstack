@@ -74,7 +74,7 @@ test("teammate's MR after my commented review, slack thread found", async () => 
       "# agent actions",
       "follow-up review",
       "---",
-      "ask kim's agent to respond",
+      "ask Kim's agent to respond",
       "---",
       "> all agent actions",
       "> gitlab",
@@ -85,7 +85,7 @@ test("teammate's MR after my commented review, slack thread found", async () => 
   expect(await clickEach(teammateReviewed, ownEnv)).toMatchInlineSnapshot(`
     [
       "follow-up review → launch:re-review",
-      "ask kim's agent to respond → ask:respond:kim",
+      "ask Kim's agent to respond → ask:respond:kim",
       "redo review → launch:review",
       "resume review → launch:resume-review",
       "view agent review → view-report:review",
