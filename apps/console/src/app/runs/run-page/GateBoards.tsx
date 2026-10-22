@@ -9,7 +9,7 @@ import {
 } from '../../../shared/gate-boards';
 import { Eyebrow } from '../Eyebrow';
 import { GateContext } from '../GateContext';
-import { EvidenceFrame, EvidenceModal } from './EvidenceCompare';
+import { EvidenceFrame, EvidenceModal, usePager } from './EvidenceCompare';
 import { EvidenceImage } from './EvidenceImage';
 import classes from './GateBoards.module.css';
 
@@ -21,11 +21,14 @@ export const boardUrl = (gateId: string, path: string): string =>
 export function GateBoards({
   gateId,
   boards,
+  srcOf = path => boardUrl(gateId, path),
 }: {
   gateId: string;
   boards: BoardsContext;
+  /** Where a board's image loads from; the gate's board route by default. */
+  srcOf?: (path: string) => string;
 }) {
-  const [full, setFull] = useState<GateBoard | null>(null);
+  const [full, setFull] = useState<string | null>(null);
   return (
     <Stack
       gap={10}
@@ -56,10 +59,10 @@ export function GateBoards({
               className={classes.frame}
             >
               <EvidenceImage
-                src={boardUrl(gateId, b.path)}
+                src={srcOf(b.path)}
                 name={boardName(b)}
                 maxHeight={360}
-                onOpen={() => setFull(b)}
+                onOpen={() => setFull(b.path)}
               />
             </Paper>
             <Text fz="sm" ff="monospace" c="dimmed" className={classes.name}>
@@ -72,21 +75,57 @@ export function GateBoards({
         ))}
       </div>
       {full && (
-        <EvidenceModal title={boardName(full)} onClose={() => setFull(null)}>
-          <EvidenceFrame
-            src={boardUrl(gateId, full.path)}
-            name={boardName(full)}
-            caption={
-              <Stack gap={2}>
-                <Text fz="md">{full.caption}</Text>
-                <Text fz="sm" ff="monospace" c="dimmed">
-                  {full.path}
-                </Text>
-              </Stack>
-            }
-          />
-        </EvidenceModal>
+        <BoardsModal
+          srcOf={srcOf}
+          boards={boards.boards}
+          path={full}
+          onShow={setFull}
+          onClose={() => setFull(null)}
+        />
       )}
     </Stack>
+  );
+}
+
+/** One board full size, paging through the gate's others. */
+function BoardsModal({
+  srcOf,
+  boards,
+  path,
+  onShow,
+  onClose,
+}: {
+  srcOf: (path: string) => string;
+  boards: GateBoard[];
+  path: string;
+  onShow: (path: string) => void;
+  onClose: () => void;
+}) {
+  const shown = boards.find(b => b.path === path) ?? boards[0]!;
+  const pager = usePager({
+    items: boards.map(b => ({ value: b.path, label: boardName(b) })),
+    value: shown.path,
+    onChange: onShow,
+    noun: 'board',
+  });
+  return (
+    <EvidenceModal
+      title={pager?.title ?? boardName(shown)}
+      pager={pager?.pager}
+      onClose={onClose}
+    >
+      <EvidenceFrame
+        src={srcOf(shown.path)}
+        name={boardName(shown)}
+        caption={
+          <Stack gap={2}>
+            <Text fz="md">{shown.caption}</Text>
+            <Text fz="sm" ff="monospace" c="dimmed">
+              {shown.path}
+            </Text>
+          </Stack>
+        }
+      />
+    </EvidenceModal>
   );
 }

@@ -7,6 +7,7 @@ import {
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 import { EvidenceCompare } from './EvidenceCompare';
+import type { ShotAddress } from './evidenceImages';
 
 function casesOf(
   value: EvidenceRecord
@@ -91,7 +92,23 @@ const WEB_421 = casesOf(
   )
 );
 
-/** Needs the design fixture server behind `/api` to show pictures. */
+/** WEB-421's pictures straight from the design fixture, served by Storybook,
+    so the stories that pass it need no fixture server. A URL rather than an
+    import: the server wall is for code, and these never ship. */
+function web421(a: ShotAddress): string {
+  const stem = {
+    'rush-window': `rush-${a.slot}`,
+    'order-card-themes': `card-${a.slot}-${a.theme ?? 'light'}`,
+    'empty-state': `empty-${a.slot}`,
+  }[a.caseId];
+  return new URL(
+    `../../../server/fixtures/design/files/evidence/web-421/${stem}${a.annotated ? '-annotated' : ''}.png`,
+    import.meta.url
+  ).href;
+}
+
+/** Without `srcOf`, needs the design fixture server behind `/api` to show
+    pictures. */
 const meta = {
   title: 'Runs/Run page/EvidenceCompare',
   component: EvidenceCompare,
@@ -125,4 +142,21 @@ export const ThreeCasesDark: Story = {
     caseId: 'order-card-themes',
     theme: 'dark',
   },
+};
+
+/** Every control at once: the case pager and menu, Light and Dark, and
+    Before, After and Side by side, with pictures. */
+export const AllControls: Story = {
+  args: {
+    runId: '20261008-1210',
+    record: WEB_421,
+    ticket: 'WEB-421',
+    caseId: 'order-card-themes',
+    mode: 'side',
+    srcOf: web421,
+  },
+};
+
+export const AllControlsOnAfter: Story = {
+  args: { ...AllControls.args, mode: 'after' },
 };

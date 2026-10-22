@@ -187,7 +187,7 @@ describe('EvidenceCompare, one named case', () => {
     expect(
       await screen.findByText('WEB-409 · Rush order, Sep 14 delay, Denver')
     ).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: 'Case' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Next case' })).toBeNull();
   });
 });
 
@@ -203,12 +203,22 @@ describe('EvidenceCompare, several cases', () => {
         {...p}
       />
     );
+  const picker = async () =>
+    within(await screen.findByRole('heading')).getByRole('button');
 
-  it('titles itself with the ticket and offers every case', async () => {
+  it('titles itself with the ticket and the case, and offers every case', async () => {
     open();
-    expect(await screen.findByText('WEB-421')).toBeInTheDocument();
-    const picker = screen.getByRole('combobox', { name: 'Case' });
-    expect(picker).toHaveValue('Rush order, same-day window');
+    expect(await screen.findByRole('heading')).toHaveTextContent(
+      'WEB-421/Rush order, same-day window'
+    );
+    await userEvent.click(await picker());
+    expect(
+      (await screen.findAllByRole('menuitem')).map(i => i.textContent)
+    ).toEqual([
+      'Rush order, same-day window',
+      'Order card in light and dark',
+      'No delivery window yet',
+    ]);
   });
 
   it('shows the theme control only for a case with both themes', async () => {
@@ -228,9 +238,7 @@ describe('EvidenceCompare, several cases', () => {
 
   it('opens the first case for an unknown case and light for an absent theme', async () => {
     open({ caseId: 'gone', theme: 'dark', mode: 'side' });
-    expect(await screen.findByRole('combobox', { name: 'Case' })).toHaveValue(
-      'Rush order, same-day window'
-    );
+    expect(await picker()).toHaveTextContent('Rush order, same-day window');
     expect(screen.queryByRole('radiogroup', { name: 'Theme' })).toBeNull();
     expect(screen.getAllByRole('img').map(i => i.getAttribute('src'))).toEqual([
       `/api/runs/${REPO}/${RUN}/evidence/rush-window/before?annotated=1`,
@@ -263,9 +271,9 @@ describe('EvidenceCompare, several cases', () => {
   it('keeps the mode when the new case has it, else takes its last', async () => {
     const onShow = vi.fn();
     open({ mode: 'side', onShow });
-    await userEvent.click(screen.getByRole('combobox', { name: 'Case' }));
+    await userEvent.click(await picker());
     await userEvent.click(
-      await screen.findByRole('option', { name: 'No delivery window yet' })
+      await screen.findByRole('menuitem', { name: 'No delivery window yet' })
     );
     expect(onShow).toHaveBeenLastCalledWith({
       caseId: 'empty-state',
@@ -275,44 +283,39 @@ describe('EvidenceCompare, several cases', () => {
 
   it('steps through the cases with the arrow keys, stopping at each end', async () => {
     open();
-    const picker = await screen.findByRole('combobox', { name: 'Case' });
+    const shown = await picker();
     await userEvent.keyboard('{ArrowLeft}');
-    expect(picker).toHaveValue('Rush order, same-day window');
+    expect(shown).toHaveTextContent('Rush order, same-day window');
     await userEvent.keyboard('{ArrowRight}');
-    expect(picker).toHaveValue('Order card in light and dark');
+    expect(shown).toHaveTextContent('Order card in light and dark');
     await userEvent.keyboard('{ArrowRight}{ArrowRight}');
-    expect(picker).toHaveValue('No delivery window yet');
+    expect(shown).toHaveTextContent('No delivery window yet');
     await userEvent.keyboard('{ArrowLeft}');
-    expect(picker).toHaveValue('Order card in light and dark');
+    expect(shown).toHaveTextContent('Order card in light and dark');
   });
 
   it('counts the cases and steps with the previous and next buttons', async () => {
     open();
-    const picker = await screen.findByRole('combobox', { name: 'Case' });
+    const shown = await picker();
     const prev = screen.getByRole('button', { name: 'Previous case' });
     const next = screen.getByRole('button', { name: 'Next case' });
-    expect(screen.getByText('1 of 3')).toBeInTheDocument();
+    expect(screen.getByText('1 / 3')).toBeInTheDocument();
     expect(prev).toBeDisabled();
     await userEvent.click(next);
-    expect(picker).toHaveValue('Order card in light and dark');
-    expect(screen.getByText('2 of 3')).toBeInTheDocument();
+    expect(shown).toHaveTextContent('Order card in light and dark');
+    expect(screen.getByText('2 / 3')).toBeInTheDocument();
     await userEvent.click(next);
     expect(next).toBeDisabled();
     await userEvent.click(prev);
-    expect(picker).toHaveValue('Order card in light and dark');
-  });
-
-  it('names the arrow keys in its footer', async () => {
-    open();
-    expect(await screen.findByText('switch case')).toBeInTheDocument();
+    expect(shown).toHaveTextContent('Order card in light and dark');
   });
 
   it('leaves the arrow keys to a focused control', async () => {
     open({ caseId: 'order-card-themes', mode: 'after' });
-    const picker = await screen.findByRole('combobox', { name: 'Case' });
+    const shown = await picker();
     await userEvent.click(screen.getByRole('radio', { name: 'Light' }));
     await userEvent.keyboard('{ArrowRight}');
-    expect(picker).toHaveValue('Order card in light and dark');
+    expect(shown).toHaveTextContent('Order card in light and dark');
   });
 
   it('writes the caption under each frame side by side', async () => {

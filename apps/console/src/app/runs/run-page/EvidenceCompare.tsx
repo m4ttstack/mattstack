@@ -3,12 +3,12 @@ import {
   ActionIcon,
   Divider,
   Group,
-  Kbd,
+  Menu,
   Modal,
   SegmentedControl,
-  Select,
   Stack,
   Text,
+  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { useHotkeys } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
@@ -38,6 +38,7 @@ import {
   type EvidenceCases,
   type EvidencePhase,
   type EvidenceVariant,
+  type ShotAddress,
 } from './evidenceImages';
 import { ShotLine } from './ShotLine';
 
@@ -106,22 +107,20 @@ export function useCompareLink() {
   return { open, asked, clear, sync };
 }
 
-/** Evidence full size: the kit modal less a margin, its title and any note
-    beside it, any control beside the close button, the images on an inset
-    stage, and an optional footer. */
+/** Evidence full size: the kit modal less a margin; a pager and the title
+    on the left of its head, any control beside the close button, and the
+    images on an inset stage. */
 export function EvidenceModal({
   title,
-  meta,
+  pager,
   controls,
-  footer,
   onClose,
   parityRoot,
   children,
 }: {
-  title: string;
-  meta?: ReactNode;
+  title: ReactNode;
+  pager?: ReactNode;
   controls?: ReactNode;
-  footer?: ReactNode;
   onClose: () => void;
   /** The parity root this modal is compared as, when a board draws it. */
   parityRoot?: string;
@@ -132,12 +131,14 @@ export function EvidenceModal({
       <Modal.Overlay />
       <Modal.Content data-parity={parityRoot}>
         <div data-parity={parityRoot ? 'modal' : undefined}>
-          <Modal.Header data-parity="head">
-            <Group gap={8} wrap="nowrap">
-              <Modal.Title data-parity="t">{title}</Modal.Title>
-              {meta}
+          <Modal.Header className={classes.head} data-parity="head">
+            <Group gap={10} wrap="nowrap" miw={0}>
+              {pager}
+              <Modal.Title className={classes.title} data-parity="t">
+                {title}
+              </Modal.Title>
             </Group>
-            <Group gap="sm" wrap="nowrap">
+            <Group gap={10} wrap="nowrap">
               {controls}
               <Modal.CloseButton aria-label="Close" />
             </Group>
@@ -147,12 +148,6 @@ export function EvidenceModal({
             <div className={classes.stage} tabIndex={-1} data-autofocus>
               {children}
             </div>
-            {footer ? (
-              <>
-                <Divider />
-                {footer}
-              </>
-            ) : null}
           </Modal.Body>
         </div>
       </Modal.Content>
@@ -185,6 +180,115 @@ export function EvidenceFrame({
   );
 }
 
+export interface PagerItem {
+  value: string;
+  label: string;
+}
+
+/** Several items one at a time in an evidence modal: previous and next
+    around the count, and a title that names the item shown and opens a list
+    of every item to jump to, after an optional prefix. The arrow keys step
+    too. Null for a single item. */
+export function usePager({
+  items,
+  value,
+  onChange,
+  noun,
+  prefix,
+}: {
+  items: PagerItem[];
+  value: string;
+  onChange: (value: string) => void;
+  noun: string;
+  prefix?: string | null;
+}) {
+  const at = Math.max(
+    0,
+    items.findIndex(x => x.value === value)
+  );
+  const count = items.length;
+  const step = (by: number) => {
+    const next = items[at + by];
+    if (next) onChange(next.value);
+  };
+  useHotkeys([
+    ['ArrowLeft', () => step(-1)],
+    ['ArrowRight', () => step(1)],
+  ]);
+  if (count < 2) return null;
+  const shown = items[at]!;
+  return {
+    pager: (
+      <ActionIcon.Group data-parity="pager">
+        <ActionIcon
+          variant="default"
+          size="input-xs"
+          aria-label={`Previous ${noun}`}
+          disabled={at === 0}
+          onClick={() => step(-1)}
+        >
+          <Icon name="chevronLeft" size={16} />
+        </ActionIcon>
+        <ActionIcon.GroupSection
+          variant="default"
+          size="input-xs"
+          className={classes.count}
+        >
+          {at + 1} / {count}
+        </ActionIcon.GroupSection>
+        <ActionIcon
+          variant="default"
+          size="input-xs"
+          aria-label={`Next ${noun}`}
+          disabled={at === count - 1}
+          onClick={() => step(1)}
+        >
+          <Icon name="chevronRight" size={16} />
+        </ActionIcon>
+      </ActionIcon.Group>
+    ),
+    title: (
+      <Group gap={8} wrap="nowrap" miw={0}>
+        {prefix ? (
+          <>
+            <Text span fz="sm" fw={500} c="dimmed" data-parity="ticket">
+              {prefix}
+            </Text>
+            <Text span fz="sm" c="dimmed" data-parity="sep">
+              /
+            </Text>
+          </>
+        ) : null}
+        <Menu position="bottom-start" withinPortal>
+          <Menu.Target>
+            <UnstyledButton className={classes.pick}>
+              <Text span className={classes.pickLabel} data-parity="case">
+                {shown.label}
+              </Text>
+              <Icon name="chevronsUpDown" size={14} />
+            </UnstyledButton>
+          </Menu.Target>
+          <Menu.Dropdown className={classes.pickList}>
+            {items.map(x => (
+              <Menu.Item
+                key={x.value}
+                onClick={() => onChange(x.value)}
+                rightSection={
+                  x.value === shown.value ? (
+                    <Icon name="check" size={14} />
+                  ) : null
+                }
+              >
+                {x.label}
+              </Menu.Item>
+            ))}
+          </Menu.Dropdown>
+        </Menu>
+      </Group>
+    ),
+  };
+}
+
 export interface EvidenceCompareProps extends CompareOpen {
   repo: string;
   runId: string;
@@ -194,6 +298,8 @@ export interface EvidenceCompareProps extends CompareOpen {
   onClose: () => void;
   /** Called with what the modal shows, on open and on every change. */
   onShow?: (shown: CompareShown) => void;
+  /** Where a shot's image loads from; the run's evidence route by default. */
+  srcOf?: (address: ShotAddress) => string;
 }
 
 function modesOf(c: EvidenceCase): CompareMode[] {
@@ -215,6 +321,7 @@ export function EvidenceCompare({
   variant = 'annotated',
   onClose,
   onShow,
+  srcOf = address => evidenceUrl(repo, runId, address),
 }: EvidenceCompareProps) {
   const first = record.cases[0]!;
   const [caseId, setCaseId] = useState(
@@ -242,86 +349,26 @@ export function EvidenceCompare({
     });
   }, [c.id, shownMode, shownTheme, onShow]);
 
-  const several = record.cases.length > 1;
-  const at = record.cases.indexOf(c);
-  const count = record.cases.length;
-  const step = (by: number) => {
-    const next = record.cases[at + by];
-    if (next) setCaseId(next.id);
-  };
-  useHotkeys([
-    ['ArrowLeft', () => step(-1)],
-    ['ArrowRight', () => step(1)],
-  ]);
-  const title = several
-    ? (ticket ?? 'Evidence')
-    : evidenceTitle(ticket, headLabel(record, c) ?? undefined);
+  const pager = usePager({
+    items: record.cases.map(x => ({ value: x.id, label: x.label })),
+    value: c.id,
+    onChange: setCaseId,
+    noun: 'case',
+    prefix: ticket,
+  });
   const phases: EvidencePhase[] =
     shownMode === 'side' ? slotsOf(c) : [shownMode];
 
   return (
     <EvidenceModal
-      title={title}
+      title={
+        pager?.title ?? evidenceTitle(ticket, headLabel(record, c) ?? undefined)
+      }
+      pager={pager?.pager}
       onClose={onClose}
       parityRoot="Compare modal"
-      meta={
-        several ? (
-          <Text size="sm" c="dimmed">
-            {at + 1} of {count}
-          </Text>
-        ) : null
-      }
-      footer={
-        several ? (
-          <Group gap={6} className={classes.footer}>
-            <Kbd size="xs" className={classes.key}>
-              ←
-            </Kbd>
-            <Kbd size="xs" className={classes.key}>
-              →
-            </Kbd>
-            <Text size="xs" c="dimmed">
-              switch case
-            </Text>
-          </Group>
-        ) : null
-      }
       controls={
         <>
-          {several ? (
-            <Group gap={4} wrap="nowrap">
-              <ActionIcon
-                variant="default"
-                size="input-sm"
-                aria-label="Previous case"
-                disabled={at === 0}
-                onClick={() => step(-1)}
-              >
-                <Icon name="chevronLeft" size={16} />
-              </ActionIcon>
-              <Select
-                aria-label="Case"
-                value={c.id}
-                onChange={v => v && setCaseId(v)}
-                data={record.cases.map(x => ({ value: x.id, label: x.label }))}
-                allowDeselect={false}
-                classNames={{ root: classes.caseSelect }}
-                data-parity="case select"
-              />
-              <ActionIcon
-                variant="default"
-                size="input-sm"
-                aria-label="Next case"
-                disabled={at === count - 1}
-                onClick={() => step(1)}
-              >
-                <Icon name="chevronRight" size={16} />
-              </ActionIcon>
-            </Group>
-          ) : null}
-          {several && (themes.length === 2 || modes.length > 1) ? (
-            <Divider orientation="vertical" />
-          ) : null}
           {themes.length === 2 ? (
             <SegmentedControl
               aria-label="Theme"
@@ -357,7 +404,7 @@ export function EvidenceCompare({
           return (
             <div key={p} className={classes.column}>
               <EvidenceFrame
-                src={evidenceUrl(repo, runId, addressOf(c, p, shot, variant))}
+                src={srcOf(addressOf(c, p, shot, variant))}
                 name={shownName(shot, variant)}
                 caption={
                   <Stack gap={2} data-parity="cap">
