@@ -190,6 +190,134 @@ stage, `reason` and `detailPath`.
 `stage` is the last stage. Above the form: the MR link, its state and the
 `ci` verdict.
 
+## A board frame mid-run
+
+The board rings this session instead of launching a doctor while the run
+is live. The frame arrives as a `<cross-session-message
+from-name="board">` naming an MR: this run's own MR (`CI failed on
+!<iid>`, `!<iid> needs a rebase onto <target>`) or one stacked on this
+branch (`!<iid> (stacked on your branch) ...`). Walk this map, then carry
+on from the step you left.
+
+```dot
+digraph board_frame {
+    board_frame_arrived [label="Trigger: a frame from board arrives mid-run" shape=ellipse];
+    own_mr_in_watch_ci [label="About this run's own MR, with watch-ci the current stage?" shape=diamond];
+    frame_kind [label="Which frame?" shape=diamond];
+    stop_board_handoff [label="STOP: the frame is this stage's work; no gate, reply or doctor" shape=octagon style=filled fillcolor=red fontcolor=white];
+    ci_triage_own [label="ci_triage {mrUrl: <this run's MR>, pipelineId: <the frame's pipeline>}" shape=plaintext];
+    own_real_job [label="A REAL job failing on this run's MR?" shape=diamond];
+    git_rebase_own [label="git_rebase {tree: <worktree>, onto: origin/<the frame's target>}" shape=plaintext];
+    rebase_status [label="Board rebase status?" shape=diamond];
+    run_budget_conflicts [label="run_budget {runDb, key: board:conflict-rounds, limit: 4, stage}" shape=plaintext];
+    conflict_rounds_spent [label="Board conflict-rounds spent?" shape=diamond];
+    resolve_board_conflicts [label="Resolve the files, then continue the board rebase on Bash" shape=box];
+    continue_status [label="Board rebase continue result?" shape=diamond];
+    git_rebase_abort [label="git_rebase {tree: <worktree>, abort: true}" shape=plaintext];
+    rerun_after_rebase [label="Rerun the stage's tests on the rebased branch" shape=box];
+    rebased_green [label="Green on the rebased branch?" shape=diamond];
+    ci_triage_stacked [label="ci_triage {mrUrl: <the stacked MR>, pipelineId: <the frame's pipeline>}" shape=plaintext];
+    judge_stacked_cause [label="Judge whether this branch's change caused the stacked MR's failure" shape=box];
+    stacked_cause [label="This branch's change caused it?" shape=diamond];
+    fix_on_my_branch [label="Fix it test-first and commit on this run's branch" shape=box];
+    fix_green [label="Fixed, with the stage's tests green?" shape=diamond];
+    run_field_set_board_note [label="run_field_set {runDb, key: board-<the frame's iid>, value: <one-line note>, stage}" shape=plaintext];
+    run_stage_fail_board [label="run_stage {runDb, action: fail, stage: <current stage>, reason}" shape=plaintext];
+    stage_failed [label="The stage ended failed; run_next routes it" shape=doublecircle];
+    back_in_stage [label="Back at the step I left, in the same stage" shape=doublecircle style=filled fillcolor=lightgreen];
+
+    board_frame_arrived -> own_mr_in_watch_ci;
+    own_mr_in_watch_ci -> back_in_stage [label="yes: watch-ci owns this MR's CI; no move"];
+    own_mr_in_watch_ci -> frame_kind [label="no"];
+    frame_kind -> ci_triage_own [label="own MR: CI failed"];
+    frame_kind -> git_rebase_own [label="own MR: needs a rebase"];
+    frame_kind -> ci_triage_stacked [label="stacked MR: failing CI"];
+    frame_kind -> run_field_set_board_note [label="stacked MR: needs a rebase"];
+    frame_kind -> stop_board_handoff [label="tempted to open a gate, reply, or leave it for a doctor"];
+    stop_board_handoff -> frame_kind;
+    ci_triage_own -> own_real_job;
+    own_real_job -> fix_on_my_branch [label="yes"];
+    own_real_job -> run_field_set_board_note [label="no: INFRA or INHERITED only"];
+    git_rebase_own -> rebase_status;
+    rebase_status -> rerun_after_rebase [label="clean"];
+    rebase_status -> run_budget_conflicts [label="conflict"];
+    rebase_status -> run_stage_fail_board [label="error"];
+    run_budget_conflicts -> conflict_rounds_spent;
+    conflict_rounds_spent -> resolve_board_conflicts [label="no"];
+    conflict_rounds_spent -> git_rebase_abort [label="yes"];
+    resolve_board_conflicts -> continue_status;
+    continue_status -> run_budget_conflicts [label="another commit conflicted"];
+    continue_status -> rerun_after_rebase [label="rebase finished"];
+    continue_status -> git_rebase_abort [label="error"];
+    git_rebase_abort -> run_stage_fail_board;
+    rerun_after_rebase -> rebased_green;
+    rebased_green -> back_in_stage [label="yes"];
+    rebased_green -> fix_on_my_branch [label="no"];
+    ci_triage_stacked -> judge_stacked_cause;
+    judge_stacked_cause -> stacked_cause;
+    stacked_cause -> fix_on_my_branch [label="yes"];
+    stacked_cause -> run_field_set_board_note [label="no, or not provable"];
+    fix_on_my_branch -> fix_green;
+    fix_green -> back_in_stage [label="yes"];
+    fix_green -> run_stage_fail_board [label="no: it needs a call this stage cannot make"];
+    run_field_set_board_note -> back_in_stage;
+    run_stage_fail_board -> stage_failed;
+}
+```
+
+### About this run's own MR, with watch-ci the current stage?
+
+Yes only for an own-MR frame (CI failed, or needs a rebase) while
+watch-ci is the stage at the position: its `ci_watch` and lease already
+own that MR's CI, so the frame changes nothing and you go back to waiting
+on it. A stacked-MR frame is never answered here, watch-ci included.
+
+### STOP: the frame is this stage's work; no gate, reply or doctor
+
+The frame is not a question and not a chat message. Never open a gate
+for it, `run_stage fail` to hand it on, redirect the run, reply with
+`chat_dm`, `rt chat` or SendMessage, or wait for a doctor: the board
+launched none because this run owns the MR. Take the frame's own edge.
+
+### Fix it test-first and commit on this run's branch
+
+Read the failed jobs the triage names (`mr_job_trace` for one it marks
+UNCLEAR), then a failing test, the fix and a commit in the run's
+worktree, as part of the current stage: it is the stage's work, not a
+separate loop. Never push: ship pushes the commits with the rest (the
+current stage's own record, such as implement's `commits`, picks them
+up). Never touch the stacked MR's
+branch: its fix, if yours, lands on this branch.
+
+### git_rebase {tree: <worktree>, onto: origin/<the frame's target>}
+
+Commit the stage's in-flight edit first: the rebase needs a clean tree.
+
+### Resolve the files, then continue the board rebase on Bash
+
+Resolve each conflicted file `git_rebase` returned, then continue on Bash
+(no tool continues a rebase).
+
+### Rerun the stage's tests on the rebased branch
+
+The tests the current stage has already run this session, on the
+rebased branch. The rebase rewrote commits the MR already holds, so
+ship's next push takes force-with-lease. Never push here.
+
+### Judge whether this branch's change caused the stacked MR's failure
+
+Compare the triage's blocking jobs and their logs with this branch's
+diff against its target. Yes needs a job failing in code this branch
+changed; a failure in the stacked MR's own change, or INFRA, is no.
+
+### run_field_set {runDb, key: board-<the frame's iid>, value: <one-line note>, stage}
+
+One line naming the MR and what you found: `!4127 red on pipeline
+88120431: INFRA runner timeout, no code change`, `!4131 red on
+pipeline 88120577: its own lint job, not this branch`, or for a rebase
+frame `!4131 needs a rebase: a doctor rebases it after this run`. Never
+rebase, push to or retry the stacked MR: it is someone else's branch.
+
 ## What the graph cannot show
 
 - **Entry.** A running run's id goes to `resume`, never `runDb`: only
@@ -217,6 +345,8 @@ stage, `reason` and `detailPath`.
   and `stage`, "Under a run: fail the stage at the gate?" answered no.
 - **Account back-fill**: `selection` is the spawn-time pick as an object,
   `decidedBy` the spawning surface.
+- **A board frame while a gate waits.** Walk the board frame map, then end
+  the turn again the way the gate's site ended it; the gate stays armed.
 
 ## Gate questions
 
