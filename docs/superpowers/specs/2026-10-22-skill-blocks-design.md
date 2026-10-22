@@ -70,11 +70,18 @@ answer "what does this skill do, step by step, and who shaped each step?"
 
 These were settled in brainstorming.
 
-1. **A block is a markdown heading section.** A heading owns everything up
-   to the next heading at the same or a higher level; deeper headings are
-   its children. A skill is a tree of blocks. Compile walks the tree and
-   writes markdown.
-2. **Each block is a file.** A block with children is a folder.
+1. **A block is a file, the way a component is.** It has one title (its
+   top heading), which sets where it sits in the outline, and inside it can
+   be as large or small as its content needs: paragraphs, tables and
+   sub-headings. A skill is a tree of blocks; a block with child blocks is a
+   folder. Compile walks the tree and writes markdown.
+2. **Decompose by default, not by dogma.** Aim for the decomposition
+   headings give today: a section that stands on its own becomes its own
+   block. Keep a cohesive chunk in one block where splitting it would make
+   it harder to understand. Two rules are fixed: a graph node with prose
+   gets its own block (the graph links to it), and a part that needs its
+   own identity (sidebar row, history, owner) gets its own block. A block
+   may also be headless (no title), rendering inline where it's used.
 3. **Heading levels come from depth.** A block stores its title, never `#`
    marks; compile assigns the level from its depth in the tree.
 4. **A block takes props.** A `{{props.x}}` marker in a block's text is
@@ -99,8 +106,9 @@ These were settled in brainstorming.
    by prop. Compile reports a binding whose fill is missing, whose block no
    longer exists, or whose prop the block doesn't declare.
 8. **A team can clear a lower layer's value** for a prop with an empty
-   binding (`""`), as slots allow today. Replacing mattstack's own text
-   stays impossible.
+   binding (`""`), as slots allow today. A cleared prop falls back to its
+   `default`; clearing a required prop (no `default`) stops compile.
+   Replacing mattstack's own text stays impossible.
 9. **Graphs stay in the compiled output as dot, and are authored in
    Mermaid.** Compile turns Mermaid into dot Claude reads the way it does
    today. A graph lives in its parent block, and each child block is tied to
@@ -210,10 +218,13 @@ Frontmatter fields:
 | `kind` | `gate` for a block that stops and asks the human through a form. Steps and questions come from the graph's shapes; gates need saying. |
 | `props` | Each prop's `merge`, `default` and optional `contract`. |
 
-The `#` line is the title; its level is ignored. A leaf file may contain
-sub-headings: they belong to the block, get levels from depth like
-everything else, and are not blocks (they can't be bound to and don't show
-in the sidebar).
+The `#` line is the title; its level is ignored. A block without one is
+headless: its text renders inline at its parent's level, with no heading of
+its own. Sub-headings inside a block belong to it: they get levels from
+depth like everything else, and they are not blocks (they don't show in the
+sidebar and have no history of their own). Props make a spot inside a block
+addressable, so a sub-heading never needs to become a block just to take a
+pack's text.
 
 ### Placeholders inside a block
 
@@ -271,14 +282,21 @@ Compile refuses:
 - a binding whose fill is missing;
 - a binding whose block doesn't exist (for example, renamed in a newer
   mattstack), or whose prop the block doesn't declare;
-- a value whose `provides` doesn't match the prop's `contract`;
-- an old-style binding to a `{{slot:x}}` that no longer exists, naming the
-  block and prop that replaced it.
+- a value whose `provides` doesn't match the prop's `contract`. A
+  `plugin:skill/file` value is checked against its skill's `provides`, so
+  a skill whose files feed several contracted props must satisfy each
+  one;
+- an old-style binding to a `{{slot:x}}` that no longer exists. The error
+  names the engine and lists its props, since one old slot (`domain`)
+  maps to many props.
 
 ### Prop signature check
 
-mattstack's CI compares every block's props with the last release and fails
-on a breaking change unless the release notes name it:
+mattstack's CI compares every block's props with the tree at the last
+release tag and fails on a breaking change unless the PR body names it, one
+line per change in the form `props-change: <engine>/<block>.<prop>: <what
+changed>` (the same pattern as today's `engine-floor:` line). Breaking
+changes are:
 
 - a prop removed or renamed;
 - a new prop with no `default` (newly required);
@@ -317,14 +335,22 @@ on a breaking change unless the release notes name it:
 ### Includes
 
 - Shared includes (`gate-protocol`, `browser-evidence` and the rest) become
-  block trees like engines.
+  blocks like engines, decomposed by the same rule: a cohesive include can
+  stay one block with sub-headings, and a heading-less one
+  (`spawned-no-run-guard`) is a headless block.
 - `{{include:x}}` renders the include's tree at the marker, as a child of
   the block that names it, with levels from depth.
-- An include must be the last thing in its block: text after it would fall
-  under the include's last heading. Compile refuses text after an include.
-  `run-identity` already sits last in its block (`ship`'s "Resumed ship
-  run" block), and `ship`'s four other includes each fill a block of their
-  own.
+- An include that carries headings must be the last thing in its block:
+  text after it would fall under the include's last heading. Compile
+  refuses text after such an include. An include with no headings
+  (`spawned-no-run-guard` today) is inline text and may sit anywhere.
+- Today, seven include sites in three engines have text after a
+  heading-carrying include in the same section: `review` (after
+  `review-core-body`, `review-dispatch-body` and `review-posting`),
+  `self-review` (two sites) and `receive-review` (two sites). Converting
+  them moves that trailing text into its own block right after the
+  include's block (see "Testing"). The other sites, `run-identity` among
+  them, already end their block.
 - Skills outside mattstack that expand includes (the board's launcher
   skills) get the same flattened text.
 
@@ -348,14 +374,17 @@ on a breaking change unless the release notes name it:
   - a pack's text moving from the old slot section into the block it's
     about;
   - dot formatting, compared after normalizing: the same node ids, labels,
-    shapes and edges.
+    shapes and edges;
+  - in `review`, `self-review` and `receive-review`, text that followed a
+    heading-carrying include moving into its own block right after it,
+    with the new block's heading (see "Includes").
   Anything else fails review.
 
 ### Rollout of the two team packs
 
 Converting the engines removes `{{slot:domain}}` and the other named slots.
-Compile then refuses each pack's old bindings and names the prop that
-replaced each one. The two existing team packs are converted by hand, with
+Compile then refuses each pack's old bindings, naming the engine and its
+props. The two existing team packs are converted by hand, with
 Claude, as part of the rollout: their domain rules split into per-block
 files and rebound to props.
 
@@ -503,8 +532,9 @@ Matt didn't pick these; check them while reading.
 - Graphs: `node:` ties a block to its node, node ids keep today's short-id
   rules, the block title is the node label, the shape mapping above, and dot
   compared after normalizing rather than byte for byte.
-- A leaf file may hold sub-headings that aren't blocks.
-- An include must be the last thing in its block.
+- Headless blocks render inline at their parent's level.
+- An include that carries headings must end its block; trailing text in
+  `review`, `self-review` and `receive-review` moves into its own block.
 - Bindings key on engine ref plus block path, then prop. A value is a whole
   skill or one file beside a skill's `SKILL.md`. `ship` and `stage-ship`
   are bound separately.
