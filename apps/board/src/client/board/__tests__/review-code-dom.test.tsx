@@ -216,8 +216,14 @@ test('without a diff source the code section is the file header alone', async ()
 });
 
 test('a source with diffs but no renderer leaves the file header alone', async () => {
-  await render({ fetchFileDiff: async () => RETRY });
+  await render({ fetchFileDiff: source.fetchFileDiff });
+  expect(asked).toEqual([{ mr: MR.webUrl!, file: 'lib/retry.ts' }]);
   expect(fullDiffLink('Retry loop lacks backoff')).toBeUndefined();
+  expect(
+    codeOf('Retry loop lacks backoff')
+      .querySelector('.tui-review-code')!
+      .hasAttribute('data-openable')
+  ).toBe(false);
 });
 
 test('the source is asked once per file, with the MR and the path', async () => {

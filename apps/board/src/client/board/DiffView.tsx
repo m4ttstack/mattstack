@@ -104,6 +104,31 @@ const BOARD_CSS = `
 }
 `;
 
+const classListeners = new Set<() => void>();
+let classObserver: MutationObserver | null = null;
+
+/** One observer for every diff on the page, however many findings render. */
+function onClassChange(listener: () => void): () => void {
+  classListeners.add(listener);
+  if (!classObserver) {
+    classObserver = new MutationObserver(() =>
+      classListeners.forEach(l => l())
+    );
+    classObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+      subtree: true,
+    });
+  }
+  return () => {
+    classListeners.delete(listener);
+    if (classListeners.size === 0) {
+      classObserver?.disconnect();
+      classObserver = null;
+    }
+  };
+}
+
 /** The scheme the board is drawn in: `.dark` on any ancestor. */
 function useBoardDark(): [RefObject<HTMLDivElement | null>, boolean] {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -111,13 +136,7 @@ function useBoardDark(): [RefObject<HTMLDivElement | null>, boolean] {
   useEffect(() => {
     const read = () => setDark(ref.current?.closest('.dark') != null);
     read();
-    const observer = new MutationObserver(read);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-      subtree: true,
-    });
-    return () => observer.disconnect();
+    return onClassChange(read);
   }, []);
   return [ref, dark];
 }
