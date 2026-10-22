@@ -1,7 +1,7 @@
 import type { RunSummary } from '@mattstack/rt-client';
-
 import { normalizeMrUrl } from './gates/run-mr';
 import type { OwnMrFacts } from './triage/edge';
+import type { Handoff, HandoffKind } from './triage/memory';
 import { chainOf } from './triage/stack';
 
 export interface RunOwner {
@@ -11,7 +11,9 @@ export interface RunOwner {
   name?: string;
 }
 
-export type SessionProbe = (session: string) => Promise<{ reachable: boolean; name?: string }>;
+export type SessionProbe = (
+  session: string
+) => Promise<{ reachable: boolean; name?: string }>;
 
 /** Query by MR url (own-MR match) and/or by repo slug + branch (pre-ship match). */
 export interface OwnerQuery {
@@ -26,10 +28,13 @@ const NON_OWNING_WORK_TYPES = new Set(['review', 'receive-review']);
 const NO_SESSION = '-';
 
 /** Matching work runs, most recently active first. Pure: no liveness. */
-export function ownerCandidates(q: OwnerQuery, runs: readonly RunSummary[]): RunOwner[] {
+export function ownerCandidates(
+  q: OwnerQuery,
+  runs: readonly RunSummary[]
+): RunOwner[] {
   const wanted = q.mrUrl ? normalizeMrUrl(q.mrUrl) : null;
   return runs
-    .filter((run) => {
+    .filter(run => {
       if (run.status !== 'running') return false;
       if (!run.session || run.session === NO_SESSION) return false;
       if (NON_OWNING_WORK_TYPES.has(run.work_type)) return false;
@@ -37,7 +42,7 @@ export function ownerCandidates(q: OwnerQuery, runs: readonly RunSummary[]): Run
       return run.repo === q.repoSlug && run.branch === q.branch;
     })
     .sort((a, b) => b.last_event_at - a.last_event_at)
-    .map((run) => ({
+    .map(run => ({
       runId: run.id,
       session: run.session as string,
       stage: run.current_stage,
@@ -47,12 +52,14 @@ export function ownerCandidates(q: OwnerQuery, runs: readonly RunSummary[]): Run
 /** First candidate whose session probes reachable, with the probe's name, or null. */
 export async function firstLiveOwner(
   candidates: readonly RunOwner[],
-  probe: SessionProbe,
+  probe: SessionProbe
 ): Promise<RunOwner | null> {
   for (const candidate of candidates) {
     const result = await probe(candidate.session);
     if (result.reachable) {
-      return result.name === undefined ? candidate : { ...candidate, name: result.name };
+      return result.name === undefined
+        ? candidate
+        : { ...candidate, name: result.name };
     }
   }
   return null;
@@ -72,13 +79,17 @@ export interface OwnerStep {
 export function ownerSteps(
   mrs: OwnMrFacts[],
   mrUrl: string,
-  repoSlugForMr: (mrUrl: string) => string,
+  repoSlugForMr: (mrUrl: string) => string
 ): OwnerStep[] {
-  const self = mrs.find((m) => m.mrUrl === mrUrl);
+  const self = mrs.find(m => m.mrUrl === mrUrl);
   if (!self) return [];
   const steps: OwnerStep[] = [
     {
-      query: { mrUrl, repoSlug: repoSlugForMr(mrUrl), branch: self.sourceBranch },
+      query: {
+        mrUrl,
+        repoSlug: repoSlugForMr(mrUrl),
+        branch: self.sourceBranch,
+      },
       own: true,
       viaMr: mrUrl,
     },
@@ -86,7 +97,11 @@ export function ownerSteps(
   const { ancestors, unresolvedParentBranch } = chainOf(mrs, mrUrl);
   for (const anc of ancestors) {
     steps.push({
-      query: { mrUrl: anc.mrUrl, repoSlug: repoSlugForMr(anc.mrUrl), branch: anc.sourceBranch },
+      query: {
+        mrUrl: anc.mrUrl,
+        repoSlug: repoSlugForMr(anc.mrUrl),
+        branch: anc.sourceBranch,
+      },
       own: false,
       viaMr: anc.mrUrl,
       viaIid: anc.iid,
@@ -106,10 +121,13 @@ export function ownerSteps(
 export async function firstOwnerAlong(
   steps: readonly OwnerStep[],
   runs: readonly RunSummary[],
-  probe: SessionProbe,
+  probe: SessionProbe
 ): Promise<{ owner: RunOwner; step: OwnerStep } | null> {
   for (const step of steps) {
-    const owner = await firstLiveOwner(ownerCandidates(step.query, runs), probe);
+    const owner = await firstLiveOwner(
+      ownerCandidates(step.query, runs),
+      probe
+    );
     if (owner) return { owner, step };
   }
   return null;
@@ -124,6 +142,43 @@ export type RingFrame =
       childEdge: 'pipeline-red' | 'needs-rebase';
       pipelineId: number | null;
     };
+
+/** The frame for one edge kind: the MR's own frame when the owner is on its
+    branch, else a downstream frame naming the child. */
+export function frameFor(
+  step: OwnerStep,
+  kind: HandoffKind,
+  mr: { iid: number; targetBranch: string; pipelineId: number | null }
+): RingFrame {
+  if (!step.own) {
+    return {
+      kind: 'downstream',
+      childIid: mr.iid,
+      childEdge: kind,
+      pipelineId: mr.pipelineId,
+    };
+  }
+  return kind === 'pipeline-red'
+    ? { kind, iid: mr.iid, pipelineId: mr.pipelineId }
+    : { kind, iid: mr.iid, targetBranch: mr.targetBranch };
+}
+
+export function handoffFrom(
+  owner: RunOwner,
+  step: OwnerStep,
+  pipelineId: number | null,
+  at: number
+): Handoff {
+  return {
+    runId: owner.runId,
+    session: owner.session,
+    stage: owner.stage,
+    pipelineId,
+    viaMr: step.viaMr,
+    viaBranch: step.query.branch,
+    at,
+  };
+}
 
 /** The daemon wraps ring text with this label. */
 export const BOARD_RING_LABEL = 'board';

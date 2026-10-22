@@ -53,6 +53,7 @@ export function ownMrFacts(m: BoardMR & { webUrl: string }): OwnMrFacts {
     pipelineId: m.pipeline ? numericPipelineId(m.pipeline.id) : null,
     pipelineState: m.pipelineState,
     needsRebase: m.blockers.needsRebase,
+    hasConflicts: m.blockers.hasConflicts,
     author: m.author.username,
     sourceBranch: m.sourceBranch,
     targetBranch: m.targetBranch,

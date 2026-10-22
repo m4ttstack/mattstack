@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { RunSummary } from '@mattstack/rt-client';
+import { boardRepoSlug } from '../manifest-bindings';
 import {
   attachActiveRuns,
   createRunOwnerRefresher,
@@ -10,11 +11,12 @@ import type { OwnMrFacts } from '../triage/edge';
 const HOST = 'https://git.example.test/acme/widgets/-/merge_requests';
 const PARENT = `${HOST}/7`;
 const CHILD = `${HOST}/8`;
+const SLUG = boardRepoSlug('https://git.example.test', 'acme/widgets');
 
 function run(over: Partial<RunSummary> = {}): RunSummary {
   return {
     id: 'run-1',
-    repo: 'repos/acme-widgets',
+    repo: SLUG,
     work_type: 'feature',
     pipeline: 'work',
     status: 'running',
@@ -70,7 +72,7 @@ function io(over: Partial<Parameters<typeof createRunOwnerRefresher>[0]> = {}) {
     listRuns: async () => [] as RunSummary[],
     probe: async () => ({ reachable: true, name: 'Pip' }),
     mrs: () => STACK,
-    repoSlugForMr: () => 'repos/acme-widgets',
+    repoSlugForMr: () => SLUG,
     now: () => t,
     advance: (ms: number) => (t += ms),
     ...over,
@@ -162,6 +164,72 @@ describe('createRunOwnerRefresher', () => {
     r.poke();
     await r.settled();
     expect(r.ownerFor(PARENT)?.runId).toBe('run-1');
+  });
+
+  test('three failed refreshes in a row drop the last known owners', async () => {
+    let answer: RunSummary[] | null = [run({ mr: PARENT })];
+    const base = io({ listRuns: async () => answer });
+    const r = createRunOwnerRefresher(base, 10_000);
+    const refresh = async () => {
+      base.advance(10_001);
+      r.poke();
+      await r.settled();
+    };
+    await refresh();
+    answer = null;
+    await refresh();
+    await refresh();
+    expect(r.ownerFor(PARENT)?.runId).toBe('run-1');
+    await refresh();
+    expect(r.ownerFor(PARENT)).toBeUndefined();
+  });
+
+  test('a success between failures resets the failure count', async () => {
+    let answer: RunSummary[] | null = [run({ mr: PARENT })];
+    const base = io({ listRuns: async () => answer });
+    const r = createRunOwnerRefresher(base, 10_000);
+    const refresh = async () => {
+      base.advance(10_001);
+      r.poke();
+      await r.settled();
+    };
+    await refresh();
+    answer = null;
+    await refresh();
+    await refresh();
+    answer = [run({ mr: PARENT })];
+    await refresh();
+    answer = null;
+    await refresh();
+    await refresh();
+    expect(r.ownerFor(PARENT)?.runId).toBe('run-1');
+  });
+
+  test('a refresh that changes owners calls onChange once; one that does not, never', async () => {
+    let changes = 0;
+    let answer: RunSummary[] | null = [run({ mr: PARENT })];
+    const base = io({
+      listRuns: async () => answer,
+      onChange: () => changes++,
+    });
+    const r = createRunOwnerRefresher(base, 10_000);
+    r.poke();
+    await r.settled();
+    expect(changes).toBe(1);
+    base.advance(10_001);
+    r.poke();
+    await r.settled();
+    expect(changes).toBe(1);
+    answer = null;
+    base.advance(10_001);
+    r.poke();
+    await r.settled();
+    expect(changes).toBe(1);
+    answer = [run({ mr: PARENT, current_stage: 'ship' })];
+    base.advance(10_001);
+    r.poke();
+    await r.settled();
+    expect(changes).toBe(2);
   });
 
   test('a poke inside the ttl does not refresh again', async () => {

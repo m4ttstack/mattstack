@@ -318,9 +318,10 @@ import {
 } from './run-owner-refresh.ts';
 import {
   firstOwnerAlong,
+  frameFor,
+  handoffFrom,
   ownerSteps,
   ringText,
-  type RingFrame,
 } from './run-owner.ts';
 import { canonicalReactions } from './slack-emoji.ts';
 import {
@@ -564,6 +565,7 @@ const runOwners = createRunOwnerRefresher({
   repoSlugForMr: mrUrl => ownerIo().repoSlugForMr(mrUrl),
   mrs: () => boardOwnMrFacts(cache.peek()?.mrs ?? []),
   now: Date.now,
+  onChange: () => sseNudge(),
 });
 
 function boardOwnMrFacts(mrs: BoardMR[]) {
@@ -1015,18 +1017,7 @@ async function ringActiveWorker(
     return new Response('no work run is active on this MR', { status: 409 });
   const { owner, step } = found;
   const pipelineId = mr.pipeline ? numericPipelineId(mr.pipeline.id) : null;
-  const frameFor = (kind: HandoffKind): RingFrame => {
-    if (!step.own)
-      return {
-        kind: 'downstream',
-        childIid: mr.iid,
-        childEdge: kind,
-        pipelineId,
-      };
-    return kind === 'pipeline-red'
-      ? { kind, iid: mr.iid, pipelineId }
-      : { kind, iid: mr.iid, targetBranch: mr.targetBranch };
-  };
+  const target = { iid: mr.iid, targetBranch: mr.targetBranch, pipelineId };
   // Held across the ring too, so no frame goes out without its record.
   const claimed = await claimTriageMemory();
   if (claimed === false)
@@ -1034,7 +1025,7 @@ async function ringActiveWorker(
   try {
     const delivered: HandoffKind[] = [];
     for (const kind of kinds) {
-      if (await io.ring(owner.session, ringText(frameFor(kind))))
+      if (await io.ring(owner.session, ringText(frameFor(step, kind, target))))
         delivered.push(kind);
     }
     if (delivered.length === 0)
@@ -1043,20 +1034,9 @@ async function ringActiveWorker(
       });
     const at = Date.now();
     for (const kind of delivered) {
-      writeHandoff(
-        mr.webUrl,
-        kind,
-        {
-          runId: owner.runId,
-          session: owner.session,
-          stage: owner.stage,
-          pipelineId,
-          viaMr: step.viaMr,
-          viaBranch: step.query.branch,
-          at,
-        },
-        { markHandled: { pipelineId } }
-      );
+      writeHandoff(mr.webUrl, kind, handoffFrom(owner, step, pipelineId, at), {
+        markHandled: { pipelineId },
+      });
     }
   } finally {
     releaseCron(claimed);

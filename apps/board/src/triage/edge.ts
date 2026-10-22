@@ -9,6 +9,8 @@ export interface OwnMrFacts {
   pipelineId: number | null;
   pipelineState: PipelineState;
   needsRebase: boolean;
+  /** Merge conflicts; only the handoff recheck reads it, edges do not. */
+  hasConflicts?: boolean;
   /** MR author's GitLab username. fetchOwnMrs already scopes this list to the
       token identity, so today this is always that identity -- carried onto
       the edge anyway so the mechanical-lint fix class (MAT-351) can re-verify

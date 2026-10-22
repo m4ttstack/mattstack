@@ -10,10 +10,11 @@ import { draftBinPath } from '../herdr.ts';
 import { launchErrorMessage } from '../launch-error.ts';
 import {
   firstLiveOwner,
+  frameFor,
+  handoffFrom,
   ownerCandidates,
   ownerSteps,
   ringText,
-  type RingFrame,
   type SessionProbe,
 } from '../run-owner.ts';
 import type { AuditEntry } from './audit.ts';
@@ -234,7 +235,7 @@ async function recheckHandoffs(
       ? liveHandoffs(mem, {
           pipelineId: facts.pipelineId,
           pipelineFailed: facts.pipelineState === 'failed',
-          needsRebase: facts.needsRebase,
+          needsRebase: facts.needsRebase || !!facts.hasConflicts,
         })
       : {};
     for (const kind of HANDOFF_KINDS) {
@@ -292,25 +293,11 @@ async function ringLiveOwner(
   audit: (entry: AuditEntry) => void,
   now: number
 ): Promise<boolean> {
-  const own: RingFrame =
-    edge.kind === 'pipeline-red'
-      ? { kind: 'pipeline-red', iid: edge.iid, pipelineId: edge.pipelineId }
-      : {
-          kind: 'needs-rebase',
-          iid: edge.iid,
-          targetBranch: facts.targetBranch,
-        };
-  const downstream: RingFrame = {
-    kind: 'downstream',
-    childIid: edge.iid,
-    childEdge: edge.kind,
+  const target = {
+    iid: edge.iid,
+    targetBranch: facts.targetBranch,
     pipelineId: edge.pipelineId,
   };
-  const steps = ownerSteps(mrs, edge.mrUrl, owners.repoSlugForMr).map(step => ({
-    ...step,
-    frame: step.own ? own : downstream,
-  }));
-
   const entry = {
     ts: now,
     mrUrl: edge.mrUrl,
@@ -318,31 +305,24 @@ async function ringLiveOwner(
     event: edge.kind,
     pipelineId: edge.pipelineId,
   };
-  for (const step of steps) {
+  for (const step of ownerSteps(mrs, edge.mrUrl, owners.repoSlugForMr)) {
     const owner = await firstLiveOwner(
       ownerCandidates(step.query, owners.runs),
       owners.probe
     );
     if (!owner) continue;
-    if (!(await owners.ring(owner.session, ringText(step.frame)))) {
+    const frame = frameFor(step, edge.kind, target);
+    if (!(await owners.ring(owner.session, ringText(frame)))) {
       audit({ ...entry, reason: 'ring-failed', outcome: owner.runId });
       continue;
     }
     const m = memory.mrs[edge.mrUrl]!;
     m.handoffs = {
       ...m.handoffs,
-      [edge.kind]: {
-        runId: owner.runId,
-        session: owner.session,
-        stage: owner.stage,
-        pipelineId: edge.pipelineId,
-        viaMr: step.viaMr,
-        viaBranch: step.query.branch,
-        at: now,
-      },
+      [edge.kind]: handoffFrom(owner, step, edge.pipelineId, now),
     };
     markHandled(memory, edge);
-    const upstream = step.frame.kind === 'downstream';
+    const upstream = !step.own;
     const ran = `run ${owner.runId} stage ${owner.stage ?? 'none'}`;
     audit({
       ...entry,

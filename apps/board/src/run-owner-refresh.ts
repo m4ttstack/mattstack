@@ -30,18 +30,35 @@ export interface RunOwnerRefresherIo {
   mrs(): OwnMrFacts[];
   repoSlugForMr(mrUrl: string): string;
   now(): number;
+  /** Fires when a refresh changes any MR's owner. */
+  onChange?(): void;
+}
+
+/** Past this many failed run lookups in a row, the last known owners go too,
+    so a long outage behaves as if no run were active. */
+export const RUN_OWNER_MAX_FAILURES = 3;
+
+function ownersKey(owners: Map<string, ActiveRun>): string {
+  return JSON.stringify([...owners].sort(([a], [b]) => a.localeCompare(b)));
 }
 
 /** Which live work run owns each board MR, kept fresh in the background so
     the snapshot never waits on the daemon. A failed run lookup keeps the
-    last known owners. */
+    last known owners until RUN_OWNER_MAX_FAILURES in a row. */
 export function createRunOwnerRefresher(
   io: RunOwnerRefresherIo,
   ttlMs: number = RUN_OWNER_TTL_MS
 ): RunOwnerRefresher {
   let owners = new Map<string, ActiveRun>();
+  let failures = 0;
   let startedAt: number | null = null;
   let inflight: Promise<void> | null = null;
+
+  function publish(next: Map<string, ActiveRun>): void {
+    const changed = ownersKey(next) !== ownersKey(owners);
+    owners = next;
+    if (changed) io.onChange?.();
+  }
 
   async function refresh(): Promise<void> {
     let runs: RunSummary[] | null;
@@ -50,7 +67,12 @@ export function createRunOwnerRefresher(
     } catch {
       runs = null;
     }
-    if (runs === null) return;
+    if (runs === null) {
+      failures++;
+      if (failures >= RUN_OWNER_MAX_FAILURES) publish(new Map());
+      return;
+    }
+    failures = 0;
     const probes = new Map<string, ReturnType<SessionProbe>>();
     const probe: SessionProbe = session => {
       let p = probes.get(session);
@@ -80,7 +102,7 @@ export function createRunOwnerRefresher(
           : {}),
       });
     }
-    owners = next;
+    publish(next);
   }
 
   return {

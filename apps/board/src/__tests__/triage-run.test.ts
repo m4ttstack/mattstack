@@ -1454,6 +1454,31 @@ describe('runTriage defers to a live work run', () => {
     expect(d.rings).toHaveLength(0);
   });
 
+  test('a conflicts-only needs-rebase handoff lasts while the conflicts do', async () => {
+    let facts = mr({ pipelineState: 'passed', hasConflicts: true });
+    const d = liveRunDeps(
+      [workRun()],
+      {},
+      {
+        fetchOwnMrs: async () => [facts],
+        memory: memoryWith(OWN, {
+          lastNeedsRebase: true,
+          handoffs: { 'needs-rebase': handoff() },
+        }),
+      }
+    );
+    await runTriage(d);
+    expect(d.memory.mrs[OWN]!.handoffs?.['needs-rebase']?.runId).toBe('run-1');
+    expect(d.audit.some(e => e.reason === 'handoff-cleared')).toBe(false);
+
+    facts = mr({ pipelineState: 'passed', hasConflicts: false });
+    await runTriage(d);
+    expect(d.memory.mrs[OWN]!.handoffs).toBeUndefined();
+    expect(d.audit.some(e => e.reason === 'handoff-cleared')).toBe(true);
+    expect(d.rings).toHaveLength(0);
+    expect(d.launches).toHaveLength(0);
+  });
+
   test('a new red pipeline after that rings again', async () => {
     let facts = mr({ pipelineId: 101, pipelineState: 'passed' });
     const d = liveRunDeps(

@@ -12,7 +12,11 @@ import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
 import { openStateDb } from '../state/db.ts';
-import { readMemory, writeMemory } from '../triage/memory-store.ts';
+import {
+  readMemory,
+  writeHandoff,
+  writeMemory,
+} from '../triage/memory-store.ts';
 import type { Handoff } from '../triage/memory.ts';
 
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-doctor-ring-'));
@@ -138,8 +142,16 @@ const LAUNCH = url(38);
 const STALE = url(40);
 const PARENT = url(41);
 const CHILD = url(42);
+const SNAP_CONFLICTED = url(43);
+const OUTAGE = url(44);
+const CLEAN = url(45);
+const RED_ONLY = url(46);
 
 const prs = [
+  fakePr({ iid: 43, conflicts: true }),
+  fakePr({ iid: 44, failedPipeline: 9044 }),
+  fakePr({ iid: 45 }),
+  fakePr({ iid: 46, failedPipeline: 9046 }),
   fakePr({ iid: 31, failedPipeline: 9031 }),
   fakePr({ iid: 32, conflicts: true }),
   fakePr({ iid: 33, failedPipeline: 9033, conflicts: true }),
@@ -188,8 +200,12 @@ const runs = [
   run('run-deaf', DEAF, 'sess-deaf'),
   run('run-launch', LAUNCH, 'sess-launch'),
   run('run-parent', PARENT, 'sess-parent'),
+  run('run-outage', OUTAGE, 'sess-outage'),
+  run('run-clean', CLEAN, 'sess-clean'),
+  run('run-red-only', RED_ONLY, 'sess-red-only'),
 ];
 
+let runsListFails = false;
 const rings: Array<{ session: string; label: string; text: string }> = [];
 const daemonSeen: string[] = [];
 
@@ -266,7 +282,10 @@ const rtDaemon = Bun.serve({
         },
       });
     }
-    if (cmd === 'runs:list') return Response.json({ ok: true, data: { runs } });
+    if (cmd === 'runs:list')
+      return runsListFails
+        ? Response.json({ ok: false, error: 'runs store unavailable' })
+        : Response.json({ ok: true, data: { runs } });
     if (cmd === 'inbox:probe')
       return Response.json({
         ok: true,
@@ -488,9 +507,53 @@ test('a launch without ring clears handoffs and launches as today', async () => 
 
 test('a conflicts-only handoff shows on the snapshot', async () => {
   await ready();
-  const row = (await rows()).find(r => r.webUrl === CONFLICTED)!;
-  expect(row.handoffs?.['needs-rebase']?.runId).toBe('run-conflicted');
+  writeHandoff(
+    SNAP_CONFLICTED,
+    'needs-rebase',
+    handoff({ runId: 'run-snap', viaMr: SNAP_CONFLICTED }),
+    undefined,
+    db
+  );
+  const row = (await rows()).find(r => r.webUrl === SNAP_CONFLICTED)!;
+  expect(row.handoffs?.['needs-rebase']?.runId).toBe('run-snap');
   expect(row.handoffs?.['pipeline-red']).toBeUndefined();
+}, 15_000);
+
+test('ring when runs:list fails is a 409 and writes nothing', async () => {
+  await ready();
+  runsListFails = true;
+  try {
+    const res = await doctor({ mrUrl: OUTAGE, iid: iidOf(OUTAGE), ring: true });
+    expect(res.status).toBe(409);
+    expect(await res.text()).toBe('no work run is active on this MR');
+  } finally {
+    runsListFails = false;
+  }
+  expect(ringsTo('sess-outage')).toHaveLength(0);
+  expect(readMemory(db).mrs[OUTAGE]?.handoffs).toBeUndefined();
+  expect(launchedOn(44)).toBe(false);
+}, 15_000);
+
+test('ring on an MR with nothing wrong is a 409 and rings nobody', async () => {
+  await ready();
+  const res = await doctor({ mrUrl: CLEAN, iid: iidOf(CLEAN), ring: true });
+  expect(res.status).toBe(409);
+  expect(await res.text()).toBe('nothing on this MR needs the worker');
+  expect(ringsTo('sess-clean')).toHaveLength(0);
+}, 15_000);
+
+test('ring in rebase mode on a red-only MR is a 409 and rings nobody', async () => {
+  await ready();
+  const res = await doctor({
+    mrUrl: RED_ONLY,
+    iid: iidOf(RED_ONLY),
+    mode: 'rebase',
+    ring: true,
+  });
+  expect(res.status).toBe(409);
+  expect(await res.text()).toBe('nothing on this MR needs the worker');
+  expect(ringsTo('sess-red-only')).toHaveLength(0);
+  expect(readMemory(db).mrs[RED_ONLY]?.handoffs).toBeUndefined();
 }, 15_000);
 
 test('the snapshot carries activeRun and only live handoffs', async () => {
