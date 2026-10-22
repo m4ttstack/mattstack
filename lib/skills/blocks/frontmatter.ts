@@ -4,12 +4,14 @@ import type { Block, MarkerUse, PropSpec } from "./types.ts";
 
 export type ParsedBlockFile = Pick<
   Block,
-  "title" | "label" | "node" | "order" | "kind" | "props" | "markers" | "text" | "bodyStartLine" | "frontmatter"
+  "title" | "label" | "node" | "order" | "kind" | "props" | "markers" | "text" | "bodyStartLine" | "textStartLine" | "frontmatter"
 >;
 
 // An empty block (`---\n---`) has no newline between the fences, which the shared stripFrontmatter pattern does not match.
 const FRONTMATTER_RE = /^---\r?\n(?:([\s\S]*?)\r?\n)?---\r?\n?/;
-const MARKER_RE = /\{\{props\.([A-Za-z0-9_-]+)\}\}/g;
+const PROP_NAME_RE = /^[a-z][a-z0-9-]*$/;
+const MARKER_RE = /^\{\{props\.([a-z][a-z0-9-]*)\}\}$/;
+const MARKER_CANDIDATE_RE = /\{\{props(?=[.:}\s])[^}]*\}\}/g;
 
 export function labelFromId(idTail: string): string {
   const words = idTail.replace(/[-_]+/g, " ").trim();
@@ -64,6 +66,10 @@ export function parseBlockFile(raw: string, file: string, idTail: string): Parse
         const keyNode = pair.key as Node;
         const name = String(isScalar(keyNode) ? keyNode.value : "");
         const at = posOf(keyNode);
+        if (!PROP_NAME_RE.test(name)) {
+          bad(at.line, at.col, `prop name "${name}" must match [a-z][a-z0-9-]*`);
+          continue;
+        }
         const spec = pair.value;
         if (!isMap(spec)) {
           bad(at.line, at.col, `prop "${name}" must declare { merge: add | replace }`);
@@ -147,11 +153,24 @@ export function parseBlockFile(raw: string, file: string, idTail: string): Parse
   }
   const text = lines.slice(textStart).join("\n").trim();
 
+  // Scan untrimmed lines so a marker's col counts leading spaces.
+  const fileLines = rest.split("\n");
+  const fmLines = countLines(fmBlock);
+  let textIdx = bodyStartLine - 1 - fmLines + textStart;
+  while (textIdx < fileLines.length && fileLines[textIdx]!.trim() === "") textIdx++;
+  const textStartLine = text === "" ? bodyStartLine + textStart : fmLines + textIdx + 1;
+
   const declared = new Set(props.map((p) => p.name));
   const markers: MarkerUse[] = [];
-  lines.forEach((line, i) => {
-    for (const m of line.matchAll(MARKER_RE)) {
-      const use = { prop: m[1]!, line: bodyStartLine + i, col: m.index! + 1 };
+  fileLines.forEach((line, i) => {
+    for (const m of line.matchAll(MARKER_CANDIDATE_RE)) {
+      const at = { line: fmLines + i + 1, col: m.index! + 1 };
+      const well = m[0].match(MARKER_RE);
+      if (!well) {
+        bad(at.line, at.col, `malformed marker ${m[0]}: write {{props.<name>}} with a lowercase name`, "bad-marker");
+        continue;
+      }
+      const use = { prop: well[1]!, ...at };
       markers.push(use);
       if (!declared.has(use.prop)) {
         bad(use.line, use.col, `marker {{props.${use.prop}}} names "${use.prop}", which this block does not declare`, "unknown-prop");
@@ -171,6 +190,7 @@ export function parseBlockFile(raw: string, file: string, idTail: string): Parse
     markers,
     text,
     bodyStartLine,
+    textStartLine,
     frontmatter,
   };
 }

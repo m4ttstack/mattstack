@@ -24,6 +24,7 @@ export type Block = {
   markers: MarkerUse[];
   text: string; // body below the title line, frontmatter stripped
   bodyStartLine: number;
+  textStartLine: number; // file line of text's first line
   graph: BlockGraph | null;
   children: Block[];
   frontmatter: Record<string, unknown>; // the root's engine fields live here

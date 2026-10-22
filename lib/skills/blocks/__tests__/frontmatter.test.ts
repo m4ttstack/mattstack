@@ -41,4 +41,30 @@ test("other frontmatter keys pass through and kind gate parses", () => {
   expect(b.order).toBe(2);
   expect(b.frontmatter["replaced-slots"]).toEqual(["a"]);
 });
-test("labelFromId", () => { expect(labelFromId("resume-offer")).toBe("Resume offer"); });
+test("textStartLine points at the first text line in the file", () => {
+  const raw = `---\nnode: domain_fast_checks\nlabel: Fast checks\nprops:\n  rules: { merge: add, default: "" }\n---\n# Run the domain's fast checks\n\nOnly the checks.\n\n{{props.rules}}\n`;
+  expect(parseBlockFile(raw, "f.block.md", "f").textStartLine).toBe(9);
+  expect(parseBlockFile("---\n---\nJust text.\n", "g.block.md", "g").textStartLine).toBe(3);
+  expect(parseBlockFile("# T\n", "h.block.md", "h").textStartLine).toBe(2);
+});
+test("malformed props markers are bad-marker at their position", () => {
+  for (const m of ["{{props.a.b}}", "{{props.x:arg}}", "{{props.}}", "{{props.Up}}", "{{props.a_b}}"]) {
+    try {
+      parseBlockFile(`# T\n\nsee ${m}\n`, "t.block.md", "t");
+      throw new Error("no throw");
+    } catch (e) {
+      const d = (e as BlockError).diagnostics[0]!;
+      expect(d.code).toBe("bad-marker");
+      expect([d.line, d.col]).toEqual([3, 5]);
+    }
+  }
+});
+test("a declared prop name outside the grammar is bad-value", () => {
+  expect(() => parseBlockFile("---\nprops:\n  Bad_Name: { merge: add }\n---\n# T\n", "t.block.md", "t")).toThrow(/t\.block\.md:3:3: .*Bad_Name/);
+});
+test("marker col counts leading spaces on an indented first body line", () => {
+  const raw = "---\nprops:\n  x: { merge: add }\n---\n\n    {{props.x}}\n";
+  expect(parseBlockFile(raw, "t.block.md", "t").markers).toEqual([{ prop: "x", line: 6, col: 5 }]);
+  expect(() => parseBlockFile("\n    {{props.nope}}\n", "t.block.md", "t")).toThrow(/t\.block\.md:2:5:/);
+});
+test("labelFromId",() => { expect(labelFromId("resume-offer")).toBe("Resume offer"); });
