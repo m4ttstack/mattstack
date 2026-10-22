@@ -169,6 +169,22 @@ describe("runUsageAlertSweep", () => {
     expect(h.sent.map((a) => a.threshold)).toEqual([80, 95]);
   });
 
+  test("with no thresholds set anywhere, nothing is read", async () => {
+    let read = false;
+    const sweep = (config: UsageAlertConfig) => runUsageAlertSweep({
+      read: async () => { read = true; return { accounts: [spendAt(100)], problems: [] }; },
+      onProblems: () => {},
+      config: () => config,
+      loadFired: () => ({}),
+      saveFired: () => {},
+      notify: () => {},
+    });
+    expect(await sweep({ thresholds: [], accounts: { "other@example.com": [] } })).toEqual([]);
+    expect(read).toBe(false);
+    await sweep({ thresholds: [], accounts: { "other@example.com": [90] } });
+    expect(read).toBe(true);
+  });
+
   test("a read with no accounts leaves fired state alone", async () => {
     let saved = false;
     let reported: string[] = [];
