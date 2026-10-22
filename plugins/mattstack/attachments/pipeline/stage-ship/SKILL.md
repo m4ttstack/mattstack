@@ -320,7 +320,7 @@ says so.
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
 | `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |
 
-Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
+Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|go-back|hold","to":"<stage or null>","note":"<their words or null>"}`.
 Abort's reason is `aborted at the ship gate`. With the store unreadable,
 Proceed records `<default branch> (stack store unreadable)`; the rebase
 and `mr_create` use the plain name.
