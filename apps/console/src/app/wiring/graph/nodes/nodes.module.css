@@ -188,10 +188,19 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   height: var(--section-row-h);
-  padding: 0 12px 0 36px;
+  padding: 0 14px 0 36px;
   border-top: 1px solid var(--tk-line-3);
+  background-color: var(--tk-panel);
+}
+
+.section:last-child {
+  border-radius: 0 0 6px 6px;
+}
+
+.section .cardText {
+  gap: 3px;
 }
 
 /* The tag sits by the name so the source line keeps the row's width. */
