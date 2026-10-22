@@ -217,6 +217,28 @@ function iidOfMrUrl(mrUrl: string): number {
   return m ? Number(m[1]) : 0;
 }
 
+function failOpenProbe(probe: SessionProbe): SessionProbe {
+  return async session => {
+    try {
+      return await probe(session);
+    } catch {
+      return { reachable: false };
+    }
+  };
+}
+
+function failOpenRing(
+  ring: (session: string, text: string) => Promise<boolean>
+): (session: string, text: string) => Promise<boolean> {
+  return async (session, text) => {
+    try {
+      return await ring(session, text);
+    } catch {
+      return false;
+    }
+  };
+}
+
 /** Each open handoff is dropped once its edge clears, and dropped and
     re-armed once its run no longer owns the branch, so a worker that went
     away never leaves the edge with nobody on it. */
@@ -248,21 +270,14 @@ async function recheckHandoffs(
         event: kind,
         pipelineId: handoff.pipelineId,
       };
-      if (!facts) {
-        // fetchOwnMrs reads over the same daemon socket as listRuns, so in an
-        // outage the MR list comes back empty too: only a working run lookup
-        // shows the MR really left.
-        if (!owners) continue;
-        delete handoffs[kind];
-        rearm(memory, mrUrl, kind);
-        audit({ ...entry, reason: 'handoff-cleared', outcome: handoff.runId });
-        continue;
-      }
-      if (!live[kind]) {
+      if (facts && !live[kind]) {
         delete handoffs[kind];
         audit({ ...entry, reason: 'handoff-cleared', outcome: handoff.runId });
         continue;
       }
+      // An MR missing from the list may be a single project read that failed,
+      // so its handoff lapses only the way a listed MR's does: when the run
+      // stops owning the branch or stops answering.
       if (!owners) continue;
       const stillOwns = ownerCandidates(
         {
@@ -395,8 +410,8 @@ export async function runTriage(
     runs !== null && deps.ring && deps.probe && deps.repoSlugForMr
       ? {
           runs,
-          ring: deps.ring,
-          probe: deps.probe,
+          ring: failOpenRing(deps.ring),
+          probe: failOpenProbe(deps.probe),
           repoSlugForMr: deps.repoSlugForMr,
         }
       : null;

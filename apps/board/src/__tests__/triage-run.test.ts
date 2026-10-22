@@ -1409,10 +1409,10 @@ describe('runTriage defers to a live work run', () => {
     expect(d.audit.some(e => e.reason === 'handoff-lapsed')).toBe(true);
   });
 
-  test('a handoff on an MR that left the board is cleared and its edge re-armed', async () => {
+  test('a handoff on an MR that left the board lapses and re-arms once its run ends', async () => {
     const gone = 'https://x/mr/9';
     const d = liveRunDeps(
-      [workRun()],
+      [workRun({ status: 'done' })],
       {},
       {
         fetchOwnMrs: async () => [],
@@ -1429,9 +1429,119 @@ describe('runTriage defers to a live work run', () => {
       expect.objectContaining({
         mrUrl: gone,
         iid: 9,
-        reason: 'handoff-cleared',
+        reason: 'handoff-lapsed',
+        outcome: 'run-1',
       })
     );
+  });
+
+  test('a handoff on an MR missing from the list stays while its run is live', async () => {
+    const gone = 'https://x/mr/9';
+    const d = liveRunDeps(
+      [workRun()],
+      {},
+      {
+        fetchOwnMrs: async () => [],
+        memory: memoryWith(gone, {
+          lastHandledPipelineId: 100,
+          handoffs: { 'pipeline-red': handoff() },
+        }),
+      }
+    );
+    await runTriage(d);
+    expect(d.memory.mrs[gone]!.handoffs?.['pipeline-red']?.runId).toBe('run-1');
+    expect(d.memory.mrs[gone]!.lastHandledPipelineId).toBe(100);
+    expect(d.audit.some(e => e.mrUrl === gone)).toBe(false);
+  });
+
+  test('a failed project read with a live run keeps the handoff and rings nothing', async () => {
+    let facts: OwnMrFacts[] = [mr()];
+    const d = liveRunDeps([workRun()], {}, { fetchOwnMrs: async () => facts });
+    await runTriage(d);
+    expect(d.rings).toHaveLength(1);
+
+    facts = [];
+    await runTriage(d);
+    facts = [mr()];
+    await runTriage(d);
+    expect(d.rings).toHaveLength(1);
+    expect(d.launches).toHaveLength(0);
+    expect(d.memory.mrs[OWN]!.handoffs?.['pipeline-red']?.runId).toBe('run-1');
+    expect(
+      d.audit.some(
+        e => e.reason === 'handoff-lapsed' || e.reason === 'handoff-cleared'
+      )
+    ).toBe(false);
+  });
+
+  test('a probe that throws on a handoff recheck counts as unreachable', async () => {
+    let written = 0;
+    const d = liveRunDeps(
+      [workRun()],
+      {},
+      {
+        probe: async () => {
+          throw new Error('socket closed');
+        },
+        writeMemory: () => {
+          written++;
+        },
+        memory: memoryWith(OWN, {
+          lastHandledPipelineId: 100,
+          handoffs: { 'pipeline-red': handoff() },
+        }),
+      }
+    );
+    await runTriage(d);
+    expect(d.memory.mrs[OWN]!.handoffs).toBeUndefined();
+    expect(d.audit).toContainEqual(
+      expect.objectContaining({ reason: 'handoff-lapsed', outcome: 'run-1' })
+    );
+    expect(d.launches).toHaveLength(1);
+    expect(written).toBeGreaterThan(0);
+  });
+
+  test('a probe that throws while looking for an owner launches the doctor', async () => {
+    let written = 0;
+    const d = liveRunDeps(
+      [workRun()],
+      {},
+      {
+        probe: async () => {
+          throw new Error('socket closed');
+        },
+        writeMemory: () => {
+          written++;
+        },
+      }
+    );
+    await runTriage(d);
+    expect(d.rings).toHaveLength(0);
+    expect(d.launches).toHaveLength(1);
+    expect(written).toBeGreaterThan(0);
+  });
+
+  test('a ring that throws is audited ring-failed and the doctor launches', async () => {
+    let written = 0;
+    const d = liveRunDeps(
+      [workRun()],
+      {},
+      {
+        ring: async () => {
+          throw new Error('socket closed');
+        },
+        writeMemory: () => {
+          written++;
+        },
+      }
+    );
+    await runTriage(d);
+    expect(d.launches).toHaveLength(1);
+    expect(d.memory.mrs[OWN]!.handoffs).toBeUndefined();
+    expect(d.audit).toContainEqual(
+      expect.objectContaining({ reason: 'ring-failed', outcome: 'run-1' })
+    );
+    expect(written).toBeGreaterThan(0);
   });
 
   test('a handoff clears when the pipeline goes green', async () => {
