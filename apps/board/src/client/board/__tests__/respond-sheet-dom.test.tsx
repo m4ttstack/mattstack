@@ -255,6 +255,36 @@ test('submit stays disabled until every thread is decided', async () => {
   expect(submit().textContent).toBe('submit · 2 replies');
 });
 
+async function pressSubmit() {
+  await React.act(async () => {
+    $('.tui-gate-sheet')!.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        metaKey: true,
+        bubbles: true,
+      })
+    );
+    await new Promise(r => setTimeout(r, 0));
+  });
+}
+
+test('Cmd+Enter submits once every thread is decided, and not before', async () => {
+  await render(planGate());
+  await pick('reply:t1');
+  await pressSubmit();
+  expect(answer()).toBeUndefined();
+  await pick('reply:t2');
+  await pressSubmit();
+  expect(answer()).toEqual({
+    gateId: 'g-plan',
+    answers: {
+      'thread-1': 'reply:t1',
+      'thread-2': 'reply:t2',
+      'code-changes': 'skip',
+    },
+  });
+});
+
 test('with no fix picked, code-changes stays out of the rail and posts its sentinel', async () => {
   await render(planGate());
   await pick('reply:t1');

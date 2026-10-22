@@ -18,14 +18,17 @@ import { MrCard } from './MrCard.tsx';
 import { mrRef } from './MrLinks.tsx';
 import { ReplyChoiceBody, SeverityPill, ThreadCard } from './RespondCards.tsx';
 import { subjectRef } from './RespondGateHeader.tsx';
+import { useSheetKeys } from './sheet-keys.ts';
 import { sheetAnswers } from './sheet-payload.ts';
 import {
   Choices,
+  KeyCap,
   Note,
   ProseContext,
   reserveDock,
   SheetLost,
   SheetRows,
+  SUBMIT_KEYS,
   type ChoiceState,
   type RowChip,
 } from './SheetParts.tsx';
@@ -253,6 +256,10 @@ function StageSheetBody({
       written(q, form.selections[q.name], form.notes[q.name])
   ).length;
   const count = display.length;
+  const canSubmit = !readOnly && !form.lost && !form.busy && payload !== null;
+  useSheetKeys({
+    onSubmit: canSubmit ? () => void form.submit(payload) : undefined,
+  });
 
   return (
     <div className="tui-sheet-body">
@@ -334,10 +341,11 @@ function StageSheetBody({
                     intent="accent"
                     size="lg"
                     className="tui-sheet-submit"
-                    disabled={form.busy || payload === null}
+                    disabled={!canSubmit}
                     onClick={() => void form.submit(payload)}
                   >
                     {form.busy ? 'submitting…' : 'submit'}
+                    {!form.busy && <KeyCap keys={SUBMIT_KEYS} onFill />}
                   </Button>
                   {form.failed && (
                     <span className="tui-gate-error">
@@ -413,6 +421,12 @@ function PaneSheetBody({
     if (gate.domain && mr) onFocusPane(mr, gate.domain);
     else void form.focusGate();
   };
+  useSheetKeys({
+    onSubmit:
+      primary !== undefined && !form.lost && !form.busy
+        ? () => answer(primary)
+        : undefined,
+  });
 
   return (
     <div className="tui-sheet-body">
@@ -502,6 +516,7 @@ function PaneSheetBody({
                   onClick={() => answer(primary)}
                 >
                   {actionLabel(primary)}
+                  {!form.busy && <KeyCap keys={SUBMIT_KEYS} onFill />}
                 </Button>
               )}
               {others.length > 0 && (

@@ -303,13 +303,32 @@ function RoundHeading({
   );
 }
 
+/** A keyboard hint, drawn from `data-keys` by CSS so it stays out of the
+    control's text and accessible name: the label carries the meaning.
+    `onFill` sits it inside a filled button. */
+function KeyCap({ keys, onFill = false }: { keys: string; onFill?: boolean }) {
+  return (
+    <kbd
+      className="tui-key-cap"
+      data-keys={keys}
+      data-variant={onFill ? 'on-fill' : undefined}
+      aria-hidden="true"
+    />
+  );
+}
+
+/** The submit chord, shown on every sheet's primary button. */
+const SUBMIT_KEYS = '⌘↵';
+
 export {
   Choices,
+  KeyCap,
   Note,
   ProseContext,
   reserveDock,
   RoundHeading,
   SheetLost,
   SheetRows,
+  SUBMIT_KEYS,
 };
 export type { ChoiceState, RowChip, SheetRow };

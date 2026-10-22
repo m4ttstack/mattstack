@@ -43,6 +43,7 @@ export function DisclosureHead({
 }) {
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       onToggle();
