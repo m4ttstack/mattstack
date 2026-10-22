@@ -636,6 +636,22 @@ describe("initPack --extends", () => {
     expect(await initPack({ repoDir: repoFlag, repoFlag, zone: null, team: null, extendsBase: "acme-base" }, conflict.deps)).toMatchObject({ code: "extends-conflict", next: `rt skills init ${quoted} --team acme` });
   });
 
+  test("a Mac with no org refuses --extends before it prompts for or creates one", async () => {
+    const { deps, calls, fs } = world({ noOrg: true, isTTY: true });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(out).toMatchObject({
+      ok: false,
+      refused: true,
+      code: "base-missing",
+      detail: "This Mac has no org yet, so there is no base pack called acme-base",
+      why: "A base pack lives in the org that made it, so join that org first",
+      next: "rt team join",
+    });
+    expect(fs.readDir(HOME)).toEqual([]);
+    expect(calls.claims).toEqual([]);
+    expect(calls.remembered).toEqual([]);
+  });
+
   test("a plain --repo path is not quoted", async () => {
     const { deps } = world({ compile: stopOnMissing });
     expect(await initPack({ repoDir: "/work/api", repoFlag: "/work/api", zone: null, team: null }, deps)).toMatchObject({ code: "params-missing", next: "rt skills init --repo /work/api --team acme" });

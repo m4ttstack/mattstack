@@ -529,6 +529,9 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
   let zones = currentZones();
   let choice = chooseZone(zones, repo, wanted());
   if (choice.kind === "missing" && orgs.length === 0) {
+    if (opts.extendsBase != null) {
+      return refuse("base-missing", `This Mac has no org yet, so there is no base pack called ${opts.extendsBase || "(empty)"}`, "rt team join", "A base pack lives in the org that made it, so join that org first");
+    }
     if (!deps.isTTY || opts.team !== null) {
       return refuse("zone-missing", "This Mac has no org yet, so there is no team to hold a pack", `rt team create <name> --remote <url> --first-team ${opts.team ?? "<team>"}`);
     }
