@@ -1,3 +1,4 @@
+import type { RunSummary } from '@mattstack/rt-client';
 import type { AgentLaunchResult } from '../agent-launch.ts';
 import {
   STAND_DOWN_PANE_MESSAGE,
@@ -7,10 +8,29 @@ import {
 import type { LaunchPaneOpts } from '../herdr.ts';
 import { draftBinPath } from '../herdr.ts';
 import { launchErrorMessage } from '../launch-error.ts';
+import {
+  firstLiveOwner,
+  ownerCandidates,
+  ringText,
+  type OwnerQuery,
+  type RingFrame,
+  type SessionProbe,
+} from '../run-owner.ts';
 import type { AuditEntry } from './audit.ts';
 import type { FixClasses, TriageConfig } from './config.ts';
-import { detectEdges, markHandled, observe, type OwnMrFacts } from './edge.ts';
-import type { DispatchMemory } from './memory.ts';
+import {
+  detectEdges,
+  markHandled,
+  observe,
+  rearm,
+  type Edge,
+  type OwnMrFacts,
+} from './edge.ts';
+import {
+  liveHandoffs,
+  type DispatchMemory,
+  type HandoffKind,
+} from './memory.ts';
 import { decide } from './policy.ts';
 import { chainOf } from './stack.ts';
 
@@ -173,6 +193,190 @@ export interface TriageRunDeps {
   attendants?: AttendantsPort;
   /** Team pack the doctor wrapper resolves bindings with; absent means the generic skill. */
   pack?: string;
+  /** null = the lookup failed; owner logic stands aside for this pass. */
+  listRuns?(): Promise<RunSummary[] | null>;
+  ring?(session: string, text: string): Promise<boolean>;
+  probe?: SessionProbe;
+  /** boardRepoSlug(gitlabHost, projectPathFromWebUrl(mrUrl)). */
+  repoSlugForMr?(mrUrl: string): string;
+}
+
+/** The live-run deps, present only when every one of them is wired. */
+interface OwnerPorts {
+  runs: RunSummary[];
+  ring(session: string, text: string): Promise<boolean>;
+  probe: SessionProbe;
+  repoSlugForMr(mrUrl: string): string;
+}
+
+const HANDOFF_KINDS: HandoffKind[] = ['pipeline-red', 'needs-rebase'];
+
+function iidOfMrUrl(mrUrl: string): number {
+  const m = /\/(\d+)\/*$/.exec(mrUrl);
+  return m ? Number(m[1]) : 0;
+}
+
+/** Each open handoff is dropped once its edge clears, and dropped and
+    re-armed once its run no longer owns the branch, so a worker that went
+    away never leaves the edge with nobody on it. */
+async function recheckHandoffs(
+  memory: DispatchMemory,
+  byUrl: Map<string, OwnMrFacts>,
+  owners: OwnerPorts | null,
+  audit: (entry: AuditEntry) => void,
+  now: number
+): Promise<void> {
+  for (const [mrUrl, mem] of Object.entries(memory.mrs)) {
+    const handoffs = mem.handoffs;
+    if (!handoffs) continue;
+    const facts = byUrl.get(mrUrl);
+    const live = facts
+      ? liveHandoffs(mem, {
+          pipelineId: facts.pipelineId,
+          pipelineFailed: facts.pipelineState === 'failed',
+          needsRebase: facts.needsRebase,
+        })
+      : {};
+    for (const kind of HANDOFF_KINDS) {
+      const handoff = handoffs[kind];
+      if (!handoff) continue;
+      const entry = {
+        ts: now,
+        mrUrl,
+        iid: facts?.iid ?? iidOfMrUrl(mrUrl),
+        event: kind,
+        pipelineId: handoff.pipelineId,
+      };
+      if (!live[kind]) {
+        delete handoffs[kind];
+        audit({ ...entry, reason: 'handoff-cleared', outcome: handoff.runId });
+        continue;
+      }
+      if (!owners) continue;
+      const stillOwns = ownerCandidates(
+        {
+          mrUrl: handoff.viaMr ?? undefined,
+          repoSlug: owners.repoSlugForMr(handoff.viaMr ?? mrUrl),
+          branch: handoff.viaBranch,
+        },
+        owners.runs
+      ).some(c => c.runId === handoff.runId);
+      if (stillOwns && (await owners.probe(handoff.session)).reachable)
+        continue;
+      delete handoffs[kind];
+      rearm(memory, mrUrl, kind);
+      audit({ ...entry, reason: 'handoff-lapsed', outcome: handoff.runId });
+    }
+    if (Object.keys(handoffs).length === 0) delete mem.handoffs;
+  }
+}
+
+/** The MR's own live run first, then each ancestor's nearest first, then a
+    parent outside the board by branch. Stops at the first delivered ring and
+    records the handoff; false means nobody took it and the doctor path runs. */
+async function ringLiveOwner(
+  edge: Edge,
+  mrs: OwnMrFacts[],
+  facts: OwnMrFacts,
+  memory: DispatchMemory,
+  owners: OwnerPorts,
+  audit: (entry: AuditEntry) => void,
+  now: number
+): Promise<boolean> {
+  const own: RingFrame =
+    edge.kind === 'pipeline-red'
+      ? { kind: 'pipeline-red', iid: edge.iid, pipelineId: edge.pipelineId }
+      : {
+          kind: 'needs-rebase',
+          iid: edge.iid,
+          targetBranch: facts.targetBranch,
+        };
+  const downstream: RingFrame = {
+    kind: 'downstream',
+    childIid: edge.iid,
+    childEdge: edge.kind,
+    pipelineId: edge.pipelineId,
+  };
+  const steps: Array<{
+    query: OwnerQuery;
+    viaMr: string | null;
+    frame: RingFrame;
+  }> = [
+    {
+      query: {
+        mrUrl: edge.mrUrl,
+        repoSlug: owners.repoSlugForMr(edge.mrUrl),
+        branch: facts.sourceBranch,
+      },
+      viaMr: edge.mrUrl,
+      frame: own,
+    },
+  ];
+  const { ancestors, unresolvedParentBranch } = chainOf(mrs, edge.mrUrl);
+  for (const anc of ancestors) {
+    steps.push({
+      query: {
+        mrUrl: anc.mrUrl,
+        repoSlug: owners.repoSlugForMr(anc.mrUrl),
+        branch: anc.sourceBranch,
+      },
+      viaMr: anc.mrUrl,
+      frame: downstream,
+    });
+  }
+  if (unresolvedParentBranch !== null) {
+    steps.push({
+      query: {
+        repoSlug: owners.repoSlugForMr(edge.mrUrl),
+        branch: unresolvedParentBranch,
+      },
+      viaMr: null,
+      frame: downstream,
+    });
+  }
+
+  const entry = {
+    ts: now,
+    mrUrl: edge.mrUrl,
+    iid: edge.iid,
+    event: edge.kind,
+    pipelineId: edge.pipelineId,
+  };
+  for (const step of steps) {
+    const owner = await firstLiveOwner(
+      ownerCandidates(step.query, owners.runs),
+      owners.probe
+    );
+    if (!owner) continue;
+    if (!(await owners.ring(owner.session, ringText(step.frame)))) {
+      audit({ ...entry, reason: 'ring-failed', outcome: owner.runId });
+      continue;
+    }
+    const m = memory.mrs[edge.mrUrl]!;
+    m.handoffs = {
+      ...m.handoffs,
+      [edge.kind]: {
+        runId: owner.runId,
+        session: owner.session,
+        stage: owner.stage,
+        pipelineId: edge.pipelineId,
+        viaMr: step.viaMr,
+        viaBranch: step.query.branch,
+        at: now,
+      },
+    };
+    markHandled(memory, edge);
+    const upstream = step.frame.kind === 'downstream';
+    const ran = `run ${owner.runId} stage ${owner.stage ?? 'none'}`;
+    audit({
+      ...entry,
+      decision: 'skip',
+      reason: upstream ? 'upstream-run-active' : 'run-active',
+      outcome: upstream ? `${ran} on ${step.viaMr ?? step.query.branch}` : ran,
+    });
+    return true;
+  }
+  return false;
 }
 
 /** BOARD-12: the ancestor, if any, that owns this edge instead of us. Checks
@@ -229,9 +433,20 @@ export async function runTriage(
   const mrs = await deps.fetchOwnMrs();
 
   observe(deps.memory, mrs, dayStamp);
+  const byUrl = new Map(mrs.map(m => [m.mrUrl, m]));
+  const runs = deps.listRuns ? await deps.listRuns() : null;
+  const owners: OwnerPorts | null =
+    runs !== null && deps.ring && deps.probe && deps.repoSlugForMr
+      ? {
+          runs,
+          ring: deps.ring,
+          probe: deps.probe,
+          repoSlugForMr: deps.repoSlugForMr,
+        }
+      : null;
+  await recheckHandoffs(deps.memory, byUrl, owners, deps.appendAudit, now);
   const edges = detectEdges(deps.memory, mrs);
   const doctors = deps.readDoctorStates();
-  const byUrl = new Map(mrs.map(m => [m.mrUrl, m]));
   let activeAuto = [...doctors.values()].filter(
     d => d.origin === 'auto' && IN_FLIGHT.has(d.status)
   ).length;
@@ -311,6 +526,25 @@ export async function runTriage(
         outcome: upstream.upstreamMr,
         pipelineId: edge.pipelineId,
       });
+      continue;
+    }
+    // A live work run on this branch or an ancestor's takes the edge in
+    // place of a doctor: no lease claim, no budget spent.
+    const facts = byUrl.get(edge.mrUrl);
+    if (
+      owners &&
+      facts &&
+      (await ringLiveOwner(
+        edge,
+        mrs,
+        facts,
+        deps.memory,
+        owners,
+        deps.appendAudit,
+        now
+      ))
+    ) {
+      result.skipped++;
       continue;
     }
     const m = deps.memory.mrs[edge.mrUrl]!;

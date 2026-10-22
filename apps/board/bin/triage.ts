@@ -4,7 +4,10 @@
 import { deckAppUrl } from '@mattstack/app-server/event-bridge';
 import { GitLabProvider, parseRepoId, type MRDetail } from '@mattstack/glance';
 import {
+  inboxProbe,
+  inboxRing,
   listOrgs,
+  listRuns,
   readDiscussions,
   readProjectMRs,
 } from '@mattstack/rt-client';
@@ -23,7 +26,7 @@ import {
 } from '../src/doctor-state.ts';
 import { launchDoctor, sendPaneText } from '../src/herdr.ts';
 import { latchGateway } from '../src/latch/gateway.ts';
-import { packForLaunch } from '../src/manifest-bindings.ts';
+import { boardRepoSlug, packForLaunch } from '../src/manifest-bindings.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
 import { makeEnvelope } from '../src/peer/envelope.ts';
 import { runPeerTick } from '../src/peer/inbox.ts';
@@ -44,6 +47,7 @@ import {
   readReviewStates,
   resurrectReviewState,
 } from '../src/review-state.ts';
+import { BOARD_RING_LABEL } from '../src/run-owner.ts';
 import { createBoardAttendants } from '../src/triage/attendant.ts';
 import { appendAudit } from '../src/triage/audit.ts';
 import {
@@ -258,6 +262,30 @@ try {
       sendPaneText,
       now: () => Date.now(),
       attendants: createBoardAttendants(),
+      listRuns: async () => {
+        try {
+          const res = await listRuns();
+          return res.ok ? (res.data?.runs ?? null) : null;
+        } catch {
+          return null;
+        }
+      },
+      ring: async (session, text) => {
+        const res = await inboxRing({ session, label: BOARD_RING_LABEL, text });
+        return res.ok && res.data?.delivered === true;
+      },
+      probe: async session => {
+        const res = await inboxProbe({ session });
+        return {
+          reachable: res.ok && res.data?.reachable === true,
+          name: res.ok ? res.data?.name : undefined,
+        };
+      },
+      repoSlugForMr: mrUrl =>
+        boardRepoSlug(
+          boardConfig.gitlabHost,
+          projectPathFromWebUrl(mrUrl, boardConfig.gitlabHost) ?? ''
+        ),
     });
     console.log(
       `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`
