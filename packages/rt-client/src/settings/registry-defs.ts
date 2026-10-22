@@ -133,7 +133,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["team", "user"],
     default: { thresholds: [80, 95], accounts: {} },
     merge: "deep",
-    description: "When the daemon notifies about a Claude account's usage: thresholds are percentages of any limit (monthly spend, 5-hour, weekly, per-model); accounts overrides them per account, keyed by email or org UUID, and an empty list silences that account; hint is appended to every notification, such as where to ask for more usage. Usage comes from cswap when it is installed, else from the account Claude Code is signed into.",
+    description: "When the daemon notifies about a Claude account's usage: thresholds are percentages of any limit (monthly spend, 5-hour, weekly, per-model); accounts overrides them per account, keyed by email or org UUID, and an empty list silences that account; hint is appended to every notification, such as where to ask for more usage. Usage comes from every account cswap manages, when it is installed, plus the account Claude Code is signed into when cswap does not list it.",
   },
   {
     key: "rt.cron",

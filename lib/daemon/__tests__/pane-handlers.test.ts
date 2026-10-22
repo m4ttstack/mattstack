@@ -1,3 +1,4 @@
+import { CSWAP_STILL_RUNNING } from "../../cswap.ts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -62,7 +63,7 @@ function harness(
   const herdr: typeof herdrRequest = (method, params, opts) => herdrRequest(method, params, { ...opts, sockPath: sock });
   const exec = CSWAP_EXEC;
   const chat = createChatHandlers({ db, emitEvent: () => 0 });
-  const pane = createPaneHandlers({ db, repoIndex: () => extra.repoIndex ?? {}, herdr, exec, now: extra.now ?? Date.now, registryDeps: extra.registryDeps, claudeRegistryRoots: extra.claudeRegistryRoots });
+  const pane = createPaneHandlers({ db, repoIndex: () => extra.repoIndex ?? {}, herdr, exec, cswapExec: exec, now: extra.now ?? Date.now, registryDeps: extra.registryDeps, claudeRegistryRoots: extra.claudeRegistryRoots });
   return { db, seen, chat, pane };
 }
 
@@ -218,7 +219,7 @@ test("pane:accounts parses cswap list through the injected exec", async () => {
     argv[1] === "list"
       ? { stdout: "Accounts:\n  1: a@b.c [A]\n     └ 5h: 3%\n", stderr: "", exitCode: 0 }
       : { stdout: "", stderr: "", exitCode: 1 };
-  const pane = createPaneHandlers({ db, repoIndex: () => ({}), exec });
+  const pane = createPaneHandlers({ db, repoIndex: () => ({}), cswapExec: exec });
   const res = await pane["pane:accounts"]({});
   expect(res).toEqual({ ok: true, data: { accounts: [{ slot: 1, email: "a@b.c", alias: "A", headroom: "5h 3%" }] } });
 });
@@ -468,9 +469,26 @@ test("pane:spawn refuses an unknown cswap account before touching herdr", async 
 test("pane:spawn says cswap is missing rather than blaming the account when cswap lists nothing", async () => {
   const db = freshDb();
   const exec = async () => ({ stdout: "", stderr: "", exitCode: -1 });
-  const pane = createPaneHandlers({ db, repoIndex: () => ({}), exec });
+  const pane = createPaneHandlers({ db, repoIndex: () => ({}), cswapExec: exec });
   const res = await pane["pane:spawn"]({ cwd: "/repos/chat", account: "Me" });
   expect(res).toEqual({ ok: false, error: `cswap isn't installed or lists no accounts, so account "Me" can't be used` });
+});
+
+test("pane:spawn asks for a retry while cswap is still answering", async () => {
+  const db = freshDb();
+  const exec = async () => ({ stdout: "", stderr: "", exitCode: CSWAP_STILL_RUNNING });
+  const pane = createPaneHandlers({ db, repoIndex: () => ({}), cswapExec: exec });
+  const res = await pane["pane:spawn"]({ cwd: "/repos/chat", account: "Me" });
+  expect(res).toEqual({ ok: false, error: `cswap is still answering, so account "Me" can't be checked yet; try again in a moment` });
+});
+
+test("pane handlers run cswap through cswapExec, never the generic exec", async () => {
+  const db = freshDb();
+  let generic = 0;
+  const exec = async () => { generic++; return { stdout: "", stderr: "", exitCode: 1 }; };
+  const pane = createPaneHandlers({ db, repoIndex: () => ({}), exec, cswapExec: async () => ({ stdout: "Accounts:\n  1: a@b.c\n", stderr: "", exitCode: 0 }) });
+  await pane["pane:accounts"]({});
+  expect(generic).toBe(0);
 });
 
 test("pane:send delivers caller text and returns accepted", async () => {

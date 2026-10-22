@@ -51,7 +51,8 @@ const realSpawn: CswapSpawn = (argv, env) => {
   })();
 };
 
-const inflight = new Map<string, Promise<RunResult>>();
+/** A run this old is assumed wedged: later calls stop joining it and start fresh. */
+const INFLIGHT_MAX_AGE_MS = 10 * 60_000;
 
 /**
  * A runCapture stand-in for cswap that never signals the child. `cswap list`
@@ -60,22 +61,32 @@ const inflight = new Map<string, Promise<RunResult>>();
  * caller past `timeoutMs` gets `CSWAP_STILL_RUNNING` and cswap finishes on
  * its own; an identical call made meanwhile joins that run instead of
  * starting another.
+ *
+ * The child is unref'd so it never holds a process open, but the wait timer
+ * stays ref'd: in the CLI it is the only thing keeping the event loop alive
+ * until cswap answers.
  */
-export function createCswapExec(spawn: CswapSpawn = realSpawn): typeof runCapture {
+export function createCswapExec(spawn: CswapSpawn = realSpawn, now: () => number = Date.now): typeof runCapture {
+  const inflight = new Map<string, { run: Promise<RunResult>; startedAt: number }>();
   return async (argv, opts: RunOpts = {}) => {
     const env = opts.env ?? childEnv();
     const key = JSON.stringify([argv, env.CLAUDE_CONFIG_DIR ?? ""]);
-    let run = inflight.get(key);
-    if (!run) {
+    let entry = inflight.get(key);
+    if (entry && now() - entry.startedAt > INFLIGHT_MAX_AGE_MS) entry = undefined;
+    if (!entry) {
       const started = spawn(argv, env);
       if (!started) return { stdout: "", stderr: "", exitCode: -1 };
-      run = started.finally(() => inflight.delete(key));
-      inflight.set(key, run);
+      const fresh = {
+        run: started.finally(() => { if (inflight.get(key) === fresh) inflight.delete(key); }),
+        startedAt: now(),
+      };
+      inflight.set(key, fresh);
+      entry = fresh;
     }
+    const run = entry.run;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const waited = new Promise<RunResult>((resolve) => {
       timer = setTimeout(() => resolve({ stdout: "", stderr: "", exitCode: CSWAP_STILL_RUNNING }), opts.timeoutMs ?? 10_000);
-      timer.unref?.();
     });
     try {
       return await Promise.race([run, waited]);
@@ -122,9 +133,18 @@ export async function cswapAccountNumbers(exec: typeof runCapture = cswapExec): 
 }
 
 export async function listCswapAccounts(exec: typeof runCapture = cswapExec): Promise<PaneAccount[]> {
-  const res = await exec([cswapBin(), "list"], { timeoutMs: 5_000 });
-  if (res.exitCode !== 0) return [];
-  return parseCswapList(res.stdout);
+  return (await readCswapAccounts(exec)).accounts;
+}
+
+/** listCswapAccounts plus whether cswap was still answering when the wait ran out. */
+export async function readCswapAccounts(
+  exec: typeof runCapture = cswapExec,
+  timeoutMs = 5_000,
+): Promise<{ accounts: PaneAccount[]; stillRunning: boolean }> {
+  const res = await exec([cswapBin(), "list"], { timeoutMs });
+  if (res.exitCode === CSWAP_STILL_RUNNING) return { accounts: [], stillRunning: true };
+  if (res.exitCode !== 0) return { accounts: [], stillRunning: false };
+  return { accounts: parseCswapList(res.stdout), stillRunning: false };
 }
 
 /** Each cswap account's Claude config dir: the folder `cswap run` sets CLAUDE_CONFIG_DIR to, one per account under ~/.claude-swap-backup/sessions. */

@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { childEnv } from "../subprocess.ts";
 import { CSWAP_STILL_RUNNING, callerCswapAccount, createCswapExec, cswapConfigDirs, listCswapAccounts, parseCswapList } from "../cswap.ts";
 import { fakeProbes } from "../setup/__tests__/fakes.ts";
 
@@ -124,6 +128,36 @@ describe("createCswapExec", () => {
     const second = exec(["cswap", "list"], { timeoutMs: 1_000 });
     runs[1]!({ stdout: "2", stderr: "", exitCode: 0 });
     expect((await second).stdout).toBe("2");
+  });
+
+  test("a run past the age ceiling is abandoned for a fresh one, still unsignalled", async () => {
+    const { spawn, runs } = controlled();
+    let clock = 0;
+    const exec = createCswapExec(spawn, () => clock);
+    expect((await exec(["cswap", "list"], { timeoutMs: 5 })).exitCode).toBe(CSWAP_STILL_RUNNING);
+    clock = 11 * 60_000;
+    const fresh = exec(["cswap", "list"], { timeoutMs: 1_000 });
+    expect(runs).toHaveLength(2);
+    runs[1]!({ stdout: "fresh", stderr: "", exitCode: 0 });
+    expect((await fresh).stdout).toBe("fresh");
+  });
+
+  test("a CLI with no top-level await stays alive until cswap answers", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cswap-exec-"));
+    const bin = join(dir, "cswap");
+    writeFileSync(bin, "#!/bin/sh\nsleep 0.3\necho answered\n");
+    chmodSync(bin, 0o755);
+    const script = join(dir, "main.ts");
+    writeFileSync(script, [
+      `import { createCswapExec } from ${JSON.stringify(join(import.meta.dir, "..", "cswap.ts"))};`,
+      `async function main() {`,
+      `  const res = await createCswapExec()([${JSON.stringify(bin)}], { timeoutMs: 5_000 });`,
+      `  console.log("after:" + res.stdout.trim());`,
+      `}`,
+      `main();`,
+    ].join("\n"));
+    const proc = Bun.spawnSync([process.execPath, script], { env: childEnv(), stdout: "pipe", stderr: "pipe" });
+    expect(proc.stdout.toString()).toContain("after:answered");
   });
 
   test("callers under different cswap profiles never share a run", async () => {

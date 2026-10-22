@@ -7,7 +7,7 @@ import type { Logger } from "pino";
 import { basename, isAbsolute } from "path";
 import type { AgentStatus, BuddyStatus, ChatPane, Commands, PaneDirectory } from "../../../packages/rt-client/src/commands.ts";
 import { formatPaneRef, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
-import { cswapExec, listCswapAccounts } from "../../cswap.ts";
+import { cswapExec, listCswapAccounts, readCswapAccounts } from "../../cswap.ts";
 import { herdrRequest, waitTimeout, type HerdrResult } from "../../herdr/client.ts";
 import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
@@ -158,6 +158,8 @@ export function createPaneHandlers(opts: {
   herdr?: typeof herdrRequest;
   tray?: typeof trayRequest;
   exec?: typeof runCapture;
+  /** Runs cswap; the default never kills it, since `cswap list` can be mid token refresh. */
+  cswapExec?: typeof runCapture;
   now?: () => number;
   registry?: (repoName: string) => Array<{ path: string; branch: string | null | undefined }>;
   /** The registry probe behind buddyStatus, fakeable the same way lib/daemon/handlers/chat.ts's registryDeps is. */
@@ -192,7 +194,7 @@ export function createPaneHandlers(opts: {
   const herdr = opts.herdr ?? herdrRequest;
   const tray = opts.tray ?? trayRequest;
   const exec = opts.exec ?? runCapture;
-  const cswapRun = opts.exec ?? cswapExec;
+  const cswapRun = opts.cswapExec ?? cswapExec;
   const now = opts.now ?? Date.now;
   const registry = opts.registry ?? ((name: string) => loadRegistry(name));
   const registryDeps = opts.registryDeps;
@@ -293,7 +295,8 @@ export function createPaneHandlers(opts: {
       const { cwd, account, model, effort, prompt } = payload;
       if (!cwd || !cwd.startsWith("/")) return { ok: false, error: "cwd must be an absolute path" };
       if (account) {
-        const accounts = await listCswapAccounts(cswapRun);
+        const { accounts, stillRunning } = await readCswapAccounts(cswapRun, 15_000);
+        if (stillRunning) return { ok: false, error: `cswap is still answering, so account "${account}" can't be checked yet; try again in a moment` };
         if (accounts.length === 0) return { ok: false, error: `cswap isn't installed or lists no accounts, so account "${account}" can't be used` };
         const known = accounts.some((a) => a.alias === account || a.email === account || String(a.slot) === account);
         if (!known) return { ok: false, error: `unknown cswap account "${account}"` };

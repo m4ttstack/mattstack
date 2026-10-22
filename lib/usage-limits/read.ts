@@ -46,7 +46,7 @@ export type Got<T> = { ok: true; value: T } | { ok: false; problem: string };
 export interface ReadDeps {
   /** Parsed `cswap list --json`; null when cswap is not installed. */
   runCswapList: () => Promise<Got<unknown> | null>;
-  readClaudeAccount: () => Promise<{ email: string; orgUuid?: string } | null>;
+  readClaudeAccount: () => Promise<{ email: string; orgUuid?: string; orgName?: string } | null>;
   readClaudeCredentials: () => Promise<Got<ClaudeCredentials>>;
   /** Raw usage endpoint body. */
   fetchUsage: (accessToken: string) => Promise<Got<unknown>>;
@@ -55,7 +55,9 @@ export interface ReadDeps {
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const OAUTH_BETA = "oauth-2025-04-20";
-const CSWAP_TIMEOUT_MS = 15_000;
+// Nothing kills cswap, and the sweep runs every 5 minutes, so wait out a slow
+// one rather than drop its answer.
+const CSWAP_TIMEOUT_MS = 120_000;
 const FETCH_TIMEOUT_MS = 10_000;
 
 export async function readAccountUsage(deps: ReadDeps): Promise<UsageRead> {
@@ -63,11 +65,16 @@ export async function readAccountUsage(deps: ReadDeps): Promise<UsageRead> {
   const problems: string[] = [];
 
   const listed = await deps.runCswapList();
-  if (listed?.ok) accounts.push(...parseCswapUsage(listed.value));
-  else if (listed) problems.push(`cswap: ${listed.problem}`);
+  let cswapIdentities: Array<{ account: string; orgUuid?: string }> = [];
+  if (listed?.ok) {
+    accounts.push(...parseCswapUsage(listed.value));
+    cswapIdentities = listedIdentities(listed.value);
+  } else if (listed) problems.push(`cswap: ${listed.problem}`);
 
+  // An account cswap lists without usage is one cswap is backing off on, so
+  // rt must not poll the endpoint behind its back.
   const signedIn = await deps.readClaudeAccount();
-  if (!signedIn || accounts.some((a) => sameAccount(a, signedIn))) return { accounts, problems };
+  if (!signedIn || cswapIdentities.some((a) => sameAccount(a, signedIn))) return { accounts, problems };
 
   const creds = await deps.readClaudeCredentials();
   if (!creds.ok) {
@@ -85,11 +92,24 @@ export async function readAccountUsage(deps: ReadDeps): Promise<UsageRead> {
     problems.push(`usage endpoint: ${body.problem}`);
     return { accounts, problems };
   }
-  accounts.push({ account: signedIn.email, ...(signedIn.orgUuid ? { orgUuid: signedIn.orgUuid } : {}), limits: parseUsageResponse(body.value) });
+  accounts.push({
+    account: signedIn.email,
+    ...(signedIn.orgUuid ? { orgUuid: signedIn.orgUuid } : {}),
+    ...(signedIn.orgName ? { orgName: signedIn.orgName } : {}),
+    limits: parseUsageResponse(body.value),
+  });
   return { accounts, problems };
 }
 
-function sameAccount(a: AccountUsage, b: { email: string; orgUuid?: string }): boolean {
+function listedIdentities(data: unknown): Array<{ account: string; orgUuid?: string }> {
+  if (!isRecord(data) || !Array.isArray(data.accounts)) return [];
+  return data.accounts.flatMap((e: unknown) =>
+    isRecord(e) && typeof e.email === "string"
+      ? [{ account: e.email, ...(typeof e.organizationUuid === "string" ? { orgUuid: e.organizationUuid } : {}) }]
+      : []);
+}
+
+function sameAccount(a: { account: string; orgUuid?: string }, b: { email: string; orgUuid?: string }): boolean {
   return a.account === b.email && (!a.orgUuid || !b.orgUuid || a.orgUuid === b.orgUuid);
 }
 
@@ -181,7 +201,7 @@ function home(): string {
 async function runCswapList(): Promise<Got<unknown> | null> {
   const res = await cswapExec([cswapBin(), "list", "--json"], { timeoutMs: CSWAP_TIMEOUT_MS });
   if (res.exitCode === -1 && !res.stdout) return null;
-  if (res.exitCode === CSWAP_STILL_RUNNING) return { ok: false, problem: "list is still running; its result is read next time" };
+  if (res.exitCode === CSWAP_STILL_RUNNING) return { ok: false, problem: `list still running after ${CSWAP_TIMEOUT_MS / 1000}s` };
   if (res.exitCode !== 0) return { ok: false, problem: `list exited ${res.exitCode}` };
   try {
     return { ok: true, value: JSON.parse(res.stdout) };
@@ -239,11 +259,15 @@ async function readClaudeCredentials(): Promise<Got<ClaudeCredentials>> {
   });
 }
 
-async function readClaudeAccount(): Promise<{ email: string; orgUuid?: string } | null> {
+async function readClaudeAccount(): Promise<{ email: string; orgUuid?: string; orgName?: string } | null> {
   try {
     const acct = JSON.parse(await readFile(join(home(), ".claude.json"), "utf8"))?.oauthAccount;
     if (!isRecord(acct) || typeof acct.emailAddress !== "string") return null;
-    return { email: acct.emailAddress, ...(typeof acct.organizationUuid === "string" ? { orgUuid: acct.organizationUuid } : {}) };
+    return {
+      email: acct.emailAddress,
+      ...(typeof acct.organizationUuid === "string" ? { orgUuid: acct.organizationUuid } : {}),
+      ...(typeof acct.organizationName === "string" ? { orgName: acct.organizationName } : {}),
+    };
   } catch {
     return null;
   }

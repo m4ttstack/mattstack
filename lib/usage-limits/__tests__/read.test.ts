@@ -123,6 +123,18 @@ describe("readAccountUsage", () => {
     expect(out.accounts.map((a) => a.account)).toEqual(["dev@example.com", "max@example.com", "other@example.com"]);
   });
 
+  test("a signed-in account cswap lists without usage is left to cswap's backoff", async () => {
+    let tokenRead = false;
+    const backingOff = { schemaVersion: 1, accounts: [{ number: 1, email: "dev@example.com", organizationUuid: "org-1", usageStatus: "unavailable", usage: null }] };
+    const out = await readAccountUsage(deps({
+      runCswapList: async () => ({ ok: true, value: backingOff }),
+      readClaudeAccount: async () => SIGNED_IN,
+      readClaudeCredentials: async () => { tokenRead = true; return { ok: true, value: { accessToken: "tok" } }; },
+    }));
+    expect(tokenRead).toBe(false);
+    expect(out.accounts).toEqual([]);
+  });
+
   test("a failing cswap falls back to the signed-in account and says why", async () => {
     const out = await readAccountUsage(deps({
       runCswapList: async () => ({ ok: false, problem: "list exited 143" }),
