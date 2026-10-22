@@ -1286,6 +1286,79 @@ describe('rowStatus: doctor lane', () => {
     expect(back!.word).toBe('doctor stuck');
   });
 
+  const SELF_URL =
+    'https://gitlab.example.com/acme/webapp/-/merge_requests/1418';
+  const handoff = (over: Over = {}) => ({
+    runId: 'run-7',
+    session: 'sess-7',
+    stage: 'implement',
+    pipelineId: 7310,
+    viaMr: SELF_URL,
+    viaBranch: 'feature/acme-2214',
+    at: NOW - 60_000,
+    ...over,
+  });
+
+  test('handoff shows handed to worker', () => {
+    const [line] = candidateLines(
+      mr({ handoffs: { 'pipeline-red': handoff() } } as Over),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toEqual({
+      tone: 'quiet',
+      word: 'handed to worker',
+      detail: 'implement',
+      verbs: [],
+    });
+  });
+
+  test("parent handoff says parent's worker", () => {
+    for (const viaMr of [
+      'https://gitlab.example.com/acme/webapp/-/merge_requests/1400',
+      null,
+    ]) {
+      const [line] = candidateLines(
+        mr({ handoffs: { 'needs-rebase': handoff({ viaMr }) } } as Over),
+        NOW,
+        NONE,
+        ME
+      );
+      expect(line).toMatchObject({
+        word: 'handed to worker',
+        detail: "parent's worker",
+      });
+    }
+  });
+
+  test('an in-flight doctor outranks a handoff', () => {
+    const [line] = candidateLines(
+      mr({
+        doctor: { status: 'fixing', origin: 'manual' },
+        handoffs: { 'pipeline-red': handoff() },
+      } as Over),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line!.word).not.toBe('handed to worker');
+    expect(line).toMatchObject({ tone: 'work' });
+  });
+
+  test('stand-down outranks a handoff', () => {
+    const [line] = candidateLines(
+      mr({
+        standDown: true,
+        handoffs: { 'pipeline-red': handoff() },
+      } as Over),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({ tone: 'quiet', word: 'auto-doctor off' });
+  });
+
   test('review and response failures carry the same dismiss secondary', () => {
     const [review] = candidateLines(
       mr({ review: { status: 'error' } }),

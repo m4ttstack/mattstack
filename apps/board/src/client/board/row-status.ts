@@ -655,6 +655,21 @@ function settled(
   return { ...line, settled: true };
 }
 
+/** A live run's worker was rung in place of a doctor. The server sends only
+    handoffs whose edge still holds, so the line clears with the edge. */
+function handoffLine(mr: BoardMRWithReview): Candidate | null {
+  const handoffs = Object.values(mr.handoffs ?? {});
+  const [first] = handoffs;
+  if (!first) return null;
+  const parent = handoffs.some(h => h.viaMr !== mr.webUrl);
+  return {
+    tone: 'quiet',
+    word: 'handed to worker',
+    detail: parent ? "parent's worker" : first.stage || undefined,
+    verbs: [],
+  };
+}
+
 function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   // Stood down (row menu's "never diagnose this stack"): this outranks
   // whatever the doctor's own status says and never expires the way a
@@ -664,6 +679,12 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
   if (mr.standDown)
     return { tone: 'quiet', word: 'auto-doctor off', verbs: [] };
   const d = mr.doctor;
+  const inFlight =
+    d &&
+    !laneDismissed(d) &&
+    (d.status === 'queued' || DOCTOR_WORKING.has(d.status));
+  const handoff = inFlight ? null : handoffLine(mr);
+  if (handoff) return handoff;
   if (!d || laneDismissed(d)) return null;
   switch (d.status) {
     case 'queued':
