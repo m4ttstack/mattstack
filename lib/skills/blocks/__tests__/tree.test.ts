@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { BlockError } from "../diagnostics.ts";
 import { isBlockTree, loadBlockTree, walk } from "../tree.ts";
 
 const DIR = join(import.meta.dir, "..", "..", "__tests__", "fixtures", "blocks", "plugins", "mattstack", "attachments", "pipeline", "mini");
@@ -68,12 +69,14 @@ test("diagnostics from several files are collected", () => {
     "x.block.md": "---\n---\n# X\n\n{{props.one}}\n",
     "y.block.md": "---\n---\n# Y\n\n{{props.two}}\n",
   });
+  let caught: unknown;
   try {
     loadBlockTree(tmp, a);
-    throw new Error("expected BlockError");
   } catch (err) {
-    expect((err as { diagnostics: unknown[] }).diagnostics).toHaveLength(2);
+    caught = err;
   }
+  expect(caught).toBeInstanceOf(BlockError);
+  expect((caught as BlockError).diagnostics).toHaveLength(2);
 });
 
 test("a second mermaid fence is bad-graph at the second fence; a nested one is ignored", () => {
@@ -87,4 +90,41 @@ test("a second mermaid fence is bad-graph at the second fence; a nested one is i
 test("a sub-folder without index and other files are not blocks", () => {
   const tmp = tmpTree({ "index.block.md": "---\n---\n# A\n", "sub/step.md": "x", "notes.txt": "y" });
   expect(walk(loadBlockTree(tmp, a)).map((b) => b.id)).toEqual(["a"]);
+});
+
+test("a file and a folder with the same stem are a duplicate block naming both files", () => {
+  const tmp = tmpTree({
+    "index.block.md": "---\n---\n# A\n",
+    "run.block.md": "---\n---\n# R\n",
+    "run/index.block.md": "---\n---\n# R2\n",
+  });
+  expect(() => loadBlockTree(tmp, a)).toThrow(/a\/run\/index\.block\.md:1:1: .*a\/run\.block\.md/);
+});
+
+test("dot-files and symlinks are skipped", () => {
+  const tmp = tmpTree({ "index.block.md": "---\n---\n# A\n", ".draft.block.md": "---\n---\n# D\n" });
+  symlinkSync(tmp, join(tmp, "loop"));
+  symlinkSync(join(tmp, "missing.block.md"), join(tmp, ".#gate.block.md"));
+  symlinkSync(join(tmp, "nowhere.block.md"), join(tmp, "dangling.block.md"));
+  expect(walk(loadBlockTree(tmp, a)).map((b) => b.id)).toEqual(["a"]);
+});
+
+test("a block file in a folder without an index is an orphan", () => {
+  const tmp = tmpTree({ "index.block.md": "---\n---\n# A\n", "sub/step.block.md": "---\n---\n# S\n" });
+  expect(() => loadBlockTree(tmp, a)).toThrow(/a\/sub\/step\.block\.md:1:1: .*index\.block\.md/);
+});
+
+test("a failing folder block still reports its children's diagnostics", () => {
+  const tmp = tmpTree({
+    "index.block.md": "---\n---\n# A\n\n{{props.one}}\n",
+    "x.block.md": "---\n---\n# X\n\n{{props.two}}\n",
+  });
+  let caught: unknown;
+  try {
+    loadBlockTree(tmp, a);
+  } catch (err) {
+    caught = err;
+  }
+  expect(caught).toBeInstanceOf(BlockError);
+  expect((caught as BlockError).diagnostics.map((d) => d.file).sort()).toEqual(["a/index.block.md", "a/x.block.md"]);
 });

@@ -25,17 +25,35 @@ export function walk(tree: BlockTree): Block[] {
 
 type Child = { stem: string; file: string; dir: string | null };
 
-function childrenOf(dir: string): Child[] {
-  const out: Child[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
-      if (isBlockTree(full)) out.push({ stem: entry, file: join(full, INDEX), dir: full });
-    } else if (entry.endsWith(SUFFIX) && entry !== INDEX) {
-      out.push({ stem: entry.slice(0, -SUFFIX.length), file: full, dir: null });
+function orphansUnder(dir: string, relDir: string, out: BlockDiagnostic[]): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    if (entry.isDirectory()) orphansUnder(join(dir, entry.name), `${relDir}/${entry.name}`, out);
+    else if (entry.isFile() && entry.name.endsWith(SUFFIX)) {
+      out.push({
+        file: `${relDir}/${entry.name}`,
+        line: 1,
+        col: 1,
+        message: `this folder needs an ${INDEX} to be a block; without one its files are vendored as plain files`,
+        code: "orphan-block",
+      });
     }
   }
-  return out.sort((a, b) => (a.stem < b.stem ? -1 : a.stem > b.stem ? 1 : 0));
+}
+
+function childrenOf(dir: string, relDir: string, diagnostics: BlockDiagnostic[]): Child[] {
+  const out: Child[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (isBlockTree(full)) out.push({ stem: entry.name, file: join(full, INDEX), dir: full });
+      else orphansUnder(full, `${relDir}/${entry.name}`, diagnostics);
+    } else if (entry.isFile() && entry.name.endsWith(SUFFIX) && entry.name !== INDEX) {
+      out.push({ stem: entry.name.slice(0, -SUFFIX.length), file: full, dir: null });
+    }
+  }
+  return out.sort((x, y) => (x.stem < y.stem ? -1 : x.stem > y.stem ? 1 : x.dir === null ? -1 : 1));
 }
 
 function attachGraph(block: Block, diagnostics: BlockDiagnostic[]): void {
@@ -94,31 +112,44 @@ function loadBlock(
   try {
     parsed = parseBlockFile(readFileSync(file, "utf8"), relPath, idTail);
   } catch (err) {
-    if (err instanceof BlockError) {
-      diagnostics.push(...err.diagnostics);
-      return null;
-    }
-    throw err;
+    if (!(err instanceof BlockError)) throw err;
+    diagnostics.push(...err.diagnostics);
   }
-  const block: Block = { ...parsed, id, path: file, relPath, depth, graph: null, children: [] };
-  byId.set(id, block);
-  attachGraph(block, diagnostics);
+  const block: Block | null = parsed ? { ...parsed, id, path: file, relPath, depth, graph: null, children: [] } : null;
+  if (block) {
+    byId.set(id, block);
+    attachGraph(block, diagnostics);
+  }
   if (dir !== null) {
-    for (const child of childrenOf(dir)) {
+    const seen = new Map<string, string>();
+    for (const child of childrenOf(dir, relDir, diagnostics)) {
       const isDir = child.dir !== null;
+      const childRel = isDir ? `${relDir}/${child.stem}/${INDEX}` : `${relDir}/${child.stem}${SUFFIX}`;
+      const first = seen.get(child.stem);
+      if (first !== undefined) {
+        diagnostics.push({
+          file: childRel,
+          line: 1,
+          col: 1,
+          message: `block id ${id}/${child.stem} is already taken by ${first}`,
+          code: "duplicate-block",
+        });
+        continue;
+      }
+      seen.set(child.stem, childRel);
       const loaded = loadBlock(
         child.file,
         child.dir,
         `${id}/${child.stem}`,
-        isDir ? `${relDir}/${child.stem}/${INDEX}` : `${relDir}/${child.stem}${SUFFIX}`,
+        childRel,
         isDir ? `${relDir}/${child.stem}` : relDir,
         depth + 1,
         diagnostics,
         byId,
       );
-      if (loaded) block.children.push(loaded);
+      if (loaded && block) block.children.push(loaded);
     }
-    if (block.title === null && block.children.length > 0) {
+    if (block && block.title === null && block.children.length > 0) {
       diagnostics.push({
         file: relPath,
         line: 1,
