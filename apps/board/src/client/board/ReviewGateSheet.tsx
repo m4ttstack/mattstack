@@ -6,6 +6,7 @@ import {
   optionDescription,
   optionDisplayFor,
   optionValue,
+  recommendedPick,
   splitChunkSelections,
   type GateAnswers,
   type GateDomain,
@@ -323,9 +324,13 @@ function ReviewGateSheet({
       outcomeQuestion &&
       (force || form.selections[outcomeName] === undefined)
     ) {
-      const recommended = outcomeQuestion.options.find(isRecommended);
-      const fallback = recommended ?? outcomeQuestion.options[0];
-      if (fallback) form.setSingle(outcomeName, optionValue(fallback));
+      const recommended = recommendedPick(outcomeQuestion);
+      const first = outcomeQuestion.options[0];
+      const pick =
+        typeof recommended === 'string'
+          ? recommended
+          : first && optionValue(first);
+      if (pick) form.setSingle(outcomeName, pick);
     }
   };
   // Only seeds a key that has never been touched (no draft, no prior
