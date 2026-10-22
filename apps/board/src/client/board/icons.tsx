@@ -430,3 +430,13 @@ export function CommentGlyph() {
     </svg>
   );
 }
+
+/** A remove control's mark (lucide `x`, ISC licensed). */
+export function RemoveGlyph() {
+  return (
+    <svg {...RECORD_ICON} width={12} height={12}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}

@@ -4375,61 +4375,33 @@ a.tui-id-card-ref:focus-visible {
 .tui-diff-pin-here {
   color: var(--text-3);
 }
-/* The review's summary, first in the main column: one field for the summary
-   line, then each folded finding as its own part. */
+/* The review's summary card leads the main column in the finding cards'
+   frame, so it keeps clear of the findings list under it. */
 .tui-review-summary {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--card);
-  overflow: hidden;
-  transition:
-    border-color 120ms,
-    box-shadow 120ms;
+  margin-bottom: 4px;
 }
-.tui-review-summary:focus-within {
-  border-color: var(--fill-ok);
-  box-shadow: 0 0 0 1px var(--fill-ok);
-}
-.tui-review-summary-head {
-  display: flex;
+/* Drops a folded finding from the summary: a quiet text control with its
+   own mark, brightening on hover like the section's other actions. */
+.tui-review-remove {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px 4px 12px;
-  background: var(--surface-wash-fg-4-card);
-  border-bottom: 1px solid var(--border-soft);
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  color: var(--text-3);
+  cursor: pointer;
 }
-.tui-review-summary-k {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--text-2);
+.tui-review-remove:hover {
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
-.tui-review-summary-head .tui-field-tabs {
-  margin-left: 0;
+.tui-review-remove:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 1px;
 }
-.tui-review-summary-part[data-part='folded'] {
-  border-top: 1px solid var(--border-soft);
-}
-.tui-review-summary-part-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px 0;
-  font-size: 12px;
-  color: var(--text-2);
-}
-.tui-review-summary-part-title {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.tui-review-summary :is(.tui-composer-input, .tui-field-preview) {
-  padding: 8px 12px;
-  font-size: 13px;
-}
-.tui-review-summary .tui-gate-error,
 .tui-review-section .tui-gate-error {
   padding: 0 12px 8px;
 }
