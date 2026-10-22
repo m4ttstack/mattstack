@@ -1461,9 +1461,11 @@ body {
 .tui-cd-note-body pre {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
   border-radius: 6px;
-  padding: 0.5rem 0.6rem;
-  white-space: pre-wrap;
-  margin: 0.5rem 0;
+  padding: 0.6rem 0.7rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent;
+  margin: 0.6rem 0 0.75rem;
 }
 .tui-cd-note-body pre code {
   background: none;
