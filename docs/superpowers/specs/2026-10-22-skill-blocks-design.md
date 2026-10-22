@@ -411,12 +411,19 @@ compile's own parser and checks so the two never disagree.
   3. go to definition: `{{include:x}}` to its block, `node:` to the Mermaid
      node, a binding in `skills.jsonc` to its block and prop;
   4. completion: prop names, include names, contract ids, and block ids
-     and props in `skills.jsonc`.
+     and props in `skills.jsonc`;
+  5. find references and rename for a prop: right-click a prop (in the
+     block's frontmatter, at a `{{props.x}}` marker, or in a binding) to
+     list or rename every use. Rename updates the declaration, every
+     marker, and every binding in the open workspace. Bindings in packs
+     outside the workspace can't be reached, so renaming a mattstack prop
+     is still a breaking change for the prop signature check.
 - **Editors:** VS Code first, through an extension that launches the
   server. Claude Code registers the same server through the mattstack
   plugin; that is in scope as long as it is only registration, with no
   second server.
-- **Not in scope:** rename, find references, and other editors (Zed).
+- **Not in scope:** renaming blocks, includes or contracts, and other
+  editors (Zed).
 
 ## Console
 
