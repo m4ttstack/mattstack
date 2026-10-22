@@ -91,3 +91,15 @@ export function markHandled(mem: DispatchMemory, edge: Edge): void {
   if (edge.kind === 'pipeline-red') m.lastHandledPipelineId = edge.pipelineId;
   if (edge.kind === 'needs-rebase') m.lastNeedsRebase = true;
 }
+
+/** Inverse of markHandled: the next detectEdges sees the edge as new. */
+export function rearm(
+  mem: DispatchMemory,
+  mrUrl: string,
+  kind: EdgeKind
+): void {
+  const m = mem.mrs[mrUrl];
+  if (!m) return;
+  if (kind === 'pipeline-red') m.lastHandledPipelineId = null;
+  if (kind === 'needs-rebase') m.lastNeedsRebase = false;
+}
