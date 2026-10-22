@@ -417,13 +417,18 @@ compile's own parser and checks so the two never disagree.
      list or rename every use. Rename updates the declaration, every
      marker, and every binding in the open workspace. Bindings in packs
      outside the workspace can't be reached, so renaming a mattstack prop
-     is still a breaking change for the prop signature check.
+     is still a breaking change for the prop signature check;
+  6. rename a block: changing a block's id moves its file (or folder) and
+     updates every binding keyed on it and every `{{include:x}}` naming
+     it, in one workspace edit. `node:`, title and label are untouched.
+     The same workspace limit applies, and the prop signature check
+     treats a renamed block as a breaking change (its props were removed
+     under the old id).
 - **Editors:** VS Code first, through an extension that launches the
   server. Claude Code registers the same server through the mattstack
   plugin; that is in scope as long as it is only registration, with no
   second server.
-- **Not in scope:** renaming blocks, includes or contracts, and other
-  editors (Zed).
+- **Not in scope:** renaming contracts, and other editors (Zed).
 
 ## Console
 
