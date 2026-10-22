@@ -23,6 +23,7 @@ import {
   pushRemote as postPushRemote,
   setRemote as postSetRemote,
 } from './api.ts';
+import { COMMAND_ICONS } from './CommandButton.tsx';
 import { useLive } from './live/useLive.ts';
 import {
   addPayload,
@@ -336,7 +337,8 @@ export function useBoardState(
       addToast(
         outcome === 'timeout'
           ? commandStuckToast(row.name, cmd)
-          : commandToast(row.name, cmd, outcome.exitCode)
+          : commandToast(row.name, cmd, outcome.exitCode),
+        { icon: COMMAND_ICONS[cmd] }
       );
       const after = await refresh();
       const fresh =
