@@ -42,4 +42,4 @@ export type GraphNode = {
 
 export type GraphEdge = { from: string; to: string; label: string | null; line: number };
 
-export type BlockGraph = { name: string; nodes: GraphNode[]; edges: GraphEdge[]; fenceLine: number };
+export type BlockGraph = { name: string; file: string; nodes: GraphNode[]; edges: GraphEdge[]; fenceLine: number };
