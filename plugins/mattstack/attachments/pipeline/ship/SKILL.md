@@ -623,8 +623,15 @@ brief (browser-evidence's `Write one brief per board`), stem
 
 `page:` comes from Reach the view, on the sha just pushed; `show` and
 `point at` from What proves a change, the wording from Captions and
-`hide` from Personal data. Unbound, every block takes its default. Then
-walk browser-evidence's `Draw the boards` (Browser evidence below).
+`hide` from Personal data. Unbound, every block takes its default.
+
+The first browser case of this pass takes every named browser case not
+yet tried into one hand-off: write all their after briefs, then walk
+browser-evidence's `Draw the boards` (Browser evidence below) once for
+them, so its redaction gate asks about them together. A later browser case
+already in that hand-off reads its own terminal from it, with no new
+spawn. A retry after `ship:after-attempts` is a hand-off of that case
+alone.
 
 Its terminals answer `AFTER result (ship)?`. Board ready is captured; the
 board is recorded with the rest in `Record the evidence (evidence-record)`.
