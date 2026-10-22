@@ -34,6 +34,11 @@ export function thresholdsFor(usage: AccountUsage, config: UsageAlertConfig): nu
     ?? config.thresholds;
 }
 
+/** False when no threshold is set anywhere, so the sweep reads nothing. */
+export function alertsConfigured(config: UsageAlertConfig): boolean {
+  return config.thresholds.length > 0 || Object.values(config.accounts ?? {}).some((t) => Array.isArray(t) && t.length > 0);
+}
+
 export function evaluateUsage(
   usage: AccountUsage[],
   config: UsageAlertConfig,
@@ -98,10 +103,12 @@ export interface SweepDeps {
 
 /** One poll: read usage, notify each new crossing, persist what fired. */
 export async function runUsageAlertSweep(deps: SweepDeps): Promise<UsageAlert[]> {
+  const config = deps.config();
+  if (!alertsConfigured(config)) return [];
   const { accounts, problems } = await deps.read();
   deps.onProblems(problems);
   if (accounts.length === 0) return [];
-  const { alerts, fired } = evaluateUsage(accounts, deps.config(), deps.loadFired());
+  const { alerts, fired } = evaluateUsage(accounts, config, deps.loadFired());
   for (const alert of alerts) deps.notify(alert);
   deps.saveFired(fired);
   return alerts;
