@@ -256,8 +256,7 @@ describe('TemplateCanvas: team sections in a slot', () => {
     const sections = screen.getAllByTestId('section-row');
     expect(sections.map(row => row.textContent)).toEqual([
       'ci-extrawidgets:pack/sections/ci-extra.md',
-      'release-ruleswidgets:pack/sections/release-rules.md' +
-        'team values changed',
+      'release-rulesteam values changedwidgets:pack/sections/release-rules.md',
     ]);
     const card = sections[0]!.closest('[data-testid="input-card"]')!;
     expect(within(card as HTMLElement).getByTestId('card-title')).toBeTruthy();

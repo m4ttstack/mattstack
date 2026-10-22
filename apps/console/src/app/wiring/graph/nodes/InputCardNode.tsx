@@ -40,14 +40,16 @@ function SectionRow({ section }: { section: SectionCard }) {
     >
       <Icon strokeWidth={ICON_STROKE} name="team" size={12} color={MUTED} />
       <div className={classes.cardText}>
-        <Text ff="monospace" fz={11} lh="normal" c={BODY} truncate>
-          {section.title}
-        </Text>
+        <div className={classes.sectionName}>
+          <Text ff="monospace" fz={11} lh="normal" c={BODY} truncate>
+            {section.title}
+          </Text>
+          {section.changed && <StateTag tag={SECTION_TAG} />}
+        </div>
         <Text fz={10} lh="normal" c={MUTED} truncate>
           {section.source}
         </Text>
       </div>
-      {section.changed && <StateTag tag={SECTION_TAG} />}
     </div>
   );
 }

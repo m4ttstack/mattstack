@@ -193,6 +193,15 @@
   border-top: 1px solid var(--tk-line-3);
 }
 
+/* The tag sits by the name so the source line keeps the row's width. */
+.sectionName {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .cardText {
   display: flex;
   flex: 1;
