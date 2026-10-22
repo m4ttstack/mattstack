@@ -245,12 +245,12 @@ test('a stage gate stacks every question in the main column beside the rail', as
   ]);
   expect($$('.tui-sheet-main button')).toEqual([]);
   expect(text('.tui-sheet-list-title')).toBe('Ship: 3 questions');
-  expect(text('.tui-sheet-list-tally')).toBe('0 of 3 answered');
+  expect(text('.tui-sheet-list-tally')).toBe('2 of 3 answered');
   expect(text('.tui-gate-sheet-tag')).toBe('ship');
   expect(text('.tui-sheet-dock-heading')).toBe('Answers on !1235');
   expect(dockRows()).toEqual([
-    ['…', 'How do we hand off?'],
-    ['…', 'Which preview environments?'],
+    ['Hand back', 'How do we hand off?'],
+    ['preview-a', 'Which preview environments?'],
     ['…', 'Draft or ready?'],
   ]);
 });
@@ -306,8 +306,6 @@ test("submit waits for every single-select, then posts the answer gate-kit's ans
   const gate = ship();
   await render(gate, MR);
   expect(submit().disabled).toBe(true);
-  await pick('hand-back');
-  await pick('preview-a');
   await type('Note for How do we hand off?', '  push after lunch ');
   expect(submit().disabled).toBe(true);
   await pick('draft');
@@ -342,9 +340,10 @@ test('a multi left empty submits an empty list, matching answersFromForm', async
   const gate = ship();
   await render(gate);
   await pick('hold');
+  await pick('preview-a');
   await pick('ready');
   await type('Note for Which preview environments?', 'none needed');
-  expect(dockRows()[1]![0]).toBe('…');
+  expect(dockRows()[1]![0]).toBe('none');
   await click(submit());
   const form = new FormData();
   form.set('handoff', 'hold');
@@ -367,7 +366,7 @@ test('a multi left empty submits an empty list, matching answersFromForm', async
 test('multi picks post in option order, whatever order they were clicked in', async () => {
   const gate = ship();
   await render(gate);
-  await pick('hand-back');
+  await pick('preview-a');
   await pick('preview-b');
   await pick('preview-a');
   await pick('draft');
@@ -434,10 +433,9 @@ test('an answerable gate carries no such note', async () => {
   expect($('.tui-sheet-dock .tui-sheet-dock-next')).toBeNull();
 });
 
-test('a multi checked then cleared never blocks submit and answers with an empty list', async () => {
+test('a recommended multi cleared never blocks submit and answers with an empty list', async () => {
   const gate = ship({ questions: ship().questions.slice(1, 3) });
   await render(gate);
-  await pick('preview-a');
   await pick('preview-a');
   expect(submit().disabled).toBe(true);
   await pick('draft');
@@ -524,7 +522,6 @@ test('a structured gate context with no card of its own shows nothing raw', asyn
 
 test('picking two multis reads as a count in the dock', async () => {
   await render(ship());
-  await pick('preview-a');
   await pick('preview-b');
   expect(dockRows()[1]![0]).toBe('2 picked');
   await pick('preview-a');
@@ -532,19 +529,21 @@ test('picking two multis reads as a count in the dock', async () => {
   expect(dockRows()[1]![0]).toBe('none');
 });
 
-test('reset clears every pick and note', async () => {
+test('reset puts back the recommended picks and clears every note', async () => {
   await render(ship());
-  await pick('hand-back');
+  await pick('hold');
+  await pick('draft');
   await type('Note for How do we hand off?', 'later');
   await click($('.tui-sheet-reset'));
   expect(($('input[value="hand-back"]') as HTMLInputElement).checked).toBe(
-    false
+    true
   );
+  expect(($('input[value="draft"]') as HTMLInputElement).checked).toBe(false);
   expect(
     ($('input[aria-label="Note for How do we hand off?"]') as HTMLInputElement)
       .value
   ).toBe('');
-  expect(text('.tui-sheet-list-tally')).toBe('0 of 3 answered');
+  expect(text('.tui-sheet-list-tally')).toBe('2 of 3 answered');
 });
 
 test('with no MR the rail opens on the context card and the dock names the subject', async () => {
@@ -943,8 +942,12 @@ test('a writeIn question answered with only a note submits a write-in', async ()
 });
 
 test('a plain question with only a note still blocks submit', async () => {
-  await render(ship());
-  await pick('preview-a');
+  const [handoff, ...rest] = ship().questions;
+  await render(
+    ship({
+      questions: [{ ...handoff!, options: ['hand-back', 'hold'] }, ...rest],
+    })
+  );
   await pick('draft');
   await type('Note for How do we hand off?', 'something else');
   expect(submit().disabled).toBe(true);
