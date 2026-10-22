@@ -310,6 +310,18 @@ import {
   type ReviewStatus,
 } from './review-state.ts';
 import { attachNotes, MAX_NOTE_LEN, readNotes, writeNote } from './row-note.ts';
+import { daemonOwnerIo, ownMrFacts } from './run-owner-io.ts';
+import {
+  attachActiveRuns,
+  attachHandoffs,
+  createRunOwnerRefresher,
+} from './run-owner-refresh.ts';
+import {
+  firstOwnerAlong,
+  ownerSteps,
+  ringText,
+  type RingFrame,
+} from './run-owner.ts';
 import { canonicalReactions } from './slack-emoji.ts';
 import {
   attachOwnerPosts,
@@ -372,14 +384,21 @@ import {
 } from './triage/config.ts';
 import {
   attachStandDown,
+  clearHandoffs,
   readMemory,
   releaseCron,
   tryClaimCron,
+  writeHandoff,
   writeRefreshedIdentity,
   writeStandDown,
 } from './triage/memory-store.ts';
+import type { HandoffKind } from './triage/memory.ts';
 import { plainReason } from './triage/nudge.ts';
-import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
+import {
+  manualDoctorFields,
+  numericPipelineId,
+  resolveDispatchIdentity,
+} from './triage/run.ts';
 import { readTurnConfig } from './turn-setting.ts';
 import {
   effectiveSeat,
@@ -537,6 +556,21 @@ const runMrs = new RunMrResolver({
   getRun: runId => getRun(runId),
   onChange: () => sseNudge(),
 });
+
+const ownerIo = () => daemonOwnerIo(config.gitlabHost);
+const runOwners = createRunOwnerRefresher({
+  listRuns: () => ownerIo().listRuns(),
+  probe: session => ownerIo().probe(session),
+  repoSlugForMr: mrUrl => ownerIo().repoSlugForMr(mrUrl),
+  mrs: () => boardOwnMrFacts(cache.peek()?.mrs ?? []),
+  now: Date.now,
+});
+
+function boardOwnMrFacts(mrs: BoardMR[]) {
+  return mrs.flatMap(m =>
+    m.webUrl ? [ownMrFacts({ ...m, webUrl: m.webUrl })] : []
+  );
+}
 
 interface ReconcilerView {
   sweptAt: number;
@@ -939,6 +973,97 @@ async function readLatchDetail(mr: BoardMR): Promise<MRDetail | null> {
   return { discussions: res.data.discussions } as MRDetail;
 }
 
+/** The triage claim, after a few short retries: a live holder mid-pass is
+    rare enough that refusing beats risking a silent lost write. */
+async function claimTriageMemory(): Promise<string | false> {
+  let claimed: string | false = false;
+  for (let attempt = 0; attempt < 5 && claimed === false; attempt++) {
+    claimed = tryClaimCron(Date.now());
+    if (claimed === false) await new Promise(r => setTimeout(r, 100));
+  }
+  return claimed;
+}
+
+/** POST /doctor with ring: hands what is wrong with the MR right now (never
+    which button was clicked) to the live work run that owns it, its own
+    else an ancestor's, in place of a doctor. Only delivered frames are
+    recorded; an undelivered kind stays for the next triage pass. */
+async function ringActiveWorker(
+  mr: BoardMR & { webUrl: string },
+  boardMrs: BoardMR[],
+  mode: 'rebase' | undefined
+): Promise<Response> {
+  const kinds: HandoffKind[] = [];
+  if (mode !== 'rebase' && mr.pipelineState === 'failed')
+    kinds.push('pipeline-red');
+  if (mr.blockers.needsRebase || mr.blockers.hasConflicts)
+    kinds.push('needs-rebase');
+  if (kinds.length === 0)
+    return new Response('nothing on this MR needs the worker', {
+      status: 409,
+    });
+  const io = ownerIo();
+  const runs = await io.listRuns();
+  const found =
+    runs &&
+    (await firstOwnerAlong(
+      ownerSteps(boardOwnMrFacts(boardMrs), mr.webUrl, io.repoSlugForMr),
+      runs,
+      io.probe
+    ));
+  if (!found)
+    return new Response('no work run is active on this MR', { status: 409 });
+  const { owner, step } = found;
+  const pipelineId = mr.pipeline ? numericPipelineId(mr.pipeline.id) : null;
+  const frameFor = (kind: HandoffKind): RingFrame => {
+    if (!step.own)
+      return {
+        kind: 'downstream',
+        childIid: mr.iid,
+        childEdge: kind,
+        pipelineId,
+      };
+    return kind === 'pipeline-red'
+      ? { kind, iid: mr.iid, pipelineId }
+      : { kind, iid: mr.iid, targetBranch: mr.targetBranch };
+  };
+  // Held across the ring too, so no frame goes out without its record.
+  const claimed = await claimTriageMemory();
+  if (claimed === false)
+    return new Response('triage is busy, try again', { status: 503 });
+  try {
+    const delivered: HandoffKind[] = [];
+    for (const kind of kinds) {
+      if (await io.ring(owner.session, ringText(frameFor(kind))))
+        delivered.push(kind);
+    }
+    if (delivered.length === 0)
+      return new Response("the worker's session did not answer", {
+        status: 409,
+      });
+    const at = Date.now();
+    for (const kind of delivered) {
+      writeHandoff(
+        mr.webUrl,
+        kind,
+        {
+          runId: owner.runId,
+          session: owner.session,
+          stage: owner.stage,
+          pipelineId,
+          viaMr: step.viaMr,
+          viaBranch: step.query.branch,
+          at,
+        },
+        { markHandled: { pipelineId } }
+      );
+    }
+  } finally {
+    releaseCron(claimed);
+  }
+  return Response.json({ ok: true, rung: true, runId: owner.runId });
+}
+
 /** A body names its MR twice, by url and by iid; the url found it, so an iid
     that disagrees is refused rather than acted on. */
 function iidMismatch(
@@ -984,7 +1109,9 @@ async function withRowState(mrs: BoardMR[]) {
     ),
     readDoctorStates()
   );
-  const rows = attachStandDown(
+  runOwners.poke();
+  const memory = readMemory();
+  const joined = attachStandDown(
     attachPeerState(
       attachOwnerTeams(
         attachNotes(
@@ -1010,22 +1137,25 @@ async function withRowState(mrs: BoardMR[]) {
         { ...config, posts: mrUrl => readOwnerPosts(mrUrl) }
       )
     ),
-    readMemory()
-  ).map(mr => ({
-    ...mr,
-    ...(mr.slack
-      ? { slack: { ...mr.slack, reactions: canonical(mr.slack.reactions) } }
-      : {}),
-    ...(mr.ownerPosts
-      ? {
-          ownerPosts: mr.ownerPosts.map(p =>
-            p.reactions ? { ...p, reactions: canonical(p.reactions) } : p
-          ),
-        }
-      : {}),
-    gates: joinGateExecutors(mr.gates, reconciler.executors),
-    doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
-  }));
+    memory
+  );
+  const rows = attachActiveRuns(attachHandoffs(joined, memory), runOwners).map(
+    mr => ({
+      ...mr,
+      ...(mr.slack
+        ? { slack: { ...mr.slack, reactions: canonical(mr.slack.reactions) } }
+        : {}),
+      ...(mr.ownerPosts
+        ? {
+            ownerPosts: mr.ownerPosts.map(p =>
+              p.reactions ? { ...p, reactions: canonical(p.reactions) } : p
+            ),
+          }
+        : {}),
+      gates: joinGateExecutors(mr.gates, reconciler.executors),
+      doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
+    })
+  );
   return joinExecutorOrphans(rows, reconciler.executors);
 }
 
@@ -2709,11 +2839,6 @@ const httpServer = Bun.serve({
           const notJson = requireJsonBody(req);
           if (notJson) return notJson;
         }
-        const cwd = config.doctorCwd || config.reviewCwd;
-        if (!cwd)
-          return new Response('doctorCwd (or reviewCwd) not configured', {
-            status: 400,
-          });
         let body: unknown;
         try {
           body = await req.json();
@@ -2744,6 +2869,17 @@ const httpServer = Bun.serve({
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
+        if (parsed.ring)
+          return ringActiveWorker(
+            { ...mr, webUrl: parsed.mrUrl },
+            snapshot.mrs,
+            parsed.mode
+          );
+        const cwd = config.doctorCwd || config.reviewCwd;
+        if (!cwd)
+          return new Response('doctorCwd (or reviewCwd) not configured', {
+            status: 400,
+          });
         const author = mrAuthorLabel(mr);
         const existing = readDoctorStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
@@ -2822,6 +2958,20 @@ const httpServer = Bun.serve({
                 .filter(Boolean)
                 .join('. ')
             : note;
+        if (readMemory().mrs[parsed.mrUrl]?.handoffs) {
+          const claimed = await claimTriageMemory();
+          if (claimed === false) {
+            console.error(
+              `doctor launch: triage busy, handoffs on ${parsed.mrUrl} not cleared`
+            );
+          } else {
+            try {
+              clearHandoffs(parsed.mrUrl);
+            } finally {
+              releaseCron(claimed);
+            }
+          }
+        }
         const statePath = doctorFilePath(parsed.mrUrl);
         writeDoctorState(statePath, {
           mrUrl: parsed.mrUrl,
@@ -3458,11 +3608,7 @@ const httpServer = Bun.serve({
         // doc comment. A few short retries cover the common case (the claim
         // is usually free); a live holder mid-launch is rare enough that
         // refusing outright beats risking a silent lost write.
-        let claimed: string | false = false;
-        for (let attempt = 0; attempt < 5 && claimed === false; attempt++) {
-          claimed = tryClaimCron(Date.now());
-          if (claimed === false) await new Promise(r => setTimeout(r, 100));
-        }
+        const claimed = await claimTriageMemory();
         if (claimed === false)
           return new Response('triage is busy, try again', { status: 503 });
         try {

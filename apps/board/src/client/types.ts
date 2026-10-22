@@ -6,6 +6,7 @@ import type { BoardMR, BoardSyncError } from '../data.ts';
 import type { GateRow } from '../gates/store.ts';
 import type { RespondStatus } from '../respond-outcome.ts';
 import type { SlackTemplates } from '../template.ts';
+import type { Handoff, HandoffKind } from '../triage/memory.ts';
 import type { TurnConfig } from '../turn.ts';
 
 export interface RosterMember {
@@ -159,6 +160,16 @@ export interface SentNudgeInfo {
   /** Absent means re-review (older boards never send the other kinds). */
   kind?: 'review' | 're-review' | 'respond';
 }
+/** The live work run that owns an MR: its own, or an ancestor's (`viaIid`),
+    or a parent's known only by branch (`viaBranch`). */
+export interface ActiveRun {
+  runId: string;
+  stage: string | null;
+  name?: string;
+  viaIid?: number;
+  viaBranch?: string;
+}
+
 export type BoardMRWithReview = BoardMR & {
   review?: ReviewInfo;
   respond?: RespondInfo;
@@ -170,6 +181,9 @@ export type BoardMRWithReview = BoardMR & {
       on the row it was set from, never computed for a descendant -- see
       attachStandDown. */
   standDown?: true;
+  activeRun?: ActiveRun;
+  /** Worker handoffs whose edge still holds against this row. */
+  handoffs?: Partial<Record<HandoffKind, Handoff>>;
   slack?: SlackInfo;
   /** The channel "post to slack" sends this MR to. */
   slackChannel?: string;

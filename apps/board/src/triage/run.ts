@@ -11,8 +11,8 @@ import { launchErrorMessage } from '../launch-error.ts';
 import {
   firstLiveOwner,
   ownerCandidates,
+  ownerSteps,
   ringText,
-  type OwnerQuery,
   type RingFrame,
   type SessionProbe,
 } from '../run-owner.ts';
@@ -306,43 +306,10 @@ async function ringLiveOwner(
     childEdge: edge.kind,
     pipelineId: edge.pipelineId,
   };
-  const steps: Array<{
-    query: OwnerQuery;
-    viaMr: string | null;
-    frame: RingFrame;
-  }> = [
-    {
-      query: {
-        mrUrl: edge.mrUrl,
-        repoSlug: owners.repoSlugForMr(edge.mrUrl),
-        branch: facts.sourceBranch,
-      },
-      viaMr: edge.mrUrl,
-      frame: own,
-    },
-  ];
-  const { ancestors, unresolvedParentBranch } = chainOf(mrs, edge.mrUrl);
-  for (const anc of ancestors) {
-    steps.push({
-      query: {
-        mrUrl: anc.mrUrl,
-        repoSlug: owners.repoSlugForMr(anc.mrUrl),
-        branch: anc.sourceBranch,
-      },
-      viaMr: anc.mrUrl,
-      frame: downstream,
-    });
-  }
-  if (unresolvedParentBranch !== null) {
-    steps.push({
-      query: {
-        repoSlug: owners.repoSlugForMr(edge.mrUrl),
-        branch: unresolvedParentBranch,
-      },
-      viaMr: null,
-      frame: downstream,
-    });
-  }
+  const steps = ownerSteps(mrs, edge.mrUrl, owners.repoSlugForMr).map(step => ({
+    ...step,
+    frame: step.own ? own : downstream,
+  }));
 
   const entry = {
     ts: now,

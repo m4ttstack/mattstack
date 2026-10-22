@@ -4,10 +4,7 @@
 import { deckAppUrl } from '@mattstack/app-server/event-bridge';
 import { GitLabProvider, parseRepoId, type MRDetail } from '@mattstack/glance';
 import {
-  inboxProbe,
-  inboxRing,
   listOrgs,
-  listRuns,
   readDiscussions,
   readProjectMRs,
 } from '@mattstack/rt-client';
@@ -26,7 +23,7 @@ import {
 } from '../src/doctor-state.ts';
 import { launchDoctor, sendPaneText } from '../src/herdr.ts';
 import { latchGateway } from '../src/latch/gateway.ts';
-import { boardRepoSlug, packForLaunch } from '../src/manifest-bindings.ts';
+import { packForLaunch } from '../src/manifest-bindings.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
 import { makeEnvelope } from '../src/peer/envelope.ts';
 import { runPeerTick } from '../src/peer/inbox.ts';
@@ -47,7 +44,7 @@ import {
   readReviewStates,
   resurrectReviewState,
 } from '../src/review-state.ts';
-import { BOARD_RING_LABEL } from '../src/run-owner.ts';
+import { daemonOwnerIo, ownMrFacts } from '../src/run-owner-io.ts';
 import { createBoardAttendants } from '../src/triage/attendant.ts';
 import { appendAudit } from '../src/triage/audit.ts';
 import {
@@ -78,11 +75,7 @@ import {
   triageShouldRun,
 } from '../src/triage/peer-pass.ts';
 import { collectProjectPRs } from '../src/triage/projects.ts';
-import {
-  numericPipelineId,
-  resolveDispatchIdentity,
-  runTriage,
-} from '../src/triage/run.ts';
+import { resolveDispatchIdentity, runTriage } from '../src/triage/run.ts';
 import { triageOwns } from '../src/triage/seat.ts';
 
 // A peer pass is only useful on a board that peers. Checked before the claim
@@ -189,18 +182,7 @@ try {
       .filter(
         m => !!m.webUrl && triageOwns(m, boardConfig.defaultMember, username)
       )
-      .map(m => ({
-        mrUrl: m.webUrl!,
-        iid: m.iid,
-        pipelineId: m.pipeline ? numericPipelineId(m.pipeline.id) : null,
-        pipelineState: m.pipelineState,
-        needsRebase: m.blockers.needsRebase,
-        author: m.author.username,
-        // BOARD-12: the stack chain is reconstructed from these three.
-        sourceBranch: m.sourceBranch,
-        targetBranch: m.targetBranch,
-        isStacked: !!m.isStacked,
-      }));
+      .map(m => ownMrFacts({ ...m, webUrl: m.webUrl! }));
   };
 
   // The latch pass's mirror image of fetchOwnMrs: every MR this board holds a
@@ -262,30 +244,7 @@ try {
       sendPaneText,
       now: () => Date.now(),
       attendants: createBoardAttendants(),
-      listRuns: async () => {
-        try {
-          const res = await listRuns();
-          return res.ok ? (res.data?.runs ?? null) : null;
-        } catch {
-          return null;
-        }
-      },
-      ring: async (session, text) => {
-        const res = await inboxRing({ session, label: BOARD_RING_LABEL, text });
-        return res.ok && res.data?.delivered === true;
-      },
-      probe: async session => {
-        const res = await inboxProbe({ session });
-        return {
-          reachable: res.ok && res.data?.reachable === true,
-          name: res.ok ? res.data?.name : undefined,
-        };
-      },
-      repoSlugForMr: mrUrl =>
-        boardRepoSlug(
-          boardConfig.gitlabHost,
-          projectPathFromWebUrl(mrUrl, boardConfig.gitlabHost) ?? ''
-        ),
+      ...daemonOwnerIo(boardConfig.gitlabHost),
     });
     console.log(
       `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`

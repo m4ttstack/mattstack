@@ -1,6 +1,8 @@
 import type { RunSummary } from '@mattstack/rt-client';
 
 import { normalizeMrUrl } from './gates/run-mr';
+import type { OwnMrFacts } from './triage/edge';
+import { chainOf } from './triage/stack';
 
 export interface RunOwner {
   runId: string;
@@ -52,6 +54,63 @@ export async function firstLiveOwner(
     if (result.reachable) {
       return result.name === undefined ? candidate : { ...candidate, name: result.name };
     }
+  }
+  return null;
+}
+
+/** One place an MR's owner may sit. `own` is the MR's own branch; the rest
+    are ancestors, and a `viaMr` of null is a parent known only by branch. */
+export interface OwnerStep {
+  query: OwnerQuery;
+  own: boolean;
+  viaMr: string | null;
+  viaIid?: number;
+}
+
+/** The MR's own branch, then each ancestor's (nearest first), then a parent
+    branch outside the board's window. Empty when the MR is not in `mrs`. */
+export function ownerSteps(
+  mrs: OwnMrFacts[],
+  mrUrl: string,
+  repoSlugForMr: (mrUrl: string) => string,
+): OwnerStep[] {
+  const self = mrs.find((m) => m.mrUrl === mrUrl);
+  if (!self) return [];
+  const steps: OwnerStep[] = [
+    {
+      query: { mrUrl, repoSlug: repoSlugForMr(mrUrl), branch: self.sourceBranch },
+      own: true,
+      viaMr: mrUrl,
+    },
+  ];
+  const { ancestors, unresolvedParentBranch } = chainOf(mrs, mrUrl);
+  for (const anc of ancestors) {
+    steps.push({
+      query: { mrUrl: anc.mrUrl, repoSlug: repoSlugForMr(anc.mrUrl), branch: anc.sourceBranch },
+      own: false,
+      viaMr: anc.mrUrl,
+      viaIid: anc.iid,
+    });
+  }
+  if (unresolvedParentBranch !== null) {
+    steps.push({
+      query: { repoSlug: repoSlugForMr(mrUrl), branch: unresolvedParentBranch },
+      own: false,
+      viaMr: null,
+    });
+  }
+  return steps;
+}
+
+/** The first step with a live owner, walking `steps` in order. */
+export async function firstOwnerAlong(
+  steps: readonly OwnerStep[],
+  runs: readonly RunSummary[],
+  probe: SessionProbe,
+): Promise<{ owner: RunOwner; step: OwnerStep } | null> {
+  for (const step of steps) {
+    const owner = await firstLiveOwner(ownerCandidates(step.query, runs), probe);
+    if (owner) return { owner, step };
   }
   return null;
 }
