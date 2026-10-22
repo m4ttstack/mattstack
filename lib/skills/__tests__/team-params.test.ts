@@ -88,6 +88,12 @@ describe("team-params", () => {
     expect(resolveTeamMarkers(body, ctx(), { where, sectionSeams: true })).toBe("a\n\nb");
   });
 
+  test("an absent section on a body's first line takes the blank after it, so a slot fill never opens with a blank a seam walker reads as its separator", () => {
+    const dropped = { lines: 0 };
+    expect(resolveTeamMarkers("{{team.section:x?}}\n\nbody", ctx(), { where, sectionSeams: true, dropped })).toBe("body");
+    expect(dropped.lines).toBe(2);
+  });
+
   test("blank lines the author wrote away from a removed marker are untouched, code fences included", () => {
     const body = "a\n\n\nb\n\n```\nfirst\n\n\nsecond\n```\n\n{{team.section:x?}}\nc";
     expect(resolveTeamMarkers(body, ctx(), { where, sectionSeams: true })).toBe("a\n\n\nb\n\n```\nfirst\n\n\nsecond\n```\n\nc");
