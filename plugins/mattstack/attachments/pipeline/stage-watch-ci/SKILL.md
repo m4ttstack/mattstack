@@ -21,10 +21,12 @@ Run state: the orchestrator opens and closes this stage, so never write
 `run_field_get`; every `stage` argument is `"watch-ci"`. Write `ci` once a
 verdict exists; a failure's `detailPath` is the triage report.
 
-`<mr>` is `mr`'s https URL. Every CI tool takes `mrUrl: <mr>`; `ci_watch`,
-`ci_triage`, `pipeline_jobs`, `mr_job_trace` and `mr_retry` take
-`repoName` = this worktree's absolute path and the iid in `mr` in its
-place as the same call, as do `mr_view` and `mr_ready`. `<N>` is the
+`<mr>` is `mr`'s https URL. Every CI tool takes `mrUrl: <mr>`. When this
+worktree is a checkout of the MR's project, `ci_watch`, `ci_triage`,
+`pipeline_jobs`, `mr_job_trace` and `mr_retry` take `repoName` = its
+absolute path and the iid in `mr` in its place as the same call, as do
+`mr_view` and `mr_ready`; otherwise they take `mrUrl`. `mr_retry` keeps
+`leaseMrUrl: <mr>` either way. `<N>` is the
 number in `ci_watch`'s `pipeline.id` (`gitlab:pipeline:N`).
 
 ```dot
@@ -411,11 +413,20 @@ verdict and a one-line triage per blocking failure.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in your change; when every blocking failure is INHERITED, or from the third one in a run, the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
-| `next` | **Proceed** / **Iterate here** / **Go back to `<stage>`** / **Hold** | always |
+| `action` (write-in) | **Fix and re-push** (a REAL failure in your change) / **Retry the job** (a flake not yet retried) / **Hand back** (leave it red for the human) / **Abandon the run** | always |
+| `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
+| `to` | one option per earlier stage; with one candidate, **Go back to `<stage>`** in `next` instead | Go back, with more than one earlier stage row |
+
+The table writes `(Recommended)` on one `action` option: **Fix and
+re-push** when any blocking failure is REAL, until the third one in a run;
+else **Retry the job** when an INFRA one is not yet retried; else **Hand
+back**, which also covers a red with no triage (a timeout, `no_pipeline`,
+an MR lookup error).
 
 Selection: `{"action":"fix|retry|handback|abandon","next":"proceed|iterate|go-back|hold","to":"<stage or null>","note":"<their words or null>"}`.
 An `action` write-in records `{"writeIn": "<their words>"}` as `action`.
+Read `next` first: Proceed applies `action`; Iterate here, Go back and
+Hold win over it.
 
 ### Gate mark-ready
 

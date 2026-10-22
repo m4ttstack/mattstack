@@ -91,10 +91,12 @@ candidate's `runId`.
 ## Flow
 
 `<root>` is the worktree root (`git rev-parse --show-toplevel`), `<mr>` the
-MR's or PR's https URL. Every CI tool takes `mrUrl: <mr>`; `ci_watch`,
-`ci_triage`, `pipeline_jobs`, `mr_job_trace` and `mr_retry` take
-`repoName` = `<root>` and `iid` in its place as the same call, as do
-`mr_view` and `mr_ready`. `<N>` is the number in `ci_watch`'s
+MR's or PR's https URL. Every CI tool takes `mrUrl: <mr>`. When `<root>`
+is a checkout of the MR's project, `ci_watch`, `ci_triage`,
+`pipeline_jobs`, `mr_job_trace` and `mr_retry` take `repoName` = `<root>`
+and `iid` in its place as the same call, as do `mr_view` and `mr_ready`;
+otherwise they take `mrUrl`. `mr_retry` keeps `leaseMrUrl: <mr>` either
+way. `<N>` is the number in `ci_watch`'s
 `pipeline.id` (`gitlab:pipeline:N`).
 
 ```dot
@@ -563,11 +565,19 @@ form: the verdict and a one-line triage per blocking failure.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `action` (write-in) | **Fix and re-push (Recommended)** (a REAL failure in the change; when every blocking failure is INHERITED, or after the third fix round, the suffix moves to **Hand back**) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
+| `action` (write-in) | **Fix and re-push** (a REAL failure in the change) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
+The table writes `(Recommended)` on one `action` option: **Fix and
+re-push** when any blocking failure is REAL, until the third fix round;
+else **Retry the job** when an INFRA one is not yet retried; else **Hand
+back**, which also covers a red with no triage (a timeout, `no_pipeline`,
+an MR lookup error).
+
 Selection: `{"action":"fix|retry|handback|abandon","next":"proceed|iterate|hold","note":"<their words or null>"}`.
-An `action` write-in records `{"writeIn": "<their words>"}` as `action`. Hand back leaves the MR red
+An `action` write-in records `{"writeIn": "<their words>"}` as `action`.
+Read `next` first: Proceed applies `action`; Iterate here and Hold win
+over it. Hand back leaves the MR red
 for the human.
 
 ### Fix the REAL failure, commit
