@@ -1,7 +1,20 @@
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join, relative as relativePath, resolve as resolvePath, sep } from "path";
-import { assertNoPlaceholders, findPlaceholders, skillDirFor, substitute, substituteIncludesOnly, type TraceEntry } from "./placeholders.ts";
+import {
+  assertNoPlaceholders,
+  assertNoTeamMarkerInRawFile,
+  assertNoTeamMarkerInAllowedTools,
+  findPlaceholders,
+  readTextUnlessBinary,
+  resolveFillTeamMarkers,
+  skillDirFor,
+  spanOf,
+  substitute,
+  substituteIncludesOnly,
+  type TraceEntry,
+} from "./placeholders.ts";
 import { stripFrontmatter } from "./sources.ts";
+import type { TeamContext } from "./team-params.ts";
 import type {
   AttachmentSource,
   CompiledFile,
@@ -222,11 +235,6 @@ function yamlQuote(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-/** Shared by both seam kinds so the step and slot formats cannot drift apart. */
-function span(src: { srcPath: string; bodyStartLine: number; body: string }): string {
-  const lines = src.body.split("\n").length;
-  return `path=${src.srcPath} lines=${src.bodyStartLine}-${src.bodyStartLine + lines - 1}`;
-}
 
 function resolveBoundSlots(
   where: string,
@@ -275,6 +283,7 @@ function buildAllowedTools(
   stageRules: string[],
   ctx: PlaceholderContext,
 ): string[] {
+  for (const { fill } of boundSlots) assertNoTeamMarkerInAllowedTools(fill);
   const entries = [
     ...step.allowedTools,
     ...boundSlots.flatMap(({ slotName, fill }) =>
@@ -334,7 +343,7 @@ function assertNoStrayBraces(body: string, engineName: string): void {
 function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): { body: string; notes: string[]; packPaths: string[] } {
   const notes: string[] = [];
   const sections: string[] = [HEADER_COMMENT];
-  sections.push(`<!-- part: step source=${step.plugin}:${step.name} version=${step.version} ${span(step)} -->`);
+  sections.push(`<!-- part: step source=${step.plugin}:${step.name} version=${step.version} ${spanOf(step)} -->`);
 
   // A stage's own scripts live beside it, not at the orchestrator's ${CLAUDE_SKILL_DIR}; fill/include
   // bodies are rewritten separately by `substitute` via partsPrefix, so this rewrite must not touch them.
@@ -380,10 +389,15 @@ function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): 
     if (!opts.ctx) {
       throw new Error(`engine "${step.name}": fill "${fill.binding}" needs a placeholder context to resolve its includes`);
     }
+    const resolved = resolveFillTeamMarkers(fill, opts.ctx.team);
     sections.push(
-      `<!-- part: slot:${slotName} binding=${fill.binding} version=${fill.version} ${span(fill)} -->`,
+      `<!-- part: slot:${slotName} binding=${fill.binding} version=${fill.version} ${resolved.span} -->`,
     );
-    const inlined = substituteIncludesOnly(rewriteSkillDirRefs(fill.body, slotName), opts.ctx, fill.binding);
+    const inlined = substituteIncludesOnly(
+      rewriteSkillDirRefs(resolved.body, slotName),
+      opts.ctx,
+      fill.binding,
+    );
     packPaths.push(...inlined.packPaths);
     sections.push(inlined.body);
   }
@@ -393,10 +407,20 @@ function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): 
   return { body, notes, packPaths };
 }
 
+/** A fill's other files are copied as written, so a team marker in one that base text would carry ships unresolved. */
+function assertNoTeamMarkerInVendoredFile(fill: AttachmentSource, entry: string, team: TeamContext | null): void {
+  if (team && !team.basePlugins.has(fill.plugin)) return;
+  const abs = `${fill.dir}/${entry}`;
+  if (!existsSync(abs)) return;
+  const text = readTextUnlessBinary(abs);
+  if (text !== null) assertNoTeamMarkerInRawFile(text, `${fill.binding}:${entry}`, "team markers only resolve in a fill's SKILL.md, not the files it vendors");
+}
+
 function buildVendoredFiles(
   step: StepSource,
   boundSlots: BoundSlot[],
   includes: Record<string, AttachmentSource>,
+  team: TeamContext | null,
 ): CompiledFile[] {
   const files: CompiledFile[] = [];
 
@@ -406,6 +430,7 @@ function buildVendoredFiles(
 
   for (const { slotName, fill } of boundSlots) {
     for (const entry of fill.extraFiles) {
+      assertNoTeamMarkerInVendoredFile(fill, entry, team);
       files.push({ path: `parts/${slotName}/${entry}`, copyFrom: `${fill.dir}/${entry}` });
     }
   }
@@ -539,6 +564,7 @@ export function compileSkill(
     side?: Side;
     plannedAttachments?: PlannedAttachments;
     pipeline?: string | null;
+    team?: TeamContext | null;
     trace?: (entry: TraceEntry) => void;
   } = {},
 ): CompileResult {
@@ -576,6 +602,7 @@ export function compileSkill(
     packRoot: opts.packRoot ?? null,
     plannedAttachments: opts.plannedAttachments,
     pipeline: opts.pipeline ?? null,
+    team: opts.team ?? null,
   };
 
   const allowedTools = buildAllowedTools(step, boundSlots, opts.stageAllowedTools ?? [], ctx);
@@ -590,7 +617,7 @@ export function compileSkill(
 
   const files: CompiledFile[] = [
     { path: "SKILL.md", content },
-    ...buildVendoredFiles(step, boundSlots, opts.includes ?? {}),
+    ...buildVendoredFiles(step, boundSlots, opts.includes ?? {}, opts.team ?? null),
   ];
 
   const fillBindings = boundSlots.map(({ fill }) => fill.binding);

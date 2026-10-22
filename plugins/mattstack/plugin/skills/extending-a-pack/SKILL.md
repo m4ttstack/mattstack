@@ -591,7 +591,8 @@ it into the team pack. When a team pack `extends` a base, each compile:
 - expands, in a copied `.md` file only, `{{pack.name}}` to the team pack's
   plugin name (`{{pack.name}}:watch-ci` becomes `widgets:watch-ci`), plus
   `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` as in a
-  fill; any other `{{...}}` and every non-`.md` file copies as written;
+  fill and `{{team.*}}` markers (next section); any other `{{...}}` and
+  every non-`.md` file copies as written;
 - leaves a team's own `attachments/<name>/` (no `compiled.json` in
   compile's shape) alone and
   copies nothing for that name: to override a base attachment, delete the
@@ -610,6 +611,75 @@ one as drift.
 A compile with any failing verb writes and removes nothing, copies
 included. Edit the base's attachment, never the copy, then bump the base
 and compile each team pack.
+
+### Give a base fill a team value or block
+
+When teams run the same flow and differ only in a few facts (a Linear team,
+a ticket prefix, an extra block of CI rules), the flow lives once in the
+base fill and each team pack supplies its facts as files. Compile fills
+them in, so a compiled verb never shows a marker.
+
+1. In the base text (a base fill's body, or a copied `.md` attachment),
+   put a marker where the team's fact goes:
+
+   | Marker | Compile puts there |
+   | --- | --- |
+   | `{{team.<key>}}` | the string at `params.<key>` in the team's `pack/params.jsonc` |
+   | `{{team.section:<name>}}` | the team's `pack/sections/<name>.md`, trailing newline trimmed |
+
+   Both are required. A trailing `?` (`{{team.<key>?}}`,
+   `{{team.section:<name>?}}`) makes one optional: a team without it gets
+   nothing there. Names are lowercase letters, digits and hyphens, and no
+   key is named `section`. A section marker sits alone on its line. A
+   value marker may sit inside prose or a plain path
+   (`../../attachments/{{team.gates-fill}}/SKILL.md`), never inside another
+   marker or in frontmatter. Compile refuses each of those, and any
+   `{{team.*}}` in a team's own fill.
+
+   ```markdown
+   Look up the ticket in the {{team.linear-team}} Linear team. Its id
+   starts with {{team.ticket-prefix}}-.
+
+   {{team.section:ci-extra-jobs?}}
+   ```
+
+2. In each team pack, beside `pack/skills.jsonc`, write the values:
+
+   ```jsonc
+   // pack/params.jsonc
+   {
+     "version": 1,
+     "params": { "linear-team": "Widgets", "ticket-prefix": "WID" }
+   }
+   ```
+
+   A value is one line. A multi-line block is a section instead:
+   `pack/sections/ci-extra-jobs.md`, plain markdown. Neither may contain
+   `{{`, and an empty value or a blank section counts as missing.
+
+3. Compile each team pack:
+   `rt_verb {args: ["skills", "compile", "--pack", "widgets"]}`. Compile
+   asks only for markers in base text this pack emits: the base fills its
+   bindings land on (not ones a team fill overrides) in the verbs and
+   stages it compiles, plus its copied `.md` attachments. When a required
+   one is missing it writes nothing and refuses once, listing every gap:
+
+   ```
+   The widgets pack is missing values the acme-base pack asks for
+     pack/params.jsonc: linear-team (acme-base:provision-flow)
+     pack/sections/ci-extra-jobs.md (acme-base:watch-ci-rules)
+   ```
+
+   Add what it lists and compile again. A `params` key no emitted marker
+   names compiles with a warning. A new team pack starts with
+   `rt skills init --extends acme-base`, which seeds both files
+   (`mattstack:creating-a-pack`). <!-- mcp-lint: allow -->
+
+A base edit that adds a required marker makes every extending team's next
+compile refuse until that team adds the value. Once a pack's base text uses
+any marker, compile raises that pack's `pack/requires.json` `minEngine` to
+the first release that resolves them: adopt markers once every member's app
+has it.
 
 ## Publish
 

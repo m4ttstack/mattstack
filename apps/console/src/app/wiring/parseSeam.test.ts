@@ -76,6 +76,36 @@ describe('parseSeam: the shapes the compiler emits', () => {
   });
 });
 
+describe('parseSeam: a team section', () => {
+  it('reads a section seam by its source, naming the section the kind token carries', () => {
+    expect(
+      parseSeam(
+        '<!-- part: section:ci-extra source=widgets:pack/sections/ci-extra.md version=0.4.0 path=pack/sections/ci-extra.md lines=1-2 -->'
+      )
+    ).toEqual({
+      kind: 'section',
+      slot: 'ci-extra',
+      ref: 'widgets:pack/sections/ci-extra.md',
+      version: '0.4.0',
+      path: 'pack/sections/ci-extra.md',
+      lines: [1, 2],
+    });
+  });
+
+  it('returns null for a section seam with no name or a binding= ref', () => {
+    expect(
+      parseSeam(
+        '<!-- part: section: source=widgets:x version=1 path=x.md lines=1-2 -->'
+      )
+    ).toBeNull();
+    expect(
+      parseSeam(
+        '<!-- part: section:ci-extra binding=widgets:x version=1 path=x.md lines=1-2 -->'
+      )
+    ).toBeNull();
+  });
+});
+
 describe('parseSeam: everything else is not a seam', () => {
   it('returns null for a truncated seam rather than a partly-filled object', () => {
     // A half-parsed seam heads a section with the wrong provenance, which is

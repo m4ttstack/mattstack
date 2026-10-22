@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { assertNoPlaceholders, findPlaceholders, substitute, substituteAttachmentPlaceholders, type TraceEntry } from "../placeholders.ts";
+import { newTeamContext } from "../team-params.ts";
 import type { AttachmentSource, PlaceholderContext, StageEntry } from "../types.ts";
 
 describe("findPlaceholders", () => {
@@ -58,6 +59,63 @@ function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
     ...over,
   };
 }
+
+describe("team markers in slot fills", () => {
+  const baseFill: AttachmentSource = { ...fill, binding: "acme-base:flow", plugin: "acme-base", bodyStartLine: 11, body: "Team {{team.linear-team}}" };
+  const team = (params: Record<string, string> = {}, sections: Record<string, string> = {}) =>
+    newTeamContext({ plugin: "widgets", version: "0.4.0", params, sections }, new Set(["acme-base"]));
+
+  test("slotText resolves team markers in a base fill", () => {
+    const { body } = substitute("{{slot:domain}}", ctx({ fills: { domain: baseFill }, team: team({ "linear-team": "Widgets" }) }), "x");
+    expect(body).toBe([
+      "<!-- part: slot:domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-11 -->",
+      "Team Widgets",
+    ].join("\n"));
+  });
+
+  test("a team marker in a non-base fill is an error naming the file line", () => {
+    const widgetsFill = { ...baseFill, binding: "widgets:x", plugin: "widgets", body: "intro\nTeam {{team.linear-team}}" };
+    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: widgetsFill }, team: team({ "linear-team": "Widgets" }) }), "x")).toThrow(
+      "widgets:x: {{team.linear-team}} -- team markers only resolve in base pack text (line 12)",
+    );
+  });
+
+  test("a team marker with no team context names the missing plugin name", () => {
+    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: baseFill } }), "x")).toThrow(
+      "acme-base:flow: {{team.linear-team}} -- the pack has no .claude-plugin/plugin.json name to give team markers (line 11)",
+    );
+  });
+
+  test("a marker broken across lines is refused, never passed through", () => {
+    const split = { ...baseFill, body: "intro\na {{\nteam.linear-team}} b" };
+    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: split }, team: team({ "linear-team": "Widgets" }) }), "x")).toThrow(
+      "acme-base:flow: {{ team.linear-team}} breaks across lines; a team marker sits on one line (line 12)",
+    );
+    const widgetsSplit = { ...split, binding: "widgets:x", plugin: "widgets" };
+    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: widgetsSplit }, team: team() }), "x")).toThrow(
+      "widgets:x: {{ team.linear-team}} -- team markers only resolve in base pack text (line 12)",
+    );
+  });
+
+  test("a base fill's team error counts from the file line", () => {
+    const bad = { ...baseFill, body: "ok\n{{team.section:a}} tail" };
+    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: bad }, team: team() }), "x")).toThrow(
+      "acme-base:flow: {{team.section:a}} must be alone on its line (line 12)",
+    );
+  });
+
+  test("section seam nests inside the slot", () => {
+    const withSection = { ...baseFill, body: "before\n{{team.section:rules}}\nafter" };
+    const { body } = substitute("{{slot:domain}}", ctx({ fills: { domain: withSection }, team: team({}, { rules: "r1\nr2\n" }) }), "x");
+    expect(body).toBe([
+      "<!-- part: slot:domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-13 -->",
+      "before",
+      "<!-- part: section:rules source=widgets:pack/sections/rules.md version=0.4.0 path=pack/sections/rules.md lines=1-2 -->",
+      "r1\nr2",
+      "after",
+    ].join("\n"));
+  });
+});
 
 describe("substitute", () => {
   test("slot inlines in place with a source-coordinate marker", () => {
@@ -542,7 +600,7 @@ describe("substituteAttachmentPlaceholders", () => {
     return {
       packName: "widgets", fileRel: "attachments/review-kit/SKILL.md", verbSides: { ...sides }, packRoot: root,
       plannedAttachments: new Map([["review-kit", new Set(["SKILL.md", "references/guide.md"])]]),
-      where: "acme-base:attachments/review-kit/SKILL.md", ...over,
+      where: "acme-base:attachments/review-kit/SKILL.md", team: null, ...over,
     };
   }
 

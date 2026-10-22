@@ -895,6 +895,17 @@ describe("org base pack roots", () => {
     expect(fill).toMatchObject({ plugin: "acme-base", version: "org", registered: false, provides: "forge" });
   });
 
+  test("loading a fill records a frontmatter team marker with its file line and refuses nothing, so only an emitted fill stops compile", () => {
+    const { base } = makeRoot();
+    mkdirSync(join(base, "attachments", "notes"), { recursive: true });
+    writeFileSync(join(base, "attachments", "notes", "SKILL.md"), "---\nname: notes\ndescription: for {{team.linear-team}}\nmetadata:\n  provides: notes\n---\nbody\n");
+    const roots: PluginRoots = { byName: { "acme-base": { dir: base, version: "org" } }, list: [], folderOnly: new Set(["acme-base"]) };
+    const fill = loadAttachment("acme-base:notes", "notes", roots);
+    expect(fill.frontmatterTeamMarker).toEqual({ raw: "{{team.linear-team}}", line: 3 });
+    expect(fill.body).toBe("body");
+    expect(loadAttachment("acme-base:ci-forge", "forge", roots).frontmatterTeamMarker).toBeUndefined();
+  });
+
   test("a fill under a base pack's skills is refused: nothing installs the base, so it could never be invoked", () => {
     const { base } = makeRoot();
     mkdirSync(join(base, "skills", "watch"), { recursive: true });

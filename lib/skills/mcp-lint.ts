@@ -124,7 +124,7 @@ export function lintSkillText(text: string, file: string, rules: readonly LintRu
   return hits;
 }
 
-const LINTED_ROOTS = ["skills", "attachments", join("plugin", "skills")];
+const LINTED_ROOTS = ["skills", "attachments", join("plugin", "skills"), join("pack", "sections")];
 
 function walkLintedRoots(dir: string): string[] {
   const out: string[] = [];

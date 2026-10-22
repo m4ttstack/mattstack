@@ -16,3 +16,7 @@ An override that a layer cannot apply is a warning, not an error. Materialize pr
 - `<key> from <layer> is ignored: the pipeline no longer lists that stage` when a higher layer replaced the stage list and removed a stage a lower layer's override names.
 
 `rt skills check` prints the generic `Override <key> from <layer> is ignored` for each dropped override.
+
+### Team values
+
+Check compiles in memory, so an edit to `pack/params.jsonc` or `pack/sections/` shows as drift. When the pack's base text asks for a value the pack does not supply, check reports the list that compile refuses with. It never compares text with a hole in it.

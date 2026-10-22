@@ -1,6 +1,7 @@
-import { existsSync, statSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 import { join, posix } from "path";
 import { defaultPipeline } from "./pipelines.ts";
+import { firstTeamMarker, resolveTeamMarkers, type TeamContext } from "./team-params.ts";
 import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
 export type Placeholder = { kind: string; arg: string | null; line: number; raw: string };
@@ -23,8 +24,9 @@ export function assertNoPlaceholders(body: string, where: string): void {
   if (first) throw new Error(`${where}: unfilled placeholder ${first.raw} at line ${first.line}`);
 }
 
-function spanOf(src: { srcPath: string; bodyStartLine: number; body: string }): string {
-  const lines = src.body.split("\n").length;
+/** Every seam kind's span, so their formats cannot drift apart. */
+export function spanOf(src: { srcPath: string; bodyStartLine: number; body: string }, droppedLines = 0): string {
+  const lines = src.body.split("\n").length - droppedLines;
   return `path=${src.srcPath} lines=${src.bodyStartLine}-${src.bodyStartLine + lines - 1}`;
 }
 
@@ -46,15 +48,57 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
   return ctx.stageDir ?? SKILL_DIR_TOKEN;
 }
 
+/**
+ * Only an org base's text may carry team markers. A base fill's markers
+ * resolve before any other substitution, so a value is never read as an
+ * include; a value cannot itself contain `{{`. Reports file lines, counting
+ * from where the fill's body starts in its source file. `span` is the slot
+ * seam's: source lines less those an absent optional section drops, since
+ * the seam walkers consume one rendered line per counted source line.
+ */
+export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext | null | undefined): { body: string; span: string } {
+  assertNoTeamMarkerInFrontmatter(fill);
+  assertNoTeamMarkerInAllowedTools(fill);
+  const hit = firstTeamMarker(fill.body);
+  if (!hit) return { body: fill.body, span: spanOf(fill) };
+  if (team && team.basePlugins.has(fill.plugin)) {
+    const dropped = { lines: 0 };
+    const body = resolveTeamMarkers(fill.body, team, { where: fill.binding, sectionSeams: true, startLine: fill.bodyStartLine, dropped });
+    return { body, span: spanOf(fill, dropped.lines) };
+  }
+  const line = fill.bodyStartLine + hit.lineIndex;
+  if (!team) throw new Error(`${fill.binding}: ${hit.raw} -- the pack has no .claude-plugin/plugin.json name to give team markers (line ${line})`);
+  throw new Error(`${fill.binding}: ${hit.raw} -- team markers only resolve in base pack text (line ${line})`);
+}
+
+/**
+ * An inlined fill's frontmatter is dropped, so a marker there would vanish
+ * unresolved. A reference-bound fill keeps its own frontmatter as an installed
+ * skill, so only its allowed-tools (which compile copies) is checked.
+ */
+function assertNoTeamMarkerInFrontmatter(fill: AttachmentSource): void {
+  const marker = fill.frontmatterTeamMarker;
+  if (marker) throw new Error(`${fill.binding}: ${marker.raw} -- team markers only resolve in a body, not frontmatter (line ${marker.line})`);
+}
+
+/** allowed-tools lands in compiled frontmatter unresolved, whether the fill is inlined or bound by reference. */
+export function assertNoTeamMarkerInAllowedTools(fill: AttachmentSource): void {
+  for (const tool of fill.allowedTools) {
+    const hit = firstTeamMarker(tool);
+    if (hit) throw new Error(`${fill.binding}: ${hit.raw} -- team markers only resolve in a body, not frontmatter`);
+  }
+}
+
 function slotText(name: string, fill: AttachmentSource | null, mode: "inline" | "reference", ctx: PlaceholderContext, packPaths: string[]): string {
   if (fill === null) return "";
   if (mode === "reference") {
     return `Slot ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
   }
-  const rewritten = fill.body.split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, name));
+  const resolved = resolveFillTeamMarkers(fill, ctx.team);
+  const rewritten = resolved.body.split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, name));
   const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding);
   packPaths.push(...inlined.packPaths);
-  return `<!-- part: slot:${name} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${inlined.body}`;
+  return `<!-- part: slot:${name} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
 }
 
 function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext): string {
@@ -99,7 +143,42 @@ export type AttachmentRenderOpts = {
   packRoot: string;
   plannedAttachments?: PlannedAttachments;
   where: string;
+  team: TeamContext | null;
 };
+
+const FRONTMATTER_BLOCK_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
+
+function lineCount(text: string): number {
+  return (text.match(/\n/g) ?? []).length;
+}
+
+const BINARY_SNIFF_BYTES = 8192;
+
+export function readTextUnlessBinary(abs: string): string | null {
+  const buf = readFileSync(abs);
+  return buf.subarray(0, BINARY_SNIFF_BYTES).includes(0) ? null : buf.toString("utf8");
+}
+
+/** A copied file is not rewritten, so a marker in it would ship as written. */
+export function assertNoTeamMarkerInRawFile(text: string, where: string, why = "team markers only resolve in .md files"): void {
+  const hit = firstTeamMarker(text);
+  if (hit) throw new Error(`${where}: ${hit.raw} -- ${why} (line ${hit.lineIndex + 1})`);
+}
+
+/** Resolves a copied .md file's body, counting error lines from the top of the file. */
+function resolveAttachmentTeamMarkers(text: string, opts: AttachmentRenderOpts): string {
+  const hit = firstTeamMarker(text);
+  if (!hit) return text;
+  const head = text.match(FRONTMATTER_BLOCK_RE)?.[0] ?? "";
+  const headHit = firstTeamMarker(head);
+  if (headHit) {
+    throw new Error(`${opts.where}: ${headHit.raw} -- team markers only resolve in a body, not frontmatter (line ${headHit.lineIndex + 1})`);
+  }
+  if (!opts.team) {
+    throw new Error(`${opts.where}: ${hit.raw} -- team markers only resolve in base pack text (line ${hit.lineIndex + 1})`);
+  }
+  return head + resolveTeamMarkers(text.slice(head.length), opts.team, { where: opts.where, sectionSeams: false, startLine: lineCount(head) + 1 });
+}
 
 /**
  * An emitted base attachment is read as a plain file, so it gets only what
@@ -108,7 +187,7 @@ export type AttachmentRenderOpts = {
  */
 export function substituteAttachmentPlaceholders(body: string, opts: AttachmentRenderOpts): string {
   const { where } = opts;
-  return body.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
+  return resolveAttachmentTeamMarkers(body, opts).replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
     switch (kind) {
       case "pack.name":
         if (arg !== undefined) throw new Error(`${where}: ${raw} -- pack.name takes no argument`);

@@ -145,6 +145,9 @@ export type TemplateView = {
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
+type GraphPart = AnatomyPart & {
+  kind: Exclude<AnatomyPart['kind'], 'section'>;
+};
 type DriftCause = SkillsAnatomy['staleBecause'][number];
 type CheckRow = SkillsCheck['verbs'][number];
 
@@ -204,6 +207,19 @@ export function resolveFrom(file: string, relative: string): string {
     else if (segment !== '.' && segment !== '') segments.push(segment);
   }
   return segments.join('/');
+}
+
+/** A team section renders inside the slot whose lines hold it, so the slot's
+    card already covers it and the graph draws no part of its own for it. */
+export function graphAnatomy(
+  anatomy: SkillsAnatomy
+): SkillsAnatomy & { parts: GraphPart[] } {
+  return {
+    ...anatomy,
+    parts: anatomy.parts.filter(
+      (part): part is GraphPart => part.kind !== 'section'
+    ),
+  };
 }
 
 export function partKey(part: AnatomyPart): string {
@@ -395,7 +411,8 @@ export function buildTemplateView(input: {
   /** The focused pipeline; absent or unknown reads the pack's first. */
   workType?: string | null;
 }): TemplateView {
-  const { anatomy, composition, check, changes, step } = input;
+  const { composition, check, changes, step } = input;
+  const anatomy = graphAnatomy(input.anatomy);
   const stepOf = stepNumbers(composition, input.workType ?? null);
   const pack = anatomy.pack;
   const textNoun = textNounOf(anatomy, composition);
