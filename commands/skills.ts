@@ -54,7 +54,7 @@ import { fieldContractErrors, routeFieldContract, type CompiledDoc } from "../li
 import { pipelinesWrite } from "../lib/skills/pipeline-manifest.ts";
 import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan, type EmittedAttachment } from "../lib/skills/base-attachments.ts";
 import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
-import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
+import { buildParts, linksIn, partsFromMarkers, partsOnDisk, withSectionParts, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
@@ -66,7 +66,9 @@ import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
-import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
+import { assertNoTeamMarkerInAllowedTools, findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
+import { newTeamContext, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
+import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
 import { defaultPipeline, effectiveSlotBindings, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
@@ -575,6 +577,8 @@ type Resolved = {
   mattstackSha: string;
   mattstackDirty: 0 | 1;
   packSha: string;
+  /** Built once per resolve(), so each compile run starts with nothing missing or used; null for a pack with no plugin identity. */
+  teamContext: TeamContext | null;
 };
 
 /**
@@ -678,9 +682,18 @@ async function resolve(flags: Flags): Promise<Resolved> {
     throw new SkillsUsageError((err as Error).message);
   }
 
+  let teamContext: TeamContext | null = null;
+  if (self) {
+    try {
+      teamContext = newTeamContext(readTeamValues(packDir, self.name, self.version), pluginRoots.folderOnly ?? new Set());
+    } catch (err) {
+      throw new SkillsUsageError((err as Error).message);
+    }
+  }
+
   return {
     packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, base, provenance,
-    pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha,
+    pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha, teamContext,
   };
 }
 
@@ -751,7 +764,9 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
       const step = loadStepSource(entry.engine, resolved.pluginRoots);
       rules.push(...step.allowedTools);
       for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`, type))) {
-        if (fill) rules.push(...fill.allowedTools);
+        if (!fill) continue;
+        assertNoTeamMarkerInAllowedTools(fill);
+        rules.push(...fill.allowedTools);
       }
     }
   }
@@ -814,6 +829,7 @@ function compileVerb(
       stageAllowedTools: isOrchestrator ? stageAllowedToolsFor(resolved, entries) : [],
       emittedSiblingDirs: [...allStageDirs, ...internalVerbDirs],
       packRoot: resolved.packDir,
+      team: resolved.teamContext,
       compiledDir: outDirFor(resolved.packDir, verb.name, isPublic),
       emittedTargetDirs,
       where,
@@ -1037,7 +1053,7 @@ function compileTargets(resolved: Resolved, publicSet: Set<string> | null, verbF
 /** A pack that extends a base only for its fills copies nothing, so it needs no plugin name; one that would copy an attachment does. */
 function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
   const pluginName = packPluginIdentity(resolved.packDir)?.name;
-  const plan = planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides });
+  const plan = planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides, team: resolved.teamContext });
   if (pluginName || plan.base === null || plan.emits.length === 0) return plan;
   return { base: null, emits: [], kept: [], stale: [], retired: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
 }
@@ -1080,10 +1096,13 @@ export function floorWrite(
   resolved: { packDir: string; pluginRoots: PluginRoots },
   readFile: (path: string) => string | null,
   write: boolean,
+  usesTeamMarkers: boolean,
 ): { written: string[]; removed: string[]; stale: boolean } {
   const engineDir = resolved.pluginRoots.byName.mattstack?.dir ?? null;
-  if (engineDir === null || resolvePath(engineDir) === resolvePath(resolved.packDir)) return { written: [], removed: [], stale: false };
-  const floor = readFloor(readFile, engineDir);
+  if (engineDir !== null && resolvePath(engineDir) === resolvePath(resolved.packDir)) return { written: [], removed: [], stale: false };
+  if (engineDir === null && !usesTeamMarkers) return { written: [], removed: [], stale: false };
+  const engineFloor = engineDir === null ? null : readFloor(readFile, engineDir);
+  const floor = usesTeamMarkers && (engineFloor === null || compareVersions(engineFloor, TEAM_MARKERS_MIN_ENGINE) < 0) ? TEAM_MARKERS_MIN_ENGINE : engineFloor;
   const target = join(resolved.packDir, FLOOR_REL);
   const current = readFile(target);
   const want = floor === null ? null : JSON.stringify({ minEngine: floor }) + "\n";
@@ -1138,6 +1157,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   staleCopies: string[];
   removedCopies: string[];
   fieldContract: string[];
+  missing: MissingMarker[];
+  unusedParams: string[];
 } {
   if (write) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
@@ -1153,17 +1174,21 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     (target) => ({ target, outcome: tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned) }),
   );
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
+  // A target that failed stopped partway, so the missing list is only whole once every target compiled.
+  const missing = failures.length === 0 ? missingOf(resolved.teamContext) : [];
   let fieldContract: string[] = [];
-  if (verbFilter === null && failures.length === 0) {
+  if (verbFilter === null && failures.length === 0 && missing.length === 0) {
     const routed = routeFieldContract(fieldContractErrors(compiledDocsOf(outcomes, plan.emits), resolved.stageEntries));
     failures.push(...routed.errors);
     // --json has no failures key, so an error-routed line rides here too or the exit-1 envelope never says why.
     fieldContract = [...routed.warnings, ...routed.errors];
   }
+  const unusedParams = verbFilter === null && failures.length === 0 && missing.length === 0 ? unusedParamsOf(resolved.teamContext) : [];
 
-  const writing = write && failures.length === 0;
+  const blocked = failures.length > 0 || missing.length > 0;
+  const writing = write && !blocked;
   const writes: CompileWrites = { written: [], removed: [] };
-  const staleCopies = failures.length === 0 ? staleStageCopies(resolved.packDir, verbSides) : [];
+  const staleCopies = blocked ? [] : staleStageCopies(resolved.packDir, verbSides);
   if (writing) {
     // Stale folders go before any verb writes: an internal verb may now own a freed attachments/<name>.
     for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
@@ -1180,7 +1205,9 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       writeCompiledVerb(resolved.packDir, outDirFor(resolved.packDir, verb.name, isPublic), outcome.result, writes);
     }
     for (const copy of staleCopies) removeCompiledDir(resolved.packDir, copy.dir, writes);
-    const floor = floorWrite(resolved, readIfPresent, true);
+    // A scoped compile sees only its own targets' markers, so it never lowers a floor a full compile raised for the rest.
+    const keptRaise = verbFilter !== null && floorAtLeast(readFloor(readIfPresent, resolved.packDir), TEAM_MARKERS_MIN_ENGINE);
+    const floor = floorWrite(resolved, readIfPresent, true, resolved.teamContext?.sawMarker === true || keptRaise);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
     if (verbFilter === null) {
@@ -1197,7 +1224,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     // a dry-run must not call it misplaced. A failure-aborted run sweeps
     // nothing, so it gets no such credit -- its stale dirs stay on disk.
     const wouldBeSwept = new Set<string>();
-    if (!write && failures.length === 0) {
+    if (!write && !blocked) {
       for (const { target, outcome } of outcomes) {
         if (!outcome.ok) continue;
         const stale = otherSideDir(resolved.packDir, target.verb.name, target.isPublic);
@@ -1221,7 +1248,24 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   ];
 
   const staleNames = staleCopies.map((c) => c.name);
-  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleNames, removedCopies: writing ? staleNames : [], fieldContract };
+  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleNames, removedCopies: writing ? staleNames : [], fieldContract, missing, unusedParams };
+}
+
+function floorAtLeast(floor: string | null, version: string): boolean {
+  return floor !== null && compareVersions(floor, version) >= 0;
+}
+
+/** Params first, then sections, each by name, so the refusal and the envelope read the same on every run. */
+function missingOf(team: TeamContext | null): MissingMarker[] {
+  if (!team) return [];
+  const byName = (a: MissingMarker, b: MissingMarker) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const all = [...team.missing.values()].map((m) => ({ ...m, askedBy: [...m.askedBy].sort() }));
+  return [...all.filter((m) => m.kind === "param").sort(byName), ...all.filter((m) => m.kind === "section").sort(byName)];
+}
+
+function unusedParamsOf(team: TeamContext | null): string[] {
+  if (!team) return [];
+  return Object.keys(team.values.params).filter((key) => !team.used.has(key)).sort();
 }
 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
@@ -1277,6 +1321,32 @@ export function compileFailure(failures: string[]): out.FailureInput {
   return { title, details: failures.join("\n") };
 }
 
+export function missingValuesFailure(pack: string, missing: MissingMarker[]): out.FailureInput & { details: string } {
+  const bases = [...new Set(missing.flatMap((m) => m.askedBy.map((where) => where.split(":")[0]!)))];
+  const params = missing.filter((m) => m.kind === "param");
+  const details = [
+    ...(params.length > 0 ? [`pack/params.jsonc: ${params.map((m) => `${m.name} (${m.askedBy.join(", ")})`).join(", ")}`] : []),
+    ...missing.filter((m) => m.kind === "section").map((m) => `${m.file} (${m.askedBy.join(", ")})`),
+  ];
+  return {
+    title: `The ${pack} pack is missing values the ${bases.join(", ")} pack asks for`,
+    next: ["Add them, then run ", out.cmd(`rt skills compile --pack ${pack}`)],
+    details: details.join("\n"),
+  };
+}
+
+/** For a verb that compiles in memory to show or compare text: a hole must never reach the screen. */
+function refuseMissingValues(resolved: Resolved): void {
+  const missing = missingOf(resolved.teamContext);
+  if (missing.length === 0) return;
+  const shown = missingValuesFailure(resolved.team, missing);
+  throw new SkillsUsageError(`${shown.title}\n${shown.details}`, shown);
+}
+
+export function unusedParamBlocks(keys: string[]): Block[] {
+  return keys.map((key) => out.line("warn", `pack/params.jsonc: ${key} is not asked for by any base text this pack compiles`));
+}
+
 export function misplacedFailure(names: string[]): out.FailureInput {
   return {
     title: names.length === 1 ? `${names[0]} is in the wrong folder` : `${names.length} skills are in the wrong folder`,
@@ -1328,6 +1398,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
           process.exitCode = 1;
           return;
         }
+        refuseMissingValues(resolved);
         // The body is the product here: no summary lines and no warnings
         // interleaved, so the output pipes straight into a file or a preview pane.
         const main = outcome.result.files.find((f) => "content" in f && f.path.endsWith("SKILL.md"));
@@ -1350,13 +1421,17 @@ export async function skillsCompile(args: string[]): Promise<void> {
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written: false, verbs: targets.map(target => ({ name: target.verb.name, status: "errored", files: [], warnings: [], errors: [err.message], side: target.isPublic ? "skills" : "attachments" })), misplaced: [] });
       process.exit(2);
     }
-    const { outcomes, failures, misplaced, emitted, staleCopies, removedCopies, fieldContract } = compiledResult;
+    const { outcomes, failures, misplaced, emitted, staleCopies, removedCopies, fieldContract, missing, unusedParams } = compiledResult;
     if (failures.length > 0 && !flags.json) {
       out.fail(compileFailure(failures));
       process.exit(1);
     }
+    if (missing.length > 0 && !flags.json) {
+      out.fail(missingValuesFailure(resolved.team, missing));
+      process.exit(1);
+    }
 
-    const writing = failures.length === 0 && !flags.dryRun;
+    const writing = failures.length === 0 && missing.length === 0 && !flags.dryRun;
 
     if (flags.json) {
       const rows: CompileVerbRow[] = outcomes.map(({ target, outcome }) => {
@@ -1368,16 +1443,22 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // An errored or misplaced verb is a failed compile: exit non-zero so a
       // caller reading the code (not just the payload) sees it, matching the
       // non-JSON path's exits. `written` stays honest on an empty target set.
-      if (failures.length > 0 || misplaced.length > 0) process.exitCode = 1;
+      if (failures.length > 0 || misplaced.length > 0 || missing.length > 0) process.exitCode = 1;
       const written = writing && (outcomes.length > 0 || emitted.some((row) => !("kept" in row)));
-      out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced, fieldContract, ...(removedCopies.length > 0 ? { removedCopies } : {}) });
+      // Only when present: a pack with no team values keeps its envelope's exact bytes.
+      out.json({
+        pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced, fieldContract,
+        ...(unusedParams.length > 0 ? { unusedParams } : {}),
+        ...(missing.length > 0 ? { missing } : {}),
+        ...(removedCopies.length > 0 ? { removedCopies } : {}),
+      });
       return;
     }
 
     const compiled: CompiledRow[] = outcomes.flatMap(({ target, outcome }) =>
       outcome.ok ? [{ name: target.verb.name, side: target.isPublic ? ("skills" as const) : ("attachments" as const), files: outcome.result.files.length, warnings: outcome.result.warnings }] : [],
     );
-    out.print(...compileBlocks(compiled, writing, emitted, fieldContract), ...staleCopyBlocks(staleCopies, writing));
+    out.print(...compileBlocks(compiled, writing, emitted, fieldContract), ...staleCopyBlocks(staleCopies, writing), ...unusedParamBlocks(unusedParams));
 
     if (misplaced.length > 0) {
       out.fail(misplacedFailure(misplaced));
@@ -1392,11 +1473,12 @@ export async function skillsCompile(args: string[]): Promise<void> {
  * instead of letting skillsCompile print a second, unparseable line: no
  * printing, no process.exit. `verbs` scopes the compile the way --verb does
  * (default null: full pack); `write` false previews without touching disk
- * (default true). `ok` is false on chain errors, lint failures, or misplaced
- * verbs -- each named in `errors` -- with no partial write on failure,
- * exactly as the handler behaves today.
+ * (default true). `ok` is false on chain errors, lint failures, misplaced
+ * verbs or missing team values -- each named in `errors`, the values also
+ * as `missing` -- with no partial write on failure, exactly as the handler
+ * behaves today.
  */
-export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] } & CompileWrites> {
+export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[]; missing?: MissingMarker[] } & CompileWrites> {
   const args: string[] = [];
   if (opts.pack) args.push("--pack", opts.pack);
   if (opts.packDir) args.push("--pack-dir", opts.packDir);
@@ -1410,7 +1492,11 @@ export async function compilePackAll(opts: { pack?: string; packDir?: string; ma
   const plan = basePlanFor(resolved, compileTargets(resolved, publicSet, opts.verbs ?? null).verbSides);
   if (plan.errors.length > 0) return { ok: false, errors: plan.errors, written: [], removed: [] };
   try {
-    const { failures, misplaced, writes } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true, plan);
+    const { failures, misplaced, writes, missing } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true, plan);
+    if (missing.length > 0) {
+      const shown = missingValuesFailure(resolved.team, missing);
+      return { ok: false, errors: [shown.title, ...shown.details.split("\n")], missing, ...writes };
+    }
     const errors = [...failures, ...misplaced.map((name) => `misplaced: ${name}`)];
     return { ok: errors.length === 0, errors, ...writes };
   } catch (err) {
@@ -1631,7 +1717,16 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     }
   }
 
-  if (flags.verbs === null && !neverCompiled && !compileFailed) {
+  // With a value missing, the text compared above has holes, so a stale row says nothing a compile would fix.
+  const missing = missingOf(resolved.teamContext);
+  if (missing.length > 0) {
+    const shown = missingValuesFailure(resolved.team, missing);
+    compileErrors.push(shown.title, ...shown.details.split("\n"));
+    anyStale = true;
+    for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.status === "stale") rows.splice(i, 1);
+  }
+
+  if (flags.verbs === null && !neverCompiled && !compileFailed && missing.length === 0) {
     const routed = routeFieldContract(fieldContractErrors(compiledDocsOf(compiled, plan.emits), resolved.stageEntries));
     if (routed.errors.length > 0) anyStale = true;
     compileErrors.push(...routed.errors);
@@ -1648,7 +1743,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
 
-  if (flags.verbs === null && floorWrite(resolved, readIfPresent, false).stale) {
+  if (flags.verbs === null && floorWrite(resolved, readIfPresent, false, resolved.teamContext?.sawMarker === true).stale) {
     compileErrors.push("pack/requires.json is out of date with the engine's floor");
     anyStale = true;
   }
@@ -1658,7 +1753,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   }
 
   const baseErrors = plan.errors;
-  const attachments = flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : [];
+  const attachments = (flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : []).filter((row) => missing.length === 0 || row.status !== "stale");
   if (baseErrors.length > 0 || attachments.some((row) => row.status !== "in-sync")) anyStale = true;
   const staleCopies = staleStageCopies(resolved.packDir, verbSides).map((c) => c.name);
   if (staleCopies.length > 0) anyStale = true;
@@ -1688,6 +1783,10 @@ export function installedCacheBlocks(installed: InstalledInfo): Block[] {
   return [];
 }
 
+function driftCauseWords(cause: DriftCause): string {
+  return cause === "team" ? "team values" : cause;
+}
+
 export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[] {
   const blocks: Block[] = payload.chainErrors.map((chainError) => out.line("failed", chainError));
   for (const { key, layer } of payload.droppedOverrides ?? []) {
@@ -1702,7 +1801,7 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
       stale = true;
       const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
       const causes = row.staleBecause ?? [];
-      blocks.push(out.line("stale", row.name, causes.length > 0 ? `${causes.join(", ")} moved: ${files}` : `changed since the last compile: ${files}`));
+      blocks.push(out.line("stale", row.name, causes.length > 0 ? `${causes.map(driftCauseWords).join(", ")} moved: ${files}` : `changed since the last compile: ${files}`));
     } else {
       blocks.push(out.line("done", row.name, "current"));
     }
@@ -2196,7 +2295,14 @@ export async function skillsComposition(args: string[]): Promise<void> {
     const binders = buildBinders(resolved, pipelines);
     const compilePlan = compileTargets(resolved, publicSet, null);
     const targets = buildCompositionTargets(resolved, compilePlan);
-    const base = resolved.fullRoster.length > 0 ? basePlanFor(resolved, compilePlan.verbSides).base : null;
+    const basePlan = resolved.fullRoster.length > 0 ? basePlanFor(resolved, compilePlan.verbSides) : null;
+    const base = basePlan?.base ?? null;
+    // Only base text records a missing value, so a pack with no org base skips the in-memory compile.
+    if (basePlan && resolved.teamContext && resolved.teamContext.basePlugins.size > 0) {
+      const planned = plannedAttachmentsOf(basePlan);
+      for (const target of compilePlan.targets) tryCompileVerb(target, resolved, compilePlan.knownTargetDirs, compilePlan.verbSides, planned);
+    }
+    refuseMissingValues(resolved);
 
     const payload: CompositionPayload = {
       pack: resolved.team,
@@ -2257,6 +2363,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     const basePlan = requireBasePlan(resolved, plan.verbSides);
     const trace: TraceEntry[] = [];
     const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, (e) => trace.push(e), plannedAttachmentsOf(basePlan));
+    refuseMissingValues(resolved);
     const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
     if (!main || !("content" in main) || !result.anatomy) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
     const fresh = main.content;
@@ -2276,6 +2383,14 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
       const key = `slot:${slot}`;
       sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length, ...originFor(resolved.pluginRoots, fill.plugin, fill.dir) };
     }
+    const team = resolved.teamContext?.values;
+    if (team) {
+      for (const extent of partExtents(fresh)) {
+        if (!extent.key.startsWith("section:")) continue;
+        const name = extent.key.slice("section:".length);
+        sources[extent.key] = { ref: `${team.plugin}:pack/sections/${name}.md`, path: join(resolved.packDir, "pack", "sections", `${name}.md`), version: team.version, builtVersion: builtVersions.get(extent.key) ?? null, lines: extent.text.split("\n").length };
+      }
+    }
     const targets: Record<string, AnatomyTarget> = {};
     for (const t of plan.targets) {
       const path = join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md");
@@ -2291,6 +2406,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     let parts = trace.length > 0
       ? buildParts({ bodyStartLine: step.bodyStartLine, bodyOffset, trace, sources, targets, slotModes: slotMode, changedKeys })
       : partsFromMarkers(shown, sources, changedKeys);
+    if (trace.length > 0) parts = withSectionParts(parts, fresh, sources, changedKeys);
     if (trace.length > 0 && onDisk !== null && status === "stale") parts = partsOnDisk(parts, onDisk);
     const templatePath = join(step.dir, "SKILL.md");
 

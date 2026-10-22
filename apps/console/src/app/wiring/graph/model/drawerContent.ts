@@ -7,6 +7,7 @@ import { STATUS_TONE, type StatusTone } from './statusTone';
 import {
   countOf,
   fileLabelOf,
+  graphAnatomy,
   gutterOf,
   partKey,
   partLabel,
@@ -116,10 +117,11 @@ export function parseTarget(select: string | null): DrawerTarget | null {
 export function drawerContent(
   target: DrawerTarget,
   view: TemplateView,
-  anatomy: SkillsAnatomy,
+  fullAnatomy: SkillsAnatomy,
   requestedView: WiringView | null,
   check?: Pick<SkillsCheck, 'attachments'>
 ): DrawerContent | null {
+  const anatomy = graphAnatomy(fullAnatomy);
   if (view.app) return appFillContent(target, view, anatomy.pack);
   switch (target.kind) {
     case 'row': {

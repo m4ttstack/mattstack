@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { initFailure, initFailureAfter, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
 import * as syncCommand from "../skills-sync.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import type { InitDeps, InitOutcome } from "../../lib/skills/init.ts";
+import { POLICY_REFUSALS, type InitDeps, type InitOutcome } from "../../lib/skills/init.ts";
 import { UserActionableError } from "../../lib/errors.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as ui from "../../lib/ui/out.ts";
@@ -11,10 +11,13 @@ import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 describe("parseInitArgs", () => {
   test("defaults: cwd repo, no zone, no team, human output", () => {
-    expect(parseInitArgs([])).toEqual({ repo: process.cwd(), zone: null, team: null, json: false });
+    expect(parseInitArgs([])).toEqual({ repo: process.cwd(), repoGiven: false, zone: null, team: null, extendsBase: null, json: false });
   });
   test("reads every flag", () => {
-    expect(parseInitArgs(["--repo", "/r", "--zone", "z", "--team", "t", "--json"])).toEqual({ repo: "/r", zone: "z", team: "t", json: true });
+    expect(parseInitArgs(["--repo", "/r", "--zone", "z", "--team", "t", "--extends", "acme-base", "--json"])).toEqual({ repo: "/r", repoGiven: true, zone: "z", team: "t", extendsBase: "acme-base", json: true });
+  });
+  test("--extends without a value throws a usage error", () => {
+    expect(() => parseInitArgs(["--extends"])).toThrow(/--extends needs a value/);
   });
   test("--team names a team folder and --zone the clone", () => {
     expect(parseInitArgs(["--team", "gadgets", "--zone", "acme"])).toMatchObject({ team: "gadgets", zone: "acme" });
@@ -85,6 +88,24 @@ describe("init outcome", () => {
   test("a refusal that is not a policy one is a failure, its command as next", () => {
     const failure = initFailure({ ok: false, refused: true, code: "zone-ambiguous", detail: "More than one team could hold this pack: acme, beta", next: "rt skills init --team <name>" });
     expect(renderPlain([ui.failure(failure)])).toBe("More than one team could hold this pack: acme, beta\n  next: rt skills init --team <name>\n");
+  });
+
+  test("an unknown base is a failure naming the bases there", () => {
+    const o = { ok: false as const, refused: true as const, code: "base-missing" as const, detail: "There is no base pack called gadgets-base in the acme org. Bases here: acme-base", next: "rt skills init --team acme --extends <base>" };
+    expect(renderPlain([ui.failure(initFailure(o))])).toBe(`${o.detail}\n  next: ${o.next}\n`);
+  });
+
+  test("a base that extends another is refused by policy, naming who fixes it and the bases there", () => {
+    const o = {
+      ok: false as const,
+      refused: true as const,
+      code: "base-chained" as const,
+      detail: "The acme-base pack in the acme org extends gadgets-base, and a base pack cannot extend another. Bases here: gadgets-base",
+      next: "rt skills init --team acme --extends <base>",
+      why: "An org admin has to fix acme-base so it extends nothing",
+    };
+    expect(POLICY_REFUSALS.has(o.code)).toBe(true);
+    expect(renderPlain(initRefusalBlocks(o))).toBe(`[refused] ${o.detail}\n  why: ${o.why}\n  next: ${o.next}\n`);
   });
 
   test("the failure prefers the error's next to the generic remedy", () => {
@@ -234,6 +255,21 @@ test("a refusal keeps its reason in the failure and refusal blocks", () => {
 test("a pack held by its engine floor is a refused note with no command to run", () => {
   const o = { ok: false as const, refused: true as const, code: "needs-newer-app" as const, detail: "This app runs engine 0.30.28; the acme pack needs engine 0.31.0. Update the app first.", why: "The pack is written, but rt will not install or share it until the app updates." };
   expect(renderPlain(initRefusalBlocks(o))).toBe(`[refused] ${o.detail}\n  why: ${o.why}\n`);
+});
+
+test("skills-init renders params-missing as needs-you", () => {
+  const o: Extract<InitOutcome, { ok: false; refused: true }> = {
+    ok: false,
+    refused: true,
+    code: "params-missing",
+    detail: "The base pack asks for values only your team can give: repo-name in pack/params.jsonc (asked by acme-base:watch-ci-rules); the ci-extra-jobs section in pack/sections/ci-extra-jobs.md (asked by acme-base:watch-ci-rules)",
+    why: "rt added them to your pack, empty. Fill them in, then run this again.",
+    next: "rt skills init --team acme --extends acme-base",
+    wrote: ["/z/pack/params.jsonc", "/z/pack/sections/ci-extra-jobs.md"],
+  };
+  expect(renderPlain(initRefusalBlocks(o))).toBe(
+    `[needs you] ${o.detail}\n  why: ${o.why}\n  next: ${o.next}\n` + renderPlain([ui.verbatim(o.wrote!, "fill these in")]),
+  );
 });
 
 describe("repoListFailure", () => {
@@ -409,6 +445,19 @@ describe("skillsInit", () => {
         `  next: rt settings set board.gitlabHost '"gitlab.example.com"' --scope team --team acme\n`,
     );
     expect(io.stderr()).not.toContain("[failed]");
+    expect(process.exitCode).toBe(2);
+  });
+
+  test("a refusal after --repo names that repo in its next, so the retry works from any folder", async () => {
+    const HOME = "/h";
+    const fs = memFs({
+      [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
+      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme", "layout": ${ORG_LAYOUT} }`,
+      [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com" }`,
+      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
+    });
+    await skillsInit(["--repo", "/elsewhere/my api", "--extends", "acme-base"], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
+    expect(io.stderr()).toContain("next: rt skills init --repo '/elsewhere/my api' --team acme --extends <base>");
     expect(process.exitCode).toBe(2);
   });
 

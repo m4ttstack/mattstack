@@ -1,5 +1,5 @@
 /**
- * rt skills init [--repo <path>] [--team <name>] [--zone <org>] [--json]
+ * rt skills init [--repo <path>] [--team <name>] [--zone <org>] [--extends <base>] [--json]
  *
  * Scaffolds a zero-fill team pack named after its team folder (roster
  * `work` only, every domain slot unbound), adds the repo to the team's claim,
@@ -36,10 +36,10 @@ import { checkPack, compilePackAll } from "./skills.ts";
 import { claudeMissingBlocks } from "./skills-sync.ts";
 import { childEnv } from "../lib/subprocess.ts";
 
-export type InitArgs = { repo: string; zone: string | null; team: string | null; json: boolean };
+export type InitArgs = { repo: string; repoGiven: boolean; zone: string | null; team: string | null; extendsBase: string | null; json: boolean };
 
 export function parseInitArgs(args: string[]): InitArgs {
-  const out: InitArgs = { repo: process.cwd(), zone: null, team: null, json: false };
+  const out: InitArgs = { repo: process.cwd(), repoGiven: false, zone: null, team: null, extendsBase: null, json: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     const value = (flag: string): string => {
@@ -48,9 +48,10 @@ export function parseInitArgs(args: string[]): InitArgs {
       return v;
     };
     switch (a) {
-      case "--repo": out.repo = resolve(value(a)); break;
+      case "--repo": out.repo = resolve(value(a)); out.repoGiven = true; break;
       case "--team": out.team = value(a); break;
       case "--zone": out.zone = value(a); break;
+      case "--extends": out.extendsBase = value(a); break;
       case "--json": out.json = true; break;
       default: throw new UserActionableError("usage", `unrecognized argument "${a}"`);
     }
@@ -72,7 +73,12 @@ export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[
 }
 
 export function initRefusalBlocks(o: Extract<InitOutcome, { ok: false; refused: true }>): Block[] {
-  return [ui.line(NEEDS_YOU_REFUSALS.has(o.code) ? "needs-you" : "refused", o.detail), ...(o.why ? [ui.callout("why", o.why)] : []), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
+  return [
+    ui.line(NEEDS_YOU_REFUSALS.has(o.code) ? "needs-you" : "refused", o.detail),
+    ...(o.why ? [ui.callout("why", o.why)] : []),
+    ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : []),
+    ...(o.wrote && o.wrote.length > 0 ? [ui.verbatim(o.wrote, "fill these in")] : []),
+  ];
 }
 
 function remedyCell(r: InitRemedy): Array<string | Segment> {
@@ -260,7 +266,7 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
   const resolvedDeps = deps ?? realDeps({ json: parsed.json });
   let out: InitOutcome;
   try {
-    out = await initPack({ repoDir: parsed.repo, zone: parsed.zone, team: parsed.team }, resolvedDeps);
+    out = await initPack({ repoDir: parsed.repo, repoFlag: parsed.repoGiven ? parsed.repo : null, zone: parsed.zone, team: parsed.team, extendsBase: parsed.extendsBase }, resolvedDeps);
   } catch (err) {
     // A dep the pre-attempt setup calls directly (promptZone, createZone) can throw a
     // UserActionableError before initPack's own post-write attempt() wrapper is reached;
@@ -281,7 +287,7 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
   }
   if (parsed.json) {
     if (out.ok) ui.json(envelope(out));
-    else if (out.refused) ui.json(userErrorPayload(new UserActionableError(out.code, [out.detail, out.why, out.next ? `Run ${out.next}` : undefined].filter(Boolean).join(". "), { refused: true })));
+    else if (out.refused) ui.json(userErrorPayload(new UserActionableError(out.code, [out.detail, out.why, out.next ? `Run ${out.next}` : undefined].filter(Boolean).join(". "), { refused: true, ...(out.wrote ? { wrote: out.wrote } : {}) })));
     else ui.json(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: false, wrote: out.wrote })));
   } else if (out.ok) {
     ui.print(...initOutcomeBlocks(out));

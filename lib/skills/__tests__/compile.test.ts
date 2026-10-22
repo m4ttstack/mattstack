@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { compileSkill } from "../compile.ts";
 import type { TraceEntry } from "../placeholders.ts";
+import { newTeamContext } from "../team-params.ts";
 import type { AttachmentSource, CompiledFile, StepSource, VerbDef } from "../types.ts";
 
 /** The sibling-reference lint reads the working tree, so its cases need a real pack root on disk. */
@@ -166,6 +167,96 @@ describe("compileSkill", () => {
     expect(content).toContain("<!-- part: include:ci-note");
     expect(content).toContain("ci note body");
     expect(content).not.toContain("{{");
+  });
+
+  test("a base fill's team markers resolve on the legacy engine path", () => {
+    const baseDomain: AttachmentSource = { ...domainFill, binding: "acme-base:watch-ci-domain", plugin: "acme-base", body: "Team {{team.linear-team}}" };
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { "linear-team": "Widgets" }, sections: {} }, new Set(["acme-base"]));
+
+    const content = skillFileContent(compileSkill(verb, step, { domain: baseDomain, forge: forgeFill }, roster, { team }).files);
+
+    expect(content).toContain("Team Widgets");
+    expect(content).not.toContain("{{");
+  });
+
+  test("a team marker in a non-base fill on the legacy path is an error naming the file line", () => {
+    const widgetsDomain: AttachmentSource = { ...domainFill, binding: "widgets:x", plugin: "widgets", body: "a\nTeam {{team.linear-team}}" };
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: {}, sections: {} }, new Set(["acme-base"]));
+
+    expect(() => compileSkill(verb, step, { domain: widgetsDomain, forge: forgeFill }, roster, { team })).toThrow(
+      "widgets:x: {{team.linear-team}} -- team markers only resolve in base pack text (line 9)",
+    );
+  });
+
+  test("a team marker in a base fill's allowed-tools is an error", () => {
+    const baseDomain: AttachmentSource = { ...domainFill, binding: "acme-base:watch-ci-domain", plugin: "acme-base", allowedTools: ["Bash({{team.x}}:*)"] };
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { x: "y" }, sections: {} }, new Set(["acme-base"]));
+
+    expect(() => compileSkill(verb, step, { domain: baseDomain, forge: forgeFill }, roster, { team })).toThrow(
+      "acme-base:watch-ci-domain: {{team.x}} -- team markers only resolve in a body, not frontmatter",
+    );
+  });
+
+  describe("a team marker in a fill's description", () => {
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { x: "y" }, sections: {} }, new Set(["acme-base"]));
+    const marker = { raw: "{{team.x}}", line: 3 };
+
+    test("compiles when the fill is bound by reference, since only its allowed-tools are copied", () => {
+      const forge: AttachmentSource = { ...registeredForgeFill, binding: "acme-base:gitlab-forge", plugin: "acme-base", frontmatterTeamMarker: marker };
+      const refRoster = new Set([...roster, "acme-base:gitlab-forge"]);
+
+      const content = skillFileContent(compileSkill(verb, step, { domain: domainFill, forge }, refRoster, { team }).files);
+
+      expect(content).toContain("Slot forge is bound to `acme-base:gitlab-forge`");
+    });
+
+    test("refuses when an inlined base fill carries it", () => {
+      const domain: AttachmentSource = { ...domainFill, binding: "acme-base:watch-ci-domain", plugin: "acme-base", frontmatterTeamMarker: marker };
+
+      expect(() => compileSkill(verb, step, { domain, forge: forgeFill }, roster, { team })).toThrow(
+        "acme-base:watch-ci-domain: {{team.x}} -- team markers only resolve in a body, not frontmatter (line 3)",
+      );
+    });
+
+    test("a reference-bound fill with one in allowed-tools still refuses", () => {
+      const forge: AttachmentSource = { ...registeredForgeFill, binding: "acme-base:gitlab-forge", plugin: "acme-base", allowedTools: ["Bash({{team.x}}:*)"] };
+      const refRoster = new Set([...roster, "acme-base:gitlab-forge"]);
+
+      expect(() => compileSkill(verb, step, { domain: domainFill, forge }, refRoster, { team })).toThrow(
+        "acme-base:gitlab-forge: {{team.x}} -- team markers only resolve in a body, not frontmatter",
+      );
+    });
+  });
+
+  describe("a base fill's vendored files", () => {
+    const vendoring = (text: string) => {
+      const dir = tempPackRoot();
+      writeFileSync(join(dir, "checklist.md"), text);
+      const fill: AttachmentSource = { ...domainFill, binding: "acme-base:provision-flow", plugin: "acme-base", dir, body: "Read the checklist.", allowedTools: [], extraFiles: ["checklist.md"] };
+      return fill;
+    };
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { "linear-team": "Widgets" }, sections: {} }, new Set(["acme-base"]));
+
+    test("a team marker in one is refused with the file line", () => {
+      const fill = vendoring("# Checklist\n\nFile it in {{team.linear-team}}.\n");
+      expect(() => compileSkill(verb, step, { domain: fill, forge: forgeFill }, roster, { team })).toThrow(
+        "acme-base:provision-flow:checklist.md: {{team.linear-team}} -- team markers only resolve in a fill's SKILL.md, not the files it vendors (line 3)",
+      );
+    });
+
+    test("with no team context the same file is refused", () => {
+      const fill = vendoring("File it in {{team.linear-team}}.\n");
+      expect(() => compileSkill(verb, step, { domain: fill, forge: forgeFill }, roster)).toThrow(
+        "acme-base:provision-flow:checklist.md: {{team.linear-team}} -- team markers only resolve in a fill's SKILL.md, not the files it vendors (line 1)",
+      );
+    });
+
+    test("a file with no marker, and a team pack's own fill, still vendor", () => {
+      const clean = vendoring("Nothing to fill.\n");
+      expect(compileSkill(verb, step, { domain: clean, forge: forgeFill }, roster, { team }).files.map((f) => f.path)).toContain("parts/domain/checklist.md");
+      const own = { ...vendoring("Docs mention {{team.x}}.\n"), binding: "widgets:provision-flow", plugin: "widgets" };
+      expect(compileSkill(verb, step, { domain: own, forge: forgeFill }, roster, { team }).files.map((f) => f.path)).toContain("parts/domain/checklist.md");
+    });
   });
 
   test("a fill carrying {{slot:...}} on the legacy engine path is a compile error naming the fill", () => {

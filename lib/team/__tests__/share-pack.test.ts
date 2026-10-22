@@ -9,7 +9,7 @@ import type { Probes } from "../../setup/probes.ts";
 import { addTeam } from "../add.ts";
 import { publishTeam } from "../publish.ts";
 import { renderPlain } from "../../ui/out-plain.ts";
-import { commitPendingPackShares, packShareBlocks, sharePack } from "../share-pack.ts";
+import { commitPendingPackShares, packShareBlocks, rememberPackShare, sharePack } from "../share-pack.ts";
 import { readTeamLocal, teamLocalPath, updateTeamLocal } from "../team-local.ts";
 import { cleanupOrgWorlds, orgWorld } from "./org-world.ts";
 
@@ -144,6 +144,18 @@ describe("sharePack", () => {
     expect(shared).toMatchObject({ pushed: false });
     expect(w.git("diff", "--cached", "--name-only").trim()).toBe("");
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toEqual([{ pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] }]);
+  });
+
+  test("remembering a pack again keeps the paths it already owed, and its share commits them", async () => {
+    const w = orgWorld();
+    addTeam(w.p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
+    rememberPackShare(w.p, "acme", "gadgets", ["mattstack/teams/gadgets/plugin", ".claude-plugin/marketplace.json"]);
+    rememberPackShare(w.p, "acme", "gadgets", ["mattstack/teams/gadgets/plugin"]);
+    expect(readTeamLocal(w.p, "acme").pendingPackShares).toEqual([{ pack: "gadgets", paths: ["mattstack/teams/gadgets/plugin", ".claude-plugin/marketplace.json"] }]);
+
+    expect(await sharePack(w.p, "acme", "gadgets", ["mattstack/teams/gadgets/plugin"], async () => null)).toMatchObject({ pushed: true });
+    expect(w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n")).toContain(".claude-plugin/marketplace.json");
+    expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
   });
 
   test("a remembered pack whose folder is gone is dropped, not committed", async () => {

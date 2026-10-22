@@ -3,14 +3,17 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { HEADER_COMMENT } from "../compile.ts";
+import { newTeamContext, type TeamContext } from "../team-params.ts";
 import { isEmittedAttachmentDir, isEmittedAttachmentText, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, walkAttachmentFiles } from "../base-attachments.ts";
 
 let root: string;
 const put = (path: string, text: string) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); };
 const baseDir = () => join(root, "mattstack", "org", "packs", "acme-base");
 const packDir = () => join(root, "mattstack", "teams", "widgets", "plugin");
-const plan = (verbSides: Record<string, "skills" | "attachments"> = { ship: "skills" }) =>
-  planBaseAttachments({ packDir: packDir(), packName: "widgets", verbSides });
+const plan = (verbSides: Record<string, "skills" | "attachments"> = { ship: "skills" }, team: TeamContext | null = null) =>
+  planBaseAttachments({ packDir: packDir(), packName: "widgets", verbSides, team });
+const teamWith = (params: Record<string, string>, sections: Record<string, string> = {}) =>
+  newTeamContext({ plugin: "widgets", version: "0.4.0", params, sections }, new Set(["acme-base"]));
 const emittedMarker = JSON.stringify({ base: "acme-base", version: null, files: [] });
 const clash = "acme-base attachment review-kit has the same name as the widgets verb review-kit; rename one of them";
 
@@ -145,7 +148,7 @@ describe("planBaseAttachments", () => {
     const lone = realpathSync(mkdtempSync(join(tmpdir(), "rt-base-attach-lone-")));
     try {
       put(join(lone, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
-      const result = planBaseAttachments({ packDir: lone, packName: "widgets", verbSides: {} });
+      const result = planBaseAttachments({ packDir: lone, packName: "widgets", verbSides: {}, team: null });
       expect(result.errors).toEqual(["widgets extends acme-base, but it is not inside an org repo"]);
     } finally {
       rmSync(lone, { recursive: true, force: true });
@@ -449,5 +452,80 @@ describe("helpers", () => {
     symlinkSync("../b.md", join(dir, "__pycache__", "link.md"));
     expect(walkAttachmentFiles(dir)).toEqual({ files: ["a/c.txt", "b.md"], symlinks: [".link", "a/link.md"] });
     expect(walkAttachmentFiles(dir).files).toEqual(["a/c.txt", "b.md"]);
+  });
+});
+
+describe("team markers in copied base attachments", () => {
+  const kit = () => join(baseDir(), "attachments", "review-kit");
+  const textOf = (result: ReturnType<typeof plan>, path: string) =>
+    (result.emits[0]!.files.find((f) => f.path === path) as { content: string }).content;
+
+  test("copied md attachment resolves a value and a section", () => {
+    put(join(kit(), "SKILL.md"), "---\nname: review-kit\n---\nTickets live in {{team.linear-team}}.\n\n{{team.section:gates}}\n\nEnd.\n");
+    const result = plan({ ship: "skills" }, teamWith({ "linear-team": "Widgets" }, { gates: "Gate one.\nGate two.\n" }));
+    expect(result.errors).toEqual([]);
+    expect(textOf(result, "SKILL.md")).toBe("---\nname: review-kit\n---\nTickets live in Widgets.\n\nGate one.\nGate two.\n\nEnd.\n");
+  });
+
+  test("copied md attachment records a missing required value", () => {
+    put(join(kit(), "SKILL.md"), "ok\n");
+    put(join(kit(), "references", "guide.md"), "Team {{team.linear-team}}\n");
+    const team = teamWith({});
+    const result = plan({ ship: "skills" }, team);
+    expect(result.errors).toEqual([]);
+    expect(team.missing.get("param:linear-team")).toEqual({
+      kind: "param", name: "linear-team", file: "pack/params.jsonc", askedBy: ["acme-base:attachments/review-kit/references/guide.md"],
+    });
+  });
+
+  test("a team marker in a copied non-md file is an error", () => {
+    put(join(kit(), "SKILL.md"), "ok\n");
+    put(join(kit(), "scripts", "x.sh"), "#!/bin/sh\necho start\necho {{team.x}}\n");
+    expect(plan({ ship: "skills" }, teamWith({ x: "v" })).errors).toEqual([
+      "acme-base:attachments/review-kit/scripts/x.sh: {{team.x}} -- team markers only resolve in .md files (line 3)",
+    ]);
+  });
+
+  test("a binary file with a marker-like byte run is copied untouched", () => {
+    put(join(kit(), "SKILL.md"), "ok\n");
+    writeFileSync(join(kit(), "blob.bin"), Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from("{{team.x}}")]));
+    expect(plan({ ship: "skills" }, teamWith({})).errors).toEqual([]);
+  });
+
+  test("a team marker in a copied md file's frontmatter is an error", () => {
+    put(join(kit(), "SKILL.md"), "---\nname: review-kit\ndescription: for {{team.linear-team}}\n---\nBody\n");
+    expect(plan({ ship: "skills" }, teamWith({ "linear-team": "Widgets" })).errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: {{team.linear-team}} -- team markers only resolve in a body, not frontmatter (line 3)",
+    ]);
+  });
+
+  test("a malformed marker names the line in the copied file", () => {
+    put(join(kit(), "SKILL.md"), "---\nname: review-kit\n---\n\nfine\n{{team.Bad}}\n");
+    expect(plan({ ship: "skills" }, teamWith({})).errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: {{team.Bad}} has a name that is not lowercase letters, digits and hyphens (line 6)",
+    ]);
+  });
+
+  test("with no team context a marker in a copied md body is an error", () => {
+    put(join(kit(), "SKILL.md"), "---\nname: review-kit\n---\nfine\nTeam {{team.linear-team}}\n");
+    expect(plan({ ship: "skills" }, null).errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: {{team.linear-team}} -- team markers only resolve in base pack text (line 5)",
+    ]);
+  });
+
+  test("with no team context the frontmatter and non-md refusals still fire", () => {
+    put(join(kit(), "SKILL.md"), "---\nname: review-kit\ndescription: for {{team.x}}\n---\nBody\n");
+    put(join(kit(), "scripts", "x.sh"), "echo {{team.x}}\n");
+    expect(plan({ ship: "skills" }, null).errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: {{team.x}} -- team markers only resolve in a body, not frontmatter (line 3)",
+      "acme-base:attachments/review-kit/scripts/x.sh: {{team.x}} -- team markers only resolve in .md files (line 1)",
+    ]);
+  });
+
+  test("unknown non-team markers still pass through", () => {
+    put(join(kit(), "SKILL.md"), "Use {{ticket.id}} and {{team.linear-team}}.\n");
+    const result = plan({ ship: "skills" }, teamWith({ "linear-team": "Widgets" }));
+    expect(result.errors).toEqual([]);
+    expect(textOf(result, "SKILL.md")).toBe("Use {{ticket.id}} and Widgets.\n");
   });
 });

@@ -47,9 +47,20 @@ function dropPending(p: Probes, org: string, packs: string[]): void {
   });
 }
 
-/** Remembers that `pack` still has to be committed with `paths`, so `rt team publish` can finish its share. */
+/** `paths` first, so the pack folder stays the entry `owedShares` checks for. */
+function withOwedPaths(paths: string[], owed: PendingPackShare | undefined): string[] {
+  return owed ? [...new Set([...paths, ...owed.paths])] : paths;
+}
+
+/**
+ * Remembers that `pack` still has to be committed with `paths`, so `rt team publish` can finish its share.
+ * Adds to the pack's remembered paths: a resumed init writes nothing the stopped run already wrote.
+ */
 export function rememberPackShare(p: Probes, org: string, pack: string, paths: string[]): void {
-  editTeamLocal(p, org, (current) => ({ pendingPackShares: [...(current.pendingPackShares ?? []).filter((share) => share.pack !== pack), { pack, paths }] }));
+  editTeamLocal(p, org, (current) => {
+    const recorded = current.pendingPackShares ?? [];
+    return { pendingPackShares: [...recorded.filter((share) => share.pack !== pack), { pack, paths: withOwedPaths(paths, recorded.find((share) => share.pack === pack)) }] };
+  });
 }
 
 function packList(packs: string[]): string {
@@ -110,7 +121,7 @@ export async function sharePack(p: Probes, org: string, pack: string, paths: str
   try {
     const owing = owedShares(p, org);
     skipped = owing.skipped;
-    shares = [...owing.owed.filter((share) => share.pack !== pack), { pack, paths }];
+    shares = [...owing.owed.filter((share) => share.pack !== pack), { pack, paths: withOwedPaths(paths, owing.owed.find((share) => share.pack === pack)) }];
     await commitShares(p, org, shares);
   } catch (err) {
     rememberPackShare(p, org, pack, paths);

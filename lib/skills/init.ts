@@ -1,13 +1,16 @@
-import { join, relative } from "path";
+import { dirname, join, relative } from "path";
+import { shellQuote } from "../nav-fs.ts";
 import { applyEdits, modify } from "jsonc-parser";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { readSection } from "../../packages/rt-client/src/settings/migrate.ts";
 import { getDef } from "../settings/registry.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
-import { FragmentError, parseFragment } from "./manifest-merge.ts";
+import { FragmentError, parseFragment, type Fragment } from "./manifest-merge.ts";
+import { normalizePipelines } from "./pipelines.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
+import type { MissingMarker } from "./team-params.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
 import { readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
@@ -88,13 +91,32 @@ export function isPackDir(fs: Pick<InitFs, "exists">, dir: string): boolean {
 
 /** An unreadable fragment is not a base, so materialize still tries the pack and reports the parse error against it. */
 export function isBasePack(fs: Pick<InitFs, "readFile">, dir: string): boolean {
+  return readBaseFragment(fs, dir) !== null;
+}
+
+/** The fragment of the base pack at `dir`; null when `dir` holds no readable fragment marked as a base. */
+function readBaseFragment(fs: Pick<InitFs, "readFile">, dir: string): Fragment | null {
   const path = join(dir, "pack", "skills.jsonc");
   const text = fs.readFile(path);
-  if (text === null) return false;
+  if (text === null) return null;
   try {
-    return parseFragment(text, path).base === true;
+    const fragment = parseFragment(text, path);
+    return fragment.base === true ? fragment : null;
   } catch (err) {
-    if (err instanceof FragmentError) return false;
+    if (err instanceof FragmentError) return null;
+    throw err;
+  }
+}
+
+/** The base a written but uncompiled pack names: null for none, undefined when no readable fragment is there yet. */
+function writtenPackExtends(fs: Pick<InitFs, "readFile">, packDir: string): string | null | undefined {
+  const path = join(packDir, "pack", "skills.jsonc");
+  const text = fs.readFile(path);
+  if (text === null) return undefined;
+  try {
+    return parseFragment(text, path).extends ?? null;
+  } catch (err) {
+    if (err instanceof FragmentError) return undefined;
     throw err;
   }
 }
@@ -246,19 +268,35 @@ export function packDescription(pack: string): string {
   return `The ${pack} team pack for mattstack pipelines: the team's verb roster and bindings fragment, plus the domain fills bound to the generic stages.`;
 }
 
-export function renderPackFiles(opts: { pack: string; workDescription: string }): Record<string, string> {
-  const { pack, workDescription } = opts;
+const SEED_BINDINGS: Record<string, Record<string, string>> = {
+  "mattstack:work": { tiering: "mattstack:model-tiering" },
+  "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" },
+};
+
+/** The seed's bindings minus every slot `base` sets: a pack's layer sits over its base's at materialize, so a seeded default would replace the base's choice. */
+function seedBindingsOver(base: Fragment | undefined): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  for (const [engineRef, slots] of Object.entries(SEED_BINDINGS)) {
+    const kept = Object.entries(slots).filter(([slot]) => !(base?.bindings?.[engineRef] && Object.hasOwn(base.bindings[engineRef], slot)));
+    if (kept.length > 0) out[engineRef] = Object.fromEntries(kept);
+  }
+  return out;
+}
+
+export function renderPackFiles(opts: { pack: string; workDescription: string; extendsBase?: string; baseFragment?: Fragment }): Record<string, string> {
+  const { pack, workDescription, extendsBase, baseFragment } = opts;
   const plugin = { name: pack, version: "0.1.0", description: packDescription(pack), skills: "./skills/" };
   const stubs = { verbs: { work: { engine: "work", description: workDescription } } };
+  const baseHasFeature = Object.hasOwn(normalizePipelines(baseFragment?.pipelines).stages, "feature");
+  const bindings = seedBindingsOver(baseFragment);
   const manifest = {
     version: 1,
+    ...(extendsBase ? { extends: extendsBase } : {}),
     skills: { enabled: ["mattstack:work", "mattstack:model-tiering"] },
-    pipelines: { feature: PIPELINE_STAGES.map((s) => `mattstack:${s}`) },
-    bindings: {
-      "mattstack:work": { tiering: "mattstack:model-tiering" },
-      "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" },
-    },
+    ...(baseHasFeature ? {} : { pipelines: { feature: PIPELINE_STAGES.map((s) => `mattstack:${s}`) } }),
+    ...(Object.keys(bindings).length > 0 ? { bindings } : {}),
   };
+  const pipelineNote = baseHasFeature ? `// The feature pipeline comes from ${extendsBase}.` : "// The seed declares one pipeline, feature.";
   return {
     ".claude-plugin/plugin.json": JSON.stringify(plugin, null, 2) + "\n",
     "PACK.md": renderPackMd(pack),
@@ -277,7 +315,7 @@ export function renderPackFiles(opts: { pack: string; workDescription: string })
       "// defaults and over any base pack into the per-pack file at\n" +
       `// ~/.mattstack/repos/<repo>/packs/${pack}/skills.jsonc. Every domain slot is\n` +
       "// optional; bind one with rt skills bind (see mattstack:extending-a-pack).\n" +
-      "// The seed declares one pipeline, feature. To give a kind of work its own\n" +
+      `${pipelineNote} To give a kind of work its own\n` +
       "// stages or fills, add a specialized pipeline with mattstack:extending-a-pack.\n" +
       JSON.stringify(manifest, null, 2) + "\n",
   };
@@ -335,7 +373,7 @@ export type InitDeps = {
   claude: ((args: string[]) => Promise<RunResult>) | null;
   registerRepo(repoDir: string): Promise<string>;
   materialize(repoName: string, pack: string): Promise<{ ok: boolean; detail: string }>;
-  compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[] }>;
+  compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[]; missing?: MissingMarker[] }>;
   check(packDir: string, manifestPath: string): Promise<{ drift: boolean }>;
   /** `paths` are relative to the org clone. */
   sharePack(zone: ZoneInfo, paths: string[]): Promise<PackShare>;
@@ -354,8 +392,8 @@ function sharePathsFor(zone: ZoneInfo, packDir: string, wrote: string[]): string
 
 export type InitRefusalCode =
   | "not-yours" | "other-org"
-  | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host"
-  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app";
+  | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host" | "base-missing"
+  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing" | "extends-conflict" | "base-chained";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
 
@@ -372,17 +410,59 @@ export type InitOutcome =
       tryNext: string;
       published: PackShare;
     }
-  | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string; why?: string }
+  | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string; why?: string; wrote?: string[] }
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
-export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict", "needs-newer-app"]);
+export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict", "needs-newer-app", "extends-conflict", "base-chained"]);
 
 /** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
-export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host"]);
+export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host", "params-missing"]);
 
-function refuse(code: InitRefusalCode, detail: string, next?: string, why?: string): InitOutcome {
-  return { ok: false, refused: true, code, detail, ...(next ? { next } : {}), ...(why ? { why } : {}) };
+function refuse(code: InitRefusalCode, detail: string, next?: string, why?: string, wrote?: string[]): InitOutcome {
+  return { ok: false, refused: true, code, detail, ...(next ? { next } : {}), ...(why ? { why } : {}), ...(wrote ? { wrote } : {}) };
+}
+
+function missingDetail(missing: MissingMarker[]): string {
+  const items = missing.map((m) => `${m.kind === "param" ? m.name : `the ${m.name} section`} in ${m.file}${m.askedBy.length > 0 ? ` (asked by ${m.askedBy.join(", ")})` : ""}`);
+  return `The base pack asks for values only your team can give: ${items.join("; ")}`;
+}
+
+/** Adds each key as "" to the params file, keeping its comments and every value already there. An unreadable file is left for compile to report. */
+function seedParams(fs: InitFs, path: string, keys: string[]): boolean {
+  const existing = fs.readFile(path);
+  const parsed = existing === null ? { params: {} } : readJsonc(fs, path);
+  if (parsed === null) return false;
+  const have = parsed.params && typeof parsed.params === "object" ? parsed.params : {};
+  let text = existing ?? '{\n  "version": 1,\n  "params": {}\n}\n';
+  let changed = false;
+  for (const key of keys) {
+    if (Object.hasOwn(have, key)) continue;
+    text = applyEdits(text, modify(text, ["params", key], "", FORMAT));
+    changed = true;
+  }
+  if (changed) {
+    fs.mkdirp(dirname(path));
+    fs.writeFile(path, text);
+  }
+  return changed;
+}
+
+/** Seeds an empty place for each missing marker and returns the paths it wrote; a file that is already there is left alone. */
+function seedMissing(fs: InitFs, packDir: string, missing: MissingMarker[]): string[] {
+  const wrote: string[] = [];
+  const paramsPath = join(packDir, "pack", "params.jsonc");
+  const keys = missing.filter((m) => m.kind === "param").map((m) => m.name);
+  if (keys.length > 0 && seedParams(fs, paramsPath, keys)) wrote.push(paramsPath);
+  for (const m of missing) {
+    if (m.kind !== "section") continue;
+    const path = join(packDir, m.file);
+    if (fs.exists(path)) continue;
+    fs.mkdirp(dirname(path));
+    fs.writeFile(path, "");
+    wrote.push(path);
+  }
+  return wrote;
 }
 
 /** Anchored to the CLI's own "already ..." phrasings so a failing call that merely mentions the word does not read as success. */
@@ -402,7 +482,16 @@ async function marketplaceNames(claude: NonNullable<InitDeps["claude"]>): Promis
   }
 }
 
-export async function initPack(opts: { repoDir: string; zone: string | null; team: string | null }, deps: InitDeps): Promise<InitOutcome> {
+const SHELL_SAFE = /^[\w./~@%+=:,-]+$/;
+
+/** `repoFlag` is the --repo the person passed, so a retry run from another folder still finds the repo; without one, init used the working folder. */
+function initCommand(repoFlag: string | null | undefined, flags: string): string {
+  const repo = repoFlag ? ` --repo ${SHELL_SAFE.test(repoFlag) ? repoFlag : shellQuote(repoFlag)}` : "";
+  return `rt skills init${repo}${flags ? ` ${flags}` : ""}`;
+}
+
+export async function initPack(opts: { repoDir: string; repoFlag?: string | null; zone: string | null; team: string | null; extendsBase?: string | null }, deps: InitDeps): Promise<InitOutcome> {
+  const retry = (flags: string) => initCommand(opts.repoFlag, flags);
   const remote = await deps.gitRemote(opts.repoDir);
   if (remote.kind === "not-a-repo") return refuse("not-a-repo", "This folder is not a git repo");
   if (remote.kind === "no-remote") return refuse("no-remote", "This repo has no git remote", "git remote add origin <url>");
@@ -417,7 +506,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const claude = deps.claude;
 
   if (opts.team !== null && !TEAM_NAME_RE.test(opts.team)) {
-    return refuse("zone-missing", `${opts.team || "An empty name"} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, "rt skills init --team <name>");
+    return refuse("zone-missing", `${opts.team || "An empty name"} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, retry("--team <name>"));
   }
   // Checked before anything is written: a refusal after createZone or compile would leave an org or a pack on disk.
   const floorRefusal = (label: string): InitOutcome | null => {
@@ -440,6 +529,9 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   let zones = currentZones();
   let choice = chooseZone(zones, repo, wanted());
   if (choice.kind === "missing" && orgs.length === 0) {
+    if (opts.extendsBase != null) {
+      return refuse("base-missing", `This Mac has no org yet, so there is no base pack called ${opts.extendsBase || "(empty)"}`, "rt team join", "A base pack lives in the org that made it, so join that org first");
+    }
     if (!deps.isTTY || opts.team !== null) {
       return refuse("zone-missing", "This Mac has no org yet, so there is no team to hold a pack", `rt team create <name> --remote <url> --first-team ${opts.team ?? "<team>"}`);
     }
@@ -467,7 +559,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
       : refuse("zone-missing", `No team on ${repo.host} is free for a new pack`, "rt team add <team> --owner <username>", adminsOnly);
   }
   if (choice.kind === "ambiguous") {
-    return refuse("zone-ambiguous", `More than one team could hold this pack: ${choice.zones.map((z) => z.team).join(", ")}`, "rt skills init --team <name>");
+    return refuse("zone-ambiguous", `More than one team could hold this pack: ${choice.zones.map((z) => z.team).join(", ")}`, retry("--team <name>"));
   }
   if (choice.kind === "mismatch") {
     return refuse("zone-mismatch", `The ${choice.zone.team} team is on ${choice.zone.host}, but this repo is on ${repo.host}`);
@@ -477,6 +569,41 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const packDir = zonePackDir(zone);
   if (packIsCompiled(deps.fs, packDir)) {
     return refuse("pack-exists", "This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
+  }
+  const extendsBase = opts.extendsBase ?? null;
+  let baseFragment: Fragment | null = null;
+  if (extendsBase !== null) {
+    const packsDir = join(zone.orgDir, "mattstack", "org", "packs");
+    const baseDir = TEAM_NAME_RE.test(extendsBase) ? join(packsDir, extendsBase) : null;
+    baseFragment = baseDir !== null && deps.fs.exists(baseDir) ? readBaseFragment(deps.fs, baseDir) : null;
+    if (baseFragment === null || baseFragment.extends) {
+      const bases = deps.fs.exists(packsDir)
+        ? deps.fs.readDir(packsDir).filter((name) => {
+            const fragment = readBaseFragment(deps.fs, join(packsDir, name));
+            return fragment !== null && !fragment.extends;
+          }).sort()
+        : [];
+      const listed = bases.length > 0 ? `. Bases here: ${bases.join(", ")}` : "";
+      const pickBase = retry(`--team ${zone.team} --extends <base>`);
+      if (baseFragment !== null) {
+        return refuse(
+          "base-chained",
+          `The ${extendsBase} pack in the ${zone.org} org extends ${baseFragment.extends}, and a base pack cannot extend another${listed}`,
+          bases.length > 0 ? pickBase : undefined,
+          `An org admin has to fix ${extendsBase} so it extends nothing`,
+        );
+      }
+      return refuse("base-missing", `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org${listed}`, pickBase);
+    }
+  }
+  const writtenExtends = writtenPackExtends(deps.fs, packDir);
+  if (extendsBase !== null && writtenExtends !== undefined && writtenExtends !== extendsBase) {
+    return refuse(
+      "extends-conflict",
+      `This team's pack is already written ${writtenExtends === null ? "without a base" : `extending ${writtenExtends}`}, but this run asked for ${extendsBase}`,
+      retry(`--team ${zone.team}${writtenExtends === null ? "" : ` --extends ${writtenExtends}`}`),
+      "rt never changes the base of a pack it already wrote",
+    );
   }
   const packSource = teamPackSource(zone.team);
   const marketOnDiskEarly = deps.fs.readFile(join(zone.orgDir, ".claude-plugin", "marketplace.json"));
@@ -501,7 +628,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
 
   const share = `rt team publish --team ${zone.org}`;
   const remedyFor = (code: FailureCode): InitRemedy => {
-    if (code === "write-failed") return { commands: ["rt skills init"], folder: packDir };
+    if (code === "write-failed") return { commands: [retry("")], folder: packDir };
     if (code === "materialize-failed") return { commands: [`rt skills materialize --dir ${opts.repoDir}`, share] };
     if (code === "compile-failed" || code === "check-drift") {
       return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`, share] };
@@ -531,7 +658,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   };
 
   try {
-    for (const [rel, text] of Object.entries(renderPackFiles({ pack, workDescription }))) {
+    for (const [rel, text] of Object.entries(renderPackFiles({ pack, workDescription, ...(extendsBase !== null ? { extendsBase } : {}), ...(baseFragment !== null ? { baseFragment } : {}) }))) {
       const full = join(packDir, rel);
       if (deps.fs.exists(full)) continue;
       deps.fs.mkdirp(join(full, ".."));
@@ -568,6 +695,21 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const compiledAttempt = await attempt("compile-failed", () => deps.compile(packDir, manifestPath));
   if ("outcome" in compiledAttempt) return compiledAttempt.outcome;
   const compiled = compiledAttempt.value;
+  if (compiled.missing && compiled.missing.length > 0) {
+    let seeded: string[];
+    try {
+      seeded = seedMissing(deps.fs, packDir, compiled.missing);
+    } catch (err) {
+      return failed("write-failed", err instanceof Error ? err.message : String(err));
+    }
+    return refuse(
+      "params-missing",
+      missingDetail(compiled.missing),
+      retry(`--team ${zone.team}${extendsBase !== null ? ` --extends ${extendsBase}` : ""}`),
+      "Each one has an empty place in your pack. Fill them in, then run this again.",
+      seeded,
+    );
+  }
   if (!compiled.ok) return failed("compile-failed", compiled.errors.join("\n"));
   const checkedAttempt = await attempt("check-drift", () => deps.check(packDir, manifestPath));
   if ("outcome" in checkedAttempt) return checkedAttempt.outcome;

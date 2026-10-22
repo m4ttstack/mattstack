@@ -1,6 +1,6 @@
-export type DriftCause = "frontmatter" | "source" | "fill" | "include" | "structure" | "vendored";
+export type DriftCause = "frontmatter" | "source" | "fill" | "include" | "structure" | "vendored" | "team";
 
-const MARKER_RE = /^<!-- part: (step|slot:\S+|include:\S+) /;
+const MARKER_RE = /^<!-- part: (step|slot:\S+|include:\S+|section:\S+) /;
 
 function splitParts(md: string): { key: string; text: string }[] {
   const parts = [{ key: "frontmatter", text: "" }];
@@ -15,6 +15,7 @@ function splitParts(md: string): { key: string; text: string }[] {
 function causeOf(key: string): DriftCause {
   if (key === "frontmatter") return "frontmatter";
   if (key === "step") return "source";
+  if (key.startsWith("section:")) return "team";
   return key.startsWith("slot:") ? "fill" : "include";
 }
 
@@ -43,13 +44,14 @@ export function skillMdDriftCauses(onDisk: string, expected: string): DriftCause
 
 export type PartExtent = { key: string; version: string | null; start: number; end: number; text: string };
 
-const EXTENT_RE = /^<!-- part: (slot:\S+|include:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
+const EXTENT_RE = /^<!-- part: (slot:\S+|include:\S+|section:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
 const MARKER_VERSION_RE = /^(<!-- part: .*?\bversion=)\S+/gm;
 
 /**
  * An include part is its marker plus exactly its `lines=` count: include bodies
- * are verbatim. A slot's count is in SOURCE lines, and a nested include marker
- * stands for the one `{{include}}` line it replaced while carrying its own body
+ * are verbatim, as are a section's. A slot's count is in SOURCE lines, less any
+ * line an absent optional section dropped, and a nested include or section
+ * marker stands for the one source line it replaced while carrying its own body
  * lines on top, so the walk counts the marker once and steps over that body.
  * The legacy engine also puts one blank separator between a slot marker and its
  * fill; fill bodies are trimmed on load, so a blank there is never fill text.
@@ -67,14 +69,14 @@ export function partExtents(md: string): PartExtent[] {
     if (!marker) continue;
     let first = i + 1;
     let last: number;
-    if (marker.key.startsWith("include:")) {
+    if (!marker.key.startsWith("slot:")) {
       last = i + marker.count;
     } else {
       if (lines[first]?.trim() === "") first++;
       last = first - 1;
       for (let consumed = 0; consumed < marker.count && last + 1 < lines.length; consumed++) {
         const nested = markerAt(last + 1);
-        last += nested?.key.startsWith("include:") ? 1 + nested.count : 1;
+        last += nested && !nested.key.startsWith("slot:") ? 1 + nested.count : 1;
       }
     }
     last = Math.min(lines.length - 1, last);

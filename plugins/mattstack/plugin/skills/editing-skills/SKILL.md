@@ -38,7 +38,8 @@ the cache copy itself.
 
 **Where a team pack edit goes.** In the org clone itself, at the Source
 row's path, on the branch the clone has checked out: every fill, skill,
-`pack/skills.jsonc`, `pack/stubs.jsonc` and `pack/surface.jsonc` edit, and
+`pack/skills.jsonc`, `pack/stubs.jsonc`, `pack/surface.jsonc`,
+`pack/params.jsonc` and `pack/sections/` edit, and
 its commit and push. Never in a git worktree or another copy of the org
 repo: materialize reads a pack's fragment only from the org clone, and sync
 publishes the checkout the marketplace names (the org clone) and refuses a
@@ -595,7 +596,8 @@ What `compile` and `check` read:
 | the pack's own fills                         | the pack dir `--pack` resolves (the org clone)                                                                                       |
 | everything, for `--pack mattstack` itself    | the monorepo CHECKOUT's plugins/mattstack (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
 | mattstack version in every seam marker       | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
-| the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json` (never hand-edited; `check` reports a stale one as drift). mattstack's own floor is hand-maintained |
+| the team pack's `pack/params.jsonc` and `pack/sections/<name>.md` | the pack dir, like its fills: compile fills the org base's `{{team.*}}` markers from them, so an edit is drift to `check` and a source change to sync (mattstack:extending-a-pack) |
+| the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json`, raised to the release that resolves `{{team.*}}` markers when the pack's base text uses one (never hand-edited; `check` reports a stale one as drift). mattstack's own floor is hand-maintained |
 
 ## When a hand-written skill needs shared plugin text
 

@@ -4,7 +4,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { checkPack, compilePackAll, computeRows, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
+import { checkBlocks, checkPack, compilePackAll, computeRows, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
 import { compileSkill, HEADER_COMMENT } from "../../lib/skills/compile.ts";
 import { setFieldContractSeverityForTest } from "../../lib/skills/field-contract.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
@@ -15,7 +15,10 @@ import type { VerbDef } from "../../lib/skills/types.ts";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import * as ui from "../../lib/ui/out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
+import { TEAM_MARKERS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
+import { changedPartKeys, partExtents } from "../../lib/skills/drift.ts";
 
 const realInitFsForTests: MaterializeFs = {
   exists: existsSync,
@@ -1729,6 +1732,351 @@ describe("base pack attachments", () => {
 
     expect(errors).toEqual([]);
     expect(readFileSync(join(packDir, "attachments", "data", "compiled.json"), "utf8")).toBe(data);
+  });
+
+  describe("team values in base text", () => {
+    const DOMAIN_WITH_TEAM = DOMAIN_SKILL_MD + "Linear team: {{team.linear-team}}.\n";
+    const CI_NOTES_MD = "---\nname: ci-notes\ndescription: CI notes\n---\nExtra jobs:\n{{team.section:ci-extra}}\n";
+    const TWO_VERBS = JSON.stringify({ verbs: {
+      "watch-ci": { engine: "watch-ci", description: "Use when watching or triaging CI." },
+      "triage-ci": { engine: "watch-ci", description: "Use when sorting CI failures." },
+    } });
+    const TITLE = "The widgets pack is missing values the acme-base pack asks for";
+
+    function seedTeamValues(opts: { domainBody?: string; ciNotes?: boolean } = {}) {
+      const seeded = seedBaseAndTeam({
+        domainBody: opts.domainBody ?? DOMAIN_WITH_TEAM,
+        baseFiles: opts.ciNotes === false ? {} : { "attachments/ci-notes/SKILL.md": CI_NOTES_MD },
+      });
+      writeFile(join(seeded.packDir, "pack", "stubs.jsonc"), TWO_VERBS);
+      const setValues = (params: Record<string, string>, sections: Record<string, string> = {}) => {
+        writeFile(join(seeded.packDir, "pack", "params.jsonc"), JSON.stringify({ version: 1, params }));
+        for (const [name, text] of Object.entries(sections)) writeFile(join(seeded.packDir, "pack", "sections", `${name}.md`), text);
+      };
+      const run = (argv: string[]) => runSkillsCapturing([...argv, "--team", "widgets", "--pack-dir", seeded.packDir, "--mattstack-dir", seeded.mattstackDir]);
+      return { ...seeded, setValues, run };
+    }
+
+    function filesUnder(dir: string): Record<string, string> {
+      const files: Record<string, string> = {};
+      for (const side of ["skills", "attachments"]) {
+        const root = join(dir, side);
+        if (!existsSync(root)) continue;
+        for (const rel of readdirSync(root, { recursive: true }) as string[]) {
+          const abs = join(root, rel);
+          if (statSync(abs).isFile()) files[`${side}/${rel}`] = readFileSync(abs, "utf8");
+        }
+      }
+      return files;
+    }
+
+    test("compile refuses with every missing value listed and writes nothing", async () => {
+      const { packDir, mattstackDir, compile, setValues } = seedTeamValues();
+
+      const { exitCode, errors } = await compile();
+
+      expect(exitCode).toBe(1);
+      expect(errors[0]).toBe(TITLE);
+      expect(errors).toContain("  pack/params.jsonc: linear-team (acme-base:watch-ci-domain)");
+      expect(errors).toContain("  pack/sections/ci-extra.md (acme-base:attachments/ci-notes/SKILL.md)");
+      expect(errors.join("\n")).toContain("rt skills compile --pack widgets");
+      expect(existsSync(join(packDir, "skills"))).toBe(false);
+      expect(existsSync(join(packDir, "attachments", "ci-notes"))).toBe(false);
+      expect(existsSync(join(packDir, "attachments", "review-kit"))).toBe(false);
+      expect(existsSync(join(packDir, "pack", "requires.json"))).toBe(false);
+
+      const viaSync = await compilePackAll({ packDir, mattstackDir });
+      expect(viaSync.ok).toBe(false);
+      expect(viaSync.errors[0]).toBe(TITLE);
+      expect(viaSync.written).toEqual([]);
+      expect(viaSync.missing).toEqual([
+        { kind: "param", name: "linear-team", file: "pack/params.jsonc", askedBy: ["acme-base:watch-ci-domain"] },
+        { kind: "section", name: "ci-extra", file: "pack/sections/ci-extra.md", askedBy: ["acme-base:attachments/ci-notes/SKILL.md"] },
+      ]);
+
+      setValues({ "linear-team": "Widgets" }, { "ci-extra": "- lint\n- e2e\n" });
+      expect((await compilePackAll({ packDir, mattstackDir })).ok).toBe(true);
+      expect(readFileSync(join(packDir, "skills", "triage-ci", "SKILL.md"), "utf8")).toContain("Linear team: Widgets.");
+      expect(readFileSync(join(packDir, "attachments", "ci-notes", "SKILL.md"), "utf8")).toContain("Extra jobs:\n- lint\n- e2e\n");
+      expect(JSON.parse(readFileSync(join(packDir, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: TEAM_MARKERS_MIN_ENGINE });
+    });
+
+    test("--json carries missing beside the verb rows and exits 1", async () => {
+      const { packDir, compile } = seedTeamValues();
+
+      const { exitCode } = await compile("--json");
+
+      expect(exitCode).toBeUndefined();
+      expect(process.exitCode).toBe(1);
+      const payload = JSON.parse(io.lines().at(-1)!);
+      expect(payload.written).toBe(false);
+      expect(payload.missing.map((m: { kind: string; name: string }) => `${m.kind}:${m.name}`)).toEqual(["param:linear-team", "section:ci-extra"]);
+      expect(existsSync(join(packDir, "skills"))).toBe(false);
+    });
+
+    test("check lists missing values as a compile error and drops the stale rows a hole would cause", async () => {
+      const { packDir, mattstackDir, compile, setValues } = seedTeamValues();
+      setValues({ "linear-team": "Widgets" }, { "ci-extra": "- lint\n" });
+      expect((await compile()).errors).toEqual([]);
+
+      setValues({});
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.drift).toBe(true);
+      expect(payload.compileErrors).toContain(TITLE);
+      expect(payload.compileErrors).toContain("pack/params.jsonc: linear-team (acme-base:watch-ci-domain)");
+      expect(renderPlain(checkBlocks(payload, false))).toContain("pack/params.jsonc: linear-team (acme-base:watch-ci-domain)");
+      expect(payload.verbs.filter((row) => row.status === "stale")).toEqual([]);
+      expect(payload.attachments.filter((row) => row.status === "stale")).toEqual([]);
+    });
+
+    test("check reports a params edit as drift", async () => {
+      const { packDir, mattstackDir, compile, setValues } = seedTeamValues();
+      setValues({ "linear-team": "Widgets" }, { "ci-extra": "- lint\n" });
+      expect((await compile()).errors).toEqual([]);
+      expect((await checkPack({ packDir, mattstackDir })).drift).toBe(false);
+
+      setValues({ "linear-team": "Gadgets" });
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.drift).toBe(true);
+      expect(payload.verbs.find((row) => row.name === "watch-ci")?.status).toBe("stale");
+      expect(payload.compileErrors).toEqual([]);
+    });
+
+    const DOMAIN_WITH_SECTION = DOMAIN_SKILL_MD + "Rules:\n{{team.section:ci-extra}}\nDone.\n";
+
+    test("a section inlined into a slot is its own anatomy part, and an edit to it is a team change", async () => {
+      const { packDir, mattstackDir, compile, setValues, run } = seedTeamValues({ domainBody: DOMAIN_WITH_SECTION, ciNotes: false });
+      setValues({}, { "ci-extra": "- lint\n- e2e\n- deploy\n" });
+      expect((await compile()).errors).toEqual([]);
+      const rendered = readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8");
+      const lines = rendered.split("\n");
+      const seamAt = lines.findIndex((l) => l.startsWith("<!-- part: section:ci-extra "));
+      expect(seamAt).toBeGreaterThan(0);
+
+      io.clear();
+      await run(["anatomy", "--skill", "watch-ci", "--json"]);
+      const anatomy = JSON.parse(io.stdout());
+      const section = anatomy.parts.find((p: { kind: string }) => p.kind === "section");
+      expect(section).toMatchObject({ name: "ci-extra", renderedLines: [seamAt + 1, seamAt + 4], changed: false });
+      expect(section.source).toMatchObject({ ref: "widgets:pack/sections/ci-extra.md", version: "0.1.0", lines: 3 });
+      expect(section.source.path).toBe(join(packDir, "pack", "sections", "ci-extra.md"));
+      const slot = anatomy.parts.find((p: { kind: string; name: string }) => p.kind === "slot" && p.name === "domain");
+      expect(slot.renderedLines[0]).toBeLessThan(seamAt + 1);
+      expect(slot.renderedLines[1]).toBeGreaterThanOrEqual(seamAt + 5);
+      expect(anatomy.status).toBe("in-sync");
+
+      setValues({}, { "ci-extra": "- lint\n- e2e\n- deploy\n- smoke\n" });
+      const payload = await checkPack({ packDir, mattstackDir });
+      expect(payload.verbs.find((row) => row.name === "watch-ci")).toMatchObject({ status: "stale", staleBecause: ["team"] });
+      expect(renderPlain(checkBlocks(payload, false))).toContain("watch-ci  team values moved: SKILL.md");
+      io.clear();
+      await run(["anatomy", "--skill", "watch-ci", "--json"]);
+      const stale = JSON.parse(io.stdout());
+      expect(stale).toMatchObject({ status: "stale", staleBecause: ["team"] });
+      expect(stale.parts.find((p: { kind: string }) => p.kind === "section")).toMatchObject({ changed: true });
+    });
+
+    const DOMAIN_WITH_ABSENT = DOMAIN_SKILL_MD + "Rules:\n{{team.section:ci-a?}}\n{{team.section:ci-b?}}\nDone.\n";
+
+    test("absent optional sections drop their lines without the slot's extent running into the next slot", async () => {
+      const { packDir, compile, run } = seedTeamValues({ domainBody: DOMAIN_WITH_ABSENT, ciNotes: false });
+      expect((await compile()).errors).toEqual([]);
+      const rendered = readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8");
+      expect(rendered).not.toContain("ci-a");
+      const lines = rendered.split("\n");
+      const domain = partExtents(rendered).find((x) => x.key === "slot:domain")!;
+      expect(lines[domain.end]).toBe("Done.");
+
+      const forgeAt = lines.findIndex((l) => l.startsWith("Slot forge is bound to"));
+      expect(forgeAt).toBeGreaterThan(domain.end);
+      lines[forgeAt] += " edited";
+      expect([...changedPartKeys(lines.join("\n"), rendered)]).toEqual([]);
+
+      io.clear();
+      await run(["anatomy", "--skill", "watch-ci", "--json"]);
+      const slot = JSON.parse(io.stdout()).parts.find((p: { kind: string; name: string }) => p.kind === "slot" && p.name === "domain");
+      expect(slot.renderedLines[1]).toBe(domain.end + 1);
+    });
+
+    test("absent optional sections in a compile-native slot leave the template text after it outside the slot", async () => {
+      const { packDir, mattstackDir } = seedTeamValues({ domainBody: DOMAIN_WITH_ABSENT, ciNotes: false });
+      writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"), slottedStageMd("intro\n{{slot:domain}}\noutro\nmore"));
+      const manifestPath = join(mattstackDir, "widgets-pipelines.jsonc");
+      writeFile(manifestPath, JSON.stringify({
+        pipelines: { feature: ["mattstack:stage-plan"] },
+        bindings: {
+          "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" },
+          "mattstack:stage-plan": { domain: "acme-base:watch-ci-domain" },
+        },
+      }));
+      const flags = ["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath];
+      await runExpectingCleanExit(() => skillsCompile([...flags, "--verb", "stage-plan"]));
+      io.clear();
+      await skillsAnatomy([...flags, "--skill", "stage-plan", "--json"]);
+      const anatomy = JSON.parse(io.stdout());
+      const lines = readFileSync(anatomy.rendered.path, "utf8").split("\n");
+      const slot = anatomy.parts.find((p: { kind: string }) => p.kind === "slot");
+      expect(lines[slot.renderedLines[1] - 1]).toBe("Done.");
+      expect(lines[slot.renderedLines[1]]).toBe("outro");
+      const extent = partExtents(lines.join("\n")).find((x) => x.key === "slot:domain")!;
+      expect(lines[extent.end]).toBe("Done.");
+    });
+
+    test("a compile-native stage lists a section as its own part after the slot that holds it", async () => {
+      const { packDir, mattstackDir, setValues } = seedTeamValues({ domainBody: DOMAIN_WITH_SECTION, ciNotes: false });
+      setValues({}, { "ci-extra": "- lint\n- e2e\n- deploy\n" });
+      writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"), slottedStageMd("intro\n{{slot:domain}}\noutro"));
+      const manifestPath = join(mattstackDir, "widgets-pipelines.jsonc");
+      writeFile(manifestPath, JSON.stringify({
+        pipelines: { feature: ["mattstack:stage-plan"] },
+        bindings: {
+          "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" },
+          "mattstack:stage-plan": { domain: "acme-base:watch-ci-domain" },
+        },
+      }));
+      const flags = ["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath];
+      await runExpectingCleanExit(() => skillsCompile([...flags, "--verb", "stage-plan"]));
+      const anatomyOf = async () => {
+        io.clear();
+        await skillsAnatomy([...flags, "--skill", "stage-plan", "--json"]);
+        return JSON.parse(io.stdout());
+      };
+
+      const fresh = await anatomyOf();
+      const lines = readFileSync(fresh.rendered.path, "utf8").split("\n");
+      const seamAt = lines.findIndex((l) => l.startsWith("<!-- part: section:ci-extra "));
+      expect(fresh.parts.map((p: { kind: string }) => p.kind)).toEqual(["text", "slot", "section", "text"]);
+      const [, slot, section, outro] = fresh.parts;
+      expect(section).toMatchObject({ name: "ci-extra", renderedLines: [seamAt + 1, seamAt + 4], changed: false, templateLines: null });
+      expect(section.source).toMatchObject({ ref: "widgets:pack/sections/ci-extra.md", version: "0.1.0", lines: 3 });
+      expect(slot.renderedLines[0]).toBeLessThan(seamAt + 1);
+      expect(slot.renderedLines[1]).toBeGreaterThanOrEqual(seamAt + 4);
+      expect(lines[outro.renderedLines[0] - 1]).toBe("outro");
+
+      setValues({}, { "ci-extra": "- lint\n- e2e\n- deploy\n- smoke\n" });
+      const stale = await anatomyOf();
+      expect(stale).toMatchObject({ status: "stale", staleBecause: ["team"] });
+      const staleSection = stale.parts.find((p: { kind: string }) => p.kind === "section");
+      expect(staleSection).toMatchObject({ changed: true, renderedLines: [seamAt + 1, seamAt + 4] });
+    });
+
+    test("preview, anatomy and composition refuse on missing values", async () => {
+      const { run } = seedTeamValues();
+
+      for (const argv of [["compile", "--preview", "--verb", "watch-ci"], ["anatomy", "--skill", "watch-ci"], ["composition"]]) {
+        const { exitCode, stderr } = await run(argv);
+        expect({ argv, exitCode, title: stderr.split("\n")[0]!.replace(/^\[failed\] /, "") }).toEqual({ argv, exitCode: 1, title: TITLE });
+      }
+      expect(io.stdout()).not.toContain("Linear team:");
+    });
+
+    test("unused key warns on a full compile", async () => {
+      const { compile, setValues } = seedTeamValues();
+      setValues({ "linear-team": "Widgets", "old-key": "x" }, { "ci-extra": "- lint\n" });
+
+      expect((await compile()).errors).toEqual([]);
+      expect(io.stdout()).toContain("pack/params.jsonc: old-key is not asked for by any base text this pack compiles");
+
+      io.clear();
+      await compile("--json", "--dry-run");
+      expect(JSON.parse(io.lines().at(-1)!).unusedParams).toEqual(["old-key"]);
+    });
+
+    test("unused key does not warn under --verb", async () => {
+      const { compile, setValues } = seedTeamValues();
+      setValues({ "linear-team": "Widgets", "old-key": "x" }, { "ci-extra": "- lint\n" });
+
+      expect((await compile("--verb", "watch-ci")).errors).toEqual([]);
+      expect(io.stdout()).not.toContain("old-key");
+
+      io.clear();
+      await compile("--json", "--dry-run", "--verb", "watch-ci");
+      expect(JSON.parse(io.lines().at(-1)!)).not.toHaveProperty("unusedParams");
+    });
+
+    test("a pack with no params and no markers compiles byte-identical to one whose base uses only an optional marker", async () => {
+      const plain = seedTeamValues({ domainBody: DOMAIN_SKILL_MD, ciNotes: false });
+      const optional = seedTeamValues({ domainBody: DOMAIN_SKILL_MD.replace("for details.", "for details.{{team.note?}}"), ciNotes: false });
+
+      expect((await plain.compile()).errors).toEqual([]);
+      expect((await optional.compile()).errors).toEqual([]);
+
+      const files = filesUnder(plain.packDir);
+      expect(Object.keys(files).length).toBeGreaterThan(0);
+      expect(filesUnder(optional.packDir)).toEqual(files);
+      expect(existsSync(join(plain.packDir, "pack", "requires.json"))).toBe(false);
+    });
+
+    test("a team marker in a stage fill's allowed-tools refuses a scoped orchestrator compile before it reaches the orchestrator's frontmatter", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-native-")));
+      cpSync(join(import.meta.dir, "..", "..", "lib", "skills", "__tests__", "fixtures", "compile-native"), root, { recursive: true });
+      const fill = join(root, "pack", "attachments", "plan-policy", "SKILL.md");
+      writeFile(fill, readFileSync(fill, "utf8").replace("metadata:", 'allowed-tools:\n  - "Read({{team.x}})"\nmetadata:'));
+      const ms = join(root, "mattstack-home");
+      const flags = ["--pack-dir", join(root, "pack"), "--mattstack-dir", ms, "--manifest", join(ms, "repos", "my-repo", "skills.jsonc")];
+
+      const { exitCode, stderr } = await runSkillsCapturing(["compile", ...flags, "--verb", "work", "--dry-run"]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("team markers only resolve in a body, not frontmatter");
+    });
+
+    test("a team marker in a base fill's description refuses with the file line instead of being dropped with the frontmatter", async () => {
+      const { packDir, compile, setValues } = seedTeamValues({ domainBody: DOMAIN_WITH_TEAM.replace('"Domain rules for watch-ci"', '"Domain rules for {{team.linear-team}}"'), ciNotes: false });
+      setValues({ "linear-team": "Widgets" });
+
+      const { exitCode, errors } = await compile();
+
+      expect(exitCode).toBe(1);
+      expect(errors.join("\n")).toContain("acme-base:watch-ci-domain: {{team.linear-team}} -- team markers only resolve in a body, not frontmatter (line 3)");
+      expect(existsSync(join(packDir, "skills"))).toBe(false);
+    });
+
+    test("a team marker in a compile-native stage fill's description refuses with the file line", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-native-")));
+      cpSync(join(import.meta.dir, "..", "..", "lib", "skills", "__tests__", "fixtures", "compile-native"), root, { recursive: true });
+      const fill = join(root, "pack", "attachments", "plan-policy", "SKILL.md");
+      writeFile(fill, readFileSync(fill, "utf8").replace('description: "plan-policy"', 'description: "plan-policy for {{team.x}}"'));
+      const ms = join(root, "mattstack-home");
+      const flags = ["--pack-dir", join(root, "pack"), "--mattstack-dir", ms, "--manifest", join(ms, "repos", "my-repo", "skills.jsonc")];
+
+      const { exitCode, stderr } = await runSkillsCapturing(["compile", ...flags, "--verb", "stage-plan", "--dry-run"]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("{{team.x}} -- team markers only resolve in a body, not frontmatter (line 3)");
+    });
+
+    test("requiredness follows each emitted target: a stage copy overridden to a team fill does not need the base fill's values", async () => {
+      const { packDir, mattstackDir, setValues } = seedTeamValues({ ciNotes: false });
+      writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"), slottedStageMd("{{slot:domain}}"));
+      writeFile(join(packDir, "attachments", "own-domain", "SKILL.md"), DOMAIN_SKILL_MD.replace("name: watch-ci-domain", "name: own-domain"));
+      const manifestPath = join(mattstackDir, "widgets-pipelines.jsonc");
+      writeFile(manifestPath, JSON.stringify({
+        pipelines: {
+          feature: ["mattstack:stage-plan"],
+          lite: { stages: ["mattstack:stage-plan"], bindings: { "mattstack:stage-plan": { domain: "widgets:own-domain" } } },
+        },
+        bindings: {
+          "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" },
+          "mattstack:stage-plan": { domain: "acme-base:watch-ci-domain" },
+        },
+      }));
+      const compile = (verb: string) => runExpectingCleanExit(() =>
+        skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", verb]));
+
+      expect((await compile("stage-plan--lite")).errors).toEqual([]);
+      expect(existsSync(join(packDir, "attachments", "stage-plan--lite", "SKILL.md"))).toBe(true);
+
+      const refused = await compile("stage-plan");
+      expect(refused.exitCode).toBe(1);
+      expect(refused.errors[0]).toBe(TITLE);
+      expect(refused.errors).toContain("  pack/params.jsonc: linear-team (acme-base:watch-ci-domain)");
+
+      setValues({ "linear-team": "Widgets" });
+      expect((await compile("stage-plan")).errors).toEqual([]);
+    });
   });
 });
 

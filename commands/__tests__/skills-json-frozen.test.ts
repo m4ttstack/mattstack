@@ -6,6 +6,7 @@ import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
 import { checkPack, skillsCheck, skillsCompile, skillsComposition, skillsPacks, skillsSurface } from "../skills.ts";
 import { skillsLink } from "../skills-link.ts";
+import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 let io: CapturedOut;
 let root: string;
@@ -18,6 +19,25 @@ function makePack(): string {
   mkdirSync(join(dir, "skills", "x"), { recursive: true });
   writeFileSync(join(dir, "skills", "x", "SKILL.md"), "---\nname: x\n---\nNo commands here.\n");
   return dir;
+}
+
+/** A rosterless widgets team pack in an acme org whose base copies one attachment asking for a section the team has not written. */
+function makeTeamPackMissingASection(): string {
+  const org = join(root, "orgs", "acme");
+  mkdirSync(join(org, ".git"), { recursive: true });
+  mkdirSync(join(org, "mattstack"), { recursive: true });
+  writeFileSync(join(org, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }));
+  const base = join(org, "mattstack", "org", "packs", "acme-base");
+  mkdirSync(join(base, "pack"), { recursive: true });
+  writeFileSync(join(base, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+  mkdirSync(join(base, "attachments", "ci-notes"), { recursive: true });
+  writeFileSync(join(base, "attachments", "ci-notes", "SKILL.md"), "---\nname: ci-notes\ndescription: CI notes\n---\nExtra jobs:\n{{team.section:ci-extra}}\n");
+  const pack = join(org, "mattstack", "teams", "widgets", "plugin");
+  mkdirSync(join(pack, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(pack, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
+  mkdirSync(join(pack, "pack"), { recursive: true });
+  writeFileSync(join(pack, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+  return pack;
 }
 
 /** stdout is exactly one line, and that line is compact JSON. */
@@ -60,6 +80,26 @@ test("skills check --json is the check payload minus drift, in this key order, e
 test("skills compile --json is one line with these keys", async () => {
   await skillsCompile(["--pack-dir", makePack(), "--dry-run", "--json"]);
   expect(Object.keys(oneJsonLine().value)).toEqual(["pack", "packDir", "manifestPath", "repoKey", "written", "verbs", "misplaced", "fieldContract"]);
+});
+
+test("skills compile --json with missing team values adds missing after fieldContract and exits 1", async () => {
+  await skillsCompile(["--pack-dir", makeTeamPackMissingASection(), "--dry-run", "--json"]);
+  const { value } = oneJsonLine();
+  expect(Object.keys(value)).toEqual(["pack", "packDir", "manifestPath", "repoKey", "written", "verbs", "misplaced", "fieldContract", "missing"]);
+  expect(value.written).toBe(false);
+  expect(value.missing).toEqual([{ kind: "section", name: "ci-extra", file: "pack/sections/ci-extra.md", askedBy: ["acme-base:attachments/ci-notes/SKILL.md"] }]);
+  expect(process.exitCode).toBe(1);
+});
+
+test("skills check --json with missing team values keeps its keys and names the refusal in compileErrors", async () => {
+  await skillsCheck(["--pack-dir", makeTeamPackMissingASection(), "--json"]);
+  const { value } = oneJsonLine();
+  expect(Object.keys(value).slice(-4)).toEqual(["attachments", "baseErrors", "compileErrors", "fieldContract"]);
+  expect((value.compileErrors as string[]).slice(0, 2)).toEqual([
+    "The widgets pack is missing values the acme-base pack asks for",
+    "pack/sections/ci-extra.md (acme-base:attachments/ci-notes/SKILL.md)",
+  ]);
+  expect(process.exitCode).toBe(1);
 });
 
 test("skills composition --json is one line with these keys", async () => {

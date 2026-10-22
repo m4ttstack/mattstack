@@ -104,7 +104,7 @@ The evidence and ship stages do the rest. They get the app ready, and Fast Brows
 
 ## When a pack needs a newer app
 
-`rt skills compile` writes the floor of the mattstack engine it compiled against into the pack's `pack/requires.json`. The floor is the oldest mattstack app that can run the pack. A teammate whose app is older keeps the pack version they have, or gets none yet, until they update the app; see [Teams and invites](/start/teams#a-pack-that-needs-a-newer-app). `rt skills check` reports a missing or stale `pack/requires.json` as drift. `rt skills init` stops when your own app is older than the floor, and tells you to update the app first.
+`rt skills compile` writes the floor of the mattstack engine it compiled against into the pack's `pack/requires.json`, or a higher one when the pack uses [team values](#which-app-it-needs). The floor is the oldest mattstack app that can run the pack. A teammate whose app is older keeps the pack version they have, or gets none yet, until they update the app; see [Teams and invites](/start/teams#a-pack-that-needs-a-newer-app). `rt skills check` reports a missing or stale `pack/requires.json` as drift. `rt skills init` stops when your own app is older than the floor, and tells you to update the app first.
 
 ## What not to do
 
@@ -126,7 +126,7 @@ A fill is text compiled into a verb. A file a skill opens while it runs (a refer
 - **What is copied:** every attachment folder in the base that has a `SKILL.md` and is not a fill. A fill's `SKILL.md` carries `metadata.provides`, and compile inlines it instead. When only `board:*` slots bind a fill, compile copies it too. An attachment can sit one group deep, as in `attachments/<group>/<name>/`.
 - **A board fill the base cannot deliver is refused:** compile stops when the base binds a `board:*` slot to a fill it has no `attachments/<name>/` for, or keeps that fill one group deep, since the board finds `attachments/<name>` only.
 - **Where it lands:** the same path under the team pack's `attachments/`. Each copied folder gets a `compiled.json` naming the base, its version and the files compile wrote. That file marks the folder as compile's output: the next successful compile rewrites it, and `rt skills check` reports it as drift when it no longer matches the base.
-- **Placeholders:** in a copied `.md` file, `{{pack.name}}` becomes the team pack's plugin name, so a base attachment names a team verb as `{{pack.name}}:ship`. `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` resolve in the team pack. Any other `{{...}}` text, and every file that is not `.md`, is copied as it is.
+- **Placeholders:** in a copied `.md` file, `{{pack.name}}` becomes the team pack's plugin name, so a base attachment names a team verb as `{{pack.name}}:ship`. `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` resolve in the team pack, and `{{team.*}}` markers take the team's values (see [Team values in shared fills](#team-values-in-shared-fills)). Any other `{{...}}` text, and every file that is not `.md`, is copied as it is.
 - **The team's own folder wins:** compile leaves the team pack's own `attachments/<name>/` alone and copies nothing for that name. A folder is the team's own when it has no `compiled.json` that compile wrote. A data file of that name in another shape does not count. To override a base attachment, delete the copied folder and write your own in its place.
 - **Clashes stop the compile:** a base attachment named like one of the team's verbs, one of its hand-written skills, or one of its attachments at another path is an error that names both. Rename one of them.
 - **Cleanup:** compile removes a copied folder when the base drops that attachment, or when the pack stops extending a base.
@@ -134,6 +134,76 @@ A fill is text compiled into a verb. A file a skill opens while it runs (a refer
 Compile writes and removes nothing when any verb fails to compile, so the copies change only on a compile that succeeds.
 
 Don't edit a copied folder: the next successful compile overwrites it. Edit the attachment in the base pack, bump the base, and compile each team pack.
+
+## Team values in shared fills
+
+Two teams often run the same flow with a few different facts: their Linear team, a ticket prefix, an extra block of CI rules. Keep the flow once in the base, and let each team supply its facts. Don't fork the base fill into a team pack: the copies drift.
+
+Base text carries markers, and compile fills them in from the team pack it is compiling. Markers work in a base fill's body and in the `.md` files of a base attachment copied into a team pack.
+
+| Marker | Compile puts there |
+| --- | --- |
+| `{{team.<key>}}` | The string at `params.<key>` in the team's `pack/params.jsonc`. |
+| `{{team.section:<name>}}` | The contents of the team's `pack/sections/<name>.md`. |
+
+Both are required. Add a trailing `?` (`{{team.<key>?}}`, `{{team.section:<name>?}}`) to make one optional: a team that has not supplied it gets nothing there.
+
+A base fill might read:
+
+```markdown
+Look up the ticket in the {{team.linear-team}} Linear team. Its id
+starts with {{team.ticket-prefix}}-.
+
+{{team.section:ci-extra-jobs?}}
+```
+
+The widgets team pack supplies the values in `pack/params.jsonc`:
+
+```jsonc
+{
+  "version": 1,
+  "params": {
+    "linear-team": "Widgets",
+    "ticket-prefix": "WID"
+  }
+}
+```
+
+It puts its extra CI rules in `pack/sections/ci-extra-jobs.md`, as plain markdown. A team with no such file gets nothing there, since that marker is optional.
+
+The rules:
+
+- A key or section name uses lowercase letters, digits and hyphens. No key may be named `section`.
+- A value is one line. Put a multi-line block in a section.
+- A section marker sits alone on its line.
+- A value marker can sit inside a sentence or a plain path, but never inside another marker.
+- Markers only work in the body of base text. Compile stops on a marker in frontmatter, in a team's own fill, or in a copied file that is not `.md`.
+- Neither a value nor a section may contain `{{`.
+- An empty value, or a section with only whitespace, counts as missing.
+
+### When a team is missing a value
+
+A pack supplies only the markers in base text it compiles. That means the base fills its bindings use in the verbs and stages it compiles, plus its copied `.md` files. A base fill the team overrides with its own fill asks for nothing. When a required one is missing, `rt skills compile` writes nothing and lists every gap at once:
+
+```
+The widgets pack is missing values the acme-base pack asks for
+  pack/params.jsonc: linear-team (acme-base:provision-flow)
+  pack/sections/ci-extra-jobs.md (acme-base:watch-ci-rules)
+```
+
+Add what it lists and compile again. `rt skills check`, `rt skills sync` and the other verbs that compile stop with the same list. A key in `pack/params.jsonc` that no base text asks for is a warning, not an error.
+
+When the base adds a required marker, every team that extends it stops at its next compile until it adds the value.
+
+`pack/params.jsonc` and the sections are pack sources. `rt skills check` reports an edit to them as drift, and `rt skills sync` carries it like a fill edit.
+
+### Starting a pack on a base
+
+`rt skills init --extends acme-base` writes `"extends": "acme-base"` into the new pack. When the base asks the team for values, init adds an empty place for each one and stops with the list. A key gets an empty string in `pack/params.jsonc`, and a section gets an empty file under `pack/sections/`. Fill them in, then run the same `rt skills init` again. It carries on from there and leaves your files alone.
+
+### Which app it needs
+
+Once a pack's base text uses any marker, `rt skills compile` raises that pack's floor to the first mattstack app that fills markers in. Packs that use no markers keep their floor. Start using markers in a base once every member's app has that release.
 
 ## Where things live
 
@@ -143,6 +213,7 @@ Don't edit a copied folder: the next successful compile overwrites it. Edit the 
 | A team's pack | `~/.mattstack/orgs/<org>/mattstack/teams/<team>/plugin/` |
 | The org's base pack | `~/.mattstack/orgs/<org>/mattstack/org/packs/<org>-base/` |
 | A base attachment copied into a team pack | `.../plugin/attachments/<name>/`, with `compiled.json` |
+| A team's values for its base | `.../plugin/pack/params.jsonc` and `.../plugin/pack/sections/<name>.md` |
 | The installed copy sessions load | `~/.claude/plugins/cache/<marketplace>/<pack>/<version>/` |
 
 Packs are the exception to the daemon's automatic commits: the pack's author commits and pushes a pack's edits, and [`rt skills sync`](/rt/reference/skills/sync) brings the installed copies current. See [Teams and invites](/start/teams#team-packs) for how a member's Mac receives the pack.

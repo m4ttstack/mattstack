@@ -223,6 +223,15 @@ describe("lintPackDir", () => {
     expect(hits.map((h) => h.file).sort()).toEqual(["/p/attachments/fill/SKILL.md", "/p/plugin/skills/x/SKILL.md", "/p/skills/work/SKILL.md"]);
   });
 
+  test("mcp lint flags a shell form in pack/sections", () => {
+    const files: Record<string, string> = {
+      "/p/pack/sections/ci-extra-jobs.md": "Run `git push` after the jobs.",
+      "/p/pack/params.jsonc": "`git push`",
+    };
+    const deps = { list: () => Object.keys(files), read: (p: string) => files[p] ?? "" };
+    expect(lintPackDir("/p", RULES, deps).map((h) => h.file)).toEqual(["/p/pack/sections/ci-extra-jobs.md"]);
+  });
+
   test("skips compiled output (it carries the compiler header) and lints the hand-written file beside it", () => {
     const files: Record<string, string> = {
       "/p/skills/work/SKILL.md": `---\nname: work\n---\n${HEADER_COMMENT}\n\`git push\`\n`,

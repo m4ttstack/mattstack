@@ -2449,6 +2449,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Repo", flag: "--repo", type: "text", placeholder: "/path/to/repo", hint: "Repo to declare; defaults to the current directory" },
           { name: "Team", flag: "--team", type: "text", placeholder: "widgets", hint: "The team folder that gets the pack; your own team when left out" },
           { name: "Zone", flag: "--zone", type: "text", placeholder: "acme", hint: "The org, which must be the one this Mac uses" },
+          { name: "Extends", flag: "--extends", type: "text", placeholder: "acme-base", hint: "A shared base pack your org keeps; rt adds an empty place for each value it asks your team for" },
           SETUP_JSON_ARG,
         ],
       },
