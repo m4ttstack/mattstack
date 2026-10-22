@@ -64,9 +64,11 @@ not the agent status.)*
 
 Only the run's recorded session counts. The liveness probe's fallback match
 ("any agent whose cwd is inside the worktree") is not enough, because the
-board must know exactly which session it is ringing. `RunAgent` on the run
-summary carries only `status` and `pane` today; it gains the session id when
-the match came from the recorded session. *(My call.)*
+board must know exactly which session it is ringing. The run summary gains
+`session` (the run's `claude-session` field) and `mr` (its `mr` field),
+denormalized the way `branch` already is, so ownership needs no herdr probe
+at all. A run owns an MR when its `mr` equals the MR's url, or, before ship
+has written `mr`, when its repo and `branch` match. *(My call.)*
 
 If the run lookup itself fails (daemon or herdr unreachable), no run counts
 and the doctor launches as today. *(My call: failing open keeps an outage
