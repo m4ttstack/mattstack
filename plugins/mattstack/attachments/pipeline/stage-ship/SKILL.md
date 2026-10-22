@@ -352,10 +352,10 @@ Resolve each conflicted file `git_rebase` returned, then continue on Bash
 
 ### Push needs force-with-lease?
 
-Yes only when a rebase rewrote commits the upstream already held: one
-that finished this pass, or a board frame's rebase since the last push
-(the work orchestrator's board frame map); never force otherwise. Never push a branch whose
-tests you have not seen pass this session.
+Yes only when the upstream holds commits HEAD no longer contains
+because a rebase rewrote them: one that finished this pass, or a board
+frame's rebase earlier in this run. Never force otherwise. Never push a
+branch whose tests you have not seen pass this session.
 
 ### Off-script gate: git_push refused
 
