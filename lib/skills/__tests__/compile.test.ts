@@ -197,6 +197,37 @@ describe("compileSkill", () => {
     );
   });
 
+  describe("a team marker in a fill's description", () => {
+    const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { x: "y" }, sections: {} }, new Set(["acme-base"]));
+    const marker = { raw: "{{team.x}}", line: 3 };
+
+    test("compiles when the fill is bound by reference, since only its allowed-tools are copied", () => {
+      const forge: AttachmentSource = { ...registeredForgeFill, binding: "acme-base:gitlab-forge", plugin: "acme-base", frontmatterTeamMarker: marker };
+      const refRoster = new Set([...roster, "acme-base:gitlab-forge"]);
+
+      const content = skillFileContent(compileSkill(verb, step, { domain: domainFill, forge }, refRoster, { team }).files);
+
+      expect(content).toContain("Slot forge is bound to `acme-base:gitlab-forge`");
+    });
+
+    test("refuses when an inlined base fill carries it", () => {
+      const domain: AttachmentSource = { ...domainFill, binding: "acme-base:watch-ci-domain", plugin: "acme-base", frontmatterTeamMarker: marker };
+
+      expect(() => compileSkill(verb, step, { domain, forge: forgeFill }, roster, { team })).toThrow(
+        "acme-base:watch-ci-domain: {{team.x}} -- team markers only resolve in a body, not frontmatter (line 3)",
+      );
+    });
+
+    test("a reference-bound fill with one in allowed-tools still refuses", () => {
+      const forge: AttachmentSource = { ...registeredForgeFill, binding: "acme-base:gitlab-forge", plugin: "acme-base", allowedTools: ["Bash({{team.x}}:*)"] };
+      const refRoster = new Set([...roster, "acme-base:gitlab-forge"]);
+
+      expect(() => compileSkill(verb, step, { domain: domainFill, forge }, refRoster, { team })).toThrow(
+        "acme-base:gitlab-forge: {{team.x}} -- team markers only resolve in a body, not frontmatter",
+      );
+    });
+  });
+
   describe("a base fill's vendored files", () => {
     const vendoring = (text: string) => {
       const dir = tempPackRoot();

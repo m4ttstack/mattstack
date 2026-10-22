@@ -3,7 +3,7 @@ import { isAbsolute, join, relative as relativePath, resolve as resolvePath, sep
 import {
   assertNoPlaceholders,
   assertNoTeamMarkerInRawFile,
-  assertNoTeamMarkerInFrontmatter,
+  assertNoTeamMarkerInAllowedTools,
   findPlaceholders,
   readTextUnlessBinary,
   resolveFillTeamMarkers,
@@ -283,7 +283,7 @@ function buildAllowedTools(
   stageRules: string[],
   ctx: PlaceholderContext,
 ): string[] {
-  for (const { fill } of boundSlots) assertNoTeamMarkerInFrontmatter(fill);
+  for (const { fill } of boundSlots) assertNoTeamMarkerInAllowedTools(fill);
   const entries = [
     ...step.allowedTools,
     ...boundSlots.flatMap(({ slotName, fill }) =>

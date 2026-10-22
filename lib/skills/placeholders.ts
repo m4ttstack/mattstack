@@ -58,6 +58,7 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
  */
 export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext | null | undefined): { body: string; span: string } {
   assertNoTeamMarkerInFrontmatter(fill);
+  assertNoTeamMarkerInAllowedTools(fill);
   const hit = firstTeamMarker(fill.body);
   if (!hit) return { body: fill.body, span: spanOf(fill) };
   if (team && team.basePlugins.has(fill.plugin)) {
@@ -70,10 +71,18 @@ export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext
   throw new Error(`${fill.binding}: ${hit.raw} -- team markers only resolve in base pack text (line ${line})`);
 }
 
-/** Compile drops a fill's frontmatter except allowed-tools, which lands in compiled frontmatter unresolved, so a marker anywhere in it would never resolve. */
-export function assertNoTeamMarkerInFrontmatter(fill: AttachmentSource): void {
+/**
+ * An inlined fill's frontmatter is dropped, so a marker there would vanish
+ * unresolved. A reference-bound fill keeps its own frontmatter as an installed
+ * skill, so only its allowed-tools (which compile copies) is checked.
+ */
+function assertNoTeamMarkerInFrontmatter(fill: AttachmentSource): void {
   const marker = fill.frontmatterTeamMarker;
   if (marker) throw new Error(`${fill.binding}: ${marker.raw} -- team markers only resolve in a body, not frontmatter (line ${marker.line})`);
+}
+
+/** allowed-tools lands in compiled frontmatter unresolved, whether the fill is inlined or bound by reference. */
+export function assertNoTeamMarkerInAllowedTools(fill: AttachmentSource): void {
   for (const tool of fill.allowedTools) {
     const hit = firstTeamMarker(tool);
     if (hit) throw new Error(`${fill.binding}: ${hit.raw} -- team markers only resolve in a body, not frontmatter`);

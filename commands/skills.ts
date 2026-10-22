@@ -66,7 +66,7 @@ import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
-import { assertNoTeamMarkerInFrontmatter, findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
+import { assertNoTeamMarkerInAllowedTools, findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { newTeamContext, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
 import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
@@ -765,7 +765,7 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
       rules.push(...step.allowedTools);
       for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`, type))) {
         if (!fill) continue;
-        assertNoTeamMarkerInFrontmatter(fill);
+        assertNoTeamMarkerInAllowedTools(fill);
         rules.push(...fill.allowedTools);
       }
     }
