@@ -380,6 +380,10 @@ diamonds read the named forge, never the URL.
 
 ### Capture the AFTER with the browser (browser-evidence)
 
+Ship captures no BEFORE: a BEFORE is only what the evidence record
+already holds, taken before implementation changed the surface, so a case
+with no bundled BEFORE gets an AFTER board alone.
+
 `Browser screenshot for this case?` is yes when the domain has a
 `## Browser target` section (in its rules, or in the file they point at
 for it) and either its What proves a change names a view for this case's
