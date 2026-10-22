@@ -36,7 +36,8 @@
     max-width: 320px;
   }
 
-  .toast[data-state] {
+  .toast[data-state],
+  .toast[data-icon] {
     display: flex;
     align-items: center;
     gap: var(--spacing-px8);
@@ -46,6 +47,14 @@
     display: inline-flex;
     flex-shrink: 0;
     color: var(--text-accent);
+  }
+
+  /* A given icon sits in a tinted disc so it reads as a badge, not loose
+     glyph ink beside the text. */
+  .toast[data-icon] .status {
+    padding: var(--spacing-px5);
+    border-radius: var(--radius-round);
+    background: var(--surface-wash-accent-14);
   }
 
   .toast[data-state="done"] {

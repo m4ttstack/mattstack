@@ -195,4 +195,20 @@ describe("ToastHost (browser)", () => {
       "couldn't merge",
     ]);
   });
+
+  it("a plain toast given an icon leads with that icon in the status slot", async () => {
+    const screen = await renderWithTheme(
+      <ToastHost toasts={[{ id: 1, text: "console deployed.", icon: CHECK_ICON }]} />,
+    );
+
+    const [toast] = toastsOf(screen.container) as [HTMLElement];
+    expect(toast.hasAttribute("data-icon")).toBe(true);
+    expect(toast.getAttribute("data-state")).toBeNull();
+    expect(
+      toast
+        .querySelector(`[data-part="${TOASTHOST_PARTS.status}"] [data-part="icon"] path`)
+        ?.getAttribute("d"),
+    ).toBe(CHECK_ICON);
+    expect(toast.textContent).toBe("console deployed.");
+  });
 });
