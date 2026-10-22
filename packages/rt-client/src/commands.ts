@@ -425,6 +425,10 @@ export interface RunSummary {
       the run has not produced that field yet. */
   ticket: string | null;
   branch: string | null;
+  /** The run's `claude-session` field; always set by the daemon, null when unrecorded. */
+  session?: string | null;
+  /** The run's own MR url (latest `mr` field, produced by a work stage, an http(s) url); null when none or cleared. */
+  mr?: string | null;
   /** The herdr agent attributed to this run (matched by recorded claude
       session, else by worktree), mirrored live from `herdr agent list`.
       Null when no agent matches or herdr is unavailable; absent on
