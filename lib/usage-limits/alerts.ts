@@ -12,8 +12,8 @@ export const USAGE_LIMIT_CATEGORY = "usage_limit";
 
 export interface UsageAlertConfig {
   thresholds: number[];
-  /** Per-account thresholds, keyed by account email or org UUID. */
-  accounts: Record<string, number[]>;
+  /** Per-account thresholds, keyed by account email or org UUID; `[]` silences one. */
+  accounts?: Record<string, number[]>;
   /** Appended to every alert, e.g. where to ask for more usage. */
   hint?: string;
 }
@@ -29,8 +29,8 @@ export interface UsageAlert {
 }
 
 export function thresholdsFor(usage: AccountUsage, config: UsageAlertConfig): number[] {
-  return config.accounts[usage.account]
-    ?? (usage.orgUuid ? config.accounts[usage.orgUuid] : undefined)
+  return config.accounts?.[usage.account]
+    ?? (usage.orgUuid ? config.accounts?.[usage.orgUuid] : undefined)
     ?? config.thresholds;
 }
 
@@ -41,13 +41,17 @@ export function evaluateUsage(
 ): { alerts: UsageAlert[]; fired: FiredState } {
   const fired: FiredState = { ...previous };
   const alerts: UsageAlert[] = [];
+  const emailCounts = new Map<string, number>();
+  for (const acct of usage) emailCounts.set(acct.account, (emailCounts.get(acct.account) ?? 0) + 1);
   for (const acct of usage) {
+    const shared = (emailCounts.get(acct.account) ?? 0) > 1;
+    const who = shared && acct.orgName ? `${acct.account} (${acct.orgName})` : acct.account;
     const thresholds = thresholdsFor(acct, config);
     for (const limit of acct.limits) {
       const key = `${acct.account}|${acct.orgUuid ?? ""}|${limit.kind}`;
       const reached = Math.max(0, ...thresholds.filter((t) => limit.pct >= t));
       if (reached > (fired[key] ?? 0)) {
-        alerts.push({ account: acct.account, limit, threshold: reached, ...copy(acct.account, limit, config.hint) });
+        alerts.push({ account: acct.account, limit, threshold: reached, ...copy(who, limit, config.hint) });
       }
       fired[key] = reached;
     }
@@ -84,6 +88,8 @@ function money(amount: number, currency = "USD"): string {
 
 export interface SweepDeps {
   read: () => Promise<UsageRead>;
+  /** Called every sweep with this read's problems, empty when there were none. */
+  onProblems: (problems: string[]) => void;
   config: () => UsageAlertConfig;
   loadFired: () => FiredState;
   saveFired: (fired: FiredState) => void;
@@ -92,7 +98,8 @@ export interface SweepDeps {
 
 /** One poll: read usage, notify each new crossing, persist what fired. */
 export async function runUsageAlertSweep(deps: SweepDeps): Promise<UsageAlert[]> {
-  const { accounts } = await deps.read();
+  const { accounts, problems } = await deps.read();
+  deps.onProblems(problems);
   if (accounts.length === 0) return [];
   const { alerts, fired } = evaluateUsage(accounts, deps.config(), deps.loadFired());
   for (const alert of alerts) deps.notify(alert);

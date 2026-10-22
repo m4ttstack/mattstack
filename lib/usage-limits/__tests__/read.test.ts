@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseCswapList, parseUsageResponse, readAccountUsage, type ReadDeps } from "../read.ts";
+import { parseCswapUsage, parseUsageResponse, readAccountUsage, readCredentialsFrom, type ReadDeps } from "../read.ts";
 
 const CSWAP_LIST = {
   schemaVersion: 1,
@@ -8,7 +8,9 @@ const CSWAP_LIST = {
       number: 1,
       email: "dev@example.com",
       organizationUuid: "org-1",
+      organizationName: "Example Co",
       usageStatus: "ok",
+      disabled: true,
       usage: { spend: { used: 1250.17, limit: 1250, pct: 100, currency: "USD", resetsAt: "2026-11-01T00:00:00Z" } },
     },
     {
@@ -26,12 +28,13 @@ const CSWAP_LIST = {
   ],
 };
 
-describe("parseCswapList", () => {
-  test("reads every account's limits, keyed by email, never by slot", () => {
-    expect(parseCswapList(CSWAP_LIST)).toEqual([
+describe("parseCswapUsage", () => {
+  test("reads every account's limits, keyed by email, never by slot, disabled slots included", () => {
+    expect(parseCswapUsage(CSWAP_LIST)).toEqual([
       {
         account: "dev@example.com",
         orgUuid: "org-1",
+        orgName: "Example Co",
         limits: [{ kind: "spend", pct: 100, used: 1250.17, limit: 1250, currency: "USD", resetsAt: "2026-11-01T00:00:00Z" }],
       },
       {
@@ -47,8 +50,8 @@ describe("parseCswapList", () => {
   });
 
   test("an unknown shape reads as no accounts", () => {
-    expect(parseCswapList({ schemaVersion: 99 })).toEqual([]);
-    expect(parseCswapList(null)).toEqual([]);
+    expect(parseCswapUsage({ schemaVersion: 99 })).toEqual([]);
+    expect(parseCswapUsage(null)).toEqual([]);
   });
 });
 
@@ -74,53 +77,107 @@ describe("parseUsageResponse", () => {
   });
 });
 
+const SIGNED_IN = { email: "dev@example.com", orgUuid: "org-1" };
+
 function deps(over: Partial<ReadDeps>): ReadDeps {
   return {
     runCswapList: async () => null,
-    readClaudeCredentials: async () => null,
     readClaudeAccount: async () => null,
-    fetchUsage: async () => null,
+    readClaudeCredentials: async () => ({ ok: false, problem: "no OAuth token found" }),
+    fetchUsage: async () => ({ ok: false, problem: "unused" }),
     now: () => 1_000,
     ...over,
   };
 }
 
 describe("readAccountUsage", () => {
-  test("uses cswap when it is installed, and never reads a token", async () => {
+  test("cswap covers the signed-in account, so no token is read", async () => {
     let tokenRead = false;
     const out = await readAccountUsage(deps({
-      runCswapList: async () => CSWAP_LIST,
-      readClaudeCredentials: async () => { tokenRead = true; return null; },
+      runCswapList: async () => ({ ok: true, value: CSWAP_LIST }),
+      readClaudeAccount: async () => SIGNED_IN,
+      readClaudeCredentials: async () => { tokenRead = true; return { ok: false, problem: "x" }; },
     }));
-    expect(out.source).toBe("cswap");
     expect(out.accounts.map((a) => a.account)).toEqual(["dev@example.com", "max@example.com"]);
+    expect(out.problems).toEqual([]);
     expect(tokenRead).toBe(false);
   });
 
-  test("without cswap, reads the signed-in Claude Code account", async () => {
+  test("cswap with no managed accounts still reads the signed-in account", async () => {
     const out = await readAccountUsage(deps({
-      readClaudeCredentials: async () => ({ accessToken: "tok", expiresAt: 5_000 }),
-      readClaudeAccount: async () => ({ email: "dev@example.com", orgUuid: "org-1" }),
-      fetchUsage: async (token) => (token === "tok" ? { seven_day: { utilization: 90 } } : null),
+      runCswapList: async () => ({ ok: true, value: { schemaVersion: 1, activeAccountNumber: null, accounts: [] } }),
+      readClaudeAccount: async () => SIGNED_IN,
+      readClaudeCredentials: async () => ({ ok: true, value: { accessToken: "tok" } }),
+      fetchUsage: async () => ({ ok: true, value: { seven_day: { utilization: 90 } } }),
     }));
-    expect(out).toEqual({
-      source: "claude-code",
-      accounts: [{ account: "dev@example.com", orgUuid: "org-1", limits: [{ kind: "seven_day", pct: 90 }] }],
-    });
+    expect(out.accounts).toEqual([{ account: "dev@example.com", orgUuid: "org-1", limits: [{ kind: "seven_day", pct: 90 }] }]);
+  });
+
+  test("a signed-in account cswap does not manage is read beside cswap's", async () => {
+    const out = await readAccountUsage(deps({
+      runCswapList: async () => ({ ok: true, value: CSWAP_LIST }),
+      readClaudeAccount: async () => ({ email: "other@example.com" }),
+      readClaudeCredentials: async () => ({ ok: true, value: { accessToken: "tok" } }),
+      fetchUsage: async () => ({ ok: true, value: { five_hour: { utilization: 5 } } }),
+    }));
+    expect(out.accounts.map((a) => a.account)).toEqual(["dev@example.com", "max@example.com", "other@example.com"]);
+  });
+
+  test("a failing cswap falls back to the signed-in account and says why", async () => {
+    const out = await readAccountUsage(deps({
+      runCswapList: async () => ({ ok: false, problem: "list exited 143" }),
+      readClaudeAccount: async () => SIGNED_IN,
+      readClaudeCredentials: async () => ({ ok: true, value: { accessToken: "tok", expiresAt: 5_000 } }),
+      fetchUsage: async (token: string) => (token === "tok" ? { ok: true, value: { seven_day: { utilization: 90 } } } : { ok: false, problem: "bad token" }),
+    }));
+    expect(out.accounts.map((a) => a.account)).toEqual(["dev@example.com"]);
+    expect(out.problems).toEqual(["cswap: list exited 143"]);
   });
 
   test("an expired token is skipped rather than refreshed", async () => {
     let fetched = false;
     const out = await readAccountUsage(deps({
-      readClaudeCredentials: async () => ({ accessToken: "tok", expiresAt: 500 }),
-      readClaudeAccount: async () => ({ email: "dev@example.com" }),
-      fetchUsage: async () => { fetched = true; return {}; },
+      readClaudeAccount: async () => SIGNED_IN,
+      readClaudeCredentials: async () => ({ ok: true, value: { accessToken: "tok", expiresAt: 500 } }),
+      fetchUsage: async () => { fetched = true; return { ok: true, value: {} }; },
     }));
     expect(fetched).toBe(false);
     expect(out.accounts).toEqual([]);
+    expect(out.problems).toEqual(["Claude Code token expired; waiting for Claude Code to refresh it"]);
   });
 
-  test("no cswap and no Claude Code login reads as nothing", async () => {
-    expect(await readAccountUsage(deps({}))).toEqual({ source: "none", accounts: [] });
+  test("an endpoint failure is reported, not swallowed", async () => {
+    const out = await readAccountUsage(deps({
+      readClaudeAccount: async () => SIGNED_IN,
+      readClaudeCredentials: async () => ({ ok: true, value: { accessToken: "tok" } }),
+      fetchUsage: async () => ({ ok: false, problem: "HTTP 429" }),
+    }));
+    expect(out.problems).toEqual(["usage endpoint: HTTP 429"]);
+  });
+
+  test("no cswap and no Claude Code login reads as nothing, quietly", async () => {
+    expect(await readAccountUsage(deps({}))).toEqual({ accounts: [], problems: [] });
+  });
+});
+
+describe("readCredentialsFrom", () => {
+  const fresh = JSON.stringify({ claudeAiOauth: { accessToken: "keychain", expiresAt: 9 } });
+  const stale = JSON.stringify({ claudeAiOauth: { accessToken: "file", expiresAt: 1 } });
+
+  test("on macOS the keychain wins over a lagging plain file", async () => {
+    const got = await readCredentialsFrom({ platform: "darwin", readKeychain: async () => fresh, readFile: async () => stale });
+    expect(got).toEqual({ ok: true, value: { accessToken: "keychain", expiresAt: 9 } });
+  });
+
+  test("on macOS the file is the fallback when the keychain has nothing", async () => {
+    const got = await readCredentialsFrom({ platform: "darwin", readKeychain: async () => null, readFile: async () => stale });
+    expect(got).toEqual({ ok: true, value: { accessToken: "file", expiresAt: 1 } });
+  });
+
+  test("elsewhere only the file is read", async () => {
+    let keychainRead = false;
+    const got = await readCredentialsFrom({ platform: "linux", readKeychain: async () => { keychainRead = true; return fresh; }, readFile: async () => stale });
+    expect(got.ok && got.value.accessToken).toBe("file");
+    expect(keychainRead).toBe(false);
   });
 });

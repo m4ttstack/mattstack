@@ -3,13 +3,14 @@
  *
  * With cswap installed, `cswap list --json` already holds every managed
  * account's usage, so rt reads that and never touches another account's
- * token. Without it, rt reads the account Claude Code is signed into and asks
- * the usage endpoint `/usage` reads.
+ * token. The account Claude Code is signed into is read directly from the
+ * usage endpoint `/usage` reads, unless cswap already listed it.
  */
 
 import { readFile } from "fs/promises";
 import { homedir, userInfo } from "os";
 import { join } from "path";
+import { cswapBin } from "../cswap.ts";
 import { runCapture } from "../subprocess.ts";
 
 /** `kind` is `spend`, `five_hour`, `seven_day`, or `scoped:<model name>`. */
@@ -25,12 +26,14 @@ export interface UsageLimit {
 export interface AccountUsage {
   account: string;
   orgUuid?: string;
+  orgName?: string;
   limits: UsageLimit[];
 }
 
 export interface UsageRead {
-  source: "cswap" | "claude-code" | "none";
   accounts: AccountUsage[];
+  /** Why a source gave nothing this time, in plain words for the log. */
+  problems: string[];
 }
 
 export interface ClaudeCredentials {
@@ -38,13 +41,15 @@ export interface ClaudeCredentials {
   expiresAt?: number;
 }
 
+export type Got<T> = { ok: true; value: T } | { ok: false; problem: string };
+
 export interface ReadDeps {
-  /** Parsed `cswap list --json`, or null when cswap is not installed or fails. */
-  runCswapList: () => Promise<unknown>;
-  readClaudeCredentials: () => Promise<ClaudeCredentials | null>;
+  /** Parsed `cswap list --json`; null when cswap is not installed. */
+  runCswapList: () => Promise<Got<unknown> | null>;
   readClaudeAccount: () => Promise<{ email: string; orgUuid?: string } | null>;
-  /** Raw usage endpoint body, or null on any failure. */
-  fetchUsage: (accessToken: string) => Promise<unknown>;
+  readClaudeCredentials: () => Promise<Got<ClaudeCredentials>>;
+  /** Raw usage endpoint body. */
+  fetchUsage: (accessToken: string) => Promise<Got<unknown>>;
   now: () => number;
 }
 
@@ -54,28 +59,41 @@ const CSWAP_TIMEOUT_MS = 15_000;
 const FETCH_TIMEOUT_MS = 10_000;
 
 export async function readAccountUsage(deps: ReadDeps): Promise<UsageRead> {
-  const listed = await deps.runCswapList();
-  if (listed !== null && listed !== undefined) {
-    return { source: "cswap", accounts: parseCswapList(listed) };
-  }
+  const accounts: AccountUsage[] = [];
+  const problems: string[] = [];
 
-  const account = await deps.readClaudeAccount();
-  const creds = account ? await deps.readClaudeCredentials() : null;
-  if (!account || !creds) return { source: "none", accounts: [] };
+  const listed = await deps.runCswapList();
+  if (listed?.ok) accounts.push(...parseCswapUsage(listed.value));
+  else if (listed) problems.push(`cswap: ${listed.problem}`);
+
+  const signedIn = await deps.readClaudeAccount();
+  if (!signedIn || accounts.some((a) => sameAccount(a, signedIn))) return { accounts, problems };
+
+  const creds = await deps.readClaudeCredentials();
+  if (!creds.ok) {
+    problems.push(`Claude Code credentials: ${creds.problem}`);
+    return { accounts, problems };
+  }
   // Refreshing would rotate the token out from under Claude Code, so an
   // expired one waits for Claude Code's own next refresh.
-  if (creds.expiresAt !== undefined && creds.expiresAt <= deps.now()) {
-    return { source: "claude-code", accounts: [] };
+  if (creds.value.expiresAt !== undefined && creds.value.expiresAt <= deps.now()) {
+    problems.push("Claude Code token expired; waiting for Claude Code to refresh it");
+    return { accounts, problems };
   }
-  const body = await deps.fetchUsage(creds.accessToken);
-  if (!isRecord(body)) return { source: "claude-code", accounts: [] };
-  return {
-    source: "claude-code",
-    accounts: [{ account: account.email, ...(account.orgUuid ? { orgUuid: account.orgUuid } : {}), limits: parseUsageResponse(body) }],
-  };
+  const body = await deps.fetchUsage(creds.value.accessToken);
+  if (!body.ok) {
+    problems.push(`usage endpoint: ${body.problem}`);
+    return { accounts, problems };
+  }
+  accounts.push({ account: signedIn.email, ...(signedIn.orgUuid ? { orgUuid: signedIn.orgUuid } : {}), limits: parseUsageResponse(body.value) });
+  return { accounts, problems };
 }
 
-export function parseCswapList(data: unknown): AccountUsage[] {
+function sameAccount(a: AccountUsage, b: { email: string; orgUuid?: string }): boolean {
+  return a.account === b.email && (!a.orgUuid || !b.orgUuid || a.orgUuid === b.orgUuid);
+}
+
+export function parseCswapUsage(data: unknown): AccountUsage[] {
   if (!isRecord(data) || !Array.isArray(data.accounts)) return [];
   const out: AccountUsage[] = [];
   for (const entry of data.accounts) {
@@ -88,12 +106,17 @@ export function parseCswapList(data: unknown): AccountUsage[] {
         used: num(s.used), limit: num(s.limit), currency: str(s.currency), resetsAt: str(s.resetsAt),
       }));
     }
-    pushWindow(limits, "five_hour", usage.fiveHour, "resetsAt");
-    pushWindow(limits, "seven_day", usage.sevenDay, "resetsAt");
+    pushWindow(limits, "five_hour", usage.fiveHour);
+    pushWindow(limits, "seven_day", usage.sevenDay);
     for (const s of Array.isArray(usage.scoped) ? usage.scoped : []) {
-      if (isRecord(s) && typeof s.name === "string") pushWindow(limits, `scoped:${s.name}`, s, "resetsAt");
+      if (isRecord(s) && typeof s.name === "string") pushWindow(limits, `scoped:${s.name}`, s);
     }
-    out.push({ account: entry.email, ...(typeof entry.organizationUuid === "string" ? { orgUuid: entry.organizationUuid } : {}), limits });
+    out.push({
+      account: entry.email,
+      ...(typeof entry.organizationUuid === "string" ? { orgUuid: entry.organizationUuid } : {}),
+      ...(typeof entry.organizationName === "string" ? { orgName: entry.organizationName } : {}),
+      limits,
+    });
   }
   return out;
 }
@@ -108,8 +131,8 @@ export function parseUsageResponse(data: unknown): UsageLimit[] {
       { resetsAt: str(eu.resets_at) },
     ));
   }
-  pushWindow(limits, "five_hour", rawWindow(data.five_hour), "resetsAt");
-  pushWindow(limits, "seven_day", rawWindow(data.seven_day), "resetsAt");
+  pushWindow(limits, "five_hour", rawWindow(data.five_hour));
+  pushWindow(limits, "seven_day", rawWindow(data.seven_day));
   for (const lim of Array.isArray(data.limits) ? data.limits : []) {
     if (!isRecord(lim) || !isNum(lim.percent)) continue;
     const scope = isRecord(lim.scope) ? lim.scope : {};
@@ -125,9 +148,9 @@ function rawWindow(w: unknown): Record<string, unknown> | undefined {
   return { pct: w.utilization, resetsAt: w.resets_at };
 }
 
-function pushWindow(limits: UsageLimit[], kind: string, w: unknown, resetKey: string): void {
+function pushWindow(limits: UsageLimit[], kind: string, w: unknown): void {
   if (!isRecord(w) || !isNum(w.pct)) return;
-  limits.push(withOptional({ kind, pct: w.pct }, { resetsAt: str(w[resetKey]) }));
+  limits.push(withOptional({ kind, pct: w.pct }, { resetsAt: str(w.resetsAt) }));
 }
 
 function withOptional(base: UsageLimit, extra: Partial<UsageLimit>): UsageLimit {
@@ -155,17 +178,18 @@ function home(): string {
   return process.env.HOME || homedir();
 }
 
-async function runCswapList(): Promise<unknown> {
+async function runCswapList(): Promise<Got<unknown> | null> {
+  const res = await runCapture([cswapBin(), "list", "--json"], { timeoutMs: CSWAP_TIMEOUT_MS });
+  if (res.exitCode === -1 && !res.stdout) return null;
+  if (res.exitCode !== 0) return { ok: false, problem: `list exited ${res.exitCode}` };
   try {
-    const res = await runCapture(["cswap", "list", "--json"], { timeoutMs: CSWAP_TIMEOUT_MS });
-    if (res.exitCode !== 0) return null;
-    return JSON.parse(res.stdout);
+    return { ok: true, value: JSON.parse(res.stdout) };
   } catch {
-    return null;
+    return { ok: false, problem: "list printed something other than JSON" };
   }
 }
 
-function parseCredentials(text: string): ClaudeCredentials | null {
+export function parseCredentials(text: string): ClaudeCredentials | null {
   try {
     const oauth = JSON.parse(text)?.claudeAiOauth;
     if (!isRecord(oauth) || typeof oauth.accessToken !== "string") return null;
@@ -175,20 +199,43 @@ function parseCredentials(text: string): ClaudeCredentials | null {
   }
 }
 
-/** The default config dir's store: the plain file first, then the macOS
- *  keychain item Claude Code writes when it has no file. */
-async function readClaudeCredentials(): Promise<ClaudeCredentials | null> {
-  try {
-    const fromFile = parseCredentials(await readFile(join(home(), ".claude", ".credentials.json"), "utf8"));
-    if (fromFile) return fromFile;
-  } catch { /* no file: fall through to the keychain */ }
-  if (process.platform !== "darwin") return null;
-  const user = process.env.USER || userInfo().username;
-  const res = await runCapture(
-    ["/usr/bin/security", "find-generic-password", "-a", user, "-w", "-s", "Claude Code-credentials"],
-    { timeoutMs: 5_000 },
-  );
-  return res.exitCode === 0 ? parseCredentials(res.stdout.trim()) : null;
+export interface CredentialSources {
+  platform: string;
+  readKeychain: () => Promise<string | null>;
+  readFile: () => Promise<string | null>;
+}
+
+/** On macOS Claude Code rotates the keychain item and the plain file can lag
+ *  behind it, so the keychain wins there; elsewhere the file is the store. */
+export async function readCredentialsFrom(src: CredentialSources): Promise<Got<ClaudeCredentials>> {
+  const order = src.platform === "darwin" ? [src.readKeychain, src.readFile] : [src.readFile];
+  for (const read of order) {
+    const text = await read();
+    const creds = text ? parseCredentials(text) : null;
+    if (creds) return { ok: true, value: creds };
+  }
+  return { ok: false, problem: "no OAuth token found" };
+}
+
+async function readClaudeCredentials(): Promise<Got<ClaudeCredentials>> {
+  return readCredentialsFrom({
+    platform: process.platform,
+    readKeychain: async () => {
+      const user = process.env.USER || userInfo().username;
+      const res = await runCapture(
+        ["/usr/bin/security", "find-generic-password", "-a", user, "-w", "-s", "Claude Code-credentials"],
+        { timeoutMs: 5_000 },
+      );
+      return res.exitCode === 0 ? res.stdout.trim() : null;
+    },
+    readFile: async () => {
+      try {
+        return await readFile(join(home(), ".claude", ".credentials.json"), "utf8");
+      } catch {
+        return null;
+      }
+    },
+  });
 }
 
 async function readClaudeAccount(): Promise<{ email: string; orgUuid?: string } | null> {
@@ -201,22 +248,23 @@ async function readClaudeAccount(): Promise<{ email: string; orgUuid?: string } 
   }
 }
 
-async function fetchUsage(accessToken: string): Promise<unknown> {
+async function fetchUsage(accessToken: string): Promise<Got<unknown>> {
   try {
     const res = await fetch(USAGE_URL, {
-      headers: { Authorization: `Bearer ${accessToken}`, "anthropic-beta": OAUTH_BETA },
+      headers: { Authorization: `Bearer ${accessToken}`, "anthropic-beta": OAUTH_BETA, "User-Agent": "rt-usage-limits" },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    return res.ok ? await res.json() : null;
-  } catch {
-    return null;
+    if (!res.ok) return { ok: false, problem: `HTTP ${res.status}` };
+    return { ok: true, value: await res.json() };
+  } catch (err) {
+    return { ok: false, problem: err instanceof Error ? err.message : String(err) };
   }
 }
 
 export const realReadDeps: ReadDeps = {
   runCswapList,
-  readClaudeCredentials,
   readClaudeAccount,
+  readClaudeCredentials,
   fetchUsage,
   now: () => Date.now(),
 };

@@ -94,6 +94,16 @@ describe("evaluateUsage", () => {
     expect(second.alerts).toEqual([]);
   });
 
+  test("an empty override silences that account", () => {
+    const { alerts } = evaluateUsage([spendAt(100)], { ...CONFIG, accounts: { "dev@example.com": [] } }, {});
+    expect(alerts).toEqual([]);
+  });
+
+  test("a config with no accounts map uses the shared thresholds", () => {
+    const { alerts } = evaluateUsage([spendAt(90)], { thresholds: [80] }, {});
+    expect(alerts.map((a) => a.threshold)).toEqual([80]);
+  });
+
   test("a limit missing from one poll keeps its fired state", () => {
     const crossed = evaluateUsage([spendAt(90)], CONFIG, {});
     const missing = evaluateUsage([{ account: "dev@example.com", limits: [] }], CONFIG, crossed.fired);
@@ -120,6 +130,15 @@ describe("alert copy", () => {
     expect(alerts[0]!.message).toBe("b@example.com: weekly Fable limit at 85%.");
   });
 
+  test("one email in two orgs is told apart by org name", () => {
+    const usage: AccountUsage[] = [
+      { account: "dev@example.com", orgUuid: "org-a", orgName: "Acme", limits: [{ kind: "seven_day", pct: 90 }] },
+      { account: "dev@example.com", orgUuid: "org-b", orgName: "Personal", limits: [{ kind: "seven_day", pct: 10 }] },
+    ];
+    const { alerts } = evaluateUsage(usage, CONFIG, {});
+    expect(alerts[0]!.message).toBe("dev@example.com (Acme): weekly limit at 90%.");
+  });
+
   test("the configured hint follows the message", () => {
     const { alerts } = evaluateUsage([spendAt(96)], { ...CONFIG, hint: "Ask your admin for more usage." }, {});
     expect(alerts[0]!.message).toBe("dev@example.com: monthly spend $960.00 of $1,000.00. Ask your admin for more usage.");
@@ -132,7 +151,8 @@ describe("runUsageAlertSweep", () => {
     const sent: UsageAlert[] = [];
     let i = 0;
     const tick = () => runUsageAlertSweep({
-      read: async () => ({ source: "cswap", accounts: [spendAt(pcts[i++]!)] }),
+      read: async () => ({ accounts: [spendAt(pcts[i++]!)], problems: [] }),
+      onProblems: () => {},
       config: () => CONFIG,
       loadFired: () => fired,
       saveFired: (f) => { fired = f; },
@@ -151,13 +171,16 @@ describe("runUsageAlertSweep", () => {
 
   test("a read with no accounts leaves fired state alone", async () => {
     let saved = false;
+    let reported: string[] = [];
     await runUsageAlertSweep({
-      read: async () => ({ source: "none", accounts: [] }),
+      read: async () => ({ accounts: [], problems: ["cswap: list exited 1"] }),
+      onProblems: (p) => { reported = p; },
       config: () => CONFIG,
       loadFired: () => ({}),
       saveFired: () => { saved = true; },
       notify: () => {},
     });
     expect(saved).toBe(false);
+    expect(reported).toEqual(["cswap: list exited 1"]);
   });
 });

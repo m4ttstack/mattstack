@@ -1128,10 +1128,19 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           { bootDelayMs: 60_000, intervalMs: 15 * 60_000 },
           log,
         ));
+        const usageLog = loggerHandle.childLogger("usage-limits");
+        let lastUsageProblems = "";
         sweepHandles.push(scheduleSweep(
           "usage-limit-alerts",
           async () => { await runUsageAlertSweep({
             read: () => readAccountUsage(realReadDeps),
+            onProblems: (problems) => {
+              const key = problems.join("\n");
+              if (key === lastUsageProblems) return;
+              lastUsageProblems = key;
+              if (problems.length) usageLog.warn({ problems }, "usage read incomplete");
+              else usageLog.info("usage read recovered");
+            },
             config: () => getSetting<UsageAlertConfig>("rt.notify.usageLimits").value,
             loadFired: () => getKvValue<FiredState>("usage-limits", "fired", {}),
             saveFired: (fired) => setKvValue("usage-limits", "fired", fired),
