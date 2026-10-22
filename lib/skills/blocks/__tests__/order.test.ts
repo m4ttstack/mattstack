@@ -86,8 +86,10 @@ test("a node absent from the graph is missing-node at its node key", () => {
     "index.block.md": `---\n---\n\n${GRAPH}`,
     "x.block.md": plain("order: 1\nnode: nowhere\n"),
   });
-  expect(d).toHaveLength(1);
-  expect(d[0]).toMatchObject({ code: "missing-node", file: "a/x.block.md", line: 3, col: 1 });
+  expect(d.map((x) => x.code)).toEqual(["missing-node", "order-on-graph-child"]);
+  expect(d[0]).toMatchObject({ file: "a/x.block.md", line: 3, col: 1 });
+  expect(d[0]!.message).toContain("a/index.block.md:6");
+  expect(d[1]).toMatchObject({ file: "a/x.block.md", line: 2, col: 1 });
 });
 
 test("a node under a parent with no graph is missing-node", () => {

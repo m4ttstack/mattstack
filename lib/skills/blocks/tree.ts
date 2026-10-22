@@ -105,18 +105,18 @@ function orderChildren(parent: Block, diagnostics: BlockDiagnostic[]): void {
   const bound: Block[] = [];
   const rest: Block[] = [];
   for (const child of parent.children) {
-    const nodeAt = child.fieldAt.node ?? { line: 1, col: 1 };
     if (child.node !== null) {
-      if (!rank.has(child.node)) {
+      const nodeAt = child.fieldAt.node!;
+      const known = rank.has(child.node);
+      if (!known) {
         diagnostics.push({
           file: child.relPath,
           ...nodeAt,
           message: parent.graph
-            ? `node "${child.node}" is not in the graph of ${parent.relPath}`
+            ? `node "${child.node}" is not in the graph at ${parent.graph.file}:${parent.graph.fenceLine}`
             : `node "${child.node}" has no graph to bind to: ${parent.relPath} has no mermaid graph`,
           code: "missing-node",
         });
-        continue;
       }
       if (child.title === null) {
         diagnostics.push({
@@ -124,6 +124,14 @@ function orderChildren(parent: Block, diagnostics: BlockDiagnostic[]): void {
           ...nodeAt,
           message: `node "${child.node}" takes its label from the block title, and this block has no # title line`,
           code: "node-unbound",
+        });
+      }
+      if (child.order !== null) {
+        diagnostics.push({
+          file: child.relPath,
+          ...child.fieldAt.order!,
+          message: `order has no effect on a block bound to graph node "${child.node}"; the graph sets its place`,
+          code: "order-on-graph-child",
         });
       }
       const twin = byNode.get(child.node);
@@ -137,22 +145,14 @@ function orderChildren(parent: Block, diagnostics: BlockDiagnostic[]): void {
         continue;
       }
       byNode.set(child.node, child);
-      if (child.order !== null) {
-        diagnostics.push({
-          file: child.relPath,
-          ...(child.fieldAt.order ?? { line: 1, col: 1 }),
-          message: `order has no effect on a block bound to graph node "${child.node}"; the graph sets its place`,
-          code: "order-on-graph-child",
-        });
-      }
-      bound.push(child);
+      if (known) bound.push(child);
     } else {
       if (child.order !== null) {
         const first = byOrder.get(child.order);
         if (first) {
           diagnostics.push({
             file: child.relPath,
-            ...(child.fieldAt.order ?? { line: 1, col: 1 }),
+            ...child.fieldAt.order!,
             message: `order ${child.order} is already taken by ${first.relPath}`,
             code: "duplicate-order",
           });
