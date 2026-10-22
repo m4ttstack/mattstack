@@ -169,6 +169,17 @@ describe("withSectionParts", () => {
     ]);
   });
 
+  test("two sections in one slot keep the order they render in", () => {
+    const two = [
+      "<!-- part: slot:a binding=acme-base:a version=1 path=b lines=1-5 -->",
+      "<!-- part: section:one source=widgets:pack/sections/one.md version=0.4.0 path=pack/sections/one.md lines=1-1 -->", "o1",
+      "<!-- part: section:two source=widgets:pack/sections/two.md version=0.4.0 path=pack/sections/two.md lines=1-1 -->", "t1",
+    ].join("\n");
+    const a: AnatomyPart = { ...slot, name: "a", renderedLines: [1, 5] };
+    const parts = withSectionParts([a, text], two, {}, new Set());
+    expect(parts.map((p) => `${p.kind}:${p.name}`)).toEqual(["slot:a", "section:one", "section:two", "text:null"]);
+  });
+
   test("a file with no section leaves the parts alone", () => {
     expect(withSectionParts([slot, text], "plain", {}, new Set())).toEqual([slot, text]);
   });

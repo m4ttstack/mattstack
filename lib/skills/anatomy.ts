@@ -121,7 +121,9 @@ export function withSectionParts(parts: AnatomyPart[], rendered: string, sources
   for (const x of partExtents(rendered)) {
     if (!x.key.startsWith("section:")) continue;
     const owner = out.findLastIndex((p) => p.kind === "slot" && p.renderedLines !== null && p.renderedLines[0] <= x.start + 1 && x.end + 1 <= p.renderedLines[1]);
-    out.splice(owner < 0 ? out.length : owner + 1, 0, markerPart(x, sources, changedKeys));
+    let at = owner < 0 ? out.length : owner + 1;
+    while (owner >= 0 && out[at]?.kind === "section" && out[at]!.renderedLines![0] < x.start + 1) at++;
+    out.splice(at, 0, markerPart(x, sources, changedKeys));
   }
   return out;
 }
