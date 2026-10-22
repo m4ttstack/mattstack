@@ -1462,7 +1462,7 @@ body {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
   border-radius: 6px;
   padding: 0.5rem 0.6rem;
-  overflow-x: auto;
+  white-space: pre-wrap;
   margin: 0.5rem 0;
 }
 .tui-cd-note-body pre code {
