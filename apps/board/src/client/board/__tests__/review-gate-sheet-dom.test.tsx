@@ -1444,7 +1444,7 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(badge()?.getAttribute('data-intent')).toBe('ok');
     await pickVerdict('comment');
     expect(badge()?.textContent).toBe('for comment');
-    expect(badge()?.getAttribute('data-intent')).toBe('muted');
+    expect(badge()?.getAttribute('data-intent')).toBe('accent');
   });
 
   test('each verdict keeps its own edit: switching away and back restores it', async () => {
