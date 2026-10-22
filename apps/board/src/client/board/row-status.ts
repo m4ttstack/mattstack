@@ -470,7 +470,7 @@ function respondVerb(mr: BoardMRWithReview): Verb | null {
 function respondWho(mr: BoardMRWithReview, people: People): string | null {
   const r = mr.respond;
   if (!r?.person) return null;
-  return `${people.short(r.person)}${roundSuffix(r.responseRound ?? 0)}`;
+  return `${people.full(r.person)}${roundSuffix(r.responseRound ?? 0)}`;
 }
 
 /** Done and error lines keep their words; the detail leads with who. */
@@ -511,7 +511,7 @@ function respondDoneLine(
         const again: Verb = r.person
           ? {
               kind: 'restart-respond',
-              label: `respond to ${people.short(r.person)}${roundSuffix(
+              label: `respond to ${people.full(r.person)}${roundSuffix(
                 (mr.respondRounds?.[r.person] ?? r.responseRound ?? 0) + 1
               )}`,
               person: r.person,
@@ -785,7 +785,7 @@ function peerLines(
       if (live)
         out.push({
           tone: 'quiet',
-          word: `${people.short(p.reviewer)} is reviewing`,
+          word: `${people.full(p.reviewer)} is reviewing`,
           spin: 'cloud',
           verbs: [{ kind: 'view-peer', label: 'view ↗' }],
         });
@@ -795,14 +795,14 @@ function peerLines(
       if (p.reviewer === askInFlight) continue;
       out.push({
         tone: 'work',
-        word: `${people.short(p.reviewer)} is reviewing…`,
+        word: `${people.full(p.reviewer)} is reviewing…`,
         spin: true,
         verbs: [{ kind: 'view-peer', label: 'view ↗' }],
       });
     } else if (p.status === 'done') {
       out.push({
         tone: 'go',
-        word: `${people.short(p.reviewer)} ${verdictWord(p.outcome, 'reviewed')}`,
+        word: `${people.full(p.reviewer)} ${verdictWord(p.outcome, 'reviewed')}`,
         settled: true,
         verbs: [
           ...(canMerge(mr, self) ? [MERGE] : []),
@@ -811,7 +811,7 @@ function peerLines(
       });
     }
   }
-  const humans = activeReviewers(mr).map(u => people.short(u));
+  const humans = activeReviewers(mr).map(u => people.full(u));
   if (humans.length) {
     out.push({
       tone: 'quiet',
@@ -845,7 +845,7 @@ function approvalsDetail(mr: BoardMRWithReview): string | undefined {
 function approvalsSoFar(mr: BoardMRWithReview, people: People): string {
   const names = mr.reviews.reviewers
     .filter(r => r.reviewState === 'APPROVED')
-    .map(r => people.short(r.username));
+    .map(r => people.full(r.username));
   if (names.length) return `${names.join(', ')} approved`;
   return (
     approvalsDetail(mr) ??

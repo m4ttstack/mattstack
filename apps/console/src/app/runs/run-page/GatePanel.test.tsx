@@ -223,10 +223,17 @@ describe('GatePanel', () => {
     );
   });
 
-  it('keeps Next shut until the question is answered', async () => {
+  it('opens with the recommended option picked', () => {
     renderPanel(gateRow());
+    expect(radio(/Server-side filter/)).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('button', { name: /Next/ })).toBeEnabled();
+    expect(screen.queryByText('Draft saved')).toBeNull();
+  });
+
+  it('keeps Next shut until the question is answered', async () => {
+    renderPanel(gateRow({ questions: gateRow().questions.slice(1) }));
     expect(screen.getByRole('button', { name: /Next/ })).toBeDisabled();
-    await userEvent.click(radio(/Client-side filter/));
+    await userEvent.click(radio(/team/));
     expect(screen.getByRole('button', { name: /Next/ })).toBeEnabled();
   });
 
@@ -691,6 +698,7 @@ describe('GatePanel: answering', () => {
   it('enables Next on a writeIn question from note text alone and submits it as a write-in', async () => {
     answerPost.mockResolvedValue(ok());
     renderPanel(writeInGate());
+    await userEvent.click(radio(/Server-side filter/));
     expect(screen.getByRole('button', { name: /Next/ })).toBeDisabled();
     expect(screen.getByRole('textbox', { name: /note/i })).toHaveAttribute(
       'placeholder',
@@ -717,7 +725,7 @@ describe('GatePanel: answering', () => {
   });
 
   it('keeps Next shut on a plain question with only a note', async () => {
-    renderPanel(gateRow());
+    renderPanel(gateRow({ questions: gateRow().questions.slice(1) }));
     await userEvent.type(
       screen.getByRole('textbox', { name: /note/i }),
       'something else'
@@ -912,6 +920,31 @@ describe('GatePanel: a boards gate', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole('img').getAttribute('src')).toBe(
       src(`${dir}/r-after.png`)
+    );
+  });
+
+  it('pages through every board from the one it opened on', async () => {
+    renderPanel(boardsGate());
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Open rush-window/before full size',
+      })
+    );
+    const dialog = await screen.findByRole('dialog');
+    const shown = () => within(dialog).getByRole('img').getAttribute('src');
+    expect(within(dialog).getByText('1 / 2')).toBeInTheDocument();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(shown()).toBe(src(`${dir}/r-after.png`));
+    expect(within(dialog).getByText('2 / 2')).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Next board' })
+    ).toBeDisabled();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Previous board' })
+    );
+    expect(shown()).toBe(src(`${dir}/r-before.png`));
+    expect(within(dialog).getByRole('heading')).toHaveTextContent(
+      'rush-window/before'
     );
   });
 

@@ -1635,7 +1635,7 @@ describe('rowStatus: social lanes', () => {
     expect(line).toMatchObject({ tone: 'go', word: 'mira approved' });
   });
 
-  test("a peer is named by the board's first name, not their handle", () => {
+  test("a peer is named by the board's full name, not their handle", () => {
     const [line] = candidateLines(
       own({
         peerReviews: [
@@ -1654,7 +1654,7 @@ describe('rowStatus: social lanes', () => {
       ME,
       people([{ username: 'dcf417', name: 'Dana Fisher' }])
     );
-    expect(line).toMatchObject({ tone: 'go', word: 'Dana approved' });
+    expect(line).toMatchObject({ tone: 'go', word: 'Dana Fisher approved' });
   });
 
   describe('on a board that is not the author', () => {

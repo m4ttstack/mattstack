@@ -6,6 +6,7 @@ import {
   optionDescription,
   optionDisplayFor,
   optionValue,
+  recommendedPick,
   splitChunkSelections,
   type GateAnswers,
   type GateDomain,
@@ -40,17 +41,22 @@ import {
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
-import { FindingCard, RailSummary, type FilePin } from './ReviewDraftCard.tsx';
+import { FindingCard, SummaryCard, type FilePin } from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
   carryoverTally,
   carryoverTexts,
   FindingAnchor,
-  isPosting,
-  isResolving,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
-import { reserveDock, RoundHeading, SheetLost } from './SheetParts.tsx';
+import { useSheetKeys } from './sheet-keys.ts';
+import {
+  KeyCap,
+  reserveDock,
+  RoundHeading,
+  SheetLost,
+  SUBMIT_KEYS,
+} from './SheetParts.tsx';
 
 /** The engine's optional record fields (`docs/superpowers/specs/
     2026-09-18-review-gate-redesign-design.md` §1): all absent on a report
@@ -323,9 +329,13 @@ function ReviewGateSheet({
       outcomeQuestion &&
       (force || form.selections[outcomeName] === undefined)
     ) {
-      const recommended = outcomeQuestion.options.find(isRecommended);
-      const fallback = recommended ?? outcomeQuestion.options[0];
-      if (fallback) form.setSingle(outcomeName, optionValue(fallback));
+      const recommended = recommendedPick(outcomeQuestion);
+      const first = outcomeQuestion.options[0];
+      const pick =
+        typeof recommended === 'string'
+          ? recommended
+          : first && optionValue(first);
+      if (pick) form.setSingle(outcomeName, pick);
     }
   };
   // Only seeds a key that has never been touched (no draft, no prior
@@ -350,12 +360,7 @@ function ReviewGateSheet({
     const current = skippedName ? form.selections[skippedName] : undefined;
     return new Set(Array.isArray(current) ? current : []);
   }, [form.selections, skippedName]);
-  const replying = carryovers.filter(c => isPosting(c, form.selections)).length;
-  const resolving = carryovers.filter(c =>
-    isResolving(c, form.selections)
-  ).length;
   const replyTexts = carryoverTexts(carryovers, form.selections, form.texts);
-  const postingFindings = selectedFindings.size + selectedSkipped.size;
   const drafts = useMemo(
     () => readDrafts(data?.review, findings, outcomeQuestion),
     [data, findings, outcomeQuestion]
@@ -373,12 +378,6 @@ function ReviewGateSheet({
   const folded = drafts
     ? findings.filter(f => selectedFindings.has(f.id) && !hasDiffLine(f))
     : [];
-  const restoredWithoutLine = drafts
-    ? skippedEntries.filter(
-        ([value, e]) => selectedSkipped.has(value) && !hasDiffLine(e)
-      ).length
-    : 0;
-  const postingComments = postingFindings - folded.length - restoredWithoutLine;
   const pinsByFile = useMemo(() => {
     const out = new Map<string, FilePin[]>();
     for (const f of findings) {
@@ -601,6 +600,24 @@ function ReviewGateSheet({
 
   const parked = gate.status === 'parked';
 
+  const canSubmit =
+    !form.busy &&
+    typeof selectedOutcome === 'string' &&
+    replyTexts !== null &&
+    edits !== null;
+  const verdicts = outcomeQuestion?.options ?? [];
+  const live = Boolean(data && outcomeName && !form.lost);
+  useSheetKeys({
+    onSubmit: live && canSubmit ? submit : undefined,
+    onPick: live
+      ? i => {
+          const o = verdicts[i];
+          if (o && outcomeName) form.setSingle(outcomeName, optionValue(o));
+        }
+      : undefined,
+    picks: verdicts.length,
+  });
+
   if (!data) return null;
   const { review } = data;
   const meta = reviewMeta(review);
@@ -652,6 +669,26 @@ function ReviewGateSheet({
         <section className="tui-sheet-main" ref={mainRef}>
           {review.round !== undefined && (
             <RoundHeading round={review.round} summary={roundSummary} />
+          )}
+          {verdict !== undefined && summaryDraft !== undefined && (
+            <>
+              <div className="tui-sheet-list-head">
+                <span className="tui-sheet-list-title">Summary comment</span>
+                {mr && (
+                  <span className="tui-sheet-list-tally">
+                    posts on {mrRef(mr)}
+                  </span>
+                )}
+              </div>
+              <SummaryCard
+                outcome={verdict}
+                verdictLabel={outcomeText.toLowerCase()}
+                draft={summaryDraft}
+                folded={folded}
+                form={form}
+                onRemove={removeFolded}
+              />
+            </>
           )}
           {carryovers.length > 0 && (
             <>
@@ -877,9 +914,7 @@ function ReviewGateSheet({
                 <div className="tui-sheet-dock" ref={reserveDock}>
                   <div className="tui-sheet-dock-head">
                     <h3 className="tui-sheet-dock-heading">
-                      {drafts
-                        ? `Finish your review${mr ? ` on ${mrRef(mr)}` : ''}`
-                        : `Verdict on ${mr ? mrRef(mr) : '!'}`}
+                      {mr ? `Verdict on ${mrRef(mr)}` : 'Verdict'}
                     </h3>
                     <button
                       type="button"
@@ -889,22 +924,12 @@ function ReviewGateSheet({
                       reset
                     </button>
                   </div>
-                  {verdict !== undefined && summaryDraft !== undefined && (
-                    <RailSummary
-                      outcome={verdict}
-                      verdictLabel={outcomeText.toLowerCase()}
-                      draft={summaryDraft}
-                      folded={folded}
-                      form={form}
-                      onRemove={removeFolded}
-                    />
-                  )}
                   <div
                     className="tui-gate-choices"
                     role="radiogroup"
                     aria-label={outcomeQuestion.label}
                   >
-                    {outcomeQuestion.options.map((o: GateOption) => {
+                    {outcomeQuestion.options.map((o: GateOption, i) => {
                       const display = optionDisplayFor(o);
                       const value = optionValue(o);
                       const checked = selectedOutcome === value;
@@ -951,6 +976,7 @@ function ReviewGateSheet({
                               </span>
                             )}
                           </span>
+                          {i < 9 && <KeyCap keys={String(i + 1)} />}
                         </label>
                       );
                     })}
@@ -972,41 +998,11 @@ function ReviewGateSheet({
                     intent="accent"
                     size="lg"
                     className="tui-sheet-submit"
-                    disabled={
-                      form.busy ||
-                      typeof selectedOutcome !== 'string' ||
-                      replyTexts === null ||
-                      edits === null
-                    }
+                    disabled={!canSubmit}
                     onClick={submit}
                   >
-                    {form.busy
-                      ? 'submitting…'
-                      : drafts
-                        ? [
-                            postingComments > 0
-                              ? `post ${postingComments} ${postingComments === 1 ? 'comment' : 'comments'} + summary`
-                              : 'post summary',
-                            replying > 0 ? `reply ${replying}` : null,
-                            resolving > 0 ? `resolve ${resolving}` : null,
-                            outcomeText || null,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')
-                        : findingsQuestion === undefined &&
-                            !skippedQuestion &&
-                            carryovers.length === 0
-                          ? (outcomeText ?? 'submit')
-                          : [
-                              findingsQuestion || skippedQuestion
-                                ? `post ${postingFindings}`
-                                : null,
-                              replying > 0 ? `reply ${replying}` : null,
-                              resolving > 0 ? `resolve ${resolving}` : null,
-                              outcomeText || null,
-                            ]
-                              .filter(Boolean)
-                              .join(' · ')}
+                    {form.busy ? 'submitting…' : outcomeText || 'submit'}
+                    {!form.busy && <KeyCap keys={SUBMIT_KEYS} onFill />}
                   </Button>
                   {form.failed && (
                     <span className="tui-gate-error">

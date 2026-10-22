@@ -154,8 +154,8 @@ browser-evidence's Revise a board steps 1 to 7, with `stage: ship` on
 every write and `mrUrl` = `mr`. Step 6 is `Record the evidence
 (evidence-record)` and step 7 is `Attach the evidence (evidence-record)`;
 the operator's ask is the attach consent, and step 7's Gate
-evidence-boards shows every file about to go up, the revised board
-included, before anything uploads. The first `evidence_attach`
+evidence-boards shows every file about to go up but a mock-data board, the
+revised board included, before anything uploads. The first `evidence_attach`
 carries no `linkRefused`; this is the last attach, so only a Take at its
 upload off-script gate resends with `linkRefused: true`.
 
@@ -623,8 +623,16 @@ brief (browser-evidence's `Write one brief per board`), stem
 
 `page:` comes from Reach the view, on the sha just pushed; `show` and
 `point at` from What proves a change, the wording from Captions and
-`hide` from Personal data. Unbound, every block takes its default. Then
-walk browser-evidence's `Draw the boards` (Browser evidence below).
+`hide` from Personal data. Unbound, every block takes its default.
+
+The first browser case of this pass takes every named browser case not
+yet tried into one hand-off: write all their after briefs, then walk
+browser-evidence's `Draw the boards` (Browser evidence below) once for
+them, so its redaction gate asks about them together. A later browser case
+already in that hand-off reads its own terminal from it, with no new
+spawn. A retry after `ship:after-attempts` is a hand-off of that case
+alone. A browser case named after that hand-off was made starts a hand-off
+of its own.
 
 Its terminals answer `AFTER result (ship)?`. Board ready is captured; the
 board is recorded with the rest in `Record the evidence (evidence-record)`.
@@ -666,7 +674,7 @@ goes straight to the attach: this verb writes no `evidence` of its own.
 
 The ship gate's Proceed is the attach consent (on a re-capture, the
 operator's ask). On GitLab, Gate evidence-boards then shows every file
-about to go up before anything uploads. This is the last attach, so a
+about to go up but a mock-data board before anything uploads. This is the last attach, so a
 Take at the upload off-script gate (never the first call) sends
 `linkRefused: true`; the off-script gate shares the push gate's
 `n`.

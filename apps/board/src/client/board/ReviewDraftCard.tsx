@@ -8,6 +8,7 @@ import {
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from 'react';
 
 import { Markdown, Modal } from '@mattstack/tui-kit';
@@ -87,6 +88,56 @@ function SectionHead({
   );
 }
 
+/** How long the full diff keeps re-centring the finding you came from
+    while the renderer, its highlighting and the pins lay out. */
+const REVEAL_SETTLE_MS = 2000;
+
+/** Centres the finding you came from in the full diff's scroll body. The
+    diff draws in stages (renderer chunk, highlighting, then the pins), each
+    moving the pin, so it re-centres on every layout change until it
+    settles, and stops for good once you scroll yourself. */
+function useRevealCurrentPin(body: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    let done = false;
+    const reveal = () => {
+      if (done) return;
+      const pin = el.querySelector<HTMLElement>('.tui-diff-pin[data-current]');
+      if (!pin) return;
+      const box = el.getBoundingClientRect();
+      const at = pin.getBoundingClientRect();
+      el.scrollTop += at.top - box.top - (el.clientHeight - at.height) / 2;
+    };
+    const watched = new Set<Element>();
+    const resizes = new ResizeObserver(reveal);
+    const mutations = new MutationObserver(() => {
+      for (const child of el.querySelectorAll('.tui-diff, .tui-diff-pin'))
+        if (!watched.has(child)) {
+          watched.add(child);
+          resizes.observe(child);
+        }
+      reveal();
+    });
+    mutations.observe(el, { childList: true, subtree: true });
+    const stop = () => {
+      done = true;
+      mutations.disconnect();
+      resizes.disconnect();
+    };
+    const userScrolls = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+    for (const type of userScrolls)
+      el.addEventListener(type, stop, { once: true, passive: true });
+    const settle = setTimeout(stop, REVEAL_SETTLE_MS);
+    reveal();
+    return () => {
+      clearTimeout(settle);
+      for (const type of userScrolls) el.removeEventListener(type, stop);
+      stop();
+    };
+  }, [body]);
+}
+
 /** The whole file's diff over the sheet: hunk headers, every finding on
     the file pinned at its line, the one opened from marked. Escape closes
     it and focus goes back to `returnTo`. */
@@ -121,6 +172,8 @@ function FullDiffModal({
   );
   const anchor = byId.get(current)?.line;
   const forge = FORGE_NAME[diff.forge];
+  const body = useRef<HTMLDivElement | null>(null);
+  useRevealCurrentPin(body);
   // The sheet behind has its own Tab trap and Escape: this keeps Tab in
   // the modal, and Escape closes only the modal, never the sheet too.
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -155,6 +208,7 @@ function FullDiffModal({
       ref={root}
       tabIndex={-1}
       className="tui-diff-modal"
+      overlayClassName="tui-diff-overlay"
       ariaLabel={`Full diff of ${diff.path}`}
       onClose={onClose}
       onKeyDown={onKeyDown}
@@ -190,7 +244,7 @@ function FullDiffModal({
         </span>
       }
     >
-      <div className="tui-diff-modal-body">
+      <div className="tui-diff-modal-body" ref={body}>
         <DiffBoundary
           key={diff.patch}
           fallback={
@@ -636,7 +690,7 @@ function FoldedPart({
 /** The review's summary note as it will post (`joinSummary`): the summary
     line for the picked verdict, then each ticked finding with no diff
     line as its own removable part. */
-export function RailSummary({
+export function SummaryCard({
   outcome,
   verdictLabel,
   draft,
@@ -661,9 +715,7 @@ export function RailSummary({
       data-draft-part=""
     >
       <div className="tui-review-summary-head">
-        <span className="tui-review-summary-k">
-          summary comment · {verdictLabel}
-        </span>
+        <span className="tui-review-summary-k">for {verdictLabel}</span>
         <DraftMeta
           edited={edited}
           label="Summary line"

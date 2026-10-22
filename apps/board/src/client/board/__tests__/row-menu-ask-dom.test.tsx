@@ -73,7 +73,7 @@ test("a commented review on a teammate's MR offers the respond ask", async () =>
     }),
     { self: 'pat', roster: ['pat', 'kim'] }
   );
-  await clickItem("ask kim's agent to respond");
+  await clickItem("ask Kim's agent to respond");
   expect(harness.effects).toEqual([{ effect: 'ask:respond:kim', iid: 1418 }]);
 });
 

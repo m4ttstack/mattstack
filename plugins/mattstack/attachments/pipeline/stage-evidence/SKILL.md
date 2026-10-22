@@ -243,11 +243,19 @@ no browser target always answers no. Unbound, it is yes when the plan's
 evidence for the case is a screenshot of a web page.
 
 Give the case its `id` and `label` first: the brief's stem needs the id.
-Walk browser-evidence's `Draw the boards` (Browser evidence below) for
-this case's before board, one brief built from the browser target:
+Each case's before board is one brief built from the browser target:
 `state: FOUND`, `page:` from Reach the view, `show` and `point at` from
 What proves a change, the wording from Captions and `hide` from Personal
 data. Unbound, every block takes its default.
+
+The first browser case of a stage pass takes every planned browser case
+not yet captured into one hand-off: give each its `id` and `label`, write
+all their briefs, and walk browser-evidence's `Draw the boards` (Browser
+evidence below) once for them, so its redaction gate asks about them
+together. A later browser case already in that hand-off reads its own
+terminal from it, with no new spawn. A retry after `capture-attempts`
+(another view or record) is a hand-off of that case alone, and a browser
+case added after that hand-off was made starts a hand-off of its own.
 
 Its terminals answer `Captured?`:
 
@@ -348,7 +356,7 @@ drawn yet (a ticket image's board is drawn at Record), it opens through
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `boards` (write-in) | **Nothing here should stay private** / **Hide something first**, with free text naming the board and what shows; no option recommended, since only the human, looking at the boards, can say | a board is drawn |
+| `boards` (write-in) | **Nothing here should stay private** / **Hide something first**, with free text naming the board and what shows; no option recommended, since only the human, looking at the boards, can say | a board is drawn that is not a mock-data board (browser-evidence, Confirm a mock-data board) |
 | `annotations` | the proposed labels per board, each written `<TAG> \| <title> \| <description>` (browser-evidence, Labels), multi-select, all pre-selected; an image left with nothing selected goes to the waiver question (evidence record below); split `annotations-1`, ... over 4 | always |
 | `attach` (write-in) | **Hand back the markdown (Recommended)** (ship attaches) / **Attach to the MR now** | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
@@ -358,7 +366,8 @@ Selection: `{"boards":"clear|hide|<their words>|null","annotations":[...],"attac
 **Hide something first**, or words naming a board, is a revision of that
 board as under Iterate here, adding a `redact` mark over what they name;
 then this gate is asked again. `Attach the evidence` still shows every
-board at its evidence-boards gate before anything goes up, these included.
+board but a mock-data board at its evidence-boards gate before anything
+goes up, these included.
 
 For a board not yet drawn (a ticket image, a non-browser image), the kept
 labels are its brief's `point at`. A browser case's board is already
