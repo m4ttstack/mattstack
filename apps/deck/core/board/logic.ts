@@ -415,13 +415,22 @@ export function commandButtonLabel(
   return phase === 'running' ? `${cmd}…` : cmd;
 }
 
+const PAST_TENSE: Record<string, string> = {
+  build: 'built',
+  deploy: 'deployed',
+  restart: 'restarted',
+};
+
 export function commandToast(
   app: string,
   cmd: string,
   exitCode: number
 ): string {
+  const done = PAST_TENSE[cmd];
   return exitCode === 0
-    ? `${cmd} finished.`
+    ? done
+      ? `${app} ${done}.`
+      : `${app} ${cmd} finished.`
     : `${cmd} failed (exit ${exitCode}) · deck logs ${app}`;
 }
 

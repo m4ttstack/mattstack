@@ -52,6 +52,14 @@ describe("useToasts", () => {
     ]);
   });
 
+  it("addToast carries an icon when one is given", () => {
+    const hook = renderUseToasts();
+    act(() => {
+      hook.current.addToast("deployed", { icon: "M0 0h1" });
+    });
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "deployed", icon: "M0 0h1" }]);
+  });
+
   it("entries drop after the 3500ms timeout", () => {
     const hook = renderUseToasts();
     act(() => {

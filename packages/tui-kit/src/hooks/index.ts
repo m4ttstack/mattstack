@@ -86,11 +86,13 @@ function useBodyScrollLock(): void {
 /** One transient toast: a fresh id per addToast() call and the text to show.
     `state` marks a toast that tracks work: `pending` draws a spinner until the
     work settles, then `done` a check or `failed` a cross. A plain toast has
-    none. */
+    none. `icon` is path data for the kit `Icon`, drawn ahead of the text so a
+    toast can echo the control that triggered it. */
 interface Toast {
   id: number;
   text: string;
   state?: "pending" | "done" | "failed";
+  icon?: string;
 }
 
 /** Settles a toast that `startToast` opened, in place. */
@@ -111,7 +113,7 @@ const PENDING_MS = 30000;
     fail swaps in a cross and leaves after 3.5s. */
 function useToasts(): {
   toasts: Toast[];
-  addToast: (text: string) => void;
+  addToast: (text: string, opts?: { icon?: string }) => void;
   startToast: (text: string) => ToastHandle;
 } {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -120,9 +122,9 @@ function useToasts(): {
     return setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ms);
   }, []);
   const addToast = useCallback(
-    (text: string) => {
+    (text: string, opts?: { icon?: string }) => {
       const id = ++toastId.current;
-      setToasts((t) => [...t, { id, text }]);
+      setToasts((t) => [...t, { id, text, ...(opts?.icon ? { icon: opts.icon } : {}) }]);
       expire(id, TOAST_MS);
     },
     [expire],

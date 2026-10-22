@@ -553,8 +553,11 @@ test('commandButtonLabel: idle is the bare command, running trails it, restartin
   expect(commandButtonLabel('deploy', 'restarting')).toBe('restarting…');
 });
 
-test('commandToast: exit 0 stays quiet about logs, a failure carries the exit code and the log verb', () => {
-  expect(commandToast('myapp', 'build', 0)).toBe('build finished.');
+test('commandToast: exit 0 names the app in the past tense, a failure carries the exit code and the log verb', () => {
+  expect(commandToast('myapp', 'build', 0)).toBe('myapp built.');
+  expect(commandToast('console', 'deploy', 0)).toBe('console deployed.');
+  expect(commandToast('myapp', 'restart', 0)).toBe('myapp restarted.');
+  expect(commandToast('myapp', 'seed', 0)).toBe('myapp seed finished.');
   expect(commandToast('myapp', 'build', 1)).toBe(
     'build failed (exit 1) · deck logs myapp'
   );

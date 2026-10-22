@@ -1,11 +1,68 @@
-/* The modal leaves 5dvh above and below. The head, its divider and the footer
-   take the rest of the stage's share; the stage's padding, and a caption with
-   its gap, come off a shot's height. */
+/* The modal leaves 5dvh above and below. The head and its divider take the
+   rest of the stage's share; the stage's padding, and a caption with its gap,
+   come off a shot's height. */
 .body {
-  --stage-h: calc(90dvh - 112px);
+  --stage-h: calc(90dvh - 62px);
   --shot-max: calc(var(--stage-h) - 40px);
   --shot-max-captioned: calc(var(--shot-max) - 58px);
   padding: 0;
+}
+
+/* The close button's X sits 4px inside its box, so the right edge takes 4px
+   less to look level with the title on the left. */
+.head {
+  gap: 16px;
+  padding: 14px 12px 14px 16px;
+}
+
+.title {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.count {
+  padding-inline: 8px;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+}
+
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--mantine-color-dimmed);
+}
+
+:where([data-mantine-color-scheme='light']) .pick {
+  --pick-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .pick {
+  --pick-hover: var(--mantine-color-dark-5);
+}
+
+@media (hover: hover) {
+  .pick:hover {
+    background-color: var(--pick-hover);
+  }
+}
+
+.pickLabel {
+  overflow: hidden;
+  color: var(--mantine-color-text);
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickList {
+  max-height: 60dvh;
+  overflow-y: auto;
 }
 
 .stage {
@@ -73,18 +130,4 @@
   width: 0;
   min-width: 100%;
   padding-inline: 2px;
-}
-
-.key {
-  border-bottom-width: 1px;
-  padding: 1px 6px;
-  line-height: normal;
-}
-
-.footer {
-  padding: 8px 20px;
-}
-
-.caseSelect {
-  width: 280px;
 }

@@ -12,7 +12,8 @@ import "./ToastHost.keyframes.css";
 export const recipeCategory = 1 as const;
 
 /** `root` is the fixed-position stack; `toast` is one entry; `status` is the
-    spinner, check or cross a toast that tracks work leads with. */
+    spinner, check or cross a toast that tracks work leads with, or the icon a
+    plain toast was given. */
 const TOASTHOST_SELECTORS = ["root", "toast", "status"] as const;
 
 /** Stable selector surface for app-side CSS, stamped in the non-overridable
@@ -150,10 +151,11 @@ function ToastStack({
           {...styles.toast}
           data-part={TOASTHOST_PARTS.toast}
           data-state={t.state}
+          data-icon={(!t.state && t.icon) ? "" : undefined}
           data-leaving={t.leaving || undefined}
           aria-hidden={t.leaving || undefined}
         >
-          {t.state && (
+          {t.state ? (
             <span {...styles.status} data-part={TOASTHOST_PARTS.status}>
               {t.state === "pending" ? (
                 <Spinner size="sm" />
@@ -161,6 +163,12 @@ function ToastStack({
                 <Icon d={t.state === "done" ? CHECK_ICON : CROSS_ICON} />
               )}
             </span>
+          ) : (
+            t.icon && (
+              <span {...styles.status} data-part={TOASTHOST_PARTS.status}>
+                <Icon d={t.icon} />
+              </span>
+            )
           )}
           {t.text}
         </div>
