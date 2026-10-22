@@ -47,7 +47,7 @@ export function rowHeightOf(view: TemplateView, row: TemplateRow): number {
 
 /** No board draws a team section; a slot card grows a row this tall under
     its face for each one. */
-export const SECTION_ROW_H = 34;
+export const SECTION_ROW_H = 44;
 
 export function inputHeightOf(card: InputCard): number {
   return LAYOUT.cardH + card.sections.length * SECTION_ROW_H;
