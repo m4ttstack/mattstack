@@ -253,9 +253,12 @@ command to run, when there is one), then read `error.code`:
   `--team`.
 - `pack-exists`: this team's pack has already compiled, and init never
   changes it. Rules and verbs go through `mattstack:extending-a-pack`.
-- `base-missing`: the org has no base pack by the name `--extends` gave,
-  or that base itself extends another. The message lists the org's base
-  packs, when it has any.
+- `base-missing`: the org has no base pack by the name `--extends` gave.
+  The message lists the org's base packs, when it has any.
+- `base-chained`: the base `--extends` gave itself extends another base,
+  which only an org admin can fix. Stop there: the author or an org admin
+  decides whether to fix that base or extend one the message lists. Never
+  pick another base for the author.
 - `extends-conflict`: this team's pack is already written, uncompiled,
   with a different base (or none) than `--extends` gave. The message's
   command is the one that resumes it. Never edit the pack's `extends` to

@@ -606,13 +606,21 @@ describe("initPack --extends", () => {
     expect(out).toMatchObject({
       ok: false,
       refused: true,
-      code: "base-missing",
+      code: "base-chained",
       detail: "The acme-base pack in the acme org extends gadgets-base, and a base pack cannot extend another. Bases here: gadgets-base",
       next: "rt skills init --team acme --extends <base>",
+      why: "An org admin has to fix acme-base so it extends nothing",
     });
     expect(fs.exists(`${ACME_PACK}/pack/skills.jsonc`)).toBe(false);
     expect(calls.claims).toEqual([]);
     expect(calls.remembered).toEqual([]);
+  });
+
+  test("init --extends on the only base, which extends a missing one, names no command to retry", async () => {
+    const { deps } = world({ files: { [`${BASE_DIR}/pack/skills.jsonc`]: '{ "base": true, "extends": "gadgets-base" }' } });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null, extendsBase: "acme-base" }, deps);
+    expect(out).toMatchObject({ code: "base-chained", detail: "The acme-base pack in the acme org extends gadgets-base, and a base pack cannot extend another" });
+    expect(out).not.toHaveProperty("next");
   });
 
   test("a stop with no --extends names no base in its next", async () => {

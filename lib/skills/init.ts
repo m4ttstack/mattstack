@@ -392,7 +392,7 @@ function sharePathsFor(zone: ZoneInfo, packDir: string, wrote: string[]): string
 export type InitRefusalCode =
   | "not-yours" | "other-org"
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host" | "base-missing"
-  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing" | "extends-conflict";
+  | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing" | "extends-conflict" | "base-chained";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
 
@@ -413,7 +413,7 @@ export type InitOutcome =
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
-export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict", "needs-newer-app", "extends-conflict"]);
+export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch", "team-marketplace-conflict", "needs-newer-app", "extends-conflict", "base-chained"]);
 
 /** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
 export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host", "params-missing"]);
@@ -571,13 +571,16 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
           }).sort()
         : [];
       const listed = bases.length > 0 ? `. Bases here: ${bases.join(", ")}` : "";
-      return refuse(
-        "base-missing",
-        baseFragment === null
-          ? `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org${listed}`
-          : `The ${extendsBase} pack in the ${zone.org} org extends ${baseFragment.extends}, and a base pack cannot extend another${listed}`,
-        `rt skills init --team ${zone.team} --extends <base>`,
-      );
+      const retry = `rt skills init --team ${zone.team} --extends <base>`;
+      if (baseFragment !== null) {
+        return refuse(
+          "base-chained",
+          `The ${extendsBase} pack in the ${zone.org} org extends ${baseFragment.extends}, and a base pack cannot extend another${listed}`,
+          bases.length > 0 ? retry : undefined,
+          `An org admin has to fix ${extendsBase} so it extends nothing`,
+        );
+      }
+      return refuse("base-missing", `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org${listed}`, retry);
     }
   }
   const writtenExtends = writtenPackExtends(deps.fs, packDir);

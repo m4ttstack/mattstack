@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { initFailure, initFailureAfter, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
 import * as syncCommand from "../skills-sync.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import type { InitDeps, InitOutcome } from "../../lib/skills/init.ts";
+import { POLICY_REFUSALS, type InitDeps, type InitOutcome } from "../../lib/skills/init.ts";
 import { UserActionableError } from "../../lib/errors.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as ui from "../../lib/ui/out.ts";
@@ -93,6 +93,19 @@ describe("init outcome", () => {
   test("an unknown base is a failure naming the bases there", () => {
     const o = { ok: false as const, refused: true as const, code: "base-missing" as const, detail: "There is no base pack called gadgets-base in the acme org. Bases here: acme-base", next: "rt skills init --team acme --extends <base>" };
     expect(renderPlain([ui.failure(initFailure(o))])).toBe(`${o.detail}\n  next: ${o.next}\n`);
+  });
+
+  test("a base that extends another is refused by policy, naming who fixes it and the bases there", () => {
+    const o = {
+      ok: false as const,
+      refused: true as const,
+      code: "base-chained" as const,
+      detail: "The acme-base pack in the acme org extends gadgets-base, and a base pack cannot extend another. Bases here: gadgets-base",
+      next: "rt skills init --team acme --extends <base>",
+      why: "An org admin has to fix acme-base so it extends nothing",
+    };
+    expect(POLICY_REFUSALS.has(o.code)).toBe(true);
+    expect(renderPlain(initRefusalBlocks(o))).toBe(`[refused] ${o.detail}\n  why: ${o.why}\n  next: ${o.next}\n`);
   });
 
   test("the failure prefers the error's next to the generic remedy", () => {
