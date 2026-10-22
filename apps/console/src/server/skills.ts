@@ -287,7 +287,7 @@ interface SkillsCompilePreviewResponse {
 }
 
 type SkillsDriftCause =
-  'frontmatter' | 'source' | 'fill' | 'include' | 'structure' | 'vendored';
+  'frontmatter' | 'source' | 'fill' | 'include' | 'structure' | 'vendored' | 'team';
 
 interface SkillsAnatomySource {
   ref: string;

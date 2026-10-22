@@ -98,3 +98,35 @@ describe("partExtents on compiled shapes", () => {
     ]);
   });
 });
+
+describe("partExtents with a section nested in a slot", () => {
+  const withSection = (body: string[]) => [
+    "<!-- part: slot:ci binding=acme-base:ci version=1 path=b lines=1-3 -->",
+    "intro",
+    "<!-- part: section:ci-extra source=widgets:pack/sections/ci-extra.md version=0.4.0 path=pack/sections/ci-extra.md lines=1-3 -->",
+    ...body,
+    "outro",
+    "",
+    "<!-- part: include:after source=m:after version=1 path=c lines=1-1 -->",
+    "after body",
+  ].join("\n");
+  const md = withSection(["s1", "s2", "s3"]);
+
+  test("a slot holding a 3-line section ends after the section body, and the next part starts after it", () => {
+    const extents = partExtents(md);
+    expect(extents.map((e) => [e.key, e.start, e.end])).toEqual([["slot:ci", 0, 6], ["section:ci-extra", 2, 5], ["include:after", 8, 9]]);
+    expect(extents[1]!.text).toBe("s1\ns2\ns3");
+  });
+
+  test("a section edit is a team cause, not a fill or structure change", () => {
+    expect(skillMdDriftCauses(md, withSection(["s1", "s2 edited", "s3"]))).toEqual(["team"]);
+  });
+
+  test("a section edit marks the section and the slot that contains it", () => {
+    expect([...changedPartKeys(md, withSection(["s1", "s2 edited", "s3"]))].sort()).toEqual(["section:ci-extra", "slot:ci"]);
+  });
+
+  test("a section's version bump alone changes nothing", () => {
+    expect([...changedPartKeys(md, md.replace("version=0.4.0", "version=0.5.0"))]).toEqual([]);
+  });
+});

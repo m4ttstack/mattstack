@@ -1783,6 +1783,10 @@ export function installedCacheBlocks(installed: InstalledInfo): Block[] {
   return [];
 }
 
+function driftCauseWords(cause: DriftCause): string {
+  return cause === "team" ? "team values" : cause;
+}
+
 export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[] {
   const blocks: Block[] = payload.chainErrors.map((chainError) => out.line("failed", chainError));
   for (const { key, layer } of payload.droppedOverrides ?? []) {
@@ -1797,7 +1801,7 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
       stale = true;
       const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
       const causes = row.staleBecause ?? [];
-      blocks.push(out.line("stale", row.name, causes.length > 0 ? `${causes.join(", ")} moved: ${files}` : `changed since the last compile: ${files}`));
+      blocks.push(out.line("stale", row.name, causes.length > 0 ? `${causes.map(driftCauseWords).join(", ")} moved: ${files}` : `changed since the last compile: ${files}`));
     } else {
       blocks.push(out.line("done", row.name, "current"));
     }
@@ -2378,6 +2382,14 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
       if (!fill) continue;
       const key = `slot:${slot}`;
       sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length, ...originFor(resolved.pluginRoots, fill.plugin, fill.dir) };
+    }
+    const team = resolved.teamContext?.values;
+    if (team) {
+      for (const extent of partExtents(fresh)) {
+        if (!extent.key.startsWith("section:")) continue;
+        const name = extent.key.slice("section:".length);
+        sources[extent.key] = { ref: `${team.plugin}:pack/sections/${name}.md`, path: join(resolved.packDir, "pack", "sections", `${name}.md`), version: team.version, builtVersion: builtVersions.get(extent.key) ?? null, lines: extent.text.split("\n").length };
+      }
     }
     const targets: Record<string, AnatomyTarget> = {};
     for (const t of plan.targets) {

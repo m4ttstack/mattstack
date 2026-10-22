@@ -1843,6 +1843,40 @@ describe("base pack attachments", () => {
       expect(payload.compileErrors).toEqual([]);
     });
 
+    const DOMAIN_WITH_SECTION = DOMAIN_SKILL_MD + "Rules:\n{{team.section:ci-extra}}\nDone.\n";
+
+    test("a section inlined into a slot is its own anatomy part, and an edit to it is a team change", async () => {
+      const { packDir, mattstackDir, compile, setValues, run } = seedTeamValues({ domainBody: DOMAIN_WITH_SECTION, ciNotes: false });
+      setValues({}, { "ci-extra": "- lint\n- e2e\n- deploy\n" });
+      expect((await compile()).errors).toEqual([]);
+      const rendered = readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8");
+      const lines = rendered.split("\n");
+      const seamAt = lines.findIndex((l) => l.startsWith("<!-- part: section:ci-extra "));
+      expect(seamAt).toBeGreaterThan(0);
+
+      io.clear();
+      await run(["anatomy", "--skill", "watch-ci", "--json"]);
+      const anatomy = JSON.parse(io.stdout());
+      const section = anatomy.parts.find((p: { kind: string }) => p.kind === "section");
+      expect(section).toMatchObject({ name: "ci-extra", renderedLines: [seamAt + 1, seamAt + 4], changed: false });
+      expect(section.source).toMatchObject({ ref: "widgets:pack/sections/ci-extra.md", version: "0.1.0", lines: 3 });
+      expect(section.source.path).toBe(join(packDir, "pack", "sections", "ci-extra.md"));
+      const slot = anatomy.parts.find((p: { kind: string; name: string }) => p.kind === "slot" && p.name === "domain");
+      expect(slot.renderedLines[0]).toBeLessThan(seamAt + 1);
+      expect(slot.renderedLines[1]).toBeGreaterThanOrEqual(seamAt + 5);
+      expect(anatomy.status).toBe("in-sync");
+
+      setValues({}, { "ci-extra": "- lint\n- e2e\n- deploy\n- smoke\n" });
+      const payload = await checkPack({ packDir, mattstackDir });
+      expect(payload.verbs.find((row) => row.name === "watch-ci")).toMatchObject({ status: "stale", staleBecause: ["team"] });
+      expect(renderPlain(checkBlocks(payload, false))).toContain("watch-ci  team values moved: SKILL.md");
+      io.clear();
+      await run(["anatomy", "--skill", "watch-ci", "--json"]);
+      const stale = JSON.parse(io.stdout());
+      expect(stale).toMatchObject({ status: "stale", staleBecause: ["team"] });
+      expect(stale.parts.find((p: { kind: string }) => p.kind === "section")).toMatchObject({ changed: true });
+    });
+
     test("preview, anatomy and composition refuse on missing values", async () => {
       const { run } = seedTeamValues();
 

@@ -1,7 +1,7 @@
 import { partExtents, type DriftCause, type PartExtent } from "./drift.ts";
 import type { TraceEntry } from "./placeholders.ts";
 
-export type AnatomyPartKind = "text" | "include" | "slot" | "verb.path" | "variable";
+export type AnatomyPartKind = "text" | "include" | "slot" | "section" | "verb.path" | "variable";
 export type AnatomySource = { ref: string; path: string; version: string; builtVersion: string | null; lines: number; origin?: "base"; base?: string; baseVersion?: string | null };
 export type AnatomyTarget = { skill: string; path: string; lines: number | null };
 export type AnatomyPart = {
@@ -103,7 +103,7 @@ export function partsFromMarkers(rendered: string, sources: Record<string, Anato
   }
   for (const x of extents) {
     const colon = x.key.indexOf(":");
-    const kind = x.key.slice(0, colon) as "slot" | "include";
+    const kind = x.key.slice(0, colon) as "slot" | "include" | "section";
     parts.push({ kind, name: x.key.slice(colon + 1), templateLines: null, renderedLines: [x.start + 1, x.end + 1], mode: kind === "slot" ? "inline" : null, source: sources[x.key] ?? null, target: null, changed: changedKeys.has(x.key) });
   }
   return parts;
@@ -123,7 +123,7 @@ export function partsOnDisk(parts: AnatomyPart[], onDisk: string): AnatomyPart[]
     byKey.set(x.key, [...(byKey.get(x.key) ?? []), x]);
   }
   return parts.map((p) => {
-    if (p.kind !== "include" && p.kind !== "slot") return { ...p, renderedLines: null };
+    if (p.kind !== "include" && p.kind !== "slot" && p.kind !== "section") return { ...p, renderedLines: null };
     const x = byKey.get(`${p.kind}:${p.name}`)?.shift();
     return { ...p, renderedLines: x ? [x.start + 1, x.end + 1] : null };
   });

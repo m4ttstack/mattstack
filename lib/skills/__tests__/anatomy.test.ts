@@ -127,6 +127,29 @@ describe("partsFromMarkers", () => {
   });
 });
 
+describe("partsFromMarkers with a section", () => {
+  const md = [
+    "<!-- part: step source=m:s version=1 path=p lines=1-1 -->", "", "step", "",
+    "<!-- part: slot:ci binding=acme-base:ci version=1 path=b lines=1-3 -->", "",
+    "intro",
+    "<!-- part: section:ci-extra source=widgets:pack/sections/ci-extra.md version=0.4.0 path=pack/sections/ci-extra.md lines=1-2 -->", "s1", "s2",
+    "outro", "",
+  ].join("\n");
+
+  test("the slot's rendered lines include the section body, and the section is its own part", () => {
+    const source = { ref: "widgets:pack/sections/ci-extra.md", path: "/p/pack/sections/ci-extra.md", version: "0.4.0", builtVersion: "0.4.0", lines: 2 };
+    expect(partsFromMarkers(md, { "section:ci-extra": source }, new Set(["section:ci-extra"])).slice(1).map((p) => [p.kind, p.name, p.renderedLines, p.changed, p.source?.ref ?? null])).toEqual([
+      ["slot", "ci", [5, 11], false, null],
+      ["section", "ci-extra", [8, 10], true, "widgets:pack/sections/ci-extra.md"],
+    ]);
+  });
+
+  test("partsOnDisk keeps a section part and points it at its marker", () => {
+    const parts = partsFromMarkers(md, {}, new Set()).map((p) => ({ ...p, renderedLines: null }));
+    expect(partsOnDisk(parts, md).map((p) => p.renderedLines)).toEqual([null, [5, 11], [8, 10]]);
+  });
+});
+
 describe("partsOnDisk", () => {
   const part = (kind: AnatomyPart["kind"], name: string | null, renderedLines: [number, number]): AnatomyPart =>
     ({ kind, name, templateLines: [1, 1], renderedLines, mode: null, source: null, target: null, changed: false });
