@@ -150,6 +150,8 @@ import { createMaterializePullHook } from "./daemon/materialize-pull-hook.ts";
 import { composePullHooks } from "./daemon/pull-hooks.ts";
 import { BOOT_DELAY_MS as CD_CACHE_BOOT_DELAY_MS, REFRESH_MS as CD_CACHE_REFRESH_MS, refreshCdCache } from "./daemon/cd-cache-refresh.ts";
 import { maybeSendTriageSummary, localDay, TRIAGE_CATEGORY } from "./daemon/triage-summary.ts";
+import { runUsageAlertSweep, USAGE_LIMIT_CATEGORY, type FiredState, type UsageAlertConfig } from "./usage-limits/alerts.ts";
+import { readAccountUsage, realReadDeps } from "./usage-limits/read.ts";
 import { getKvValue, setKvValue } from "./state/kv-blob.ts";
 import { pruneRuns } from "./runs/prune.ts";
 import { pruneLogs } from "./log-janitor.ts";
@@ -1124,6 +1126,18 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             saveLastSent: (day) => setKvValue("worktree-triage", "last-summary-day", day),
           }); },
           { bootDelayMs: 60_000, intervalMs: 15 * 60_000 },
+          log,
+        ));
+        sweepHandles.push(scheduleSweep(
+          "usage-limit-alerts",
+          async () => { await runUsageAlertSweep({
+            read: () => readAccountUsage(realReadDeps),
+            config: () => getSetting<UsageAlertConfig>("rt.notify.usageLimits").value,
+            loadFired: () => getKvValue<FiredState>("usage-limits", "fired", {}),
+            saveFired: (fired) => setKvValue("usage-limits", "fired", fired),
+            notify: (alert) => notifyEnabled(USAGE_LIMIT_CATEGORY, alert.title, alert.message),
+          }); },
+          { bootDelayMs: 120_000, intervalMs: 5 * 60_000 },
           log,
         ));
 

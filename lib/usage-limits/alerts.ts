@@ -44,7 +44,7 @@ export function evaluateUsage(
   for (const acct of usage) {
     const thresholds = thresholdsFor(acct, config);
     for (const limit of acct.limits) {
-      const key = `${acct.account}|${limit.kind}`;
+      const key = `${acct.account}|${acct.orgUuid ?? ""}|${limit.kind}`;
       const reached = Math.max(0, ...thresholds.filter((t) => limit.pct >= t));
       if (reached > (fired[key] ?? 0)) {
         alerts.push({ account: acct.account, limit, threshold: reached, ...copy(acct.account, limit, config.hint) });

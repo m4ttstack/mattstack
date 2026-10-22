@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { evaluateUsage, thresholdsFor, type UsageAlertConfig } from "../alerts.ts";
+import { evaluateUsage, runUsageAlertSweep, thresholdsFor, type FiredState, type UsageAlert, type UsageAlertConfig } from "../alerts.ts";
 import type { AccountUsage } from "../read.ts";
 
 const CONFIG: UsageAlertConfig = { thresholds: [80, 95], accounts: {} };
@@ -32,13 +32,13 @@ describe("evaluateUsage", () => {
   test("nothing fires below the lowest threshold", () => {
     const { alerts, fired } = evaluateUsage([spendAt(40)], CONFIG, {});
     expect(alerts).toEqual([]);
-    expect(fired).toEqual({ "dev@example.com|spend": 0 });
+    expect(fired).toEqual({ "dev@example.com|org-1|spend": 0 });
   });
 
   test("crossing a threshold fires once", () => {
     const first = evaluateUsage([spendAt(82)], CONFIG, {});
     expect(first.alerts).toHaveLength(1);
-    expect(first.alerts[0].threshold).toBe(80);
+    expect(first.alerts[0]!.threshold).toBe(80);
 
     const second = evaluateUsage([spendAt(85)], CONFIG, first.fired);
     expect(second.alerts).toEqual([]);
@@ -83,6 +83,17 @@ describe("evaluateUsage", () => {
     ]);
   });
 
+  test("one email in two orgs is two accounts", () => {
+    const usage: AccountUsage[] = [
+      { account: "dev@example.com", orgUuid: "org-a", limits: [{ kind: "seven_day", pct: 90 }] },
+      { account: "dev@example.com", orgUuid: "org-b", limits: [{ kind: "seven_day", pct: 10 }] },
+    ];
+    const first = evaluateUsage(usage, CONFIG, {});
+    const second = evaluateUsage(usage, CONFIG, first.fired);
+    expect(first.alerts).toHaveLength(1);
+    expect(second.alerts).toEqual([]);
+  });
+
   test("a limit missing from one poll keeps its fired state", () => {
     const crossed = evaluateUsage([spendAt(90)], CONFIG, {});
     const missing = evaluateUsage([{ account: "dev@example.com", limits: [] }], CONFIG, crossed.fired);
@@ -99,18 +110,54 @@ describe("evaluateUsage", () => {
 describe("alert copy", () => {
   test("a spend alert names the account and the dollar amounts", () => {
     const { alerts } = evaluateUsage([spendAt(96)], CONFIG, {});
-    expect(alerts[0].title).toBe("Claude usage at 96%");
-    expect(alerts[0].message).toBe("dev@example.com: monthly spend $960.00 of $1,000.00.");
+    expect(alerts[0]!.title).toBe("Claude usage at 96%");
+    expect(alerts[0]!.message).toBe("dev@example.com: monthly spend $960.00 of $1,000.00.");
   });
 
   test("a window alert names the window", () => {
     const usage: AccountUsage[] = [{ account: "b@example.com", limits: [{ kind: "scoped:Fable", pct: 85 }] }];
     const { alerts } = evaluateUsage(usage, CONFIG, {});
-    expect(alerts[0].message).toBe("b@example.com: weekly Fable limit at 85%.");
+    expect(alerts[0]!.message).toBe("b@example.com: weekly Fable limit at 85%.");
   });
 
   test("the configured hint follows the message", () => {
     const { alerts } = evaluateUsage([spendAt(96)], { ...CONFIG, hint: "Ask your admin for more usage." }, {});
-    expect(alerts[0].message).toBe("dev@example.com: monthly spend $960.00 of $1,000.00. Ask your admin for more usage.");
+    expect(alerts[0]!.message).toBe("dev@example.com: monthly spend $960.00 of $1,000.00. Ask your admin for more usage.");
+  });
+});
+
+describe("runUsageAlertSweep", () => {
+  function harness(pcts: number[]) {
+    let fired: FiredState = {};
+    const sent: UsageAlert[] = [];
+    let i = 0;
+    const tick = () => runUsageAlertSweep({
+      read: async () => ({ source: "cswap", accounts: [spendAt(pcts[i++]!)] }),
+      config: () => CONFIG,
+      loadFired: () => fired,
+      saveFired: (f) => { fired = f; },
+      notify: (a) => { sent.push(a); },
+    });
+    return { tick, sent };
+  }
+
+  test("notifies once across polls and persists what fired", async () => {
+    const h = harness([82, 84, 96]);
+    await h.tick();
+    await h.tick();
+    await h.tick();
+    expect(h.sent.map((a) => a.threshold)).toEqual([80, 95]);
+  });
+
+  test("a read with no accounts leaves fired state alone", async () => {
+    let saved = false;
+    await runUsageAlertSweep({
+      read: async () => ({ source: "none", accounts: [] }),
+      config: () => CONFIG,
+      loadFired: () => ({}),
+      saveFired: () => { saved = true; },
+      notify: () => {},
+    });
+    expect(saved).toBe(false);
   });
 });
