@@ -287,7 +287,13 @@ interface SkillsCompilePreviewResponse {
 }
 
 type SkillsDriftCause =
-  'frontmatter' | 'source' | 'fill' | 'include' | 'structure' | 'vendored' | 'team';
+  | 'frontmatter'
+  | 'source'
+  | 'fill'
+  | 'include'
+  | 'structure'
+  | 'vendored'
+  | 'team';
 
 interface SkillsAnatomySource {
   ref: string;
@@ -309,7 +315,7 @@ interface SkillsAnatomyTarget {
     variable and verb.path parts carry `renderedLines: null`: the fresh build's
     ranges would not match the file on disk. */
 interface SkillsAnatomyPart {
-  kind: 'text' | 'include' | 'slot' | 'verb.path' | 'variable';
+  kind: 'text' | 'include' | 'slot' | 'verb.path' | 'variable' | 'section';
   name: string | null;
   templateLines: [number, number] | null;
   renderedLines: [number, number] | null;

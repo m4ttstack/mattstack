@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { designFixture } from '../../__tests__/designFixtures';
 import type { SkillsCheck, SkillsComposition } from '../../../outline';
 import type { SkillsAnatomy, SkillsChanges } from '../../../useWiring';
+import { drawerContent } from '../drawerContent';
 import {
   buildTemplateView,
   selectedPartId,
@@ -353,6 +354,68 @@ describe('the plan step template', () => {
       status: 'stale',
       reason: 'its pack text changed',
     });
+  });
+});
+
+describe('a team section inside a slot', () => {
+  const domain = anatomyPlan.parts.find(
+    part => part.kind === 'slot' && part.name === 'domain'
+  )!;
+  const [from] = domain.renderedLines!;
+  const section: Part = {
+    kind: 'section',
+    name: 'ci-extra',
+    templateLines: null,
+    renderedLines: [from + 2, from + 4],
+    mode: null,
+    source: null,
+    target: null,
+    changed: false,
+  };
+  const withSection: SkillsAnatomy = {
+    ...anatomyPlan,
+    parts: anatomyPlan.parts.flatMap(part =>
+      part === domain ? [part, section] : [part]
+    ),
+  };
+  const view = buildTemplateView({
+    anatomy: withSection,
+    composition,
+    check,
+    changes: changesClean,
+    step: 2,
+  });
+
+  it('draws no card or row of its own', () => {
+    expect(view.inputs.some(card => card.id.startsWith('section:'))).toBe(
+      false
+    );
+    expect(
+      view.rows.some(
+        row => row.kind === 'placeholder' && row.name === 'ci-extra'
+      )
+    ).toBe(false);
+  });
+
+  it('leaves the slot card and the whole graph as they are without it', () => {
+    const plain = planView();
+    expect(view.inputs.find(card => card.id === 'slot:domain')).toEqual(
+      plain.inputs.find(card => card.id === 'slot:domain')
+    );
+    expect(view).toEqual(plain);
+  });
+
+  it('leaves the drawer as it is without it', () => {
+    const plain = planView();
+    for (const target of [
+      { kind: 'output', part: null },
+      { kind: 'output', part: 'slot:domain' },
+      { kind: 'input', id: 'slot:domain' },
+    ] as const) {
+      expect(drawerContent(target, view, withSection, null)).toEqual(
+        drawerContent(target, plain, anatomyPlan, null)
+      );
+    }
   });
 });
 
