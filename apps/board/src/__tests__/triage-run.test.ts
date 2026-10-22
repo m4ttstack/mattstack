@@ -1560,6 +1560,38 @@ describe('runTriage defers to a live work run', () => {
     expect(d.memory.mrs[CHILD]!.handoffs?.['pipeline-red']?.viaMr).toBe(PARENT);
   });
 
+  test('a branch-only handoff survives the parent run shipping its own MR', async () => {
+    let runs = [
+      workRun({ id: 'run-p', session: 'sess-p', branch: 'feat-parent' }),
+    ];
+    const d = liveRunDeps(
+      [],
+      { live: ['sess-p'] },
+      {
+        fetchOwnMrs: async () => [stack()[1]!],
+        listRuns: async () => runs,
+      }
+    );
+    await runTriage(d);
+    expect(d.memory.mrs[CHILD]!.handoffs?.['pipeline-red']?.viaMr).toBeNull();
+
+    runs = [
+      workRun({
+        id: 'run-p',
+        session: 'sess-p',
+        branch: 'feat-parent',
+        mr: 'https://x/mr/77',
+      }),
+    ];
+    await runTriage(d);
+    expect(d.memory.mrs[CHILD]!.handoffs?.['pipeline-red']?.runId).toBe(
+      'run-p'
+    );
+    expect(d.audit.some(e => e.reason === 'handoff-lapsed')).toBe(false);
+    expect(d.rings).toHaveLength(1);
+    expect(d.launches).toHaveLength(0);
+  });
+
   test('a live run on a parent outside the board keeps its branch-only handoff', async () => {
     const d = liveRunDeps(
       [workRun({ id: 'run-p', session: 'sess-p', branch: 'feat-parent' })],

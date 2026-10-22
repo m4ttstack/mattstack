@@ -15,7 +15,8 @@ export type SessionProbe = (
   session: string
 ) => Promise<{ reachable: boolean; name?: string }>;
 
-/** Query by MR url (own-MR match) and/or by repo slug + branch (pre-ship match). */
+/** Query by MR url (own-MR match) and/or by repo slug + branch. Without an
+    MR url the branch matches whatever MR the run has shipped. */
 export interface OwnerQuery {
   mrUrl?: string;
   repoSlug: string;
@@ -38,7 +39,7 @@ export function ownerCandidates(
       if (run.status !== 'running') return false;
       if (!run.session || run.session === NO_SESSION) return false;
       if (NON_OWNING_WORK_TYPES.has(run.work_type)) return false;
-      if (run.mr) return wanted !== null && normalizeMrUrl(run.mr) === wanted;
+      if (run.mr && wanted !== null) return normalizeMrUrl(run.mr) === wanted;
       return run.repo === q.repoSlug && run.branch === q.branch;
     })
     .sort((a, b) => b.last_event_at - a.last_event_at)

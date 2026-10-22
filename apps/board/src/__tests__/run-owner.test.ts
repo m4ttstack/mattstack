@@ -31,13 +31,21 @@ const MR = 'https://git.example.test/acme/widgets/-/merge_requests/7';
 
 describe('ownerCandidates', () => {
   test('matches a running work run by mr url', () => {
-    const out = ownerCandidates({ ...q, branch: 'other', mrUrl: MR }, [run({ mr: MR })]);
-    expect(out).toEqual([{ runId: 'run-1', session: 'sess-1', stage: 'build' }]);
+    const out = ownerCandidates({ ...q, branch: 'other', mrUrl: MR }, [
+      run({ mr: MR }),
+    ]);
+    expect(out).toEqual([
+      { runId: 'run-1', session: 'sess-1', stage: 'build' },
+    ]);
   });
 
   test('ignores trailing slashes on either url', () => {
-    expect(ownerCandidates({ ...q, mrUrl: `${MR}/` }, [run({ mr: MR })])).toHaveLength(1);
-    expect(ownerCandidates({ ...q, mrUrl: MR }, [run({ mr: `${MR}//` })])).toHaveLength(1);
+    expect(
+      ownerCandidates({ ...q, mrUrl: `${MR}/` }, [run({ mr: MR })])
+    ).toHaveLength(1);
+    expect(
+      ownerCandidates({ ...q, mrUrl: MR }, [run({ mr: `${MR}//` })])
+    ).toHaveLength(1);
   });
 
   test('matches by repo slug and branch only while the run has no mr', () => {
@@ -46,10 +54,19 @@ describe('ownerCandidates', () => {
     expect(ownerCandidates(q, [run({ branch: 'feat/y' })])).toHaveLength(0);
   });
 
-  test('a run whose mr names another MR does not match on branch', () => {
+  test('a run whose mr names another MR does not match an mr query on branch', () => {
     const other = 'https://git.example.test/acme/widgets/-/merge_requests/8';
-    expect(ownerCandidates({ ...q, mrUrl: MR }, [run({ mr: other })])).toHaveLength(0);
-    expect(ownerCandidates(q, [run({ mr: other })])).toHaveLength(0);
+    expect(
+      ownerCandidates({ ...q, mrUrl: MR }, [run({ mr: other })])
+    ).toHaveLength(0);
+  });
+
+  test('a branch-only query matches a shipped run on that branch', () => {
+    const shipped = 'https://git.example.test/acme/widgets/-/merge_requests/8';
+    expect(ownerCandidates(q, [run({ mr: shipped })])).toHaveLength(1);
+    expect(
+      ownerCandidates(q, [run({ mr: shipped, branch: 'feat/y' })])
+    ).toHaveLength(0);
   });
 
   test('matches a branch-only query (parent outside the board)', () => {
@@ -73,7 +90,7 @@ describe('ownerCandidates', () => {
       run({ id: 'old', last_event_at: 1 }),
       run({ id: 'new', last_event_at: 9 }),
     ]);
-    expect(out.map((o) => o.runId)).toEqual(['new', 'old']);
+    expect(out.map(o => o.runId)).toEqual(['new', 'old']);
   });
 });
 
@@ -84,14 +101,23 @@ describe('firstLiveOwner', () => {
   ];
 
   test('skips a dead newer run for a live older one', async () => {
-    const owner = await firstLiveOwner(cands, async (s) =>
-      s === 's-old' ? { reachable: true, name: 'worker-a' } : { reachable: false },
+    const owner = await firstLiveOwner(cands, async s =>
+      s === 's-old'
+        ? { reachable: true, name: 'worker-a' }
+        : { reachable: false }
     );
-    expect(owner).toEqual({ runId: 'old', session: 's-old', stage: 'build', name: 'worker-a' });
+    expect(owner).toEqual({
+      runId: 'old',
+      session: 's-old',
+      stage: 'build',
+      name: 'worker-a',
+    });
   });
 
   test('returns null when none probe live', async () => {
-    expect(await firstLiveOwner(cands, async () => ({ reachable: false }))).toBeNull();
+    expect(
+      await firstLiveOwner(cands, async () => ({ reachable: false }))
+    ).toBeNull();
   });
 });
 
@@ -111,14 +137,24 @@ describe('ringText', () => {
   });
 
   test('downstream pipeline-red says stacked on your branch', () => {
-    const t = ringText({ kind: 'downstream', childIid: 6, childEdge: 'pipeline-red', pipelineId: 99 });
+    const t = ringText({
+      kind: 'downstream',
+      childIid: 6,
+      childEdge: 'pipeline-red',
+      pipelineId: 99,
+    });
     expect(t).toContain('!6');
     expect(t).toContain('stacked on your branch');
     expect(t).toContain('99');
   });
 
   test('downstream needs-rebase never claims failing CI', () => {
-    const t = ringText({ kind: 'downstream', childIid: 6, childEdge: 'needs-rebase', pipelineId: null });
+    const t = ringText({
+      kind: 'downstream',
+      childIid: 6,
+      childEdge: 'needs-rebase',
+      pipelineId: null,
+    });
     expect(t).toContain('needs a rebase');
     expect(t).not.toContain('failing CI');
   });
