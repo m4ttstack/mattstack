@@ -623,6 +623,24 @@ describe("initPack --extends", () => {
     expect(out).not.toHaveProperty("next");
   });
 
+  test("a run given --repo keeps that repo in every retry command, quoted for the shell", async () => {
+    const repoFlag = "/work/my api";
+    const quoted = "--repo '/work/my api'";
+    const stop = world({ files: BASE_FILES, compile: stopOnMissing });
+    expect(await initPack({ repoDir: repoFlag, repoFlag, zone: null, team: null, extendsBase: "acme-base" }, stop.deps)).toMatchObject({ code: "params-missing", next: `rt skills init ${quoted} --team acme --extends acme-base` });
+    const missing = world({ files: BASE_FILES });
+    expect(await initPack({ repoDir: repoFlag, repoFlag, zone: null, team: null, extendsBase: "gadgets-base" }, missing.deps)).toMatchObject({ code: "base-missing", next: `rt skills init ${quoted} --team acme --extends <base>` });
+    const chained = world({ files: { [`${BASE_DIR}/pack/skills.jsonc`]: '{ "base": true, "extends": "gadgets-base" }', [`${ORG_ROOT("acme")}/mattstack/org/packs/gadgets-base/pack/skills.jsonc`]: '{ "base": true }' } });
+    expect(await initPack({ repoDir: repoFlag, repoFlag, zone: null, team: null, extendsBase: "acme-base" }, chained.deps)).toMatchObject({ code: "base-chained", next: `rt skills init ${quoted} --team acme --extends <base>` });
+    const conflict = world({ files: { ...BASE_FILES, [`${ACME_PACK}/pack/skills.jsonc`]: renderPackFiles({ pack: "acme", workDescription: "d" })["pack/skills.jsonc"]! } });
+    expect(await initPack({ repoDir: repoFlag, repoFlag, zone: null, team: null, extendsBase: "acme-base" }, conflict.deps)).toMatchObject({ code: "extends-conflict", next: `rt skills init ${quoted} --team acme` });
+  });
+
+  test("a plain --repo path is not quoted", async () => {
+    const { deps } = world({ compile: stopOnMissing });
+    expect(await initPack({ repoDir: "/work/api", repoFlag: "/work/api", zone: null, team: null }, deps)).toMatchObject({ code: "params-missing", next: "rt skills init --repo /work/api --team acme" });
+  });
+
   test("a stop with no --extends names no base in its next", async () => {
     const { deps } = world({ compile: stopOnMissing });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);

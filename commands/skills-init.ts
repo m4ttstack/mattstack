@@ -36,10 +36,10 @@ import { checkPack, compilePackAll } from "./skills.ts";
 import { claudeMissingBlocks } from "./skills-sync.ts";
 import { childEnv } from "../lib/subprocess.ts";
 
-export type InitArgs = { repo: string; zone: string | null; team: string | null; extendsBase: string | null; json: boolean };
+export type InitArgs = { repo: string; repoGiven: boolean; zone: string | null; team: string | null; extendsBase: string | null; json: boolean };
 
 export function parseInitArgs(args: string[]): InitArgs {
-  const out: InitArgs = { repo: process.cwd(), zone: null, team: null, extendsBase: null, json: false };
+  const out: InitArgs = { repo: process.cwd(), repoGiven: false, zone: null, team: null, extendsBase: null, json: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     const value = (flag: string): string => {
@@ -48,7 +48,7 @@ export function parseInitArgs(args: string[]): InitArgs {
       return v;
     };
     switch (a) {
-      case "--repo": out.repo = resolve(value(a)); break;
+      case "--repo": out.repo = resolve(value(a)); out.repoGiven = true; break;
       case "--team": out.team = value(a); break;
       case "--zone": out.zone = value(a); break;
       case "--extends": out.extendsBase = value(a); break;
@@ -266,7 +266,7 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
   const resolvedDeps = deps ?? realDeps({ json: parsed.json });
   let out: InitOutcome;
   try {
-    out = await initPack({ repoDir: parsed.repo, zone: parsed.zone, team: parsed.team, extendsBase: parsed.extendsBase }, resolvedDeps);
+    out = await initPack({ repoDir: parsed.repo, repoFlag: parsed.repoGiven ? parsed.repo : null, zone: parsed.zone, team: parsed.team, extendsBase: parsed.extendsBase }, resolvedDeps);
   } catch (err) {
     // A dep the pre-attempt setup calls directly (promptZone, createZone) can throw a
     // UserActionableError before initPack's own post-write attempt() wrapper is reached;

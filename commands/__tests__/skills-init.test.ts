@@ -11,10 +11,10 @@ import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 describe("parseInitArgs", () => {
   test("defaults: cwd repo, no zone, no team, human output", () => {
-    expect(parseInitArgs([])).toEqual({ repo: process.cwd(), zone: null, team: null, extendsBase: null, json: false });
+    expect(parseInitArgs([])).toEqual({ repo: process.cwd(), repoGiven: false, zone: null, team: null, extendsBase: null, json: false });
   });
   test("reads every flag", () => {
-    expect(parseInitArgs(["--repo", "/r", "--zone", "z", "--team", "t", "--extends", "acme-base", "--json"])).toEqual({ repo: "/r", zone: "z", team: "t", extendsBase: "acme-base", json: true });
+    expect(parseInitArgs(["--repo", "/r", "--zone", "z", "--team", "t", "--extends", "acme-base", "--json"])).toEqual({ repo: "/r", repoGiven: true, zone: "z", team: "t", extendsBase: "acme-base", json: true });
   });
   test("--extends without a value throws a usage error", () => {
     expect(() => parseInitArgs(["--extends"])).toThrow(/--extends needs a value/);
@@ -445,6 +445,19 @@ describe("skillsInit", () => {
         `  next: rt settings set board.gitlabHost '"gitlab.example.com"' --scope team --team acme\n`,
     );
     expect(io.stderr()).not.toContain("[failed]");
+    expect(process.exitCode).toBe(2);
+  });
+
+  test("a refusal after --repo names that repo in its next, so the retry works from any folder", async () => {
+    const HOME = "/h";
+    const fs = memFs({
+      [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
+      [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme", "layout": ${ORG_LAYOUT} }`,
+      [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com" }`,
+      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
+    });
+    await skillsInit(["--repo", "/elsewhere/my api", "--extends", "acme-base"], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
+    expect(io.stderr()).toContain("next: rt skills init --repo '/elsewhere/my api' --team acme --extends <base>");
     expect(process.exitCode).toBe(2);
   });
 

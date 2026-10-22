@@ -1,4 +1,5 @@
 import { dirname, join, relative } from "path";
+import { shellQuote } from "../nav-fs.ts";
 import { applyEdits, modify } from "jsonc-parser";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { readSection } from "../../packages/rt-client/src/settings/migrate.ts";
@@ -481,7 +482,16 @@ async function marketplaceNames(claude: NonNullable<InitDeps["claude"]>): Promis
   }
 }
 
-export async function initPack(opts: { repoDir: string; zone: string | null; team: string | null; extendsBase?: string | null }, deps: InitDeps): Promise<InitOutcome> {
+const SHELL_SAFE = /^[\w./~@%+=:,-]+$/;
+
+/** `repoFlag` is the --repo the person passed, so a retry run from another folder still finds the repo; without one, init used the working folder. */
+function initCommand(repoFlag: string | null | undefined, flags: string): string {
+  const repo = repoFlag ? ` --repo ${SHELL_SAFE.test(repoFlag) ? repoFlag : shellQuote(repoFlag)}` : "";
+  return `rt skills init${repo}${flags ? ` ${flags}` : ""}`;
+}
+
+export async function initPack(opts: { repoDir: string; repoFlag?: string | null; zone: string | null; team: string | null; extendsBase?: string | null }, deps: InitDeps): Promise<InitOutcome> {
+  const retry = (flags: string) => initCommand(opts.repoFlag, flags);
   const remote = await deps.gitRemote(opts.repoDir);
   if (remote.kind === "not-a-repo") return refuse("not-a-repo", "This folder is not a git repo");
   if (remote.kind === "no-remote") return refuse("no-remote", "This repo has no git remote", "git remote add origin <url>");
@@ -496,7 +506,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const claude = deps.claude;
 
   if (opts.team !== null && !TEAM_NAME_RE.test(opts.team)) {
-    return refuse("zone-missing", `${opts.team || "An empty name"} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, "rt skills init --team <name>");
+    return refuse("zone-missing", `${opts.team || "An empty name"} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, retry("--team <name>"));
   }
   // Checked before anything is written: a refusal after createZone or compile would leave an org or a pack on disk.
   const floorRefusal = (label: string): InitOutcome | null => {
@@ -546,7 +556,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
       : refuse("zone-missing", `No team on ${repo.host} is free for a new pack`, "rt team add <team> --owner <username>", adminsOnly);
   }
   if (choice.kind === "ambiguous") {
-    return refuse("zone-ambiguous", `More than one team could hold this pack: ${choice.zones.map((z) => z.team).join(", ")}`, "rt skills init --team <name>");
+    return refuse("zone-ambiguous", `More than one team could hold this pack: ${choice.zones.map((z) => z.team).join(", ")}`, retry("--team <name>"));
   }
   if (choice.kind === "mismatch") {
     return refuse("zone-mismatch", `The ${choice.zone.team} team is on ${choice.zone.host}, but this repo is on ${repo.host}`);
@@ -571,16 +581,16 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
           }).sort()
         : [];
       const listed = bases.length > 0 ? `. Bases here: ${bases.join(", ")}` : "";
-      const retry = `rt skills init --team ${zone.team} --extends <base>`;
+      const pickBase = retry(`--team ${zone.team} --extends <base>`);
       if (baseFragment !== null) {
         return refuse(
           "base-chained",
           `The ${extendsBase} pack in the ${zone.org} org extends ${baseFragment.extends}, and a base pack cannot extend another${listed}`,
-          bases.length > 0 ? retry : undefined,
+          bases.length > 0 ? pickBase : undefined,
           `An org admin has to fix ${extendsBase} so it extends nothing`,
         );
       }
-      return refuse("base-missing", `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org${listed}`, retry);
+      return refuse("base-missing", `There is no base pack called ${extendsBase || "(empty)"} in the ${zone.org} org${listed}`, pickBase);
     }
   }
   const writtenExtends = writtenPackExtends(deps.fs, packDir);
@@ -588,7 +598,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     return refuse(
       "extends-conflict",
       `This team's pack is already written ${writtenExtends === null ? "without a base" : `extending ${writtenExtends}`}, but this run asked for ${extendsBase}`,
-      `rt skills init --team ${zone.team}${writtenExtends === null ? "" : ` --extends ${writtenExtends}`}`,
+      retry(`--team ${zone.team}${writtenExtends === null ? "" : ` --extends ${writtenExtends}`}`),
       "rt never changes the base of a pack it already wrote",
     );
   }
@@ -615,7 +625,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
 
   const share = `rt team publish --team ${zone.org}`;
   const remedyFor = (code: FailureCode): InitRemedy => {
-    if (code === "write-failed") return { commands: ["rt skills init"], folder: packDir };
+    if (code === "write-failed") return { commands: [retry("")], folder: packDir };
     if (code === "materialize-failed") return { commands: [`rt skills materialize --dir ${opts.repoDir}`, share] };
     if (code === "compile-failed" || code === "check-drift") {
       return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`, share] };
@@ -692,7 +702,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     return refuse(
       "params-missing",
       missingDetail(compiled.missing),
-      `rt skills init --team ${zone.team}${extendsBase !== null ? ` --extends ${extendsBase}` : ""}`,
+      retry(`--team ${zone.team}${extendsBase !== null ? ` --extends ${extendsBase}` : ""}`),
       "Each one has an empty place in your pack. Fill them in, then run this again.",
       seeded,
     );
