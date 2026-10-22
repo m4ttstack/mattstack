@@ -37,7 +37,20 @@ The daemon's status line sits near the top. When the daemon is degraded, that li
 
 **Worktrees…** lists the worktrees that were not cleaned up after their merge request merged or closed. The menu item shows how many there are, and once a day (from 09:00 local, when at least one tree needs a decision) a summary notification opens the panel when clicked.
 
-Each row says why the tree is stuck and whether its work is safe somewhere else: already in the default branch, pushed to the remote, or patch-identical to what merged. It offers one guarded action: dispose, keep, push the branch, review the diff, stop the processes holding the tree, or remove it. Every action re-checks the tree before it runs. A removed tree goes to rt's 14-day trash rather than being deleted, and a tree holding the only copy of its work can only be forced after you confirm.
+Until its first check finishes, the window shows only a spinner and "Checking worktrees…". When the daemon can't be reached, it says "Couldn't check worktrees" and tries again every 10 seconds. It checks only while it is on screen.
+
+Each row says why the tree is stuck and whether its work is safe somewhere else: already in the default branch, pushed to the remote, or patch-identical to what merged. A commit counts as unpushed only when the remote branch lacks it. It offers one guarded action: dispose, keep, push the branch, review the diff, stop the processes holding the tree, or remove it. Every action re-checks the tree before it runs. A removed tree goes to rt's 14-day trash rather than being deleted, and a tree holding the only copy of its work can only be forced after you confirm.
+
+When a repo's merged worktrees can't clean up on their own, a banner at the top names the repo and why, with a button that fixes it in place:
+
+| The banner says | Its button |
+| --- | --- |
+| rt has no GitLab (or GitHub) token. | **Connect GitLab** opens Settings → Accounts. |
+| Worktrees are off on this Mac. | **Turn on worktrees** runs [`rt worktree enable`](/rt/reference/worktree/enable). |
+| rt isn't checking that repo's MRs. | **Clean these up automatically** turns on MR tracking for the repo, keeping its other tracking. |
+| You turned worktrees off on this Mac, or turned off tracking for this repo. | None: it was your choice, so the banner never undoes it. |
+
+**Not for this repo** hides the banner for that repo, here and in `rt worktree list`, and leaves its merged worktrees for you to dispose. It sets `rt.worktreeMergeCleanupNotice` to `false` for the repo.
 
 `rt worktree triage` prints the same rows in the terminal (`--json` for scripts). Files that match the `rt.worktrees.junk` globs, and `bun.lock` changes that only bump versions, do not count as dirty.
 
@@ -55,7 +68,7 @@ Cmd-F opens find in page inside the mattstack window.
 
 While the window is in front, the **mattstack** app menu holds About mattstack, Check for Updates…, Settings… (Cmd-,), Setup status… and Quit mattstack (Cmd-Q). The **Help** menu opens these docs with mattstack Help, and has the same View Logs… and Open Crash Log items as the menu bar menu's Troubleshoot submenu.
 
-Settings opens as a native tabbed window (General, Permissions, Fast Browser, Team, Uninstall); the titlebar names the active pane. The General tab's Developer section opens the other app (mattstack.app or mattstack-dev.app) after a confirmation; an app opened by hand takes the Mac over, so it retires and quits the current one.
+Settings opens as a native tabbed window (General, Permissions, Accounts, Fast Browser, Dev logins, Apps, Team, Uninstall); the titlebar names the active pane. The General tab's Developer section opens the other app (mattstack.app or mattstack-dev.app) after a confirmation; an app opened by hand takes the Mac over, so it retires and quits the current one.
 
 ## Updates
 

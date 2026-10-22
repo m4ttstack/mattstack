@@ -61,6 +61,8 @@ Paste the token and Connect. A pasted token missing a scope is refused, naming t
 
 **Your repos** has one row for each repo your team tracks. Each row is either **Current checkout** (a copy you already have on this Mac; **Locate…** points at it) or **New checkout** (rt clones the repo where you choose; **Choose location…** picks where). A repo rt finds on this Mac starts on Current checkout. A git worktree never counts as a checkout: **Locate…** refuses one and names the main checkout to pick instead. A repo rt can't place shows what to fix on its row. If you join a team, you choose where your repos go after Install (each offers **Clone here**), and those rows must be answered before Finish, not Install.
 
+A joiner's checklist cannot list the team's own accounts yet, because Install is what joins the team. The Accounts page says so in a line: **Your team's accounts and repos**. After Install, the team's Slack and Linear rows join **Needs you** and hold **Finish** until you connect them.
+
 ### Installing
 
 Install runs each step and streams its progress:
@@ -77,12 +79,14 @@ The last screen checks the checklist again and shows it with a sidebar: **Overvi
 
 **Overview** says whether anything is left and shows where things live: the **m** icon in the menu bar, `rt` in a new terminal window, and the board at `board.mattstack`. A step that needs another try is listed there with **Retry from here**. Owners also get **Invite teammates…**.
 
-**Needs you** holds any required row that is still not ready, and the two rows that gate **Finish**:
+**Needs you** holds any required row that is still not ready, a joiner's repo and team account rows, and the two rows that gate **Finish** on every Mac:
 
 - **Writing style**: the voice agents use for the reviews, replies, and PR descriptions they post under your name. **Choose style…** offers the mattstack presets or any skill of your own.
 - **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension. **Show steps…** walks through it. Install Fast Browser from the Chrome Web Store. Install already ran Fast Browser's setup, so there is nothing to configure. Only a Mac set to auto connection also pairs. Its row then reads **Loaded in Chrome but not paired yet**, and **Show steps…** walks through the pairing. **Skip for now** skips it on this Mac; Settings → Fast Browser shows **Un-skip** to bring it back. Without Chrome installed, this row is skipped.
 
 Optional rows left open sit under **Optional** in their group.
+
+**Finish** closes the window and starts herdr, the terminal server your agents run in. If herdr cannot start, a notification says why and how to try again.
 
 ## After setup
 
@@ -125,7 +129,7 @@ Install seeds a baseline `permissions.allow` list into every Claude Code config 
 - `claude plugin update`.
 - The few rt commands skills still run in a shell (`rt gate` and `rt events wait`).
 
-Everything else a skill runs routinely is a tool on the [MCP server](/skills/mcp). Existing entries stay; only missing ones are added. A config dir with no `permissions.defaultMode` gets `auto`, and a mode you already chose stays.
+Everything else a skill runs routinely is a tool on the [MCP server](/skills/mcp). Existing entries stay; only missing ones are added. A config dir with no `permissions.defaultMode` gets `auto`, and a mode you already chose stays. A config dir with no `tui` setting gets `"tui": "fullscreen"`, the Claude Code layout rt's pane tools expect. To change it back, remove the `tui` line from that dir's `settings.json`; an update does not put it back.
 
 It installs the `mattstack`, `fast-browser`, and `chat` plugins from the mattstack marketplace, and `superpowers` from `claude-plugins-official`, which the mattstack skills and every team pack call. An existing `superpowers-marketplace` install counts.
 

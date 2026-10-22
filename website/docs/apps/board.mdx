@@ -10,7 +10,9 @@ import BoardIcon from "@site/src/components/BoardIcon";
 
 ## What it is
 
-board is one page of your team's open GitLab merge requests that are ready for review, so you can drop a single link in Slack instead of pasting MR URLs. Each row shows a status dot, the title, the branch, one review-state phrase, the diff size, the age and a Linear ticket link when the branch or title carries a ticket id. Merge conflicts and red CI show as their own flag chips, so the phrase always says where the MR sits in review.
+board is one page of your team's open GitLab merge requests that are ready for review, so you can drop a single link in Slack instead of pasting MR URLs. Each row shows a status dot, the title, the author, the branch, one review-state phrase, the diff size, the age and a Linear ticket link when the branch or title carries a ticket id. Merge conflicts and red CI show as their own flag chips, so the phrase always says where the MR sits in review.
+
+The row and its status line name people in full. Menu items, dialogs, the inbox and the ask band use first names, with a last initial when two people share one.
 
 <Screenshot name="board/board" alt="board showing the Show chips, the Group and Sort menus, the Team and Needs me tabs, and a list of merge requests" />
 
@@ -70,6 +72,8 @@ When one Slack post links several MRs, the first mark on an MR replies in that p
 
 The emoji come from the `emoji` key of the `board.slack` setting; the defaults are shown.
 
+The board counts a mark on the MR's post, and on your own replies in its thread, since reviewers often react to a nudge posted there. For a channel that marks reviews with its own emoji, the `emojiAliases` key of `board.slack` lists other emoji that count as each mark. console's settings page edits each list under **Other teams' emoji**.
+
 ### Finding the Slack thread
 
 The board finds each MR's Slack post on its own: the first post in the MR's channel that contains the MR's link. It looks every 15 minutes, before every post, and when you open the menu of an MR with no post on record. The MR's channel is your team's review channel, or a code owners tab's own channel for an MR that tab collects. The board searches top-level posts from the last 90 days.
@@ -122,15 +126,25 @@ The rest of the agent work. Items with nothing to act on (no saved session, no r
 
 ### What each agent does
 
-Review, respond and doctor each run as a Claude Code agent in their own herdr pane on this Mac, in the `reviews`, `responses` or `doctors` workspace. When herdr isn't running, the board starts it first. They use the account and model set in `board.agent.account` and `board.agent.model`, and work in the folder `board.cwds` sets for that kind of work. When an agent needs a decision from you, it asks on the board and waits. Anything it posts to the MR is posted as you.
+Review, respond and doctor each run as a Claude Code agent in their own herdr pane on this Mac, in the `reviews`, `responses` or `doctors` workspace. When herdr isn't running, the board starts it first. They use the account and model set in `board.agent.account` and `board.agent.model`, and work in the folder `board.cwds` sets for that kind of work. When an agent needs a decision from you, it asks on the board and waits; see [Decisions waiting on you](#decisions-waiting-on-you). Anything it posts to the MR is posted as you.
+
+A finished run's line on the row, such as "review ready", a response's result or the doctor's, clears after two hours. On your own MR, a needed rebase or CI fix shows ahead of it.
 
 #### Review
 
 The agent reads the MR and compares its changes with the target branch. A team pack can supply its own review skill for this step.
 
-When it finishes, its findings come back to you on the board. You decide which findings to post and what the review result is: approve or comment. Nothing is posted until you decide.
+When it finishes, its findings come back to you on the board, each with the comment the agent drafted for it. You decide which findings to post, edit any comment, and pick the review result: approve or comment. Nothing is posted until you submit.
 
-It then posts the findings you chose as inline comments with a summary, and approves the MR if you chose approve. It never changes code. **view agent review** opens its full report.
+The review's sheet reads top to bottom:
+
+- **Summary comment** comes first, as it will post on the MR. The agent drafts a summary line for each result, and the card shows the one for the result you picked. A finding with no line in the diff joins the summary as its own part, which you can remove.
+- The findings follow, grouped by severity, each group with **all** and **none**. A finding you tick opens into three parts: **The Code** (the file and line, with the diff around it), **Agent Finding** and **Comment**, the text that posts.
+- **view full diff**, or a click on the code, opens the whole file's diff, centred on the finding you came from. Every finding on that file sits pinned at its line, and a link opens the file on GitLab.
+- A comment is always editable. **Preview** shows it as it will read on the MR. An edited comment is marked **edited**, and **reset to draft** brings back the agent's text.
+- The rail holds the result, a note box and the submit button, which names the result.
+
+It then posts the findings you chose as inline comments, with your edits, and the summary, and approves the MR if you chose approve. It never changes code. **view agent review** opens its full report.
 
 With Slack connected, the board marks the MR's Slack post as looking while the review runs, then commented or approved. After a comment result, with `board.reReview` on, the board also adds a thread asking the author to resolve it once everything is addressed. The board takes another pass when they do.
 
@@ -178,6 +192,14 @@ Before posting, it asks again: for each thread, whether to post the reply and wh
 To let it do more, change those settings. `cleanApiRebase` lets it start a rebase on the server. The `checkout` tier with `mechanicalLint` or `codeFix` lets it fix code and push, usually through a team pack's doctor skill. If it needs a decision, it asks on the board. The board closes its pane when it is done.
 
 **rebase locally** launches the doctor with one job: rebase the branch onto its target in a local checkout, resolve conflicts and force-push with lease. It needs a doctor skill: the `doctorSkill` setting, or a `board:doctor` binding in the pack of the board tab you are on, else your team's pack. Without one, the item is hidden; **rebase on target** in the **gitlab** flyout rebases on the server instead.
+
+#### When a work run owns the branch
+
+A pipeline's work run may already be working on the MR's branch, or on its parent's branch in a stack. A doctor there would push over the run's agent, so the board hands the problem to that agent instead:
+
+- **Auto-doctor** starts no doctor. It tells the run's agent what the MR needs: a CI fix or a rebase. The row's status line reads "handed to worker". If the run ends first, auto-doctor takes over again.
+- **call doctor**, **redo doctor** and **rebase locally** ask first, naming the run and its stage. **Ring worker** sends the agent the same message and starts no doctor. **Launch doctor anyway** starts the doctor. **Cancel** does neither.
+- A bulk doctor leaves those MRs out and names them in its summary, for example "skipped !2, fred's run is active".
 
 ### gitlab
 
@@ -254,6 +276,16 @@ The bulk menu is titled "N selected". It offers only what every checked MR's own
 An MR that is already where an action would take it, such as already rebased, is skipped. Merging asks "really merge N?", and refuses while a checked MR sits on another MR that is still open. Starting more than three reviews, re-reviews or doctors asks first too. When nothing fits every checked MR, the menu says "nothing fits all N".
 
 The board runs the action on four MRs at a time, then shows one summary, for example "merge accepted on !1, !2 · couldn't merge !3 (not approved yet) · 1 didn't need it".
+
+## Decisions waiting on you
+
+When an agent waits on a decision of yours, a banner above the header says so, for example "3 decisions are waiting on you". It names the MR it starts with and how long that decision has waited. **Open queue** opens the decisions one after another, in the order the board lists their MRs. A response or doctor decision on someone else's MR opens read-only, since only the MR's author can answer it.
+
+Each decision opens as a sheet:
+
+- The agent's recommended answers are already picked, so agreeing takes only a submit.
+- <kbd>⌘</kbd><kbd>↩</kbd> submits the sheet from anywhere in it, a text field included.
+- On a review, the number keys pick the result: <kbd>1</kbd> for the first, <kbd>2</kbd> for the second. The sheet shows each key beside what it does.
 
 ## Show chips, Group and Sort
 
@@ -418,6 +450,8 @@ dev1's row grows a band at its foot that follows the ask. Click it for the trail
 ## A teammate already reviewing
 
 When a teammate's board starts a review of someone else's MR, it tells every peered board in your org. Your row for that MR then reads "dev2 is reviewing" in its status line, with a spinner, and **view ↗** opens the MR. The line clears when their review ends or its pane closes, or after two hours with no word from their board.
+
+On your own MR, a teammate's finished review reads "dev2 approved" or "dev2 commented", with **merge** beside it once the MR can merge.
 
 Starting a **review** or **follow-up review** on that MR asks first: "dev2 is already reviewing this". Press **Review anyway** to go ahead, or **Cancel**. A bulk review leaves those MRs out and names them in its summary, for example "skipped !2, dev2 is reviewing".
 
