@@ -584,6 +584,8 @@ Matt didn't pick these; check them while reading.
   follow-up work.
 - A titled block that renders blank (only empty props, no children) is left
   out with its heading, as an unbound slot's heading is today.
+- An include that is also a fill (`execution-strategy`) stays a skill folder
+  with a `SKILL.md` and is included as today, since a fill keeps that form.
 - Block files are named `*.block.md` rather than `*.block`, so forges keep
   rendering them as markdown. (So a folder block's file is
   `index.block.md`.)
