@@ -155,6 +155,7 @@ function FullDiffModal({
       ref={root}
       tabIndex={-1}
       className="tui-diff-modal"
+      overlayClassName="tui-diff-overlay"
       ariaLabel={`Full diff of ${diff.path}`}
       onClose={onClose}
       onKeyDown={onKeyDown}
