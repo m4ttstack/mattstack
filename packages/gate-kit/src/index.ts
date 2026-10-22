@@ -28,6 +28,7 @@ export {
   NO_PRESET_KINDS,
   presetSelections,
   PROCEED_VALUE,
+  recommendedPick,
   withoutPreset,
 } from './preset';
 export {
