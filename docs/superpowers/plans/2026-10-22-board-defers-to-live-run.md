@@ -66,7 +66,7 @@
 **Interfaces:**
 - Produces (rt-client `Commands`):
   - `"inbox:ring": { payload: { session: string; label: string; text: string }; data: { delivered: boolean; reason?: "no-session" | "failed" } }`
-  - `"inbox:probe": { payload: { session: string }; data: { reachable: boolean; name?: string } }` (`name` is the session's `InboxBinding.name` when reachable)
+  - `"inbox:probe": { payload: { session: string }; data: { reachable: boolean; name?: string } }` (`name` is the session's `InboxBinding.name`, set only when reachable and `nameSource === "user"`; a derived name is never returned)
 - Produces (rt-client): `inboxRing(payload, o?: RtClientOptions)`, `inboxProbe(payload, o?: RtClientOptions)`, returning `Promise<RtResponse<…data>>`, timeout 5000ms.
 - Produces (daemon): `createInboxHandlers(deps?: { resolve: (session: string) => InboxBinding | null; deliver: typeof deliverToInbox; probe: typeof probeInboxReachability })`, defaults `resolveLiveInbox` (`lib/claude-registry.ts`), `deliverToInbox`, `probeInboxReachability` (`lib/daemon/inbox.ts`). Ring body is `wrapCrossSession(label, text)`.
 
@@ -75,7 +75,7 @@
   - `ring reports no-session when the session does not resolve` (deliver not called).
   - `ring reports failed when delivery fails`.
   - `ring rejects a payload without session, label or text` → `ok: false`.
-  - `probe is reachable only for a live binding whose socket accepts` (no binding / `unreachable` / `reachable`), and `probe returns the session name when reachable`.
+  - `probe is reachable only for a live binding whose socket accepts` (no binding / `unreachable` / `reachable`); `probe returns a user-chosen session name`; `probe omits a derived session name`.
 - [ ] **Step 2:** `bun test lib/daemon/__tests__/inbox-handlers.test.ts` → FAIL.
 - [ ] **Step 3:** Implement (model on `lib/daemon/handlers/herdr.ts`), register, add `Commands` entries, `COMMAND_NAMES` rows and wrappers.
 - [ ] **Step 4:** `bun test lib/daemon/__tests__/inbox-handlers.test.ts lib/daemon/__tests__/rt-client-commands.test.ts` → PASS. Rebuild rt-client.
@@ -91,15 +91,16 @@
 - Consumes: `RunSummary` (Task 1), `normalizeMrUrl` (`apps/board/src/gates/run-mr.ts`).
 - Produces:
   ```ts
-  export interface RunOwner { runId: string; session: string; stage: string | null }
+  export interface RunOwner { runId: string; session: string; stage: string | null; name?: string }
+  export type SessionProbe = (session: string) => Promise<{ reachable: boolean; name?: string }>;
   /** Query by MR url (own-MR match) and/or by repo slug + branch (pre-ship match). */
   export interface OwnerQuery { mrUrl?: string; repoSlug: string; branch: string }
   /** Matching work runs, most recently active first. Pure: no liveness. */
   export function ownerCandidates(q: OwnerQuery, runs: readonly RunSummary[]): RunOwner[];
-  /** First candidate whose session probes reachable, or null. */
+  /** First candidate whose session probes reachable, with the probe's name, or null. */
   export async function firstLiveOwner(
     candidates: readonly RunOwner[],
-    probe: (session: string) => Promise<boolean>
+    probe: SessionProbe
   ): Promise<RunOwner | null>;
   export type RingFrame =
     | { kind: 'pipeline-red'; iid: number; pipelineId: number | null }
@@ -126,7 +127,7 @@
 
 **Files:**
 - Modify: `apps/board/src/triage/memory.ts`, `apps/board/src/triage/edge.ts`, `apps/board/src/triage/memory-store.ts`
-- Test: `apps/board/src/__tests__/triage-edge.test.ts`, plus a `writeHandoff` test beside the stand-down memory tests
+- Test: `apps/board/src/__tests__/triage-edge.test.ts`, `apps/board/src/__tests__/triage-memory-store.test.ts`
 
 **Interfaces:**
 - Produces (memory.ts, stays Bun-free):
@@ -141,12 +142,19 @@
     at: number;
   }
   // MrMemory gains: handoffs?: Partial<Record<HandoffKind, Handoff>>
+  /** Only the handoffs whose edge still holds (pipeline-red: failed and same
+      pipeline id; needs-rebase: still needs it). Pure; used by the snapshot
+      and by triage's re-check. */
+  export function liveHandoffs(
+    mem: MrMemory | undefined,
+    facts: { pipelineId: number | null; pipelineFailed: boolean; needsRebase: boolean }
+  ): Partial<Record<HandoffKind, Handoff>>;
   ```
 - Produces (edge.ts): `rearm(mem: DispatchMemory, mrUrl: string, kind: EdgeKind): void` — `pipeline-red` clears `lastHandledPipelineId` to null; `needs-rebase` sets `lastNeedsRebase` false.
 - Produces (memory-store.ts):
   - `writeHandoff(mrUrl: string, kind: HandoffKind, handoff: Handoff | null, opts?: { markHandled?: { pipelineId: number | null } }, db?: Database): void` — fresh read and write in one transaction like `writeStandDown`; `null` deletes that kind; `markHandled` sets `lastHandledPipelineId` (pipeline-red) or `lastNeedsRebase` (needs-rebase).
   - `clearHandoffs(mrUrl: string, db?: Database): void`.
-  - `liveHandoffs(mem: MrMemory | undefined, facts: { pipelineId: number | null; pipelineFailed: boolean; needsRebase: boolean }): Partial<Record<HandoffKind, Handoff>>` — only the handoffs whose edge still holds (pipeline-red: failed and same pipeline id; needs-rebase: still needs it). Pure; used by the snapshot and by triage's re-check.
+  - Both document, like `writeStandDown`, that a server caller holds `tryClaimCron` around them.
 
 - [ ] **Step 1: Write the failing tests:** `rearm lets the same red pipeline fire again`; `rearm lets a held rebase fire again`; `rollDay keeps handoffs`; `two kinds keep two handoffs`; `liveHandoffs drops a pipeline-red handoff once the pipeline id changes or goes green`; `writeHandoff marks the edge handled when asked`; `clearHandoffs removes both kinds`.
 - [ ] **Step 2:** Run the two test files → FAIL.
@@ -167,7 +175,7 @@
   /** null = the lookup failed; owner logic stands aside for this pass. */
   listRuns?(): Promise<RunSummary[] | null>;
   ring?(session: string, text: string): Promise<boolean>;
-  probe?(session: string): Promise<boolean>;
+  probe?: SessionProbe;
   /** boardRepoSlug(gitlabHost, projectPathFromWebUrl(mrUrl)). */
   repoSlugForMr?(mrUrl: string): string;
   ```
@@ -178,14 +186,14 @@ Order inside `runTriage`: `observe` → `listRuns` once → **handoff re-check**
 Handoff re-check, per MR memory entry, per handoff kind:
 - MR not in `mrs`, or not in `liveHandoffs(...)` for its current facts → delete it, audit `handoff-cleared`.
 - `runs === null` → keep.
-- `handoff.runId` is no longer among `ownerCandidates` for its `viaMr`/`viaBranch`, or `probe(handoff.session)` is false → delete it, `rearm`, audit `handoff-lapsed`.
+- `handoff.runId` is no longer among `ownerCandidates` for its `viaMr`/`viaBranch`, or `probe(handoff.session)` is not `reachable` → delete it, `rearm`, audit `handoff-lapsed`.
 
 Per edge, when `runs !== null` and `ring`, `probe`, `repoSlugForMr` are wired, try in order and stop at the first delivered ring:
 1. This MR: `firstLiveOwner(ownerCandidates({ mrUrl, repoSlug, branch: sourceBranch }))`, frame `pipeline-red` or `needs-rebase` (target = the facts' `targetBranch`). Delivered → `handoffs[kind]` with `viaMr` = this MR, `markHandled`, audit `run-active`, `continue`.
 2. Each ancestor in `chainOf(mrs, mrUrl).ancestors`, nearest first, by its mr url and branch; then, if `unresolvedParentBranch` is set, a branch-only query on it. Frame `downstream` with `childEdge` = this edge's kind. Delivered → handoff with `viaMr` = ancestor url (null for the unresolved parent) and `viaBranch`, `markHandled`, audit `upstream-run-active`, `continue`.
 3. A ring that fails at any step is audited `ring-failed` and the walk continues. No delivered ring → today's dispatch.
 
-Wiring in `bin/triage.ts`: `listRuns` → rt-client `listRuns()` (`res.ok ? res.data.runs : null`, throws → null); `ring` → `inboxRing({ session, label: BOARD_RING_LABEL, text })`, true only on `ok && data.delivered`; `probe` → `inboxProbe`, true only on `ok && data.reachable`; `repoSlugForMr` from `boardConfig.gitlabHost` and `projectPathFromWebUrl`.
+Wiring in `bin/triage.ts`: `listRuns` → rt-client `listRuns()` (`res.ok ? res.data.runs : null`, throws → null); `ring` → `inboxRing({ session, label: BOARD_RING_LABEL, text })`, true only on `ok && data.delivered`; `probe` → `inboxProbe`, `{ reachable: ok && data.reachable, name: data.name }`; `repoSlugForMr` from `boardConfig.gitlabHost` and `projectPathFromWebUrl`.
 
 - [ ] **Step 1: Write the failing tests** (fake deps, the file's existing style):
   - `a live run on the branch is rung and no doctor launches` (launchDoctor not called; `handoffs['pipeline-red'].runId` set; audit `run-active` with the stage; ring text has the pipeline id).
@@ -211,7 +219,7 @@ Wiring in `bin/triage.ts`: `listRuns` → rt-client `listRuns()` (`res.ok ? res.
 **Files:**
 - Create: `apps/board/src/run-owner-refresh.ts`
 - Modify: `apps/board/src/doctor-state.ts` (`parseDoctorRequestBody` accepts `ring?: true`)
-- Modify: `apps/board/src/server.ts` (`case '/doctor'`, snapshot assembly ~line 987, the bulk doctor path if it is server-side)
+- Modify: `apps/board/src/server.ts` (`case '/doctor'`, snapshot assembly ~line 987)
 - Modify: `apps/board/src/client/types.ts` (`BoardMRWithReview`)
 - Test: `apps/board/src/__tests__/run-owner-refresh.test.ts`, `apps/board/src/__tests__/server-doctor-ring.test.ts` (model on `server-stand-down.test.ts`), `apps/board/src/__tests__/doctor-state.test.ts`
 
@@ -231,18 +239,19 @@ Wiring in `bin/triage.ts`: `listRuns` → rt-client `listRuns()` (`res.ok ? res.
   }
   export function createRunOwnerRefresher(io: {
     listRuns(): Promise<RunSummary[] | null>;
-    probe(session: string): Promise<{ reachable: boolean; name?: string }>;
+    probe: SessionProbe;
     mrs(): OwnMrFacts[]; repoSlugForMr(mrUrl: string): string; now(): number;
   }, ttlMs?: number /* 10_000 */): RunOwnerRefresher;
   export function attachActiveRuns<T extends { webUrl?: string | null }>(rows: T[], r: RunOwnerRefresher): Array<T & { activeRun?: … }>;
   ```
 - The snapshot attaches `activeRun` (via the refresher) and live `handoffs` (`liveHandoffs` against the row's pipeline and rebase state).
-- `POST /doctor` with `ring: true` always does a fresh `listRuns` + probe (own MR, then ancestors) and rings the frame for the request (`needs-rebase` when `mode` is `rebase`, else `pipeline-red`; `downstream` when the owner is an ancestor's). Delivered → `writeHandoff(..., { markHandled })`, answer `{ ok: true, rung: true, runId }`. No live owner → 409 `no work run is active on this MR`. Not delivered → 409 `the worker's session did not answer`, nothing written. Without `ring` (Launch anyway) the route launches as today and calls `clearHandoffs(mrUrl)`.
+- `POST /doctor` with `ring: true` always does a fresh `listRuns` + probe (own MR, then ancestors). It picks the edge kinds from the MR's current facts, never from the button: a failed pipeline → `pipeline-red`; needs a rebase or has conflicts → `needs-rebase`; both → both. `mode: 'rebase'` limits it to `needs-rebase`. It rings one frame per kind (`downstream` with that `childEdge` when the owner is an ancestor's). All delivered → `writeHandoff(..., { markHandled })` per kind, answer `{ ok: true, rung: true, runId }`. No live owner → 409 `no work run is active on this MR`. Not delivered → 409 `the worker's session did not answer`, nothing written. Without `ring` (Launch anyway) the route launches as today and calls `clearHandoffs(mrUrl)`.
+- Every server-side `writeHandoff` / `clearHandoffs` runs while holding `tryClaimCron`, exactly as the stand-down route does around `writeStandDown`. A transaction alone does not stop an in-flight triage pass's final `writeMemory` from overwriting it.
 
 - [ ] **Step 1: Write the failing tests:**
   - refresher: `poke never blocks and ownerFor fills after the refresh resolves`; `a dead session is not an owner`; `an ancestor's live run shows with viaIid`; `listRuns null keeps the last known owners`.
   - `parseDoctorRequestBody accepts ring: true and rejects other ring values`.
-  - server: `ring with a live owner rings, records the handoff and marks the edge handled`; `ring with no live owner is a 409`; `ring whose delivery fails is a 409 and writes nothing`; `a launch without ring clears handoffs and launches as today`; `the snapshot carries activeRun and only live handoffs`.
+  - server: `ring with a live owner rings, records the handoff and marks the edge handled`; `ring on a conflicted MR with green CI sends only the rebase frame`; `ring on a red and conflicted MR sends both frames and records both handoffs`; `ring with no live owner is a 409`; `ring whose delivery fails is a 409 and writes nothing`; `a launch without ring clears handoffs and launches as today`; `the snapshot carries activeRun and only live handoffs`.
 - [ ] **Step 2:** Run the three test files → FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Same → PASS; `bun run board:typecheck` → clean.
@@ -252,7 +261,7 @@ Wiring in `bin/triage.ts`: `listRuns` → rt-client `listRuns()` (`res.ok ? res.
 
 **Files:**
 - Create: `apps/board/src/client/board/run-guard.ts`, `apps/board/src/client/board/RunActiveConfirmDialog.tsx`
-- Modify: `apps/board/src/client/board/Board.tsx` (`guardedLaunch`, a `ringWorker` action posting `/doctor` with `ring: true`, the bulk doctor launch), `apps/board/src/client/board/row-status.ts` (`doctorLine`)
+- Modify: `apps/board/src/client/board/Board.tsx` (`guardedLaunch`, a `ringWorker` action posting `/doctor` with `ring: true`), `apps/board/src/client/board/action-runner.ts` (`runBulk`: the bulk skip, beside the presence skip, with a `RunnerDeps` hook if presence uses one), `apps/board/src/client/board/row-status.ts` (`doctorLine`)
 - Test: `apps/board/src/client/board/__tests__/run-guard.test.ts`, the existing row-status tests
 
 **Interfaces:**

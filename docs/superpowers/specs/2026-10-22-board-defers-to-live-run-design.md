@@ -149,7 +149,9 @@ manual doctor route, including the rebase-only mode) and an owner exists on
 the MR's branch or an ancestor's, the board shows a prompt naming it, e.g.
 "Pip's run is active on this branch (stage implement)", with two choices:
 
-- **Ring worker**: same ring as the auto path for that edge kind; no doctor.
+- **Ring worker**: same ring as the auto path, for whatever is wrong with
+  the MR right now (failing CI, a needed rebase or conflicts, or both),
+  never for which button was clicked; no doctor.
   It records the handoff and marks the edge handled, so the next triage
   pass does not ring again.
 - **Launch anyway**: today's manual launch, and it clears any handoff on the
@@ -164,7 +166,7 @@ A new daemon verb delivers a framed message into one Claude session's inbox
 and reports whether it got through. The board server cannot reach session
 sockets itself, so it calls the verb through rt-client.
 
-Three frames, each labelled as coming from the board and carrying what the
+Four frames, each labelled as coming from the board and carrying what the
 worker needs to act without looking anything up:
 
 ```
@@ -195,7 +197,7 @@ are the builder's.)*
 ### 6. The worker's side
 
 The shared pipeline skill text (`plugins/mattstack/attachments/pipeline/`)
-gains rules for the three `[board]` frames:
+gains rules for the four `[board]` frames:
 
 - CI failure on its own MR: part of the current stage's work. Fix it before
   the stage ends; do not start a separate fix loop or hand it off.
@@ -229,7 +231,7 @@ launch clears it, as does the re-arm in section 2.
 - The new daemon handler gets its logging from `handleCommand`; it logs no
   outcome of its own (`.claude/rules/daemon.md`).
 - No change to the CI lease, its owners or its TTLs.
-- `RunAgent` is an rt-client type: rebuild `packages/rt-client` after
+- `RunSummary` is an rt-client type: rebuild `packages/rt-client` after
   changing it (`.claude/rules/workspace-packages.md`).
 
 ## Left to the builder
