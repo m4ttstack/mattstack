@@ -238,9 +238,12 @@ stays on this Mac for the author to share.
 
 ### Relay error.message verbatim
 
-A refusal is `{ "error": { "code", "message", "refused": true } }`, and
-nothing was written. Relay `error.message` word for word (it ends with the
-command to run, when there is one), then read `error.code`:
+A refusal is `{ "error": { "code", "message", "refused": true } }`.
+Relay `error.message` word for word (it ends with the command to run, when
+there is one). A refusal with an `error.wrote` list (`params-missing`)
+wrote the pack and the files that list names: tell the author the pack
+exists uncompiled and relay each path. A refusal with no `error.wrote`
+wrote nothing. Then read `error.code`:
 
 - `zone-missing`: no org on this Mac, no team folder yet, or no team by the
   name given. The message's command is the one to run (`rt team add` only
