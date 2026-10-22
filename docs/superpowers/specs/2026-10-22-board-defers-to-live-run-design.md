@@ -52,9 +52,15 @@ pane.
 
 A work run owns a branch when all hold:
 
-- its repo matches the MR's repo and its branch equals that branch;
+- it is a work run: its work type is not `review` or `receive-review`
+  (review and respond lanes are out of scope, per the non-goals);
+- it matches the MR (rule below);
 - the run is not terminal (not ended, closed or failed);
-- the run's own recorded Claude session resolves to a live inbox.
+- the run's own recorded Claude session resolves to a live inbox. This is
+  checked before a run is chosen, so a crashed run that was never closed is
+  never picked over a live one, never shown as active, and never rung.
+
+When several runs qualify, the most recently active wins.
 
 The herdr agent status (working, idle, blocked, done, unknown) does not
 decide ownership. A worker that just finished a turn reads `done` and is
@@ -65,10 +71,15 @@ not the agent status.)*
 Only the run's recorded session counts. The liveness probe's fallback match
 ("any agent whose cwd is inside the worktree") is not enough, because the
 board must know exactly which session it is ringing. The run summary gains
-`session` (the run's `claude-session` field) and `mr` (its `mr` field),
+`session` (the run's `claude-session` field) and `mr` (its latest `mr`
+field written in the own-MR role, `mrRole` in `lib/runs/outcome.ts`),
 denormalized the way `branch` already is, so ownership needs no herdr probe
-at all. A run owns an MR when its `mr` equals the MR's url, or, before ship
-has written `mr`, when its repo and `branch` match. *(My call.)*
+at all. A run matches an MR when its `mr` equals the MR's url, or, before
+ship has written `mr`, when its repo key and `branch` match. A run's repo
+key is the `repos/<slug>` directory name, not a serialized identity, so the
+board compares it with `boardRepoSlug(gitlabHost, projectPath)`
+(`apps/board/src/manifest-bindings.ts`), which follows the same slug rule.
+*(My call.)*
 
 If the run lookup itself fails (daemon or herdr unreachable), no run counts
 and the doctor launches as today. *(My call: failing open keeps an outage
@@ -88,11 +99,13 @@ checks and before `attendants.claim`:
 3. Owner found: ring its session with the frame for the edge kind
    (section 5).
    - Delivered: no doctor, no lease claim. Record a handoff (run id, edge
-     kind, pipeline id or rebase marker) on the MR's triage memory. Audit a
+     kind, pipeline id or rebase marker) on the MR's triage memory, one per
+     edge kind, since one pass can raise both kinds on one MR. Audit a
      `skip` with reason `run-active`, naming the run id and stage. Mark the
      edge handled.
-   - Not delivered (session gone, socket dead): the run is not really live.
-     Launch the doctor as today, and audit the failed ring.
+   - Not delivered (the session died between the check and the ring): audit
+     the failed ring and carry on to the stack check (section 3); only if
+     that finds no live owner either does the doctor launch as today.
 
 Re-ring rules ride on triage's existing per-edge bookkeeping: once per
 failing pipeline for `pipeline-red`, once per `needs-rebase` latch for a
@@ -116,11 +129,15 @@ ancestor branch joins that rule:
 - When an MR goes red (or needs a rebase) and a live run owns one of its
   ancestor branches, the board launches no doctor on the child. Audit a
   `skip` with reason `upstream-run-active`, naming the ancestor MR and run.
-- It also rings the ancestor's worker with a downstream frame (section 5),
-  so the worker knows its branch's child is red. Same once-per-pipeline
-  rule, keyed on the child's edge.
+- It also rings the ancestor's worker with a downstream frame (section 5)
+  naming the child and what is wrong with it (failing CI, or needs a
+  rebase). Same once-per-edge rule, keyed on the child's edge.
 - The handoff and re-arm rules in section 2 apply, keyed on the child MR
-  and the ancestor's run.
+  and the ancestor's run. That is also how a child's rebase gets done: the
+  parent's worker is told, and once its run ends the handoff lapses and a
+  doctor rebases the child. *(My call.)*
+- A parent outside the board's scope window (known only by branch name) is
+  checked the same way, by repo key and branch.
 
 An owner on the MR's own branch wins over an ancestor owner: ring the MR's
 own worker, not the parent's.
@@ -133,7 +150,13 @@ the MR's branch or an ancestor's, the board shows a prompt naming it, e.g.
 "Pip's run is active on this branch (stage implement)", with two choices:
 
 - **Ring worker**: same ring as the auto path for that edge kind; no doctor.
-- **Launch anyway**: today's manual launch. Matt's click always wins.
+  It records the handoff and marks the edge handled, so the next triage
+  pass does not ring again.
+- **Launch anyway**: today's manual launch, and it clears any handoff on the
+  MR. Matt's click always wins.
+
+A bulk doctor launch skips an MR with a live owner and says so, as the bulk
+review launch already does for a peer's running review. *(My call.)*
 
 ### 5. The ring
 
@@ -157,8 +180,13 @@ Rebase before your current stage ends.
 ```
 
 ```
-[board] !4128 (stacked on your branch) has failing CI (pipeline 9100002, job test).
+[board] !4128 (stacked on your branch) has failing CI (pipeline 9100002).
 No doctor was launched while your run is active. Check whether your change caused it.
+```
+
+```
+[board] !4128 (stacked on your branch) needs a rebase.
+No doctor was launched while your run is active; one will rebase it after your run ends.
 ```
 
 *(My call: exact wording, the label, and the verb's name and payload shape
@@ -174,6 +202,8 @@ gains rules for the three `[board]` frames:
 - Rebase on its own MR: rebase before the current stage ends.
 - A stacked child is red: check whether its own change caused it; if so, fix
   it on its own branch; if not, say so in its run and carry on.
+- A stacked child needs a rebase: note it in its run and carry on; a doctor
+  rebases the child once the run ends.
 
 If the worker is already in watch-ci, a frame about its own MR changes
 nothing (watch-ci owns CI there, and the lease already kept the doctor
@@ -183,13 +213,18 @@ away).
 
 The MR row's doctor lane shows the handoff in place of a doctor status, e.g.
 "CI failing, handed to the worker (run …, stage implement)" or "Child of an
-active run, handed to the parent's worker". It clears when the edge clears,
-a doctor launches, or the re-arm in section 2 fires.
+active run, handed to the parent's worker". It shows only while its edge
+still holds against the row's current pipeline and rebase state, so it
+clears when the edge clears even on a board with auto-triage off. A doctor
+launch clears it, as does the re-arm in section 2.
 
 ## Constraints
 
-- Every per-repo comparison keys on repo identity, never a derived name
-  (`docs/repo-identity.md`).
+- A run's repo key is an opaque `repos/<slug>` directory name
+  (`docs/repo-identity.md`, "The one exception"); the board compares it
+  only with `boardRepoSlug`, never with a serialized identity.
+- The board's request path never waits on the daemon: run ownership for the
+  snapshot comes from a background refresh, like the run-to-MR resolver.
 - The ring never injects keystrokes or Escape into a pane.
 - The new daemon handler gets its logging from `handleCommand`; it logs no
   outcome of its own (`.claude/rules/daemon.md`).
