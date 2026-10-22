@@ -128,6 +128,8 @@ These were settled in brainstorming.
 14. **Breaking changes to props are caught in mattstack's CI**, not by
     versioning signatures (see "Prop signature check").
 15. The word is **block**.
+16. **A language server for blocks**, VS Code first, and Claude Code where
+    it's the same server (see "Language server").
 
 ## Approaches considered
 
@@ -390,6 +392,32 @@ props. The two existing team packs are converted by hand, with
 Claude, as part of the rollout: their domain rules split into per-block
 files and rebound to props.
 
+## Language server
+
+Writing blocks gets editor support from one language server, built on
+compile's own parser and checks so the two never disagree.
+
+- **Files:** block files are named `*.block.md`. Forges still render them as
+  markdown in MR diffs, and editors and the server target the pattern.
+- **Diagnostics with ranges:** every compile check (unknown prop, required
+  prop with no value, contract mismatch, text after a heading-carrying
+  include, a node label that disagrees with the title, a binding to a
+  missing block or prop) reports the file plus line and column. Compile
+  prints them; the server shows them as you type.
+- **Features, in order:**
+  1. diagnostics;
+  2. hover on `{{props.x}}`: its merge, default and contract, and each
+     layer's value;
+  3. go to definition: `{{include:x}}` to its block, `node:` to the Mermaid
+     node, a binding in `skills.jsonc` to its block and prop;
+  4. completion: prop names, include names, contract ids, and block ids
+     and props in `skills.jsonc`.
+- **Editors:** VS Code first, through an extension that launches the
+  server. Claude Code registers the same server through the mattstack
+  plugin; that is in scope as long as it is only registration, with no
+  second server.
+- **Not in scope:** rename, find references, and other editors (Zed).
+
 ## Console
 
 ### Placement
@@ -528,6 +556,10 @@ housekeeping.
 Matt didn't pick these; check them while reading.
 
 - A block with children is a folder with `index.md`.
+- Block files are named `*.block.md` rather than `*.block`, so forges keep
+  rendering them as markdown. (So a folder block's file is
+  `index.block.md`.)
+- The language server's feature list and what's out of scope.
 - A block's id is its path; `label` gives the short name; `kind: gate`
   marks gates.
 - Sibling order: graph order for a graph's children, `order` for the rest.
