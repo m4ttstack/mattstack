@@ -19,7 +19,8 @@ Sibling plans: `2026-10-22-skill-blocks-2-engine-conversion.md`, `2026-10-22-ski
 - Frontmatter fields: `node`, `label`, `order`, `kind: gate`, `props: { <name>: { merge: add | replace, default?: string, contract?: string } }`, plus the engine fields the root carries today (`name`, `description`, `type: pipeline-step`, `allowed-tools`, `metadata`, `disable-model-invocation`).
 - `{{props.x}}` is the only new placeholder. `{{include:x}}`, `{{team.x}}`, `{{team.section:x}}`, `{{verb.path:x}}`, `{{run-start.flags:x}}` and the rest of `placeholders.ts` keep their meaning.
 - Prop values: `merge: add` stacks org then team; `merge: replace` keeps the last layer; `default` applies when no layer passes a value; no `default` means required; `""` clears lower layers and falls back to `default`, and clearing a required prop stops compile.
-- A value is `plugin:skill` (the skill's `SKILL.md` body) or `plugin:skill/file` (that file; the `SKILL.md` is frontmatter only). A value is always inlined at its marker. A `plugin:skill/file` value is checked against its skill's `metadata.provides`.
+- A value is `plugin:skill` (the skill's `SKILL.md` body) or `plugin:skill/file` (that file; the `SKILL.md` is frontmatter only). A whole-skill value keeps today's reference mode (`isInlined`): a registered public skill renders as the one-line "invoke that skill" reference, any other whole skill is inlined. A per-file value is always inlined. A `plugin:skill/file` value is checked against its skill's `metadata.provides`.
+- An include whose root title repeats the title of the block that includes it drops the repeat; compile and `rt skills expand` apply the same rule.
 - Bindings: `pack/skills.jsonc` version 2, keyed `"<engine ref>[/<block path>]": { "<prop>": "<value>" }`. The value pattern allows one `/`.
 - Order: a graph's children follow the first appearance of their `node:` in the parent's Mermaid source; other siblings follow `order` ascending, then those without `order` by filename.
 - Mermaid shapes map one to one: `([…])` ellipse, `{…}` diamond, `[…]` box, `[/…/]` plaintext, `(((…)))` doublecircle; `:::stop` gives `shape=octagon style=filled fillcolor=red fontcolor=white`, `:::done` gives `shape=doublecircle style=filled fillcolor=lightgreen`. A block node may omit its label; compile fills it from the title and refuses a label that disagrees.
@@ -181,7 +182,7 @@ test("labelFromId", () => { expect(labelFromId("resume-offer")).toBe("Resume off
 - Test: `lib/skills/blocks/__tests__/tree.test.ts`
 
 **Interfaces:**
-- Consumes: Task 2 `parseBlockFile`; Task 6 `parseMermaid` (stub the import until Task 6: `tree.ts` calls `parseMermaid` only when the block's text has a ```` ```mermaid ```` fence; Task 6 fills it in).
+- Consumes: Task 2 `parseBlockFile`; Task 6 `parseMermaid` (Task 6 is executed before this task, see the order note at the end of the plan; `tree.ts` calls it when the block's text has a ```` ```mermaid ```` fence).
 - Produces:
   ```ts
   export function loadBlockTree(dir: string, opts: { idPrefix: string; relRoot: string }): BlockTree; // throws BlockError
@@ -232,10 +233,10 @@ test("a headless block with children is refused", () => {
 - Produces:
   ```ts
   export type LayerValue = { layer: string; value: string }; // value "" = clear
-  export type PropValue = { spec: PropSpec; sources: { layer: string; fill: AttachmentSource }[]; fromDefault: boolean };
-  export function resolveProp(spec: PropSpec, layers: LayerValue[], load: (binding: string) => AttachmentSource, where: { file: string }): PropValue; // throws BlockError
+  export type PropValue = { spec: PropSpec; sources: { layer: string; fill: AttachmentSource; mode: "inline" | "reference" }[]; fromDefault: boolean };
+  export function resolveProp(spec: PropSpec, layers: LayerValue[], load: (binding: string) => AttachmentSource, where: { file: string; internalRoster: Set<string> }): PropValue; // throws BlockError
   ```
-- Rules in `resolveProp`: walk layers in order; `""` empties what came before; `add` keeps every non-empty value in order; `replace` keeps the last non-empty. Nothing left → `default` (`""` default → empty sources, `fromDefault: true`; a `plugin:skill` default is loaded like a value); no default → `required-prop` at `spec.declaredAt`, naming the layer that cleared it when one did. Each loaded fill's `provides` must equal `spec.contract` when the spec has one (`contract-mismatch`).
+- Rules in `resolveProp`: walk layers in order; `""` empties what came before; `add` keeps every non-empty value in order; `replace` keeps the last non-empty. Nothing left → `default` (`""` default → empty sources, `fromDefault: true`; a `plugin:skill` default is loaded like a value). No default → `required-prop` at `spec.declaredAt`, naming the layer that cleared it when one did. Each loaded fill's `provides` must equal `spec.contract` when the spec has one (`contract-mismatch`). `mode` is `"reference"` for a whole-skill value where `!isInlined(fill, internalRoster)` (today's rule in `compile.ts`, kept and exported), `"inline"` otherwise; a per-file value (`fill.file !== null`) is always `"inline"`.
 - `loadAttachment` change: a binding `plugin:skill/file` resolves the skill dir as today, then reads `<dir>/<file>` as the body (`srcPath` and `bodyStartLine` point at that file, `bodyStartLine` 1), requires the skill's `SKILL.md` body to be empty (`bad-value`: "<binding>: SKILL.md carries text, but a per-file value's SKILL.md is frontmatter only"), and sets `file`. `provides`, `allowedTools`, `extraFiles` come from the skill as today; `extraFiles` excludes `*.md` siblings that other bindings name (they are values, not vendored files).
 
 - [ ] **Step 1: Write the failing tests**
@@ -268,7 +269,16 @@ test("no layer and no default is required-prop", () => {
 test("a contract mismatch names the binding", () => {
   expect(() => resolveProp(spec({ contract: "model-tiering@1" }), [{ layer: "pack", value: "w:x" }], load, { file: "f.block.md" })).toThrow(/w:x .*provides "ship-domain@1".*"model-tiering@1"/);
 });
+test("a registered public whole-skill value is a reference; a per-file value is inlined", () => {
+  const pub = (b: string) => ({ ...fill(b, "model-tiering@1"), registered: true });
+  const v = resolveProp(spec({ merge: "replace", default: "mattstack:model-tiering", contract: "model-tiering@1" }), [], pub, { file: "f", internalRoster: new Set() });
+  expect(v.sources[0]!.mode).toBe("reference");
+  const perFile = (b: string) => ({ ...fill(b, "model-tiering@1"), registered: true, file: "tiers.md" });
+  expect(resolveProp(spec({ contract: "model-tiering@1" }), [{ layer: "pack", value: "w:t/tiers" }], perFile, { file: "f", internalRoster: new Set() }).sources[0]!.mode).toBe("inline");
+});
 ```
+
+(The `where` argument in the earlier cases carries `internalRoster: new Set()` too; it is elided above for brevity.)
 
 And in `sources.test.ts`: a temp plugin root with `attachments/lint/SKILL.md` (frontmatter only, `metadata.provides: ship-domain@1`) and `attachments/lint/fast.md`; `loadAttachment("w:lint/fast", "rules", roots)` returns `body` "the fast rules", `file` "fast.md", `srcPath` ending `attachments/lint/fast.md`; a `SKILL.md` with body text throws `/frontmatter only/`; a missing file throws naming `w:lint/fast`.
 
@@ -352,7 +362,7 @@ test("parseDot reads today's node statements and labelled edges", () => { /* fee
 ```
 
 - [ ] **Step 2: Run → FAIL**
-- [ ] **Step 3: Implement `mermaid.ts` (line-by-line regex parser) and `dot.ts`; wire `parseMermaid` into Task 3's `tree.ts` (a block's text with a ```` ```mermaid ```` fence sets `block.graph`; two fences in one block is a diagnostic)**
+- [ ] **Step 3: Implement `mermaid.ts` (line-by-line regex parser) and `dot.ts`** (Task 3, executed after this one, wires `parseMermaid` into `tree.ts`: a block's text with a ```` ```mermaid ```` fence sets `block.graph`; two fences in one block is a diagnostic)
 - [ ] **Step 4: Run `bun test lib/skills/blocks` → PASS**
 - [ ] **Step 5: Commit: `blocks: Mermaid parser and dot emitter`**
 
@@ -392,10 +402,10 @@ test("parseDot reads today's node statements and labelled edges", () => { /* fee
   export function renderTree(input: RenderInput): { body: string; used: Used; packPaths: string[] };
   export function headingLevel(depth: number): number; // depth + 1, capped at 6
   ```
-- Rules: walk preorder. For a titled block emit `<!-- part: block:<id> source=mattstack:<engine> version=<v> path=<relPath> lines=a-b -->`, then `#`×level + title, then its text with: each `{{props.x}}` replaced by `<!-- part: prop:<id>.<x> binding=<binding> version=<v> path=… lines=… -->` + body per source in order (nothing when there are none; a blank line between stacked values); each `{{include:x}}` (alone on its line, as today) replaced by the include tree rendered at `depth+1` (its own `block:` seams); every other placeholder goes through `substituteLine` as today. Sub-headings inside the text (`#+` lines outside fences) are re-levelled to `level + their own depth` counted from the title line's single `#`. A headless block emits its text at the parent's level with sub-headings one below the parent's. A ```` ```mermaid ```` fence is replaced by a ```` ```dot ```` fence holding `toDot(graph, titles)`, where `titles` maps each child's `node` to its title. An include whose tree has any titled block must be the last non-blank content of the block's text (`text-after-include` at the first following line).
+- Rules: walk preorder. For a titled block emit `<!-- part: block:<id> source=mattstack:<engine> version=<v> path=<relPath> lines=a-b -->`, then `#`×level + title, then its text with: each `{{props.x}}` replaced, per source in order, by `<!-- part: prop:<id>.<x> binding=<binding> version=<v> path=… lines=… -->` + the body for an `inline` source, or today's one-line `Slot x is bound to \`<binding>\` (<binding>@<v>) -- invoke that skill when this flow needs it.` reference (reworded `Prop x …`) for a `reference` source (nothing when there are none; a blank line between stacked values); each `{{include:x}}` (alone on its line, as today) replaced by the include tree rendered at `depth+1` (its own `block:` seams), except that an include root whose title equals the including block's title is rendered without its own heading and its children one level higher, so the title appears once; every other placeholder goes through `substituteLine` as today. Sub-headings inside the text (`#+` lines outside fences) are re-levelled to `level + their own depth` counted from the title line's single `#`. A headless block emits its text at the parent's level with sub-headings one below the parent's. A ```` ```mermaid ```` fence is replaced by a ```` ```dot ```` fence holding `toDot(graph, titles)`, where `titles` maps each child's `node` to its title. An include whose tree has any titled block must be the last non-blank content of the block's text (`text-after-include` at the first following line).
 - `${CLAUDE_SKILL_DIR}` rewriting for fill bodies and allowed-tools follows today's `rewriteSkillDirRefs`/`skillDirFor` with `parts/<prop>` in place of `parts/<slot>`.
 
-- [ ] **Step 1: Write the failing tests** (render the `mini` fixture with `rules` bound to a temp fill and `tiering` from its default: the body starts with the header comment then `# mini`, `## <run title>` carries `<!-- part: block:mini/run …`, the gate's `{{props.tiering}}` became a `prop:mini/gate.tiering` seam followed by the default's body, the headless `guard` text appears at H2 level with no heading, the Mermaid fence became a ```` ```dot ```` fence; a block with `## sub` under its title renders as `### sub` at depth 1; an include with headings followed by text throws `text-after-include` at the file:line of that text; a heading-less include followed by text renders)
+- [ ] **Step 1: Write the failing tests** (render the `mini` fixture with `rules` bound to a temp fill and `tiering` from its default: the body starts with the header comment then `# mini`, `## <run title>` carries `<!-- part: block:mini/run …`, the gate's `{{props.tiering}}` became a `prop:mini/gate.tiering` seam followed by the one-line reference to `mattstack:model-tiering` (the fixture registers it as public), while an internal default's body is inlined, the headless `guard` text appears at H2 level with no heading, the Mermaid fence became a ```` ```dot ```` fence; a block with `## sub` under its title renders as `### sub` at depth 1; an include with headings followed by text throws `text-after-include` at the file:line of that text; a heading-less include followed by text renders; a block titled "Gate protocol" whose text is `{{include:gp}}` with `gp`'s root titled "Gate protocol" renders `## Gate protocol` once with `gp`'s children at H3, and the same include under a block titled "Gates" renders `## Gates` then `### Gate protocol`)
 - [ ] **Step 2: Run → FAIL**
 - [ ] **Step 3: Implement `render.ts`; extend `drift.ts`**
 - [ ] **Step 4: Run `bun test lib/skills/blocks lib/skills/__tests__/drift.test.ts` → PASS**
@@ -500,10 +510,10 @@ test("parseDot reads today's node statements and labelled edges", () => { /* fee
 ### Task 12: Expand and the board launchers
 
 **Files:**
-- Modify: `lib/skills/expand.ts` (an include whose attachment is a block tree renders through `renderTree` at the level below the nearest heading above the `{{include}}` line)
+- Modify: `lib/skills/expand.ts` (an include whose attachment is a block tree renders through Task 8's `renderTree` at the level below the nearest heading above the `{{include}}` line, with that heading's text passed as the including title so Task 8's repeated-title rule applies unchanged)
 - Test: `lib/skills/__tests__/expand.test.ts`
 
-- [ ] **Step 1: Write the failing test** (a hand-written `SKILL.md` with `## Gate protocol` then `{{include:gp}}` where `gp` is a block tree whose root title is "Gate protocol" and one child: the expanded text has `## Gate protocol` once (the include's root title is dropped when it equals the enclosing heading, else emitted at H3) and the child at H3/H4 accordingly; the `EXPAND_HEADER` and `metadata.compiled` stamp are unchanged)
+- [ ] **Step 1: Write the failing test** (a hand-written `SKILL.md` with `## Gate protocol` then `{{include:gp}}` where `gp` is a block tree whose root title is "Gate protocol" and one child: the expanded text has `## Gate protocol` once and the child at H3; under `## Gates` the root renders at H3 and the child at H4; the `EXPAND_HEADER` and `metadata.compiled` stamp are unchanged)
 - [ ] **Step 2: Run → FAIL**
 - [ ] **Step 3: Implement**
 - [ ] **Step 4: Run `bun test lib/skills/__tests__/expand.test.ts` → PASS**
@@ -516,3 +526,4 @@ test("parseDot reads today's node statements and labelled edges", () => { /* fee
 - Spec coverage: Files, A block file, Placeholders (Task 2, 8), Fills and bindings (4, 5, 9), Prop signature check (11), Order (7), Graphs (6, 7), Includes (8, 9, 12), Compile (8, 9), Language server's diagnostics shape (1). Testing and Rollout are plan 2; Console is plan 3; the server itself is plan 4.
 - Not in this plan on purpose: removing `{{slot:x}}` and the `slots:` frontmatter, and the `old-slot-binding` refusal. They land in plan 2 once every engine has converted, so this plan's suite stays green against today's engines.
 - Interpretations made here (also reported to the spec's author): the `add` merge needs both layers' values in the generated manifest, so a multi-value prop renders as a JSON array (Task 5); a root-level prop binds under the bare engine ref (`"mattstack:ship"`), which keeps v1 keys valid v2 keys; graph-only nodes with a `### ` section today become blocks only when the converter (plan 2) finds prose for them.
+- Task order: Task 6 (Mermaid) is written before Task 3 (tree) is wired to it, so execute Tasks 1, 2, 6, 3, 4, 5, 7, 8, 9, 10, 11, 12; Task 3 then imports `parseMermaid` directly with no stub.

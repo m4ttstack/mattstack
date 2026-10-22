@@ -4,7 +4,7 @@
 
 **Goal:** Console's Graph tab reads one skill at a time as a tree of blocks at three zoom levels, with a Layers panel, an "Around this block" graph and a Copy for Claude brief, replacing the template canvas, the side drawer and the Rebind panel.
 
-**Architecture:** A `/api/skills/blocks` route passes `rt skills blocks --json` (plan 1, Task 10) through. Pure model modules under `apps/console/src/app/wiring/blocks/model/` turn that payload plus the URL into view data (zoom level, sidebar tree, section bands, layer charts, the small graph, the brief); components under `apps/console/src/app/wiring/blocks/` render them with kit chrome. The Graph tab keeps today's between-skills map as the "All skills" home and swaps in the block view once a skill is focused.
+**Architecture:** A `/api/skills/blocks` route passes `rt skills blocks --json` (plan 1, Task 10) through. Pure model modules under `apps/console/src/app/wiring/blocks/model/` turn that payload plus the URL into view data (zoom level, sidebar tree, section bands, layer charts, the small graph, the brief); components under `apps/console/src/app/wiring/blocks/` render them with kit chrome. The Graph tab keeps today's between-skills map as the "All skills" home: a focused pipeline (`work · feature`) still renders today's `TemplateCanvas` with its links to the stages; only a focused skill opens the block view.
 
 **Tech Stack:** React, `@mattstack/app-kit` (core, icons, hooks), `@xyflow/react` for the small graph, vitest with `renderWithProviders`, Fast Browser for the mandatory render check in both schemes, the `dataviz` skill for the Layers charts.
 
@@ -56,17 +56,17 @@ Create under `apps/console/src/app/wiring/blocks/`:
 | `SectionBand.tsx`, `BlockRow.tsx`, `PropBox.tsx`, `LayersPanel.tsx`, `AroundGraph.tsx`, `CopyForClaude.tsx`, `BlockText.tsx` (markdown via `react-markdown`, already a dependency) |
 | `blocks.module.css` | layout; colors by token only |
 
-Modify: `apps/console/src/server/skills.ts` (route), `apps/console/src/app/wiring/useWiring.ts` (`useBlocks`), `apps/console/src/app/wiring/graph/useWiringUrl.ts` (`block` key; drop `rebind`), `apps/console/src/app/wiring/graph/GraphTab.tsx`, `apps/console/src/app/wiring/WiringMap.tsx` (sidebar swap), `apps/console/src/app/wiring/agentContext.ts` (block scope). Delete after Task 8: `graph/TemplateCanvas.tsx`, `graph/nodes/*`, `graph/layout/templateLayout.ts`, `graph/drawer/RebindPanel.tsx`, `graph/drawer/rebind.ts`, `graph/drawer/SkillDrawer.tsx`, `graph/model/drawerContent.ts`, `graph/model/templateModel.ts` and their tests; keep `graph/drawer/HistoryTab.tsx` and the used-by list component, moved under `blocks/`.
+Modify: `apps/console/src/server/skills.ts` (route), `apps/console/src/app/wiring/useWiring.ts` (`useBlocks`), `apps/console/src/app/wiring/graph/useWiringUrl.ts` (`block` key; drop `rebind`), `apps/console/src/app/wiring/graph/GraphTab.tsx`, `apps/console/src/app/wiring/WiringMap.tsx` (sidebar swap), `apps/console/src/app/wiring/agentContext.ts` (block scope), `apps/console/src/server/fixtures/design/` (a `blocks` scenario, Task 1). Keep: `graph/TemplateCanvas.tsx`, `graph/nodes/*`, `graph/layout/templateLayout.ts`, `graph/model/templateModel.ts` (the pipeline map). Delete after Task 8: `graph/drawer/RebindPanel.tsx`, `graph/drawer/rebind.ts`, `graph/drawer/SkillDrawer.tsx`, `graph/drawer/useDrawerMode.ts`, `graph/drawer/useDrawerWrap.ts`, `graph/drawer/DrawerMenu.tsx`, `graph/model/drawerContent.ts` and their tests, plus the per-skill (non-pipeline) branches of `templateModel.ts` that only the drawer read; keep `graph/drawer/HistoryTab.tsx` and the used-by list component, moved under `blocks/`.
 
-Tests: beside each model file as `*.test.ts`; component tests under `blocks/__tests__/` with a `blocksFixture.ts` built from the `mini` fixture's real `rt skills blocks --json` output committed as JSON.
+Tests: beside each model file as `*.test.ts`; component tests under `blocks/__tests__/` with a `blocksFixture.ts` built from the `mini` fixture's real `rt skills blocks --json` output committed as JSON, which the design fixture's `blocks` scenario also serves.
 
 ---
 
 ### Task 1: The route and the hook
 
 **Files:**
-- Modify: `apps/console/src/server/skills.ts` (`.get('/api/skills/blocks', skillQuery, …)` mirroring the anatomy route: `cachedRun(['skills','blocks','--pack',pack,'--skill',skill,'--json'])`, 502 on no payload, 503 on `RtNotFoundError`; invalidated with the anatomy answers), `apps/console/src/app/wiring/useWiring.ts` (`useBlocks(pack, skill)` like `useAnatomy`; type `SkillsBlocks = BlocksPayload` imported from rt's `lib/skills/blocks/payload.ts` the way `SkillsAnatomy` is typed today)
-- Test: `apps/console/src/server/skills.test.ts` (the route passes `--json` through and maps the two failure cases), `useWiring.test.tsx` (`useBlocks` is disabled without a skill)
+- Modify: `apps/console/src/server/skills.ts` (`.get('/api/skills/blocks', skillQuery, …)` mirroring the anatomy route: `cachedRun(['skills','blocks','--pack',pack,'--skill',skill,'--json'])`, 502 on no payload, 503 on `RtNotFoundError`; invalidated with the anatomy answers), `apps/console/src/app/wiring/useWiring.ts` (`useBlocks(pack, skill)` like `useAnatomy`; type `SkillsBlocks = BlocksPayload` imported from rt's `lib/skills/blocks/payload.ts` the way `SkillsAnatomy` is typed today), `apps/console/src/server/fixtures/design/fixtureRt.ts` and `scenarios.ts` (a `blocks` scenario: `rt skills blocks --skill <name>` answers from `blocks.<name>.json`; `blocks.mini.json` is the committed payload of the `mini` fixture, so the render check and parity runs need no real pack)
+- Test: `apps/console/src/server/skills.test.ts` (the route passes `--json` through and maps the two failure cases), `useWiring.test.tsx` (`useBlocks` is disabled without a skill), `fixtures/design/fixtureRoutes.test.ts` (the `blocks` scenario answers `/api/skills/blocks?skill=mini`)
 
 - [ ] **Step 1: Write the failing tests** (same shape as the anatomy route's tests in that file)
 - [ ] **Step 2: Run `bun run console:test` → FAIL**
@@ -214,7 +214,7 @@ Tests: beside each model file as `*.test.ts`; component tests under `blocks/__te
 
 **Files:**
 - Create: `blocks/BlockView.tsx`, `blocks/BlockSidebar.tsx`, `blocks/SectionBand.tsx`, `blocks/BlockRow.tsx`, `blocks/model/headingTree.ts`
-- Modify: `graph/GraphTab.tsx` (focused skill → `BlockView`; no focus → today's between-skills map), `WiringMap.tsx` (sidebar: `GraphSidebar` when no focus, `BlockSidebar` when focused; the "All skills" link patches `{ focus: null, block: null }`), `FocusHeader.tsx` (the block title, kind chip "step | question | gate", "has props" chip)
+- Modify: `graph/GraphTab.tsx` (a focused pipeline keeps today's `TemplateCanvas` map with its stage links; a focused skill or stage renders `BlockView`; `SkillDrawer` is gone from both), `WiringMap.tsx` (sidebar: `GraphSidebar` for the map, `BlockSidebar` when a skill is focused; the "All skills" link patches `{ focus: null, block: null }`, which lands on the pipeline map as today), `FocusHeader.tsx` (the block title, kind chip "step | question | gate", "has props" chip)
 - Move: `graph/drawer/HistoryTab.tsx` → `blocks/HistoryTab.tsx` (file = the block's path), used-by list → `blocks/UsedBy.tsx` (shared blocks only: the skills whose payload `includes` name it)
 - Delete: the files listed under File structure, with their tests
 - Test: `__tests__/BlockView.test.tsx`, `__tests__/GraphTab.test.tsx` (rewrite), `headingTree.test.ts`
@@ -223,7 +223,7 @@ Tests: beside each model file as `*.test.ts`; component tests under `blocks/__te
 - `headingTree(skillMd: string, skill: string): BlocksPayload` builds a read-only payload from a hand-written skill: one block per heading section, ids from slugified titles, no props, `kind: "note"`, empty `graphs`.
 - `BlockView({ pack, payload, url, patch })` lays out: breadcrumb (L2/L3), title row with chips, the ⋯ menu with the path and Open file (`useEditorHref`), the `CopyForClaude` button, the `Blocks | Rendered` toggle (Rendered = the compiled file at `renderedLines`, as the drawer's view did), then by zoom level: sections (L1), text + graph card + children (L2), text with prop boxes + Around this block (L3); the Layers panel on the right at L1/L2 and the strip at L3; Used by on a shared block; History per block.
 
-- [ ] **Step 1: Write the failing tests** (GraphTab with a focused block skill renders `BlockView` and no `canvas`; with a slot skill (the payload route returns 404 "not a block tree") it fetches the source and renders the heading tree read-only; the "All skills" link clears focus; the unsynced banner still renders when `useUnsyncedBanner` says so; no `rebind` control anywhere: `screen.queryByText(/rebind/i)` is null)
+- [ ] **Step 1: Write the failing tests** (GraphTab with a focused block skill renders `BlockView` and no `canvas`; with a focused pipeline it renders `TemplateCanvas` with one link node per stage after plan 2's anatomy change (the fixture's anatomy parts use `kind: "prop"` where `slot` stood; `templateModel` maps both to a placeholder row); with a hand-written skill (the blocks route returns 404 "not a block tree") it fetches the source and renders the heading tree read-only; the "All skills" link clears focus; the unsynced banner still renders when `useUnsyncedBanner` says so; no `rebind` control anywhere: `screen.queryByText(/rebind/i)` is null)
 - [ ] **Step 2: Run → FAIL**
 - [ ] **Step 3: Implement; delete the replaced files; fix every import the deletion breaks**
 - [ ] **Step 4: Run `bun run console:test`, `bun run console:typecheck`, `bun run console:lint` → PASS**
@@ -233,7 +233,7 @@ Tests: beside each model file as `*.test.ts`; component tests under `blocks/__te
 
 ### Task 9: Render check against the boards
 
-- [ ] **Step 1: With the dev app's console serving this checkout (`deck list` for the localhost URL; no restart needed for a UI change per `feedback_live_ui_polish_on_main`), open `ship` at L1, L2 (`Flow`) and L3 (`Fast checks`) in Fast Browser, screenshot each in light and dark into the scratchpad**
+- [ ] **Step 1: Serve console from this worktree, not the deck-served main checkout: from `apps/console`, `CONSOLE_FIXTURE=design CONSOLE_FIXTURE_SCENARIO=blocks PORT=<a free port> bun run serve` (the server prints its URL). Open `mini` at L1, L2 (its parent block) and L3 (`gate`) in Fast Browser, screenshot each in light and dark into the scratchpad. When plan 2 has landed, repeat against a real pack by pointing the same server at this worktree's rt (`bun cli.ts` via the server's rt-bin setting) with `ship` at L1, `Flow` and `Fast checks`**
 - [ ] **Step 2: Compare each with `docs/apps/design/console/skill-blocks/*.png`: sidebar glyphs and dots, the folded rows, the prop box tints, the Layers charts, the small graph's key. Write down what reads wrong, fix it, re-shoot**
 - [ ] **Step 3: Commit the fixes: `console: block view polish from the render check`**
 
@@ -242,5 +242,6 @@ Tests: beside each model file as `*.test.ts`; component tests under `blocks/__te
 ## Self-review notes
 
 - Spec coverage: Placement (Tasks 8), Three zoom levels (2, 8), Sidebar (3, 8), Main column (3, 5, 8), Layers panel (4), Around this block (6), Copy for Claude (7), Kit and tokens (every component; Task 9 checks it by eye), the non-block skill fallback (8).
-- Interpretation: the "All skills" home is today's `GraphSidebar` focus list plus an empty stage prompt; the spec keeps "the map between skills" without drawing it, so nothing new is built there.
+- The "All skills" home is today's pipeline map: `GraphSidebar` plus `TemplateCanvas` for a focused pipeline, kept as is. Only a focused skill or stage opens the block view.
 - "View whole graph" renders the parent's full graph on the same canvas rather than a new page; the spec says only "opens the full graph".
+- The render check serves console from this worktree with the design fixture's `blocks` scenario, because the deck-served console runs the shared main checkout's code.

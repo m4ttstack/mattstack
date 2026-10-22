@@ -16,9 +16,10 @@ Depends on plan 1 (`2026-10-22-skill-blocks-1-compiler.md`): `loadBlockTree`, `p
 
 - Every engine and include converts in one release: no shipped engine stays a slot engine once the plugin version bumps (Decision 12).
 - Decompose by headings: a `## ` or `### ` section that stands on its own becomes a block; a graph node with prose (today's `### <node text>` section) always does; a `### ` section that is not a node keeps its heading inside its parent block when it is short and bound to the prose around it, else becomes a note block. Keep a cohesive chunk together where splitting hurts (Decision 2).
-- Slots map to props: `domain` → a `rules` prop (`merge: add`, `default: ""`) on each block a domain fill targets today; `tiering`, `forge`, `reviewer`, `criteria`, `strategy`, `accounts`, `reply-rules` → a prop of the same name (`merge: replace`, today's mattstack default as `default`, today's contract as `contract`; `required: true` today → no `default`).
+- Slots map to props: `domain` → a `rules` prop (`merge: add`, `default: ""`) on each block a domain fill targets today; `tiering`, `forge`, `reviewer`, `criteria`, `strategy`, `accounts`, `reply-rules` → a prop of the same name (`merge: replace`, today's contract as `contract`). A prop's `default` is mattstack's own binding for that slot in `plugins/mattstack/pack/skills.jsonc` when one exists (`tiering` → `mattstack:model-tiering`, `strategy` → `mattstack:execution-strategy`, `accounts` → `mattstack:cswap-accounts`); a slot mattstack binds nothing to gets no `default` when it is `required: true` today and `default: ""` otherwise.
 - The compiled dot keeps every node id and edge; `check-dot.py --short-ids` passes on the compiled `SKILL.md`.
-- Expected differences per engine, and nothing else: heading levels; a pack's text moving from the old slot section into its block; dot formatting after normalization; in `review`, `self-review` and `receive-review`, trailing text after a heading-carrying include moving into its own block with a new heading; a prop bound to a registered skill now inlined where it used to render as a one-line reference (see Interpretations).
+- Expected differences per engine, and nothing else: heading levels; a pack's text moving from the old slot section into its block; dot formatting after normalization; in `review`, `self-review` and `receive-review`, trailing text after a heading-carrying include moving into its own block with a new heading; an include's repeated title dropped. A whole-skill value keeps today's reference mode, so `shepherdr`'s tiering line is unchanged.
+- The two team packs belong to orgs whose names never appear in this public repo: reading them locally to choose conversion targets is fine, but every test record, converted fixture, release note and commit message uses invented names (`acme`, `widgets`), and the purity check (`bun run check`'s `purity` gate, and `certify.sh`'s purity greps on the plugin) runs before any push.
 - The plugin keeps its own style: no rt formatter on `plugins/mattstack`; its version bumps in the same PR; `CERTIFICATION.md` stays the written rule certify enforces.
 - Skill text edits (`editing-skills`, `extending-a-pack`, `process-digraphs`) go through superpowers:writing-skills, per `~/.claude/rules/skill-writing.md`.
 - Ticket ids never appear in plugin content (certify's `no-ticket-ids`).
@@ -35,8 +36,8 @@ Depends on plan 1 (`2026-10-22-skill-blocks-1-compiler.md`): `loadBlockTree`, `p
 
 ## Interpretations
 
-- The spec says "A value is always inlined". Today a prop value bound to a registered public skill (`mattstack:model-tiering` on `tiering`) renders as a one-line reference. Inlining it changes `shepherdr`'s and the review engines' compiled text beyond the four listed differences. This plan treats that as a fifth expected difference and the diff script normalizes it; the spec's author has been told.
 - The converter is a committed script run once per engine, then reviewed by hand (Decision 2 wants judgment on cohesion, which the script cannot supply). The script's output is the starting point, not the result.
+- The "before" tree for every diff is a read-only snapshot, `git archive HEAD plugins/mattstack | tar -x -C <tmp>`, never a hand-rolled worktree (rt manages this repo's worktrees) and never a stash.
 
 ---
 
@@ -55,7 +56,7 @@ Depends on plan 1 (`2026-10-22-skill-blocks-1-compiler.md`): `loadBlockTree`, `p
   export function dotToMermaid(dot: string): { mermaid: string; nodeIds: string[] };
   // CLI: bun scripts/blocks/convert-skill.ts <skill dir> [--out <dir>] [--slot domain=rules:add] [--write]
   ```
-- Rules for `splitSkill`: the root `index.block.md` keeps the engine frontmatter minus `slots:`; `## ` sections become child blocks (folder when they hold `### ` sections that are nodes, else a leaf); each `### ` section whose text equals a node label, or equals it minus a trailing parenthetical, becomes a child block with `node:` set and `label` = the id tail in plain words; other `### ` sections stay as sub-headings in their parent; a ```` ```dot ```` fence becomes a ```` ```mermaid ```` fence in the parent's `index.block.md`; node statements for blocks omit their label; `order` is set on every non-graph child from its position; `{{slot:x}}` becomes `{{props.<prop>}}` and the root's `props:` (for `add` with `targets`, the marker is placed at the end of each target block's text instead and the old section is dropped); `{{include:x}}` lines stay; a `## X` section that is only `{{include:x}}` becomes a block whose text is the include line (the include's own root title is dropped by `renderTree` when it equals the enclosing title, see plan 1 Task 12). `notes` lists every judgment call it made (a section it could not tie to a node, a label it rewrote).
+- Rules for `splitSkill`: the root `index.block.md` keeps the engine frontmatter minus `slots:`; `## ` sections become child blocks (folder when they hold `### ` sections that are nodes, else a leaf); each `### ` section whose text equals a node label, or equals it minus a trailing parenthetical, becomes a child block with `node:` set and `label` = the id tail in plain words; other `### ` sections stay as sub-headings in their parent; a ```` ```dot ```` fence becomes a ```` ```mermaid ```` fence in the parent's `index.block.md`; node statements for blocks omit their label; `order` is set on every non-graph child from its position; `{{slot:x}}` becomes `{{props.<prop>}}` and the root's `props:` (for `add` with `targets`, the marker is placed at the end of each target block's text instead and the old section is dropped); `{{include:x}}` lines stay; a `## X` section that is only `{{include:x}}` becomes a block whose text is the include line (plan 1 Task 8's `renderTree` drops the include's root title when it equals the enclosing title). `notes` lists every judgment call it made (a section it could not tie to a node, a label it rewrote).
 - `dotToMermaid`: `[label=".." shape=box]` → `id[label]`; shapes per plan 1's table; octagon with the red fill → `:::stop`; the green doublecircle → `:::done`; edges with `[label=".."]` → `-->|label|`; labels containing `|`, `[`, `]`, `{`, `}`, `(`, `)` or `"` are quoted.
 
 - [ ] **Step 1: Write the failing tests** (`splitSkill` on the fixture: files `index.block.md`, `run/index.block.md`, `run/<node>.block.md` for each `### ` node section, `domain-rules.block.md` carrying `{{props.rules}}`, `browser-evidence.block.md` holding `{{include:browser-evidence}}`; the root frontmatter has no `slots:` and has `props: { rules: … }`; a `### Find the shipped run (ship)` section ties to `find_shipped_run`; `dotToMermaid` round-trips: `toDot(parseMermaid(dotToMermaid(d).mermaid), titles)` parses with `parseDot` to the same node ids, shapes and edges as `parseDot(d)`, including a label with an escaped quote)
@@ -75,12 +76,12 @@ Depends on plan 1 (`2026-10-22-skill-blocks-1-compiler.md`): `loadBlockTree`, `p
 **Interfaces:**
 - Produces:
   ```ts
-  export function normalizeCompiled(md: string): string; // strips seams and the header comment, lowers every heading to "#", replaces each ```dot block by a canonical listing (sorted "id|label|shape|style" lines then sorted "from|to|label" lines), collapses runs of blank lines, drops the one-line "Slot x is bound to `plugin:skill` … invoke that skill" reference lines
+  export function normalizeCompiled(md: string): string; // strips seams and the header comment, lowers every heading to "#", replaces each ```dot block by a canonical listing (sorted "id|label|shape|style" lines then sorted "from|to|label" lines), collapses runs of blank lines, rewrites the one-line "Slot x is bound to …" reference to "Prop x is bound to …" so the renamed line compares equal, and drops a heading line that repeats the heading just above it (plan 1 Task 8's repeated-title rule, so a `## Gate protocol` + `# Gate protocol` pair before compares equal to the single heading after)
   export function residualDiff(before: string, after: string, opts: { allowMovedBlocks: string[] /* headings whose text may move */ }): string; // unified diff of the normalized texts after moving allowed blocks; "" when clean
   // CLI: bun scripts/blocks/compiled-diff.ts --verb <name> --before <compiled SKILL.md> --after <compiled SKILL.md> [--allow-move "<heading>"]
   ```
 
-- [ ] **Step 1: Write the failing tests** (two compiled bodies differing only in heading levels and dot whitespace give `""`; a changed sentence survives; a slot's text that moved from `## Domain rules` into `### Fast checks` is clean when `--allow-move` names it; an inlined tiering body where a reference line stood is clean; the `ship` "Domain rules" heading with no value present on both sides is clean, and a side with an empty `## Domain rules` heading the other lacks is not)
+- [ ] **Step 1: Write the failing tests** (two compiled bodies differing only in heading levels and dot whitespace give `""`; a changed sentence survives; a slot's text that moved from `## Domain rules` into `### Fast checks` is clean when `--allow-move` names it; `Slot tiering is bound to …` before against `Prop tiering is bound to …` after is clean, and an inlined body where the reference stood is not; `## Gate protocol` followed by `# Gate protocol` before against one `## Gate protocol` after is clean; the `ship` "Domain rules" heading with no value present on both sides is clean, and a side with an empty `## Domain rules` heading the other lacks is not)
 - [ ] **Step 2: Run → FAIL**
 - [ ] **Step 3: Implement**
 - [ ] **Step 4: Run → PASS**
@@ -95,7 +96,7 @@ Depends on plan 1 (`2026-10-22-skill-blocks-1-compiler.md`): `loadBlockTree`, `p
 - Modify: `plugins/mattstack/tests/certify.sh` (a dir whose `index.block.md` exists is certified from that file: the `fm-open`, frontmatter and purity checks read it; the digraph gate is skipped for a block dir, since Mermaid is checked at compile)
 
 - [ ] **Step 1: Run the converter on every include dir with `--write`; read each `notes` line and settle it by hand** (a heading-less include such as `spawned-no-run-guard` becomes a single headless `index.block.md`)
-- [ ] **Step 2: For each include, run `bun cli.ts skills compile --preview --verb <an engine that includes it> --pack-dir plugins/mattstack --mattstack-dir <tmp>` before (git stash is forbidden: use `git worktree add <tmp> HEAD` for the before tree) and after, and `bun scripts/blocks/compiled-diff.ts` on the pair; expected `""`**
+- [ ] **Step 2: Snapshot the before tree once: `mkdir -p <tmp>/before && git archive HEAD plugins/mattstack | tar -x -C <tmp>/before`. For each include, run `bun cli.ts skills compile --preview --verb <an engine that includes it> --pack-dir <pack dir> --mattstack-dir <tmp>/home` against `<tmp>/before/plugins/mattstack` and against the working tree, and `bun scripts/blocks/compiled-diff.ts` on the pair; expected `""`**
 - [ ] **Step 3: Extend `certify.sh`; run `sh plugins/mattstack/tests/certify.sh plugins/mattstack/attachments/gate-protocol` → `ok` lines, exit 0**
 - [ ] **Step 4: Run `bun run skills:check:board`** (the launcher skills expand `gate-protocol` three times) → exit 0
 - [ ] **Step 5: Commit per include group: `mattstack: gate-protocol as a block tree`, then the review bodies, then the rest**
@@ -111,8 +112,8 @@ Depends on plan 1 (`2026-10-22-skill-blocks-1-compiler.md`): `loadBlockTree`, `p
 - [ ] **Step 1: Run the converter with `--slot domain=rules:add` and targets = the step blocks a real domain fill's `## At: <step>` sections name today (read the two team packs' domain fills for the list; the spec's boards list them: domain steps, fast checks, commit named, write title, and the rest)**
 - [ ] **Step 2: Read every block by hand against Decision 2: merge back a `### ` that split a cohesive chunk; confirm each `node:` and that `run/index.block.md` and `flow/index.block.md` carry one Mermaid graph each**
 - [ ] **Step 3: Compile and diff: `compiled-diff.ts --verb ship` with `--allow-move "Domain rules"`; expected `""`. Run `python3 plugins/mattstack/plugin/skills/process-digraphs/check-dot.py --short-ids <compiled SKILL.md>` → `ok`**
-- [ ] **Step 4: Before-and-after test with fresh agents, following superpowers:writing-skills: the same three scenarios (a clean ship, a ship with failing fast checks and a fix round, a ship whose push is refused) against today's compiled `ship` and the block-compiled one, in a scratch pack with a domain fill that targets `fast-checks` and `commit-named`; record the transcripts' decisions and the verdict in the test record dir**
-- [ ] **Step 5: Commit: `mattstack: ship as a block tree` and `mattstack: ship before-and-after test record`**
+- [ ] **Step 4: Before-and-after test with fresh agents, following superpowers:writing-skills: the same three scenarios (a clean ship, a ship with failing fast checks and a fix round, a ship whose push is refused) against today's compiled `ship` and the block-compiled one, in a scratch pack named `widgets` with a domain fill that targets `fast-checks` and `commit-named`; record the transcripts' decisions and the verdict in the test record dir using only the invented names**
+- [ ] **Step 5: Purity before commit: `sh plugins/mattstack/tests/certify.sh plugins/mattstack/attachments/pipeline/ship` (its purity greps) and `grep -rniE "<the two org names>" plugins/mattstack/docs docs` by hand → no hits; then commit: `mattstack: ship as a block tree` and `mattstack: ship before-and-after test record`**
 
 ---
 
@@ -123,7 +124,7 @@ Depends on plan 1 (`2026-10-22-skill-blocks-1-compiler.md`): `loadBlockTree`, `p
 - Modify: `plugins/mattstack/pack/skills.jsonc` → version 2, defaults removed (they live on the props now); `plugins/mattstack/plugin/examples/skills.jsonc` → version 2 example with one `add` and one `replace` binding and one `""`
 
 - [ ] **Step 1: Convert in groups, each group one commit: stages (`stage-*`, `work`), review (`review`, `self-review`, `receive-review` with the seven include sites' trailing text moved into a block right after the include's block, titled from its first sentence), forge adapters, `shepherdr` with `tiering`/`strategy`/`accounts` as `replace` props carrying today's defaults, `watch-ci` with `forge` and `domain`**
-- [ ] **Step 2: For each engine: `compiled-diff.ts` against the before worktree; expected `""` after `--allow-move` for its slot sections and the three review engines' moved trailing text. Paste each residual (expected `""`) into the group's commit message**
+- [ ] **Step 2: For each engine: `compiled-diff.ts` against the `git archive` snapshot from Task 3; expected `""` after `--allow-move` for its slot sections and the three review engines' moved trailing text. Paste each residual (expected `""`) into the group's commit message**
 - [ ] **Step 3: `bun cli.ts skills check --pack-dir plugins/mattstack --mattstack-dir <tmp> --strict` → exit 0; `bun cli.ts skills compile --dry-run …` → exit 0**
 - [ ] **Step 4: Run `bun test lib/skills commands` → PASS (fixtures that still carry slot engines are converted in Task 6, so any failure here is a conversion defect)**
 - [ ] **Step 5: Commit per group as named in Step 1**
@@ -176,12 +177,13 @@ Depends on plan 1 (`2026-10-22-skill-blocks-1-compiler.md`): `loadBlockTree`, `p
 Out of scope for code (Non-goals). What this task does is the handoff:
 
 - [ ] **Step 1: In each of the two team packs' repos, run `rt skills compile` on the new rt: expected the `old-slot-binding` refusal naming the engine and its props**
-- [ ] **Step 2: Convert each pack by hand with Claude: split the domain fill's `## At: <step>` sections into per-file values beside a frontmatter-only `SKILL.md`, rebind under v2 keys, `rt skills compile` clean, `rt skills check --strict` clean**
-- [ ] **Step 3: Note in `RELEASE_NOTES.md` the manual conversion and the refusal text a pack author sees**
+- [ ] **Step 2: Convert each pack by hand with Claude, in that pack's own repo: split the domain fill's `## At: <step>` sections into per-file values beside a frontmatter-only `SKILL.md`, rebind under v2 keys, `rt skills compile` clean, `rt skills check --strict` clean**
+- [ ] **Step 3: Note in `RELEASE_NOTES.md` the manual conversion and the refusal text a pack author sees, with `acme`/`widgets` as the example names and no org name; run `bun run check`'s purity gate before pushing**
 
 ---
 
 ## Self-review notes
 
 - Spec coverage: Decision 12 (Tasks 3-5), Decision 13 and "Testing" (Tasks 2, 4, 5), "Includes" trailing text (Task 5), "Rollout" and the refusal (Tasks 6, 9), slot removal implied by the Placeholders table (Task 6), CI for `check-dot` on compiled dot (Task 7), skills that teach the new model (Task 8).
-- The `rt skills bind` signature change is not in the spec (it only retires console's Rebind panel). The CLI verb keeps working keyed by block and prop; the spec's author has been told.
+- The `rt skills bind` signature change is not in the spec (it only retires console's Rebind panel). The CLI verb keeps working keyed by block and prop; the spec's author accepted it.
+- Plan 3's console map test (its Task 8) depends on this plan's Task 6 renaming the anatomy part kind `slot` to `prop`; that rename is listed there so the console's pipeline focus keeps drawing its stage links.
