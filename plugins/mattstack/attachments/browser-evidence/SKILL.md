@@ -45,7 +45,8 @@ A board is a mock-data board only when all three hold:
 - its brief has `page:`, never `import:`: an imported image (a ticket
   screenshot) can come from anywhere;
 - a pair's `before:` names a board that was itself a mock-data board (its
-  `evidence-mock-data:<before stem>` field is set), never an import board.
+  `evidence-cleared:<before stem>` field reads `<sha> no redact marks:
+  mock data from ...`), never an import board or one a human approved.
 
 Its brief's `hide:` line reads `no redact marks: mock data from <source>`,
 `<source>` being the source as Personal data names it (a database class, a
@@ -83,7 +84,8 @@ digraph browser_evidence {
     stop_self_confirm [label="STOP: confirming is the human's answer, never the agent's, except a mock-data board's empty record" shape=octagon style=filled fillcolor=red fontcolor=white];
     fast_browser_confirm_mock [label="fast-browser compose --confirm ~/.fast-browser/screenshots/<stem>.spec.json (mock-data board)" shape=plaintext];
     mock_confirm_result [label="Mock-data confirm result?" shape=diamond];
-    run_field_set_mock [label="run_field_set {runDb, key: evidence-mock-data:<stem>, value: <boardSha256 of the confirmed record> <the hide line>, stage}" shape=plaintext];
+    run_field_set_mock [label="run_field_set {runDb, key: evidence-cleared:<stem>, value: <boardSha256 of the confirmed record> <the hide line>, stage}" shape=plaintext];
+    run_field_set_approved [label="run_field_set {runDb, key: evidence-cleared:<stem>, value: <boardSha256 of the confirmed record> approved at <the gate's scope>, stage}" shape=plaintext];
     hand_off_at_gate [label="Every board of this hand-off at the redaction gate or done?" shape=diamond];
     wait_for_hand_off [label="Wait for this hand-off's other boards" shape=box];
     run_budget_redaction_gate [label="run_budget {runDb, key: evidence:redaction-openings:<first entry of this opening>:<first crop of this opening, or board>, limit: 4, stage}" shape=plaintext];
@@ -170,7 +172,8 @@ digraph browser_evidence {
     crops_left -> run_budget_redaction_gate [label="yes: the next 11 crops"];
     crops_left -> fast_browser_confirm [label="no: every opening of this board confirmed"];
     fast_browser_confirm -> confirm_result;
-    confirm_result -> board_ready [label="ok"];
+    confirm_result -> run_field_set_approved [label="ok: the record reads confirmed"];
+    run_field_set_approved -> board_ready;
     confirm_result -> not_drawn [label="clean exit, but an empty record still not confirmed: the output quoted, update Fast Browser"];
     confirm_result -> run_budget_confirm [label="refused"];
     run_budget_confirm -> confirm_refusals_spent;
@@ -333,7 +336,7 @@ mock-data board (Confirm a mock-data board).
 An empty record on a mock-data board (all three conditions under The
 browser target) skips the gate: its page holds no real person, so there is
 nothing for the human to check. Run the confirm, and only once the record
-reads `"confirmed": true` write the run field `evidence-mock-data:<stem>`
+reads `"confirmed": true` write the run field `evidence-cleared:<stem>`
 with the record's `boardSha256`, a space, and the brief's `hide:` line as
 its value. evidence-record trusts the field only for those exact bytes, so
 any later render of the stem (a re-capture, a revision, another source)
@@ -341,6 +344,22 @@ is shown again until it earns a field of its own. A confirm that is refused
 or leaves the record unconfirmed sends the board to the gate instead: the
 human looks. A board with crops, or one whose source is not mock data,
 never takes this path.
+
+### Record the clearance
+
+`evidence-cleared:<stem>` tells evidence-record and the verbs' `boards`
+question that nobody needs to look at these bytes again. It is written in
+exactly two places, each only after the record reads `"confirmed": true`:
+
+- a mock-data board: `<boardSha256> <the hide line>` (Confirm a
+  mock-data board);
+- any board the human confirmed at Gate evidence-redaction:
+  `<boardSha256> approved at <the opening's scope>`, since the human has
+  already looked at these exact bytes.
+
+A board that reaches Board ready without a record (its redact marks all
+on live captures) gets no field: the human has not looked at it yet, so
+the upload shows it.
 
 ### Every board of this hand-off at the redaction gate or done?
 
@@ -481,9 +500,10 @@ by hand:
 5. A redaction record beside it (`<stem>.redactions.json`, with crops or
    empty): Gate evidence-redaction, then `fast-browser compose --confirm`
    on that spec. An empty record takes Confirm a mock-data board instead
-   only when the board's `evidence-mock-data:<stem>` field was set before
-   this revision and nobody asked for anything to be hidden in it; the
-   hide line comes from that field. Naming this board returns to step 3
+   only when the board's `evidence-cleared:<stem>` field read `<sha> no
+   redact marks: mock data from ...` before this revision and nobody asked
+   for anything to be hidden in it; the hide line comes from that field. A
+   confirm either way writes the field anew (Record the clearance). Naming this board returns to step 3
    with their words, counted against `redaction-rounds:<stem>:r<k>`. A Hold there
    holds the revision with nothing recorded; a refused confirm, a confirm
    that left an empty record unconfirmed, or spent redaction rounds or
