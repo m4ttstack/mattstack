@@ -27,7 +27,7 @@ const PARAMS_FILE = "pack/params.jsonc";
 const TEAM_MARKER_RE = /\{\{team\.(section:)?([^}\s?]*)(\?)?\}\}/g;
 /** Crosses lines on purpose, so a marker split after its braces is still caught. */
 const FIRST_MARKER_RE = /\{\{\s*team\.[^}\n]*(?:\}\}?)?/;
-const SPLIT_MARKER_RE = /\{\{[ \t]*\r?\n\s*team\.[^}\n]*(?:\}\}?)?/;
+const SPLIT_MARKER_RE = /\{\{[^\S\n]*\r?\n\s*team\.[^}\n]*(?:\}\}?)?/;
 const NAME_RE = /^[a-z][a-z0-9-]*$/;
 
 export function newTeamContext(values: TeamValues, basePlugins: ReadonlySet<string>): TeamContext {
@@ -101,7 +101,7 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
     const fail = (raw: string, why: string): never => {
       throw new Error(`${where}: ${raw} ${why} (line ${i + startLine})`);
     };
-    const stray = line.replace(TEAM_MARKER_RE, "").match(/\{\{[ \t]*team\.[^}]*(\}\}?|$)/);
+    const stray = line.replace(TEAM_MARKER_RE, "").match(/\{\{[^\S\n]*team\.[^}]*(\}\}?|$)/);
     if (stray) fail(stray[0], "is not a well-formed team marker");
     let removeLine = false;
     let sectionText: string | null = null;

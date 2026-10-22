@@ -156,6 +156,13 @@ describe("team-params", () => {
     expect(team.missing.has("section:constructor")).toBe(false);
   });
 
+  test.each([" ", "\v"])("refuses a marker with %j after its braces", (gap) => {
+    const raw = `{{${gap}team.x}}`;
+    expect(hasTeamMarker(raw)).toBe(true);
+    expect(() => resolveTeamMarkers(`a\n${raw}`, ctx({ x: "v" }), { where, sectionSeams: true })).toThrow(new RegExp(`${where}.*line 2`));
+    expect(() => resolveTeamMarkers(`a {{${gap}\nteam.x}}`, ctx({ x: "v" }), { where, sectionSeams: true })).toThrow(/breaks across lines/);
+  });
+
   test("an indented section marker indents every line of its section, and keeps lines=", () => {
     const team = ctx({}, { s: "l1\n\nl2\n" });
     expect(resolveTeamMarkers("- item\n  {{team.section:s}}", team, { where, sectionSeams: false })).toBe("- item\n  l1\n\n  l2");
