@@ -233,6 +233,7 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 - Create: `extensions/vscode/skill-blocks/package.json` (name `skill-blocks`, `activationEvents: ["workspaceContains:**/*.block.md", "workspaceContains:**/skills.jsonc"]`, `contributes.languages` registering `skill-blocks-markdown` for `*.block.md` with `markdown` as the base configuration so highlighting stays, a `skillBlocks.rtPath` setting defaulting to `rt`), `src/extension.ts` (`LanguageClient` over `{ command: rtPath, args: ["skills", "lsp"], transport: stdio }`, document selector for both patterns, a "Skill Blocks: Restart Server" command), `tsconfig.json`, the esbuild `build` script in `package.json`, `README.md` (install from a `.vsix` built by `bun run build && npx @vscode/vsce package`)
 - Modify: root `package.json` workspaces
 - Test: `src/__tests__/extension.test.ts` (the client is built with `["skills","lsp"]` and the configured path)
+- Shipping shape (Task 11 consumes it): `publisher: "local"` so the id is `local.skill-blocks`, the same publisher as `rt-context`; a `package` script and a `scripts/load-smoke.mjs` in the shape `rt-context` has; `*.vsix` ignored. The command is `skillBlocks.rtPath` when the person set it; at the default `rt`, when `rt` does not resolve on the editor's PATH, the extension uses `~/.local/bin/rt`, where setup links it (an editor started from the Dock may not carry the shell's PATH).
 
 - [ ] **Step 1: Write the failing test**
 - [ ] **Step 2: Run from the repo root with the extension's own test script → FAIL**
@@ -251,6 +252,24 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 - [ ] **Step 1: Read the Claude Code plugin reference (code.claude.com/docs/en/plugins and the plugins reference page) for how a plugin registers a language server, and confirm the key name and shape there before writing it; do not guess a field**
 - [ ] **Step 2: If registration is supported: add it (command `rt`, args `["skills","lsp"]`, the two patterns), bump the plugin version, write the test, run it → PASS. If it is not: stop, write the finding in the commit message of a docs-only commit to `plugins/mattstack/README.md`'s editor section, and report it as out of scope under the spec's "only registration" rule**
 - [ ] **Step 3: Commit: `mattstack: register the block language server with Claude Code`**
+
+---
+
+### Task 11: Ship the extension with the app
+
+Every machine that installs or updates mattstack.app gets the extension in each editor rt installs `rt-context` into. The path is the one `rt-context` already takes: `release.yml` packages the `.vsix`, `rt-tray/build.sh` copies it into `Contents/Resources`, and the `extension.install` setup step installs it with `--install-extension <vsix> --force`. That step is `updateSafe`, so `rt setup update` (run by the app at every launch after an update) installs it into the editors setup-state records, which is how existing users get it.
+
+**Files:**
+- Modify: `.github/workflows/release.yml` (the "Build extension" step also runs `bun run package` and the load smoke in `extensions/vscode/skill-blocks`, and exports `RT_SKILL_BLOCKS_VSIX`; a missing `.vsix` fails the step as `RT_VSIX` does), `rt-tray/build.sh` (copies `RT_SKILL_BLOCKS_VSIX` to `Contents/Resources/skill-blocks.vsix`; add it to the env comment)
+- Modify: `lib/setup/tools-install.ts` (`findVsix` becomes `findVsixes(p) → string[]`, the bundled files that exist, from the app's `Contents/Resources` else beside the binary; `setupExtension` installs each into each editor; an editor is recorded in `extensionEditors` only when every file installed; `VSIX_NOT_FOUND_DETAIL` only when none is found), `lib/setup/steps/tools.ts` (unchanged contract; its tests cover two files), `commands/extension.ts` (`rt extension install` installs both, the source-tree fallback looks in both extension folders), `lib/setup/uninstall.ts` (uninstalls `local.rt-context` and `local.skill-blocks`), `lib/setup/validators/rt-health.ts` (`tool.vsix` reads ready only when both files ship; the editor check names an editor missing either)
+- Modify: `docs/release-and-distribution.md` and `website/docs/rt/guides/context-extension.mdx` (the second extension, what it does, that setup installs and updates it)
+- Test: `lib/setup/__tests__/tools-install.test.ts`, `commands/__tests__/extension-install.test.ts`, the uninstall and `validators-rt-health` tests, `lib/__tests__/release-workflow.test.ts` (pins the skill-blocks package step and the export), `commands/__tests__/setup-copy.test.ts` snapshots if a row's copy changes
+
+- [ ] **Step 1: Write the failing tests** (a fresh install with both files installs both into every detected editor; an update run installs both into only the editors setup-state records, so an existing `rt-context` user gets `skill-blocks`; a bundle carrying only `rt-context.vsix` still installs it and is not a failure; one file failing in one editor leaves that editor unrecorded and the step `failed`; uninstall removes both ids; the release workflow packages and exports the second `.vsix`)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement.** Never run `rt-tray/build.sh` or a release step locally, and never touch an installed app bundle; the release-workflow test and the setup tests are the verification.
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `setup: ship the skill-blocks extension with the app`**
 
 ---
 

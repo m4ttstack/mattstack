@@ -437,7 +437,10 @@ compile's own parser and checks so the two never disagree.
 - **Editors:** VS Code first, through an extension that launches the
   server. Claude Code registers the same server through the mattstack
   plugin; that is in scope as long as it is only registration, with no
-  second server.
+  second server. The extension ships inside mattstack.app beside
+  `rt-context.vsix`, and setup installs it into every editor it installs
+  `rt-context` into, on a fresh install and on every update, so existing
+  users get it without a step of their own.
 - **Not in scope:** renaming contracts, and other editors (Zed).
 
 ## Console
