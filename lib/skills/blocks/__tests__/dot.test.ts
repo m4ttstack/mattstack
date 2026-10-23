@@ -38,10 +38,8 @@ test("parseDot reads quoted ids, mixed separators, extra attributes and escapes"
 });
 
 test("parseDot reads the whole ship graph", () => {
-  const text = readFileSync("plugins/mattstack/attachments/pipeline/ship/SKILL.md", "utf8");
-  const start = text.indexOf("digraph ship {");
-  const body = text.slice(start, text.indexOf("\n}\n", start) + 3);
-  const g = parseDot(body);
+  // ship's flow graph as the slot engine wrote it in dot, before it became a block tree.
+  const g = parseDot(readFileSync(join(import.meta.dir, "..", "..", "__tests__", "fixtures", "blocks", "ship-flow.dot"), "utf8"));
   expect(g.edges.length).toBe(174);
   expect(g.nodes.length).toBe(112);
   expect(g.nodes.every((n) => n.label !== n.id)).toBe(true);
