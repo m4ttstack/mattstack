@@ -13,7 +13,6 @@ const DEFAULTS: WiringUrl = {
   pack: null,
   focus: null,
   select: null,
-  drawerTab: 'text',
   view: null,
   attention: false,
   block: null,
@@ -24,7 +23,6 @@ const FULL: WiringUrl = {
   pack: 'acme',
   focus: 'stage-plan',
   select: 'input:include:gate-protocol',
-  drawerTab: 'used-by',
   view: 'rendered',
   attention: true,
   block: 'mini/run',
@@ -46,16 +44,8 @@ const BOARD_ROUTES: Array<[string, Partial<WiringUrl>]> = [
     { focus: 'stage-plan', select: 'row:140' },
   ],
   [
-    'tab=graph&focus=stage-plan&select=input:include:gate-protocol&drawerTab=used-by',
-    {
-      focus: 'stage-plan',
-      select: 'input:include:gate-protocol',
-      drawerTab: 'used-by',
-    },
-  ],
-  [
-    'tab=graph&focus=stage-plan&select=output&drawerTab=history',
-    { focus: 'stage-plan', select: 'output', drawerTab: 'history' },
+    'tab=graph&focus=stage-plan&select=input:include:gate-protocol',
+    { focus: 'stage-plan', select: 'input:include:gate-protocol' },
   ],
   [
     'tab=graph&focus=stage-plan&select=row:136&view=rendered',
@@ -71,7 +61,7 @@ describe('parseWiringUrl', () => {
 
   it('reads every field, with or without the leading question mark', () => {
     const search =
-      'tab=surface&pack=acme&focus=stage-plan&select=input:include:gate-protocol&drawerTab=used-by&view=rendered&attention=1&block=mini/run';
+      'tab=surface&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run';
     expect(parseWiringUrl(search)).toEqual(FULL);
     expect(parseWiringUrl(`?${search}`)).toEqual(FULL);
   });
@@ -87,13 +77,17 @@ describe('parseWiringUrl', () => {
     expect(parseWiringUrl(search)).toEqual({ ...DEFAULTS, ...expected });
   });
 
-  it('falls back to the default for an unknown tab, drawerTab or view', () => {
+  it('falls back to the default for an unknown tab or view', () => {
     expect(
-      parseWiringUrl(
-        'tab=pipeline&drawerTab=nope&view=raw&rebind=1&attention=0'
-      )
+      parseWiringUrl('tab=pipeline&view=raw&rebind=1&attention=0')
     ).toEqual(DEFAULTS);
     expect(parseWiringUrl('tab=ondemand')).toEqual(DEFAULTS);
+  });
+
+  it("opens an old link that carries the drawer's tab, ignoring it", () => {
+    expect(
+      parseWiringUrl('focus=stage-plan&select=output&drawerTab=history')
+    ).toEqual({ ...DEFAULTS, focus: 'stage-plan', select: 'output' });
   });
 
   it('reads an empty pack, focus or select as null', () => {
@@ -116,7 +110,7 @@ describe('formatWiringUrl', () => {
 
   it('emits keys in a stable order', () => {
     expect(formatWiringUrl(FULL)).toBe(
-      'tab=surface&pack=acme&focus=stage-plan&select=input:include:gate-protocol&drawerTab=used-by&view=rendered&attention=1&block=mini/run'
+      'tab=surface&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run'
     );
   });
 
@@ -174,13 +168,12 @@ describe('useWiringUrl', () => {
   });
 
   it('reads the current search', () => {
-    at('/wiring?focus=stage-plan&select=row:3&drawerTab=history');
+    at('/wiring?focus=stage-plan&select=row:3');
     const { result } = renderHook(() => useWiringUrl());
     expect(result.current[0]).toEqual({
       ...DEFAULTS,
       focus: 'stage-plan',
       select: 'row:3',
-      drawerTab: 'history',
     });
   });
 
@@ -226,13 +219,13 @@ describe('useWiringUrl', () => {
     expect(result.current[0].select).toBe('row:1');
   });
 
-  it('keeps the drawer tab across a focus change', () => {
-    at('/wiring?focus=a&select=output&drawerTab=history');
+  it("drops an old link's retired drawer and rebind keys on the next patch", () => {
+    at('/wiring?focus=a&select=output&drawerTab=history&rebind=1');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ focus: 'b' }));
 
-    expect(result.current[0].drawerTab).toBe('history');
+    expect(window.location.search).toBe('?focus=b');
   });
 
   it('pushes a tab change', () => {
@@ -255,7 +248,6 @@ describe('useWiringUrl', () => {
 
   it.each<[string, Partial<WiringUrl>, string]>([
     ['select', { select: 'row:2' }, '?select=row:2'],
-    ['drawerTab', { drawerTab: 'history' }, '?drawerTab=history'],
     ['view', { view: 'rendered' }, '?view=rendered'],
     ['block', { block: 'mini/run' }, '?block=mini/run'],
   ])('replaces on a %s change', (_name, patch, search) => {
@@ -270,10 +262,10 @@ describe('useWiringUrl', () => {
   });
 
   it('drops a key back to its default out of the URL', () => {
-    at('/wiring?focus=stage-plan&select=row:1&drawerTab=history');
+    at('/wiring?focus=stage-plan&select=row:1&view=rendered');
     const { result } = renderHook(() => useWiringUrl());
 
-    act(() => result.current[1]({ select: null, drawerTab: 'text' }));
+    act(() => result.current[1]({ select: null, view: null }));
 
     expect(window.location.search).toBe('?focus=stage-plan');
   });
@@ -312,7 +304,7 @@ describe('useWiringUrl', () => {
     at('/wiring?focus=stage-plan&select=row:1');
     const { result } = renderHook(() => useWiringUrl());
 
-    act(() => result.current[1]({ select: undefined, drawerTab: undefined }));
+    act(() => result.current[1]({ select: undefined, view: undefined }));
 
     expect(window.location.search).toBe('?focus=stage-plan&select=row:1');
   });

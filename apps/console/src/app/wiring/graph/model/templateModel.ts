@@ -154,11 +154,6 @@ export type TemplateView = {
   links: LinkCard[];
   output: OutputCard | null;
   textNoun: TextNoun;
-  /** The app that owns the skill (`board` for `board:doctor`), when it is
-      not this pack's own and the view shows only the props the pack fills. */
-  app?: string;
-  /** That skill's installed SKILL.md, when the app installed one. */
-  skillFile?: string | null;
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];

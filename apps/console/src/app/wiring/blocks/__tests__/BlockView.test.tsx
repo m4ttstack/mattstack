@@ -40,7 +40,6 @@ const URL_AT: WiringUrl = {
   pack: null,
   focus: 'mini',
   select: null,
-  drawerTab: 'text',
   view: null,
   attention: false,
   block: null,

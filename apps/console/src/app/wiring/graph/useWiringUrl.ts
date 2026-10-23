@@ -2,7 +2,6 @@ import { useCallback, useMemo } from 'react';
 import { useSearch } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
-export type DrawerTab = 'text' | 'used-by' | 'history';
 export type WiringTab = 'graph' | 'surface' | 'health';
 export type WiringView = 'template' | 'rendered';
 
@@ -11,18 +10,15 @@ export type WiringUrl = {
   pack: string | null;
   focus: string | null;
   select: string | null;
-  drawerTab: DrawerTab;
   view: WiringView | null;
   attention: boolean;
   block: string | null;
 };
 
 const TABS: readonly WiringTab[] = ['graph', 'surface', 'health'];
-const DRAWER_TABS: readonly DrawerTab[] = ['text', 'used-by', 'history'];
 const VIEWS: readonly WiringView[] = ['template', 'rendered'];
 
 const DEFAULT_TAB: WiringTab = 'graph';
-const DEFAULT_DRAWER_TAB: DrawerTab = 'text';
 
 /** Every key this module reads and writes, in the order `formatWiringUrl`
     emits them. */
@@ -31,7 +27,6 @@ const KEYS = [
   'pack',
   'focus',
   'select',
-  'drawerTab',
   'view',
   'attention',
   'block',
@@ -67,7 +62,6 @@ export function parseWiringUrl(search: string): WiringUrl {
     pack: text('pack'),
     focus: text('focus'),
     select: text('select'),
-    drawerTab: oneOf(DRAWER_TABS, params.get('drawerTab'), DEFAULT_DRAWER_TAB),
     view: oneOf(VIEWS, params.get('view'), null),
     attention: params.get('attention') === '1',
     block: text('block'),
@@ -94,10 +88,6 @@ export function formatWiringUrl(state: WiringUrl): string {
     ['pack', state.pack],
     ['focus', state.focus],
     ['select', state.select],
-    [
-      'drawerTab',
-      state.drawerTab === DEFAULT_DRAWER_TAB ? null : state.drawerTab,
-    ],
     ['view', state.view],
     ['attention', state.attention ? '1' : null],
     ['block', state.block],
@@ -119,9 +109,13 @@ function normalise(change: Partial<WiringUrl>): Partial<WiringUrl> {
   return defined;
 }
 
+/** Keys this module once wrote, for the drawer and its Rebind panel: an old
+    link still opens, and its next patch drops them. */
+const RETIRED = ['drawerTab', 'rebind'] as const;
+
 function otherParams(search: string): string {
   const params = new URLSearchParams(search);
-  for (const key of KEYS) params.delete(key);
+  for (const key of [...KEYS, ...RETIRED]) params.delete(key);
   return params.toString();
 }
 
