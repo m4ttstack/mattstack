@@ -76,11 +76,12 @@ is deliberate; see [Configuration](#configuration).
 - **mattstack:shepherdr** -- transport for a herd of Claude Code agents via
   herdr panes: breaks work into jobs, spawns an agent per job, watches,
   relays questions, and integrates. Model, method, and account policy arrive
-  through its slots (`model-tiering@1`, `execution-strategy@1`,
-  `account-pool@1`, and an optional `shepherdr-domain@1`). The engine lives
-  at `attachments/orchestration/shepherdr/`; this pack compiles it into its
-  own public verb at `skills/shepherdr/` with the generic fills and the
-  domain slot left unbound (`pack/stubs.jsonc` + `pack/skills.jsonc`, built
+  through its root block's `tiering`, `strategy` and `accounts` props
+  (`model-tiering@1`, `execution-strategy@1`, `account-pool@1`), and a
+  team's fan-out rules through its `rules` props. The engine is a block
+  tree at `attachments/orchestration/shepherdr/`; this pack compiles it into
+  its own public verb at `skills/shepherdr/` with the props' default fills
+  and no rules bound (`pack/stubs.jsonc` + `pack/skills.jsonc`, built
   by `rt skills compile --pack mattstack`), and a team pack compiles its own
   domain-bound copy for its repo. Requires the
   [herdr skill](https://github.com/herdrdev/herdr/blob/master/skills/herdr/SKILL.md)
@@ -92,8 +93,8 @@ is deliberate; see [Configuration](#configuration).
 - **mattstack:cswap-accounts** -- cswap provider for the `account-pool@1`
   contract: the account-pool question, per-spawn picking via
   `pick-account.py` (scoped per-model pools, spread penalty), and the
-  exhaustion decision tree. Binding-only; reached through a wrapper's
-  accounts slot.
+  exhaustion decision tree. Binding-only; reached through shepherdr's
+  `accounts` prop.
 - **mattstack:execution-strategy** -- name the method an executor should run
   for a unit of work (trivial, direct-tdd, from-spec, from-plan, superpowers, delegate)
   and the report contract that method owes, including the boundary rules for
@@ -137,10 +138,10 @@ prose.
   schema: `plugin/schemas/`. Model-free test matrix:
   `plugin/tests/test-resolve-args.sh`.
 
-`shepherdr` was the first wrapper on the primitive and is now
-compile-native: its `tiering`, `strategy`, `accounts`, and `domain` slots
-are `{{slot}}` placeholders the compiler fills, so the runtime resolver now
-serves only runtime-native wrappers.
+The runtime resolver serves runtime-native wrappers, such as the board's
+`board:*` bindings. The mattstack engines are compile-native block trees
+instead (see [The block layout](#the-block-layout)): `rt skills compile`
+inlines their fills, and nothing resolves them at run time.
 
 A domain team gets its pack from `rt skills init` (the `creating-a-pack`
 skill walks through it) and grows it with `extending-a-pack`; both are
@@ -158,7 +159,7 @@ verb names its own with `"pipeline"`. A pipeline a work verb runs starts
 with `stage-provision`, ends with `stage-watch-ci`, and includes
 `stage-implement` and `stage-ship`; in between, any order the
 consumes/produces chain check accepts. A pipeline can override the
-pack's fills per slot, and compile then writes a `<stage>--<pipeline>`
+pack's fills per prop, and compile then writes a `<stage>--<pipeline>`
 stage copy for it. Two of the stages also ship a standalone counterpart for
 running that one step outside a full pipeline.
 
@@ -173,7 +174,7 @@ running that one step outside a full pipeline.
 - **mattstack:stage-evidence** -- capture the before-state per the evidence
   plan, before implementation.
 - **mattstack:stage-implement** -- do the implementation under the TDD
-  floor (slotless; pure methodology).
+  floor (no props; pure methodology).
 - **mattstack:stage-self-review** -- self-review checkpoint between
   implementation and ship.
 - **mattstack:stage-ship** -- publish the unit of work: push, open the
@@ -194,7 +195,7 @@ The review cluster: a shared engine plus the protocols around it.
 and reached only as a pack's compiled verbs. The review skills plug into
 domain packs via the `review-criteria@1`, `reviewer-dispatch@1`, and
 `reply-rules@1` contracts, while `subagent-review-loop` is a standalone
-one-off with no slots.
+one-off with no props.
 
 - The review flow lives in five internal include bodies
   (`review-core-body`, `review-core-body-after`, `review-core-body-tail`,
@@ -204,13 +205,13 @@ one-off with no slots.
 - **mattstack:review** -- review someone else's MR/PR before it merges, from
   a pasted link, a bare `!iid`/`#number`, or a ticket id: resolve the
   target, dispatch the judgment to a fresh context, return the structured
-  draft (`criteria` + `reviewer` slots).
+  draft (`criteria` + `reviewer` props).
 - **mattstack:self-review** -- review this session's own work on the
   current branch before shipping; the bias gate against grading your own
   homework (provides `self-review-domain@1`, the stage's default adapter).
 - **mattstack:receive-review** -- process the feedback on your own MR/PR
   with technical rigor instead of performative agreement (`criteria` +
-  `reply-rules` slots).
+  `reply-rules` props).
 - **mattstack:review-posting** -- executes a decided `{findings | levels,
   disposition}` selection against the MR/PR: inline threads for what was
   selected, one summary comment, then the disposition; it never decides
@@ -228,7 +229,7 @@ code forge (GitHub or GitLab). Both are engines, reached only through a
 binding or a pack's compile, never directly.
 
 - **mattstack:ci-forge-gitlab** -- GitLab implementation of the watch-ci
-  stage's `forge` slot: pipeline tree-walking, job listing, triage refs.
+  stage's `forge` prop: pipeline tree-walking, job listing, triage refs.
 - **checkout** -- get a local worktree for someone else's branch, given a
   branch name, an MR/PR link or number, or a ticket id, without starting
   work on it.
@@ -288,9 +289,33 @@ pack's own compiled verb (`skills/shepherdr/`, from `pack/stubs.jsonc` and
 `pack/skills.jsonc` via `rt skills compile --pack mattstack`). The other
 engines, includes, and fills under `attachments/` are not invocable on their
 own: a team pack compiles them into its verbs with `rt skills compile` (the
-`{{slot}}` and `{{include}}` markers are resolved at compile time, and
+props and `{{include}}` markers are resolved at compile time, and
 `rt skills check` reports which compiled verb drifted and why).
 `mattstack:editing-skills` carries the edit-bump-update-recompile loop.
+
+### The block layout
+
+Every engine under `attachments/` is a folder of blocks:
+
+```
+attachments/pipeline/ship/
+  index.block.md            the root block: the verb's frontmatter and intro
+  domain-rules.block.md     one section of the verb, with a `rules` prop
+  flow/
+    index.block.md          a section with children: its Mermaid graph
+    domain-fast-checks.block.md   one node of that graph, with a `rules` prop
+  ...
+```
+
+A block's id is its path under the engine, with the engine's name for
+the root (`ship`, `ship/domain-rules`, `ship/flow/domain-fast-checks`).
+A block that takes a team's text declares props in its frontmatter
+(`merge`, an optional `contract`, a `default`) and marks where each lands
+with `{{props.<name>}}`. A pack binds a fill to a prop with
+`rt skills bind <verb> <block> <prop> <fill>`, which writes
+`"mattstack:<block id>": { "<prop>": "<fill>" }` into `pack/skills.jsonc`.
+`rt skills blocks --skill <verb> --pack <pack>` prints a verb's tree;
+`plugin/skills/extending-a-pack/props.md` lists every engine's props.
 
 A skill's prefix is the `name:` field in its SKILL.md frontmatter; the
 plugin name supplies the `mattstack:` namespace.
@@ -382,24 +407,25 @@ see [Configuration](#configuration).
 A domain team does not fork this repo. It runs `rt skills init` in its repo
 (the `creating-a-pack` skill walks through it), which scaffolds a pack in
 the team's folder of the org repo (`mattstack/teams/<team>/plugin/`, the
-team's Claude plugin): a `work` verb compiled from the engines here with every
-domain slot unbound, so the generic pipeline runs on day one. Rules are
-added later as fills, one slot at a time, through the `extending-a-pack`
-skill; each fill is a small skill declaring `metadata.provides` and bound
-with `rt skills bind`.
+team's Claude plugin): a `work` verb compiled from the engines here with no
+rules bound, so the generic pipeline runs on day one. Rules are added
+later as fills, one prop at a time, through the `extending-a-pack` skill;
+each fill is a small skill declaring `metadata.provides` and bound with
+`rt skills bind <verb> <block> <prop> <fill>`.
 
 The bindings manifest schema lives at
 `plugin/schemas/skills-manifest.schema.json`, with a worked explanation in
 `plugin/schemas/skills-manifest.md`. A team pack may declare
-`"extends": "acme-base"` to build on its org's base pack, overriding its
-fills slot by slot. The base lives at `mattstack/org/packs/acme-base/` in
+`"extends": "acme-base"` to build on its org's base pack: on an `add` prop
+the team's fill follows the base's, and on a `replace` prop it replaces
+it. The base lives at `mattstack/org/packs/acme-base/` in
 the org repo, marks itself `"base": true`, keeps its fills under
 `attachments/`, and is never installed: a team's compile inlines its fills,
-except a fill only `board:*` slots bind, which it copies into the team pack
-for the board to open.
+except a fill only `board:*` bindings name, which it copies into the team
+pack for the board to open.
 `pack/skills.jsonc` in this repo is a
-real example: it binds `mattstack:shepherdr`'s `tiering`, `strategy`, and
-`accounts` slots and leaves `domain` unbound.
+real example: it binds nothing, so `mattstack:shepherdr` compiles with its
+`tiering`, `strategy` and `accounts` props' default fills.
 
 Once a pack's manifest and fills are in place:
 
@@ -438,7 +464,7 @@ Every skill this repo ships is certified against the written purity rule in
 
 1. Nothing domain-specific to any one team ships here. Domain conventions,
    examples, and routing live in domain-owned packs that bind to the seams
-   in this repo (slots, pipelines, manifests).
+   in this repo (props, pipelines, manifests).
 2. Nothing personal to one operator ships in prose or scripts: no personal
    names, home paths, or account hints. The bar is what someone else could
    actually pick up.
