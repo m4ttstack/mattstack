@@ -1,0 +1,4 @@
+1. run_field_get {key: mode}; worktree_provision {precheck: true}; worktree_provision {codes: true, runDb, stage: provision, budget}. The provision gate is never presented, so there is no whoami. A non-MCP EnterWorktree on the result's path follows, and the tool's `recorded: true` means I write no fields.
+2. Yes: the widgets squad rule counts as a domain rule inlined in this stage, so the graph routes to the domain flow. That rule only adds a gate question and supplies no flow, so I fall through to the precheck.
+3. Not shown. The sameTicket tree is offered only when no domain rule is inlined, so the precheck reads as nothing in the way and no `resume_in` question arises.
+4. None. No question raised a gate and nothing needed resuming, so the gate is never reached and the `squad` question is never asked.

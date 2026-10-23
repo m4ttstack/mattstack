@@ -1,0 +1,4 @@
+1. run_field_get {key: mode}; worktree_provision {precheck: true}; worktree_provision {codes: true, runDb, stage: provision, budget}. EnterWorktree follows, and run_field_set (branch, then worktree) is called only if the result has a recordError.
+2. Yes: the squad rule counts as an inlined domain rule, though it supplies no flow, so the step passes straight to provisioning a tree.
+3. Not shown.
+4. None: no gate is presented, so there are no question ids (not even `squad` or `next`).

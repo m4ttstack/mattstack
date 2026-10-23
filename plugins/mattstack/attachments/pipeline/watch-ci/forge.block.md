@@ -17,4 +17,4 @@ them, and the redirects above send each to its tool.
 
 {{props.forge}}
 
-With neither slot inlined, the graph's unbound flows apply.
+Where no rule and no forge names a move, the graph's unbound flows apply.

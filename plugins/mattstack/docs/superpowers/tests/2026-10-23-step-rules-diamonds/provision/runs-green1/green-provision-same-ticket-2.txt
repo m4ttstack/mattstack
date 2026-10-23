@@ -1,0 +1,4 @@
+1. `run_field_get {key: mode}`, `worktree_provision {precheck: true}`, then `worktree_provision {codes: true, runDb, stage: provision, budget}`. The provision then goes to `EnterWorktree` (not an MCP tool), and `recorded: true` means no `run_field_set` is needed. No gate is presented, and the stage ends at provision done.
+2. Yes: the "Follow the domain's provision flow" section is inlined, so the diamond routes there. The domain only adds a gate question and raises none of its own, so the flow just provisions a tree and passes on to the precheck.
+3. Not shown. With a domain flow inlined, the `sameTicket` tree is not a tree to resume, and there is no `attached` tree or surviving local branch. The precheck therefore reads "nothing in the way".
+4. None. The gate is never presented, and the `squad` rule only adds a question to a gate that is already being presented.
