@@ -27,13 +27,14 @@ default:
 - `<fill>`: a fill folder (`widgets:lint-changed`), or one file of a fill
   (`widgets:ci-rules/flaky-jobs`): that fill's `SKILL.md` is frontmatter
   only, and `flaky-jobs.md` beside it holds the text with no frontmatter.
-  `""` clears every value before it, so the prop falls back to its
-  default.
 
 Flags: `--pipeline <name>` binds for one pipeline's stage copy only; its
 value replaces the pack's top-level value for that prop in that pipeline.
-`--unset` with `--pipeline` removes that override. `--dry-run` prints the
-change and writes nothing.
+`--dry-run` prints the change and writes nothing.
+
+To remove a pipeline's override, run the same call with no fill and
+`--pipeline <name> --unset`: the prop goes back to the pack's top-level
+value.
 
 The bind writes one key per block into `pack/skills.jsonc`, the plugin
 prefix and the block id, with one entry per prop:
@@ -47,6 +48,12 @@ prefix and the block id, with one entry per prop:
 
 A `--pipeline` bind writes the same key under
 `pipelines.<name>.bindings`.
+
+To clear a prop, write `""` as its value in `pack/skills.jsonc` by hand
+(`"rules": ""`); the bind takes no empty fill. `""` clears every value
+before it (the org base's, and for a pipeline the pack's top-level one), so
+the prop falls back to its default. Under `pipelines.<name>.bindings` it
+clears the prop for that pipeline only.
 
 ## Which block
 
