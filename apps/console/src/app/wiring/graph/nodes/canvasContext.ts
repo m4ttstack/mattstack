@@ -8,8 +8,6 @@ export type CanvasState = {
   select: string | null;
   onSelect: (select: string) => void;
   onOpenSkill: (skill: string) => void;
-  /** Selects an unbound prop's row. */
-  onBind: (line: number) => void;
 };
 
 export const CanvasContext = createContext<CanvasState | null>(null);

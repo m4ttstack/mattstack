@@ -250,7 +250,7 @@ describe('prop states', () => {
     ]);
   });
 
-  it('required, unbound: a warn row and a warn card whose Bind selects its row', async () => {
+  it('required, unbound: a warn row and a warn card that says so, with no bind button', async () => {
     serve({
       composition: bindDomain(null),
       anatomy: { 'stage-plan': unboundPlan() },
@@ -262,21 +262,12 @@ describe('prop states', () => {
     expect(tag.getAttribute('style')).toContain('var(--tk-text-warn)');
 
     const card = await cardTitled('domain prop');
-    expect(within(card).getByText('required, nothing bound')).toHaveStyle({
+    expect(within(card).getByText('Not bound')).toHaveStyle({
       color: 'var(--tk-text-warn-small)',
     });
     expect(paperOf(card)).toHaveAttribute('data-attention', 'warn');
-
-    // React Flow hides a node until it has measured it, which jsdom never
-    // does, so a role query cannot name its buttons.
-    const bind = within(card.parentElement!)
-      .getByText('Bind')
-      .closest('button')!;
-    expect(bind).toHaveAttribute('data-variant', 'card-outline');
-    expect(bind).toHaveAttribute('data-size', 'compact-sm');
-    fireEvent.click(bind);
-    await waitFor(() => expect(params().get('select')).toBe('row:136'));
-    expect(params().get('rebind')).toBeNull();
+    expect(paperOf(card)).not.toHaveAttribute('data-action');
+    expect(within(card.parentElement!).queryByText('Bind')).toBeNull();
   });
 
   it('no matching fill: a warn card naming the missing fill, and a warn row', async () => {

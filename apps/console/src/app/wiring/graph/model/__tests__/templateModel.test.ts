@@ -670,7 +670,7 @@ describe('prop states', () => {
       expect.objectContaining({
         id: 'prop:release-notes.changelog',
         title: 'changelog prop',
-        subtitle: 'required, nothing bound',
+        subtitle: 'Not bound',
         subtitleTone: 'warn',
         path: null,
         state: 'required-unbound',
@@ -1450,7 +1450,7 @@ describe("a stage's prop facts", () => {
   it('reads required from the props the template declares', () => {
     expect(planWith([], { source: null })).toMatchObject({
       state: 'required-unbound',
-      subtitle: 'required, nothing bound',
+      subtitle: 'Not bound',
     });
   });
 

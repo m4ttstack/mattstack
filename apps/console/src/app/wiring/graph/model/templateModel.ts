@@ -822,7 +822,7 @@ function cardFace(
       return {
         ...file,
         title,
-        subtitle: 'required, nothing bound',
+        subtitle: 'Not bound',
         subtitleTone: 'warn',
       };
     case 'resolve-error':
