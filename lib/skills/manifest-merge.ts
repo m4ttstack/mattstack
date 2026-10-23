@@ -25,7 +25,7 @@ export type MergedManifest = {
   enabled: string[];
   pipelines: Record<string, string[]>;
   bindings: BindingsMap;
-  /** Per-pipeline slot overrides, keyed pipeline -> engine ref -> slot; only pipelines that carry any appear. */
+  /** Per-pipeline prop overrides, keyed pipeline -> binding key -> prop; only pipelines that carry any appear. */
   pipelineBindings: Record<string, BindingsMap>;
   /** Overrides the final stage list leaves without a stage to apply to. */
   dropped: MergedDroppedOverride[];
@@ -47,11 +47,11 @@ function isStringArray(value: unknown): boolean {
 
 function bindingsShapeError(bindings: unknown, path: string): string | null {
   if (!isObject(bindings)) return `${path} is not an object`;
-  for (const [engineRef, slots] of Object.entries(bindings)) {
-    if (!isObject(slots)) return `${path}.${engineRef} is not an object`;
-    // An empty fill is how a later layer unbinds a slot an earlier one filled; compile reads it as unbound.
-    for (const [slot, fill] of Object.entries(slots)) {
-      if (typeof fill !== "string") return `${path}.${engineRef}.${slot} is not a string`;
+  for (const [key, props] of Object.entries(bindings)) {
+    if (!isObject(props)) return `${path}.${key} is not an object`;
+    // An empty fill is how a later layer clears a prop an earlier one filled.
+    for (const [prop, fill] of Object.entries(props)) {
+      if (typeof fill !== "string") return `${path}.${key}.${prop} is not a string`;
     }
   }
   return null;
@@ -121,20 +121,20 @@ export function mergeLayers(layers: Layer[]): MergedManifest {
       for (const stage of list) listed.add(stage);
     }
     for (const [type, refs] of Object.entries(bindings)) {
-      for (const [engineRef, slots] of Object.entries(refs)) {
-        for (const [slot, fill] of Object.entries(slots)) {
+      for (const [key, props] of Object.entries(refs)) {
+        for (const [prop, fill] of Object.entries(props)) {
           const forType = (out.pipelineBindings[type] ??= Object.create(null) as BindingsMap);
-          (forType[engineRef] ??= Object.create(null) as Record<string, string>)[slot] = fill;
-          appendLayer((out.pipelineLayered[type] ??= Object.create(null) as LayeredBindings), engineRef, slot, label, fill);
-          out.provenance[pipelineBindingKey(type, engineRef, slot)] = label;
+          (forType[key] ??= Object.create(null) as Record<string, string>)[prop] = fill;
+          appendLayer((out.pipelineLayered[type] ??= Object.create(null) as LayeredBindings), key, prop, label, fill);
+          out.provenance[pipelineBindingKey(type, key, prop)] = label;
         }
       }
     }
-    for (const [engineRef, slots] of Object.entries(fragment.bindings ?? {})) {
-      for (const [slot, fill] of Object.entries(slots)) {
-        (out.bindings[engineRef] ??= Object.create(null) as Record<string, string>)[slot] = fill;
-        appendLayer(out.layered, engineRef, slot, label, fill);
-        out.provenance[`${engineRef} ${slot}`] = label;
+    for (const [key, props] of Object.entries(fragment.bindings ?? {})) {
+      for (const [prop, fill] of Object.entries(props)) {
+        (out.bindings[key] ??= Object.create(null) as Record<string, string>)[prop] = fill;
+        appendLayer(out.layered, key, prop, label, fill);
+        out.provenance[`${key} ${prop}`] = label;
       }
     }
   }
@@ -155,8 +155,8 @@ function settlePipelineBindings(out: MergedManifest, stagesLayerRefs: Record<str
       if (stages.includes(engineRefOf(engineRef))) continue;
       if (stagesLayerRefs[type]!.has(engineRef)) throw new FragmentError(`pipeline "${type}" binds ${engineRef} but does not list it`);
       const reason = everListed[type]!.has(engineRefOf(engineRef)) ? "removed" : "unlisted";
-      for (const slot of Object.keys(refs[engineRef]!)) {
-        const key = pipelineBindingKey(type, engineRef, slot);
+      for (const prop of Object.keys(refs[engineRef]!)) {
+        const key = pipelineBindingKey(type, engineRef, prop);
         out.dropped.push({ key, layer: out.provenance[key]!, reason });
         delete out.provenance[key];
       }

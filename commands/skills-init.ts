@@ -2,7 +2,7 @@
  * rt skills init [--repo <path>] [--team <name>] [--zone <org>] [--extends <base>] [--json]
  *
  * Scaffolds a zero-fill team pack named after its team folder (roster
- * `work` only, every domain slot unbound), adds the repo to the team's claim,
+ * `work` only, every domain prop unbound), adds the repo to the team's claim,
  * materializes, compiles, checks, and installs the pack plugin on this
  * machine, then commits the new pack with its marketplace entry and pushes
  * the org clone. Never changes a pack that has compiled output.

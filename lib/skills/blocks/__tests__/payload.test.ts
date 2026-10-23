@@ -33,7 +33,7 @@ function tmpTree(id: string, files: Record<string, string>): BlockTree {
 
 function ctx(): PlaceholderContext {
   return {
-    fills: {}, slotMode: {}, partsPrefix: "${CLAUDE_SKILL_DIR}/parts", includes: {}, pipelines: {},
+    partsPrefix: "${CLAUDE_SKILL_DIR}/parts", includes: {}, pipelines: {},
     repoKey: "my-repo", mattstackSha: "", mattstackDirty: 0, packSha: "", stageDir: null, stageMeta: null,
     compiledFrom: "mattstack@1.0.0", verbSides: {}, side: "skills", packRoot: null, pipeline: null,
   };

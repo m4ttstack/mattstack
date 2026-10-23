@@ -16,7 +16,7 @@ import { firstTeamMarker } from "./team-params.ts";
 import { layeredFromManifest } from "./manifest-merge.ts";
 import { fillsDiffer, normalizePipelines, pipelineNameError, stageCopyName, type BindingsMap, type LayeredBindings } from "./pipelines.ts";
 import { packPluginIdentity } from "./provenance.ts";
-import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
+import type { AttachmentSource, StepSource, VerbDef } from "./types.ts";
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
@@ -29,6 +29,9 @@ export class AttachmentLoadError extends Error {
     super(message);
   }
 }
+
+/** An engine folder found with a `SKILL.md` and no `index.block.md`: `rt skills blocks` answers not-a-block-tree for it. */
+export class NotABlockTreeError extends Error {}
 
 /** Single definition lives in lib/jsonc.ts — a line-filter fork here previously missed block comments, trailing commas, and inline `//` after content. */
 export { stripJsonc };
@@ -165,21 +168,6 @@ export function resolvePluginRootsFromDir(dir: string): PluginRoots {
     byName[name] = { dir: pluginDir, version };
   }
   return { byName, list: [] };
-}
-
-function parseSlots(raw: unknown): Record<string, SlotSpec> {
-  if (!raw || typeof raw !== "object") return {};
-  const out: Record<string, SlotSpec> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (!value || typeof value !== "object") continue;
-    const spec = value as Record<string, unknown>;
-    if (typeof spec.contract !== "string") continue;
-    out[key] = {
-      contract: spec.contract,
-      ...(typeof spec.required === "boolean" ? { required: spec.required } : {}),
-    };
-  }
-  return out;
 }
 
 function parseAllowedTools(raw: unknown): string[] {
@@ -366,32 +354,13 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
     );
   }
 
-  if (isBlockTree(foundDir)) return blockStepSource(engineName, foundDir, mattstack);
-
-  const skillMdPath = join(foundDir, "SKILL.md");
-  const { body, frontmatter, bodyStartLine } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
-
-  if (frontmatter.type !== "pipeline-step") {
-    throw new Error(`loadStepSource: "${skillMdPath}" is not typed "type: pipeline-step"`);
+  if (!isBlockTree(foundDir)) {
+    throw new NotABlockTreeError(`loadStepSource: engine "${engineName}" at ${foundDir} has no index.block.md; an engine is a block tree`);
   }
-
-  return {
-    name: engineName,
-    plugin: "mattstack",
-    version: mattstack.version,
-    dir: foundDir,
-    srcPath: relative(mattstack.dir, skillMdPath),
-    bodyStartLine,
-    body,
-    slots: parseSlots(frontmatter.slots),
-    allowedTools: parseAllowedTools(frontmatter["allowed-tools"]),
-    stepFiles: listFilesUnder(foundDir, new Set(["SKILL.md"])),
-    stageMeta: readStageMeta(frontmatter),
-    description: typeof frontmatter.description === "string" ? frontmatter.description : "",
-  };
+  return blockStepSource(engineName, foundDir, mattstack);
 }
 
-/** A block engine's folder holds `index.block.md` where a slot engine's holds `SKILL.md`. */
+/** Found by its `index.block.md`; a folder holding only a `SKILL.md` is found too, so loadStepSource can say it is not a block tree. */
 function holdsEngine(skillMdPath: string): boolean {
   return existsSync(skillMdPath) || isBlockTree(dirname(skillMdPath));
 }
@@ -429,8 +398,6 @@ function blockStepSource(engineName: string, dir: string, mattstack: { dir: stri
     dir,
     srcPath: relative(mattstack.dir, root.path),
     bodyStartLine: root.bodyStartLine,
-    body: "",
-    slots: {},
     allowedTools: parseAllowedTools(root.frontmatter["allowed-tools"]),
     stepFiles: nonBlockFiles(dir),
     stageMeta: readStageMeta(root.frontmatter),
@@ -441,17 +408,17 @@ function blockStepSource(engineName: string, dir: string, mattstack: { dir: stri
 
 export const VALUE_FILE_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-export function loadAttachment(binding: string, slot: string, roots: PluginRoots, noun: "slot" | "prop" = "slot"): AttachmentSource {
+export function loadAttachment(binding: string, prop: string, roots: PluginRoots): AttachmentSource {
   const [plugin, skillPart] = binding.split(":");
   const [skillName, fileName, ...rest] = (skillPart ?? "").split("/");
   if (!plugin || !skillName || rest.length > 0 || (fileName !== undefined && !VALUE_FILE_RE.test(fileName))) {
-    throw new AttachmentLoadError(`loadAttachment: ${noun} "${slot}": binding "${binding}" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"`, "bad-value");
+    throw new AttachmentLoadError(`loadAttachment: prop "${prop}": binding "${binding}" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"`, "bad-value");
   }
 
   const pluginRoot = roots.byName[plugin];
   if (!pluginRoot) {
     throw new AttachmentLoadError(
-      `loadAttachment: ${noun} "${slot}": no plugin root registered for "${plugin}" (binding "${binding}")`,
+      `loadAttachment: prop "${prop}": no plugin root registered for "${plugin}" (binding "${binding}")`,
       "fill-missing",
     );
   }
@@ -491,14 +458,14 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
 
   if (!foundDir) {
     throw new AttachmentLoadError(
-      `loadAttachment: ${noun} "${slot}": binding "${binding}" not found; searched:\n${searched.join("\n")}`,
+      `loadAttachment: prop "${prop}": binding "${binding}" not found; searched:\n${searched.join("\n")}`,
       "fill-missing",
     );
   }
 
   if (registered && roots.folderOnly?.has(plugin)) {
     throw new AttachmentLoadError(
-      `loadAttachment: ${noun} "${slot}": "${binding}" sits under ${plugin}'s skills/, but ${plugin} is an org base pack that is never installed; move it under attachments/ so it is inlined`,
+      `loadAttachment: prop "${prop}": "${binding}" sits under ${plugin}'s skills/, but ${plugin} is an org base pack that is never installed; move it under attachments/ so it is inlined`,
       "bad-value",
     );
   }
@@ -513,11 +480,11 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
     : {};
   const provides = typeof metadata.provides === "string" ? metadata.provides : "";
   if (!provides) {
-    throw new AttachmentLoadError(`loadAttachment: ${noun} "${slot}": "${skillMdPath}" has no metadata.provides`, "bad-value");
+    throw new AttachmentLoadError(`loadAttachment: prop "${prop}": "${skillMdPath}" has no metadata.provides`, "bad-value");
   }
 
   // Under a per-file value each top-level .md sibling is a value some other
-  // binding may name, so none is vendored; a whole-skill load vendors them as a slot fill always has.
+  // binding may name, so none is vendored; a whole-skill load vendors them as a whole fill always has.
   const exclude = new Set(["SKILL.md"]);
   if (body === "" && fileName !== undefined) {
     for (const entry of readdirSync(foundDir, { withFileTypes: true })) {
@@ -529,18 +496,18 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
   if (fileName !== undefined) {
     if (body !== "") {
       throw new AttachmentLoadError(
-        `loadAttachment: ${noun} "${slot}": ${binding}: SKILL.md carries text, but a per-file value's SKILL.md is frontmatter only`,
+        `loadAttachment: prop "${prop}": ${binding}: SKILL.md carries text, but a per-file value's SKILL.md is frontmatter only`,
         "bad-value",
       );
     }
     const file = `${fileName}.md`;
     const filePath = join(foundDir, file);
     if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-      throw new AttachmentLoadError(`loadAttachment: ${noun} "${slot}": binding "${binding}": no file at ${filePath}`, "fill-missing");
+      throw new AttachmentLoadError(`loadAttachment: prop "${prop}": binding "${binding}": no file at ${filePath}`, "fill-missing");
     }
     const text = readFileSync(filePath, "utf8");
     if (/^---\r?\n/.test(text)) {
-      throw new AttachmentLoadError(`loadAttachment: ${noun} "${slot}": binding "${binding}": a per-file value carries no frontmatter (${filePath})`, "bad-value");
+      throw new AttachmentLoadError(`loadAttachment: prop "${prop}": binding "${binding}": a per-file value carries no frontmatter (${filePath})`, "bad-value");
     }
     const lead = text.length - text.trimStart().length;
     value = {
@@ -569,9 +536,9 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
 }
 
 /**
- * An include target is inlined verbatim wherever {{include:<name>}}
+ * A flat include target is inlined verbatim wherever {{include:<name>}}
  * appears, so it must carry nothing that depends on call-site context:
- * no slots to fill, no placeholders left for a later substitution pass.
+ * no placeholders left for a later substitution pass.
  */
 export function loadInclude(name: string, roots: PluginRoots): AttachmentSource {
   if (!isSafeName(name)) {
@@ -590,9 +557,6 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
   const metadata = frontmatter.metadata && typeof frontmatter.metadata === "object"
     ? (frontmatter.metadata as Record<string, unknown>)
     : {};
-  if (frontmatter.slots || metadata.slots) {
-    throw new Error(`loadInclude: include "${name}" declares slots; an include target must be slotless`);
-  }
   if (findPlaceholders(body).length > 0) {
     throw new Error(`loadInclude: include "${name}" contains a placeholder; an include target must be inert`);
   }
@@ -613,14 +577,11 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
   };
 }
 
-/** A block include renders through its tree, so its blocks may carry props and includes; slots stay refused. */
+/** A block include renders through its tree, so its blocks may carry props and includes. */
 function blockInclude(name: string, dir: string, mattstack: { dir: string; version: string }): AttachmentSource {
   const tree = loadTree(dir, name, mattstack.dir);
   const fm = tree.root.frontmatter;
   const metadata = fm.metadata && typeof fm.metadata === "object" ? (fm.metadata as Record<string, unknown>) : {};
-  if (fm.slots || metadata.slots) {
-    throw new Error(`loadInclude: include "${name}" declares slots; an include target must be slotless`);
-  }
   return {
     binding: `mattstack:${name}`,
     plugin: "mattstack",
@@ -703,7 +664,7 @@ export function readManifestBindings(manifestPath: string): Record<string, Recor
   return parsed.bindings ?? {};
 }
 
-/** Every layer's value per (key, prop); `readManifestBindings` stays the last-wins view today's slot engines read. */
+/** Every layer's value per (key, prop); `readManifestBindings` is the last-wins view of the same bindings. */
 export function readManifestLayered(manifestPath: string): LayeredBindings {
   return layeredFromManifest(readFileSync(manifestPath, "utf8")).layered;
 }

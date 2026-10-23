@@ -89,7 +89,7 @@ function recordMissing(team: TeamContext, kind: "param" | "section", name: strin
   team.missing.set(key, entry);
 }
 
-/** `dropped` counts the lines an absent optional section removes, which a slot seam's source-line count must leave out. */
+/** `dropped` counts the lines an absent optional section removes, which a prop seam's source-line count must leave out. */
 export function resolveTeamMarkers(body: string, team: TeamContext, opts: { where: string; sectionSeams: boolean; startLine?: number; dropped?: { lines: number } }): string {
   const { where, sectionSeams, startLine = 1, dropped } = opts;
   const { values } = team;

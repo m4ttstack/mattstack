@@ -14,13 +14,8 @@ export type PropValue = {
 
 type Pos = { file: string; line: number; col: number };
 
-/** `valueAt` places a diagnostic at the layer value a person edits; without it every diagnostic sits at the declaration. */
-export function resolveProp(
-  spec: PropSpec,
-  layers: LayerValue[],
-  load: (binding: string, layer: string) => AttachmentSource,
-  where: { file: string; internalRoster: Set<string>; valueAt?: (layer: string, value: string) => Pos },
-): PropValue {
+/** The layer values a prop keeps after its merge and any `""` clears; `clearedBy` names the clearing layer when nothing is kept. */
+export function keptLayers(spec: PropSpec, layers: LayerValue[]): { kept: LayerValue[]; clearedBy: string | null } {
   let kept: LayerValue[] = [];
   let clearedBy: string | null = null;
   for (const entry of layers) {
@@ -32,6 +27,19 @@ export function resolveProp(
       clearedBy = null;
     }
   }
+  return { kept, clearedBy };
+}
+
+/** `valueAt` places a diagnostic at the layer value a person edits; without it every diagnostic sits at the declaration. */
+export function resolveProp(
+  spec: PropSpec,
+  layers: LayerValue[],
+  load: (binding: string, layer: string) => AttachmentSource,
+  where: { file: string; internalRoster: Set<string>; valueAt?: (layer: string, value: string) => Pos },
+): PropValue {
+  const resolved = keptLayers(spec, layers);
+  const clearedBy = resolved.clearedBy;
+  let kept = resolved.kept;
 
   const declaration: Pos = { file: where.file, ...spec.declaredAt };
   const at = (code: string, message: string, pos: Pos = declaration): BlockDiagnostic => ({ ...pos, message, code });

@@ -103,8 +103,9 @@ test("packs are a table that carries each folder", () => {
   expect(renderPlain(packsBlocks([{ name: "acme", dir: "/z/packs/acme", layout: "team" }]))).toBe("Pack  Layout  Folder\nacme  team    /z/packs/acme\n");
 });
 
-test("composition is one tree per verb, with engine errors as failed lines", () => {
-  const slot = { contract: "c@1", required: true, fillSourcePath: null, fillVersion: null, registered: null, inlined: null };
+test("composition is one tree per verb, a row per block prop, with engine errors as failed lines", () => {
+  const spec = { merge: "add" as const, contract: null, required: false, default: "" };
+  const value = { fillSourcePath: null, fillVersion: null, registered: null, inlined: null };
   const payload: CompositionPayload = {
     pack: "acme",
     packDir: "/p",
@@ -120,12 +121,14 @@ test("composition is one tree per verb, with engine errors as failed lines", () 
         sourcePath: null,
         artifactPath: "/p/skills/watch-ci",
         includes: [],
-        slots: [
-          { ...slot, name: "domain", boundTo: "acme:watch-ci-domain", layer: "team" },
-          { ...slot, name: "forge", boundTo: null, layer: null },
-        ],
+        props: {
+          "watch-ci/domain-rules": [
+            { ...spec, name: "rules", values: [{ ...value, boundTo: "acme-base:ci-rules", layer: "base:acme-base" }, { ...value, boundTo: "acme:watch-ci-domain", layer: "team" }] },
+          ],
+          "watch-ci/forge": [{ ...spec, name: "forge", merge: "replace", values: [] }],
+        },
       },
-      { name: "ship", engine: "ship", engineRef: null, plugin: null, description: "Ship", public: false, sourcePath: null, artifactPath: "/p/attachments/ship", includes: [], slots: [], engineError: "engine not found" },
+      { name: "ship", engine: "ship", engineRef: null, plugin: null, description: "Ship", public: false, sourcePath: null, artifactPath: "/p/attachments/ship", includes: [], props: {}, engineError: "engine not found" },
     ],
     fills: [],
     binders: [],
@@ -134,7 +137,16 @@ test("composition is one tree per verb, with engine errors as failed lines", () 
     extends: null,
   };
   expect(renderPlain(compositionBlocks(payload))).toBe(
-    ["Pack acme", "watch-ci  mattstack:watch-ci, public", "  - domain  acme:watch-ci-domain  team", "  - forge   not bound", "[failed] ship  engine not found", "Fills: 0", "Binders: 0", ""].join("\n"),
+    [
+      "Pack acme",
+      "watch-ci  mattstack:watch-ci, public",
+      "  - watch-ci/domain-rules.rules  acme-base:ci-rules, acme:watch-ci-domain  base:acme-base, team",
+      "  - watch-ci/forge.forge         not bound",
+      "[failed] ship  engine not found",
+      "Fills: 0",
+      "Binders: 0",
+      "",
+    ].join("\n"),
   );
 });
 

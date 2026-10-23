@@ -74,7 +74,7 @@ function makeEngineFixture(): { mattstackDir: string; manifestPath: string } {
     JSON.stringify({ version: "1.0.0" }),
   );
   writeFile(
-    join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "my-verb", "SKILL.md"),
+    join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "my-verb", "index.block.md"),
     `---\nname: my-verb\ndescription: "Do the thing"\ntype: pipeline-step\n---\n\nDo the thing.\n`,
   );
 
@@ -106,11 +106,11 @@ function makeUncompiledStageFixture(): { mattstackDir: string; manifestPath: str
     JSON.stringify({ version: "1.0.0" }),
   );
   writeFile(
-    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "work", "SKILL.md"),
+    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "work", "index.block.md"),
     `---\nname: work\ndescription: "Run the pipeline"\ntype: pipeline-step\n---\n\nDo the work.\n`,
   );
   writeFile(
-    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"),
+    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "index.block.md"),
     stageSkillMd("stage-plan", "plan"),
   );
 
@@ -129,15 +129,15 @@ function makeTwoStageFixture(): { mattstackDir: string; manifestPath: string } {
     JSON.stringify({ version: "1.0.0" }),
   );
   writeFile(
-    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "work", "SKILL.md"),
+    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "work", "index.block.md"),
     `---\nname: work\ndescription: "Run the pipeline"\ntype: pipeline-step\n---\n\nDo the work.\n`,
   );
   writeFile(
-    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"),
+    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "index.block.md"),
     stageSkillMd("stage-plan", "plan"),
   );
   writeFile(
-    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-ship", "SKILL.md"),
+    join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-ship", "index.block.md"),
     stageSkillMd("stage-ship", "ship"),
   );
 

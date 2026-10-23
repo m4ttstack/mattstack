@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { assertNoPlaceholders, findPlaceholders, substitute, substituteAttachmentPlaceholders, type TraceEntry } from "../placeholders.ts";
+import { assertNoPlaceholders, fillReference, findPlaceholders, inlineFillText, substituteAttachmentPlaceholders, substituteLine, type Used } from "../placeholders.ts";
 import { newTeamContext } from "../team-params.ts";
 import type { AttachmentSource, PlaceholderContext, StageEntry } from "../types.ts";
 
 describe("findPlaceholders", () => {
   test("finds kind, arg, and 1-indexed line", () => {
-    const body = "intro\n{{slot:tiering}}\nmid {{work-type}} tail\n{{include:review-core-body}}";
+    const body = "intro\n{{verb.path:checkout}}\nmid {{work-type}} tail\n{{include:review-core-body}}";
     expect(findPlaceholders(body)).toEqual([
-      { kind: "slot", arg: "tiering", line: 2, raw: "{{slot:tiering}}" },
+      { kind: "verb.path", arg: "checkout", line: 2, raw: "{{verb.path:checkout}}" },
       { kind: "work-type", arg: null, line: 3, raw: "{{work-type}}" },
       { kind: "include", arg: "review-core-body", line: 4, raw: "{{include:review-core-body}}" },
     ]);
@@ -44,7 +44,7 @@ const inc: AttachmentSource = { ...fill, binding: "mattstack:review-core-body", 
 
 function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
   return {
-    fills: { domain: fill }, slotMode: { domain: "inline" }, partsPrefix: "${CLAUDE_SKILL_DIR}/parts",
+    partsPrefix: "${CLAUDE_SKILL_DIR}/parts",
     includes: { "review-core-body": inc },
     pipelines: { feature: [
       { name: "stage-provision", engine: "stage-provision", stage: "provision", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-provision", consumes: ["ticket", "repo"], produces: ["branch", "worktree"] },
@@ -60,55 +60,66 @@ function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
   };
 }
 
-describe("team markers in slot fills", () => {
+/** Each line through substituteLine, the way a block's text renders. */
+function substitute(body: string, c: PlaceholderContext, where: string): { body: string; used: Used } {
+  const used: Used = { includes: [], packPaths: [] };
+  return { body: body.split("\n").map((line, i) => substituteLine(line, i, c, where, used)).join("\n"), used };
+}
+
+/** A fill inlined at a `domain` prop on the root of engine `x`, the way render places a value. */
+function inline(f: AttachmentSource, c: PlaceholderContext = ctx(), packPaths: string[] = []): string {
+  return inlineFillText("prop:x.domain", "domain", f, c, packPaths);
+}
+
+describe("team markers in inlined fills", () => {
   const baseFill: AttachmentSource = { ...fill, binding: "acme-base:flow", plugin: "acme-base", bodyStartLine: 11, body: "Team {{team.linear-team}}" };
   const team = (params: Record<string, string> = {}, sections: Record<string, string> = {}) =>
     newTeamContext({ plugin: "widgets", version: "0.4.0", params, sections }, new Set(["acme-base"]));
 
-  test("slotText resolves team markers in a base fill", () => {
-    const { body } = substitute("{{slot:domain}}", ctx({ fills: { domain: baseFill }, team: team({ "linear-team": "Widgets" }) }), "x");
+  test("inlining resolves team markers in a base fill", () => {
+    const body = inline(baseFill, ctx({ team: team({ "linear-team": "Widgets" }) }));
     expect(body).toBe([
-      "<!-- part: slot:domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-11 -->",
+      "<!-- part: prop:x.domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-11 -->",
       "Team Widgets",
     ].join("\n"));
   });
 
   test("a team marker in a non-base fill is an error naming the file line", () => {
     const widgetsFill = { ...baseFill, binding: "widgets:x", plugin: "widgets", body: "intro\nTeam {{team.linear-team}}" };
-    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: widgetsFill }, team: team({ "linear-team": "Widgets" }) }), "x")).toThrow(
+    expect(() => inline(widgetsFill, ctx({ team: team({ "linear-team": "Widgets" }) }))).toThrow(
       "widgets:x: {{team.linear-team}} -- team markers only resolve in base pack text (line 12)",
     );
   });
 
   test("a team marker with no team context names the missing plugin name", () => {
-    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: baseFill } }), "x")).toThrow(
+    expect(() => inline(baseFill)).toThrow(
       "acme-base:flow: {{team.linear-team}} -- the pack has no .claude-plugin/plugin.json name to give team markers (line 11)",
     );
   });
 
   test("a marker broken across lines is refused, never passed through", () => {
     const split = { ...baseFill, body: "intro\na {{\nteam.linear-team}} b" };
-    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: split }, team: team({ "linear-team": "Widgets" }) }), "x")).toThrow(
+    expect(() => inline(split, ctx({ team: team({ "linear-team": "Widgets" }) }))).toThrow(
       "acme-base:flow: {{ team.linear-team}} breaks across lines; a team marker sits on one line (line 12)",
     );
     const widgetsSplit = { ...split, binding: "widgets:x", plugin: "widgets" };
-    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: widgetsSplit }, team: team() }), "x")).toThrow(
+    expect(() => inline(widgetsSplit, ctx({ team: team() }))).toThrow(
       "widgets:x: {{ team.linear-team}} -- team markers only resolve in base pack text (line 12)",
     );
   });
 
   test("a base fill's team error counts from the file line", () => {
     const bad = { ...baseFill, body: "ok\n{{team.section:a}} tail" };
-    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: bad }, team: team() }), "x")).toThrow(
+    expect(() => inline(bad, ctx({ team: team() }))).toThrow(
       "acme-base:flow: {{team.section:a}} must be alone on its line (line 12)",
     );
   });
 
-  test("section seam nests inside the slot", () => {
+  test("section seam nests inside the prop value", () => {
     const withSection = { ...baseFill, body: "before\n{{team.section:rules}}\nafter" };
-    const { body } = substitute("{{slot:domain}}", ctx({ fills: { domain: withSection }, team: team({}, { rules: "r1\nr2\n" }) }), "x");
+    const body = inline(withSection, ctx({ team: team({}, { rules: "r1\nr2\n" }) }));
     expect(body).toBe([
-      "<!-- part: slot:domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-13 -->",
+      "<!-- part: prop:x.domain binding=acme-base:flow version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-13 -->",
       "before",
       "<!-- part: section:rules source=widgets:pack/sections/rules.md version=0.4.0 path=pack/sections/rules.md lines=1-2 -->",
       "r1\nr2",
@@ -117,41 +128,32 @@ describe("team markers in slot fills", () => {
   });
 });
 
-describe("substitute", () => {
-  test("slot inlines in place with a source-coordinate marker", () => {
-    const { body } = substitute("before\n{{slot:domain}}\nafter", ctx(), "stage-plan");
-    expect(body).toBe([
-      "before",
-      "<!-- part: slot:domain binding=acme:plan-policy version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-13 -->",
+describe("substituteLine", () => {
+  test("an inlined value carries a source-coordinate marker", () => {
+    expect(inline(fill)).toBe([
+      "<!-- part: prop:x.domain binding=acme:plan-policy version=0.4.0 path=attachments/plan-policy/SKILL.md lines=11-13 -->",
       "line one\nline two\nline three",
-      "after",
     ].join("\n"));
   });
 
-  test("unbound optional slot substitutes empty", () => {
-    const { body } = substitute("a\n{{slot:domain}}\nb", ctx({ fills: { domain: null } }), "x");
-    expect(body).toBe("a\n\nb");
-  });
-
-  test("a fill's own file references are rewritten under parts/<slot>", () => {
+  test("a fill's own file references are rewritten under its parts dir", () => {
     const withFile = { ...fill, body: "see ${CLAUDE_SKILL_DIR}/ci-config.json", extraFiles: ["ci-config.json"] };
-    expect(substitute("{{slot:domain}}", ctx({ fills: { domain: withFile } }), "x").body)
+    expect(inline(withFile))
       .toContain("see ${CLAUDE_SKILL_DIR}/parts/domain/ci-config.json");
-    const inStage = ctx({ fills: { domain: withFile }, partsPrefix: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts" });
-    expect(substitute("{{slot:domain}}", inStage, "stage-plan").body)
+    const inStage = ctx({ partsPrefix: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts" });
+    expect(inline(withFile, inStage))
       .toContain("see ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/domain/ci-config.json");
   });
 
   test("a fill that vendors no files keeps the host skill's own directory", () => {
     const noFiles = { ...fill, body: "see ${CLAUDE_SKILL_DIR}/notes.md", extraFiles: [] };
-    expect(substitute("{{slot:domain}}", ctx({ fills: { domain: noFiles } }), "x").body)
+    expect(inline(noFiles))
       .toContain("see ${CLAUDE_SKILL_DIR}/notes.md");
     const inStage = ctx({
-      fills: { domain: noFiles },
       stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan",
       partsPrefix: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts",
     });
-    expect(substitute("{{slot:domain}}", inStage, "stage-plan").body)
+    expect(inline(noFiles, inStage))
       .toContain("see ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/notes.md");
   });
 
@@ -161,11 +163,9 @@ describe("substitute", () => {
     expect(body).toContain("shape at ${CLAUDE_SKILL_DIR}/references/adjudicator.md");
   });
 
-  test("a registered public fill is referenced, not inlined", () => {
+  test("a registered public fill's reference line names it and its version", () => {
     const pub = { ...fill, registered: true };
-    const { body } = substitute("{{slot:domain}}", ctx({ fills: { domain: pub }, slotMode: { domain: "reference" } }), "x");
-    expect(body).toBe("Slot domain is bound to `acme:plan-policy` (acme:plan-policy@0.4.0) -- invoke that skill when this flow needs it.");
-    expect(body).not.toContain("part: slot:");
+    expect(fillReference("domain", pub)).toBe("Prop domain is bound to `acme:plan-policy` (acme:plan-policy@0.4.0) -- invoke that skill when this flow needs it.");
   });
 
   test("an include's own file references are rewritten under parts/include-<name>", () => {
@@ -267,16 +267,16 @@ describe("substitute", () => {
 
   test("a fill may inline an include, with its own marker", () => {
     const fillWithInclude = { ...fill, body: "policy\n{{include:review-core-body}}\ntail" };
-    const { body } = substitute("{{slot:domain}}", ctx({ fills: { domain: fillWithInclude } }), "stage-plan");
-    expect(body).toContain("<!-- part: slot:domain binding=acme:plan-policy");
+    const body = inline(fillWithInclude);
+    expect(body).toContain("<!-- part: prop:x.domain binding=acme:plan-policy");
     expect(body).toContain("<!-- part: include:review-core-body source=mattstack:review-core-body");
     expect(body).toContain("core A\ncore B");
     expect(body).not.toContain("{{");
   });
 
-  test("a fill may not carry a slot or any other placeholder", () => {
+  test("a fill may not carry an old slot marker or any other placeholder", () => {
     const bad = { ...fill, body: "x\n{{slot:tiering}}" };
-    expect(() => substitute("{{slot:domain}}", ctx({ fills: { domain: bad } }), "stage-plan"))
+    expect(() => inline(bad))
       .toThrow("acme:plan-policy: {{slot:tiering}} -- a fill may carry {{include}}, {{verb.path}} or {{pack.path}} only (line 2)");
   });
 });
@@ -329,18 +329,6 @@ describe("pipeline.table", () => {
     const body = substitute("{{pipeline.table}}", workCtx("accessibility"), "work-a11y").body;
     expect(body).toContain("| `evidence` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-evidence--accessibility/SKILL.md` | `evidence-plan` `worktree` | `evidence` |");
     expect(body).toContain("| `plan` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md` |");
-  });
-
-  test("the trace for the table line carries one verb.path per row, each on its own rendered line", () => {
-    const entries: TraceEntry[] = [];
-    substitute("intro\n{{pipeline.table}}\nafter", workCtx("accessibility"), "work-a11y", (e) => entries.push(e));
-    const table = entries[1]!;
-    expect(table.outStart).toBe(1);
-    expect(table.outCount).toBe(10);
-    expect(table.placeholders).toHaveLength(8);
-    expect(table.placeholders.every((p) => p.kind === "verb.path")).toBe(true);
-    expect(table.placeholders[3]).toEqual({ kind: "verb.path", arg: "stage-evidence--accessibility", line: 5 });
-    expect(table.placeholders.map((p) => p.line)).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
   test("a verb with no pipeline cannot render it", () => {
@@ -402,7 +390,7 @@ describe("verb.path", () => {
 
   test("a fill may carry it", () => {
     const withPath = { ...fill, body: "then read {{verb.path:checkout}}" };
-    expect(substitute("{{slot:domain}}", ctx({ fills: { domain: withPath } }), "work").body).toContain("then read ../checkout/SKILL.md");
+    expect(inline(withPath)).toContain("then read ../checkout/SKILL.md");
   });
 });
 
@@ -475,75 +463,14 @@ describe("pack.path", () => {
     const root = packRoot();
     const withPath = { ...fill, body: "config ${CLAUDE_SKILL_DIR}/ci.json; capture {{pack.path:evidence/scripts/capture.sh}}", extraFiles: ["ci.json"] };
     const inStage = ctx({
-      fills: { domain: withPath }, packRoot: root, side: "attachments",
+      packRoot: root, side: "attachments",
       stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan",
       partsPrefix: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts",
     });
-    const { body, used } = substitute("{{slot:domain}}", inStage, "stage-plan");
+    const packPaths: string[] = [];
+    const body = inline(withPath, inStage, packPaths);
     expect(body).toContain("config ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/domain/ci.json; capture ${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh");
-    expect(used.packPaths).toEqual(["${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh"]);
-  });
-});
-
-describe("a heading above an unbound slot", () => {
-  const unbound = () => ctx({ fills: { domain: null } });
-
-  test("is dropped with the blank lines around the slot", () => {
-    expect(substitute("a\n\n## Reviewer\n\n{{slot:domain}}\n\nb", unbound(), "x").body).toBe("a\n\nb");
-  });
-
-  test("is dropped when nothing separates heading, slot and prose", () => {
-    expect(substitute("a\n## Reviewer\n{{slot:domain}}\nb", unbound(), "x").body).toBe("a\nb");
-  });
-
-  test("a slot with no heading above it still renders as an empty line", () => {
-    expect(substitute("a\n{{slot:domain}}\nb", unbound(), "x").body).toBe("a\n\nb");
-  });
-
-  test("stays above a bound slot, another placeholder, or prose", () => {
-    expect(substitute("## Reviewer\n{{slot:domain}}", ctx(), "x").body).toContain("## Reviewer\n<!-- part: slot:domain");
-    expect(substitute("## Provenance\n{{compiled-from}}", unbound(), "x").body).toBe("## Provenance\nmattstack@1.0.0 + acme:plan-policy@0.4.0");
-    expect(substitute("## Notes\nplain prose", unbound(), "x").body).toBe("## Notes\nplain prose");
-  });
-
-  test("a shell comment inside a fence above a slot is not a heading", () => {
-    expect(substitute("```sh\n# not a heading\n{{slot:domain}}\n```", unbound(), "x").body).toBe("```sh\n# not a heading\n\n```");
-  });
-
-  test("the dropped slot still counts as placed", () => {
-    expect(substitute("## Reviewer\n{{slot:domain}}", unbound(), "x").used.slots).toEqual(["domain"]);
-  });
-});
-
-describe("substitute trace", () => {
-  test("maps each template line to the rendered lines it produced", () => {
-    const entries: TraceEntry[] = [];
-    substitute("intro\n{{slot:domain}}\nmid\n{{include:review-core-body}}\nend", ctx(), "stage-plan", (e) => entries.push(e));
-    expect(entries.map((e) => [e.templateIndex, e.outStart, e.outCount, e.placeholders.map((p) => `${p.kind}:${p.arg}`)])).toEqual([
-      [0, 0, 1, []],
-      [1, 1, 4, ["slot:domain"]],
-      [2, 5, 1, []],
-      [3, 6, 3, ["include:review-core-body"]],
-      [4, 9, 1, []],
-    ]);
-  });
-
-  test("an empty slot under a heading renders nothing and is still traced", () => {
-    const entries: TraceEntry[] = [];
-    substitute("## Domain\n\n{{slot:domain}}\n\nafter", ctx({ fills: { domain: null } }), "stage-plan", (e) => entries.push(e));
-    expect(entries.map((e) => [e.templateIndex, e.outStart, e.outCount, e.placeholders.length])).toEqual([
-      [0, 0, 0, 0],
-      [1, 0, 0, 0],
-      [2, 0, 0, 1],
-      [3, 0, 0, 0],
-      [4, 0, 1, 0],
-    ]);
-  });
-
-  test("an inline placeholder in a table row is traced on that row", () => {
-    const entries: TraceEntry[] = [];
-    substitute("| plan | {{verb.path:stage-plan}} |", ctx(), "work", (e) => entries.push(e));
-    expect(entries[0]).toEqual({ templateIndex: 0, outStart: 0, outCount: 1, placeholders: [{ kind: "verb.path", arg: "stage-plan" }] });
+    expect(packPaths).toEqual(["${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh"]);
   });
 });
 

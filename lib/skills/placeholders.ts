@@ -52,7 +52,7 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
  * Only an org base's text may carry team markers. A base fill's markers
  * resolve before any other substitution, so a value is never read as an
  * include; a value cannot itself contain `{{`. Reports file lines, counting
- * from where the fill's body starts in its source file. `span` is the slot
+ * from where the fill's body starts in its source file. `span` is the prop
  * seam's: source lines less those an absent optional section drops, since
  * the seam walkers consume one rendered line per counted source line.
  */
@@ -89,11 +89,11 @@ export function assertNoTeamMarkerInAllowedTools(fill: AttachmentSource): void {
   }
 }
 
-export function fillReference(noun: "Slot" | "Prop", name: string, fill: AttachmentSource): string {
-  return `${noun} ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
+export function fillReference(name: string, fill: AttachmentSource): string {
+  return `Prop ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
 }
 
-/** `key` is the seam's part key (`slot:<name>`, `prop:<block>.<name>`); `partsName` is the parts dir the fill's files vendor under. */
+/** `key` is the seam's part key (`prop:<block>.<name>`); `partsName` is the parts dir the fill's files vendor under. */
 export function inlineFillText(key: string, partsName: string, fill: AttachmentSource, ctx: PlaceholderContext, packPaths: string[]): string {
   const resolved = resolveFillTeamMarkers(fill, ctx.team);
   const rewritten = resolved.body.split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, partsName));
@@ -102,20 +102,14 @@ export function inlineFillText(key: string, partsName: string, fill: AttachmentS
   return `<!-- part: ${key} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
 }
 
-function slotText(name: string, fill: AttachmentSource | null, mode: "inline" | "reference", ctx: PlaceholderContext, packPaths: string[]): string {
-  if (fill === null) return "";
-  if (mode === "reference") return fillReference("Slot", name, fill);
-  return inlineFillText(`slot:${name}`, name, fill, ctx, packPaths);
-}
-
 function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext): string {
   const body = inc.body.split(SKILL_DIR_TOKEN).join(skillDirFor(inc, ctx, `include-${name}`));
   return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
 }
 
 /**
- * loadInclude enforces that an include target is itself slotless and
- * placeholder-free, so a fill body carrying {{include}} lines cannot recurse --
+ * loadInclude enforces that a flat include target is placeholder-free, so a
+ * fill body carrying {{include}} lines cannot recurse --
  * `where` is the fill's own binding, matching how a step body names itself.
  */
 export function substituteIncludesOnly(body: string, ctx: PlaceholderContext, where: string): { body: string; packPaths: string[] } {
@@ -344,57 +338,16 @@ function stageFields(meta: NonNullable<PlaceholderContext["stageMeta"]>): string
   return `${consume} ${produce}`;
 }
 
-export type Used = { slots: string[]; includes: string[]; packPaths: string[] };
-
-/** `line`, when set, is the one rendered row the placeholder owns, counted from the entry's `outStart`. */
-export type TracePlaceholder = { kind: string; arg: string | null; line?: number };
-
-export type TraceEntry = {
-  templateIndex: number;
-  outStart: number;
-  outCount: number;
-  placeholders: TracePlaceholder[];
-};
-
-/** A `{{pipeline.table}}` line traces as one `verb.path` per row, so the console keeps a stage link per row. */
-function placeholdersIn(line: string, ctx: PlaceholderContext, where: string): TracePlaceholder[] {
-  return [...line.matchAll(PLACEHOLDER_RE)].flatMap((m): TracePlaceholder[] => m[1] === "pipeline.table"
-    ? tableEntries(ctx, where).map((e, row) => ({ kind: "verb.path", arg: e.name, line: TABLE_HEADER.length + row }))
-    : [{ kind: m[1]!, arg: m[2] ?? null }]);
-}
-
-const HEADING_RE = /^#{1,6}\s/;
-const SLOT_LINE_RE = /^\{\{slot:([^}\s]+)\}\}$/;
-
-/**
- * A heading whose only content would have been an unbound slot: the slot's
- * name, the slot line's index, and the index of the last line to drop with it
- * (the slot line, or the one blank line after it), or null when the heading stays.
- */
-function emptySlotAfter(lines: string[], heading: number, fills: PlaceholderContext["fills"]): { slot: string; end: number; line: number } | null {
-  let j = heading + 1;
-  while (j < lines.length && lines[j]!.trim() === "") j++;
-  const slot = lines[j]?.trim().match(SLOT_LINE_RE)?.[1];
-  if (!slot || !(slot in fills) || fills[slot] !== null) return null;
-  const end = j + 1 < lines.length && lines[j + 1]!.trim() === "" ? j + 1 : j;
-  return { slot, end, line: j };
-}
+export type Used = { includes: string[]; packPaths: string[] };
 
 // Global-regex `.replace` resets `lastIndex` per call, so PLACEHOLDER_RE is safe to share with findPlaceholders.
 export function substituteLine(line: string, i: number, ctx: PlaceholderContext, where: string, used: Used): string {
   return line.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
-    // The console's parser and stripCompilerComments both require a slot/include
+    // The console's parser and stripCompilerComments both require an include
     // seam marker to start a line, so the placeholder that produces it must be
     // alone on its own line too -- an inline one would emit a marker neither
     // recognizes, turning a legitimate binding into unstrippable lint material.
     switch (kind) {
-      case "slot": {
-        if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
-        if (!arg) throw new Error(`${where}: ${raw} needs a slot name`);
-        if (!(arg in ctx.fills)) throw new Error(`${where}: slot "${arg}" is not declared by this engine`);
-        used.slots.push(arg);
-        return slotText(arg, ctx.fills[arg] ?? null, ctx.slotMode[arg] ?? "inline", ctx, used.packPaths);
-      }
       case "include": {
         if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
         const inc = arg ? ctx.includes[arg] : undefined;
@@ -429,40 +382,4 @@ export function substituteLine(line: string, i: number, ctx: PlaceholderContext,
         throw new Error(`${where}: unknown placeholder ${raw} at line ${i + 1}`);
     }
   });
-}
-
-export function substitute(
-  body: string,
-  ctx: PlaceholderContext,
-  where: string,
-  trace?: (entry: TraceEntry) => void,
-): { body: string; used: Used } {
-  const used: Used = { slots: [], includes: [], packPaths: [] };
-  const lines = body.split("\n");
-  const out: string[] = [];
-  let inFence = false;
-  let outLines = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (line.startsWith("```")) inFence = !inFence;
-    if (!inFence && HEADING_RE.test(line)) {
-      const empty = emptySlotAfter(lines, i, ctx.fills);
-      if (empty) {
-        used.slots.push(empty.slot);
-        for (let k = i; k <= empty.end; k++) {
-          trace?.({ templateIndex: k, outStart: outLines, outCount: 0, placeholders: k === empty.line ? [{ kind: "slot", arg: empty.slot }] : [] });
-        }
-        i = empty.end;
-        continue;
-      }
-    }
-    const rendered = substituteLine(line, i, ctx, where, used);
-    const outCount = rendered.split("\n").length;
-    trace?.({ templateIndex: i, outStart: outLines, outCount, placeholders: placeholdersIn(line, ctx, where) });
-    outLines += outCount;
-    out.push(rendered);
-  }
-
-  return { body: out.join("\n"), used };
 }

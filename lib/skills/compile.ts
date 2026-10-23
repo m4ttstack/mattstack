@@ -1,24 +1,11 @@
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join, relative as relativePath, resolve as resolvePath, sep } from "path";
-import {
-  assertNoPlaceholders,
-  assertNoTeamMarkerInRawFile,
-  assertNoTeamMarkerInAllowedTools,
-  findPlaceholders,
-  readTextUnlessBinary,
-  resolveFillTeamMarkers,
-  skillDirFor,
-  spanOf,
-  substitute,
-  substituteIncludesOnly,
-  type TraceEntry,
-} from "./placeholders.ts";
+import { assertNoTeamMarkerInRawFile, readTextUnlessBinary } from "./placeholders.ts";
 import { stripFrontmatter } from "./sources.ts";
 import type { TeamContext } from "./team-params.ts";
 import type {
   AttachmentSource,
   CompiledFile,
-  CompileResult,
   PlaceholderContext,
   PlannedAttachments,
   Side,
@@ -28,7 +15,6 @@ import type {
 } from "./types.ts";
 
 const CLAUDE_SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
-const RESOLVER_RE = /\bresolve-args\.sh\b/;
 
 /** Exported so `rt skills surface` can classify a directory as compiled by checking its SKILL.md body prefix. */
 export const HEADER_COMMENT =
@@ -202,8 +188,6 @@ function registeredNameRe(...sources: Iterable<string>[]): RegExp {
   return new RegExp(`\\b(?:${alternation}):[a-z][a-z0-9-]*\\b`, "g");
 }
 
-type BoundSlot = { slotName: string; fill: AttachmentSource };
-
 /**
  * Registered-and-public is the only case that stays a reference instead of
  * being vendored into the compiled body -- everything else (unregistered
@@ -213,10 +197,6 @@ type BoundSlot = { slotName: string; fill: AttachmentSource };
  */
 export function isInlined(fill: AttachmentSource, internalRoster: Set<string>): boolean {
   return fill.file !== null || !fill.registered || internalRoster.has(fill.binding);
-}
-
-function rewriteSkillDirRefs(text: string, slotName: string): string {
-  return text.split(CLAUDE_SKILL_DIR_TOKEN).join(`${CLAUDE_SKILL_DIR_TOKEN}/parts/${slotName}`);
 }
 
 export function dedupePreserveOrder(entries: string[]): string[] {
@@ -236,62 +216,12 @@ function yamlQuote(value: string): string {
 }
 
 
-function resolveBoundSlots(
-  where: string,
-  step: StepSource,
-  fills: Record<string, AttachmentSource | null>,
-): BoundSlot[] {
-  const boundSlots: BoundSlot[] = [];
-
-  for (const slotName of Object.keys(step.slots)) {
-    const spec = step.slots[slotName];
-    if (!spec) continue;
-    const fill = fills[slotName] ?? null;
-
-    if (fill === null) {
-      if (spec.required) {
-        throw new Error(
-          `${where}: slot "${slotName}" requires contract "${spec.contract}" but is unbound`,
-        );
-      }
-      continue;
-    }
-
-    if (fill.provides !== spec.contract) {
-      throw new Error(
-        `${where}: slot "${slotName}" requires contract "${spec.contract}" but binding "${fill.binding}" provides "${fill.provides}"`,
-      );
-    }
-
-    boundSlots.push({ slotName, fill });
-  }
-
-  return boundSlots;
-}
-
 /** Union'd stage rules carry `${CLAUDE_SKILL_DIR}` from the stage that declared them; the orchestrator has no single stage dir, so it needs the leading-wildcard form instead. */
 export function toWildcardRule(rule: string): string {
   const prefix = `${CLAUDE_SKILL_DIR_TOKEN}/`;
   const at = rule.indexOf(prefix);
   if (at < 0) return rule;
   return rule.slice(0, at) + "*/" + rule.slice(at + prefix.length);
-}
-
-function buildAllowedTools(
-  step: StepSource,
-  boundSlots: BoundSlot[],
-  stageRules: string[],
-  ctx: PlaceholderContext,
-): string[] {
-  for (const { fill } of boundSlots) assertNoTeamMarkerInAllowedTools(fill);
-  const entries = [
-    ...step.allowedTools,
-    ...boundSlots.flatMap(({ slotName, fill }) =>
-      fill.allowedTools.map((tool) => tool.split(CLAUDE_SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, slotName))),
-    ),
-    ...stageRules.map(toWildcardRule),
-  ];
-  return dedupePreserveOrder(entries);
 }
 
 export function buildFrontmatter(verb: VerbDef, allowedTools: string[], compiledParts: string[]): string {
@@ -309,13 +239,6 @@ export function buildFrontmatter(verb: VerbDef, allowedTools: string[], compiled
   lines.push("---");
   return lines.join("\n");
 }
-
-type BuildOpts = {
-  internalRoster: Set<string>;
-  ctx: PlaceholderContext | null;
-  stageDir: string | null;
-  trace?: (entry: TraceEntry) => void;
-};
 
 /**
  * PLACEHOLDER_RE only recognizes well-formed markers, so a malformed one
@@ -340,73 +263,6 @@ export function assertNoStrayBraces(body: string, engineName: string): void {
   }
 }
 
-function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): { body: string; notes: string[]; packPaths: string[] } {
-  const notes: string[] = [];
-  const sections: string[] = [HEADER_COMMENT];
-  sections.push(`<!-- part: step source=${step.plugin}:${step.name} version=${step.version} ${spanOf(step)} -->`);
-
-  // A stage's own scripts live beside it, not at the orchestrator's ${CLAUDE_SKILL_DIR}; fill/include
-  // bodies are rewritten separately by `substitute` via partsPrefix, so this rewrite must not touch them.
-  let stepBody = step.body;
-  if (opts.stageDir) stepBody = stepBody.split(`${CLAUDE_SKILL_DIR_TOKEN}/`).join(`${opts.stageDir}/`);
-
-  const compileNative = findPlaceholders(stepBody).length > 0;
-  if (compileNative) {
-    if (RESOLVER_RE.test(stepBody)) {
-      throw new Error(`engine "${step.name}": compile-native engine calls the runtime resolver (resolve-args.sh)`);
-    }
-    if (!opts.ctx) throw new Error(`engine "${step.name}": placeholders present but no placeholder context`);
-    const { body, used } = substitute(stepBody, opts.ctx, step.name, opts.trace);
-    assertNoPlaceholders(body, step.name);
-    assertNoStrayBraces(body, step.name);
-    for (const { slotName } of boundSlots) {
-      if (!used.slots.includes(slotName)) notes.push(`slot "${slotName}" is bound but never placed in the body`);
-    }
-    sections.push(body);
-    return { body: sections.join("\n\n"), notes, packPaths: used.packPaths };
-  }
-
-  assertNoStrayBraces(stepBody, step.name);
-  sections.push(stepBody);
-  const packPaths: string[] = [];
-  for (const { slotName, fill } of boundSlots) {
-    if (!isInlined(fill, opts.internalRoster)) {
-      // Registered, surface-public skills stay singly-canonical: reference, never inline.
-      sections.push(
-        `Slot ${slotName} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`,
-      );
-      continue;
-    }
-
-    if (fill.registered) {
-      // Transition window: the file already lives under skills/ but surface.jsonc
-      // has not declared it public yet -- inline so the compiled output stays correct.
-      notes.push(`note: ${fill.binding} is surface-internal; inlined`);
-    }
-
-    // An inlined fill's own {{include:...}} lines need the same ctx substitute uses
-    // for a placeholder-driven slot; compileSkill always builds one.
-    if (!opts.ctx) {
-      throw new Error(`engine "${step.name}": fill "${fill.binding}" needs a placeholder context to resolve its includes`);
-    }
-    const resolved = resolveFillTeamMarkers(fill, opts.ctx.team);
-    sections.push(
-      `<!-- part: slot:${slotName} binding=${fill.binding} version=${fill.version} ${resolved.span} -->`,
-    );
-    const inlined = substituteIncludesOnly(
-      rewriteSkillDirRefs(resolved.body, slotName),
-      opts.ctx,
-      fill.binding,
-    );
-    packPaths.push(...inlined.packPaths);
-    sections.push(inlined.body);
-  }
-
-  const body = sections.join("\n\n");
-  assertNoStrayBraces(body, step.name);
-  return { body, notes, packPaths };
-}
-
 /** A fill's other files are copied as written, so a team marker in one that base text would carry ships unresolved. */
 export function assertNoTeamMarkerInVendoredFile(fill: AttachmentSource, entry: string, team: TeamContext | null): void {
   if (team && !team.basePlugins.has(fill.plugin)) return;
@@ -414,34 +270,6 @@ export function assertNoTeamMarkerInVendoredFile(fill: AttachmentSource, entry: 
   if (!existsSync(abs)) return;
   const text = readTextUnlessBinary(abs);
   if (text !== null) assertNoTeamMarkerInRawFile(text, `${fill.binding}:${entry}`, "team markers only resolve in a fill's SKILL.md, not the files it vendors");
-}
-
-function buildVendoredFiles(
-  step: StepSource,
-  boundSlots: BoundSlot[],
-  includes: Record<string, AttachmentSource>,
-  team: TeamContext | null,
-): CompiledFile[] {
-  const files: CompiledFile[] = [];
-
-  for (const entry of step.stepFiles) {
-    files.push({ path: entry, copyFrom: `${step.dir}/${entry}` });
-  }
-
-  for (const { slotName, fill } of boundSlots) {
-    for (const entry of fill.extraFiles) {
-      assertNoTeamMarkerInVendoredFile(fill, entry, team);
-      files.push({ path: `parts/${slotName}/${entry}`, copyFrom: `${fill.dir}/${entry}` });
-    }
-  }
-
-  for (const [name, inc] of Object.entries(includes)) {
-    for (const entry of inc.extraFiles) {
-      files.push({ path: `parts/include-${name}/${entry}`, copyFrom: `${inc.dir}/${entry}` });
-    }
-  }
-
-  return files;
 }
 
 function isCompilerCommentLine(line: string): boolean {
@@ -560,18 +388,17 @@ export type CompileSkillOpts = {
   plannedAttachments?: PlannedAttachments;
   pipeline?: string | null;
   team?: TeamContext | null;
-  trace?: (entry: TraceEntry) => void;
 };
 
-/** Slot and block compiles hand placeholders the same context; only the slot fields differ. */
+/** `includes` is the flat includes a block's text and its inlined values place; tree includes render through their blocks. */
 export function placeholderContext(
   step: StepSource,
-  slots: { fills: Record<string, AttachmentSource | null>; slotMode: Record<string, "inline" | "reference">; includes: Record<string, AttachmentSource> },
+  includes: Record<string, AttachmentSource>,
   compiledFrom: string,
   opts: CompileSkillOpts,
 ): PlaceholderContext {
   return {
-    ...slots,
+    includes,
     partsPrefix: opts.stageDir ? `${opts.stageDir}/parts` : `${CLAUDE_SKILL_DIR_TOKEN}/parts`,
     pipelines: opts.pipelines ?? {},
     repoKey: opts.repoKey ?? "",
@@ -588,65 +415,4 @@ export function placeholderContext(
     pipeline: opts.pipeline ?? null,
     team: opts.team ?? null,
   };
-}
-
-export function compileSkill(
-  verb: VerbDef,
-  step: StepSource,
-  fills: Record<string, AttachmentSource | null>,
-  roster: Set<string>,
-  opts: CompileSkillOpts = {},
-): CompileResult {
-  const internalRoster = opts.internalRoster ?? new Set<string>();
-  const where = opts.where ?? `verb "${verb.name}"`;
-  const boundSlots = resolveBoundSlots(where, step, fills);
-
-  const compiledParts = [
-    `${step.plugin}@${step.version}`,
-    ...boundSlots.map(({ fill }) => `${fill.binding}@${fill.version}`),
-  ];
-  const compiledFrom = compiledParts.join(" + ");
-
-  const slotMode: Record<string, "inline" | "reference"> = {};
-  for (const { slotName, fill } of boundSlots) {
-    slotMode[slotName] = isInlined(fill, internalRoster) ? "inline" : "reference";
-  }
-  const ctx = placeholderContext(step, { fills, slotMode, includes: opts.includes ?? {} }, compiledFrom, opts);
-
-  const allowedTools = buildAllowedTools(step, boundSlots, opts.stageAllowedTools ?? [], ctx);
-  const { body, notes, packPaths } = buildBody(step, boundSlots, {
-    internalRoster,
-    ctx,
-    stageDir: opts.stageDir ?? null,
-    trace: opts.trace,
-  });
-  const frontmatter = buildFrontmatter(verb, allowedTools, compiledParts);
-  const content = `${frontmatter}\n\n${body}\n`;
-
-  const files: CompiledFile[] = [
-    { path: "SKILL.md", content },
-    ...buildVendoredFiles(step, boundSlots, opts.includes ?? {}, opts.team ?? null),
-  ];
-
-  const fillBindings = boundSlots.map(({ fill }) => fill.binding);
-  const layout = opts.packRoot && opts.compiledDir
-    ? { packRoot: opts.packRoot, compiledDir: opts.compiledDir }
-    : null;
-  const warnings = [
-    ...lintReferences(body, roster, files, fillBindings, {
-      where,
-      exemptPrefixes: opts.emittedSiblingDirs ?? [],
-      exemptPaths: packPaths,
-      layout,
-      emittedTargetDirs: opts.emittedTargetDirs ?? [],
-      plannedAttachments: opts.plannedAttachments,
-    }),
-    ...notes,
-  ];
-  const errors = [
-    ...lintInternalRoster(body, internalRoster, "body"),
-    ...lintInternalRoster(verb.description, internalRoster, "description"),
-  ];
-
-  return { files, warnings, errors, diagnostics: [] };
 }

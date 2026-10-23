@@ -1,6 +1,6 @@
 export type DriftCause = "frontmatter" | "source" | "fill" | "include" | "structure" | "vendored" | "team";
 
-const MARKER_RE = /^<!-- part: (step|slot:\S+|include:\S+|section:\S+|block:\S+|prop:\S+) /;
+const MARKER_RE = /^<!-- part: (step|include:\S+|section:\S+|block:\S+|prop:\S+) /;
 
 function splitParts(md: string): { key: string; text: string }[] {
   const parts = [{ key: "frontmatter", text: "" }];
@@ -16,11 +16,11 @@ function causeOf(key: string): DriftCause {
   if (key === "frontmatter") return "frontmatter";
   if (key === "step" || key.startsWith("block:")) return "source";
   if (key.startsWith("section:")) return "team";
-  return key.startsWith("slot:") || key.startsWith("prop:") ? "fill" : "include";
+  return key.startsWith("prop:") ? "fill" : "include";
 }
 
 /**
- * Parts are keyed by kind and name only, so a slot rebound to another fill is
+ * Parts are keyed by kind and name only, so a prop rebound to another fill is
  * a fill change rather than a structural one; a changed part list is
  * structural because the parts can no longer be paired.
  *
@@ -44,19 +44,23 @@ export function skillMdDriftCauses(onDisk: string, expected: string): DriftCause
 
 export type PartExtent = { key: string; version: string | null; start: number; end: number; text: string };
 
-const EXTENT_RE = /^<!-- part: (slot:\S+|include:\S+|section:\S+|block:\S+|prop:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
+const EXTENT_RE = /^<!-- part: (include:\S+|section:\S+|block:\S+|prop:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
 const MARKER_VERSION_RE = /^(<!-- part: .*?\bversion=)\S+/gm;
 /** The one line `fillReference` renders for a prop bound by reference; its seam's `lines=` spans the skill it names. */
 const PROP_REFERENCE_RE = /^Prop \S+ is bound to `/;
 
+export function isPropReference(text: string): boolean {
+  return PROP_REFERENCE_RE.test(text);
+}
+
 /**
  * An include part is its marker plus exactly its `lines=` count: include bodies
- * are verbatim, as are a section's. A slot's count is in SOURCE lines, less any
- * line an absent optional section dropped, and a nested include or section
- * marker stands for the one source line it replaced while carrying its own body
- * lines on top, so the walk counts the marker once and steps over that body.
- * The legacy engine also puts one blank separator between a slot marker and its
- * fill; fill bodies are trimmed on load, so a blank there is never fill text.
+ * are verbatim, as are a section's. An inlined prop value's count is in SOURCE
+ * lines, less any line an absent optional section dropped, and a nested include
+ * or section marker stands for the one source line it replaced while carrying
+ * its own body lines on top, so the walk counts the marker once and steps over
+ * that body. Fill bodies are trimmed on load, so a blank line under a prop
+ * marker is never fill text.
  */
 export function partExtents(md: string): PartExtent[] {
   const lines = md.split("\n");
@@ -73,14 +77,14 @@ export function partExtents(md: string): PartExtent[] {
     let last: number;
     if (marker.key.startsWith("prop:") && PROP_REFERENCE_RE.test(lines[first] ?? "")) {
       last = first;
-    } else if (!marker.key.startsWith("slot:") && !marker.key.startsWith("prop:")) {
+    } else if (!marker.key.startsWith("prop:")) {
       last = i + marker.count;
     } else {
       if (lines[first]?.trim() === "") first++;
       last = first - 1;
       for (let consumed = 0; consumed < marker.count && last + 1 < lines.length; consumed++) {
         const nested = markerAt(last + 1);
-        last += nested && !nested.key.startsWith("slot:") ? 1 + nested.count : 1;
+        last += nested && !nested.key.startsWith("prop:") ? 1 + nested.count : 1;
       }
     }
     last = Math.min(lines.length - 1, last);

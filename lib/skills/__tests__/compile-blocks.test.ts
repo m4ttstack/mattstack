@@ -173,7 +173,7 @@ describe("blockPropValues", () => {
     const [d, ...rest] = diagnosticsOf(() => valuesFor(step, roots, bindingsOf(text)));
     expect(rest).toEqual([]);
     expect(d).toMatchObject({ file: MANIFEST, line: 5, col: 33, code: "fill-missing" });
-    expect(d!.message).toStartWith('binding "mattstack:mini" rules (from pack): loadAttachment: slot "rules": binding "widgets:mini-rules/slow": no file at ');
+    expect(d!.message).toStartWith('binding "mattstack:mini" rules (from pack): loadAttachment: prop "rules": binding "widgets:mini-rules/slow": no file at ');
   });
 
   test("a bad value from a pipeline's own section is placed in that section", () => {

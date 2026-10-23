@@ -1,6 +1,6 @@
 # rt skills compile
 
-`rt skills compile` turns engine sources (mattstack `type: pipeline-step` skills) plus a manifest's bindings into committed `SKILL.md` files under a pack's `skills/` (surface-public) and `attachments/` (internal) directories. `commands/skills.ts` resolves the pack, roster, manifest and targets; `compileSkill` in `compile.ts` assembles one target and lints it; `placeholders.ts` renders the `{{...}}` markers.
+`rt skills compile` turns engine sources (mattstack block trees: a folder holding `index.block.md` typed `pipeline-step`) plus a manifest's bindings into committed `SKILL.md` files under a pack's `skills/` (surface-public) and `attachments/` (internal) directories. `commands/skills.ts` resolves the pack, roster, manifest and targets; `compileBlockSkill` in `compile-blocks.ts` resolves every block's props, renders the tree (`blocks/render.ts`) and lints the result with `compile.ts`; `placeholders.ts` renders the `{{...}}` markers.
 
 ## Where `${CLAUDE_SKILL_DIR}` points
 
@@ -13,7 +13,7 @@ Claude sets `${CLAUDE_SKILL_DIR}` to the directory of the skill it *invoked*. On
 | stage not listed public | `${CLAUDE_SKILL_DIR}/../../attachments/<name>` |
 | internal roster verb | `${CLAUDE_SKILL_DIR}/../../attachments/<name>` |
 
-Fills and includes vendored into such a target land under `<host dir>/parts/<slot or include-name>/`, and their own `${CLAUDE_SKILL_DIR}` references are rewritten to that parts dir. `{{stage.dir}}` renders the host dir inside any attachments-side target and is an error in a public verb. The host dirs of every stage and every internal roster verb are exempt from the emitted-file lint, so a target that vendors a fill or include lints clean.
+Fills and includes vendored into such a target land under `<host dir>/parts/<prop parts dir or include-name>/` (a root prop's dir is `<prop>`, another block's `<block path>/<prop>`, an included tree's `+<block id>/<prop>`), and their own `${CLAUDE_SKILL_DIR}` references are rewritten to that parts dir. `{{stage.dir}}` renders the host dir inside any attachments-side target and is an error in a public verb. The host dirs of every stage and every internal roster verb are exempt from the emitted-file lint, so a target that vendors a fill or include lints clean.
 
 Known limit: the `../../` hop assumes the reader's own skill lives at `<pack>/skills/<reader>`. A reader outside the pack (another plugin's skill) resolves `${CLAUDE_SKILL_DIR}/../../...` against its own plugin, so pack text meant to be read from outside must name files relative to itself instead.
 
@@ -25,10 +25,6 @@ Renders the path from the current output file's directory to `<name>`'s compiled
 
 Renders `${CLAUDE_SKILL_DIR}/../../<side>/<attachment>/<file>`, anchored on the invoking skill's dir so it works inside a shell command from any public skill in the pack. `<attachment>` must be an existing directory under exactly one of the pack's `attachments/` or `skills/` (that picks `<side>`; both is an error), must not name a compiled target (its output exists only after a compile), and `<pack>/<side>/<attachment>/<file>` must exist when the compile runs; `<file>` is one or more segments with no `..`. Rendered paths are exempt from the emitted-file lint. Allowed in engine bodies and in fills; a fill's `${CLAUDE_SKILL_DIR}` rewrite runs before substitution, so a rendered path is never rewritten to a parts dir.
 
-## Headings above an unbound slot
-
-An unbound optional slot renders as nothing. When the only content under a markdown heading would have been that slot (a `#`-to-`######` heading, blank lines, then `{{slot:<name>}}` alone on its line), the heading, the blank lines between, the slot line, and one blank line after it are all dropped. Lines inside a fenced code block (opened and closed by lines starting with three backticks) are never read as headings. A slot with no heading above it still renders as an empty line.
-
 ## `{{team.<key>}}` and `{{team.section:<name>}}`
 
 Org base text carries values each team pack supplies; the user contract is the "Team values in shared fills" section of `website/docs/skills/packs.mdx`. `team-params.ts` owns the pass: `readTeamValues` reads the team pack's `pack/params.jsonc` and `pack/sections/*.md`, and `resolveTeamMarkers` resolves one body against a `TeamContext`, recording each missing required marker instead of throwing so the whole pack's gaps refuse once.
@@ -37,5 +33,5 @@ Org base text carries values each team pack supplies; the user contract is the "
 - **Copied attachments.** `substituteAttachmentPlaceholders` resolves a copied `.md` file's body first; a marker in its frontmatter throws, and `assertNoTeamMarkerInRawFile` throws on one in a copied non-`.md` file.
 - **One line.** A marker sits on one line: `{{` then a line break then `team.` throws with the line of the braces. An indented `{{team.section:<name>}}` indents every non-blank line of the section by the same amount; its seam stays at column 0, where every seam parser looks for it.
 - **Required.** Only markers in text this compile emits count, so a `--verb` compile checks only that verb. `commands/skills.ts` collects the gaps (`missingOf`) and refuses with `missingValuesFailure` before writing anything; check, preview, anatomy and composition refuse with the same list.
-- **Seams.** An inserted section inside an inlined fill gets its own five-token seam, `<!-- part: section:<name> source=<team pack>:pack/sections/<name>.md version=<team pack version> path=pack/sections/<name>.md lines=1-<n> -->`, so `drift.ts` and the anatomy and console views keep counting lines; drift on it reports the cause `team`. An absent optional section drops its line, so the slot seam around it counts one source line fewer (`spanOf` in `placeholders.ts`), or the walkers would run that slot into the part after it. Copied attachments carry no seams.
+- **Seams.** An inserted section inside an inlined fill gets its own five-token seam, `<!-- part: section:<name> source=<team pack>:pack/sections/<name>.md version=<team pack version> path=pack/sections/<name>.md lines=1-<n> -->`, so `drift.ts` and the anatomy and console views keep counting lines; drift on it reports the cause `team`. An absent optional section drops its line, so the prop seam around it counts one source line fewer (`spanOf` in `placeholders.ts`), or the walkers would run that value into the part after it. Copied attachments carry no seams.
 - **Floor.** When any emitted base text used a marker, compile writes `pack/requires.json` `minEngine` no lower than `TEAM_MARKERS_MIN_ENGINE`.

@@ -64,7 +64,7 @@ function valuesFor(tree: BlockTree, roots: PluginRoots, layers: Record<string, R
 
 function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
   return {
-    fills: {}, slotMode: {}, partsPrefix: "${CLAUDE_SKILL_DIR}/parts", includes: {}, pipelines: {},
+    partsPrefix: "${CLAUDE_SKILL_DIR}/parts", includes: {}, pipelines: {},
     repoKey: "my-repo", mattstackSha: "", mattstackDirty: 0, packSha: "", stageDir: null, stageMeta: null,
     compiledFrom: "mattstack@1.0.0", verbSides: {}, side: "skills", packRoot: null, pipeline: null,
     ...over,
@@ -316,7 +316,7 @@ test("a headless child after its parent's own sub-heading is text-after-include 
 test("a leftover slot or an unknown placeholder in a block is bad-value at its {{, keeping the message", () => {
   const tree = plainTree({ "index.block.md": "---\n---\n\n# host\n\n{{slot:rules}}\n" });
   expect(diagnosticsOf(() => render(tree))).toEqual([
-    { file: "a/index.block.md", line: 6, col: 1, code: "bad-value", message: 'slot "rules" is not declared by this engine' },
+    { file: "a/index.block.md", line: 6, col: 1, code: "bad-value", message: "unknown placeholder {{slot:rules}} at line 6" },
   ]);
   const other = plainTree({ "index.block.md": "---\n---\n\n# Other\n\nSee {{bogus}} here.\n" });
   expect(diagnosticsOf(() => render(other))).toEqual([

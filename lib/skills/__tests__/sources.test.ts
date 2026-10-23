@@ -10,6 +10,7 @@ import {
   loadAttachment,
   loadInclude,
   loadStepSource,
+  NotABlockTreeError,
   orgBasePackRoots,
   orgOfPackDir,
   parseStageQualifiedName,
@@ -35,16 +36,13 @@ function writeFile(path: string, content: string): void {
   writeFileSync(path, content);
 }
 
-const WATCH_CI_SKILL_MD = `---
+const WATCH_CI_INDEX = `---
 name: watch-ci
 description: "Watch CI until it goes green"
 type: pipeline-step
 allowed-tools:
   - "Bash(gh:*)"
   - "Read"
-slots:
-  domain: { contract: "watch-ci-domain@1" }
-  forge: { contract: "ci-forge@1", required: true }
 ---
 
 Poll the pipeline every 30s and report status.
@@ -67,9 +65,9 @@ Domain rules live at \${CLAUDE_SKILL_DIR}/ci-config.json for details.
 const CI_CONFIG_JSON = `{ "noisy": ["flaky-job"] }\n`;
 
 /**
- * mattstack root: skills/pipeline/watch-ci/SKILL.md (+ scripts/ci-watch.sh),
+ * mattstack root: skills/pipeline/watch-ci/index.block.md (+ scripts/ci-watch.sh),
  * matching the real plugin's group/engine nesting, plus
- * attachments/pipeline/ship/SKILL.md -- an engine already moved out of
+ * attachments/pipeline/ship/index.block.md -- an engine already moved out of
  * skills/ (unregistered) that loadStepSource must still resolve.
  * acme root: attachments/watch-ci-domain/SKILL.md (+ ci-config.json), the
  * unregistered fill; a registered copy also lives under skills/watch-ci-domain
@@ -79,7 +77,7 @@ function makeFixtureRoots(): { rootDir: string; roots: PluginRoots } {
   const rootDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-src-")));
 
   const mattstackDir = join(rootDir, "mattstack");
-  writeFile(join(mattstackDir, "skills", "pipeline", "watch-ci", "SKILL.md"), WATCH_CI_SKILL_MD);
+  writeFile(join(mattstackDir, "skills", "pipeline", "watch-ci", "index.block.md"), WATCH_CI_INDEX);
   writeFile(join(mattstackDir, "skills", "pipeline", "watch-ci", "scripts", "ci-watch.sh"), WATCH_CI_SCRIPT);
   writeFile(join(mattstackDir, "skills", "pipeline", "watch-ci", "references", "polling-notes.md"), "Polling notes.\n");
   writeFile(join(mattstackDir, "skills", "pipeline", "watch-ci", ".DS_Store"), "junk");
@@ -91,14 +89,15 @@ function makeFixtureRoots(): { rootDir: string; roots: PluginRoots } {
   writeFile(join(mattstackDir, "skills", "pipeline", "watch-ci", "tests", "harness.sh"), "test");
   writeFile(join(mattstackDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.2.0" }));
 
-  const untypedSkillMd = WATCH_CI_SKILL_MD.replace("type: pipeline-step\n", "");
-  writeFile(join(mattstackDir, "skills", "pipeline", "untyped-step", "SKILL.md"), untypedSkillMd);
+  const untypedIndex = WATCH_CI_INDEX.replace("type: pipeline-step\n", "");
+  writeFile(join(mattstackDir, "skills", "pipeline", "untyped-step", "index.block.md"), untypedIndex);
+  writeFile(join(mattstackDir, "skills", "pipeline", "hand-step", "SKILL.md"), WATCH_CI_INDEX.replace(/name: watch-ci/, "name: hand-step"));
 
-  const shipSkillMd = WATCH_CI_SKILL_MD.replace(/name: watch-ci/, "name: ship").replace(
+  const shipIndex = WATCH_CI_INDEX.replace(/name: watch-ci/, "name: ship").replace(
     "Poll the pipeline every 30s and report status.",
     "Ship it.",
   );
-  writeFile(join(mattstackDir, "attachments", "pipeline", "ship", "SKILL.md"), shipSkillMd);
+  writeFile(join(mattstackDir, "attachments", "pipeline", "ship", "index.block.md"), shipIndex);
 
   const acmeDir = join(rootDir, "acme");
   writeFile(join(acmeDir, "attachments", "watch-ci-domain", "SKILL.md"), WATCH_CI_DOMAIN_SKILL_MD);
@@ -152,7 +151,7 @@ describe("stripFrontmatter", () => {
 });
 
 describe("loadStepSource", () => {
-  test("finds the engine under skills/pipeline/, parses slots, lists stepFiles", () => {
+  test("finds the engine under skills/pipeline/ and lists stepFiles", () => {
     const { roots } = makeFixtureRoots();
 
     const step = loadStepSource("watch-ci", roots);
@@ -161,21 +160,24 @@ describe("loadStepSource", () => {
     expect(step.plugin).toBe("mattstack");
     expect(step.version).toBe("1.2.0");
     expect(step.dir.endsWith(join("skills", "pipeline", "watch-ci"))).toBe(true);
-    expect(step.body).toBe("Poll the pipeline every 30s and report status.");
-    expect(step.slots).toEqual({
-      domain: { contract: "watch-ci-domain@1" },
-      forge: { contract: "ci-forge@1", required: true },
-    });
+    expect(step.tree.root.text).toBe("Poll the pipeline every 30s and report status.");
     expect(step.allowedTools).toEqual(["Bash(gh:*)", "Read"]);
     expect(step.stepFiles).toEqual(["references/polling-notes.md", "scripts/ci-watch.sh"]);
-    expect(step.srcPath).toBe(join("skills", "pipeline", "watch-ci", "SKILL.md"));
-    expect(step.bodyStartLine).toBe(13);
+    expect(step.srcPath).toBe(join("skills", "pipeline", "watch-ci", "index.block.md"));
+    expect(step.bodyStartLine).toBe(10);
   });
 
   test("throws naming the file when the engine has no type: pipeline-step", () => {
     const { roots } = makeFixtureRoots();
 
-    expect(() => loadStepSource("untyped-step", roots)).toThrow(/untyped-step.*SKILL\.md/s);
+    expect(() => loadStepSource("untyped-step", roots)).toThrow(/untyped-step.*index\.block\.md/s);
+  });
+
+  test("an engine folder with a SKILL.md and no index.block.md is not a block tree", () => {
+    const { roots } = makeFixtureRoots();
+
+    expect(() => loadStepSource("hand-step", roots)).toThrow(NotABlockTreeError);
+    expect(() => loadStepSource("hand-step", roots)).toThrow(/engine "hand-step" at .*hand-step has no index\.block\.md; an engine is a block tree/);
   });
 
   test("throws listing searched paths when the engine is absent entirely", () => {
@@ -214,25 +216,24 @@ describe("loadStepSource", () => {
     expect((thrown as Error).message).toContain(expectedAttachmentsGroupPath);
   });
 
-  test("falls back to attachments/<group>/<engine>/SKILL.md for an engine moved out of skills/", () => {
+  test("falls back to attachments/<group>/<engine>/ for an engine moved out of skills/", () => {
     const { roots } = makeFixtureRoots();
 
     const step = loadStepSource("ship", roots);
 
     expect(step.name).toBe("ship");
     expect(step.dir.endsWith(join("attachments", "pipeline", "ship"))).toBe(true);
-    expect(step.body).toBe("Ship it.");
+    expect(step.tree.root.text).toBe("Ship it.");
   });
 
   test("loadStepSource reads stage metadata into stageMeta", () => {
     const root = mkdtempSync(join(tmpdir(), "rt-step-"));
     const dir = join(root, "attachments", "stage-plan");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "SKILL.md"), [
+    writeFileSync(join(dir, "index.block.md"), [
       "---", "name: stage-plan", "description: plan", "type: pipeline-step",
-      "slots:", "  domain: { contract: plan-domain@1, required: false }",
       "metadata:", "  stage: plan", "  stage-consumes: ticket", "  stage-produces: approach evidence-plan",
-      "---", "", "body {{slot:domain}}",
+      "---", "", "body",
     ].join("\n"));
     const step = loadStepSource("stage-plan", { byName: { mattstack: { dir: root, version: "1.0.0" } }, list: [] });
     expect(step.stageMeta).toEqual({ stage: "plan", consumes: ["ticket"], produces: ["approach", "evidence-plan"] });
@@ -242,13 +243,12 @@ describe("loadStepSource", () => {
     const root = mkdtempSync(join(tmpdir(), "rt-step-"));
     const dir = join(root, "attachments", "stage-plan");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "SKILL.md"), [
+    writeFileSync(join(dir, "index.block.md"), [
       "---", "name: stage-plan", "description: plan", "type: pipeline-step",
-      "slots:", "  domain: { contract: plan-domain@1, required: false }",
       "metadata:", "  stage: plan",
       "  stage-consumes:", "    - ticket", "    - repo",
       "  stage-produces:", "    - approach", "    - evidence-plan",
-      "---", "", "body {{slot:domain}}",
+      "---", "", "body",
     ].join("\n"));
     const step = loadStepSource("stage-plan", { byName: { mattstack: { dir: root, version: "1.0.0" } }, list: [] });
     expect(step.stageMeta).toEqual({ stage: "plan", consumes: ["ticket", "repo"], produces: ["approach", "evidence-plan"] });
@@ -258,7 +258,7 @@ describe("loadStepSource", () => {
     const root = mkdtempSync(join(tmpdir(), "rt-step-"));
     const dir = join(root, "attachments", "work");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "SKILL.md"), "---\nname: work\ndescription: w\ntype: pipeline-step\n---\n\nbody");
+    writeFileSync(join(dir, "index.block.md"), "---\nname: work\ndescription: w\ntype: pipeline-step\n---\n\nbody");
     const step = loadStepSource("work", { byName: { mattstack: { dir: root, version: "1.0.0" } }, list: [] });
     expect(step.stageMeta).toBeNull();
   });
@@ -307,7 +307,7 @@ describe("loadAttachment", () => {
     expect(fill.extraFiles.sort()).toEqual(["ci-config.json", "nested/extra.txt"]);
   });
 
-  test("throws naming the slot and binding when neither search root has the skill", () => {
+  test("throws naming the prop and binding when neither search root has the skill", () => {
     const { roots } = makeFixtureRoots();
     const acmeDir = roots.byName.acme!.dir;
     const expectedSkillsPath = join(acmeDir, "skills", "no-such-skill", "SKILL.md");
@@ -362,7 +362,7 @@ describe("loadAttachment per-file values", () => {
     expect(loadAttachment("w:lint/fast", "rules", roots).extraFiles).toEqual(["config.json", "references/notes.md"]);
   });
 
-  test("a whole-skill load with an empty body still vendors its top-level md siblings, as a slot fill always has", () => {
+  test("a whole-skill load with an empty body still vendors its top-level md siblings, as a whole fill always has", () => {
     const { roots } = lintRoots();
 
     expect(loadAttachment("w:lint", "rules", roots).extraFiles).toEqual(["config.json", "fast.md", "references/notes.md", "slow.md"]);
@@ -374,7 +374,7 @@ describe("loadAttachment per-file values", () => {
 
     let caught: unknown;
     try {
-      loadAttachment("w:lint/fast", "rules", roots, "prop");
+      loadAttachment("w:lint/fast", "rules", roots);
     } catch (err) {
       caught = err;
     }
@@ -383,11 +383,10 @@ describe("loadAttachment per-file values", () => {
     expect((caught as Error).message).toContain('loadAttachment: prop "rules": binding "w:lint/fast": a per-file value carries no frontmatter');
   });
 
-  test("a prop load names a prop; a slot load keeps its wording", () => {
+  test("a load error names the prop", () => {
     const { roots } = lintRoots();
 
-    expect(() => loadAttachment("w:lint/nope", "rules", roots, "prop")).toThrow(/^loadAttachment: prop "rules": binding "w:lint\/nope": no file at /);
-    expect(() => loadAttachment("w:lint/nope", "rules", roots)).toThrow(/^loadAttachment: slot "rules": binding "w:lint\/nope": no file at /);
+    expect(() => loadAttachment("w:lint/nope", "rules", roots)).toThrow(/^loadAttachment: prop "rules": binding "w:lint\/nope": no file at /);
   });
 
   test("a whole-skill binding keeps file null", () => {
@@ -559,8 +558,8 @@ describe("invocableRoster", () => {
 
     const roster = invocableRoster(roots);
 
-    expect(roster.has("mattstack:watch-ci")).toBe(true);
-    expect(roster.has("mattstack:untyped-step")).toBe(true);
+    expect(roster.has("mattstack:hand-step")).toBe(true);
+    expect(roster.has("mattstack:watch-ci")).toBe(false);
     expect(roster.has("acme:qa-gates")).toBe(true);
     expect(roster.has("acme:watch-ci-domain")).toBe(false);
     expect(roster.has("mattstack:ship")).toBe(false);
@@ -575,7 +574,7 @@ describe("invocableRoster", () => {
     const roster = invocableRoster(roots);
 
     expect(roster.has("mattstack:herd-progress")).toBe(true);
-    expect(roster.has("mattstack:watch-ci")).toBe(true);
+    expect(roster.has("mattstack:hand-step")).toBe(true);
   });
 
   test("ignores a manifest skills root that resolves outside the plugin", () => {
@@ -855,7 +854,7 @@ describe("loadInclude", () => {
     writeFileSync(join(root, "attachments", name, "SKILL.md"), md);
   };
 
-  test("loads a slotless attachment with empty provides", () => {
+  test("loads an attachment with empty provides", () => {
     const { root, roots: r } = roots();
     write(root, "review-core-body", "---\nname: review-core-body\ndescription: d\n---\n\nthe body");
     const inc = loadInclude("review-core-body", r);
@@ -864,15 +863,9 @@ describe("loadInclude", () => {
     expect(inc.srcPath).toBe("attachments/review-core-body/SKILL.md");
   });
 
-  test("rejects a target that declares slots", () => {
-    const { root, roots: r } = roots();
-    write(root, "bad", "---\nname: bad\ndescription: d\nslots:\n  x: { contract: x@1 }\n---\n\nbody");
-    expect(() => loadInclude("bad", r)).toThrow('include "bad" declares slots; an include target must be slotless');
-  });
-
   test("rejects a target that contains a placeholder", () => {
     const { root, roots: r } = roots();
-    write(root, "bad2", "---\nname: bad2\ndescription: d\n---\n\nbody {{slot:x}}");
+    write(root, "bad2", "---\nname: bad2\ndescription: d\n---\n\nbody {{verb.path:x}}");
     expect(() => loadInclude("bad2", r)).toThrow('include "bad2" contains a placeholder; an include target must be inert');
   });
 
@@ -1077,10 +1070,8 @@ describe("block-tree loaders", () => {
 
     const step = loadStepSource("mini", roots);
 
-    expect(step.tree?.root.id).toBe("mini");
-    expect(step.tree?.byId.has("mini/run/check")).toBe(true);
-    expect(step.body).toBe("");
-    expect(step.slots).toEqual({});
+    expect(step.tree.root.id).toBe("mini");
+    expect(step.tree.byId.has("mini/run/check")).toBe(true);
     expect(step.description).toBe("A small pipeline step used to test block trees");
     expect(step.srcPath).toBe(join("attachments", "pipeline", "mini", "index.block.md"));
     expect(step.bodyStartLine).toBe(11);
@@ -1119,7 +1110,7 @@ describe("block-tree loaders", () => {
 
   test("a SKILL.md beside index.block.md is refused at that SKILL.md, for an engine and an include", () => {
     const { dir, roots } = blockRoots();
-    writeFile(join(dir, "attachments", "pipeline", "mini", "SKILL.md"), "---\nname: mini\ntype: pipeline-step\n---\n\n{{slot:x}}\n");
+    writeFile(join(dir, "attachments", "pipeline", "mini", "SKILL.md"), "---\nname: mini\ntype: pipeline-step\n---\n\nOld text.\n");
     writeFile(join(dir, "attachments", "gate-protocol", "index.block.md"), "---\n---\n\n# Gate protocol\n");
     writeFile(join(dir, "attachments", "gate-protocol", "SKILL.md"), "---\nname: gate-protocol\n---\n\nold\n");
 
@@ -1173,7 +1164,7 @@ describe("AttachmentLoadError", () => {
   test("a malformed or unusable value is bad-value, with today's messages", () => {
     expect(thrown(() => loadAttachment("w:lint/a/b", "rules", roots()))).toEqual({
       code: "bad-value",
-      message: 'loadAttachment: slot "rules": binding "w:lint/a/b" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"',
+      message: 'loadAttachment: prop "rules": binding "w:lint/a/b" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"',
     });
     expect(thrown(() => loadAttachment("w:lint/fast", "rules", roots(`${LINT_SKILL_MD}\ntext\n`))).code).toBe("bad-value");
     const bare = thrown(() => loadAttachment("w:bare", "rules", roots()));

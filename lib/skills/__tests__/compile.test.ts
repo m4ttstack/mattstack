@@ -2,10 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { compileSkill } from "../compile.ts";
-import type { TraceEntry } from "../placeholders.ts";
 import { newTeamContext } from "../team-params.ts";
-import type { AttachmentSource, CompiledFile, StepSource, VerbDef } from "../types.ts";
+import type { AttachmentSource, CompiledFile, VerbDef } from "../types.ts";
+import { compileOneBlock as compile, oneBlockEngine as engine } from "./helpers.ts";
 
 /** The sibling-reference lint reads the working tree, so its cases need a real pack root on disk. */
 function tempPackRoot(): string {
@@ -18,23 +17,17 @@ const verb: VerbDef = {
   description: "Watch CI until it goes green",
 };
 
-const step: StepSource = {
-  name: "watch-ci",
-  plugin: "mattstack",
-  version: "1.2.0",
-  dir: "/plugins/mattstack/skills/pipeline/watch-ci",
-  srcPath: "skills/pipeline/watch-ci/SKILL.md",
-  bodyStartLine: 8,
-  body: "Poll the pipeline every 30s and report status. See ${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh for the poller.",
-  slots: {
-    domain: { contract: "watch-ci-domain@1", required: true },
-    forge: { contract: "ci-forge@1", required: true },
+const step = engine(
+  "Poll the pipeline every 30s and report status. See ${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh for the poller.\n\n{{props.domain}}\n\n{{props.forge}}",
+  {
+    props: { domain: { contract: "watch-ci-domain@1", required: true }, forge: { contract: "ci-forge@1", required: true } },
+    allowedTools: ["Bash(gh:*)", "Read"],
+    stepFiles: ["references/polling-notes.md", "scripts/ci-watch.sh"],
   },
-  allowedTools: ["Bash(gh:*)", "Read"],
-  stepFiles: ["references/polling-notes.md", "scripts/ci-watch.sh"],
-  stageMeta: null,
-  description: "",
-};
+);
+
+/** A propless engine with `text` as its whole body, the shape the lint cases need. */
+const bare = (text: string) => engine(text, { stepFiles: ["references/polling-notes.md", "scripts/ci-watch.sh"] });
 
 const domainFill: AttachmentSource = {
   binding: "acme:watch-ci-domain",
@@ -99,9 +92,9 @@ function toolLinesBetween(content: string): string[] {
   return (match[1] as string).split("\n").map((line) => line.trim());
 }
 
-describe("compileSkill", () => {
-  test("both slots bound: frontmatter, allowed-tools union, seams, body rewrite", () => {
-    const result = compileSkill(verb, step, { domain: domainFill, forge: forgeFill }, roster);
+describe("compileBlockSkill", () => {
+  test("both props bound: frontmatter, allowed-tools union, seams, body rewrite", () => {
+    const result = compile(verb, step, { domain: domainFill, forge: forgeFill }, roster);
 
     expect(result.warnings).toEqual([]);
 
@@ -125,14 +118,12 @@ describe("compileSkill", () => {
     expect(content).toContain(
       "<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->",
     );
+    expect(content).toMatch(/<!-- part: block:watch-ci source=mattstack:watch-ci version=1\.2\.0 path=skills\/pipeline\/watch-ci\/index\.block\.md lines=\d+-\d+ -->/);
     expect(content).toContain(
-      "<!-- part: step source=mattstack:watch-ci version=1.2.0 path=skills/pipeline/watch-ci/SKILL.md lines=8-8 -->",
+      "<!-- part: prop:watch-ci.domain binding=acme:watch-ci-domain version=0.3.0 path=attachments/watch-ci-domain/SKILL.md lines=8-8 -->",
     );
     expect(content).toContain(
-      "<!-- part: slot:domain binding=acme:watch-ci-domain version=0.3.0 path=attachments/watch-ci-domain/SKILL.md lines=8-8 -->",
-    );
-    expect(content).toContain(
-      "<!-- part: slot:forge binding=mattstack:gitlab-forge version=1.2.0 path=skills/gitlab-forge/SKILL.md lines=8-8 -->",
+      "<!-- part: prop:watch-ci.forge binding=mattstack:gitlab-forge version=1.2.0 path=skills/gitlab-forge/SKILL.md lines=8-8 -->",
     );
 
     expect(content).toContain(
@@ -143,7 +134,7 @@ describe("compileSkill", () => {
     );
   });
 
-  test("a fill's own {{include}} is expanded on the legacy (non-compile-native) engine path too", () => {
+  test("an inlined fill's own {{include}} is expanded", () => {
     const ciNoteInclude: AttachmentSource = {
       binding: "mattstack:ci-note",
       plugin: "mattstack",
@@ -163,7 +154,7 @@ describe("compileSkill", () => {
       body: "Domain rules live at ${CLAUDE_SKILL_DIR}/ci-config.json for details.\n{{include:ci-note}}\n",
     };
 
-    const result = compileSkill(verb, step, { domain: domainWithInclude, forge: forgeFill }, roster, {
+    const result = compile(verb, step, { domain: domainWithInclude, forge: forgeFill }, roster, {
       includes: { "ci-note": ciNoteInclude },
     });
     const content = skillFileContent(result.files);
@@ -173,21 +164,21 @@ describe("compileSkill", () => {
     expect(content).not.toContain("{{");
   });
 
-  test("a base fill's team markers resolve on the legacy engine path", () => {
+  test("a base fill's team markers resolve", () => {
     const baseDomain: AttachmentSource = { ...domainFill, binding: "acme-base:watch-ci-domain", plugin: "acme-base", body: "Team {{team.linear-team}}" };
     const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { "linear-team": "Widgets" }, sections: {} }, new Set(["acme-base"]));
 
-    const content = skillFileContent(compileSkill(verb, step, { domain: baseDomain, forge: forgeFill }, roster, { team }).files);
+    const content = skillFileContent(compile(verb, step, { domain: baseDomain, forge: forgeFill }, roster, { team }).files);
 
     expect(content).toContain("Team Widgets");
     expect(content).not.toContain("{{");
   });
 
-  test("a team marker in a non-base fill on the legacy path is an error naming the file line", () => {
+  test("a team marker in a non-base fill is an error naming the file line", () => {
     const widgetsDomain: AttachmentSource = { ...domainFill, binding: "widgets:x", plugin: "widgets", body: "a\nTeam {{team.linear-team}}" };
     const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: {}, sections: {} }, new Set(["acme-base"]));
 
-    expect(() => compileSkill(verb, step, { domain: widgetsDomain, forge: forgeFill }, roster, { team })).toThrow(
+    expect(() => compile(verb, step, { domain: widgetsDomain, forge: forgeFill }, roster, { team })).toThrow(
       "widgets:x: {{team.linear-team}} -- team markers only resolve in base pack text (line 9)",
     );
   });
@@ -196,7 +187,7 @@ describe("compileSkill", () => {
     const baseDomain: AttachmentSource = { ...domainFill, binding: "acme-base:watch-ci-domain", plugin: "acme-base", allowedTools: ["Bash({{team.x}}:*)"] };
     const team = newTeamContext({ plugin: "widgets", version: "0.4.0", params: { x: "y" }, sections: {} }, new Set(["acme-base"]));
 
-    expect(() => compileSkill(verb, step, { domain: baseDomain, forge: forgeFill }, roster, { team })).toThrow(
+    expect(() => compile(verb, step, { domain: baseDomain, forge: forgeFill }, roster, { team })).toThrow(
       "acme-base:watch-ci-domain: {{team.x}} -- team markers only resolve in a body, not frontmatter",
     );
   });
@@ -209,15 +200,15 @@ describe("compileSkill", () => {
       const forge: AttachmentSource = { ...registeredForgeFill, binding: "acme-base:gitlab-forge", plugin: "acme-base", frontmatterTeamMarker: marker };
       const refRoster = new Set([...roster, "acme-base:gitlab-forge"]);
 
-      const content = skillFileContent(compileSkill(verb, step, { domain: domainFill, forge }, refRoster, { team }).files);
+      const content = skillFileContent(compile(verb, step, { domain: domainFill, forge }, refRoster, { team }).files);
 
-      expect(content).toContain("Slot forge is bound to `acme-base:gitlab-forge`");
+      expect(content).toContain("Prop forge is bound to `acme-base:gitlab-forge`");
     });
 
     test("refuses when an inlined base fill carries it", () => {
       const domain: AttachmentSource = { ...domainFill, binding: "acme-base:watch-ci-domain", plugin: "acme-base", frontmatterTeamMarker: marker };
 
-      expect(() => compileSkill(verb, step, { domain, forge: forgeFill }, roster, { team })).toThrow(
+      expect(() => compile(verb, step, { domain, forge: forgeFill }, roster, { team })).toThrow(
         "acme-base:watch-ci-domain: {{team.x}} -- team markers only resolve in a body, not frontmatter (line 3)",
       );
     });
@@ -226,7 +217,7 @@ describe("compileSkill", () => {
       const forge: AttachmentSource = { ...registeredForgeFill, binding: "acme-base:gitlab-forge", plugin: "acme-base", allowedTools: ["Bash({{team.x}}:*)"] };
       const refRoster = new Set([...roster, "acme-base:gitlab-forge"]);
 
-      expect(() => compileSkill(verb, step, { domain: domainFill, forge }, refRoster, { team })).toThrow(
+      expect(() => compile(verb, step, { domain: domainFill, forge }, refRoster, { team })).toThrow(
         "acme-base:gitlab-forge: {{team.x}} -- team markers only resolve in a body, not frontmatter",
       );
     });
@@ -243,104 +234,39 @@ describe("compileSkill", () => {
 
     test("a team marker in one is refused with the file line", () => {
       const fill = vendoring("# Checklist\n\nFile it in {{team.linear-team}}.\n");
-      expect(() => compileSkill(verb, step, { domain: fill, forge: forgeFill }, roster, { team })).toThrow(
+      expect(() => compile(verb, step, { domain: fill, forge: forgeFill }, roster, { team })).toThrow(
         "acme-base:provision-flow:checklist.md: {{team.linear-team}} -- team markers only resolve in a fill's SKILL.md, not the files it vendors (line 3)",
       );
     });
 
     test("with no team context the same file is refused", () => {
       const fill = vendoring("File it in {{team.linear-team}}.\n");
-      expect(() => compileSkill(verb, step, { domain: fill, forge: forgeFill }, roster)).toThrow(
+      expect(() => compile(verb, step, { domain: fill, forge: forgeFill }, roster)).toThrow(
         "acme-base:provision-flow:checklist.md: {{team.linear-team}} -- team markers only resolve in a fill's SKILL.md, not the files it vendors (line 1)",
       );
     });
 
     test("a file with no marker, and a team pack's own fill, still vendor", () => {
       const clean = vendoring("Nothing to fill.\n");
-      expect(compileSkill(verb, step, { domain: clean, forge: forgeFill }, roster, { team }).files.map((f) => f.path)).toContain("parts/domain/checklist.md");
+      expect(compile(verb, step, { domain: clean, forge: forgeFill }, roster, { team }).files.map((f) => f.path)).toContain("parts/domain/checklist.md");
       const own = { ...vendoring("Docs mention {{team.x}}.\n"), binding: "widgets:provision-flow", plugin: "widgets" };
-      expect(compileSkill(verb, step, { domain: own, forge: forgeFill }, roster, { team }).files.map((f) => f.path)).toContain("parts/domain/checklist.md");
+      expect(compile(verb, step, { domain: own, forge: forgeFill }, roster, { team }).files.map((f) => f.path)).toContain("parts/domain/checklist.md");
     });
   });
 
-  test("a fill carrying {{slot:...}} on the legacy engine path is a compile error naming the fill", () => {
+  test("a fill carrying an old {{slot:...}} marker is a compile error naming the fill", () => {
     const domainWithSlot: AttachmentSource = {
       ...domainFill,
       body: "Domain rules.\n{{slot:tiering}}\n",
     };
 
-    expect(() => compileSkill(verb, step, { domain: domainWithSlot, forge: forgeFill }, roster)).toThrow(
+    expect(() => compile(verb, step, { domain: domainWithSlot, forge: forgeFill }, roster)).toThrow(
       'acme:watch-ci-domain: {{slot:tiering}} -- a fill may carry {{include}}, {{verb.path}} or {{pack.path}} only (line 2)',
     );
   });
 
-  test("optional slot unbound: no seam, no part, no warning", () => {
-    const stepWithOptional: StepSource = {
-      ...step,
-      slots: {
-        ...step.slots,
-        notify: { contract: "notify@1", required: false },
-      },
-      stageMeta: step.stageMeta,
-      description: step.description,
-    };
-
-    const result = compileSkill(
-      verb,
-      stepWithOptional,
-      { domain: domainFill, forge: forgeFill, notify: null },
-      roster,
-    );
-
-    expect(result.warnings).toEqual([]);
-    const content = skillFileContent(result.files);
-    expect(content).not.toContain("slot:notify");
-    expect(result.files.some((f) => f.path.startsWith("parts/notify/"))).toBe(false);
-  });
-
-  test("required slot unbound throws naming verb, slot, contract", () => {
-    let error: Error | undefined;
-    try {
-      compileSkill(verb, step, { domain: null, forge: forgeFill }, roster);
-    } catch (e) {
-      error = e as Error;
-    }
-    expect(error).toBeInstanceOf(Error);
-    expect(error?.message).toContain("watch-ci");
-    expect(error?.message).toContain("domain");
-    expect(error?.message).toContain("watch-ci-domain@1");
-  });
-
-  test("a stage target's slot errors name the stage, never a verb", () => {
-    let error: Error | undefined;
-    try {
-      compileSkill(verb, step, { domain: null, forge: forgeFill }, roster, { where: 'stage "watch-ci"' });
-    } catch (e) {
-      error = e as Error;
-    }
-    expect(error?.message).toMatch(/^stage "watch-ci": slot "domain"/);
-    expect(error?.message).not.toContain('verb "');
-  });
-
-  test("provides mismatch throws naming expected vs actual", () => {
-    const badDomainFill: AttachmentSource = { ...domainFill, provides: "watch-ci-domain@2" };
-
-    let error: Error | undefined;
-    try {
-      compileSkill(verb, step, { domain: badDomainFill, forge: forgeFill }, roster);
-    } catch (e) {
-      error = e as Error;
-    }
-    expect(error).toBeInstanceOf(Error);
-    expect(error?.message).toContain("watch-ci");
-    expect(error?.message).toContain("domain");
-    expect(error?.message).toContain("watch-ci-domain@1");
-    expect(error?.message).toContain("watch-ci-domain@2");
-    expect(error?.message).toContain("acme:watch-ci-domain");
-  });
-
   test("vendoring: stepFiles and extraFiles map to exact copyFrom paths", () => {
-    const result = compileSkill(verb, step, { domain: domainFill, forge: forgeFill }, roster);
+    const result = compile(verb, step, { domain: domainFill, forge: forgeFill }, roster);
 
     expect(result.files).toContainEqual({
       path: "scripts/ci-watch.sh",
@@ -357,8 +283,8 @@ describe("compileSkill", () => {
     expect(result.files.some((f) => f.path.startsWith("parts/forge/"))).toBe(false);
   });
 
-  test("registered fill: reference line only, no seam/body, but still vendors extraFiles and joins allowed-tools", () => {
-    const result = compileSkill(
+  test("registered fill: reference line only, no fill body, but still vendors extraFiles and joins allowed-tools", () => {
+    const result = compile(
       verb,
       step,
       { domain: domainFill, forge: registeredForgeFill },
@@ -370,9 +296,8 @@ describe("compileSkill", () => {
     const content = skillFileContent(result.files);
 
     expect(content).toContain(
-      "Slot forge is bound to `mattstack:gitlab-forge` (mattstack:gitlab-forge@1.2.0) -- invoke that skill when this flow needs it.",
+      "Prop forge is bound to `mattstack:gitlab-forge` (mattstack:gitlab-forge@1.2.0) -- invoke that skill when this flow needs it.",
     );
-    expect(content).not.toContain("<!-- part: slot:forge");
     expect(content).not.toContain("Talk to GitLab via glab.");
 
     expect(result.files).toContainEqual({
@@ -394,23 +319,9 @@ describe("compileSkill", () => {
   });
 
   test("name lint: unregistered token warns, roster member does not", () => {
-    const lintStep: StepSource = {
-      name: "watch-ci",
-      plugin: "mattstack",
-      version: "1.0.0",
-      dir: "/plugins/mattstack/skills/pipeline/watch-ci",
-      srcPath: "skills/pipeline/watch-ci/SKILL.md",
-      bodyStartLine: 8,
-      body: "This step defers domain judgment to acme:watch-ci-domain and never invokes acme:nonexistent.",
-      slots: {},
-      allowedTools: [],
-      stepFiles: [],
-      stageMeta: null,
-      description: "",
-    };
     const lintRoster = new Set(["mattstack:watch-ci", "acme:watch-ci-domain"]);
 
-    const result = compileSkill(verb, lintStep, {}, lintRoster);
+    const result = compile(verb, engine("This step defers domain judgment to acme:watch-ci-domain and never invokes acme:nonexistent."), {}, lintRoster);
 
     expect(result.warnings).toEqual([
       "body references acme:nonexistent which is not invocable",
@@ -420,26 +331,18 @@ describe("compileSkill", () => {
   test("name lint: a bound fill's own seam comment does not warn even when its binding is unregistered", () => {
     const rosterWithoutDomain = new Set(["mattstack:watch-ci", "mattstack:gitlab-forge"]);
 
-    const result = compileSkill(verb, step, { domain: domainFill, forge: forgeFill }, rosterWithoutDomain);
+    const result = compile(verb, step, { domain: domainFill, forge: forgeFill }, rosterWithoutDomain);
 
     expect(result.warnings).toEqual([]);
   });
 
   test("name lint: the same binding name in author body prose still warns", () => {
     const rosterWithoutDomain = new Set(["mattstack:watch-ci", "mattstack:gitlab-forge"]);
-    const stepMentioningBinding: StepSource = {
-      ...step,
-      body: `${step.body} This step composes with acme:watch-ci-domain for domain rules.`,
-      stageMeta: step.stageMeta,
-      description: step.description,
-    };
+    const mentioning = engine("This step composes with acme:watch-ci-domain for domain rules.\n\n{{props.domain}}", {
+      props: { domain: { contract: "watch-ci-domain@1" } },
+    });
 
-    const result = compileSkill(
-      verb,
-      stepMentioningBinding,
-      { domain: domainFill, forge: forgeFill },
-      rosterWithoutDomain,
-    );
+    const result = compile(verb, mentioning, { domain: domainFill }, rosterWithoutDomain);
 
     expect(result.warnings).toEqual([
       "body references acme:watch-ci-domain which is not invocable",
@@ -447,19 +350,12 @@ describe("compileSkill", () => {
   });
 
   test("path lint: vendored file reference is clean, missing file reference warns", () => {
-    const stepWithMissingRef: StepSource = {
-      ...step,
-      body: `${step.body} Also see \${CLAUDE_SKILL_DIR}/parts/domain/missing.json for details.`,
-      stageMeta: step.stageMeta,
-      description: step.description,
-    };
-
-    const result = compileSkill(
-      verb,
-      stepWithMissingRef,
-      { domain: domainFill, forge: forgeFill },
-      roster,
+    const withMissingRef = engine(
+      "See ${CLAUDE_SKILL_DIR}/parts/domain/ci-config.json and ${CLAUDE_SKILL_DIR}/parts/domain/missing.json for details.\n\n{{props.domain}}",
+      { props: { domain: { contract: "watch-ci-domain@1" } } },
     );
+
+    const result = compile(verb, withMissingRef, { domain: domainFill }, roster);
 
     expect(result.warnings).toEqual([
       "body references ${CLAUDE_SKILL_DIR}/parts/domain/missing.json which is not an emitted file",
@@ -467,27 +363,13 @@ describe("compileSkill", () => {
   });
 
   test("empty allowed-tools union omits the key entirely", () => {
-    const bareStep: StepSource = {
-      name: "self-review",
-      plugin: "mattstack",
-      version: "1.2.0",
-      dir: "/plugins/mattstack/skills/review/self-review",
-      srcPath: "skills/review/self-review/SKILL.md",
-      bodyStartLine: 8,
-      body: "Review your own diff before shipping.",
-      slots: {},
-      allowedTools: [],
-      stepFiles: [],
-      stageMeta: null,
-      description: "",
-    };
     const bareVerb: VerbDef = {
       name: "self-review",
       engine: "self-review",
       description: "Review your own change",
     };
 
-    const result = compileSkill(bareVerb, bareStep, {}, roster);
+    const result = compile(bareVerb, engine("Review your own diff before shipping.", { name: "self-review" }), {}, roster);
 
     expect(result.warnings).toEqual([]);
     const content = skillFileContent(result.files);
@@ -497,74 +379,54 @@ describe("compileSkill", () => {
 
   test("determinism: structurally equal inputs produce identical content", () => {
     const verbCopy: VerbDef = JSON.parse(JSON.stringify(verb));
-    const stepCopy: StepSource = JSON.parse(JSON.stringify(step));
     const domainFillCopy: AttachmentSource = JSON.parse(JSON.stringify(domainFill));
     const forgeFillCopy: AttachmentSource = JSON.parse(JSON.stringify(forgeFill));
     const rosterCopy = new Set(roster);
 
-    const resultA = compileSkill(verb, step, { domain: domainFill, forge: forgeFill }, roster);
-    const resultB = compileSkill(
-      verbCopy,
-      stepCopy,
-      { domain: domainFillCopy, forge: forgeFillCopy },
-      rosterCopy,
-    );
+    const resultA = compile(verb, step, { domain: domainFill, forge: forgeFill }, roster);
+    const resultB = compile(verbCopy, step, { domain: domainFillCopy, forge: forgeFillCopy }, rosterCopy);
 
     expect(skillFileContent(resultB.files)).toBe(skillFileContent(resultA.files));
     expect(resultB.files).toEqual(resultA.files);
     expect(resultB.warnings).toEqual(resultA.warnings);
   });
 
-  test("seams carry the source path and line span", () => {
-    const result = compileSkill(verb, step, { domain: domainFill, forge: forgeFill }, new Set<string>());
-    const main = result.files.find((f) => f.path.endsWith("SKILL.md"))!;
-    const content = (main as { content: string }).content;
-    expect(content).toMatch(/<!-- part: step source=mattstack:watch-ci version=1\.2\.0 path=\S+ lines=\d+-\d+ -->/);
-    expect(content).toMatch(/<!-- part: slot:domain binding=acme:watch-ci-domain version=0\.3\.0 path=\S+ lines=\d+-\d+ -->/);
+  test("seams carry the source path and line span, never an absolute path", () => {
+    const content = skillFileContent(compile(verb, step, { domain: domainFill, forge: forgeFill }, new Set<string>()).files);
+    expect(content).toMatch(/<!-- part: block:watch-ci source=mattstack:watch-ci version=1\.2\.0 path=\S+ lines=\d+-\d+ -->/);
+    expect(content).toMatch(/<!-- part: prop:watch-ci\.domain binding=acme:watch-ci-domain version=0\.3\.0 path=\S+ lines=\d+-\d+ -->/);
     // Relative, never absolute: an absolute path would bake this machine's tmpdir
     // into a committed artifact.
     expect(content).not.toMatch(/path=\//);
   });
 
-  test("compiled output stays byte-deterministic across two compiles", () => {
-    const fills = { domain: domainFill, forge: forgeFill };
-    const a = compileSkill(verb, step, fills, new Set<string>());
-    const b = compileSkill(verb, step, fills, new Set<string>());
-    expect(a.files).toEqual(b.files);
-  });
-
-  test("an empty-arg placeholder is a compile error, not a silent legacy compile", () => {
-    const bad = { ...step, body: "Poll status. {{slot:}}" };
-    expect(() => compileSkill(verb, bad, { domain: domainFill, forge: forgeFill }, roster)).toThrow(
-      'engine "watch-ci": literal "{{" near line 1 -- "{{" is reserved for compiler placeholders and has no escape, so a compiled body may not contain it',
+  test("an empty-arg placeholder is a compile error, not a silent compile", () => {
+    expect(() => compile(verb, bare("Poll status. {{slot:}}"), {}, roster)).toThrow(
+      'engine "watch-ci": literal "{{" near line 4 -- "{{" is reserved for compiler placeholders and has no escape, so a compiled body may not contain it',
     );
   });
 
-  test("a placeholder with internal whitespace is a compile error, not a silent legacy compile", () => {
-    const bad = { ...step, body: "Poll status. {{ stage.dir }}" };
-    expect(() => compileSkill(verb, bad, { domain: domainFill, forge: forgeFill }, roster)).toThrow(
-      'engine "watch-ci": literal "{{" near line 1 -- "{{" is reserved for compiler placeholders and has no escape, so a compiled body may not contain it',
+  test("a placeholder with internal whitespace is a compile error, not a silent compile", () => {
+    expect(() => compile(verb, bare("Poll status. {{ stage.dir }}"), {}, roster)).toThrow(
+      'engine "watch-ci": literal "{{" near line 4 -- "{{" is reserved for compiler placeholders and has no escape, so a compiled body may not contain it',
     );
   });
 });
 
-const placeholderStep: StepSource = {
-  ...step,
+const stageStep = engine("Run ${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh.\n{{props.domain}}\n{{stage.fields}}", {
   name: "stage-watch-ci",
-  body: "Run ${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh.\n{{slot:domain}}\n{{stage.fields}}",
-  slots: { domain: { contract: "watch-ci-domain@1", required: true } },
+  props: { domain: { contract: "watch-ci-domain@1", required: true } },
   allowedTools: ["Bash(${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh:*)"],
+  stepFiles: ["references/polling-notes.md", "scripts/ci-watch.sh"],
   stageMeta: { stage: "watch-ci", consumes: ["mr", "branch"], produces: ["ci"] },
-};
-
-const slotless: StepSource = { ...step, slots: {}, stageMeta: null };
+});
 
 function skillMd(result: { files: CompiledFile[] }): string {
   const f = result.files.find((x) => x.path === "SKILL.md");
   return f && "content" in f ? f.content : "";
 }
 
-describe("compileSkill with placeholders", () => {
+describe("compileBlockSkill with placeholders", () => {
   test("a fileless fill's tool rule names the same dir its body does", () => {
     const filelessDomain: AttachmentSource = {
       ...domainFill,
@@ -572,98 +434,76 @@ describe("compileSkill with placeholders", () => {
       allowedTools: ["Read(${CLAUDE_SKILL_DIR}/references/polling-notes.md)"],
       extraFiles: [],
     };
-    const result = compileSkill(verb, placeholderStep, { domain: filelessDomain }, new Set(), {});
+    const result = compile(verb, stageStep, { domain: filelessDomain }, new Set(), {});
     const md = skillMd(result);
 
     expect(md).toContain('- "Read(${CLAUDE_SKILL_DIR}/references/polling-notes.md)"');
     expect(md).toContain("config at ${CLAUDE_SKILL_DIR}/references/polling-notes.md");
     expect(md).not.toContain("parts/domain");
-    expect(result.warnings).toEqual([]);
   });
 
   test("a fill that vendors files still scopes its tool rules to the parts dir, stage dir and all", () => {
-    const md = skillMd(compileSkill(verb, placeholderStep, { domain: domainFill }, new Set(), {
+    const md = skillMd(compile(verb, stageStep, { domain: domainFill }, new Set(), {
       stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci",
     }));
     expect(md).toContain('- "Read(${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/parts/domain/ci-config.json)"');
   });
 
-  test("substitutes in place, emits a slot marker, and appends nothing", () => {
-    const md = skillMd(compileSkill(verb, placeholderStep, { domain: domainFill }, new Set(), {
+  test("substitutes in place and emits one prop marker", () => {
+    const md = skillMd(compile(verb, stageStep, { domain: domainFill }, new Set(), {
       stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci",
     }));
-    expect(md).toContain("<!-- part: slot:domain binding=acme:watch-ci-domain version=0.3.0 path=attachments/watch-ci-domain/SKILL.md lines=8-8 -->");
+    expect(md).toContain("<!-- part: prop:stage-watch-ci.domain binding=acme:watch-ci-domain version=0.3.0 path=attachments/watch-ci-domain/SKILL.md lines=8-8 -->");
     expect(md).toContain("You consume `mr`, `branch`. You must produce `ci`.");
-    expect(md.indexOf("You consume")).toBeGreaterThan(md.indexOf("part: slot:domain"));
-    expect(md.split("part: slot:domain").length).toBe(2);
+    expect(md.indexOf("You consume")).toBeGreaterThan(md.indexOf("part: prop:stage-watch-ci.domain"));
+    expect(md.split("part: prop:stage-watch-ci.domain").length).toBe(2);
   });
 
   test("inside a stage, step-owned script references are rewritten to the stage dir", () => {
-    const md = skillMd(compileSkill(verb, placeholderStep, { domain: domainFill }, new Set(), {
+    const md = skillMd(compile(verb, stageStep, { domain: domainFill }, new Set(), {
       stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci",
     }));
     expect(md).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/scripts/ci-watch.sh.");
   });
 
-  test("a placeholder that cannot be filled is a compile error", () => {
-    const bad = { ...placeholderStep, body: "{{slot:domain}}\n{{stage.dir}}" };
-    expect(() => compileSkill(verb, bad, { domain: domainFill }, new Set(), {})).toThrow("{{stage.dir}} used in a public verb");
+  test("a placeholder that cannot be filled comes back as a diagnostic with no files", () => {
+    const bad = engine("{{props.domain}}\n{{stage.dir}}", { props: { domain: { contract: "watch-ci-domain@1" } } });
+    const result = compile(verb, bad, { domain: domainFill }, new Set(), {});
+    expect(result.files).toEqual([]);
+    expect(result.diagnostics.map((d) => d.message)).toEqual(["{{stage.dir}} used in a public verb"]);
   });
 
   test("a fill's file references resolve under the stage's parts dir inside a stage", () => {
-    const md = skillMd(compileSkill(verb, placeholderStep, { domain: domainFill }, new Set(), {
+    const md = skillMd(compile(verb, stageStep, { domain: domainFill }, new Set(), {
       stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci",
     }));
     expect(md).toContain("${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/parts/domain/ci-config.json");
   });
 
-  test("a bound slot the body never places is warned", () => {
-    const orphan = { ...placeholderStep, body: "{{stage.fields}} only" };
-    const r = compileSkill(verb, orphan, { domain: domainFill }, new Set(), { stageDir: "x" });
-    expect(r.warnings).toContain('slot "domain" is bound but never placed in the body');
-  });
-
-  test("a compile-native engine calling the runtime resolver is a compile error", () => {
-    const bad = { ...placeholderStep, body: 'run "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"\n{{slot:domain}}' };
-    expect(() => compileSkill(verb, bad, { domain: domainFill }, new Set(), {}))
+  test("an engine calling the runtime resolver is a compile error", () => {
+    const bad = engine('run "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"\n{{props.domain}}', { props: { domain: { contract: "watch-ci-domain@1" } } });
+    expect(() => compile(verb, bad, { domain: domainFill }, new Set(), {}))
       .toThrow("compile-native engine calls the runtime resolver");
   });
 
   test("a malformed placeholder alongside a valid one is still a compile error", () => {
-    const bad = { ...placeholderStep, body: "{{stage.fields}}\n{{slot:}}" };
-    expect(() => compileSkill(verb, bad, { domain: domainFill }, new Set(), { stageDir: "x" })).toThrow(
+    const bad = engine("{{stage.fields}}\n{{slot:}}", { name: "stage-watch-ci", stageMeta: stageStep.stageMeta });
+    expect(() => compile(verb, bad, {}, new Set(), { stageDir: "x" })).toThrow(
       /engine "stage-watch-ci": literal "\{\{" near line \d+ -- "\{\{" is reserved for compiler placeholders and has no escape, so a compiled body may not contain it/,
     );
   });
 
-  test("an inline (not line-leading) slot placeholder is a compile error", () => {
-    const bad = { ...placeholderStep, body: "Prefix {{slot:domain}}" };
-    expect(() => compileSkill(verb, bad, { domain: domainFill }, new Set(), { stageDir: "x" })).toThrow(
-      "must be alone on its line",
-    );
-  });
-
-  test("a slot placeholder alone on its line, surrounded by whitespace, is fine", () => {
-    const ok = { ...placeholderStep, body: "  {{slot:domain}}  \n{{stage.fields}}" };
-    expect(() => compileSkill(verb, ok, { domain: domainFill }, new Set(), { stageDir: "x" })).not.toThrow();
-  });
-
   test("an inline include placeholder is a compile error", () => {
-    const bad = {
-      ...slotless,
-      body: "See {{include:review-core-body}} for details.",
-    };
-    expect(() =>
-      compileSkill(verb, bad, {}, new Set(), {
-        includes: {
-          "review-core-body": { ...domainFill, binding: "mattstack:review-core-body", provides: "" },
-        },
-      }),
-    ).toThrow("must be alone on its line");
+    const result = compile(verb, bare("See {{include:review-core-body}} for details."), {}, new Set(), {
+      includes: {
+        "review-core-body": { ...domainFill, binding: "mattstack:review-core-body", provides: "" },
+      },
+    });
+    expect(result.diagnostics.map((d) => d.message).join("\n")).toContain("must be alone on its line");
   });
 
   test("stage allowed-tools union rewrites to the leading-wildcard form", () => {
-    const md = skillMd(compileSkill(verb, { ...slotless, body: "{{pipeline.stages}}" }, {}, new Set(), {
+    const md = skillMd(compile(verb, bare("{{pipeline.stages}}"), {}, new Set(), {
       pipelines: { feature: [] },
       stageAllowedTools: ["Bash(${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh:*)", "Bash(*/scripts/ci-forge.sh:*)", "Bash(gh:*)"],
     }));
@@ -673,7 +513,7 @@ describe("compileSkill with placeholders", () => {
   });
 
   test("emitted sibling dirs are not lint-warned as missing files", () => {
-    const r = compileSkill(verb, { ...slotless, body: "read ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md" }, {}, new Set(), {
+    const r = compile(verb, bare("read ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md"), {}, new Set(), {
       emittedSiblingDirs: ["${CLAUDE_SKILL_DIR}/../../attachments/stage-plan"],
     });
     expect(r.warnings.filter((w) => w.includes("not an emitted file"))).toEqual([]);
@@ -688,7 +528,7 @@ describe("compileSkill with placeholders", () => {
       extraFiles: ["references/adjudicator.md"],
     };
     const host = "${CLAUDE_SKILL_DIR}/../../attachments/receive-review";
-    const r = compileSkill(verb, { ...slotless, body: "Act on it.\n{{include:review-core-body}}" }, {}, new Set(), {
+    const r = compile(verb, bare("Act on it.\n{{include:review-core-body}}"), {}, new Set(), {
       includes: { "review-core-body": withRef },
       stageDir: host,
       emittedSiblingDirs: [host],
@@ -698,21 +538,19 @@ describe("compileSkill with placeholders", () => {
   });
 
   test("a relative read escaping the pack root is a compile error naming verb, path and source line", () => {
-    const bad = { ...slotless, body: "first line\nread `../../../attachments/self-review/SKILL.md` before starting" };
     expect(() =>
-      compileSkill(verb, bad, {}, new Set(), {
+      compile(verb, bare("first line\nread `../../../attachments/self-review/SKILL.md` before starting"), {}, new Set(), {
         packRoot: "/pack",
         compiledDir: "/pack/attachments/stage-plan",
       }),
-    // The step body starts at line 8 of its own SKILL.md, and the offending read
-    // is its second line.
-    ).toThrow('verb "watch-ci": "../../../attachments/self-review/SKILL.md" at skills/pipeline/watch-ci/SKILL.md:9 resolves outside the pack root');
+    // The root's text starts on line 7 of its index.block.md, and the offending
+    // read is its second line.
+    ).toThrow('verb "watch-ci": "../../../attachments/self-review/SKILL.md" at skills/pipeline/watch-ci/index.block.md:8 resolves outside the pack root');
   });
 
   test("a stage's escaping read is reported as a stage, not a verb", () => {
-    const bad = { ...slotless, body: "read `../../../elsewhere/SKILL.md`" };
     expect(() =>
-      compileSkill(verb, bad, {}, new Set(), {
+      compile(verb, bare("read `../../../elsewhere/SKILL.md`"), {}, new Set(), {
         packRoot: "/pack",
         compiledDir: "/pack/attachments/stage-plan",
         where: 'stage "stage-plan"',
@@ -721,14 +559,14 @@ describe("compileSkill with placeholders", () => {
   });
 
   test("the pack-root token is exempt with a trailing slash too", () => {
-    const r = compileSkill(verb, { ...slotless, body: "cd ${CLAUDE_SKILL_DIR}/../../ && pwd" }, {}, new Set(), {});
+    const r = compile(verb, bare("cd ${CLAUDE_SKILL_DIR}/../../ && pwd"), {}, new Set(), {});
     expect(r.warnings).toEqual([]);
   });
 
   test("an escaping read inside a fill is reported against the fill's own file", () => {
     const escapingFill: AttachmentSource = { ...domainFill, body: "read `../../../outside.md` first" };
     expect(() =>
-      compileSkill(verb, placeholderStep, { domain: escapingFill }, new Set(), {
+      compile(verb, stageStep, { domain: escapingFill }, new Set(), {
         packRoot: "/pack",
         compiledDir: "/pack/attachments/stage-watch-ci",
       }),
@@ -736,15 +574,14 @@ describe("compileSkill with placeholders", () => {
   });
 
   test("an escaping ${CLAUDE_SKILL_DIR} path is the same compile error", () => {
-    const bad = { ...slotless, body: "read ${CLAUDE_SKILL_DIR}/../../../secrets.md" };
     expect(() =>
-      compileSkill(verb, bad, {}, new Set(), { packRoot: "/pack", compiledDir: "/pack/skills/work" }),
+      compile(verb, bare("read ${CLAUDE_SKILL_DIR}/../../../secrets.md"), {}, new Set(), { packRoot: "/pack", compiledDir: "/pack/skills/work" }),
     ).toThrow("resolves outside the pack root");
   });
 
   test("a relative read that resolves to nothing the pack has warns instead of erroring", () => {
     const packRoot = tempPackRoot();
-    const r = compileSkill(verb, { ...slotless, body: "read `../../attachments/self-review/SKILL.md`" }, {}, new Set(), {
+    const r = compile(verb, bare("read `../../attachments/self-review/SKILL.md`"), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
     });
@@ -753,7 +590,7 @@ describe("compileSkill with placeholders", () => {
 
   test("a relative read onto a base attachment this compile plans to write is silent on a clean tree", () => {
     const packRoot = tempPackRoot();
-    const r = compileSkill(verb, { ...slotless, body: "read `../../attachments/self-review/SKILL.md`" }, {}, new Set(), {
+    const r = compile(verb, bare("read `../../attachments/self-review/SKILL.md`"), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
       plannedAttachments: new Map([["self-review", new Set(["SKILL.md", "compiled.json"])]]),
@@ -763,7 +600,7 @@ describe("compileSkill with placeholders", () => {
 
   test("a planned base attachment satisfies only the files it plans", () => {
     const packRoot = tempPackRoot();
-    const r = compileSkill(verb, { ...slotless, body: "read `../../attachments/self-review/missing.md`" }, {}, new Set(), {
+    const r = compile(verb, bare("read `../../attachments/self-review/missing.md`"), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
       plannedAttachments: new Map([["self-review", new Set(["SKILL.md"])]]),
@@ -773,7 +610,7 @@ describe("compileSkill with placeholders", () => {
 
   test("a relative read onto a grouped planned base attachment is silent", () => {
     const packRoot = tempPackRoot();
-    const r = compileSkill(verb, { ...slotless, body: "read `../../attachments/review/self/SKILL.md`" }, {}, new Set(), {
+    const r = compile(verb, bare("read `../../attachments/review/self/SKILL.md`"), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
       plannedAttachments: new Map([["review/self", new Set(["SKILL.md"])]]),
@@ -786,7 +623,7 @@ describe("compileSkill with placeholders", () => {
     mkdirSync(join(packRoot, "attachments", "self-review"), { recursive: true });
     writeFileSync(join(packRoot, "attachments", "self-review", "SKILL.md"), "hand-authored\n");
 
-    const r = compileSkill(verb, { ...slotless, body: "read `../../attachments/self-review/SKILL.md`" }, {}, new Set(), {
+    const r = compile(verb, bare("read `../../attachments/self-review/SKILL.md`"), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
     });
@@ -795,7 +632,7 @@ describe("compileSkill with placeholders", () => {
 
   test("a relative read onto another target's output dir is silent before that target is written", () => {
     const packRoot = tempPackRoot();
-    const r = compileSkill(verb, { ...slotless, body: "read `../../attachments/stage-plan/SKILL.md`" }, {}, new Set(), {
+    const r = compile(verb, bare("read `../../attachments/stage-plan/SKILL.md`"), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
       emittedTargetDirs: [join(packRoot, "attachments", "stage-plan")],
@@ -804,7 +641,7 @@ describe("compileSkill with placeholders", () => {
   });
 
   test("a shell-composed path whose ../ follows another path is not read as a body reference", () => {
-    const r = compileSkill(verb, { ...slotless, body: 'FORGE=$(dirname "$STAGE")/../forge/ci-forge.sh' }, {}, new Set(), {
+    const r = compile(verb, bare('FORGE=$(dirname "$STAGE")/../forge/ci-forge.sh'), {}, new Set(), {
       packRoot: "/pack",
       compiledDir: "/pack/skills/work",
     });
@@ -812,7 +649,7 @@ describe("compileSkill with placeholders", () => {
   });
 
   test("a bare asset path that this target never emits warns", () => {
-    const r = compileSkill(verb, { ...slotless, body: "run scripts/missing.sh, then read references/notes.md" }, {}, new Set(), {});
+    const r = compile(verb, bare("run scripts/missing.sh, then read references/notes.md"), {}, new Set(), {});
     expect(r.warnings).toEqual([
       "bare path scripts/missing.sh is not an emitted file",
       "bare path references/notes.md is not an emitted file",
@@ -820,34 +657,28 @@ describe("compileSkill with placeholders", () => {
   });
 
   test("a bare directory in prose is not a path and never warns", () => {
-    const r = compileSkill(verb, { ...slotless, body: "Put it in scripts/, then run it. See references/." }, {}, new Set(), {});
+    const r = compile(verb, bare("Put it in scripts/, then run it. See references/."), {}, new Set(), {});
     expect(r.warnings).toEqual([]);
   });
 
   test("a markdown-bracketed bare path warns under the file's real name", () => {
-    const r = compileSkill(verb, { ...slotless, body: "[scripts/x.sh]" }, {}, new Set(), {});
+    const r = compile(verb, bare("[scripts/x.sh]"), {}, new Set(), {});
     expect(r.warnings).toEqual(["bare path scripts/x.sh is not an emitted file"]);
   });
 
   test("a bare asset path the engine vendors does not warn, sentence punctuation and all", () => {
-    const r = compileSkill(verb, { ...slotless, body: "run scripts/ci-watch.sh, as documented in references/polling-notes.md." }, {}, new Set(), {});
+    const r = compile(verb, bare("run scripts/ci-watch.sh, as documented in references/polling-notes.md."), {}, new Set(), {});
     expect(r.warnings).toEqual([]);
   });
 
   test("the pack-root token is not lint-warned as a missing file", () => {
-    const r = compileSkill(verb, { ...slotless, body: 'PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"' }, {}, new Set(), {});
+    const r = compile(verb, bare('PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"'), {}, new Set(), {});
     expect(r.warnings).toEqual([]);
-  });
-
-  test("a body with no placeholders still appends fills (backward compatible)", () => {
-    const md = skillMd(compileSkill(verb, step, { domain: domainFill, forge: forgeFill }, new Set(), {}));
-    expect(md).toContain("part: slot:domain");
-    expect(md).toContain("part: slot:forge");
   });
 
   test("verb.path renders against the target's side and lints clean when the sibling is emitted", () => {
     const packRoot = tempPackRoot();
-    const r = compileSkill(verb, { ...slotless, body: "Read {{verb.path:receive-review}} first, then {{verb.path:checkout}}." }, {}, new Set(), {
+    const r = compile(verb, bare("Read {{verb.path:receive-review}} first, then {{verb.path:checkout}}."), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "watch-ci"),
       side: "skills",
@@ -872,7 +703,7 @@ describe("compileSkill with placeholders", () => {
       body: "Config at ${CLAUDE_SKILL_DIR}/ci-config.json; capture with {{pack.path:evidence/scripts/capture.sh}}.",
     };
     const host = "${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci";
-    const r = compileSkill(verb, placeholderStep, { domain: capturing }, new Set(), {
+    const r = compile(verb, stageStep, { domain: capturing }, new Set(), {
       stageDir: host,
       packRoot,
       compiledDir: join(packRoot, "attachments", "stage-watch-ci"),
@@ -887,7 +718,7 @@ describe("compileSkill with placeholders", () => {
 
   test("pack.path in a public verb renders the same anchored path and lints clean", () => {
     const packRoot = packWithEvidence();
-    const r = compileSkill(verb, { ...slotless, body: "Run {{pack.path:evidence/scripts/capture.sh}} after the diff." }, {}, new Set(), {
+    const r = compile(verb, bare("Run {{pack.path:evidence/scripts/capture.sh}} after the diff."), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "watch-ci"),
       side: "skills",
@@ -896,32 +727,16 @@ describe("compileSkill with placeholders", () => {
     expect(r.warnings).toEqual([]);
   });
 
-  test("pack.path naming a compiled target's output is a compile error", () => {
+  test("pack.path naming a compiled target's output comes back as a diagnostic", () => {
     const packRoot = packWithEvidence();
     mkdirSync(join(packRoot, "skills", "work"), { recursive: true });
     writeFileSync(join(packRoot, "skills", "work", "SKILL.md"), "compiled earlier\n");
-    expect(() =>
-      compileSkill(verb, { ...slotless, body: "see {{pack.path:work/SKILL.md}}" }, {}, new Set(), {
-        packRoot,
-        compiledDir: join(packRoot, "skills", "watch-ci"),
-        side: "skills",
-        verbSides: { work: "skills", "watch-ci": "skills" },
-      }),
-    ).toThrow("{{pack.path:work/SKILL.md}} -- work is a compiled verb; pack.path names source files only");
-  });
-
-  test("trace entries map onto the rendered SKILL.md after the step marker", () => {
-    const entries: TraceEntry[] = [];
-    const include: AttachmentSource = { ...domainFill, binding: "mattstack:x", provides: "", body: "included line", extraFiles: [] };
-    const result = compileSkill(verb, { ...slotless, body: "first line\n{{include:x}}\nlast line" }, {}, new Set(), {
-      includes: { x: include },
-      trace: (e) => entries.push(e),
+    const r = compile(verb, bare("see {{pack.path:work/SKILL.md}}"), {}, new Set(), {
+      packRoot,
+      compiledDir: join(packRoot, "skills", "watch-ci"),
+      side: "skills",
+      verbSides: { work: "skills", "watch-ci": "skills" },
     });
-    const lines = skillMd(result).split("\n");
-    const marker = lines.findIndex((l) => l.startsWith("<!-- part: step "));
-    const bodyOffset = marker + 2;
-    const last = entries.at(-1)!;
-    expect(lines[bodyOffset + last.outStart]).toBe("last line");
-    expect(lines[bodyOffset + entries[1]!.outStart]!.startsWith("<!-- part: include:x ")).toBe(true);
+    expect(r.diagnostics.map((d) => d.message)).toEqual(["{{pack.path:work/SKILL.md}} -- work is a compiled verb; pack.path names source files only"]);
   });
 });

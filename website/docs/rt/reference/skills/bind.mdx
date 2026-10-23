@@ -7,12 +7,12 @@ sidebar_label: bind
 
 `rt › skills › bind`
 
-Bind a fill to a slot: check it fits, save it in the pack's bindings, regenerate the pack's bindings file and recompile
+Bind a fill to a block's prop: check it fits, save it in the pack's bindings, regenerate the pack's bindings file and recompile
 
 ## Usage
 
 ```bash
-rt skills bind <verb> <slot> <fill> [flags]
+rt skills bind <verb> <block> <prop> <fill> [flags]
 ```
 
 ## Arguments & flags
@@ -20,13 +20,14 @@ rt skills bind <verb> <slot> <fill> [flags]
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | `<verb>` | text |  | Roster verb or pipeline stage |
-| `<slot>` | text |  | Slot declared on the verb's step |
-| `<fill>` | text |  | &lt;plugin&gt;:&lt;skill&gt; binding string; must provide the slot's declared contract |
+| `<block>` | text |  | Block id in the verb's engine, as rt skills blocks lists it |
+| `<prop>` | text |  | Prop the block declares |
+| `<fill>` | text |  | &lt;plugin&gt;:&lt;skill&gt; or &lt;plugin&gt;:&lt;skill&gt;/&lt;file&gt;; must provide the prop's contract when it has one |
 | `--pack` | text |  | Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree |
 | `--manifest` | text |  | Manifest path; omit to read ~/.mattstack/repos/&lt;repo&gt;/packs/&lt;pack&gt;/skills.jsonc |
 | [`--repo`](/rt/guides/common-flags) | text |  | Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares |
 | `--pipeline` | text |  | Bind the fill for this pipeline only; omit to bind the default every pipeline uses |
-| `--unset` | boolean | `false` | Remove this pack's override for the pipeline, so the slot falls back to the default; needs --pipeline and no fill |
+| `--unset` | boolean | `false` | Remove this pack's override for the pipeline, so the prop falls back to the default; needs --pipeline and no fill |
 | [`--dry-run`](/rt/guides/common-flags) | boolean | `false` | Print what would change without writing |
 | [`--json`](/rt/guides/common-flags) | boolean | `false` | Print the result as JSON instead of a plain summary line |
 

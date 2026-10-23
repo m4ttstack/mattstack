@@ -35,14 +35,14 @@ export function normalizePipelines(raw: unknown): { stages: Record<string, strin
     const refs = Object.entries(value.bindings ?? {});
     if (refs.length === 0) continue;
     const copy: BindingsMap = Object.create(null);
-    for (const [engineRef, slots] of refs) copy[engineRef] = { ...slots };
+    for (const [key, props] of refs) copy[key] = { ...props };
     bindings[type] = copy;
   }
   return { stages, bindings };
 }
 
-export function pipelineBindingKey(type: string, engineRef: string, slot: string): string {
-  return `${type}/${engineRef} ${slot}`;
+export function pipelineBindingKey(type: string, key: string, prop: string): string {
+  return `${type}/${key} ${prop}`;
 }
 
 export function stageCopyName(stage: string, pipeline: string): string {

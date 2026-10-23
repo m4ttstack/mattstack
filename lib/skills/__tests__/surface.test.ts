@@ -4,10 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFi
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { computeRows, skillsCompile } from "../../../commands/skills.ts";
-import { compileSkill } from "../compile.ts";
 import { readSurface } from "../sources.ts";
-import type { AttachmentSource, StepSource, VerbDef } from "../types.ts";
-import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
+import type { AttachmentSource, VerbDef } from "../types.ts";
+import { captureSkills, compileOneBlock, oneBlockEngine, runExpectingCleanExit } from "./helpers.ts";
 import type { CapturedOut } from "../../ui/__tests__/capture-out.ts";
 
 function writeFile(path: string, content: string): void {
@@ -56,28 +55,15 @@ describe("readSurface", () => {
   });
 });
 
-describe("compileSkill with internalRoster", () => {
+describe("compileBlockSkill with internalRoster", () => {
   const verb: VerbDef = { name: "watch-ci", engine: "watch-ci-engine", description: "Watch CI" };
   const roster = new Set(["mattstack:watch-ci", "acme:watch-ci-domain"]);
 
   test("a body token naming an internal skill produces an errors entry with fix options; a public token does not", () => {
-    const step: StepSource = {
-      name: "watch-ci",
-      plugin: "mattstack",
-      version: "1.0.0",
-      dir: "/plugins/mattstack/skills/pipeline/watch-ci",
-      srcPath: "skills/pipeline/watch-ci/SKILL.md",
-      bodyStartLine: 8,
-      body: "This step defers to acme:qa-gates for the internal check and to acme:watch-ci-domain for the public one.",
-      slots: {},
-      allowedTools: [],
-      stepFiles: [],
-      stageMeta: null,
-      description: "",
-    };
+    const step = oneBlockEngine("This step defers to acme:qa-gates for the internal check and to acme:watch-ci-domain for the public one.");
     const internalRoster = new Set(["acme:qa-gates"]);
 
-    const result = compileSkill(verb, step, {}, roster, { internalRoster });
+    const result = compileOneBlock(verb, step, {}, roster, { internalRoster });
 
     expect(result.errors).toEqual([
       "body references acme:qa-gates which is surface-internal; inline it, reference it by path, or list it in surface.jsonc's public array",
@@ -90,23 +76,9 @@ describe("compileSkill with internalRoster", () => {
       engine: "watch-ci-engine",
       description: "Watch CI; for a gut check use acme:qa-gates first.",
     };
-    const step: StepSource = {
-      name: "watch-ci",
-      plugin: "mattstack",
-      version: "1.0.0",
-      dir: "/plugins/mattstack/skills/pipeline/watch-ci",
-      srcPath: "skills/pipeline/watch-ci/SKILL.md",
-      bodyStartLine: 8,
-      body: "Clean body.",
-      slots: {},
-      allowedTools: [],
-      stepFiles: [],
-      stageMeta: null,
-      description: "",
-    };
     const internalRoster = new Set(["acme:qa-gates"]);
 
-    const result = compileSkill(dirtyVerb, step, {}, roster, { internalRoster });
+    const result = compileOneBlock(dirtyVerb, oneBlockEngine("Clean body."), {}, roster, { internalRoster });
 
     expect(result.errors).toEqual([
       "description references acme:qa-gates which is surface-internal; inline it, reference it by path, or list it in surface.jsonc's public array",
@@ -114,41 +86,14 @@ describe("compileSkill with internalRoster", () => {
   });
 
   test("no internalRoster entries: errors is empty", () => {
-    const step: StepSource = {
-      name: "watch-ci",
-      plugin: "mattstack",
-      version: "1.0.0",
-      dir: "/plugins/mattstack/skills/pipeline/watch-ci",
-      srcPath: "skills/pipeline/watch-ci/SKILL.md",
-      bodyStartLine: 8,
-      body: "This step defers to acme:watch-ci-domain.",
-      slots: {},
-      allowedTools: [],
-      stepFiles: [],
-      stageMeta: null,
-      description: "",
-    };
-
-    const result = compileSkill(verb, step, {}, roster);
+    const result = compileOneBlock(verb, oneBlockEngine("This step defers to acme:watch-ci-domain."), {}, roster);
 
     expect(result.errors).toEqual([]);
   });
 
+  const withDomain = () => oneBlockEngine("Poll CI.\n\n{{props.domain}}", { props: { domain: { contract: "watch-ci-domain@1", required: true } } });
+
   test("a fill whose binding is internal-listed inlines despite registered=true, with a printed note", () => {
-    const stepWithSlot: StepSource = {
-      name: "watch-ci",
-      plugin: "mattstack",
-      version: "1.0.0",
-      dir: "/plugins/mattstack/skills/pipeline/watch-ci",
-      srcPath: "skills/pipeline/watch-ci/SKILL.md",
-      bodyStartLine: 8,
-      body: "Poll CI.",
-      slots: { domain: { contract: "watch-ci-domain@1", required: true } },
-      allowedTools: [],
-      stepFiles: [],
-      stageMeta: null,
-      description: "",
-    };
     const registeredInternalFill: AttachmentSource = {
       binding: "acme:qa-gates",
       plugin: "acme",
@@ -165,7 +110,7 @@ describe("compileSkill with internalRoster", () => {
     };
     const internalRoster = new Set(["acme:qa-gates"]);
 
-    const result = compileSkill(verb, stepWithSlot, { domain: registeredInternalFill }, roster, {
+    const result = compileOneBlock(verb, withDomain(), { domain: registeredInternalFill }, roster, {
       internalRoster,
     });
 
@@ -178,20 +123,6 @@ describe("compileSkill with internalRoster", () => {
   });
 
   test("a fill whose binding is NOT internal-listed still references, not inlines, when registered=true", () => {
-    const stepWithSlot: StepSource = {
-      name: "watch-ci",
-      plugin: "mattstack",
-      version: "1.0.0",
-      dir: "/plugins/mattstack/skills/pipeline/watch-ci",
-      srcPath: "skills/pipeline/watch-ci/SKILL.md",
-      bodyStartLine: 8,
-      body: "Poll CI.",
-      slots: { domain: { contract: "watch-ci-domain@1", required: true } },
-      allowedTools: [],
-      stepFiles: [],
-      stageMeta: null,
-      description: "",
-    };
     const registeredPublicFill: AttachmentSource = {
       binding: "acme:qa-gates",
       plugin: "acme",
@@ -207,7 +138,7 @@ describe("compileSkill with internalRoster", () => {
       file: null,
     };
 
-    const result = compileSkill(verb, stepWithSlot, { domain: registeredPublicFill }, roster, {
+    const result = compileOneBlock(verb, withDomain(), { domain: registeredPublicFill }, roster, {
       internalRoster: new Set(),
     });
 
@@ -259,9 +190,9 @@ function makeMattstackDir(): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-surface-mattstack-")));
   const mattstackPluginDir = join(dir, "plugins", "mattstack");
   writeFile(join(mattstackPluginDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.2.0" }));
-  writeFile(join(mattstackPluginDir, "skills", "pipeline", "watch-ci", "SKILL.md"), WATCH_CI_SKILL_MD);
-  writeFile(join(mattstackPluginDir, "skills", "pipeline", "old-verb", "SKILL.md"), OLD_VERB_SKILL_MD);
-  writeFile(join(mattstackPluginDir, "skills", "pipeline", "dangling-step", "SKILL.md"), DANGLING_STEP_SKILL_MD);
+  writeFile(join(mattstackPluginDir, "skills", "pipeline", "watch-ci", "index.block.md"), WATCH_CI_SKILL_MD);
+  writeFile(join(mattstackPluginDir, "skills", "pipeline", "old-verb", "index.block.md"), OLD_VERB_SKILL_MD);
+  writeFile(join(mattstackPluginDir, "skills", "pipeline", "dangling-step", "index.block.md"), DANGLING_STEP_SKILL_MD);
   return dir;
 }
 
@@ -411,15 +342,19 @@ metadata:
 Domain rules inlined from qa-gates for the transition window.
 `;
 
-const WATCH_CI_WITH_SLOT_SKILL_MD = `---
+const WATCH_CI_WITH_DOMAIN_INDEX = `---
 name: watch-ci
 description: "Watch CI until it goes green"
 type: pipeline-step
-slots:
-  domain: { contract: "watch-ci-domain@1", required: true }
+props:
+  domain:
+    merge: replace
+    contract: "watch-ci-domain@1"
 ---
 
 Poll CI.
+
+{{props.domain}}
 `;
 
 const GATE_CHECK_SKILL_MD = `---
@@ -454,8 +389,8 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     const mattstackPluginDir = join(mattstackDir, "plugins", "mattstack");
     writeFile(join(mattstackPluginDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.2.0" }));
     writeFile(
-      join(mattstackPluginDir, "skills", "pipeline", "watch-ci", "SKILL.md"),
-      WATCH_CI_WITH_SLOT_SKILL_MD,
+      join(mattstackPluginDir, "skills", "pipeline", "watch-ci", "index.block.md"),
+      WATCH_CI_WITH_DOMAIN_INDEX,
     );
 
     const manifestPath = makeManifestAt('{ "mattstack:watch-ci": { "domain": "acme:qa-gates" } }');
@@ -494,7 +429,7 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
 
     const mattstackPluginDir = join(mattstackDir, "plugins", "mattstack");
     writeFile(join(mattstackPluginDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.2.0" }));
-    writeFile(join(mattstackPluginDir, "skills", "pipeline", "gate-check", "SKILL.md"), GATE_CHECK_SKILL_MD);
+    writeFile(join(mattstackPluginDir, "skills", "pipeline", "gate-check", "index.block.md"), GATE_CHECK_SKILL_MD);
 
     const manifestPath = makeManifestAt("{}");
 
@@ -533,7 +468,7 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
 
     const mattstackPluginDir = join(mattstackDir, "plugins", "mattstack");
     writeFile(join(mattstackPluginDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.2.0" }));
-    writeFile(join(mattstackPluginDir, "skills", "pipeline", "gate-check", "SKILL.md"), GATE_CHECK_SKILL_MD);
+    writeFile(join(mattstackPluginDir, "skills", "pipeline", "gate-check", "index.block.md"), GATE_CHECK_SKILL_MD);
 
     const manifestPath = makeManifestAt("{}");
 
@@ -571,7 +506,6 @@ const PIPELINE_STAGE_PLAN_SKILL_MD = `---
 name: stage-plan
 description: "Plan the work"
 type: pipeline-step
-slots: {}
 metadata:
   stage: plan
 ---
@@ -583,8 +517,8 @@ function makePipelineMattstackDir(): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-pipeline-mattstack-")));
   const mattstackPluginDir = join(dir, "plugins", "mattstack");
   writeFile(join(mattstackPluginDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
-  writeFile(join(mattstackPluginDir, "attachments", "pipeline", "work", "SKILL.md"), PIPELINE_WORK_SKILL_MD);
-  writeFile(join(mattstackPluginDir, "attachments", "pipeline", "stage-plan", "SKILL.md"), PIPELINE_STAGE_PLAN_SKILL_MD);
+  writeFile(join(mattstackPluginDir, "attachments", "pipeline", "work", "index.block.md"), PIPELINE_WORK_SKILL_MD);
+  writeFile(join(mattstackPluginDir, "attachments", "pipeline", "stage-plan", "index.block.md"), PIPELINE_STAGE_PLAN_SKILL_MD);
   return dir;
 }
 

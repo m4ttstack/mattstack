@@ -53,13 +53,14 @@ import { validateChain } from "../lib/skills/chain.ts";
 import { fieldContractErrors, routeFieldContract, type CompiledDoc } from "../lib/skills/field-contract.ts";
 import { pipelinesWrite } from "../lib/skills/pipeline-manifest.ts";
 import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan, type EmittedAttachment } from "../lib/skills/base-attachments.ts";
-import { compileSkill, hasCompiledHeader, isInlined, type CompileSkillOpts } from "../lib/skills/compile.ts";
-import { blockPropValues, compileBlockSkill, includeSitesIn, oldSlotBindingMessage, replacedSlots, unclaimedBlockKeys, type BlockValues } from "../lib/skills/compile-blocks.ts";
+import { dedupePreserveOrder, hasCompiledHeader, isInlined, type CompileSkillOpts } from "../lib/skills/compile.ts";
+import { blockPropValues, compileBlockSkill, includeNamesIn, includeSitesIn, oldSlotBindingMessage, replacedSlots, unclaimedBlockKeys, type BlockValues } from "../lib/skills/compile-blocks.ts";
+import { keptLayers, type LayerValue } from "../lib/skills/blocks/props.ts";
 import { BlockError, formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { buildBlocksPayload, type BlocksPayload, type PayloadBlock } from "../lib/skills/blocks/payload.ts";
-import { walk } from "../lib/skills/blocks/tree.ts";
-import type { Block as BlockNode, BlockTree } from "../lib/skills/blocks/types.ts";
-import { buildParts, linksIn, partsFromMarkers, partsOnDisk, withSectionParts, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
+import { isBlockTree, walk } from "../lib/skills/blocks/tree.ts";
+import type { Block as BlockNode, BlockTree, PropSpec } from "../lib/skills/blocks/types.ts";
+import { linksIn, partsFromMarkers, type AnatomyPayload, type AnatomySource } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
@@ -71,11 +72,11 @@ import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
-import { assertNoTeamMarkerInAllowedTools, findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
+import { assertNoTeamMarkerInAllowedTools, findPlaceholders } from "../lib/skills/placeholders.ts";
 import { newTeamContext, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
 import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
-import { defaultPipeline, lastWinsBindings, engineRefOf, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
+import { defaultPipeline, effectiveBindings, engineRefOf, lastWinsBindings, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -84,6 +85,7 @@ import {
   loadAttachment,
   loadInclude,
   loadStepSource,
+  NotABlockTreeError,
   orgBasePackRoots,
   orgOfPackDir,
   parseStageQualifiedName,
@@ -707,25 +709,6 @@ async function resolve(flags: Flags): Promise<Resolved> {
   };
 }
 
-function loadFillsFor(step: StepSource, resolved: Resolved, where: string, pipeline?: string): Record<string, AttachmentSource | null> {
-  const overrides = pipeline !== undefined && Object.hasOwn(resolved.pipelineBindings, pipeline) ? resolved.pipelineBindings[pipeline] : undefined;
-  const slotBindings = lastWinsBindings(resolved.bindings, overrides, `${step.plugin}:${step.name}`);
-  const fills: Record<string, AttachmentSource | null> = {};
-  for (const slotName of Object.keys(step.slots)) {
-    const bindingName = slotBindings[slotName];
-    if (!bindingName) {
-      fills[slotName] = null;
-      continue;
-    }
-    try {
-      fills[slotName] = loadAttachment(bindingName, slotName, resolved.pluginRoots);
-    } catch (err) {
-      throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
-    }
-  }
-  return fills;
-}
-
 /** Composition and compile share this scan so their include lists cannot drift. */
 function includeNames(bodies: string[]): string[] {
   const names: string[] = [];
@@ -737,35 +720,9 @@ function includeNames(bodies: string[]): string[] {
   return names;
 }
 
-/**
- * Scans the step body plus every INLINED bound fill's body, so a fill's own
- * `{{include}}` lines resolve too -- a reference-mode fill's body never
- * reaches the compiled output, so an `{{include}}` line inside one names
- * nothing a compile emits.
- */
-function loadIncludesFor(
-  step: StepSource,
-  fills: Record<string, AttachmentSource | null>,
-  resolved: Resolved,
-  where: string,
-): Record<string, AttachmentSource> {
-  const loaded: Record<string, AttachmentSource> = {};
-  const fillBodies = Object.values(fills)
-    .filter((f): f is AttachmentSource => f !== null && isInlined(f, resolved.internalRoster))
-    .map((f) => f.body);
-  for (const name of includeNames([step.body, ...fillBodies])) {
-    try {
-      loaded[name] = loadInclude(name, resolved.pluginRoots);
-    } catch (err) {
-      throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
-    }
-  }
-  return loaded;
-}
-
-/** A block engine's text, for the placeholder scans a slot engine's body gets. */
+/** Every block's text, joined, for the scans that look for one placeholder anywhere in an engine. */
 function stepText(step: StepSource): string {
-  return step.tree ? walk(step.tree).map((b) => b.text).join("\n") : step.body;
+  return walk(step.tree).map((b) => b.text).join("\n");
 }
 
 /** Block text names includes, and an include tree's text names more, so the walk follows tree includes until none is new. */
@@ -787,7 +744,7 @@ function loadBlockIncludes(tree: BlockTree, resolved: Resolved): Record<string, 
   return loaded;
 }
 
-/** An inlined value's own `{{include}}` lines render as flat includes, the way an inlined slot fill's do. */
+/** An inlined value's own `{{include}}` lines render as flat includes. */
 function loadValueIncludes(values: BlockValues, loaded: Record<string, AttachmentSource>, resolved: Resolved, where: string): void {
   const bodies = [...values.values()].flatMap((props) => [...props.values()].flatMap((v) => v.sources.filter((s) => s.mode === "inline").map((s) => s.fill.body)));
   for (const name of includeNames(bodies)) {
@@ -811,7 +768,7 @@ function loadPropValuesFor(
   const path = resolved.manifestPath;
   const pipelineLayered = path ? readManifestPipelineLayered(path) : {};
   const trees = [
-    { tree: step.tree!, plugin: step.plugin, version: step.version },
+    { tree: step.tree, plugin: step.plugin, version: step.version },
     ...Object.values(includes).flatMap((inc) => (inc.tree ? [{ tree: inc.tree, plugin: inc.plugin, version: inc.version }] : [])),
   ];
   for (const { tree, plugin } of trees) resolved.claimedTrees.add(`${plugin}:${tree.root.id}`);
@@ -824,7 +781,7 @@ function loadPropValuesFor(
         pipelineSections: pipelineLayered,
         ...(pipeline !== undefined && Object.hasOwn(pipelineLayered, pipeline) ? { pipeline, pipelineLayered: pipelineLayered[pipeline] } : {}),
       },
-      (binding, prop) => loadAttachment(binding, prop, resolved.pluginRoots, "prop"),
+      (binding, prop) => loadAttachment(binding, prop, resolved.pluginRoots),
       resolved.internalRoster,
     );
   } catch (err) {
@@ -851,36 +808,25 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
       seen.add(entry.name);
       const step = loadStepSource(entry.engine, resolved.pluginRoots);
       rules.push(...step.allowedTools);
-      if (step.tree) {
-        const where = `stage "${entry.name}"`;
-        const values = loadPropValuesFor(step, resolved, where, type, loadBlockIncludes(step.tree, resolved));
-        for (const props of values.values()) {
-          for (const value of props.values()) {
-            for (const { fill } of value.sources) {
-              assertNoTeamMarkerInAllowedTools(fill);
-              rules.push(...fill.allowedTools);
-            }
+      const values = loadPropValuesFor(step, resolved, `stage "${entry.name}"`, type, loadBlockIncludes(step.tree, resolved));
+      for (const props of values.values()) {
+        for (const value of props.values()) {
+          for (const { fill } of value.sources) {
+            assertNoTeamMarkerInAllowedTools(fill);
+            rules.push(...fill.allowedTools);
           }
         }
-        continue;
-      }
-      for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`, type))) {
-        if (!fill) continue;
-        assertNoTeamMarkerInAllowedTools(fill);
-        rules.push(...fill.allowedTools);
       }
     }
   }
   return rules;
 }
 
+/** What a compile resolved, for anatomy and blocks: the engine, its includes and every block's prop values. */
 type CompileAnatomy = {
   step: StepSource;
   includes: Record<string, AttachmentSource>;
-  fills: Record<string, AttachmentSource | null>;
-  slotMode: Record<string, "inline" | "reference">;
-  /** Set for a block engine: every block's resolved prop values. */
-  values?: BlockValues;
+  values: BlockValues;
 };
 
 function compileVerb(
@@ -888,9 +834,8 @@ function compileVerb(
   resolved: Resolved,
   emittedTargetDirs: string[],
   verbSides: Record<string, Side>,
-  trace?: (entry: TraceEntry) => void,
   planned?: PlannedAttachments,
-): CompileResult & { anatomy?: CompileAnatomy } {
+): CompileResult & { anatomy: CompileAnatomy } {
   const { isPublic, isStage } = target;
   let verb = target.verb;
   const where = `${isStage ? "stage" : "verb"} "${verb.name}"`;
@@ -939,34 +884,22 @@ function compileVerb(
     side: isPublic ? "skills" : "attachments",
     plannedAttachments: planned,
     pipeline,
-    trace,
   });
 
   try {
-    if (step.tree) {
-      const includes = loadBlockIncludes(step.tree, resolved);
-      const values = loadPropValuesFor(step, resolved, where, isStage ? verb.pipeline : undefined, includes);
-      loadValueIncludes(values, includes, resolved, where);
-      const result = compileBlockSkill(verb, { ...step, tree: step.tree }, values, resolved.invocable, opts(includes));
-      if (result.diagnostics.length > 0) throw new BlockError(result.diagnostics);
-      return trace ? { ...result, anatomy: { step, includes, fills: {}, slotMode: {}, values } } : result;
-    }
-    const fills = loadFillsFor(step, resolved, where, isStage ? verb.pipeline : undefined);
-    const includes = loadIncludesFor(step, fills, resolved, where);
-    const result = compileSkill(verb, step, fills, resolved.invocable, opts(includes));
-    if (!trace) return result;
-    const slotMode: Record<string, "inline" | "reference"> = {};
-    for (const [slot, fill] of Object.entries(fills)) {
-      if (fill) slotMode[slot] = isInlined(fill, resolved.internalRoster) ? "inline" : "reference";
-    }
-    return { ...result, anatomy: { step, includes, fills, slotMode } };
+    const includes = loadBlockIncludes(step.tree, resolved);
+    const values = loadPropValuesFor(step, resolved, where, isStage ? verb.pipeline : undefined, includes);
+    loadValueIncludes(values, includes, resolved, where);
+    const result = compileBlockSkill(verb, step, values, resolved.invocable, opts(includes));
+    if (result.diagnostics.length > 0) throw new BlockError(result.diagnostics);
+    return { ...result, anatomy: { step, includes, values } };
   } catch (err) {
     if (err instanceof BlockError) throw new SkillsUsageError(err.message);
     const message = (err as Error).message;
-    // loadFillsFor/loadIncludesFor's SkillsUsageError already carries this same
-    // `where` prefix; a bare Error from compileSkill (e.g. a fill's own
-    // {{slot}} misuse) never does, and would otherwise surface with no verb
-    // or stage named at all.
+    // loadPropValuesFor/loadValueIncludes's SkillsUsageError already carries
+    // this same `where` prefix; a bare Error from compileBlockSkill (e.g. a
+    // fill's own illegal placeholder) never does, and would otherwise surface
+    // with no verb or stage named at all.
     const isPrefixed = err instanceof SkillsUsageError || message.startsWith(`${where}: `);
     throw new SkillsUsageError(isPrefixed ? message : `${where}: ${message}`);
   }
@@ -1029,7 +962,7 @@ type CompileOutcome = { ok: true; result: CompileResult } | { ok: false; message
 
 /**
  * compileVerb fails two ways: it throws (loadStepSource/loadAttachment/
- * compileSkill's lints and resolveBoundSlots), or it returns a result whose
+ * compileBlockSkill's lints and prop resolution), or it returns a result whose
  * errors[] is non-empty (lintInternalRoster only). Every skillsCompile mode
  * needs both outcomes as data rather than a thrown SkillsUsageError -- --json
  * and --preview to report them, the writing mode to collect every target's
@@ -1038,7 +971,7 @@ type CompileOutcome = { ok: true; result: CompileResult } | { ok: false; message
 function tryCompileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDirs: string[], verbSides: Record<string, Side>, planned?: PlannedAttachments): CompileOutcome {
   const { verb, isStage } = target;
   try {
-    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides, undefined, planned);
+    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides, planned);
     if (result.errors.length > 0) {
       return { ok: false, message: `${isStage ? "stage" : "verb"} "${verb.name}": ${result.errors.join("; ")}` };
     }
@@ -1316,7 +1249,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
       const { verb, isPublic } = target;
-      // A pack's own engine source may live at attachments/<verb>/SKILL.md while
+      // A pack's own engine source may live at attachments/<verb>/ while
       // its door compiles into skills/<verb>/: the other side is only stale when
       // it carries the compiler header, never when it is the hand-written source.
       const stale = otherSideDir(resolved.packDir, verb.name, isPublic);
@@ -2031,12 +1964,10 @@ export async function skillsPacks(args: string[]): Promise<void> {
 
 type OriginFields = Partial<Origin>;
 
-type CompositionSlot = {
-  name: string;
-  contract: string;
-  required: boolean;
-  boundTo: string | null;
-  layer: string | null;
+/** One value a prop keeps for the default pipeline; a prop no layer binds keeps its non-empty `default` as layer "default". */
+type CompositionPropValue = {
+  boundTo: string;
+  layer: string;
   // Fill fields (registered/inlined/fillVersion/fillSourcePath) are the
   // PLUGIN's version, not the fill's own -- AttachmentSource.version is
   // assigned pluginRoot.version, so every fill from one plugin reports an
@@ -2050,6 +1981,10 @@ type CompositionSlot = {
   resolveError?: string;
 } & OriginFields;
 
+type CompositionPropSpec = { name: string; merge: "add" | "replace"; contract: string | null; required: boolean; default: string | null };
+
+type CompositionProp = CompositionPropSpec & { values: CompositionPropValue[] };
+
 type CompositionVerb = {
   name: string;
   engine: string;
@@ -2059,7 +1994,8 @@ type CompositionVerb = {
   public: boolean;
   sourcePath: string | null;
   artifactPath: string;
-  slots: CompositionSlot[];
+  /** Keyed by block id; only blocks that declare a prop appear. */
+  props: Record<string, CompositionProp[]>;
   includes: string[];
   engineError?: string;
   /** The pipeline a work verb runs, when its stub names one. */
@@ -2073,11 +2009,11 @@ type CompositionBinder = {
   verb: string | null;
   kind: CompositionBinderKind;
   /**
-   * `layer` names the bindings layer that set the slot, as a verb slot's does.
-   * `boundTo` is "" when only pipeline overrides bind the slot; `overrides` is
+   * `layer` names the bindings layer that set the prop's last value.
+   * `boundTo` is "" when only pipeline overrides bind the prop; `overrides` is
    * present only when a pipeline overrides it.
    */
-  slots: ({ name: string; boundTo: string; layer: string | null; overrides?: CompositionBinderOverride[] } & OriginFields)[];
+  props: ({ name: string; boundTo: string; layer: string | null; overrides?: CompositionBinderOverride[] } & OriginFields)[];
 };
 
 type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean } & OriginFields;
@@ -2088,10 +2024,10 @@ type CompositionTarget = {
   public: boolean;
   artifactPath: string;
   templatePath: string | null;
-  /** Line numbers count the engine file's frontmatter, so they open the template at the right line. */
-  placeholders: { kind: string; arg: string | null; line: number }[];
-  /** The slots the template declares, so a stage's slots are known without a roster entry. */
-  slots: { name: string; contract: string; required: boolean }[];
+  /** `file` is the block file, relative to its plugin; line numbers count that file's frontmatter, so they open it at the right line. */
+  placeholders: { kind: string; arg: string | null; file: string; line: number }[];
+  /** The props the template's blocks declare, keyed by block id, so a stage's props are known without a roster entry. */
+  props: Record<string, CompositionPropSpec[]>;
   engineError: string | null;
   /** A stage copy's own stage and the pipeline it was compiled for; absent on every other target. */
   engine?: string;
@@ -2103,7 +2039,7 @@ export type CompositionPayload = {
   packDir: string;
   /**
    * The manifest that supplies these bindings, absolute -- the file to edit to
-   * rebind a slot. For a team pack it lives in a registered repo under
+   * rebind a prop. For a team pack it lives in a registered repo under
    * `~/.mattstack/repos/<repoName>/`, whose dir name is the repo, not the
    * pack, so it cannot be reconstructed from `pack`; a standalone pack's is
    * its own `<packDir>/pack/skills.jsonc`. Null when the pack has no roster
@@ -2128,10 +2064,10 @@ export type CompositionPayload = {
 };
 
 /**
- * Per-verb degradation: loadStepSource throws above the slot loop (no
- * mattstack root, engine not found, or frontmatter.type !== "pipeline-step")
- * -- any one of those would otherwise blank the whole composition payload
- * before a single verb is emitted. engineRef/plugin/sourcePath are derived
+ * Per-verb degradation: loadStepSource throws before any prop is read (no
+ * mattstack root, engine not found or not a block tree, or the root not typed
+ * "pipeline-step") -- any one of those would otherwise blank the whole
+ * composition payload before a single verb is emitted. engineRef/plugin/sourcePath are derived
  * from the loaded step, so a failed load genuinely has no bindings key: null
  * is the honest value, and the verb still appears rather than vanishing.
  */
@@ -2153,7 +2089,7 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
       public: isPublic,
       sourcePath: null,
       artifactPath,
-      slots: [],
+      props: {},
       includes: [],
       engineError: (err as Error).message,
       ...pipelineField,
@@ -2161,39 +2097,25 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
   }
 
   const engineRef = `${step.plugin}:${verb.engine}`;
-  const slotBindings = resolved.bindings[engineRef] ?? {};
   const stepPluginDir = resolved.pluginRoots.byName[step.plugin]?.dir ?? null;
   const sourcePath = stepPluginDir ? join(stepPluginDir, step.srcPath) : null;
+  const layered = resolved.manifestPath ? readManifestLayered(resolved.manifestPath) : {};
 
   const fillBodies: string[] = [];
-  const slots: CompositionSlot[] = Object.entries(step.slots).map(([slotName, spec]) => {
-    const boundTo = slotBindings[slotName] ?? null;
-    // required is optional on SlotSpec; default it explicitly so JSON carries
-    // "not required" rather than silently dropping the key.
-    const base = {
-      name: slotName,
-      contract: spec.contract,
-      required: spec.required ?? false,
-      boundTo,
-      layer: boundTo ? resolved.provenance[`${engineRef} ${slotName}`] ?? null : null,
-    };
-
-    if (!boundTo) {
-      return { ...base, fillSourcePath: null, fillVersion: null, registered: null, inlined: null };
-    }
-
-    // Per-slot degradation: loadAttachment throws on an unresolvable binding
+  const value = (prop: string, { layer, value: boundTo }: LayerValue): CompositionPropValue => {
+    // Per-value degradation: loadAttachment throws on an unresolvable binding
     // and on a fill missing metadata.provides -- one dangling binding must
-    // not take down every other slot's data, let alone the whole payload.
+    // not take down every other prop's data, let alone the whole payload.
     try {
-      const fill = loadAttachment(boundTo, slotName, resolved.pluginRoots);
+      const fill = loadAttachment(boundTo, prop, resolved.pluginRoots);
       const inlined = isInlined(fill, resolved.internalRoster);
       // A reference-mode fill's body never reaches the compiled output, so its
       // own {{include}} lines resolve nothing a compile emits either.
       if (inlined) fillBodies.push(fill.body);
       const fillPluginDir = resolved.pluginRoots.byName[fill.plugin]?.dir ?? null;
       return {
-        ...base,
+        boundTo,
+        layer,
         fillSourcePath: fillPluginDir ? join(fillPluginDir, fill.srcPath) : null,
         fillVersion: fill.version,
         registered: fill.registered,
@@ -2201,16 +2123,20 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
         ...originFor(resolved.pluginRoots, fill.plugin, fill.dir),
       };
     } catch (err) {
-      return {
-        ...base,
-        fillSourcePath: null,
-        fillVersion: null,
-        registered: null,
-        inlined: null,
-        resolveError: (err as Error).message,
-      };
+      return { boundTo, layer, fillSourcePath: null, fillVersion: null, registered: null, inlined: null, resolveError: (err as Error).message };
     }
-  });
+  };
+
+  const props: Record<string, CompositionProp[]> = {};
+  for (const block of walk(step.tree)) {
+    if (block.props.length === 0) continue;
+    const layers = effectiveBindings(layered, undefined, `${step.plugin}:${block.id}`);
+    props[block.id] = block.props.map((spec) => {
+      const { kept } = keptLayers(spec, layers[spec.name] ?? []);
+      const values = kept.length > 0 || !spec.default ? kept : [{ layer: "default", value: spec.default }];
+      return { ...propSpecOf(spec), values: values.map((v) => value(spec.name, v)) };
+    });
+  }
 
   return {
     name: verb.name,
@@ -2221,10 +2147,14 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
     public: isPublic,
     sourcePath,
     artifactPath,
-    slots,
-    includes: includeNames([step.body, ...fillBodies]),
+    props,
+    includes: dedupePreserveOrder([...includeNamesIn(step.tree), ...includeNames(fillBodies)]),
     ...pipelineField,
   };
+}
+
+function propSpecOf(spec: PropSpec): CompositionPropSpec {
+  return { name: spec.name, merge: spec.merge, contract: spec.contract, required: spec.default === null, default: spec.default };
 }
 
 /** A shared engine's binder names the verb that runs the default pipeline; with no default, the verb naming no pipeline, else the first listed. */
@@ -2280,22 +2210,22 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
           ? "skill"
           : "external";
     const defaults = Object.hasOwn(resolved.bindings, ref) ? resolved.bindings[ref]! : {};
-    const slotOverrides = (name: string): CompositionBinderOverride[] =>
+    const propOverrides = (name: string): CompositionBinderOverride[] =>
       overridesByPipeline.flatMap(([pipeline, overrides]) => {
-        const slots = Object.hasOwn(overrides, ref) ? overrides[ref]! : {};
-        if (!Object.hasOwn(slots, name)) return [];
-        return [{ pipeline, boundTo: slots[name]!, layer: resolved.provenance[pipelineBindingKey(pipeline, ref, name)] ?? null }];
+        const props = Object.hasOwn(overrides, ref) ? overrides[ref]! : {};
+        if (!Object.hasOwn(props, name)) return [];
+        return [{ pipeline, boundTo: props[name]!, layer: resolved.provenance[pipelineBindingKey(pipeline, ref, name)] ?? null }];
       });
-    const slotNames = new Set(Object.keys(defaults));
+    const propNames = new Set(Object.keys(defaults));
     for (const [, overrides] of overridesByPipeline) {
-      if (Object.hasOwn(overrides, ref)) for (const name of Object.keys(overrides[ref]!)) slotNames.add(name);
+      if (Object.hasOwn(overrides, ref)) for (const name of Object.keys(overrides[ref]!)) propNames.add(name);
     }
     return {
       ref,
       verb: verbName,
       kind,
-      slots: [...slotNames].map((name) => {
-        const overrides = slotOverrides(name);
+      props: [...propNames].map((name) => {
+        const overrides = propOverrides(name);
         const base = Object.hasOwn(defaults, name)
           ? { name, boundTo: defaults[name]!, layer: resolved.provenance[`${ref} ${name}`] ?? null, ...bindingOrigin(resolved.pluginRoots, defaults[name]!) }
           : { name, boundTo: "", layer: null };
@@ -2305,7 +2235,7 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
   });
 }
 
-/** A binder slot names its fill only by binding, so its origin is found where the verb slot's is: the dir loadAttachment resolves. */
+/** A binder prop names its fill only by binding, so its origin is found where a verb prop's is: the dir loadAttachment resolves. */
 function bindingOrigin(roots: PluginRoots, boundTo: string): Partial<Origin> {
   const plugin = boundTo.split(":")[0] ?? "";
   try {
@@ -2317,14 +2247,17 @@ function bindingOrigin(roots: PluginRoots, boundTo: string): Partial<Origin> {
 
 /** A `{{pipeline.table}}` expands to a `verb.path` per row, so a stage flipping public or internal still lists the work verb for rebuild. */
 function compositionPlaceholders(step: StepSource, target: CompileTarget, resolved: Resolved): CompositionTarget["placeholders"] {
-  return findPlaceholders(step.body).flatMap((p) => {
-    const line = step.bodyStartLine + p.line - 1;
-    if (p.kind !== "pipeline.table" || target.isStage) return [{ kind: p.kind, arg: p.arg, line }];
-    const { pipeline } = verbPipeline(target.verb, resolved.pipelines);
-    const entries = pipeline === null ? undefined : resolved.stageEntries[pipeline];
-    if (!entries) return [{ kind: p.kind, arg: p.arg, line }];
-    return entries.map((e) => ({ kind: "verb.path", arg: e.name, line }));
-  });
+  return walk(step.tree).flatMap((block) =>
+    findPlaceholders(block.text).flatMap((p) => {
+      const at = { file: block.relPath, line: block.textStartLine + p.line - 1 };
+      if (p.kind.startsWith("props.")) return [{ kind: "prop", arg: `${block.id}.${p.kind.slice("props.".length)}`, ...at }];
+      if (p.kind !== "pipeline.table" || target.isStage) return [{ kind: p.kind, arg: p.arg, ...at }];
+      const { pipeline } = verbPipeline(target.verb, resolved.pipelines);
+      const entries = pipeline === null ? undefined : resolved.stageEntries[pipeline];
+      if (!entries) return [{ kind: p.kind, arg: p.arg, ...at }];
+      return entries.map((e) => ({ kind: "verb.path", arg: e.name, ...at }));
+    }),
+  );
 }
 
 function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): CompositionTarget[] {
@@ -2341,11 +2274,11 @@ function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): Composi
       kind: t.isStage ? "stage" : "verb",
       public: t.isPublic,
       artifactPath: join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md"),
-      templatePath: step ? join(step.dir, "SKILL.md") : null,
+      templatePath: step ? step.tree.root.path : null,
       placeholders: step ? compositionPlaceholders(step, t, resolved) : [],
-      slots: step
-        ? Object.entries(step.slots).map(([name, spec]) => ({ name, contract: spec.contract, required: spec.required ?? false }))
-        : [],
+      props: step
+        ? Object.fromEntries(walk(step.tree).filter((b) => b.props.length > 0).map((b) => [b.id, b.props.map(propSpecOf)]))
+        : {},
       engineError,
       ...(t.isStage && t.verb.pipeline !== undefined ? { engine: t.verb.engine, pipeline: t.verb.pipeline } : {}),
     };
@@ -2359,7 +2292,7 @@ function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): Composi
  * bare names and no provides. This walks every plugin root's skills/ AND
  * attachments/ and keeps only entries carrying frontmatter metadata.provides
  * -- that field is what makes an entry a fill rather than a roster/verb
- * skill (a pipeline-step SKILL.md has slots, not provides).
+ * skill.
  */
 function enumerateFills(pluginRoots: PluginRoots): CompositionFill[] {
   const fills: CompositionFill[] = [];
@@ -2394,10 +2327,14 @@ export function compositionBlocks(payload: CompositionPayload): Block[] {
       ? out.line("failed", verb.name, verb.engineError)
       : out.tree(
           [out.strong(verb.name), "  ", out.dim(`${verb.engineRef ?? verb.engine}, ${verb.public ? "public" : "internal"}`)],
-          verb.slots.map((slot) => {
-            const bound = slot.resolveError ? `error: ${slot.resolveError}` : (slot.boundTo ?? "not bound");
-            return slot.layer ? [slot.name, bound, out.dim(slot.layer)] : [slot.name, bound];
-          }),
+          Object.entries(verb.props).flatMap(([block, props]) =>
+            props.map((prop) => {
+              const name = `${block}.${prop.name}`;
+              if (prop.values.length === 0) return [name, "not bound"];
+              const bound = prop.values.map((v) => (v.resolveError ? `error: ${v.resolveError}` : v.boundTo)).join(", ");
+              return [name, bound, out.dim(prop.values.map((v) => v.layer).join(", "))];
+            }),
+          ),
         ),
   );
   return [out.section(`Pack ${payload.pack}`, undefined, ...verbs), out.kv("Fills", String(payload.fills.length)), out.kv("Binders", String(payload.binders.length))];
@@ -2452,7 +2389,8 @@ export async function skillsComposition(args: string[]): Promise<void> {
 
 // ─── rt skills anatomy ─────────────────────────────────────────────────────
 
-const STEP_VERSION_RE = /^<!-- part: step .*?\bversion=(\S+) /m;
+/** The engine root's seam is the file's first block seam, and it carries the engine's version. */
+const ROOT_VERSION_RE = /^<!-- part: block:\S+ .*?\bversion=(\S+) /m;
 
 /** A file's line count as an editor shows it: the trailing newline ends the last line rather than starting another. */
 function fileLineCount(text: string): number {
@@ -2487,27 +2425,38 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     }
 
     const basePlan = requireBasePlan(resolved, plan.verbSides);
-    const trace: TraceEntry[] = [];
-    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, (e) => trace.push(e), plannedAttachmentsOf(basePlan));
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, plannedAttachmentsOf(basePlan));
     refuseMissingValues(resolved);
     const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
-    if (!main || !("content" in main) || !result.anatomy) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
+    if (!main || !("content" in main)) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
     const fresh = main.content;
-    const { step, includes, fills, slotMode } = result.anatomy;
+    const { step, includes, values } = result.anatomy;
     const renderedPath = join(outDirFor(resolved.packDir, skill, target.isPublic), "SKILL.md");
     const onDisk = readIfExists(renderedPath);
     const shown = onDisk ?? fresh;
 
     const builtVersions = new Map(partExtents(onDisk ?? "").map((p) => [p.key, p.version]));
     const sources: Record<string, AnatomySource> = {};
+    // A tree include renders through block seams of its own, so only a flat include has an include part.
     for (const [name, inc] of Object.entries(includes)) {
+      if (inc.tree) continue;
       const key = `include:${name}`;
       sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersions.get(key) ?? null, lines: inc.body.split("\n").length, ...originFor(resolved.pluginRoots, inc.plugin, inc.dir) };
     }
-    for (const [slot, fill] of Object.entries(fills)) {
-      if (!fill) continue;
-      const key = `slot:${slot}`;
-      sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length, ...originFor(resolved.pluginRoots, fill.plugin, fill.dir) };
+    // An add prop renders one part per value under the same key, so each part takes its value's source in order.
+    const propSources = new Map<string, AnatomySource[]>();
+    for (const [id, props] of values) {
+      for (const [name, value] of props) {
+        const key = `prop:${id}.${name}`;
+        propSources.set(key, value.sources.map(({ fill }) => ({
+          ref: fill.binding,
+          path: join(fill.dir, fill.file ?? "SKILL.md"),
+          version: fill.version,
+          builtVersion: builtVersions.get(key) ?? null,
+          lines: fill.body.split("\n").length,
+          ...originFor(resolved.pluginRoots, fill.plugin, fill.dir),
+        })));
+      }
     }
     const team = resolved.teamContext?.values;
     if (team) {
@@ -2517,24 +2466,16 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         sources[extent.key] = { ref: `${team.plugin}:pack/sections/${name}.md`, path: join(resolved.packDir, "pack", "sections", `${name}.md`), version: team.version, builtVersion: builtVersions.get(extent.key) ?? null, lines: extent.text.split("\n").length };
       }
     }
-    const targets: Record<string, AnatomyTarget> = {};
-    for (const t of plan.targets) {
-      const path = join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md");
-      const text = readIfExists(path);
-      targets[t.verb.name] = { skill: t.verb.name, path, lines: text === null ? null : fileLineCount(text) };
-    }
-
-    const bodyOffset = fresh.split("\n").findIndex((l) => l.startsWith("<!-- part: step ")) + 2;
     const changedKeys = onDisk ? changedPartKeys(onDisk, fresh) : new Set<string>();
     // check masks the compiler's version and sha stamps before comparing, and so must this, or the two disagree.
     const staleBecause = onDisk ? skillMdDriftCauses(maskProvenance(onDisk), maskProvenance(fresh)) : [];
     const status = onDisk === null ? "never-compiled" : staleBecause.length > 0 ? "stale" : "in-sync";
-    let parts = trace.length > 0
-      ? buildParts({ bodyStartLine: step.bodyStartLine, bodyOffset, trace, sources, targets, slotModes: slotMode, changedKeys })
-      : partsFromMarkers(shown, sources, changedKeys);
-    if (trace.length > 0) parts = withSectionParts(parts, fresh, sources, changedKeys);
-    if (trace.length > 0 && onDisk !== null && status === "stale") parts = partsOnDisk(parts, onDisk);
-    const templatePath = step.tree ? step.tree.root.path : join(step.dir, "SKILL.md");
+    const parts = partsFromMarkers(shown, sources, changedKeys).map((part) => {
+      if (part.kind !== "prop") return part;
+      const source = propSources.get(`prop:${part.name}`)?.shift();
+      return source ? { ...part, source } : part;
+    });
+    const templatePath = step.tree.root.path;
 
     const payload: AnatomyPayload = {
       pack: resolved.team,
@@ -2546,7 +2487,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         ref: `${step.plugin}:${step.name}`,
         path: templatePath,
         version: step.version,
-        builtVersion: onDisk ? STEP_VERSION_RE.exec(onDisk)?.[1] ?? null : null,
+        builtVersion: onDisk ? ROOT_VERSION_RE.exec(onDisk)?.[1] ?? null : null,
         lines: fileLineCount(readFileSync(templatePath, "utf8")),
         ...originFor(resolved.pluginRoots, step.plugin, step.dir),
       },
@@ -2605,24 +2546,22 @@ export async function skillsBlocks(args: string[]): Promise<void> {
       });
     }
 
-    // Before compiling, so a slot engine that would not compile still answers not-a-block-tree.
-    let engine: StepSource;
+    // Before compiling, so an engine with no block tree answers not-a-block-tree rather than a load error.
     try {
-      engine = loadStepSource(target.verb.engine, resolved.pluginRoots);
+      loadStepSource(target.verb.engine, resolved.pluginRoots);
     } catch (err) {
+      if (err instanceof NotABlockTreeError) return refuseNotABlockTree(skill, flags.json);
       if (err instanceof BlockError) throw new SkillsUsageError(err.message);
       throw new SkillsUsageError(`skill "${skill}": ${(err as Error).message}`);
     }
-    if (!engine.tree) return refuseNotABlockTree(skill, flags.json);
 
     const basePlan = requireBasePlan(resolved, plan.verbSides);
-    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, () => {}, plannedAttachmentsOf(basePlan));
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, plannedAttachmentsOf(basePlan));
     refuseMissingValues(resolved);
     const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
-    const tree = result.anatomy?.step.tree;
-    const values = result.anatomy?.values;
-    if (!main || !("content" in main) || !result.anatomy || !tree || !values) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
-    const { step, includes } = result.anatomy;
+    if (!main || !("content" in main)) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
+    const { step, includes, values } = result.anatomy;
+    const tree = step.tree;
 
     const payload = buildBlocksPayload({
       pack: resolved.team,
@@ -2980,8 +2919,9 @@ async function resolveSurfacePaths(flags: SurfaceFlags): Promise<{ packDir: stri
   return { packDir: target.packDir };
 }
 
+/** A block tree is engine source, never compile output, so it is never swept as a stale compiled dir. */
 function isHandWrittenDir(dir: string): boolean {
-  return existsSync(join(dir, "SKILL.md")) && !isCompiledDir(dir);
+  return isBlockTree(dir) || (existsSync(join(dir, "SKILL.md")) && !isCompiledDir(dir));
 }
 
 function isCompiledDir(dir: string): boolean {
@@ -2995,7 +2935,7 @@ function classify(name: string, dir: string | null, verbNames: Set<string>): "co
   return "hand-authored";
 }
 
-/** An engine a team pack compiles from: published as-is, its slots would ship unfilled. */
+/** An engine a team pack compiles from: published as-is, its placeholders would ship unfilled. */
 function isTemplate(name: string, dir: string | undefined, verbNames: Set<string>, stageNames: Set<string>): boolean {
   if (!dir || verbNames.has(name) || stageNames.has(name) || isCompiledDir(dir)) return false;
   const skillMd = join(dir, "SKILL.md");
@@ -3959,7 +3899,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       if (err instanceof BlockError) throw new SkillsUsageError(err.message);
       throw new SkillsUsageError(`verb "${verbName}": ${(err as Error).message}`);
     }
-    const tree = step.tree!;
+    const tree = step.tree;
 
     if (typedPlugin !== null && typedPlugin !== step.plugin) {
       throw new SkillsUsageError(`"${typedName}" names plugin ${typedPlugin}, but ${verbName} comes from ${step.plugin}; bind ${verbName} or ${step.plugin}:${verbName}`);
@@ -4000,7 +3940,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       // validation failure here, instead of surfacing as an uncaught crash.
       let attachment;
       try {
-        attachment = loadAttachment(fill ?? "", spec.name, resolved.pluginRoots, "prop");
+        attachment = loadAttachment(fill ?? "", spec.name, resolved.pluginRoots);
       } catch (err) {
         throw new SkillsUsageError((err as Error).message);
       }

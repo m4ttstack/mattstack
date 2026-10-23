@@ -22,6 +22,7 @@ import { AttachmentLoadError } from "./sources.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlaceholderContext, StepSource, VerbDef } from "./types.ts";
 
 const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
+const RESOLVER_RE = /\bresolve-args\.sh\b/;
 
 export type BlockValues = Map<string /* block id */, Map<string /* prop */, PropValue>>;
 
@@ -248,15 +249,14 @@ function placedBlocks(trees: BlockTree[]): Placed[] {
 }
 
 /**
- * Builds a block-tree engine into the same one-file SKILL.md `compileSkill`
- * writes for a slot engine. `opts.includes` carries flat and tree includes
- * alike; a tree include renders through its blocks, a flat one through
- * today's `include:` part. Render diagnostics come back in `diagnostics`
- * with no files.
+ * Builds a block-tree engine into one SKILL.md. `opts.includes` carries flat
+ * and tree includes alike; a tree include renders through its blocks, a flat
+ * one through its `include:` part. Render diagnostics come back in
+ * `diagnostics` with no files.
  */
 export function compileBlockSkill(
   verb: VerbDef,
-  step: StepSource & { tree: BlockTree },
+  step: StepSource,
   values: BlockValues,
   roster: Set<string>,
   opts: CompileSkillOpts,
@@ -268,7 +268,10 @@ export function compileBlockSkill(
 
   const sources = [...values.values()].flatMap((props) => [...props.values()].flatMap((v) => v.sources));
   const compiledParts = dedupePreserveOrder([`${step.plugin}@${step.version}`, ...sources.map(({ fill }) => `${fill.binding}@${fill.version}`)]);
-  const ctx = placeholderContext(step, { fills: {}, slotMode: {}, includes: flatIncludes }, compiledParts.join(" + "), opts);
+  const ctx = placeholderContext(step, flatIncludes, compiledParts.join(" + "), opts);
+  if (walk(step.tree).some((b) => RESOLVER_RE.test(b.text))) {
+    throw new Error(`engine "${step.name}": compile-native engine calls the runtime resolver (resolve-args.sh)`);
+  }
 
   // A stage's own scripts live beside it, not at the orchestrator's ${CLAUDE_SKILL_DIR}; prop values are rewritten by render.
   const stageDir = opts.stageDir ?? null;
@@ -307,14 +310,21 @@ export function compileBlockSkill(
   const files: CompiledFile[] = [{ path: "SKILL.md", content }, ...vendored];
 
   const layout = opts.packRoot && opts.compiledDir ? { packRoot: opts.packRoot, compiledDir: opts.compiledDir } : null;
-  const warnings = lintReferences(body, roster, files, sources.map(({ fill }) => fill.binding), {
-    where,
-    exemptPrefixes: opts.emittedSiblingDirs ?? [],
-    exemptPaths: rendered.packPaths,
-    layout,
-    emittedTargetDirs: opts.emittedTargetDirs ?? [],
-    plannedAttachments: opts.plannedAttachments,
-  });
+  // A registered skill not yet on the public surface inlines until surface apply moves it, so the compile says so.
+  const transitionNotes = dedupePreserveOrder(
+    sources.filter(({ fill, mode }) => mode === "inline" && fill.registered && fill.file === null).map(({ fill }) => `note: ${fill.binding} is surface-internal; inlined`),
+  );
+  const warnings = [
+    ...lintReferences(body, roster, files, sources.map(({ fill }) => fill.binding), {
+      where,
+      exemptPrefixes: opts.emittedSiblingDirs ?? [],
+      exemptPaths: rendered.packPaths,
+      layout,
+      emittedTargetDirs: opts.emittedTargetDirs ?? [],
+      plannedAttachments: opts.plannedAttachments,
+    }),
+    ...transitionNotes,
+  ];
   const errors = [...lintInternalRoster(body, internalRoster, "body"), ...lintInternalRoster(verb.description, internalRoster, "description")];
   return { files, warnings, errors, diagnostics: [] };
 }
@@ -329,7 +339,7 @@ function propFills(placed: Placed[], values: BlockValues, engine: BlockTree): Pr
   );
 }
 
-/** A referenced value's files vendor too, as a bound slot's do, so its rewritten allowed-tools path exists. */
+/** A referenced value's files vendor too, so its rewritten allowed-tools path exists. */
 function vendorBlockFiles(
   step: StepSource,
   placed: Placed[],
