@@ -98,6 +98,20 @@ test("an unclosed mermaid fence is bad-graph at its opening line", () => {
   expect((caught as BlockError).diagnostics).toEqual([expect.objectContaining({ file: "a/index.block.md", line: 7, col: 1, code: "bad-graph" })]);
 });
 
+test("a block file or folder named with a leading + is bad-value", () => {
+  const tmp = tmpTree({ "index.block.md": "---\n---\n# A\n", "+x.block.md": "---\n---\n# X\n", "+y/index.block.md": "---\n---\n# Y\n" });
+  let caught: unknown;
+  try {
+    loadBlockTree(tmp, a);
+  } catch (err) {
+    caught = err;
+  }
+  expect((caught as BlockError).diagnostics).toEqual([
+    expect.objectContaining({ file: "a/+x.block.md", line: 1, col: 1, code: "bad-value" }),
+    expect.objectContaining({ file: "a/+y/index.block.md", line: 1, col: 1, code: "bad-value" }),
+  ]);
+});
+
 test("a sub-folder without index and other files are not blocks", () => {
   const tmp = tmpTree({ "index.block.md": "---\n---\n# A\n", "sub/step.md": "x", "notes.txt": "y" });
   expect(walk(loadBlockTree(tmp, a)).map((b) => b.id)).toEqual(["a"]);

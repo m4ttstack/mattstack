@@ -323,6 +323,25 @@ test("text after a dropped-title include root's blank-rendered first line maps t
   expect(sourceOf(body, "Gate intro.")).toBe("attachments/gp/index.block.md:12");
 });
 
+test("an engine block and the include it holds vendor a same-named prop to distinct parts dirs", () => {
+  const rules = "---\nprops:\n  rules:\n    merge: add\n---\n\n";
+  const gp: SourcedTree = {
+    tree: plainTree({ "index.block.md": `${rules}# Gate protocol\n\n{{props.rules}}\n`, "ask.block.md": `${rules}# Ask\n\n{{props.rules}}\n` }, "gp"),
+    plugin: "mattstack",
+    version: "2.0.0",
+  };
+  const host = plainTree({ "index.block.md": "---\n---\n\n# a\n", "gp.block.md": `${rules}# Gates\n\n{{props.rules}}\n\n{{include:gp}}\n` });
+  const bound = [{ layer: "pack", value: "widgets:mini-rules" }];
+  const roots = rootsWithWidgets();
+  const values = new Map([
+    ...valuesFor(host, roots, { "a/gp": { rules: bound } }),
+    ...valuesFor(gp.tree, roots, { gp: { rules: bound }, "gp/ask": { rules: bound } }),
+  ]);
+  const { body } = renderTree({ tree: host, source: SOURCE, values, includes: resolver({ gp }), ctx: ctx() });
+  const dirs = [...body.matchAll(/\$\{CLAUDE_SKILL_DIR\}\/parts\/(\S+)\/lint\.sh/g)].map((m) => m[1]);
+  expect(dirs).toEqual(["gp/rules", "+gp/rules", "+gp/ask/rules"]);
+});
+
 test("a non-root block's prop vendors under parts/<block path>/<prop>", () => {
   const tree = plainTree({
     "index.block.md": "---\n---\n\n# a\n",

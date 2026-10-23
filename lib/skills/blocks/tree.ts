@@ -46,6 +46,19 @@ function childrenOf(dir: string, relDir: string, diagnostics: BlockDiagnostic[])
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith(".")) continue;
     const full = join(dir, entry.name);
+    if (entry.name.startsWith("+")) {
+      const block = entry.isDirectory() ? (isBlockTree(full) ? `${entry.name}/${INDEX}` : null) : entry.name.endsWith(SUFFIX) ? entry.name : null;
+      if (block !== null) {
+        diagnostics.push({
+          file: `${relDir}/${block}`,
+          line: 1,
+          col: 1,
+          message: `a block name cannot start with "+": parts/+<id> is where included blocks vendor their files`,
+          code: "bad-value",
+        });
+        continue;
+      }
+    }
     if (entry.isDirectory()) {
       if (isBlockTree(full)) out.push({ stem: entry.name, file: join(full, INDEX), dir: full });
       else orphansUnder(full, `${relDir}/${entry.name}`, diagnostics);

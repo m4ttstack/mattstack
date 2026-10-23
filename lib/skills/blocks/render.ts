@@ -41,22 +41,26 @@ type State = {
   diagnostics: BlockDiagnostic[];
   /** Root ids of the include trees being drawn, outermost first. */
   including: string[];
-  /** The engine's root block id; null when only an include is drawn. */
-  engine: string | null;
+  /** The engine's tree; null when only an include is drawn. */
+  engine: BlockTree | null;
 };
 
 export function headingLevel(depth: number): number {
   return Math.min(depth + 1, 6);
 }
 
-/** The engine root's props vendor under `parts/<prop>`, so two blocks' same-named props never share a dir. */
-function partsName(b: Block, prop: string, engine: string | null): string {
-  if (b.id === engine) return prop;
-  const path = engine !== null && b.id.startsWith(`${engine}/`) ? b.id.slice(engine.length + 1) : b.id;
-  return `${path}/${prop}`;
+/**
+ * The engine root's props vendor under `parts/<prop>`, other engine blocks'
+ * under `parts/<block path>/<prop>`, and included blocks' under `parts/+<id>/<prop>`;
+ * tree.ts refuses a `+` name, so no block path can reach the include namespace.
+ */
+function partsName(b: Block, prop: string, src: SourcedTree, st: State): string {
+  if (src.tree !== st.engine) return `+${b.id}/${prop}`;
+  if (b === src.tree.root) return prop;
+  return `${b.id.slice(src.tree.root.id.length + 1)}/${prop}`;
 }
 
-function propText(b: Block, name: string, st: State): string {
+function propText(b: Block, name: string, src: SourcedTree, st: State): string {
   const value = st.values.get(b.id)?.get(name);
   if (!value) throw new Error(`${b.relPath}: prop "${name}" has no resolved value`);
   const key = `prop:${b.id}.${name}`;
@@ -64,7 +68,7 @@ function propText(b: Block, name: string, st: State): string {
     .map(({ fill, mode }) =>
       mode === "reference"
         ? `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference("Prop", name, fill)}`
-        : inlineFillText(key, partsName(b, name, st.engine), fill, st.ctx, st.used.packPaths))
+        : inlineFillText(key, partsName(b, name, src, st), fill, st.ctx, st.used.packPaths))
     .join("\n\n");
 }
 
@@ -88,7 +92,7 @@ function includeBody(src: SourcedTree, at: IncludeAt, st: State): string {
  * through the seam above it, so the block's seam is repeated before the next
  * text line, naming where that text starts.
  */
-function renderText(b: Block, own: Heading, st: State, seam: (from: number) => string): string {
+function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (from: number) => string): string {
   const lines = b.text === "" ? [] : b.text.split("\n");
   for (const m of b.markers) {
     if (lines[m.line - b.textStartLine]?.trim() !== `{{props.${m.prop}}}`) {
@@ -135,7 +139,7 @@ function renderText(b: Block, own: Heading, st: State, seam: (from: number) => s
     const prop = PROP_LINE_RE.exec(trimmed);
     const inc = INCLUDE_LINE_RE.exec(trimmed);
     const tree = inc ? st.includes(inc[1]!, { file: b.relPath, line: fileLine }) : null;
-    if (prop) rendered = propText(b, prop[1]!, st);
+    if (prop) rendered = propText(b, prop[1]!, src, st);
     else if (line.includes("{{props.")) rendered = line.replace(PROP_ANY_RE, "");
     else if (tree && st.including.includes(tree.tree.root.id)) {
       const chain = [...st.including.slice(st.including.indexOf(tree.tree.root.id)), tree.tree.root.id].join(" -> ");
@@ -180,7 +184,7 @@ function renderBlock(b: Block, src: SourcedTree, parent: Heading, dropTitle: boo
   const textEnd = b.textStartLine + (b.text === "" ? 0 : b.text.split("\n").length) - 1;
   const seam = (from: number) =>
     `${SEAM_START}block:${b.id} source=${src.plugin}:${src.tree.root.id} version=${src.version} path=${b.relPath} lines=${from}-${Math.max(from, textEnd)} -->`;
-  const body = renderText(b, own, st, seam);
+  const body = renderText(b, src, own, st, seam);
 
   if (!titled) chunks.push(body === "" ? seam(b.textStartLine) : `${seam(b.textStartLine)}\n${body}`);
   else if (body.trim() === "" && b.children.length === 0) chunks.push(seam(b.bodyStartLine));
@@ -193,7 +197,7 @@ function renderBlock(b: Block, src: SourcedTree, parent: Heading, dropTitle: boo
   for (const child of b.children) renderBlock(child, src, own, false, st, chunks);
 }
 
-function run(input: Omit<RenderInput, "tree" | "source">, engine: string | null, draw: (st: State) => string): RenderResult {
+function run(input: Omit<RenderInput, "tree" | "source">, engine: BlockTree | null, draw: (st: State) => string): RenderResult {
   const used: Used = { slots: [], includes: [], packPaths: [] };
   const st: State = { values: input.values, includes: input.includes, ctx: input.ctx, used, diagnostics: [], including: [], engine };
   const body = draw(st);
@@ -203,7 +207,7 @@ function run(input: Omit<RenderInput, "tree" | "source">, engine: string | null,
 
 export function renderTree(input: RenderInput): RenderResult {
   const src: SourcedTree = { tree: input.tree, ...input.source };
-  return run(input, input.tree.root.id, (st) => {
+  return run(input, input.tree, (st) => {
     const chunks: string[] = [];
     renderBlock(input.tree.root, src, { title: null, level: 0 }, false, st, chunks);
     return chunks.join("\n\n");
