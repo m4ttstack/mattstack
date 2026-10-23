@@ -105,6 +105,7 @@ export function recordTree(treeArg: string, deps: ProgressDeps = defaultDeps()):
 
   for (const rec of Object.values(all)) {
     if (rec.tree !== tree || rec.finishedAt !== null || live.has(rec.stem)) continue;
+    if (deps.exists(ledgerDirOf(tree, rec.stem))) continue;
     if (branch === null || branch !== rec.branch) continue;
     const finished: PlanRecord = { ...rec, finishedAt: now, done: rec.total };
     setKvValue(PROGRESS_NS, keyOf(tree, rec.stem), finished, db);

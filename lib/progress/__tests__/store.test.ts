@@ -106,6 +106,14 @@ describe("plan record store", () => {
     expect(listPlans({}, deps).map((p) => p.stem)).toEqual(["x"]);
   });
 
+  test("a ledger directory that lost its progress.md is not finished", () => {
+    const tree = makeTree("t1");
+    recordTree(tree, deps);
+    rmSync(join(ledgerOf(tree), "progress.md"));
+    recordTree(tree, deps);
+    expect(listPlans({ tree }, deps)[0]!.finishedAt).toBeNull();
+  });
+
   test("a disposed tree reached through a symlinked parent still matches its record", () => {
     const real = join(dir, "real");
     mkdirSync(real);

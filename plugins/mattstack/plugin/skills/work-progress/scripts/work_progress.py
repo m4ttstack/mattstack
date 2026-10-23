@@ -264,15 +264,18 @@ def tree_error(tree, refresh=False):
     return RECORDS[(tree, refresh)][1]
 
 
-def kept_record(roots, created_ms):
+def kept_record(roots, created_ms, branch=None):
     """A ledger-method job whose ledger is gone: the freshest record rt kept for
-    its tree, but only one seen during the job's own lifetime, since pool trees
-    are reused. rt stores a plan's finish only when it records, and the hook
-    records at most once a minute, so this read asks rt to refresh first."""
+    its tree, but only one seen during the job's own lifetime and on its branch,
+    since pool trees are reused. rt stores a plan's finish only when it records,
+    and the hook records at most once a minute, so this read asks rt to refresh
+    first."""
     best = None
     for root in roots:
         for rec in tree_records(root, refresh=True) or []:
             seen = max(rec.get("lastSeen") or 0, rec.get("finishedAt") or 0)
+            if branch and rec.get("branch") and rec.get("branch") != branch:
+                continue
             if rec.get("state") in {"done", "tree-gone"} and seen >= created_ms and (best is None or seen > best[0]):
                 best = (seen, rec)
     return best[1] if best else None
@@ -292,7 +295,7 @@ def row(job, herd_id, gates, runs, now_s):
     run = run_for(job, runs, herd_id, roots) if domain else None
     found = None if run else newest_ledger(roots, since)
     done, total, now = ledger_progress(found[0], found[2]) if found else (0, 0, "")
-    kept = None if run or found or meth not in LEDGER_METHODS else kept_record(job_trees(job), job["createdAt"])
+    kept = None if run or found or meth not in LEDGER_METHODS else kept_record(job_trees(job), job["createdAt"], job.get("branch"))
     if kept:
         done, total, now = kept["done"], kept["total"], kept["latest"]
     known = True
@@ -468,7 +471,7 @@ def plan_main(plans, tree, title):
     error = tree_error(tree, refresh=True)
     now_s = time.time()
     results = [plan_row(p, tree, records, error, now_s) for p in paths]
-    done = sum(r[1] for r in results)
+    done = sum(r[1] for r in results if r[2])
     total = sum(r[2] for r in results)
     quiet = sum(1 for r in results if r[3])
     branch = tree_branch(tree) or next((r.get("branch") for r in records or [] if r.get("branch")), "") or "unknown"
