@@ -202,3 +202,16 @@ describe("Workspace with two plugins of the same name", () => {
     expect(allDiagnostics(ws).map((d) => d.code)).toEqual(["missing-block"]);
   });
 });
+
+describe("Workspace plugin discovery", () => {
+  test("is walked once until a document opens, changes or closes", () => {
+    const ws = new Workspace([plugin, pack]);
+    const first = ws.plugins();
+    expect(first.map((p) => p.name).sort()).toEqual(["mattstack", "widgets"]);
+    ws.analysis();
+    ws.rootsFor([manifest]);
+    expect(ws.plugins()).toBe(first);
+    ws.open(manifest, readFileSync(manifest, "utf8"));
+    expect(ws.plugins()).not.toBe(first);
+  });
+});

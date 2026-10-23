@@ -19,7 +19,7 @@ export type Analysis = {
   byBlockId: Map<string /* <plugin>:<block id> */, { tree: BlockTree; block: Block }>;
 };
 
-type Plugin = { dir: string; name: string; version: string };
+export type Plugin = { dir: string; name: string; version: string };
 type Engine = { dir: string; plugin: Plugin };
 
 const INDEX = "index.block.md";
@@ -56,6 +56,7 @@ export class Workspace {
   private readonly overlay = new Map<string, string>();
   private readonly lastGood = new Map<string, BlockTree>();
   private cached: Analysis | null = null;
+  private cachedPlugins: Plugin[] | null = null;
 
   constructor(
     private readonly roots: string[],
@@ -64,7 +65,7 @@ export class Workspace {
 
   open(file: string, text: string): void {
     this.overlay.set(file, text);
-    this.cached = null;
+    this.invalidate();
   }
 
   change(file: string, text: string): void {
@@ -73,7 +74,12 @@ export class Workspace {
 
   close(file: string): void {
     this.overlay.delete(file);
+    this.invalidate();
+  }
+
+  private invalidate(): void {
     this.cached = null;
+    this.cachedPlugins = null;
   }
 
   text(file: string): string {
@@ -111,7 +117,13 @@ export class Workspace {
     return this.overlay.has(file) || existsSync(file);
   }
 
-  private plugins(): Plugin[] {
+  /** Every plugin under the roots, in discovery order. */
+  plugins(): Plugin[] {
+    this.cachedPlugins ??= this.discoverPlugins();
+    return this.cachedPlugins;
+  }
+
+  private discoverPlugins(): Plugin[] {
     const out: Plugin[] = [];
     for (const root of this.roots) {
       for (const dir of dirsUnder(root)) {
