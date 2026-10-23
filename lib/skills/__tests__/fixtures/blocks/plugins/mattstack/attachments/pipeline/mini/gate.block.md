@@ -10,6 +10,6 @@ props:
 
 # Ask the gate
 
-Ask Matt whether to continue, using the tiering rules.
+Ask the human whether to continue, using the tiering rules.
 
 {{props.tiering}}

@@ -115,7 +115,7 @@ describe("partExtents on compiled shapes", () => {
 
 describe("partExtents on a block-compiled body", () => {
   const seam = (id: string, path: string, lines: string) => `<!-- part: block:${id} source=mattstack:mini version=1.0.0 path=${path} lines=${lines} -->`;
-  const md = (rules = ["Follow the rules.", "Run lint first."], gate = "Ask Matt.") => [
+  const md = (rules = ["Follow the rules.", "Run lint first."], gate = "Ask the human.") => [
     "---", "name: mini", "---", "",
     seam("mini", "a/index.block.md", "11-24"), "# mini", "", "Runs the step.", "",
     "<!-- part: prop:mini.rules binding=widgets:mini-rules/fast version=0.1.0 path=attachments/mini-rules/fast.md lines=1-2 -->",
@@ -140,13 +140,13 @@ describe("partExtents on a block-compiled body", () => {
     ]);
     expect(extents[0]!.text).toBe("# mini\n\nRuns the step.\n\nRoot text after the prop.");
     expect(extents[1]!.text).toBe("Follow the rules.\nRun lint first.");
-    expect(extents[2]!.text).toBe("## Ask the gate\n\nAsk Matt.");
+    expect(extents[2]!.text).toBe("## Ask the gate\n\nAsk the human.");
     expect(extents[3]!.text).toBe("Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.");
   });
 
   test("a value edit changes only its prop; a block edit only its block", () => {
     expect([...changedPartKeys(md(), md(["Follow the rules.", "Run lint twice."]))]).toEqual(["prop:mini.rules"]);
-    expect([...changedPartKeys(md(), md(undefined, "Ask Matt twice."))]).toEqual(["block:mini/gate"]);
+    expect([...changedPartKeys(md(), md(undefined, "Ask the human twice."))]).toEqual(["block:mini/gate"]);
   });
 
   test("two values of one add prop compare as one part", () => {

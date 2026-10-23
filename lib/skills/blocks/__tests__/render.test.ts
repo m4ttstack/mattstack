@@ -166,7 +166,7 @@ test("every compiled line maps back to the file line it came from", () => {
   expect(sourceOf(body, "Do the work for the widget.")).toBe(at("run/index.block.md", 7));
   expect(sourceOf(body, "Confirm the widget works.")).toBe(at("run/check.block.md", 6));
   expect(sourceOf(body, "## Ask the gate")).toBe(at("gate.block.md", 11));
-  expect(sourceOf(body, "Ask Matt whether to continue, using the tiering rules.")).toBe(at("gate.block.md", 13));
+  expect(sourceOf(body, "Ask the human whether to continue, using the tiering rules.")).toBe(at("gate.block.md", 13));
   expect(sourceOf(body, "Keep notes short.")).toBe(at("notes.block.md", 11));
   expect(sourceOf(body, "Guard text with no title line.")).toBe(at("guard.block.md", 3));
 });

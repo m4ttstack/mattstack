@@ -223,7 +223,7 @@ test("summary is the first sentence after the title", () => {
     mini: "Runs the step, then asks for a decision.",
     "mini/run": "Do the work for the widget.",
     "mini/run/check": "Confirm the widget works.",
-    "mini/gate": "Ask Matt whether to continue, using the tiering rules.",
+    "mini/gate": "Ask the human whether to continue, using the tiering rules.",
     "mini/notes": "Keep notes short.",
     "mini/guard": "Guard text with no title line.",
   });
