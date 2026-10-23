@@ -1,8 +1,10 @@
 import { basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { createConnection, MarkupKind, ProposedFeatures, TextDocuments, TextDocumentSyncKind, type InitializeParams, type InitializeResult } from "vscode-languageserver/node";
+import { CompletionItemKind, createConnection, MarkupKind, ProposedFeatures, TextDocuments, TextDocumentSyncKind, type InitializeParams, type InitializeResult } from "vscode-languageserver/node";
 import { logCliEvent } from "../../cli-logger.ts";
+import { completionsAt, type Completion } from "./completion.ts";
+import { definitionAt } from "./definition.ts";
 import { publishable } from "./diagnostics.ts";
 import { hoverAt } from "./hover.ts";
 import { Workspace } from "./workspace.ts";
@@ -30,6 +32,16 @@ export function rootsFrom(given: string[], params: Pick<InitializeParams, "works
   const uris = params.workspaceFolders?.map((f) => f.uri) ?? (params.rootUri ? [params.rootUri] : []);
   return uris.map(pathOf).filter((p): p is string => p !== null);
 }
+
+export const COMPLETION_TRIGGERS = [".", ":", '"', "/"];
+
+const ITEM_KIND: Record<Completion["kind"], CompletionItemKind> = {
+  prop: CompletionItemKind.Property,
+  include: CompletionItemKind.Module,
+  contract: CompletionItemKind.Interface,
+  block: CompletionItemKind.Class,
+  value: CompletionItemKind.Value,
+};
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -71,7 +83,12 @@ export function startServer(opts: { roots: string[] }): void {
     ws = new Workspace(roots);
     logCliEvent("debug", MODULE, "initialized", { roots });
     return {
-      capabilities: { textDocumentSync: TextDocumentSyncKind.Incremental, hoverProvider: true },
+      capabilities: {
+        textDocumentSync: TextDocumentSyncKind.Incremental,
+        hoverProvider: true,
+        definitionProvider: true,
+        completionProvider: { triggerCharacters: COMPLETION_TRIGGERS },
+      },
       serverInfo: { name: "rt skills lsp" },
     };
   });
@@ -95,6 +112,18 @@ export function startServer(opts: { roots: string[] }): void {
     if (!ws || !file || !isSkillFile(file)) return null;
     const hover = hoverAt(ws, file, position);
     return hover && { contents: { kind: MarkupKind.Markdown, value: hover.contents }, range: hover.range };
+  });
+
+  connection.onDefinition(({ textDocument, position }) => {
+    const file = pathOf(textDocument.uri);
+    if (!ws || !file || !isSkillFile(file)) return [];
+    return definitionAt(ws, file, position);
+  });
+
+  connection.onCompletion(({ textDocument, position }) => {
+    const file = pathOf(textDocument.uri);
+    if (!ws || !file || !isSkillFile(file)) return [];
+    return completionsAt(ws, file, position).map((c) => ({ label: c.label, kind: ITEM_KIND[c.kind], ...(c.detail === undefined ? {} : { detail: c.detail }) }));
   });
 
   documents.listen(connection);

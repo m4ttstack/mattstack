@@ -3,8 +3,9 @@ import { logCliEvent } from "../../cli-logger.ts";
 import { keptLayers, type LayerValue } from "../blocks/props.ts";
 import { walk } from "../blocks/tree.ts";
 import type { Block, PropSpec } from "../blocks/types.ts";
-import { loadAttachment, loadInclude, stripFrontmatter } from "../sources.ts";
+import { loadInclude, stripFrontmatter } from "../sources.ts";
 import type { AttachmentSource } from "../types.ts";
+import { blockIn, loadFill } from "./lookup.ts";
 import { tokenAt, type Position, type Range, type Token } from "./positions.ts";
 import type { Workspace } from "./workspace.ts";
 
@@ -39,11 +40,6 @@ function hoverText(ws: Workspace, file: string, token: Token): string | null {
     default:
       return null;
   }
-}
-
-function blockIn(ws: Workspace, file: string): { key: string; block: Block } | null {
-  for (const [key, { block }] of ws.analysis().byBlockId) if (block.path === file) return { key, block };
-  return null;
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -87,25 +83,17 @@ function layerGroups(ws: Workspace, key: string, prop: string): Group[] {
 
 function layerLine(ws: Workspace, layer: LayerValue, prop: string, from: string[], kept: boolean): string {
   if (layer.value === "") return `- ${layer.layer}: cleared`;
-  const fill = tryLoad(ws, layer.value, prop, from);
+  const fill = loadFill(ws, layer.value, prop, from);
   const shown = fill ? `${basename(fill.dir)}/${fill.file ?? "SKILL.md"} (${plural(lineCount(fill.body), "line")})` : layer.value;
   return `- ${layer.layer}: ${shown}${kept ? "" : " (not kept)"}`;
 }
 
 const lineCount = (body: string) => (body.trim() === "" ? 0 : body.trim().split("\n").length);
 
-function tryLoad(ws: Workspace, value: string, prop: string, from: string[]): AttachmentSource | null {
-  try {
-    return loadAttachment(value, prop, ws.rootsFor(from));
-  } catch {
-    return null;
-  }
-}
-
 function bindingValueHover(ws: Workspace, file: string, key: string, prop: string, value: string): string | null {
   if (value === "") return null;
   const held = ws.analysis().byBlockId.get(key);
-  const fill = tryLoad(ws, value, prop, held ? [file, held.block.path] : [file]);
+  const fill = loadFill(ws, value, prop, held ? [file, held.block.path] : [file]);
   if (!fill) return null;
   const description = describe(ws, join(fill.dir, "SKILL.md"));
   return [`**${value}**`, ...(description ? [description] : []), `provides: ${fill.provides}`].join("\n\n");

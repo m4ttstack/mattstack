@@ -74,34 +74,47 @@ function stringLength(row: string, start: number): number | null {
   return null;
 }
 
-function blockTokens(text: string): Token[] {
-  const lines = text.split("\n");
-  const tokens: Token[] = [];
+/** What each line of a block file is: frontmatter, prose, a fence delimiter, or a line inside a code or mermaid fence. */
+export type LineRegion = "frontmatter" | "delimiter" | "body" | "code" | "mermaid";
+
+export function lineRegions(lines: string[]): LineRegion[] {
+  const regions: LineRegion[] = [];
   let body = 0;
   if (FRONTMATTER_FENCE_RE.test(lines[0] ?? "")) {
     const close = lines.findIndex((l, i) => i > 0 && FRONTMATTER_FENCE_RE.test(l));
     body = close < 0 ? lines.length : close + 1;
-    frontmatterTokens(lines.slice(1, close < 0 ? lines.length : close), 1, tokens);
+    for (let i = 0; i < body; i++) regions.push(i === 0 || i === close ? "delimiter" : "frontmatter");
   }
   let fence: { marker: string; mermaid: boolean } | null = null;
   for (let i = body; i < lines.length; i++) {
-    const row = lines[i]!;
-    const m = FENCE_RE.exec(row);
+    const m = FENCE_RE.exec(lines[i]!);
     if (fence === null) {
       if (m) {
         fence = { marker: m[1]!, mermaid: m[2] === "mermaid" };
-        continue;
-      }
-      markerTokens(row, i, tokens);
+        regions.push("delimiter");
+      } else regions.push("body");
       continue;
     }
     if (m && m[1]![0] === fence.marker[0] && m[1]!.length >= fence.marker.length && m[2] === "") {
       fence = null;
+      regions.push("delimiter");
       continue;
     }
-    if (fence.mermaid) mermaidTokens(row, i, tokens);
-    else markerTokens(row, i, tokens);
+    regions.push(fence.mermaid ? "mermaid" : "code");
   }
+  return regions;
+}
+
+function blockTokens(text: string): Token[] {
+  const lines = text.split("\n");
+  const tokens: Token[] = [];
+  const regions = lineRegions(lines);
+  const frontmatter = regions.flatMap((r, i) => (r === "frontmatter" ? [i] : []));
+  if (frontmatter.length > 0) frontmatterTokens(lines.slice(frontmatter[0], frontmatter[frontmatter.length - 1]! + 1), frontmatter[0]!, tokens);
+  regions.forEach((region, i) => {
+    if (region === "body" || region === "code") markerTokens(lines[i]!, i, tokens);
+    else if (region === "mermaid") mermaidTokens(lines[i]!, i, tokens);
+  });
   return tokens;
 }
 

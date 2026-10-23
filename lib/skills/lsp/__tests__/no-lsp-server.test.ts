@@ -157,4 +157,30 @@ describe("rt skills lsp", () => {
       client.kill();
     }
   }, 30_000);
+
+  test("definition and completion answer over the wire", async () => {
+    const client = new Client(["--root", plugin], home);
+    try {
+      client.send({ id: 1, method: "initialize", params: { processId: null, capabilities: {} } });
+      const init = await client.waitFor((m) => m.id === 1);
+      expect(init.result.capabilities.definitionProvider).toBe(true);
+      expect(init.result.capabilities.completionProvider).toEqual({ triggerCharacters: [".", ":", '"', "/"] });
+      client.send({ method: "initialized", params: {} });
+      const uri = pathToFileURL(gate).href;
+      const text = `${readFileSync(gate, "utf8")}\n{{props.\n`;
+      client.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text } } });
+      const lines = text.split("\n");
+      client.send({ id: 2, method: "textDocument/definition", params: { textDocument: { uri }, position: { line: 1, character: 8 } } });
+      const definition = await client.waitFor((m) => m.id === 2);
+      const index = join(plugin, "attachments/pipeline/mini/index.block.md");
+      expect(definition.result.map((l: { uri: string }) => l.uri)).toEqual([pathToFileURL(index).href]);
+      const line = lines.indexOf("{{props.");
+      client.send({ id: 3, method: "textDocument/completion", params: { textDocument: { uri }, position: { line, character: "{{props.".length } } });
+      const completion = await client.waitFor((m) => m.id === 3);
+      expect(completion.result.map((c: { label: string }) => c.label)).toEqual(["tiering"]);
+      expect(await client.stop()).toBe(0);
+    } finally {
+      client.kill();
+    }
+  }, 30_000);
 });
