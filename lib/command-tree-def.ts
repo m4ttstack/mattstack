@@ -435,6 +435,31 @@ const herdSubcommands: Record<string, CommandNode> = {
   },
 };
 
+const progressSubcommands: Record<string, CommandNode> = {
+  record: {
+    description: "Save what this tree's plan ledgers show",
+    module: "./commands/progress.ts",
+    fn: "progressRecord",
+    agentSafe: true,
+    args: [
+      { name: "Tree", flag: "--tree", type: "text", placeholder: "/path/to/worktree", hint: "Worktree root whose plan ledgers to save" },
+      { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the saved records as JSON" },
+    ],
+  },
+  list: {
+    description: "Plans recorded on this machine and whether each finished",
+    module: "./commands/progress.ts",
+    fn: "progressList",
+    agentSafe: true,
+    args: [
+      { name: "Tree", flag: "--tree", type: "text", placeholder: "/path/to/worktree", hint: "Only plans recorded for this worktree root" },
+      { name: "Plan", flag: "--plan", type: "text", placeholder: "docs/superpowers/plans/x.md", hint: "Only this plan, by path or file name" },
+      { name: "Refresh", flag: "--refresh", type: "boolean", default: false, hint: "Save the tree's ledgers first; needs --tree" },
+      { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Accepted; output is always JSON" },
+    ],
+  },
+};
+
 const runsSubcommands: Record<string, CommandNode> = {
   show: {
     description: "One run: stages, fields, decisions",
@@ -1703,6 +1728,11 @@ export const TREE: Record<string, CommandNode> = {
       { name: "Repo", flag: "--repo", type: "text", placeholder: "myrepo", hint: "Scope to one registry repo" },
     ],
     subcommands: runsSubcommands,
+  },
+
+  progress: {
+    description: "Progress of plans run with subagent-driven development",
+    subcommands: progressSubcommands,
   },
 
   intercept: {
