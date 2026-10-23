@@ -45,7 +45,7 @@ import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError } from "../lib/errors.ts";
+import { UserActionableError, exitUserError, userErrorPayload } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { FLOOR_REL, readFloor } from "../lib/engine-floor.ts";
@@ -56,6 +56,7 @@ import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion,
 import { compileSkill, hasCompiledHeader, isInlined, type CompileSkillOpts } from "../lib/skills/compile.ts";
 import { blockPropValues, compileBlockSkill, includeNamesIn, type BlockValues } from "../lib/skills/compile-blocks.ts";
 import { BlockError } from "../lib/skills/blocks/diagnostics.ts";
+import { buildBlocksPayload, type BlocksPayload, type PayloadBlock } from "../lib/skills/blocks/payload.ts";
 import { walk } from "../lib/skills/blocks/tree.ts";
 import type { BlockTree } from "../lib/skills/blocks/types.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, withSectionParts, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
@@ -866,6 +867,8 @@ type CompileAnatomy = {
   includes: Record<string, AttachmentSource>;
   fills: Record<string, AttachmentSource | null>;
   slotMode: Record<string, "inline" | "reference">;
+  /** Set for a block engine: every block's resolved prop values. */
+  values?: BlockValues;
 };
 
 function compileVerb(
@@ -934,7 +937,7 @@ function compileVerb(
       loadValueIncludes(values, includes, resolved, where);
       const result = compileBlockSkill(verb, { ...step, tree: step.tree }, values, resolved.invocable, opts(includes));
       if (result.diagnostics.length > 0) throw new BlockError(result.diagnostics);
-      return trace ? { ...result, anatomy: { step, includes, fills: {}, slotMode: {} } } : result;
+      return trace ? { ...result, anatomy: { step, includes, fills: {}, slotMode: {}, values } } : result;
     }
     const fills = loadFillsFor(step, resolved, where, isStage ? verb.pipeline : undefined);
     const includes = loadIncludesFor(step, fills, resolved, where);
@@ -2540,6 +2543,70 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
       payload.parts.map((p) => [p.kind, p.name ?? "", spanText(p.templateLines), spanText(p.renderedLines)]),
       ["Part", "Name", "Template lines", "Rendered lines"],
     ));
+  });
+}
+
+// ─── rt skills blocks ──────────────────────────────────────────────────────
+
+const KIND_GLYPH: Record<PayloadBlock["kind"], string> = { step: "○", question: "◇", gate: "⚑", note: "▤", shared: "⧉" };
+
+export function blocksTree(payload: BlocksPayload): Block {
+  const rows = payload.blocks.slice(1).map((b) => [`${"  ".repeat(b.depth - 1)}${KIND_GLYPH[b.kind]} ${b.label}`]);
+  return out.tree(payload.skill, rows);
+}
+
+/** Console's route maps this code to a 404, so a skill with no block tree is told apart from a failure. */
+function refuseNotABlockTree(skill: string, json: boolean): void {
+  const err = new UserActionableError("not-a-block-tree", `The ${skill} skill is not built from blocks`, {}, {
+    why: "It is written as one SKILL.md file, not a folder of block files.",
+  });
+  if (json) out.json(userErrorPayload(err));
+  else out.fail({ title: err.message, why: err.why! });
+  process.exitCode = 1;
+}
+
+export async function skillsBlocks(args: string[]): Promise<void> {
+  await withCleanErrors(args, async () => {
+    const at = args.indexOf("--skill");
+    if (at < 0) throw new SkillsUsageError("rt skills blocks needs --skill <name>", usageFailure("Which skill?", "rt skills blocks --skill <name>"));
+    const skill = requireFlagValue("--skill", args[at + 1]);
+    const flags = parseFlags([...args.slice(0, at), ...args.slice(at + 2)]);
+    const resolved = await resolve(flags);
+    const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
+    const plan = compileTargets(resolved, publicSet, null);
+    const target = plan.targets.find((t) => t.verb.name === skill);
+    if (!target) {
+      if (enumerateRegistered(resolved.packDir).has(skill)) return refuseNotABlockTree(skill, flags.json);
+      throw new SkillsUsageError(`no skill named "${skill}" in pack ${resolved.team}`, {
+        title: `The ${resolved.team} pack has no skill called ${skill}`,
+        next: out.cmd(`rt skills surface list --pack ${resolved.team}`),
+      });
+    }
+
+    const basePlan = requireBasePlan(resolved, plan.verbSides);
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, () => {}, plannedAttachmentsOf(basePlan));
+    refuseMissingValues(resolved);
+    const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
+    if (!main || !("content" in main) || !result.anatomy) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
+    const { step, includes, values } = result.anatomy;
+    if (!step.tree || !values) return refuseNotABlockTree(skill, flags.json);
+
+    const payload = buildBlocksPayload({
+      pack: resolved.team,
+      skill,
+      kind: target.isStage ? "stage" : "verb",
+      plugin: step.plugin,
+      tree: step.tree,
+      includes: Object.fromEntries(Object.entries(includes).flatMap(([name, inc]) => (inc.tree ? [[name, inc.tree] as const] : []))),
+      values,
+      compiled: main.content,
+      base: basePlan.base?.name ?? null,
+    });
+    if (flags.json) {
+      out.json(payload);
+      return;
+    }
+    out.print(blocksTree(payload));
   });
 }
 
