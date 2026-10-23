@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -222,4 +222,44 @@ describe("rt skills lsp", () => {
       client.kill();
     }
   }, 30_000);
+
+  test("a block rename answers with documentChanges, and a client that cannot rename files is refused", async () => {
+    const root = join(tmp, "ws");
+    const plugins = join(root, "plugins/mattstack");
+    cpSync(plugin, plugins, { recursive: true });
+    const mini = join(plugins, "attachments/pipeline/mini");
+    const manifest = join(root, "skills.jsonc");
+    writeFileSync(manifest, '{\n  "version": 2,\n  "bindings": {\n    "mattstack:mini/gate": { "tiering": "" }\n  }\n}\n');
+    const uri = pathToFileURL(manifest).href;
+    const position = { line: 3, character: 22 };
+    const capable = { workspace: { workspaceEdit: { documentChanges: true, resourceOperations: ["create", "rename", "delete"] } } };
+    for (const [capabilities, renames] of [[capable, true], [{}, false]] as const) {
+      const client = new Client(["--root", root], home);
+      try {
+        client.send({ id: 1, method: "initialize", params: { processId: null, capabilities } });
+        await client.waitFor((m) => m.id === 1);
+        client.send({ method: "initialized", params: {} });
+        client.send({ id: 2, method: "textDocument/prepareRename", params: { textDocument: { uri }, position } });
+        const prepared = (await client.waitFor((m) => m.id === 2)) as Message & { error?: { message: string } };
+        client.send({ id: 3, method: "textDocument/rename", params: { textDocument: { uri }, position, newName: "ask" } });
+        const renamed = (await client.waitFor((m) => m.id === 3)) as Message & { error?: { message: string } };
+        if (renames) {
+          expect(prepared.result).toEqual({ range: { start: { line: 3, character: 20 }, end: { line: 3, character: 24 } }, placeholder: "gate" });
+          expect(renamed.result.changes).toBeUndefined();
+          expect(renamed.result.documentChanges).toEqual([
+            { textDocument: { uri, version: null }, edits: [{ range: { start: { line: 3, character: 5 }, end: { line: 3, character: 24 } }, newText: "mattstack:mini/ask" }] },
+            { kind: "rename", oldUri: pathToFileURL(join(mini, "gate.block.md")).href, newUri: pathToFileURL(join(mini, "ask.block.md")).href },
+          ]);
+          const shown = await client.waitFor((m) => m.method === "window/showMessageRequest");
+          expect(shown.params.message).toContain("props-change: mini/gate.tiering: block renamed to mini/ask");
+        } else {
+          expect(prepared.error?.message).toBe("this editor cannot rename files, so it cannot rename a block");
+          expect(renamed.error?.message).toBe("this editor cannot rename files, so it cannot rename a block");
+        }
+        expect(await client.stop()).toBe(0);
+      } finally {
+        client.kill();
+      }
+    }
+  }, 60_000);
 });

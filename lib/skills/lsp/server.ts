@@ -66,6 +66,7 @@ export function startServer(opts: { roots: string[] }): void {
   const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
   const documents = new TextDocuments(TextDocument);
   let ws: Workspace | null = null;
+  let fileRenames = false;
   const published = new Set<string>();
 
   const send = (file: string, diagnostics: ReturnType<typeof publishable>) => {
@@ -94,6 +95,7 @@ export function startServer(opts: { roots: string[] }): void {
   connection.onInitialize((params): InitializeResult => {
     const roots = rootsFrom(opts.roots, params);
     ws = new Workspace(roots);
+    fileRenames = params.capabilities.workspace?.workspaceEdit?.resourceOperations?.includes("rename") ?? false;
     logCliEvent("debug", MODULE, "initialized", { roots });
     return {
       capabilities: {
@@ -144,7 +146,13 @@ export function startServer(opts: { roots: string[] }): void {
   connection.onPrepareRename(({ textDocument, position }) => {
     const file = pathOf(textDocument.uri);
     if (!ws || !file || !isSkillFile(file)) return null;
-    return prepareRename(ws, file, position);
+    try {
+      return prepareRename(ws, file, position, { fileRenames });
+    } catch (err) {
+      if (err instanceof RenameRefused) return new ResponseError(LSPErrorCodes.RequestFailed, err.message);
+      logCliEvent("error", MODULE, "prepare rename failed", { file, error: errorText(err) });
+      return null;
+    }
   });
 
   connection.onRenameRequest(({ textDocument, position, newName }) => {
@@ -152,14 +160,14 @@ export function startServer(opts: { roots: string[] }): void {
     if (!ws || !file || !isSkillFile(file)) return null;
     let edit;
     try {
-      edit = renameAt(ws, file, position, newName);
+      edit = renameAt(ws, file, position, newName, { fileRenames });
     } catch (err) {
       if (err instanceof RenameRefused) return new ResponseError(LSPErrorCodes.RequestFailed, err.message);
       logCliEvent("error", MODULE, "rename failed", { file, error: errorText(err) });
       return null;
     }
     if (!edit) return null;
-    const { changes, warnings } = edit;
+    const { changes, documentChanges, warnings } = edit;
     setImmediate(() => {
       for (const warning of warnings) {
         Promise.resolve(connection.window.showWarningMessage(warning)).catch((err: unknown) => {
@@ -167,7 +175,7 @@ export function startServer(opts: { roots: string[] }): void {
         });
       }
     });
-    return { changes };
+    return documentChanges ? { documentChanges } : { changes };
   });
 
   connection.onCompletion(({ textDocument, position }) => {

@@ -117,7 +117,8 @@ function includeDir(ws: Workspace, file: string, name: string): string | null {
   return mattstack ? join(mattstack.dir, "attachments", name) : null;
 }
 
-function includeTree(ws: Workspace, file: string, name: string): BlockTree | null {
+/** The block tree an `{{include:name}}` in `file` renders, or null for a flat include or an unknown name. */
+export function includeTree(ws: Workspace, file: string, name: string): BlockTree | null {
   const dir = includeDir(ws, file, name);
   return dir === null ? null : (ws.analysis().trees.get(dir) ?? null);
 }
