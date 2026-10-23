@@ -67,5 +67,6 @@ let notificationSoundChecks: [Check] = [
         c.expectEqual(SoundCatalog.uniqueFileName("Doorbell.m4a", taken: ["Doorbell.m4a"]), "Doorbell 2.m4a")
         c.expectEqual(SoundCatalog.uniqueFileName("Doorbell.m4a", taken: ["Doorbell.m4a", "Doorbell 2.m4a"]), "Doorbell 3.m4a")
         c.expectEqual(SoundCatalog.uniqueFileName("beep", taken: ["beep"]), "beep 2")
+        c.expectEqual(SoundCatalog.uniqueFileName("doorbell.m4a", taken: ["Doorbell.m4a"]), "doorbell 2.m4a", "a case-only match is taken")
     },
 ]

@@ -17,10 +17,18 @@ public final class NotificationSoundsModel: ObservableObject {
         await read(rt: rt)
     }
 
+    /// Bumped by every read and write, so an answer that a newer one has
+    /// superseded never lands over a fresher pick.
+    private var generation = 0
+
     private func read(rt: RtRunning) async {
         struct Reading: Decodable { var value: SoundPicks }
+        generation += 1
+        let mine = generation
+        let result = await rt.runJSON(["settings", "get", "rt.notify.sounds", "--json"], verb: "settings get", as: Reading.self)
+        guard mine == generation else { return }
         error = nil
-        switch await rt.runJSON(["settings", "get", "rt.notify.sounds", "--json"], verb: "settings get", as: Reading.self) {
+        switch result {
         case .success(let reading): picks = reading.value
         case .failure(let failure): error = failure.copy
         }
@@ -34,6 +42,7 @@ public final class NotificationSoundsModel: ObservableObject {
         guard !inFlight, picks[tier] != id else { return }
         inFlight = true
         defer { inFlight = false }
+        generation += 1
         error = nil
         picks[tier] = id
         let encoder = JSONEncoder()

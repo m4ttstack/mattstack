@@ -122,7 +122,7 @@ struct NotificationsPaneForm: View {
     }
 
     private func picker(_ tier: SoundTier) -> some View {
-        Picker("", selection: Binding(
+        Picker("\(tier.title) sound", selection: Binding(
             get: { picks[tier] },
             set: { id in id == Self.chooseFileTag ? onChooseFile(tier) : onPick(tier, id) })) {
             Text("Original").tag(SoundID.original)

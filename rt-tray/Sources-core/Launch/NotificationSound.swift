@@ -205,14 +205,16 @@ public enum SoundCatalog {
     }
 
     /// A file name not yet taken in the custom folder: `Doorbell.m4a`, then `Doorbell 2.m4a`.
+    /// Compared without case, since the default macOS volume treats `doorbell.m4a` as the same file.
     public static func uniqueFileName(_ name: String, taken: Set<String>) -> String {
-        guard taken.contains(name) else { return name }
+        let folded = Set(taken.map { $0.lowercased() })
+        guard folded.contains(name.lowercased()) else { return name }
         let base = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension
         var n = 2
         while true {
             let candidate = ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)"
-            if !taken.contains(candidate) { return candidate }
+            if !folded.contains(candidate.lowercased()) { return candidate }
             n += 1
         }
     }

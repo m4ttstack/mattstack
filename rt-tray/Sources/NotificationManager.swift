@@ -302,23 +302,30 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private static func playSound(id: String, tier: SoundTier) {
-        let url: URL?
-        switch SoundCatalog.resolve(id, tier: tier, in: soundLocations) {
+        let loc = soundLocations
+        var urls: [URL] = []
+        switch SoundCatalog.resolve(id, tier: tier, in: loc) {
         case .silent:
             playingSound?.stop()
             return
         case .file(let file):
-            url = file
+            urls = [file]
+            if case .file(let original) = SoundCatalog.resolve(SoundID.original, tier: tier, in: loc), original != file {
+                urls.append(original)
+            }
         case .fallback(let original, let missing):
             TrayLog.warn("picked notification sound missing, playing Original", ["tier": tier.key, "sound": missing])
-            url = original
+            urls = original.map { [$0] } ?? []
         }
 
         playingSound?.stop()
-        if let url, let sound = NSSound(contentsOf: url, byReference: false) {
-            playingSound = sound
-            sound.play()
-            return
+        for url in urls {
+            if let sound = NSSound(contentsOf: url, byReference: false) {
+                playingSound = sound
+                sound.play()
+                return
+            }
+            TrayLog.warn("notification sound would not open", ["tier": tier.key, "file": url.path])
         }
 
         let fallback = NSSound(named: "Funk")
