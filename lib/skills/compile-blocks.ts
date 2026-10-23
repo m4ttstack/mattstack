@@ -129,7 +129,8 @@ export function blockPropValues(
         for (const prop of Object.keys(props)) {
           if (block.props.some((p) => p.name === prop)) continue;
           if (block === tree.root && replacedSlots(tree).includes(prop)) {
-            diagnostics.push({ ...keyAt(prop), code: "old-slot-binding", message: oldSlotBindingMessage(key, prop, tree) });
+            const boundBy = props[prop]!.map((v) => v.layer);
+            diagnostics.push({ ...keyAt(prop), code: "old-slot-binding", message: oldSlotBindingMessage(key, prop, tree, boundBy) });
             continue;
           }
           diagnostics.push({ ...keyAt(prop), code: "unknown-prop", message: `binding "${key}": block "${id}" declares no prop "${prop}"` });
@@ -177,10 +178,24 @@ export function replacedSlots(tree: BlockTree): string[] {
   return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === "string") : [];
 }
 
-/** One old slot maps to many props, so the message lists every prop the engine's blocks declare. */
-export function oldSlotBindingMessage(engineRef: string, slot: string, tree: BlockTree): string {
+function layerWords(label: string): string {
+  if (label.startsWith("base:")) return `the org base pack ${label.slice("base:".length)}`;
+  if (label === "pack") return "this pack";
+  if (label === "override") return "the repo override";
+  if (label === "default") return "mattstack's defaults";
+  return label;
+}
+
+/**
+ * One old slot maps to many props, so the message lists every prop the
+ * engine's blocks declare. `boundBy` holds the manifest layers that set the
+ * key, so a team author whose own fragment is clean learns the org base set it.
+ */
+export function oldSlotBindingMessage(engineRef: string, slot: string, tree: BlockTree, boundBy: string[] = []): string {
   const props = walk(tree).flatMap((b) => b.props.map((p) => `${b.id}.${p.name} (${p.merge})`));
-  return `"${engineRef}" no longer has slot "${slot}"; its props are: ${props.join(", ")}`;
+  const layers = [...new Set(boundBy)].map(layerWords);
+  const bound = layers.length > 0 ? `, bound by ${layers.join(" and ")}` : "";
+  return `"${engineRef}" no longer has slot "${slot}"${bound}; its props are: ${props.join(", ")}`;
 }
 
 /**

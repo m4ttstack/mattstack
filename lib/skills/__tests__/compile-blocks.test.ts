@@ -162,8 +162,21 @@ describe("blockPropValues", () => {
     const [d, ...rest] = diagnosticsOf(() => valuesFor(step, roots, bindingsOf(text)));
     expect(rest).toEqual([]);
     expect(d).toMatchObject({ file: MANIFEST, line: 3, col: 25, code: "old-slot-binding" });
-    expect(d!.message).toStartWith('"mattstack:ship" no longer has slot "domain"; its props are: ');
+    expect(d!.message).toStartWith('"mattstack:ship" no longer has slot "domain", bound by this pack; its props are: ');
     expect(d!.message).toContain("ship/flow/domain-fast-checks.rules (add)");
+  });
+
+  test("an old slot key the org base bound names the base pack as the layer that bound it", () => {
+    const mattstack = join(import.meta.dir, "..", "..", "..", "plugins", "mattstack");
+    const roots: PluginRoots = { byName: { mattstack: { dir: mattstack, version: "1.0.0" } }, list: [] };
+    const step = loadStepSource("ship", roots);
+    const text =
+      '{\n  "bindings": { "mattstack:ship": { "domain": "w:y" } },\n' +
+      '  "layered": { "mattstack:ship": { "domain": [{ "layer": "base:acme-base", "value": "w:x" }, { "layer": "pack", "value": "w:y" }] } }\n}\n';
+    const [d, ...rest] = diagnosticsOf(() => valuesFor(step, roots, bindingsOf(text)));
+    expect(rest).toEqual([]);
+    expect(d!.code).toBe("old-slot-binding");
+    expect(d!.message).toStartWith('"mattstack:ship" no longer has slot "domain", bound by the org base pack acme-base and this pack; its props are: ');
   });
 
   test("a value that loads nothing is fill-missing at that layer's value, naming the binding key", () => {

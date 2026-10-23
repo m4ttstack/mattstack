@@ -509,6 +509,21 @@ describe("skillsBind", () => {
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
   });
 
+  test("rt skills compile exits non-zero on a manifest key that binds an old slot, naming the layer and writing no verb", async () => {
+    const packDir = makePackDir();
+    writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+    const { mattstackDir, manifestPath } = makeEngineFixture();
+    writeFile(manifestPath, '{\n  "bindings": {\n    "mattstack:watch-ci": { "domain": "acme:watch-ci-domain-v1" }\n  }\n}\n');
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]),
+    );
+
+    expect(exitCode).not.toBe(0);
+    expect(errors.join("\n")).toContain('"mattstack:watch-ci" no longer has slot "domain", bound by this pack; its props are: watch-ci/domain-rules.rules (add)');
+    expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(false);
+  });
+
   test("fill whose provides does not match the prop's contract: clean error, exit 1, writes nothing", async () => {
     const packDir = makePackDir();
     writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
