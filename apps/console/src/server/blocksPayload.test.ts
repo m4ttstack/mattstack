@@ -28,3 +28,28 @@ describe('the blocks payload type', () => {
     expect(stage.kind).toBe('stage');
   });
 });
+
+describe('the committed blocks payloads', () => {
+  const committed = { mini, ship, 'stage-plan': stagePlan };
+
+  for (const [name, payload] of Object.entries(committed)) {
+    it(`declares and counts every layer ${name} uses`, () => {
+      const loose: Loose<BlocksPayload> = payload;
+      const used = new Set<string>();
+      for (const block of loose.blocks) {
+        for (const prop of block.props)
+          for (const value of prop.values) used.add(value.layer);
+        for (const segment of block.segments) used.add(segment.layer);
+      }
+      used.delete('default');
+      const labels = new Set(loose.layers.map(layer => layer.label));
+      for (const layer of used)
+        expect(labels, `${layer} has no layers entry`).toContain(layer);
+      const counted = new Set(loose.lines.map(row => row.layer));
+      for (const layer of loose.layers)
+        expect(counted, `${layer.label} has no lines row`).toContain(
+          layer.label
+        );
+    });
+  }
+});
