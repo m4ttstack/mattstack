@@ -159,5 +159,24 @@ JSON
 herd="$(run --herd h1)"
 has "herd ignores a record older than the job" "| alpha | done | ✓ | ✓ | ✓ | ✓ | · | reported |" "$(rowof alpha "$herd")"
 
+# Herd mode counts lettered sub-tasks with the same rule as plan mode.
+BETATREE="$SANDBOX/betatree"
+mkdir -p "$BETATREE/docs/plans" "$BETATREE/.superpowers/sdd/p"
+{ echo "# Plan p"; for i in 1 2 3 4 5; do echo "### Task $i: step"; done; } > "$BETATREE/docs/plans/p.md"
+mkdir -p "$SANDBOX/home/.mattstack/rt/herds/h1/beta"
+printf 'Method: superpowers\n' > "$SANDBOX/home/.mattstack/rt/herds/h1/beta/job.md"
+cat > "$FX/herd-status.json" <<JSON
+{"herd":{"id":"h1","shepherdName":"shep","createdAt":1000},"unread":0,
+"jobs":[{"name":"beta","status":"active","worktree":"$BETATREE","tree":"$BETATREE","branch":"beta-x","createdAt":1000}]}
+JSON
+echo '{"ok":true,"plans":[]}' > "$FX/plans.json"
+{ echo "plan: docs/plans/p.md"; echo "Task 1: complete"; echo "Task 2: complete"; echo "Task 3: complete"
+  echo "Task 4a: complete"; echo "Task 4b: dispatched"; } > "$BETATREE/.superpowers/sdd/p/progress.md"
+herd="$(run --herd h1)"
+has "herd split task with an open part is not done" "3/5" "$(rowof beta "$herd")"
+echo "Task 4b: complete" >> "$BETATREE/.superpowers/sdd/p/progress.md"
+herd="$(run --herd h1)"
+has "herd split task is done once every part is" "4/5" "$(rowof beta "$herd")"
+
 [ "$fails" -eq 0 ] && echo "all work-progress tests passed" || echo "$fails failure(s)"
 exit $((fails > 0))

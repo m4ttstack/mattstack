@@ -114,7 +114,7 @@ def plan_file(root, ledger):
 def ledger_progress(root, ledger):
     text = read(ledger)
     total = len(set(re.findall(r"(?m)^#+\s*Task\s+(\d+)\b", read(plan_file(root, ledger)))))
-    done = len(set(re.findall(r"\bTask\s+(\d+):\s*complete\b", text)))
+    done = done_tasks(text)
     lines = [l.strip() for l in text.splitlines()[1:] if l.strip() and not re.match(r"(#|\||Ruling|Spec:)", l.strip())]
     now = re.sub(r"^Task\s+(\d+):\s*", r"T\1 ", lines[-1]) if lines else ""
     return done, total, now
