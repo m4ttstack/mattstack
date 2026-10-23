@@ -150,23 +150,52 @@ describe('aroundLayout with a row cap', () => {
     }
   });
 
-  it('wraps a layer onto two rows at most, widening them past a tight cap', () => {
-    const capped = aroundLayout(sub, 'fast_checks', 1);
+  it('wraps a layer onto as many rows as the cap needs, never widening a row past it', () => {
+    const capped = aroundLayout(sub, 'fast_checks', 2);
     const stepY = AROUND.nodeH + AROUND.rowGap;
+    const y = (id: string) =>
+      capped.nodes.find(node => node.id === id)!.position.y;
     const above = ['tree_dirty', 'commit_named', 'stash_them', 'rebase_status'];
-    const ys = above.map(
-      id => capped.nodes.find(node => node.id === id)!.position.y
-    );
-    expect(new Set(ys)).toEqual(new Set([0, stepY]));
-    const xs = (y: number) =>
-      capped.nodes
-        .filter(node => node.position.y === y)
-        .map(node => node.position.x + AROUND.nodeW / 2);
-    for (const lower of xs(stepY)) {
-      for (const drop of xs(0)) {
-        expect(Math.abs(lower - drop)).toBeGreaterThan(AROUND.nodeW / 2);
+
+    expect(new Set(above.map(y))).toEqual(new Set([0, stepY, 2 * stepY]));
+    expect(y('fast_checks')).toBe(3 * stepY);
+    const perRow = new Map<number, number>();
+    for (const node of capped.nodes) {
+      perRow.set(node.position.y, (perRow.get(node.position.y) ?? 0) + 1);
+    }
+    expect(Math.max(...perRow.values())).toBeLessThanOrEqual(2);
+  });
+
+  it('sends a drop that would pass behind a lower node down a side channel', () => {
+    const capped = aroundLayout(sub, 'fast_checks', 2);
+    const centre = (id: string) => {
+      const node = capped.nodes.find(candidate => candidate.id === id)!;
+      return { x: node.position.x + AROUND.nodeW / 2, y: node.position.y };
+    };
+    const routed = capped.edges.filter(edge => edge.target === 'fast_checks');
+    expect(routed.length).toBeGreaterThan(0);
+    for (const edge of routed) {
+      const from = centre(edge.source);
+      const to = centre(edge.target);
+      const between = capped.nodes.filter(
+        node => node.position.y > from.y && node.position.y < to.y
+      );
+      const blocked = between.some(
+        node =>
+          Math.abs(node.position.x + AROUND.nodeW / 2 - from.x) <
+          AROUND.nodeW / 2 + AROUND.columnGap / 2
+      );
+      if (blocked) {
+        const channel = edge.data?.channel;
+        expect(channel).toBeDefined();
+        for (const node of between) {
+          expect(channel!).toBeLessThan(node.position.x);
+        }
+      } else {
+        expect(edge.data?.channel ?? null).toBeNull();
       }
     }
+    expect(routed.some(edge => edge.data?.channel != null)).toBe(true);
   });
 
   it('counts one row per layer with no cap', () => {

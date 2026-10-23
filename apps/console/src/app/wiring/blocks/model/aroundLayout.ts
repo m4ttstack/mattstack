@@ -18,7 +18,11 @@ export type AroundNodeData = {
 };
 
 export type AroundNode = Node<AroundNodeData, 'block' | 'graphOnly'>;
-export type AroundEdgeData = { dashed: boolean };
+export type AroundEdgeData = {
+  dashed: boolean;
+  /** The x of the side channel a drop takes past a lower row's node. */
+  channel?: number | null;
+};
 export type AroundEdge = Edge<AroundEdgeData, 'around'>;
 
 const FOCUS_LAYER = 1;
@@ -91,29 +95,19 @@ export function aroundLayout(
   let rows = 0;
   for (const layer of [...byLayer.keys()].sort((a, b) => a - b)) {
     const ids = byLayer.get(layer) ?? [];
-    // Two rows at most: a third would sit in the drops of the first two, so
-    // a layer that needs more widens its rows and the canvas zooms out.
-    const width =
-      ids.length > cap ? Math.max(cap, Math.ceil((ids.length + 1) / 2)) : cap;
-    const first = ids.slice(0, width);
-    const columns = first.map((_, index) => index - (first.length - 1) / 2);
-    first.forEach((id, index) =>
-      place.set(id, { row: rows, column: columns[index] })
-    );
-    rows += 1;
-    // A wrapped row sits in the gaps between the first row's columns, so
-    // the first row's edges drop past it rather than through it.
-    const gaps = columns.slice(1).map(column => column - 0.5);
-    const perGapRow = Math.max(1, gaps.length);
-    for (let start = width; start < ids.length; start += perGapRow) {
-      const chunk = ids.slice(start, start + perGapRow);
-      const from = Math.floor((gaps.length - chunk.length) / 2);
+    // Rows of `cap` alternate with rows set in their gaps, so a drop from
+    // one row passes the next one between its nodes.
+    const full = Math.min(cap, ids.length);
+    const grid = Array.from({ length: full }, (_, i) => i - (full - 1) / 2);
+    const gaps = grid.slice(1).map(column => column - 0.5);
+    for (let start = 0, wrap = 0; start < ids.length; wrap += 1) {
+      const slots = wrap % 2 === 0 || gaps.length === 0 ? grid : gaps;
+      const chunk = ids.slice(start, start + slots.length);
+      const from = Math.floor((slots.length - chunk.length) / 2);
       chunk.forEach((id, index) =>
-        place.set(id, {
-          row: rows,
-          column: gaps[from + index] ?? index - (chunk.length - 1) / 2,
-        })
+        place.set(id, { row: rows, column: slots[from + index] })
       );
+      start += chunk.length;
       rows += 1;
     }
   }
@@ -146,11 +140,45 @@ export function aroundLayout(
       target: edge.to,
       type: 'around',
       ...(edge.label === null ? {} : { label: edge.label }),
-      data: { dashed: edge.style === 'dashed' },
+      data: {
+        dashed: edge.style === 'dashed',
+        channel: channelOf(nodes, edge.from, edge.to),
+      },
     }))
     .filter(edge => layers.get(edge.source) !== layers.get(edge.target));
 
   return { nodes, edges, rows };
+}
+
+/** A downward edge whose straight drop would pass behind a node on a row
+    between its ends goes down the left side of those rows instead. */
+function channelOf(
+  nodes: AroundNode[],
+  from: string,
+  to: string
+): number | null {
+  const source = nodes.find(node => node.id === from);
+  const target = nodes.find(node => node.id === to);
+  if (!source || !target || target.position.y <= source.position.y) {
+    return null;
+  }
+  const dropX = source.position.x + AROUND.nodeW / 2;
+  const between = nodes.filter(
+    node =>
+      node.position.y > source.position.y && node.position.y < target.position.y
+  );
+  const blocked = between.some(
+    node =>
+      Math.abs(node.position.x + AROUND.nodeW / 2 - dropX) <
+      AROUND.nodeW / 2 + AROUND.columnGap / 2
+  );
+  if (!blocked) return null;
+  const span = nodes.filter(
+    node =>
+      node.position.y >= source.position.y &&
+      node.position.y <= target.position.y
+  );
+  return Math.min(...span.map(node => node.position.x)) - AROUND.columnGap / 2;
 }
 
 /** A whole graph laid out from its entry (the first node nothing points at)

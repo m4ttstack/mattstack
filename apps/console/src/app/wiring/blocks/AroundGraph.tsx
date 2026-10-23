@@ -51,10 +51,24 @@ const GlyphOf = createContext<GlyphLookup>(noGlyph);
 const ICON_STROKE = 2;
 const MARKER = { length: 7, halfWidth: 4 };
 const CANVAS_PADDING = 24;
-/** Rows wrap to fit at this zoom; a layer too wide for two rows zooms
-    out further, to the floor. */
+/** Rows wrap to fit at this zoom, and the canvas never zooms out past it:
+    13px node labels stay at 11px and 12px edge labels at 10px. */
 const MIN_ZOOM = 0.85;
-const FLOOR_ZOOM = 0.6;
+
+/** Down to the row gap under the source, across to the channel, down past
+    the rows between, and across to land on the target from above. */
+function sideChannelPath(
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+  channel: number
+): [string, number, number] {
+  const busY = sy + AROUND.rowGap / 2;
+  const landY = ty - AROUND.rowGap / 2;
+  const path = `M${sx} ${sy}V${busY}H${channel}V${landY}H${tx}V${ty - MARKER.length}`;
+  return [path, (sx + channel) / 2, busY];
+}
 
 /** The canvas is as tall as the layout at the zoom fitView will pick, so a
     zoomed-out graph leaves no empty band above and below it. */
@@ -68,7 +82,7 @@ function canvasHeight(
   const wide =
     xs.length > 0 ? Math.max(...xs) - Math.min(...xs) + AROUND.nodeW : 0;
   const fit = width > 0 && wide > 0 ? (width - 2 * CANVAS_PADDING) / wide : 1;
-  const zoom = Math.min(1, Math.max(FLOOR_ZOOM, fit));
+  const zoom = Math.min(1, Math.max(MIN_ZOOM, fit));
   return Math.ceil(tall * zoom) + 2 * CANVAS_PADDING;
 }
 
@@ -168,17 +182,26 @@ function AroundEdgeComponent({
   label,
   data,
 }: EdgeProps<AroundEdge>) {
-  const [path, labelX, labelY] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY: targetY - MARKER.length,
-    targetPosition,
-    borderRadius: 0,
-    // The bend sits just above the target, below any wrapped row between.
-    ...(targetY > sourceY ? { centerY: targetY - AROUND.rowGap / 2 } : {}),
-  });
+  const channel = data?.channel ?? null;
+  const [path, midX, labelY] =
+    channel === null
+      ? getSmoothStepPath({
+          sourceX,
+          sourceY,
+          sourcePosition,
+          targetX,
+          targetY: targetY - MARKER.length,
+          targetPosition,
+          borderRadius: 0,
+          // The bend sits just above the target, below any wrapped row between.
+          ...(targetY > sourceY
+            ? { centerY: targetY - AROUND.rowGap / 2 }
+            : {}),
+        })
+      : sideChannelPath(sourceX, sourceY, targetX, targetY, channel);
+  // Edges converging on one target share its bend line, so each label sits
+  // over its own source rather than at the line's crowded middle.
+  const labelX = channel === null && targetY > sourceY ? sourceX : midX;
   const marker = `M${targetX - MARKER.halfWidth} ${targetY - MARKER.length}l${MARKER.halfWidth} ${MARKER.length} ${MARKER.halfWidth}-${MARKER.length}z`;
   return (
     <>
@@ -276,10 +299,10 @@ function GraphFrame({
               fitView
               fitViewOptions={{
                 padding: `${CANVAS_PADDING}px`,
-                minZoom: FLOOR_ZOOM,
+                minZoom: MIN_ZOOM,
                 maxZoom: 1,
               }}
-              minZoom={FLOOR_ZOOM}
+              minZoom={MIN_ZOOM}
               panOnScroll
               panOnScrollMode={PanOnScrollMode.Vertical}
               zoomOnScroll={false}
