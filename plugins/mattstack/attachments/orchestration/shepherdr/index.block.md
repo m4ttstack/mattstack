@@ -46,23 +46,26 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 {{props.strategy}}
 
-`accounts` may be unbound (single-account mode, handled below).
+`accounts` always has a fill: the pack's own, else mattstack's cswap
+accounts fill, which a `""` clear falls back to as well. That fill runs
+single-account mode itself when there is no cswap or only one account.
 
 ## Domain rules
 
 Domain rules are optional: a pack binds them to the `rules` prop, here or
-on a step's own block. A bound domain part's rules win over this engine's
-default only at the **Domain hook** paragraphs below: intake, the model
-floor and strategy pin, provisioning (the `Domain provisions the tree?`
-branch), the Method copy, conventions, what follows a job's report, and
-wrap-up. It never changes the herd contract: questions and reports still
-flow through the herd tools and the gate registry.
+on a step's own block. Bound rules win over this engine's default only at
+the **Domain hook** paragraphs below: intake, the model floor and strategy
+pin, provisioning (the `Domain provisions the tree?` branch), the Method
+copy, conventions, what follows a job's report, and wrap-up. They never
+change the herd contract: questions and reports still flow through the
+herd tools and the gate registry.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
 {{props.rules}}
 
-When nothing is inlined above, every engine default stands as written.
+Rules sit above or in a step's own section. A **Domain hook**
+paragraph no rule names keeps the engine default as written.
 
 ## Accounts
 

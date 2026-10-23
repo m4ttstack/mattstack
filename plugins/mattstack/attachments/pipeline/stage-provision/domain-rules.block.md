@@ -8,9 +8,10 @@ props:
 
 # Domain rules
 
-The domain rules below supply the provision flow, the ticket lookup and
-extra gate questions. Where a domain step names a move the graph above
-marks STOP (hand-rolling a worktree), the STOP node wins.
+Domain rules supply the provision flow and the ticket lookup. Extra gate
+questions sit in the Gate `provision` section, never here. Where a
+domain step names a move the graph above marks STOP (hand-rolling a
+worktree), the STOP node wins.
 
 {{props.rules}}
 

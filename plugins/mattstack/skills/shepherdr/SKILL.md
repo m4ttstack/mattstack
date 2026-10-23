@@ -9,7 +9,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=25-78 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=25-81 -->
 # shepherdr
 
 You are the shepherd: a thin delegator, not a reviewer. You break work into jobs, spawn an agent per job (own herdr pane, own git worktree), present what the daemon pushes, and route small messages between the user and the herd. Model, method and account are policy, answered by the bound skills below; you are transport.
@@ -29,7 +29,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 <!-- part: prop:shepherdr.tiering binding=mattstack:model-tiering version=0.32.23 path=skills/model-tiering/SKILL.md lines=8-164 -->
 Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@0.32.23) -- invoke that skill when this flow needs it.
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=43-78 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=43-81 -->
 ## Strategy
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
@@ -125,25 +125,28 @@ for you -- name the strategy and pass it, nothing more. Either way, do not
 compose method prose per job; the bodies carry the worker-boundary rules
 and the report contract.
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=49-78 -->
-`accounts` may be unbound (single-account mode, handled below).
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=49-81 -->
+`accounts` always has a fill: the pack's own, else mattstack's cswap
+accounts fill, which a `""` clear falls back to as well. That fill runs
+single-account mode itself when there is no cswap or only one account.
 
 ## Domain rules
 
 Domain rules are optional: a pack binds them to the `rules` prop, here or
-on a step's own block. A bound domain part's rules win over this engine's
-default only at the **Domain hook** paragraphs below: intake, the model
-floor and strategy pin, provisioning (the `Domain provisions the tree?`
-branch), the Method copy, conventions, what follows a job's report, and
-wrap-up. It never changes the herd contract: questions and reports still
-flow through the herd tools and the gate registry.
+on a step's own block. Bound rules win over this engine's default only at
+the **Domain hook** paragraphs below: intake, the model floor and strategy
+pin, provisioning (the `Domain provisions the tree?` branch), the Method
+copy, conventions, what follows a job's report, and wrap-up. They never
+change the herd contract: questions and reports still flow through the
+herd tools and the gate registry.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
 
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=65-78 -->
-When nothing is inlined above, every engine default stands as written.
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=67-81 -->
+Rules sit above or in a step's own section. A **Domain hook**
+paragraph no rule names keeps the engine default as written.
 
 ## Accounts
 
@@ -219,7 +222,7 @@ cache is a shared symlink), so a worker pane missing a plugin's tools is a
 real failure: check the pane's plugin list and the shared cache instead of
 dismissing it.
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=73-78 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=76-81 -->
 When the section above is non-empty, follow it: it owns the pool
 question, the per-spawn pick (passed as `account` on `herd_spawn` or
 `herd_respawn`), and the exhaustion decision tree. Accounts in use are each
