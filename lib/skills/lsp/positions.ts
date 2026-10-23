@@ -15,7 +15,8 @@ export type Token =
   | { kind: "binding-prop"; key: string; prop: string; range: Range }
   | { kind: "binding-value"; key: string; prop: string; value: string; range: Range };
 
-const MARKER_RE = /\{\{props\.([a-z][a-z0-9-]*)\}\}|\{\{include:([^}\s]+)\}\}/g;
+const MARKER_RE = /\{\{props\.([a-z][a-z0-9-]*)\}\}/g;
+const INCLUDE_LINE_RE = /^\{\{include:([^}\s]+)\}\}$/;
 const FRONTMATTER_FENCE_RE = /^---\s*$/;
 const YAML_KEY_RE = /^(\s*)([A-Za-z0-9_][\w-]*)\s*:/;
 const NODE_VALUE_RE = /^node:\s*(\w+)/;
@@ -41,7 +42,7 @@ export function tokenAt(text: string, file: string, pos: Position): Token | null
 }
 
 function contains(r: Range, p: Position): boolean {
-  return p.line === r.start.line && p.character >= r.start.character && p.character < r.end.character;
+  return p.line === r.start.line && p.character >= r.start.character && p.character <= r.end.character;
 }
 
 export function rangeOf(d: BlockDiagnostic, text: string): Range {
@@ -91,10 +92,7 @@ function blockTokens(text: string): Token[] {
         fence = { marker: m[1]!, mermaid: m[2] === "mermaid" };
         continue;
       }
-      for (const mm of row.matchAll(MARKER_RE)) {
-        const range = span(i, mm.index, mm.index + mm[0].length);
-        tokens.push(mm[1] !== undefined ? { kind: "marker", prop: mm[1], range } : { kind: "include", name: mm[2]!, range });
-      }
+      markerTokens(row, i, tokens);
       continue;
     }
     if (m && m[1]![0] === fence.marker[0] && m[1]!.length >= fence.marker.length && m[2] === "") {
@@ -102,8 +100,19 @@ function blockTokens(text: string): Token[] {
       continue;
     }
     if (fence.mermaid) mermaidTokens(row, i, tokens);
+    else markerTokens(row, i, tokens);
   }
   return tokens;
+}
+
+/** Plan 1 substitutes props markers inside non-mermaid fences too, and reads an include only as a whole line. */
+function markerTokens(row: string, line: number, tokens: Token[]): void {
+  for (const m of row.matchAll(MARKER_RE)) tokens.push({ kind: "marker", prop: m[1]!, range: span(line, m.index, m.index + m[0].length) });
+  const trimmed = row.trim();
+  const include = INCLUDE_LINE_RE.exec(trimmed);
+  if (!include) return;
+  const start = row.indexOf(trimmed);
+  tokens.push({ kind: "include", name: include[1]!, range: span(line, start, start + trimmed.length) });
 }
 
 function frontmatterTokens(lines: string[], offset: number, tokens: Token[]): void {

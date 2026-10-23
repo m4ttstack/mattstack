@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { rangeOf, tokenAt, tokensIn } from "../positions.ts";
+import { rangeOf, type Token, tokenAt, tokensIn } from "../positions.ts";
 
 const FIXTURES = join(import.meta.dir, "../../__tests__/fixtures/blocks");
 const MINI = join(FIXTURES, "plugins/mattstack/attachments/pipeline/mini");
@@ -82,9 +82,25 @@ describe("tokenAt in a block file", () => {
     });
   });
 
-  test("inside a bash fence gives null", () => {
+  test("plain text inside a bash fence gives null", () => {
     const text = "# a\n\n```bash\necho {{props.rules}}\n```\n";
-    expect(tokenAt(text, "a.block.md", { line: 3, character: 8 })).toBeNull();
+    expect(tokenAt(text, "a.block.md", { line: 3, character: 2 })).toBeNull();
+  });
+
+  test("a props marker inside a bash fence is still a marker", () => {
+    const text = "# a\n\n```bash\necho {{props.rules}}\n```\n";
+    const marker: Token = { kind: "marker", prop: "rules", range: { start: { line: 3, character: 5 }, end: { line: 3, character: 20 } } };
+    expect(tokensIn(text, "a.block.md")).toEqual([marker]);
+    expect(tokenAt(text, "a.block.md", { line: 3, character: 8 })).toEqual(marker);
+  });
+
+  test("an include in the middle of a line is prose, not an include", () => {
+    const text = "# a\n\nsee {{include:widgets:x}} inline\n";
+    expect(tokensIn(text, "a.block.md")).toEqual([]);
+  });
+
+  test("a caret right after an identifier still finds its token", () => {
+    expect(tokenAt(INDEX, "mini/index.block.md", at(INDEX, "rules:", 5))).toMatchObject({ kind: "prop-decl", prop: "rules" });
   });
 
   test("malformed lines never throw", () => {
