@@ -1,6 +1,6 @@
 ---
 node: capture_after_case
-label: Case AFTER capture
+label: Capture after next
 props:
   rules:
     merge: add

@@ -1,6 +1,6 @@
 ---
 node: domain_runs_ci
-label: Domain runs CI
+label: CI runs after MR
 props:
   rules:
     merge: add

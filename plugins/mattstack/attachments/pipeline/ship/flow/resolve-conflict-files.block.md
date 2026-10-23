@@ -1,5 +1,6 @@
 ---
 node: resolve_conflict_files
+label: Resolve conflicts
 props:
   rules:
     merge: add

@@ -1,5 +1,6 @@
 ---
 node: commit_named_files
+label: Commit named
 props:
   rules:
     merge: add

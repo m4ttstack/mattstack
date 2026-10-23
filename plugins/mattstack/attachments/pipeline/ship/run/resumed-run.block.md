@@ -1,5 +1,6 @@
 ---
 node: resumed_run
+label: Resumed
 ---
 
 # Resumed ship run: re-enter at run_snapshot's decisions

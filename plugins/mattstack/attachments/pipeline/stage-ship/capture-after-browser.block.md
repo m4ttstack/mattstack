@@ -1,6 +1,6 @@
 ---
 node: capture_after_browser
-label: Browser AFTER capture
+label: Capture after browser
 ---
 
 # Capture the AFTER with the browser (browser-evidence)

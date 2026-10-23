@@ -1032,7 +1032,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 - **Domain hook: after the report.** Unbound: the integration job merges. A bound domain part may define what follows a report (the worker ships through its own skill chain, or the shepherd merges after a gate; how jobs feeding one deliverable integrate) and whether it waits for the user to ask. Fixing and pushing stay with workers.
 - **Domain hook: wrap-up.** Unbound: as drawn. A bound domain part may state its own tree lifecycle (trees that dispose themselves on merge, what a disposal refusal means); follow it over the defaults here.
 
-<!-- part: block:shepherdr/wrap-up-form-contract source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/wrap-up-form-contract.block.md lines=5-9 -->
+<!-- part: block:shepherdr/wrap-up-form-contract source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/wrap-up-form-contract.block.md lines=6-10 -->
 ## wrap-up form contract
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*

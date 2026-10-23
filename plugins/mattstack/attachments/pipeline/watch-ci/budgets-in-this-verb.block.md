@@ -1,5 +1,6 @@
 ---
 order: 5
+label: Budgets
 ---
 
 # Budgets in this verb

@@ -1,6 +1,6 @@
 ---
 node: stash_them
-label: Stash changes
+label: Stash them
 ---
 
 # Stash them

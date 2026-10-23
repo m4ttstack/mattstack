@@ -1,6 +1,6 @@
 ---
 node: capture_before_case
-label: Case BEFORE capture
+label: Capture before case
 props:
   rules:
     merge: add

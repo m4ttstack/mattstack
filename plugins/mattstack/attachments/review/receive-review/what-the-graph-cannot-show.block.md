@@ -1,5 +1,6 @@
 ---
 order: 3
+label: Graph notes
 ---
 
 # What the graph cannot show

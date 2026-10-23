@@ -1,5 +1,6 @@
 ---
 order: 7
+label: Wrap-up form contract
 ---
 
 # wrap-up form contract

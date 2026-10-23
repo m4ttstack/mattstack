@@ -2285,7 +2285,7 @@ with no run, count in context. A second refusal fails the stage or ends the
 verb, quoting it verbatim; never off-script, which opens through `gate_ask`
 too.
 
-<!-- part: block:gate-protocol/present-form-no-registry source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/present-form-no-registry.block.md lines=7-10 -->
+<!-- part: block:gate-protocol/present-form-no-registry source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/present-form-no-registry.block.md lines=6-9 -->
 ### Present the gate form with no registry
 
 Form-only, with no other gate call: the answer is the decision (no CAS),
@@ -2300,7 +2300,7 @@ before its form: `open '<path>'`, once per entry, the path as the entry
 gives it. Unattended, the human answers in the console, which shows every
 board as a thumbnail, so nothing opens on this machine's screen.
 
-<!-- part: block:gate-protocol/present-pane-form source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/present-pane-form.block.md lines=6-14 -->
+<!-- part: block:gate-protocol/present-pane-form source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/present-pane-form.block.md lines=5-13 -->
 ### Present the in-pane gate form
 
 The `paneAction: form` branch (older sites say the

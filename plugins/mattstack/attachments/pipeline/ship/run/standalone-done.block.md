@@ -1,6 +1,6 @@
 ---
 node: standalone_done
-label: Standalone run done
+label: Standalone done
 ---
 
 # A done standalone ship run (ship re-capture)?

@@ -1,5 +1,6 @@
 ---
 order: 3
+label: Budgets
 ---
 
 # Budgets in this stage

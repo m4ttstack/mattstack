@@ -1,5 +1,6 @@
 ---
 node: revise_board
+label: Revise a board
 ---
 
 # Revise a board (browser-evidence)

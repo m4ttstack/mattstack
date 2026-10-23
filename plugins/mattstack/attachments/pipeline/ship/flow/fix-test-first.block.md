@@ -1,5 +1,6 @@
 ---
 node: fix_test_first
+label: Fix test-first
 props:
   rules:
     merge: add

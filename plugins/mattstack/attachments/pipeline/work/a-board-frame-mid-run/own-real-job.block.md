@@ -1,6 +1,6 @@
 ---
 node: own_real_job
-label: Own REAL job failing
+label: Own job failing
 ---
 
 # A REAL job failing on this run's MR?

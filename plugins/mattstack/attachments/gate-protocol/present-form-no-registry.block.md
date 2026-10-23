@@ -1,6 +1,5 @@
 ---
 node: present_form_no_registry
-kind: gate
 label: Form without registry
 ---
 
