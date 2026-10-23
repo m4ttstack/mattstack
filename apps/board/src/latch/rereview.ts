@@ -1,0 +1,31 @@
+import type { ReviewerLatch } from './discussions.ts';
+
+/** The `reReview` field of a gate answer body: latch discussion ids the
+    developer ticked. Anything but an array of non-empty strings is no pick. */
+export function parseReReview(body: unknown): string[] {
+  const ids = (body as { reReview?: unknown } | null)?.reReview;
+  if (!Array.isArray(ids)) return [];
+  if (!ids.every(id => typeof id === 'string' && id)) return [];
+  return ids as string[];
+}
+
+/** The picked ids that name an unrequested latch on the MR; with `person`,
+    only that reviewer's latch. The browser's pick is untrusted, so the board
+    keeps only ids it can match to a latch it computed itself. */
+export function acceptedReReview(
+  ids: string[],
+  latches: ReviewerLatch[],
+  person?: string
+): string[] {
+  const who = person?.toLowerCase();
+  const allowed = new Set(
+    latches
+      .filter(
+        l =>
+          !l.requested &&
+          (who === undefined || l.reviewer.toLowerCase() === who)
+      )
+      .map(l => l.discussionId)
+  );
+  return ids.filter(id => allowed.has(id));
+}

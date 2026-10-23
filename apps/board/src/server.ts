@@ -185,6 +185,7 @@ import {
 } from './herdr.ts';
 import { reviewerLatches } from './latch/discussions.ts';
 import { latchGateway } from './latch/gateway.ts';
+import { acceptedReReview, parseReReview } from './latch/rereview.ts';
 import { applyReviewLatch } from './latch/review-step.ts';
 import {
   dedupInFlight,
@@ -2791,6 +2792,7 @@ const httpServer = Bun.serve({
           person: person ?? null,
           responseRound: responseRound ?? null,
           gateId: null,
+          pendingReReview: [],
           startedAt: Date.now(),
         });
         void launchRespond({
@@ -3409,10 +3411,38 @@ const httpServer = Bun.serve({
           gateAnswer: gateAnswerFacility,
         });
         switch (result.kind) {
-          case 'ok':
+          case 'ok': {
+            try {
+              const picked = parseReReview(body);
+              if (picked.length > 0) {
+                for (const [mrUrl, state] of readRespondStates()) {
+                  if (state.gateId !== gateId) continue;
+                  const mr = (await cache.get()).mrs.find(
+                    m => m.webUrl === mrUrl
+                  );
+                  if (!mr) break;
+                  const accepted = acceptedReReview(
+                    picked,
+                    mr.reviewerLatches ?? [],
+                    state.person
+                  );
+                  if (accepted.length > 0)
+                    writeRespondState(respondFilePath(mrUrl), {
+                      status: state.status,
+                      pendingReReview: accepted,
+                    });
+                  break;
+                }
+              }
+            } catch (err) {
+              console.error(
+                `gate answer: storing the re-review pick failed: ${err}`
+              );
+            }
             return new Response(JSON.stringify({ ok: true }), {
               headers: { 'content-type': 'application/json' },
             });
+          }
           case 'conflict':
             return new Response(
               JSON.stringify({ ok: false, conflict: true, row: result.row }),
