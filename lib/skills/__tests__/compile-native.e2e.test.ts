@@ -676,6 +676,16 @@ describe("block-tree engines end to end", () => {
     expect(parts.filter((p) => p.changed).map((p) => `${p.kind}:${p.name}`)).toEqual(["prop:mini.rules"]);
   });
 
+  test("a SKILL.md left beside the block tree refuses compile and leaves the compiled skill alone", async () => {
+    const { pack, ms, args } = await buildBlocks();
+    const before = readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8");
+    writeFileSync(join(ms, "plugins", "mattstack", "attachments", "pipeline", "mini", "SKILL.md"), "---\nname: mini\ntype: pipeline-step\n---\n\n{{slot:x}}\n");
+    const { exitCode, errors } = await runExpectingCleanExit(() => skillsCompile(args));
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("attachments/pipeline/mini/SKILL.md:1:1: the block tree in index.block.md replaces this SKILL.md; delete it");
+    expect(readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8")).toBe(before);
+  });
+
   test("a binding to a block the engine lacks refuses compile at the manifest line", async () => {
     const { manifest, args } = await buildBlocks();
     writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"mattstack:mini/gate"', '"mattstack:mini/nope"'));

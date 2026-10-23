@@ -8,6 +8,7 @@ import { stripJsonc } from "../jsonc.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
+import { BlockError } from "./blocks/diagnostics.ts";
 import { isBlockTree, loadBlockTree } from "./blocks/tree.ts";
 import type { BlockTree } from "./blocks/types.ts";
 import { findPlaceholders } from "./placeholders.ts";
@@ -395,13 +396,24 @@ function holdsEngine(skillMdPath: string): boolean {
   return existsSync(skillMdPath) || isBlockTree(dirname(skillMdPath));
 }
 
-/** Every `*.block.md` is compiled into the body, so none of them is vendored. */
-function nonBlockFiles(dir: string, exclude: Set<string>): string[] {
-  return listFilesUnder(dir, exclude).filter((rel) => !rel.endsWith(".block.md"));
+/** Every `*.block.md` is compiled into the body, and the compiled SKILL.md is written in place of any source one, so none of them is vendored. */
+function nonBlockFiles(dir: string): string[] {
+  return listFilesUnder(dir, new Set(["SKILL.md"])).filter((rel) => !rel.endsWith(".block.md"));
 }
 
+/** A SKILL.md left beside index.block.md (a half-done conversion) leaves two sources for one skill, and compile writes its own SKILL.md. */
 function loadTree(dir: string, idPrefix: string, pluginDir: string): BlockTree {
-  return loadBlockTree(dir, { idPrefix, relRoot: relative(pluginDir, dir).split(sep).join("/") });
+  const relRoot = relative(pluginDir, dir).split(sep).join("/");
+  if (existsSync(join(dir, "SKILL.md"))) {
+    throw new BlockError([{
+      file: `${relRoot}/SKILL.md`,
+      line: 1,
+      col: 1,
+      message: "the block tree in index.block.md replaces this SKILL.md; delete it",
+      code: "bad-value",
+    }]);
+  }
+  return loadBlockTree(dir, { idPrefix, relRoot });
 }
 
 function blockStepSource(engineName: string, dir: string, mattstack: { dir: string; version: string }): StepSource {
@@ -420,7 +432,7 @@ function blockStepSource(engineName: string, dir: string, mattstack: { dir: stri
     body: "",
     slots: {},
     allowedTools: parseAllowedTools(root.frontmatter["allowed-tools"]),
-    stepFiles: nonBlockFiles(dir, new Set()),
+    stepFiles: nonBlockFiles(dir),
     stageMeta: readStageMeta(root.frontmatter),
     description: typeof root.frontmatter.description === "string" ? root.frontmatter.description : "",
     tree,
@@ -616,7 +628,7 @@ function blockInclude(name: string, dir: string, mattstack: { dir: string; versi
     body: "",
     provides: typeof metadata.provides === "string" ? metadata.provides : "",
     allowedTools: parseAllowedTools(fm["allowed-tools"]),
-    extraFiles: nonBlockFiles(dir, new Set()),
+    extraFiles: nonBlockFiles(dir),
     registered: false,
     file: null,
     tree,

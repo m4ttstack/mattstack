@@ -91,6 +91,11 @@ describe("fillsDiffer", () => {
   test("a fill over an absent default slot differs", () => {
     expect(fillsDiffer({}, { r: { s: "acme:a" } }, "r")).toBe(true);
   });
+  test("a block path under the engine ref is compared too; another engine's keys are not", () => {
+    expect(fillsDiffer({ "r/gate": { p: "acme:a" } }, { "r/gate": { p: "" } }, "r")).toBe(true);
+    expect(fillsDiffer({ "r/gate": { p: "acme:a" } }, { "r/gate": { p: "acme:a" } }, "r")).toBe(false);
+    expect(fillsDiffer({}, { "rx/gate": { p: "acme:a" } }, "r")).toBe(false);
+  });
 });
 
 describe("defaultPipeline", () => {

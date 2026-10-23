@@ -171,6 +171,17 @@ describe("blockPropValues", () => {
     expect(diagnosticsOf(() => valuesFor(step, roots, b))[0]).toMatchObject({ line: 3, col: 48, code: "bad-value" });
   });
 
+  test("a pipeline section's key naming a missing block is missing-block at its own line", () => {
+    const { roots } = setup();
+    const step = loadStepSource("mini", roots);
+    const text = '{\n  "bindings": { "mattstack:mini": { "rules": "widgets:mini-rules/fast" } },\n  "pipelines": { "feature": {\n    "stages": ["mattstack:mini"],\n    "bindings": {\n      "mattstack:mini/nope": { "rules": "widgets:mini-rules/fast" }\n    }\n  } }\n}\n';
+    const { layered, pipelineLayered } = layeredFromManifest(text);
+    const b: PropBindings = { layered, pipelineLayered: pipelineLayered.feature, pipeline: "feature", manifest: { path: MANIFEST, text } };
+    expect(diagnosticsOf(() => valuesFor(step, roots, b))).toEqual([
+      { file: MANIFEST, line: 6, col: 7, code: "missing-block", message: 'binding "mattstack:mini/nope": mattstack:mini has no block "mini/nope"' },
+    ]);
+  });
+
   test("every block gets its values, defaults included", () => {
     const { roots } = setup();
     const step = loadStepSource("mini", roots);

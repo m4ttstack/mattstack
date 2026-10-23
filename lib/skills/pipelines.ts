@@ -62,11 +62,16 @@ export function effectiveBindings(defaults: LayeredBindings, overrides: LayeredB
   return out;
 }
 
+/** A block engine's blocks bind under `<engineRef>/<block path>`, so each of those keys can differ too; a slot engine has only `engineRef`. */
 export function fillsDiffer(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): boolean {
-  const base = own(defaults, engineRef) ?? {};
-  const effective = effectiveSlotBindings(defaults, overrides, engineRef);
-  for (const slot of new Set([...Object.keys(base), ...Object.keys(effective)])) {
-    if ((base[slot] ?? "") !== (effective[slot] ?? "")) return true;
+  const ownsKey = (key: string) => key === engineRef || key.startsWith(`${engineRef}/`);
+  const keys = new Set([...Object.keys(defaults), ...Object.keys(overrides ?? {})].filter(ownsKey));
+  for (const key of keys) {
+    const base = own(defaults, key) ?? {};
+    const effective = effectiveSlotBindings(defaults, overrides, key);
+    for (const slot of new Set([...Object.keys(base), ...Object.keys(effective)])) {
+      if ((base[slot] ?? "") !== (effective[slot] ?? "")) return true;
+    }
   }
   return false;
 }

@@ -25,6 +25,7 @@ import {
   type PluginRoots,
 } from "../sources.ts";
 import { effectiveSlotBindings } from "../pipelines.ts";
+import { BlockError } from "../blocks/diagnostics.ts";
 import * as out from "../../ui/out.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../../ui/warn.ts";
@@ -717,6 +718,18 @@ describe("stageRoster stage copies", () => {
     { name: "stage-evidence", engine: "stage-evidence", description: "" },
   ];
 
+  test("a pipeline's binding on a block path of a block engine adds a copy", () => {
+    const mini = { feature: ["mattstack:mini"] };
+    const top = { "mattstack:mini/gate": { tiering: "widgets:tiers/fast" } };
+    const overrides = { feature: { "mattstack:mini/gate": { tiering: "" } } };
+    expect(stageRoster(mini, overrides, top)).toEqual([
+      { name: "mini", engine: "mini", description: "" },
+      { name: "mini--feature", engine: "mini", description: "", pipeline: "feature" },
+    ]);
+    expect(stageRoster(mini, { feature: { "mattstack:mini/nope": { rules: "widgets:x" } } }, {}).map((v) => v.name)).toEqual(["mini", "mini--feature"]);
+    expect(stageRoster(mini, { feature: { "mattstack:mini-x/gate": { tiering: "widgets:x" } } }, {}).map((v) => v.name)).toEqual(["mini"]);
+  });
+
   test("override equal to default makes no copy", () => {
     const overrides = { accessibility: { "mattstack:stage-evidence": { domain: "acme:a" } } };
     expect(stageRoster(pipelines, overrides, defaults)).toEqual(base);
@@ -1064,6 +1077,26 @@ describe("block-tree loaders", () => {
     expect(inc.body).toBe("");
     expect(inc.binding).toBe("mattstack:gate-protocol");
     expect(inc.extraFiles).toEqual(["scripts/gate.sh"]);
+  });
+
+  test("a SKILL.md beside index.block.md is refused at that SKILL.md, for an engine and an include", () => {
+    const { dir, roots } = blockRoots();
+    writeFile(join(dir, "attachments", "pipeline", "mini", "SKILL.md"), "---\nname: mini\ntype: pipeline-step\n---\n\n{{slot:x}}\n");
+    writeFile(join(dir, "attachments", "gate-protocol", "index.block.md"), "---\n---\n\n# Gate protocol\n");
+    writeFile(join(dir, "attachments", "gate-protocol", "SKILL.md"), "---\nname: gate-protocol\n---\n\nold\n");
+
+    const refusal = (fn: () => unknown) => {
+      try {
+        fn();
+      } catch (err) {
+        expect(err).toBeInstanceOf(BlockError);
+        return (err as BlockError).diagnostics;
+      }
+      throw new Error("expected a refusal");
+    };
+    const message = "the block tree in index.block.md replaces this SKILL.md; delete it";
+    expect(refusal(() => loadStepSource("mini", roots))).toEqual([{ file: "attachments/pipeline/mini/SKILL.md", line: 1, col: 1, code: "bad-value", message }]);
+    expect(refusal(() => loadInclude("gate-protocol", roots))).toEqual([{ file: "attachments/gate-protocol/SKILL.md", line: 1, col: 1, code: "bad-value", message }]);
   });
 
   test("a flat include keeps no tree", () => {
