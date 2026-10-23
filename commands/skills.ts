@@ -824,7 +824,7 @@ function loadPropValuesFor(
         pipelineSections: pipelineLayered,
         ...(pipeline !== undefined && Object.hasOwn(pipelineLayered, pipeline) ? { pipeline, pipelineLayered: pipelineLayered[pipeline] } : {}),
       },
-      (binding, prop) => loadAttachment(binding, prop, resolved.pluginRoots),
+      (binding, prop) => loadAttachment(binding, prop, resolved.pluginRoots, "prop"),
       resolved.internalRoster,
     );
   } catch (err) {

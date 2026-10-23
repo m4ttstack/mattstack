@@ -441,17 +441,17 @@ function blockStepSource(engineName: string, dir: string, mattstack: { dir: stri
 
 export const VALUE_FILE_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-export function loadAttachment(binding: string, slot: string, roots: PluginRoots): AttachmentSource {
+export function loadAttachment(binding: string, slot: string, roots: PluginRoots, noun: "slot" | "prop" = "slot"): AttachmentSource {
   const [plugin, skillPart] = binding.split(":");
   const [skillName, fileName, ...rest] = (skillPart ?? "").split("/");
   if (!plugin || !skillName || rest.length > 0 || (fileName !== undefined && !VALUE_FILE_RE.test(fileName))) {
-    throw new AttachmentLoadError(`loadAttachment: slot "${slot}": binding "${binding}" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"`, "bad-value");
+    throw new AttachmentLoadError(`loadAttachment: ${noun} "${slot}": binding "${binding}" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"`, "bad-value");
   }
 
   const pluginRoot = roots.byName[plugin];
   if (!pluginRoot) {
     throw new AttachmentLoadError(
-      `loadAttachment: slot "${slot}": no plugin root registered for "${plugin}" (binding "${binding}")`,
+      `loadAttachment: ${noun} "${slot}": no plugin root registered for "${plugin}" (binding "${binding}")`,
       "fill-missing",
     );
   }
@@ -491,14 +491,14 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
 
   if (!foundDir) {
     throw new AttachmentLoadError(
-      `loadAttachment: slot "${slot}": binding "${binding}" not found; searched:\n${searched.join("\n")}`,
+      `loadAttachment: ${noun} "${slot}": binding "${binding}" not found; searched:\n${searched.join("\n")}`,
       "fill-missing",
     );
   }
 
   if (registered && roots.folderOnly?.has(plugin)) {
     throw new AttachmentLoadError(
-      `loadAttachment: slot "${slot}": "${binding}" sits under ${plugin}'s skills/, but ${plugin} is an org base pack that is never installed; move it under attachments/ so it is inlined`,
+      `loadAttachment: ${noun} "${slot}": "${binding}" sits under ${plugin}'s skills/, but ${plugin} is an org base pack that is never installed; move it under attachments/ so it is inlined`,
       "bad-value",
     );
   }
@@ -513,13 +513,13 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
     : {};
   const provides = typeof metadata.provides === "string" ? metadata.provides : "";
   if (!provides) {
-    throw new AttachmentLoadError(`loadAttachment: slot "${slot}": "${skillMdPath}" has no metadata.provides`, "bad-value");
+    throw new AttachmentLoadError(`loadAttachment: ${noun} "${slot}": "${skillMdPath}" has no metadata.provides`, "bad-value");
   }
 
-  // A frontmatter-only SKILL.md marks a per-file-value skill: each top-level
-  // .md sibling is a value some other binding may name, so none is vendored.
+  // Under a per-file value each top-level .md sibling is a value some other
+  // binding may name, so none is vendored; a whole-skill load vendors them as a slot fill always has.
   const exclude = new Set(["SKILL.md"]);
-  if (body === "") {
+  if (body === "" && fileName !== undefined) {
     for (const entry of readdirSync(foundDir, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith(".md")) exclude.add(entry.name);
     }
@@ -529,16 +529,19 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
   if (fileName !== undefined) {
     if (body !== "") {
       throw new AttachmentLoadError(
-        `loadAttachment: slot "${slot}": ${binding}: SKILL.md carries text, but a per-file value's SKILL.md is frontmatter only`,
+        `loadAttachment: ${noun} "${slot}": ${binding}: SKILL.md carries text, but a per-file value's SKILL.md is frontmatter only`,
         "bad-value",
       );
     }
     const file = `${fileName}.md`;
     const filePath = join(foundDir, file);
     if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-      throw new AttachmentLoadError(`loadAttachment: slot "${slot}": binding "${binding}": no file at ${filePath}`, "fill-missing");
+      throw new AttachmentLoadError(`loadAttachment: ${noun} "${slot}": binding "${binding}": no file at ${filePath}`, "fill-missing");
     }
     const text = readFileSync(filePath, "utf8");
+    if (/^---\r?\n/.test(text)) {
+      throw new AttachmentLoadError(`loadAttachment: ${noun} "${slot}": binding "${binding}": a per-file value carries no frontmatter (${filePath})`, "bad-value");
+    }
     const lead = text.length - text.trimStart().length;
     value = {
       srcPath: relative(pluginRoot.dir, filePath),

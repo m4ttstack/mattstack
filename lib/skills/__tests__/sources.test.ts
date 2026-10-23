@@ -360,7 +360,34 @@ describe("loadAttachment per-file values", () => {
     const { roots } = lintRoots();
 
     expect(loadAttachment("w:lint/fast", "rules", roots).extraFiles).toEqual(["config.json", "references/notes.md"]);
-    expect(loadAttachment("w:lint", "rules", roots).extraFiles).toEqual(["config.json", "references/notes.md"]);
+  });
+
+  test("a whole-skill load with an empty body still vendors its top-level md siblings, as a slot fill always has", () => {
+    const { roots } = lintRoots();
+
+    expect(loadAttachment("w:lint", "rules", roots).extraFiles).toEqual(["config.json", "fast.md", "references/notes.md", "slow.md"]);
+  });
+
+  test("a per-file value that starts with a frontmatter fence is refused as bad-value", () => {
+    const { dir, roots } = lintRoots();
+    writeFile(join(dir, "attachments", "lint", "fast.md"), "---\ntitle: fast\n---\nthe fast rules\n");
+
+    let caught: unknown;
+    try {
+      loadAttachment("w:lint/fast", "rules", roots, "prop");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(AttachmentLoadError);
+    expect((caught as AttachmentLoadError).code).toBe("bad-value");
+    expect((caught as Error).message).toContain('loadAttachment: prop "rules": binding "w:lint/fast": a per-file value carries no frontmatter');
+  });
+
+  test("a prop load names a prop; a slot load keeps its wording", () => {
+    const { roots } = lintRoots();
+
+    expect(() => loadAttachment("w:lint/nope", "rules", roots, "prop")).toThrow(/^loadAttachment: prop "rules": binding "w:lint\/nope": no file at /);
+    expect(() => loadAttachment("w:lint/nope", "rules", roots)).toThrow(/^loadAttachment: slot "rules": binding "w:lint\/nope": no file at /);
   });
 
   test("a whole-skill binding keeps file null", () => {

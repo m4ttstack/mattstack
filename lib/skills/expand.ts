@@ -185,7 +185,7 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   const values =
     treeIncludes.length === 0
       ? new Map()
-      : blockPropValues(treeIncludes, { layered: {}, manifest: null }, (binding, prop) => loadAttachment(binding, prop, roots), new Set<string>());
+      : blockPropValues(treeIncludes, { layered: {}, manifest: null }, (binding, prop) => loadAttachment(binding, prop, roots, "prop"), new Set<string>());
 
   const stray = strayBraceLine(body);
   if (stray !== null) throw new Error(`${where}: literal "{{" at line ${fileLine(stray)} is not a placeholder`);
