@@ -1,0 +1,52 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import { checkBlocks, checkPack } from "../skills.ts";
+
+const made: string[] = [];
+afterEach(() => {
+  for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+function makePack(body: string): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-check-paths-")));
+  made.push(dir);
+  mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme", version: "1.0.0", skills: ["./plugin/skills"] }));
+  mkdirSync(join(dir, "plugin", "skills", "gadgets"), { recursive: true });
+  writeFileSync(join(dir, "plugin", "skills", "gadgets", "SKILL.md"), `---\nname: gadgets\n---\n${body}\n`);
+  mkdirSync(join(dir, "attachments", "widgets"), { recursive: true });
+  writeFileSync(join(dir, "attachments", "widgets", "reference.md"), "ref\n");
+  return dir;
+}
+
+test("a hand-authored skill's cross-skill path to a missing file fails the check, at its line", async () => {
+  const dir = makePack("Read `${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md` first.");
+  const payload = await checkPack({ packDir: dir });
+  expect(payload.drift).toBe(true);
+  expect(payload.skillPaths).toEqual([
+    {
+      file: "plugin/skills/gadgets/SKILL.md",
+      line: 4,
+      col: 7,
+      code: "broken-skill-path",
+      message: "${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md does not resolve to a file from the skill's folder",
+    },
+  ]);
+  expect(renderPlain(checkBlocks(payload, false))).toContain(
+    [
+      "hand-authored skills:",
+      "  plugin/skills/gadgets/SKILL.md:4:7: ${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md does not resolve to a file from the skill's folder",
+      "[failed] skill paths: 1 path points at nothing  fix the path in the skill",
+    ].join("\n"),
+  );
+});
+
+test("a path that resolves, or a doc example holding a placeholder, keeps the check clean", async () => {
+  const dir = makePack("Read `${CLAUDE_SKILL_DIR}/../../../attachments/widgets/reference.md`, not `../../attachments/{{team.x}}/SKILL.md`.");
+  const payload = await checkPack({ packDir: dir });
+  expect(payload.skillPaths).toEqual([]);
+  expect(payload.drift).toBe(false);
+});

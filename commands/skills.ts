@@ -56,7 +56,8 @@ import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion,
 import { dedupePreserveOrder, hasCompiledHeader, isInlined, type CompileSkillOpts } from "../lib/skills/compile.ts";
 import { blockPropValues, compileBlockSkill, includeNamesIn, includeSitesIn, oldSlotBindingMessage, replacedSlots, unclaimedBlockKeys, type BlockValues } from "../lib/skills/compile-blocks.ts";
 import { keptLayers, type LayerValue } from "../lib/skills/blocks/props.ts";
-import { BlockError, formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
+import { BlockError, formatDiagnostic, type BlockDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
+import { brokenSkillPathDiagnostics } from "../lib/skills/hand-paths.ts";
 import { buildBlocksPayload, type BlocksPayload, type PayloadBlock } from "../lib/skills/blocks/payload.ts";
 import { isBlockTree, walk } from "../lib/skills/blocks/tree.ts";
 import type { Block as BlockNode, BlockTree, PropSpec } from "../lib/skills/blocks/types.ts";
@@ -1645,7 +1646,21 @@ export type CheckPayload = {
   droppedOverrides?: DroppedOverride[];
   /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
   extendsBase: boolean;
+  /** Cross-skill paths in hand-authored skills that resolve to nothing; they fail the check. In check --json only when non-empty. */
+  skillPaths?: BlockDiagnostic[];
 };
+
+/** The registered skills compile does not produce, each checked from its own folder. */
+function brokenSkillPaths(packDir: string, compiledNames: ReadonlySet<string>): BlockDiagnostic[] {
+  const found: BlockDiagnostic[] = [];
+  for (const entry of enumerateRegistered(packDir).values()) {
+    const skillMd = join(entry.dir, "SKILL.md");
+    if (compiledNames.has(entry.name) || isCompiledDir(entry.dir) || !existsSync(skillMd)) continue;
+    const file = relativePath(packDir, skillMd).split(sep).join("/");
+    found.push(...brokenSkillPathDiagnostics(readFileSync(skillMd, "utf8"), file, { skillDir: entry.dir, pluginRoot: packDir }));
+  }
+  return found;
+}
 
 /** Files a run leaves beside the copy (a script's __pycache__, a git-ignored output) are not drift, matching the verb rows. */
 function leftovers(packDir: string, name: string): string[] {
@@ -1838,8 +1853,10 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const staleCopies = staleStageCopies(resolved.packDir, verbSides).map((c) => c.name);
   if (staleCopies.length > 0) anyStale = true;
   const droppedOverrides = resolved.manifestPath ? readManifestDropped(readFileSync(resolved.manifestPath, "utf8")) : [];
+  const skillPaths = flags.verbs === null ? brokenSkillPaths(resolved.packDir, new Set(Object.keys(verbSides))) : [];
+  if (skillPaths.length > 0) anyStale = true;
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1909,6 +1926,11 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
   blocks.push(...payload.compileErrors.map((compileError) => out.line("failed", compileError)));
   if (payload.compileErrors.length > 0) stale = true;
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
+  const skillPaths = payload.skillPaths ?? [];
+  if (skillPaths.length > 0) {
+    blocks.push(out.verbatim(skillPaths.map(formatDiagnostic), "hand-authored skills"));
+    blocks.push(out.line("failed", `skill paths: ${countOf(skillPaths.length, "path points", "paths point")} at nothing`, "fix the path in the skill"));
+  }
   blocks.push(...fieldContractBlocks(payload.fieldContract, "advisory; it never fails a check"));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 
@@ -1939,12 +1961,13 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [] } = payload;
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [], skillPaths = [] } = payload;
       // Only when present: the envelope's existing keys are frozen, and a clean pack keeps its exact bytes.
       out.json({
         pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract,
         ...(staleCopies.length > 0 ? { staleCopies } : {}),
         ...(droppedOverrides.length > 0 ? { droppedOverrides } : {}),
+        ...(skillPaths.length > 0 ? { skillPaths } : {}),
       });
       return;
     }
