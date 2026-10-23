@@ -440,7 +440,6 @@ const progressSubcommands: Record<string, CommandNode> = {
     description: "Save what this tree's plan ledgers show",
     module: "./commands/progress.ts",
     fn: "progressRecord",
-    agentSafe: true,
     args: [
       { name: "Tree", flag: "--tree", type: "text", placeholder: "/path/to/worktree", hint: "Worktree root whose plan ledgers to save" },
       { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the saved records as JSON" },
@@ -450,7 +449,6 @@ const progressSubcommands: Record<string, CommandNode> = {
     description: "Plans recorded on this machine and whether each finished",
     module: "./commands/progress.ts",
     fn: "progressList",
-    agentSafe: true,
     args: [
       { name: "Tree", flag: "--tree", type: "text", placeholder: "/path/to/worktree", hint: "Only plans recorded for this worktree root" },
       { name: "Plan", flag: "--plan", type: "text", placeholder: "docs/superpowers/plans/x.md", hint: "Only this plan, by path or file name" },
