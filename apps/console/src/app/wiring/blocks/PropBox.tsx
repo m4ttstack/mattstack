@@ -19,7 +19,7 @@ export function PropBox({ prop, segments }: PropBoxProps) {
       prop.values.find(value => value.layer === segment.layer) ??
       prop.values[index]
     )?.binding;
-  const fallback = prop.default ? ` default ${prop.default}` : '';
+  const fallback = prop.default ? `default ${prop.default}` : '';
 
   return (
     <section
@@ -30,7 +30,7 @@ export function PropBox({ prop, segments }: PropBoxProps) {
       <header className={classes.propHead}>
         <span className={classes.propName}>{prop.name}</span>
         <span className={classes.propMeta}>
-          {`${prop.merge} ·${fallback}`.trim()}
+          {[prop.merge, ...(fallback ? [fallback] : [])].join(' · ')}
         </span>
       </header>
       {segments.length === 0 ? (

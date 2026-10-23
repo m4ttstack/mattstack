@@ -95,6 +95,7 @@ describe('PropBox', () => {
     expect(within(cards[0]).getByText('acme')).toBeInTheDocument();
     expect(within(cards[0]).getByText('a/x')).toBeInTheDocument();
     expect(within(cards[1]).getByText('Team rule.')).toBeInTheDocument();
+    expect(screen.getByText('add')).toBeInTheDocument();
   });
 
   it('says nothing passed for an empty add prop', () => {
