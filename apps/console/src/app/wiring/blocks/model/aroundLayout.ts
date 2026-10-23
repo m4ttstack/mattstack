@@ -105,14 +105,18 @@ export function aroundLayout(
     };
   });
 
-  const edges = sub.edges.map((edge, index): AroundEdge => ({
-    id: `${edge.from}->${edge.to}#${index}`,
-    source: edge.from,
-    target: edge.to,
-    type: 'around',
-    ...(edge.label === null ? {} : { label: edge.label }),
-    data: { dashed: edge.style === 'dashed' },
-  }));
+  // Only the in-neighbours' row can hold both ends of an edge, and a
+  // bottom-to-top handle pair cannot draw it without looping over the row.
+  const edges = sub.edges
+    .map((edge, index): AroundEdge => ({
+      id: `${edge.from}->${edge.to}#${index}`,
+      source: edge.from,
+      target: edge.to,
+      type: 'around',
+      ...(edge.label === null ? {} : { label: edge.label }),
+      data: { dashed: edge.style === 'dashed' },
+    }))
+    .filter(edge => layers.get(edge.source) !== layers.get(edge.target));
 
   return { nodes, edges };
 }

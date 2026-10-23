@@ -82,6 +82,20 @@ describe('aroundLayout', () => {
     expect(bare.nodes[0].data.label).toBe('run_step');
   });
 
+  it('draws no edge between two nodes on the same row', () => {
+    const rowOf = (id: string) => nodeAt(id).position.y;
+
+    for (const edge of layout.edges) {
+      expect(rowOf(edge.source)).not.toBe(rowOf(edge.target));
+    }
+    expect(layout.edges).toHaveLength(9);
+    expect(
+      layout.edges.some(
+        edge => edge.source === 'tree_dirty' && edge.target === 'commit_named'
+      )
+    ).toBe(false);
+  });
+
   it('carries edge labels and the dashed style', () => {
     const edge = (from: string, to: string) =>
       layout.edges.find(
