@@ -156,4 +156,10 @@ describe("git-async", () => {
     const r = await runGit(repo, ["rev-parse", "HEAD"]);
     expect(r.timedOut).toBeUndefined();
   });
+
+  test("runGit never consults the repo's fsmonitor daemon", async () => {
+    execSync("git config core.fsmonitor true", { cwd: repo, shell: "/bin/zsh" });
+    const r = await runGit(repo, ["config", "--get", "core.fsmonitor"]);
+    expect(r.stdout.trim()).toBe("false");
+  });
 });

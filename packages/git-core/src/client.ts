@@ -8,7 +8,7 @@ import { getFetchState } from "./fetch-state.ts";
 import { getStagingDiff, stageSelection, discardSelection, stageFileFully } from "./staging.ts";
 import { undoLastCommit, resetToCommit } from "./commits.ts";
 import { checkoutBranch, createBranch } from "./branch-ops.ts";
-import { scrubGitEnv } from "./exec.ts";
+import { FSMONITOR_OFF, scrubGitEnv } from "./exec.ts";
 import { getCommits, getLocalCommits, getChangedFiles, getCommitRangeChangedFiles, getCommitDiff, getCommitRangeDiff } from "./history.ts";
 import { appendIgnoreRule, appendIgnoreFile } from "./gitignore.ts";
 import { discardChanges } from "./discard.ts";
@@ -53,7 +53,10 @@ function pinnedEnv(): NodeJS.ProcessEnv {
 export function createGitClient(dir: string): GitClient {
   // Pins the child process locale so git's own error/status text is always
   // English, independent of the invoking user's shell environment.
-  const git = simpleGit({ baseDir: dir }).env(pinnedEnv());
+  // simple-git refuses any core.fsmonitor value without the unsafe flag,
+  // because a path there runs as a hook; the value passed is the literal
+  // "false", which turns the feature off.
+  const git = simpleGit({ baseDir: dir, config: [FSMONITOR_OFF], unsafe: { allowUnsafeFsMonitor: true } }).env(pinnedEnv());
   const ctx: ClientContext = { dir, git };
   return {
     dir,
