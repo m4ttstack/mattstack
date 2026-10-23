@@ -7,6 +7,7 @@ const surfaceApplyPost = vi.fn();
 const syncPost = vi.fn();
 const discardPost = vi.fn();
 const anatomyGet = vi.fn();
+const blocksGet = vi.fn();
 const sourceGet = vi.fn();
 const changesGet = vi.fn();
 
@@ -17,6 +18,7 @@ vi.mock('../api', () => ({
         sync: { $post: (...args: unknown[]) => syncPost(...args) },
         discard: { $post: (...args: unknown[]) => discardPost(...args) },
         anatomy: { $get: (...args: unknown[]) => anatomyGet(...args) },
+        blocks: { $get: (...args: unknown[]) => blocksGet(...args) },
         source: { $get: (...args: unknown[]) => sourceGet(...args) },
         changes: { $get: (...args: unknown[]) => changesGet(...args) },
         surface: {
@@ -29,6 +31,7 @@ vi.mock('../api', () => ({
 
 const {
   useAnatomy,
+  useBlocks,
   useDiscardChanges,
   usePendingChanges,
   useSkillSource,
@@ -95,6 +98,32 @@ describe('useSkillsApply with no pack selected', () => {
 
     await waitFor(() => expect(result.current.surfaceApply.isError).toBe(true));
     expect(surfaceApplyPost).not.toHaveBeenCalled();
+  });
+});
+
+describe('useBlocks', () => {
+  it('requests one skill of one pack', async () => {
+    blocksGet.mockResolvedValue(reply({ skill: 'mini' }));
+    const { Wrap } = harness();
+
+    const { result } = renderHook(() => useBlocks('acme', 'mini'), {
+      wrapper: Wrap,
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(blocksGet).toHaveBeenCalledWith({
+      query: { pack: 'acme', skill: 'mini' },
+    });
+  });
+
+  it('makes no request without a pack or a skill', async () => {
+    const { Wrap } = harness();
+
+    renderHook(() => useBlocks(null, 'x'), { wrapper: Wrap });
+    renderHook(() => useBlocks('acme', null), { wrapper: Wrap });
+
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(blocksGet).not.toHaveBeenCalled();
   });
 });
 

@@ -7,6 +7,7 @@ import { mountSkills } from '../../skills';
 import anatomyPlan from './anatomy.stage-plan.json';
 import anatomyPlanUnsynced from './anatomy.stage-plan.unsynced.json';
 import anatomyWork from './anatomy.work.json';
+import blocksMini from './blocks.mini.json';
 import changesClean from './changes.clean.json';
 import changesUnsynced from './changes.unsynced.json';
 import check from './check.json';
@@ -130,9 +131,11 @@ describe('the state scenarios', () => {
     for (const scenario of SCENARIOS) {
       const { subject } = scenarioOf(scenario);
       const result = await fixtureRt(scenario).runRt(
-        pack('anatomy', '--skill', subject)
+        pack(scenario === 'blocks' ? 'blocks' : 'anatomy', '--skill', subject)
       );
-      if (scenario === 'anatomy-failed') {
+      if (scenario === 'blocks') {
+        expect(JSON.parse(result.stdout)).toMatchObject({ skill: subject });
+      } else if (scenario === 'anatomy-failed') {
         expect(result.code).toBe(1);
         expect(result.stdout).toBe('');
         expect(result.stderr).toContain('stage-plan');
@@ -733,6 +736,28 @@ describe('the skills routes on the fixture', () => {
       '/api/skills/anatomy?pack=acme&skill=stage-plan'
     );
     expect(await anatomy.json()).toEqual(anatomyPlan);
+  });
+
+  it('blocks scenario: serves the mini payload, and 404s a skill with no blocks file', async () => {
+    const app = mount('blocks');
+    const res = await app.request('/api/skills/blocks?pack=acme&skill=mini');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(blocksMini);
+    const plain = await app.request(
+      '/api/skills/blocks?pack=acme&skill=stage-plan'
+    );
+    expect(plain.status).toBe(404);
+    const anatomy = await app.request(
+      '/api/skills/anatomy?pack=acme&skill=stage-plan'
+    );
+    expect(await anatomy.json()).toEqual(anatomyPlan);
+  });
+
+  it('answers blocks in no other scenario', async () => {
+    const res = await mount('clean').request(
+      '/api/skills/blocks?pack=acme&skill=mini'
+    );
+    expect(res.status).toBe(502);
   });
 
   it('serves a template through the confined source route', async () => {

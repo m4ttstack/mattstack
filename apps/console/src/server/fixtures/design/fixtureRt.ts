@@ -46,6 +46,15 @@ const SKILLS_WITH_ANATOMY = new Set([
   'stage-evidence--accessibility',
 ]);
 
+const NOT_A_BLOCK_TREE = JSON.stringify({
+  contract: 1,
+  at: '2026-10-22T00:00:00.000Z',
+  error: {
+    code: 'not-a-block-tree',
+    message: 'The plain skill is not built from blocks',
+  },
+});
+
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const FILES = join(HERE, 'files');
 
@@ -200,6 +209,16 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
         if (!skill || !SKILLS_WITH_ANATOMY.has(skill)) return refuse(argv);
         const variant = unsynced && skill === 'stage-plan' ? '.unsynced' : '';
         return answer(await readJsonText(`anatomy.${skill}${variant}.json`));
+      }
+      case 'blocks': {
+        const skill = flagValue(argv, '--skill');
+        if (!def.blocks || !skill) return refuse(argv);
+        try {
+          return answer(await readJsonText(`blocks.${skill}.json`));
+        } catch {
+          // rt's refusal for a skill that is not a block tree: the envelope on stdout, exit 1.
+          return answer(NOT_A_BLOCK_TREE, 1);
+        }
       }
       case 'changes':
         if (def.changes) return fail(def.changes);

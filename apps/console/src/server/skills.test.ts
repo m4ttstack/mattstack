@@ -2034,6 +2034,93 @@ describe('skills anatomy route', () => {
   });
 });
 
+describe('skills blocks route', () => {
+  const url = '/api/skills/blocks?pack=acme&skill=mini';
+  const notABlockTree = JSON.stringify({
+    contract: 1,
+    at: '2026-10-22T00:00:00.000Z',
+    error: {
+      code: 'not-a-block-tree',
+      message: 'The plain skill is not built from blocks',
+    },
+  });
+
+  it('runs rt skills blocks for the pack and skill and passes the payload through', async () => {
+    const payload = { pack: 'acme', skill: 'mini', blocks: [] };
+    const rt = fakeRt({ code: 0, stdout: JSON.stringify(payload), stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual(payload);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'blocks',
+      '--pack',
+      'acme',
+      '--skill',
+      'mini',
+      '--json',
+    ]);
+  });
+
+  it('400s without a skill or without a pack, before rt is spawned', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    expect((await app.request('/api/skills/blocks?pack=acme')).status).toBe(
+      400
+    );
+    expect((await app.request('/api/skills/blocks?skill=mini')).status).toBe(
+      400
+    );
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('is 404 with the error envelope when the skill is not a block tree', async () => {
+    const rt = fakeRt({ code: 1, stdout: notABlockTree, stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: 'The plain skill is not built from blocks',
+    });
+  });
+
+  it('is 502 with rt stderr when rt prints nothing', async () => {
+    const rt = fakeRt({ code: 1, stdout: '', stderr: 'rt skills: boom' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('boom'),
+    });
+  });
+
+  it('is 503 when rt is not installed', async () => {
+    const run = vi.fn(async () => {
+      throw new RtNotFoundError(['/nowhere/rt']);
+    });
+    const app = mountSkills(new Hono(), run);
+
+    expect((await app.request(url)).status).toBe(503);
+  });
+
+  it('is cached like the other reads', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{"blocks":[]}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await app.request(url);
+    await app.request(url);
+    expect(rt.calls.filter(argv => argv[1] === 'blocks')).toHaveLength(1);
+  });
+});
+
 describe('skills source route', () => {
   const compositionOf = (packDir: string) => ({
     pack: 'acme',
@@ -2790,6 +2877,25 @@ describe('skills changes and discard routes', () => {
     await app.request(anatomy);
 
     expect(rt.calls.filter(argv => argv[1] === 'anatomy')).toHaveLength(2);
+  });
+
+  it("discard drops the pack's cached blocks so the block view refetches", async () => {
+    const rt = fakeRtHandler(argv =>
+      argv[1] === 'discard'
+        ? { code: 0, stdout: '{"discarded":[]}', stderr: '' }
+        : { code: 0, stdout: '{"blocks":[]}', stderr: '' }
+    );
+    const app = mountSkills(new Hono(), rt.run);
+    const blocks = '/api/skills/blocks?pack=acme&skill=mini';
+
+    await app.request(blocks);
+    await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
+    await app.request(blocks);
+
+    expect(rt.calls.filter(argv => argv[1] === 'blocks')).toHaveLength(2);
   });
 
   it("discard leaves another pack's cached reads alone", async () => {

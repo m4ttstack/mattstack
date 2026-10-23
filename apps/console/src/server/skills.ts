@@ -12,6 +12,7 @@ import {
   toBaseCoordinate,
   type BaseScope,
 } from './baseScopes';
+import type { BlocksPayload } from './blocksPayload';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { GIT_LOG_FORMAT, parseGitLog, type GitCommit } from './gitLog';
 import {
@@ -597,6 +598,8 @@ function findPackDir(payload: unknown, pack: string): string | null {
 }
 
 type RtRunResult = { code: number; stdout: string; stderr: string };
+
+type RtFailureEnvelope = { error?: { code?: string; message?: string } };
 
 /**
  * `rt skills check`/`compile` set exit 1 for the NORMAL case this surface
@@ -1454,6 +1457,41 @@ export function mountSkills(
           );
         }
         return c.json(payload as SkillsAnatomyResponse, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .get('/api/skills/blocks', skillQuery, async c => {
+      const { pack, skill } = c.req.valid('query');
+      if (!pack || !skill) {
+        return c.json({ error: 'pack and skill are required' }, 400);
+      }
+      try {
+        const { stdout, stderr } = await cachedRun([
+          'skills',
+          'blocks',
+          '--pack',
+          pack,
+          '--skill',
+          skill,
+          '--json',
+        ]);
+        const payload = parseJsonPayload(stdout);
+        if (payload === undefined) {
+          return c.json(
+            { error: stderr.trim() || 'rt produced no output' },
+            502
+          );
+        }
+        // rt prints its failure envelope on stdout and exits 1
+        const refusal = (payload as RtFailureEnvelope).error;
+        if (refusal?.code === 'not-a-block-tree') {
+          return c.json({ error: refusal.message }, 404);
+        }
+        return c.json(payload as BlocksPayload, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);

@@ -21,6 +21,7 @@
  * | `pipeline-base-override` | `acme-base` sets the accessibility evidence override |
  * | `stale-copy`       | check reports a stale stage copy and a dropped override |
  * | `team-sections`    | plan's domain fill holds two `widgets` team sections, one changed |
+ * | `blocks`           | `rt skills blocks` answers `mini` from `blocks.mini.json`, and every other skill as not built from blocks |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -47,6 +48,7 @@ export const SCENARIOS = [
   'pipeline-base-override',
   'stale-copy',
   'team-sections',
+  'blocks',
   'runs',
   'runs-empty',
   'runs-outage',
@@ -133,6 +135,8 @@ export interface ScenarioDef {
     string,
     { file: string; edit?: (anatomy: Anatomy) => Anatomy } | Failure
   >;
+  /** `rt skills blocks` answers from `blocks.<skill>.json`; without it, refuses every skill. */
+  blocks?: true;
   /** A `/fixture` file, edited, or null where it does not exist. */
   files?: Record<string, ((text: string) => string) | null>;
   /** `rt skills surface list`; every scenario without one refuses it. */
@@ -610,6 +614,7 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
       ],
     }),
   },
+  blocks: { subject: 'mini', blocks: true },
   'team-sections': {
     subject: 'stage-plan',
     anatomy: { 'stage-plan': { file: PLAN_FILE, edit: domainHoldsSections } },

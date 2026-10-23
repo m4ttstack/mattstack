@@ -38,6 +38,10 @@ export type SkillsAnatomy = InferResponseType<
   typeof client.api.skills.anatomy.$get,
   200
 >;
+export type SkillsBlocks = InferResponseType<
+  typeof client.api.skills.blocks.$get,
+  200
+>;
 export type SkillsSource = InferResponseType<
   typeof client.api.skills.source.$get,
   200
@@ -225,6 +229,22 @@ export function useAnatomy(pack: string | null, skill: string | null) {
   });
 }
 
+/** One skill as a tree of blocks. `retry: false` because a plain skill's 404
+    (not a block tree) is final. */
+export function useBlocks(pack: string | null, skill: string | null) {
+  return useQuery({
+    queryKey: ['skills', 'blocks', pack, skill],
+    queryFn: async () => {
+      const res = await client.api.skills.blocks.$get({
+        query: { pack: pack ?? '', skill: skill ?? '' },
+      });
+      return readOrThrow<SkillsBlocks>(res, 'skills blocks');
+    },
+    enabled: pack !== null && skill !== null,
+    retry: false,
+  });
+}
+
 /** `retry: false` because the confined source route's 404 is final. Swept by
     `invalidateSkillsQueries`: discard and sync rewrite files in place under
     the same path. */
@@ -333,6 +353,7 @@ function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
     'compile',
     'history',
     'anatomy',
+    'blocks',
     'source',
     'changes',
   ]) {
