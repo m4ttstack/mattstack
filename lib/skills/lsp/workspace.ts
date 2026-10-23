@@ -24,6 +24,7 @@ type Engine = { dir: string; plugin: Plugin };
 
 const INDEX = "index.block.md";
 const MANIFEST = "skills.jsonc";
+const BLOCK_SUFFIX = ".block.md";
 const PLUGIN_JSON = join(".claude-plugin", "plugin.json");
 const SKIP_DIRS = new Set(["node_modules"]);
 
@@ -138,6 +139,25 @@ export class Workspace {
       }
     }
     return out;
+  }
+
+  /** The innermost open plugin holding `file`. */
+  pluginAt(file: string): Plugin | null {
+    return this.pluginOf(file, this.plugins());
+  }
+
+  /** Every `*.block.md` under the roots, open or on disk, whether or not its tree loads. */
+  blockFiles(): string[] {
+    const found = new Set<string>();
+    for (const root of this.roots) {
+      for (const dir of dirsUnder(root)) {
+        for (const e of listDir(dir)) if (e.isFile() && e.name.endsWith(BLOCK_SUFFIX)) found.add(join(dir, e.name));
+      }
+    }
+    for (const file of this.overlay.keys()) {
+      if (file.endsWith(BLOCK_SUFFIX) && this.roots.some((r) => file.startsWith(r + sep))) found.add(file);
+    }
+    return [...found];
   }
 
   private pluginOf(file: string, plugins: Plugin[]): Plugin | null {

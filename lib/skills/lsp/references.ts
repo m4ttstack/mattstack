@@ -1,9 +1,8 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { logCliEvent } from "../../cli-logger.ts";
-import { walk } from "../blocks/tree.ts";
 import type { BlockTree } from "../blocks/types.ts";
-import { blockIn, lineRange } from "./lookup.ts";
+import { blockIn, lineRange, type HeldBlock } from "./lookup.ts";
 import { lineRegions, tokenAt, tokensIn, type Position, type Range, type Token } from "./positions.ts";
 import type { Workspace } from "./workspace.ts";
 
@@ -16,39 +15,37 @@ const ORIGIN: Range = { start: { line: 0, character: 0 }, end: { line: 0, charac
 const uriOf = (file: string) => pathToFileURL(file).href;
 const keyOf = (t: { engineRef: string; blockPath: string | null }) => (t.blockPath === null ? t.engineRef : `${t.engineRef}/${t.blockPath}`);
 
-/** `blockId` is a `<plugin>:<block id>` key, as `analysis().byBlockId` holds it and a manifest names it. */
-export function propReferences(ws: Workspace, blockId: string, prop: string): Reference[] {
+/**
+ * The decl and markers come from `held`, the copy asked about; a manifest key cannot tell same-named
+ * copies apart, so every binding keyed `held.key` is listed for each of them.
+ */
+export function propReferences(ws: Workspace, held: HeldBlock, prop: string): Reference[] {
   const refs: Reference[] = [];
-  const held = ws.analysis().byBlockId.get(blockId);
-  if (held) {
-    const file = held.block.path;
-    for (const t of tokensIn(ws.text(file), file)) {
-      if (t.kind === "prop-decl" && t.prop === prop) refs.push({ uri: uriOf(file), range: t.range, kind: "decl" });
-      else if (t.kind === "marker" && t.prop === prop) refs.push({ uri: uriOf(file), range: t.range, kind: "marker" });
-    }
+  const file = held.block.path;
+  for (const t of tokensIn(ws.text(file), file)) {
+    if (t.kind === "prop-decl" && t.prop === prop) refs.push({ uri: uriOf(file), range: t.range, kind: "decl" });
+    else if (t.kind === "marker" && t.prop === prop) refs.push({ uri: uriOf(file), range: t.range, kind: "marker" });
   }
   for (const path of ws.analysis().manifests.keys()) {
     for (const t of tokensIn(ws.text(path), path)) {
-      if (t.kind === "binding-prop" && t.key === blockId && t.prop === prop) refs.push({ uri: uriOf(path), range: t.range, kind: "binding" });
+      if (t.kind === "binding-prop" && t.key === held.key && t.prop === prop) refs.push({ uri: uriOf(path), range: t.range, kind: "binding" });
     }
   }
   return refs;
 }
 
 /** The block's file, every binding key on it or a descendant, and, for an include root, every include naming it. */
-export function blockReferences(ws: Workspace, blockId: string): Reference[] {
-  const held = ws.analysis().byBlockId.get(blockId);
-  if (!held) return [];
+export function blockReferences(ws: Workspace, held: HeldBlock): Reference[] {
   const refs: Reference[] = [{ uri: uriOf(held.block.path), range: titleRange(ws.text(held.block.path)), kind: "file" }];
   for (const path of ws.analysis().manifests.keys()) {
     for (const t of tokensIn(ws.text(path), path)) {
       if (t.kind !== "binding-key") continue;
       const key = keyOf(t);
-      if (key === blockId || key.startsWith(`${blockId}/`)) refs.push({ uri: uriOf(path), range: t.range, kind: "binding-key" });
+      if (key === held.key || key.startsWith(`${held.key}/`)) refs.push({ uri: uriOf(path), range: t.range, kind: "binding-key" });
     }
   }
   if (held.block === held.tree.root) {
-    for (const file of blockFiles(ws)) {
+    for (const file of ws.blockFiles()) {
       for (const t of tokensIn(ws.text(file), file)) {
         if (t.kind === "include" && includeDir(ws, file, t.name) === held.tree.dir) refs.push({ uri: uriOf(file), range: t.range, kind: "include" });
       }
@@ -77,21 +74,31 @@ function referencesOf(ws: Workspace, file: string, token: Token): Reference[] {
     case "marker":
     case "prop-decl": {
       const held = blockIn(ws, file);
-      return held ? propReferences(ws, held.key, token.prop) : [];
+      return held ? propReferences(ws, held, token.prop) : [];
     }
     case "binding-prop":
-    case "binding-value":
-      return propReferences(ws, token.key, token.prop);
-    case "binding-key":
-      return blockReferences(ws, keyOf(token));
+    case "binding-value": {
+      const held = byKey(ws, token.key);
+      return held ? propReferences(ws, held, token.prop) : [];
+    }
+    case "binding-key": {
+      const held = byKey(ws, keyOf(token));
+      return held ? blockReferences(ws, held) : [];
+    }
     case "include": {
       const tree = includeTree(ws, file, token.name);
       const held = tree && blockIn(ws, tree.root.path);
-      return held ? blockReferences(ws, held.key) : [];
+      return held ? blockReferences(ws, held) : [];
     }
     default:
       return [];
   }
+}
+
+/** A manifest key names whichever open copy `byBlockId` holds. */
+function byKey(ws: Workspace, key: string): HeldBlock | null {
+  const held = ws.analysis().byBlockId.get(key);
+  return held ? { key, ...held } : null;
 }
 
 /** Where an include in `file` resolves, as definition resolves it: the mattstack plugin those files see. */
@@ -103,14 +110,6 @@ function includeDir(ws: Workspace, file: string, name: string): string | null {
 function includeTree(ws: Workspace, file: string, name: string): BlockTree | null {
   const dir = includeDir(ws, file, name);
   return dir === null ? null : (ws.analysis().trees.get(dir) ?? null);
-}
-
-function blockFiles(ws: Workspace): string[] {
-  const files = new Set<string>();
-  for (const tree of ws.analysis().trees.values()) {
-    if (tree) for (const block of walk(tree)) files.add(block.path);
-  }
-  return [...files];
 }
 
 function titleRange(text: string): Range {

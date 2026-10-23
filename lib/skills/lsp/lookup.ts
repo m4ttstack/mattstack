@@ -1,12 +1,24 @@
-import type { Block } from "../blocks/types.ts";
+import { walk } from "../blocks/tree.ts";
+import type { Block, BlockTree } from "../blocks/types.ts";
 import { loadAttachment } from "../sources.ts";
 import type { AttachmentSource } from "../types.ts";
 import type { Range } from "./positions.ts";
 import type { Workspace } from "./workspace.ts";
 
-/** The analysed block a file holds, and its `<plugin>:<block id>` key. */
-export function blockIn(ws: Workspace, file: string): { key: string; block: Block } | null {
-  for (const [key, { block }] of ws.analysis().byBlockId) if (block.path === file) return { key, block };
+export type HeldBlock = { key: string; tree: BlockTree; block: Block };
+
+/**
+ * The analysed block a file holds, its tree and its `<plugin>:<block id>` key. Read from the trees, not
+ * `byBlockId`, because two open copies of a plugin share every key and `byBlockId` keeps only the last.
+ */
+export function blockIn(ws: Workspace, file: string): HeldBlock | null {
+  for (const tree of ws.analysis().trees.values()) {
+    if (!tree) continue;
+    const block = walk(tree).find((b) => b.path === file);
+    if (!block) continue;
+    const plugin = ws.pluginAt(tree.dir);
+    return plugin ? { key: `${plugin.name}:${block.id}`, tree, block } : null;
+  }
   return null;
 }
 

@@ -78,8 +78,7 @@ function nodeTarget(ws: Workspace, file: string, token: Extract<Token, { kind: "
     const child = held.block.children.find((c) => c.node === token.node);
     return child ? { file: child.path, line: titleLine(ws.text(child.path)) } : null;
   }
-  const tree = ws.analysis().byBlockId.get(held.key)!.tree;
-  const parent = walk(tree).find((b) => b.children.includes(held.block));
+  const parent = walk(held.tree).find((b) => b.children.includes(held.block));
   if (!parent) return null;
   const text = ws.text(parent.path);
   const lines = text.split("\n");
