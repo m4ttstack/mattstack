@@ -500,6 +500,13 @@ describe("a heading above an unbound slot", () => {
     expect(substitute("a\n{{slot:domain}}\nb", unbound(), "x").body).toBe("a\n\nb");
   });
 
+  test.each([
+    ["a four-backtick fence holding a three-backtick line", "````md\n```\n\n{{slot:domain}}\n\nx\n````", "````md\n```\n\n\n\nx\n````"],
+    ["a tilde fence", "~~~\n\n{{slot:domain}}\n\nx\n~~~", "~~~\n\n\n\nx\n~~~"],
+  ])("an unbound slot inside %s collapses nothing", (_, body, rendered) => {
+    expect(substitute(body, unbound(), "x").body).toBe(rendered);
+  });
+
   test("unbound slots between blank lines leave exactly one blank line between their neighbours", () => {
     const both = ctx({ fills: { domain: null, extra: null } });
     expect(substitute("a\n\n{{slot:domain}}\n\nb", both, "x").body).toBe("a\n\nb");

@@ -357,6 +357,7 @@ function placeholdersIn(line: string, ctx: PlaceholderContext, where: string): T
 }
 
 const HEADING_RE = /^#{1,6}\s/;
+const FENCE_RE = /^(`{3,}|~{3,})(.*)$/;
 const SLOT_LINE_RE = /^\{\{slot:([^}\s]+)\}\}$/;
 
 /**
@@ -433,14 +434,17 @@ export function substitute(
   const used: Used = { slots: [], includes: [], packPaths: [] };
   const lines = body.split("\n");
   const out: string[] = [];
-  let inFence = false;
+  let fence: { char: string; length: number } | null = null;
   let outLines = 0;
   let collapseBlanks = false;
   const endsBlank = () => out.length === 0 || out[out.length - 1]!.split("\n").pop()!.trim() === "";
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (line.startsWith("```")) inFence = !inFence;
+    const marker = line.match(FENCE_RE);
+    if (marker && !fence) fence = { char: marker[1]![0]!, length: marker[1]!.length };
+    else if (marker && marker[1]![0] === fence!.char && marker[1]!.length >= fence!.length && marker[2]!.trim() === "") fence = null;
+    const inFence = fence !== null;
     if (!inFence && HEADING_RE.test(line)) {
       const empty = emptySlotAfter(lines, i, ctx.fills);
       if (empty) {
