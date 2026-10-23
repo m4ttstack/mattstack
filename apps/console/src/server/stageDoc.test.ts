@@ -84,13 +84,6 @@ const deps = (extra: Partial<StageDocDeps> = {}): StageDocDeps => ({
     { name: 'acme', dir: '/org/mattstack/teams/acme/plugin' },
     { name: 'mattstack', dir: '/mono/plugins/mattstack' },
   ],
-  readFile: async p =>
-    ({
-      '/cache/0.30.20/attachments/pipeline/stage-ship/SKILL.md': 'SHIP DOC',
-      '/cache/0.30.20/attachments/pipeline/stage-ship--accessibility/SKILL.md':
-        'ACCESSIBILITY SHIP DOC',
-    })[p] ?? null,
-  pluginCacheDir: '/cache',
   ...extra,
 });
 
@@ -120,18 +113,6 @@ describe('resolveStageDoc', () => {
     ).toMatchObject({ text: 'ACME PLAN' });
   });
 
-  it('never reads outside the plugin cache for a traversal version', async () => {
-    const readFile = vi.fn(async () => 'SECRET');
-    expect(
-      await resolveStageDoc(deps({ readFile }), {
-        packCommits: 'mattstack=0.30.20/../../../x',
-        stage: 'ship',
-        pipeline: null,
-      })
-    ).toBeNull();
-    expect(readFile).not.toHaveBeenCalled();
-  });
-
   it('finds a doc at an old sha after the pack moved', async () => {
     expect(
       await resolveStageDoc(deps(), {
@@ -152,14 +133,26 @@ describe('resolveStageDoc', () => {
     ).toMatchObject({ text: 'NEW PLAN', pack: 'acme' });
   });
 
-  it('reads a version-recorded mattstack doc from the plugin cache', async () => {
+  it('returns the pack compiled stage when a mattstack version token rides along', async () => {
     expect(
       await resolveStageDoc(deps(), {
         packCommits: 'acme=bbb2222,mattstack=0.30.20',
+        stage: 'plan',
+        pipeline: null,
+      })
+    ).toMatchObject({ text: 'NEW PLAN', pack: 'acme', sha: 'bbb2222' });
+  });
+
+  it('is null for a mattstack version token alone, without reading git or files', async () => {
+    const runGit = vi.fn(fakeGit({ org }));
+    expect(
+      await resolveStageDoc(deps({ runGit }), {
+        packCommits: 'mattstack=0.30.20',
         stage: 'ship',
         pipeline: null,
       })
-    ).toMatchObject({ text: 'SHIP DOC', pack: 'mattstack' });
+    ).toBeNull();
+    expect(runGit).not.toHaveBeenCalled();
   });
 
   it('is null when no pack has the stage', async () => {
@@ -243,30 +236,5 @@ describe('resolveStageDoc', () => {
         })
       ).toBeNull();
     });
-  });
-
-  it('reads a version-recorded pipeline copy from the plugin cache', async () => {
-    const at = (pipeline: string) =>
-      resolveStageDoc(deps(), {
-        packCommits: 'mattstack=0.30.20',
-        stage: 'ship',
-        pipeline,
-      });
-    expect(await at('accessibility')).toMatchObject({
-      text: 'ACCESSIBILITY SHIP DOC',
-    });
-    expect(await at('feature')).toMatchObject({ text: 'SHIP DOC' });
-  });
-
-  it('ignores a pipeline name that could leave the stage directory', async () => {
-    const readFile = vi.fn(async () => null);
-    await resolveStageDoc(deps({ readFile }), {
-      packCommits: 'mattstack=0.30.20',
-      stage: 'ship',
-      pipeline: '../../x',
-    });
-    expect(readFile.mock.calls).toEqual([
-      ['/cache/0.30.20/attachments/pipeline/stage-ship/SKILL.md'],
-    ]);
   });
 });

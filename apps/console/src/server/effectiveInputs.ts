@@ -1,6 +1,3 @@
-import { readFile as fsReadFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import {
   explainSetting,
   getDef,
@@ -69,19 +66,6 @@ const CONFIG_DEPS = [
 ] as const;
 
 const STAGE_NAME = /^[A-Za-z0-9_-]+$/;
-
-const PLUGIN_CACHE_DIR = join(
-  homedir(),
-  '.claude/plugins/cache/mattstack/mattstack'
-);
-
-const readFileOrNull = async (path: string): Promise<string | null> => {
-  try {
-    return await fsReadFile(path, 'utf8');
-  } catch {
-    return null;
-  }
-};
 
 const NO_DOC = { error: 'no compiled doc recorded at this version' } as const;
 
@@ -164,9 +148,7 @@ export function mountEffectiveInputs(
   app: Hono,
   runRt: RunRt = liveRunRt,
   runGit: RunGit = liveRunGit,
-  fixture: RunsFixture | null = null,
-  readFile: (path: string) => Promise<string | null> = readFileOrNull,
-  pluginCacheDir: string = PLUGIN_CACHE_DIR
+  fixture: RunsFixture | null = null
 ) {
   /** Never throws: an unresolvable pack (rt down, unknown name, bad JSON) is
       reported as null everywhere a caller of this reads it, not a 500. */
@@ -318,8 +300,6 @@ export function mountEffectiveInputs(
                 )
               : [];
           },
-          readFile,
-          pluginCacheDir,
         },
         {
           packCommits: res.data.run.pack_commits,
