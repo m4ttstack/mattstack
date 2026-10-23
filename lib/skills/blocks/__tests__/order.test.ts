@@ -39,7 +39,8 @@ function diagnose(files: Record<string, string>) {
 
 test("graph children follow the graph, then order, then filename", () => {
   const tree = loadBlockTree(DIR, { idPrefix: "mini", relRoot: "attachments/pipeline/mini" });
-  expect(tree.root.children.map((b) => b.id)).toEqual(["mini/run", "mini/gate", "mini/notes", "mini/guard"]);
+  expect(tree.root.children.map((b) => b.id)).toEqual(["mini/run", "mini/gate", "mini/notes"]);
+  expect(tree.byId.get("mini/run")!.children.map((b) => b.id)).toEqual(["mini/run/guard", "mini/run/check"]);
 });
 
 test("graph order wins over filename and a graph-only node is fine", () => {
@@ -127,4 +128,33 @@ test("every ordering diagnostic is collected into one error", () => {
     "y.block.md": plain("node: nowhere\n"),
   });
   expect(d.map((x) => x.code).sort()).toEqual(["missing-node", "order-on-graph-child"]);
+});
+
+test("a headless child after a titled sibling is refused at its file", () => {
+  const d = diagnose({
+    "index.block.md": "---\n---\n\n# a\n",
+    "a1.block.md": plain(""),
+    "b2.block.md": "---\n---\nloose text\n",
+  });
+  expect(d).toHaveLength(1);
+  expect(d[0]).toMatchObject({ code: "headless-after-heading", file: "a/b2.block.md", line: 1, col: 1 });
+  expect(d[0]!.message).toContain("give it a # title line, or order it before its titled siblings");
+});
+
+test("a headless node-less child under a graph parent is refused", () => {
+  const d = diagnose({
+    "index.block.md": `---\n---\n\n${GRAPH}`,
+    "a1.block.md": "---\norder: 1\n---\nloose text\n",
+    "x.block.md": plain("node: one\n"),
+  });
+  expect(d.map((x) => x.code)).toEqual(["headless-after-heading"]);
+});
+
+test("a headless child ordered before its titled siblings is fine", () => {
+  const dir = tmpTree({
+    "index.block.md": "---\n---\n\n# a\n",
+    "a1.block.md": plain(""),
+    "b2.block.md": "---\norder: 1\n---\nloose text\n",
+  });
+  expect(loadBlockTree(dir, a).root.children.map((b) => b.id)).toEqual(["a/b2", "a/a1"]);
 });

@@ -216,7 +216,7 @@ describe("blockPropValues", () => {
     const { roots } = setup();
     const step = loadStepSource("mini", roots);
     const values = valuesFor(step, roots, bindingsOf(readFileSync(MANIFEST, "utf8")));
-    expect([...values.keys()]).toEqual(["mini", "mini/run", "mini/run/check", "mini/gate", "mini/notes", "mini/guard"]);
+    expect([...values.keys()]).toEqual(["mini", "mini/run", "mini/run/guard", "mini/run/check", "mini/gate", "mini/notes"]);
     expect(values.get("mini/gate")!.get("tiering")).toMatchObject({ fromDefault: true });
     expect(values.get("mini")!.get("rules")!.sources.map((s) => s.fill.binding)).toEqual(["widgets:mini-rules/fast"]);
   });

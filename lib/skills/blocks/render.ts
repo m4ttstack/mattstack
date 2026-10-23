@@ -223,7 +223,7 @@ function renderBlock(b: Block, src: SourcedTree, parent: Heading, dropTitle: boo
     const heading = `${"#".repeat(own.level)} ${b.title}`;
     chunks.push([seam(b.bodyStartLine), heading, ...(body === "" ? [] : [...gap, body])].join("\n"));
   }
-  // Past a titled sibling a headless child falls under that sibling instead, which this check does not cover.
+  // A headless child past a titled sibling never gets here: the tree refuses it as headless-after-heading.
   const under = lastHeading(body);
   for (const child of b.children) {
     if (child.title !== null) break;

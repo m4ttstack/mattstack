@@ -23,7 +23,7 @@ test("loads ids, depth and the root's engine frontmatter", () => {
   const tree = loadBlockTree(DIR, opts);
   expect(tree.root.id).toBe("mini");
   expect(tree.root.frontmatter.type).toBe("pipeline-step");
-  expect([...tree.byId.keys()].sort()).toEqual(["mini", "mini/gate", "mini/guard", "mini/notes", "mini/run", "mini/run/check"]);
+  expect([...tree.byId.keys()].sort()).toEqual(["mini", "mini/gate", "mini/notes", "mini/run", "mini/run/check", "mini/run/guard"]);
   expect(tree.byId.get("mini/gate")!.depth).toBe(1);
   expect(tree.byId.get("mini/gate")!.relPath).toBe("attachments/pipeline/mini/gate.block.md");
   expect(tree.byId.get("mini/run/check")!.relPath).toBe("attachments/pipeline/mini/run/check.block.md");
@@ -34,10 +34,10 @@ test("walk is preorder with children in graph, then order, then name", () => {
   expect(walk(loadBlockTree(DIR, opts)).map((b) => b.id)).toEqual([
     "mini",
     "mini/run",
+    "mini/run/guard",
     "mini/run/check",
     "mini/gate",
     "mini/notes",
-    "mini/guard",
   ]);
 });
 

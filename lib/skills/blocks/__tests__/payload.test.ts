@@ -81,10 +81,10 @@ test("the mini payload lists every block in preorder with its parent and depth",
   expect(payload.blocks.map((b) => [b.id, b.parentId, b.depth])).toEqual([
     ["mini", null, 0],
     ["mini/run", "mini", 1],
+    ["mini/run/guard", "mini/run", 2],
     ["mini/run/check", "mini/run", 2],
     ["mini/gate", "mini", 1],
     ["mini/notes", "mini", 1],
-    ["mini/guard", "mini", 1],
   ]);
   expect(payload.engineRef).toBe("mattstack:mini");
   expect(payload.includes).toEqual([]);
@@ -95,17 +95,17 @@ test("kinds come from the gate field, an include, a diamond node, any node, or n
   expect(Object.fromEntries(payload.blocks.map((b) => [b.id, b.kind]))).toEqual({
     mini: "note",
     "mini/run": "step",
+    "mini/run/guard": "note",
     "mini/run/check": "note",
     "mini/gate": "gate",
     "mini/notes": "note",
-    "mini/guard": "note",
   });
   const tree = tmpTree("q", {
     "index.block.md": "---\n---\n\n# q\n\n```mermaid\nflowchart TB\n  pick{Which way}\n```\n",
     "pick.block.md": "---\nnode: pick\n---\n\n# Which way\n\nChoose one.\n",
   });
   expect(payloadOf(tree).payload.blocks.map((b) => b.kind)).toEqual(["note", "question"]);
-  expect(payload.blocks.find((b) => b.id === "mini/guard")!.headless).toBe(true);
+  expect(payload.blocks.find((b) => b.id === "mini/run/guard")!.headless).toBe(true);
 });
 
 test("layers list mattstack, the base when there is one, then the pack", () => {
@@ -222,10 +222,10 @@ test("summary is the first sentence after the title", () => {
   expect(Object.fromEntries(payload.blocks.map((b) => [b.id, b.summary]))).toEqual({
     mini: "Runs the step, then asks for a decision.",
     "mini/run": "Do the work for the widget.",
+    "mini/run/guard": "Guard text with no title line.",
     "mini/run/check": "Confirm the widget works.",
     "mini/gate": "Ask the human whether to continue, using the tiering rules.",
     "mini/notes": "Keep notes short.",
-    "mini/guard": "Guard text with no title line.",
   });
   expect(summaryOf("# T\n\nUse `rt skills` and **bold** [docs](x). Then more.", true)).toBe("Use rt skills and bold docs.");
   expect(summaryOf(`# T\n\n${"word ".repeat(60)}`, true).length).toBeLessThanOrEqual(160);
@@ -235,10 +235,10 @@ test("renderedLines run from the block's first seam to the line before the next 
   const { payload, compiled } = mini();
   const lines = compiled.split("\n");
   const run = payload.blocks.find((b) => b.id === "mini/run")!;
-  const check = payload.blocks.find((b) => b.id === "mini/run/check")!;
+  const guard = payload.blocks.find((b) => b.id === "mini/run/guard")!;
   expect(lines[run.renderedLines![0] - 1]).toStartWith("<!-- part: block:mini/run ");
-  expect(lines[run.renderedLines![1]]).toStartWith("<!-- part: block:mini/run/check ");
-  expect(check.renderedLines![0]).toBe(run.renderedLines![1] + 1);
+  expect(lines[run.renderedLines![1]]).toStartWith("<!-- part: block:mini/run/guard ");
+  expect(guard.renderedLines![0]).toBe(run.renderedLines![1] + 1);
   expect(payload.blocks[0]!.lines).toEqual([11, 24]);
 });
 

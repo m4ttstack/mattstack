@@ -672,7 +672,7 @@ describe("block-tree engines end to end", () => {
       io.restore();
     }
     const parts = JSON.parse(io.stdout()).parts as { kind: string; name: string | null; changed: boolean }[];
-    expect(parts.filter((p) => p.kind === "block").map((p) => p.name)).toEqual(["mini", "mini/run", "mini/run/check", "mini/gate", "mini/notes", "mini/guard"]);
+    expect(parts.filter((p) => p.kind === "block").map((p) => p.name)).toEqual(["mini", "mini/run", "mini/run/guard", "mini/run/check", "mini/gate", "mini/notes"]);
     expect(parts.filter((p) => p.changed).map((p) => `${p.kind}:${p.name}`)).toEqual(["prop:mini.rules"]);
   });
 

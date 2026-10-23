@@ -142,14 +142,14 @@ test("the mini tree renders one body with a seam per block and prop", () => {
     "<!-- part: prop:mini.rules binding=widgets:mini-rules version=0.1.0 path=attachments/mini-rules/SKILL.md lines=8-9 -->\n" +
       "Follow the widget rules.\nRun ${CLAUDE_SKILL_DIR}/parts/rules/lint.sh first.",
   );
-  expect(body).toContain("<!-- part: block:mini/guard source=mattstack:mini version=1.0.0 path=attachments/pipeline/mini/guard.block.md lines=3-3 -->\nGuard text with no title line.");
+  expect(body).toContain("<!-- part: block:mini/run/guard source=mattstack:mini version=1.0.0 path=attachments/pipeline/mini/run/guard.block.md lines=4-4 -->\nGuard text with no title line.");
   expect(body).toContain("```dot\ndigraph flow {\n");
   expect(body).toContain('run_step [label="Run the step"');
   expect(body).not.toContain("mermaid");
   expect(body.match(/part: block:mini /g)).toHaveLength(1);
   expect(body).not.toContain("{{");
 
-  const order = ["## Run the step", "### Check the result", "## Ask the gate", "## Notes", "Guard text with no title line."].map((s) => body.indexOf(s));
+  const order = ["## Run the step", "Guard text with no title line.", "### Check the result", "## Ask the gate", "## Notes"].map((s) => body.indexOf(s));
   expect(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!))).toBe(true);
   expect(body.split("\n").filter((l) => l.startsWith("#"))).toEqual(["# mini", "## Run the step", "### Check the result", "## Ask the gate", "## Notes"]);
 
@@ -168,7 +168,7 @@ test("every compiled line maps back to the file line it came from", () => {
   expect(sourceOf(body, "## Ask the gate")).toBe(at("gate.block.md", 11));
   expect(sourceOf(body, "Ask the human whether to continue, using the tiering rules.")).toBe(at("gate.block.md", 13));
   expect(sourceOf(body, "Keep notes short.")).toBe(at("notes.block.md", 11));
-  expect(sourceOf(body, "Guard text with no title line.")).toBe(at("guard.block.md", 3));
+  expect(sourceOf(body, "Guard text with no title line.")).toBe(at("run/guard.block.md", 4));
 });
 
 test("text after a converted graph or an inlined prop maps back to its own block", () => {
@@ -196,13 +196,14 @@ test("sub-headings re-level from the block's own level, or its parent's when hea
   const tree = plainTree({
     "index.block.md": "---\n---\n\n# a\n\nIntro.\n\n## root sub\n",
     "sub.block.md": "---\n---\n\n# Sub host\n\nLead.\n\n## sub\n\n```md\n## not a heading\n```\n",
-    "z-loose.block.md": "---\n---\nLoose.\n\n## loose sub\n",
+    "z-host/index.block.md": "---\n---\n\n# Loose host\n",
+    "z-host/loose.block.md": "---\n---\nLoose.\n\n## loose sub\n",
   });
   const lines = render(tree).body.split("\n");
   expect(lines).toContain("## root sub");
   expect(lines).toContain("### sub");
   expect(lines).toContain("## not a heading");
-  expect(lines).toContain("## loose sub");
+  expect(lines).toContain("### loose sub");
   expect(lines).toContain("## Sub host");
 });
 

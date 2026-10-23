@@ -193,6 +193,19 @@ function orderChildren(parent: Block, diagnostics: BlockDiagnostic[]): void {
   // Array.sort is stable, so the incoming name-stem order breaks ties among blocks without order.
   rest.sort((x, y) => (x.order === null ? 1 : 0) - (y.order === null ? 1 : 0) || (x.order ?? 0) - (y.order ?? 0));
   parent.children = [...bound, ...rest];
+  let titled: Block | null = null;
+  for (const child of parent.children) {
+    if (child.title !== null) titled = child;
+    else if (titled !== null) {
+      diagnostics.push({
+        file: child.relPath,
+        line: 1,
+        col: 1,
+        message: `this headless block comes after ${titled.relPath}, so its text would read as part of that block; give it a # title line, or order it before its titled siblings`,
+        code: "headless-after-heading",
+      });
+    }
+  }
 }
 
 function loadBlock(

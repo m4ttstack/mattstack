@@ -91,7 +91,7 @@ test("skills blocks --json on a skill that is not a block tree is the failure en
 test("skills blocks without --json prints the tree of labels with a kind glyph per row", async () => {
   await skillsBlocks(args("--skill", "mini"));
   expect(io.stdout()).toBe(renderPlain([
-    out.tree("mini", [["○ Run"], ["  ▤ Check"], ["⚑ Gate"], ["▤ Notes"], ["▤ Guard"]]),
+    out.tree("mini", [["○ Run"], ["  ▤ Guard"], ["  ▤ Check"], ["⚑ Gate"], ["▤ Notes"]]),
   ]));
 });
 
