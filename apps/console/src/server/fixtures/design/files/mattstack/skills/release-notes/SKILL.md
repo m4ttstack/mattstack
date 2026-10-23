@@ -19,7 +19,7 @@ Lead with what a user will notice. Put a breaking change first and say what
 to do about it.
 
 ## House style
-{{slot:changelog}}
+{{props.changelog}}
 
 ## Hand-off
 

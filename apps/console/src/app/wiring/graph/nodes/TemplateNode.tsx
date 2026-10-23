@@ -27,7 +27,7 @@ import { parityName } from './parity';
 type Tag = { label: string; color?: 'warn' | 'bad' };
 
 /** The tag a placeholder row's state earns: a hue where it needs attention,
-    quiet where it only says how the slot is filled. A card says the same in
+    quiet where it only says how the prop is filled. A card says the same in
     its subtitle, so a card shows only `unsynced`. */
 export function tagOf(state: RowState, fill: string | null): Tag | null {
   switch (state) {

@@ -8,7 +8,7 @@ const composition = designFixture('composition');
 const TIERING = '/fixture/mattstack/attachments/model-tiering/SKILL.md';
 
 describe('appSkillView', () => {
-  it('builds a skill another app owns from the slots this pack fills', () => {
+  it('builds a skill another app owns from the props this pack fills', () => {
     const { view, anatomy } = appSkillView(
       composition,
       'board:doctor',
@@ -18,7 +18,7 @@ describe('appSkillView', () => {
     expect(view).toMatchObject({
       skill: 'board:doctor',
       templateFile: 'board:doctor',
-      templateMeta: 'board app · 1 slot',
+      templateMeta: 'board app · 1 prop',
       app: 'board',
       links: [],
       output: null,
@@ -26,9 +26,9 @@ describe('appSkillView', () => {
     expect(view.rows).toEqual([
       expect.objectContaining({
         kind: 'placeholder',
-        placeholder: 'slot',
-        code: '{{slot:tiering}}',
-        name: 'tiering',
+        placeholder: 'prop',
+        code: '{{props.tiering}}',
+        name: 'doctor.tiering',
         boundTo: 'mattstack:model-tiering',
         state: 'ok',
       }),
@@ -43,7 +43,7 @@ describe('appSkillView', () => {
       }),
     ]);
     expect(anatomy.description).toBe(
-      'Lives in the board app. acme fills its 1 slot.'
+      'Lives in the board app. acme fills its 1 prop.'
     );
   });
 
@@ -54,7 +54,7 @@ describe('appSkillView', () => {
         binder.ref === 'board:doctor'
           ? {
               ...binder,
-              slots: [
+              props: [
                 {
                   name: 'domain',
                   boundTo: 'acme:board-fill',

@@ -76,14 +76,14 @@ type Part = SkillsAnatomy['parts'][number];
 const PLAN_RENDERED = '/fixture/packs/acme/attachments/stage-plan/SKILL.md';
 const DOMAIN_BODY = [223, 302] as const;
 const REFERENCE_LINE =
-  'Slot domain is bound to `acme:plan-policy` (acme:plan-policy@0.8.14) -- invoke that skill when this flow needs it.';
+  'Prop domain is bound to `acme:plan-policy` (acme:plan-policy@0.8.14) -- invoke that skill when this flow needs it.';
 const CHANGELOG_ERROR = [
-  'loadAttachment: slot "changelog": binding "acme:changelog-style" not found; searched:',
+  'loadAttachment: prop "changelog": binding "acme:changelog-style" not found; searched:',
   '/fixture/packs/acme/skills/changelog-style/SKILL.md',
   '/fixture/packs/acme/attachments/changelog-style/SKILL.md',
 ].join('\n');
 
-/** Plan with its domain slot rendered into `lines` lines in place of the
+/** Plan with its domain prop rendered into `lines` lines in place of the
     body the clean build pastes in. */
 function planWithDomain(lines: 0 | 1, patch: Partial<Part>): SkillsAnatomy {
   const plan = designFixture('anatomy.stage-plan');
@@ -92,7 +92,7 @@ function planWithDomain(lines: 0 | 1, patch: Partial<Part>): SkillsAnatomy {
     ...plan,
     rendered: { ...plan.rendered, lines: plan.rendered.lines + by },
     parts: plan.parts.map(part => {
-      if (part.name === 'domain') return { ...part, ...patch };
+      if (part.name === 'stage-plan.domain') return { ...part, ...patch };
       const at = part.renderedLines;
       return at && at[0] > DOMAIN_BODY[1]
         ? { ...part, renderedLines: [at[0] + by, at[1] + by] }
@@ -108,7 +108,7 @@ function bindDomain(boundTo: string | null): SkillsComposition {
   const composition = designFixture('composition');
   for (const binder of composition.binders)
     if (binder.ref === 'mattstack:stage-plan')
-      binder.slots = boundTo
+      binder.props = boundTo
         ? [{ name: 'domain', boundTo, layer: 'pack' }]
         : [];
   return composition;
@@ -224,17 +224,20 @@ afterEach(() => {
   window.history.pushState(null, '', '/');
 });
 
-describe('slot states', () => {
+describe('prop states', () => {
   it('optional, unbound: the row says so and no card is drawn', async () => {
     const composition = bindDomain(null);
     for (const target of composition.targets ?? [])
       if (target.name === 'stage-plan')
-        for (const slot of target.slots ?? []) slot.required = false;
+        for (const prop of target.props['stage-plan'] ?? []) {
+          prop.required = false;
+          prop.default = '';
+        }
     serve({ composition, anatomy: { 'stage-plan': unboundPlan() } });
     renderAt('?tab=graph&focus=stage-plan');
 
     const row = await rowAt('L136');
-    expect(row).toHaveTextContent('{{slot:domain}}');
+    expect(row).toHaveTextContent('{{props.domain}}');
     expect(tagIn(row, 'optional, nothing bound')).toHaveAttribute(
       'data-variant',
       'quiet'
@@ -258,7 +261,7 @@ describe('slot states', () => {
     expect(tag).toHaveAttribute('data-variant', 'tint');
     expect(tag.getAttribute('style')).toContain('var(--tk-text-warn)');
 
-    const card = await cardTitled('domain slot');
+    const card = await cardTitled('domain prop');
     expect(within(card).getByText('required, nothing bound')).toHaveStyle({
       color: 'var(--tk-text-warn-small)',
     });
@@ -287,7 +290,7 @@ describe('slot states', () => {
     expect(tag).toHaveAttribute('data-variant', 'tint');
     expect(tag.getAttribute('style')).toContain('var(--tk-text-warn)');
 
-    const card = await cardTitled('domain slot');
+    const card = await cardTitled('domain prop');
     expect(card.querySelector('svg')).toHaveClass('lucide-file-x');
     expect(
       within(card).getByText('no fill named acme:plan-policy-v1 in this pack')
@@ -300,12 +303,18 @@ describe('slot states', () => {
     const composition = designFixture('composition');
     for (const verb of composition.verbs)
       if (verb.name === 'release-notes')
-        verb.slots = verb.slots.map(slot => ({
-          ...slot,
-          boundTo: 'acme:changelog-style',
-          layer: 'pack',
-          resolveError: CHANGELOG_ERROR,
-        }));
+        for (const prop of verb.props['release-notes'] ?? [])
+          prop.values = [
+            {
+              boundTo: 'acme:changelog-style',
+              layer: 'pack',
+              fillSourcePath: null,
+              fillVersion: null,
+              registered: null,
+              inlined: null,
+              resolveError: CHANGELOG_ERROR,
+            },
+          ];
     serve({
       composition,
       anatomy: { 'release-notes': designFixture('anatomy.release-notes') },
@@ -316,7 +325,7 @@ describe('slot states', () => {
     expect(tag).toHaveAttribute('data-variant', 'tint');
     expect(tag.getAttribute('style')).toContain('var(--tk-text-bad)');
 
-    const card = await cardTitled('changelog slot');
+    const card = await cardTitled('changelog prop');
     expect(card.querySelector('svg')).toHaveClass('lucide-file-x');
     const subtitle = within(card).getByText(
       /^binding "acme:changelog-style" not found; searched:/
@@ -439,15 +448,15 @@ describe('engines and builds', () => {
 });
 
 describe('a skill another app owns', () => {
-  it('draws the slots this pack fills, asking rt for no anatomy', async () => {
+  it('draws the props this pack fills, asking rt for no anatomy', async () => {
     serve();
     renderAt('?tab=graph&focus=board:doctor');
 
     const template = await screen.findByTestId('template-node');
     expect(template).toHaveTextContent('board:doctor');
-    expect(template).toHaveTextContent('{{slot:tiering}}');
+    expect(template).toHaveTextContent('{{props.tiering}}');
     expect(screen.getByTestId('focus-header')).toHaveTextContent(
-      'Lives in the board app. acme fills its 1 slot.'
+      'Lives in the board app. acme fills its 1 prop.'
     );
     expect(screen.queryByTestId('canvas-error')).toBeNull();
     expect(anatomyGet).not.toHaveBeenCalledWith(

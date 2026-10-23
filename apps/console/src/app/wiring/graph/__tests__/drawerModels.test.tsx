@@ -12,7 +12,7 @@ import { buildFocusGroups } from '../model/focusModel';
 import { designFixture } from './designFixtures';
 
 /** The design composition with work also binding model-tiering at a second
-    slot, `domain`, at its template line 100. */
+    prop, `domain`, at its template line 100. */
 function workBindsTieringTwice(): SkillsComposition {
   const composition = designFixture('composition');
   return {
@@ -21,9 +21,13 @@ function workBindsTieringTwice(): SkillsComposition {
       binder.ref === 'mattstack:work'
         ? {
             ...binder,
-            slots: [
-              ...binder.slots,
-              { name: 'domain', boundTo: 'mattstack:model-tiering' },
+            props: [
+              ...binder.props,
+              {
+                name: 'domain',
+                boundTo: 'mattstack:model-tiering',
+                layer: 'pack',
+              },
             ],
           }
         : binder
@@ -34,7 +38,12 @@ function workBindsTieringTwice(): SkillsComposition {
             ...target,
             placeholders: [
               ...target.placeholders,
-              { kind: 'slot', arg: 'domain', line: 100 },
+              {
+                kind: 'prop',
+                arg: 'work.domain',
+                file: 'attachments/pipeline/work/SKILL.md',
+                line: 100,
+              },
             ],
           }
         : target
@@ -89,7 +98,7 @@ describe('usedBySites', () => {
     expect(sites[2]!.focus).toBe('stage-plan');
   });
 
-  it('finds a fill at each slot that binds it, the board skills with no template line', () => {
+  it('finds a fill at each prop that binds it, the board skills with no template line', () => {
     const sites = usedBySites(designFixture('composition'), groupsOfDesign(), {
       kind: 'fill',
       name: 'mattstack:model-tiering',
@@ -110,7 +119,7 @@ describe('usedBySites', () => {
     expect(sites[7]!.label).toBe('board:review');
   });
 
-  it('lists a skill once for each slot it binds the fill at', () => {
+  it('lists a skill once for each prop it binds the fill at', () => {
     const composition = workBindsTieringTwice();
     const sites = usedBySites(
       composition,
@@ -121,10 +130,10 @@ describe('usedBySites', () => {
     expect(
       sites
         .filter(site => site.skill === 'work')
-        .map(site => [site.slot, site.line])
+        .map(site => [site.prop, site.line])
     ).toEqual([
-      ['domain', 100],
-      ['tiering', 242],
+      ['work.domain', 100],
+      ['work.tiering', 242],
     ]);
   });
 
@@ -139,7 +148,7 @@ describe('usedBySites', () => {
     expect(sites.find(site => site.skill === 'stage-provision')).toEqual({
       group: 'NOT WIRED INTO ANYTHING',
       skill: 'stage-provision',
-      slot: null,
+      prop: null,
       line: 154,
       focus: null,
       label: 'stage-provision',
@@ -185,7 +194,7 @@ describe('usedBySites', () => {
       {
         group: 'PIPELINE STEPS',
         skill: 'stage-evidence--accessibility',
-        slot: 'domain',
+        prop: 'stage-evidence.domain',
         line: 299,
         focus: 'stage-evidence@accessibility',
         label: 'stage-evidence--accessibility/SKILL.md',
@@ -198,7 +207,9 @@ describe('usedBySites', () => {
 describe('builtFrom', () => {
   it('lists a team section as its own team values row', () => {
     const anatomy = designFixture('anatomy.stage-plan');
-    const domain = anatomy.parts.find(part => part.name === 'domain')!;
+    const domain = anatomy.parts.find(
+      part => part.name === 'stage-plan.domain'
+    )!;
     const section = {
       ...domain,
       kind: 'section' as const,
@@ -286,7 +297,7 @@ describe('builtFrom', () => {
       {
         ...anatomy,
         parts: anatomy.parts.map(part =>
-          part.name === 'domain'
+          part.name === 'stage-plan.domain'
             ? {
                 ...part,
                 source: {
@@ -327,7 +338,7 @@ describe('builtFrom', () => {
       return {
         ...anatomy,
         parts: anatomy.parts.map(part =>
-          part.name === 'domain'
+          part.name === 'stage-plan.domain'
             ? {
                 ...part,
                 changed,

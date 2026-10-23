@@ -114,7 +114,7 @@ describe('the state scenarios', () => {
       .replace(/\n$/, '')
       .split('\n');
   const domainOf = (anatomy: Anatomy) =>
-    anatomy.parts.find(part => part.name === 'domain')!;
+    anatomy.parts.find(part => part.name === 'stage-plan.domain')!;
   const rangesOf = (anatomy: Anatomy) =>
     anatomy.parts.map(part => [part.name, part.renderedLines]);
   const lastPartsOf = (anatomy: Anatomy) =>
@@ -122,9 +122,9 @@ describe('the state scenarios', () => {
       .filter(([name]) => name !== null)
       .slice(-2);
   const planBinding = (c: typeof composition) =>
-    c.binders.find(b => b.ref === 'mattstack:stage-plan')!.slots;
-  const planSlot = (c: typeof composition) =>
-    c.targets.find(t => t.name === 'stage-plan')!.slots[0];
+    c.binders.find(b => b.ref === 'mattstack:stage-plan')!.props;
+  const planProp = (c: typeof composition) =>
+    c.targets.find(t => t.name === 'stage-plan')!.props['stage-plan']![0];
 
   it('serves the subject of every scenario, or fails it', async () => {
     for (const scenario of SCENARIOS) {
@@ -142,7 +142,7 @@ describe('the state scenarios', () => {
     }
   });
 
-  it('referenced: the domain slot renders as one line naming its fill', async () => {
+  it('referenced: the domain prop renders as one line naming its fill', async () => {
     const anatomy = await anatomyOf('referenced', 'stage-plan');
     expect(domainOf(anatomy)).toMatchObject({
       mode: 'reference',
@@ -157,7 +157,7 @@ describe('the state scenarios', () => {
     const text = await lines('referenced', anatomy.rendered.path);
     expect(text).toHaveLength(701);
     expect(text[222]).toBe(
-      'Slot domain is bound to `acme:plan-policy` (acme:plan-policy@0.8.14) -- invoke that skill when this flow needs it.'
+      'Prop domain is bound to `acme:plan-policy` (acme:plan-policy@0.8.14) -- invoke that skill when this flow needs it.'
     );
     expect(text[223]).toContain('part: include:gate-protocol');
     expect(await compositionOf('referenced')).toEqual(composition);
@@ -167,7 +167,7 @@ describe('the state scenarios', () => {
     'required-unbound',
     'optional-unbound',
     'no-matching-fill',
-  ] as const)('%s: the domain slot renders nothing', async scenario => {
+  ] as const)('%s: the domain prop renders nothing', async scenario => {
     const anatomy = await anatomyOf(scenario, 'stage-plan');
     expect(domainOf(anatomy)).toMatchObject({
       source: null,
@@ -184,19 +184,27 @@ describe('the state scenarios', () => {
     expect(text.join('\n')).not.toContain('plan-policy');
   });
 
-  it('required-unbound: nothing binds the required domain slot', async () => {
+  it('required-unbound: nothing binds the required domain prop', async () => {
     const c = await compositionOf('required-unbound');
     expect(planBinding(c)).toEqual([]);
-    expect(planSlot(c)).toMatchObject({ name: 'domain', required: true });
+    expect(planProp(c)).toMatchObject({
+      name: 'domain',
+      required: true,
+      default: null,
+    });
   });
 
-  it('optional-unbound: nothing binds the domain slot, which is optional', async () => {
+  it('optional-unbound: nothing binds the domain prop, which is optional', async () => {
     const c = await compositionOf('optional-unbound');
     expect(planBinding(c)).toEqual([]);
-    expect(planSlot(c)).toMatchObject({ name: 'domain', required: false });
+    expect(planProp(c)).toMatchObject({
+      name: 'domain',
+      required: false,
+      default: '',
+    });
   });
 
-  it('no-matching-fill: the domain slot names a fill the pack lacks', async () => {
+  it('no-matching-fill: the domain prop names a fill the pack lacks', async () => {
     const c = await compositionOf('no-matching-fill');
     expect(planBinding(c)).toEqual([
       { name: 'domain', boundTo: 'acme:plan-policy-v1', layer: 'pack' },
@@ -204,22 +212,24 @@ describe('the state scenarios', () => {
     expect(c.fills.map(f => f.binding)).not.toContain('acme:plan-policy-v1');
   });
 
-  it("resolve-error: release-notes carries rt's message for its changelog slot", async () => {
+  it("resolve-error: release-notes carries rt's message for its changelog prop", async () => {
     const c = await compositionOf('resolve-error');
-    const slot = c.verbs.find(v => v.name === 'release-notes')!.slots[0]!;
-    expect(slot).toMatchObject({
-      name: 'changelog',
-      boundTo: 'acme:changelog-style',
-      layer: 'pack',
-    });
-    expect((slot as { resolveError?: string }).resolveError).toMatch(
-      /^loadAttachment: slot "changelog": binding "acme:changelog-style" not found; searched:\n/
+    const changelog = c.verbs.find(v => v.name === 'release-notes')!.props[
+      'release-notes'
+    ]![0]!;
+    expect(changelog.name).toBe('changelog');
+    expect(changelog.values).toMatchObject([
+      { boundTo: 'acme:changelog-style', layer: 'pack' },
+    ]);
+    const [value] = changelog.values as { resolveError?: string }[];
+    expect(value?.resolveError).toMatch(
+      /^loadAttachment: prop "changelog": binding "acme:changelog-style" not found; searched:\n/
     );
     const anatomy = await anatomyOf('resolve-error', 'release-notes');
     const template = await fixtureRt('resolve-error').readPackFile(
       anatomy.template.path
     );
-    expect(template.split('\n')[21]).toBe('{{slot:changelog}}');
+    expect(template.split('\n')[21]).toBe('{{props.changelog}}');
     expect(await lines('resolve-error', anatomy.rendered.path)).toHaveLength(
       anatomy.rendered.lines
     );
@@ -253,7 +263,7 @@ describe('the state scenarios', () => {
     await expect(readPackFile(anatomy.rendered.path)).rejects.toThrow();
     await expect(realpath(anatomy.rendered.path)).rejects.toThrow();
     await expect(readPackFile(anatomy.template.path)).resolves.toContain(
-      '{{slot:domain}}'
+      '{{props.domain}}'
     );
   });
 
@@ -305,7 +315,10 @@ describe('the org base scenarios', () => {
 
   type Composition = typeof composition & {
     extends?: { name: string; version: string };
-    verbs: { name: string; slots: Record<string, unknown>[] }[];
+    verbs: {
+      name: string;
+      props: Record<string, { name: string; values: unknown[] }[]>;
+    }[];
     fills: Record<string, unknown>[];
   };
   const json = async <T>(scenario: FixtureScenario, argv: string[]) =>
@@ -315,7 +328,7 @@ describe('the org base scenarios', () => {
     const c = await json<Composition>(s, pack('composition'));
     expect(c.extends).toEqual({ name: 'acme-base', version: '0.1.0' });
     const binder = c.binders.find(b => b.ref === 'mattstack:stage-plan')!;
-    expect(binder.slots).toEqual([
+    expect(binder.props).toEqual([
       {
         name: 'domain',
         boundTo: 'acme-base:plan-policy',
@@ -326,21 +339,23 @@ describe('the org base scenarios', () => {
     const shepherdrBinder = c.binders.find(
       b => b.ref === 'mattstack:shepherdr'
     )!;
-    expect(shepherdrBinder.slots.find(x => x.name === 'domain')).toEqual({
+    expect(shepherdrBinder.props.find(x => x.name === 'domain')).toEqual({
       name: 'domain',
       boundTo: 'acme-base:plan-policy',
       layer: 'base:acme-base',
       ...BASE_TAG,
     });
-    const slot = c.verbs
+    const domain = c.verbs
       .find(v => v.name === 'shepherdr')!
-      .slots.find(x => x.name === 'domain');
-    expect(slot).toMatchObject({
-      boundTo: 'acme-base:plan-policy',
-      fillSourcePath: BASE_FILL,
-      fillVersion: 'org',
-      ...BASE_TAG,
-    });
+      .props.shepherdr!.find(x => x.name === 'domain');
+    expect(domain?.values).toMatchObject([
+      {
+        boundTo: 'acme-base:plan-policy',
+        fillSourcePath: BASE_FILL,
+        fillVersion: 'org',
+        ...BASE_TAG,
+      },
+    ]);
     expect(c.fills.find(f => f.binding === 'acme-base:plan-policy')).toEqual({
       binding: 'acme-base:plan-policy',
       provides: 'plan-domain@1',
@@ -355,7 +370,9 @@ describe('the org base scenarios', () => {
       s,
       pack('anatomy', '--skill', 'stage-plan')
     );
-    const domain = anatomy.parts.find(part => part.name === 'domain')!;
+    const domain = anatomy.parts.find(
+      part => part.name === 'stage-plan.domain'
+    )!;
     expect(domain.source).toMatchObject({
       ref: 'acme-base:plan-policy',
       path: BASE_FILL,
@@ -485,17 +502,17 @@ describe('the pipeline scenarios', () => {
   it('pipeline-base-override: the accessibility evidence override comes from acme-base', async () => {
     const c = await json<{
       extends?: unknown;
-      binders: { ref: string; slots: Record<string, unknown>[] }[];
+      binders: { ref: string; props: Record<string, unknown>[] }[];
     }>('pipeline-base-override', pack('composition'));
     expect(c.extends).toEqual({ name: 'acme-base', version: '0.1.0' });
-    const slot = c.binders
+    const domain = c.binders
       .find(b => b.ref === 'mattstack:stage-evidence')!
-      .slots.find(s => s.name === 'domain')!;
-    expect(slot).toMatchObject({
+      .props.find(p => p.name === 'domain')!;
+    expect(domain).toMatchObject({
       boundTo: 'acme:evidence-policy',
       layer: 'pack',
     });
-    expect(slot.overrides).toEqual([
+    expect(domain.overrides).toEqual([
       {
         pipeline: 'accessibility',
         boundTo: 'acme:evidence-a11y',
@@ -524,17 +541,19 @@ describe('the team-sections scenario', () => {
   const json = async <T>(argv: string[]) =>
     JSON.parse((await fixtureRt('team-sections').runRt(argv)).stdout) as T;
 
-  it("lists two sections right after plan's domain slot", async () => {
+  it("lists two sections right after plan's domain prop", async () => {
     const anatomy = await json<typeof anatomyPlan>(
       pack('anatomy', '--skill', 'stage-plan')
     );
-    const at = anatomy.parts.findIndex(part => part.name === 'domain');
+    const at = anatomy.parts.findIndex(
+      part => part.name === 'stage-plan.domain'
+    );
     expect(
       anatomy.parts
         .slice(at, at + 3)
         .map(part => [part.kind, part.name, part.changed])
     ).toEqual([
-      ['slot', 'domain', true],
+      ['prop', 'stage-plan.domain', true],
       ['section', 'ci-extra', false],
       ['section', 'release-rules', true],
     ]);

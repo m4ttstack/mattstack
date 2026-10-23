@@ -165,7 +165,7 @@
   padding: 0 12px;
 }
 
-/* A slot card with team sections keeps its face at the card height and
+/* A prop card with team sections keeps its face at the card height and
    hangs a row per section under it; the Paper sets both heights from the
    layout. */
 .card[data-sections] {

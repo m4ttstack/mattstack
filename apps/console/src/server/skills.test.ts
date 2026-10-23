@@ -126,18 +126,28 @@ describe('skills routes', () => {
           public: true,
           sourcePath: '/steps/work/SKILL.md',
           artifactPath: '/p/skills/work',
-          slots: [
-            {
-              name: 'tiering',
-              contract: 'model-tiering@1',
-              required: false,
-              boundTo: 'mattstack:model-tiering',
-              fillSourcePath: '/fills/model-tiering/SKILL.md',
-              fillVersion: '0.8.0',
-              registered: false,
-              inlined: true,
-            },
-          ],
+          props: {
+            work: [
+              {
+                name: 'tiering',
+                merge: 'replace',
+                contract: 'model-tiering@1',
+                required: false,
+                default: '',
+                values: [
+                  {
+                    boundTo: 'mattstack:model-tiering',
+                    layer: 'pack',
+                    fillSourcePath: '/fills/model-tiering/SKILL.md',
+                    fillVersion: '0.8.0',
+                    registered: false,
+                    inlined: true,
+                  },
+                ],
+              },
+            ],
+          },
+          includes: [],
         },
       ],
       fills: [
@@ -153,7 +163,9 @@ describe('skills routes', () => {
           ref: 'mattstack:stage-provision',
           verb: null,
           kind: 'stage',
-          slots: [{ name: 'domain', boundTo: 'demo:work-provision' }],
+          props: [
+            { name: 'domain', boundTo: 'demo:work-provision', layer: 'pack' },
+          ],
         },
       ],
       pipelines: { feature: ['mattstack:stage-provision'] },
@@ -941,23 +953,23 @@ const ACME_PACKS = JSON.stringify({
   packs: [{ name: 'acme', dir: ACME_PACK_DIR, layout: 'grouped' }],
 });
 
-function acmeComposition(slots: Record<string, unknown>[]) {
+function acmeComposition(values: Record<string, unknown>[]) {
   return JSON.stringify({
     pack: 'acme',
     packDir: ACME_PACK_DIR,
-    verbs: [{ name: 'plan', slots }],
+    verbs: [{ name: 'plan', props: { plan: [{ name: 'domain', values }] } }],
     fills: [],
   });
 }
 
-const BASE_SLOT = {
-  name: 'domain',
+const BASE_VALUE = {
+  boundTo: 'acme-base:plan-policy',
   fillSourcePath: ACME_BASE_FILL,
   origin: 'base',
   base: 'acme-base',
 };
 
-function acmeRt(composition = acmeComposition([BASE_SLOT])) {
+function acmeRt(composition = acmeComposition([BASE_VALUE])) {
   return fakeRtHandler(argv =>
     argv.includes('composition')
       ? { code: 0, stdout: composition, stderr: '' }
@@ -1077,7 +1089,7 @@ describe('skills history route: org base fills', () => {
 
   it('adds no base scope for a team-pack copy of a base fill', async () => {
     const copy = {
-      ...BASE_SLOT,
+      ...BASE_VALUE,
       fillSourcePath: `${ACME_PACK_DIR}/attachments/plan-policy/SKILL.md`,
     };
     const git = acmeGit();
@@ -1670,7 +1682,8 @@ describe('skills surface apply route', () => {
           public: writesApplied,
           sourcePath: '/s/watch-ci/SKILL.md',
           artifactPath: '/p/skills/watch-ci',
-          slots: [],
+          props: {},
+          includes: [],
         },
       ],
       fills: [],
@@ -2089,13 +2102,13 @@ describe('skills source route', () => {
                   ref: 'board:review',
                   verb: null,
                   kind: 'external',
-                  slots: [],
+                  props: [],
                 },
                 {
                   ref: 'mattstack:work',
                   verb: 'work',
                   kind: 'verb',
-                  slots: [],
+                  props: [],
                 },
               ],
             }),

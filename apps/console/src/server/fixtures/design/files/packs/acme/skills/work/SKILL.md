@@ -246,7 +246,7 @@ Leave the branch in a state another agent could pick up cold.
 
 ## Model tiering
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.28.10 lines=6-95 -->
+<!-- part: prop:work.tiering binding=mattstack:model-tiering version=0.28.10 lines=6-95 -->
 
 ## Model tiering
 

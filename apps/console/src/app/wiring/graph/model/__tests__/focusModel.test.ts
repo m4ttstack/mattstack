@@ -61,7 +61,7 @@ describe('buildFocusGroups on the design pack', () => {
     ]);
   });
 
-  it('lists the standalone verbs, slotless ones included, with internal ones locked and review flagged', () => {
+  it('lists the standalone verbs, propless ones included, with internal ones locked and review flagged', () => {
     expect(
       groups.standalone.map(item => [item.label, item.key, item.icon])
     ).toEqual([
@@ -89,7 +89,7 @@ describe('buildFocusGroups on the design pack', () => {
     ]);
   });
 
-  it('counts the verb whose slot nothing binds and the fill nothing binds, flagged for the required slot', () => {
+  it('counts the verb whose prop nothing binds and the fill nothing binds, flagged for the required prop', () => {
     expect(groups.unwired.count).toBe(2);
     expect(groups.unwired.attention).toBe(true);
     expect(labels(groups.unwired.items)).toEqual(['release-notes']);
@@ -150,13 +150,13 @@ describe('buildFocusGroups on other packs', () => {
     expect(labels(groups.standalone)[0]).toBe('work');
   });
 
-  it('lists a board binder that binds no slot', () => {
+  it('lists a board binder that binds no prop', () => {
     const groups = buildFocusGroups(
       {
         ...composition,
         binders: [
           ...composition.binders,
-          { ref: 'board:triage', verb: null, kind: 'external', slots: [] },
+          { ref: 'board:triage', verb: null, kind: 'external', props: [] },
         ],
       },
       check

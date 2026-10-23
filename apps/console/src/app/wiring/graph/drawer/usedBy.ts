@@ -1,5 +1,8 @@
 import {
+  blockOf,
+  engineRefOf,
   invertBindings,
+  propKey,
   stageCopyOf,
   suffixOf,
   type SkillsComposition,
@@ -31,8 +34,8 @@ export type DrawerUsedBy = UsedByRef & { plugin: string; owner: Owner };
 export type UsedBySite = {
   group: UsedByGroup;
   skill: string;
-  /** The slot a fill is bound at; null for a partial. */
-  slot: string | null;
+  /** The prop a fill is bound at, `<block id>.<prop>`; null for a partial. */
+  prop: string | null;
   /** The template line the skill pastes it at; null where rt names none: a
       board skill, whose template is not in this pack, or an rt that predates
       `targets`. */
@@ -68,7 +71,7 @@ function placesOf(groups: FocusGroups): Map<string, Place> {
 /** `ref` is the manifest ref a binding site names; a target has none. */
 type Site = {
   skill: string;
-  slot: string | null;
+  prop: string | null;
   line: number | null;
   ref: string | null;
   pipeline: string | null;
@@ -80,7 +83,7 @@ function includeSites(composition: SkillsComposition, name: string): Site[] {
       .filter(verb => verb.includes?.includes(name))
       .map(verb => ({
         skill: verb.name,
-        slot: null,
+        prop: null,
         line: null,
         ref: null,
         pipeline: null,
@@ -95,7 +98,7 @@ function includeSites(composition: SkillsComposition, name: string): Site[] {
       ? [
           {
             skill: target.name,
-            slot: null,
+            prop: null,
             line: at.line,
             ref: null,
             pipeline: null,
@@ -108,20 +111,23 @@ function includeSites(composition: SkillsComposition, name: string): Site[] {
 /** An override binds a fill into its pipeline's copy of the stage, the skill
     that copy compiles to; with no copy, into the stage itself. */
 function fillSites(composition: SkillsComposition, binding: string): Site[] {
-  const lineOf = (skill: string, slot: string) =>
+  const lineOf = (skill: string, prop: string) =>
     composition.targets
       ?.find(target => target.name === skill)
-      ?.placeholders.find(p => p.kind === 'slot' && p.arg === slot)?.line ??
+      ?.placeholders.find(p => p.kind === 'prop' && p.arg === prop)?.line ??
     null;
   return (invertBindings(composition)[binding] ?? []).map(site => {
     const external = site.kind === 'external';
-    const own = external ? site.ref : (site.verb ?? suffixOf(site.ref));
+    const own = external
+      ? site.ref
+      : (site.verb ?? suffixOf(engineRefOf(site.ref)));
     const skill =
       stageCopyOf(composition.targets, own, site.pipeline ?? null)?.name ?? own;
+    const prop = propKey(blockOf(site.ref), site.prop);
     return {
       skill,
-      slot: site.slot,
-      line: external ? null : lineOf(skill, site.slot),
+      prop,
+      line: external ? null : lineOf(skill, prop),
       ref: site.ref,
       pipeline: site.pipeline ?? null,
     };
@@ -160,7 +166,7 @@ export function usedBySites(
         site: {
           group: place?.group ?? 'NOT WIRED INTO ANYTHING',
           skill: site.skill,
-          slot: site.slot,
+          prop: site.prop,
           line: site.line,
           focus: place
             ? focusUnder(

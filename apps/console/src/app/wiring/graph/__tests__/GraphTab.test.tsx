@@ -324,7 +324,7 @@ describe('Graph tab: the focus list', () => {
     );
   });
 
-  it('lists a verb with no slots as standalone, not unwired', async () => {
+  it('lists a verb with no props as standalone, not unwired', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=pipeline:feature');
     const list = await focusList();
@@ -332,7 +332,7 @@ describe('Graph tab: the focus list', () => {
     expect(within(list).getByTestId('focus-checkout')).toBeInTheDocument();
   });
 
-  it('lists a verb whose slot nothing binds under Unwired', async () => {
+  it('lists a verb whose prop nothing binds under Unwired', async () => {
     mockDesignPack();
     const user = userEvent.setup();
     renderAt('?tab=graph&focus=pipeline:feature');

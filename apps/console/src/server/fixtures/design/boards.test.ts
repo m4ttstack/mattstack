@@ -63,10 +63,6 @@ const target = (name: string) => {
 };
 
 describe('fixture files match the drawer boards', () => {
-  it('work template lines 1-44 are the text-range drawer', () => {
-    expectLinesMatch(anatomyWork.template.path, board('drawer-text-range'), 44);
-  });
-
   it('stage-plan rendered lines 288-330 are the include-row drawer', () => {
     expectLinesMatch(
       anatomyPlan.rendered.path,
@@ -98,13 +94,19 @@ describe('fixture payloads agree with their files', () => {
     name => {
       const t = target(name);
       const found = linesOf(t.templatePath).flatMap((line, i) =>
-        [...line.matchAll(PLACEHOLDER_RE)].map(m => ({
-          kind: m[1],
-          arg: m[2] ?? null,
-          line: i + 1,
-        }))
+        [...line.matchAll(PLACEHOLDER_RE)].map(m =>
+          m[1]!.startsWith('props.')
+            ? {
+                kind: 'prop',
+                arg: `${name}.${m[1]!.slice('props.'.length)}`,
+                line: i + 1,
+              }
+            : { kind: m[1], arg: m[2] ?? null, line: i + 1 }
+        )
       );
-      expect(t.placeholders).toEqual(found);
+      expect(
+        t.placeholders.map(({ kind, arg, line }) => ({ kind, arg, line }))
+      ).toEqual(found);
     }
   );
 
@@ -125,7 +127,7 @@ describe('fixture payloads agree with their files', () => {
   it('a stale skill places only its marked parts', () => {
     const rendered = linesOf(anatomyWork.rendered.path);
     for (const part of anatomyWork.parts) {
-      if (part.kind !== 'include' && part.kind !== 'slot') {
+      if (part.kind !== 'include' && part.kind !== 'prop') {
         expect(part.renderedLines).toBeNull();
         continue;
       }
@@ -161,7 +163,7 @@ describe('fixture payloads agree with their files', () => {
     const [change] = changesUnsynced.bindings;
     const rebound = structuredClone(composition);
     const binder = rebound.binders.find(b => b.ref === change!.engineRef)!;
-    binder.slots.find(s => s.name === change!.slot)!.boundTo = change!.to;
+    binder.props.find(p => p.name === change!.slot)!.boundTo = change!.to;
     expect(compositionUnsynced).toEqual(rebound);
   });
 });

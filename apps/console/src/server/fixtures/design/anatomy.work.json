@@ -172,8 +172,8 @@
       "changed": false
     },
     {
-      "kind": "slot",
-      "name": "tiering",
+      "kind": "prop",
+      "name": "work.tiering",
       "templateLines": [242, 242],
       "renderedLines": [249, 340],
       "mode": "inline",

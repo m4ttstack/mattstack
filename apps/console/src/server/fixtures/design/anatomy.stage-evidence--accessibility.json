@@ -76,8 +76,8 @@
       "changed": false
     },
     {
-      "kind": "slot",
-      "name": "domain",
+      "kind": "prop",
+      "name": "stage-evidence.domain",
       "templateLines": [299, 299],
       "renderedLines": [756, 782],
       "mode": "inline",

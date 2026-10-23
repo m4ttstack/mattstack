@@ -237,12 +237,12 @@ describe('the plan layout', () => {
   });
 });
 
-describe('a slot card holding team sections', () => {
+describe('a prop card holding team sections', () => {
   const plain = planView();
   const withSections: TemplateView = {
     ...plain,
     inputs: plain.inputs.map(card =>
-      card.id === 'slot:domain'
+      card.id === 'prop:stage-plan.domain'
         ? {
             ...card,
             sections: ['ci-extra', 'release-rules'].map(name => ({
@@ -257,7 +257,9 @@ describe('a slot card holding team sections', () => {
   };
   const ys = (view: TemplateView) =>
     ofType(layoutTemplate(view).nodes, 'input').map(node => node.position.y);
-  const at = plain.inputs.findIndex(card => card.id === 'slot:domain');
+  const at = plain.inputs.findIndex(
+    card => card.id === 'prop:stage-plan.domain'
+  );
 
   it('grows a row per section under its face', () => {
     expect(inputHeightOf(withSections.inputs[at]!)).toBe(

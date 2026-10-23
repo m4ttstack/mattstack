@@ -41,22 +41,33 @@ function devPacksOnlyInDev(payload: SkillsPacksResponse): SkillsPacksResponse {
   return { ...payload, packs: payload.packs.filter(p => p.team !== null) };
 }
 
-interface SkillsCompositionSlot {
-  name: string;
-  contract: string;
-  required: boolean;
-  boundTo: string | null;
+/** One value a prop keeps for the default pipeline. A prop no layer binds
+    keeps its non-empty `default` as layer "default"; an add prop keeps one
+    value per layer that adds to it. */
+interface SkillsCompositionPropValue {
+  boundTo: string;
+  /** "default", "base:<pack>", the pack name, or "override". */
+  layer: string;
   fillSourcePath: string | null;
   fillVersion: string | null;
   registered: boolean | null;
   inlined: boolean | null;
   resolveError?: string;
-  /** Which layer of the pack's bindings file set this slot: "default", "base:<pack>", "pack" or "override". Optional because an rt older than the field answers without it. */
-  layer?: string | null;
-  /** Set when the slot came from a base. Optional because an rt older than the field answers without it. */
+  /** Set when the fill came from a base. */
   origin?: 'base';
   base?: string;
   baseVersion?: string | null;
+}
+/** `required` is a prop with no `default`. */
+interface SkillsCompositionPropSpec {
+  name: string;
+  merge: 'add' | 'replace';
+  contract: string | null;
+  required: boolean;
+  default: string | null;
+}
+interface SkillsCompositionProp extends SkillsCompositionPropSpec {
+  values: SkillsCompositionPropValue[];
 }
 interface SkillsCompositionVerb {
   name: string;
@@ -67,36 +78,38 @@ interface SkillsCompositionVerb {
   public: boolean;
   sourcePath: string | null;
   artifactPath: string;
-  slots: SkillsCompositionSlot[];
+  /** Keyed by block id; only blocks that declare a prop appear. */
+  props: Record<string, SkillsCompositionProp[]>;
   /** The `{{include:<name>}}` attachments the compiler inlines, in source
-      order. Optional because an rt older than the field answers without it. */
-  includes?: string[];
+      order. */
+  includes: string[];
   engineError?: string;
   /** The pipeline a work verb runs, when its stub names one. */
   pipeline?: string;
 }
-/** A pipeline's own fill for a binder slot. rt states no origin for it, so
+/** A pipeline's own fill for a binder prop. rt states no origin for it, so
     the team pack owns it. */
 interface SkillsCompositionBinderOverride {
   pipeline: string;
   boundTo: string;
   layer: string | null;
 }
+/** `ref` is a bindings key: `<plugin>:<block id>`, so a nested block's props
+    sit on a binder of their own. */
 interface SkillsCompositionBinder {
   ref: string;
   verb: string | null;
   kind: 'verb' | 'stage' | 'skill' | 'external';
-  /** `layer` is optional because an rt older than the field answers without it. */
-  slots: {
+  props: {
     name: string;
+    /** "" when only pipeline overrides bind the prop. */
     boundTo: string;
-    layer?: string | null;
-    /** Set when the slot came from a base. Optional because an rt older than the field answers without it. */
+    layer: string | null;
+    /** Set when the fill came from a base. */
     origin?: 'base';
     base?: string;
     baseVersion?: string | null;
-    /** `boundTo` is "" when only these bind the slot. Present only when a
-        pipeline overrides the slot. */
+    /** Present only when a pipeline overrides the prop. */
     overrides?: SkillsCompositionBinderOverride[];
   }[];
   /** The console's own addition, on an `external` binder: the SKILL.md the
@@ -114,7 +127,7 @@ interface SkillsCompositionFill {
   baseVersion?: string | null;
 }
 /** One compile target: a roster verb or a stage, with where its template and
-    its compiled artifact live. `placeholders[].line` counts the engine file's
+    its compiled artifact live. `placeholders[].line` counts the block file's
     frontmatter, so it opens the template at the right line. */
 interface SkillsCompositionTarget {
   name: string;
@@ -122,10 +135,16 @@ interface SkillsCompositionTarget {
   public: boolean;
   artifactPath: string;
   templatePath: string | null;
-  placeholders: { kind: string; arg: string | null; line: number }[];
-  /** The slots the template declares. Optional because an rt older than the
-      field answers without it. */
-  slots?: { name: string; contract: string; required: boolean }[];
+  /** A prop placeholder is `kind: "prop"` with `arg` `<block id>.<prop>`.
+      `file` is the block file, relative to its plugin. */
+  placeholders: {
+    kind: string;
+    arg: string | null;
+    file: string;
+    line: number;
+  }[];
+  /** The props the template's blocks declare, keyed by block id. */
+  props: Record<string, SkillsCompositionPropSpec[]>;
   engineError: string | null;
   /** A stage copy's own stage and the pipeline it was compiled for; absent
       on every other target. */
@@ -196,7 +215,7 @@ interface SkillsCheckResponse {
   droppedOverrides?: SkillsCheckDroppedOverride[];
 }
 interface SkillsCheckDroppedOverride {
-  /** `<pipeline>/<engine ref> <slot>`, as materialize writes it. */
+  /** `<pipeline>/<engine ref> <prop>`, as materialize writes it. */
   key: string;
   layer: string;
 }
@@ -295,11 +314,20 @@ interface SkillsAnatomyTarget {
   path: string;
   lines: number | null;
 }
-/** Line ranges are 1-based and inclusive. For a stale skill the text,
-    variable and verb.path parts carry `renderedLines: null`: the fresh build's
-    ranges would not match the file on disk. */
+/** Line ranges are 1-based and inclusive. A prop part's `name` is
+    `<block id>.<prop>`; an add prop has one part per value. rt emits block,
+    include, prop and section parts; the design fixture still carries the
+    text, verb.path and variable parts the pipeline map draws its stage links
+    from. */
 interface SkillsAnatomyPart {
-  kind: 'text' | 'include' | 'slot' | 'verb.path' | 'variable' | 'section';
+  kind:
+    | 'text'
+    | 'block'
+    | 'include'
+    | 'prop'
+    | 'section'
+    | 'verb.path'
+    | 'variable';
   name: string | null;
   templateLines: [number, number] | null;
   renderedLines: [number, number] | null;
@@ -338,6 +366,8 @@ interface SkillsPendingFile {
 interface SkillsChangedFile extends SkillsPendingFile {
   hash: string | null;
 }
+/** `engineRef` is the bindings key, `<plugin>:<block id>`. rt froze the
+    envelope, so `slot` is the prop's name. */
 interface SkillsBindingChange {
   engineRef: string;
   slot: string;
@@ -419,7 +449,7 @@ interface SkillsDiffResponse {
   packDir: string;
   repoRoot: string;
   /** The pathspec the diff was taken over, relative to `packDir`. Whole-pack:
-      a verb's slot fills live under `attachments/`, outside its own
+      a verb's prop fills live under `attachments/`, outside its own
       `skills/<verb>/`, so scoping to the verb would drop exactly the hunks a
       seam can attribute. */
   scope: string;

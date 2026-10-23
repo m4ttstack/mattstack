@@ -163,7 +163,7 @@ function HunkBlock({ hunk, seam }: Pick<AttributedHunk, 'hunk' | 'seam'>) {
         {seam ? (
           <>
             <Text size="xs" c={text.muted} style={{ flex: 'none' }}>
-              {seam.kind === 'step' ? 'step' : `slot ${seam.slot}`}
+              {seam.kind === 'step' ? 'step' : `${seam.kind} ${seam.name}`}
             </Text>
             <Text size="sm" fw={600} style={{ flex: 'none' }}>
               {seam.ref}

@@ -50,7 +50,8 @@ const COMPOSITION = {
       public: true,
       sourcePath: '/plugins/mattstack/attachments/pipeline/work/SKILL.md',
       artifactPath: '/p/skills/work',
-      slots: [],
+      props: {},
+      includes: [],
     },
     // Bound by a `verb` binder outside the pipeline: an on-demand verb.
     {
@@ -62,12 +63,13 @@ const COMPOSITION = {
       public: true,
       sourcePath: '/plugins/mattstack/skills/review/SKILL.md',
       artifactPath: '/p/skills/review',
-      slots: [],
+      props: {},
+      includes: [],
     },
   ],
   fills: [],
   binders: [
-    { ref: 'mattstack:review', verb: 'review', kind: 'verb', slots: [] },
+    { ref: 'mattstack:review', verb: 'review', kind: 'verb', props: [] },
   ],
   // Empty stage list -- this fixture only needs the orchestrator row to
   // exist and to drift, not a real pipeline order.

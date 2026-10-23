@@ -82,7 +82,7 @@ describe('the work template', () => {
       ['L37-39', '3 lines'],
       ['L40', '{{run-start.flags:work}}'],
       ['L41-241', '201 lines of orchestrator text'],
-      ['L242', '{{slot:tiering}}'],
+      ['L242', '{{props.tiering}}'],
       ['L243-245', '3 lines'],
       ['L246', '{{include:gate-protocol}}'],
       ['L247-249', '3 lines'],
@@ -110,7 +110,7 @@ describe('the work template', () => {
     ]);
     expect(view.inputs.map(card => card.id)).toEqual([
       'variable:run-start.flags:work',
-      'slot:tiering',
+      'prop:work.tiering',
       'include:gate-protocol',
       'include:wrap-up-form',
     ]);
@@ -211,7 +211,7 @@ describe('the plan step template', () => {
       ['L17-75', '59 lines of step text'],
       ['L76', '{{include:execution-strategy}}'],
       ['L77-135', '59 lines of step text'],
-      ['L136', '{{slot:domain}}'],
+      ['L136', '{{props.domain}}'],
       ['L137-139', '3 lines'],
       ['L140', '{{include:gate-protocol}}'],
       ['L141-143', '3 lines'],
@@ -240,7 +240,7 @@ describe('the plan step template', () => {
     expect(view.inputs.map(card => [card.id, card.usedBy])).toEqual([
       ['variable:stage.fields', 0],
       ['include:execution-strategy', 1],
-      ['slot:domain', 1],
+      ['prop:stage-plan.domain', 1],
       ['include:gate-protocol', 15],
       ['include:wrap-up-form', 3],
     ]);
@@ -262,9 +262,12 @@ describe('the plan step template', () => {
     );
   });
 
-  it('carries the slot contract on its row', () => {
-    const slot = view.rows.find(row => row.line === 136);
-    expect(slot).toMatchObject({ name: 'domain', contract: 'plan-domain@1' });
+  it('carries the prop contract on its row', () => {
+    const domain = view.rows.find(row => row.line === 136);
+    expect(domain).toMatchObject({
+      name: 'stage-plan.domain',
+      contract: 'plan-domain@1',
+    });
   });
 
   it('breaks the rendered output down as the plan board does', () => {
@@ -291,7 +294,7 @@ describe('the plan step template', () => {
     expect(view.output!.parts.map(part => part.id)).toEqual([
       'text',
       'include:execution-strategy',
-      'slot:domain',
+      'prop:stage-plan.domain',
       'include:gate-protocol',
       'include:wrap-up-form',
     ]);
@@ -357,9 +360,9 @@ describe('the plan step template', () => {
   });
 });
 
-describe('team sections inside a slot', () => {
+describe('team sections inside a prop', () => {
   const domain = anatomyPlan.parts.find(
-    part => part.kind === 'slot' && part.name === 'domain'
+    part => part.kind === 'prop' && part.name === 'stage-plan.domain'
   )!;
   const [from] = domain.renderedLines!;
   const sectionPart = (name: string, at: number, changed = false): Part => ({
@@ -398,9 +401,9 @@ describe('team sections inside a slot', () => {
   );
   const view = viewOf(twoSections);
 
-  it('draws each section in its slot card, in rendered order', () => {
+  it('draws each section in its prop card, in rendered order', () => {
     expect(
-      view.inputs.find(card => card.id === 'slot:domain')?.sections
+      view.inputs.find(card => card.id === 'prop:stage-plan.domain')?.sections
     ).toEqual([
       {
         id: 'section:ci-extra',
@@ -442,8 +445,8 @@ describe('team sections inside a slot', () => {
   it('marks a section that changed since the last compile', () => {
     const changed = viewOf(withSections(sectionPart('ci-extra', 2, true)));
     expect(
-      changed.inputs.find(card => card.id === 'slot:domain')?.sections[0]
-        ?.changed
+      changed.inputs.find(card => card.id === 'prop:stage-plan.domain')
+        ?.sections[0]?.changed
     ).toBe(true);
   });
 
@@ -464,17 +467,17 @@ describe('team sections inside a slot', () => {
 
   const domainSections = (anatomy: SkillsAnatomy) =>
     viewOf(anatomy)
-      .inputs.find(card => card.id === 'slot:domain')!
+      .inputs.find(card => card.id === 'prop:stage-plan.domain')!
       .sections.map(section => section.id);
 
-  it('keeps a section a stale file could not place on its slot', () => {
+  it('keeps a section a stale file could not place on its prop', () => {
     const unplaced = { ...sectionPart('ci-extra', 2), renderedLines: null };
     expect(domainSections(withSections(unplaced))).toEqual([
       'section:ci-extra',
     ]);
   });
 
-  it('drops a section that sits outside the slot before it', () => {
+  it('drops a section that sits outside the prop before it', () => {
     const outside = {
       ...sectionPart('ci-extra', 0),
       renderedLines: [1, 2] as LineRange,
@@ -506,25 +509,29 @@ describe('team sections inside a slot', () => {
     ).toEqual(['section:ci-extra', 'section:ci-extra@2']);
   });
 
-  it('never hangs a section on the card before a slot that draws none', () => {
+  it('never hangs a section on the card before a prop that draws none', () => {
     const unbound: Part = {
       ...domain,
-      name: 'extra',
+      name: 'stage-plan.extra',
       source: null,
       mode: null,
     };
     const view = viewOf(withSections(unbound, sectionPart('ci-extra', 2)));
-    expect(view.inputs.some(card => card.id === 'slot:extra')).toBe(false);
+    expect(view.inputs.some(card => card.id === 'prop:stage-plan.extra')).toBe(
+      false
+    );
     expect(
-      view.inputs.find(card => card.id === 'slot:domain')?.sections
+      view.inputs.find(card => card.id === 'prop:stage-plan.domain')?.sections
     ).toEqual([]);
   });
 });
 
-describe('slot states', () => {
-  it('marks a slot rendered as a reference', () => {
+describe('prop states', () => {
+  it('marks a prop rendered as a reference', () => {
     const view = buildTemplateView({
-      anatomy: withPart(anatomyPlan, 'domain', { mode: 'reference' }),
+      anatomy: withPart(anatomyPlan, 'stage-plan.domain', {
+        mode: 'reference',
+      }),
       composition,
       check,
       changes: undefined,
@@ -532,7 +539,9 @@ describe('slot states', () => {
     });
     const row = view.rows.find(r => r.line === 136);
     expect(row).toMatchObject({ state: 'referenced', fill: 'plan-policy' });
-    expect(view.inputs.find(c => c.id === 'slot:domain')).toMatchObject({
+    expect(
+      view.inputs.find(c => c.id === 'prop:stage-plan.domain')
+    ).toMatchObject({
       state: 'referenced',
       subtitle: 'referenced: the rendered text links to it',
       subtitleTone: 'dimmed',
@@ -541,7 +550,7 @@ describe('slot states', () => {
 
   it('lists a fill the rendered text names by its binding among what it links to, in rendered order', () => {
     const view = buildTemplateView({
-      anatomy: withPart(anatomyPlan, 'domain', {
+      anatomy: withPart(anatomyPlan, 'stage-plan.domain', {
         mode: 'reference',
         renderedLines: [223, 223],
       }),
@@ -574,7 +583,7 @@ describe('slot states', () => {
 
   it('still lists a referenced fill among what the text links to while its rebind is unsynced', () => {
     const view = buildTemplateView({
-      anatomy: withPart(anatomyPlanUnsynced, 'domain', {
+      anatomy: withPart(anatomyPlanUnsynced, 'stage-plan.domain', {
         mode: 'reference',
         renderedLines: [223, 223],
       }),
@@ -591,7 +600,7 @@ describe('slot states', () => {
     ).toContainEqual(['plan-policy-strict', null, 'row:136']);
   });
 
-  it('names the fill a bound slot row is filled from, and none for an include', () => {
+  it('names the fill a bound prop row is filled from, and none for an include', () => {
     const view = planView();
     expect(view.rows.find(r => r.line === 136)).toMatchObject({
       fill: 'plan-policy',
@@ -608,7 +617,13 @@ describe('slot states', () => {
       verb.name === 'release-notes'
         ? {
             ...verb,
-            slots: verb.slots.map(slot => ({ ...slot, required })),
+            props: {
+              'release-notes': verb.props['release-notes']!.map(prop => ({
+                ...prop,
+                required,
+                default: required ? null : '',
+              })),
+            },
           }
         : verb
     ),
@@ -636,8 +651,8 @@ describe('slot states', () => {
         changed: false,
       },
       {
-        kind: 'slot',
-        name: 'changelog',
+        kind: 'prop',
+        name: 'release-notes.changelog',
         templateLines: [22, 22],
         renderedLines: null,
         mode: null,
@@ -649,7 +664,7 @@ describe('slot states', () => {
     links: [],
   };
 
-  it('warns about a required slot nothing fills', () => {
+  it('warns about a required prop nothing fills', () => {
     const view = buildTemplateView({
       anatomy: releaseNotesAnatomy,
       composition: releaseNotes(true),
@@ -663,8 +678,8 @@ describe('slot states', () => {
     });
     expect(view.inputs).toEqual([
       expect.objectContaining({
-        id: 'slot:changelog',
-        title: 'changelog slot',
+        id: 'prop:release-notes.changelog',
+        title: 'changelog prop',
         subtitle: 'required, nothing bound',
         subtitleTone: 'warn',
         path: null,
@@ -675,7 +690,7 @@ describe('slot states', () => {
     expect(view.output!.parts[0]!.label).toBe('verb text');
   });
 
-  it('leaves an optional slot nothing fills without a card', () => {
+  it('leaves an optional prop nothing fills without a card', () => {
     const view = buildTemplateView({
       anatomy: releaseNotesAnatomy,
       composition: releaseNotes(false),
@@ -687,17 +702,34 @@ describe('slot states', () => {
     expect(view.inputs).toEqual([]);
   });
 
-  it('carries the rt message for a slot that failed to resolve', () => {
+  const changelogValue = (boundTo: string, resolveError: string) => ({
+    boundTo,
+    layer: 'pack',
+    fillSourcePath: null,
+    fillVersion: null,
+    registered: null,
+    inlined: null,
+    resolveError,
+  });
+
+  it('carries the rt message for a prop that failed to resolve', () => {
     const failing: SkillsComposition = {
       ...composition,
       verbs: composition.verbs.map(verb =>
         verb.name === 'release-notes'
           ? {
               ...verb,
-              slots: verb.slots.map(slot => ({
-                ...slot,
-                resolveError: 'no fill provides changelog-style@1',
-              })),
+              props: {
+                'release-notes': verb.props['release-notes']!.map(prop => ({
+                  ...prop,
+                  values: [
+                    changelogValue(
+                      'acme:missing',
+                      'no fill provides changelog-style@1'
+                    ),
+                  ],
+                })),
+              },
             }
           : verb
       ),
@@ -712,7 +744,7 @@ describe('slot states', () => {
     expect(view.rows[1]).toMatchObject({
       state: 'resolve-error',
       resolveError: 'no fill provides changelog-style@1',
-      boundTo: null,
+      boundTo: 'acme:missing',
     });
     expect(view.inputs[0]).toMatchObject({
       state: 'resolve-error',
@@ -723,7 +755,7 @@ describe('slot states', () => {
 
   it("keeps rt's whole message on the row and its cause on the card", () => {
     const message =
-      'loadAttachment: slot "changelog": binding "acme:changelog-style" not found; searched:\n/a';
+      'loadAttachment: prop "changelog": binding "acme:changelog-style" not found; searched:\n/a';
     const view = buildTemplateView({
       anatomy: releaseNotesAnatomy,
       composition: {
@@ -732,11 +764,12 @@ describe('slot states', () => {
           verb.name === 'release-notes'
             ? {
                 ...verb,
-                slots: verb.slots.map(slot => ({
-                  ...slot,
-                  boundTo: 'acme:changelog-style',
-                  resolveError: message,
-                })),
+                props: {
+                  'release-notes': verb.props['release-notes']!.map(prop => ({
+                    ...prop,
+                    values: [changelogValue('acme:changelog-style', message)],
+                  })),
+                },
               }
             : verb
         ),
@@ -754,9 +787,9 @@ describe('slot states', () => {
     );
   });
 
-  it('names the fill a slot is bound to when that fill is missing', () => {
+  it('names the fill a prop is bound to when that fill is missing', () => {
     const view = buildTemplateView({
-      anatomy: withPart(anatomyPlan, 'domain', {
+      anatomy: withPart(anatomyPlan, 'stage-plan.domain', {
         source: null,
         renderedLines: null,
       }),
@@ -768,8 +801,10 @@ describe('slot states', () => {
     expect(view.rows.find(r => r.line === 136)).toMatchObject({
       state: 'no-matching-fill',
     });
-    expect(view.inputs.find(c => c.id === 'slot:domain')).toMatchObject({
-      title: 'domain slot',
+    expect(
+      view.inputs.find(c => c.id === 'prop:stage-plan.domain')
+    ).toMatchObject({
+      title: 'domain prop',
       icon: 'fileX',
       path: null,
       subtitle: 'no fill named acme:plan-policy in this pack',
@@ -789,7 +824,9 @@ describe('slot states', () => {
     expect(view.rows.find(r => r.line === 136)).toMatchObject({
       state: 'unsynced',
     });
-    expect(view.inputs.find(c => c.id === 'slot:domain')).toMatchObject({
+    expect(
+      view.inputs.find(c => c.id === 'prop:stage-plan.domain')
+    ).toMatchObject({
       title: 'plan-policy-strict/SKILL.md',
       subtitle: 'written by acme · 64 lines',
       state: 'unsynced',
@@ -817,14 +854,14 @@ describe('a fill that came from the org base', () => {
   };
   const subtitleOf = (source: Record<string, unknown>) =>
     buildTemplateView({
-      anatomy: withPart(anatomyPlan, 'domain', {
+      anatomy: withPart(anatomyPlan, 'stage-plan.domain', {
         source: source as Part['source'],
       }),
       composition,
       check,
       changes: undefined,
       step: 2,
-    }).inputs.find(card => card.id === 'slot:domain')!.subtitle;
+    }).inputs.find(card => card.id === 'prop:stage-plan.domain')!.subtitle;
 
   it('calls it an org base, never a default or the pack text', () => {
     expect(
@@ -842,15 +879,26 @@ describe('a fill that came from the org base', () => {
       ...composition,
       verbs: composition.verbs.map(verb => ({
         ...verb,
-        slots: verb.slots.map(slot => ({ ...slot, layer: 'base:acme-base' })),
+        props: Object.fromEntries(
+          Object.entries(verb.props).map(([block, props]) => [
+            block,
+            props.map(prop => ({
+              ...prop,
+              values: prop.values.map(value => ({
+                ...value,
+                layer: 'base:acme-base',
+              })),
+            })),
+          ])
+        ),
       })),
       binders: composition.binders.map(binder => ({
         ...binder,
-        slots: binder.slots.map(slot => ({ ...slot, layer: 'base:acme-base' })),
+        props: binder.props.map(prop => ({ ...prop, layer: 'base:acme-base' })),
       })),
     };
     const subtitle = buildTemplateView({
-      anatomy: withPart(anatomyPlan, 'domain', {
+      anatomy: withPart(anatomyPlan, 'stage-plan.domain', {
         source: {
           ...BASE,
           origin: 'base',
@@ -862,7 +910,7 @@ describe('a fill that came from the org base', () => {
       check,
       changes: undefined,
       step: 2,
-    }).inputs.find(card => card.id === 'slot:domain')!.subtitle;
+    }).inputs.find(card => card.id === 'prop:stage-plan.domain')!.subtitle;
     expect(subtitle).toBe('acme-base · org base · picked by the org base');
   });
 
@@ -1047,7 +1095,7 @@ describe('a specialized pipeline', () => {
   const anatomyEvidence = designFixture('anatomy.stage-evidence');
   const domainRow = (view: ReturnType<typeof buildTemplateView>) =>
     view.rows.find(
-      row => row.kind === 'placeholder' && row.name === 'domain'
+      row => row.kind === 'placeholder' && row.name?.endsWith('.domain')
     ) as Extract<TemplateRow, { kind: 'placeholder' }>;
   const overrideChange = (pipeline?: string): SkillsChanges => ({
     ...changesClean,
@@ -1218,13 +1266,13 @@ describe('a specialized pipeline', () => {
       ).not.toBe('unsynced');
     });
 
-    it('marks a default change on a slot the pipeline does not override', () => {
+    it('marks a default change on a prop the pipeline does not override', () => {
       expect(shown(anatomyPlan, 'accessibility', planChange())).toBe(
         'unsynced'
       );
     });
 
-    it('leaves a default change unmarked on a slot the pipeline overrides', () => {
+    it('leaves a default change unmarked on a prop the pipeline overrides', () => {
       expect(shown(anatomyCopy, 'accessibility', overrideChange())).not.toBe(
         'unsynced'
       );
@@ -1318,55 +1366,62 @@ describe('placeholders sharing a template line', () => {
 });
 
 describe('who picked a default fill', () => {
-  const tieringLayer = (layer: string | null): SkillsComposition => ({
+  const tieringLayer = (layer: string): SkillsComposition => ({
     ...composition,
     verbs: composition.verbs.map(verb =>
       verb.name === 'work'
-        ? { ...verb, slots: verb.slots.map(slot => ({ ...slot, layer })) }
+        ? {
+            ...verb,
+            props: {
+              work: verb.props.work!.map(prop => ({
+                ...prop,
+                values: prop.values.map(value => ({ ...value, layer })),
+              })),
+            },
+          }
         : verb
     ),
   });
-  const tieringSubtitle = (layer: string | null) =>
+  const tieringSubtitle = (layer: string) =>
     buildTemplateView({
       anatomy: anatomyWork,
       composition: tieringLayer(layer),
       check,
       changes: undefined,
       step: null,
-    }).inputs.find(card => card.id === 'slot:tiering')?.subtitle;
+    }).inputs.find(card => card.id === 'prop:work.tiering')?.subtitle;
 
   it.each([
     ['pack', 'mattstack default · picked by this pack'],
     ['override', 'mattstack default · picked by your override'],
     ['base:globex', 'mattstack default · picked by the org base'],
     ['default', 'mattstack default'],
-    [null, 'mattstack default'],
   ])('layer %s', (layer, subtitle) => {
     expect(tieringSubtitle(layer)).toBe(subtitle);
   });
 });
 
-describe("a stage's slot facts", () => {
+describe("a stage's prop facts", () => {
   const planWith = (
-    binderSlots: SkillsComposition['binders'][number]['slots'],
+    binderProps: SkillsComposition['binders'][number]['props'],
     domain: Partial<Part>
   ) =>
     buildTemplateView({
-      anatomy: withPart(anatomyPlan, 'domain', domain),
+      anatomy: withPart(anatomyPlan, 'stage-plan.domain', domain),
       composition: {
         ...composition,
         binders: composition.binders.map(binder =>
           binder.ref === 'mattstack:stage-plan'
-            ? { ...binder, slots: binderSlots }
+            ? { ...binder, props: binderProps }
             : binder
         ),
       },
       check,
       changes: undefined,
       step: 2,
-    }).inputs.find(card => card.id === 'slot:domain');
+    }).inputs.find(card => card.id === 'prop:stage-plan.domain');
 
-  it('reads required from the slots the template declares', () => {
+  it('reads required from the props the template declares', () => {
     expect(planWith([], { source: null })).toMatchObject({
       state: 'required-unbound',
       subtitle: 'required, nothing bound',
@@ -1423,7 +1478,7 @@ describe('card ids', () => {
     const view = repeated();
     expect(view.inputs.map(card => card.id)).toEqual([
       'variable:run-start.flags:work',
-      'slot:tiering',
+      'prop:work.tiering',
       'include:gate-protocol',
       'include:wrap-up-form',
       'include:gate-protocol@300.2',
@@ -1457,11 +1512,13 @@ describe('the output part a selection names', () => {
   it('reads a pasting row, its card or the part itself', () => {
     const view = planView();
     expect(selectedPartId(view, 'row:140')).toBe('include:gate-protocol');
-    expect(selectedPartId(view, 'row:136')).toBe('slot:domain');
+    expect(selectedPartId(view, 'row:136')).toBe('prop:stage-plan.domain');
     expect(selectedPartId(view, 'input:include:gate-protocol')).toBe(
       'include:gate-protocol'
     );
-    expect(selectedPartId(view, 'output:slot:domain')).toBe('slot:domain');
+    expect(selectedPartId(view, 'output:prop:stage-plan.domain')).toBe(
+      'prop:stage-plan.domain'
+    );
   });
 
   it('names no part for text, variables, the whole output or nothing', () => {
@@ -1472,5 +1529,152 @@ describe('the output part a selection names', () => {
 
   it('names no part on a view with no output', () => {
     expect(selectedPartId(workView(), 'row:246')).toBeNull();
+  });
+});
+
+describe('a block tree as rt reads it', () => {
+  const RULES = {
+    ref: 'acme:ship-rules',
+    path: '/fixture/packs/acme/attachments/ship-rules/SKILL.md',
+    version: '0.8.14',
+    builtVersion: '0.8.14',
+    lines: 10,
+  };
+  const marked = (
+    kind: Part['kind'],
+    name: string,
+    renderedLines: LineRange,
+    source: Part['source'] = null
+  ): Part => ({
+    kind,
+    name,
+    templateLines: null,
+    renderedLines,
+    mode: kind === 'prop' ? 'inline' : null,
+    source,
+    target: null,
+    changed: false,
+  });
+  const anatomy: SkillsAnatomy = {
+    ...anatomyPlan,
+    skill: 'ship',
+    kind: 'verb',
+    template: { ...anatomyPlan.template, ref: 'mattstack:ship' },
+    rendered: { ...anatomyPlan.rendered, lines: 30 },
+    parts: [
+      marked('block', 'ship', [1, 10]),
+      marked('prop', 'ship/flow.rules', [11, 20], RULES),
+      marked('block', 'ship/flow', [21, 30]),
+    ],
+    links: [],
+  };
+  const withShip: SkillsComposition = {
+    ...composition,
+    verbs: composition.verbs.map(verb =>
+      verb.name === 'ship'
+        ? {
+            ...verb,
+            props: {
+              'ship/flow': [
+                {
+                  name: 'rules',
+                  merge: 'add',
+                  contract: null,
+                  required: false,
+                  default: '',
+                  values: [
+                    {
+                      boundTo: 'acme:ship-rules',
+                      layer: 'pack',
+                      fillSourcePath: RULES.path,
+                      fillVersion: '0.8.14',
+                      registered: false,
+                      inlined: true,
+                    },
+                  ],
+                },
+              ],
+            },
+          }
+        : verb
+    ),
+  };
+  const view = buildTemplateView({
+    anatomy,
+    composition: withShip,
+    check,
+    changes: undefined,
+    step: null,
+  });
+
+  it('draws each block part as the skill text it renders', () => {
+    expect(rowsOf(view.rows)).toEqual([
+      ['rendered L1-10', '10 lines of verb text'],
+      ['rendered L11-20', '{{props.rules}}'],
+      ['rendered L21-30', '10 lines of verb text'],
+    ]);
+    expect(view.output!.parts[0]).toMatchObject({ own: true, lines: 20 });
+  });
+
+  it("makes a placeholder row of a nested block's prop, with its value's facts", () => {
+    expect(view.rows[1]).toMatchObject({
+      kind: 'placeholder',
+      placeholder: 'prop',
+      name: 'ship/flow.rules',
+      state: 'ok',
+      boundTo: 'acme:ship-rules',
+      layer: 'pack',
+      fill: 'ship-rules',
+    });
+    expect(view.inputs).toEqual([
+      expect.objectContaining({
+        id: 'prop:ship/flow.rules',
+        title: 'ship-rules/SKILL.md',
+        subtitle: 'written by acme · 10 lines',
+      }),
+    ]);
+  });
+
+  it('titles an unbound nested prop by its block, since two blocks can name one alike', () => {
+    const unbound = buildTemplateView({
+      anatomy: {
+        ...anatomy,
+        parts: anatomy.parts.map(part =>
+          part.kind === 'prop'
+            ? {
+                ...part,
+                source: null,
+                renderedLines: null,
+                templateLines: [11, 11] as LineRange,
+              }
+            : part
+        ),
+      },
+      composition: {
+        ...withShip,
+        verbs: withShip.verbs.map(verb =>
+          verb.name === 'ship'
+            ? {
+                ...verb,
+                props: {
+                  'ship/flow': verb.props['ship/flow']!.map(prop => ({
+                    ...prop,
+                    required: true,
+                    default: null,
+                    values: [],
+                  })),
+                },
+              }
+            : verb
+        ),
+      },
+      check,
+      changes: undefined,
+      step: null,
+    });
+    expect(unbound.inputs[0]).toMatchObject({
+      title: 'ship/flow.rules prop',
+      state: 'required-unbound',
+    });
   });
 });

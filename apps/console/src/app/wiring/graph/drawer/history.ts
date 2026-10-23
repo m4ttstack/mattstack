@@ -102,11 +102,11 @@ export function builtFrom(
       });
       continue;
     }
-    if ((part.kind !== 'include' && part.kind !== 'slot') || !source) continue;
+    if ((part.kind !== 'include' && part.kind !== 'prop') || !source) continue;
     if (seen.has(source.path)) continue;
     seen.add(source.path);
     const kind =
-      part.kind === 'slot' &&
+      part.kind === 'prop' &&
       ownerOf(source.ref, source, anatomy.pack).kind === 'pack'
         ? 'pack text'
         : 'partial';

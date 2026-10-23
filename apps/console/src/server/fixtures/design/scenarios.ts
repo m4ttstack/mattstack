@@ -6,11 +6,11 @@
  *
  * | scenario           | what changes                                          |
  * | ------------------ | ----------------------------------------------------- |
- * | `referenced`       | plan's domain slot links to its fill                  |
- * | `required-unbound` | nothing binds plan's required domain slot             |
- * | `optional-unbound` | nothing binds plan's domain slot, made optional       |
- * | `no-matching-fill` | plan's domain slot names a fill the pack lacks        |
- * | `resolve-error`    | rt cannot resolve release-notes' changelog slot       |
+ * | `referenced`       | plan's domain prop links to its fill                  |
+ * | `required-unbound` | nothing binds plan's required domain prop             |
+ * | `optional-unbound` | nothing binds plan's domain prop, made optional       |
+ * | `no-matching-fill` | plan's domain prop names a fill the pack lacks        |
+ * | `resolve-error`    | rt cannot resolve release-notes' changelog prop       |
  * | `legacy`           | plan comes from an engine with no template trace      |
  * | `never-compiled`   | plan has never been compiled                          |
  * | `anatomy-failed`   | rt fails to read plan                                 |
@@ -77,14 +77,23 @@ interface Anatomy {
   links: unknown[];
 }
 
+interface PropSpec {
+  name: string;
+  required: boolean;
+  default: string | null;
+}
+
 interface Composition {
-  verbs: { name: string; slots: Record<string, unknown>[] }[];
+  verbs: {
+    name: string;
+    props: Record<string, (PropSpec & { values: Record<string, unknown>[] })[]>;
+  }[];
   fills: { binding: string }[];
   extends?: { name: string; version: string | null } | null;
-  targets: { name: string; slots: { name: string; required: boolean }[] }[];
+  targets: { name: string; props: Record<string, PropSpec[]> }[];
   binders: {
     ref: string;
-    slots: {
+    props: {
       name: string;
       boundTo: string;
       layer?: string | null;
@@ -133,14 +142,16 @@ export interface ScenarioDef {
 const PLAN_FILE = 'anatomy.stage-plan.json';
 const PLAN_RENDERED = '/fixture/packs/acme/attachments/stage-plan/SKILL.md';
 const PLAN_BINDER = 'mattstack:stage-plan';
+/** Plan's domain prop, as anatomy and seams name it. */
+const DOMAIN = 'stage-plan.domain';
 /** Where the clean build pastes plan-policy into plan's rendered file. */
 const DOMAIN_BODY: Range = [223, 302];
 
 const REFERENCE_LINE =
-  'Slot domain is bound to `acme:plan-policy` (acme:plan-policy@0.8.14) -- invoke that skill when this flow needs it.';
+  'Prop domain is bound to `acme:plan-policy` (acme:plan-policy@0.8.14) -- invoke that skill when this flow needs it.';
 
 const CHANGELOG_ERROR = [
-  'loadAttachment: slot "changelog": binding "acme:changelog-style" not found; searched:',
+  'loadAttachment: prop "changelog": binding "acme:changelog-style" not found; searched:',
   '/fixture/packs/acme/skills/changelog-style/SKILL.md',
   '/fixture/packs/acme/attachments/changelog-style/SKILL.md',
 ].join('\n');
@@ -169,7 +180,7 @@ function shiftAfter(parts: Part[], line: number, by: number): Part[] {
   );
 }
 
-/** Plan with its domain slot rendered into `lines` lines in place of its
+/** Plan with its domain prop rendered into `lines` lines in place of its
     pasted body. */
 function domainRenderedAs(lines: 0 | 1, patch: Partial<Part>) {
   const by = lines - (DOMAIN_BODY[1] - DOMAIN_BODY[0] + 1);
@@ -177,7 +188,7 @@ function domainRenderedAs(lines: 0 | 1, patch: Partial<Part>) {
     ...anatomy,
     rendered: { ...anatomy.rendered, lines: anatomy.rendered.lines + by },
     parts: shiftAfter(anatomy.parts, DOMAIN_BODY[1], by).map(part =>
-      part.name === 'domain' ? { ...part, ...patch } : part
+      part.name === DOMAIN ? { ...part, ...patch } : part
     ),
   });
 }
@@ -191,6 +202,16 @@ const domainUnbound = domainRenderedAs(0, {
 const withoutDomainBody = (text: string) =>
   spliceLines(text, DOMAIN_BODY, []).replace(' + acme:plan-policy@0.8.14', '');
 
+/** Every prop of every block, mapped. */
+function mapProps<P>(
+  props: Record<string, P[]>,
+  map: (prop: P) => P
+): Record<string, P[]> {
+  return Object.fromEntries(
+    Object.entries(props).map(([block, list]) => [block, list.map(map)])
+  );
+}
+
 function bindDomain(boundTo: string | null) {
   return (composition: Composition): Composition => ({
     ...composition,
@@ -198,7 +219,7 @@ function bindDomain(boundTo: string | null) {
       binder.ref === PLAN_BINDER
         ? {
             ...binder,
-            slots: boundTo ? [{ name: 'domain', boundTo, layer: 'pack' }] : [],
+            props: boundTo ? [{ name: 'domain', boundTo, layer: 'pack' }] : [],
           }
         : binder
     ),
@@ -212,7 +233,11 @@ function optionalDomain(composition: Composition): Composition {
       target.name === 'stage-plan'
         ? {
             ...target,
-            slots: target.slots.map(slot => ({ ...slot, required: false })),
+            props: mapProps(target.props, prop => ({
+              ...prop,
+              required: false,
+              default: '',
+            })),
           }
         : target
     ),
@@ -226,11 +251,19 @@ function failingChangelog(composition: Composition): Composition {
       verb.name === 'release-notes'
         ? {
             ...verb,
-            slots: verb.slots.map(slot => ({
-              ...slot,
-              boundTo: 'acme:changelog-style',
-              layer: 'pack',
-              resolveError: CHANGELOG_ERROR,
+            props: mapProps(verb.props, prop => ({
+              ...prop,
+              values: [
+                {
+                  boundTo: 'acme:changelog-style',
+                  layer: 'pack',
+                  fillSourcePath: null,
+                  fillVersion: null,
+                  registered: null,
+                  inlined: null,
+                  resolveError: CHANGELOG_ERROR,
+                },
+              ],
             })),
           }
         : verb
@@ -300,16 +333,16 @@ const BASE_PLAN_FILE = `/fixture/orgbase/${BASE}/attachments/plan-policy/SKILL.m
 const BASE_TAG = { origin: 'base', base: BASE, baseVersion: '0.1.0' } as const;
 
 const SHEPHERDR_BINDER = 'mattstack:shepherdr';
-const baseDomainSlot = {
+const baseDomainProp = {
   name: 'domain',
   boundTo: BASE_BINDING,
   layer: `base:${BASE}`,
   ...BASE_TAG,
 };
 
-/** The pack extends `acme-base`, whose plan-policy fills plan's domain slot
-    in place of the pack's own. `acme:plan-policy-lite` stays in the fills as
-    a rebind candidate, like plan-policy-strict. */
+/** The pack extends `acme-base`, whose plan-policy fills plan's domain prop
+    in place of the pack's own. `acme:plan-policy-lite` stays in the fills
+    beside plan-policy-strict. */
 function baseFillsDomain(composition: Composition): Composition {
   return {
     ...composition,
@@ -318,30 +351,33 @@ function baseFillsDomain(composition: Composition): Composition {
       verb.name === 'shepherdr'
         ? {
             ...verb,
-            slots: verb.slots.map(slot =>
-              slot.name === 'domain'
+            props: mapProps(verb.props, prop =>
+              prop.name === 'domain'
                 ? {
-                    ...slot,
-                    boundTo: BASE_BINDING,
-                    layer: `base:${BASE}`,
-                    fillSourcePath: BASE_PLAN_FILE,
-                    fillVersion: 'org',
-                    ...BASE_TAG,
+                    ...prop,
+                    values: prop.values.map(value => ({
+                      ...value,
+                      boundTo: BASE_BINDING,
+                      layer: `base:${BASE}`,
+                      fillSourcePath: BASE_PLAN_FILE,
+                      fillVersion: 'org',
+                      ...BASE_TAG,
+                    })),
                   }
-                : slot
+                : prop
             ),
           }
         : verb
     ),
     binders: composition.binders.map(binder => {
       if (binder.ref === PLAN_BINDER) {
-        return { ...binder, slots: [baseDomainSlot] };
+        return { ...binder, props: [baseDomainProp] };
       }
       if (binder.ref === SHEPHERDR_BINDER) {
         return {
           ...binder,
-          slots: binder.slots.map(slot =>
-            slot.name === 'domain' ? baseDomainSlot : slot
+          props: binder.props.map(prop =>
+            prop.name === 'domain' ? baseDomainProp : prop
           ),
         };
       }
@@ -366,7 +402,7 @@ function domainFromBase(anatomy: Anatomy): Anatomy {
   return {
     ...anatomy,
     parts: anatomy.parts.map(part =>
-      part.name === 'domain'
+      part.name === DOMAIN
         ? {
             ...part,
             source: {
@@ -418,9 +454,9 @@ function baseOverridesEvidence(composition: Composition): Composition {
       binder.ref === EVIDENCE_BINDER
         ? {
             ...binder,
-            slots: binder.slots.map(slot => ({
-              ...slot,
-              overrides: slot.overrides?.map(override =>
+            props: binder.props.map(prop => ({
+              ...prop,
+              overrides: prop.overrides?.map(override =>
                 override.pipeline === 'accessibility'
                   ? { ...override, layer: `base:${BASE}` }
                   : override
@@ -455,7 +491,7 @@ function sectionPart(name: string, at: number, changed: boolean): Part {
 }
 
 /** Plan stale on a changed team section, as rt reads it off the file on
-    disk: a slot's extent holds its sections, so the domain slot changed too,
+    disk: a prop's extent holds its sections, so the domain prop changed too,
     and text between markers has no anchor in a stale file. */
 function domainHoldsSections(anatomy: Anatomy): Anatomy {
   return {
@@ -464,7 +500,7 @@ function domainHoldsSections(anatomy: Anatomy): Anatomy {
     staleBecause: ['team'],
     parts: anatomy.parts.flatMap(part => {
       if (part.kind === 'text') return [{ ...part, renderedLines: null }];
-      if (part.kind !== 'slot' || part.name !== 'domain') return [part];
+      if (part.kind !== 'prop' || part.name !== DOMAIN) return [part];
       return [
         { ...part, changed: true },
         sectionPart('ci-extra', 4, false),

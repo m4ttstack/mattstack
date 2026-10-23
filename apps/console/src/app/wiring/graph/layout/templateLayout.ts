@@ -45,7 +45,7 @@ export function rowHeightOf(view: TemplateView, row: TemplateRow): number {
   return view.output ? LAYOUT.stepPlaceholderRowH : LAYOUT.placeholderRowH;
 }
 
-/** No board draws a team section; a slot card grows a row this tall under
+/** No board draws a team section; a prop card grows a row this tall under
     its face for each one. */
 export const SECTION_ROW_H = 44;
 

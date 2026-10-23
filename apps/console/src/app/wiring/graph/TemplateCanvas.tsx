@@ -59,7 +59,7 @@ function columnsOf(view: TemplateView): Column[] {
       {
         x: LAYOUT.inputX,
         title: 'Filled in',
-        sub: 'Files this pack binds into its slots',
+        sub: 'Files this pack binds into its props',
       },
       {
         x: LAYOUT.templateX,

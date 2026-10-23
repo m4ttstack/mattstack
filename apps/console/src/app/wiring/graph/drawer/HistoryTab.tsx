@@ -245,7 +245,7 @@ function SkillHistory({
             staleFiles={entry.staleFiles}
             sourcePath={entry.sourcePath}
             artifactPath={entry.artifactPath}
-            slots={entry.slots}
+            props={entry.props}
           />
         </Box>
       )}

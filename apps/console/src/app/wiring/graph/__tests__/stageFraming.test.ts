@@ -67,7 +67,7 @@ function placeholderView(count: number): TemplateView {
     const line = i * 4 + 1;
     rows.push({ ...text, id: String(line), line });
     rows.push({ ...placeholder, id: String(line + 3), line: line + 3 });
-    inputs.push({ ...card, id: `slot:s${i}`, rowId: String(line + 3) });
+    inputs.push({ ...card, id: `prop:s${i}`, rowId: String(line + 3) });
   }
   return { ...base, rows, inputs };
 }

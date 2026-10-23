@@ -109,7 +109,7 @@ function SiteRow({
  */
 export function UsedByTab({
   skill,
-  slot,
+  prop,
   usedBy,
   composition,
   groups,
@@ -118,8 +118,8 @@ export function UsedByTab({
 }: {
   /** The skill the drawer was opened from. */
   skill: string;
-  /** The slot the drawer was opened from, for a fill. */
-  slot: string | null;
+  /** The prop the drawer was opened from, `<block id>.<prop>`, for a fill. */
+  prop: string | null;
   usedBy: DrawerUsedBy;
   composition: SkillsComposition;
   groups: FocusGroups;
@@ -135,7 +135,7 @@ export function UsedByTab({
     group => [group, sites.filter(site => site.group === group)] as const
   ).filter(([, list]) => list.length > 0);
   const isHere = (site: UsedBySite) =>
-    site.skill === skill && (site.slot === null || site.slot === slot);
+    site.skill === skill && (site.prop === null || site.prop === prop);
 
   return (
     <Box
@@ -151,7 +151,7 @@ export function UsedByTab({
             </TabHeading>
             {list.map(site => (
               <SiteRow
-                key={`${site.skill}:${site.slot ?? ''}:${site.pipeline ?? ''}`}
+                key={`${site.skill}:${site.prop ?? ''}:${site.pipeline ?? ''}`}
                 site={site}
                 kind={usedBy.kind}
                 here={isHere(site)}

@@ -204,10 +204,12 @@ describe('TemplateCanvas: a step template', () => {
   });
 });
 
-describe('TemplateCanvas: team sections in a slot', () => {
-  it('draws each section in its slot card, in order, and tags a changed one', () => {
+describe('TemplateCanvas: team sections in a prop', () => {
+  it('draws each section in its prop card, in order, and tags a changed one', () => {
     const anatomy = designFixture('anatomy.stage-plan');
-    const domain = anatomy.parts.find(part => part.name === 'domain')!;
+    const domain = anatomy.parts.find(
+      part => part.name === 'stage-plan.domain'
+    )!;
     const [from] = domain.renderedLines!;
     const section = (name: string, at: number, changed: boolean) => ({
       kind: 'section' as const,
@@ -280,7 +282,7 @@ describe('TemplateCanvas: the share bar', () => {
   });
 
   it('marks a selected part', () => {
-    renderCanvas('stage-plan', 'output:slot:domain');
+    renderCanvas('stage-plan', 'output:prop:stage-plan.domain');
     expect(activeSegments()).toEqual(['seg · plan-policy']);
   });
 });

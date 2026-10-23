@@ -189,7 +189,7 @@ export function useSkillsHistory(
   });
 }
 
-/** The diff between two commits, over the WHOLE pack -- a verb's slot fills
+/** The diff between two commits, over the WHOLE pack -- a verb's prop fills
     live outside its own `skills/<verb>/`, so a verb-scoped diff would drop
     exactly the hunks a seam can attribute. */
 export function useSkillsDiff(

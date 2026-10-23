@@ -76,8 +76,8 @@
       "changed": false
     },
     {
-      "kind": "slot",
-      "name": "domain",
+      "kind": "prop",
+      "name": "stage-plan.domain",
       "templateLines": [136, 136],
       "renderedLines": [223, 286],
       "mode": "inline",
