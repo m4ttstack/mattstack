@@ -135,4 +135,26 @@ describe("rt skills lsp", () => {
   test("with no --root the initialize request's workspace folders are the roots", async () => {
     await unknownPropRoundTrip(new Client([], home), { rootUri: null, workspaceFolders: [{ uri: pathToFileURL(plugin).href, name: "mattstack" }] });
   }, 30_000);
+
+  test("a hover on a props marker answers with markdown over the marker", async () => {
+    const client = new Client(["--root", plugin], home);
+    try {
+      client.send({ id: 1, method: "initialize", params: { processId: null, capabilities: {} } });
+      const init = await client.waitFor((m) => m.id === 1);
+      expect(init.result.capabilities.hoverProvider).toBe(true);
+      client.send({ method: "initialized", params: {} });
+      const uri = pathToFileURL(gate).href;
+      const text = readFileSync(gate, "utf8");
+      client.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text } } });
+      const line = text.split("\n").indexOf("{{props.tiering}}");
+      client.send({ id: 2, method: "textDocument/hover", params: { textDocument: { uri }, position: { line, character: 4 } } });
+      const hover = await client.waitFor((m) => m.id === 2);
+      expect(hover.result.contents.kind).toBe("markdown");
+      expect(hover.result.contents.value).toContain("**tiering** · replace");
+      expect(hover.result.range).toEqual({ start: { line, character: 0 }, end: { line, character: "{{props.tiering}}".length } });
+      expect(await client.stop()).toBe(0);
+    } finally {
+      client.kill();
+    }
+  }, 30_000);
 });

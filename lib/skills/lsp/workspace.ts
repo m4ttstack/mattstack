@@ -95,6 +95,18 @@ export class Workspace {
     return this.cached;
   }
 
+  /** The roots a fill named from `files` resolves through: the plugins holding them own their names, last wins. */
+  rootsFor(files: string[]): PluginRoots {
+    const plugins = this.plugins();
+    const own = files.map((f) => this.pluginOf(f, plugins)).filter((p): p is Plugin => p !== null);
+    return pluginRoots(plugins, own);
+  }
+
+  relativePath(file: string): string {
+    const root = this.roots.filter((r) => file.startsWith(r + sep)).sort((a, b) => b.length - a.length)[0];
+    return root === undefined ? file : toPosix(relative(root, file));
+  }
+
   private exists(file: string): boolean {
     return this.overlay.has(file) || existsSync(file);
   }

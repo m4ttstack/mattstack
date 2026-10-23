@@ -1,9 +1,10 @@
 import { basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { createConnection, ProposedFeatures, TextDocuments, TextDocumentSyncKind, type InitializeParams, type InitializeResult } from "vscode-languageserver/node";
+import { createConnection, MarkupKind, ProposedFeatures, TextDocuments, TextDocumentSyncKind, type InitializeParams, type InitializeResult } from "vscode-languageserver/node";
 import { logCliEvent } from "../../cli-logger.ts";
 import { publishable } from "./diagnostics.ts";
+import { hoverAt } from "./hover.ts";
 import { Workspace } from "./workspace.ts";
 
 export const DOCUMENT_SELECTOR = [{ pattern: "**/*.block.md" }, { pattern: "**/skills.jsonc" }];
@@ -63,7 +64,7 @@ export function startServer(opts: { roots: string[] }): void {
     ws = new Workspace(roots);
     logCliEvent("debug", MODULE, "initialized", { roots });
     return {
-      capabilities: { textDocumentSync: TextDocumentSyncKind.Incremental },
+      capabilities: { textDocumentSync: TextDocumentSyncKind.Incremental, hoverProvider: true },
       serverInfo: { name: "rt skills lsp" },
     };
   });
@@ -82,6 +83,13 @@ export function startServer(opts: { roots: string[] }): void {
     if (!ws || !file || !isSkillFile(file)) return;
     ws.close(file);
     publishAll();
+  });
+
+  connection.onHover(({ textDocument, position }) => {
+    const file = pathOf(textDocument.uri);
+    if (!ws || !file || !isSkillFile(file)) return null;
+    const hover = hoverAt(ws, file, position);
+    return hover && { contents: { kind: MarkupKind.Markdown, value: hover.contents }, range: hover.range };
   });
 
   documents.listen(connection);
