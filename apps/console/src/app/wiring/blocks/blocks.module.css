@@ -171,3 +171,85 @@
   min-height: min(calc(var(--strip-lines, 1) * 3px + 8px), 96px);
   border-radius: 3px;
 }
+
+.blockText {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.propBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background: var(--tk-card);
+}
+
+.propHead,
+.propCardHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.propName {
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.propMeta,
+.propBinding {
+  color: var(--tk-text-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.propCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--tk-line-1);
+  border-radius: 4px;
+  background: var(--tk-wash);
+}
+
+.propCard[data-layer='org'] {
+  border-left-color: var(--tk-fill-purple);
+}
+
+.propCard[data-layer='team'] {
+  border-left-color: var(--tk-fill-cyan);
+}
+
+.propLayer {
+  color: var(--tk-text-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.graphCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background: var(--tk-card);
+  color: var(--tk-text-2);
+  font-size: 13px;
+}
+
+.graphLink {
+  color: var(--tk-text-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
