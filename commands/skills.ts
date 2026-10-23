@@ -53,7 +53,11 @@ import { validateChain } from "../lib/skills/chain.ts";
 import { fieldContractErrors, routeFieldContract, type CompiledDoc } from "../lib/skills/field-contract.ts";
 import { pipelinesWrite } from "../lib/skills/pipeline-manifest.ts";
 import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan, type EmittedAttachment } from "../lib/skills/base-attachments.ts";
-import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
+import { compileSkill, hasCompiledHeader, isInlined, type CompileSkillOpts } from "../lib/skills/compile.ts";
+import { blockPropValues, compileBlockSkill, includeNamesIn, type BlockValues } from "../lib/skills/compile-blocks.ts";
+import { BlockError } from "../lib/skills/blocks/diagnostics.ts";
+import { walk } from "../lib/skills/blocks/tree.ts";
+import type { BlockTree } from "../lib/skills/blocks/types.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, withSectionParts, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
@@ -83,7 +87,9 @@ import {
   orgOfPackDir,
   parseStageQualifiedName,
   readManifestBindings,
+  readManifestLayered,
   readManifestPipelineBindings,
+  readManifestPipelineLayered,
   readManifestPipelines,
   readSurface,
   readVerbRoster,
@@ -753,6 +759,74 @@ function loadIncludesFor(
   return loaded;
 }
 
+/** A block engine's text, for the placeholder scans a slot engine's body gets. */
+function stepText(step: StepSource): string {
+  return step.tree ? walk(step.tree).map((b) => b.text).join("\n") : step.body;
+}
+
+/** Block text names includes, and an include tree's text names more, so the walk follows tree includes until none is new. */
+function loadBlockIncludes(tree: BlockTree, resolved: Resolved, where: string): Record<string, AttachmentSource> {
+  const loaded: Record<string, AttachmentSource> = {};
+  const queue = includeNamesIn(tree);
+  while (queue.length > 0) {
+    const name = queue.shift()!;
+    if (Object.hasOwn(loaded, name)) continue;
+    try {
+      loaded[name] = loadInclude(name, resolved.pluginRoots);
+    } catch (err) {
+      if (err instanceof BlockError) throw new SkillsUsageError(err.message);
+      throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
+    }
+    const inner = loaded[name]!.tree;
+    if (inner) queue.push(...includeNamesIn(inner));
+  }
+  return loaded;
+}
+
+/** An inlined value's own `{{include}}` lines render as flat includes, the way an inlined slot fill's do. */
+function loadValueIncludes(values: BlockValues, loaded: Record<string, AttachmentSource>, resolved: Resolved, where: string): void {
+  const bodies = [...values.values()].flatMap((props) => [...props.values()].flatMap((v) => v.sources.filter((s) => s.mode === "inline").map((s) => s.fill.body)));
+  for (const name of includeNames(bodies)) {
+    if (Object.hasOwn(loaded, name)) continue;
+    try {
+      loaded[name] = loadInclude(name, resolved.pluginRoots);
+    } catch (err) {
+      throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
+    }
+  }
+}
+
+/** Every block's prop values, the engine's and its tree includes', from each layer the manifest records; keys come from `effectiveBindings`. */
+function loadPropValuesFor(
+  step: StepSource,
+  resolved: Resolved,
+  where: string,
+  pipeline?: string,
+  includes: Record<string, AttachmentSource> = {},
+): BlockValues {
+  const path = resolved.manifestPath;
+  const pipelineLayered = path && pipeline !== undefined ? readManifestPipelineLayered(path) : {};
+  const trees = [
+    { tree: step.tree!, plugin: step.plugin, version: step.version },
+    ...Object.values(includes).flatMap((inc) => (inc.tree ? [{ tree: inc.tree, plugin: inc.plugin, version: inc.version }] : [])),
+  ];
+  try {
+    return blockPropValues(
+      trees,
+      {
+        layered: path ? readManifestLayered(path) : {},
+        manifest: path ? { path, text: readFileSync(path, "utf8") } : null,
+        ...(pipeline !== undefined && Object.hasOwn(pipelineLayered, pipeline) ? { pipeline, pipelineLayered: pipelineLayered[pipeline] } : {}),
+      },
+      (binding, prop) => loadAttachment(binding, prop, resolved.pluginRoots),
+      resolved.internalRoster,
+    );
+  } catch (err) {
+    if (err instanceof BlockError) throw new SkillsUsageError(err.message);
+    throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
+  }
+}
+
 /** Every stage's own rules plus its bound fills' rules; unioned into the orchestrator because a stage read as a file loads no frontmatter of its own. */
 function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageEntry[]>): string[] {
   const rules: string[] = [];
@@ -763,6 +837,19 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
       seen.add(entry.name);
       const step = loadStepSource(entry.engine, resolved.pluginRoots);
       rules.push(...step.allowedTools);
+      if (step.tree) {
+        const where = `stage "${entry.name}"`;
+        const values = loadPropValuesFor(step, resolved, where, type, loadBlockIncludes(step.tree, resolved, where));
+        for (const props of values.values()) {
+          for (const value of props.values()) {
+            for (const { fill } of value.sources) {
+              assertNoTeamMarkerInAllowedTools(fill);
+              rules.push(...fill.allowedTools);
+            }
+          }
+        }
+        continue;
+      }
       for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`, type))) {
         if (!fill) continue;
         assertNoTeamMarkerInAllowedTools(fill);
@@ -795,6 +882,8 @@ function compileVerb(
   try {
     step = loadStepSource(verb.engine, resolved.pluginRoots);
   } catch (err) {
+    // A block diagnostic already names its file, line and column.
+    if (err instanceof BlockError) throw new SkillsUsageError(err.message);
     throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
   }
   if (isStage) verb = { ...verb, description: step.description };
@@ -811,34 +900,44 @@ function compileVerb(
   const internalVerbDirs = Object.entries(verbSides)
     .filter(([name, side]) => side === "attachments" && !stageNames.has(name))
     .map(([name]) => hostDir(name, "attachments"));
-  const isOrchestrator = findPlaceholders(step.body).some((p) => p.kind === "pipeline.stages");
+  const isOrchestrator = findPlaceholders(stepText(step)).some((p) => p.kind === "pipeline.stages");
   const pipeline = !isStage && rendersTable(step) ? verbPipeline(verb, resolved.pipelines).pipeline : null;
 
+  const opts = (includes: Record<string, AttachmentSource>): CompileSkillOpts => ({
+    internalRoster: resolved.internalRoster,
+    includes,
+    pipelines: entries,
+    repoKey: resolved.repoKey,
+    mattstackSha: resolved.mattstackSha,
+    mattstackDirty: resolved.mattstackDirty,
+    packSha: resolved.packSha,
+    stageDir,
+    stageAllowedTools: isOrchestrator ? stageAllowedToolsFor(resolved, entries) : [],
+    emittedSiblingDirs: [...allStageDirs, ...internalVerbDirs],
+    packRoot: resolved.packDir,
+    team: resolved.teamContext,
+    compiledDir: outDirFor(resolved.packDir, verb.name, isPublic),
+    emittedTargetDirs,
+    where,
+    verbSides,
+    side: isPublic ? "skills" : "attachments",
+    plannedAttachments: planned,
+    pipeline,
+    trace,
+  });
+
   try {
+    if (step.tree) {
+      const includes = loadBlockIncludes(step.tree, resolved, where);
+      const values = loadPropValuesFor(step, resolved, where, isStage ? verb.pipeline : undefined, includes);
+      loadValueIncludes(values, includes, resolved, where);
+      const result = compileBlockSkill(verb, { ...step, tree: step.tree }, values, resolved.invocable, opts(includes));
+      if (result.diagnostics.length > 0) throw new BlockError(result.diagnostics);
+      return trace ? { ...result, anatomy: { step, includes, fills: {}, slotMode: {} } } : result;
+    }
     const fills = loadFillsFor(step, resolved, where, isStage ? verb.pipeline : undefined);
     const includes = loadIncludesFor(step, fills, resolved, where);
-    const result = compileSkill(verb, step, fills, resolved.invocable, {
-      internalRoster: resolved.internalRoster,
-      includes,
-      pipelines: entries,
-      repoKey: resolved.repoKey,
-      mattstackSha: resolved.mattstackSha,
-      mattstackDirty: resolved.mattstackDirty,
-      packSha: resolved.packSha,
-      stageDir,
-      stageAllowedTools: isOrchestrator ? stageAllowedToolsFor(resolved, entries) : [],
-      emittedSiblingDirs: [...allStageDirs, ...internalVerbDirs],
-      packRoot: resolved.packDir,
-      team: resolved.teamContext,
-      compiledDir: outDirFor(resolved.packDir, verb.name, isPublic),
-      emittedTargetDirs,
-      where,
-      verbSides,
-      side: isPublic ? "skills" : "attachments",
-      plannedAttachments: planned,
-      pipeline,
-      trace,
-    });
+    const result = compileSkill(verb, step, fills, resolved.invocable, opts(includes));
     if (!trace) return result;
     const slotMode: Record<string, "inline" | "reference"> = {};
     for (const [slot, fill] of Object.entries(fills)) {
@@ -846,6 +945,7 @@ function compileVerb(
     }
     return { ...result, anatomy: { step, includes, fills, slotMode } };
   } catch (err) {
+    if (err instanceof BlockError) throw new SkillsUsageError(err.message);
     const message = (err as Error).message;
     // loadFillsFor/loadIncludesFor's SkillsUsageError already carries this same
     // `where` prefix; a bare Error from compileSkill (e.g. a fill's own
@@ -942,7 +1042,7 @@ function pipelineChainErrors(resolved: Resolved): string[] {
 }
 
 function rendersTable(step: StepSource): boolean {
-  return findPlaceholders(step.body).some((p) => p.kind === "pipeline.table");
+  return findPlaceholders(stepText(step)).some((p) => p.kind === "pipeline.table");
 }
 
 /** Roster verbs whose engine renders `{{pipeline.table}}`; an engine that cannot load is compile's error to report, not this one's. */
@@ -2408,7 +2508,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
       : partsFromMarkers(shown, sources, changedKeys);
     if (trace.length > 0) parts = withSectionParts(parts, fresh, sources, changedKeys);
     if (trace.length > 0 && onDisk !== null && status === "stale") parts = partsOnDisk(parts, onDisk);
-    const templatePath = join(step.dir, "SKILL.md");
+    const templatePath = step.tree ? step.tree.root.path : join(step.dir, "SKILL.md");
 
     const payload: AnatomyPayload = {
       pack: resolved.team,

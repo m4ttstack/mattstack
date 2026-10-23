@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { checkPack, skillsBind, skillsCheck, skillsCompile, skillsComposition } from "../../../commands/skills.ts";
+import { checkPack, skillsAnatomy, skillsBind, skillsCheck, skillsCompile, skillsComposition } from "../../../commands/skills.ts";
 import { childEnv } from "../../subprocess.ts";
 import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
@@ -602,6 +602,88 @@ async function compileJson(args: string[]): Promise<Record<string, unknown>> {
     io.restore();
   }
 }
+
+const BLOCKS_FIX = join(import.meta.dir, "fixtures", "blocks");
+
+/** The blocks fixture keeps its mattstack plugin beside the pack, so it is laid out the way compile-native's is. */
+async function buildBlocks() {
+  const root = mkdtempSync(join(tmpdir(), "rt-e2e-blocks-"));
+  cpSync(join(BLOCKS_FIX, "pack"), join(root, "pack"), { recursive: true });
+  cpSync(join(BLOCKS_FIX, "mattstack-home"), join(root, "mattstack-home"), { recursive: true });
+  cpSync(join(BLOCKS_FIX, "plugins"), join(root, "mattstack-home", "plugins"), { recursive: true });
+  const pack = join(root, "pack");
+  const ms = join(root, "mattstack-home");
+  const manifest = join(ms, "repos", "my-repo", "skills.jsonc");
+  const args = ["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest];
+  await skillsCompile(args);
+  return { pack, ms, manifest, args };
+}
+
+describe("block-tree engines end to end", () => {
+  afterEach(() => {
+    process.exitCode = 0;
+  });
+
+  test("compile writes the block engine as one SKILL.md with its value's files", async () => {
+    const { pack } = await buildBlocks();
+    const md = readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8");
+
+    expect(md).toContain('compiled: "mattstack@1.0.0 + widgets:mini-rules/fast@0.1.0 + mattstack:model-tiering@1.0.0 + mattstack:style-floor@1.0.0"');
+    expect(md.split("\n").filter((l) => l.startsWith("#"))).toEqual(["# mini", "## Run the step", "### Check the result", "## Ask the gate", "## Notes"]);
+    expect(md).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/mini/parts/rules/lint.sh first.");
+    expect(md).toContain("Prop tiering is bound to `mattstack:model-tiering`");
+    expect(md).not.toContain("{{");
+    expect(treeOf(join(pack, "attachments", "mini"))["parts/rules/lint.sh"]).toBe("#!/bin/sh\necho lint\n");
+  });
+
+  test("check is in sync right after compile", async () => {
+    const { args } = await buildBlocks();
+    process.exitCode = 0;
+    await skillsCheck(args);
+    expect(process.exitCode).toBe(0);
+  });
+
+  test("editing the value's file makes check report fill drift", async () => {
+    const { pack, args } = await buildBlocks();
+    const fast = join(pack, "attachments", "mini-rules", "fast.md");
+    writeFileSync(fast, readFileSync(fast, "utf8").replace("fast widget rules", "fast widget rules, twice"));
+
+    const io = captureSkills();
+    try {
+      await skillsCheck([...args, "--json"]);
+    } finally {
+      io.restore();
+    }
+    const mini = JSON.parse(io.stdout()).verbs.find((v: { name: string }) => v.name === "mini");
+    expect(mini.status).toBe("stale");
+    expect(mini.staleBecause).toEqual(["fill"]);
+    expect(process.exitCode).toBe(1);
+  });
+
+  test("anatomy lists the block and prop parts, marking the edited value changed", async () => {
+    const { pack, args } = await buildBlocks();
+    const fast = join(pack, "attachments", "mini-rules", "fast.md");
+    writeFileSync(fast, readFileSync(fast, "utf8").replace("fast widget rules", "fast widget rules, twice"));
+
+    const io = captureSkills();
+    try {
+      await skillsAnatomy([...args, "--skill", "mini", "--json"]);
+    } finally {
+      io.restore();
+    }
+    const parts = JSON.parse(io.stdout()).parts as { kind: string; name: string | null; changed: boolean }[];
+    expect(parts.filter((p) => p.kind === "block").map((p) => p.name)).toEqual(["mini", "mini/run", "mini/run/check", "mini/gate", "mini/notes", "mini/guard"]);
+    expect(parts.filter((p) => p.changed).map((p) => `${p.kind}:${p.name}`)).toEqual(["prop:mini.rules"]);
+  });
+
+  test("a binding to a block the engine lacks refuses compile at the manifest line", async () => {
+    const { manifest, args } = await buildBlocks();
+    writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"mattstack:mini/gate"', '"mattstack:mini/nope"'));
+    const { exitCode, errors } = await runExpectingCleanExit(() => skillsCompile(args));
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toMatch(/skills\.jsonc:14:5: binding "mattstack:mini\/nope": mattstack:mini has no block "mini\/nope"/);
+  });
+});
 
 async function workBinderVerb(args: string[]): Promise<string | null> {
   const io = captureSkills();
