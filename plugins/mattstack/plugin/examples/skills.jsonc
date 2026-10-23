@@ -1,7 +1,9 @@
 // Example bindings manifest. Copy to <repo>/.mattstack/skills.jsonc or
 // ~/.mattstack/skills.jsonc and edit. Schema: ../schemas/skills-manifest.schema.json
+// A binding key is an engine ref, plus /<block path> for a prop that lives on
+// one of its blocks; each value binds one prop that block declares.
 {
-  "version": 1,
+  "version": 2,
   "skills": {
     // Declarative record of the stack skills this repo uses (phase 1: docs only).
     "enabled": ["mattstack:shepherdr", "mattstack:model-tiering", "mattstack:execution-strategy", "mattstack:cswap-accounts"]
@@ -21,8 +23,8 @@
       "mattstack:stage-watch-ci"
     ],
     // A specialized pipeline, run by a work-a11y verb in pack/stubs.jsonc
-    // ("pipeline": "accessibility"). Its bindings override the top-level
-    // ones per slot for this pipeline only; compile writes the stage copy
+    // ("pipeline": "accessibility"). Its bindings layer after the top-level
+    // ones for this pipeline only; compile writes the stage copy
     // stage-evidence--accessibility for it.
     "accessibility": {
       "stages": [
@@ -34,20 +36,19 @@
         "mattstack:stage-watch-ci"
       ],
       "bindings": {
-        "mattstack:stage-evidence": { "domain": "acme:capture-a11y-evidence" }
+        // "" clears every value before it (here the top-level rules below),
+        // so the prop falls back to its default: nothing inlined.
+        "mattstack:stage-evidence/domain-rules": { "rules": "" }
       }
     }
   },
   "bindings": {
-    // The default for every pipeline.
-    "mattstack:stage-evidence": { "domain": "acme:capture-evidence" },
-    "mattstack:shepherdr": {
-      // Slot "tiering" demands contract model-tiering@1.
-      "tiering": "mattstack:model-tiering",
-      // Slot "strategy" demands contract execution-strategy@1.
-      "strategy": "mattstack:execution-strategy",
-      // Slot "accounts" (optional) demands contract account-pool@1.
-      "accounts": "mattstack:cswap-accounts"
-    }
+    // Prop "rules" (merge: add) on stage-evidence's Domain rules block:
+    // every layer's value is inlined there, in layer order.
+    "mattstack:stage-evidence/domain-rules": { "rules": "widgets:capture-evidence" },
+    // Prop "tiering" (merge: replace, contract model-tiering@1) on
+    // shepherdr's root block: this value replaces its default,
+    // mattstack:model-tiering.
+    "mattstack:shepherdr": { "tiering": "widgets:model-tiering" }
   }
 }
