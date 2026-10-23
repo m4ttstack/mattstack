@@ -115,6 +115,65 @@ describe('aroundLayout', () => {
   });
 });
 
+describe('aroundLayout with a row cap', () => {
+  it('wraps a row wider than the cap onto more rows, pushing the rest down', () => {
+    const capped = aroundLayout(sub, 'fast_checks', 3);
+    const y = (id: string) =>
+      capped.nodes.find(node => node.id === id)!.position.y;
+    const stepY = AROUND.nodeH + AROUND.rowGap;
+    const above = ['tree_dirty', 'commit_named', 'stash_them', 'rebase_status'];
+
+    expect(new Set(above.map(y))).toEqual(new Set([0, stepY]));
+    expect(y('fast_checks')).toBe(2 * stepY);
+    expect(y('fix_rounds_left')).toBe(4 * stepY);
+    expect(capped.rows).toBe(5);
+    expect(
+      Math.max(
+        ...capped.nodes
+          .filter(node => y(node.id) === 0)
+          .map(node => Math.abs(node.position.x + AROUND.nodeW / 2))
+      )
+    ).toBeLessThanOrEqual(AROUND.nodeW + AROUND.columnGap);
+  });
+
+  it('sets a wrapped row between the columns above it, so drops pass clear', () => {
+    const capped = aroundLayout(sub, 'fast_checks', 3);
+    const stepY = AROUND.nodeH + AROUND.rowGap;
+    const centres = (y: number) =>
+      capped.nodes
+        .filter(node => node.position.y === y)
+        .map(node => node.position.x + AROUND.nodeW / 2);
+    for (const lower of centres(stepY)) {
+      for (const drop of centres(0)) {
+        expect(Math.abs(lower - drop)).toBeGreaterThan(AROUND.nodeW / 2);
+      }
+    }
+  });
+
+  it('wraps a layer onto two rows at most, widening them past a tight cap', () => {
+    const capped = aroundLayout(sub, 'fast_checks', 1);
+    const stepY = AROUND.nodeH + AROUND.rowGap;
+    const above = ['tree_dirty', 'commit_named', 'stash_them', 'rebase_status'];
+    const ys = above.map(
+      id => capped.nodes.find(node => node.id === id)!.position.y
+    );
+    expect(new Set(ys)).toEqual(new Set([0, stepY]));
+    const xs = (y: number) =>
+      capped.nodes
+        .filter(node => node.position.y === y)
+        .map(node => node.position.x + AROUND.nodeW / 2);
+    for (const lower of xs(stepY)) {
+      for (const drop of xs(0)) {
+        expect(Math.abs(lower - drop)).toBeGreaterThan(AROUND.nodeW / 2);
+      }
+    }
+  });
+
+  it('counts one row per layer with no cap', () => {
+    expect(aroundLayout(sub, 'fast_checks').rows).toBe(4);
+  });
+});
+
 describe('wholeLayout', () => {
   const graph = miniPayload.graphs[0];
 

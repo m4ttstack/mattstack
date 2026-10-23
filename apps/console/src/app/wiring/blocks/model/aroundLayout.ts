@@ -72,28 +72,60 @@ export function layerNodes(
 }
 
 /** React Flow nodes and edges for the subgraph: one row per layer, each
-    row centred on the focus's column, in the graph's own node order. */
+    row centred on the focus's column, in the graph's own node order. A
+    layer wider than `maxPerRow` wraps onto more rows. */
 export function aroundLayout(
   sub: AroundGraphData,
-  focus: string
-): { nodes: AroundNode[]; edges: AroundEdge[] } {
+  focus: string,
+  maxPerRow = Number.POSITIVE_INFINITY
+): { nodes: AroundNode[]; edges: AroundEdge[]; rows: number } {
   const layers = layerNodes(sub, focus);
-  const rows = new Map<number, GraphNode['id'][]>();
+  const byLayer = new Map<number, GraphNode['id'][]>();
   for (const node of sub.nodes) {
     const layer = layers.get(node.id) ?? 0;
-    rows.set(layer, [...(rows.get(layer) ?? []), node.id]);
+    byLayer.set(layer, [...(byLayer.get(layer) ?? []), node.id]);
+  }
+
+  const cap = Math.max(1, Math.floor(maxPerRow));
+  const place = new Map<string, { row: number; column: number }>();
+  let rows = 0;
+  for (const layer of [...byLayer.keys()].sort((a, b) => a - b)) {
+    const ids = byLayer.get(layer) ?? [];
+    // Two rows at most: a third would sit in the drops of the first two, so
+    // a layer that needs more widens its rows and the canvas zooms out.
+    const width =
+      ids.length > cap ? Math.max(cap, Math.ceil((ids.length + 1) / 2)) : cap;
+    const first = ids.slice(0, width);
+    const columns = first.map((_, index) => index - (first.length - 1) / 2);
+    first.forEach((id, index) =>
+      place.set(id, { row: rows, column: columns[index] })
+    );
+    rows += 1;
+    // A wrapped row sits in the gaps between the first row's columns, so
+    // the first row's edges drop past it rather than through it.
+    const gaps = columns.slice(1).map(column => column - 0.5);
+    const perGapRow = Math.max(1, gaps.length);
+    for (let start = width; start < ids.length; start += perGapRow) {
+      const chunk = ids.slice(start, start + perGapRow);
+      const from = Math.floor((gaps.length - chunk.length) / 2);
+      chunk.forEach((id, index) =>
+        place.set(id, {
+          row: rows,
+          column: gaps[from + index] ?? index - (chunk.length - 1) / 2,
+        })
+      );
+      rows += 1;
+    }
   }
 
   const stepX = AROUND.nodeW + AROUND.columnGap;
   const stepY = AROUND.nodeH + AROUND.rowGap;
   const nodes = sub.nodes.map((node): AroundNode => {
-    const layer = layers.get(node.id) ?? 0;
-    const row = rows.get(layer) ?? [];
-    const column = row.indexOf(node.id) - (row.length - 1) / 2;
+    const { row, column } = place.get(node.id) ?? { row: 0, column: 0 };
     return {
       id: node.id,
       type: node.blockId === null ? 'graphOnly' : 'block',
-      position: { x: column * stepX - AROUND.nodeW / 2, y: layer * stepY },
+      position: { x: column * stepX - AROUND.nodeW / 2, y: row * stepY },
       width: AROUND.nodeW,
       height: AROUND.nodeH,
       data: {
@@ -118,7 +150,7 @@ export function aroundLayout(
     }))
     .filter(edge => layers.get(edge.source) !== layers.get(edge.target));
 
-  return { nodes, edges };
+  return { nodes, edges, rows };
 }
 
 /** A whole graph laid out from its entry (the first node nothing points at)
@@ -126,23 +158,19 @@ export function aroundLayout(
     the focus instead. */
 export function wholeLayout(
   graph: AroundGraphData,
-  highlight: string | null
+  highlight: string | null,
+  maxPerRow = Number.POSITIVE_INFINITY
 ): { nodes: AroundNode[]; edges: AroundEdge[]; rows: number } {
   const pointedAt = new Set(graph.edges.map(edge => edge.to));
   const entry =
     graph.nodes.find(node => !pointedAt.has(node.id)) ?? graph.nodes[0];
   if (!entry) return { nodes: [], edges: [], rows: 0 };
-  const layout = aroundLayout(graph, entry.id);
-  const used = [...layerNodes(graph, entry.id).values()];
-  const top = Math.min(...used);
-  const lift = top * (AROUND.nodeH + AROUND.rowGap);
+  const layout = aroundLayout(graph, entry.id, maxPerRow);
   return {
+    ...layout,
     nodes: layout.nodes.map(node => ({
       ...node,
-      position: { x: node.position.x, y: node.position.y - lift },
       data: { ...node.data, focus: node.id === highlight },
     })),
-    edges: layout.edges,
-    rows: Math.max(...used) - top + 1,
   };
 }

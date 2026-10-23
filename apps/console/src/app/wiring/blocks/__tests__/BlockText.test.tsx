@@ -51,6 +51,14 @@ describe('BlockText', () => {
     expect(body).toHaveTextContent('Do the work for the widget.');
   });
 
+  it('names a value card by its layer, the default by "default"', () => {
+    renderWithProviders(
+      <BlockText block={byId('mini')} payload={miniPayload} level="block" />
+    );
+    const card = screen.getByTestId('prop-card');
+    expect(card).toHaveTextContent(/^widgets/);
+  });
+
   it('renders no box for a block with no markers', () => {
     renderWithProviders(
       <BlockText block={byId('mini/run')} payload={miniPayload} level="block" />

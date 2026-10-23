@@ -2,7 +2,7 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { childrenOf, labelOf } from './blockFacts';
+import { childrenOf, insideSharedTop, labelOf } from './blockFacts';
 
 type Graph = BlocksPayload['graphs'][number];
 
@@ -122,7 +122,11 @@ export function labelledGraph(payload: BlocksPayload, graph: Graph): Graph {
   };
 }
 
-/** Every block under the root: what the switcher counts. */
+/** Every block under the root, an include's shared tree counted once by
+    its heading: what the switcher counts. */
 export function blockCount(payload: BlocksPayload): number {
-  return payload.blocks.filter(block => block.parentId !== null).length;
+  const hidden = insideSharedTop(payload);
+  return payload.blocks.filter(
+    block => block.parentId !== null && !hidden(block)
+  ).length;
 }

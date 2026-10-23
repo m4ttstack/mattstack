@@ -22,7 +22,7 @@ describe('LayersPanel', () => {
     expect(screen.getByText('29 lines')).toBeInTheDocument();
     expect(
       screen.getByRole('img', {
-        name: 'How much text: default 27 lines, pack 2 lines, 29 lines in all',
+        name: 'How much text: mattstack 27 lines, widgets 2 lines, 29 lines in all',
       })
     ).toBeInTheDocument();
   });
@@ -33,8 +33,8 @@ describe('LayersPanel', () => {
     );
     const rows = screen.getAllByTestId('layers-map-legend-row');
     expect(rows.map(row => row.textContent)).toEqual([
-      'default only5',
-      'pack1',
+      'mattstack only5',
+      'widgets1',
     ]);
   });
 
@@ -46,7 +46,7 @@ describe('LayersPanel', () => {
     expect(within(map).getByText('Run')).toBeInTheDocument();
     expect(within(map).getByText('Notes')).toBeInTheDocument();
     expect(
-      within(map).getByRole('img', { name: 'Gate: default only' })
+      within(map).getByRole('img', { name: 'Gate: mattstack only' })
     ).toBeInTheDocument();
   });
 

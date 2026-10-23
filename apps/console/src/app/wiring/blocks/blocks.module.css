@@ -427,8 +427,10 @@
   background-color: var(--tk-card);
 }
 
+/* A graph-only node is see-through on the canvas, so its sample takes the
+   canvas fill. */
 .aroundSample[data-kind='step'] {
-  background-color: transparent;
+  background-color: var(--tk-raised);
 }
 
 /* The block view: a text column and the Layers rail. */
@@ -582,6 +584,14 @@
     var(--tk-fill-accent) var(--ui-wash),
     transparent
   );
+}
+
+.chevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.rowBody {
+  padding: 0 12px 12px 54px;
 }
 
 .chevron,

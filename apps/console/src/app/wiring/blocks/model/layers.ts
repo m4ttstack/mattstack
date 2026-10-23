@@ -3,7 +3,14 @@ import type {
   LayerColor,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { childrenOf, isSharedTop, labelOf, rootOf } from './blockFacts';
+import {
+  childrenOf,
+  insideSharedTop,
+  labelOf,
+  layerName,
+  rootOf,
+  sharedTopIds,
+} from './blockFacts';
 import { sectionsAt } from './sections';
 
 export type Fill = LayerColor | 'both';
@@ -45,7 +52,7 @@ function inScope(payload: BlocksPayload, scope: PayloadBlock | null) {
 }
 
 export function layerLabel(payload: BlocksPayload, role: LayerColor): string {
-  return payload.layers.find(layer => layer.color === role)?.label ?? role;
+  return payload.layers.find(layer => layer.color === role)?.name ?? role;
 }
 
 function fillOf(block: PayloadBlock): Fill {
@@ -56,33 +63,6 @@ function fillOf(block: PayloadBlock): Fill {
   if (roles.has('org')) return 'org';
   if (roles.has('team')) return 'team';
   return 'mattstack';
-}
-
-function sharedTopIds(payload: BlocksPayload): Set<string> {
-  return new Set(
-    payload.blocks
-      .filter(block => isSharedTop(payload, block))
-      .map(block => block.id)
-  );
-}
-
-/** Under a top-level include, at the skill: its square stands for the tree. */
-function insideSharedTop(
-  payload: BlocksPayload
-): (block: PayloadBlock) => boolean {
-  const tops = sharedTopIds(payload);
-  const parentOf = new Map(
-    payload.blocks.map(block => [block.id, block.parentId])
-  );
-  return block => {
-    const seen = new Set<string>();
-    for (let at = parentOf.get(block.id); at; at = parentOf.get(at)) {
-      if (seen.has(at)) return false;
-      seen.add(at);
-      if (tops.has(at)) return true;
-    }
-    return false;
-  };
 }
 
 /** At the skill, a block sits in the band of its top-level ancestor (up the
@@ -142,7 +122,8 @@ export function lineTotals(
   scope: PayloadBlock | null
 ): LineTotal[] {
   const counts = new Map<LayerColor, number>();
-  for (const block of inScope(payload, scope)) {
+  const hidden = scope === null ? insideSharedTop(payload) : () => false;
+  for (const block of inScope(payload, scope).filter(b => !hidden(b))) {
     for (const segment of block.segments) {
       counts.set(
         segment.color,
@@ -157,13 +138,16 @@ export function lineTotals(
   }));
 }
 
-export function blockStrip(block: PayloadBlock): StripEntry[] {
+export function blockStrip(
+  block: PayloadBlock,
+  payload?: BlocksPayload
+): StripEntry[] {
   return block.segments.map(segment => ({
     layer: segment.color,
     lines: linesOf(segment.text),
     label:
       segment.prop === null
         ? 'engine text'
-        : `${segment.prop} · ${segment.layer}`,
+        : `${segment.prop} · ${payload ? layerName(payload, segment.layer) : segment.layer}`,
   }));
 }

@@ -10,6 +10,7 @@ import type {
 } from '../../../server/blocksPayload';
 import { GateContext } from '../../runs/GateContext';
 import classes from './blocks.module.css';
+import { layerName } from './model/blockFacts';
 import { PropBox } from './PropBox';
 
 export interface BlockTextProps {
@@ -28,7 +29,8 @@ const markerKey = (prop: Prop) =>
     ? prop.marker.line * 100000 + prop.marker.col
     : Number.MAX_SAFE_INTEGER;
 
-function GraphCard({
+/** A graph as one line: its size and a way to open it. */
+export function GraphCard({
   payload,
   blockId,
   onViewGraph,
@@ -63,6 +65,7 @@ export function BlockText({
   onViewGraph,
 }: BlockTextProps) {
   const propOf = new Map(block.props.map(prop => [prop.name, prop]));
+  const nameOf = (label: string) => layerName(payload, label);
   const items: ReactNode[] = [];
   const placed = new Set<string>();
 
@@ -112,7 +115,9 @@ export function BlockText({
     const prop = propOf.get(segment.prop);
     if (prop) {
       placed.add(prop.name);
-      items.push(<PropBox key={i} prop={prop} segments={group} />);
+      items.push(
+        <PropBox key={i} prop={prop} segments={group} layerName={nameOf} />
+      );
     }
     i = j;
   }
@@ -121,7 +126,14 @@ export function BlockText({
     .filter(prop => !placed.has(prop.name))
     .sort((a, b) => markerKey(a) - markerKey(b));
   for (const prop of unplaced) {
-    items.push(<PropBox key={`p-${prop.name}`} prop={prop} segments={[]} />);
+    items.push(
+      <PropBox
+        key={`p-${prop.name}`}
+        prop={prop}
+        segments={[]}
+        layerName={nameOf}
+      />
+    );
   }
 
   return (

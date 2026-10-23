@@ -35,6 +35,40 @@ export function isSharedTop(
   );
 }
 
+export function sharedTopIds(payload: BlocksPayload): Set<string> {
+  return new Set(
+    payload.blocks
+      .filter(block => isSharedTop(payload, block))
+      .map(block => block.id)
+  );
+}
+
+/** Under a top-level include, at the skill: its square stands for the tree. */
+export function insideSharedTop(
+  payload: BlocksPayload
+): (block: PayloadBlock) => boolean {
+  const tops = sharedTopIds(payload);
+  const parentOf = new Map(
+    payload.blocks.map(block => [block.id, block.parentId])
+  );
+  return block => {
+    const seen = new Set<string>();
+    for (let at = parentOf.get(block.id); at; at = parentOf.get(at)) {
+      if (seen.has(at)) return false;
+      seen.add(at);
+      if (tops.has(at)) return true;
+    }
+    return false;
+  };
+}
+
+/** A segment's layer by its pack's name (`widgets`, `acme-base`), as the
+    boards name them; mattstack's own value stays `default`. */
+export function layerName(payload: BlocksPayload, label: string): string {
+  if (label === 'default') return label;
+  return payload.layers.find(layer => layer.label === label)?.name ?? label;
+}
+
 /** A headless block has no title and an empty label, so its id stands in:
     the last segment, dashes and underscores as spaces. */
 export function labelOf(block: PayloadBlock): string {

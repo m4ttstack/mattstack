@@ -170,8 +170,8 @@ function FileHistory({
           <HistoryNote>{fileNote(own, anatomy.skill)}</HistoryNote>
         </>
       ) : (
-        <Text fz={12} lh="normal" c={MUTED}>
-          {`${anatomy.skill}'s build names no copy of this file.`}
+        <Text fz={12} lh="normal" c={MUTED} data-testid="history-no-copy">
+          {`No history for this block. Open ${anatomy.skill} for its build history`}
         </Text>
       )}
     </>

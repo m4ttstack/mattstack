@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 
@@ -56,10 +57,14 @@ export function LayerDots({ dots }: { dots: Dot[] }) {
 export function BlockRow({
   row,
   onOpen,
+  body,
 }: {
   row: FoldedRow;
   onOpen: (blockId: string) => void;
+  /** The block's text, shown under the row when it is expanded. */
+  body?: ReactNode;
 }) {
+  const expanded = body !== undefined && body !== null;
   return (
     <li className={classes.rowItem}>
       <UnstyledButton
@@ -68,11 +73,16 @@ export function BlockRow({
         data-testid="block-row"
         onClick={() => onOpen(row.id)}
       >
-        <Icon name="chevronRight" size={12} className={classes.chevron} />
+        <Icon
+          name="chevronRight"
+          size={12}
+          className={classes.chevron}
+          data-open={expanded || undefined}
+        />
         <BlockGlyph glyph={row.glyph} />
         <span className={classes.rowText}>
           <span className={classes.rowLabel}>{row.label}</span>
-          {row.summary && (
+          {row.summary && !expanded && (
             <span className={classes.rowSummary}>{row.summary}</span>
           )}
         </span>
@@ -89,6 +99,11 @@ export function BlockRow({
           )}
         </span>
       </UnstyledButton>
+      {expanded && (
+        <div className={classes.rowBody} data-testid="block-row-body">
+          {body}
+        </div>
+      )}
     </li>
   );
 }

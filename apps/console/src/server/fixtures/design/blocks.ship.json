@@ -11,6 +11,11 @@
       "color": "mattstack"
     },
     {
+      "name": "acme-base",
+      "label": "base:acme-base",
+      "color": "org"
+    },
+    {
       "name": "widgets",
       "label": "pack",
       "color": "team"
@@ -444,7 +449,7 @@
       "relPath": "attachments/pipeline/ship/flow/commit-named-files.block.md",
       "lines": [9, 14],
       "summary": "Stage the files by name, never everything; the subject follows the domain's commit rules, else the branch's own style.",
-      "text": "### Commit named files (ship)\n\nStage the files by name, never everything; the subject follows the\ndomain's commit rules, else the branch's own style.\n\n<!-- part: prop:ship/flow/commit-named-files.rules binding=widgets:ship-lint/commit version=0.1.0 path=attachments/ship-lint/commit.md lines=1-1 -->\nStage the widget files by name.",
+      "text": "### Commit named files (ship)\n\nStage the files by name, never everything; the subject follows the\ndomain's commit rules, else the branch's own style.\n\n<!-- part: prop:ship/flow/commit-named-files.rules binding=widgets:ship-lint/base-commit version=0.1.0 path=attachments/ship-lint/base-commit.md lines=1-1 -->\nName the acme component in the subject.",
       "segments": [
         {
           "layer": "default",
@@ -453,10 +458,10 @@
           "text": "### Commit named files (ship)\n\nStage the files by name, never everything; the subject follows the\ndomain's commit rules, else the branch's own style."
         },
         {
-          "layer": "pack",
-          "color": "team",
+          "layer": "base:acme-base",
+          "color": "org",
           "prop": "rules",
-          "text": "Stage the widget files by name."
+          "text": "Name the acme component in the subject."
         }
       ],
       "props": [
@@ -471,10 +476,10 @@
           },
           "values": [
             {
-              "layer": "pack",
-              "color": "team",
-              "binding": "widgets:ship-lint/commit",
-              "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/commit.md",
+              "layer": "base:acme-base",
+              "color": "org",
+              "binding": "widgets:ship-lint/base-commit",
+              "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/base-commit.md",
               "lines": 1
             }
           ],
@@ -523,13 +528,19 @@
       "relPath": "attachments/pipeline/ship/flow/domain-fast-checks.block.md",
       "lines": [9, 17],
       "summary": "Only the checks the domain names, on the changed files; revert generated drift they leave.",
-      "text": "### Run the domain's fast checks (none when unbound)\n\nOnly the checks the domain names, on the changed files; revert generated\ndrift they leave. A full suite the domain rules out stays out. A finished\nrebase, clean or resolved, sends the checks round again; the \"no rebase\nfinished this pass\" guard stops that round rebasing again, so a\nforce-with-lease push always follows checks on the rewritten tree.\n\n<!-- part: prop:ship/flow/domain-fast-checks.rules binding=widgets:ship-lint/fast-checks version=0.1.0 path=attachments/ship-lint/fast-checks.md lines=1-2 -->\nRun bun run lint, then bun run typecheck.\nA lint error is fixed, never disabled.",
+      "text": "### Run the domain's fast checks (none when unbound)\n\nOnly the checks the domain names, on the changed files; revert generated\ndrift they leave. A full suite the domain rules out stays out. A finished\nrebase, clean or resolved, sends the checks round again; the \"no rebase\nfinished this pass\" guard stops that round rebasing again, so a\nforce-with-lease push always follows checks on the rewritten tree.\n\n<!-- part: prop:ship/flow/domain-fast-checks.rules binding=widgets:ship-lint/base-checks version=0.1.0 path=attachments/ship-lint/base-checks.md lines=1-1 -->\nEvery acme team runs the shared format check first.\n\n<!-- part: prop:ship/flow/domain-fast-checks.rules binding=widgets:ship-lint/fast-checks version=0.1.0 path=attachments/ship-lint/fast-checks.md lines=1-2 -->\nRun bun run lint, then bun run typecheck.\nA lint error is fixed, never disabled.",
       "segments": [
         {
           "layer": "default",
           "color": "mattstack",
           "prop": null,
           "text": "### Run the domain's fast checks (none when unbound)\n\nOnly the checks the domain names, on the changed files; revert generated\ndrift they leave. A full suite the domain rules out stays out. A finished\nrebase, clean or resolved, sends the checks round again; the \"no rebase\nfinished this pass\" guard stops that round rebasing again, so a\nforce-with-lease push always follows checks on the rewritten tree."
+        },
+        {
+          "layer": "base:acme-base",
+          "color": "org",
+          "prop": "rules",
+          "text": "Every acme team runs the shared format check first."
         },
         {
           "layer": "pack",
@@ -550,6 +561,13 @@
           },
           "values": [
             {
+              "layer": "base:acme-base",
+              "color": "org",
+              "binding": "widgets:ship-lint/base-checks",
+              "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/base-checks.md",
+              "lines": 1
+            },
+            {
               "layer": "pack",
               "color": "team",
               "binding": "widgets:ship-lint/fast-checks",
@@ -563,7 +581,7 @@
       "node": "domain_fast_checks",
       "order": null,
       "headless": false,
-      "renderedLines": [600, 612]
+      "renderedLines": [600, 615]
     },
     {
       "id": "ship/flow/fix-test-first",
@@ -602,7 +620,7 @@
       "node": "fix_test_first",
       "order": null,
       "headless": false,
-      "renderedLines": [613, 617]
+      "renderedLines": [616, 620]
     },
     {
       "id": "ship/flow/domain-rebases-unfinished",
@@ -673,7 +691,7 @@
       "node": "resolve_conflict_files",
       "order": null,
       "headless": false,
-      "renderedLines": [620, 625]
+      "renderedLines": [623, 628]
     },
     {
       "id": "ship/flow/gate-which-forge",
@@ -699,7 +717,7 @@
       "node": "gate_which_forge",
       "order": null,
       "headless": false,
-      "renderedLines": [626, 634]
+      "renderedLines": [629, 637]
     },
     {
       "id": "ship/flow/gate-push-refused",
@@ -725,7 +743,7 @@
       "node": "gate_push_refused",
       "order": null,
       "headless": false,
-      "renderedLines": [635, 645]
+      "renderedLines": [638, 648]
     },
     {
       "id": "ship/flow/confirm-human-push",
@@ -751,7 +769,7 @@
       "node": "confirm_human_push",
       "order": null,
       "headless": false,
-      "renderedLines": [646, 652]
+      "renderedLines": [649, 655]
     },
     {
       "id": "ship/flow/mr-create",
@@ -809,7 +827,7 @@
       "node": "capture_after_browser",
       "order": null,
       "headless": false,
-      "renderedLines": [655, 708]
+      "renderedLines": [658, 711]
     },
     {
       "id": "ship/flow/capture-after-case",
@@ -848,7 +866,7 @@
       "node": "capture_after_case",
       "order": null,
       "headless": false,
-      "renderedLines": [709, 720]
+      "renderedLines": [712, 723]
     },
     {
       "id": "ship/flow/record-evidence",
@@ -874,7 +892,7 @@
       "node": "record_evidence",
       "order": null,
       "headless": false,
-      "renderedLines": [721, 733]
+      "renderedLines": [724, 736]
     },
     {
       "id": "ship/flow/attach-evidence",
@@ -913,7 +931,7 @@
       "node": "attach_evidence",
       "order": null,
       "headless": false,
-      "renderedLines": [734, 743]
+      "renderedLines": [737, 746]
     },
     {
       "id": "ship/flow/write-title-description",
@@ -966,7 +984,7 @@
       "node": "write_title_description",
       "order": null,
       "headless": false,
-      "renderedLines": [744, 756]
+      "renderedLines": [747, 759]
     },
     {
       "id": "ship/flow/domain-runs-ci",
@@ -1037,7 +1055,7 @@
       "node": "run_watch_ci",
       "order": null,
       "headless": false,
-      "renderedLines": [759, 778]
+      "renderedLines": [762, 781]
     },
     {
       "id": "ship/flow/gate-mark-ready",
@@ -1063,7 +1081,7 @@
       "node": "gate_mark_ready",
       "order": null,
       "headless": false,
-      "renderedLines": [779, 794]
+      "renderedLines": [782, 797]
     },
     {
       "id": "ship/what-the-graph-cannot-show",
@@ -1089,7 +1107,7 @@
       "node": null,
       "order": 3,
       "headless": false,
-      "renderedLines": [795, 823]
+      "renderedLines": [798, 826]
     },
     {
       "id": "ship/budgets-in-this-verb",
@@ -1115,7 +1133,7 @@
       "node": null,
       "order": 4,
       "headless": false,
-      "renderedLines": [824, 833]
+      "renderedLines": [827, 836]
     },
     {
       "id": "ship/domain-rules",
@@ -1154,7 +1172,7 @@
       "node": null,
       "order": 5,
       "headless": false,
-      "renderedLines": [834, 850]
+      "renderedLines": [837, 853]
     },
     {
       "id": "ship/browser-evidence",
@@ -1180,7 +1198,7 @@
       "node": null,
       "order": 6,
       "headless": false,
-      "renderedLines": [851, 853]
+      "renderedLines": [854, 856]
     },
     {
       "id": "browser-evidence",
@@ -1206,7 +1224,7 @@
       "node": null,
       "order": null,
       "headless": false,
-      "renderedLines": [854, 870]
+      "renderedLines": [857, 873]
     },
     {
       "id": "browser-evidence/the-browser-target",
@@ -1232,7 +1250,7 @@
       "node": null,
       "order": 1,
       "headless": false,
-      "renderedLines": [871, 904]
+      "renderedLines": [874, 907]
     },
     {
       "id": "browser-evidence/draw-the-boards",
@@ -1258,7 +1276,7 @@
       "node": null,
       "order": 2,
       "headless": false,
-      "renderedLines": [905, 1063]
+      "renderedLines": [908, 1066]
     },
     {
       "id": "browser-evidence/get-ready",
@@ -1284,7 +1302,7 @@
       "node": null,
       "order": 3,
       "headless": false,
-      "renderedLines": [1064, 1085]
+      "renderedLines": [1067, 1088]
     },
     {
       "id": "browser-evidence/write-one-brief-per-board",
@@ -1310,7 +1328,7 @@
       "node": null,
       "order": 4,
       "headless": false,
-      "renderedLines": [1086, 1117]
+      "renderedLines": [1089, 1120]
     },
     {
       "id": "browser-evidence/labels",
@@ -1336,7 +1354,7 @@
       "node": null,
       "order": 5,
       "headless": false,
-      "renderedLines": [1118, 1142]
+      "renderedLines": [1121, 1145]
     },
     {
       "id": "browser-evidence/delegate-to-the-driver",
@@ -1362,7 +1380,7 @@
       "node": null,
       "order": 6,
       "headless": false,
-      "renderedLines": [1143, 1158]
+      "renderedLines": [1146, 1161]
     },
     {
       "id": "browser-evidence/ask-the-developer-to-sign-in",
@@ -1388,7 +1406,7 @@
       "node": null,
       "order": 7,
       "headless": false,
-      "renderedLines": [1159, 1172]
+      "renderedLines": [1162, 1175]
     },
     {
       "id": "browser-evidence/read-the-board-yourself",
@@ -1414,7 +1432,7 @@
       "node": null,
       "order": 8,
       "headless": false,
-      "renderedLines": [1173, 1242]
+      "renderedLines": [1176, 1245]
     },
     {
       "id": "browser-evidence/gate-evidence-redaction-below",
@@ -1440,7 +1458,7 @@
       "node": null,
       "order": 9,
       "headless": false,
-      "renderedLines": [1243, 1323]
+      "renderedLines": [1246, 1326]
     },
     {
       "id": "browser-evidence/record-the-board",
@@ -1466,7 +1484,7 @@
       "node": null,
       "order": 10,
       "headless": false,
-      "renderedLines": [1324, 1347]
+      "renderedLines": [1327, 1350]
     },
     {
       "id": "browser-evidence/revise-a-board",
@@ -1492,7 +1510,7 @@
       "node": null,
       "order": 11,
       "headless": false,
-      "renderedLines": [1348, 1402]
+      "renderedLines": [1351, 1405]
     },
     {
       "id": "ship/evidence-record",
@@ -1518,7 +1536,7 @@
       "node": null,
       "order": 7,
       "headless": false,
-      "renderedLines": [1403, 1405]
+      "renderedLines": [1406, 1408]
     },
     {
       "id": "evidence-record",
@@ -1544,7 +1562,7 @@
       "node": null,
       "order": null,
       "headless": false,
-      "renderedLines": [1406, 1414]
+      "renderedLines": [1409, 1417]
     },
     {
       "id": "evidence-record/the-record",
@@ -1570,7 +1588,7 @@
       "node": null,
       "order": 1,
       "headless": false,
-      "renderedLines": [1415, 1436]
+      "renderedLines": [1418, 1439]
     },
     {
       "id": "evidence-record/record-the-evidence",
@@ -1596,7 +1614,7 @@
       "node": null,
       "order": 2,
       "headless": false,
-      "renderedLines": [1437, 1492]
+      "renderedLines": [1440, 1495]
     },
     {
       "id": "evidence-record/annotate-or-waive-each-image-the-record-does-not-yet-cover",
@@ -1622,7 +1640,7 @@
       "node": null,
       "order": 3,
       "headless": false,
-      "renderedLines": [1493, 1546]
+      "renderedLines": [1496, 1549]
     },
     {
       "id": "evidence-record/annotate-or-waive-each-image-the-record-does-not-yet-cover/compose-board",
@@ -1648,7 +1666,7 @@
       "node": "compose_board",
       "order": null,
       "headless": false,
-      "renderedLines": [1547, 1564]
+      "renderedLines": [1550, 1567]
     },
     {
       "id": "evidence-record/annotate-or-waive-each-image-the-record-does-not-yet-cover/write-caption",
@@ -1674,7 +1692,7 @@
       "node": "write_caption",
       "order": null,
       "headless": false,
-      "renderedLines": [1565, 1570]
+      "renderedLines": [1568, 1573]
     },
     {
       "id": "evidence-record/annotate-or-waive-each-image-the-record-does-not-yet-cover/gate-evidence-waiver",
@@ -1700,7 +1718,7 @@
       "node": "gate_evidence_waiver",
       "order": null,
       "headless": false,
-      "renderedLines": [1571, 1589]
+      "renderedLines": [1574, 1592]
     },
     {
       "id": "evidence-record/attach-the-evidence",
@@ -1726,7 +1744,7 @@
       "node": null,
       "order": 4,
       "headless": false,
-      "renderedLines": [1590, 1701]
+      "renderedLines": [1593, 1704]
     },
     {
       "id": "evidence-record/attach-the-evidence/files-to-show",
@@ -1752,7 +1770,7 @@
       "node": "files_to_show",
       "order": null,
       "headless": false,
-      "renderedLines": [1702, 1722]
+      "renderedLines": [1705, 1725]
     },
     {
       "id": "evidence-record/attach-the-evidence/files-left",
@@ -1778,7 +1796,7 @@
       "node": "files_left",
       "order": null,
       "headless": false,
-      "renderedLines": [1723, 1733]
+      "renderedLines": [1726, 1736]
     },
     {
       "id": "evidence-record/attach-the-evidence/gate-evidence-boards",
@@ -1804,7 +1822,7 @@
       "node": "gate_evidence_boards",
       "order": null,
       "headless": false,
-      "renderedLines": [1734, 1759]
+      "renderedLines": [1737, 1762]
     },
     {
       "id": "evidence-record/attach-the-evidence/revise-named-boards",
@@ -1830,7 +1848,7 @@
       "node": "revise_named_boards",
       "order": null,
       "headless": false,
-      "renderedLines": [1760, 1774]
+      "renderedLines": [1763, 1777]
     },
     {
       "id": "evidence-record/attach-the-evidence/gate-upload-refused",
@@ -1856,7 +1874,7 @@
       "node": "gate_upload_refused",
       "order": null,
       "headless": false,
-      "renderedLines": [1775, 1781]
+      "renderedLines": [1778, 1784]
     },
     {
       "id": "evidence-record/attach-the-evidence/repair-board",
@@ -1882,7 +1900,7 @@
       "node": "repair_board",
       "order": null,
       "headless": false,
-      "renderedLines": [1782, 1802]
+      "renderedLines": [1785, 1805]
     },
     {
       "id": "evidence-record/attach-the-evidence/rerecord-images",
@@ -1908,7 +1926,7 @@
       "node": "rerecord_images",
       "order": null,
       "headless": false,
-      "renderedLines": [1803, 1808]
+      "renderedLines": [1806, 1811]
     },
     {
       "id": "evidence-record/domain-precedence",
@@ -1934,7 +1952,7 @@
       "node": null,
       "order": 5,
       "headless": false,
-      "renderedLines": [1809, 1816]
+      "renderedLines": [1812, 1819]
     },
     {
       "id": "ship/gate-protocol",
@@ -1960,7 +1978,7 @@
       "node": null,
       "order": 8,
       "headless": false,
-      "renderedLines": [1817, 1819]
+      "renderedLines": [1820, 1822]
     },
     {
       "id": "gate-protocol",
@@ -1986,7 +2004,7 @@
       "node": null,
       "order": null,
       "headless": false,
-      "renderedLines": [1820, 1942]
+      "renderedLines": [1823, 1945]
     },
     {
       "id": "gate-protocol/build-questions",
@@ -2012,7 +2030,7 @@
       "node": "build_questions",
       "order": null,
       "headless": false,
-      "renderedLines": [1943, 1973]
+      "renderedLines": [1946, 1976]
     },
     {
       "id": "gate-protocol/trigger-site-opened",
@@ -2038,7 +2056,7 @@
       "node": "trigger_site_opened",
       "order": null,
       "headless": false,
-      "renderedLines": [1974, 1980]
+      "renderedLines": [1977, 1983]
     },
     {
       "id": "gate-protocol/gate-ask-result",
@@ -2064,7 +2082,7 @@
       "node": "gate_ask_result",
       "order": null,
       "headless": false,
-      "renderedLines": [1981, 1989]
+      "renderedLines": [1984, 1992]
     },
     {
       "id": "gate-protocol/fix-refusal",
@@ -2090,7 +2108,7 @@
       "node": "fix_refusal",
       "order": null,
       "headless": false,
-      "renderedLines": [1990, 1999]
+      "renderedLines": [1993, 2002]
     },
     {
       "id": "gate-protocol/present-form-no-registry",
@@ -2116,7 +2134,7 @@
       "node": "present_form_no_registry",
       "order": null,
       "headless": false,
-      "renderedLines": [2000, 2005]
+      "renderedLines": [2003, 2008]
     },
     {
       "id": "gate-protocol/boards-to-open",
@@ -2142,7 +2160,7 @@
       "node": "boards_to_open",
       "order": null,
       "headless": false,
-      "renderedLines": [2006, 2014]
+      "renderedLines": [2009, 2017]
     },
     {
       "id": "gate-protocol/present-pane-form",
@@ -2168,7 +2186,7 @@
       "node": "present_pane_form",
       "order": null,
       "headless": false,
-      "renderedLines": [2015, 2025]
+      "renderedLines": [2018, 2028]
     },
     {
       "id": "gate-protocol/map-answer",
@@ -2194,7 +2212,7 @@
       "node": "map_answer",
       "order": null,
       "headless": false,
-      "renderedLines": [2026, 2036]
+      "renderedLines": [2029, 2039]
     },
     {
       "id": "gate-protocol/say-surface",
@@ -2220,7 +2238,7 @@
       "node": "say_surface",
       "order": null,
       "headless": false,
-      "renderedLines": [2037, 2042]
+      "renderedLines": [2040, 2045]
     },
     {
       "id": "gate-protocol/end-turn-holding",
@@ -2246,7 +2264,7 @@
       "node": "end_turn_holding",
       "order": null,
       "headless": false,
-      "renderedLines": [2043, 2049]
+      "renderedLines": [2046, 2052]
     },
     {
       "id": "gate-protocol/reconcile-status",
@@ -2272,7 +2290,7 @@
       "node": "reconcile_status",
       "order": null,
       "headless": false,
-      "renderedLines": [2050, 2061]
+      "renderedLines": [2053, 2064]
     },
     {
       "id": "gate-protocol/write-in-to-act",
@@ -2298,7 +2316,7 @@
       "node": "write_in_to_act",
       "order": null,
       "headless": false,
-      "renderedLines": [2062, 2070]
+      "renderedLines": [2065, 2073]
     },
     {
       "id": "gate-protocol/act-write-in",
@@ -2324,7 +2342,7 @@
       "node": "act_write_in",
       "order": null,
       "headless": false,
-      "renderedLines": [2071, 2079]
+      "renderedLines": [2074, 2082]
     },
     {
       "id": "gate-protocol/attendance",
@@ -2350,7 +2368,7 @@
       "node": null,
       "order": 1,
       "headless": false,
-      "renderedLines": [2080, 2086]
+      "renderedLines": [2083, 2089]
     },
     {
       "id": "gate-protocol/runs-integration",
@@ -2376,7 +2394,7 @@
       "node": null,
       "order": 2,
       "headless": false,
-      "renderedLines": [2087, 2106]
+      "renderedLines": [2090, 2109]
     },
     {
       "id": "gate-protocol/off-script-gate",
@@ -2402,7 +2420,7 @@
       "node": null,
       "order": 3,
       "headless": false,
-      "renderedLines": [2107, 2122]
+      "renderedLines": [2110, 2125]
     },
     {
       "id": "gate-protocol/structured-context-gate-ctx-1",
@@ -2428,7 +2446,7 @@
       "node": null,
       "order": 4,
       "headless": false,
-      "renderedLines": [2123, 2132]
+      "renderedLines": [2126, 2135]
     },
     {
       "id": "gate-protocol/answers-are-option-values",
@@ -2454,7 +2472,7 @@
       "node": null,
       "order": 5,
       "headless": false,
-      "renderedLines": [2133, 2142]
+      "renderedLines": [2136, 2145]
     },
     {
       "id": "gate-protocol/closed-gates-hold-iterate",
@@ -2480,7 +2498,7 @@
       "node": null,
       "order": 6,
       "headless": false,
-      "renderedLines": [2143, 2148]
+      "renderedLines": [2146, 2151]
     },
     {
       "id": "gate-protocol/doorbell",
@@ -2506,7 +2524,7 @@
       "node": null,
       "order": 7,
       "headless": false,
-      "renderedLines": [2149, 2154]
+      "renderedLines": [2152, 2157]
     },
     {
       "id": "gate-protocol/red-flags",
@@ -2532,7 +2550,7 @@
       "node": null,
       "order": 8,
       "headless": false,
-      "renderedLines": [2155, 2161]
+      "renderedLines": [2158, 2164]
     },
     {
       "id": "ship/wrap-up-form-contract",
@@ -2558,7 +2576,7 @@
       "node": null,
       "order": 9,
       "headless": false,
-      "renderedLines": [2162, 2164]
+      "renderedLines": [2165, 2167]
     },
     {
       "id": "wrap-up-form",
@@ -2584,7 +2602,7 @@
       "node": null,
       "order": null,
       "headless": false,
-      "renderedLines": [2165, 2192]
+      "renderedLines": [2168, 2195]
     }
   ],
   "graphs": [
@@ -8206,7 +8224,7 @@
     },
     {
       "layer": "pack",
-      "count": 4
+      "count": 3
     }
   ]
 }

@@ -3,6 +3,7 @@ import '@xyflow/react/dist/base.css';
 import {
   createContext,
   memo,
+  useCallback,
   useContext,
   useMemo,
   type CSSProperties,
@@ -13,6 +14,7 @@ import {
   UnstyledButton,
   useComputedColorScheme,
 } from '@mattstack/app-kit/core';
+import { useElementSize } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import {
   EdgeLabelRenderer,
@@ -34,7 +36,6 @@ import { aroundBlock } from './model/around';
 import {
   AROUND,
   aroundLayout,
-  layerNodes,
   wholeLayout,
   type AroundEdge,
   type AroundNode,
@@ -50,6 +51,34 @@ const GlyphOf = createContext<GlyphLookup>(noGlyph);
 const ICON_STROKE = 2;
 const MARKER = { length: 7, halfWidth: 4 };
 const CANVAS_PADDING = 24;
+/** Rows wrap to fit at this zoom; a layer too wide for two rows zooms
+    out further, to the floor. */
+const MIN_ZOOM = 0.85;
+const FLOOR_ZOOM = 0.6;
+
+/** The canvas is as tall as the layout at the zoom fitView will pick, so a
+    zoomed-out graph leaves no empty band above and below it. */
+function canvasHeight(
+  layout: { nodes: AroundNode[]; rows: number },
+  width: number
+): number {
+  const { rows } = layout;
+  const tall = rows * AROUND.nodeH + (rows - 1) * AROUND.rowGap;
+  const xs = layout.nodes.map(node => node.position.x);
+  const wide =
+    xs.length > 0 ? Math.max(...xs) - Math.min(...xs) + AROUND.nodeW : 0;
+  const fit = width > 0 && wide > 0 ? (width - 2 * CANVAS_PADDING) / wide : 1;
+  const zoom = Math.min(1, Math.max(FLOOR_ZOOM, fit));
+  return Math.ceil(tall * zoom) + 2 * CANVAS_PADDING;
+}
+
+/** How many nodes fit across a canvas `width` wide at the smallest zoom;
+    unbounded until the canvas has been measured. */
+function perRowAt(width: number): number {
+  if (width <= 0) return Number.POSITIVE_INFINITY;
+  const room = width / MIN_ZOOM - 2 * CANVAS_PADDING + AROUND.columnGap;
+  return Math.max(1, Math.floor(room / (AROUND.nodeW + AROUND.columnGap)));
+}
 
 function ShapeIcon({
   shape,
@@ -147,6 +176,8 @@ function AroundEdgeComponent({
     targetY: targetY - MARKER.length,
     targetPosition,
     borderRadius: 0,
+    // The bend sits just above the target, below any wrapped row between.
+    ...(targetY > sourceY ? { centerY: targetY - AROUND.rowGap / 2 } : {}),
   });
   const marker = `M${targetX - MARKER.halfWidth} ${targetY - MARKER.length}l${MARKER.halfWidth} ${MARKER.length} ${MARKER.halfWidth}-${MARKER.length}z`;
   return (
@@ -199,8 +230,7 @@ function GraphFrame({
   label,
   action,
   onAction,
-  layout,
-  rows,
+  layoutFor,
   onSelect,
   glyphOf,
   testId,
@@ -209,14 +239,20 @@ function GraphFrame({
   label: string;
   action: string;
   onAction: () => void;
-  layout: { nodes: AroundNode[]; edges: AroundEdge[] };
-  rows: number;
+  /** The layout with no row wider than `maxPerRow` nodes. */
+  layoutFor: (maxPerRow: number) => {
+    nodes: AroundNode[];
+    edges: AroundEdge[];
+    rows: number;
+  };
   onSelect: (blockId: string) => void;
   testId: string;
 }) {
   const scheme = useComputedColorScheme('light');
-  const height =
-    rows * AROUND.nodeH + (rows - 1) * AROUND.rowGap + 2 * CANVAS_PADDING;
+  const { ref, width } = useElementSize();
+  const maxPerRow = perRowAt(width);
+  const layout = useMemo(() => layoutFor(maxPerRow), [layoutFor, maxPerRow]);
+  const height = canvasHeight(layout, width);
 
   return (
     <section className={classes.around} aria-label={label} data-testid={testId}>
@@ -230,19 +266,20 @@ function GraphFrame({
       </div>
       <GlyphOf.Provider value={glyphOf}>
         <OnSelect.Provider value={onSelect}>
-          <Box className={classes.aroundCanvas} h={height}>
+          <Box ref={ref} className={classes.aroundCanvas} h={height}>
             <ReactFlow
+              key={maxPerRow}
               nodes={layout.nodes}
               edges={layout.edges}
               nodeTypes={NODE_TYPES}
               edgeTypes={EDGE_TYPES}
               fitView
-              // A row wider than the canvas pans rather than shrinking its text.
               fitViewOptions={{
                 padding: `${CANVAS_PADDING}px`,
-                minZoom: 1,
+                minZoom: FLOOR_ZOOM,
                 maxZoom: 1,
               }}
+              minZoom={FLOOR_ZOOM}
               panOnScroll
               panOnScrollMode={PanOnScrollMode.Vertical}
               zoomOnScroll={false}
@@ -278,22 +315,18 @@ export function AroundGraph({
   onSelect,
   onViewWholeGraph,
 }: AroundGraphProps) {
-  const { layout, rows } = useMemo(() => {
-    const sub = aroundBlock(graph, focus);
-    const layers = layerNodes(sub, focus);
-    return {
-      layout: aroundLayout(sub, focus),
-      rows: Math.max(0, ...layers.values()) + 1,
-    };
-  }, [graph, focus]);
+  const layoutFor = useCallback(
+    (maxPerRow: number) =>
+      aroundLayout(aroundBlock(graph, focus), focus, maxPerRow),
+    [graph, focus]
+  );
 
   return (
     <GraphFrame
       label="Around this block"
       action="View whole graph"
       onAction={onViewWholeGraph}
-      layout={layout}
-      rows={rows}
+      layoutFor={layoutFor}
       onSelect={onSelect}
       glyphOf={glyphOf}
       testId="around-graph"
@@ -318,8 +351,8 @@ export function WholeGraph({
   onSelect,
   onClose,
 }: WholeGraphProps) {
-  const layout = useMemo(
-    () => wholeLayout(graph, highlight),
+  const layoutFor = useCallback(
+    (maxPerRow: number) => wholeLayout(graph, highlight, maxPerRow),
     [graph, highlight]
   );
   return (
@@ -327,8 +360,7 @@ export function WholeGraph({
       label="Whole graph"
       action="Close graph"
       onAction={onClose}
-      layout={layout}
-      rows={layout.rows}
+      layoutFor={layoutFor}
       onSelect={onSelect}
       glyphOf={glyphOf}
       testId="whole-graph"

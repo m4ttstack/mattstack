@@ -12,6 +12,14 @@ export const miniPayload: BlocksPayload = JSON.parse(
   )
 );
 
+/** rt's own payload for the ship engine over the scratch widgets pack. */
+export const shipPayload: BlocksPayload = JSON.parse(
+  readFileSync(
+    resolve(__dirname, '../../../../server/fixtures/design/blocks.ship.json'),
+    'utf8'
+  )
+);
+
 /** mini with ship's include shape: a heading block whose one child is the
     shared tree. */
 export function withInclude(): BlocksPayload {

@@ -11,9 +11,15 @@ export interface PropBoxProps {
   prop: PayloadBlock['props'][number];
   /** This prop's segments, in order: one per value for `add`, the winner for `replace`. */
   segments: PayloadSegment[];
+  /** A segment's layer as the card names it. */
+  layerName?: (label: string) => string;
 }
 
-export function PropBox({ prop, segments }: PropBoxProps) {
+export function PropBox({
+  prop,
+  segments,
+  layerName = label => label,
+}: PropBoxProps) {
   const bindingOf = (segment: PayloadSegment, index: number) =>
     (
       prop.values.find(value => value.layer === segment.layer) ??
@@ -46,7 +52,9 @@ export function PropBox({ prop, segments }: PropBoxProps) {
             data-layer={segment.color}
           >
             <div className={classes.propCardHead}>
-              <span className={classes.propLayer}>{segment.layer}</span>
+              <span className={classes.propLayer}>
+                {layerName(segment.layer)}
+              </span>
               <span className={classes.propBinding}>
                 {bindingOf(segment, index)}
               </span>

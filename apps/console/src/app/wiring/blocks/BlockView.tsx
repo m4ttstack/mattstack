@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   ActionIcon,
@@ -11,6 +11,7 @@ import {
   Skeleton,
   Text,
   Title,
+  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
@@ -26,7 +27,7 @@ import type { SkillsCheck, SkillsComposition } from '../outline';
 import { useSkillSource, type SkillsAnatomy } from '../useWiring';
 import { AroundGraph, WholeGraph } from './AroundGraph';
 import classes from './blocks.module.css';
-import { BlockText } from './BlockText';
+import { BlockText, GraphCard } from './BlockText';
 import { CopyForClaude } from './CopyForClaude';
 import { HistoryTab } from './HistoryTab';
 import { LayersPanel } from './LayersPanel';
@@ -204,11 +205,14 @@ function ZoomBody({
   patch,
   wholeGraph,
   lead,
+  expanded,
 }: {
   payload: BlocksPayload;
   zoom: Zoom;
   patch: Patch;
   wholeGraph: boolean;
+  /** Every folded row shows its text. */
+  expanded: boolean;
   /** The line the header shows under the title. */
   lead: string | null;
 }) {
@@ -247,6 +251,13 @@ function ZoomBody({
     );
   }
 
+  const rowBody = (id: string) => {
+    const found = payload.blocks.find(candidate => candidate.id === id);
+    const body = found ? bodyOf(found) : null;
+    return body && body.segments.length > 0 ? (
+      <BlockText block={body} payload={payload} level="block" />
+    ) : null;
+  };
   const owner = zoom.level === 'parent' ? zoom.block : rootOf(payload);
   const own = owner
     ? payload.graphs.find(graph => graph.blockId === owner.id)
@@ -277,6 +288,16 @@ function ZoomBody({
           bare={zoom.level === 'parent' && band.id === zoom.block.id}
           onOpen={open}
           opensBlock={payload.blocks.some(b => b.id === band.id)}
+          graph={
+            zoom.level === 'skill' ? (
+              <GraphCard
+                payload={payload}
+                blockId={band.id}
+                onViewGraph={id => patch({ block: id, select: 'graph' })}
+              />
+            ) : null
+          }
+          bodyOf={expanded ? rowBody : undefined}
         />
       ))}
     </>
@@ -316,8 +337,21 @@ export function BlockView({
       : null
     : (skill?.description ?? root?.summary ?? null);
 
+  const zoomKey = url.block ?? '';
+  const [expandedAt, setExpandedAt] = useState<string | null>(null);
+  const expanded = expandedAt === zoomKey;
+  const canExpand = zoom.level !== 'block' && !rendered;
+
   const actions = (
     <Group gap={10}>
+      {canExpand && (
+        <UnstyledButton
+          className={classes.graphLink}
+          onClick={() => setExpandedAt(expanded ? null : zoomKey)}
+        >
+          {expanded ? 'Collapse all' : 'Expand all'}
+        </UnstyledButton>
+      )}
       {block?.path && <FileMenu block={block} />}
       {block && !readOnly && <CopyForClaude payload={payload} block={block} />}
       <SegmentedControl
@@ -380,6 +414,7 @@ export function BlockView({
             patch={patch}
             wholeGraph={url.select === 'graph'}
             lead={description}
+            expanded={expanded && canExpand}
           />
         )}
 

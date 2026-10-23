@@ -99,39 +99,39 @@ describe('blockMap', () => {
 describe('lineTotals', () => {
   it('sums lines from segments by role, the Mermaid graph into mattstack', () => {
     expect(lineTotals(miniPayload, null)).toEqual([
-      { layer: 'mattstack', label: 'default', count: 27 },
-      { layer: 'team', label: 'pack', count: 2 },
+      { layer: 'mattstack', label: 'mattstack', count: 27 },
+      { layer: 'team', label: 'widgets', count: 2 },
     ]);
   });
 
   it('counts a replaced default from segments toward the replacing layer', () => {
     expect(lineTotals(withOrg(), null)).toEqual([
-      { layer: 'mattstack', label: 'default', count: 26 },
-      { layer: 'org', label: 'base', count: 2 },
-      { layer: 'team', label: 'pack', count: 2 },
+      { layer: 'mattstack', label: 'mattstack', count: 26 },
+      { layer: 'org', label: 'acme', count: 2 },
+      { layer: 'team', label: 'widgets', count: 2 },
     ]);
   });
 
   it('counts a scope from segments of that block and its descendants', () => {
     const run = blockOf(miniPayload, 'mini/run');
     expect(lineTotals(miniPayload, run)).toEqual([
-      { layer: 'mattstack', label: 'default', count: 7 },
+      { layer: 'mattstack', label: 'mattstack', count: 7 },
     ]);
   });
 });
 
 describe('blockStrip', () => {
   it('reads a block from segments in order, a cleared prop as its default', () => {
-    expect(blockStrip(blockOf(miniPayload, 'mini/gate'))).toEqual([
+    expect(blockStrip(blockOf(miniPayload, 'mini/gate'), miniPayload)).toEqual([
       { layer: 'mattstack', lines: 3, label: 'engine text' },
       { layer: 'mattstack', lines: 1, label: 'tiering · default' },
     ]);
   });
 
   it('names the layer that passes a value, from segments', () => {
-    expect(blockStrip(blockOf(miniPayload, 'mini'))).toEqual([
+    expect(blockStrip(blockOf(miniPayload, 'mini'), miniPayload)).toEqual([
       { layer: 'mattstack', lines: 12, label: 'engine text' },
-      { layer: 'team', lines: 2, label: 'rules · pack' },
+      { layer: 'team', lines: 2, label: 'rules · widgets' },
     ]);
   });
 });
@@ -159,8 +159,8 @@ describe('a shared block, by its parent rather than its id', () => {
     const run = blockOf(payload, 'mini/run');
     expect(blockMap(payload, run).squares.map(s => s.id)).toContain('note');
     expect(lineTotals(payload, run)).toEqual([
-      { layer: 'mattstack', label: 'default', count: 7 },
-      { layer: 'team', label: 'pack', count: 3 },
+      { layer: 'mattstack', label: 'mattstack', count: 7 },
+      { layer: 'team', label: 'widgets', count: 3 },
     ]);
   });
 
@@ -178,5 +178,17 @@ describe('a top-level include at the skill', () => {
       s => s.section === 'Shared'
     );
     expect(shared.map(s => s.id)).toEqual(['mini/gate-protocol']);
+  });
+
+  it('counts the include once in How much text: its heading, not its tree', () => {
+    const payload = withInclude();
+    const top = payload.blocks.find(b => b.id === 'mini/gate-protocol')!;
+    const own = top.segments.reduce(
+      (sum, segment) => sum + linesOf(segment.text),
+      0
+    );
+    const total = (p: BlocksPayload) =>
+      lineTotals(p, null).reduce((sum, entry) => sum + entry.count, 0);
+    expect(total(payload)).toBe(total(miniPayload) + own);
   });
 });

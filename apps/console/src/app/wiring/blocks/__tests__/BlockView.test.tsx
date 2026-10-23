@@ -14,7 +14,7 @@ import { designFixture } from '../../graph/__tests__/designFixtures';
 import { buildFocusGroups } from '../../graph/model/focusModel';
 import type { WiringUrl } from '../../graph/useWiringUrl';
 import { headingTree } from '../model/headingTree';
-import { miniPayload } from './blocksFixture';
+import { miniPayload, shipPayload } from './blocksFixture';
 
 const sourceGet = vi.fn();
 
@@ -128,6 +128,31 @@ describe('BlockView: the skill', () => {
     expect(
       screen.getAllByText('Runs the step, then asks for a decision.')
     ).toHaveLength(1);
+  });
+
+  it("heads a section band with its block's graph card, which opens that graph", async () => {
+    const patch = renderView({ focus: 'ship' }, { payload: shipPayload });
+
+    const flow = screen
+      .getAllByTestId('section-band')
+      .find(band => band.getAttribute('aria-label') === 'Flow')!;
+    const card = within(flow).getByTestId('graph-card');
+    expect(card).toHaveTextContent(/\d+ steps · \d+ links/);
+    await userEvent.click(within(card).getByText('View graph'));
+    expect(patch).toHaveBeenCalledWith({ block: 'ship/flow', select: 'graph' });
+  });
+
+  it('opens every folded row with Expand all, and folds them again', async () => {
+    renderView();
+
+    expect(screen.queryAllByTestId('block-row-body')).toHaveLength(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+    expect(screen.getAllByTestId('block-row-body')).toHaveLength(4);
+    expect(
+      screen.getByText('Keep notes short.', { selector: 'p' })
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    expect(screen.queryAllByTestId('block-row-body')).toHaveLength(0);
   });
 
   it('says a stale block link names nothing, and shows the skill', () => {
@@ -405,6 +430,14 @@ describe('BlockView: Used by and History', () => {
     renderView({ block: 'mini/gate' }, { context });
     expect(screen.getByTestId('block-history')).toBeInTheDocument();
     expect(screen.getByTestId('history-heading')).toHaveTextContent('In work');
+  });
+
+  it('says plainly that a block file has no history of its own, and where to look', () => {
+    renderView({ block: 'mini/gate' }, { context });
+
+    expect(screen.getByTestId('history-no-copy')).toHaveTextContent(
+      'No history for this block. Open work for its build history'
+    );
   });
 
   it("says why History is missing when the skill's build cannot be read", () => {

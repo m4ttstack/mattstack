@@ -146,11 +146,17 @@ function TextBar({
   );
 }
 
-function Strip({ block }: { block: PayloadBlock }) {
+function Strip({
+  block,
+  payload,
+}: {
+  block: PayloadBlock;
+  payload: BlocksPayload;
+}) {
   return (
     <Chart title="This block, top to bottom">
       <ol className={classes.strip}>
-        {blockStrip(block).map((entry, index) => (
+        {blockStrip(block, payload).map((entry, index) => (
           <li
             key={index}
             className={classes.stripRow}
@@ -176,7 +182,7 @@ export function LayersPanel({ payload, zoom }: LayersPanelProps) {
   if (zoom.level === 'block') {
     return (
       <section className={classes.layers} aria-label="Layers">
-        <Strip block={zoom.block} />
+        <Strip block={zoom.block} payload={payload} />
       </section>
     );
   }

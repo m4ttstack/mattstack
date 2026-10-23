@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { miniPayload } from '../__tests__/blocksFixture';
+import { miniPayload, withInclude } from '../__tests__/blocksFixture';
 import type {
   BlocksPayload,
   PayloadBlock,
@@ -109,5 +109,6 @@ describe('graphs', () => {
 
   it('counts every block under the root', () => {
     expect(blockCount(miniPayload)).toBe(5);
+    expect(blockCount(withInclude())).toBe(6);
   });
 });
