@@ -196,7 +196,7 @@ test("sub-headings re-level from the block's own level, or its parent's when hea
   const tree = plainTree({
     "index.block.md": "---\n---\n\n# a\n\nIntro.\n\n## root sub\n",
     "sub.block.md": "---\n---\n\n# Sub host\n\nLead.\n\n## sub\n\n```md\n## not a heading\n```\n",
-    "loose.block.md": "---\n---\nLoose.\n\n## loose sub\n",
+    "z-loose.block.md": "---\n---\nLoose.\n\n## loose sub\n",
   });
   const lines = render(tree).body.split("\n");
   expect(lines).toContain("## root sub");
@@ -265,6 +265,51 @@ test("an include with headings followed by text is text-after-include at that te
   expect(diagnosticsOf(() => render(host, { includes: resolver({ gp: gpInclude() }) }))).toEqual([
     expect.objectContaining({ file: "a/uses.block.md", line: 8, col: 1, code: "text-after-include" }),
   ]);
+});
+
+test("a headless include whose text carries sub-headings, followed by text, is text-after-include", () => {
+  const setUp: SourcedTree = { tree: plainTree({ "index.block.md": "---\n---\nIntro prose.\n\n## Set up\n\nSetup text.\n" }, "setup"), plugin: "mattstack", version: "2.0.0" };
+  const host = plainTree({
+    "index.block.md": "---\n---\n\n# host\n",
+    "uses.block.md": "---\n---\n\n# Uses\n\n{{include:setup}}\n\nAfter text.\n",
+  });
+  expect(diagnosticsOf(() => render(host, { includes: resolver({ setup: setUp }) }))).toEqual([
+    expect.objectContaining({ file: "a/uses.block.md", line: 8, col: 1, code: "text-after-include" }),
+  ]);
+});
+
+test("an include whose repeated title drops and that renders no headings may sit before more text", () => {
+  const gp: SourcedTree = { tree: plainTree({ "index.block.md": "---\n---\n\n# Gate protocol\n\nGate intro.\n" }, "gp"), plugin: "mattstack", version: "2.0.0" };
+  const host = plainTree({
+    "index.block.md": "---\n---\n\n# host\n",
+    "uses.block.md": "---\n---\n\n# Gate protocol\n\n{{include:gp}}\n\nAfter text.\n",
+  });
+  const { body } = render(host, { includes: resolver({ gp }) });
+  expect(body).toContain("Gate intro.");
+  expect(body).toContain("After text.");
+});
+
+test("a headless child after its parent's heading-carrying include is text-after-include at the child, naming the heading", () => {
+  const host = plainTree({
+    "index.block.md": "---\n---\n\n# host\n",
+    "gates/index.block.md": "---\n---\n\n# Gates\n\n{{include:gp}}\n",
+    "gates/note.block.md": "---\n---\nA note about Gates as a whole.\n",
+  });
+  const [d, ...rest] = diagnosticsOf(() => render(host, { includes: resolver({ gp: gpInclude() }) }));
+  expect(rest).toEqual([]);
+  expect(d).toEqual(expect.objectContaining({ file: "a/gates/note.block.md", line: 1, col: 1, code: "text-after-include" }));
+  expect(d!.message).toContain('"#### Ask"');
+});
+
+test("a headless child after its parent's own sub-heading is text-after-include at the child", () => {
+  const host = plainTree({
+    "index.block.md": "---\n---\n\n# host\n\nIntro.\n\n## Detail\n\nDetail text.\n",
+    "note.block.md": "---\n---\nA note about host as a whole.\n",
+  });
+  const [d, ...rest] = diagnosticsOf(() => render(host));
+  expect(rest).toEqual([]);
+  expect(d).toEqual(expect.objectContaining({ file: "a/note.block.md", line: 1, col: 1, code: "text-after-include" }));
+  expect(d!.message).toContain('"## Detail"');
 });
 
 test("a heading-less include may sit before more text", () => {

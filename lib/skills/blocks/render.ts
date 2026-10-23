@@ -3,7 +3,7 @@ import type { PlaceholderContext } from "../types.ts";
 import { BlockError, type BlockDiagnostic } from "./diagnostics.ts";
 import { toDot } from "./dot.ts";
 import type { PropValue } from "./props.ts";
-import { FENCE_RE, walk } from "./tree.ts";
+import { FENCE_RE } from "./tree.ts";
 import type { Block, BlockTree } from "./types.ts";
 
 /** A block tree with the plugin and version its `block:` seams name. */
@@ -70,6 +70,22 @@ function propText(b: Block, name: string, src: SourcedTree, st: State): string {
         ? `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference("Prop", name, fill)}`
         : inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used.packPaths))
     .join("\n\n");
+}
+
+/** The last `#` heading line in rendered text, outside code fences, or null. */
+function lastHeading(text: string): string | null {
+  let fence: string | null = null;
+  let found: string | null = null;
+  for (const line of text.split("\n")) {
+    const fm = FENCE_RE.exec(line);
+    if (fence !== null) {
+      if (fm && fm[1]![0] === fence[0] && fm[1]!.length >= fence.length && fm[2] === "") fence = null;
+      continue;
+    }
+    if (fm) fence = fm[1]!;
+    else if (HEADING_RE.test(line)) found = line.trimEnd();
+  }
+  return found;
 }
 
 function dotFence(b: Block): string {
@@ -154,7 +170,7 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
     } else if (tree) {
       rendered = includeBody(tree, { depth: nearest.level, includingTitle: nearest.title }, st);
       st.used.includes.push(inc![1]!);
-      if (walk(tree.tree).some((x) => x.title !== null)) headedInclude = inc![1]!;
+      if (lastHeading(rendered) !== null) headedInclude = inc![1]!;
     } else {
       const h = fenced ? null : HEADING_RE.exec(line);
       let text = line;
@@ -193,6 +209,19 @@ function renderBlock(b: Block, src: SourcedTree, parent: Heading, dropTitle: boo
     const gap = Array<string>(Math.max(0, b.textStartLine - b.bodyStartLine - 1)).fill("");
     const heading = `${"#".repeat(own.level)} ${b.title}`;
     chunks.push([seam(b.bodyStartLine), heading, ...(body === "" ? [] : [...gap, body])].join("\n"));
+  }
+  // Past a titled sibling a headless child falls under that sibling instead, which this check does not cover.
+  const under = lastHeading(body);
+  for (const child of b.children) {
+    if (child.title !== null) break;
+    if (under === null) continue;
+    st.diagnostics.push({
+      file: child.relPath,
+      line: 1,
+      col: 1,
+      message: `a headless block placed after "${under}" in ${b.relPath} would render under that heading; give it a # title line`,
+      code: "text-after-include",
+    });
   }
   for (const child of b.children) renderBlock(child, src, own, false, st, chunks);
 }
