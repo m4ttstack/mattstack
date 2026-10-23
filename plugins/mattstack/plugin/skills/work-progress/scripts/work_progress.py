@@ -264,19 +264,24 @@ def tree_error(tree, refresh=False):
     return RECORDS[(tree, refresh)][1]
 
 
-def kept_record(roots, created_ms, branch=None):
+def kept_record(roots, job):
     """A ledger-method job whose ledger is gone: the freshest record rt kept for
-    its tree, but only one seen during the job's own lifetime and on its branch,
-    since pool trees are reused. rt stores a plan's finish only when it records,
-    and the hook records at most once a minute, so this read asks rt to refresh
-    first."""
+    its tree, but only one whose ledger first appeared inside the job's own
+    lifetime and on its branch, since pool trees are reused. The finish itself
+    may be stored after the job closed: rt stores it only when it records, and
+    the hook records at most once a minute, so this read asks rt to refresh."""
+    branch = job.get("branch")
+    start = job["createdAt"]
+    end = float("inf") if job["status"] in LIVE else (job.get("updatedAt") or float("inf"))
     best = None
     for root in roots:
         for rec in tree_records(root, refresh=True) or []:
             seen = max(rec.get("lastSeen") or 0, rec.get("finishedAt") or 0)
             if branch and rec.get("branch") and rec.get("branch") != branch:
                 continue
-            if rec.get("state") in {"done", "tree-gone"} and seen >= created_ms and (best is None or seen > best[0]):
+            if not start <= (rec.get("firstSeen") or 0) <= end:
+                continue
+            if rec.get("state") in {"done", "tree-gone"} and (best is None or seen > best[0]):
                 best = (seen, rec)
     return best[1] if best else None
 
@@ -295,7 +300,7 @@ def row(job, herd_id, gates, runs, now_s):
     run = run_for(job, runs, herd_id, roots) if domain else None
     found = None if run else newest_ledger(roots, since)
     done, total, now = ledger_progress(found[0], found[2]) if found else (0, 0, "")
-    kept = None if run or found or meth not in LEDGER_METHODS else kept_record(job_trees(job), job["createdAt"], job.get("branch"))
+    kept = None if run or found or meth not in LEDGER_METHODS else kept_record(job_trees(job), job)
     if kept:
         done, total, now = kept["done"], kept["total"], kept["latest"]
     known = True

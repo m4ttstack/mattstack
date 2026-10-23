@@ -220,6 +220,15 @@ JSON
 herd="$(run --herd h1)"
 has "a reused tree's record on another branch is ignored" "| alpha | done | ✓ | ✓ | ✓ | ✓ | · | reported |" "$(rowof alpha "$herd")"
 
+# A later occupant with no branch on record: its ledger first appeared after this job closed.
+cat > "$FX/plans.json" <<JSON
+{"ok":true,"plans":[
+{"tree":"$GONETREE","branch":"","plan":"docs/plans/q.md","stem":"q","done":3,"total":7,"latest":"Task 3: complete","firstSeen":9500,"lastSeen":9800,"finishedAt":9800,"state":"done"}
+]}
+JSON
+herd="$(run --herd h1)"
+has "a record first seen after the job closed is ignored" "| alpha | done | ✓ | ✓ | ✓ | ✓ | · | reported |" "$(rowof alpha "$herd")"
+
 # Herd mode counts lettered sub-tasks with the same rule as plan mode.
 BETATREE="$SANDBOX/betatree"
 mkdir -p "$BETATREE/docs/plans" "$BETATREE/.superpowers/sdd/p"
