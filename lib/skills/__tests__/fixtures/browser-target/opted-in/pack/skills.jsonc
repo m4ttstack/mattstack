@@ -4,8 +4,8 @@
     "mattstack:stage-evidence/domain-rules": { "rules": "acme:acme-evidence" },
     "mattstack:stage-ship/domain-rules": { "rules": "acme:acme-ship" },
     "mattstack:ship/domain-rules": { "rules": "acme:acme-ship" },
-    "mattstack:review": { "criteria": "acme:acme-review-criteria" },
-    "mattstack:self-review": { "criteria": "acme:acme-review-criteria" },
-    "mattstack:receive-review": { "criteria": "acme:acme-review-criteria" }
+    "mattstack:review/criteria": { "criteria": "acme:acme-review-criteria" },
+    "mattstack:self-review/criteria": { "criteria": "acme:acme-review-criteria" },
+    "mattstack:receive-review/criteria": { "criteria": "acme:acme-review-criteria" }
   }
 }
