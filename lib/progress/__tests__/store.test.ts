@@ -106,6 +106,19 @@ describe("plan record store", () => {
     expect(listPlans({}, deps).map((p) => p.stem)).toEqual(["x"]);
   });
 
+  test("a stem that comes back after its plan finished starts a fresh record", () => {
+    const tree = makeTree("t1");
+    recordTree(tree, deps);
+    rmSync(ledgerOf(tree), { recursive: true });
+    recordTree(tree, deps);
+    clock += DAY;
+    makeTree("t1");
+    recordTree(tree, deps);
+    const [rec] = listPlans({ tree }, deps);
+    expect(rec!.firstSeen).toBe(clock);
+    expect(rec!.finishedAt).toBeNull();
+  });
+
   test("a ledger directory that lost its progress.md is not finished", () => {
     const tree = makeTree("t1");
     recordTree(tree, deps);

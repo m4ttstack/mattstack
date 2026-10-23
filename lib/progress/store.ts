@@ -85,7 +85,8 @@ export function recordTree(treeArg: string, deps: ProgressDeps = defaultDeps()):
     live.add(stem);
     const key = keyOf(tree, stem);
     const reading = readLedger(tree, ledgerDirOf(tree, stem));
-    const prior = getKvValue<PlanRecord | null>(PROGRESS_NS, key, null, db);
+    const kept = getKvValue<PlanRecord | null>(PROGRESS_NS, key, null, db);
+    const prior = kept && kept.finishedAt === null && (branch === null || kept.branch === branch) ? kept : null;
     const rec: PlanRecord = {
       tree,
       branch: branch ?? prior?.branch ?? "",

@@ -211,14 +211,14 @@ herd="$(run --herd h1)"
 has "disposed job tree still reads its done record" "\`██████████\` 5/5" "$(rowof alpha "$herd")"
 has "disposed job tree is still asked about" "progress list --tree $GONETREE --refresh --json" "$(cat "$SANDBOX/calls")"
 
-# The pool path was reused by a later job on another branch: its record is not this job's.
+# The worker moved to a follow-up branch: its record is still this job's.
 cat > "$FX/plans.json" <<JSON
 {"ok":true,"plans":[
-{"tree":"$GONETREE","branch":"job-y","plan":"docs/plans/q.md","stem":"q","done":3,"total":7,"latest":"Task 3: complete","firstSeen":1500,"lastSeen":3000,"finishedAt":3000,"state":"done"}
+{"tree":"$GONETREE","branch":"job-x-followup","plan":"docs/plans/q.md","stem":"q","done":7,"total":7,"latest":"Task 7: complete","firstSeen":1500,"lastSeen":3000,"finishedAt":3000,"state":"done"}
 ]}
 JSON
 herd="$(run --herd h1)"
-has "a reused tree's record on another branch is ignored" "| alpha | done | ✓ | ✓ | ✓ | ✓ | · | reported |" "$(rowof alpha "$herd")"
+has "a record on a follow-up branch still counts" "\`██████████\` 7/7" "$(rowof alpha "$herd")"
 
 # A later occupant with no branch on record: its ledger first appeared after this job closed.
 cat > "$FX/plans.json" <<JSON
