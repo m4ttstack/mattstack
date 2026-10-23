@@ -417,8 +417,9 @@ describe("settings/registry", () => {
         "rt.branchNaming",
         "telemetry.enabled",
         "rt.evidence.foldScreenshots",
+        "rt.notify.sounds",
       ];
-      expect(suiteKeys).toHaveLength(100);
+      expect(suiteKeys).toHaveLength(101);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

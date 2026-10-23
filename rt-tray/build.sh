@@ -162,6 +162,10 @@ if [ -d "$REPO_DIR/sounds" ]; then
         [ -f "$mp3" ] || continue
         afconvert -d LEI16@44100 -f caff "$mp3" "$CONTENTS/Resources/$(basename "$mp3" .mp3).caf" 2>/dev/null && echo "  ✓ $(basename "$mp3" .mp3).caf"
     done
+    for mp3 in "$REPO_DIR"/sounds/sober/*.mp3; do
+        [ -f "$mp3" ] || continue
+        afconvert -d LEI16@44100 -f caff "$mp3" "$CONTENTS/Resources/sober-$(basename "$mp3" .mp3).caf" 2>/dev/null && echo "  ✓ sober-$(basename "$mp3" .mp3).caf"
+    done
 fi
 [ -f "$SCRIPT_DIR/mission-control-screenshot.png" ] && cp "$SCRIPT_DIR/mission-control-screenshot.png" "$CONTENTS/Resources/" && xattr -cr "$CONTENTS/Resources/mission-control-screenshot.png" 2>/dev/null || true
 

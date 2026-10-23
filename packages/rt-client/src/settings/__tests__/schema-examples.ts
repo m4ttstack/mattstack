@@ -90,6 +90,18 @@ export const EXAMPLES: Record<string, Example> = {
     ],
     layer: [{ hint: "Ask your admin for more usage." }],
   },
+  "rt.notify.sounds": {
+    good: [
+      { neutral: "original", positive: "original", warning: "original" },
+      { neutral: "none", positive: "sober/102", warning: "macos/Glass" },
+      { warning: "custom/Doorbell.m4a" },
+    ],
+    bad: [
+      { value: { warning: "sober/105" }, path: ["warning"] },
+      { value: { neutral: 1 }, path: ["neutral"] },
+    ],
+    layer: [{ positive: "macos/Tink" }],
+  },
   "rt.cron": {
     good: [
       {},

@@ -13,7 +13,7 @@ struct AppsPane: View {
                 ForEach(model.apps) { app in
                     VStack(alignment: .leading, spacing: 2) {
                         Toggle(app.displayName, isOn: Binding(get: { app.enabled }, set: { on in Task { await model.setEnabled(app.name, on) } }))
-                            .toggleStyle(.switch)
+                            .toggleStyle(.switch).controlSize(.mini)
                             .disabled(model.inFlight.contains(app.name))
                             .accessibilityIdentifier(AXID.settingsAppToggle(app.name))
                         if let description = app.description {

@@ -60,7 +60,7 @@ struct TeamScreen: View {
         HStack {
             Text(label)
             Spacer()
-            Toggle(label, isOn: isOn).toggleStyle(.switch).controlSize(.small).labelsHidden().accessibilityIdentifier(id)
+            Toggle(label, isOn: isOn).toggleStyle(.switch).controlSize(.mini).labelsHidden().accessibilityIdentifier(id)
         }
     }
 

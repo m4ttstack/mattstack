@@ -10,6 +10,7 @@ enum SettingsPaneContent {
         Group {
             switch pane {
             case .general: GeneralPane(env: env)
+            case .notifications: NotificationsPane(env: env)
             case .permissions: PermissionsPane(env: env)
             case .accounts: AccountsPane(env: env)
             case .fastBrowser: FastBrowserPane(env: env)

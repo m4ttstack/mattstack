@@ -610,6 +610,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         rtClient = RtClientFactory.make()
         notificationManager.rt = rtClient
         if let rt = rtClient {
+            Task { await NotificationManager.sounds.load(rt: rt) }
             coordinator = SetupCoordinator(rt: rt, permissions: permissionsService, permissionProbe: permissionProbe, needs: needBroker, updater: updater)
             if let code = pendingJoinCode {
                 pendingJoinCode = nil

@@ -1553,6 +1553,34 @@
       }
     }
   },
+  "rt.notify.sounds": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "neutral": {
+          "type": "string",
+          "pattern": "^(original|none|sober\\/10[1-4]|macos\\/[^/]+|custom\\/[^/]+)$",
+          "title": "Neutral",
+          "description": "Comments, rebases, mentions"
+        },
+        "positive": {
+          "type": "string",
+          "pattern": "^(original|none|sober\\/10[1-4]|macos\\/[^/]+|custom\\/[^/]+)$",
+          "title": "Positive",
+          "description": "Passed, approved, merged"
+        },
+        "warning": {
+          "type": "string",
+          "pattern": "^(original|none|sober\\/10[1-4]|macos\\/[^/]+|custom\\/[^/]+)$",
+          "title": "Warning",
+          "description": "Failed, conflicts, errors"
+        }
+      },
+      "additionalProperties": {}
+    }
+  },
   "rt.notify.usageLimits": {
     "storeVersion": 1,
     "schema": {
