@@ -3432,10 +3432,14 @@ const httpServer = Bun.serve({
                     mr.reviewerLatches ?? [],
                     state.person
                   );
-                  // Re-read after the cache await: the patch must carry the
-                  // status as it is now, not as it was before the await.
+                  // Re-read after the cache await: a fresh launch in between
+                  // owns the row now, and the patch must carry today's status.
                   const current = readRespondStates().get(mrUrl);
-                  if (current && accepted.length > 0)
+                  if (
+                    current?.gateId === gateId &&
+                    current.gateKind === 'respond-post' &&
+                    accepted.length > 0
+                  )
                     writeRespondState(respondFilePath(mrUrl), {
                       status: current.status,
                       pendingReReview: accepted,
