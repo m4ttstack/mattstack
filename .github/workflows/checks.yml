@@ -285,6 +285,15 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: bun scripts/ci/engine-floor-check.ts --base HEAD^1
+      # The checkout is two commits deep with no tags; git describe needs the
+      # release tags and the history that reaches them from HEAD^1.
+      - name: Props signature
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          git fetch --tags --force --unshallow origin
+          bun scripts/ci/props-signature-check.ts --base HEAD^1
       - name: Install graphviz
         run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
       - name: Digraph checker cases
