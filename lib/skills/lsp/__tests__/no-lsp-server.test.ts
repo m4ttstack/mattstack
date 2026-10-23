@@ -188,4 +188,38 @@ describe("rt skills lsp", () => {
       client.kill();
     }
   }, 30_000);
+
+  test("prepareRename and rename answer over the wire, with the mattstack warning and a refusal", async () => {
+    const plugins = join(tmp, "plugins/mattstack");
+    cpSync(plugin, plugins, { recursive: true });
+    const file = join(plugins, "attachments/pipeline/mini/gate.block.md");
+    const client = new Client(["--root", plugins], home);
+    try {
+      client.send({ id: 1, method: "initialize", params: { processId: null, capabilities: {} } });
+      const init = await client.waitFor((m) => m.id === 1);
+      expect(init.result.capabilities.renameProvider).toEqual({ prepareProvider: true });
+      client.send({ method: "initialized", params: {} });
+      const uri = pathToFileURL(file).href;
+      const text = readFileSync(file, "utf8");
+      client.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text } } });
+      const line = text.split("\n").indexOf("{{props.tiering}}");
+      const position = { line, character: 10 };
+      client.send({ id: 2, method: "textDocument/prepareRename", params: { textDocument: { uri }, position } });
+      const prepared = await client.waitFor((m) => m.id === 2);
+      expect(prepared.result).toEqual({ range: { start: { line, character: 8 }, end: { line, character: 15 } }, placeholder: "tiering" });
+      client.send({ id: 3, method: "textDocument/rename", params: { textDocument: { uri }, position, newName: "model" } });
+      const renamed = await client.waitFor((m) => m.id === 3);
+      expect(renamed.result.changes[uri]).toHaveLength(2);
+      expect(renamed.result.changes[uri]).toContainEqual({ range: { start: { line, character: 0 }, end: { line, character: 17 } }, newText: "{{props.model}}" });
+      const shown = await client.waitFor((m) => m.method === "window/showMessageRequest");
+      expect(shown.params).toMatchObject({ type: 2, message: expect.stringContaining("props-change: mini/gate.tiering: renamed to model") });
+      client.send({ id: 4, method: "textDocument/rename", params: { textDocument: { uri }, position, newName: "Bad" } });
+      const refused = (await client.waitFor((m) => m.id === 4)) as Message & { error?: { message: string } };
+      expect(refused.result).toBeUndefined();
+      expect(refused.error?.message).toContain('"Bad" is not a prop name');
+      expect(await client.stop()).toBe(0);
+    } finally {
+      client.kill();
+    }
+  }, 30_000);
 });

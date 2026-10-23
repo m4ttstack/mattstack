@@ -1,13 +1,25 @@
 import { basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { CompletionItemKind, createConnection, MarkupKind, ProposedFeatures, TextDocuments, TextDocumentSyncKind, type InitializeParams, type InitializeResult } from "vscode-languageserver/node";
+import {
+  CompletionItemKind,
+  createConnection,
+  LSPErrorCodes,
+  MarkupKind,
+  ProposedFeatures,
+  ResponseError,
+  TextDocuments,
+  TextDocumentSyncKind,
+  type InitializeParams,
+  type InitializeResult,
+} from "vscode-languageserver/node";
 import { logCliEvent } from "../../cli-logger.ts";
 import { completionsAt, type Completion } from "./completion.ts";
 import { definitionAt } from "./definition.ts";
 import { publishable } from "./diagnostics.ts";
 import { hoverAt } from "./hover.ts";
 import { referencesAt, toLocations } from "./references.ts";
+import { prepareRename, RenameRefused, renameAt } from "./rename.ts";
 import { Workspace } from "./workspace.ts";
 
 export const DOCUMENT_SELECTOR = [{ pattern: "**/*.block.md" }, { pattern: "**/skills.jsonc" }];
@@ -89,6 +101,7 @@ export function startServer(opts: { roots: string[] }): void {
         hoverProvider: true,
         definitionProvider: true,
         referencesProvider: true,
+        renameProvider: { prepareProvider: true },
         completionProvider: { triggerCharacters: COMPLETION_TRIGGERS },
       },
       serverInfo: { name: "rt skills lsp" },
@@ -126,6 +139,35 @@ export function startServer(opts: { roots: string[] }): void {
     const file = pathOf(textDocument.uri);
     if (!ws || !file || !isSkillFile(file)) return [];
     return toLocations(referencesAt(ws, file, position), context.includeDeclaration);
+  });
+
+  connection.onPrepareRename(({ textDocument, position }) => {
+    const file = pathOf(textDocument.uri);
+    if (!ws || !file || !isSkillFile(file)) return null;
+    return prepareRename(ws, file, position);
+  });
+
+  connection.onRenameRequest(({ textDocument, position, newName }) => {
+    const file = pathOf(textDocument.uri);
+    if (!ws || !file || !isSkillFile(file)) return null;
+    let edit;
+    try {
+      edit = renameAt(ws, file, position, newName);
+    } catch (err) {
+      if (err instanceof RenameRefused) return new ResponseError(LSPErrorCodes.RequestFailed, err.message);
+      logCliEvent("error", MODULE, "rename failed", { file, error: errorText(err) });
+      return null;
+    }
+    if (!edit) return null;
+    const { changes, warnings } = edit;
+    setImmediate(() => {
+      for (const warning of warnings) {
+        Promise.resolve(connection.window.showWarningMessage(warning)).catch((err: unknown) => {
+          logCliEvent("error", MODULE, "showing a rename warning failed", { error: errorText(err) });
+        });
+      }
+    });
+    return { changes };
   });
 
   connection.onCompletion(({ textDocument, position }) => {
