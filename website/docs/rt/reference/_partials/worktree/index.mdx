@@ -1,0 +1,17 @@
+## When git hangs inside a worktree
+
+The signs: a provision runs for five minutes and ends with `checkout failed: git fetch timed out after 300s`. A replenish fails on `git worktree add`. A `git status` inside a tree never returns. Meanwhile `git ls-remote origin` answers at once. The repo has `core.fsmonitor = true`.
+
+With that setting, every worktree runs its own `git fsmonitor--daemon`. On macOS under build load that daemon stops answering, and git waits for it with no timeout. To confirm, sample the stuck git process: `sample <pid> 1` shows `fsmonitor_ipc__send_query` at the top of the stack.
+
+The git rt runs for the worktree pool skips the daemon. Every tree rt builds carries `core.fsmonitor = false` in its own config, and trees from before get it on the daemon's next pass. Your checkout keeps the setting while the pool opts out. That needs `extensions.worktreeConfig` on the repo. rt turns it on, unless the shared config carries `core.worktree` or `core.bare = true`, which git asks you to move first.
+
+A hang in your own checkout, or in a tree made by something other than rt, means the setting is still on there. Turn it off for the whole repo:
+
+```bash
+# Turn it off for the repo and every worktree, then stop the daemons
+git config core.fsmonitor false
+pkill -f "fsmonitor--daemon run"
+```
+
+Turn it back on with `git config core.fsmonitor true` once the load is gone.

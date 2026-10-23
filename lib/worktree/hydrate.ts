@@ -17,6 +17,7 @@ import { runCapture, MAX_LOGGED_OUTPUT, outputTail } from "../subprocess.ts";
 import { rtBinaryPath } from "../dev-mode.ts";
 import { reconcileForRepo } from "../daemon/doppler-sync.ts";
 import { deriveRepoIdentity } from "../settings/identity.ts";
+import { applyFsmonitorOff } from "./fsmonitor.ts";
 
 const ADD_TIMEOUT_MS = 5 * 60_000;
 const CLONE_TIMEOUT_MS = 15 * 60_000;
@@ -142,6 +143,7 @@ async function runHydrate(
       return { kind: "failed", step: `git worktree add -b ${branch} ${path} ${readyStamp}`, output: add.stdout + add.stderr };
     }
     branchCreated = true;
+    await applyFsmonitorOff({ repoName, repoPath, tree: name, path, via: "hydrate" }, log);
 
     const gitEntries = await listWorktreesAsync(repoPath);
     if (gitEntries !== null) {

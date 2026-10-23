@@ -37,6 +37,7 @@ import { reapTrashDir, trashTree } from "./trash.ts";
 import { reconcileForRepo } from "../daemon/doppler-sync.ts";
 import { deriveRepoIdentity } from "../settings/identity.ts";
 import { MAX_LOGGED_OUTPUT, outputTail } from "../subprocess.ts";
+import { applyFsmonitorOff } from "./fsmonitor.ts";
 
 const CREATE_TIMEOUT_MS = 5 * 60_000;
 
@@ -139,6 +140,7 @@ async function runCreate(
     return fail(`git worktree add -b ${branch} ${path} ${defaultRef}`, addResult.stdout + addResult.stderr);
   }
   branchCreated = true;
+  await applyFsmonitorOff({ repoName, repoPath, tree: name, path, via: "create" }, log);
 
   // Scopes before ready steps: a step may shell out to `doppler`, which resolves
   // its project from this tree's path and fails "must specify a project" until

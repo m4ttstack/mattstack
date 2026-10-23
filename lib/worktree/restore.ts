@@ -16,6 +16,7 @@ import { basename, join, sep } from "path";
 import { loadRegistry, saveRegistry, type TreeRecord } from "./registry.ts";
 import { loadWorktreeRepoConfig, evaluateReadyGate, type ReadyStep, type WorktreeRepoConfig } from "./config.ts";
 import { branchExistsLocalAsync, runGit, MUTATING_TIMEOUT_MS } from "./git-async.ts";
+import { applyFsmonitorOff } from "./fsmonitor.ts";
 import {
   readDisposalManifest,
   reapTrashDir,
@@ -280,6 +281,7 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
 
   const added = await addWorktreeFromManifest(repoPath, path, manifest);
   if (!added.ok) return { ok: false, reason: "worktree-add-failed", detail: added.output };
+  await applyFsmonitorOff({ repoName, repoPath, tree: treeName, path, via: "restore" }, log);
 
   const submodules = await initSubmodules(repoPath, path);
   if (submodules.failed.length > 0) {

@@ -12,6 +12,7 @@ import * as gitAsync from "../git-async.ts";
 import { createTree, type CreateDeps } from "../create.ts";
 import { isTreeLocked, tryLockTree } from "../locks.ts";
 import { hydrateTree, parseIgnoredPaths, listIgnoredPaths, type CloneRunner } from "../hydrate.ts";
+import { fsmonitorOffInTree } from "../fsmonitor.ts";
 import { clonePath, cloneExitCode } from "../clonefile.ts";
 
 function readMachineStore(): Record<string, unknown> {
@@ -166,6 +167,15 @@ describe("hydrateTree", () => {
     expect(
       events.some((e) => e.type === "worktree:created" && (e.data as { hydratedFrom?: string }).hydratedFrom === golden.name),
     ).toBe(true);
+  });
+
+  test("a hydrated member carries core.fsmonitor=false in its own config.worktree", async () => {
+    execSync("git config core.fsmonitor true", { cwd: repo, shell: "/bin/zsh" });
+    const result = await hydrateTree({ ...makeDeps(repoName, repo, events), golden, clone: inProcessClone });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(fsmonitorOffInTree(result.tree.path)).toBe(true);
+    expect(execSync("git config --get core.fsmonitor", { cwd: repo, encoding: "utf8" }).trim()).toBe("true");
   });
 
   test("clone exit 3 reports hydrate-unavailable and scraps the half-built tree", async () => {
