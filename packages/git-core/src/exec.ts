@@ -59,6 +59,15 @@ const NON_INTERACTIVE_ENV = {
   GCM_INTERACTIVE: "never",
 };
 
+// Every index-reading command (status, checkout, even fetch via its .gitmodules
+// lookup) consults the repo's `core.fsmonitor` daemon when the user has one
+// on, starting it when none runs. Under heavy filesystem churn that daemon
+// stops answering and git blocks in the IPC read for as long as the caller
+// lets it. rt's background git reads never need the speed-up, so it is off on
+// every spawn; `client.ts` passes the same value to simple-git.
+export const FSMONITOR_OFF = "core.fsmonitor=false";
+const GIT_FLAGS = ["-c", FSMONITOR_OFF];
+
 // A killed process is not guaranteed to unblock immediately: SIGTERM
 // delivery can be deferred behind a syscall the child is stuck in (a stalled
 // connect(), for instance), so a grace period backstops it with SIGKILL,
@@ -74,7 +83,7 @@ export async function rawGit(dir: string, args: string[], opts: RawGitOpts = {})
   if (opts.signal?.aborted) {
     throw new Error(`git ${args.join(" ")} aborted before starting`);
   }
-  const proc = Bun.spawn(["git", ...args], {
+  const proc = Bun.spawn(["git", ...GIT_FLAGS, ...args], {
     cwd: dir,
     stdin: "pipe",
     stdout: "pipe",
@@ -150,7 +159,7 @@ export async function rawGit(dir: string, args: string[], opts: RawGitOpts = {})
 // (e.g. diff --quiet, merge-base --is-ancestor): 0/1 are both success states,
 // anything else is a real failure.
 export async function rawGitOk(dir: string, args: string[]): Promise<boolean> {
-  const proc = Bun.spawn(["git", ...args], {
+  const proc = Bun.spawn(["git", ...GIT_FLAGS, ...args], {
     cwd: dir,
     stdout: "pipe",
     stderr: "pipe",
