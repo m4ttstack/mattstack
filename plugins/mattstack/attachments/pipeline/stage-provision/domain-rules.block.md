@@ -14,4 +14,5 @@ marks STOP (hand-rolling a worktree), the STOP node wins.
 
 {{props.rules}}
 
-When nothing is inlined above, the graph alone is the flow.
+Rules sit above or in a step's own section. A step no rule names runs as
+the graph alone draws it.

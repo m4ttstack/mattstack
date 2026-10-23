@@ -22,5 +22,6 @@ annotate) do not run; its browser target supplies facts, never steps.
 
 {{props.rules}}
 
-When nothing is inlined above, the graph and the Capture section are the
-whole flow. Ship adds the AFTERs to the same record.
+Rules sit above or in a step's own section. A step no rule names runs as
+the graph and the Capture section draw it. Ship adds the AFTERs to the
+same record.

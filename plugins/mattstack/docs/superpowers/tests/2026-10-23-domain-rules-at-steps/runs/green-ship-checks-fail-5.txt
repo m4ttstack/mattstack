@@ -1,0 +1,6 @@
+1. run_enter, run_field_set, branch_stack, gate(ship), run_field_set, run_budget, git_push, mr_create, run_field_set, run_close
+2. bun run widgets:typecheck ; git checkout -- src/generated/gizmo-index.ts ; edit src/badge/Badge.test.tsx ; edit src/badge/Badge.tsx ; git add src/badge/Badge.tsx src/badge/Badge.test.tsx ; git commit -m "widgets(badge): fix badge state type [WID-123]" ; bun run widgets:lint --changed ; bun run widgets:typecheck ; git checkout -- src/generated/gizmo-index.ts
+3. First commit: stage src/badge/Badge.tsx and src/badge/Badge.test.tsx, subject "widgets(badge): update badge states [WID-123]". Second commit (the fix): stage src/badge/Badge.tsx and src/badge/Badge.test.tsx, subject "widgets(badge): fix badge state type [WID-123]". `src/generated/gizmo-index.ts` is never staged.
+4. no
+5. ship:fix-rounds, no
+6. run_close {workType: ship, stage: ship, outcome: done}

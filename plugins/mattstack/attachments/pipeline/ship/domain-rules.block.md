@@ -17,6 +17,6 @@ bundle.
 
 {{props.rules}}
 
-When nothing is inlined above, the graph alone is the flow: no steps before
-the gate, no fast checks, no rebase, no AFTER beyond a browser case's, no
-CI watch.
+Rules sit above or in a step's own section. A step no rule names runs as
+the graph alone draws it: no steps before the gate, no fast checks, no
+rebase, no AFTER beyond a browser case's, no CI watch.

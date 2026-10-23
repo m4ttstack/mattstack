@@ -26,4 +26,5 @@ and `skip-base` replace them.
 
 {{props.rules}}
 
-With nothing inlined, the graph's other flows apply.
+Rules sit above or in a step's own section. Where no rule names a move,
+the graph's other flows apply.

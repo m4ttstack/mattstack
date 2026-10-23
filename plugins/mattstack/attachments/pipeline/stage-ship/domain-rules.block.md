@@ -18,5 +18,6 @@ and the bundle.
 
 {{props.rules}}
 
-When nothing is inlined above, the graph alone is the flow: no domain
-steps or checks, no rebase, and no AFTER beyond a browser case's.
+Rules sit above or in a step's own section. A step no rule names runs as
+the graph alone draws it: no domain steps or checks, no rebase, and no
+AFTER beyond a browser case's.
