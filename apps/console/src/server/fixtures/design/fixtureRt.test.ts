@@ -8,6 +8,7 @@ import anatomyPlan from './anatomy.stage-plan.json';
 import anatomyPlanUnsynced from './anatomy.stage-plan.unsynced.json';
 import anatomyWork from './anatomy.work.json';
 import blocksMini from './blocks.mini.json';
+import blocksStagePlan from './blocks.stage-plan.json';
 import changesClean from './changes.clean.json';
 import changesUnsynced from './changes.unsynced.json';
 import check from './check.json';
@@ -744,9 +745,14 @@ describe('the skills routes on the fixture', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(blocksMini);
     const plain = await app.request(
-      '/api/skills/blocks?pack=acme&skill=stage-plan'
+      '/api/skills/blocks?pack=acme&skill=stage-gates'
     );
     expect(plain.status).toBe(404);
+    const stage = await app.request(
+      '/api/skills/blocks?pack=acme&skill=stage-plan'
+    );
+    expect(stage.status).toBe(200);
+    expect(await stage.json()).toEqual(blocksStagePlan);
     const anatomy = await app.request(
       '/api/skills/anatomy?pack=acme&skill=stage-plan'
     );
