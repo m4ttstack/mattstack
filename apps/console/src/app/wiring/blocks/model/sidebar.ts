@@ -33,10 +33,13 @@ function holdsSelection(
   return false;
 }
 
-/** Depth 0 is the root's children: the skill's name stands for the root. */
+/** Depth 0 is the root's children: the skill's name stands for the root.
+    A row opens when it holds the selection or `unfolded` names it; the
+    Shared fold's own id there is `shared`. */
 export function sidebarRows(
   payload: BlocksPayload,
-  selectedId: string | null
+  selectedId: string | null,
+  unfolded: ReadonlySet<string> = new Set()
 ): SidebarRow[] {
   const root = rootOf(payload);
   if (!root) return [];
@@ -45,7 +48,8 @@ export function sidebarRows(
   const walk = (block: PayloadBlock, depth: number) => {
     const children = childrenOf(payload, block.id);
     const open =
-      children.length > 0 && holdsSelection(payload, block, selectedId);
+      children.length > 0 &&
+      (unfolded.has(block.id) || holdsSelection(payload, block, selectedId));
     rows.push({
       id: block.id,
       depth,
@@ -64,6 +68,9 @@ export function sidebarRows(
 
   const shared = top.filter(block => block.kind === 'shared');
   if (shared.length > 0) {
+    const open =
+      unfolded.has('shared') ||
+      shared.some(block => holdsSelection(payload, block, selectedId));
     rows.push({
       id: 'shared',
       depth: 0,
@@ -71,9 +78,10 @@ export function sidebarRows(
       glyph: 'shared',
       dots: [],
       count: shared.length,
-      open: false,
+      open,
       selected: selectedId === 'shared',
     });
+    if (open) shared.forEach(block => walk(block, 1));
   }
   return rows;
 }

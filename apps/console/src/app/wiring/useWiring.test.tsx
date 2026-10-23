@@ -116,6 +116,32 @@ describe('useBlocks', () => {
     });
   });
 
+  it('answers null, not an error, for a skill that is not a block tree', async () => {
+    blocksGet.mockResolvedValue(
+      reply({ error: 'The plain skill is not built from blocks' }, 404)
+    );
+    const { Wrap } = harness();
+
+    const { result } = renderHook(() => useBlocks('acme', 'plain'), {
+      wrapper: Wrap,
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toBeNull();
+  });
+
+  it('fails with the message of any other refusal', async () => {
+    blocksGet.mockResolvedValue(reply({ error: 'rt exploded' }, 502));
+    const { Wrap } = harness();
+
+    const { result } = renderHook(() => useBlocks('acme', 'mini'), {
+      wrapper: Wrap,
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe('rt exploded');
+  });
+
   it('makes no request without a pack or a skill', async () => {
     const { Wrap } = harness();
 

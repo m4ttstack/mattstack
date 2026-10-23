@@ -141,7 +141,8 @@ function pushes(current: WiringUrl, next: WiringUrl): boolean {
  * The Graph tab's state, read from and written to the query string.
  *
  * Changes cascade down one chain: a new `pack` drops `focus`, a new `focus`
- * drops `select`, a new `select` drops `view`. A value set in
+ * drops `select` and `block` (a block id belongs to one skill), a new
+ * `select` drops `view`. A value set in
  * the same patch always wins over the drop, so a deep link patches the whole
  * chain in one call. Query keys this hook does not own are kept.
  */
@@ -164,6 +165,7 @@ export function useWiringUrl(): [
     if (packChanged && change.focus === undefined) next.focus = null;
     const focusChanged = packChanged || next.focus !== current.focus;
     if (focusChanged && change.select === undefined) next.select = null;
+    if (focusChanged && change.block === undefined) next.block = null;
     if (focusChanged || next.select !== current.select) {
       if (change.view === undefined) next.view = null;
     }

@@ -4,7 +4,8 @@
  * compared with the boards without rt, git or a real pack on the machine.
  * `CONSOLE_FIXTURE_SCENARIO=unsynced` serves the pack after a rebind that has
  * not been synced yet; `scenarios.ts` lists the others, each a state no board
- * draws.
+ * draws. Every scenario answers `rt skills blocks` from `blocks.<skill>.json`,
+ * and any skill without one as not a block tree.
  *
  * Files the routes read live under `files/`, at their path below `/fixture`.
  * Everything is read at call time, so nothing here is bundled into the app.
@@ -212,7 +213,7 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
       }
       case 'blocks': {
         const skill = flagValue(argv, '--skill');
-        if (!def.blocks || !skill) return refuse(argv);
+        if (!skill) return refuse(argv);
         try {
           return answer(await readJsonText(`blocks.${skill}.json`));
         } catch {

@@ -379,10 +379,24 @@ describe('useWiringUrl', () => {
       ).toBe('?focus=a&select=row:136&block=mini/run');
     });
 
-    it('a changed focus keeps the block', () => {
+    it('a changed focus clears the block', () => {
       expect(patchFrom('/wiring?focus=a&block=mini/run', { focus: 'b' })).toBe(
-        '?focus=b&block=mini/run'
+        '?focus=b'
       );
+    });
+
+    it('a changed pack clears the block', () => {
+      expect(
+        patchFrom('/wiring?pack=acme&focus=a&block=mini/run', {
+          pack: 'gadgets',
+        })
+      ).toBe('?pack=gadgets');
+    });
+
+    it('a block set with a changed focus wins', () => {
+      expect(
+        patchFrom('/wiring?focus=a', { focus: 'mini', block: 'mini/run' })
+      ).toBe('?focus=mini&block=mini/run');
     });
 
     it('a changed focus clears select and view but keeps the pack', () => {

@@ -753,11 +753,24 @@ describe('the skills routes on the fixture', () => {
     expect(await anatomy.json()).toEqual(anatomyPlan);
   });
 
-  it('answers blocks in no other scenario', async () => {
-    const res = await mount('clean').request(
-      '/api/skills/blocks?pack=acme&skill=mini'
+  it('answers blocks in every scenario, so a focused skill never 502s', async () => {
+    for (const scenario of ['clean', 'unsynced', 'org-base'] as const) {
+      const app = mount(scenario);
+      const mini = await app.request('/api/skills/blocks?pack=acme&skill=mini');
+      expect(mini.status).toBe(200);
+      const plain = await app.request(
+        '/api/skills/blocks?pack=acme&skill=release-notes'
+      );
+      expect(plain.status).toBe(404);
+    }
+  });
+
+  it('blocks scenario: lists mini in the composition, so it can take focus', async () => {
+    const res = await mount('blocks').request(
+      '/api/skills/composition?pack=acme'
     );
-    expect(res.status).toBe(502);
+    const body = (await res.json()) as { verbs: { name: string }[] };
+    expect(body.verbs.map(verb => verb.name)).toContain('mini');
   });
 
   it('serves a template through the confined source route', async () => {

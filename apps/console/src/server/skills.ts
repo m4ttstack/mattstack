@@ -1491,6 +1491,15 @@ export function mountSkills(
         if (refusal?.code === 'not-a-block-tree') {
           return c.json({ error: refusal.message }, 404);
         }
+        if (refusal) {
+          return c.json(
+            {
+              error:
+                refusal.message ?? refusal.code ?? 'rt skills blocks failed',
+            },
+            502
+          );
+        }
         return c.json(payload as BlocksPayload, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {

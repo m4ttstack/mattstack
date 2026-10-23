@@ -231,13 +231,16 @@ export function useAnatomy(pack: string | null, skill: string | null) {
 
 /** One skill as a tree of blocks. `retry: false` because a plain skill's 404
     (not a block tree) is final. */
+/** `null` is rt's not-a-block-tree answer (the route's 404): a hand-written
+    skill, read from its headings instead. */
 export function useBlocks(pack: string | null, skill: string | null) {
   return useQuery({
     queryKey: ['skills', 'blocks', pack, skill],
-    queryFn: async () => {
+    queryFn: async (): Promise<SkillsBlocks | null> => {
       const res = await client.api.skills.blocks.$get({
         query: { pack: pack ?? '', skill: skill ?? '' },
       });
+      if (res.status === 404) return null;
       return readOrThrow<SkillsBlocks>(res, 'skills blocks');
     },
     enabled: pack !== null && skill !== null,

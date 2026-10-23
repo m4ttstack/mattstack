@@ -21,7 +21,7 @@
  * | `pipeline-base-override` | `acme-base` sets the accessibility evidence override |
  * | `stale-copy`       | check reports a stale stage copy and a dropped override |
  * | `team-sections`    | plan's domain fill holds two `widgets` team sections, one changed |
- * | `blocks`           | `rt skills blocks` answers `mini` from `blocks.mini.json`, and every other skill as not built from blocks |
+ * | `blocks`           | the composition lists `mini`, a block-tree verb, so the block view can open it |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -135,8 +135,6 @@ export interface ScenarioDef {
     string,
     { file: string; edit?: (anatomy: Anatomy) => Anatomy } | Failure
   >;
-  /** `rt skills blocks` answers from `blocks.<skill>.json`; without it, refuses every skill. */
-  blocks?: true;
   /** A `/fixture` file, edited, or null where it does not exist. */
   files?: Record<string, ((text: string) => string) | null>;
   /** `rt skills surface list`; every scenario without one refuses it. */
@@ -514,6 +512,26 @@ function domainHoldsSections(anatomy: Anatomy): Anatomy {
   };
 }
 
+const MINI_DIR =
+  '/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/mini';
+
+/** `mini` as a standalone roster verb, so the focus list can open it. */
+function withMini(composition: Composition): Composition {
+  const mini = {
+    name: 'mini',
+    engine: 'mattstack:mini',
+    engineRef: 'mattstack:mini',
+    plugin: 'mattstack',
+    description: 'Runs the step, then asks for a decision.',
+    public: true,
+    sourcePath: `${MINI_DIR}/index.block.md`,
+    artifactPath: '/fixture/packs/acme/skills/mini',
+    props: {},
+    includes: [],
+  };
+  return { ...composition, verbs: [...composition.verbs, mini] };
+}
+
 const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
   runs: { subject: 'stage-plan' },
@@ -614,7 +632,7 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
       ],
     }),
   },
-  blocks: { subject: 'mini', blocks: true },
+  blocks: { subject: 'mini', composition: withMini },
   'team-sections': {
     subject: 'stage-plan',
     anatomy: { 'stage-plan': { file: PLAN_FILE, edit: domainHoldsSections } },

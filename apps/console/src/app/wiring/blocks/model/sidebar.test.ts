@@ -153,4 +153,40 @@ describe('sidebarRows', () => {
       ['s/a/x', 'shared'],
     ]);
   });
+  it('opens the Shared fold on a selected top-level shared block and marks it', () => {
+    const rows = sidebarRows(
+      payloadOf(
+        block('s/a', 's'),
+        block('s/x', 's', { kind: 'shared' }),
+        block('s/x/inner', 's/x', { kind: 'shared' }),
+        block('s/y', 's', { kind: 'shared' })
+      ),
+      's/x/inner'
+    );
+    expect(rows.map(r => [r.id, r.depth, r.open, r.selected])).toEqual([
+      ['s/a', 0, false, false],
+      ['shared', 0, true, false],
+      ['s/x', 1, true, false],
+      ['s/x/inner', 2, false, true],
+      ['s/y', 1, false, false],
+    ]);
+  });
+
+  it('opens a row folded open by hand, and the Shared fold by its own id', () => {
+    const rows = sidebarRows(
+      payloadOf(
+        block('s/a', 's'),
+        block('s/a/b', 's/a'),
+        block('s/x', 's', { kind: 'shared' })
+      ),
+      null,
+      new Set(['s/a', 'shared'])
+    );
+    expect(rows.map(r => [r.id, r.open])).toEqual([
+      ['s/a', true],
+      ['s/a/b', false],
+      ['shared', true],
+      ['s/x', false],
+    ]);
+  });
 });

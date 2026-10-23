@@ -2102,6 +2102,26 @@ describe('skills blocks route', () => {
     });
   });
 
+  it('is 502 with its message for any other error envelope, never a payload', async () => {
+    const waiting = JSON.stringify({
+      contract: 1,
+      at: '2026-10-22T00:00:00.000Z',
+      error: {
+        code: 'org-layout-waiting',
+        message: 'The org repo is waiting on a layout change',
+      },
+    });
+    const rt = fakeRt({ code: 1, stdout: waiting, stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({
+      error: 'The org repo is waiting on a layout change',
+    });
+  });
+
   it('is 503 when rt is not installed', async () => {
     const run = vi.fn(async () => {
       throw new RtNotFoundError(['/nowhere/rt']);
