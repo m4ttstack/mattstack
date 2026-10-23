@@ -185,6 +185,12 @@ import {
 } from './herdr.ts';
 import { reviewerLatches } from './latch/discussions.ts';
 import { latchGateway } from './latch/gateway.ts';
+import {
+  acceptedReReview,
+  isStaleSignal,
+  parseReReview,
+  settleReReview,
+} from './latch/rereview.ts';
 import { applyReviewLatch } from './latch/review-step.ts';
 import {
   dedupInFlight,
@@ -2791,6 +2797,7 @@ const httpServer = Bun.serve({
           person: person ?? null,
           responseRound: responseRound ?? null,
           gateId: null,
+          pendingReReview: [],
           startedAt: Date.now(),
         });
         void launchRespond({
@@ -3409,10 +3416,46 @@ const httpServer = Bun.serve({
           gateAnswer: gateAnswerFacility,
         });
         switch (result.kind) {
-          case 'ok':
+          case 'ok': {
+            try {
+              const picked = parseReReview(body);
+              if (picked.length > 0) {
+                for (const [mrUrl, state] of readRespondStates()) {
+                  if (state.gateId !== gateId) continue;
+                  if (state.gateKind !== 'respond-post') break;
+                  const mr = (await cache.get()).mrs.find(
+                    m => m.webUrl === mrUrl
+                  );
+                  if (!mr) break;
+                  const accepted = acceptedReReview(
+                    picked,
+                    mr.reviewerLatches ?? [],
+                    state.person
+                  );
+                  // Re-read after the cache await: a fresh launch in between
+                  // owns the row now, and the patch must carry today's status.
+                  const current = readRespondStates().get(mrUrl);
+                  if (
+                    current?.gateId === gateId &&
+                    current.gateKind === 'respond-post' &&
+                    accepted.length > 0
+                  )
+                    writeRespondState(respondFilePath(mrUrl), {
+                      status: current.status,
+                      pendingReReview: accepted,
+                    });
+                  break;
+                }
+              }
+            } catch (err) {
+              console.error(
+                `gate answer: storing the re-review pick failed: ${err}`
+              );
+            }
             return new Response(JSON.stringify({ ok: true }), {
               headers: { 'content-type': 'application/json' },
             });
+          }
           case 'conflict':
             return new Response(
               JSON.stringify({ ok: false, conflict: true, row: result.row }),
@@ -4883,22 +4926,68 @@ async function handleAgentSignal(
       );
     }
   }
+  // The status CLI writes the state file before it emits, so a live signal
+  // always has updatedAt <= emittedAt. A newer write means a later transition
+  // or launch superseded this event: the tab on file is not this event's to
+  // close, nor its pick this event's to settle. Read once, before either
+  // step runs.
+  const stale = isStaleSignal(resolveSignalUpdatedAt(signal), emittedAt);
   // Close the launched pane's tab once its agent reports done -- error
   // never closes, so a failing pane stays open for forensics. Must run
   // above the emoji early-return below: most `done` signals have no
   // emoji and would never reach a close placed after it.
-  // The status CLI writes the state file before it emits, so a live signal
-  // always has updatedAt <= emittedAt. A newer write means a later transition
-  // or launch superseded this event: the tab on file is not this event's to
-  // close, nor its status this event's to overwrite with `done`.
-  const stateUpdatedAt = resolveSignalUpdatedAt(signal);
-  if (!(stateUpdatedAt !== undefined && stateUpdatedAt > emittedAt)) {
+  if (!stale) {
     closeOnDone(
       signal,
       resolveSignalTabId,
       tabId => closeTab(tabId),
       clearSignalTabId
     );
+  }
+  // A picked re-review resolves its latch discussions once respond is done.
+  // Runs after the close so no await separates the stale read from it.
+  // Best-effort: a failure here must never fail the agent's status write.
+  if (signal.kind === 'respond' && gitlabToken && !stale) {
+    try {
+      const pending = readRespondStates().get(signal.mrUrl)?.pendingReReview;
+      if (pending?.length) {
+        let resolvedAny = false;
+        await settleReReview(
+          signal.status,
+          pending,
+          async id => {
+            await latchGateway(
+              config.gitlabHost,
+              gitlabToken
+            ).resolveDiscussion(
+              projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
+              signal.iid,
+              id
+            );
+            resolvedAny = true;
+          },
+          () => {
+            const current = readRespondStates().get(signal.mrUrl);
+            if (current)
+              writeRespondState(respondFilePath(signal.mrUrl), {
+                status: current.status,
+                pendingReReview: [],
+              });
+          },
+          msg => console.error(msg)
+        );
+        // The row offers a re-review only while a latch is open: refresh it
+        // now rather than after the snapshot TTL.
+        if (resolvedAny) {
+          cache.markStale();
+          sseNudge();
+        }
+      }
+    } catch (err) {
+      console.error(
+        `re-review settle failed for ${signal.mrUrl}: ${err instanceof Error ? err.message : err}`
+      );
+    }
   }
   const emoji = signalEmoji(
     signal.kind,

@@ -262,3 +262,5 @@ export {
 } from "./ci-lease.ts";
 export type { CiLease, CiLeaseHolder, CiLeaseOpts, ClaimRequest, ClaimResult, HeartbeatResult, ReleaseResult } from "./ci-lease.ts";
 export * from "./evidence.ts";
+export { LATCH_MARKER, LATCH_MARKER_SPENT, latchKindOf } from "./latch.ts";
+export type { LatchKind } from "./latch.ts";

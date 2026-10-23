@@ -59,7 +59,8 @@ describe("rawGit abort", () => {
       // `git apply <file>` opens the file argument directly; with no writer
       // on the other end of the fifo, that open() never returns on its own.
       const promise = rawGit(sb.dir, ["apply", fifoPath], { signal: controller.signal });
-      childPid = await findChildPid(/git apply/);
+      // rawGit puts its own `-c` flags between `git` and the subcommand.
+      childPid = await findChildPid(/git .*\bapply /);
       expect(isRunning(childPid)).toBe(true);
 
       const start = Date.now();

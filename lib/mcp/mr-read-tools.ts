@@ -2,7 +2,7 @@
  * GitLab read tools. Each asks the daemon for a live read from GitLab; none
  * reads the daemon's open-MR cache, so any MR the token can see is readable.
  */
-import { rtCommand } from "../../packages/rt-client/src/index.ts";
+import { latchKindOf, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion } from "../../packages/rt-client/src/index.ts";
 import { walkPipeline } from "../ci/gitlab-forge.ts";
 import { isHttpsMrUrl } from "../ci/lease-guard.ts";
@@ -33,12 +33,13 @@ export function isBotUsername(username: string): boolean {
   return BOT_USERNAME.some((re) => re.test(username));
 }
 
-export function filterHumanThreads(discussions: Discussion[]): { discussions: Discussion[]; dropped: { resolved: number; system: number; bot: number } } {
-  const dropped = { resolved: 0, system: 0, bot: 0 };
+export function filterHumanThreads(discussions: Discussion[]): { discussions: Discussion[]; dropped: { resolved: number; system: number; bot: number; latch: number } } {
+  const dropped = { resolved: 0, system: 0, bot: 0, latch: 0 };
   const kept: Discussion[] = [];
   for (const d of discussions) {
     const first = d.notes[0];
     if (d.resolved === true) dropped.resolved++;
+    else if (first && latchKindOf(first.body ?? "") !== null) dropped.latch++;
     else if (!first || first.system) dropped.system++;
     else if (isBotUsername(first.author.username)) dropped.bot++;
     else kept.push({ ...d, notes: d.notes.filter((n) => !n.system) });
@@ -176,7 +177,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     {
       name: "mr_threads",
       description: `GitLab only. The MR's discussion threads, fetched from GitLab on every call. ${REPO_NAME_RULE}`,
-      inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, refresh: { type: "boolean", description: "Accepted and ignored; every read is live." }, filter: { type: "string", enum: ["unresolved-human"], description: "unresolved-human keeps unresolved threads started by a person, drops system notes, and adds dropped counts." } }, additionalProperties: false },
+      inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, refresh: { type: "boolean", description: "Accepted and ignored; every read is live." }, filter: { type: "string", enum: ["unresolved-human"], description: "unresolved-human keeps unresolved threads started by a person, drops system notes and mattstack re-review latch threads, and adds dropped counts." } }, additionalProperties: false },
       shellForms: { none: "discussions have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
         const bad = checkOptional(input, [{ name: "refresh", type: "boolean" }, { name: "filter", type: "string" }]);

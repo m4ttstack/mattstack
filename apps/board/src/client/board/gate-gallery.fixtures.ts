@@ -24,6 +24,7 @@ export const PEOPLE: ReadonlyMap<string, string> = new Map([
   ['alex', 'Alex Moreno'],
   ['jvasquez', 'Joel Vasquez'],
   ['dana', 'Dana Ortiz'],
+  ['ana', 'Ana Ruiz'],
 ]);
 
 const minutesAgo = (m: number) => Date.now() - m * 60_000;
@@ -822,6 +823,30 @@ export const respondPost: GalleryGate = {
         text: 'Ready for another look!',
       }),
     ],
+  },
+};
+
+/** Renee and Ana each left an armed re-review latch no one has asked about
+    yet, so the post sheet offers to ask each once posting finishes. */
+export const respondPostReReview: GalleryGate = {
+  mr: {
+    ...MRS.flagTargeting,
+    reviewerLatches: [
+      {
+        reviewer: 'renee',
+        discussionId: '3e8a1f5c7d2b9046e1a3c8f7b5d2e9a04c6f1b83',
+        requested: false,
+      },
+      {
+        reviewer: 'ana',
+        discussionId: '9c4b7e2a1f6d8035b2e9c1a7f4d3b8e65a0c2d19',
+        requested: false,
+      },
+    ],
+  } as BoardMRWithReview,
+  gate: {
+    ...respondPost.gate,
+    gateId: 'gallery-respond-post-re-review',
   },
 };
 
