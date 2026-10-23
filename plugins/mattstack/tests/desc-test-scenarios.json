@@ -84,7 +84,7 @@
     "expect": "work-progress"
   },
   {
-    "task": "Show me progress on this plan",
+    "task": "I'm executing this plan with subagent-driven development; where is my plan at?",
     "expect": "work-progress"
   }
 ]
