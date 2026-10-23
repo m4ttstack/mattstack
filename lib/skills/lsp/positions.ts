@@ -1,0 +1,226 @@
+import { basename } from "node:path";
+import { jsoncSites, type JsoncPos } from "../../jsonc.ts";
+import type { BlockDiagnostic } from "../blocks/diagnostics.ts";
+import { FENCE_RE } from "../blocks/tree.ts";
+
+export type Position = { line: number; character: number };
+export type Range = { start: Position; end: Position };
+
+export type Token =
+  | { kind: "marker"; prop: string; range: Range }
+  | { kind: "include"; name: string; range: Range }
+  | { kind: "prop-decl"; prop: string; range: Range }
+  | { kind: "node-decl"; node: string; range: Range }
+  | { kind: "binding-key"; engineRef: string; blockPath: string | null; range: Range }
+  | { kind: "binding-prop"; key: string; prop: string; range: Range }
+  | { kind: "binding-value"; key: string; prop: string; value: string; range: Range };
+
+const MARKER_RE = /\{\{props\.([a-z][a-z0-9-]*)\}\}|\{\{include:([^}\s]+)\}\}/g;
+const FRONTMATTER_FENCE_RE = /^---\s*$/;
+const YAML_KEY_RE = /^(\s*)([A-Za-z0-9_][\w-]*)\s*:/;
+const NODE_VALUE_RE = /^node:\s*(\w+)/;
+const MERMAID_SKIP_RE = /^\s*(?:%%|(?:flowchart|graph|classDef|class|style|linkStyle|direction|subgraph|end)\b)/;
+
+const span = (line: number, start: number, end: number): Range => ({ start: { line, character: start }, end: { line, character: end } });
+
+function fileKind(file: string): "block" | "manifest" | null {
+  if (file.endsWith(".block.md")) return "block";
+  if (basename(file) === "skills.jsonc") return "manifest";
+  return null;
+}
+
+export function tokensIn(text: string, file: string): Token[] {
+  const kind = fileKind(file);
+  if (kind === "block") return blockTokens(text);
+  if (kind === "manifest") return manifestTokens(text);
+  return [];
+}
+
+export function tokenAt(text: string, file: string, pos: Position): Token | null {
+  return tokensIn(text, file).find((t) => contains(t.range, pos)) ?? null;
+}
+
+function contains(r: Range, p: Position): boolean {
+  return p.line === r.start.line && p.character >= r.start.character && p.character < r.end.character;
+}
+
+export function rangeOf(d: BlockDiagnostic, text: string): Range {
+  const line = d.line - 1;
+  const character = d.col - 1;
+  const row = text.split("\n")[line] ?? "";
+  const token = tokensIn(text, d.file).find((t) => t.range.start.line === line && t.range.start.character === character);
+  if (token) return { start: token.range.start, end: token.range.end };
+  return span(line, character, character + lexemeLength(row.slice(character)));
+}
+
+/** Length of the `{{…}}` marker, JSON string or YAML key that opens `rest`; else the rest of the line. */
+function lexemeLength(rest: string): number {
+  if (rest.startsWith("{{")) {
+    const close = rest.indexOf("}}");
+    return close < 0 ? rest.length : close + 2;
+  }
+  if (rest.startsWith('"')) return stringLength(rest, 0) ?? rest.length;
+  const key = /^[\w-]+(?=\s*:)/.exec(rest);
+  return key ? key[0].length : rest.length;
+}
+
+/** Length of the JSON string opening at `start`, quotes included, or null when it does not close on its line. */
+function stringLength(row: string, start: number): number | null {
+  for (let i = start + 1; i < row.length; i++) {
+    if (row[i] === "\\") i++;
+    else if (row[i] === '"') return i - start + 1;
+  }
+  return null;
+}
+
+function blockTokens(text: string): Token[] {
+  const lines = text.split("\n");
+  const tokens: Token[] = [];
+  let body = 0;
+  if (FRONTMATTER_FENCE_RE.test(lines[0] ?? "")) {
+    const close = lines.findIndex((l, i) => i > 0 && FRONTMATTER_FENCE_RE.test(l));
+    body = close < 0 ? lines.length : close + 1;
+    frontmatterTokens(lines.slice(1, close < 0 ? lines.length : close), 1, tokens);
+  }
+  let fence: { marker: string; mermaid: boolean } | null = null;
+  for (let i = body; i < lines.length; i++) {
+    const row = lines[i]!;
+    const m = FENCE_RE.exec(row);
+    if (fence === null) {
+      if (m) {
+        fence = { marker: m[1]!, mermaid: m[2] === "mermaid" };
+        continue;
+      }
+      for (const mm of row.matchAll(MARKER_RE)) {
+        const range = span(i, mm.index, mm.index + mm[0].length);
+        tokens.push(mm[1] !== undefined ? { kind: "marker", prop: mm[1], range } : { kind: "include", name: mm[2]!, range });
+      }
+      continue;
+    }
+    if (m && m[1]![0] === fence.marker[0] && m[1]!.length >= fence.marker.length && m[2] === "") {
+      fence = null;
+      continue;
+    }
+    if (fence.mermaid) mermaidTokens(row, i, tokens);
+  }
+  return tokens;
+}
+
+function frontmatterTokens(lines: string[], offset: number, tokens: Token[]): void {
+  let inProps = false;
+  let propIndent: number | null = null;
+  lines.forEach((row, k) => {
+    const line = offset + k;
+    const key = YAML_KEY_RE.exec(row);
+    if (!key) return;
+    const indent = key[1]!.length;
+    if (indent === 0) {
+      inProps = key[2] === "props";
+      propIndent = null;
+      const node = NODE_VALUE_RE.exec(row);
+      if (node) {
+        const start = row.indexOf(node[1]!, "node:".length);
+        tokens.push({ kind: "node-decl", node: node[1]!, range: span(line, start, start + node[1]!.length) });
+      }
+      return;
+    }
+    if (!inProps) return;
+    propIndent ??= indent;
+    if (indent === propIndent) tokens.push({ kind: "prop-decl", prop: key[2]!, range: span(line, indent, indent + key[2]!.length) });
+  });
+}
+
+const OPENERS: Record<string, string> = { "[": "]", "(": ")", "{": "}" };
+
+/** Node ids on one mermaid statement line: words outside labels, edge texts and `:::class` suffixes. */
+function mermaidTokens(row: string, line: number, tokens: Token[]): void {
+  if (MERMAID_SKIP_RE.test(row)) return;
+  const closers: string[] = [];
+  let i = 0;
+  while (i < row.length) {
+    const ch = row[i]!;
+    if (closers.length > 0) {
+      if (ch === '"') {
+        const end = row.indexOf('"', i + 1);
+        i = end < 0 ? row.length : end + 1;
+        continue;
+      }
+      if (OPENERS[ch]) closers.push(OPENERS[ch]!);
+      else if (ch === closers[closers.length - 1]) closers.pop();
+      i++;
+      continue;
+    }
+    if (OPENERS[ch]) {
+      closers.push(OPENERS[ch]!);
+      i++;
+      continue;
+    }
+    if (ch === "|") {
+      const end = row.indexOf("|", i + 1);
+      i = end < 0 ? row.length : end + 1;
+      continue;
+    }
+    const edgeText = /^(?:--|-\.)\s/.exec(row.slice(i));
+    if (edgeText) {
+      const end = /-->|\.->/.exec(row.slice(i + edgeText[0].length));
+      i = end ? i + edgeText[0].length + end.index + end[0].length : row.length;
+      continue;
+    }
+    if (row.startsWith(":::", i)) {
+      i += 3;
+      while (i < row.length && /\w/.test(row[i]!)) i++;
+      continue;
+    }
+    const word = /^\w+/.exec(row.slice(i));
+    if (word) {
+      tokens.push({ kind: "node-decl", node: word[0], range: span(line, i, i + word[0].length) });
+      i += word[0].length;
+      continue;
+    }
+    i++;
+  }
+}
+
+function manifestTokens(text: string): Token[] {
+  const lines = text.split("\n");
+  const tokens: Token[] = [];
+  const stringAt = (p: JsoncPos): Range | null => {
+    const row = lines[p.line - 1] ?? "";
+    const start = p.col - 1;
+    if (row[start] !== '"') return null;
+    const length = stringLength(row, start);
+    return length === null ? null : span(p.line - 1, start, start + length);
+  };
+  const literal = (r: Range): string | null => {
+    try {
+      return JSON.parse(lines[r.start.line]!.slice(r.start.character, r.end.character)) as string;
+    } catch {
+      return null;
+    }
+  };
+  for (const [pathKey, site] of jsoncSites(text)) {
+    const path = JSON.parse(pathKey) as (string | number)[];
+    const base = path[0] === "bindings" ? 1 : path[0] === "pipelines" && typeof path[1] === "string" && path[2] === "bindings" ? 3 : null;
+    if (base === null) continue;
+    const [key, prop, index, field] = path.slice(base);
+    if (typeof key !== "string") continue;
+    if (prop === undefined) {
+      const range = site.key && stringAt(site.key);
+      if (!range) continue;
+      const slash = key.indexOf("/");
+      tokens.push({ kind: "binding-key", engineRef: slash < 0 ? key : key.slice(0, slash), blockPath: slash < 0 ? null : key.slice(slash + 1), range });
+      continue;
+    }
+    if (typeof prop !== "string") continue;
+    if (index === undefined) {
+      const range = site.key && stringAt(site.key);
+      if (range) tokens.push({ kind: "binding-prop", key, prop, range });
+    }
+    const isValue = index === undefined || (typeof index === "number" && field === "value" && path.length === base + 4);
+    if (!isValue) continue;
+    const range = stringAt(site.value);
+    const value = range && literal(range);
+    if (range && value !== null) tokens.push({ kind: "binding-value", key, prop, value, range });
+  }
+  return tokens.sort((a, b) => a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character);
+}
