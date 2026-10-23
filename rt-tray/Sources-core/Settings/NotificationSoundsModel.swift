@@ -6,22 +6,24 @@ import Combine
 @MainActor
 public final class NotificationSoundsModel: ObservableObject {
     @Published public private(set) var picks = SoundPicks.defaults
-    @Published public private(set) var inFlight = false
     @Published public private(set) var error: String?
 
-    public init() {}
+    /// How long picks settle before one write saves them all.
+    private let saveDelay: Duration
+    private var pendingSave: Task<Void, Never>?
+    private var saveCount = 0
 
-    /// Skips while a write is in flight so a late read cannot undo the optimistic pick.
-    public func load(rt: RtRunning) async {
-        guard !inFlight else { return }
-        await read(rt: rt)
-    }
-
-    /// Bumped by every read and write, so an answer that a newer one has
-    /// superseded never lands over a fresher pick.
+    /// Bumped by every pick and read, so a read that a newer pick has
+    /// superseded never lands over it.
     private var generation = 0
 
-    private func read(rt: RtRunning) async {
+    public init(saveDelay: Duration = .milliseconds(600)) {
+        self.saveDelay = saveDelay
+    }
+
+    /// Skips while a save is pending so a read cannot undo a fresh pick.
+    public func load(rt: RtRunning) async {
+        guard pendingSave == nil else { return }
         struct Reading: Decodable { var value: SoundPicks }
         generation += 1
         let mine = generation
@@ -38,26 +40,40 @@ public final class NotificationSoundsModel: ObservableObject {
     /// sound can be tried even when rt can't store it.
     static func unsaved(_ why: String) -> String { "Not saved, so this pick lasts until mattstack quits. \(why)" }
 
-    public func set(_ tier: SoundTier, to id: String, rt: RtRunning) async {
-        guard !inFlight, picks[tier] != id else { return }
-        inFlight = true
-        defer { inFlight = false }
+    /// Takes effect at once; the save waits for picks to settle and writes
+    /// only the last state, after any write already running.
+    public func pick(_ tier: SoundTier, _ id: String, rt: RtRunning) {
+        guard picks[tier] != id else { return }
         generation += 1
         error = nil
         picks[tier] = id
+        let previous = pendingSave
+        previous?.cancel()
+        saveCount += 1
+        let mine = saveCount
+        pendingSave = Task { [saveDelay] in
+            try? await Task.sleep(for: saveDelay)
+            if Task.isCancelled { return }
+            await previous?.value
+            await self.save(rt: rt)
+            if self.saveCount == mine { self.pendingSave = nil }
+        }
+    }
+
+    /// Waits for the pending save, if any. Checks use it; the pane never waits.
+    public func settle() async {
+        while let task = pendingSave { await task.value }
+    }
+
+    private func save(rt: RtRunning) async {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let json = String(decoding: (try? encoder.encode(picks)) ?? Data("{}".utf8), as: UTF8.self)
         do {
             let r = try await rt.run(["settings", "set", "rt.notify.sounds", json, "--scope", "machine"], stdin: nil)
-            guard r.exitCode == 0 else {
-                error = Self.unsaved(r.userError?.message ?? r.failureCopy(verb: "settings set"))
-                return
-            }
+            if r.exitCode != 0 { error = Self.unsaved(r.userError?.message ?? r.failureCopy(verb: "settings set")) }
         } catch {
             self.error = Self.unsaved((error as? RtClientError)?.copy ?? "rt settings set failed to start.")
-            return
         }
-        await read(rt: rt)
     }
 }

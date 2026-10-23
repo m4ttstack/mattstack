@@ -17,11 +17,11 @@ struct NotificationsPane: View {
     var body: some View {
         NotificationsPaneForm(
             picks: sounds.picks, systemIDs: systemIDs, customIDs: customIDs,
-            fileErrors: fileErrors, error: sounds.error, busy: sounds.inFlight,
+            fileErrors: fileErrors, error: sounds.error,
             onPick: { tier, id in
                 fileErrors[tier] = nil
                 NotificationManager.preview(id: id, tier: tier)
-                Task { await sounds.set(tier, to: id, rt: env.rt) }
+                sounds.pick(tier, id, rt: env.rt)
             },
             onChooseFile: { tier in DispatchQueue.main.async { chooseFile(for: tier) } },
             onPreview: { tier in NotificationManager.preview(id: sounds.picks[tier], tier: tier) })
@@ -58,7 +58,7 @@ struct NotificationsPane: View {
             fileErrors[tier] = nil
             refreshLists()
             NotificationManager.preview(id: SoundID.custom(name), tier: tier)
-            Task { await sounds.set(tier, to: SoundID.custom(name), rt: env.rt) }
+            sounds.pick(tier, SoundID.custom(name), rt: env.rt)
         } catch {
             TrayLog.error("could not add a custom sound", ["file": source.path, "err": String(describing: error)])
             fileErrors[tier] = "Couldn't add “\(source.lastPathComponent)”. Try again"
@@ -72,7 +72,6 @@ struct NotificationsPaneForm: View {
     let customIDs: [String]
     let fileErrors: [SoundTier: String]
     let error: String?
-    let busy: Bool
     let onPick: (SoundTier, String) -> Void
     let onChooseFile: (SoundTier) -> Void
     let onPreview: (SoundTier) -> Void
@@ -139,7 +138,6 @@ struct NotificationsPaneForm: View {
             id == Self.chooseFileTag ? onChooseFile(tier) : onPick(tier, id)
         }
         .frame(width: 190)
-        .disabled(busy)
         .accessibilityIdentifier(AXID.settingsSoundPicker(tier.key))
     }
 }
@@ -231,7 +229,7 @@ enum NotificationsPaneSnapshot {
         for (name, errors) in states {
             for scheme in ["light", "dark"] {
                 let view = NotificationsPaneForm(picks: picks, systemIDs: system, customIDs: [SoundID.custom("Doorbell.m4a")],
-                                                 fileErrors: errors, error: nil, busy: false,
+                                                 fileErrors: errors, error: nil,
                                                  onPick: { _, _ in }, onChooseFile: { _ in }, onPreview: { _ in })
                     .frame(width: 680)
                 SnapshotRenderer.render(view, appearance: scheme == "dark" ? .darkAqua : .aqua,

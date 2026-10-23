@@ -32,12 +32,13 @@ private final class SlowFirstReadRt: RtRunning, @unchecked Sendable {
 let notificationSoundsModelChecks: [Check] = [
     Check("NotificationSoundsModel ignores a launch read that answers after a newer pick") { c in
         let rt = SlowFirstReadRt()
-        let m = await MainActor.run { NotificationSoundsModel() }
+        let m = await MainActor.run { NotificationSoundsModel(saveDelay: .zero) }
         let launch = Task { await m.load(rt: rt) }
         await rt.waitForFirstRead()
-        await m.set(.warning, to: "macos/Tink", rt: rt)
+        await MainActor.run { m.pick(.warning, "macos/Tink", rt: rt) }
         rt.releaseFirstRead()
         await launch.value
+        await m.settle()
         c.expectEqual(await MainActor.run { m.picks.warning }, "macos/Tink", "the stale launch read must not restore Original")
     },
     Check("NotificationSoundsModel is all Original until rt answers, then reflects the stored picks") { c in
@@ -49,29 +50,31 @@ let notificationSoundsModelChecks: [Check] = [
         c.expectEqual(rt.calls.first?.args, ["settings", "get", "rt.notify.sounds", "--json"])
         c.expectEqual(await MainActor.run { m.picks }, SoundPicks(neutral: "none", positive: "sober/102", warning: "macos/Glass"))
     },
-    Check("NotificationSoundsModel writes every tier to the machine scope, then reloads") { c in
+    Check("NotificationSoundsModel takes a pick at once and writes every tier to the machine scope once picks settle") { c in
         let rt = ScriptedRt()
         rt.answers["settings set rt.notify.sounds"] = (0, "")
-        rt.answers["settings get rt.notify.sounds"] = (0, #"{"ok":true,"value":{"neutral":"original","positive":"original","warning":"macos/Tink"}}"#)
-        let m = await MainActor.run { NotificationSoundsModel() }
-        await m.set(.warning, to: "macos/Tink", rt: rt)
-        try c.require(rt.calls.count == 2, "expected set, get; got \(rt.calls.map(\.args))")
+        let m = await MainActor.run { NotificationSoundsModel(saveDelay: .milliseconds(50)) }
+        await MainActor.run {
+            m.pick(.warning, "macos/Glass", rt: rt)
+            m.pick(.warning, "macos/Tink", rt: rt)
+            c.expectEqual(m.picks.warning, "macos/Tink", "the pick shows before any write")
+        }
+        c.expectEqual(rt.calls.count, 0, "nothing is written while picks are still changing")
+        await m.settle()
+        try c.require(rt.calls.count == 1, "expected one coalesced write; got \(rt.calls.map(\.args))")
         c.expectEqual(rt.calls[0].args, ["settings", "set", "rt.notify.sounds",
                                          #"{"neutral":"original","positive":"original","warning":"macos/Tink"}"#, "--scope", "machine"])
-        await MainActor.run {
-            c.expectEqual(m.picks.warning, "macos/Tink")
-            c.expectEqual(m.error, nil)
-        }
+        c.expectEqual(await MainActor.run { m.error }, nil)
     },
     Check("NotificationSoundsModel keeps the pick for this run and says it wasn't saved when the write fails") { c in
         let rt = ScriptedRt()
         rt.answers["settings set rt.notify.sounds"] = (1, "")
-        let m = await MainActor.run { NotificationSoundsModel() }
-        await m.set(.positive, to: "sober/101", rt: rt)
+        let m = await MainActor.run { NotificationSoundsModel(saveDelay: .zero) }
+        await MainActor.run { m.pick(.positive, "sober/101", rt: rt) }
+        await m.settle()
         await MainActor.run {
             c.expectEqual(m.picks.positive, "sober/101", "a failed write still plays the pick until quit")
             c.expect(m.error?.hasPrefix("Not saved") == true, "the error says the pick wasn't saved")
         }
-        c.expectEqual(rt.calls.count, 1, "a failed write does not reload")
     },
 ]
