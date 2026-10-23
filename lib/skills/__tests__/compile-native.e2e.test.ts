@@ -717,6 +717,27 @@ describe("block-tree engines end to end", () => {
     expect(exitCode).toBe(1);
     expect(errors.join("\n")).toMatch(/skills\.jsonc:14:5: binding "mattstack:mini\/nope": mattstack:mini has no block "mini\/nope"/);
   });
+
+  test("a block key whose engine part matches no loaded tree refuses compile at the manifest key", async () => {
+    const { manifest, args } = await buildBlocks();
+    writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"mattstack:mini/gate"', '"mattstack:mnii/gate"'));
+    const { exitCode, errors } = await runExpectingCleanExit(() => skillsCompile(args));
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain('skills.jsonc:14:5: binding "mattstack:mnii/gate" names a block of mattstack:mnii, which no compiled verb loads');
+  });
+
+  test("check reports a block key naming no loaded tree", async () => {
+    const { manifest, args } = await buildBlocks();
+    writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"mattstack:mini/gate"', '"mattstack:gate-protocl/ask"'));
+    const io = captureSkills();
+    try {
+      await skillsCheck([...args, "--json"]);
+    } finally {
+      io.restore();
+    }
+    expect(JSON.parse(io.stdout()).compileErrors.join("\n")).toContain('skills.jsonc:14:5: binding "mattstack:gate-protocl/ask" names a block of mattstack:gate-protocl, which no compiled verb loads');
+    expect(process.exitCode).toBe(1);
+  });
 });
 
 async function workBinderVerb(args: string[]): Promise<string | null> {

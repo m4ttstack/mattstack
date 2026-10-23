@@ -166,6 +166,25 @@ export function blockPropValues(
   return values;
 }
 
+/**
+ * A key `<plugin>:<tree>/<block path>` whose tree no compiled verb loaded
+ * names nothing; `claimed` holds every loaded tree's `<plugin>:<root id>`,
+ * and `blockPropValues` checks the keys under those.
+ */
+export function unclaimedBlockKeys(bindings: PropBindings, claimed: Set<string>): BlockDiagnostic[] {
+  const sites = new ManifestSites(bindings);
+  const diagnostics: BlockDiagnostic[] = [];
+  for (const { base, layered } of sectionsOf(bindings)) {
+    for (const key of Object.keys(layered)) {
+      const slash = key.indexOf("/");
+      if (slash < 0 || claimed.has(key.slice(0, slash))) continue;
+      const pos = sites.keyIn(base, key) ?? sites.key(key);
+      diagnostics.push({ ...pos, code: "missing-block", message: `binding "${key}" names a block of ${key.slice(0, slash)}, which no compiled verb loads` });
+    }
+  }
+  return diagnostics;
+}
+
 /** The include names a tree's own text places; render resolves each to a tree or a flat attachment. */
 export function includeNamesIn(tree: BlockTree): string[] {
   const names: string[] = [];

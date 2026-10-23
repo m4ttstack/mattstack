@@ -3,7 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "os";
 import { join } from "path";
 import { BlockError } from "../blocks/diagnostics.ts";
-import { blockPropValues, compileBlockSkill, includeNamesIn, type BlockValues, type PropBindings } from "../compile-blocks.ts";
+import { blockPropValues, compileBlockSkill, includeNamesIn, unclaimedBlockKeys, type BlockValues, type PropBindings } from "../compile-blocks.ts";
 import { layeredFromManifest } from "../manifest-merge.ts";
 import { loadAttachment, loadInclude, loadStepSource, type PluginRoots } from "../sources.ts";
 import type { StepSource } from "../types.ts";
@@ -190,6 +190,16 @@ describe("blockPropValues", () => {
     expect(diagnosticsOf(() => valuesFor(step, roots, b))).toEqual([
       { file: MANIFEST, line: 6, col: 7, code: "missing-block", message: 'binding "mattstack:mini/gaet": mattstack:mini has no block "mini/gaet"' },
       { file: MANIFEST, line: 7, col: 32, code: "unknown-prop", message: 'binding "mattstack:mini/gate": block "mini/gate" declares no prop "tiring"' },
+    ]);
+  });
+
+  test("a block key, top level or pipeline section, whose tree nothing loaded is missing-block at its key", () => {
+    const text = '{\n  "bindings": { "mattstack:mini/gate": { "a": "" }, "mattstack:gate-protocl/ask": { "a": "" }, "mattstack:plain": { "a": "" } },\n  "pipelines": { "feature": {\n    "stages": ["mattstack:mini"],\n    "bindings": {\n      "mattstack:stage-x/flow": { "a": "" }\n    }\n  } }\n}\n';
+    const { layered, pipelineLayered } = layeredFromManifest(text);
+    const b: PropBindings = { layered, pipelineSections: pipelineLayered, manifest: { path: MANIFEST, text } };
+    expect(unclaimedBlockKeys(b, new Set(["mattstack:mini"]))).toEqual([
+      { file: MANIFEST, line: 2, col: 53, code: "missing-block", message: 'binding "mattstack:gate-protocl/ask" names a block of mattstack:gate-protocl, which no compiled verb loads' },
+      { file: MANIFEST, line: 6, col: 7, code: "missing-block", message: 'binding "mattstack:stage-x/flow" names a block of mattstack:stage-x, which no compiled verb loads' },
     ]);
   });
 

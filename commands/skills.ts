@@ -54,8 +54,8 @@ import { fieldContractErrors, routeFieldContract, type CompiledDoc } from "../li
 import { pipelinesWrite } from "../lib/skills/pipeline-manifest.ts";
 import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan, type EmittedAttachment } from "../lib/skills/base-attachments.ts";
 import { compileSkill, hasCompiledHeader, isInlined, type CompileSkillOpts } from "../lib/skills/compile.ts";
-import { blockPropValues, compileBlockSkill, includeNamesIn, type BlockValues } from "../lib/skills/compile-blocks.ts";
-import { BlockError } from "../lib/skills/blocks/diagnostics.ts";
+import { blockPropValues, compileBlockSkill, includeNamesIn, unclaimedBlockKeys, type BlockValues } from "../lib/skills/compile-blocks.ts";
+import { BlockError, formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { buildBlocksPayload, type BlocksPayload, type PayloadBlock } from "../lib/skills/blocks/payload.ts";
 import { walk } from "../lib/skills/blocks/tree.ts";
 import type { BlockTree } from "../lib/skills/blocks/types.ts";
@@ -586,6 +586,8 @@ type Resolved = {
   packSha: string;
   /** Built once per resolve(), so each compile run starts with nothing missing or used; null for a pack with no plugin identity. */
   teamContext: TeamContext | null;
+  /** `<plugin>:<root id>` of every block tree a compile in this run resolved props for. */
+  claimedTrees: Set<string>;
 };
 
 /**
@@ -701,6 +703,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   return {
     packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, base, provenance,
     pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha, teamContext,
+    claimedTrees: new Set<string>(),
   };
 }
 
@@ -811,6 +814,7 @@ function loadPropValuesFor(
     { tree: step.tree!, plugin: step.plugin, version: step.version },
     ...Object.values(includes).flatMap((inc) => (inc.tree ? [{ tree: inc.tree, plugin: inc.plugin, version: inc.version }] : [])),
   ];
+  for (const { tree, plugin } of trees) resolved.claimedTrees.add(`${plugin}:${tree.root.id}`);
   try {
     return blockPropValues(
       trees,
@@ -827,6 +831,14 @@ function loadPropValuesFor(
     if (err instanceof BlockError) throw new SkillsUsageError(err.message);
     throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
   }
+}
+
+/** Run once every verb has compiled: only then has every tree a binding key could name been loaded. */
+function unclaimedBlockKeyErrors(resolved: Resolved): string[] {
+  const path = resolved.manifestPath;
+  if (!path) return [];
+  const bindings = { layered: readManifestLayered(path), pipelineSections: readManifestPipelineLayered(path), manifest: { path, text: readFileSync(path, "utf8") } };
+  return unclaimedBlockKeys(bindings, resolved.claimedTrees).map(formatDiagnostic);
 }
 
 /** Every stage's own rules plus its bound fills' rules; unioned into the orchestrator because a stage read as a file loads no frontmatter of its own. */
@@ -1287,6 +1299,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     // --json has no failures key, so an error-routed line rides here too or the exit-1 envelope never says why.
     fieldContract = [...routed.warnings, ...routed.errors];
   }
+  if (verbFilter === null && failures.length === 0) failures.push(...unclaimedBlockKeyErrors(resolved));
   const unusedParams = verbFilter === null && failures.length === 0 && missing.length === 0 ? unusedParamsOf(resolved.teamContext) : [];
 
   const blocked = failures.length > 0 || missing.length > 0;
@@ -1828,6 +1841,12 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     compileErrors.push(shown.title, ...shown.details.split("\n"));
     anyStale = true;
     for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.status === "stale") rows.splice(i, 1);
+  }
+
+  if (flags.verbs === null && !neverCompiled && !compileFailed && chainErrors.length === 0) {
+    const unclaimed = unclaimedBlockKeyErrors(resolved);
+    if (unclaimed.length > 0) anyStale = true;
+    compileErrors.push(...unclaimed);
   }
 
   if (flags.verbs === null && !neverCompiled && !compileFailed && missing.length === 0) {
