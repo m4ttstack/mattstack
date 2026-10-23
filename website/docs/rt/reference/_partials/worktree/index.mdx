@@ -4,9 +4,9 @@ The signs: a provision runs for five minutes and ends with `checkout failed: git
 
 With that setting, every worktree runs its own `git fsmonitor--daemon`. On macOS under build load that daemon stops answering, and git waits for it with no timeout. To confirm, sample the stuck git process: `sample <pid> 1` shows `fsmonitor_ipc__send_query` at the top of the stack.
 
-rt's own git never asks the daemon. Every tree rt builds or already has carries `core.fsmonitor = false` in its own config, so your checkout keeps the setting while the pool opts out. That needs `extensions.worktreeConfig` on the repo. rt turns it on, unless the shared config carries `core.worktree` or `core.bare = true`, which git asks you to move first.
+The git rt runs for the worktree pool skips the daemon. Every tree rt builds carries `core.fsmonitor = false` in its own config, and trees from before get it on the daemon's next pass. Your checkout keeps the setting while the pool opts out. That needs `extensions.worktreeConfig` on the repo. rt turns it on, unless the shared config carries `core.worktree` or `core.bare = true`, which git asks you to move first.
 
-A hang in your own checkout, or in a tree made by something other than rt, means the setting is still on there:
+A hang in your own checkout, or in a tree made by something other than rt, means the setting is still on there. Turn it off for the whole repo:
 
 ```bash
 # Turn it off for the repo and every worktree, then stop the daemons
