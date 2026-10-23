@@ -72,7 +72,7 @@ Where each herd method's row comes from:
 
 | Method | spec, plan, exec, review | tasks and now |
 | --- | --- | --- |
-| superpowers, from-spec, from-plan | the report draft's milestones and the SDD ledger; spec is `·` on from-spec, spec and plan on from-plan | ledger `Task N: complete` lines against the plan's `Task N` headings; the ledger's latest line |
+| superpowers, from-spec, from-plan | the report draft's milestones and the SDD ledger; spec is `·` on from-spec, spec and plan on from-plan | the ledger's `Task N: complete` lines against the plan's `Task N` headings; a split task (`Task 8a`, `Task 8b`) counts once every part the ledger names is complete. When the job's tree is gone, rt's last record for it. Now is the ledger's latest line, `Ruling:` lines included |
 | trivial, direct-tdd | exec only; the rest `·` (no ledger by design) | the brief's item codes against the draft's `- A1: done` lines. The draft is written at completion, so `?/n` for the whole run is normal |
 | delegate | once its draft names a strategy, that strategy's row; until then a ledger if one exists, else `delegate: strategy not named yet` | as for the strategy it named |
 | a domain Method (a team's pipeline skill) | the herd's pipeline run on the job's branch: its `plan`, `implement` and review stages | `·`; the run's current stage, or its attention reason. Stages after review (ship, CI) show only here, so all ✓ with a stage in now is still running. A run still going keeps the row running, with `pane idle` added when the worker's turn has ended |
@@ -86,7 +86,7 @@ Plan rows (the overall bar counts tasks across the plans):
 | not started | rt has no record of it | no |
 | *quiet* | its ledger untouched 30+ minutes | yes: propose checking the session running it |
 | tree gone | the tree that ran it is gone or on another branch | yes: say the counts are the last seen and its finish was never recorded |
-| unknown | rt is too old to keep plan records, and no ledger is live | yes: say it is not started or finished, and that you cannot tell which |
+| unknown | rt could not answer and no ledger is live: rt is too old to keep plan records, or now reads `rt error:` and the error | yes: say you cannot tell whether it is not started or finished; on `rt error:` quote the error |
 
 Task counts are the worker's own ledger or draft, not a verified result:
 say "the ledger shows" when you quote one.
