@@ -9,7 +9,7 @@ import { isHttpsMrUrl } from "../ci/lease-guard.ts";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { sliceTrace, type TraceMode } from "./trace-slice.ts";
-import { checkOptional, checkPositiveInts, checkStringArray, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, type McpToolDef } from "./shared.ts";
+import { checkOptional, checkPositiveInts, checkStringArray, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef } from "./shared.ts";
 
 export interface MrReadDeps {
   command: typeof rtCommand;
@@ -107,7 +107,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     },
     {
       name: "mr_list",
-      description: `GitLab only. A summary of each matching MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, detailedMergeStatus, mergedAt), most recently updated first. Filters: author (a username, or "me"), sourceBranch, targetBranch, state (default opened, which includes drafts), search (title and description, so a ticket id finds its MR). Returns {mrs, truncated}: at most limit rows (default 50, maximum 200), truncated true when GitLab had more. With targetBranch the body also carries targetBranch and full (true when nothing was cut); use that to prove a branch has no stacked children. Use mr_view for one MR in full. ${LIVE_NOTE}. ${REPO_NAME_RULE}`,
+      description: `GitLab only. A summary of each matching MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, detailedMergeStatus, mergedAt), most recently updated first. Filters: author (a username, or "me"), sourceBranch, targetBranch, state (default opened, which includes drafts), search (title and description, so a ticket id finds its MR). Returns {mrs, truncated}: at most limit rows (default 50, maximum 200), truncated true when GitLab had more. With targetBranch the body also carries targetBranch and full (true when nothing was cut); use that to prove a branch has no stacked children. Use mr_view for one MR in full. ${LIVE_NOTE}. ${REPO_TARGET_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -158,7 +158,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     },
     {
       name: "mr_for_branch",
-      description: `GitLab only. The open MR (or null) for each named source branch, by any author. A null means GitLab has no open MR with that source branch. ${LIVE_NOTE}. ${REPO_NAME_RULE}`,
+      description: `GitLab only. The open MR (or null) for each named source branch, by any author. A null means GitLab has no open MR with that source branch. ${LIVE_NOTE}. ${REPO_TARGET_RULE}`,
       inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, branches: { type: "array", items: { type: "string" }, minItems: 1 } }, required: ["branches"], additionalProperties: false },
       shellForms: [{ id: "subst", pattern: /\b[A-Za-z_][A-Za-z0-9_]*=\$\(\s*(rt|glab)\b/, example: "IID=$(glab mr list --json)", note: "a tool returns the value; nothing needs a shell variable (the inner call names the tool: glab mr list is mr_for_branch or mr_list, rt runs is run_*)" }],
       async handler(input) {
