@@ -689,6 +689,33 @@ describe("block-tree engines end to end", () => {
     expect(parts.filter((p) => p.changed).map((p) => `${p.kind}:${p.name}`)).toEqual(["prop:mini.rules"]);
   });
 
+  test("anatomy gives each value of an add prop the version its own seam was built at", async () => {
+    const { pack, ms, manifest, args } = await buildBlocks();
+    mkdirSync(join(ms, "plugins", "mattstack", "attachments", "base-rules"), { recursive: true });
+    writeFileSync(
+      join(ms, "plugins", "mattstack", "attachments", "base-rules", "SKILL.md"),
+      '---\nname: base-rules\ndescription: "Base rules"\nmetadata:\n  provides: "mini-rules@1"\n---\n\nFollow the base rules.\n',
+    );
+    writeFileSync(manifest, readFileSync(manifest, "utf8").replace(
+      '"bindings": {',
+      '"layered": {\n    "mattstack:mini": { "rules": [{ "layer": "base:acme-base", "value": "mattstack:base-rules" }, { "layer": "pack", "value": "widgets:mini-rules/fast" }] }\n  },\n  "bindings": {',
+    ));
+    await skillsCompile(args);
+    expect(readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8")).toContain("Follow the base rules.");
+
+    const io = captureSkills();
+    try {
+      await skillsAnatomy([...args, "--skill", "mini", "--json"]);
+    } finally {
+      io.restore();
+    }
+    const parts = JSON.parse(io.stdout()).parts as { kind: string; name: string; source: { ref: string; version: string; builtVersion: string | null } }[];
+    expect(parts.filter((p) => p.kind === "prop" && p.name === "mini.rules").map((p) => [p.source.ref, p.source.version, p.source.builtVersion])).toEqual([
+      ["mattstack:base-rules", "1.0.0", "1.0.0"],
+      ["widgets:mini-rules/fast", "0.1.0", "0.1.0"],
+    ]);
+  });
+
   test("a SKILL.md left beside the block tree refuses compile and leaves the compiled skill alone", async () => {
     const { pack, ms, args } = await buildBlocks();
     const before = readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8");

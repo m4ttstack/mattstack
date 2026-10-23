@@ -2435,7 +2435,11 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     const onDisk = readIfExists(renderedPath);
     const shown = onDisk ?? fresh;
 
-    const builtVersions = new Map(partExtents(onDisk ?? "").map((p) => [p.key, p.version]));
+    const extentsOnDisk = partExtents(onDisk ?? "");
+    const builtVersions = new Map(extentsOnDisk.map((p) => [p.key, p.version]));
+    // An add prop's values share one key, so each value reads the version on its own seam, in order.
+    const builtPropVersions = new Map<string, (string | null)[]>();
+    for (const x of extentsOnDisk) if (x.key.startsWith("prop:")) builtPropVersions.set(x.key, [...(builtPropVersions.get(x.key) ?? []), x.version]);
     const sources: Record<string, AnatomySource> = {};
     // A tree include renders through block seams of its own, so only a flat include has an include part.
     for (const [name, inc] of Object.entries(includes)) {
@@ -2448,11 +2452,11 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     for (const [id, props] of values) {
       for (const [name, value] of props) {
         const key = `prop:${id}.${name}`;
-        propSources.set(key, value.sources.map(({ fill }) => ({
+        propSources.set(key, value.sources.map(({ fill }, i) => ({
           ref: fill.binding,
           path: join(fill.dir, fill.file ?? "SKILL.md"),
           version: fill.version,
-          builtVersion: builtVersions.get(key) ?? null,
+          builtVersion: builtPropVersions.get(key)?.[i] ?? null,
           lines: fill.body.split("\n").length,
           ...originFor(resolved.pluginRoots, fill.plugin, fill.dir),
         })));
