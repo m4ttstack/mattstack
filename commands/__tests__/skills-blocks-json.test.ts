@@ -62,10 +62,10 @@ function frozen(name: string): void {
 }
 
 /** A slot engine beside the block one: a SKILL.md typed pipeline-step, and a verb that compiles it. */
-function addSlotEngine(): void {
+function addSlotEngine(body = "Do the plain thing."): void {
   const engine = join(root, "mattstack-home", "plugins", "mattstack", "attachments", "pipeline", "plain");
   mkdirSync(engine, { recursive: true });
-  writeFileSync(join(engine, "SKILL.md"), '---\nname: plain\ndescription: "A plain step"\ntype: pipeline-step\n---\n\n# plain\n\nDo the plain thing.\n');
+  writeFileSync(join(engine, "SKILL.md"), `---\nname: plain\ndescription: "A plain step"\ntype: pipeline-step\n---\n\n# plain\n\n${body}\n`);
   writeFileSync(
     join(root, "pack", "pack", "stubs.jsonc"),
     JSON.stringify({ verbs: { mini: { engine: "mini", description: "Run the mini widget step" }, plain: { engine: "plain", description: "Run the plain step" } } }),
@@ -91,8 +91,16 @@ test("skills blocks --json on a skill that is not a block tree is the failure en
 test("skills blocks without --json prints the tree of labels with a kind glyph per row", async () => {
   await skillsBlocks(args("--skill", "mini"));
   expect(io.stdout()).toBe(renderPlain([
-    out.tree("mini", [["○ Run"], ["  ▤ Check"], ["⚑ Gate"], ["○ Notes"], ["○ Guard"]]),
+    out.tree("mini", [["○ Run"], ["  ▤ Check"], ["⚑ Gate"], ["▤ Notes"], ["▤ Guard"]]),
   ]));
+});
+
+test("skills blocks --json on a slot engine that would not compile is still not-a-block-tree", async () => {
+  addSlotEngine("{{include:missing-include}}");
+  await skillsBlocks(args("--skill", "plain", "--json"));
+  expect(JSON.parse(io.stdout()).error.code).toBe("not-a-block-tree");
+  expect(io.stderr()).toBe("");
+  expect(process.exitCode).toBe(1);
 });
 
 test("skills blocks --json on a hand-written pack skill is the same failure envelope", async () => {

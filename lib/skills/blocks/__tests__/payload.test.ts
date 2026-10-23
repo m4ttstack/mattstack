@@ -21,6 +21,16 @@ afterEach(() => {
   for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
+function tmpTree(id: string, files: Record<string, string>): BlockTree {
+  const dir = mkdtempSync(join(tmpdir(), "blocks-payload-"));
+  made.push(dir);
+  for (const [rel, body] of Object.entries(files)) {
+    mkdirSync(join(dir, rel, ".."), { recursive: true });
+    writeFileSync(join(dir, rel), body);
+  }
+  return loadBlockTree(dir, { idPrefix: id, relRoot: `attachments/${id}` });
+}
+
 function ctx(): PlaceholderContext {
   return {
     fills: {}, slotMode: {}, partsPrefix: "${CLAUDE_SKILL_DIR}/parts", includes: {}, pipelines: {},
@@ -80,16 +90,21 @@ test("the mini payload lists every block in preorder with its parent and depth",
   expect(payload.includes).toEqual([]);
 });
 
-test("kinds come from the gate field, the parent's graph and its absence", () => {
+test("kinds come from the gate field, an include, a diamond node, any node, or no node", () => {
   const { payload } = mini();
   expect(Object.fromEntries(payload.blocks.map((b) => [b.id, b.kind]))).toEqual({
-    mini: "step",
+    mini: "note",
     "mini/run": "step",
     "mini/run/check": "note",
     "mini/gate": "gate",
-    "mini/notes": "step",
-    "mini/guard": "step",
+    "mini/notes": "note",
+    "mini/guard": "note",
   });
+  const tree = tmpTree("q", {
+    "index.block.md": "---\n---\n\n# q\n\n```mermaid\nflowchart TB\n  pick{Which way}\n```\n",
+    "pick.block.md": "---\nnode: pick\n---\n\n# Which way\n\nChoose one.\n",
+  });
+  expect(payloadOf(tree).payload.blocks.map((b) => b.kind)).toEqual(["note", "question"]);
   expect(payload.blocks.find((b) => b.id === "mini/guard")!.headless).toBe(true);
 });
 
@@ -103,16 +118,23 @@ test("layers list mattstack, the base when there is one, then the pack", () => {
   expect(withBase.lines.map((l) => l.layer)).toEqual(["default", "base:acme-base", "pack"]);
 });
 
-test("lines count the engine text with its Mermaid source as mattstack and each value as its layer", () => {
-  const { payload } = mini();
-  const textLines = payload.blocks.flatMap((b) => b.text.split("\n")).filter((l) => l.trim() !== "" && !l.startsWith("<!-- part: "));
+/** The compiled body's non-blank, non-seam lines, from the first block seam on. */
+function bodyLineCount(compiled: string): number {
+  const lines = compiled.split("\n");
+  const start = lines.findIndex((l) => l.startsWith("<!-- part: block:"));
+  return lines.slice(start).filter((l) => l.trim() !== "" && !l.startsWith("<!-- part: ")).length;
+}
+
+test("lines add up to the compiled body, each value counted for its layer", () => {
+  const { payload, compiled } = mini();
   // The rules value is the pack's two lines; everything else, the defaulted tiering and style values included, is mattstack's.
   expect(payload.lines).toEqual([
-    { layer: "default", count: textLines.length - 2 },
+    { layer: "default", count: bodyLineCount(compiled) - 2 },
     { layer: "pack", count: 2 },
   ]);
-  expect(textLines).toContain("flowchart TB");
-  expect(textLines.some((l) => l.includes("digraph"))).toBe(false);
+  const root = payload.blocks[0]!;
+  expect(root.text).toContain("flowchart TB");
+  expect(root.text).not.toContain("digraph");
 });
 
 test("text is the block's own rendered markdown with values inlined and its graph as mermaid", () => {
@@ -132,12 +154,67 @@ test("props carry their spec, marker and each value with its layer and line coun
   const root = payload.blocks[0]!;
   expect(root.props).toEqual([{
     name: "rules", merge: "add", default: "", contract: null, marker: { line: 24, col: 1 },
-    values: [{ layer: "pack", binding: "widgets:mini-rules/fast", path: join(FIX, "pack", "attachments", "mini-rules", "fast.md"), lines: 2 }],
+    values: [{ layer: "pack", color: "team", binding: "widgets:mini-rules/fast", path: join(FIX, "pack", "attachments", "mini-rules", "fast.md"), lines: 2 }],
     fromDefault: false,
   }]);
   const tiering = payload.blocks.find((b) => b.id === "mini/gate")!.props[0]!;
   expect(tiering.fromDefault).toBe(true);
-  expect(tiering.values.map((v) => [v.layer, v.binding, v.lines])).toEqual([["default", "mattstack:model-tiering", 1]]);
+  expect(tiering.values.map((v) => [v.layer, v.color, v.binding, v.lines])).toEqual([["default", "mattstack", "mattstack:model-tiering", 1]]);
+});
+
+test("a repo override value is the team's color", () => {
+  const tree = loadStepSource("mini", ROOTS).tree!;
+  const { payload } = payloadOf(tree, { layers: { ...MINI_LAYERS, mini: { rules: [{ layer: "override", value: "widgets:mini-rules/fast" }] } } });
+  expect(payload.blocks[0]!.props[0]!.values.map((v) => [v.layer, v.color])).toEqual([["override", "team"]]);
+  expect(payload.lines.find((l) => l.layer === "pack")!.count).toBe(2);
+});
+
+test("segments split a block into its text, each value, and the text after it", () => {
+  const tree = tmpTree("seg", {
+    "index.block.md": [
+      "---",
+      "props:",
+      "  rules:",
+      "    merge: add",
+      "---",
+      "",
+      "# seg",
+      "",
+      "Before the rules.",
+      "",
+      "{{props.rules}}",
+      "",
+      "After the rules.",
+      "",
+    ].join("\n"),
+  });
+  const { payload, compiled } = payloadOf(tree, {
+    layers: { seg: { rules: [{ layer: "base:acme-base", value: "mattstack:style-floor" }, { layer: "pack", value: "widgets:mini-rules/fast" }] } },
+    base: "acme-base",
+  });
+  const root = payload.blocks[0]!;
+  expect(root.segments).toEqual([
+    { layer: "default", color: "mattstack", prop: null, text: "# seg\n\nBefore the rules." },
+    { layer: "base:acme-base", color: "org", prop: "rules", text: "Write short sentences." },
+    { layer: "pack", color: "team", prop: "rules", text: "Follow the fast widget rules.\nRun ${CLAUDE_SKILL_DIR}/parts/rules/lint.sh first." },
+    { layer: "default", color: "mattstack", prop: null, text: "After the rules." },
+  ]);
+  expect(root.props[0]!.values.map((v) => v.lines)).toEqual([1, 2]);
+  expect(payload.lines).toEqual([
+    { layer: "default", count: bodyLineCount(compiled) - 3 },
+    { layer: "base:acme-base", count: 1 },
+    { layer: "pack", count: 2 },
+  ]);
+});
+
+test("a block that renders nothing but its seam has no renderedLines", () => {
+  const tree = tmpTree("e", {
+    "index.block.md": "---\n---\n\n# e\n\nIntro.\n",
+    "empty.block.md": "---\n---\n\n# Empty\n",
+  });
+  const empty = payloadOf(tree).payload.blocks.find((b) => b.id === "e/empty")!;
+  expect(empty.text).toBe("");
+  expect(empty.renderedLines).toBeNull();
 });
 
 test("summary is the first sentence after the title", () => {
@@ -172,25 +249,34 @@ test("graphs name the block each node is bound to", () => {
   expect(payload.graphs[0]!.nodes.map((n) => [n.id, n.blockId])).toEqual([["start", null], ["run_step", "mini/run"], ["ask_gate", "mini/gate"], ["finish", null]]);
 });
 
+const noteInclude = () => ({ tree: tmpTree("note", { "index.block.md": "---\n---\nJust a note.\n" }), plugin: "mattstack", version: "1.0.0" });
+
 test("an included tree's blocks are shared, under the block that includes them", () => {
-  const dir = mkdtempSync(join(tmpdir(), "blocks-payload-"));
-  made.push(dir);
-  const write = (root: string, files: Record<string, string>) => {
-    for (const [rel, body] of Object.entries(files)) {
-      mkdirSync(join(root, rel, ".."), { recursive: true });
-      writeFileSync(join(root, rel), body);
-    }
-  };
-  write(join(dir, "host"), {
+  const host = tmpTree("host", {
     "index.block.md": "---\n---\n\n# host\n\nIntro.\n",
     "uses.block.md": "---\n---\n\n# Uses\n\n{{include:note}}\n\nAfter text.\n",
   });
-  write(join(dir, "note"), { "index.block.md": "---\n---\nJust a note.\n" });
-  const host = loadBlockTree(join(dir, "host"), { idPrefix: "host", relRoot: "attachments/host" });
-  const note = loadBlockTree(join(dir, "note"), { idPrefix: "note", relRoot: "attachments/note" });
-  const { payload } = payloadOf(host, { includes: { note: { tree: note, plugin: "mattstack", version: "1.0.0" } } });
-  expect(payload.blocks.map((b) => [b.id, b.parentId, b.kind])).toEqual([["host", null, "step"], ["host/uses", "host", "note"], ["note", "host/uses", "shared"]]);
-  expect(payload.includes).toEqual([{ name: "note", blockId: "note" }]);
+  const { payload } = payloadOf(host, { includes: { note: noteInclude() } });
+  expect(payload.blocks.map((b) => [b.id, b.parentId, b.kind])).toEqual([["host", null, "note"], ["host/uses", "host", "note"], ["note", "host/uses", "shared"]]);
+  expect(payload.includes).toEqual([{ name: "note", blockId: "host/uses" }]);
   expect(payload.blocks[1]!.text).toBe("## Uses\n\nAfter text.");
   expect(payload.blocks[2]!.text).toBe("Just a note.");
+});
+
+test("an include used twice lists its blocks once, from the first use, and every use in includes", () => {
+  const host = tmpTree("host", {
+    "index.block.md": "---\n---\n\n# host\n\nIntro.\n",
+    "a.block.md": "---\n---\n\n# A\n\n{{include:note}}\n\nAfter A.\n",
+    "b.block.md": "---\n---\n\n# B\n\n{{include:note}}\n",
+  });
+  const { payload, compiled } = payloadOf(host, { includes: { note: noteInclude() } });
+  expect(payload.blocks.map((b) => [b.id, b.parentId])).toEqual([["host", null], ["host/a", "host"], ["note", "host/a"], ["host/b", "host"]]);
+  expect(payload.includes).toEqual([{ name: "note", blockId: "host/a" }, { name: "note", blockId: "host/b" }]);
+  const note = payload.blocks.find((b) => b.id === "note")!;
+  expect(note.text).toBe("Just a note.");
+  expect(compiled.split("\n")[note.renderedLines![0] - 1]).toStartWith("<!-- part: block:note ");
+  expect(compiled.split("\n")[note.renderedLines![1]]).toStartWith("<!-- part: block:host/b ");
+  expect(payload.blocks.find((b) => b.id === "host/a")!.text).toBe("## A\n\nAfter A.");
+  expect(payload.lines).toEqual([{ layer: "default", count: bodyLineCount(compiled) }, { layer: "pack", count: 0 }]);
+  expect(bodyLineCount(compiled)).toBe(7);
 });

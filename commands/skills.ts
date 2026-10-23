@@ -2583,20 +2583,31 @@ export async function skillsBlocks(args: string[]): Promise<void> {
       });
     }
 
+    // Before compiling, so a slot engine that would not compile still answers not-a-block-tree.
+    let engine: StepSource;
+    try {
+      engine = loadStepSource(target.verb.engine, resolved.pluginRoots);
+    } catch (err) {
+      if (err instanceof BlockError) throw new SkillsUsageError(err.message);
+      throw new SkillsUsageError(`skill "${skill}": ${(err as Error).message}`);
+    }
+    if (!engine.tree) return refuseNotABlockTree(skill, flags.json);
+
     const basePlan = requireBasePlan(resolved, plan.verbSides);
     const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, () => {}, plannedAttachmentsOf(basePlan));
     refuseMissingValues(resolved);
     const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
-    if (!main || !("content" in main) || !result.anatomy) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
-    const { step, includes, values } = result.anatomy;
-    if (!step.tree || !values) return refuseNotABlockTree(skill, flags.json);
+    const tree = result.anatomy?.step.tree;
+    const values = result.anatomy?.values;
+    if (!main || !("content" in main) || !result.anatomy || !tree || !values) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
+    const { step, includes } = result.anatomy;
 
     const payload = buildBlocksPayload({
       pack: resolved.team,
       skill,
       kind: target.isStage ? "stage" : "verb",
       plugin: step.plugin,
-      tree: step.tree,
+      tree,
       includes: Object.fromEntries(Object.entries(includes).flatMap(([name, inc]) => (inc.tree ? [[name, inc.tree] as const] : []))),
       values,
       compiled: main.content,
