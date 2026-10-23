@@ -43,14 +43,21 @@ export function startServer(opts: { roots: string[] }): void {
   let ws: Workspace | null = null;
   const published = new Set<string>();
 
-  const publishAll = () => {
+  const send = (file: string, diagnostics: ReturnType<typeof publishable>) => {
+    connection.sendDiagnostics({ uri: pathToFileURL(file).href, diagnostics }).catch((err: unknown) => {
+      logCliEvent("error", MODULE, "sending diagnostics failed", { file, error: errorText(err) });
+    });
+  };
+
+  const publishAll = (update: (ws: Workspace) => void = () => {}) => {
     if (!ws) return;
     const current = ws;
     try {
+      update(current);
       const files = new Set(current.analysis().diagnostics.keys());
-      for (const file of files) void connection.sendDiagnostics({ uri: pathToFileURL(file).href, diagnostics: publishable(current, file) });
+      for (const file of files) send(file, publishable(current, file));
       for (const file of published) {
-        if (!files.has(file)) void connection.sendDiagnostics({ uri: pathToFileURL(file).href, diagnostics: [] });
+        if (!files.has(file)) send(file, []);
       }
       published.clear();
       for (const file of files) published.add(file);
@@ -69,20 +76,18 @@ export function startServer(opts: { roots: string[] }): void {
     };
   });
 
-  connection.onInitialized(publishAll);
+  connection.onInitialized(() => publishAll());
 
   documents.onDidChangeContent(({ document }) => {
     const file = pathOf(document.uri);
     if (!ws || !file || !isSkillFile(file)) return;
-    ws.change(file, document.getText());
-    publishAll();
+    publishAll((current) => current.change(file, document.getText()));
   });
 
   documents.onDidClose(({ document }) => {
     const file = pathOf(document.uri);
     if (!ws || !file || !isSkillFile(file)) return;
-    ws.close(file);
-    publishAll();
+    publishAll((current) => current.close(file));
   });
 
   connection.onHover(({ textDocument, position }) => {

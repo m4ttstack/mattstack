@@ -4,6 +4,7 @@
  *   rt skills lsp [--root <dir>]... [--stdio]
  *
  * Stdout is the LSP channel from the first byte, so every human line goes to stderr.
+ * The verb never resolves: the library ends the process on `exit`, and resolving would log a 0ms ok.
  */
 
 import { resolve } from "node:path";
@@ -32,4 +33,5 @@ export async function skillsLsp(args: string[]): Promise<void> {
     process.exit(1);
   }
   startServer({ roots });
+  return new Promise<never>(() => {});
 }
