@@ -646,10 +646,10 @@ them in, so a compiled verb never shows a marker.
    `{{team.section:<name>?}}`) makes one optional: a team without it gets
    nothing there. Names are lowercase letters, digits and hyphens, and no
    key is named `section`. A section marker sits alone on its line. A
-   value marker may sit inside prose or a plain path
-   (`../../attachments/{{team.gates-fill}}/SKILL.md`), never inside another
-   marker or in frontmatter. Compile refuses each of those, and any
-   `{{team.*}}` in a team's own fill.
+   value marker sits inside prose, never inside another marker or in
+   frontmatter. Compile refuses each of those, and any `{{team.*}}` in a
+   team's own fill. A path into another skill or attachment uses
+   `{{pack.path:<attachment>/<file>}}`, never a hand-typed path.
 
    ```markdown
    Look up the ticket in the {{team.linear-team}} Linear team. Its id
