@@ -10,7 +10,6 @@ import {
   headingDetail,
   MIN_FRAME_ZOOM,
   OFF_STAGE_SHARE,
-  panFor,
 } from '../layout/stageFraming';
 import { LAYOUT, layoutTemplate } from '../layout/templateLayout';
 import {
@@ -148,52 +147,10 @@ describe('frameStage', () => {
     );
 
     expect(framing.viewport.zoom).toBe(MIN_FRAME_ZOOM);
-    // No drawer, so the input column stays on the stage.
+    // The input column stays on the stage.
     expect(framing.viewport.x).toBe(0);
     const [[minX], [maxX]] = framing.extent;
     expect(maxX - minX).toBeGreaterThan(600 / MIN_FRAME_ZOOM);
-  });
-});
-
-describe('frameStage under a drawer', () => {
-  it('pans the template clear of a drawer over the stage, as the drawer boards do', () => {
-    for (const right of [STEP_RIGHT, LINKS_RIGHT]) {
-      const framing = frameStage(
-        BOARD_STAGE,
-        { right, bottom: 653 },
-        { cover: 600 }
-      );
-
-      expect(framing.viewport.x).toBe(-110);
-      expect(framing.viewport.zoom).toBe(1);
-      // Wider than the stage left of the drawer, the graph scrolls to its
-      // right edge there and then only its share past it.
-      const at = limits(framing, BOARD_STAGE);
-      expect(at.leftmost + right).toBeCloseTo(
-        BOARD_STAGE.width - 600 - OFF_STAGE_SHARE * right
-      );
-      expect(at.rightmost).toBeCloseTo(OFF_STAGE_SHARE * right);
-      // The framed viewport sits inside its extent, so React Flow keeps it.
-      expect(at.leftmost).toBeLessThanOrEqual(-110);
-      expect(at.rightmost).toBeGreaterThanOrEqual(-110);
-    }
-  });
-
-  it('leaves a stage wide enough for the template and the drawer unpanned', () => {
-    const framing = frameStage(
-      { width: 2000, height: 952 },
-      { right: LINKS_RIGHT, bottom: 653 },
-      { cover: 600 }
-    );
-
-    expect(framing.viewport.x).toBe(0);
-  });
-
-  it('pans by the zoom the viewer is at', () => {
-    expect(panFor(1408, 1, 600)).toBe(-110);
-    expect(panFor(1408, 1, 0)).toBe(0);
-    expect(panFor(600, MIN_FRAME_ZOOM, 0)).toBe(0);
-    expect(panFor(1100, 0.8, 600)).toBeCloseTo(1100 - 600 - 24 - 894 * 0.8);
   });
 });
 

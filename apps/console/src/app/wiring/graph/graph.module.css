@@ -90,6 +90,11 @@
   pointer-events: none;
 }
 
+/* In the block view's column, above the text rather than over a canvas. */
+.inlineHeader {
+  padding: 0;
+}
+
 /* Badge always draws a 1px border, so each padding is a pixel short of the
    board's to keep the label where the board puts it. */
 .pill {

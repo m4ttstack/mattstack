@@ -120,3 +120,29 @@ export function aroundLayout(
 
   return { nodes, edges };
 }
+
+/** A whole graph laid out from its entry (the first node nothing points at)
+    the way `aroundLayout` lays out from a focus, with `highlight` marked as
+    the focus instead. */
+export function wholeLayout(
+  graph: AroundGraphData,
+  highlight: string | null
+): { nodes: AroundNode[]; edges: AroundEdge[]; rows: number } {
+  const pointedAt = new Set(graph.edges.map(edge => edge.to));
+  const entry =
+    graph.nodes.find(node => !pointedAt.has(node.id)) ?? graph.nodes[0];
+  if (!entry) return { nodes: [], edges: [], rows: 0 };
+  const layout = aroundLayout(graph, entry.id);
+  const used = [...layerNodes(graph, entry.id).values()];
+  const top = Math.min(...used);
+  const lift = top * (AROUND.nodeH + AROUND.rowGap);
+  return {
+    nodes: layout.nodes.map(node => ({
+      ...node,
+      position: { x: node.position.x, y: node.position.y - lift },
+      data: { ...node.data, focus: node.id === highlight },
+    })),
+    edges: layout.edges,
+    rows: Math.max(...used) - top + 1,
+  };
+}

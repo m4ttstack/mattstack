@@ -4,52 +4,12 @@ import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
+import { designFixture } from '../../graph/__tests__/designFixtures';
+import { buildFocusGroups } from '../../graph/model/focusModel';
 import type { SkillsComposition } from '../../outline';
-import { BuiltFromTable } from '../drawer/BuiltFromTable';
-import { builtFrom, fileNote, staleSteps } from '../drawer/history';
-import { usedBySites } from '../drawer/usedBy';
-import { buildFocusGroups } from '../model/focusModel';
-import { designFixture } from './designFixtures';
-
-/** The design composition with work also binding model-tiering at a second
-    prop, `domain`, at its template line 100. */
-function workBindsTieringTwice(): SkillsComposition {
-  const composition = designFixture('composition');
-  return {
-    ...composition,
-    binders: composition.binders.map(binder =>
-      binder.ref === 'mattstack:work'
-        ? {
-            ...binder,
-            props: [
-              ...binder.props,
-              {
-                name: 'domain',
-                boundTo: 'mattstack:model-tiering',
-                layer: 'pack',
-              },
-            ],
-          }
-        : binder
-    ),
-    targets: composition.targets?.map(target =>
-      target.name === 'work'
-        ? {
-            ...target,
-            placeholders: [
-              ...target.placeholders,
-              {
-                kind: 'prop',
-                arg: 'work.domain',
-                file: 'attachments/pipeline/work/SKILL.md',
-                line: 100,
-              },
-            ],
-          }
-        : target
-    ),
-  };
-}
+import { BuiltFromTable } from '../BuiltFromTable';
+import { builtFrom, fileNote, staleSteps } from '../model/history';
+import { usedBySites } from '../model/usedBy';
 
 /** The design composition with stage-provision run by no pipeline, so the
     focus list shows it nowhere. */
@@ -70,10 +30,11 @@ const groupsOfDesign = () =>
 
 describe('usedBySites', () => {
   it('lists every skill that pastes gate-protocol, grouped as the focus list groups them', () => {
-    const sites = usedBySites(designFixture('composition'), groupsOfDesign(), {
-      kind: 'include',
-      name: 'gate-protocol',
-    });
+    const sites = usedBySites(
+      designFixture('composition'),
+      groupsOfDesign(),
+      'gate-protocol'
+    );
 
     expect(sites).toHaveLength(15);
     expect(sites.map(site => [site.group, site.skill, site.line])).toEqual([
@@ -98,43 +59,26 @@ describe('usedBySites', () => {
     expect(sites[2]!.focus).toBe('stage-plan');
   });
 
-  it('finds a fill at each prop that binds it, the board skills with no template line', () => {
-    const sites = usedBySites(designFixture('composition'), groupsOfDesign(), {
-      kind: 'fill',
-      name: 'mattstack:model-tiering',
-    });
-
-    expect(sites.map(site => [site.group, site.skill, site.line])).toEqual([
-      ['PIPELINE STEPS', 'work', 242],
-      ['STANDALONE', 'shepherdr', 38],
-      ['STANDALONE', 'review', 44],
-      ['STANDALONE', 'self-review', 31],
-      ['STANDALONE', 'receive-review', 52],
-      ['STANDALONE', 'ship', 27],
-      ['STANDALONE', 'watch-ci', 35],
-      ['BOARD', 'board:review', null],
-      ['BOARD', 'board:respond', null],
-      ['BOARD', 'board:doctor', null],
-    ]);
-    expect(sites[7]!.label).toBe('board:review');
-  });
-
-  it('lists a skill once for each prop it binds the fill at', () => {
-    const composition = workBindsTieringTwice();
+  it('names a roster verb from its own includes when no target places it', () => {
+    const composition = designFixture('composition');
     const sites = usedBySites(
-      composition,
-      buildFocusGroups(composition, designFixture('check')),
-      { kind: 'fill', name: 'mattstack:model-tiering' }
+      {
+        ...composition,
+        verbs: composition.verbs.map(verb =>
+          verb.name === 'shepherdr'
+            ? { ...verb, includes: ['gate-protocol'] }
+            : verb
+        ),
+      },
+      groupsOfDesign(),
+      'gate-protocol'
     );
 
-    expect(
-      sites
-        .filter(site => site.skill === 'work')
-        .map(site => [site.prop, site.line])
-    ).toEqual([
-      ['work.domain', 100],
-      ['work.tiering', 242],
-    ]);
+    expect(sites.find(site => site.skill === 'shepherdr')).toMatchObject({
+      group: 'STANDALONE',
+      line: null,
+      focus: 'shepherdr',
+    });
   });
 
   it('gives a skill the focus list does not show no focus, and names it plainly', () => {
@@ -142,17 +86,15 @@ describe('usedBySites', () => {
     const sites = usedBySites(
       composition,
       buildFocusGroups(composition, designFixture('check')),
-      { kind: 'include', name: 'gate-protocol' }
+      'gate-protocol'
     );
 
     expect(sites.find(site => site.skill === 'stage-provision')).toEqual({
       group: 'NOT WIRED INTO ANYTHING',
       skill: 'stage-provision',
-      prop: null,
       line: 154,
       focus: null,
       label: 'stage-provision',
-      pipeline: null,
     });
   });
 
@@ -162,7 +104,7 @@ describe('usedBySites', () => {
       usedBySites(
         designFixture('composition'),
         groups,
-        { kind: 'include', name: 'gate-protocol' },
+        'gate-protocol',
         groups.pipelines.find(item => item.key === `pipeline:${workType}`)!
       ).find(site => site.skill === 'stage-plan')?.focus;
 
@@ -175,32 +117,13 @@ describe('usedBySites', () => {
     const sites = usedBySites(
       designFixture('composition'),
       groups,
-      { kind: 'include', name: 'gate-protocol' },
+      'gate-protocol',
       groups.pipelines.find(item => item.key === 'pipeline:accessibility')!
     );
 
     expect(sites.find(site => site.skill === 'stage-evidence')?.focus).toBe(
       'stage-evidence@accessibility'
     );
-  });
-
-  it("places an override's fill at its pipeline's copy of the stage", () => {
-    const sites = usedBySites(designFixture('composition'), groupsOfDesign(), {
-      kind: 'fill',
-      name: 'acme:evidence-a11y',
-    });
-
-    expect(sites).toEqual([
-      {
-        group: 'PIPELINE STEPS',
-        skill: 'stage-evidence--accessibility',
-        prop: 'stage-evidence.domain',
-        line: 299,
-        focus: 'stage-evidence@accessibility',
-        label: 'stage-evidence--accessibility/SKILL.md',
-        pipeline: 'accessibility',
-      },
-    ]);
   });
 });
 

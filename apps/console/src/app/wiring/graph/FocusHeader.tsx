@@ -1,4 +1,4 @@
-import type { Ref } from 'react';
+import type { ReactNode, Ref } from 'react';
 import {
   Alert,
   Badge,
@@ -11,6 +11,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import type { PayloadBlock } from '../../../server/blocksPayload';
 import { pluginOf } from '../outline';
 import type { SkillsAnatomy } from '../useWiring';
 import classes from './graph.module.css';
@@ -78,6 +79,41 @@ export function statusOf(
   }
 }
 
+/** A block's own kind chip names only the kinds a graph gives it. */
+const BLOCK_KIND_ICON: Partial<
+  Record<PayloadBlock['kind'], 'circle' | 'diamond' | 'flag'>
+> = { step: 'circle', question: 'diamond', gate: 'flag' };
+
+function BlockChips({ block }: { block: HeaderBlock }) {
+  const icon = BLOCK_KIND_ICON[block.kind];
+  return (
+    <>
+      {icon && (
+        <Badge
+          variant="quiet"
+          classNames={{ root: classes.pill, section: classes.pillIcon }}
+          leftSection={<Icon name={icon} size={10} />}
+          data-testid="block-kind"
+        >
+          {block.kind}
+        </Badge>
+      )}
+      {block.hasProps && (
+        <Badge
+          variant="quiet"
+          classNames={{ root: classes.pill, section: classes.pillIcon }}
+          leftSection={<Icon name="plug" size={10} />}
+          data-testid="block-has-props"
+        >
+          has props
+        </Badge>
+      )}
+    </>
+  );
+}
+
+export type HeaderBlock = { kind: PayloadBlock['kind']; hasProps: boolean };
+
 export function FocusHeader({
   ref,
   title,
@@ -86,66 +122,80 @@ export function FocusHeader({
   loading,
   status,
   checkError = null,
+  block = null,
+  actions = null,
+  inline = false,
 }: {
   ref?: Ref<HTMLDivElement>;
   title: string;
-  kind: string;
+  /** The skill's kind in words; null on a block, which shows `block`'s chips. */
+  kind: string | null;
   description: string | null;
   loading: boolean;
   status: HeaderStatus | null;
   /** Why `rt skills check` failed; the status it would have given is then
       unknown, so none is drawn. */
   checkError?: string | null;
+  block?: HeaderBlock | null;
+  actions?: ReactNode;
+  /** In the block view's column instead of floating over a canvas. */
+  inline?: boolean;
 }) {
+  const statusBadge = status && checkError === null && (
+    <Badge
+      variant={status.tone === 'warn' ? 'hue-outline' : 'quiet-outline'}
+      color={status.tone === 'warn' ? 'warn' : undefined}
+      classNames={{
+        root: classes.statusPill,
+        section: classes.pillIcon,
+      }}
+      leftSection={
+        <Icon
+          name={status.icon}
+          size={12}
+          color={GLYPH[status.tone]}
+          data-parity="i"
+        />
+      }
+      data-parity="status · engine behind"
+      data-testid="focus-status"
+      attributes={{ label: { 'data-parity': 'l' } }}
+    >
+      {status.label}
+    </Badge>
+  );
   return (
     <Paper
       ref={ref}
-      withBorder
+      withBorder={!inline}
       radius="md"
-      className={classes.header}
+      bg={inline ? 'transparent' : undefined}
+      className={inline ? classes.inlineHeader : classes.header}
       data-parity="Focus header"
       data-testid="focus-header"
     >
       <Stack gap={6}>
         <Group gap={10} justify="space-between">
           <Group gap={10}>
-            <Title order={3} fz={20} lh="normal">
+            <Title order={3} fz={inline ? 24 : 20} lh="normal">
               <Text span inherit c="var(--tk-text-1)" data-parity="title">
                 {title}
               </Text>
             </Title>
-            <Badge
-              variant="quiet"
-              classNames={{ root: classes.pill }}
-              data-parity="badge"
-              attributes={{ label: { 'data-parity': 'l' } }}
-            >
-              {kind}
-            </Badge>
+            {kind !== null && (
+              <Badge
+                variant="quiet"
+                classNames={{ root: classes.pill }}
+                data-parity="badge"
+                attributes={{ label: { 'data-parity': 'l' } }}
+              >
+                {kind}
+              </Badge>
+            )}
+            {block && <BlockChips block={block} />}
+            {actions !== null && statusBadge}
           </Group>
-          {status && checkError === null && (
-            <Badge
-              variant={status.tone === 'warn' ? 'hue-outline' : 'quiet-outline'}
-              color={status.tone === 'warn' ? 'warn' : undefined}
-              classNames={{
-                root: classes.statusPill,
-                section: classes.pillIcon,
-              }}
-              leftSection={
-                <Icon
-                  name={status.icon}
-                  size={12}
-                  color={GLYPH[status.tone]}
-                  data-parity="i"
-                />
-              }
-              data-parity="status · engine behind"
-              data-testid="focus-status"
-              attributes={{ label: { 'data-parity': 'l' } }}
-            >
-              {status.label}
-            </Badge>
-          )}
+          {actions ?? statusBadge}
         </Group>
         {description ? (
           <Text fz={13} lh="normal" c={MUTED} data-parity="desc">

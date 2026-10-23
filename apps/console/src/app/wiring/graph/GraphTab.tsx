@@ -10,12 +10,15 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { BlockSidebar } from '../blocks/BlockSidebar';
+import { BlockStage } from '../blocks/BlockStage';
 import { useAnatomy, usePendingChanges } from '../useWiring';
 import { FocusHeader, kindOf, statusOf } from './FocusHeader';
+import { GraphSidebar } from './FocusList';
 import classes from './graph.module.css';
 import { layoutTemplate } from './layout/templateLayout';
-import { focusUnder, workTypeOf } from './model/focusModel';
-import { appSkillView, buildTemplateView } from './model/templateModel';
+import { focusUnder, workTypeOf, type FocusItem } from './model/focusModel';
+import { buildTemplateView } from './model/templateModel';
 import { useGraphFocus } from './useGraphFocus';
 
 const TemplateCanvas = lazy(() => import('./TemplateCanvas'));
@@ -49,8 +52,18 @@ function FailureText({ message }: { message: string }) {
   );
 }
 
-/** The Graph tab's stage: the focused skill's header over its canvas. */
-export function GraphTab({ pack, height }: { pack: string; height: string }) {
+/** A focused pipeline opens the map between skills; any other focus opens
+    that skill's block view. */
+export function opensBlockView(
+  focused: FocusItem | null,
+  pipeline: FocusItem | null
+): focused is FocusItem {
+  return focused !== null && focused.key !== pipeline?.key;
+}
+
+/** The pipeline's template canvas, linking out to each stage, under its
+    header. */
+function PipelineMap({ pack, height }: { pack: string; height: string }) {
   const {
     url,
     patch,
@@ -61,29 +74,16 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
     pipeline,
   } = useGraphFocus(pack);
   const composition = compositionQuery.data;
-  const appSkill = useMemo(
-    () =>
-      focused &&
-      composition &&
-      groups?.board.some(item => item.key === focused.key)
-        ? appSkillView(composition, focused.skill, pack)
-        : null,
-    [focused, composition, groups, pack]
-  );
-  const anatomyQuery = useAnatomy(
-    pack,
-    appSkill ? null : (focused?.skill ?? null)
-  );
+  const anatomyQuery = useAnatomy(pack, focused?.skill ?? null);
   const changesQuery = usePendingChanges(pack);
 
-  const anatomy = appSkill?.anatomy ?? anatomyQuery.data;
+  const anatomy = anatomyQuery.data;
   const check = checkQuery.data;
   const changes = changesQuery.data;
   const workType = pipeline ? workTypeOf(pipeline.key) : null;
   const step = focused?.step ?? null;
 
   const view = useMemo(() => {
-    if (appSkill) return appSkill.view;
     if (!anatomy || !composition) return null;
     const known =
       workType !== null && Object.hasOwn(composition.pipelines ?? {}, workType);
@@ -95,7 +95,7 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
       step,
       workType: known ? workType : null,
     });
-  }, [appSkill, anatomy, composition, check, changes, step, workType]);
+  }, [anatomy, composition, check, changes, step, workType]);
   const layout = useMemo(() => (view ? layoutTemplate(view) : null), [view]);
   const onSelect = useCallback((select: string) => patch({ select }), [patch]);
   const focusOf = useCallback(
@@ -177,4 +177,25 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
       )}
     </Box>
   );
+}
+
+/** The focus list beside the map; the block tree once a skill is named in
+    the URL. With no focus named, the list stays, so "All skills" always
+    lands back on it. */
+export function GraphTabSidebar({ pack }: { pack: string }) {
+  const { url, focused, pipeline } = useGraphFocus(pack);
+  if (url.focus !== null && opensBlockView(focused, pipeline)) {
+    return <BlockSidebar key={focused.key} pack={pack} />;
+  }
+  return <GraphSidebar pack={pack} />;
+}
+
+/** The Graph tab's stage: a focused pipeline's map, or a focused skill's
+    block view. */
+export function GraphTab({ pack, height }: { pack: string; height: string }) {
+  const { focused, pipeline } = useGraphFocus(pack);
+  if (opensBlockView(focused, pipeline)) {
+    return <BlockStage pack={pack} height={height} focused={focused} />;
+  }
+  return <PipelineMap pack={pack} height={height} />;
 }

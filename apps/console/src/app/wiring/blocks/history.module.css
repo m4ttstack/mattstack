@@ -2,21 +2,6 @@
   flex: 1;
 }
 
-.tabBody {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  background-color: var(--tk-card);
-}
-
-.usedBy {
-  padding: 12px 18px;
-}
-
-.history {
-  padding: 16px 18px;
-}
-
 .siteRow {
   height: 32px;
   padding: 0 10px;

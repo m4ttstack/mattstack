@@ -23,8 +23,7 @@ import { PAGE_ROW_HEIGHT } from '../chrome';
 import { useEditorHref } from '../editorHref';
 import { CommandProvenance } from '../runs/CommandProvenance';
 import { DevPackSwitch } from './DevPackSwitch';
-import { GraphSidebar } from './graph/FocusList';
-import { GraphTab } from './graph/GraphTab';
+import { GraphTab, GraphTabSidebar } from './graph/GraphTab';
 import { MissingPackNotice } from './graph/MissingPackNotice';
 import { UnsyncedBanner, useUnsyncedBanner } from './graph/UnsyncedBanner';
 import { useWiringUrl, type WiringTab } from './graph/useWiringUrl';
@@ -222,7 +221,7 @@ export function WiringMap() {
       >
         {graphPack && (
           <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
-            <GraphSidebar pack={graphPack} />
+            <GraphTabSidebar pack={graphPack} />
           </PageShell.Sidebar>
         )}
         <PageShell.Main>

@@ -11,25 +11,25 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import type { FocusItem } from '../graph/model/focusModel';
+import { StatusDot } from '../graph/StatusDot';
 import {
   buildSpine,
   spineRows,
   type SkillsCheck,
   type SkillsComposition,
-} from '../../outline';
-import type { SkillsAnatomy } from '../../useWiring';
-import { VersionTimeline } from '../../VersionTimeline';
-import type { FocusItem } from '../model/focusModel';
-import { StatusDot } from '../StatusDot';
+} from '../outline';
+import type { SkillsAnatomy } from '../useWiring';
+import { VersionTimeline } from '../VersionTimeline';
 import { BuiltFromTable } from './BuiltFromTable';
-import classes from './drawer.module.css';
+import classes from './history.module.css';
 import {
   builtFrom,
   fileNote,
   staleSteps,
   stampNote,
   type StaleStep,
-} from './history';
+} from './model/history';
 import { TabHeading } from './TabHeading';
 
 const MUTED = 'var(--tk-text-3)';
@@ -254,23 +254,18 @@ function SkillHistory({
 }
 
 /**
- * The drawer's History tab. Opened on an input card, it is that one file's
- * copy in the open skill; opened on a row or the output, it is the whole
- * compiled skill.
+ * A block's History. On a block it is that block file's copy in the open
+ * skill; on the skill itself it is the whole compiled skill.
  */
 export function HistoryTab({
   file,
   ...props
 }: HistoryProps & {
-  /** The input card's own file; null for a row or the output. */
+  /** The block's own file; null for the skill as a whole. */
   file: string | null;
 }) {
   return (
-    <Box
-      className={`${classes.tabBody} ${classes.history}`}
-      data-parity="history"
-      data-testid="drawer-history"
-    >
+    <Box data-parity="history" data-testid="block-history">
       <Stack gap={12}>
         {file ? (
           <FileHistory

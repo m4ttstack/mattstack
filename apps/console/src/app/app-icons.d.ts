@@ -47,6 +47,8 @@ declare module '@mattstack/app-kit/icons' {
     gitCommit: true;
     reply: true;
     circleMinus: true;
+    flag: true;
+    plug: true;
   }
 }
 export {};

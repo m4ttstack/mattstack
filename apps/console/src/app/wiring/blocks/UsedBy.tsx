@@ -2,37 +2,19 @@ import { useMemo } from 'react';
 import { Box, Group, NavLink, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
-import type { SkillsComposition } from '../../outline';
-import type { FocusGroups, FocusItem } from '../model/focusModel';
-import classes from './drawer.module.css';
+import type { FocusGroups, FocusItem } from '../graph/model/focusModel';
+import type { SkillsComposition } from '../outline';
+import classes from './history.module.css';
+import { USED_BY_GROUPS, usedBySites, type UsedBySite } from './model/usedBy';
 import { TabHeading } from './TabHeading';
-import {
-  USED_BY_GROUPS,
-  usedBySites,
-  type DrawerUsedBy,
-  type UsedBySite,
-} from './usedBy';
 
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';
 
 const ROW = { root: classes.siteRow, section: classes.siteSection };
 
-function siteAt(site: UsedBySite, kind: DrawerUsedBy['kind']): string {
-  if (site.line !== null) return `pastes it at L${site.line}`;
-  return kind === 'include' ? 'pastes it in' : 'binds it';
-}
-
-function editNote({ owner, plugin }: DrawerUsedBy): string {
-  switch (owner.kind) {
-    case 'pack':
-      return 'Edit it in this pack. Every skill above picks up the change when you sync.';
-    case 'base':
-      return `Edit it in the org's ${owner.name} base pack. Every skill above picks up the change on its next compile.`;
-    case 'plugin':
-      return `Edit it in the ${plugin} plugin. Every skill above picks up the change on its next compile.`;
-  }
-}
+const siteAt = (site: UsedBySite) =>
+  site.line !== null ? `pastes it at L${site.line}` : 'pastes it in';
 
 function SiteFile({ site, here }: { site: UsedBySite; here: boolean }) {
   return (
@@ -54,16 +36,14 @@ function SiteFile({ site, here }: { site: UsedBySite; here: boolean }) {
     resting row's icon, file and line sit straight under the list. */
 function SiteRow({
   site,
-  kind,
   here,
   onFocus,
 }: {
   site: UsedBySite;
-  kind: DrawerUsedBy['kind'];
   here: boolean;
   onFocus: (focus: string) => void;
 }) {
-  const at = siteAt(site, kind);
+  const at = siteAt(site);
   const icon = <Icon name="fileText" size={13} color={MUTED} data-parity="i" />;
   const where = (
     <Text span fz={11} lh="normal" c={MUTED} data-parity="at">
@@ -104,45 +84,37 @@ function SiteRow({
 }
 
 /**
- * Every skill in the pack that pastes this partial in or binds this fill,
- * grouped as the focus list groups them, each row focusing its skill.
+ * Every skill in the pack that pastes a shared block in, grouped as the
+ * focus list groups them, each row focusing its skill.
  */
-export function UsedByTab({
+export function UsedBy({
   skill,
-  prop,
-  usedBy,
+  name,
   composition,
   groups,
   pipeline,
   onFocus,
 }: {
-  /** The skill the drawer was opened from. */
+  /** The skill the block view shows. */
   skill: string;
-  /** The prop the drawer was opened from, `<block id>.<prop>`, for a fill. */
-  prop: string | null;
-  usedBy: DrawerUsedBy;
+  /** The shared block's include name. */
+  name: string;
   composition: SkillsComposition;
   groups: FocusGroups;
-  /** The pipeline the canvas shows; a step it runs opens as its step. */
+  /** The pipeline the open skill runs in; a step it runs opens as its step. */
   pipeline: FocusItem | null;
   onFocus: (focus: string) => void;
 }) {
   const sites = useMemo(
-    () => usedBySites(composition, groups, usedBy, pipeline),
-    [composition, groups, usedBy, pipeline]
+    () => usedBySites(composition, groups, name, pipeline),
+    [composition, groups, name, pipeline]
   );
   const grouped = USED_BY_GROUPS.map(
     group => [group, sites.filter(site => site.group === group)] as const
   ).filter(([, list]) => list.length > 0);
-  const isHere = (site: UsedBySite) =>
-    site.skill === skill && (site.prop === null || site.prop === prop);
 
   return (
-    <Box
-      className={`${classes.tabBody} ${classes.usedBy}`}
-      data-parity="used by"
-      data-testid="drawer-used-by"
-    >
+    <Box data-parity="used by" data-testid="block-used-by">
       <Stack gap={16}>
         {grouped.map(([group, list]) => (
           <Stack key={group} gap={4}>
@@ -151,17 +123,22 @@ export function UsedByTab({
             </TabHeading>
             {list.map(site => (
               <SiteRow
-                key={`${site.skill}:${site.prop ?? ''}:${site.pipeline ?? ''}`}
+                key={site.skill}
                 site={site}
-                kind={usedBy.kind}
-                here={isHere(site)}
+                here={site.skill === skill}
                 onFocus={onFocus}
               />
             ))}
           </Stack>
         ))}
+        {sites.length === 0 && (
+          <Text fz={12} lh="normal" c={MUTED}>
+            No skill in this pack pastes {name} in directly.
+          </Text>
+        )}
         <Text fz={11} lh="normal" c={MUTED} data-parity="note">
-          {editNote(usedBy)}
+          One copy for every skill above: a change to it reaches each of them on
+          its next compile.
         </Text>
       </Stack>
     </Box>

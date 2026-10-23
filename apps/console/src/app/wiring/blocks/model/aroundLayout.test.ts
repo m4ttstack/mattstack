@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { shipShaped } from '../__tests__/aroundFixtures';
+import { miniPayload } from '../__tests__/blocksFixture';
 import { aroundBlock } from './around';
-import { aroundLayout, layerNodes } from './aroundLayout';
+import { AROUND, aroundLayout, layerNodes, wholeLayout } from './aroundLayout';
 
 const sub = aroundBlock(shipShaped, 'fast_checks');
 
@@ -111,5 +112,39 @@ describe('aroundLayout', () => {
       data: { dashed: true },
     });
     expect(edge('commit_named', 'fast_checks')?.label).toBeUndefined();
+  });
+});
+
+describe('wholeLayout', () => {
+  const graph = miniPayload.graphs[0];
+
+  it('lays the whole graph out from its entry, one row per step, from the top', () => {
+    const layout = wholeLayout(graph, 'ask_gate');
+    const y = (id: string) =>
+      layout.nodes.find(node => node.id === id)!.position.y;
+    const step = AROUND.nodeH + AROUND.rowGap;
+
+    expect(layout.rows).toBe(4);
+    expect([y('start'), y('run_step'), y('ask_gate'), y('finish')]).toEqual([
+      0,
+      step,
+      2 * step,
+      3 * step,
+    ]);
+  });
+
+  it('marks only the highlighted node as the focus', () => {
+    const layout = wholeLayout(graph, 'ask_gate');
+    expect(
+      layout.nodes.filter(node => node.data.focus).map(node => node.id)
+    ).toEqual(['ask_gate']);
+  });
+
+  it('draws nothing for an empty graph', () => {
+    expect(wholeLayout({ nodes: [], edges: [] }, null)).toEqual({
+      nodes: [],
+      edges: [],
+      rows: 0,
+    });
   });
 });

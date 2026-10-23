@@ -44,6 +44,9 @@ vi.mock('../../../api', () => ({
         changes: {
           $get: (args: { query: { pack: string } }) => changesGet(args),
         },
+        blocks: {
+          $get: () => Promise.resolve(ok({ error: 'not a block tree' }, 404)),
+        },
         source: {
           $get: ({ query }: { query: { path: string } }) =>
             Promise.resolve(ok(designSource(query.path))),

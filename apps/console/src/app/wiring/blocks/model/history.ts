@@ -1,8 +1,8 @@
+import type { FocusItem } from '../../graph/model/focusModel';
+import { fileLabelOf, staleReason } from '../../graph/model/templateModel';
 import { type SkillsCheck } from '../../outline';
 import { baseLabel, ownerOf, type Owner } from '../../owner';
 import type { SkillsAnatomy } from '../../useWiring';
-import type { FocusItem } from '../model/focusModel';
-import { fileLabelOf, staleReason } from '../model/templateModel';
 
 type CheckRow = SkillsCheck['verbs'][number];
 type AnatomySource = SkillsAnatomy['template'];

@@ -21,6 +21,7 @@ import {
   FileCode,
   FileText,
   FileX,
+  Flag,
   Folder,
   GitBranch,
   GitCommitHorizontal,
@@ -40,6 +41,7 @@ import {
   Minus,
   PanelRight,
   PanelRightOpen,
+  Plug,
   Replace,
   Reply,
   Signpost,
@@ -100,4 +102,6 @@ registerIcons({
   gitCommit: lucideWrapperFn(GitCommitHorizontal),
   reply: lucideWrapperFn(Reply),
   circleMinus: lucideWrapperFn(CircleMinus),
+  flag: lucideWrapperFn(Flag),
+  plug: lucideWrapperFn(Plug),
 });

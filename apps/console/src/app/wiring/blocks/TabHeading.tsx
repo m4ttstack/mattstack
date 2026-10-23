@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Text } from '@mattstack/app-kit/core';
 
-/** A section label inside a drawer tab. */
+/** A section label inside a block's History or Used by. */
 export function TabHeading({
   children,
   parity,

@@ -9,8 +9,8 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
-import classes from './drawer.module.css';
-import type { BuiltFromRow, FileStatus } from './history';
+import classes from './history.module.css';
+import type { BuiltFromRow, FileStatus } from './model/history';
 
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';

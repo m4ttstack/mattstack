@@ -203,7 +203,6 @@ export default function TemplateCanvas({
   layout,
   view,
   height,
-  cover = 0,
   headerBottom = 0,
   focusOf = skill => skill,
   onSelect,
@@ -211,8 +210,6 @@ export default function TemplateCanvas({
   layout: LayoutResult;
   view: TemplateView;
   height: string;
-  /** Stage px a drawer covers at the stage's right edge. */
-  cover?: number;
   /** The focus header's bottom in stage px. */
   headerBottom?: number;
   /** The focus key a link card opens its skill under. */
@@ -276,7 +273,7 @@ export default function TemplateCanvas({
             />
           </div>
           <ColumnHeaders view={view} />
-          <ZoomControls shape={{ geometry, cover, headerBottom }} />
+          <ZoomControls shape={{ geometry, headerBottom }} />
         </ReactFlow>
       </Box>
     </CanvasContext.Provider>

@@ -36,6 +36,7 @@ import {
   AROUND,
   aroundLayout,
   layerNodes,
+  wholeLayout,
   type AroundEdge,
   type AroundNode,
 } from './model/aroundLayout';
@@ -176,35 +177,37 @@ export interface AroundGraphProps {
   onViewWholeGraph: () => void;
 }
 
-export function AroundGraph({
-  graph,
-  focus,
+/** The canvas, its heading row and its key, shared by the small graph and
+    the whole one. */
+function GraphFrame({
+  label,
+  action,
+  onAction,
+  layout,
+  rows,
   onSelect,
-  onViewWholeGraph,
-}: AroundGraphProps) {
+  testId,
+}: {
+  label: string;
+  action: string;
+  onAction: () => void;
+  layout: { nodes: AroundNode[]; edges: AroundEdge[] };
+  rows: number;
+  onSelect: (blockId: string) => void;
+  testId: string;
+}) {
   const scheme = useComputedColorScheme('light');
-  const { layout, rows } = useMemo(() => {
-    const sub = aroundBlock(graph, focus);
-    const layers = layerNodes(sub, focus);
-    return {
-      layout: aroundLayout(sub, focus),
-      rows: Math.max(0, ...layers.values()) + 1,
-    };
-  }, [graph, focus]);
   const height =
     rows * AROUND.nodeH + (rows - 1) * AROUND.rowGap + 2 * CANVAS_PADDING;
 
   return (
-    <section className={classes.around} aria-label="Around this block">
+    <section className={classes.around} aria-label={label} data-testid={testId}>
       <div className={classes.aroundHead}>
         <Text fz={11} fw={500} lh="normal" tt="uppercase" c="dimmed">
-          Around this block
+          {label}
         </Text>
-        <UnstyledButton
-          className={classes.graphLink}
-          onClick={onViewWholeGraph}
-        >
-          View whole graph
+        <UnstyledButton className={classes.graphLink} onClick={onAction}>
+          {action}
         </UnstyledButton>
       </div>
       <OnSelect.Provider value={onSelect}>
@@ -248,5 +251,65 @@ export function AroundGraph({
         </li>
       </ul>
     </section>
+  );
+}
+
+export function AroundGraph({
+  graph,
+  focus,
+  onSelect,
+  onViewWholeGraph,
+}: AroundGraphProps) {
+  const { layout, rows } = useMemo(() => {
+    const sub = aroundBlock(graph, focus);
+    const layers = layerNodes(sub, focus);
+    return {
+      layout: aroundLayout(sub, focus),
+      rows: Math.max(0, ...layers.values()) + 1,
+    };
+  }, [graph, focus]);
+
+  return (
+    <GraphFrame
+      label="Around this block"
+      action="View whole graph"
+      onAction={onViewWholeGraph}
+      layout={layout}
+      rows={rows}
+      onSelect={onSelect}
+      testId="around-graph"
+    />
+  );
+}
+
+export interface WholeGraphProps {
+  graph: BlocksPayload['graphs'][number];
+  /** The open block's own node, marked as the focus; null on a parent. */
+  highlight: string | null;
+  onSelect: (blockId: string) => void;
+  onClose: () => void;
+}
+
+/** A block's whole graph on the same canvas, in place of the small one. */
+export function WholeGraph({
+  graph,
+  highlight,
+  onSelect,
+  onClose,
+}: WholeGraphProps) {
+  const layout = useMemo(
+    () => wholeLayout(graph, highlight),
+    [graph, highlight]
+  );
+  return (
+    <GraphFrame
+      label="Whole graph"
+      action="Close graph"
+      onAction={onClose}
+      layout={layout}
+      rows={layout.rows}
+      onSelect={onSelect}
+      testId="whole-graph"
+    />
   );
 }
