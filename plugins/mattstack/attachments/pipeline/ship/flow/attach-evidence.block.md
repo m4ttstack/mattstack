@@ -1,5 +1,9 @@
 ---
 node: attach_evidence
+props:
+  rules:
+    merge: add
+    default: ""
 ---
 
 # Attach the evidence (evidence-record)
@@ -10,3 +14,5 @@ about to go up but a cleared board before anything uploads. This is the last att
 Take at the upload off-script gate (never the first call) sends
 `linkRefused: true`; the off-script gate shares the push gate's
 `n`.
+
+{{props.rules}}

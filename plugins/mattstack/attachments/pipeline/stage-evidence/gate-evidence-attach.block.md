@@ -1,5 +1,9 @@
 ---
 order: 2
+props:
+  rules:
+    merge: add
+    default: ""
 ---
 
 # Gate `evidence-attach` (the domain attaches here and the lookup found an open MR or PR)
@@ -48,3 +52,5 @@ budget quoted.
 | Thought | Reality |
 |---|---|
 | "I have no concrete case ids to offer, so I'll explain the gap after the form" | An open-ended intake question needs no invented options: it is free text inside the form. Prose after the form is what the gate forbids. |
+
+{{props.rules}}

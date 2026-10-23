@@ -1,5 +1,9 @@
 ---
 node: save_ticket_image
+props:
+  rules:
+    merge: add
+    default: ""
 ---
 
 # Save the ticket image as the BEFORE
@@ -43,3 +47,5 @@ unredacted original is left in an upload root. Its board is drawn inside
 run that also has a live browser case spawns the driver twice by design.
 A ticket image is the likeliest to come from production, so `hide` names
 every personal detail on it that is not being verified.
+
+{{props.rules}}

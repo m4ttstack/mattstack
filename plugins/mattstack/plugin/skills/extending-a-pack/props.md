@@ -65,10 +65,10 @@ block. One fill may bind to any number of blocks.
 
 | the ask is about | blocks |
 | --- | --- |
-| getting a worktree, ticket lookup, branch shape | `stage-provision`: `follow-domain-flow`, `gate-provision`, `domain-rules` |
-| what a plan must commit to, tiers, extra APPROACH lines | `stage-plan`: `read-ticket`, `pick-tier`, `print-triage-block`, `gate-plan`, `domain-rules` |
+| getting a worktree, ticket lookup, branch shape | `stage-provision`: `follow-domain-flow`, `provision-result`, `gate-provision`, `domain-rules` |
+| what a plan must commit to, tiers, extra APPROACH lines, the evidence plan | `stage-plan`: `read-ticket`, `pick-tier`, `print-triage-block`, `gate-plan`, `run-field-set-evidence-plan`, `domain-rules` |
 | checks for touched paths before implementation | `stage-gates`: `apply-triggered-gates`, `domain-rules` |
-| what counts as evidence, before/after capture; browser screenshots through a `## Browser target` section (`browser-target.md`) | `stage-evidence`: `domain-steps-before-gate`, `capture-before-case`, `gate-evidence`, `domain-rules` |
+| what counts as evidence, before/after capture; browser screenshots through a `## Browser target` section (`browser-target.md`) | `stage-evidence`: the step blocks below, `domain-rules` |
 | own-branch review homework | `stage-self-review`: `follow-domain-review`, `domain-rules` |
 | MR preflight, fast checks, commit shape, description shape, labels | `stage-ship` and `ship`: the step blocks below, `domain-rules` |
 | CI job names, retry rules, triage | `stage-watch-ci` and `watch-ci`: `classify-triage-report`, `domain-rules`, `forge` |
@@ -107,6 +107,7 @@ The `rules` blocks, with the section each one is:
 | block | section |
 | --- | --- |
 | `stage-provision/follow-domain-flow` | Follow the domain's provision flow |
+| `stage-provision/provision-result` | worktree_provision result? |
 | `stage-provision/gate-provision` | Gate `provision` |
 | `stage-provision/domain-rules` | Domain rules |
 
@@ -118,6 +119,7 @@ The `rules` blocks, with the section each one is:
 | `stage-plan/pick-tier` | Pick the tier |
 | `stage-plan/print-triage-block` | Print the triage block |
 | `stage-plan/gate-plan` | Gate plan (table below) |
+| `stage-plan/run-field-set-evidence-plan` | run_field_set {key: evidence-plan, ...} |
 | `stage-plan/domain-rules` | Domain rules |
 
 ### stage-gates
@@ -132,8 +134,13 @@ The `rules` blocks, with the section each one is:
 | block | section |
 | --- | --- |
 | `stage-evidence/domain-steps-before-gate` | Run the domain steps before the gate (none when unbound) |
+| `stage-evidence/save-ticket-image` | Save the ticket image as the BEFORE |
+| `stage-evidence/record-ticket-before` | Record the ticket's location as the BEFORE |
 | `stage-evidence/capture-before-case` | Capture the BEFORE for the next case |
+| `stage-evidence/pick-next-source` | Pick the next source or view |
+| `stage-evidence/attach-evidence` | Attach the evidence (evidence-record) |
 | `stage-evidence/gate-evidence` | Gate `evidence` (before any capture) |
+| `stage-evidence/gate-evidence-attach` | Gate `evidence-attach` (the domain attaches here and the lookup found an open MR or PR) |
 | `stage-evidence/domain-rules` | Domain rules |
 
 ### stage-self-review
@@ -149,10 +156,14 @@ The `rules` blocks, with the section each one is:
 | --- | --- |
 | `stage-ship/domain-steps-before-gate` | Run the domain steps before the gate (none when unbound) |
 | `stage-ship/gate-ship` | Gate ship (table below) |
+| `stage-ship/commit-named-files` | Commit named files, ticket-prefixed subject |
 | `stage-ship/domain-fast-checks` | Run the domain's fast checks (none when unbound) |
 | `stage-ship/fix-test-first` | Fix test-first, commit, rerun |
+| `stage-ship/domain-rebases-unfinished` | Domain rebases, and no rebase finished this pass? |
 | `stage-ship/resolve-conflict-files` | Resolve the files, then git rebase --continue on Bash |
+| `stage-ship/mr-create` | mr_create {...} |
 | `stage-ship/capture-after-case` | Capture the AFTER for the next case the domain names |
+| `stage-ship/attach-evidence` | Attach the evidence (evidence-record) |
 | `stage-ship/write-title-description` | Write the title and description |
 | `stage-ship/domain-rules` | Domain rules |
 
@@ -165,9 +176,13 @@ The `rules` blocks, with the section each one is:
 | `ship/flow/commit-named-files` | Commit named files (ship) |
 | `ship/flow/domain-fast-checks` | Run the domain's fast checks (none when unbound) |
 | `ship/flow/fix-test-first` | Fix test-first, commit, rerun (ship) |
+| `ship/flow/domain-rebases-unfinished` | Domain rebases, and no rebase finished this pass (ship)? |
 | `ship/flow/resolve-conflict-files` | Resolve the files, then git rebase --continue on Bash (ship) |
+| `ship/flow/mr-create` | mr_create {...} |
 | `ship/flow/capture-after-case` | Capture the AFTER for the next case the domain names (ship) |
+| `ship/flow/attach-evidence` | Attach the evidence (evidence-record) |
 | `ship/flow/write-title-description` | Write the title and description (ship) |
+| `ship/flow/domain-runs-ci` | Domain runs CI after the MR (ship)? |
 | `ship/flow/run-watch-ci` | Run watch-ci inheriting this run |
 | `ship/domain-rules` | Domain rules |
 
