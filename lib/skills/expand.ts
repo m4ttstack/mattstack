@@ -2,10 +2,11 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { dirname, join, resolve, sep } from "path";
 import { skillMdDriftCauses } from "./drift.ts";
 import { findPlaceholders, substituteIncludesOnly } from "./placeholders.ts";
-import { FENCE_RE } from "./blocks/tree.ts";
-import { renderInclude } from "./blocks/render.ts";
+import { propPartsDir, renderInclude } from "./blocks/render.ts";
+import { FENCE_RE, walk } from "./blocks/tree.ts";
+import { blockPropValues, includeNamesIn } from "./compile-blocks.ts";
 import { maskProvenance } from "./provenance.ts";
-import { listFilesUnder, loadInclude, stripFrontmatter, type PluginRoots } from "./sources.ts";
+import { listFilesUnder, loadAttachment, loadInclude, stripFrontmatter, type PluginRoots } from "./sources.ts";
 import type { AttachmentSource, PlaceholderContext } from "./types.ts";
 
 export const EXPAND_HEADER =
@@ -168,6 +169,24 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
     }
   }
 
+  for (let i = 0; i < names.length; i++) {
+    const inc = includes[names[i]!]!;
+    if (!inc.tree) continue;
+    for (const n of includeNamesIn(inc.tree)) {
+      if (n in includes) continue;
+      includes[n] = loadInclude(n, roots);
+      names.push(n);
+    }
+  }
+  const treeIncludes = names.flatMap((n) => {
+    const inc = includes[n]!;
+    return inc.tree ? [{ tree: inc.tree, plugin: inc.plugin, version: inc.version }] : [];
+  });
+  const values =
+    treeIncludes.length === 0
+      ? new Map()
+      : blockPropValues(treeIncludes, { layered: {}, manifest: null }, (binding, prop) => loadAttachment(binding, prop, roots), new Set<string>());
+
   const stray = strayBraceLine(body);
   if (stray !== null) throw new Error(`${where}: literal "{{" at line ${fileLine(stray)} is not a placeholder`);
   for (const n of names) {
@@ -187,13 +206,13 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
     const inc = includes[m![1]!]!;
     const at = nearestHeadingAbove(bodyLines, i);
     const resolver = (n: string) => {
-      const found = includes[n] ?? (includes[n] = loadInclude(n, roots));
-      return found.tree ? { tree: found.tree, plugin: found.plugin, version: found.version } : null;
+      const found = includes[n];
+      return found?.tree ? { tree: found.tree, plugin: found.plugin, version: found.version } : null;
     };
     const out = renderInclude(
       { tree, plugin: inc.plugin, version: inc.version },
       { depth: at.level, includingTitle: at.title },
-      { values: new Map(), includes: resolver, ctx },
+      { values, includes: resolver, ctx },
     );
     rendered.push(out.body);
     return TREE_MARK(rendered.length - 1);
@@ -214,6 +233,17 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   for (const n of names) {
     for (const extra of includes[n]!.extraFiles) {
       files.push({ path: `parts/include-${n}/${extra}`, copyFrom: join(includes[n]!.dir, extra) });
+    }
+  }
+  for (const { tree } of treeIncludes) {
+    for (const block of walk(tree)) {
+      for (const [prop, value] of values.get(block.id) ?? []) {
+        for (const { fill } of value.sources) {
+          for (const extra of fill.extraFiles) {
+            files.push({ path: `parts/${propPartsDir(block, prop, tree, null)}/${extra}`, copyFrom: join(fill.dir, extra) });
+          }
+        }
+      }
     }
   }
   return { name, skillMd, files, includes: names };

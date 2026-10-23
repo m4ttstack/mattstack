@@ -269,7 +269,9 @@ describe("block-tree includes", () => {
   test("a heading inside a code fence is not the nearest heading", () => {
     gateProtocol();
     launcher("## Gates\n\n```\n# Gate protocol\n```\n\n{{include:gp}}");
-    expect(headings(gatesSkill().skillMd).filter((h) => h !== "# Gate protocol")).toEqual(["## Gates", "### Gate protocol", "#### Ask"]);
+    const md = gatesSkill().skillMd;
+    expect(md.split("\n").filter((l) => l === "# Gate protocol")).toHaveLength(1);
+    expect(headings(md).filter((h) => h !== "# Gate protocol")).toEqual(["## Gates", "### Gate protocol", "#### Ask"]);
   });
 
   test("with no heading above, the root renders at level 1", () => {
@@ -282,5 +284,39 @@ describe("block-tree includes", () => {
     write(join(root, GP, "index.block.md"), "---\n---\n\n# Gate protocol\n\n{{include:gp}}\n");
     launcher("## Gates\n\n{{include:gp}}");
     expect(() => gatesSkill()).toThrow(/would include itself/);
+  });
+
+  test("an empty optional prop drops its titled block, a skill default is inlined and its files vendor", () => {
+    write(join(root, "plugins", "mattstack", "attachments", "rules", "SKILL.md"), "---\nname: rules\ndescription: r\nmetadata:\n  provides: \"rules@1\"\n---\n\nFollow ${CLAUDE_SKILL_DIR}/lint.sh.\n");
+    write(join(root, "plugins", "mattstack", "attachments", "rules", "lint.sh"), "echo lint\n");
+    write(join(root, GP, "index.block.md"), '---\n---\n\n# Gate protocol\n\nGate intro.\n');
+    write(join(root, GP, "extra.block.md"), '---\nprops:\n  extra:\n    merge: add\n    default: ""\n---\n\n# Extra\n\n{{props.extra}}\n');
+    write(join(root, GP, "rules.block.md"), '---\nprops:\n  rules:\n    merge: replace\n    default: "mattstack:rules"\n---\n\n# Rules\n\n{{props.rules}}\n');
+    launcher("## Gates\n\n{{include:gp}}");
+    const skill = gatesSkill();
+    expect(headings(skill.skillMd)).toEqual(["## Gates", "### Gate protocol", "#### Rules"]);
+    expect(skill.skillMd).toContain("Follow ${CLAUDE_SKILL_DIR}/parts/+gp/rules/rules/lint.sh.");
+    expect(skill.files).toContainEqual({
+      path: "parts/+gp/rules/rules/lint.sh",
+      copyFrom: join(root, "plugins", "mattstack", "attachments", "rules", "lint.sh"),
+    });
+  });
+
+  test("a required prop with no default throws at the include file's line and column", () => {
+    write(join(root, GP, "index.block.md"), "---\nprops:\n  need:\n    merge: replace\n---\n\n# Gate protocol\n\n{{props.need}}\n");
+    launcher("## Gates\n\n{{include:gp}}");
+    expect(() => gatesSkill()).toThrow(/gp\/index\.block\.md:\d+:\d+/);
+  });
+
+  test("a nested tree include is stamped and vendors its extra files", () => {
+    write(join(root, GP, "index.block.md"), "---\n---\n\n# Gate protocol\n\n{{include:inner}}\n");
+    const inner = join("plugins", "mattstack", "attachments", "inner");
+    write(join(root, inner, "index.block.md"), "---\n---\n\n# Inner\n\nInner text.\n");
+    write(join(root, inner, "tool.sh"), "echo\n");
+    launcher("## Gates\n\n{{include:gp}}");
+    const skill = gatesSkill();
+    expect(skill.skillMd).toContain("Inner text.");
+    expect(skill.skillMd).toContain("mattstack:gp@9.9.9 + mattstack:inner@9.9.9");
+    expect(skill.files.map((f) => f.path)).toContain("parts/include-inner/tool.sh");
   });
 });
