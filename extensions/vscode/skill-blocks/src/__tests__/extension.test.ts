@@ -100,6 +100,58 @@ describe('createLifecycle', () => {
   });
 });
 
+describe('createLifecycle overlap', () => {
+  function slowClient() {
+    const state = { started: false, stopped: false, running: false };
+    return {
+      state,
+      client: {
+        async start() {
+          state.started = true;
+          await new Promise((r) => setTimeout(r, 10));
+          state.running = true;
+        },
+        async stop() {
+          state.stopped = true;
+          state.running = false;
+        },
+        isRunning: () => state.running,
+      },
+    };
+  }
+
+  test('overlapping restarts stop every client that started and leave one running', async () => {
+    const made: ReturnType<typeof slowClient>[] = [];
+    const lifecycle = createLifecycle(() => {
+      const c = slowClient();
+      made.push(c);
+      return c.client;
+    }, () => {});
+    const first = lifecycle.start();
+    const a = lifecycle.restart();
+    const b = lifecycle.restart();
+    await Promise.all([first, a, b]);
+    expect(made).toHaveLength(3);
+    for (const c of made.slice(0, -1)) expect(c.state.stopped).toBe(true);
+    expect(made.filter((c) => c.state.running)).toHaveLength(1);
+  });
+
+  test('deactivate during a start stops that client', async () => {
+    const made: ReturnType<typeof slowClient>[] = [];
+    const lifecycle = createLifecycle(() => {
+      const c = slowClient();
+      made.push(c);
+      return c.client;
+    }, () => {});
+    const starting = lifecycle.start();
+    const stopping = lifecycle.stop();
+    await Promise.all([starting, stopping]);
+    expect(made).toHaveLength(1);
+    expect(made[0]!.state.stopped).toBe(true);
+    expect(made[0]!.state.running).toBe(false);
+  });
+});
+
 describe('document patterns', () => {
   test('cover block files, manifests, and fill markdown', () => {
     expect(DOCUMENT_PATTERNS).toEqual(['**/*.block.md', '**/skills.jsonc', '**/attachments/**/*.md', '**/skills/**/*.md']);

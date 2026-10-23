@@ -7,8 +7,16 @@ export interface ServerClient {
 /** A client whose start failed refuses stop(), so restart must skip it to reach start(). */
 export function createLifecycle(create: () => ServerClient, log: (message: string) => void) {
   let client: ServerClient | undefined;
+  let queue: Promise<void> = Promise.resolve();
 
-  async function stop(): Promise<void> {
+  // Serialized because isRunning() reads false while a start is in flight, so an overlapping stop would skip that client and leak it.
+  const enqueue = (task: () => Promise<void>): Promise<void> => {
+    const run = queue.then(task);
+    queue = run.catch(() => {});
+    return run;
+  };
+
+  async function stopNow(): Promise<void> {
     const old = client;
     client = undefined;
     if (!old?.isRunning()) return;
@@ -19,7 +27,7 @@ export function createLifecycle(create: () => ServerClient, log: (message: strin
     }
   }
 
-  async function start(): Promise<void> {
+  async function startNow(): Promise<void> {
     client = create();
     try {
       await client.start();
@@ -28,10 +36,13 @@ export function createLifecycle(create: () => ServerClient, log: (message: strin
     }
   }
 
-  async function restart(): Promise<void> {
-    await stop();
-    await start();
-  }
-
-  return { start, stop, restart };
+  return {
+    start: () => enqueue(startNow),
+    stop: () => enqueue(stopNow),
+    restart: () =>
+      enqueue(async () => {
+        await stopNow();
+        await startNow();
+      }),
+  };
 }
