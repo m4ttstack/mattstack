@@ -24,6 +24,7 @@ export const PEOPLE: ReadonlyMap<string, string> = new Map([
   ['alex', 'Alex Moreno'],
   ['jvasquez', 'Joel Vasquez'],
   ['dana', 'Dana Ortiz'],
+  ['ana', 'Ana Ruiz'],
 ]);
 
 const minutesAgo = (m: number) => Date.now() - m * 60_000;
