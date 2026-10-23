@@ -324,6 +324,18 @@ test("a leftover slot or an unknown placeholder in a block is bad-value at its {
   ]);
 });
 
+test("columns on an indented first text line count its indent", () => {
+  const other = plainTree({ "index.block.md": "---\n---\n\n# Other\n\n  See {{bogus}} here.\n" });
+  expect(diagnosticsOf(() => render(other))).toEqual([
+    { file: "a/index.block.md", line: 6, col: 7, code: "bad-value", message: "unknown placeholder {{bogus}} at line 6" },
+  ]);
+  const loop: SourcedTree = { tree: plainTree({ "index.block.md": "---\n---\n\n# Loop\n\n  {{include:loop}}\n" }, "loop"), plugin: "mattstack", version: "1.0.0" };
+  const host = plainTree({ "index.block.md": "---\n---\n\n# host\n\n{{include:loop}}\n" });
+  expect(diagnosticsOf(() => render(host, { includes: resolver({ loop }) }))).toEqual([
+    { file: "attachments/loop/index.block.md", line: 6, col: 3, code: "bad-value", message: "{{include:loop}} would include itself: loop -> loop" },
+  ]);
+});
+
 test("a heading-less include may sit before more text", () => {
   const host = plainTree({
     "index.block.md": "---\n---\n\n# host\n",

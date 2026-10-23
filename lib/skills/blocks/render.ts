@@ -130,6 +130,7 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
 
   lines.forEach((line, i) => {
     const fileLine = b.textStartLine + i;
+    const indent = i === 0 ? b.textIndent : 0;
     const trimmed = line.trim();
     if (headedInclude !== null && trimmed !== "") {
       st.diagnostics.push({
@@ -169,7 +170,7 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
       st.diagnostics.push({
         file: b.relPath,
         line: fileLine,
-        col: line.indexOf("{{") + 1,
+        col: line.indexOf("{{") + 1 + indent,
         message: `{{include:${inc![1]!}}} would include itself: ${chain}`,
         code: "bad-value",
       });
@@ -190,7 +191,7 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
         rendered = substituteLine(text, fileLine - 1, st.ctx, b.relPath, st.used);
       } catch (err) {
         const message = (err as Error).message.replace(`${b.relPath}: `, "");
-        st.diagnostics.push({ file: b.relPath, line: fileLine, col: failingPlaceholderCol(text, message), message, code: "bad-value" });
+        st.diagnostics.push({ file: b.relPath, line: fileLine, col: failingPlaceholderCol(text, message) + indent, message, code: "bad-value" });
         rendered = "";
       }
     }

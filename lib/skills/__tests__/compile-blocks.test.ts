@@ -3,7 +3,8 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "os";
 import { join } from "path";
 import { BlockError } from "../blocks/diagnostics.ts";
-import { blockPropValues, compileBlockSkill, includeNamesIn, unclaimedBlockKeys, type BlockValues, type PropBindings } from "../compile-blocks.ts";
+import { blockPropValues, compileBlockSkill, includeNamesIn, includeSitesIn, unclaimedBlockKeys, type BlockValues, type PropBindings } from "../compile-blocks.ts";
+import { loadBlockTree } from "../blocks/tree.ts";
 import { layeredFromManifest } from "../manifest-merge.ts";
 import { loadAttachment, loadInclude, loadStepSource, type PluginRoots } from "../sources.ts";
 import type { StepSource } from "../types.ts";
@@ -246,6 +247,14 @@ describe("blockPropValues", () => {
 });
 
 describe("tree includes", () => {
+  test("an include site on an indented first text line counts the indent in its col", () => {
+    const dir = tmp();
+    writeFileSync(join(dir, "index.block.md"), "---\n---\n\n# host\n\n  {{include:gate-protocol}}\n");
+    expect(includeSitesIn(loadBlockTree(dir, { idPrefix: "host", relRoot: "a" }))).toEqual([
+      { name: "gate-protocol", file: "a/index.block.md", line: 6, col: 3 },
+    ]);
+  });
+
   test("an included tree renders in place and its props vendor under parts/+<id>/<prop>", () => {
     const s = setup();
     const inc = join(s.mattstack, "attachments", "gate-protocol");

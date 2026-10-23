@@ -26,6 +26,7 @@ export type Block = {
   text: string; // body below the title line, frontmatter stripped
   bodyStartLine: number;
   textStartLine: number; // file line of text's first line
+  textIndent: number; // leading spaces trimmed off text's first line, which a col on that line adds back
   graph: BlockGraph | null;
   children: Block[];
   frontmatter: Record<string, unknown>; // the root's engine fields live here

@@ -198,7 +198,7 @@ export function includeSitesIn(tree: BlockTree): IncludeSite[] {
     const lines = block.text.split("\n");
     for (const p of findPlaceholders(block.text)) {
       if (p.kind !== "include" || !p.arg || sites.some((s) => s.name === p.arg)) continue;
-      sites.push({ name: p.arg, file: block.relPath, line: block.textStartLine + p.line - 1, col: lines[p.line - 1]!.indexOf(p.raw) + 1 });
+      sites.push({ name: p.arg, file: block.relPath, line: block.textStartLine + p.line - 1, col: lines[p.line - 1]!.indexOf(p.raw) + 1 + (p.line === 1 ? block.textIndent : 0) });
     }
   }
   return sites;

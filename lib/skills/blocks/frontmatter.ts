@@ -4,7 +4,7 @@ import type { Block, MarkerUse, PropSpec } from "./types.ts";
 
 export type ParsedBlockFile = Pick<
   Block,
-  "title" | "label" | "node" | "order" | "fieldAt" | "kind" | "props" | "markers" | "text" | "bodyStartLine" | "textStartLine" | "frontmatter"
+  "title" | "label" | "node" | "order" | "fieldAt" | "kind" | "props" | "markers" | "text" | "bodyStartLine" | "textStartLine" | "textIndent" | "frontmatter"
 >;
 
 // An empty block (`---\n---`) has no newline between the fences, which the shared stripFrontmatter pattern does not match.
@@ -173,6 +173,8 @@ export function parseBlockFile(raw: string, file: string, idTail: string): Parse
   let textIdx = bodyStartLine - 1 - fmLines + textStart;
   while (textIdx < fileLines.length && fileLines[textIdx]!.trim() === "") textIdx++;
   const textStartLine = text === "" ? bodyStartLine + textStart : fmLines + textIdx + 1;
+  const firstLine = text === "" ? "" : fileLines[textIdx]!;
+  const textIndent = firstLine.length - firstLine.trimStart().length;
 
   const declared = new Set(props.map((p) => p.name));
   const markers: MarkerUse[] = [];
@@ -206,6 +208,7 @@ export function parseBlockFile(raw: string, file: string, idTail: string): Parse
     text,
     bodyStartLine,
     textStartLine,
+    textIndent,
     frontmatter,
   };
 }
