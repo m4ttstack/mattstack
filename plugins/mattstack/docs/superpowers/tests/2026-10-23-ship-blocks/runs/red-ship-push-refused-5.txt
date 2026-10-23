@@ -1,0 +1,6 @@
+1. run_enter, run_field_set, branch_stack, gate(ship), run_field_set, git_push, gate(off-script:ship:1), run_hold
+2. git add src/badge/Badge.tsx src/badge/Badge.test.tsx ; git commit -m "widgets(badge): add badge states [WID-123]" ; bun run widgets:lint --changed ; bun run widgets:typecheck ; git checkout -- src/generated/gizmo-index.ts
+3. Staged: `src/badge/Badge.tsx` and `src/badge/Badge.test.tsx`. Nothing under `src/generated/` is staged. Commit subject: `widgets(badge): add badge states [WID-123]`.
+4. No. The shell push is a STOP, and a retry of `git_push` needs a new answer at the off-script gate.
+5. Scope `off-script:ship:1`. Its context quotes the refusal: `push refused: /repo/wt is not a tree rt knows; register it with rt worktree adopt /repo/wt`. The gate asks `action` (Take the proposed move, where only the human pushes, or Hand back) and `next` (Proceed, Iterate here, Hold).
+6. `run_hold {runDb: "/runs/widgets/r7/state.db", stage: "ship", reason: "off-script:ship:1", decidedBy: "pane"}`; run_close: no. The run stays open.

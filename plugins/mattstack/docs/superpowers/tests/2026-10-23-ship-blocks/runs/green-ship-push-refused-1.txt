@@ -1,0 +1,11 @@
+1. run_enter, run_field_set, branch_stack, gate(ship), run_field_set, git_push, gate(off-script:ship:1), run_hold
+
+2. git add src/badge/Badge.tsx src/badge/Badge.test.tsx ; git commit -m "widgets(badge): update badge component and tests [WID-123]" ; bun run widgets:lint --changed ; bun run widgets:typecheck ; git checkout -- src/generated/gizmo-index.ts
+
+3. I stage `src/badge/Badge.tsx` and `src/badge/Badge.test.tsx`, and nothing under `src/generated/`. The commit subject is `widgets(badge): update badge component and tests [WID-123]`.
+
+4. No. A shell `git push` is a STOP, and retrying `git_push` counts as an Iterate, which needs a new answer at a gate first.
+
+5. The scope is `off-script:ship:1`. Its context quotes the refusal verbatim: `push refused: /repo/wt is not a tree rt knows; register it with rt worktree adopt /repo/wt`. The form asks `action` (take the proposed move, or hand back) and `next` (Proceed, Iterate here, Hold).
+
+6. `run_hold {runDb: /runs/widgets/r7/state.db, stage: "ship", reason: "off-script:ship:1", decidedBy: "pane"}`. I do not call run_close, so the run stays open and the turn ends naming the run and the gate.
