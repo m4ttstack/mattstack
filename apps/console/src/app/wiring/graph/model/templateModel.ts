@@ -30,9 +30,11 @@ export type PlaceholderKind = 'include' | 'prop' | 'verb.path' | 'variable';
 export type LineRange = [number, number];
 
 /**
- * `line` is what a `row:<line>` select names: the first template line, or
- * the first rendered line for an engine with no template trace (whose
- * template ranges are null).
+ * A `row:<id>` select names a row by its `id`. `line` is the first template
+ * line, or the first rendered line for an engine with no template trace, so
+ * rows can share a line in two different line spaces; `id` stays unique, and
+ * is the bare line for the first row at that line, which keeps an older
+ * `row:<line>` link resolving.
  */
 export type TemplateRow =
   | {
@@ -768,7 +770,7 @@ export function selectedPartId(
   let id: string | null = null;
   if (kind === 'output' || kind === 'input') id = ref.split('@')[0] ?? null;
   if (kind === 'row') {
-    const row = view.rows.find(candidate => `row:${candidate.line}` === select);
+    const row = view.rows.find(candidate => `row:${candidate.id}` === select);
     if (
       row?.kind === 'placeholder' &&
       (row.placeholder === 'include' || row.placeholder === 'prop')
@@ -1176,7 +1178,7 @@ function outputLinks(
               label: row.fill,
               path: null,
               skill: null,
-              select: `row:${row.line}`,
+              select: `row:${row.id}`,
             } satisfies OutputLink,
           },
         ]

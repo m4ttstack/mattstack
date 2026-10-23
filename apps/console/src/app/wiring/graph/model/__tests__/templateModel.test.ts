@@ -1573,6 +1573,39 @@ describe('the output part a selection names', () => {
   it('names no part on a view with no output', () => {
     expect(selectedPartId(workView(), 'row:246')).toBeNull();
   });
+
+  it('reads a row by its own id where a template line and a rendered line share a number', () => {
+    const include = anatomyPlan.parts.find(
+      part => part.name === 'execution-strategy'
+    )!;
+    const view = buildTemplateView({
+      anatomy: {
+        ...anatomyPlan,
+        parts: [
+          {
+            ...include,
+            kind: 'block',
+            name: 'stage-plan',
+            source: null,
+            templateLines: null,
+            renderedLines: [1, 15],
+          },
+          { ...include, templateLines: null, renderedLines: [16, 164] },
+        ],
+      },
+      composition,
+      check,
+      changes: changesClean,
+      step: 2,
+    });
+    expect(view.rows.map(row => [row.id, row.line, row.gutter])).toEqual([
+      ['16', 16, 'L16'],
+      ['1', 1, 'rendered L1-15'],
+      ['16.2', 16, 'rendered L16-164'],
+    ]);
+    expect(selectedPartId(view, 'row:16.2')).toBe('include:execution-strategy');
+    expect(selectedPartId(view, 'row:16')).toBeNull();
+  });
 });
 
 describe('a block tree as rt reads it', () => {

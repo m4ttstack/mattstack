@@ -85,7 +85,7 @@ function RowButton({
       data-selected={selected || undefined}
       data-parity={parityName.row(row)}
       data-testid="template-row"
-      onClick={() => onSelect(`row:${row.line}`)}
+      onClick={() => onSelect(`row:${row.id}`)}
     >
       <Box className={classes.gutter} data-parity="gutter">
         <Text
@@ -149,7 +149,7 @@ function TemplateNodeComponent({
   const { select, onSelect } = useCanvas();
   const targeted = new Set(view.inputs.map(card => card.rowId));
   const linked = new Set(view.links.map(card => card.rowId));
-  const selectedRow = view.rows.find(row => select === `row:${row.line}`);
+  const selectedRow = view.rows.find(row => select === `row:${row.id}`);
 
   return (
     <div className={classes.shell} data-testid="template-node">

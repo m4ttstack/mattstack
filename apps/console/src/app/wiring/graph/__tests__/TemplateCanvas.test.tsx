@@ -423,3 +423,63 @@ describe('status tones', () => {
     }
   );
 });
+
+/** Plan as rt reads it, with rendered lines only: its include starts at
+    rendered L16, the line its `{{stage.fields}}` sits on in its block file. */
+function rtShapedPlan(): TemplateView {
+  const plan = designFixture('anatomy.stage-plan');
+  const include = plan.parts.find(part => part.name === 'execution-strategy')!;
+  return buildTemplateView({
+    anatomy: {
+      ...plan,
+      parts: [
+        {
+          ...include,
+          kind: 'block',
+          name: 'stage-plan',
+          source: null,
+          templateLines: null,
+          renderedLines: [1, 15],
+        },
+        { ...include, templateLines: null, renderedLines: [16, 164] },
+      ],
+    },
+    composition: designFixture('composition'),
+    check: designFixture('check'),
+    changes: designFixture('changes.clean'),
+    step: 2,
+    workType: 'feature',
+  });
+}
+
+function drawAt(view: TemplateView, search: string) {
+  window.history.pushState(null, '', `/wiring?${search}`);
+  const onSelect = vi.fn();
+  renderWithProviders(
+    <TemplateCanvas
+      layout={layoutTemplate(view)}
+      view={view}
+      height="900px"
+      onSelect={onSelect}
+    />
+  );
+  return { onSelect };
+}
+
+describe('TemplateCanvas: rows sharing a line number in two line spaces', () => {
+  it('selects the row clicked, not the first row at its line number', () => {
+    const { onSelect } = drawAt(rtShapedPlan(), 'tab=graph&focus=stage-plan');
+
+    click(rowAt('rendered L16-164'));
+    expect(onSelect).toHaveBeenLastCalledWith('row:16.2');
+    click(rowAt('L16'));
+    expect(onSelect).toHaveBeenLastCalledWith('row:16');
+  });
+
+  it('marks only the selected one of the two', () => {
+    drawAt(rtShapedPlan(), 'tab=graph&focus=stage-plan&select=row:16.2');
+
+    expect(rowAt('rendered L16-164')).toHaveAttribute('data-selected', 'true');
+    expect(rowAt('L16')).not.toHaveAttribute('data-selected');
+  });
+});

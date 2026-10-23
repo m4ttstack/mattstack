@@ -4,7 +4,7 @@ import type { TemplateView } from '../model/templateModel';
 
 export type CanvasState = {
   view: TemplateView;
-  /** The URL's `select`: `row:<line>`, `input:<card id>`, `output`, ... */
+  /** The URL's `select`: `row:<row id>`, `input:<card id>`, `output`, ... */
   select: string | null;
   onSelect: (select: string) => void;
   onOpenSkill: (skill: string) => void;
