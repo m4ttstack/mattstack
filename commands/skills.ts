@@ -1273,6 +1273,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   staleCopies: string[];
   removedCopies: string[];
   fieldContract: string[];
+  unclaimedBlockKeys: string[];
   missing: MissingMarker[];
   unusedParams: string[];
 } {
@@ -1299,7 +1300,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     // --json has no failures key, so an error-routed line rides here too or the exit-1 envelope never says why.
     fieldContract = [...routed.warnings, ...routed.errors];
   }
-  if (verbFilter === null && failures.length === 0) failures.push(...unclaimedBlockKeyErrors(resolved));
+  const unclaimedBlockKeys = verbFilter === null && failures.length === 0 ? unclaimedBlockKeyErrors(resolved) : [];
+  failures.push(...unclaimedBlockKeys);
   const unusedParams = verbFilter === null && failures.length === 0 && missing.length === 0 ? unusedParamsOf(resolved.teamContext) : [];
 
   const blocked = failures.length > 0 || missing.length > 0;
@@ -1365,7 +1367,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   ];
 
   const staleNames = staleCopies.map((c) => c.name);
-  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleNames, removedCopies: writing ? staleNames : [], fieldContract, missing, unusedParams };
+  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleNames, removedCopies: writing ? staleNames : [], fieldContract, unclaimedBlockKeys, missing, unusedParams };
 }
 
 function floorAtLeast(floor: string | null, version: string): boolean {
@@ -1538,7 +1540,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written: false, verbs: targets.map(target => ({ name: target.verb.name, status: "errored", files: [], warnings: [], errors: [err.message], side: target.isPublic ? "skills" : "attachments" })), misplaced: [] });
       process.exit(2);
     }
-    const { outcomes, failures, misplaced, emitted, staleCopies, removedCopies, fieldContract, missing, unusedParams } = compiledResult;
+    const { outcomes, failures, misplaced, emitted, staleCopies, removedCopies, fieldContract, unclaimedBlockKeys, missing, unusedParams } = compiledResult;
     if (failures.length > 0 && !flags.json) {
       out.fail(compileFailure(failures));
       process.exit(1);
@@ -1567,6 +1569,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
         pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced, fieldContract,
         ...(unusedParams.length > 0 ? { unusedParams } : {}),
         ...(missing.length > 0 ? { missing } : {}),
+        ...(unclaimedBlockKeys.length > 0 ? { unclaimedBlockKeys } : {}),
         ...(removedCopies.length > 0 ? { removedCopies } : {}),
       });
       return;

@@ -636,6 +636,19 @@ describe("block-tree engines end to end", () => {
     expect(treeOf(join(pack, "attachments", "mini"))["parts/rules/lint.sh"]).toBe("#!/bin/sh\necho lint\n");
   });
 
+  test("compile --json on a block key no tree claims exits 1 and the envelope says why", async () => {
+    const { manifest, args } = await buildBlocks();
+    writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"mattstack:mini/gate": { "tiering": "" }', '"mattstack:mini/gate": { "tiering": "" },\n    "mattstack:gate-protocl/ask": { "a": "" }'));
+    process.exitCode = 0;
+
+    const env = await compileJson(args);
+    expect(process.exitCode).toBe(1);
+    expect(env.written).toBe(false);
+    expect(env.unclaimedBlockKeys).toEqual([
+      `${manifest}:15:5: binding "mattstack:gate-protocl/ask" names a block of mattstack:gate-protocl, which no compiled verb loads`,
+    ]);
+  });
+
   test("check is in sync right after compile", async () => {
     const { args } = await buildBlocks();
     process.exitCode = 0;
