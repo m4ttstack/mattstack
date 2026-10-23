@@ -39,11 +39,21 @@ type State = {
   ctx: PlaceholderContext;
   used: Used;
   diagnostics: BlockDiagnostic[];
+  /** Root ids of the include trees being drawn, outermost first. */
   including: string[];
+  /** The engine's root block id; null when only an include is drawn. */
+  engine: string | null;
 };
 
 export function headingLevel(depth: number): number {
   return Math.min(depth + 1, 6);
+}
+
+/** The engine root's props vendor under `parts/<prop>`, so two blocks' same-named props never share a dir. */
+function partsName(b: Block, prop: string, engine: string | null): string {
+  if (b.id === engine) return prop;
+  const path = engine !== null && b.id.startsWith(`${engine}/`) ? b.id.slice(engine.length + 1) : b.id;
+  return `${path}/${prop}`;
 }
 
 function propText(b: Block, name: string, st: State): string {
@@ -54,7 +64,7 @@ function propText(b: Block, name: string, st: State): string {
     .map(({ fill, mode }) =>
       mode === "reference"
         ? `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference("Prop", name, fill)}`
-        : inlineFillText(key, name, fill, st.ctx, st.used.packPaths))
+        : inlineFillText(key, partsName(b, name, st.engine), fill, st.ctx, st.used.packPaths))
     .join("\n\n");
 }
 
@@ -67,7 +77,9 @@ function dotFence(b: Block): string {
 function includeBody(src: SourcedTree, at: IncludeAt, st: State): string {
   const root = src.tree.root;
   const chunks: string[] = [];
+  st.including.push(root.id);
   renderBlock(root, src, { title: at.includingTitle, level: at.depth }, root.title !== null && root.title === at.includingTitle, st, chunks);
+  st.including.pop();
   return chunks.join("\n\n");
 }
 
@@ -122,12 +134,21 @@ function renderText(b: Block, own: Heading, st: State, seam: (from: number) => s
     let rendered: string;
     const prop = PROP_LINE_RE.exec(trimmed);
     const inc = INCLUDE_LINE_RE.exec(trimmed);
-    const tree = inc ? includeTree(inc[1]!, b, fileLine, st) : null;
+    const tree = inc ? st.includes(inc[1]!, { file: b.relPath, line: fileLine }) : null;
     if (prop) rendered = propText(b, prop[1]!, st);
     else if (line.includes("{{props.")) rendered = line.replace(PROP_ANY_RE, "");
-    else if (tree) {
+    else if (tree && st.including.includes(tree.tree.root.id)) {
+      const chain = [...st.including.slice(st.including.indexOf(tree.tree.root.id)), tree.tree.root.id].join(" -> ");
+      st.diagnostics.push({
+        file: b.relPath,
+        line: fileLine,
+        col: line.indexOf("{{") + 1,
+        message: `{{include:${inc![1]!}}} would include itself: ${chain}`,
+        code: "bad-value",
+      });
+      rendered = "";
+    } else if (tree) {
       rendered = includeBody(tree, { depth: nearest.level, includingTitle: nearest.title }, st);
-      st.including.pop();
       st.used.includes.push(inc![1]!);
       if (walk(tree.tree).some((x) => x.title !== null)) headedInclude = inc![1]!;
     } else {
@@ -147,17 +168,10 @@ function renderText(b: Block, own: Heading, st: State, seam: (from: number) => s
       resume = false;
     }
     out.push(rendered);
-    if (!rendered.startsWith(SEAM_START) && rendered.includes("\n")) resume = true;
+    // A blank line under a seam reads as a separator to the seam walker, so text that renders blank also resumes.
+    if (!rendered.startsWith(SEAM_START) && (rendered.includes("\n") || (trimmed !== "" && rendered.trim() === ""))) resume = true;
   });
   return out.join("\n").trimEnd();
-}
-
-function includeTree(name: string, b: Block, line: number, st: State): SourcedTree | null {
-  const tree = st.includes(name, { file: b.relPath, line });
-  if (tree === null) return null;
-  if (st.including.includes(name)) throw new Error(`${b.relPath}: include "${name}" includes itself (line ${line})`);
-  st.including.push(name);
-  return tree;
 }
 
 function renderBlock(b: Block, src: SourcedTree, parent: Heading, dropTitle: boolean, st: State, chunks: string[]): void {
@@ -179,9 +193,9 @@ function renderBlock(b: Block, src: SourcedTree, parent: Heading, dropTitle: boo
   for (const child of b.children) renderBlock(child, src, own, false, st, chunks);
 }
 
-function run(input: Omit<RenderInput, "tree" | "source">, draw: (st: State) => string): RenderResult {
+function run(input: Omit<RenderInput, "tree" | "source">, engine: string | null, draw: (st: State) => string): RenderResult {
   const used: Used = { slots: [], includes: [], packPaths: [] };
-  const st: State = { values: input.values, includes: input.includes, ctx: input.ctx, used, diagnostics: [], including: [] };
+  const st: State = { values: input.values, includes: input.includes, ctx: input.ctx, used, diagnostics: [], including: [], engine };
   const body = draw(st);
   if (st.diagnostics.length > 0) throw new BlockError(st.diagnostics);
   return { body, used, packPaths: used.packPaths };
@@ -189,7 +203,7 @@ function run(input: Omit<RenderInput, "tree" | "source">, draw: (st: State) => s
 
 export function renderTree(input: RenderInput): RenderResult {
   const src: SourcedTree = { tree: input.tree, ...input.source };
-  return run(input, (st) => {
+  return run(input, input.tree.root.id, (st) => {
     const chunks: string[] = [];
     renderBlock(input.tree.root, src, { title: null, level: 0 }, false, st, chunks);
     return chunks.join("\n\n");
@@ -198,5 +212,5 @@ export function renderTree(input: RenderInput): RenderResult {
 
 /** The repeated-title rule lives here so compile and `rt skills expand` place an include the same way. */
 export function renderInclude(src: SourcedTree, at: IncludeAt, input: Omit<RenderInput, "tree" | "source">): RenderResult {
-  return run(input, (st) => includeBody(src, at, st));
+  return run(input, null, (st) => includeBody(src, at, st));
 }

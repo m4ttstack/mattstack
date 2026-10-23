@@ -87,6 +87,17 @@ test("a second mermaid fence is bad-graph at the second fence; a nested one is i
   expect(loadBlockTree(nested, a).root.graph).toBeNull();
 });
 
+test("an unclosed mermaid fence is bad-graph at its opening line", () => {
+  const tmp = tmpTree({ "index.block.md": "---\n---\n# A\n\nBefore.\n\n```mermaid\nflowchart TB\n  a --> b\n\nAfter unclosed.\n" });
+  let caught: unknown;
+  try {
+    loadBlockTree(tmp, a);
+  } catch (err) {
+    caught = err;
+  }
+  expect((caught as BlockError).diagnostics).toEqual([expect.objectContaining({ file: "a/index.block.md", line: 7, col: 1, code: "bad-graph" })]);
+});
+
 test("a sub-folder without index and other files are not blocks", () => {
   const tmp = tmpTree({ "index.block.md": "---\n---\n# A\n", "sub/step.md": "x", "notes.txt": "y" });
   expect(walk(loadBlockTree(tmp, a)).map((b) => b.id)).toEqual(["a"]);

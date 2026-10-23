@@ -286,10 +286,52 @@ test("stacked add values render in layer order with a blank line between", () =>
   expect(body.indexOf("binding=mattstack:style-floor")).toBeLessThan(body.indexOf("binding=widgets:mini-rules"));
 });
 
-test("an include that reaches itself is refused", () => {
-  const loop: SourcedTree = { tree: plainTree({ "index.block.md": "---\n---\n\n# Loop\n\n{{include:loop}}\n" }, "loop"), plugin: "mattstack", version: "1.0.0" };
+test("an include that reaches itself is bad-value at the include line", () => {
+  const loop: SourcedTree = { tree: plainTree({ "index.block.md": "---\n---\n\n# Loop\n\nLoop text.\n\n  {{include:loop}}\n" }, "loop"), plugin: "mattstack", version: "1.0.0" };
   const host = plainTree({ "index.block.md": "---\n---\n\n# host\n\n{{include:loop}}\n" });
-  expect(() => render(host, { includes: resolver({ loop }) })).toThrow(/include "loop" includes itself/);
+  expect(diagnosticsOf(() => render(host, { includes: resolver({ loop }) }))).toEqual([
+    { file: "attachments/loop/index.block.md", line: 8, col: 3, code: "bad-value", message: "{{include:loop}} would include itself: loop -> loop" },
+  ]);
+});
+
+test("a two-step include cycle names the chain", () => {
+  const one: SourcedTree = { tree: plainTree({ "index.block.md": "---\n---\n\n# One\n\n{{include:two}}\n" }, "one"), plugin: "mattstack", version: "1.0.0" };
+  const two: SourcedTree = { tree: plainTree({ "index.block.md": "---\n---\n\n# Two\n\n{{include:one}}\n" }, "two"), plugin: "mattstack", version: "1.0.0" };
+  const host = plainTree({ "index.block.md": "---\n---\n\n# host\n\n{{include:one}}\n" });
+  expect(diagnosticsOf(() => render(host, { includes: resolver({ one, two }) }))).toEqual([
+    { file: "attachments/two/index.block.md", line: 6, col: 1, code: "bad-value", message: "{{include:one}} would include itself: one -> two -> one" },
+  ]);
+});
+
+test("text after a headless block's blank-rendered first line maps to its own line", () => {
+  const tree = plainTree({
+    "index.block.md": "---\n---\n\n# a\n\nIntro.\n",
+    "loose.block.md": "---\nprops:\n  extra:\n    merge: add\n    default: \"\"\n---\n{{props.extra}}\n\nMore text.\n",
+  });
+  expect(sourceOf(render(tree).body, "More text.")).toBe("a/loose.block.md:9");
+});
+
+test("text after a dropped-title include root's blank-rendered first line maps to its own line", () => {
+  const gp: SourcedTree = {
+    tree: plainTree({ "index.block.md": "---\nprops:\n  extra:\n    merge: add\n    default: \"\"\n---\n\n# Gate protocol\n\n{{props.extra}}\n\nGate intro.\n" }, "gp"),
+    plugin: "mattstack",
+    version: "2.0.0",
+  };
+  const host = plainTree({ "index.block.md": "---\n---\n\n# host\n", "gates.block.md": "---\n---\n\n# Gate protocol\n\n{{include:gp}}\n" });
+  const values = new Map([...valuesFor(host, NO_ROOTS), ...valuesFor(gp.tree, NO_ROOTS)]);
+  const { body } = renderTree({ tree: host, source: SOURCE, values, includes: resolver({ gp }), ctx: ctx() });
+  expect(sourceOf(body, "Gate intro.")).toBe("attachments/gp/index.block.md:12");
+});
+
+test("a non-root block's prop vendors under parts/<block path>/<prop>", () => {
+  const tree = plainTree({
+    "index.block.md": "---\n---\n\n# a\n",
+    "flow/index.block.md": "---\n---\n\n# Flow\n",
+    "flow/fast-checks.block.md": "---\nprops:\n  rules:\n    merge: add\n---\n\n# Fast checks\n\n{{props.rules}}\n",
+  });
+  const layers = { "a/flow/fast-checks": { rules: [{ layer: "pack", value: "widgets:mini-rules" }] } };
+  const { body } = renderTree({ tree, source: SOURCE, values: valuesFor(tree, rootsWithWidgets(), layers), includes: noIncludes, ctx: ctx() });
+  expect(body).toContain("Run ${CLAUDE_SKILL_DIR}/parts/flow/fast-checks/rules/lint.sh first.");
 });
 
 test("an include that is not a block tree renders as today's flat include", () => {

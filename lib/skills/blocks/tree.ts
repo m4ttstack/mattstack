@@ -95,6 +95,16 @@ function attachGraph(block: Block, diagnostics: BlockDiagnostic[]): void {
     }
     content.push(line);
   });
+  const unclosed = open as { mermaid: boolean; start: number } | null;
+  if (unclosed?.mermaid) {
+    diagnostics.push({
+      file: block.relPath,
+      line: block.textStartLine + unclosed.start,
+      col: 1,
+      message: "this mermaid fence never closes, so everything after it would be lost",
+      code: "bad-graph",
+    });
+  }
 }
 
 function orderChildren(parent: Block, diagnostics: BlockDiagnostic[]): void {
